@@ -33,39 +33,41 @@ This is a **pnpm + Turborepo** monorepo. TypeScript everywhere. Strict mode.
 ```
 oracle/
 ├── apps/
-│   ├── web/                       # Next.js 15 App Router — the only user-facing app
+│   ├── web/                       # Next.js 16 App Router — the only user-facing app
 │   │   ├── app/
 │   │   │   ├── page.tsx                       # /  — login landing
-│   │   │   ├── auth/callback/route.ts         # Supabase Auth → employees linker
+│   │   │   ├── auth/callback/route.ts         # OAuth + magic-link callback → linker
+│   │   │   ├── auth/signout/route.ts          # POST → clears session, redirects to /
 │   │   │   ├── denied/page.tsx                # off-allowlist landing
 │   │   │   ├── channels/                      # employee-facing chat (Phase 2)
 │   │   │   ├── admin/                         # admin dashboard (Phase 2/5)
 │   │   │   ├── api/chat/route.ts              # Oracle chat endpoint (Phase 3)
-│   │   │   └── _components/                   # local UI components
+│   │   │   └── _components/                   # local UI: login-form, logout-button
 │   │   ├── components/ui/                     # shadcn/ui primitives
 │   │   ├── lib/                               # web-only helpers (supabase client, auth-guard)
-│   │   ├── next.config.ts
+│   │   ├── next.config.ts                     # loads .env.local from monorepo root
 │   │   └── tailwind.config.ts
-│   └── workers/                   # Trigger.dev v3 — background workers (Phase 4 stubs)
+│   └── workers/                   # Trigger.dev v3 — background workers (Phase 4 scaffolds)
 │       ├── trigger.config.ts
 │       └── src/trigger/{claim-extraction,document-ingestion,contradiction-watcher,brain-synthesis}.ts
 ├── packages/
 │   ├── shared/                    # framework-agnostic TS types & constants (KNOWLEDGE_DOMAINS, etc.)
 │   ├── db/                        # Drizzle ORM — schema, migrations, seed, client
-│   │   ├── src/{schema.ts,client.ts,migrate.ts,seed.ts,index.ts}
+│   │   ├── src/{schema.ts,client.ts,migrate.ts,seed.ts,verify-identities.ts,inspect-auth-users.ts,index.ts}
 │   │   ├── migrations/            # Drizzle-generated SQL (auto)
-│   │   ├── migrations/sql/        # hand-written SQL — constraints, RLS, views, vector indexes
+│   │   ├── migrations/sql/        # hand-written SQL — see README in that folder
 │   │   └── drizzle.config.ts
-│   ├── auth/                      # Supabase auth helpers + first-login linking
+│   ├── auth/                      # Supabase auth helpers + multi-identity linker
 │   │   └── src/{link.ts,server.ts,client.ts,index.ts}
 │   ├── ai/                        # AI SDK helpers, prompts, retrieval, embeddings
 │   │   └── src/{prompts/oracle-system.ts,openrouter.ts,embeddings.ts,retrieval.ts,index.ts}
-│   └── oracle-engines/            # interjection / curiosity / synthesis logic (Phase 6 stub)
+│   └── oracle-engines/            # interjection / curiosity / synthesis logic (Phase 6 scaffold)
 │       └── src/{interjection.ts,index.ts}
 ├── docs/                          # detailed docs — architecture, development, configuration, deployment
 ├── AGENTS.md                      # this file
 ├── CLAUDE.md                      # Claude Code-specific notes (points back here)
 ├── DECISIONS.md                   # every assumption, citation, alternative ruled out
+├── HANDOFF.md                     # live in-flight state for a new contributor
 ├── README.md                      # short orientation
 ├── oracle_master_spec.md          # authoritative product spec — do not edit casually
 ├── .env.example                   # variable names only; never real secrets
@@ -82,7 +84,7 @@ oracle/
 
 **Code we own:** everything under `apps/**`, `packages/**`, `docs/**`, and the markdown files at the root.
 
-**Generated code:** `packages/db/migrations/*.sql` (Drizzle-generated; do not hand-edit — write a new SQL file under `migrations/sql/` instead).
+**Generated code:** `packages/db/migrations/0NNN_*.sql` (Drizzle-generated; do not hand-edit — write a new SQL file under `migrations/sql/` instead).
 
 **Build artifacts** (ignored): `node_modules/`, `apps/web/.next/`, `dist/`, `.turbo/`, `.vercel/`.
 
@@ -105,7 +107,7 @@ oracle/
 
 - Do not modify `apps/web/components/ui/*` beyond what `shadcn/ui` CLI generates. If you need a new variant, extend it in a new file under `apps/web/app/_components/`.
 - Do not edit `node_modules/`. Ever.
-- Do not edit auto-generated Drizzle migration SQL. Add a new file under `packages/db/migrations/sql/` with a numeric prefix.
+- Do not edit auto-generated Drizzle migration SQL. Add a new file under `packages/db/migrations/sql/` with the next free numeric prefix.
 - Do not edit `oracle_master_spec.md` to make code easier — the spec is the contract. If the spec is wrong, raise it explicitly in `DECISIONS.md` and have Albert decide.
 
 The goal is to prevent AI agents from scattering project-specific logic across framework files where it becomes invisible.
@@ -145,7 +147,7 @@ If this section is ever non-empty, treat it as the upstream-merge conflict check
 **If I need to add a new database table or column:**
 1. Edit `packages/db/src/schema.ts`.
 2. `pnpm db:generate` — creates a new Drizzle migration in `packages/db/migrations/`.
-3. If the change needs constraints, RLS, helper functions, or views: add a new `packages/db/migrations/sql/NN_<topic>.sql` file (next free numeric prefix).
+3. If the change needs constraints, RLS, helper functions, or views: add a new `packages/db/migrations/sql/NN_<topic>.sql` file (next free numeric prefix — see the README in that folder for the ordering convention).
 4. `pnpm db:migrate` to apply.
 5. Update `docs/architecture.md` data-model section.
 6. Do not edit prior generated migration files — only the new one.
@@ -164,18 +166,24 @@ If this section is ever non-empty, treat it as the upstream-merge conflict check
 2. Seeds must be idempotent (upserts, not inserts).
 3. Run `pnpm db:seed`.
 
+**If I need to add a login provider:**
+1. Configure the provider in Supabase Dashboard → Authentication → Providers.
+2. Make sure `packages/auth/src/server.ts` → `resolveAuthProvider()` maps Supabase's provider name to our `auth_provider` enum value. If new, add to the enum in `packages/db/src/schema.ts` and write a small migration.
+3. Add a button in `apps/web/app/_components/login-form.tsx` calling `supabase.auth.signInWithOAuth({provider, options: {scopes: '...'}})`. The `email` scope is mandatory for Microsoft Entra (see Idiosyncratic Decisions).
+
 ---
 
 ## 7. Task-to-file navigation map
 
 | Task | Files to touch | Files NOT to touch |
 |---|---|---|
-| Add a new claim type or knowledge domain | `packages/shared/src/domains.ts`, `packages/db/src/schema.ts`, migration SQL | existing applied migration files |
+| Add a new claim type or knowledge domain | `packages/shared/src/domains.ts`, `packages/db/src/schema.ts`, new migration SQL | existing applied migration files |
 | Tweak the Oracle's chat behavior | `apps/web/app/api/chat/route.ts`, `packages/ai/src/prompts/oracle-system.ts`, `packages/ai/src/retrieval.ts` | `apps/web/components/ui/**`, shadcn primitives |
-| Change the login flow | `apps/web/app/page.tsx` (form), `apps/web/app/auth/callback/route.ts`, `packages/auth/src/link.ts` | `apps/web/app/admin/**`, framework files |
+| Change the login flow | `apps/web/app/page.tsx`, `apps/web/app/_components/login-form.tsx`, `apps/web/app/auth/callback/route.ts`, `packages/auth/src/link.ts` | `apps/web/app/admin/**`, framework files |
+| Change the sign-out flow | `apps/web/app/auth/signout/route.ts`, `apps/web/app/_components/logout-button.tsx` | client-side cookie-clearing — let the server route do it |
 | Add a new admin dashboard tab | `apps/web/app/admin/<tab>/page.tsx`, `apps/web/app/admin/layout.tsx` (nav link) | RLS policies (admin uses service-role server-side) |
-| Add an RLS policy | `packages/db/migrations/sql/NN_rls_*.sql` (new file) | `packages/db/migrations/sql/21_rls_policies.sql` (already applied) |
-| Add a new admin view | `packages/db/migrations/sql/NN_admin_views.sql` (new file) | `packages/db/migrations/sql/30_admin_views.sql` (already applied) |
+| Add an RLS policy | new `packages/db/migrations/sql/NN_rls_*.sql` file | already-applied `21_rls_policies.sql` |
+| Add a new admin view | new `packages/db/migrations/sql/NN_admin_views.sql` file | already-applied `30_admin_views.sql` |
 | Add a new worker job | `apps/workers/src/trigger/<job>.ts`, `apps/workers/trigger.config.ts` | `apps/web/**` |
 | Change embedding model or dimension | `packages/ai/src/embeddings.ts`, schema `vector(N)` column, migration SQL | _(see Idiosyncratic Decisions — vector dim is locked)_ |
 | Add a new env var | `.env.example`, `turbo.json` `globalEnv` array, `docs/configuration.md` | `.env.local` is not in git; never commit it |
@@ -189,11 +197,12 @@ The full schema lives in `packages/db/src/schema.ts` and is faithful to `oracle_
 
 | Entity | Identifier | Where defined | Notes |
 |---|---|---|---|
-| Employee | `employees.id` (uuid) | DB | Authorization roster. `auth_user_id` links to `auth.users.id` from Supabase Auth. Identity by `auth_user_id`, not email, after first login. |
+| Employee | `employees.id` (uuid) | DB | Authorization roster. `email` is the **primary contact** + first-login bootstrap. Auth identity lives in `employee_identities`, not on this row. |
+| Employee identity | `employee_identities.id` (uuid) | DB | One row per (employee × auth provider). `auth_user_id` is Supabase's `auth.users.id`. One employee can hold many identities (Google, Microsoft 365, future Authentik). See Idiosyncratic Decisions. |
 | Auth user | `auth.users.id` (uuid) | Supabase Auth | Managed by Supabase. Owned by the identity provider. |
 | Channel | `channels.id` (uuid) | DB | Group or 1:1 chat. Membership via `channel_participants`. |
-| Message | `messages.id` (uuid) | DB | Includes `client_message_id` for client-side dedup, `extraction_status` for worker pipeline. |
-| Document | `documents.id` (uuid) | DB | Lives in Supabase Storage bucket `company_documents`. Storage path is `storageBucket`/`storagePath` (unique). |
+| Message | `messages.id` (uuid) | DB | Includes `client_message_id` for client-side dedup, `extraction_status` for the worker pipeline. |
+| Document | `documents.id` (uuid) | DB | Lives in Supabase Storage bucket `company_documents`. Storage path is `(storage_bucket, storage_path)` (unique). |
 | Document chunk | `document_chunks.id` (uuid) | DB | Always linked to a document. Carries page/sheet/row/bbox metadata. Has `embedding vector(1536)`. |
 | Claim | `claims.id` (uuid) | DB | A universal operational assertion. **Intentionally has no direct `employee_id`** — query through `claim_evidence.asserted_by_employee_id`. Has `embedding vector(1536)`. |
 | Claim evidence | `claim_evidence.id` (uuid) | DB | The traceability backbone. Every claim must have ≥1 evidence row. `source_type` ∈ {`message`, `document_chunk`, `external_system`, `manual_admin`} and the matching FK column is enforced by `claim_evidence_source_check`. |
@@ -210,6 +219,7 @@ The full schema lives in `packages/db/src/schema.ts` and is faithful to `oracle_
 | Supabase project | _(see Vercel env)_ | Supabase | Database, Auth, Storage, Realtime. |
 | Trigger.dev project | _(see Vercel env)_ | Trigger.dev | Background workers. |
 | Supabase Storage bucket | `company_documents` | Supabase | Private. Holds uploaded employee documents. |
+| Brevo (SMTP) | account on file | Brevo | Used by Supabase Auth to deliver magic-link emails. Configured in Supabase → Authentication → SMTP Settings. |
 | OpenRouter model id (default interview) | `anthropic/claude-sonnet-4.6` | `settings.default_interview_model` row | Configurable at runtime via the settings table. |
 | OpenRouter model id (default extraction) | `google/gemini-flash` | `settings.default_extraction_model` row | Configurable. |
 | OpenRouter model id (default synthesis) | `anthropic/claude-sonnet-4.6` | `settings.default_synthesis_model` row | Configurable. |
@@ -223,12 +233,13 @@ This project does not use containers. Everything is fully managed cloud per spec
 
 | Runtime | Purpose | Managed by | Identifier | Notes |
 |---|---|---|---|---|
-| Vercel Functions | `apps/web` — Next.js App Router + API routes | Vercel | project `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | Fluid Compute, Node.js 24 runtime by default |
-| Trigger.dev v3 | `apps/workers` — claim extraction, ingestion, contradiction watcher, synthesis | Trigger.dev Cloud | project ID in `TRIGGER_SECRET_KEY` | Background workers. May bypass RLS (service-role). |
-| Supabase Postgres | Source of truth — all durable data | Supabase Cloud | URL in `NEXT_PUBLIC_SUPABASE_URL` | pgvector for embeddings, RLS enforced. |
+| Vercel Functions | `apps/web` — Next.js App Router + API routes | Vercel | project `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | Fluid Compute, Node.js 24 runtime |
+| Trigger.dev v3 | `apps/workers` — claim extraction, ingestion, contradiction watcher, synthesis | Trigger.dev Cloud | project key in `TRIGGER_SECRET_KEY` | Background workers. May bypass RLS (service-role). |
+| Supabase Postgres | Source of truth — all durable data | Supabase Cloud | URL in `NEXT_PUBLIC_SUPABASE_URL` | pgvector for embeddings, RLS enforced. Connection through **pooler** URLs only — direct connections are IPv6-only on new Supabase projects. |
 | Supabase Storage | Uploaded documents | Supabase Cloud | bucket `company_documents` | Private bucket. |
-| Supabase Auth | Identity | Supabase Cloud | — | Currently magic-link only (dev stub). OAuth providers (Microsoft / Google / Authentik) are a deferred TODO. |
+| Supabase Auth | Identity | Supabase Cloud | — | Google OAuth + Microsoft 365 SSO (live); email magic-link (fallback). OAuth providers are configured in the Supabase Dashboard. |
 | Supabase Realtime | Chat / presence | Supabase Cloud | — | `postgres_changes` for messages; presence channel for typing. |
+| Brevo | SMTP for magic-link emails | Brevo | account on file | Configured in Supabase Auth → SMTP Settings; replaces Supabase's built-in throttled SMTP. |
 | OpenRouter | LLM provider | OpenRouter | account on file | Used via Vercel AI SDK. |
 | OpenAI | Embeddings only (`text-embedding-3-small`) | OpenAI | account on file | Optional — falls back to deterministic zero vector if `OPENAI_API_KEY` is unset; **vector dimension does not change**. |
 
@@ -248,7 +259,7 @@ coverage/
 *.log
 pnpm-lock.yaml      # giant, low signal; trust package.json
 apps/web/.next/
-packages/db/migrations/*.sql   # generated Drizzle output; the source of truth is schema.ts
+packages/db/migrations/0NNN_*.sql   # generated Drizzle output; the source of truth is schema.ts
 ```
 
 Files you SHOULD read when getting oriented:
@@ -256,9 +267,10 @@ Files you SHOULD read when getting oriented:
 1. `AGENTS.md` (this file)
 2. `oracle_master_spec.md` (product spec)
 3. `DECISIONS.md` (assumptions log)
-4. `packages/db/src/schema.ts` (data model)
-5. `packages/db/migrations/sql/*.sql` (RLS, constraints, views — hand-written, all signal)
-6. `packages/ai/src/prompts/oracle-system.ts` (Oracle's voice)
+4. `HANDOFF.md` (live state — what's done, what's next)
+5. `packages/db/src/schema.ts` (data model)
+6. `packages/db/migrations/sql/*.sql` (RLS, constraints, views — hand-written, all signal)
+7. `packages/ai/src/prompts/oracle-system.ts` (Oracle's voice)
 
 ---
 
@@ -275,6 +287,16 @@ The most important section. **Do not undo these without reading the cited spec s
 **Why:** if a claim is asserted by Employee A in a Slack message, then re-confirmed by Employee B in an interview, then contradicted in a document chunk uploaded by Employee C, attaching the claim to a single `employee_id` would erase that history. The `claim_evidence` table carries `asserted_by_employee_id`, `uploaded_by_employee_id`, and `created_by_employee_id` per evidence row.
 
 **Do not change because:** breaks traceability. The whole product collapses if "why does the Oracle believe this" can't be answered with multiple evidence rows.
+
+### One employee, many auth identities — `employee_identities` table
+
+**Looks like:** an extra table for what could be a single (provider, auth_user_id, email) tuple on `employees`.
+
+**Actually:** spec Part 4.3 calls for `auth_provider` and `auth_provider_subject` fields on employees, but the same human can legitimately authenticate via multiple providers (Google + Microsoft 365 + future Authentik) with different verified emails. Forcing one identity per employees row created a second Albert when he signed in via M365 after Google.
+
+**Why:** see DECISIONS.md D2.multi-identity. The linker in `packages/auth/src/link.ts` resolves a session by `(auth_provider, auth_user_id)` first; on miss it falls back to matching the verified provider email against `employees.email` OR any `employee_identities.email` and creates a new identity row attached to the existing employee.
+
+**Do not change because:** reverting to a single-row-per-identity layout will re-introduce the duplication bug. The `auth_user_id`, `auth_provider`, and `auth_provider_subject` columns on `employees` are flagged deprecated (nullable, NULL-filled) only because removing them mid-session would force a column-drop migration; a follow-up commit will fully remove them.
 
 ### `brain_sections.current_version_id` is a soft reference
 
@@ -296,15 +318,15 @@ The most important section. **Do not undo these without reading the cited spec s
 
 **Do not change because:** silently changing the dim corrupts vector similarity and renders all existing claims/chunks un-searchable.
 
-### Magic-link auth (not Microsoft / Google / Authentik) — dev stub
+### Microsoft 365 OAuth requires the `email` scope explicitly
 
-**Looks like:** "OAuth was never wired up — let me add it."
+**Looks like:** the default scopes from Supabase should be enough.
 
-**Actually:** intentional dev stub per the overnight build user decision. Spec Part 4.1 requires Microsoft / Google / Authentik. We're using Supabase email magic-link as a stub provider while the OAuth provider configuration is deferred. The `auth_provider` enum has a `magic_link_dev` value for this. The **employee allowlist + `auth_user_id` linking is the real spec-compliant flow** — only the upstream provider is stubbed.
+**Actually:** Microsoft Entra accounts without an Exchange mailbox return an empty `mail` field from Microsoft Graph. Supabase reads `mail` and bails with "Error getting user email from external provider" if it's empty. The `email` OIDC scope forces an email claim into the ID token regardless of mailbox state.
 
-**Why:** see `DECISIONS.md` D1.auth-provider-stub. Avoids blocking on tenant-restriction policy decisions for Microsoft Entra and Authentik issuer config.
+**Why:** the login form (`apps/web/app/_components/login-form.tsx`) passes `scopes: 'openid profile email User.Read'` for Azure. Symmetric `openid profile email` for Google.
 
-**Do not change because:** the linker code in `packages/auth/src/link.ts` is correct; the change needed is in Supabase Auth provider config, not in our code. Removing magic-link before OAuth is wired will break local dev.
+**Do not change because:** removing the scope re-introduces the "Error getting user email from external provider" denial on first M365 login. The Azure App registration must also have `email`, `openid`, `profile`, `User.Read` as delegated Microsoft Graph permissions with admin consent granted.
 
 ### `claim_evidence_source_check` CHECK constraint over JSON schemas
 
@@ -316,15 +338,35 @@ The most important section. **Do not undo these without reading the cited spec s
 
 **Do not change because:** removes a critical invariant; allows orphaned claims with no evidence pointer.
 
-### Windows install gotcha — no `.npmrc` workaround checked in (deliberately)
+### Supabase Postgres connection uses the pooler, not the direct hostname
 
-**Looks like:** "Windows install is fragile, why isn't there an `.npmrc` with `node-linker=hoisted` committed?"
+**Looks like:** the most obvious URL on Supabase's "Connection string" page is the Direct connection. Use that.
 
-**Actually:** we tried that workaround. It doesn't fix the real Windows issues — workspace packages get symlinked regardless of `node-linker`. The real fixes are environmental: Developer Mode on, sign out/in after enabling, install once from an Administrator PowerShell, add Defender exclusions for the repo and pnpm store. See `docs/development.md` → "Windows-specific setup".
+**Actually:** the `db.<project-ref>.supabase.co` direct hostname is **IPv6-only** on new Supabase projects. IPv4-only networks (most consumer ISPs, most CI) get `getaddrinfo ENOENT` and fail. Use the **Session pooler** (port 5432) for `DIRECT_URL` and the **Transaction pooler** (port 6543) for `DATABASE_URL`. Both run on `aws-0-<region>.pooler.supabase.com` over IPv4 once you toggle "Use IPv4 connection (Shared Pooler)" on the Supabase connection page.
 
-**Why:** `node-linker=hoisted` makes pnpm flatten external deps but does nothing for the `@oracle/*` workspace packages, which are what was actually failing. Keeping `.npmrc` out of the repo avoids future devs misattributing fixes to it.
+**Why:** the migration runner (`packages/db/src/migrate.ts`) and the application client both read from `.env.local`. If either gets a `db.*.supabase.co` URL on IPv4, the connection fails opaquely.
 
-**Do not change because:** if a future install issue tempts you to add `.npmrc`, first verify Developer Mode is actually active (`Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock`), verify Defender exclusions are in place, and try an Admin-shell install. The `.npmrc` workaround is a last resort and should land in DECISIONS.md if added.
+**Do not change because:** changing back to the direct hostname requires the paid IPv4 add-on from Supabase. The poolers are the recommended path.
+
+### Drizzle migrations applied via a custom `migrate.ts` rather than `drizzle-kit push`
+
+**Looks like:** reinventing the wheel.
+
+**Actually:** the runner in `packages/db/src/migrate.ts` applies Drizzle-generated migrations **and** every file in `packages/db/migrations/sql/` in lex order (extensions → identities → constraints → RLS helpers → policies → views → data migrations → vector indexes).
+
+**Why:** Drizzle doesn't model raw SQL migrations cleanly. We need extensions, RLS, CHECK constraints, and views applied in a specific order, idempotently.
+
+**Do not change because:** `drizzle-kit push` will skip the `migrations/sql/` files entirely and leave the database without RLS or constraints. See `packages/db/migrations/sql/README.md` for the ordering convention.
+
+### `.env.local` lives at the monorepo root; `next.config.ts` loads it explicitly
+
+**Looks like:** Next.js's built-in dotenv should find `.env.local` automatically.
+
+**Actually:** Next only reads `.env.local` from the app's own directory (`apps/web/`). The monorepo keeps secrets at the repo root because the migration runner, seed scripts, and worker scaffolds need them too. `apps/web/next.config.ts` calls `dotenv.config({ path: resolve(__dirname, '..', '..', '.env.local') })` to load them.
+
+**Why:** one source of truth for secrets. Duplicating `.env.local` into each workspace would invite drift.
+
+**Do not change because:** removing the explicit load makes the web app see `<EMPTY>` for `NEXT_PUBLIC_SUPABASE_URL` and friends. Same logic applies to `packages/db/src/{migrate,seed}.ts` which also load from the monorepo root.
 
 ### Test employee in seed (`test-employee@oracle.local`)
 
@@ -334,17 +376,17 @@ The most important section. **Do not undo these without reading the cited spec s
 
 **Why:** the spec's acceptance gate for Phase 2 requires proving employee A can't read a channel where they aren't a participant — impossible with only the admin row.
 
-**Do not change because:** removing it breaks the RLS verification. **DO delete it before production rollout** (tracked in Pending Work below).
+**Do not change because:** removing it breaks the RLS verification. Note that `.local` is not a real TLD — to actually wet-test Phase 2 you need to either update this row's email to a real mailbox (e.g. a Gmail `+`-alias) or seed a second real employee. **DO delete this row before production rollout** (tracked in Pending Work below).
 
-### Drizzle migrations applied via a custom `migrate.ts` rather than `drizzle-kit push`
+### Logout uses a POST form to a server route, not client-side `signOut()`
 
-**Looks like:** reinventing the wheel.
+**Looks like:** "just call `supabase.auth.signOut()` from a client button — simpler."
 
-**Actually:** the runner in `packages/db/src/migrate.ts` applies Drizzle-generated migrations **and** every file in `packages/db/migrations/sql/` in order (extensions → constraints → RLS helpers → policies → views → vector indexes).
+**Actually:** the SSR-Auth pattern requires server-side cookie clearing. `apps/web/app/auth/signout/route.ts` accepts POST, runs `supabase.auth.signOut()` with the cookie adapter, then redirects. The button (`apps/web/app/_components/logout-button.tsx`) is a `<form action="/auth/signout" method="post">`.
 
-**Why:** Drizzle doesn't model raw SQL migrations cleanly. We need extensions, RLS, CHECK constraints, and views applied in a specific order, idempotently.
+**Why:** client-only `signOut()` leaves server-rendered pages thinking the user is still signed in for the duration of the cached session JWT. POST also avoids accidental sign-outs from URL prefetchers / preview crawlers that fire GETs.
 
-**Do not change because:** `drizzle-kit push` will skip the `migrations/sql/` files entirely and leave the database without RLS or constraints.
+**Do not change because:** moving the signout to a client `useEffect` re-introduces the cached-session bug. If you need progress UI on sign-out, the form-action redirect already handles that without JavaScript.
 
 ---
 
@@ -354,8 +396,8 @@ Never commit real values. `.env.local` is git-ignored. Reference values are in t
 
 | Variable | Purpose | Stored where | Required in dev | Required in prod |
 |---|---|---|---|---|
-| `DATABASE_URL` | Supabase Postgres connection (transaction pooler, port 6543) | Vercel env, `.env.local` | yes | yes |
-| `DIRECT_URL` | Supabase Postgres direct connection (port 5432) — used by Drizzle migrations | Vercel env, `.env.local` | yes | yes |
+| `DATABASE_URL` | Supabase Postgres — Transaction pooler URL (port 6543) | Vercel env, `.env.local` | yes | yes |
+| `DIRECT_URL` | Supabase Postgres — Session pooler URL (port 5432) for Drizzle migrations | Vercel env, `.env.local` | yes | yes |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | Vercel env, `.env.local` | yes | yes |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key for browser client | Vercel env, `.env.local` | yes | yes |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key (newer alias of anon) | Vercel env, `.env.local` | yes | yes |
@@ -364,7 +406,7 @@ Never commit real values. `.env.local` is git-ignored. Reference values are in t
 | `OPENAI_API_KEY` | Embeddings (`text-embedding-3-small`) | Vercel env, `.env.local` | optional (falls back to zero vector) | yes |
 | `TRIGGER_SECRET_KEY` | Trigger.dev server-side key | Vercel env (web), Trigger.dev (workers), `.env.local` | yes | yes |
 
-Sensitive env vars in Vercel **cannot** be set on the Development environment — set them on Production+Preview and either copy into `.env.local` manually, or convert them to "Encrypted" type so `vercel env pull --environment=development` works.
+For full details including the Sensitive-vs-Encrypted Vercel quirk, see [`docs/configuration.md`](docs/configuration.md).
 
 ---
 
@@ -376,12 +418,12 @@ The deploy story is fully managed (no Docker, no VPS, per spec Part 2.5):
   - Vercel project ID: `prj_rP6Jlima7iK1paffEPhLqxlswGsC`.
   - Auto-deploys on push to `main` (production) and on every PR (preview).
   - Build command: `pnpm install && pnpm --filter @oracle/web build`.
-  - Output: Next.js 15 App Router on Fluid Compute (Node 24 runtime).
+  - Output: Next.js 16 App Router on Fluid Compute (Node 24 runtime).
   - Runtime env vars: managed in Vercel → Settings → Environment Variables.
-  - **Rollback:** Vercel dashboard → Deployments → promote the previous production deployment. No CLI/runbook step beyond that.
+  - **Rollback:** Vercel dashboard → Deployments → promote the previous production deployment.
 
 - **`apps/workers` → Trigger.dev Cloud.**
-  - Deploy from CI or manually: `pnpm --filter @oracle/workers deploy`.
+  - Deploy from CI or manually: `pnpm --filter @oracle/workers deploy` (invokes `npx trigger.dev@latest deploy`).
   - Runtime env vars: managed in Trigger.dev project dashboard.
   - **Rollback:** redeploy from a prior commit, or disable the task in Trigger.dev's UI.
 
@@ -389,7 +431,7 @@ The deploy story is fully managed (no Docker, no VPS, per spec Part 2.5):
 
 - **GitHub Actions:** none yet. Once added they'll live under `.github/workflows/`.
 
-There is no SSH path. There is no Coolify, no VPS, no Docker image. Anything that says otherwise is wrong.
+For step-by-step deploy operations and rollback procedures, see [`docs/deployment.md`](docs/deployment.md).
 
 ---
 
@@ -417,21 +459,31 @@ Rule added to prevent recurrence:
 
 | Status | Item | Owner / next action |
 |---|---|---|
-| open | Set Vercel env var values for Development environment (or convert Sensitive → Encrypted and re-pull) | Albert |
-| open | Wire real OAuth providers (Microsoft Entra / Google / Authentik) — remove `magic_link_dev` from `auth_provider` enum once done | Albert + a future build session |
-| open | Create the `company_documents` Storage bucket in Supabase if it isn't there yet | Albert |
-| open | Bump Next.js 15.1.4 → ≥15.1.7 to fix CVE-2025-66478 | `pnpm --filter @oracle/web up next@latest` |
-| open | Bump `tsx` to v4+ to drop deprecated `@esbuild-kit/*` subdeps | `pnpm -r up tsx@latest` |
-| open | Delete `test-employee@oracle.local` from `employees` seed and DB before production rollout | trivial SQL or admin UI |
+| open | Delete the deprecated `auth_user_id` / `auth_provider` / `auth_provider_subject` columns from `employees` once all consumers are confirmed migrated | follow-up migration after a week of soak |
+| open | Replace `test-employee@oracle.local` with a real mailbox (e.g. `u2giants+test@gmail.com`) so the Phase 2 RLS gate can be wet-tested with two real logins | Albert |
+| open | Wet-test Phase 2 RLS (cross-channel isolation between two real employees) | after the test mailbox is set up |
+| open | Wet-test Phase 3 chat route (post `@oracle` in a channel, verify assistant message + `model_runs` row) | Albert |
+| open | Create the `company_documents` Storage bucket in Supabase if not already done | Albert (Supabase dashboard) |
+| open | Wire Authentik OIDC as a third login provider for internal-only accounts | future build session |
 | open | Implement Phase 4 — Trigger.dev workers (claim extraction, document ingestion, contradiction watcher, brain synthesis) | scaffolds exist in `apps/workers/src/trigger/` |
 | open | Implement Phase 5 — Admin review/brain dashboard pages | placeholders exist under `apps/web/app/admin/*` |
 | open | Implement Phase 6 — Interjection engine (lull detection, cooldown, contradiction live-interjection) | scaffold at `packages/oracle-engines/src/interjection.ts` |
 | open | CI: add `pnpm typecheck && pnpm build` on PRs (GitHub Actions) | — |
-| open | Vector indexes (`packages/db/migrations/sql/99_vector_indexes.sql`) — apply once there's enough embedding data to justify HNSW | run the SQL when ready |
-| open | Rotate the Vercel token that was pasted into the chat transcript during overnight setup | https://vercel.com/account/tokens |
-| done | Phase 1 — Foundation (schema, migrations, RLS, auth callback, admin seed) | commit `d832f5f` |
-| done | Phase 2 — Realtime chat UI + document upload + admin skeleton | commit `9efd3e1` |
-| done | Phase 3 — Oracle chat route + tools + system prompt | commit `eec3d58` |
-| done | Phase 4–6 stub scaffolds | commit `4940327` |
+| open | CI: add migration job (`pnpm db:migrate`) gated on manual approval | — |
+| open | Vector indexes (`packages/db/migrations/sql/99_vector_indexes.sql`) — apply once enough embedding data exists to justify HNSW | run the SQL when ready |
+| open | Rotate the Vercel token that was pasted into the build transcript during overnight setup | https://vercel.com/account/tokens |
+| open | Add an admin UI to link / unlink employee identities (e.g. "this gmail is also Albert") | future Phase 5 task |
+| open | Wet-test the Microsoft 365 + Google login flows on a fresh employee (one with no prior session state) before broader rollout | Albert |
+| done | Phase 1 — Foundation (schema, migrations, RLS, auth callback, admin seed) | **wet-tested** |
+| done | Phase 2 — Realtime chat UI + document upload + admin skeleton | code complete, partial wet-test |
+| done | Phase 3 — Oracle chat route + tools + system prompt | code complete |
+| done | Phase 4–6 stub scaffolds | committed |
+| done | Multi-identity refactor (DECISIONS.md D2) | wet-tested with Google + M365 on the same Albert |
+| done | Google OAuth provider live | `u2giants@gmail.com` |
+| done | Microsoft 365 SSO live (popcre tenant only) | `albert@popcre.com` |
+| done | Brevo SMTP integrated for magic-link delivery | configured in Supabase Auth |
+| done | Logout flow | POST `/auth/signout` + form button in admin and channels layouts |
+| done | Next.js bumped 15 → 16 (resolves CVE-2025-66478) | `apps/web/package.json` |
+| done | `next.config.ts` updated for Next 16 (`serverExternalPackages`, eslint block removed) | |
 
 **Keep this section current.** A stale pending-work list is worse than no list.

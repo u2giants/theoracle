@@ -6,9 +6,10 @@ How commits get to production. There is no Docker, no VPS, no Coolify, no SSH �
 
 | Component | Hosted on | Triggered by |
 |---|---|---|
-| `apps/web` (Next.js) | Vercel | Push to GitHub |
+| `apps/web` (Next.js 16) | Vercel | Push to GitHub |
 | `apps/workers` (Trigger.dev tasks) | Trigger.dev Cloud | Manual `pnpm --filter @oracle/workers deploy` (CI later) |
 | Database, Auth, Storage, Realtime | Supabase Cloud | Manual `pnpm db:migrate` |
+| Magic-link email delivery | Brevo SMTP | Per request, via Supabase Auth |
 | LLM inference | OpenRouter (chat/extract/synthesis) + OpenAI (embeddings) | At runtime, per request |
 
 ## Web app — Vercel
@@ -19,8 +20,8 @@ How commits get to production. There is no Docker, no VPS, no Coolify, no SSH �
 
 1. Push to `main` on `github.com/u2giants/theoracle`.
 2. Vercel detects the push (Git integration) and starts a Production build.
-3. Build command (auto-detected by Vercel; can be overridden in `vercel.ts` or project settings): `pnpm install && pnpm --filter @oracle/web build`.
-4. Output: Next.js 15 App Router on Vercel Fluid Compute, Node.js 24 runtime.
+3. Build command (auto-detected by Vercel; can be overridden in project settings): `pnpm install && pnpm --filter @oracle/web build`.
+4. Output: Next.js 16 App Router on Vercel Fluid Compute, Node.js 24 runtime.
 5. Production URL: whatever's configured in Vercel → Settings → Domains.
 
 ### Preview deploys
@@ -35,11 +36,15 @@ Managed in Vercel → Settings → Environment Variables. Scoped per environment
 
 Vercel dashboard → Deployments → find the prior good deployment → **Promote to Production**. That's the whole story. No CLI step needed.
 
-For an instant disable in a real emergency, the Vercel dashboard supports pausing deployments and you can revert the GitHub commit, which will re-trigger a deploy.
+For an instant disable in a real emergency, the Vercel dashboard supports pausing deployments, and you can revert the GitHub commit, which will re-trigger a deploy.
 
 ### Domain configuration
 
-Currently using the default `*.vercel.app` URL. Custom domain config is a TODO (`AGENTS.md` pending work).
+Currently using the default `*.vercel.app` URL. Custom domain config is a TODO in `AGENTS.md` pending work.
+
+### Next.js 16 config notes
+
+`apps/web/next.config.ts` uses `serverExternalPackages` (Next 16) rather than the deprecated `experimental.serverComponentsExternalPackages`. The `eslint` config block is gone — Next 16 uses ESLint flat config and lint runs through `pnpm lint` in CI, not as a build step.
 
 ## Workers — Trigger.dev
 
@@ -48,7 +53,7 @@ Currently using the default `*.vercel.app` URL. Custom domain config is a TODO (
 ### Deploying tasks
 
 ```bash
-pnpm --filter @oracle/workers deploy
+pnpm --filter @oracle/workers deploy   # invokes `npx trigger.dev@latest deploy`
 ```
 
 Trigger.dev v3 packages and uploads the task definitions. They run on Trigger.dev's infrastructure.
@@ -71,17 +76,16 @@ pnpm db:migrate
 
 This runs the runner in `packages/db/src/migrate.ts`, which applies, in order:
 
-1. `packages/db/migrations/0000_*.sql` … (auto-generated Drizzle migrations)
-2. `packages/db/migrations/sql/01_extensions.sql` (pgvector, pgcrypto)
-3. `packages/db/migrations/sql/10_check_constraints.sql` (`claim_evidence_source_check`)
-4. `packages/db/migrations/sql/20_rls_helpers.sql` (`current_employee_id()`, `current_employee_is_admin()`)
-5. `packages/db/migrations/sql/21_rls_policies.sql` (all policies)
-6. `packages/db/migrations/sql/30_admin_views.sql` (all 7 views)
-7. `packages/db/migrations/sql/99_vector_indexes.sql` (HNSW — gated; uncomment when ready)
+1. `packages/db/migrations/sql/01_extensions.sql` (pgvector, pgcrypto, uuid-ossp).
+2. Drizzle-generated migrations under `packages/db/migrations/0NNN_*.sql` (created by `pnpm db:generate` whenever `schema.ts` changes).
+3. All other files in `packages/db/migrations/sql/` in lex order — extensions are excluded (already applied in step 1) and the vector indexes file (`99_vector_indexes.sql`) is opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`.
+4. Seed (`packages/db/src/seed.ts`) — settings table + admin employee + test employee. Idempotent.
 
-Idempotent. Safe to re-run.
+The runner is idempotent end-to-end. Safe to re-run.
 
-**There is no automated migration step in CI yet.** When migrations are needed, run `pnpm db:migrate` locally (or from a one-off Trigger.dev task) **before** pushing the corresponding app code to `main`. Otherwise the deployed app may query columns that don't exist.
+For the ordering convention inside `migrations/sql/`, see `packages/db/migrations/sql/README.md`.
+
+**There is no automated migration step in CI yet.** When migrations are needed, run `pnpm db:migrate` locally **before** pushing the corresponding app code to `main`. Otherwise the deployed app may query columns that don't exist.
 
 ### Production migration order
 
@@ -101,15 +105,25 @@ There's no automatic rollback. Schema changes are written defensively (additive,
 2. Apply it via `psql $DIRECT_URL -f <file>`.
 3. Revert the schema.ts change in code.
 
+## Supabase Auth — provider + SMTP configuration
+
+Provider config (Google, Microsoft 365 / Azure, future Authentik) and SMTP config (Brevo) live in the **Supabase Dashboard**, not in this repo. The repo's only OAuth-flow responsibility is the login form's scope list and the callback route. See `docs/configuration.md` → "Supabase Auth providers" + "Supabase Auth SMTP — Brevo" for the exact values.
+
+When rotating the Brevo SMTP key, update **Supabase Auth → SMTP Settings**; nothing in this repo needs to change.
+
 ## Secrets management
 
 | Secret | Where it lives | Rotation |
 |---|---|---|
 | Supabase keys (anon, service role) | Supabase dashboard → Project Settings → API → Reset | Reset in Supabase, then update Vercel + Trigger.dev + `.env.local`. |
+| Supabase database password | Supabase → Project Settings → Database → Reset Database Password | Triggers a one-time display. Update `DATABASE_URL` + `DIRECT_URL` in Vercel + Trigger.dev + `.env.local`. |
 | OpenRouter key | https://openrouter.ai/keys | Revoke + recreate; update Vercel + Trigger.dev + `.env.local`. |
 | OpenAI key | https://platform.openai.com/api-keys | Same. |
 | Trigger.dev secret key | Trigger.dev dashboard | Same. |
+| Brevo SMTP key | https://app.brevo.com → SMTP & API → SMTP | Revoke + recreate; update **Supabase Auth → SMTP Settings**. No env var change needed. |
 | Vercel token | https://vercel.com/account/tokens | Rotate after every shared session that exposed it. |
+| Google OAuth client secret | Google Cloud Console → APIs & Services → Credentials | Recreate; update Supabase → Authentication → Providers → Google. |
+| Microsoft Entra client secret | Entra → App registrations → Certificates & secrets | Microsoft only shows the value once; copy on creation. Update Supabase → Authentication → Providers → Azure. |
 | GitHub PAT (if used) | https://github.com/settings/tokens | We use `gh` CLI's stored credential; rotate via `gh auth refresh` or recreating the token. |
 
 ## GitHub Actions

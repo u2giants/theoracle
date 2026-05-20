@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { eq, sql, desc, and } from 'drizzle-orm';
+import { eq, sql, desc } from 'drizzle-orm';
 import { requireEmployee } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
 import { channels, channelParticipants, messages } from '@oracle/db/schema';
 import { cn } from '@/lib/utils';
+import { LogoutButton } from '@/app/_components/logout-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,12 +30,15 @@ export default async function ChannelsLayout({ children }: { children: React.Rea
 
   return (
     <div className="flex min-h-screen">
-      <aside className="w-72 shrink-0 border-r bg-muted/30 p-4">
-        <div className="mb-4">
-          <Link href="/channels" className="font-semibold">
-            Channels
-          </Link>
-          <p className="text-xs text-muted-foreground">{me.name}</p>
+      <aside className="flex w-72 shrink-0 flex-col border-r bg-muted/30 p-4">
+        <div className="mb-4 flex items-start justify-between gap-2">
+          <div>
+            <Link href="/channels" className="font-semibold">
+              Channels
+            </Link>
+            <p className="text-xs text-muted-foreground">{me.name}</p>
+          </div>
+          <LogoutButton />
         </div>
         <nav className="space-y-1 text-sm">
           {myChannels.length === 0 ? (

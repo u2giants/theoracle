@@ -7,24 +7,28 @@ Local setup, day-to-day workflow, and the gotchas that have already bitten us.
 - **Node.js ≥ 20** (we develop on 24). `node -v` should print something ≥ 20.0.
 - **pnpm ≥ 9** (`npm install -g pnpm` or via Corepack: `corepack enable && corepack prepare pnpm@latest --activate`).
 - **Git** with SSH keys configured for `github.com/u2giants`.
-- A populated `.env.local` (see `docs/configuration.md`).
+- An **NTFS** repo location on Windows (see below), or any Linux/macOS filesystem.
+- A populated `.env.local` at the **monorepo root** (see `docs/configuration.md`).
 
 ## Windows-specific setup
 
-This monorepo uses pnpm workspaces, which need symlinks. Windows is awkward about that. Do all of the following before your first `pnpm install`:
+The monorepo uses pnpm workspaces, which need symlinks. Two things have to be true on Windows for that to work:
 
-1. **Enable Developer Mode** — Settings → For Developers → Developer Mode → On. **Then sign out and back in, or restart**. The privilege grant is stamped into your session token at logon.
-2. **Run PowerShell as Administrator** for the first install. Administrator accounts have `SeCreateSymbolicLinkPrivilege` enabled in their token. Subsequent installs from a non-admin shell will usually work once the workspace is populated.
-3. **Add Windows Defender exclusions** (the install will be much faster and won't trip on file-rename races):
-   ```powershell
-   Add-MpPreference -ExclusionPath "D:\repos\oracle"        # adjust path
-   Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\pnpm"
-   Add-MpPreference -ExclusionProcess "pnpm.exe"
-   Add-MpPreference -ExclusionProcess "node.exe"
-   ```
-4. **No `.npmrc` workaround is checked in** — we tested `node-linker=hoisted` and it doesn't fix workspace symlinks (only external deps). The real fixes are the three steps above. If you find yourself reaching for `.npmrc`, first verify Dev Mode is actually active and try an Admin shell install. See `AGENTS.md` §11.
+1. **The repo directory must be on an NTFS volume.** exFAT and FAT32 do not support symlinks at all, and pnpm fails with cryptic `ENOENT: ... rename ... .ignored_*` errors that look like permission problems. Confirm with `Get-Volume D | Select-Object FileSystemType` (substitute your drive letter). If it says anything other than NTFS, **reformat to NTFS or move the repo to an NTFS drive** before doing anything else.
+2. **Windows Developer Mode enabled.** Settings → For Developers → Developer Mode → On. After enabling, **sign out and back in** (or restart) — the symlink privilege is stamped into your session token at logon, so toggling it in an existing session is not enough.
 
-If you hit `ENOENT: no such file or directory ... .pnpm\...\@types+node\...\undici-types`, see the "When pnpm install hangs or ENOENTs on Windows" recipe below.
+After those two preconditions, `pnpm install` from a regular PowerShell should work. If anything goes wrong, the recovery recipe below covers the common cases. Running the first install from an Administrator PowerShell helps because admin tokens have `SeCreateSymbolicLinkPrivilege` enabled unconditionally.
+
+**Recommended Defender exclusions** (not strictly required, makes installs much faster):
+
+```powershell
+Add-MpPreference -ExclusionPath "D:\repos\oracle"          # adjust path
+Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\pnpm"
+Add-MpPreference -ExclusionProcess "pnpm.exe"
+Add-MpPreference -ExclusionProcess "node.exe"
+```
+
+**No `.npmrc` workaround is checked in.** We tried `node-linker=hoisted`; it does not help with workspace packages. See `AGENTS.md` §11.
 
 ## First-time setup
 
@@ -33,47 +37,55 @@ git clone git@github.com:u2giants/theoracle.git oracle
 cd oracle
 pnpm install
 
-# Pull env from Vercel (requires the project's token; ask Albert)
-npx vercel@latest link --project prj_rP6Jlima7iK1paffEPhLqxlswGsC --token <token> --yes
+# Pull env from Vercel (one-time link, then pull)
+npx vercel@latest link --project prj_rP6Jlima7iK1paffEPhLqxlswGsC --yes
 npx vercel@latest env pull .env.local --environment=development --yes
 
 # If Vercel's Development env vars are empty (sensitive vars can't live there),
-# paste values manually from Supabase / OpenRouter / Trigger.dev dashboards.
+# either convert them to Encrypted type in Vercel and re-pull, or paste values
+# manually from Supabase / OpenRouter / Trigger.dev dashboards.
+# See docs/configuration.md for the exact source for each variable.
 
-# Run migrations + seed
+# Apply schema + raw SQL (RLS, constraints, views, data migrations) + seed
 pnpm db:migrate
-pnpm db:seed
 ```
 
-You should now have:
+`pnpm db:migrate` is idempotent and runs the seed at the end (admin row + test employee + settings defaults). You don't need to run `pnpm db:seed` separately on a fresh setup.
+
+After this you should have:
 - A populated Supabase database with the full schema, RLS, views, and the admin row for `u2giants@gmail.com`.
-- A `.env.local` with real secret values.
+- A `.env.local` with real secret values at the monorepo root.
 
 ## Run / build / typecheck / lint
 
 ```bash
-pnpm dev         # turbo dev — runs `next dev` (web) and `trigger dev` (workers) in parallel
-pnpm build       # turbo build — runs every workspace's build
-pnpm typecheck   # turbo typecheck — runs tsc --noEmit everywhere
-pnpm lint        # turbo lint — ESLint for web, tsc-as-lint for packages
-pnpm format      # prettier write
+pnpm dev          # turbo dev — runs `next dev` (web) and `trigger dev` (workers) in parallel
+pnpm build        # turbo build — runs every workspace's build
+pnpm typecheck    # turbo typecheck — runs tsc --noEmit everywhere
+pnpm lint         # turbo lint — ESLint for web, tsc-as-lint for packages
+pnpm format       # prettier write
 ```
 
-Filter to a single workspace:
+If you only want the web app (no Trigger.dev CLI invocation), filter:
 
 ```bash
 pnpm --filter @oracle/web dev
-pnpm --filter @oracle/workers dev
+```
+
+Other useful filters:
+
+```bash
 pnpm --filter @oracle/db generate     # drizzle-kit generate (after schema.ts changes)
 pnpm --filter @oracle/db migrate
 pnpm --filter @oracle/db seed
+pnpm --filter @oracle/workers dev     # requires Trigger.dev CLI; the script uses npx
 ```
 
 ## Adding a database change
 
 1. Edit `packages/db/src/schema.ts`.
 2. `pnpm db:generate` → produces a new `packages/db/migrations/0NNN_*.sql` file. **Do not hand-edit** it.
-3. If you need constraints, RLS, helper functions, or views: add `packages/db/migrations/sql/NN_<topic>.sql` with the next free numeric prefix (current files use 01/10/20/21/30/99).
+3. If you need constraints, RLS, helper functions, views, or data migrations: add a `packages/db/migrations/sql/NN_<topic>.sql` file with the next free numeric prefix. **See `packages/db/migrations/sql/README.md` for the ordering convention** — files run in lex order on every boot and must be idempotent.
 4. `pnpm db:migrate` applies everything in order. The runner (`packages/db/src/migrate.ts`) is idempotent.
 5. Update `docs/architecture.md`'s data-model table if you added a new top-level entity.
 
@@ -88,11 +100,23 @@ pnpm --filter @oracle/db seed
 
 We don't have a test framework wired yet. When we do, the convention will be Vitest at the package level (`packages/<x>/src/__tests__/*.test.ts`). Don't write speculative tests before then — the spec calls for evaluation gates over real transcripts, not unit coverage on schemas.
 
-## When pnpm install hangs or ENOENTs on Windows
+## Inspection / debugging scripts
 
-Symptom: install stalls at "Progress: resolved N, reused N, downloaded 0, added 0" for >5 minutes, or errors with `ENOENT: no such file or directory, rename '...\@types+node@22.10.5\node_modules\undici-types' -> '...\.ignored_undici-types'`.
+`packages/db/src/` ships two small tsx scripts useful for local debugging:
 
-Recovery (in elevated PowerShell):
+- `verify-identities.ts` — prints current `employees` rows, their `employee_identities`, and any orphan identity rows. Run with `pnpm --filter @oracle/db exec tsx src/verify-identities.ts`.
+- `inspect-auth-users.ts` — prints rows from Supabase's `auth.users` schema so you can see which providers Supabase has on file for each email. Same invocation pattern.
+
+Both load `.env.local` from the monorepo root.
+
+## When `pnpm install` errors or hangs on Windows
+
+If you're on Windows with an NTFS drive and Developer Mode enabled, the install should just work. If it doesn't:
+
+Symptom 1: `ENOENT: no such file or directory, rename '...\.ignored_*'`
+Symptom 2: install stalls at `Progress: resolved N, reused N, downloaded 0, added 0` for >5 minutes.
+
+Recovery in an elevated PowerShell:
 
 ```powershell
 # 1. Kill any lingering pnpm processes (NEVER blanket-kill node — kills MCP servers + IDEs)
@@ -113,7 +137,7 @@ pnpm store prune
 pnpm install
 ```
 
-If the lockfile itself was generated under the broken-symlink era, regenerate it:
+If the lockfile itself was generated under broken conditions, regenerate it:
 
 ```powershell
 Remove-Item pnpm-lock.yaml -Force
@@ -122,24 +146,25 @@ pnpm install
 
 …then commit the new lockfile.
 
+If it still fails, **double-check the filesystem** — `Get-Volume D | Select-Object FileSystemType` must return NTFS. This is by far the most common root cause and the one we spent the longest debugging without finding it.
+
 ## Verifying Phase acceptance gates locally
 
-Once `pnpm db:migrate && pnpm db:seed && pnpm dev` is green, manually verify the three phase gates:
+**Phase 1 (foundation) — wet-tested:**
+- Click "Sign in with Google" as `u2giants@gmail.com` → land on `/admin`.
+- Click "Sign in with Microsoft 365" as `albert@popcre.com` → land on `/admin` (same Albert, multi-identity confirmed).
+- Sign in with any non-allowlisted address → `/denied?reason=not_approved`.
 
-**Phase 1 (foundation):**
-- Hit `http://localhost:3000/` → enter `u2giants@gmail.com` → magic link in email → land on `/admin`.
-- Repeat with a random Gmail → should land on `/denied?reason=not_approved`.
+**Phase 2 (realtime) — partial:**
+- Requires two real loginable employees. The seeded `test-employee@oracle.local` is not deliverable; replace its email with a Gmail `+`-alias (e.g. `u2giants+test@gmail.com`) or seed a second real employee.
+- Open two browsers, sign in as each, insert a `channels` row + two `channel_participants` rows via SQL (the Phase 5 admin UI isn't built yet).
+- Both browsers should see new messages live.
+- A third logged-in employee NOT in the channel must get 0 rows when querying that channel.
+- Upload a document; verify the `documents` row and Storage object both exist.
 
-**Phase 2 (realtime):**
-- Two browsers (one as Albert, one logged in as `test-employee@oracle.local`).
-- Insert a `channels` row + two `channel_participants` rows (admin + test-employee) via the admin dashboard or SQL.
-- Send a message from each browser; both should see both messages live.
-- A third browser logged in as a third employee NOT in the channel must get 0 rows when querying that channel.
-- Upload a document; verify the `documents` row and storage object both exist.
-
-**Phase 3 (Oracle chat):**
+**Phase 3 (Oracle chat) — ready to wet-test:**
 - In a channel, send `@oracle what do you know about our licensing process?`.
-- An assistant message should stream in, asking ONE question.
+- An assistant message should appear, asking ONE question.
 - Verify a `model_runs` row was inserted (latency, cost, token counts populated).
 
 ## Quick commit recipe

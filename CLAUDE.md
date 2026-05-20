@@ -8,9 +8,10 @@ This project does not currently use Claude Code persistent memory. If you start,
 
 ## Context management
 
-- The repo is small but dense. Start each session by reading `AGENTS.md` (15 sections), then `oracle_master_spec.md` (large but authoritative), then `DECISIONS.md`.
+- The repo is small but dense. Start each session by reading **`HANDOFF.md`** (current state — done/pending/blockers), then `AGENTS.md` (15 sections), then `oracle_master_spec.md` (large but authoritative), then `DECISIONS.md`.
 - Do not re-read `pnpm-lock.yaml`, `node_modules/`, `apps/web/.next/`, or generated Drizzle SQL. They're listed in `.claudeignore`.
 - When in doubt about behavior, read `packages/db/src/schema.ts` and `packages/ai/src/prompts/oracle-system.ts` — those two files plus the spec define everything else.
+- The hand-written SQL migration ordering is documented in `packages/db/migrations/sql/README.md` (numeric prefixes have meaning).
 
 ## `.claudeignore`
 

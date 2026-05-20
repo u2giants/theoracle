@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { requireAdmin } from '@/lib/auth-guard';
+import { LogoutButton } from '@/app/_components/logout-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,8 +37,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               ))}
             </nav>
           </div>
-          <div className="text-xs text-muted-foreground">
-            {me.name} · {me.role}
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-muted-foreground">
+              {me.name} · {me.role}
+            </div>
+            <LogoutButton />
           </div>
         </div>
       </header>

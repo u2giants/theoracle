@@ -6,8 +6,8 @@ Every environment variable, where it comes from, and what fails when it's missin
 
 | Variable | Purpose | Source | Required (dev) | Required (prod) | Notes |
 |---|---|---|---|---|---|
-| `DATABASE_URL` | Supabase Postgres — transaction pooler (port 6543) — used by Drizzle for application queries from Vercel Functions | Supabase → Project Settings → Database → Connection string → "Transaction" | yes | yes | When using Drizzle through a transaction pooler, prepared statements must be off. The client in `packages/db/src/client.ts` already handles this. |
-| `DIRECT_URL` | Supabase Postgres — direct (port 5432) — used by `drizzle-kit` for migrations | Supabase → Project Settings → Database → Connection string → "Direct" | yes | yes | Migrations need a non-pooled connection. |
+| `DATABASE_URL` | Supabase Postgres — **Transaction pooler** (port 6543, IPv4) — used by Drizzle for application queries from Vercel Functions | Supabase → Project Settings → Database → Connection string → **Transaction pooler** (toggle "Use IPv4 connection (Shared Pooler)" ON) | yes | yes | When using Drizzle through a transaction pooler, prepared statements must be off. The client in `packages/db/src/client.ts` already handles this. |
+| `DIRECT_URL` | Supabase Postgres — **Session pooler** (port 5432, IPv4) — used by `drizzle-kit` and the migration runner | Supabase → Project Settings → Database → Connection string → **Session pooler** | yes | yes | Migrations need a non-transaction-pooler connection. Do NOT use the Direct connection — it's IPv6-only on new Supabase projects and will fail on IPv4 networks with `getaddrinfo ENOENT`. |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL, exposed to the browser | Supabase → Project Settings → API → Project URL | yes | yes | Public by design. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key for browser client | Supabase → Project Settings → API → Project API keys → `anon` `public` | yes | yes | Public by design. RLS protects everything; never bypass it from the browser. |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Newer alias of the anon key. Some Supabase clients prefer this name. | Supabase → Project Settings → API | yes | yes | Same value as anon key. |
@@ -16,15 +16,56 @@ Every environment variable, where it comes from, and what fails when it's missin
 | `OPENAI_API_KEY` | Embeddings only — `text-embedding-3-small` (1536-dim) | https://platform.openai.com/api-keys | optional | yes | If unset, embeddings fall back to a deterministic zero vector. Vector similarity is meaningless without real embeddings, but the schema is preserved. |
 | `TRIGGER_SECRET_KEY` | Trigger.dev v3 server-side key | Trigger.dev dashboard → project → API keys | yes | yes | Used by `apps/web` to trigger tasks, and by `apps/workers` for self-registration. |
 
+`.env.local` lives at the **monorepo root**. Next.js, the migration runner, and the seed all explicitly load it from there (via `dotenv` with a resolved path) — Next.js's default behavior of reading `.env.local` only from the app directory is overridden in `apps/web/next.config.ts`.
+
 ## How env vars are managed
 
 - **Source of truth: Vercel project Environment Variables tab.** Set them for Production and Preview. They're injected at build/runtime for the deployed app.
 - **Local dev: `.env.local`.** Gitignored. Populated by:
   - `npx vercel@latest env pull .env.local --environment=development --yes`, OR
-  - Manual paste from the source dashboards (Supabase/OpenRouter/Trigger.dev).
+  - Manual paste from the source dashboards (Supabase / OpenRouter / Trigger.dev).
 - **Vercel quirk:** "Sensitive" env vars in Vercel cannot be added to the Development environment. Either:
   - Convert them to "Encrypted" type so `env pull` works, or
   - Skip Vercel's Development env and paste manually into `.env.local`.
+
+## Supabase Postgres — pooler vs direct
+
+Supabase exposes three connection modes from the dashboard:
+
+| Mode | Host | Port | Use for | Notes |
+|---|---|---|---|---|
+| Direct connection | `db.<ref>.supabase.co` | 5432 | Nothing in this project | **IPv6-only on new projects.** Requires the paid IPv4 add-on to work on IPv4 networks. Avoid. |
+| Transaction pooler (shared, IPv4) | `aws-0-<region>.pooler.supabase.com` | 6543 | Application queries (`DATABASE_URL`) | Best for short-lived Vercel Function invocations. Prepared statements off. |
+| Session pooler (shared, IPv4) | `aws-0-<region>.pooler.supabase.com` | 5432 | Migrations + admin SQL (`DIRECT_URL`) | Holds the session for the duration of the connection — required for Drizzle migrations. |
+
+When copying URLs from Supabase, **toggle "Use IPv4 connection (Shared Pooler)" ON** on the connection page; otherwise Supabase still shows the IPv6-only URL.
+
+## Supabase Auth providers
+
+Configured in **Supabase Dashboard → Authentication → Providers**:
+
+- **Google** — enabled. Client ID + secret from Google Cloud Console → APIs & Services → Credentials → OAuth Client ID (Web application). Authorized redirect URI must include `https://<supabase-project>.supabase.co/auth/v1/callback`. Authorized JavaScript origins must include `http://localhost:3000` (dev) and any deployed Vercel URLs.
+- **Azure / Microsoft 365** — enabled. App registration in Entra ID for the popcre tenant only (`Accounts in this organizational directory only`). Required Microsoft Graph delegated permissions: `openid`, `profile`, `email`, `User.Read`. Admin consent must be granted. The Supabase "Azure URL" or "Tenant ID" field must be tenant-specific (`https://login.microsoftonline.com/<tenant-id>`), not `/common`.
+- **Authentik OIDC** — TODO (not yet wired).
+- **Email magic-link** — enabled as a fallback path. Delivery is via Brevo SMTP (see below).
+
+The login UI (`apps/web/app/_components/login-form.tsx`) requests the `email` scope explicitly for both OAuth providers. **Do not remove that scope** — Microsoft Entra returns an empty `mail` field for accounts without an Exchange mailbox, which makes Supabase deny with "Error getting user email from external provider".
+
+## Supabase Auth SMTP — Brevo
+
+Magic-link delivery uses Brevo (formerly Sendinblue) as the SMTP provider:
+
+| Setting | Value |
+|---|---|
+| Host | `smtp-relay.brevo.com` |
+| Port | `587` (STARTTLS) |
+| Username | A Brevo-issued `XXXXXX@smtp-brevo.com` address (Brevo → SMTP & API → SMTP tab) |
+| Password | A Brevo SMTP key (NOT the API key — separate field on the same page) |
+| Sender email | A Brevo-verified sender (e.g. `noreply@popcre.com`) |
+
+Configured under **Supabase Dashboard → Authentication → SMTP Settings**. Without custom SMTP, Supabase's built-in email is rate-limited to ~3-4 emails per hour per project, which trips during basic local testing.
+
+Brevo's free tier (300 emails/day) is plenty for development.
 
 ## Settings table (runtime config)
 
@@ -57,10 +98,12 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 
 ## Files that read configuration
 
+- `apps/web/next.config.ts` — explicitly loads `.env.local` from the monorepo root before Next reads anything.
 - `apps/web/lib/supabase/server.ts` — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
 - `packages/db/src/client.ts` — `DATABASE_URL`.
 - `packages/db/drizzle.config.ts` — `DIRECT_URL`.
-- `packages/db/src/migrate.ts` — `DIRECT_URL`.
+- `packages/db/src/migrate.ts` — `DIRECT_URL` (loads `.env.local` from monorepo root explicitly).
+- `packages/db/src/seed.ts` — `DIRECT_URL` (same monorepo-root load pattern).
 - `packages/ai/src/openrouter.ts` — `OPENROUTER_API_KEY`.
 - `packages/ai/src/embeddings.ts` — `OPENAI_API_KEY` (optional).
 - `apps/workers/trigger.config.ts` — `TRIGGER_SECRET_KEY`.

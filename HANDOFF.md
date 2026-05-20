@@ -1,165 +1,146 @@
 # HANDOFF — The Oracle
 
-Live in-flight state of the project. Treat this as a session snapshot; whoever resumes (a fresh Claude Code session, a different developer, the same person on a different machine) should be able to pick up exactly where the previous session left off.
+Live in-flight state. A new contributor (human or AI) should be able to read this and pick up exactly where the previous session left off — no need to scrape conversation history.
 
-**Snapshot date:** 2026-05-20
-**Latest commit on `main`:** `4744ca3` — docs (AGENTS.md, CLAUDE.md, docs/, ignore files)
-**Repo:** https://github.com/u2giants/theoracle (PUBLIC — never commit secrets)
-**Local checkout (previous machine):** `D:\repos\oracle` on Windows 11
-
----
-
-## TL;DR for the new session
-
-1. **Phases 1–3 are coded and pushed.** Phases 4–6 are scaffolded with TODOs. Read `oracle_master_spec.md` for the product, then `AGENTS.md` for the dev guide, then `DECISIONS.md` for assumption history.
-2. **Nothing runs yet** — we're stuck on a `pnpm install` failure on the previous Windows machine. The hope is that a fresh machine (or a non-Windows machine) installs cleanly.
-3. **The next concrete action** is: clone, install, populate `.env.local`, run `pnpm db:migrate && pnpm db:seed`, then `pnpm dev`. See "Resume on a new machine" below.
+**Snapshot date:** 2026-05-21
+**Latest meaningful commit on `main`:** the doc-update commit that introduces this file.
+**Repo:** https://github.com/u2giants/theoracle (**PUBLIC** — never commit secrets)
+**Local checkout:** `D:\repos\oracle` on Windows 11, NTFS volume
 
 ---
 
-## Where we are by phase
+## TL;DR
 
-| Phase | Status | Commit |
-|---|---|---|
-| Phase 0 — Bootstrap (repo init, .gitignore, DECISIONS.md, Vercel link) | done | `10d2b77` |
-| Phase 1 — Foundation (Drizzle schema, RLS, auth callback, admin seed) | code done, not yet executed against the DB | `d832f5f` |
-| Phase 2 — Realtime chat UI + document upload + admin skeleton | code done | `9efd3e1` |
-| Phase 3 — Oracle chat route + tools + system prompt | code done | `eec3d58` |
-| Phase 4 — Trigger.dev workers | scaffolds only (4 task files with workflow comments) | `4940327` |
-| Phase 5 — Admin review dashboards | placeholders only | `4940327` |
-| Phase 6 — Interjection engine | empty module with spec rules as JSDoc | `4940327` |
-| Docs | done — `AGENTS.md` / `CLAUDE.md` / `docs/*` / ignore files | `4744ca3` |
+Phases 1–3 are coded; **Phase 1 is fully wet-tested**. Phase 2 needs a second real loginable employee to test cross-channel RLS. Phase 3 is ready for a one-shot smoke test (`@oracle ...` in a channel). Phases 4–6 are scaffolds with spec workflows as comments.
 
-Nothing has been wet-tested. Migrations have not been applied. The admin row has not been seeded. The Vercel deployment exists (project ID `prj_rP6Jlima7iK1paffEPhLqxlswGsC`) but Development env vars are empty (see "Open blockers" below).
+There are no blockers right now — Google OAuth + Microsoft 365 SSO are live, magic-link via Brevo works as a fallback, the database is fully migrated with the multi-identity refactor applied, and the dev server runs cleanly on `pnpm --filter @oracle/web dev`.
+
+The next concrete action is one of:
+1. **Wet-test Phase 3** — post `@oracle …` in a channel, confirm an assistant message appears and `model_runs` gets a row.
+2. **Wet-test Phase 2 RLS** — requires fixing the `test-employee@oracle.local` mailbox first.
+3. **Implement Phase 4** — claim extraction worker (see `apps/workers/src/trigger/claim-extraction.ts` for the scaffold).
 
 ---
 
-## Open blockers (in order of urgency)
+## Why each phase is where it is
 
-### 1. `pnpm install` keeps failing on Windows
+### Done
 
-**Symptom:** `ENOENT: no such file or directory, rename 'D:\repos\oracle\node_modules\.pnpm\@types+node@22.10.5\node_modules\undici-types' -> '...\.ignored_undici-types'`
+- **Phase 0 — Bootstrap.** Repo init, `.gitignore`, Vercel link, `.env.local` populated from Vercel via `npx vercel@latest env pull`.
+- **Phase 1 — Foundation.** Drizzle schema, raw SQL (CHECK constraint, RLS helpers, RLS policies, admin views), seed (settings + admin + test-employee), first-login linker (now multi-identity), `/auth/callback`, `/auth/signout`, `/denied`. **Wet-tested end-to-end**: Albert can sign in via Google as `u2giants@gmail.com` or Microsoft 365 as `albert@popcre.com` — both land on `/admin` as the same employee row. Non-allowlisted emails are denied.
+- **Multi-identity refactor (DECISIONS.md D2.multi-identity).** New `employee_identities` table. The linker resolves a session by `(auth_provider, auth_user_id)` first; on miss it bootstraps by matching either `employees.email` or any existing `employee_identities.email`. The deprecated `auth_user_id` / `auth_provider` / `auth_provider_subject` columns on `employees` are kept nullable for a transitional period and are NULL-filled. **Wet-tested** with both Google and M365 on Albert's single employee row.
+- **Logout flow.** POST `/auth/signout` route + `<form action="/auth/signout">` button in both `admin/layout.tsx` and `channels/layout.tsx`.
+- **Brevo SMTP integration.** Magic-link emails go through Brevo (Supabase Dashboard → Authentication → SMTP Settings). Supabase's built-in SMTP is rate-limited to ~3-4 emails per hour per project; Brevo's free tier is 300/day.
+- **Next.js 16 upgrade.** Bumped from 15.1.4 (CVE-2025-66478) to 16.2.6. `next.config.ts` updated for Next 16's `serverExternalPackages` location and removal of the `eslint` config block.
+- **Docs.** README, AGENTS, CLAUDE, DECISIONS, docs/architecture, docs/development, docs/configuration, docs/deployment, and `packages/db/migrations/sql/README.md` are all current as of this snapshot.
 
-**What we already tried** (none fixed it):
-- Enabled Developer Mode + restarted Windows
-- Ran installs from Administrator PowerShell (`whoami /priv` still shows `SeCreateSymbolicLinkPrivilege` as Disabled even in admin shell — unusual but apparently OS-normal lazy activation)
-- Added Windows Defender exclusions for `D:\repos\oracle`, `%LOCALAPPDATA%\pnpm`, `pnpm.exe`, `node.exe`
-- `pnpm install --force`
-- `pnpm store prune`
-- Robocopy-mirror an empty folder over `node_modules` to wipe broken junctions
-- Tried `node-linker=hoisted` via `.npmrc` (didn't help — workspace packages still get symlinked regardless; removed from repo)
+### Partially done
 
-**What to try next** (in order):
-1. **On a non-Windows machine first** (Mac/Linux/WSL2). The codebase has zero Windows-specific assumptions; a fresh Mac/Linux install should just work. If it does → confirms it's a local Windows-environment issue, not a repo issue.
-2. **On Windows with WSL2** — clone inside the WSL filesystem, install there. Avoids the Windows symlink layer entirely.
-3. **On Windows native, fresh attempt**: delete `pnpm-lock.yaml`, delete all `node_modules`, then `pnpm install` from an Admin shell. The lockfile may have records from the broken-symlink era that are interfering.
-4. **Last resort**: switch the monorepo to **npm workspaces** instead of pnpm. Loses pnpm's isolation but works everywhere. Would require updating `package.json` + `pnpm-workspace.yaml` → `workspaces` array in `package.json`, removing `pnpm-lock.yaml`, and running `npm install`.
+- **Phase 2 — Realtime + admin dashboard.** Code is complete (chat UI, channels sidebar, document upload component, Supabase Realtime subscriptions, admin employees tab with identity-provider list). **NOT wet-tested** because the seeded `test-employee@oracle.local` is not a real mailbox — there's only one signable account in the system right now. To unblock: either update `test-employee@oracle.local` to a real email (Gmail `+`-alias works: `u2giants+test@gmail.com`), or seed a second real employee.
 
-The Windows symlink saga is documented in `docs/development.md` (Windows-specific setup + the robocopy recipe) and `AGENTS.md` §11 (why no `.npmrc` is checked in).
+- **Phase 3 — Oracle chat route.** Code complete: `POST /api/chat` builds the retrieval bundle (recent N messages, employee profile, top open gaps, top vector-similar approved claims) and calls OpenRouter via the Vercel AI SDK with the spec Part 10 prompt + two tools (`search_company_knowledge`, `check_open_gaps`). **Not yet wet-tested** — no one has posted `@oracle` in a channel in the live UI yet.
 
-### 2. Vercel Development env vars are empty
+### Not started
 
-**Symptom:** `npx vercel env pull .env.local --environment=development` returns variable names with empty values for `DATABASE_URL`, `DIRECT_URL`, `NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENROUTER_API_KEY`, `TRIGGER_SECRET_KEY`.
+- **Phase 4 — Trigger.dev workers.** Scaffolds exist in `apps/workers/src/trigger/`:
+    - `claim-extraction.ts` — picks pending messages, calls extraction LLM, inserts `claims`/`claim_domains`/`claim_evidence`, marks messages complete/failed/skipped.
+    - `document-ingestion.ts` — chunks uploaded files, embeds, extracts claims from chunks.
+    - `contradiction-watcher.ts` — vector retrieval against approved claims on new messages; creates `contradictions` rows; sometimes a gap; rarely a live interjection.
+    - `brain-synthesis.ts` — per-section synthesis with the structured-output validator from spec 9.8.
+    - Each file has the full spec workflow as a JSDoc comment. None of them call a real LLM yet.
 
-**Root cause:** Vercel doesn't allow **Sensitive** env vars to be set on the Development environment. The values exist on Production/Preview but not Development.
+- **Phase 5 — Admin review dashboards.** Placeholder pages exist under `apps/web/app/admin/{claims,gaps,contradictions,brain}/page.tsx`. They render "Phase 5 — pending" until built. The data they will consume is documented in `packages/db/migrations/sql/30_admin_views.sql`.
 
-**Fix (one of):**
-- **Easiest:** open each source dashboard (Supabase / OpenRouter / Trigger.dev) and paste values directly into `.env.local`. The file is gitignored. Reference dashboard pointers are in `docs/configuration.md`.
-- **Cleaner:** convert each variable in Vercel from "Sensitive" to "Encrypted" type, then re-enter values and check the "Development" environment box. Then `vercel env pull` works.
-
-Once `.env.local` has real values, the rest of the steps can proceed.
-
-### 3. Supabase Storage bucket `company_documents`
-
-Probably not created yet. Create it in Supabase dashboard → Storage → New bucket → name `company_documents`, **private**.
-
-### 4. Pending dependency bumps
-
-```bash
-pnpm --filter @oracle/web up next@latest      # CVE-2025-66478 — Next 15.1.4 → 15.1.7+
-pnpm -r up tsx@latest                          # drops deprecated @esbuild-kit/* subdeps
-```
-
-These were attempted on the previous machine but got stuck behind the install issue.
-
-### 5. Vercel token rotation
-
-The Vercel token shared during the overnight setup is in the chat transcript. **Rotate it** at https://vercel.com/account/tokens once the new machine has its own token (or stop using a token entirely and use `vercel login`).
+- **Phase 6 — Interjection engine.** Empty module at `packages/oracle-engines/src/interjection.ts` with the spec 5.1 rules captured as JSDoc. Implementation requires Phase 4 (claims must exist) and at least one wet-tested chat channel.
 
 ---
 
-## Credentials & accounts (where things live)
+## Recent in-flight decisions (this session)
+
+- **Go with Path A** for the multi-identity problem (proper schema refactor) rather than parking it. Rationale: doing it tired is how bugs are introduced, but the existing identity model was actively wrong (two Albert rows), and the rest of the system depends on `employee_id` referential integrity. Documented in DECISIONS.md D2.
+- **Keep the deprecated `auth_*` columns on `employees`** (nullable, NULL-filled) instead of dropping them in the same commit as the schema change. A clean follow-up commit will drop them after a soak period. Rationale: avoid a forced Drizzle column-drop migration in the middle of an active session where consumers might still hold references.
+- **Use Gmail `+`-alias to provision a second test employee** (recommendation, not yet executed). Rationale: a real mailbox is needed for any real Phase 2 RLS test, and a `+`-alias is the lowest-friction way to get one without provisioning a second Google account.
+- **Microsoft 365 SSO scope must include `email` explicitly.** Documented in DECISIONS.md / AGENTS.md §11 — Entra accounts without an Exchange mailbox return empty `mail` from Microsoft Graph; the `email` OIDC scope forces an email claim into the ID token.
+
+## Dead ends / things we tried that didn't work
+
+- **`node-linker=hoisted` in `.npmrc`.** Doesn't fix workspace symlink failures on Windows — only hoists external deps, leaves the `@oracle/*` workspace packages requiring symlinks. Removed from the repo.
+- **Setting Vercel env vars on the Development environment for Sensitive-marked secrets.** Vercel refuses. Either convert to Encrypted type, or paste into `.env.local` manually from source dashboards.
+- **The `db.<ref>.supabase.co` direct Postgres hostname.** IPv6-only on new Supabase projects — fails with `getaddrinfo ENOENT` on IPv4 networks. Switched to the pooler URLs (`aws-0-<region>.pooler.supabase.com`). Both `DATABASE_URL` and `DIRECT_URL` must use the pooler form with the "Use IPv4 connection (Shared Pooler)" toggle ON in the Supabase dashboard.
+- **Supabase's built-in magic-link SMTP.** Rate-limited to ~3-4 emails per hour per project regardless of paid tier. Replaced with Brevo.
+- **Reading `.env.local` from each workspace's CWD.** Migration runner, seed, and `apps/web` all explicitly load `.env.local` from the monorepo root now via `dotenv.config({ path: resolve(__dirname, '..', '..', '.env.local') })`. Trusting framework defaults wasted >an hour during initial setup.
+- **The Windows pnpm install saga** — initial repo dir was on an exFAT-formatted drive. exFAT doesn't support symlinks, so `pnpm install` failed with cryptic `ENOENT` errors that looked like permission/AV issues. The real fix was reformatting the drive to NTFS. Recovery recipe in `docs/development.md` covers the post-NTFS edge cases.
+
+---
+
+## Open items the next contributor will hit
+
+Pulled from `AGENTS.md` §15. Ranked roughly by friction-cost-to-unblock.
+
+1. **No second loginable employee** — blocks Phase 2 wet-test. Fix by `UPDATE employees SET email = '<your-gmail+test>@gmail.com' WHERE email = 'test-employee@oracle.local';` then signing in once via Google.
+2. **No CI** — typecheck/build only run locally. Adding `.github/workflows/pr-check.yml` is in pending work.
+3. **Vector indexes (`99_vector_indexes.sql`) are opt-in** — fine while there's no real embedding data, but the retrieval path in `packages/ai/src/retrieval.ts` will fall back to slow sequential scans until they're enabled. Run with `ORACLE_RUN_VECTOR_INDEXES=1 pnpm db:migrate` when ready.
+4. **Storage bucket `company_documents`** — must exist in Supabase. If it isn't there, create it in the Supabase Dashboard → Storage → New bucket → private. (Confirmed created during this session, but if a future contributor sets up a new Supabase project, this is the first thing they'll need.)
+5. **Vercel token rotation** — the token pasted into the overnight setup transcript is still valid. Rotate at https://vercel.com/account/tokens.
+6. **Authentik OIDC integration** — required by the spec, deferred. Not blocking anything until an internal-only employee shows up.
+
+---
+
+## Risks and unknowns
+
+- The Phase 3 chat route has never actually called OpenRouter end-to-end against the live channel infrastructure. The retrieval path has not been tested with real claims because the claim extraction worker hasn't run. First wet-test may surface integration issues we haven't anticipated.
+- The deprecated `auth_user_id` columns on `employees` are still in the schema as nullable fields. Any new code that reads them will get `null` and may silently do the wrong thing. AGENTS.md §11 calls this out, but it's a footgun until those columns are dropped.
+- The Trigger.dev project is configured in Vercel env (`TRIGGER_SECRET_KEY`) but **no tasks have been deployed**. Deployment requires `pnpm --filter @oracle/workers deploy` which we haven't run.
+- We've never deployed to the Vercel production URL. The web app is configured for auto-deploy on push to `main`, but nobody has loaded the production URL to verify. Worst case, an env var is set differently on Production vs the local-dev shape and the deployed app fails fast.
+
+---
+
+## Credentials / accounts (where things live)
 
 | Item | Where | Notes |
 |---|---|---|
-| GitHub | `u2giants/theoracle` (PUBLIC) | `gh` CLI was authed on the previous machine via SSH |
-| Vercel project | `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | Web app deploys auto from `main` |
-| Supabase project | URL is in Vercel env (`NEXT_PUBLIC_SUPABASE_URL`) | Database/Auth/Storage/Realtime |
-| Supabase Storage bucket | `company_documents` | Needs creating if not done |
-| Trigger.dev project | secret in Vercel env (`TRIGGER_SECRET_KEY`) | Workers — not yet deployed |
-| OpenRouter | key in Vercel env (`OPENROUTER_API_KEY`) | Default models in `settings` table |
-| OpenAI | key in Vercel env (`OPENAI_API_KEY`) | Embeddings only (optional — zero-vector fallback) |
-| Admin seed | `u2giants@gmail.com` / Albert H. / Lead Architect / Executive / `is_admin=true` | Single row, idempotent |
-| Test employee (for RLS gate) | `test-employee@oracle.local` | Delete before production |
+| GitHub | `u2giants/theoracle` (PUBLIC) | `gh` CLI authed locally via SSH |
+| Vercel project | `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | Web app auto-deploys from `main` |
+| Supabase project | URL in Vercel env (`NEXT_PUBLIC_SUPABASE_URL`) | Database/Auth/Storage/Realtime |
+| Supabase Storage bucket | `company_documents` | Private |
+| Brevo (SMTP) | Account on file | Configured in Supabase → Authentication → SMTP Settings |
+| Google OAuth client | Google Cloud Console (Albert's account) | Authorized redirect URI: `https://<supabase>.supabase.co/auth/v1/callback` |
+| Microsoft Entra app registration | popcre tenant | Single-tenant only; `email` Graph permission with admin consent |
+| Trigger.dev project | Secret in Vercel env (`TRIGGER_SECRET_KEY`) | Workers — not yet deployed |
+| OpenRouter | Key in Vercel env (`OPENROUTER_API_KEY`) | Default models in `settings` table |
+| OpenAI | Key in Vercel env (`OPENAI_API_KEY`) | Embeddings only |
+| Admin employee | `u2giants@gmail.com` / Albert H. / Lead Architect / Executive / `is_admin=true` | Linked to Google + Microsoft identities |
+| Test employee (for RLS gate) | `test-employee@oracle.local` | **Not a real mailbox.** Replace with a real address before testing Phase 2 RLS. |
 
 ---
 
-## Architectural decisions in force
-
-Read `AGENTS.md` §11 ("Idiosyncratic decisions") and `DECISIONS.md` for the full list. Highlights:
-
-- **Magic-link auth is a dev stub.** Real OAuth (Microsoft Entra / Google / Authentik) is deferred per overnight decision. The `auth_provider` enum has a `magic_link_dev` value for this. The employee allowlist + `auth_user_id` linking flow is the real spec-compliant logic — only the upstream provider is stubbed.
-- **Embedding dimension is locked at 1536.** Don't change it without re-embedding everything.
-- **Claims have no `employee_id`.** Join through `claim_evidence.asserted_by_employee_id`. Spec Part 6.6.
-- **`.npmrc` is deliberately NOT checked in.** It doesn't fix the Windows install issue (only hoists external deps; workspace packages get symlinked regardless).
-- **No tests yet.** The spec calls for evaluation gates over real transcripts, not unit coverage on schemas. Don't add speculative tests.
-
----
-
-## Resume on a new machine
+## Resume — what to do next
 
 ```bash
-# 1. Clone
+# (only if cloning fresh on a new machine)
 git clone git@github.com:u2giants/theoracle.git oracle
 cd oracle
-
-# 2. Install pnpm if not present
-npm install -g pnpm
-
-# 3. Install deps (this is the step that was failing on the previous Windows box)
 pnpm install
-
-# 4. Populate .env.local
-#    Option A: vercel CLI (requires Vercel token + project link)
 npx vercel@latest link --project prj_rP6Jlima7iK1paffEPhLqxlswGsC --yes
 npx vercel@latest env pull .env.local --environment=development --yes
-#    Option B: paste values from Supabase / OpenRouter / Trigger.dev dashboards directly into .env.local
-#               See docs/configuration.md for the full table of what goes where.
-
-# 5. Apply schema + seed admin row
 pnpm db:migrate
-pnpm db:seed
 
-# 6. Run
-pnpm dev
+# Always
+pnpm --filter @oracle/web dev
 ```
 
-Then verify the three acceptance gates — see `docs/development.md` → "Verifying Phase acceptance gates locally".
+Then pick one of:
+
+- **Wet-test Phase 3 (smallest scope, biggest signal):** in any channel where you're a participant, post `@oracle what do you know about our licensing process?`. An assistant message should arrive within a few seconds. Verify a `model_runs` row was inserted via `SELECT * FROM model_runs ORDER BY created_at DESC LIMIT 1`.
+- **Wet-test Phase 2 RLS:** update `test-employee@oracle.local` to a real Gmail `+`-alias, sign in once to provision its identity, then exercise the cross-channel isolation tests in `docs/development.md` → "Verifying Phase acceptance gates locally".
+- **Begin Phase 4:** open `apps/workers/src/trigger/claim-extraction.ts` and start replacing the JSDoc spec workflow with real code. Use `packages/ai/src/openrouter.ts` for the model call and `packages/ai/src/embeddings.ts` for embeddings. Every job must write a row to `job_runs`; every LLM call must write a row to `model_runs`. Spec Part 9.4 for the precise auto-approval triage rules.
 
 ---
 
-## Resume the Claude Code conversation
+## Resume a Claude Code session from a fresh terminal
 
-If you want a fresh Claude Code session to pick up exactly where we left off, give it this opening prompt verbatim:
+```
+I'm continuing work on The Oracle. Read HANDOFF.md, then AGENTS.md, then DECISIONS.md, then oracle_master_spec.md. Phase 1 is wet-tested; Phases 4–6 are scaffolds. My next move is [wet-test Phase 3 / wet-test Phase 2 RLS / start Phase 4 / something else]. Walk me through it.
+```
 
-> I'm continuing work on The Oracle. Read `HANDOFF.md` at the repo root first, then `AGENTS.md`, then `DECISIONS.md`, then `oracle_master_spec.md`. The previous session got stuck on a Windows `pnpm install` failure (`ENOENT` on rename of `undici-types` → `.ignored_undici-types`). I'm now on `<describe-machine: Mac / Linux / WSL2 / fresh Windows>`. Walk me through resuming from "Resume on a new machine" in `HANDOFF.md`.
-
-The conversation history itself doesn't transfer between machines — but every meaningful decision, blocker, and next step is already in the repo (`HANDOFF.md`, `AGENTS.md`, `DECISIONS.md`, commit history). A fresh session can pick up cleanly.
-
----
-
-## Suggested first move when you resume
-
-If the new machine is non-Windows, just run the "Resume on a new machine" steps above. The install should succeed cleanly and you'll be looking at a running dev server within ~10 minutes.
-
-If the new machine is Windows again, **clone into WSL2** (`\\wsl$\Ubuntu\home\<user>\repos\oracle` or similar). Native Windows pnpm + symlinks has been the entire blocker; WSL2 sidesteps it. Once it's running there, the rest of the work proceeds normally.
+Delete this file once the work it describes is complete — when Phases 4–6 are landed and all the pending items in AGENTS.md §15 are either done or migrated to a real backlog elsewhere.
