@@ -35,9 +35,10 @@ export function createAuthClient(cookies: CookieAdapter) {
     requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
     {
       cookies: {
-        get: (name) => cookies.get(name),
-        set: (name, value, options) => cookies.set(name, value, options),
-        remove: (name, options) => cookies.remove(name, options),
+        get: (name: string) => cookies.get(name),
+        set: (name: string, value: string, options?: CookieOptions) =>
+          cookies.set(name, value, options),
+        remove: (name: string, options?: CookieOptions) => cookies.remove(name, options),
       },
     },
   );

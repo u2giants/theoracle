@@ -17,7 +17,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema';
 
-type OracleDb = PostgresJsDatabase<typeof schema>;
+export type OracleDb = PostgresJsDatabase<typeof schema>;
 
 let directDb: OracleDb | null = null;
 let pooledDb: OracleDb | null = null;

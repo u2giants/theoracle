@@ -10,7 +10,6 @@
 // the search_company_knowledge tool fires.
 
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import {
   brainSections,
   brainSectionVersions,
@@ -23,11 +22,17 @@ import {
   type Employee,
   type Gap,
 } from '@oracle/db/schema';
+import type { OracleDb } from '@oracle/db/client';
 import type { KnowledgeDomain } from '@oracle/shared';
 import { EMBEDDING_DIM } from '@oracle/shared';
 import { embedText } from './embeddings';
 
-type Db = PostgresJsDatabase<Record<string, never>>;
+// Use the full-schema-aware DB type so callers passing in the result of
+// getDirectDb() / getPooledDb() type-check without casts. The retrieval helpers
+// don't actually need the schema at the type level — they hand-write SQL via
+// the bare drizzle-orm builders — but accepting a wider type kept the Vercel
+// production build failing on a generic mismatch.
+type Db = OracleDb;
 
 export const DEFAULT_RECENT_MESSAGES = 30;
 export const DEFAULT_GAPS_LIMIT = 5;
