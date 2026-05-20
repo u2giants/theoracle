@@ -66,6 +66,16 @@ pnpm lint         # turbo lint — ESLint for web, tsc-as-lint for packages
 pnpm format       # prettier write
 ```
 
+### Pre-push gate — run the production web build
+
+```bash
+pnpm --filter @oracle/web build
+```
+
+**Always run this before pushing anything that touches types** (schema, retrieval helpers, route handlers, auth glue, etc.). `next dev` with Turbopack skips the TypeScript pass for speed, so type errors that the dev server happily ignores will fail the Vercel production build. `pnpm typecheck` is not a sufficient substitute — it skips Next-specific type generation. The full `next build` is the only thing that matches what Vercel runs.
+
+`AGENTS.md` §11 covers the two type errors that bit us on 2026-05-20 (`OracleDb` vs `Db`, implicit-any cookie adapter) — both would have been caught by this single command.
+
 If you only want the web app (no Trigger.dev CLI invocation), filter:
 
 ```bash

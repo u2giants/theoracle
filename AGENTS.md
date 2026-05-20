@@ -378,6 +378,26 @@ The most important section. **Do not undo these without reading the cited spec s
 
 **Do not change because:** removing it breaks the RLS verification. Note that `.local` is not a real TLD — to actually wet-test Phase 2 you need to either update this row's email to a real mailbox (e.g. a Gmail `+`-alias) or seed a second real employee. **DO delete this row before production rollout** (tracked in Pending Work below).
 
+### `vercel.json` at the repo root is required — don't delete it
+
+**Looks like:** "Vercel auto-detects Next.js — we don't need a config file."
+
+**Actually:** the auto-detection assumes the Next app is at the repo root. Ours lives at `apps/web/`, so Turbo writes `.next` to `apps/web/.next`. Without `vercel.json` telling Vercel where to look, the build itself succeeds and then the finalize step errors with `The Next.js output directory ".next" was not found at "/vercel/path0/.next"`. Every production deploy fails silently this way until you check Vercel's deployment list.
+
+**Why:** `vercel.json` declares `framework: "nextjs"`, `buildCommand: "pnpm --filter @oracle/web build"` (Turbo-aware), `installCommand: "pnpm install --frozen-lockfile=false"`, and `outputDirectory: "apps/web/.next"` (the actual location). Committing this keeps the deploy contract in the repo so it survives a future Vercel project recreation.
+
+**Do not change because:** removing or breaking `vercel.json` will silently fail every production deploy. The dev server (`pnpm --filter @oracle/web dev`) is unaffected because it has nothing to do with Vercel's build pipeline — so a broken `vercel.json` is invisible from local dev. See `docs/deployment.md` → "vercel.json — required for this monorepo".
+
+### Production `next build` runs TypeScript; `next dev` (Turbopack) does not
+
+**Looks like:** "Local dev works, so the types are fine — push it."
+
+**Actually:** `next dev` with Turbopack skips the tsc pass entirely for speed. `next build` runs full strict tsc. A type error that the dev server ignores will fail the Vercel production build. This bit us hard on 2026-05-20 — the `OracleDb` vs `Db` mismatch in retrieval helpers and the implicit-any cookie adapter params in `packages/auth/src/server.ts` were both runtime-safe but production-build-fatal. ~an hour of failed deploys before we caught it.
+
+**Why:** there's no equivalent of `tsc --noEmit` baked into the dev loop. The safety net is `pnpm --filter @oracle/web build` — run that **before pushing changes that touch types** and you'll see exactly what Vercel will see. `pnpm typecheck` alone is not enough; it skips Next-specific type generation.
+
+**Do not change because:** turning the type check off in `next.config.ts` (`typescript.ignoreBuildErrors: true`) would unblock builds but ship runtime time-bombs. Keep the gate. The right place to enforce it long-term is a GitHub Action that runs `pnpm --filter @oracle/web build` on every PR — that's in pending work.
+
 ### Logout uses a POST form to a server route, not client-side `signOut()`
 
 **Looks like:** "just call `supabase.auth.signOut()` from a client button — simpler."
@@ -468,7 +488,7 @@ Rule added to prevent recurrence:
 | open | Implement Phase 4 — Trigger.dev workers (claim extraction, document ingestion, contradiction watcher, brain synthesis) | scaffolds exist in `apps/workers/src/trigger/` |
 | open | Implement Phase 5 — Admin review/brain dashboard pages | placeholders exist under `apps/web/app/admin/*` |
 | open | Implement Phase 6 — Interjection engine (lull detection, cooldown, contradiction live-interjection) | scaffold at `packages/oracle-engines/src/interjection.ts` |
-| open | CI: add `pnpm typecheck && pnpm build` on PRs (GitHub Actions) | — |
+| open | CI: add `pnpm --filter @oracle/web build` on PRs (GitHub Actions) — would have caught the 2026-05-20 production-only typecheck errors. Use `pnpm --filter @oracle/web build`, not `pnpm typecheck`, because the latter skips Next-specific type generation. | — |
 | open | CI: add migration job (`pnpm db:migrate`) gated on manual approval | — |
 | open | Vector indexes (`packages/db/migrations/sql/99_vector_indexes.sql`) — apply once enough embedding data exists to justify HNSW | run the SQL when ready |
 | open | Rotate the Vercel token that was pasted into the build transcript during overnight setup | https://vercel.com/account/tokens |
@@ -485,5 +505,8 @@ Rule added to prevent recurrence:
 | done | Logout flow | POST `/auth/signout` + form button in admin and channels layouts |
 | done | Next.js bumped 15 → 16 (resolves CVE-2025-66478) | `apps/web/package.json` |
 | done | `next.config.ts` updated for Next 16 (`serverExternalPackages`, eslint block removed) | |
+| done | Fixed `OracleDb` vs `Db` typecheck failure in retrieval helpers (production build was failing every deploy) | `packages/db/src/client.ts` (exported the type) + `packages/ai/src/retrieval.ts` |
+| done | Fixed implicit-any cookie adapter params in `packages/auth/src/server.ts` | typed against `@supabase/ssr`'s `CookieMethodsServer` |
+| done | Added `vercel.json` so Vercel finds `apps/web/.next` in this monorepo | repo root |
 
 **Keep this section current.** A stale pending-work list is worse than no list.
