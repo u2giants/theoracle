@@ -24,6 +24,11 @@ export default async function HomePage() {
   }
 
   if (userId) {
+    // Look up the employee row WITHOUT wrapping redirect() in the try/catch.
+    // Next.js implements redirect() by throwing a NEXT_REDIRECT exception that the
+    // framework catches at the request boundary. Swallowing it here prevents the
+    // redirect and surfaces the throw to the dev overlay.
+    let target: '/admin' | '/channels' | '/denied' = '/denied';
     try {
       const db = getDirectDb();
       const rows = await db
@@ -33,15 +38,13 @@ export default async function HomePage() {
         .limit(1);
       const me = rows[0];
       if (me && !me.disabledAt) {
-        if (me.isAdmin) redirect('/admin');
-        redirect('/channels');
+        target = me.isAdmin ? '/admin' : '/channels';
       }
-      // signed in but no approved employee row
-      redirect('/denied');
     } catch (err) {
-      // DB env missing — fall through.
       console.error('[home] DB lookup failed:', err);
+      // Fall through to /denied — safer to deny than to leak an unverified session.
     }
+    redirect(target);
   }
 
   return (

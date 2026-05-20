@@ -20,7 +20,21 @@ export async function GET(request: NextRequest) {
   const code = url.searchParams.get('code');
   const next = url.searchParams.get('next') ?? '/';
 
+  // Diagnostics — when an OAuth provider denies/errors it usually sends ?error=…
+  // back instead of a code. Log everything so we can see what arrived.
   if (!code) {
+    const oauthError = url.searchParams.get('error');
+    const oauthErrorDescription = url.searchParams.get('error_description');
+    const oauthErrorUri = url.searchParams.get('error_uri');
+    console.error('[auth/callback] no code in callback. Full URL:', request.url);
+    console.error('[auth/callback] params:', Object.fromEntries(url.searchParams));
+    if (oauthError) {
+      console.error('[auth/callback] provider error:', {
+        error: oauthError,
+        description: oauthErrorDescription,
+        uri: oauthErrorUri,
+      });
+    }
     return NextResponse.redirect(new URL('/denied?reason=no_code', url.origin));
   }
 
