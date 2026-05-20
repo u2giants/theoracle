@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "trigger dev",
-    "deploy": "trigger deploy",
+    "dev": "npx trigger.dev@latest dev",
+    "deploy": "npx trigger.dev@latest deploy",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },
