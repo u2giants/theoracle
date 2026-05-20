@@ -18,13 +18,13 @@
   "dependencies": {
     "@oracle/db": "workspace:*",
     "@oracle/shared": "workspace:*",
-    "@supabase/ssr": "^0.5.2",
+    "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.47.10",
-    "drizzle-orm": "^0.38.3"
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
-    "@types/node": "22.10.5",
-    "typescript": "^5.7.3"
+    "@types/node": "^24.12.4",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "next": "*"

@@ -21,7 +21,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { z } from 'zod';
-import { generateText, tool } from 'ai';
+import { generateText, stepCountIs, tool } from 'ai';
 import {
   ORACLE_SYSTEM_PROMPT,
   ORACLE_SYSTEM_PROMPT_VERSION,
@@ -44,7 +44,7 @@ import {
 import { getServerSupabase } from '@/lib/supabase/server';
 
 const BodySchema = z.object({
-  channelId: z.string().uuid(),
+  channelId: z.uuid(),
   // Optional: skip the direct-mention gate (used by /admin/test-chat in future).
   force: z.boolean().optional(),
 });
@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
     search_company_knowledge: tool({
       description:
         'Search the Oracle\'s approved claims and brain sections for operational knowledge. Filter by knowledge domains if relevant.',
-      parameters: z.object({
+      inputSchema: z.object({
         query: z.string().describe('Free-text question or topic to search for.'),
         domains: z
           .array(z.enum(KNOWLEDGE_DOMAINS as unknown as [string, ...string[]]))
@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
     check_open_gaps: tool({
       description:
         'List open knowledge gaps assigned to the current employee, the channel members, or relevant departments. Use these to weave natural questions.',
-      parameters: z.object({
+      inputSchema: z.object({
         limit: z.number().int().min(1).max(10).optional(),
       }),
       execute: async ({ limit }) => {
@@ -242,12 +242,12 @@ export async function POST(req: NextRequest) {
       system: systemPrompt,
       messages: conversationMessages,
       tools,
-      maxSteps: 4,
+      stopWhen: stepCountIs(4),
       temperature: 0.4,
     });
     oracleText = result.text;
-    inputTokens = result.usage?.promptTokens;
-    outputTokens = result.usage?.completionTokens;
+    inputTokens = result.usage?.inputTokens;
+    outputTokens = result.usage?.outputTokens;
     success = true;
   } catch (err) {
     modelError = err instanceof Error ? err.message : String(err);

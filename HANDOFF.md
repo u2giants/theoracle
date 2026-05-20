@@ -3,7 +3,8 @@
 Live in-flight state. A new contributor (human or AI) should be able to read this top to bottom and pick up exactly where the previous session left off — no need to scrape conversation history.
 
 **Snapshot date:** 2026-05-21
-**Latest commit on `main`:** `83b5c53` — ci: add pr-check workflow that runs production `next build` on PRs
+**Latest commit on `main`:** `7ec821f` — ci(pr-check): opt actions into Node 24 ahead of the 2026-06-02 default flip
+**Uncommitted (this session):** dependency-modernization pass — see DECISIONS.md D3.5.bump-everything-mature. Bumped ai 4→6, zod 3→4, @supabase/ssr 0.5→0.10, tailwindcss 3→4, drizzle-orm 0.38→0.45, drizzle-kit 0.30→0.31, @trigger.dev/{sdk,build} 3→4, react 19.0→19.2, dotenv 16→17, lucide-react 0.469→1.16, turbo 2.3.3→2.9.14, @types/node 22→24. All 3 deprecated subdeps eliminated. Build + typecheck green.
 **Latest successful Vercel production deploy:** `theoracle-7c5ryvwxm-popcre.vercel.app` (commit `c8fca10`)
 **Repo:** https://github.com/u2giants/theoracle (**PUBLIC** — never commit secrets)
 **Local checkout:** `D:\repos\oracle` on Windows 11, NTFS volume

@@ -1,4 +1,5 @@
-// Next 15 cookie adapter — wraps next/headers cookies() for @oracle/auth.
+// Next 16 cookie adapter — wraps next/headers cookies() for @oracle/auth.
+// Uses the @supabase/ssr v0.10+ getAll/setAll cookie shape.
 
 import { cookies } from 'next/headers';
 import {
@@ -10,22 +11,18 @@ import {
 async function makeAdapter(): Promise<CookieAdapter> {
   const store = await cookies();
   return {
-    get(name) {
-      return store.get(name)?.value;
+    getAll() {
+      return store.getAll().map((c) => ({ name: c.name, value: c.value }));
     },
-    set(name, value, options) {
+    setAll(toSet) {
       try {
-        store.set({ name, value, ...options });
+        for (const { name, value, options } of toSet) {
+          store.set({ name, value, ...options });
+        }
       } catch {
-        // Setting cookies from a Server Component is not allowed.
-        // Auth callback / route handlers use the route-handler variant below.
-      }
-    },
-    remove(name, options) {
-      try {
-        store.set({ name, value: '', ...options, maxAge: 0 });
-      } catch {
-        // ditto
+        // Setting cookies from a Server Component is not allowed; the
+        // middleware/route-handler paths still succeed. Supabase tolerates
+        // this — the session simply won't be refreshed in RSC.
       }
     },
   };

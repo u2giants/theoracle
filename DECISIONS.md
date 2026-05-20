@@ -64,15 +64,14 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Decision**: pnpm workspaces (`pnpm-workspace.yaml`) + Turborepo 2.3.3 (pinned, not caret — see D1.turbo-pin). Strict TypeScript per `tsconfig.base.json`. `apps/web` is the only app for Phases 1-3; `apps/workers` (Trigger.dev) is scaffolded in Phase 4 stub.
 - **Spec**: Spec Part 2.1 (TypeScript only), Part 3 (managed cloud).
 
-### D1.turbo-pin — Turbo pinned to 2.3.3
+### ~~D1.turbo-pin~~ — Turbo pinned to 2.3.3 (RESOLVED 2026-05-20)
 
-- **Decision**: Pin turbo to exactly `2.3.3`, not `^2.3.3`. Newer turbo versions ship Windows binaries through optional deps that pnpm fails to install on this machine. 2.3.3 is the last version that installed cleanly in our test loop.
-- **Safer alternative ruled out**: Letting the caret resolve to 2.9.x — same install failure pattern. Will revisit once D0.6 (symlink perms) is resolved.
+- **Original decision**: Pinned turbo to exactly `2.3.3`. Newer versions allegedly failed Windows install.
+- **Resolution**: Root cause was exFAT (D0.6), not turbo. Once the repo moved to NTFS, turbo 2.9.x installs cleanly. Now on `^2.9.14`.
 
-### D1.next-version — Next 15.1.4
+### ~~D1.next-version~~ — Next 15.1.4 (RESOLVED)
 
-- **Decision**: Next.js `15.1.4`. npm warns this version has CVE-2025-66478; user must bump in the morning. Pinned now because newer 15.x patches kept breaking the workspace transpile step in our local probe.
-- **Action item**: Bump to Next 15.1.7+ during morning verification.
+- **Resolution**: Bumped past the CVE to Next 16.2.6. See HANDOFF.md commit log.
 
 ### D1.embedding-dim — vector(1536) locked
 
@@ -120,4 +119,38 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Deprecated columns kept**: `employees.auth_user_id`, `employees.auth_provider`, `employees.auth_provider_subject` remain on the table (nullable, NULL-filled by 40_*.sql) to avoid a forced Drizzle column-drop migration in the middle of an active session. A follow-up commit will fully remove them after the team confirms no consumer still reads them.
 - **Safer alternative ruled out**: Adding a `secondary_emails` array column on `employees`. Loses the per-identity audit trail (`linked_at`, per-identity `last_login_at`, per-provider `auth_provider_subject`) and conflates "alias email" with "second authentication path".
 - **Action item**: After Phase 6, drop the deprecated columns from `employees` in a clean migration. Add an admin UI to manually link/unlink identities (e.g. when an employee gets a new Microsoft account).
+
+## Phase 3.5 — dependency modernization (2026-05-20)
+
+### D3.5.bump-everything-mature — bump now while the surface is small
+
+- **Decision**: Bumped every dependency that's mature and not blocked by ecosystem support. Skipped only `typescript` 5→6 and `eslint` 9→10 because those were released within weeks and downstream tools haven't confirmed support yet.
+- **Why**: We're ~20% into the build. Doing these migrations now touches ~6 files; doing them later would touch dozens. The codebase being small is the cheapest possible time to absorb breaking changes.
+- **Bumps applied**:
+    - `react`, `react-dom` 19.0.0 → ^19.2.6 (minor within React 19)
+    - `@types/react`, `@types/react-dom` → ^19.2.x
+    - `@types/node` 22 → ^24.12.4 (matches Node 24 LTS runtime)
+    - `turbo` 2.3.3 → ^2.9.14 (D1.turbo-pin reason was actually exFAT/D0.6)
+    - `dotenv` 16 → ^17.4.2 (only dropped Node 12)
+    - `eslint-config-next` 15.1.4 → ^16.2.6 (match Next 16; eslint 9 stays — peers say >=9)
+    - `lucide-react` 0.469 → ^1.16.0 (v1 stable cut; Send/Users/Paperclip imports still work)
+    - `drizzle-kit` 0.30.6 → ^0.31.10
+    - `drizzle-orm` 0.38.3 → ^0.45.2 (back-compat schema/query API)
+    - `@trigger.dev/sdk` + `@trigger.dev/build` 3 → ^4.4.6 — **no code change**: trigger.dev v4 keeps the `@trigger.dev/sdk/v3` subpath export. Also drops `uuid@9`.
+    - `@supabase/ssr` 0.5 → ^0.10.3 — migrated to `getAll`/`setAll` cookie adapter shape; consolidated callback/signout routes onto the shared `getServerSupabase()` helper.
+    - `ai` 4 → ^6.0.187 — `tool({ parameters })` → `tool({ inputSchema })`, `maxSteps: 4` → `stopWhen: stepCountIs(4)`, `usage.promptTokens/completionTokens` → `usage.inputTokens/outputTokens`.
+    - `@openrouter/ai-sdk-provider` 0.7 → ^2.9.0 (paired with AI SDK v6).
+    - `zod` 3 → ^4.4.3 — only one usage shift visible (`z.string().uuid()` → `z.uuid()` in chat route body schema).
+    - `tailwindcss` 3 → ^4.3.0 — `tailwind.config.ts` deleted (v4 is CSS-based), `postcss.config.js` switched to `@tailwindcss/postcss`, `globals.css` rewritten with `@import "tailwindcss"`, `@custom-variant dark`, and `@theme inline` color token mapping. Token bridge: `--color-X: hsl(var(--X))` so all existing `bg-primary`/`text-foreground`/etc. classes resolve unchanged.
+    - `tailwind-merge` 2 → ^3.6.0 (Tailwind 4 alignment).
+    - `tailwindcss-animate` (deprecated for v4) → replaced with `tw-animate-css` ^1.4.0 (`@import "tw-animate-css"` in globals.css).
+    - `typescript` ^5.7.3 → ^5.9.3 across all workspaces (within v5).
+- **Bumps deferred**:
+    - `typescript` 5 → 6 — released weeks ago; Drizzle/Next/AI SDK haven't all confirmed support
+    - `eslint` 9 → 10 — `eslint-config-next@16` peers say `>=9.0.0` but doesn't claim v10
+- **Verification**: `pnpm install` is silent (was: 3 deprecation warnings). `pnpm typecheck` green across all 7 workspaces. `pnpm --filter @oracle/web build` green with placeholder env. All routes correctly dynamic.
+- **Side effects**:
+    - `@esbuild-kit/core-utils` + `@esbuild-kit/esm-loader` deprecation warnings GONE — `drizzle-kit@0.31.10` no longer pulls them in our pnpm graph (despite their package.json still listing one).
+    - `uuid@9` deprecation warning GONE — trigger.dev v4 dropped it.
+- **Files touched**: every `package.json`; `apps/web/postcss.config.js`; `apps/web/app/globals.css`; deleted `apps/web/tailwind.config.ts`; `apps/web/lib/supabase/server.ts`; `packages/auth/src/server.ts`; `apps/web/app/auth/callback/route.ts`; `apps/web/app/auth/signout/route.ts`; `apps/web/app/api/chat/route.ts`.
 

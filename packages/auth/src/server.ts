@@ -1,5 +1,5 @@
 // Server-side Supabase clients for Next.js App Router (RSC, route handlers).
-// Uses @supabase/ssr cookie storage.
+// Uses @supabase/ssr cookie storage (v0.10+ getAll/setAll shape).
 //
 // IMPORTANT: There are two clients here.
 //   * `createAuthClient`         — uses the anon key + user cookies. RLS applies.
@@ -10,17 +10,11 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 
-type CookieStore = {
-  get(name: string): { value: string } | undefined;
-  set(name: string, value: string, options?: CookieOptions): void;
-  remove?(name: string, options?: CookieOptions): void;
-};
-
 export type CookieAdapter = {
-  // Next 15's cookies() returns a ReadonlyRequestCookies — caller adapts.
-  get(name: string): string | undefined;
-  set(name: string, value: string, options?: CookieOptions): void;
-  remove(name: string, options?: CookieOptions): void;
+  getAll(): Array<{ name: string; value: string }>;
+  setAll(
+    cookies: Array<{ name: string; value: string; options?: CookieOptions }>,
+  ): void;
 };
 
 function requireEnv(name: string): string {
@@ -35,10 +29,8 @@ export function createAuthClient(cookies: CookieAdapter) {
     requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
     {
       cookies: {
-        get: (name: string) => cookies.get(name),
-        set: (name: string, value: string, options?: CookieOptions) =>
-          cookies.set(name, value, options),
-        remove: (name: string, options?: CookieOptions) => cookies.remove(name, options),
+        getAll: () => cookies.getAll(),
+        setAll: (toSet) => cookies.setAll(toSet),
       },
     },
   );
