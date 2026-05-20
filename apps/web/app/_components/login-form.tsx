@@ -17,10 +17,16 @@ export function LoginForm() {
     setErrorMsg(null);
     try {
       const supabase = createSupabaseBrowserClient();
+      // Microsoft Entra: 'email' is critical — without it, Microsoft Graph returns
+      // an empty `mail` field for accounts without an Exchange mailbox and Supabase
+      // bails with "Error getting user email from external provider".
+      const scopes =
+        provider === 'azure' ? 'openid profile email User.Read' : 'openid profile email';
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
+          scopes,
         },
       });
       if (error) throw error;
