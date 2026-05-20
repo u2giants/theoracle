@@ -2,13 +2,34 @@
 // Demonstrates Phase 1 acceptance gate #3 — admin can read ALL employees via
 // the privileged DIRECT_URL connection (service role bypasses RLS).
 
+import { eq, sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
-import { employees } from '@oracle/db/schema';
+import { employees, employeeIdentities } from '@oracle/db/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default async function AdminEmployeesPage() {
   const db = getDirectDb();
-  const rows = await db.select().from(employees).orderBy(employees.createdAt);
+
+  // Pull employees with their list of linked identity providers (post
+  // D2.multi-identity). string_agg gives us a per-row provider summary so we
+  // don't N+1.
+  const rows = await db
+    .select({
+      id: employees.id,
+      name: employees.name,
+      email: employees.email,
+      role: employees.role,
+      department: employees.department,
+      isAdmin: employees.isAdmin,
+      lastLoginAt: employees.lastLoginAt,
+      identityProviders: sql<string | null>`
+        string_agg(${employeeIdentities.authProvider}::text, ', ' ORDER BY ${employeeIdentities.authProvider})
+      `,
+    })
+    .from(employees)
+    .leftJoin(employeeIdentities, eq(employeeIdentities.employeeId, employees.id))
+    .groupBy(employees.id)
+    .orderBy(employees.createdAt);
 
   return (
     <div className="space-y-6">
@@ -34,7 +55,7 @@ export default async function AdminEmployeesPage() {
                   <th className="py-2 pr-4">Role</th>
                   <th className="py-2 pr-4">Department</th>
                   <th className="py-2 pr-4">Admin</th>
-                  <th className="py-2 pr-4">Linked?</th>
+                  <th className="py-2 pr-4">Identities</th>
                   <th className="py-2 pr-4">Last login</th>
                 </tr>
               </thead>
@@ -46,7 +67,7 @@ export default async function AdminEmployeesPage() {
                     <td className="py-2 pr-4">{e.role}</td>
                     <td className="py-2 pr-4">{e.department}</td>
                     <td className="py-2 pr-4">{e.isAdmin ? 'yes' : 'no'}</td>
-                    <td className="py-2 pr-4">{e.authUserId ? 'linked' : '—'}</td>
+                    <td className="py-2 pr-4">{e.identityProviders ?? '—'}</td>
                     <td className="py-2 pr-4">
                       {e.lastLoginAt
                         ? new Date(e.lastLoginAt).toLocaleString()

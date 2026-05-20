@@ -158,9 +158,16 @@ export const settings = pgTable('settings', {
 export const employees = pgTable('employees', {
   id: uuid('id').primaryKey().defaultRandom(),
 
-  // Supabase Auth identity mapping
-  authUserId: uuid('auth_user_id').unique(),
+  // Primary contact email. NOT the auth identity — see employee_identities for
+  // the (provider, auth_user_id) mappings. Kept here for display, admin contact,
+  // and first-login bootstrap (matching a freshly-arrived provider email to an
+  // employee row that has not yet been linked to any identity).
   email: varchar('email', { length: 320 }).notNull().unique(),
+
+  // DEPRECATED — kept nullable for transitional reads from old code paths.
+  // Authoritative source is now employee_identities. Will be removed once all
+  // consumers are migrated. See DECISIONS.md D2.multi-identity.
+  authUserId: uuid('auth_user_id').unique(),
   authProvider: authProviderEnum('auth_provider'),
   authProviderSubject: varchar('auth_provider_subject', { length: 255 }),
 
@@ -170,9 +177,51 @@ export const employees = pgTable('employees', {
   isAdmin: boolean('is_admin').default(false).notNull(),
 
   disabledAt: timestamp('disabled_at'),
+  // "Most recent login from any identity" — denormalized convenience column.
+  // Per-identity last_login_at lives on employee_identities.
   lastLoginAt: timestamp('last_login_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+// One employee can have many identities — a Google account, a Microsoft 365
+// account, future Authentik, etc. The linker looks up by
+// (auth_provider, auth_user_id) here; if no identity matches, it falls back to
+// matching the verified provider email against employees.email and creates a
+// new identity row attached to that employee.
+export const employeeIdentities = pgTable(
+  'employee_identities',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    employeeId: uuid('employee_id')
+      .references(() => employees.id, { onDelete: 'cascade' })
+      .notNull(),
+    authProvider: authProviderEnum('auth_provider').notNull(),
+    // Supabase auth.users.id — globally unique across providers in Supabase.
+    authUserId: uuid('auth_user_id').notNull().unique(),
+    // Stable provider-side user id (Google `sub`, Microsoft `oid`). May be null
+    // for the magic-link stub where there is no provider subject.
+    authProviderSubject: varchar('auth_provider_subject', { length: 255 }),
+    // Verified email captured AT LINK TIME. We denormalize because provider
+    // emails can drift; this is the email value we accepted at first link.
+    email: varchar('email', { length: 320 }).notNull(),
+    linkedAt: timestamp('linked_at').defaultNow().notNull(),
+    lastLoginAt: timestamp('last_login_at'),
+  },
+  (t) => ({
+    providerEmployeeIdx: index('employee_identities_provider_employee_idx').on(
+      t.authProvider,
+      t.employeeId,
+    ),
+    employeeIdx: index('employee_identities_employee_idx').on(t.employeeId),
+    emailIdx: index('employee_identities_email_idx').on(t.email),
+    // One employee can have at most one identity per provider — prevents
+    // accidentally double-linking the same Google account twice, for example.
+    providerEmployeeUnique: uniqueIndex('employee_identities_provider_employee_unique').on(
+      t.authProvider,
+      t.employeeId,
+    ),
+  }),
+);
 
 export const employeeInvites = pgTable('employee_invites', {
   id: uuid('id').primaryKey().defaultRandom(),

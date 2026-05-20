@@ -6,7 +6,7 @@ import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { getServerSupabase } from '@/lib/supabase/server';
 import { getDirectDb } from '@oracle/db/client';
-import { employees, type Employee } from '@oracle/db/schema';
+import { employees, employeeIdentities, type Employee } from '@oracle/db/schema';
 
 export async function getCurrentEmployee(): Promise<Employee | null> {
   let userId: string | null = null;
@@ -21,12 +21,15 @@ export async function getCurrentEmployee(): Promise<Employee | null> {
 
   try {
     const db = getDirectDb();
+    // Resolve the employee through employee_identities (post DECISIONS.md
+    // D2.multi-identity — auth_user_id no longer lives on employees).
     const rows = await db
-      .select()
+      .select({ employee: employees })
       .from(employees)
-      .where(eq(employees.authUserId, userId))
+      .innerJoin(employeeIdentities, eq(employeeIdentities.employeeId, employees.id))
+      .where(eq(employeeIdentities.authUserId, userId))
       .limit(1);
-    const me = rows[0];
+    const me = rows[0]?.employee;
     if (!me || me.disabledAt) return null;
     return me;
   } catch (err) {

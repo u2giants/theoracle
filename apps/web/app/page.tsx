@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { getServerSupabase } from '@/lib/supabase/server';
 import { getDirectDb } from '@oracle/db/client';
-import { employees } from '@oracle/db/schema';
+import { employees, employeeIdentities } from '@oracle/db/schema';
 import { LoginForm } from './_components/login-form';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -31,12 +31,14 @@ export default async function HomePage() {
     let target: '/admin' | '/channels' | '/denied' = '/denied';
     try {
       const db = getDirectDb();
+      // Resolve employee through identities (post D2.multi-identity).
       const rows = await db
-        .select()
+        .select({ employee: employees })
         .from(employees)
-        .where(eq(employees.authUserId, userId))
+        .innerJoin(employeeIdentities, eq(employeeIdentities.employeeId, employees.id))
+        .where(eq(employeeIdentities.authUserId, userId))
         .limit(1);
-      const me = rows[0];
+      const me = rows[0]?.employee;
       if (me && !me.disabledAt) {
         target = me.isAdmin ? '/admin' : '/channels';
       }

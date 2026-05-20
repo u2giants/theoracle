@@ -2,8 +2,10 @@
 //
 // 1. Exchange the code for a session.
 // 2. Resolve the verified user.
-// 3. Call linkOrRejectEmployee — sets auth_user_id on first link, updates
-//    auth_provider + last_login_at on every login.
+// 3. Call linkOrRejectEmployee — looks up an employee_identities row by
+//    (auth_provider, auth_user_id); if none exists, falls back to matching
+//    employees.email to bootstrap a new identity row. Updates last_login_at.
+//    See DECISIONS.md D2.multi-identity.
 // 4. Redirect:
 //      ok       → /channels  (or /admin if isAdmin)
 //      denied   → /denied

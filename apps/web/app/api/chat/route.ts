@@ -35,6 +35,7 @@ import { KNOWLEDGE_DOMAINS, type KnowledgeDomain } from '@oracle/shared';
 import { getDirectDb } from '@oracle/db/client';
 import {
   channelParticipants,
+  employeeIdentities,
   employees,
   messages,
   modelRuns,
@@ -68,12 +69,14 @@ export async function POST(req: NextRequest) {
   }
 
   const db = getDirectDb();
+  // Resolve employee through identities (post D2.multi-identity).
   const meRows = await db
-    .select()
+    .select({ employee: employees })
     .from(employees)
-    .where(eq(employees.authUserId, userData.user.id))
+    .innerJoin(employeeIdentities, eq(employeeIdentities.employeeId, employees.id))
+    .where(eq(employeeIdentities.authUserId, userData.user.id))
     .limit(1);
-  const me = meRows[0];
+  const me = meRows[0]?.employee;
   if (!me || me.disabledAt) {
     return NextResponse.json({ error: 'not_approved' }, { status: 403 });
   }
