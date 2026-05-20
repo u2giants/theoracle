@@ -7,12 +7,20 @@
 //                       + a single test-only employee for Phase 2 acceptance
 //                         (see DECISIONS.md D1.test-employee — delete before production)
 
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
 import * as schema from './schema';
 import { settings, employees } from './schema';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, '..', '..', '..');
+// Load .env.local first (takes precedence), then .env as fallback.
+loadEnv({ path: resolve(repoRoot, '.env.local') });
+loadEnv({ path: resolve(repoRoot, '.env') });
 
 const DEFAULT_SETTINGS: Array<{
   key: string;
@@ -116,7 +124,9 @@ export async function runSeed(existingClient?: ReturnType<typeof postgres>): Pro
 }
 
 // Allow running directly: `pnpm --filter @oracle/db seed`
-const isDirect = import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`;
+// Use pathToFileURL for a robust cross-platform check (handles Windows triple-slash file URLs).
+const entryUrl = process.argv[1] ? pathToFileURL(process.argv[1]).href : '';
+const isDirect = import.meta.url === entryUrl;
 if (isDirect) {
   runSeed().catch((err) => {
     console.error(err);

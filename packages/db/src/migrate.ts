@@ -13,9 +13,9 @@
 //
 // Requires DIRECT_URL (preferred) or DATABASE_URL.
 
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
 import { readFile, readdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
@@ -23,6 +23,11 @@ import postgres from 'postgres';
 import { runSeed } from './seed';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, '..', '..', '..');
+// Load .env.local first (takes precedence), then .env as fallback.
+loadEnv({ path: resolve(repoRoot, '.env.local') });
+loadEnv({ path: resolve(repoRoot, '.env') });
+
 const migrationsDir = join(__dirname, '..', 'migrations');
 const rawSqlDir = join(migrationsDir, 'sql');
 
