@@ -1,0 +1,64 @@
+// Admin → Employees tab.
+// Demonstrates Phase 1 acceptance gate #3 — admin can read ALL employees via
+// the privileged DIRECT_URL connection (service role bypasses RLS).
+
+import { getDirectDb } from '@oracle/db/client';
+import { employees } from '@oracle/db/schema';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+export default async function AdminEmployeesPage() {
+  const db = getDirectDb();
+  const rows = await db.select().from(employees).orderBy(employees.createdAt);
+
+  return (
+    <div className="space-y-6">
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold">Employees</h1>
+        <p className="text-sm text-muted-foreground">
+          Authorization roster. Adding a row here is what authorizes a person to sign
+          into Oracle (spec Part 4.3).
+        </p>
+      </header>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{rows.length} employees</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="py-2 pr-4">Name</th>
+                  <th className="py-2 pr-4">Email</th>
+                  <th className="py-2 pr-4">Role</th>
+                  <th className="py-2 pr-4">Department</th>
+                  <th className="py-2 pr-4">Admin</th>
+                  <th className="py-2 pr-4">Linked?</th>
+                  <th className="py-2 pr-4">Last login</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((e) => (
+                  <tr key={e.id} className="border-b last:border-0">
+                    <td className="py-2 pr-4 font-medium">{e.name}</td>
+                    <td className="py-2 pr-4">{e.email}</td>
+                    <td className="py-2 pr-4">{e.role}</td>
+                    <td className="py-2 pr-4">{e.department}</td>
+                    <td className="py-2 pr-4">{e.isAdmin ? 'yes' : 'no'}</td>
+                    <td className="py-2 pr-4">{e.authUserId ? 'linked' : '—'}</td>
+                    <td className="py-2 pr-4">
+                      {e.lastLoginAt
+                        ? new Date(e.lastLoginAt).toLocaleString()
+                        : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

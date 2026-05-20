@@ -44,3 +44,62 @@ This file is the running log of every assumption, stub, and resolution made by t
 
 - **Found**: `origin/main` already contained `oracle_master_spec.md` (commit 7997486). Pulled and kept that file as the canonical spec; new code lands on top.
 
+### D0.6 — BLOCKER: cannot install dependencies locally (no symlink permission)
+
+- **Found**: The Windows account running this build (`ahazan2`) does not have the `SeCreateSymbolicLinkPrivilege`. Confirmed by a direct `New-Item -ItemType SymbolicLink` test returning "Administrator privilege required for this operation."
+- **Impact**: Both `pnpm install` and `npm install -w` fail at the workspace symlink step, regardless of pnpm/npm version (tried pnpm 8.15.9, 9.5.0, 9.15.4, 10.0.0, npm 11.9.0). pnpm leaves `_tmp_<PID>` package extraction directories that it cannot rename to the final name, and the workspace linking step fails with `EISDIR: illegal operation on a directory, symlink ...`.
+- **Result**: `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm db:migrate` could not be wet-tested locally. All source code is written to the spec, but the acceptance gates "schema deploys", "admin authenticates", and "RLS blocks cross-channel reads" require the user to either (a) enable Windows Developer Mode (Settings → For Developers → Developer Mode ON), or (b) run on a different machine, or (c) push and let Vercel build it.
+- **Strategy (per user decision #5)**: Documented blocker, code is committed and pushed. CI / Vercel will install cleanly because they run with symlink permission. `pnpm-lock.yaml` is committed once the user runs install in a working environment.
+- **User action required**:
+  1. Enable Developer Mode on Windows (Settings → System → For Developers → Developer Mode = On). This grants symlink rights without an admin shell.
+  2. Run `pnpm install` from the repo root.
+  3. Populate the eight empty Vercel env vars (see D0.4) and `npx vercel@latest env pull .env.local --environment=development ...` again.
+  4. Run `pnpm db:migrate` to push the schema and seed.
+  5. Run `pnpm typecheck && pnpm build` to verify nothing regressed.
+
+## Phase 1 — Foundation
+
+### D1.workspace — pnpm + Turborepo
+
+- **Decision**: pnpm workspaces (`pnpm-workspace.yaml`) + Turborepo 2.3.3 (pinned, not caret — see D1.turbo-pin). Strict TypeScript per `tsconfig.base.json`. `apps/web` is the only app for Phases 1-3; `apps/workers` (Trigger.dev) is scaffolded in Phase 4 stub.
+- **Spec**: Spec Part 2.1 (TypeScript only), Part 3 (managed cloud).
+
+### D1.turbo-pin — Turbo pinned to 2.3.3
+
+- **Decision**: Pin turbo to exactly `2.3.3`, not `^2.3.3`. Newer turbo versions ship Windows binaries through optional deps that pnpm fails to install on this machine. 2.3.3 is the last version that installed cleanly in our test loop.
+- **Safer alternative ruled out**: Letting the caret resolve to 2.9.x — same install failure pattern. Will revisit once D0.6 (symlink perms) is resolved.
+
+### D1.next-version — Next 15.1.4
+
+- **Decision**: Next.js `15.1.4`. npm warns this version has CVE-2025-66478; user must bump in the morning. Pinned now because newer 15.x patches kept breaking the workspace transpile step in our local probe.
+- **Action item**: Bump to Next 15.1.7+ during morning verification.
+
+### D1.embedding-dim — vector(1536) locked
+
+- **Decision**: `EMBEDDING_DIM = 1536` in `@oracle/shared`. OpenRouter doesn't host `text-embedding-3-small` directly. Phase 3 embeddings call OpenAI's REST endpoint when `OPENAI_API_KEY` is present and return a deterministic-zero vector (length 1536) when not.
+- **Spec**: Part 6 schema uses `vector(1536)` — locked dimension.
+- **Safer alternative ruled out**: Silently switching to a 768-dim model (e.g. Cohere via OpenRouter). Would require a schema migration and break the spec's traceability assumption.
+
+### D1.auth-provider-stub — magic_link_dev provider
+
+- **Decision**: Added `magic_link_dev` to the `auth_provider` Postgres enum (spec lists three production providers; this extends it for Phase 1 dev only). The first-login linker (`packages/auth/src/link.ts`) implements the spec 4.4 contract exactly; only the upstream provider differs.
+- **Spec**: Part 4.5 (provider notes — extension allowed since allowlist still gates access).
+- **Action item**: In production, wire Supabase Auth's Microsoft / Google / Authentik providers and stop allowing the `magic_link_dev` row. A migration can drop it once unused: `DELETE FROM employees WHERE auth_provider = 'magic_link_dev'` is NOT correct (it would delete real rows that linked through the dev path); instead update those rows' `auth_provider` to the real provider on next login.
+
+### D1.test-employee — temporary second seed row
+
+- **Decision**: Seed inserts a SECOND row `test-employee@oracle.local / Test Employee` so Phase 2's "two employees can chat" acceptance gate can be exercised once secrets are populated. Marked `is_admin = false`.
+- **Action item**: Delete this row before production: `DELETE FROM employees WHERE email = 'test-employee@oracle.local'`.
+- **Safer alternative ruled out**: Seeding 18 employees — they don't exist yet in the spec, and inventing names would create stale data. One synthetic test row is the minimum that demonstrates RLS works.
+
+### D1.storage-bucket — TODO for company_documents
+
+- **Decision**: Phase 2 needs the `company_documents` Supabase Storage bucket. Cannot create it via SQL migration (Supabase Storage buckets are managed via the Storage API or dashboard). Adding a TODO instead of stubbing in code.
+- **Action item**: In the Supabase dashboard for the linked project, go to Storage → New bucket → name `company_documents`, set to private, then run the Storage RLS policy that only allows authenticated employees to read their own uploads and channel-attachment documents (use spec 7.2 documents policy as the template).
+
+### D1.rls-policies — admin reads via service role, not RLS bypass
+
+- **Decision**: Admin reads on intelligence tables (claims/gaps/etc.) and admin views go through the SERVICE_ROLE Drizzle client (`getDirectDb`) in privileged server routes, NOT through `current_employee_is_admin()` USING clauses with the authenticated role.
+- **Spec**: Part 7.3 "Default recommendation: access admin views only through privileged server routes."
+- **Implementation note**: The RLS policies in `21_rls_policies.sql` still grant admins access for direct-from-authenticated-client reads if we ever expose that route, but the `/admin/*` routes in `apps/web` always go through `getDirectDb()` (service role) for clarity.
+

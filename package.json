@@ -1,0 +1,25 @@
+{
+  "name": "oracle",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.5.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "pnpm --filter @oracle/db generate",
+    "db:migrate": "pnpm --filter @oracle/db migrate",
+    "db:seed": "pnpm --filter @oracle/db seed",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
+  },
+  "devDependencies": {
+    "turbo": "2.3.3",
+    "typescript": "^5.7.3",
+    "prettier": "^3.4.2",
+    "@types/node": "22.10.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
