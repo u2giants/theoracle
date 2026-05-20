@@ -1,0 +1,26 @@
+{
+  "name": "@oracle/workers",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "trigger dev",
+    "deploy": "trigger deploy",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@oracle/ai": "workspace:*",
+    "@oracle/db": "workspace:*",
+    "@oracle/shared": "workspace:*",
+    "@trigger.dev/sdk": "^3.3.0",
+    "drizzle-orm": "^0.38.3",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@trigger.dev/build": "^3.3.0",
+    "@types/node": "22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
