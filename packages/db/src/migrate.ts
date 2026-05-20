@@ -78,7 +78,10 @@ async function main(): Promise<void> {
       await migrate(db, { migrationsFolder: migrationsDir });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('No migrations found')) {
+      // Drizzle reports a missing migrations folder two different ways depending on state:
+      //   * "No migrations found"          — folder exists but is empty
+      //   * "Can't find meta/_journal.json" — folder/journal hasn't been generated yet
+      if (message.includes('No migrations found') || message.includes('_journal.json')) {
         console.log('  (no generated migrations — run `pnpm db:generate` first)');
       } else {
         throw err;
