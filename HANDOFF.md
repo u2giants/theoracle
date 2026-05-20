@@ -3,9 +3,8 @@
 Live in-flight state. A new contributor (human or AI) should be able to read this top to bottom and pick up exactly where the previous session left off — no need to scrape conversation history.
 
 **Snapshot date:** 2026-05-21
-**Latest commit on `main`:** `42a04e5` — docs: document the Vercel monorepo + production-tsc gotchas
+**Latest commit on `main`:** `83b5c53` — ci: add pr-check workflow that runs production `next build` on PRs
 **Latest successful Vercel production deploy:** `theoracle-7c5ryvwxm-popcre.vercel.app` (commit `c8fca10`)
-**Uncommitted (this session):** `.github/workflows/pr-check.yml` + AGENTS.md / docs/deployment.md / HANDOFF.md sync — adds the `pnpm --filter @oracle/web build` CI gate on PRs and pushes to `main`. Verified locally: build succeeds with placeholder env vars (all auth-gated pages are dynamic).
 **Repo:** https://github.com/u2giants/theoracle (**PUBLIC** — never commit secrets)
 **Local checkout:** `D:\repos\oracle` on Windows 11, NTFS volume
 **Active branch:** `main`
@@ -97,6 +96,8 @@ The migrations apply to the **live Supabase project** referenced by `DIRECT_URL`
 | `d27f1fd` | **Unblock Vercel production builds** — fix `OracleDb` vs `Db` typecheck error in retrieval helpers + implicit-any in `@supabase/ssr` cookie adapter. Production tsc had been failing every deploy for ~an hour while dev was green. |
 | `c8fca10` | **`vercel.json`** — point Vercel at `apps/web/.next` so the monorepo finalize step finds the build output. Production deploy went green on this commit. |
 | `42a04e5` | Docs: capture the Vercel monorepo + production-tsc gotchas in `docs/deployment.md`, AGENTS.md §11, `docs/development.md`. |
+| `cc4f7d8` | docs(handoff): reflect green production deploy + close out resolved items |
+| `83b5c53` | **CI** — `.github/workflows/pr-check.yml` runs `pnpm --filter @oracle/web build` on PRs and pushes to `main`. Catches production-only tsc errors that `next dev` and `pnpm typecheck` both miss. |
 
 ---
 
