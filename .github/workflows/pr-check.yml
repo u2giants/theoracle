@@ -16,6 +16,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Opt the bundled JS actions (checkout, setup-node, pnpm/action-setup) onto
+# Node 24 now. GitHub Actions will force this default starting 2026-06-02
+# and remove Node 20 from runners on 2026-09-16 — flipping it early surfaces
+# any incompatibility while we have time to react.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   build:
     name: Build @oracle/web
