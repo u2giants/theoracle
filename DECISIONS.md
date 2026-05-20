@@ -148,9 +148,9 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Bumps deferred**:
     - `typescript` 5 → 6 — released weeks ago; Drizzle/Next/AI SDK haven't all confirmed support
     - `eslint` 9 → 10 — `eslint-config-next@16` peers say `>=9.0.0` but doesn't claim v10
-- **Verification**: `pnpm install` is silent (was: 3 deprecation warnings). `pnpm typecheck` green across all 7 workspaces. `pnpm --filter @oracle/web build` green with placeholder env. All routes correctly dynamic.
-- **Side effects**:
-    - `@esbuild-kit/core-utils` + `@esbuild-kit/esm-loader` deprecation warnings GONE — `drizzle-kit@0.31.10` no longer pulls them in our pnpm graph (despite their package.json still listing one).
-    - `uuid@9` deprecation warning GONE — trigger.dev v4 dropped it.
+- **Verification**: `pnpm typecheck` green across all 7 workspaces. `pnpm --filter @oracle/web build` green with placeholder env. All routes correctly dynamic.
+- **Deprecation outcome** — **correction to earlier overclaim**:
+    - `uuid@9` is truly gone (trigger.dev v4 dropped it for `ulid`). Lockfile has 0 references.
+    - `@esbuild-kit/core-utils` + `@esbuild-kit/esm-loader` are **still present**. `drizzle-kit@0.31.10` still lists `@esbuild-kit/esm-loader` as a direct dep alongside `tsx`. The install-time warning line stays quiet on subsequent installs because pnpm only emits it when packages are *added*, not on every install. Per our agreement, we are **not** forcing it away with `pnpm.overrides` — that would risk breaking drizzle-kit's CLI bootstrap. We'll absorb the upstream fix when drizzle-kit fully migrates off esbuild-kit.
 - **Files touched**: every `package.json`; `apps/web/postcss.config.js`; `apps/web/app/globals.css`; deleted `apps/web/tailwind.config.ts`; `apps/web/lib/supabase/server.ts`; `packages/auth/src/server.ts`; `apps/web/app/auth/callback/route.ts`; `apps/web/app/auth/signout/route.ts`; `apps/web/app/api/chat/route.ts`.
 
