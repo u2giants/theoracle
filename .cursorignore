@@ -1,0 +1,39 @@
+# AI indexer ignore list — keep in sync with .claudeignore
+
+# Dependencies
+node_modules/
+
+# Build output
+apps/web/.next/
+dist/
+.turbo/
+.vercel/
+
+# Test / coverage artifacts
+coverage/
+.nyc_output/
+
+# Cache
+.cache/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Lockfiles — giant, low signal; trust package.json
+pnpm-lock.yaml
+
+# Generated Drizzle migrations — source of truth is packages/db/src/schema.ts
+packages/db/migrations/0*.sql
+packages/db/migrations/meta/
+
+# Local env
+.env.local
+.env.*.local
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
