@@ -1,0 +1,60 @@
+name: PR check
+
+# Production-grade gate. `next dev` (Turbopack) skips TypeScript entirely, so
+# type errors that the dev server happily ignores fail the Vercel production
+# build. The only command that matches what Vercel runs is the production
+# `next build` — `pnpm typecheck` is NOT a substitute (it skips Next-specific
+# type generation). See AGENTS.md §11 and docs/deployment.md.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build @oracle/web
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.5.0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        # Match the Vercel install command so CI catches the same problems
+        # Vercel would. See vercel.json at the repo root.
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Build apps/web (production tsc gate)
+        run: pnpm --filter @oracle/web build
+        env:
+          # NEXT_PUBLIC_* values get inlined into the client bundle at build
+          # time, so they must be present (even if non-functional). Real
+          # values come from Vercel's environment at deploy time. App Router
+          # pages that read cookies() are dynamic and won't execute at build,
+          # so the placeholders below never reach a request path.
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-publishable-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+          DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+          DIRECT_URL: postgres://ci:ci@localhost:5432/ci
+          OPENROUTER_API_KEY: ci-placeholder-openrouter-key
+          TRIGGER_SECRET_KEY: ci-placeholder-trigger-key

@@ -488,7 +488,7 @@ Rule added to prevent recurrence:
 | open | Implement Phase 4 — Trigger.dev workers (claim extraction, document ingestion, contradiction watcher, brain synthesis) | scaffolds exist in `apps/workers/src/trigger/` |
 | open | Implement Phase 5 — Admin review/brain dashboard pages | placeholders exist under `apps/web/app/admin/*` |
 | open | Implement Phase 6 — Interjection engine (lull detection, cooldown, contradiction live-interjection) | scaffold at `packages/oracle-engines/src/interjection.ts` |
-| open | CI: add `pnpm --filter @oracle/web build` on PRs (GitHub Actions) — would have caught the 2026-05-20 production-only typecheck errors. Use `pnpm --filter @oracle/web build`, not `pnpm typecheck`, because the latter skips Next-specific type generation. | — |
+| done | CI: `.github/workflows/pr-check.yml` runs `pnpm --filter @oracle/web build` on PRs + pushes to `main`. Catches production-only typecheck errors (the 2026-05-20 class of failure). Uses placeholder env vars; App Router dynamic-rendering means real secrets aren't needed at build. |  |
 | open | CI: add migration job (`pnpm db:migrate`) gated on manual approval | — |
 | open | Vector indexes (`packages/db/migrations/sql/99_vector_indexes.sql`) — apply once enough embedding data exists to justify HNSW | run the SQL when ready |
 | open | Rotate the Vercel token that was pasted into the build transcript during overnight setup | https://vercel.com/account/tokens |

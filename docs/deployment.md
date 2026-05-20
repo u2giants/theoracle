@@ -157,10 +157,10 @@ When rotating the Brevo SMTP key, update **Supabase Auth → SMTP Settings**; no
 
 ## GitHub Actions
 
-Currently none. Planned workflows (in pending work):
+| Workflow | Status | Trigger | What it does |
+|---|---|---|---|
+| `.github/workflows/pr-check.yml` | **live** | PRs to `main` + pushes to `main` | `pnpm install && pnpm --filter @oracle/web build` on Node 24 / pnpm 9.5.0. Mirrors what Vercel runs so production-only tsc errors surface before merge. Uses placeholder env vars — App Router pages with `cookies()` are dynamic and don't execute at build, so real secrets aren't needed. |
+| `migrate.yml` | planned | manual dispatch | `pnpm db:migrate` against production with required approval. |
+| `workers-deploy.yml` | planned | push to `main` touching `apps/workers/**` | `pnpm --filter @oracle/workers deploy`. |
 
-1. `pr-check.yml` — on PR: `pnpm install && pnpm typecheck && pnpm build`.
-2. `migrate.yml` — manual dispatch: `pnpm db:migrate` against production with required approval.
-3. `workers-deploy.yml` — on `main` push that changes `apps/workers/**`: `pnpm --filter @oracle/workers deploy`.
-
-When added they live under `.github/workflows/` (which is owned code per `AGENTS.md` §4).
+Workflow files live under `.github/workflows/` (owned code per `AGENTS.md` §4).

@@ -5,6 +5,7 @@ Live in-flight state. A new contributor (human or AI) should be able to read thi
 **Snapshot date:** 2026-05-21
 **Latest commit on `main`:** `42a04e5` — docs: document the Vercel monorepo + production-tsc gotchas
 **Latest successful Vercel production deploy:** `theoracle-7c5ryvwxm-popcre.vercel.app` (commit `c8fca10`)
+**Uncommitted (this session):** `.github/workflows/pr-check.yml` + AGENTS.md / docs/deployment.md / HANDOFF.md sync — adds the `pnpm --filter @oracle/web build` CI gate on PRs and pushes to `main`. Verified locally: build succeeds with placeholder env vars (all auth-gated pages are dynamic).
 **Repo:** https://github.com/u2giants/theoracle (**PUBLIC** — never commit secrets)
 **Local checkout:** `D:\repos\oracle` on Windows 11, NTFS volume
 **Active branch:** `main`
@@ -377,7 +378,7 @@ Ranked roughly by friction-cost vs payoff.
 
 ### Medium value, medium friction
 
-6. **Wire CI** — add `.github/workflows/pr-check.yml` running `pnpm install && pnpm --filter @oracle/web build` on every PR. The full `next build` is the only gate that catches production-only typecheck errors (the dev server with Turbopack skips tsc entirely). `pnpm typecheck` alone is not enough.
+6. ~~Wire CI~~ — **done** in this session (`.github/workflows/pr-check.yml`). Runs `pnpm install && pnpm --filter @oracle/web build` on PRs + pushes to `main`. Verified locally with placeholder env vars; build is clean and all auth-gated routes are dynamic so secrets aren't needed at build time. Still **open**: a migration CI job (`pnpm db:migrate`) gated on manual approval.
 8. **Enable HNSW vector indexes** — `ORACLE_RUN_VECTOR_INDEXES=1 pnpm db:migrate` runs `99_vector_indexes.sql`. Worth doing once there's enough embedding data to benefit; until then the planner falls back to seq scan which is fine on small data.
 
 ### High value, high friction — the actual work
