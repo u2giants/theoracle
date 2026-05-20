@@ -3,7 +3,8 @@
 Live in-flight state. A new contributor (human or AI) should be able to read this top to bottom and pick up exactly where the previous session left off — no need to scrape conversation history.
 
 **Snapshot date:** 2026-05-21
-**Latest commit on `main`:** `ff08333` — feat(web): logout button + comprehensive doc refresh
+**Latest commit on `main`:** `42a04e5` — docs: document the Vercel monorepo + production-tsc gotchas
+**Latest successful Vercel production deploy:** `theoracle-7c5ryvwxm-popcre.vercel.app` (commit `c8fca10`)
 **Repo:** https://github.com/u2giants/theoracle (**PUBLIC** — never commit secrets)
 **Local checkout:** `D:\repos\oracle` on Windows 11, NTFS volume
 **Active branch:** `main`
@@ -90,7 +91,11 @@ The migrations apply to the **live Supabase project** referenced by `DIRECT_URL`
 | `592d6c9` | OAuth `email` scope added (fixes Microsoft "Error getting user email"). |
 | `fc7d362` | **Multi-identity refactor** — new `employee_identities` table, linker rewrite, RLS updates, idempotent data migration + Albert merge. |
 | `7cb48de` | Silence Next 16 config warnings (`serverExternalPackages`, eslint block removal). |
-| `ff08333` | **Logout button** + comprehensive doc refresh (this commit immediately precedes the HANDOFF rewrite). |
+| `ff08333` | **Logout button** + comprehensive doc refresh. |
+| `5cc4bc7` | HANDOFF.md expanded into self-contained session-resume guide. |
+| `d27f1fd` | **Unblock Vercel production builds** — fix `OracleDb` vs `Db` typecheck error in retrieval helpers + implicit-any in `@supabase/ssr` cookie adapter. Production tsc had been failing every deploy for ~an hour while dev was green. |
+| `c8fca10` | **`vercel.json`** — point Vercel at `apps/web/.next` so the monorepo finalize step finds the build output. Production deploy went green on this commit. |
+| `42a04e5` | Docs: capture the Vercel monorepo + production-tsc gotchas in `docs/deployment.md`, AGENTS.md §11, `docs/development.md`. |
 
 ---
 
@@ -372,8 +377,7 @@ Ranked roughly by friction-cost vs payoff.
 
 ### Medium value, medium friction
 
-6. **Fix the two pre-existing typecheck errors** in `packages/auth/src/server.ts` (cookie-adapter parameter types from `@supabase/ssr`) and `apps/web/app/api/chat/route.ts:185` (Drizzle `OracleDb` vs `Db` generic mismatch). Both are runtime-safe but block `pnpm typecheck` from going green.
-7. **Wire CI** — add `.github/workflows/pr-check.yml` running `pnpm install && pnpm typecheck && pnpm build`. Will fail until #6 is resolved.
+6. **Wire CI** — add `.github/workflows/pr-check.yml` running `pnpm install && pnpm --filter @oracle/web build` on every PR. The full `next build` is the only gate that catches production-only typecheck errors (the dev server with Turbopack skips tsc entirely). `pnpm typecheck` alone is not enough.
 8. **Enable HNSW vector indexes** — `ORACLE_RUN_VECTOR_INDEXES=1 pnpm db:migrate` runs `99_vector_indexes.sql`. Worth doing once there's enough embedding data to benefit; until then the planner falls back to seq scan which is fine on small data.
 
 ### High value, high friction — the actual work
@@ -390,7 +394,7 @@ Ranked roughly by friction-cost vs payoff.
 - **Phase 3 chat route has never run against the live retrieval path.** It was unit-clean as written but no integration test exists. First wet-test may surface issues with the OpenRouter wrapper, the Zod tool schemas, or the way the assistant message gets inserted (the route writes with service-role; verify the realtime feed picks it up).
 - **The deprecated `auth_*` columns on `employees` are still queryable.** Any new code that does `SELECT auth_user_id FROM employees WHERE ...` will get NULL and may silently misbehave. `AGENTS.md` §11 calls this out, but it's a footgun until those columns are dropped.
 - **No tasks have been deployed to Trigger.dev** despite the project being configured. Running `pnpm --filter @oracle/workers deploy` for the first time may surface auth/permissions issues we haven't seen.
-- **Production Vercel deploy has not been smoke-tested.** Auto-deploy on push to `main` is configured, but nobody has opened the live URL. Worst case, a Production env var is shaped differently from the local-dev `.env.local` and the deployed app fails fast.
+- **Production Vercel deploy is now green** (deploy `theoracle-7c5ryvwxm-popcre.vercel.app`, commit `c8fca10`). The deployed URL hasn't been browsed yet — first real visit may surface env-var-shape mismatches between Production and the local-dev `.env.local`.
 - **Spec compliance for Phase 4 worker output is strict** (spec 9.8 — structured output with `supportingClaimIds`, etc.). The synthesis validator must reject paragraphs that don't map to approved claim IDs. Writing this correctly the first time is non-trivial.
 
 ---
