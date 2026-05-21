@@ -7,7 +7,7 @@ Live in-flight state. A new contributor (human or AI) should be able to read thi
 **Latest dep-modernization commit:** `aff23f1` — chore(deps): see DECISIONS.md D3.5.bump-everything-mature. Bumped ai 4→6, zod 3→4, @supabase/ssr 0.5→0.10, tailwindcss 3→4, drizzle-orm 0.38→0.45, drizzle-kit 0.30→0.31, @trigger.dev/{sdk,build} 3→4, react 19.0→19.2, dotenv 16→17, lucide-react 0.469→1.16, turbo 2.3.3→2.9.14, @types/node 22→24. **uuid@9 eliminated** (trigger.dev v4); **`@esbuild-kit/*` still present** — drizzle-kit owns it and hasn't migrated, we kept hands off per the agreement to not force-override upstream. Build + typecheck green.
 **Latest successful Vercel production deploy:** `theoracle-7c5ryvwxm-popcre.vercel.app` (commit `c8fca10`)
 **Repo:** https://github.com/u2giants/theoracle (**PUBLIC** — never commit secrets)
-**Local checkout:** `D:\repos\oracle` on Windows 11, NTFS volume
+**Local checkout:** `C:\repos\oracle` on Windows 11, NTFS volume
 **Active branch:** `main`
 
 ---
@@ -15,7 +15,7 @@ Live in-flight state. A new contributor (human or AI) should be able to read thi
 ## TL;DR
 
 - The project is a **TypeScript pnpm + Turborepo monorepo** that implements "The Oracle" — an AI knowledge graph for POP Creations / Spruce Line (see `oracle_master_spec.md` for the product vision).
-- **Phases 1–3 are code-complete**. Phase 1 is **fully wet-tested**. Phase 2 has UI built but RLS hasn't been wet-tested. Phase 3 (Oracle chat route) hasn't been wet-tested yet either.
+- **Phases 1–3 are code-complete and wet-tested.** Phase 1: Google + M365 SSO end-to-end. Phase 3: Oracle chat route fully verified — `POST /api/chat` returns a correct response, `model_runs` row inserted, assistant message persisted. Phase 2 UI is built but RLS cross-channel isolation hasn't been wet-tested.
 - **Phases 4–6 are scaffolds only** — files exist with the spec workflow as JSDoc comments. Nothing actually calls an LLM yet.
 - **No active blockers.** The dev server runs cleanly. Google OAuth + Microsoft 365 SSO are live. Brevo SMTP handles magic-link email delivery. The multi-identity refactor (`employee_identities` table) is in and verified.
 - **Phase 4 is now code-complete.** The Trigger.dev workers are fully implemented (claim-extraction, document-ingestion, document-ingestion-sweep, contradiction-watcher, contradiction-watcher-sweep, brain-synthesis, brain-synthesis-scheduled). Typecheck and build are green. **They are not yet deployed** — `TRIGGER_PROJECT_REF` and `TRIGGER_SECRET_KEY` must be configured in Vercel env and `pnpm --filter @oracle/workers deploy` must be run before the tasks run in production.
@@ -110,7 +110,7 @@ The migrations apply to the **live Supabase project** referenced by `DIRECT_URL`
 | 0 — Bootstrap | done | n/a |
 | 1 — Foundation (schema, RLS, auth, seed) | done | **YES** — both Google + M365 SSO end-to-end; denial flow with non-allowlisted email. |
 | 2 — Realtime chat + document upload + admin dashboard | code complete | **Partially.** Oracle DM chat fully wet-tested (Phase 3 session). Phase 2 RLS isolation not yet verified with a second employee. |
-| 3 — Oracle chat route (`POST /api/chat`) | **done + wet-tested** | **YES** — Oracle replies end-to-end in the `oracle-smoke-test` DM channel. Multi-modal uploads (images/PDFs) passed to model. Model picker live in Admin → Settings. |
+| 3 — Oracle chat route (`POST /api/chat`) | **done + wet-tested** | **YES** — Oracle replies end-to-end in the `oracle-smoke-test` DM channel. Model `anthropic/claude-sonnet-4.6`, 2001 in / 98 out tokens, 6.3s latency. Multi-modal uploads (images/PDFs) passed to model. Model picker live in Admin → Settings. |
 | 4 — Trigger.dev workers (claim extraction, ingestion, contradiction watcher, brain synthesis) | **code complete** | n/a — requires Trigger.dev project deploy |
 | 5 — Admin review dashboards (claims, gaps, contradictions, brain) | placeholders | n/a |
 | 6 — Interjection engine | empty module with JSDoc | n/a |
@@ -373,7 +373,7 @@ Ranked roughly by friction-cost vs payoff.
 
 ### High value, low friction
 
-1. **Wet-test Phase 3** — post `@oracle ...` in a channel and confirm response. ~5 min once a channel exists.
+1. ~~**Wet-test Phase 3**~~ — **DONE** (2026-05-21). Oracle responded correctly, `model_runs` row confirmed, assistant message persisted. The `oracle-smoke-test` channel exists in the DB with the conversation history.
 2. **Replace `test-employee@oracle.local` with a real mailbox** — Gmail `+`-alias works: `UPDATE employees SET email = 'u2giants+test@gmail.com' WHERE email = 'test-employee@oracle.local';`. Then sign in once to provision the identity.
 3. **Wet-test Phase 2 RLS** — requires #2 first. Recipe below.
 4. **Rotate the Vercel token** from the overnight transcript at https://vercel.com/account/tokens.
@@ -395,7 +395,7 @@ Ranked roughly by friction-cost vs payoff.
 
 ## Risks and unknowns
 
-- **Phase 3 chat route has never run against the live retrieval path.** It was unit-clean as written but no integration test exists. First wet-test may surface issues with the OpenRouter wrapper, the Zod tool schemas, or the way the assistant message gets inserted (the route writes with service-role; verify the realtime feed picks it up).
+- ~~**Phase 3 chat route has never run against the live retrieval path.**~~ **Resolved 2026-05-21** — route wet-tested end-to-end. OpenRouter wrapper, Zod tool schemas, and service-role assistant insert all work correctly. The `oracle-smoke-test` channel has the conversation in it.
 - **The deprecated `auth_*` columns on `employees` are still queryable.** Any new code that does `SELECT auth_user_id FROM employees WHERE ...` will get NULL and may silently misbehave. `AGENTS.md` §11 calls this out, but it's a footgun until those columns are dropped.
 - **No tasks have been deployed to Trigger.dev** despite the project being configured. Running `pnpm --filter @oracle/workers deploy` for the first time may surface auth/permissions issues we haven't seen.
 - **Production Vercel deploy is now green** (deploy `theoracle-7c5ryvwxm-popcre.vercel.app`, commit `c8fca10`). The deployed URL hasn't been browsed yet — first real visit may surface env-var-shape mismatches between Production and the local-dev `.env.local`.

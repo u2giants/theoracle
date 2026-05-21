@@ -482,7 +482,7 @@ Rule added to prevent recurrence:
 | open | Delete the deprecated `auth_user_id` / `auth_provider` / `auth_provider_subject` columns from `employees` once all consumers are confirmed migrated | follow-up migration after a week of soak |
 | open | Replace `test-employee@oracle.local` with a real mailbox (e.g. `u2giants+test@gmail.com`) so the Phase 2 RLS gate can be wet-tested with two real logins | Albert |
 | open | Wet-test Phase 2 RLS (cross-channel isolation between two real employees) | after the test mailbox is set up |
-| open | Wet-test Phase 3 chat route (post `@oracle` in a channel, verify assistant message + `model_runs` row) | Albert |
+| done | Wet-test Phase 3 chat route — `@oracle` posted, response received, `model_runs` row confirmed (`anthropic/claude-sonnet-4.6`, 6.3s, 2001/98 tokens). | 2026-05-21 |
 | open | Create the `company_documents` Storage bucket in Supabase if not already done | Albert (Supabase dashboard) |
 | open | Wire Authentik OIDC as a third login provider for internal-only accounts | future build session |
 | open | Implement Phase 4 — Trigger.dev workers (claim extraction, document ingestion, contradiction watcher, brain synthesis) | scaffolds exist in `apps/workers/src/trigger/` |
