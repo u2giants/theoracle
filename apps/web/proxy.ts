@@ -1,4 +1,4 @@
-// Next.js App Router middleware — spec Part 3.4 (client/server trust boundary).
+// Next.js 16 proxy (formerly "middleware") — spec Part 3.4 (client/server trust boundary).
 //
 // Runs on every non-static request. Its ONLY job is to call supabase.auth.getUser()
 // so that:
@@ -8,7 +8,7 @@
 //      components see the new value) and the response (so the browser's cookie
 //      store is updated).
 //
-// This middleware does NOT enforce authentication — that is done per-route by
+// This proxy does NOT enforce authentication — that is done per-route by
 // requireEmployee() / requireAdmin() in lib/auth-guard.ts.
 //
 // Reference: https://supabase.com/docs/guides/auth/server-side/nextjs
@@ -16,7 +16,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   // Start with a clean pass-through response.
   let supabaseResponse = NextResponse.next({ request });
 

@@ -5,7 +5,9 @@
   "packageManager": "pnpm@9.5.0",
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter=@oracle/web",
+    "dev:all": "turbo run dev",
+    "workers:dev": "pnpm --filter @oracle/workers dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "db:generate": "pnpm --filter @oracle/db generate",
