@@ -316,6 +316,21 @@ export async function POST(req: NextRequest) {
       }),
   );
 
+  // Strip image/file parts for models that only support text input.
+  // Known vision-capable families on OpenRouter; all others get text-only messages.
+  const visionCapable = /claude|gpt-4o|gemini|llava|pixtral|qwen.*vl|minicpm/i.test(modelName);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const safeMessages = visionCapable ? conversationMessages : conversationMessages.map((m: any) => {
+    if (!Array.isArray(m.content)) return m;
+    const textOnly = m.content
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .filter((p: any) => p.type === 'text')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((p: any) => p.text as string)
+      .join('\n');
+    return { ...m, content: textOnly };
+  });
+
   const startedAt = Date.now();
   let success = false;
   let oracleText = '';
@@ -329,7 +344,7 @@ export async function POST(req: NextRequest) {
     const result = await generateText({
       model,
       system: systemPrompt,
-      messages: conversationMessages,
+      messages: safeMessages,
       tools,
       stopWhen: stepCountIs(4),
       temperature: 0.4,
