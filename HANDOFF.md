@@ -19,6 +19,7 @@ Live in-flight state. A new contributor (human or AI) should be able to read thi
 - **Phases 4–6 are scaffolds only** — files exist with the spec workflow as JSDoc comments. Nothing actually calls an LLM yet.
 - **No active blockers.** The dev server runs cleanly. Google OAuth + Microsoft 365 SSO are live. Brevo SMTP handles magic-link email delivery. The multi-identity refactor (`employee_identities` table) is in and verified.
 - **Phase 4 is deployed.** The Trigger.dev workers are fully implemented and running in production — version `20260521.1` with 7 tasks. `TRIGGER_PROJECT_REF=proj_wgpzsvhmsopqhvwqaycn` is set in both `.env.local` and Vercel production env. `TRIGGER_SECRET_KEY` was already present.
+- **Chat production fixes landed (2026-05-21):** (1) DeepSeek vision error fixed — image/file parts are stripped for text-only models; (2) channels nav bar restored — `layout.tsx` now has a persistent top header with Oracle branding, admin link, username, logout; (3) Oracle now triggered after document uploads — `DocumentUpload.onDone` calls `fetchOracleReply` for DMs (always) and group chats (when caption starts with `@oracle`).
 - The natural next step is **Phase 5** (admin review dashboards for claims, gaps, contradictions, brain), then seeding real conversations so the workers have data to process.
 
 ---
@@ -110,7 +111,7 @@ The migrations apply to the **live Supabase project** referenced by `DIRECT_URL`
 | 0 — Bootstrap | done | n/a |
 | 1 — Foundation (schema, RLS, auth, seed) | done | **YES** — both Google + M365 SSO end-to-end; denial flow with non-allowlisted email. |
 | 2 — Realtime chat + document upload + admin dashboard | code complete | **Partially.** Oracle DM chat fully wet-tested (Phase 3 session). Phase 2 RLS isolation not yet verified with a second employee. |
-| 3 — Oracle chat route (`POST /api/chat`) | **done + wet-tested** | **YES** — Oracle replies end-to-end in the `oracle-smoke-test` DM channel. Model `anthropic/claude-sonnet-4.6`, 2001 in / 98 out tokens, 6.3s latency. Multi-modal uploads (images/PDFs) passed to model. Model picker live in Admin → Settings. |
+| 3 — Oracle chat route (`POST /api/chat`) | **done + wet-tested** | **YES** — Oracle replies end-to-end in the `oracle-smoke-test` DM channel. Model `anthropic/claude-sonnet-4.6`, 2001 in / 98 out tokens, 6.3s latency. Multi-modal uploads (images/PDFs) passed to model. Model picker live in Admin → Settings. **Additional fixes landed:** vision part stripping for text-only models (e.g. DeepSeek); Oracle now triggered after document uploads (was silently skipped before). |
 | 4 — Trigger.dev workers (claim extraction, ingestion, contradiction watcher, brain synthesis) | **deployed** (v`20260521.1`, 7 tasks, prod) | n/a — workers process real data; wet-test by uploading a doc or sending messages and checking `job_runs` |
 | 5 — Admin review dashboards (claims, gaps, contradictions, brain) | placeholders | n/a |
 | 6 — Interjection engine | empty module with JSDoc | n/a |

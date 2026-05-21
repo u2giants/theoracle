@@ -374,6 +374,14 @@ export function ChannelChat({
               }
               setShowUpload(false);
               router.refresh();
+              // Trigger Oracle reply after an upload — same rules as regular messages:
+              // DMs always trigger; group chats only when caption addresses @oracle.
+              const captionText = msg?.content ?? '';
+              const oracleMentioned = /^\s*(@oracle\b|oracle,)/i.test(captionText);
+              if (!channel.isGroupChat || oracleMentioned) {
+                setOracleThinking(true);
+                void fetchOracleReply(channel.id);
+              }
             }}
           />
         </div>
