@@ -1,8 +1,13 @@
 // GET /api/admin/models
 //
-// Server-side proxy for https://openrouter.ai/api/v1/models/user
+// Server-side proxy for https://openrouter.ai/api/v1/models
 // Keeps OPENROUTER_API_KEY out of the browser.
 // Restricted to admins.
+//
+// OpenRouter capability fields (verified against actual API schema):
+//   architecture.input_modalities  — string[] e.g. ["text", "image", "file", "audio"]
+//   architecture.output_modalities — string[] e.g. ["text"] or ["text", "image"]
+//   supported_parameters           — string[] e.g. ["tools", "tool_choice", "temperature", ...]
 
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth-guard';
@@ -14,15 +19,18 @@ type OpenRouterModel = {
   name: string;
   context_length: number | null;
   architecture?: {
-    // e.g. "text+image->text", "text->text+image", "text+image+file->text"
-    modality?: string;
+    input_modalities?: string[];   // what the model can accept as input
+    output_modalities?: string[];  // what the model can produce as output
+    tokenizer?: string | null;
+    instruct_type?: string | null;
   };
   pricing: {
-    prompt: string;    // cost per token (string decimal)
+    prompt: string;       // cost per token (string decimal)
     completion: string;
   } | null;
-  // Array of generation params the model supports, e.g. ["tools", "reasoning", ...]
-  supported_generation_params?: string[];
+  // Parameters the model natively supports.
+  // Relevant values: "tools", "tool_choice", "structured_outputs", "response_format", "reasoning"
+  supported_parameters?: string[];
 };
 
 type OpenRouterResponse = {
@@ -32,49 +40,29 @@ type OpenRouterResponse = {
 /**
  * Derive boolean capability flags from the raw OpenRouter model object.
  *
- * modality format:  "<inputs>-><outputs>"
- *   inputs  can contain: "text", "image", "file"
- *   outputs can contain: "text", "image"
- *
- * supported_generation_params examples: ["tools", "reasoning", "temperature", ...]
- * NOTE: this field exists on the public /models endpoint but may be absent or
- * incomplete on /models/user — so we also apply a known-family pattern as
- * a reliable fallback for tool use.
+ * input_modalities:  ["text", "image", "file", "audio"]
+ * output_modalities: ["text"] | ["text", "image"] | ["image"]
+ * supported_parameters: ["tools", "tool_choice", "structured_outputs", ...]
  */
-
-/**
- * Pattern matching model families that are documented to support function/tool
- * calling. Covers Anthropic, OpenAI, Google, Meta Llama 3.1+, Mistral Large
- * family, Mixtral, Qwen, Command-R, DeepSeek Chat, Grok, and Phi-3+.
- *
- * Intentionally excludes: pure reasoning models (o1-mini, r1), image-gen
- * models, and ancient (<2023) models that predate tool-call support.
- */
-const TOOL_CAPABLE_PATTERN =
-  /^(anthropic\/|openai\/gpt-4|openai\/gpt-3\.5-turbo|openai\/o[1-9](?!-mini)|google\/gemini|meta-llama\/llama-3|mistralai\/mistral-(?:large|medium|small|nemo)|mistralai\/mixtral|cohere\/command-r|qwen\/qwen|deepseek\/deepseek-chat|x-ai\/grok|microsoft\/phi-3|microsoft\/phi-4|nvidia\/)/i;
-
 function parseCapabilities(m: OpenRouterModel) {
-  const modality = m.architecture?.modality ?? '';
-  const arrowIdx = modality.indexOf('->');
-  const inputPart  = arrowIdx >= 0 ? modality.slice(0, arrowIdx) : modality;
-  const outputPart = arrowIdx >= 0 ? modality.slice(arrowIdx + 2) : '';
-  const params     = m.supported_generation_params ?? [];
+  const inputs  = m.architecture?.input_modalities  ?? [];
+  const outputs = m.architecture?.output_modalities ?? [];
+  const params  = m.supported_parameters            ?? [];
 
   return {
-    // Can process image input (vision)
-    vision: inputPart.includes('image'),
-    // Can process file/document input (PDF, docx, etc.)
-    files: inputPart.includes('file'),
-    // Supports tool / function calling.
-    // Primary: API field (present on some endpoints).
-    // Fallback: known model-family pattern.
-    tools: params.includes('tools') || TOOL_CAPABLE_PATTERN.test(m.id),
-    // Has extended reasoning / chain-of-thought (o1, o3, r1, Gemini thinking, etc.)
+    // Can process image input (vision / multimodal)
+    vision: inputs.includes('image'),
+    // Can process file/document input (PDF, DOCX, etc.)
+    files: inputs.includes('file'),
+    // Supports tool / function calling (OpenAI-style)
+    tools: params.includes('tools') || params.includes('tool_choice'),
+    // Has extended reasoning / chain-of-thought
+    // API field covers official reasoning models; regex catches named variants
     reasoning:
       params.includes('reasoning') ||
       /thinking|\bo[13]\b|r1-0[0-9]|deepseek-r1/i.test(m.id),
-    // Can generate images as output
-    imageGen: outputPart.includes('image'),
+    // Can generate images as output (text-to-image models)
+    imageGen: outputs.includes('image'),
   };
 }
 
@@ -96,12 +84,16 @@ export async function GET() {
 
   let upstream: Response;
   try {
-    upstream = await fetch('https://openrouter.ai/api/v1/models/user', {
+    // Use the public /models endpoint (not /models/user) — it returns the same
+    // models the user has access to via their API key, and crucially it includes
+    // the full capability metadata (input_modalities, output_modalities,
+    // supported_parameters) that /models/user omits or truncates.
+    upstream = await fetch('https://openrouter.ai/api/v1/models', {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      // Don't cache — always reflect the user's actual model access.
+      // Don't cache — always reflect current model availability.
       cache: 'no-store',
     });
   } catch (err) {
@@ -122,23 +114,6 @@ export async function GET() {
   }
 
   const json = (await upstream.json()) as OpenRouterResponse;
-
-  // Debug: log the raw capability fields of the first few models so we can
-  // verify what OpenRouter actually returns for supported_generation_params.
-  // Remove once confirmed.
-  const sample = (json.data ?? []).slice(0, 3);
-  console.log(
-    '[admin/models] raw capability sample:',
-    JSON.stringify(
-      sample.map((m) => ({
-        id: m.id,
-        modality: m.architecture?.modality,
-        supported_generation_params: m.supported_generation_params,
-      })),
-      null,
-      2,
-    ),
-  );
 
   // Return a trimmed, stable shape.
   // Prices are numeric (per 1M tokens) for clean client-side formatting.
