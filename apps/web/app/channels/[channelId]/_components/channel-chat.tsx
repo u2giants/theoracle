@@ -221,7 +221,7 @@ export function ChannelChat({
   }, [presence, me.id]);
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-full flex-col">
       <header className="border-b px-6 py-4">
         <div className="flex items-center justify-between">
           <div>

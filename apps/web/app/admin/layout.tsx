@@ -15,6 +15,10 @@ const TABS = [
   { href: '/admin/brain', label: 'Brain' },
 ] as const;
 
+// Chat-rooms link lives outside the admin tabs array because it navigates
+// out of /admin entirely.
+const CHAT_HREF = '/channels';
+
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const me = await requireAdmin();
   return (
@@ -35,6 +39,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                   {t.label}
                 </Link>
               ))}
+              <Link
+                href={CHAT_HREF}
+                className="font-medium text-foreground hover:text-foreground"
+                title="Go to chat rooms"
+              >
+                ↗ Chat
+              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3">

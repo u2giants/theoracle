@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 export default async function ChannelsIndexPage() {
   const me = await requireEmployee();
   return (
-    <div className="flex h-screen items-center justify-center p-6">
+    <div className="flex h-full items-center justify-center p-6">
       <Card className="max-w-md">
         <CardHeader>
           <CardTitle>Welcome, {me.name}</CardTitle>

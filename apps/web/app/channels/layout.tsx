@@ -29,8 +29,8 @@ export default async function ChannelsLayout({ children }: { children: React.Rea
     .orderBy(desc(sql`MAX(${messages.createdAt})`));
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-72 shrink-0 flex-col border-r bg-muted/30 p-4">
+    <div className="flex h-screen overflow-hidden">
+      <aside className="flex w-72 shrink-0 flex-col overflow-y-auto border-r bg-muted/30 p-4">
         <div className="mb-4 flex items-start justify-between gap-2">
           <div>
             <Link href="/channels" className="font-semibold">
@@ -68,7 +68,7 @@ export default async function ChannelsLayout({ children }: { children: React.Rea
           ))}
         </nav>
       </aside>
-      <main className="flex-1">{children}</main>
+      <main className="flex-1 overflow-hidden">{children}</main>
     </div>
   );
 }
