@@ -30,7 +30,7 @@ const DEFAULT_SETTINGS: Array<{
   { key: 'lull_window_seconds', value: 60, description: 'Seconds of human silence before Oracle may interject (spec 5.1).' },
   { key: 'oracle_cooldown_minutes', value: 10, description: 'Minimum minutes between Oracle interjections in a single channel.' },
   { key: 'max_oracle_interjections_per_hour', value: 3, description: 'Per-channel cap on proactive interjections.' },
-  { key: 'default_interview_model', value: 'anthropic/claude-sonnet-4.6', description: 'OpenRouter model for live interview / chat.' },
+  { key: 'default_interview_model', value: 'deepseek/deepseek-v4-pro', description: 'OpenRouter model for live interview / chat.' },
   { key: 'default_extraction_model', value: 'google/gemini-2.5-flash', description: 'OpenRouter model for claim extraction.' },
   { key: 'default_synthesis_model', value: 'anthropic/claude-sonnet-4.6', description: 'OpenRouter model for brain synthesis.' },
   { key: 'enable_live_contradiction_interjections', value: false, description: 'When false, possible contradictions queue silently (spec 5.1 Rule 1).' },

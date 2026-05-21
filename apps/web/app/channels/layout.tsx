@@ -29,16 +29,29 @@ export default async function ChannelsLayout({ children }: { children: React.Rea
     .orderBy(desc(sql`MAX(${messages.createdAt})`));
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <aside className="flex w-72 shrink-0 flex-col overflow-y-auto border-r bg-muted/30 p-4">
-        <div className="mb-4 flex items-start justify-between gap-2">
-          <div>
-            <Link href="/channels" className="font-semibold">
-              Channels
-            </Link>
-            <p className="text-xs text-muted-foreground">{me.name}</p>
+    <div className="flex h-screen flex-col overflow-hidden">
+      <header className="shrink-0 border-b">
+        <div className="flex items-center justify-between px-6 py-3">
+          <Link href="/channels" className="text-base font-semibold">
+            The Oracle
+          </Link>
+          <div className="flex items-center gap-4">
+            {me.isAdmin ? (
+              <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground">
+                ↗ Admin
+              </Link>
+            ) : null}
+            <span className="text-xs text-muted-foreground">{me.name}</span>
+            <LogoutButton />
           </div>
-          <LogoutButton />
+        </div>
+      </header>
+      <div className="flex flex-1 overflow-hidden">
+      <aside className="flex w-72 shrink-0 flex-col overflow-y-auto border-r bg-muted/30 p-4">
+        <div className="mb-4">
+          <Link href="/channels" className="font-semibold">
+            Channels
+          </Link>
         </div>
         <nav className="space-y-1 text-sm">
           {myChannels.length === 0 ? (
@@ -69,6 +82,7 @@ export default async function ChannelsLayout({ children }: { children: React.Rea
         </nav>
       </aside>
       <main className="flex-1 overflow-hidden">{children}</main>
+      </div>
     </div>
   );
 }
