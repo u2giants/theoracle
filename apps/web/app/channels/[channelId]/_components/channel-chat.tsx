@@ -148,6 +148,16 @@ export function ChannelChat({
     if (!draft.trim() || sending) return;
     setSending(true);
     try {
+      // Verify the browser client has an active session before hitting RLS.
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        // Session expired or cookies not readable — force a full page reload to
+        // re-run the server auth guard, which will either refresh or redirect.
+        console.warn('[send] no client session — reloading to refresh auth');
+        window.location.reload();
+        return;
+      }
+
       const { data, error } = await supabase
         .from('messages')
         .insert({
@@ -158,7 +168,16 @@ export function ChannelChat({
         })
         .select()
         .single();
-      if (error) throw error;
+      if (error) {
+        // PostgrestError fields are non-enumerable — spread them explicitly.
+        console.error('[send] insert failed', {
+          code: (error as { code?: string }).code,
+          message: error.message,
+          details: (error as { details?: string }).details,
+          hint: (error as { hint?: string }).hint,
+        });
+        throw error;
+      }
       // Optimistic — the realtime feed will resolve duplicates by id.
       setMessages((cur) => [
         ...cur,
@@ -181,7 +200,7 @@ export function ChannelChat({
       }
     } catch (err) {
       console.error('[send] failed', err);
-      alert('Send failed. Are you sure you are in this channel?');
+      alert('Send failed. Check the browser console for the specific error code.');
     } finally {
       setSending(false);
     }
