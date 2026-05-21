@@ -146,7 +146,15 @@ function Legend() {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function ModelPicker({ currentModel }: { currentModel: string | null }) {
+export function ModelPicker({
+  currentModel,
+  settingKey,
+  settingDescription,
+}: {
+  currentModel: string | null;
+  settingKey: string;
+  settingDescription: string;
+}) {
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -218,9 +226,9 @@ export function ModelPicker({ currentModel }: { currentModel: string | null }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          key: 'default_interview_model',
+          key: settingKey,
           value: selected,
-          description: 'OpenRouter model used for Oracle interview chat.',
+          description: settingDescription,
         }),
       });
       if (!res.ok) {

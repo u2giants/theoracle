@@ -1,46 +1,163 @@
 // Admin → Settings tab.
-// Reads current settings from the DB server-side, passes to client components.
+// Reads all model settings from the DB server-side, passes to client pickers.
 
-import { eq } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { settings } from '@oracle/db/schema';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { ModelPicker } from './_components/model-picker';
+
+// ---------------------------------------------------------------------------
+// The three configurable model roles.
+// ---------------------------------------------------------------------------
+
+const MODEL_ROLES = [
+  {
+    settingKey: 'default_interview_model',
+    title: 'Interview model',
+    subtitle: 'Real-time Oracle chat',
+    description: (
+      <>
+        Called synchronously every time an employee sends a message. The employee
+        is watching a &ldquo;thinking…&rdquo; indicator. This model must support{' '}
+        <strong>tool use</strong>, follow strict one-question-per-reply output
+        rules, and ideally support <strong>vision</strong> so it can read
+        diagrams and product photos employees share. Latency is user-facing —
+        aim for under 8 s including tool calls.
+      </>
+    ),
+    settingDescription: 'OpenRouter model for real-time Oracle interview chat.',
+    requirements: [
+      'Tool use required',
+      'Vision strongly recommended',
+      'Low latency (≤8 s)',
+      'Strong instruction following',
+      'Context: ~3K–9K tokens per call',
+    ],
+  },
+  {
+    settingKey: 'default_extraction_model',
+    title: 'Extraction model',
+    subtitle: 'Async claim extraction from messages & documents',
+    description: (
+      <>
+        Runs in the background every 4 hours (and on document upload) via
+        Trigger.dev. Reads batches of employee messages or document chunks and
+        outputs structured JSON: claim type, summary, impact score, confidence
+        score, exact supporting quote, knowledge domains, and suggested gaps.
+        Nobody is waiting — optimise for <strong>accuracy</strong> and{' '}
+        <strong>structured output reliability</strong>. Vision is needed for
+        documents containing embedded images (flow charts, product specs).
+      </>
+    ),
+    settingDescription: 'OpenRouter model for async claim extraction from messages and documents.',
+    requirements: [
+      'Structured / JSON output required',
+      'Vision recommended (document images)',
+      'File input recommended (PDFs)',
+      'High extraction accuracy',
+      'No latency requirement (async)',
+      'Context: variable, up to ~32K per batch',
+    ],
+  },
+  {
+    settingKey: 'default_synthesis_model',
+    title: 'Synthesis model',
+    subtitle: 'Periodic Brain section synthesis',
+    description: (
+      <>
+        Runs on a weekly schedule and on admin trigger. Reads up to 200 approved
+        claims per brain section and synthesizes a new versioned Markdown
+        document where <em>every paragraph maps to approved claim IDs</em>. The
+        output is validated by a backend rule engine — any hallucinated or
+        untracked claim ID causes the run to fail. This model must handle{' '}
+        <strong>very long context</strong>, produce{' '}
+        <strong>structured JSON</strong>, and reason carefully about
+        contradicting evidence. No latency requirement.
+      </>
+    ),
+    settingDescription: 'OpenRouter model for brain section synthesis (long-context, structured output).',
+    requirements: [
+      'Structured / JSON output required',
+      'Long context (≥100K strongly recommended)',
+      'No latency requirement (async, up to 10 min)',
+      'High reasoning quality',
+      'Context: potentially 100K+ tokens at scale',
+    ],
+  },
+] as const;
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default async function AdminSettingsPage() {
   const db = getDirectDb();
 
-  const modelRow = await db
+  const rows = await db
     .select()
     .from(settings)
-    .where(eq(settings.key, 'default_interview_model'))
-    .limit(1);
+    .where(
+      inArray(
+        settings.key,
+        MODEL_ROLES.map((r) => r.settingKey),
+      ),
+    );
 
-  // The value is stored as a jsonb string — unwrap it.
-  const currentModel =
-    typeof modelRow[0]?.value === 'string' ? modelRow[0].value : null;
+  // Build a lookup so we can pass the right current value to each picker.
+  const currentValues: Record<string, string | null> = {};
+  for (const row of rows) {
+    currentValues[row.key] =
+      typeof row.value === 'string' ? row.value : null;
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Global Oracle configuration. Changes take effect on the next Oracle reply.
+          Model configuration for all Oracle tasks. Each role has different
+          capability and performance requirements — see descriptions below.
+          Changes take effect on the next run of that task.
         </p>
       </header>
 
-      <Card className="max-w-xl">
-        <CardHeader>
-          <CardTitle className="text-base">Oracle model</CardTitle>
-          <CardDescription>
-            The OpenRouter model used for all Oracle chat replies. Only models
-            available on your OpenRouter account are listed.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ModelPicker currentModel={currentModel} />
-        </CardContent>
-      </Card>
+      {MODEL_ROLES.map((role) => (
+        <Card key={role.settingKey} className="max-w-2xl">
+          <CardHeader>
+            <CardTitle className="text-base">{role.title}</CardTitle>
+            <CardDescription className="font-medium text-foreground/70">
+              {role.subtitle}
+            </CardDescription>
+            <p className="text-sm text-muted-foreground mt-1">
+              {role.description}
+            </p>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {role.requirements.map((req) => (
+                <span
+                  key={req}
+                  className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground"
+                >
+                  {req}
+                </span>
+              ))}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ModelPicker
+              currentModel={currentValues[role.settingKey] ?? null}
+              settingKey={role.settingKey}
+              settingDescription={role.settingDescription}
+            />
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
