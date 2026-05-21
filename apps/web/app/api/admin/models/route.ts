@@ -37,7 +37,22 @@ type OpenRouterResponse = {
  *   outputs can contain: "text", "image"
  *
  * supported_generation_params examples: ["tools", "reasoning", "temperature", ...]
+ * NOTE: this field exists on the public /models endpoint but may be absent or
+ * incomplete on /models/user — so we also apply a known-family pattern as
+ * a reliable fallback for tool use.
  */
+
+/**
+ * Pattern matching model families that are documented to support function/tool
+ * calling. Covers Anthropic, OpenAI, Google, Meta Llama 3.1+, Mistral Large
+ * family, Mixtral, Qwen, Command-R, DeepSeek Chat, Grok, and Phi-3+.
+ *
+ * Intentionally excludes: pure reasoning models (o1-mini, r1), image-gen
+ * models, and ancient (<2023) models that predate tool-call support.
+ */
+const TOOL_CAPABLE_PATTERN =
+  /^(anthropic\/|openai\/gpt-4|openai\/gpt-3\.5-turbo|openai\/o[1-9](?!-mini)|google\/gemini|meta-llama\/llama-3|mistralai\/mistral-(?:large|medium|small|nemo)|mistralai\/mixtral|cohere\/command-r|qwen\/qwen|deepseek\/deepseek-chat|x-ai\/grok|microsoft\/phi-3|microsoft\/phi-4|nvidia\/)/i;
+
 function parseCapabilities(m: OpenRouterModel) {
   const modality = m.architecture?.modality ?? '';
   const arrowIdx = modality.indexOf('->');
@@ -50,8 +65,10 @@ function parseCapabilities(m: OpenRouterModel) {
     vision: inputPart.includes('image'),
     // Can process file/document input (PDF, docx, etc.)
     files: inputPart.includes('file'),
-    // Supports tool / function calling
-    tools: params.includes('tools'),
+    // Supports tool / function calling.
+    // Primary: API field (present on some endpoints).
+    // Fallback: known model-family pattern.
+    tools: params.includes('tools') || TOOL_CAPABLE_PATTERN.test(m.id),
     // Has extended reasoning / chain-of-thought (o1, o3, r1, Gemini thinking, etc.)
     reasoning:
       params.includes('reasoning') ||
@@ -105,6 +122,23 @@ export async function GET() {
   }
 
   const json = (await upstream.json()) as OpenRouterResponse;
+
+  // Debug: log the raw capability fields of the first few models so we can
+  // verify what OpenRouter actually returns for supported_generation_params.
+  // Remove once confirmed.
+  const sample = (json.data ?? []).slice(0, 3);
+  console.log(
+    '[admin/models] raw capability sample:',
+    JSON.stringify(
+      sample.map((m) => ({
+        id: m.id,
+        modality: m.architecture?.modality,
+        supported_generation_params: m.supported_generation_params,
+      })),
+      null,
+      2,
+    ),
+  );
 
   // Return a trimmed, stable shape.
   // Prices are numeric (per 1M tokens) for clean client-side formatting.
