@@ -147,60 +147,59 @@ export function ChannelChat({
     e.preventDefault();
     if (!draft.trim() || sending) return;
     setSending(true);
+    const snapshot = draft;
+    setDraft(''); // optimistic clear
     try {
-      // Verify the browser client has an active session before hitting RLS.
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) {
-        // Session expired or cookies not readable — force a full page reload to
-        // re-run the server auth guard, which will either refresh or redirect.
-        console.warn('[send] no client session — reloading to refresh auth');
-        window.location.reload();
-        return;
+      // Route through the server API so the insert uses the service-role
+      // connection (DIRECT_URL) and server-side session validation — this
+      // sidesteps any browser-client Supabase auth issues.
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId: channel.id, content: snapshot }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text();
+        console.error('[send] api/messages failed', res.status, errBody);
+        throw new Error(`${res.status}: ${errBody}`);
       }
 
-      const { data, error } = await supabase
-        .from('messages')
-        .insert({
-          channel_id: channel.id,
-          employee_id: me.id,
-          role: 'user',
-          content: draft,
-        })
-        .select()
-        .single();
-      if (error) {
-        // PostgrestError fields are non-enumerable — spread them explicitly.
-        console.error('[send] insert failed', {
-          code: (error as { code?: string }).code,
-          message: error.message,
-          details: (error as { details?: string }).details,
-          hint: (error as { hint?: string }).hint,
-        });
-        throw error;
-      }
-      // Optimistic — the realtime feed will resolve duplicates by id.
-      setMessages((cur) => [
-        ...cur,
-        {
-          id: data.id,
-          channelId: channel.id,
-          employeeId: me.id,
-          role: 'user',
-          content: draft,
-          createdAt: data.created_at,
-          authorName: me.name,
-        },
-      ]);
-      setDraft('');
+      const data = (await res.json()) as {
+        id: string;
+        channelId: string;
+        employeeId: string;
+        role: 'user' | 'assistant' | 'system';
+        content: string;
+        createdAt: string;
+      };
+
+      // Optimistic add — the realtime feed will de-dup by id.
+      setMessages((cur) => {
+        if (cur.some((m) => m.id === data.id)) return cur;
+        return [
+          ...cur,
+          {
+            id: data.id,
+            channelId: channel.id,
+            employeeId: me.id,
+            role: 'user',
+            content: snapshot,
+            createdAt: data.createdAt,
+            authorName: me.name,
+          },
+        ];
+      });
       broadcastTyping(false);
 
       // Phase 3: if the message mentions @oracle, fire the chat route.
-      if (/^\s*(@oracle|oracle,)/i.test(draft)) {
+      if (/^\s*(@oracle|oracle,)/i.test(snapshot)) {
         void fetchOracleReply(channel.id);
       }
     } catch (err) {
       console.error('[send] failed', err);
-      alert('Send failed. Check the browser console for the specific error code.');
+      setDraft(snapshot); // restore on error
+      alert('Send failed — check the browser console for details.');
     } finally {
       setSending(false);
     }
