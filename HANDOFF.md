@@ -18,8 +18,8 @@ Live in-flight state. A new contributor (human or AI) should be able to read thi
 - **Phases 1–3 are code-complete and wet-tested.** Phase 1: Google + M365 SSO end-to-end. Phase 3: Oracle chat route fully verified — `POST /api/chat` returns a correct response, `model_runs` row inserted, assistant message persisted. Phase 2 UI is built but RLS cross-channel isolation hasn't been wet-tested.
 - **Phases 4–6 are scaffolds only** — files exist with the spec workflow as JSDoc comments. Nothing actually calls an LLM yet.
 - **No active blockers.** The dev server runs cleanly. Google OAuth + Microsoft 365 SSO are live. Brevo SMTP handles magic-link email delivery. The multi-identity refactor (`employee_identities` table) is in and verified.
-- **Phase 4 is now code-complete.** The Trigger.dev workers are fully implemented (claim-extraction, document-ingestion, document-ingestion-sweep, contradiction-watcher, contradiction-watcher-sweep, brain-synthesis, brain-synthesis-scheduled). Typecheck and build are green. **They are not yet deployed** — `TRIGGER_PROJECT_REF` and `TRIGGER_SECRET_KEY` must be configured in Vercel env and `pnpm --filter @oracle/workers deploy` must be run before the tasks run in production.
-- The natural next step is **deploying Phase 4** to Trigger.dev, then **Phase 5** (admin review dashboards for claims, gaps, contradictions, brain).
+- **Phase 4 is deployed.** The Trigger.dev workers are fully implemented and running in production — version `20260521.1` with 7 tasks. `TRIGGER_PROJECT_REF=proj_wgpzsvhmsopqhvwqaycn` is set in both `.env.local` and Vercel production env. `TRIGGER_SECRET_KEY` was already present.
+- The natural next step is **Phase 5** (admin review dashboards for claims, gaps, contradictions, brain), then seeding real conversations so the workers have data to process.
 
 ---
 
@@ -111,7 +111,7 @@ The migrations apply to the **live Supabase project** referenced by `DIRECT_URL`
 | 1 — Foundation (schema, RLS, auth, seed) | done | **YES** — both Google + M365 SSO end-to-end; denial flow with non-allowlisted email. |
 | 2 — Realtime chat + document upload + admin dashboard | code complete | **Partially.** Oracle DM chat fully wet-tested (Phase 3 session). Phase 2 RLS isolation not yet verified with a second employee. |
 | 3 — Oracle chat route (`POST /api/chat`) | **done + wet-tested** | **YES** — Oracle replies end-to-end in the `oracle-smoke-test` DM channel. Model `anthropic/claude-sonnet-4.6`, 2001 in / 98 out tokens, 6.3s latency. Multi-modal uploads (images/PDFs) passed to model. Model picker live in Admin → Settings. |
-| 4 — Trigger.dev workers (claim extraction, ingestion, contradiction watcher, brain synthesis) | **code complete** | n/a — requires Trigger.dev project deploy |
+| 4 — Trigger.dev workers (claim extraction, ingestion, contradiction watcher, brain synthesis) | **deployed** (v`20260521.1`, 7 tasks, prod) | n/a — workers process real data; wet-test by uploading a doc or sending messages and checking `job_runs` |
 | 5 — Admin review dashboards (claims, gaps, contradictions, brain) | placeholders | n/a |
 | 6 — Interjection engine | empty module with JSDoc | n/a |
 | Docs (AGENTS / DECISIONS / docs/* / HANDOFF / migrations README) | current as of this snapshot | n/a |
@@ -386,7 +386,7 @@ Ranked roughly by friction-cost vs payoff.
 
 ### High value, high friction — the actual work
 
-9. **Deploy Phase 4 to Trigger.dev.** Code is complete. Set `TRIGGER_PROJECT_REF` + `TRIGGER_SECRET_KEY` in Vercel env, then run `pnpm --filter @oracle/workers deploy`. See the Phase 4 deployment guide below.
+9. ~~**Deploy Phase 4 to Trigger.dev.**~~ **DONE (2026-05-21).** Version `20260521.1` deployed with 7 tasks. `TRIGGER_PROJECT_REF=proj_wgpzsvhmsopqhvwqaycn` set in both `.env.local` and Vercel production. Dashboard: https://cloud.trigger.dev/projects/v3/proj_wgpzsvhmsopqhvwqaycn/deployments/5jx5wa49
 10. **Implement Phase 5 — Admin review dashboards.** Each placeholder under `apps/web/app/admin/*` needs to be built. The data they read is documented in `packages/db/migrations/sql/30_admin_views.sql`.
 11. **Implement Phase 6 — Interjection engine.** Depends on Phase 4 (claims must exist) and at least one wet-tested channel.
 12. **Wire Authentik OIDC** as a third login provider. Spec requires it for internal-only accounts. Not blocking anything until such an account exists.
@@ -397,7 +397,7 @@ Ranked roughly by friction-cost vs payoff.
 
 - ~~**Phase 3 chat route has never run against the live retrieval path.**~~ **Resolved 2026-05-21** — route wet-tested end-to-end. OpenRouter wrapper, Zod tool schemas, and service-role assistant insert all work correctly. The `oracle-smoke-test` channel has the conversation in it.
 - **The deprecated `auth_*` columns on `employees` are still queryable.** Any new code that does `SELECT auth_user_id FROM employees WHERE ...` will get NULL and may silently misbehave. `AGENTS.md` §11 calls this out, but it's a footgun until those columns are dropped.
-- **No tasks have been deployed to Trigger.dev** despite the project being configured. Running `pnpm --filter @oracle/workers deploy` for the first time may surface auth/permissions issues we haven't seen.
+- ~~**No tasks have been deployed to Trigger.dev.**~~ **Resolved 2026-05-21** — version `20260521.1` deployed with 7 tasks running in production. Workers will fire when trigger conditions are met (document uploads, new messages, scheduled crons). First real `job_runs` rows will appear once there is source data.
 - **Production Vercel deploy is now green** (deploy `theoracle-7c5ryvwxm-popcre.vercel.app`, commit `c8fca10`). The deployed URL hasn't been browsed yet — first real visit may surface env-var-shape mismatches between Production and the local-dev `.env.local`.
 - **Spec compliance for Phase 4 worker output is strict** (spec 9.8 — structured output with `supportingClaimIds`, etc.). The synthesis validator must reject paragraphs that don't map to approved claim IDs. Writing this correctly the first time is non-trivial.
 
@@ -448,8 +448,9 @@ Each file under `apps/workers/src/trigger/` already has the spec workflow captur
 
 ### Wiring Trigger.dev
 
-- `apps/workers/trigger.config.ts` reads `TRIGGER_PROJECT_REF` from env. Set this in Vercel + Trigger.dev dashboards once the Trigger.dev project is created.
-- First deploy: `pnpm --filter @oracle/workers deploy`. The script invokes `npx trigger.dev@latest deploy`.
+- `apps/workers/trigger.config.ts` reads `TRIGGER_PROJECT_REF` from env. **Already set** — `proj_wgpzsvhmsopqhvwqaycn` in both `.env.local` and Vercel production.
+- **First deploy is done** — version `20260521.1` with 7 tasks, deployed 2026-05-21. Dashboard: https://cloud.trigger.dev/projects/v3/proj_wgpzsvhmsopqhvwqaycn/deployments/5jx5wa49
+- Re-deploy after code changes: `pnpm --filter @oracle/workers deploy`.
 - For local development of tasks, use `pnpm --filter @oracle/workers dev` (runs `trigger.dev dev` which tunnels back to the cloud).
 
 ### Testing
@@ -559,7 +560,7 @@ Are you here to keep building?
 
 ## Verbatim resume prompt for a fresh Claude Code session
 
-> I'm continuing work on The Oracle. Read HANDOFF.md at the repo root first, then AGENTS.md, then DECISIONS.md, then `oracle_master_spec.md`. Phase 1 is fully wet-tested (Google OAuth + Microsoft 365 SSO both land on the same Albert employee row via the multi-identity refactor). Phase 2 and 3 are code-complete but not wet-tested. Phases 4–6 are scaffolds. My next move is [pick: wet-test Phase 3 / wet-test Phase 2 RLS / implement Phase 4 claim-extraction / fix the two pre-existing typecheck errors / something else]. Walk me through it and start executing.
+> I'm continuing work on The Oracle. Read HANDOFF.md at the repo root first, then AGENTS.md, then DECISIONS.md, then `oracle_master_spec.md`. Phases 1 and 3 are fully wet-tested. Phase 4 workers are deployed to Trigger.dev (version 20260521.1, 7 tasks). Phase 2 RLS hasn't been wet-tested yet (needs a second loginable employee). Phases 5–6 are scaffolds. My next move is [pick: implement Phase 5 admin dashboards / wet-test Phase 2 RLS / wet-test Phase 4 workers with real data / implement Phase 6 interjection engine / something else]. Walk me through it and start executing.
 
 ---
 

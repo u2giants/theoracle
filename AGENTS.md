@@ -485,7 +485,7 @@ Rule added to prevent recurrence:
 | done | Wet-test Phase 3 chat route — `@oracle` posted, response received, `model_runs` row confirmed (`anthropic/claude-sonnet-4.6`, 6.3s, 2001/98 tokens). | 2026-05-21 |
 | open | Create the `company_documents` Storage bucket in Supabase if not already done | Albert (Supabase dashboard) |
 | open | Wire Authentik OIDC as a third login provider for internal-only accounts | future build session |
-| open | Implement Phase 4 — Trigger.dev workers (claim extraction, document ingestion, contradiction watcher, brain synthesis) | scaffolds exist in `apps/workers/src/trigger/` |
+| done | Deploy Phase 4 to Trigger.dev — version `20260521.1` with 7 tasks running in production (`proj_wgpzsvhmsopqhvwqaycn`). `TRIGGER_PROJECT_REF` set in `.env.local` + Vercel. | 2026-05-21 |
 | open | Implement Phase 5 — Admin review/brain dashboard pages | placeholders exist under `apps/web/app/admin/*` |
 | open | Implement Phase 6 — Interjection engine (lull detection, cooldown, contradiction live-interjection) | scaffold at `packages/oracle-engines/src/interjection.ts` |
 | done | CI: `.github/workflows/pr-check.yml` runs `pnpm --filter @oracle/web build` on PRs + pushes to `main`. Catches production-only typecheck errors (the 2026-05-20 class of failure). Uses placeholder env vars; App Router dynamic-rendering means real secrets aren't needed at build. |  |
