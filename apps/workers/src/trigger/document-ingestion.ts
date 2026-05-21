@@ -46,7 +46,7 @@ import {
 import { createServiceRoleClient } from '@oracle/auth/server';
 import type { KnowledgeDomain } from '@oracle/shared';
 
-const FALLBACK_MODEL = 'google/gemini-flash';
+const FALLBACK_MODEL = 'google/gemini-2.5-flash';
 const CHUNK_SIZE = 1500;     // characters per chunk
 const CHUNK_OVERLAP = 150;   // character overlap between chunks
 

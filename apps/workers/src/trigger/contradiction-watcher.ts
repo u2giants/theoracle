@@ -31,7 +31,7 @@ import {
 import { getOpenRouter, embedText } from '@oracle/ai';
 import { EMBEDDING_DIM } from '@oracle/shared';
 
-const FALLBACK_MODEL = 'google/gemini-flash';
+const FALLBACK_MODEL = 'google/gemini-2.5-flash';
 
 // Similarity threshold — cosine distance below this may indicate related claims.
 // pgvector cosine distance: 0 = identical, 2 = maximally different.

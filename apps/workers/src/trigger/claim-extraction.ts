@@ -41,7 +41,7 @@ import type { KnowledgeDomain } from '@oracle/shared';
 
 const BATCH_SIZE = 100; // max messages per cron run
 const SEGMENT_GAP_MS = 60 * 60 * 1000; // 60-minute gaps → new conversation segment
-const FALLBACK_MODEL = 'google/gemini-flash';
+const FALLBACK_MODEL = 'google/gemini-2.5-flash';
 
 // Claim types that are low-risk for auto-approval.
 const LOW_RISK_CLAIM_TYPES = new Set([
