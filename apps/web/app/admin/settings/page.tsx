@@ -1,6 +1,7 @@
 // Admin → Settings tab.
 // Reads all model settings from the DB server-side, passes to client pickers.
 
+import React from 'react';
 import { inArray } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { settings } from '@oracle/db/schema';
@@ -12,12 +13,21 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { ModelPicker } from './_components/model-picker';
+import { RequiredCapIcons, type CapKey } from './_components/caps';
 
 // ---------------------------------------------------------------------------
 // The three configurable model roles.
 // ---------------------------------------------------------------------------
 
-const MODEL_ROLES = [
+const MODEL_ROLES: {
+  settingKey: string;
+  title: string;
+  subtitle: string;
+  description: React.ReactNode;
+  settingDescription: string;
+  requirements: readonly string[];
+  requiredCaps: CapKey[];
+}[] = [
   {
     settingKey: 'default_interview_model',
     title: 'Interview model',
@@ -40,6 +50,7 @@ const MODEL_ROLES = [
       'Strong instruction following',
       'Context: ~3K–9K tokens per call',
     ],
+    requiredCaps: ['tools', 'vision'],
   },
   {
     settingKey: 'default_extraction_model',
@@ -65,6 +76,7 @@ const MODEL_ROLES = [
       'No latency requirement (async)',
       'Context: variable, up to ~32K per batch',
     ],
+    requiredCaps: ['tools', 'vision', 'files'],
   },
   {
     settingKey: 'default_synthesis_model',
@@ -90,8 +102,9 @@ const MODEL_ROLES = [
       'High reasoning quality',
       'Context: potentially 100K+ tokens at scale',
     ],
+    requiredCaps: ['tools', 'reasoning'],
   },
-] as const;
+];
 
 // ---------------------------------------------------------------------------
 // Page
@@ -138,6 +151,7 @@ export default async function AdminSettingsPage() {
             <p className="text-sm text-muted-foreground mt-1">
               {role.description}
             </p>
+            <RequiredCapIcons keys={role.requiredCaps} />
             <div className="flex flex-wrap gap-1.5 mt-2">
               {role.requirements.map((req) => (
                 <span

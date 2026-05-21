@@ -2,17 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  Brain,
   Check,
   ChevronDown,
-  Eye,
-  FileText,
-  ImageIcon,
   Search,
-  Wrench,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { CAPS } from './caps';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,47 +29,7 @@ type Model = {
 
 type Status = 'idle' | 'saving' | 'saved' | 'error';
 
-// ---------------------------------------------------------------------------
-// Capability icon definitions — single source of truth for icons + legend
-// ---------------------------------------------------------------------------
-
-const CAPS = [
-  {
-    key: 'vision'    as const,
-    Icon: Eye,
-    color: 'text-blue-500',
-    label: 'Vision',
-    desc: 'Accepts image input',
-  },
-  {
-    key: 'tools'     as const,
-    Icon: Wrench,
-    color: 'text-emerald-500',
-    label: 'Tool use',
-    desc: 'Supports function / tool calling',
-  },
-  {
-    key: 'files'     as const,
-    Icon: FileText,
-    color: 'text-orange-500',
-    label: 'File input',
-    desc: 'Accepts documents (PDF, DOCX…)',
-  },
-  {
-    key: 'reasoning' as const,
-    Icon: Brain,
-    color: 'text-purple-500',
-    label: 'Reasoning',
-    desc: 'Extended chain-of-thought / thinking',
-  },
-  {
-    key: 'imageGen'  as const,
-    Icon: ImageIcon,
-    color: 'text-pink-500',
-    label: 'Image gen',
-    desc: 'Generates image output',
-  },
-] as const;
+// CAPS imported from ./caps — shared with server components.
 
 // ---------------------------------------------------------------------------
 // Helpers
