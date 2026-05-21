@@ -91,10 +91,10 @@ One human → one `employees` row → many `employee_identities` rows.
 
 ### 2. `@oracle` mention → chat response
 
-1. `POST /api/chat` receives `{channelId, employeeId, message}`.
-2. The route resolves the requester's `employees` row through `employee_identities` (matches `auth.uid()` from the Supabase session).
+1. `POST /api/chat` receives `{ channelId }`. The employee is resolved server-side from the Supabase session cookie — the client does not pass an employee ID.
+2. The route resolves the requester's `employees` row through `employee_identities` (matches `auth.uid()` from the Supabase session). Verifies the requester is a participant of `channelId`.
 3. Assembles a minimal retrieval bundle: recent N messages, employee profile, top open gaps for this employee/department, top semantically-relevant approved claims (pgvector cosine).
-4. Calls the Vercel AI SDK with the spec Part 10 system prompt + the retrieval bundle. Model is `settings.default_interview_model` (default `anthropic/claude-sonnet-4.6`) via OpenRouter.
+4. Calls the Vercel AI SDK with the spec Part 10 system prompt + the retrieval bundle. Model is `settings.default_interview_model` (default `deepseek/deepseek-v4-pro`) via OpenRouter. Image/file parts are stripped for text-only models before the LLM call.
 5. Tools exposed: `search_company_knowledge`, `check_open_gaps` — both Zod-validated, both backed by `packages/ai/src/retrieval.ts`.
 6. On completion: inserts the assistant message into `messages` and writes a `model_runs` row with cost/latency/tokens.
 
@@ -103,24 +103,29 @@ One human → one `employees` row → many `employee_identities` rows.
 1. Browser uploads file to Supabase Storage bucket `company_documents`.
 2. Creates a `documents` row (`status='pending_processing'`).
 3. Creates a `message_attachments` row linking the document to the message that referenced it.
-4. The document ingestion worker (Phase 4) picks up `status='pending_processing'`, chunks the file into `document_chunks`, embeds them, then runs claim extraction over the chunks.
+4. After the upload completes, the client triggers `POST /api/chat` — same Oracle reply flow as flow 2. In DMs this always fires; in group chats it fires only when the upload caption starts with `@oracle`.
+5. The document ingestion worker (Phase 4) picks up `status='pending_processing'`, chunks the file into `document_chunks`, embeds them, then runs claim extraction over the chunks.
 
-### 4. Claim extraction (worker — Phase 4 scaffold)
+### 4. Claim extraction (worker — deployed, Phase 4)
 
-1. Cron-scheduled. Queries `messages where extraction_status='pending' AND role='user'`.
-2. Groups by channel/employee/conversation segment.
-3. Calls the LLM with the extraction prompt.
-4. Validates exact quotes against the source text — invalid quotes are rejected.
-5. Inserts `claims` + `claim_domains` + `claim_evidence` rows. Status either `pending_review` or `approved` based on triage (spec 9.4).
-6. Marks source messages `complete`, `failed`, or `skipped`.
+Cron: every 4 hours (`0 */4 * * *`). Also triggered by document ingestion.
 
-### 5. Synthesis (worker — Phase 4 scaffold)
+1. Queries `messages WHERE extraction_status='pending' AND role='user'`. Batches up to 100 messages per run.
+2. Groups by channel, then splits into 60-minute conversation segments.
+3. Calls the extraction model (`settings.default_extraction_model`, default `google/gemini-2.5-flash`) via `generateObject` with a structured Zod schema.
+4. Validates exact quotes against the source text verbatim — invalid quotes are rejected without inserting.
+5. Inserts `claims` + `claim_domains` + `claim_evidence` rows. Auto-approves low-risk claim types with impact ≤ 6; others go to `pending_review`.
+6. Suggests `gaps` rows for unanswered questions.
+7. Marks source messages `extraction_status = 'complete'`, `'failed'`, or `'skipped'`. Writes `job_runs` + `model_runs` rows.
 
-1. Triggered by new approved claims OR scheduled maintenance OR manual admin trigger.
-2. Selects one brain section. Retrieves approved claims via `claim_domains` and `section_claims`.
-3. Generates the structured output specified in spec 9.8 (paragraphs with `supportingClaimIds`, lists of changes, etc.).
-4. Validator rejects the run if any material paragraph doesn't map to approved claim IDs.
-5. On success: inserts a new `brain_section_versions` row and updates `brain_sections.current_version_id` (two-step transaction per spec 6.7).
+### 5. Synthesis (worker — deployed, Phase 4)
+
+Cron: weekly. Also admin-triggerable.
+
+1. Reads up to 200 approved claims per brain section.
+2. Calls the synthesis model (`settings.default_synthesis_model`, default `anthropic/claude-sonnet-4.6`) via `generateObject`.
+3. Validator rejects the run if any material paragraph doesn't map to approved claim IDs — hallucinated claim IDs cause the run to fail.
+4. On success: inserts a new `brain_section_versions` row and updates `brain_sections.current_version_id` (two-step transaction per spec 6.7).
 
 ### 6. Interjection engine (Phase 6 — not yet implemented)
 
@@ -176,9 +181,9 @@ Workers must not import from `apps/web`, and vice versa.
 | Part 4 (auth) | `packages/auth/`, `apps/web/app/auth/callback/route.ts`, `apps/web/app/auth/signout/route.ts`, `apps/web/app/denied/` |
 | Part 4 (multi-identity extension) | `packages/db/src/schema.ts` (employee_identities), `packages/db/migrations/sql/15_employee_identities.sql`, `packages/auth/src/link.ts` |
 | Part 5.1 (interjection) | `packages/oracle-engines/src/interjection.ts` (scaffold) |
-| Part 5.2 (curiosity / gaps) | `packages/db/src/schema.ts` (`gaps` table) + worker (Phase 4 scaffold) |
-| Part 5.3 (ingestion) | `apps/workers/src/trigger/document-ingestion.ts` (scaffold) |
-| Part 5.4 (synthesis) | `apps/workers/src/trigger/brain-synthesis.ts` (scaffold) |
+| Part 5.2 (curiosity / gaps) | `packages/db/src/schema.ts` (`gaps` table) + `apps/workers/src/trigger/claim-extraction.ts` (inserts gap suggestions) |
+| Part 5.3 (ingestion) | `apps/workers/src/trigger/document-ingestion.ts` (deployed) |
+| Part 5.4 (synthesis) | `apps/workers/src/trigger/brain-synthesis.ts` (deployed) |
 | Part 6 (schema) | `packages/db/src/schema.ts` |
 | Part 6.8 (CHECK constraints) | `packages/db/migrations/sql/10_check_constraints.sql` |
 | Part 6.9 (vector indexes) | `packages/db/migrations/sql/99_vector_indexes.sql` |
@@ -186,4 +191,6 @@ Workers must not import from `apps/web`, and vice versa.
 | Part 8 (admin views) | `packages/db/migrations/sql/30_admin_views.sql` |
 | Part 9.1 (chat route) | `apps/web/app/api/chat/route.ts` + `packages/ai/src/retrieval.ts` |
 | Part 9.2 (tools) | `apps/web/app/api/chat/route.ts` |
+| Part 9.4 (claim extraction) | `apps/workers/src/trigger/claim-extraction.ts` (deployed) |
 | Part 10 (system prompt) | `packages/ai/src/prompts/oracle-system.ts` (verbatim) |
+| Settings / model config | `apps/web/app/admin/settings/` — three model-role pickers (interview, extraction, synthesis) backed by `GET /api/admin/models` (OpenRouter) + `POST /api/admin/settings` |

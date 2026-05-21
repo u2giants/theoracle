@@ -154,3 +154,40 @@ This file is the running log of every assumption, stub, and resolution made by t
     - `@esbuild-kit/core-utils` + `@esbuild-kit/esm-loader` are **still present**. `drizzle-kit@0.31.10` still lists `@esbuild-kit/esm-loader` as a direct dep alongside `tsx`. The install-time warning line stays quiet on subsequent installs because pnpm only emits it when packages are *added*, not on every install. Per our agreement, we are **not** forcing it away with `pnpm.overrides` — that would risk breaking drizzle-kit's CLI bootstrap. We'll absorb the upstream fix when drizzle-kit fully migrates off esbuild-kit.
 - **Files touched**: every `package.json`; `apps/web/postcss.config.js`; `apps/web/app/globals.css`; deleted `apps/web/tailwind.config.ts`; `apps/web/lib/supabase/server.ts`; `packages/auth/src/server.ts`; `apps/web/app/auth/callback/route.ts`; `apps/web/app/auth/signout/route.ts`; `apps/web/app/api/chat/route.ts`.
 
+## Phase 3 post-deployment fixes (2026-05-21)
+
+### D3.oracle-vision-fix — skip Storage downloads for text-only models
+
+- **Decision**: In `apps/web/app/api/chat/route.ts`, detect whether the configured model is vision-capable **before** querying `message_attachments`. If the model is text-only, skip the Supabase Storage download entirely.
+- **Why**: The original code downloaded all attachments first, then conditionally stripped non-text parts. On text-only models (e.g. DeepSeek), the Storage download added latency and occasionally timed out on the second+ message in a channel, causing silent Oracle failures.
+- **Pattern**: `visionCapable = /claude|gpt-4o|gemini|llava|pixtral|qwen.*vl|minicpm/i.test(modelName)` — conservative allowlist rather than denylist, so new models default to text-only until confirmed vision-capable.
+
+### D3.oracle-upload-trigger — Oracle fires after document uploads
+
+- **Decision**: After a successful document upload (`DocumentUpload.onDone`), the client calls `fetchOracleReply`. In DMs this always fires; in group chats only when the upload caption starts with `@oracle`.
+- **Why**: The original upload flow inserted the attachment into the DB but never called `POST /api/chat`. Oracle was silent after every document upload.
+
+### D3.oracle-error-surfacing — show Oracle errors in the chat UI
+
+- **Decision**: Added `oracleError` state to `channel-chat.tsx`. When `POST /api/chat` fails (non-2xx or thrown), an error bubble appears inline in the message list instead of silently failing.
+- **Why**: Failures were invisible to the user (only logged to console). With multiple failure modes (model timeouts, API key errors, Storage timeouts), surfacing the error is essential for diagnosing and retrying.
+
+### D3.oracle-race-lock — `oracleFetchingRef` prevents double-fire
+
+- **Decision**: A `useRef<boolean>` lock in `channel-chat.tsx` prevents concurrent `fetchOracleReply` calls. If a call is already in flight, subsequent triggers are dropped with a console log.
+- **Why**: `DocumentUpload.onDone` and `sendMessage` can both fire Oracle within milliseconds when a message is sent with an attachment. Two concurrent calls to `POST /api/chat` resulted in a race where one would fail.
+
+## Admin settings — model picker (2026-05-21)
+
+### D4.admin-model-picker — three-role picker with capability icons
+
+- **Decision**: Admin → Settings now shows three separate model pickers (interview, extraction, synthesis), each with a description, requirement chips, and a row of required capability icons.
+- **Why**: All three roles have materially different requirements (latency vs. accuracy, tool use, long context) and should use different models. A single picker assumed one model for all tasks.
+
+### D4.openrouter-capability-fields — correct API field names
+
+- **Decision**: `GET /api/admin/models` proxies OpenRouter's `/models` endpoint (not `/models/user`) and uses `architecture.input_modalities`, `architecture.output_modalities`, and `supported_parameters` to derive capability flags.
+- **Why**: The initial implementation used `architecture.modality` (a string like `"text+image->text"`) and `supported_generation_params` — both fields don't exist in the actual API response. The correct fields are arrays: `input_modalities: ["text","image","file"]`, `output_modalities: ["text"]`, `supported_parameters: ["tools","tool_choice","structured_outputs",...]`.
+- **Why `/models` not `/models/user`**: The `/models/user` endpoint omits or truncates capability metadata that the public `/models` endpoint includes. Both reflect the same model access for the user's API key.
+- **Tool use detection**: `supported_parameters.includes("tools") || supported_parameters.includes("tool_choice")`. No regex fallback needed once the correct field names are used.
+

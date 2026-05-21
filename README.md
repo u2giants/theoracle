@@ -13,7 +13,7 @@ AI-powered Enterprise Knowledge Graph for POP Creations / Spruce Line.
 - **Tailwind** + **shadcn/ui** + **lucide-react**
 - **Supabase Cloud** — Postgres + pgvector, Auth, Realtime, Storage
 - **Drizzle ORM** (`packages/db`) — schema + migrations
-- **Trigger.dev v3** (`apps/workers`) — background workers (Phase 4 scaffold)
+- **Trigger.dev v3** (`apps/workers`) — background workers (deployed, version `20260521.1`)
 - **Vercel AI SDK** + **OpenRouter** (`packages/ai`) — LLM calls
 - **OpenAI** `text-embedding-3-small` — vector embeddings (1536-dim, locked)
 - **Brevo** SMTP — magic-link delivery (configured in Supabase Auth)
@@ -58,10 +58,10 @@ For full setup details including platform-specific gotchas, see [`docs/developme
 |---|---|
 | 0 — Bootstrap | done |
 | 1 — Foundation (schema, RLS, auth, seed) | **wet-tested** |
-| 2 — Realtime chat + admin dashboard | code complete, **partial wet-test** (no second user-facing employee yet) |
-| 3 — Oracle chat route + tools | code complete, ready to wet-test |
-| 4 — Trigger.dev workers | scaffolds with spec workflows as comments |
-| 5 — Admin review dashboards | placeholder pages |
+| 2 — Realtime chat + admin dashboard | code complete, **partial wet-test** (RLS cross-channel isolation needs second loginable employee) |
+| 3 — Oracle chat route + tools | **wet-tested** — Claude Sonnet 4.6, 6.3 s, 2001/98 tokens |
+| 4 — Trigger.dev workers | **deployed** — version `20260521.1`, 7 tasks running in production |
+| 5 — Admin review dashboards | placeholder pages only |
 | 6 — Interjection engine | empty module with spec rules as JSDoc |
 
 The Phase 2 RLS gate ("Employee A cannot see Channel X") needs a second
@@ -74,9 +74,11 @@ before testing.
 See [`HANDOFF.md`](HANDOFF.md) for the full punch list with context.
 The short version:
 
+- **Next build: Phase 5** — admin review dashboards (claims, gaps,
+  contradictions, brain). Placeholders exist under `apps/web/app/admin/`.
+  Workers are running and will produce data; dashboards are needed to
+  review and approve extracted claims before synthesis can run.
 - Delete the deprecated `auth_user_id` / `auth_provider` / `auth_provider_subject`
   columns from `employees` once consumers are confirmed migrated
   (DECISIONS.md D2.multi-identity).
-- Implement Phase 4 workers.
-- Add CI (typecheck + build on PR).
 - Rotate the Vercel token that was pasted into the build transcript.

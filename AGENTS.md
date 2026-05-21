@@ -220,9 +220,9 @@ The full schema lives in `packages/db/src/schema.ts` and is faithful to `oracle_
 | Trigger.dev project | _(see Vercel env)_ | Trigger.dev | Background workers. |
 | Supabase Storage bucket | `company_documents` | Supabase | Private. Holds uploaded employee documents. |
 | Brevo (SMTP) | account on file | Brevo | Used by Supabase Auth to deliver magic-link emails. Configured in Supabase → Authentication → SMTP Settings. |
-| OpenRouter model id (default interview) | `anthropic/claude-sonnet-4.6` | `settings.default_interview_model` row | Configurable at runtime via the settings table. |
-| OpenRouter model id (default extraction) | `google/gemini-flash` | `settings.default_extraction_model` row | Configurable. |
-| OpenRouter model id (default synthesis) | `anthropic/claude-sonnet-4.6` | `settings.default_synthesis_model` row | Configurable. |
+| OpenRouter model id (default interview) | `deepseek/deepseek-v4-pro` | `settings.default_interview_model` row | Configurable at runtime via Admin → Settings model picker. |
+| OpenRouter model id (default extraction) | `google/gemini-2.5-flash` | `settings.default_extraction_model` row | Configurable via Admin → Settings. |
+| OpenRouter model id (default synthesis) | `anthropic/claude-sonnet-4.6` | `settings.default_synthesis_model` row | Configurable via Admin → Settings. |
 | Embedding model | `text-embedding-3-small` (OpenAI, 1536-dim) | hardcoded in `packages/ai/src/embeddings.ts` | Vector column is `vector(1536)` — see Idiosyncratic Decisions. |
 
 ---
@@ -443,13 +443,14 @@ The deploy story is fully managed (no Docker, no VPS, per spec Part 2.5):
   - **Rollback:** Vercel dashboard → Deployments → promote the previous production deployment.
 
 - **`apps/workers` → Trigger.dev Cloud.**
+  - Current production version: `20260521.1` (7 tasks). Project: `proj_wgpzsvhmsopqhvwqaycn`.
   - Deploy from CI or manually: `pnpm --filter @oracle/workers deploy` (invokes `npx trigger.dev@latest deploy`).
-  - Runtime env vars: managed in Trigger.dev project dashboard.
+  - Runtime env vars: managed in Trigger.dev project dashboard (not Vercel).
   - **Rollback:** redeploy from a prior commit, or disable the task in Trigger.dev's UI.
 
 - **Database migrations** are run manually before deploying changes that need them: `pnpm db:migrate`. The runner is idempotent. There is currently no CI-driven migration step — adding one is a Pending Work item.
 
-- **GitHub Actions:** none yet. Once added they'll live under `.github/workflows/`.
+- **GitHub Actions:** `.github/workflows/pr-check.yml` is live (runs `pnpm --filter @oracle/web build` on PRs + pushes to `main`). `migrate.yml` and `workers-deploy.yml` are planned.
 
 For step-by-step deploy operations and rollback procedures, see [`docs/deployment.md`](docs/deployment.md).
 
@@ -482,13 +483,14 @@ Rule added to prevent recurrence:
 | open | Delete the deprecated `auth_user_id` / `auth_provider` / `auth_provider_subject` columns from `employees` once all consumers are confirmed migrated | follow-up migration after a week of soak |
 | open | Replace `test-employee@oracle.local` with a real mailbox (e.g. `u2giants+test@gmail.com`) so the Phase 2 RLS gate can be wet-tested with two real logins | Albert |
 | open | Wet-test Phase 2 RLS (cross-channel isolation between two real employees) | after the test mailbox is set up |
-| done | Wet-test Phase 3 chat route — `@oracle` posted, response received, `model_runs` row confirmed (`anthropic/claude-sonnet-4.6`, 6.3s, 2001/98 tokens). | 2026-05-21 |
+| done | Wet-test Phase 3 chat route — `@oracle` posted, response received, `model_runs` row confirmed (6.3 s, 2001/98 tokens). Oracle also triggered after document uploads. | 2026-05-21 |
 | open | Create the `company_documents` Storage bucket in Supabase if not already done | Albert (Supabase dashboard) |
 | open | Wire Authentik OIDC as a third login provider for internal-only accounts | future build session |
 | done | Deploy Phase 4 to Trigger.dev — version `20260521.1` with 7 tasks running in production (`proj_wgpzsvhmsopqhvwqaycn`). `TRIGGER_PROJECT_REF` set in `.env.local` + Vercel. | 2026-05-21 |
-| open | Implement Phase 5 — Admin review/brain dashboard pages | placeholders exist under `apps/web/app/admin/*` |
+| done | Admin → Settings: three model pickers (interview/extraction/synthesis) with live capability icons (vision, tool use, file input, reasoning, image gen), price badges, and required-cap indicators per role. OpenRouter `/models` endpoint used — correct capability fields: `input_modalities`, `output_modalities`, `supported_parameters`. | 2026-05-21 |
+| open | Implement Phase 5 — Admin review dashboards (claims, gaps, contradictions, brain) | placeholders exist under `apps/web/app/admin/*`; DB views in `30_admin_views.sql`; workers producing data |
 | open | Implement Phase 6 — Interjection engine (lull detection, cooldown, contradiction live-interjection) | scaffold at `packages/oracle-engines/src/interjection.ts` |
-| done | CI: `.github/workflows/pr-check.yml` runs `pnpm --filter @oracle/web build` on PRs + pushes to `main`. Catches production-only typecheck errors (the 2026-05-20 class of failure). Uses placeholder env vars; App Router dynamic-rendering means real secrets aren't needed at build. |  |
+| done | CI: `.github/workflows/pr-check.yml` runs `pnpm --filter @oracle/web build` on PRs + pushes to `main`. Catches production-only typecheck errors (the 2026-05-20 class of failure). Uses placeholder env vars; App Router dynamic-rendering means real secrets aren't needed at build. | 2026-05-21 |
 | open | CI: add migration job (`pnpm db:migrate`) gated on manual approval | — |
 | open | Vector indexes (`packages/db/migrations/sql/99_vector_indexes.sql`) — apply once enough embedding data exists to justify HNSW | run the SQL when ready |
 | open | Rotate the Vercel token that was pasted into the build transcript during overnight setup | https://vercel.com/account/tokens |

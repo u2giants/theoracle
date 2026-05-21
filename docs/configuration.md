@@ -15,6 +15,7 @@ Every environment variable, where it comes from, and what fails when it's missin
 | `OPENROUTER_API_KEY` | LLM provider for chat, extraction, synthesis. Used through the Vercel AI SDK. | https://openrouter.ai/keys | yes | yes | Routes to anthropic/google/etc. via OpenRouter. |
 | `OPENAI_API_KEY` | Embeddings only — `text-embedding-3-small` (1536-dim) | https://platform.openai.com/api-keys | optional | yes | If unset, embeddings fall back to a deterministic zero vector. Vector similarity is meaningless without real embeddings, but the schema is preserved. |
 | `TRIGGER_SECRET_KEY` | Trigger.dev v3 server-side key | Trigger.dev dashboard → project → API keys | yes | yes | Used by `apps/web` to trigger tasks, and by `apps/workers` for self-registration. |
+| `TRIGGER_PROJECT_REF` | Trigger.dev project identifier — read by `apps/workers/trigger.config.ts` | Trigger.dev dashboard → project settings | yes | yes | Production value: `proj_wgpzsvhmsopqhvwqaycn`. Without this, the workers deploy command has no target and the CLI falls back to the placeholder string `TODO_set_trigger_project_ref`. |
 
 `.env.local` lives at the **monorepo root**. Next.js, the migration runner, and the seed all explicitly load it from there (via `dotenv` with a resolved path) — Next.js's default behavior of reading `.env.local` only from the app directory is overridden in `apps/web/next.config.ts`.
 
@@ -76,9 +77,9 @@ Not all configuration lives in env vars. Operational settings the Oracle reads a
 | `lull_window_seconds` | `60` | How many seconds of silence before the Oracle may consider a "lull" interjection. |
 | `oracle_cooldown_minutes` | `10` | Minimum minutes between Oracle interjections in the same channel. |
 | `max_oracle_interjections_per_hour` | `3` | Hard cap per channel per hour. |
-| `default_interview_model` | `anthropic/claude-sonnet-4.6` | Model used by `/api/chat`. |
-| `default_extraction_model` | `google/gemini-flash` | Model used by the claim extraction worker. |
-| `default_synthesis_model` | `anthropic/claude-sonnet-4.6` | Model used by the brain synthesis worker. |
+| `default_interview_model` | `deepseek/deepseek-v4-pro` | Model used by `/api/chat` (real-time, must support tool use). Configurable via Admin → Settings. |
+| `default_extraction_model` | `google/gemini-2.5-flash` | Model used by the claim extraction worker (async, structured JSON output). Configurable via Admin → Settings. |
+| `default_synthesis_model` | `anthropic/claude-sonnet-4.6` | Model used by the brain synthesis worker (long-context, structured JSON). Configurable via Admin → Settings. |
 | `enable_live_contradiction_interjections` | `false` | If false, contradictions are queued silently instead of interjected. Default off is correct (spec 5.1). |
 | `enable_group_chat_lull_questions` | `true` | If false, the Oracle never speaks proactively in group chats. |
 
@@ -106,8 +107,11 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 - `packages/db/src/seed.ts` — `DIRECT_URL` (same monorepo-root load pattern).
 - `packages/ai/src/openrouter.ts` — `OPENROUTER_API_KEY`.
 - `packages/ai/src/embeddings.ts` — `OPENAI_API_KEY` (optional).
-- `apps/workers/trigger.config.ts` — `TRIGGER_SECRET_KEY`.
+- `apps/workers/trigger.config.ts` — `TRIGGER_SECRET_KEY`, `TRIGGER_PROJECT_REF`.
 - `apps/web/app/api/chat/route.ts` — reads model id from `settings.default_interview_model`.
+- `apps/workers/src/trigger/claim-extraction.ts` — reads model id from `settings.default_extraction_model`.
+- `apps/workers/src/trigger/brain-synthesis.ts` — reads model id from `settings.default_synthesis_model`.
+- `apps/web/app/api/admin/models/route.ts` — `OPENROUTER_API_KEY` (proxies OpenRouter `/models` to populate the Admin → Settings model picker).
 
 If you add a new env var, update:
 1. `.env.example`

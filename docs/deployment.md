@@ -77,7 +77,9 @@ Currently using the default `*.vercel.app` URL. Custom domain config is a TODO i
 
 ## Workers — Trigger.dev
 
-**Project name / id:** set in `apps/workers/trigger.config.ts` and through `TRIGGER_SECRET_KEY` in the env.
+**Project ref:** `proj_wgpzsvhmsopqhvwqaycn` (set as `TRIGGER_PROJECT_REF` in Vercel env + `.env.local`).
+**Current deployed version:** `20260521.1` (7 tasks: claim-extraction, document-ingestion, contradiction-watcher, brain-synthesis, plus 3 support tasks).
+**Dashboard:** https://cloud.trigger.dev/projects/v3/proj_wgpzsvhmsopqhvwqaycn
 
 ### Deploying tasks
 
@@ -85,9 +87,9 @@ Currently using the default `*.vercel.app` URL. Custom domain config is a TODO i
 pnpm --filter @oracle/workers deploy   # invokes `npx trigger.dev@latest deploy`
 ```
 
-Trigger.dev v3 packages and uploads the task definitions. They run on Trigger.dev's infrastructure.
+Trigger.dev v3 packages and uploads the task definitions. They run on Trigger.dev's cloud infrastructure — no servers to manage.
 
-There is no CI integration yet — deploy manually after task code changes. Adding this to GitHub Actions is in the pending work list.
+There is no CI integration yet — deploy manually after task code changes. `workers-deploy.yml` is planned (see GitHub Actions table below).
 
 ### Rollback
 
@@ -95,7 +97,7 @@ Trigger.dev dashboard → task → version history → roll back. Or redeploy fr
 
 ### Runtime env vars
 
-Set in the Trigger.dev project dashboard. Mirror the production set: `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_SERVICE_ROLE_KEY` (workers bypass RLS), `OPENROUTER_API_KEY`, `OPENAI_API_KEY`.
+Set in the Trigger.dev project dashboard (not Vercel). Workers need: `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_SERVICE_ROLE_KEY` (workers use service-role to bypass RLS), `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `TRIGGER_SECRET_KEY`.
 
 ## Database — Supabase migrations
 

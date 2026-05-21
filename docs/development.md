@@ -172,10 +172,26 @@ If it still fails, **double-check the filesystem** — `Get-Volume D | Select-Ob
 - A third logged-in employee NOT in the channel must get 0 rows when querying that channel.
 - Upload a document; verify the `documents` row and Storage object both exist.
 
-**Phase 3 (Oracle chat) — ready to wet-test:**
+**Phase 3 (Oracle chat) — wet-tested ✓:**
 - In a channel, send `@oracle what do you know about our licensing process?`.
-- An assistant message should appear, asking ONE question.
+- An assistant message appears, asking ONE question (spec Part 10 output constraint).
 - Verify a `model_runs` row was inserted (latency, cost, token counts populated).
+- Oracle is also triggered after document uploads — after a file upload completes, the
+  client fires `POST /api/chat`. In DMs this always fires; in group chats only when
+  the upload caption starts with `@oracle`.
+
+**Phase 4 (workers) — deployed, verifiable via DB:**
+- Workers run on Trigger.dev Cloud (version `20260521.1`). They are live and will
+  process data once messages/documents exist.
+- Send a message in any channel, wait up to 4 hours, then check:
+  ```sql
+  SELECT job_type, status, started_at, finished_at, output_json
+  FROM job_runs ORDER BY started_at DESC LIMIT 5;
+  ```
+- After a successful extraction run, `claims` rows should appear with
+  `status = 'pending_review'` or `'approved'`.
+- To trigger a run manually: use the Trigger.dev dashboard →
+  https://cloud.trigger.dev/projects/v3/proj_wgpzsvhmsopqhvwqaycn
 
 ## Quick commit recipe
 
