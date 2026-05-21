@@ -26,6 +26,7 @@
     "@radix-ui/react-tabs": "^1.1.2",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.47.10",
+    "@trigger.dev/sdk": "^4.4.6",
     "ai": "^6.0.187",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

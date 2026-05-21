@@ -3,7 +3,7 @@
 Live in-flight state. A new contributor (human or AI) should be able to read this top to bottom and pick up exactly where the previous session left off — no need to scrape conversation history.
 
 **Snapshot date:** 2026-05-21
-**Latest commit on `main`:** `7ec821f` — ci(pr-check): opt actions into Node 24 ahead of the 2026-06-02 default flip
+**Latest commit on `main`:** `(see below)` — feat(phase-4): implement Trigger.dev workers (claim-extraction, document-ingestion, contradiction-watcher, brain-synthesis)
 **Latest dep-modernization commit:** `aff23f1` — chore(deps): see DECISIONS.md D3.5.bump-everything-mature. Bumped ai 4→6, zod 3→4, @supabase/ssr 0.5→0.10, tailwindcss 3→4, drizzle-orm 0.38→0.45, drizzle-kit 0.30→0.31, @trigger.dev/{sdk,build} 3→4, react 19.0→19.2, dotenv 16→17, lucide-react 0.469→1.16, turbo 2.3.3→2.9.14, @types/node 22→24. **uuid@9 eliminated** (trigger.dev v4); **`@esbuild-kit/*` still present** — drizzle-kit owns it and hasn't migrated, we kept hands off per the agreement to not force-override upstream. Build + typecheck green.
 **Latest successful Vercel production deploy:** `theoracle-7c5ryvwxm-popcre.vercel.app` (commit `c8fca10`)
 **Repo:** https://github.com/u2giants/theoracle (**PUBLIC** — never commit secrets)
@@ -18,7 +18,8 @@ Live in-flight state. A new contributor (human or AI) should be able to read thi
 - **Phases 1–3 are code-complete**. Phase 1 is **fully wet-tested**. Phase 2 has UI built but RLS hasn't been wet-tested. Phase 3 (Oracle chat route) hasn't been wet-tested yet either.
 - **Phases 4–6 are scaffolds only** — files exist with the spec workflow as JSDoc comments. Nothing actually calls an LLM yet.
 - **No active blockers.** The dev server runs cleanly. Google OAuth + Microsoft 365 SSO are live. Brevo SMTP handles magic-link email delivery. The multi-identity refactor (`employee_identities` table) is in and verified.
-- The natural next step is **one of**: wet-test Phase 3 (5 min), wet-test Phase 2 RLS (needs a second mailbox first), or start implementing Phase 4 (Trigger.dev workers — the longest-running, highest-value work).
+- **Phase 4 is now code-complete.** The Trigger.dev workers are fully implemented (claim-extraction, document-ingestion, document-ingestion-sweep, contradiction-watcher, contradiction-watcher-sweep, brain-synthesis, brain-synthesis-scheduled). Typecheck and build are green. **They are not yet deployed** — `TRIGGER_PROJECT_REF` and `TRIGGER_SECRET_KEY` must be configured in Vercel env and `pnpm --filter @oracle/workers deploy` must be run before the tasks run in production.
+- The natural next step is **deploying Phase 4** to Trigger.dev, then **Phase 5** (admin review dashboards for claims, gaps, contradictions, brain).
 
 ---
 
@@ -108,9 +109,9 @@ The migrations apply to the **live Supabase project** referenced by `DIRECT_URL`
 |---|---|---|
 | 0 — Bootstrap | done | n/a |
 | 1 — Foundation (schema, RLS, auth, seed) | done | **YES** — both Google + M365 SSO end-to-end; denial flow with non-allowlisted email. |
-| 2 — Realtime chat + document upload + admin dashboard | code complete | **No.** Needs a second loginable employee. |
-| 3 — Oracle chat route (`POST /api/chat`) | code complete | **No.** Never posted `@oracle` in a live channel yet. |
-| 4 — Trigger.dev workers (claim extraction, ingestion, contradiction watcher, brain synthesis) | **scaffolds only** | n/a |
+| 2 — Realtime chat + document upload + admin dashboard | code complete | **Partially.** Oracle DM chat fully wet-tested (Phase 3 session). Phase 2 RLS isolation not yet verified with a second employee. |
+| 3 — Oracle chat route (`POST /api/chat`) | **done + wet-tested** | **YES** — Oracle replies end-to-end in the `oracle-smoke-test` DM channel. Multi-modal uploads (images/PDFs) passed to model. Model picker live in Admin → Settings. |
+| 4 — Trigger.dev workers (claim extraction, ingestion, contradiction watcher, brain synthesis) | **code complete** | n/a — requires Trigger.dev project deploy |
 | 5 — Admin review dashboards (claims, gaps, contradictions, brain) | placeholders | n/a |
 | 6 — Interjection engine | empty module with JSDoc | n/a |
 | Docs (AGENTS / DECISIONS / docs/* / HANDOFF / migrations README) | current as of this snapshot | n/a |
@@ -385,7 +386,7 @@ Ranked roughly by friction-cost vs payoff.
 
 ### High value, high friction — the actual work
 
-9. **Implement Phase 4 — Trigger.dev workers.** See the dedicated guide below.
+9. **Deploy Phase 4 to Trigger.dev.** Code is complete. Set `TRIGGER_PROJECT_REF` + `TRIGGER_SECRET_KEY` in Vercel env, then run `pnpm --filter @oracle/workers deploy`. See the Phase 4 deployment guide below.
 10. **Implement Phase 5 — Admin review dashboards.** Each placeholder under `apps/web/app/admin/*` needs to be built. The data they read is documented in `packages/db/migrations/sql/30_admin_views.sql`.
 11. **Implement Phase 6 — Interjection engine.** Depends on Phase 4 (claims must exist) and at least one wet-tested channel.
 12. **Wire Authentik OIDC** as a third login provider. Spec requires it for internal-only accounts. Not blocking anything until such an account exists.

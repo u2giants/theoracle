@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./prompts/oracle-system": "./src/prompts/oracle-system.ts",
+    "./prompts/extraction-system": "./src/prompts/extraction-system.ts",
     "./openrouter": "./src/openrouter.ts",
     "./embeddings": "./src/embeddings.ts",
     "./retrieval": "./src/retrieval.ts"

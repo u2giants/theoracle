@@ -11,15 +11,20 @@
   },
   "dependencies": {
     "@oracle/ai": "workspace:*",
+    "@oracle/auth": "workspace:*",
     "@oracle/db": "workspace:*",
     "@oracle/shared": "workspace:*",
     "@trigger.dev/sdk": "^4.4.6",
+    "ai": "^6.0.187",
     "drizzle-orm": "^0.45.2",
+    "pdf-parse": "^1.1.1",
+    "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@trigger.dev/build": "^4.4.6",
     "@types/node": "^24.12.4",
+    "@types/pdf-parse": "^1.1.4",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3"
   }

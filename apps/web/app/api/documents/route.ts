@@ -22,6 +22,7 @@ import {
   messages,
   messageAttachments,
 } from '@oracle/db/schema';
+import { triggerTask } from '@/lib/trigger';
 
 export const dynamic = 'force-dynamic';
 
@@ -175,6 +176,10 @@ export async function POST(req: NextRequest) {
     // Non-fatal: the document is stored; the attachment message is cosmetic.
     console.error('[documents] message/attachment insert failed', err);
   }
+
+  // Kick off async document ingestion. Fails silently if Trigger.dev is not
+  // yet deployed — the document-ingestion-sweep cron will pick it up within 4h.
+  void triggerTask('document-ingestion', { documentId: docId });
 
   return NextResponse.json(
     {
