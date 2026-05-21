@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Send, Users, Paperclip } from 'lucide-react';
 import { createSupabaseBrowserClient } from '@oracle/auth/client';
@@ -59,6 +59,10 @@ export function ChannelChat({
   const [showUpload, setShowUpload] = useState(false);
   const [droppedFile, setDroppedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [oracleError, setOracleError] = useState<string | null>(null);
+  // Ref-based lock: prevents two concurrent Oracle calls (e.g. from an upload
+  // onDone + a text message send happening in the same moment).
+  const oracleFetchingRef = useRef(false);
   const presenceChannel = useRef<RealtimeChannel | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
@@ -231,7 +235,17 @@ export function ChannelChat({
     }
   }
 
-  async function fetchOracleReply(channelId: string) {
+  const fetchOracleReply = useCallback(async (channelId: string) => {
+    // Prevent concurrent Oracle calls — if one is already in flight, skip.
+    // This avoids the double-trigger race when an upload onDone and a text
+    // sendMessage both fire within milliseconds of each other.
+    if (oracleFetchingRef.current) {
+      console.log('[oracle] already fetching, skipping duplicate trigger');
+      return;
+    }
+    oracleFetchingRef.current = true;
+    setOracleThinking(true);
+    setOracleError(null);
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -241,6 +255,7 @@ export function ChannelChat({
       if (!res.ok) {
         const body = await res.text();
         console.error('[oracle] /api/chat failed', res.status, body);
+        setOracleError('Oracle couldn\'t respond — try again.');
         return;
       }
       const data = await res.json();
@@ -250,10 +265,12 @@ export function ChannelChat({
       router.refresh();
     } catch (err) {
       console.error('[oracle] fetch threw', err);
+      setOracleError('Oracle couldn\'t respond — try again.');
     } finally {
+      oracleFetchingRef.current = false;
       setOracleThinking(false);
     }
-  }
+  }, [router]);
 
   const onlineNames = useMemo(() => {
     const names = new Set<string>();
@@ -342,6 +359,14 @@ export function ChannelChat({
             <MessageRow key={m.id} message={m} isMine={m.employeeId === me.id} />
           ))}
           {oracleThinking && <OracleThinkingBubble />}
+          {oracleError && !oracleThinking && (
+            <div className="flex flex-col gap-1 items-start">
+              <div className="text-xs text-muted-foreground">Oracle</div>
+              <div className="rounded-lg bg-red-50 px-4 py-2 text-xs text-red-600">
+                {oracleError}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

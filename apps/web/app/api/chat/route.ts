@@ -160,6 +160,11 @@ export async function POST(req: NextRequest) {
     process.env.ORACLE_INTERVIEW_MODEL ??
     FALLBACK_MODEL;
 
+  // Detect vision capability up-front so we can skip image downloads for
+  // text-only models entirely. Downloading bytes we're about to discard is
+  // wasteful and a common source of latency / timeouts on the second+ call.
+  const visionCapable = /claude|gpt-4o|gemini|llava|pixtral|qwen.*vl|minicpm/i.test(modelName);
+
   // Tools — spec 9.2.
   const tools = {
     search_company_knowledge: tool({
@@ -234,12 +239,13 @@ export async function POST(req: NextRequest) {
   }
   const systemPrompt = ORACLE_SYSTEM_PROMPT + contextLines.join('\n');
 
-  // Load attachments for every message in the window so the model can see
-  // the actual file content (images, PDFs, plain text) rather than just the
-  // "Attached: filename" placeholder text.
+  // Load attachments only for vision-capable models. For text-only models
+  // (e.g. DeepSeek) we skip the DB query and the Storage downloads entirely —
+  // the message text already contains the filename/caption so the model has
+  // context without the raw bytes.
   const recentIds = recent.map((m) => m.id);
   const attachmentRows =
-    recentIds.length > 0
+    visionCapable && recentIds.length > 0
       ? await db
           .select({
             messageId: messageAttachments.messageId,
@@ -316,9 +322,9 @@ export async function POST(req: NextRequest) {
       }),
   );
 
-  // Strip image/file parts for models that only support text input.
-  // Known vision-capable families on OpenRouter; all others get text-only messages.
-  const visionCapable = /claude|gpt-4o|gemini|llava|pixtral|qwen.*vl|minicpm/i.test(modelName);
+  // For non-vision models, attachmentRows is empty so conversationMessages
+  // already contains text-only content. The map below is a safety net in case
+  // a message somehow still has array content (e.g. cached state).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const safeMessages = visionCapable ? conversationMessages : conversationMessages.map((m: any) => {
     if (!Array.isArray(m.content)) return m;

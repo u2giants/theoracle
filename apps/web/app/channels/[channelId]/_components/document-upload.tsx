@@ -155,6 +155,13 @@ export function DocumentUpload({
         />
       )}
 
+      {file && file.type.startsWith('image/') && status === 'idle' && (
+        <p className="text-xs text-amber-600">
+          Tip: add a caption so Oracle knows what to look for in this image.
+          If Oracle says it can&apos;t see the image, use the main text box to
+          describe it after uploading.
+        </p>
+      )}
       {status === 'done' && (
         <p className="text-xs text-green-600">Sent.</p>
       )}
