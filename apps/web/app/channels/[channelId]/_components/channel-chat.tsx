@@ -54,11 +54,33 @@ export function ChannelChat({
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [oracleThinking, setOracleThinking] = useState(false);
   const [presence, setPresence] = useState<PresenceState>({});
   const [showUpload, setShowUpload] = useState(false);
+  const [droppedFile, setDroppedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const presenceChannel = useRef<RealtimeChannel | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  // Merge server-side message updates (triggered by router.refresh()) into
+  // local state. useState(initialMessages) only fires on mount; subsequent
+  // prop changes from router.refresh() are ignored by React unless we sync
+  // them here. We merge by ID so optimistic updates and realtime messages
+  // are never clobbered, and we re-sort chronologically.
+  useEffect(() => {
+    setMessages((cur) => {
+      const knownIds = new Set(cur.map((m) => m.id));
+      const incoming = initialMessages.filter((m) => !knownIds.has(m.id));
+      if (incoming.length === 0) return cur; // nothing new — skip re-render
+      const merged = [...cur, ...incoming];
+      merged.sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
+      return merged;
+    });
+  }, [initialMessages]);
 
   // Auto-scroll on new messages.
   useEffect(() => {
@@ -192,8 +214,12 @@ export function ChannelChat({
       });
       broadcastTyping(false);
 
-      // Phase 3: if the message mentions @oracle, fire the chat route.
-      if (/^\s*(@oracle|oracle,)/i.test(snapshot)) {
+      // Phase 3: trigger Oracle reply.
+      // DMs — Oracle is the only other participant, so reply to every message.
+      // Group chats — only reply when the message directly addresses @oracle.
+      const oracleMentioned = /^\s*(@oracle\b|oracle,)/i.test(snapshot);
+      if (!channel.isGroupChat || oracleMentioned) {
+        setOracleThinking(true);
         void fetchOracleReply(channel.id);
       }
     } catch (err) {
@@ -207,15 +233,25 @@ export function ChannelChat({
 
   async function fetchOracleReply(channelId: string) {
     try {
-      await fetch('/api/chat', {
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ channelId }),
       });
-      // The Oracle's response is persisted server-side; realtime will deliver it.
+      if (!res.ok) {
+        const body = await res.text();
+        console.error('[oracle] /api/chat failed', res.status, body);
+        return;
+      }
+      const data = await res.json();
+      console.log('[oracle] reply inserted', data);
+      // Refresh so the server re-fetches messages; the useEffect sync will
+      // merge the new assistant message into local state.
       router.refresh();
     } catch (err) {
-      console.error('[oracle] failed', err);
+      console.error('[oracle] fetch threw', err);
+    } finally {
+      setOracleThinking(false);
     }
   }
 
@@ -238,8 +274,43 @@ export function ChannelChat({
     return names;
   }, [presence, me.id]);
 
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('Files')) setIsDragging(true);
+  }
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only clear when leaving the root container, not a child.
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false);
+  }
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      setDroppedFile(file);
+      setShowUpload(true);
+    }
+  }
+
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className="relative flex h-full flex-col"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-primary/10">
+          <div className="rounded-xl border-2 border-dashed border-primary bg-background/90 px-10 py-8 text-center shadow-lg">
+            <Paperclip className="mx-auto mb-3 size-8 text-primary" />
+            <p className="text-sm font-semibold text-primary">Drop to attach</p>
+          </div>
+        </div>
+      )}
       <header className="border-b px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
@@ -270,6 +341,7 @@ export function ChannelChat({
           {messages.map((m) => (
             <MessageRow key={m.id} message={m} isMine={m.employeeId === me.id} />
           ))}
+          {oracleThinking && <OracleThinkingBubble />}
         </div>
       </div>
 
@@ -278,7 +350,28 @@ export function ChannelChat({
           <DocumentUpload
             channelId={channel.id}
             employeeId={me.id}
-            onDone={() => {
+            initialFile={droppedFile}
+            onDone={(msg) => {
+              setDroppedFile(null);
+              // Add the attachment message to state immediately — don't wait
+              // for realtime or router.refresh() to pick it up.
+              if (msg) {
+                setMessages((cur) => {
+                  if (cur.some((m) => m.id === msg.id)) return cur;
+                  return [
+                    ...cur,
+                    {
+                      id: msg.id,
+                      channelId: msg.channelId,
+                      employeeId: msg.employeeId,
+                      role: msg.role as 'user' | 'assistant' | 'system',
+                      content: msg.content,
+                      createdAt: msg.createdAt,
+                      authorName: msg.authorName,
+                    },
+                  ];
+                });
+              }
               setShowUpload(false);
               router.refresh();
             }}
@@ -311,7 +404,11 @@ export function ChannelChat({
                 if (typingTimer.current) clearTimeout(typingTimer.current);
                 typingTimer.current = setTimeout(() => broadcastTyping(false), 2000);
               }}
-              placeholder="Type a message. Use @oracle to ask the Oracle."
+              placeholder={
+                channel.isGroupChat
+                  ? 'Type a message. Use @oracle to ask the Oracle.'
+                  : 'Type a message…'
+              }
               disabled={sending}
             />
             <Button type="submit" disabled={!draft.trim() || sending}>
@@ -321,6 +418,25 @@ export function ChannelChat({
           </form>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function OracleThinkingBubble() {
+  return (
+    <div className="flex flex-col gap-1 items-start">
+      <div className="text-xs text-muted-foreground">Oracle</div>
+      <div className="rounded-lg bg-blue-50 px-4 py-3">
+        <span className="inline-flex items-center gap-1">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="inline-block h-2 w-2 rounded-full bg-blue-400 animate-bounce"
+              style={{ animationDelay: `${i * 150}ms` }}
+            />
+          ))}
+        </span>
+      </div>
     </div>
   );
 }

@@ -1,77 +1,78 @@
 'use client';
 
-import { useState } from 'react';
-import { createSupabaseBrowserClient } from '@oracle/auth/client';
+import { useEffect, useState } from 'react';
+import { Paperclip, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
-const BUCKET = 'company_documents';
+type UploadedMessage = {
+  id: string;
+  channelId: string;
+  employeeId: string | null;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  createdAt: string;
+  authorName: string | null;
+};
 
 export function DocumentUpload({
   channelId,
-  employeeId,
+  employeeId: _employeeId,
+  initialFile,
   onDone,
 }: {
   channelId: string;
   employeeId: string;
-  onDone: () => void;
+  /** Pre-populate the file (e.g. from a drag-and-drop). */
+  initialFile?: File | null;
+  onDone: (message: UploadedMessage | null) => void;
 }) {
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(initialFile ?? null);
+  const [caption, setCaption] = useState('');
   const [status, setStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Sync when a file is dropped externally (drag-to-upload from parent).
+  useEffect(() => {
+    if (initialFile) {
+      setFile(initialFile);
+      setStatus('idle');
+      setErrorMsg(null);
+    }
+  }, [initialFile]);
 
   async function upload() {
     if (!file) return;
     setStatus('uploading');
     setErrorMsg(null);
-    const supabase = createSupabaseBrowserClient();
-
-    // Storage path: <employeeId>/<channelId>/<timestamp>-<filename>
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `${employeeId}/${channelId}/${Date.now()}-${safeName}`;
 
     try {
-      // 1. Upload bytes to Storage.
-      const { error: uploadErr } = await supabase.storage
-        .from(BUCKET)
-        .upload(path, file, { upsert: false });
-      if (uploadErr) throw uploadErr;
+      const body = new FormData();
+      body.append('file', file);
+      body.append('channelId', channelId);
+      if (caption.trim()) body.append('caption', caption.trim());
 
-      // 2. Insert documents row.
-      const { data: doc, error: docErr } = await supabase
-        .from('documents')
-        .insert({
-          uploader_id: employeeId,
-          file_name: file.name,
-          storage_bucket: BUCKET,
-          storage_path: path,
-          file_type: file.type || 'application/octet-stream',
-          status: 'pending_processing',
-        })
-        .select()
-        .single();
-      if (docErr) throw docErr;
-
-      // 3. Post an attachment message so the upload appears in the channel.
-      const { data: msg, error: msgErr } = await supabase
-        .from('messages')
-        .insert({
-          channel_id: channelId,
-          employee_id: employeeId,
-          role: 'user',
-          content: `Attached: ${file.name}`,
-        })
-        .select()
-        .single();
-      if (msgErr) throw msgErr;
-
-      const { error: attachErr } = await supabase.from('message_attachments').insert({
-        message_id: msg.id,
-        document_id: doc.id,
+      const res = await fetch('/api/documents', {
+        method: 'POST',
+        body,
+        // Do NOT set Content-Type — browser adds the multipart boundary.
       });
-      if (attachErr) throw attachErr;
+
+      if (!res.ok) {
+        const errBody = await res.text();
+        console.error('[upload] /api/documents failed', res.status, errBody);
+        throw new Error(`Upload failed (${res.status}): ${errBody}`);
+      }
+
+      const data = (await res.json()) as {
+        ok: boolean;
+        documentId: string;
+        storagePath: string;
+        message: UploadedMessage | null;
+      };
 
       setStatus('done');
-      onDone();
+      onDone(data.message);
     } catch (err) {
       console.error('[upload] failed', err);
       setStatus('error');
@@ -79,26 +80,87 @@ export function DocumentUpload({
     }
   }
 
+  function clearFile() {
+    setFile(null);
+    setCaption('');
+    setStatus('idle');
+    setErrorMsg(null);
+  }
+
   return (
-    <div className="flex items-center gap-3">
-      <input
-        type="file"
-        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        className="text-sm"
-        disabled={status === 'uploading'}
-      />
-      <Button
-        type="button"
-        size="sm"
-        onClick={upload}
-        disabled={!file || status === 'uploading'}
-      >
-        {status === 'uploading' ? 'Uploading…' : 'Upload'}
-      </Button>
-      {errorMsg ? <span className="text-xs text-destructive">{errorMsg}</span> : null}
-      <p className="text-xs text-muted-foreground">
-        Stored in <code>{BUCKET}</code> bucket. Ingestion runs in Phase 4.
-      </p>
+    <div className="space-y-2">
+      {/* File picker row */}
+      <div className="flex items-center gap-2">
+        {file ? (
+          <div className="flex flex-1 items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+            <Paperclip className="size-4 shrink-0 text-muted-foreground" />
+            <span className="flex-1 truncate text-foreground">{file.name}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {(file.size / 1024).toFixed(0)} KB
+            </span>
+            <button
+              type="button"
+              onClick={clearFile}
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label="Remove file"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        ) : (
+          <label className="flex-1 cursor-pointer">
+            <div className="flex items-center gap-2 rounded-md border border-dashed bg-background px-3 py-2 text-sm text-muted-foreground hover:border-ring hover:text-foreground">
+              <Paperclip className="size-4 shrink-0" />
+              <span>Choose a file…</span>
+            </div>
+            <input
+              type="file"
+              className="sr-only"
+              disabled={status === 'uploading'}
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                setFile(f);
+                setStatus('idle');
+                setErrorMsg(null);
+                // Reset input so the same file can be reselected after clear.
+                e.target.value = '';
+              }}
+            />
+          </label>
+        )}
+
+        <Button
+          type="button"
+          size="sm"
+          onClick={upload}
+          disabled={!file || status === 'uploading'}
+        >
+          {status === 'uploading' ? 'Sending…' : 'Send'}
+        </Button>
+      </div>
+
+      {/* Caption / question */}
+      {file && (
+        <Input
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+          placeholder="Add a message or question about this file… (optional)"
+          disabled={status === 'uploading'}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && file && status !== 'uploading') {
+              e.preventDefault();
+              void upload();
+            }
+          }}
+        />
+      )}
+
+      {status === 'done' && (
+        <p className="text-xs text-green-600">Sent.</p>
+      )}
+      {errorMsg && (
+        <p className="text-xs text-destructive">{errorMsg}</p>
+      )}
     </div>
   );
 }

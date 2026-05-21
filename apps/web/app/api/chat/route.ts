@@ -19,9 +19,10 @@
 // SSE if we want progressive Oracle messages.
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { generateText, stepCountIs, tool } from 'ai';
+import { createServiceRoleClient } from '@oracle/auth/server';
 import {
   ORACLE_SYSTEM_PROMPT,
   ORACLE_SYSTEM_PROMPT_VERSION,
@@ -34,9 +35,12 @@ import {
 import { KNOWLEDGE_DOMAINS, type KnowledgeDomain } from '@oracle/shared';
 import { getDirectDb } from '@oracle/db/client';
 import {
+  channels,
   channelParticipants,
+  documents,
   employeeIdentities,
   employees,
+  messageAttachments,
   messages,
   modelRuns,
   settings,
@@ -82,21 +86,31 @@ export async function POST(req: NextRequest) {
   }
 
   // -------------------------------------------------------------------
-  // 2. Confirm participation.
+  // 2. Confirm participation and load channel metadata.
   // -------------------------------------------------------------------
-  const membership = await db
-    .select()
-    .from(channelParticipants)
-    .where(
-      and(
-        eq(channelParticipants.channelId, body.channelId),
-        eq(channelParticipants.employeeId, me.id),
-      ),
-    )
-    .limit(1);
+  const [membership, channelRows] = await Promise.all([
+    db
+      .select()
+      .from(channelParticipants)
+      .where(
+        and(
+          eq(channelParticipants.channelId, body.channelId),
+          eq(channelParticipants.employeeId, me.id),
+        ),
+      )
+      .limit(1),
+    db
+      .select({ isGroupChat: channels.isGroupChat })
+      .from(channels)
+      .where(eq(channels.id, body.channelId))
+      .limit(1),
+  ]);
+
   if (membership.length === 0) {
     return NextResponse.json({ error: 'not_in_channel' }, { status: 403 });
   }
+
+  const isGroupChat = channelRows[0]?.isGroupChat ?? false;
 
   // -------------------------------------------------------------------
   // 3. Retrieval bundle.
@@ -111,11 +125,15 @@ export async function POST(req: NextRequest) {
 
   // Direct-mention gate (spec Part 10 group chat rules). Phase 6 will add
   // lull/contradiction triggers.
+  //
+  // In DMs the Oracle is the only other participant — it responds to every
+  // message. In group chats it only responds when directly addressed with
+  // @oracle. The `force` flag bypasses the gate (used by admin test routes).
   const latestUserMessage = [...recent].reverse().find((m) => m.role === 'user');
-  if (!body.force) {
-    if (!latestUserMessage) {
-      return NextResponse.json({ ok: true, skipped: 'no_user_message' });
-    }
+  if (!latestUserMessage) {
+    return NextResponse.json({ ok: true, skipped: 'no_user_message' });
+  }
+  if (!body.force && isGroupChat) {
     if (!/^\s*(@oracle\b|oracle,)/i.test(latestUserMessage.content)) {
       return NextResponse.json({ ok: true, skipped: 'no_direct_mention' });
     }
@@ -141,9 +159,6 @@ export async function POST(req: NextRequest) {
       : null) ??
     process.env.ORACLE_INTERVIEW_MODEL ??
     FALLBACK_MODEL;
-
-  const openrouter = getOpenRouter();
-  const model = openrouter(modelName);
 
   // Tools — spec 9.2.
   const tools = {
@@ -219,15 +234,87 @@ export async function POST(req: NextRequest) {
   }
   const systemPrompt = ORACLE_SYSTEM_PROMPT + contextLines.join('\n');
 
-  // Recent messages map to AI SDK message format.
-  const conversationMessages = recent
-    .filter((m) => m.role !== 'system')
-    .map((m) => ({
-      role: m.role === 'assistant' ? ('assistant' as const) : ('user' as const),
-      content: m.role === 'user' && m.authorName
-        ? `[${m.authorName}] ${m.content}`
-        : m.content,
-    }));
+  // Load attachments for every message in the window so the model can see
+  // the actual file content (images, PDFs, plain text) rather than just the
+  // "Attached: filename" placeholder text.
+  const recentIds = recent.map((m) => m.id);
+  const attachmentRows =
+    recentIds.length > 0
+      ? await db
+          .select({
+            messageId: messageAttachments.messageId,
+            storageBucket: documents.storageBucket,
+            storagePath: documents.storagePath,
+            fileType: documents.fileType,
+            fileName: documents.fileName,
+          })
+          .from(messageAttachments)
+          .innerJoin(documents, eq(documents.id, messageAttachments.documentId))
+          .where(inArray(messageAttachments.messageId, recentIds))
+      : [];
+
+  type AttRow = (typeof attachmentRows)[number];
+  const attachmentMap = new Map<string, AttRow[]>();
+  for (const att of attachmentRows) {
+    const list = attachmentMap.get(att.messageId) ?? [];
+    list.push(att);
+    attachmentMap.set(att.messageId, list);
+  }
+
+  const serviceSupabase = createServiceRoleClient();
+
+  // Build multi-modal conversation messages. For messages with file attachments
+  // we fetch the bytes from Storage and pass them as image/file/text parts.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const conversationMessages: any[] = await Promise.all(
+    recent
+      .filter((m) => m.role !== 'system')
+      .map(async (m) => {
+        const role = m.role === 'assistant' ? ('assistant' as const) : ('user' as const);
+        const textContent =
+          m.role === 'user' && m.authorName
+            ? `[${m.authorName}] ${m.content}`
+            : m.content;
+
+        const atts = attachmentMap.get(m.id) ?? [];
+        if (atts.length === 0) return { role, content: textContent };
+
+        type Part =
+          | { type: 'text'; text: string }
+          | { type: 'image'; image: string }
+          | { type: 'file'; data: string; mimeType: string };
+
+        const parts: Part[] = [{ type: 'text', text: textContent }];
+
+        for (const att of atts) {
+          try {
+            const { data: blob, error } = await serviceSupabase.storage
+              .from(att.storageBucket)
+              .download(att.storagePath);
+            if (error || !blob) {
+              console.warn('[chat] could not download attachment', att.storagePath, error?.message);
+              continue;
+            }
+            const buf = Buffer.from(await blob.arrayBuffer());
+            const b64 = buf.toString('base64');
+
+            if (att.fileType.startsWith('image/')) {
+              parts.push({ type: 'image', image: `data:${att.fileType};base64,${b64}` });
+            } else if (att.fileType === 'application/pdf') {
+              parts.push({ type: 'file', data: b64, mimeType: 'application/pdf' });
+            } else if (att.fileType.startsWith('text/')) {
+              const text = buf.toString('utf8');
+              parts.push({ type: 'text', text: `\n\n[File: ${att.fileName}]\n${text}\n[/File]` });
+            }
+            // Other MIME types: skip (binary formats the model can't interpret)
+          } catch (err) {
+            console.error('[chat] attachment fetch failed', att.storagePath, err);
+          }
+        }
+
+        return { role, content: parts.length === 1 ? textContent : parts };
+      }),
+  );
 
   const startedAt = Date.now();
   let success = false;
@@ -237,6 +324,8 @@ export async function POST(req: NextRequest) {
   let modelError: string | undefined;
 
   try {
+    const openrouter = getOpenRouter();
+    const model = openrouter(modelName);
     const result = await generateText({
       model,
       system: systemPrompt,
