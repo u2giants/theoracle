@@ -2,7 +2,7 @@
 
 Status: mandatory AI implementation guidance.
 
-This document defines the three primary model roles for The Oracle and the top model choices for each role.
+This document defines the three primary model roles for The Oracle and the cost-aware route choices for each role.
 
 ## Executive decision
 
@@ -22,11 +22,38 @@ These roles match the product architecture better than a single global model set
 
 Trying to optimize all three with one model will either waste money or reduce quality.
 
+## Critical cost correction
+
+Do not default to frontier models for routine runtime workloads.
+
+Frontier models are allowed only as escalation/manual-review routes. The default production routes must be cost-aware because The Oracle may run extraction workers on many messages and documents.
+
+The target optimization is not best raw model quality.
+
+The target optimization is:
+
+```text
+lowest cost per useful, validated, evidence-backed result
+```
+
+Track and optimize:
+
+- cost per valid claim;
+- cost per approved claim;
+- cost per useful gap;
+- cost per accepted Brain update;
+- validation failure rate;
+- retry rate;
+- cache hit rate;
+- human review rejection rate.
+
+A cheap model that produces invalid candidates is expensive. A frontier model that runs on every background job is also expensive. The architecture must use cheaper models first, then escalate selectively.
+
 ## Important distinction: model role vs internal subroute
 
 The three model roles are the user-facing/admin-facing defaults.
 
-Internally, the `ModelRouter` may later introduce subroutes such as:
+Internally, the `ModelRouter` may introduce subroutes such as:
 
 - contradiction prefilter;
 - hard contradiction review;
@@ -34,9 +61,10 @@ Internally, the `ModelRouter` may later introduce subroutes such as:
 - admin explanation;
 - retrieval query rewriting;
 - document OCR/image interpretation;
-- Brain synthesis critique.
+- Brain synthesis critique;
+- high-risk escalation.
 
-Do not expose those internal subroutes to Albert at first unless there is a clear operational reason. Keep the admin model configuration understandable.
+Do not expose every internal subroute to Albert at first. Keep the admin model configuration understandable.
 
 ## Big 3 provider boundary
 
@@ -63,6 +91,8 @@ type OracleModelRole = 'interview' | 'extraction' | 'synthesis';
 
 type OracleProvider = 'anthropic' | 'vertex' | 'openai';
 
+type RouteCostTier = 'cheap_default' | 'balanced_default' | 'expensive_escalation' | 'manual_only_frontier';
+
 type CacheStrategy =
   | 'anthropic_automatic'
   | 'anthropic_explicit_breakpoints'
@@ -87,6 +117,7 @@ type OracleModelRoute = {
   modelId: string;
   displayName: string;
   recommendedUse: string;
+  costTier: RouteCostTier;
   cacheStrategy: CacheStrategy;
   structuredOutputStrategy: StructuredOutputStrategy;
   supportsVision: boolean;
@@ -101,7 +132,25 @@ type OracleModelRoute = {
 };
 ```
 
-The admin settings table may store the selected `routeId`. The route definitions themselves may live in versioned TypeScript config first. Move them into Postgres only when live editing is needed.
+The admin settings table should store selected `routeId` values. Route definitions may live in versioned TypeScript config first. Move them into Postgres only when live editing is needed.
+
+## Model budget policy
+
+The runtime route policy must be conservative:
+
+```ts
+export const ORACLE_MODEL_BUDGET_POLICY = {
+  defaultToCheapOrBalanced: true,
+  allowFrontierOnlyForEscalation: true,
+  requireHumanOrValidatorTriggerForFrontier: true,
+  requireCostLoggingForEveryCall: true,
+  requireRouteEvalsBeforePromotion: true,
+};
+```
+
+Do not allow routine cron workers to call frontier models across large batches.
+
+Do not allow synthesis to call a frontier model by default until real eval data proves the cheaper route fails often enough to justify it.
 
 ## Role 1: Interview model
 
@@ -123,79 +172,89 @@ Most important qualities:
 5. Low latency.
 6. Reasonable cost.
 
-Top 3 interview model choices:
+Cost-aware top 3 interview routes:
 
-### 1. Anthropic Claude Sonnet 4.6 direct
+### 1. Anthropic Claude Haiku direct
 
-Default recommendation for the interview role.
+Default low-cost interview route.
 
 Why:
 
-- best balance of tone, tact, instruction-following, and cost;
-- strong at psychologically safe workplace phrasing;
-- strong at conversation and follow-up questions;
-- supports Anthropic prompt caching patterns for repeated system prompt and long conversations;
-- likely better than a pure extraction model at not sounding robotic.
+- much cheaper than Sonnet while still generally good at conversational tone;
+- suitable for routine direct mentions and short interviews;
+- supports Anthropic prompt caching patterns;
+- keeps employee-facing chat from becoming an uncontrolled cost center.
 
 Caching strategy:
 
-- use `anthropic_auto_plus_explicit` when possible;
-- explicit cache breakpoint after stable Oracle system prompt and stable tool definitions;
-- use automatic/top-level caching for longer conversation history when the provider supports it;
-- dynamic current turn, retrieved claims, and retrieved gaps must remain after stable cacheable content.
+- use `anthropic_auto_plus_explicit` when available;
+- cache stable Oracle system prompt and tool definitions;
+- keep employee/channel context, recent messages, retrieved claims/gaps, and current user turn after stable cacheable content.
 
 Use when:
 
-- default live Oracle chat;
-- direct employee interviews;
-- admin test chat;
-- delicate group-chat clarifications.
+- normal Oracle DMs;
+- routine direct mentions;
+- short follow-up questions;
+- admin test chat that does not require deep synthesis.
 
-### 2. Google Gemini Pro direct through Vertex AI
+### 2. Google Gemini Flash direct through Vertex AI
 
-Second choice for the interview role when long context or Google ecosystem behavior is more valuable.
+Second interview route and strong cost/performance fallback.
 
 Why:
 
-- strong long-context handling;
-- direct Vertex usage can benefit from implicit caching for stable prefixes;
-- useful if the interview route increasingly includes long documents or long histories;
-- good fallback if Anthropic latency, quota, or cost becomes problematic.
+- strong cost/performance;
+- useful for low-cost chat and long-context situations;
+- direct Vertex usage can benefit from implicit caching;
+- good fallback if Anthropic latency/quota/cost is problematic.
 
 Caching strategy:
 
 - use `vertex_implicit` for normal chat;
-- use explicit Vertex context caching only if a large stable interview context is reused repeatedly;
-- track cached token counts from provider metadata.
+- use explicit Vertex context caching only if a large stable context is reused repeatedly;
+- log cached token counts from provider metadata.
 
 Use when:
 
-- interview conversations need unusually large context;
-- the Oracle needs to reason over a large document in live chat;
-- Anthropic is unavailable.
+- Anthropic is unavailable;
+- chat needs larger retrieved context;
+- Gemini wins interview evals on cost per useful conversation.
 
-### 3. OpenAI GPT direct
+### 3. OpenAI mini model direct
 
-Third choice for interview and admin-facing chat fallback.
+Third interview route and structured/tool fallback.
 
 Why:
 
-- reliable general-purpose fallback;
-- good structured/tool behavior;
-- useful if Anthropic or Gemini route fails;
+- reliable tool/structured-output behavior;
+- useful as a fallback if Anthropic/Gemini are unavailable;
 - direct OpenAI prompt caching can be helped with stable prefix design and route-specific cache keys.
 
 Caching strategy:
 
 - use `openai_automatic_with_cache_key` where supported;
-- keep stable prompt, stable tool schemas, and stable output rules first;
+- keep stable prompt and tool schemas first;
 - log cached tokens from provider-native usage fields.
 
 Use when:
 
-- Anthropic and Gemini are unavailable;
-- admin-facing explanation needs reliable structured formatting;
-- a direct OpenAI model wins interview evals.
+- Anthropic and Gemini fail;
+- admin-facing response needs stricter formatting;
+- OpenAI route wins interview evals.
+
+Interview escalation route:
+
+- Anthropic Claude Sonnet direct.
+
+Use Sonnet only when:
+
+- Haiku/Gemini output is not tactful enough;
+- conversation is sensitive;
+- repeated failed responses occur;
+- Albert/admin manually selects higher quality.
+
+Do not default routine chat to Opus.
 
 ## Role 2: Extraction model
 
@@ -216,79 +275,93 @@ Most important qualities:
 4. Strong enough reasoning to separate claim stated, challenged, refined, and exception introduced.
 5. Good caching with repeated prompts/schemas/documents.
 
-Top 3 extraction model choices:
+Cost-aware top 3 extraction routes:
 
-### 1. Google Gemini 2.5 Flash direct through Vertex AI
+### 1. Google Gemini Flash-Lite direct through Vertex AI
 
-Default recommendation for extraction.
+Default high-volume text extraction route.
 
 Why:
 
-- best fit for high-volume extraction and document-heavy processing;
-- strong cost/performance for large batches;
-- direct Vertex AI supports implicit caching for repeated stable prefixes;
-- explicit context caching can be used for large reusable PDFs, SOPs, tech packs, style guides, and transcript batches;
-- good multimodal/document capabilities.
+- cheapest practical first pass for routine message extraction;
+- very good fit for cron workers over many short messages;
+- can use direct Vertex implicit caching for repeated stable prefixes;
+- keeps routine extraction from becoming a daily runaway bill.
 
 Caching strategy:
 
-- use `vertex_implicit` for normal message extraction;
-- use `vertex_implicit_or_explicit_by_context_size` for document ingestion;
-- create explicit cached content only when the same large document/context will be queried multiple times;
-- store provider cached-content resource names, TTLs, source hashes, and expiration in Postgres;
+- use `vertex_implicit` for message extraction;
+- stable extraction prompt/schema/domain taxonomy first;
+- dynamic message segment last;
+- log cached token counts.
+
+Use when:
+
+- extracting from normal chat messages;
+- domain tagging;
+- low-risk candidate generation;
+- first-pass extraction before deterministic validation.
+
+### 2. Google Gemini Flash direct through Vertex AI
+
+Default document and multimodal extraction route.
+
+Why:
+
+- better than Flash-Lite for document-heavy and multimodal extraction;
+- still far cheaper than frontier models;
+- strong fit for PDFs, SOPs, tech packs, images, OCR-like document workflows;
+- supports implicit caching and explicit context caching through Vertex.
+
+Caching strategy:
+
+- use `vertex_implicit_or_explicit_by_context_size`;
+- use explicit context caching for large reusable PDFs/SOPs/style guides/transcript batches;
+- store cached-content resource name, TTL, source hash, and expiration in Postgres;
 - do not delete explicit caches immediately if retries/follow-up passes are likely.
 
 Use when:
 
-- extracting from batches of chat messages;
 - extracting from document chunks;
 - processing PDFs/images/technical documents;
-- running high-volume nightly or four-hour cron extraction.
+- running multi-pass extraction over the same document;
+- Flash-Lite fails validation too often.
 
-### 2. OpenAI small/mini structured-output model direct
+### 3. OpenAI mini structured-output model direct
 
-Second choice for extraction when strict structured output is the priority.
+Structured-output fallback and validation-repair route.
 
 Why:
 
-- strong native structured outputs / JSON schema support;
-- good fallback when Gemini produces schema-invalid candidates;
-- useful for validation-repair passes;
-- direct OpenAI automatic prompt caching can reduce repeated schema/prompt costs.
+- strong native structured output / JSON schema behavior;
+- useful when Gemini produces schema-invalid candidates;
+- good fallback for validation repair;
+- still much cheaper than frontier models.
 
 Caching strategy:
 
 - use `openai_automatic_with_cache_key` for repeated stable extraction prompts and schemas;
-- use stable task/schema prompt first, dynamic messages or chunks last;
-- log cached token counts and validation results.
+- stable task/schema prompt first, dynamic messages/chunks last;
+- log cached tokens and validation results.
 
 Use when:
 
-- Gemini extraction fails schema validation too often;
+- Gemini route fails schema validation;
 - exact output shape is more important than multimodal context;
 - validation repair is needed.
 
-### 3. Anthropic Claude Sonnet direct
+Extraction escalation route:
 
-Third choice for extraction when nuance matters more than raw cost.
+- Anthropic Claude Haiku or Sonnet direct depending on severity.
 
-Why:
+Use Anthropic escalation only when:
 
-- strong at understanding human disagreement and subtle process exceptions;
-- useful for group chats where employees challenge or refine each other;
-- useful as an escalation route for high-impact or ambiguous claims.
+- group-chat nuance is high;
+- the candidate affects customers/licensors/compliance;
+- cheaper model repeatedly fails quote/schema validation;
+- the claim is high-impact and ambiguous.
 
-Caching strategy:
-
-- use explicit breakpoints after stable extraction rules/schema;
-- dynamic transcript or document chunk comes after the cache breakpoint;
-- avoid using Sonnet for all bulk extraction unless evals show the higher cost is justified.
-
-Use when:
-
-- candidate affects customer/licensor risk;
-- conversation contains disagreement, sarcasm, correction, or exception handling;
-- cheaper model output fails validation or is too shallow.
+Do not run Claude Sonnet across all routine extraction batches.
 
 ## Role 3: Synthesis model
 
@@ -304,104 +377,130 @@ Purpose:
 Most important qualities:
 
 1. Evidence fidelity.
-2. Strong reasoning.
-3. Ability to produce structured diffs.
-4. Ability to avoid unsupported statements.
-5. Clear writing.
-6. Good handling of contradictions and exceptions.
+2. Ability to produce structured diffs.
+3. Ability to avoid unsupported statements.
+4. Clear writing.
+5. Good handling of contradictions and exceptions.
+6. Low enough cost to run regularly.
 
-Top 3 synthesis model choices:
+Cost-aware top 3 synthesis routes:
 
-### 1. Anthropic Claude Opus 4.7 direct
+### 1. Google Gemini Flash direct through Vertex AI
 
-Highest-quality synthesis route.
+Default routine synthesis draft route.
 
 Why:
 
-- best choice for hard synthesis, architecture-level reasoning, and nuanced operational truth;
-- preferred for complex Brain section rewrites and cross-department logic;
-- likely strongest at preserving caveats, exceptions, and uncertainty;
-- best route when a failed synthesis would waste human review time.
+- strong cost/performance;
+- good for routine Brain draft updates that will be backend-validated and admin-reviewed;
+- direct Vertex caching can help if repeated synthesis uses the same approved claim/context bundle;
+- keeps routine synthesis economical.
+
+Caching strategy:
+
+- use `vertex_implicit` for ordinary small/medium synthesis;
+- use explicit Vertex context caching when approved claim corpus, source document, or section context is large and reused across multiple passes;
+- validate output just as strictly as Anthropic output.
+
+Use when:
+
+- routine Brain section draft updates;
+- low/medium risk sections;
+- scheduled synthesis over approved claims;
+- synthesis output is always validated before it updates current Brain version.
+
+### 2. Anthropic Claude Haiku direct
+
+Balanced writing/reasoning synthesis route.
+
+Why:
+
+- better conversational/writing style than many cheap models;
+- much cheaper than Sonnet/Opus;
+- useful for admin-facing summaries and routine Brain explanations;
+- can use Anthropic cache breakpoints on stable synthesis prompt/schema.
 
 Caching strategy:
 
 - use `anthropic_explicit_breakpoints`;
 - cache stable synthesis rules, traceability rules, output schema, validation rules, and tool definitions;
-- keep selected section, approved claims, current version, and dynamic job input after the breakpoint;
-- use longer TTL only when repeated synthesis attempts or review passes are expected.
+- keep section, approved claims, current version, and job input after the breakpoint.
 
 Use when:
 
-- synthesizing important Brain sections;
-- resolving complex contradictions;
-- creating admin-facing executive explanations;
-- quality matters more than cost.
+- Gemini output is too dry or fails writing-quality evals;
+- admin-facing explanation matters;
+- routine synthesis needs better wording but not Sonnet-level cost.
 
-### 2. Anthropic Claude Sonnet 4.6 direct
+### 3. Anthropic Claude Sonnet direct
 
-Default day-to-day synthesis route.
+High-quality escalation route.
 
 Why:
 
-- strong synthesis quality at lower cost/latency than Opus;
-- good enough for most Brain sections once the validation layer is strict;
-- same provider caching mechanics as Opus;
-- useful as the normal synthesis default, with Opus as escalation.
+- stronger synthesis and contradiction reasoning;
+- appropriate for high-impact sections or repeated validation failures;
+- still cheaper than Opus-class manual-only frontier routes;
+- good at preserving nuance, caveats, exceptions, and uncertainty.
 
 Caching strategy:
 
-- same as Opus: explicit breakpoint after stable synthesis prompt/schema;
-- route to Opus if validation fails repeatedly or the section is high-impact.
+- same as Haiku: explicit breakpoint after stable synthesis prompt/schema;
+- use only when validation/escalation criteria are met.
 
 Use when:
 
-- ordinary Brain section updates;
-- scheduled maintenance synthesis;
-- approved claim batches that are not high-risk.
+- high-impact Brain section update;
+- hard contradiction resolution;
+- Gemini/Haiku synthesis fails validation;
+- Albert/admin manually requests higher-quality synthesis.
 
-### 3. Google Gemini Pro direct through Vertex AI
+Synthesis manual-only frontier route:
 
-Third choice for synthesis when context size is the binding constraint.
+- Anthropic Claude Opus direct or current frontier equivalent.
+- Google Gemini Pro / OpenAI frontier equivalent only if evals show they outperform Sonnet on this task.
 
-Why:
+Use frontier synthesis only when:
 
-- strong long-context option;
-- useful for unusually large sets of approved claims or large source documents;
-- Vertex explicit context caching may make repeated analysis over large context economical.
+- a human explicitly requests it;
+- the section is strategically important;
+- cheaper routes failed validation or produced low usefulness;
+- cost is logged and visible.
 
-Caching strategy:
-
-- use `vertex_implicit` for ordinary synthesis;
-- use explicit Vertex context caching when the approved claim corpus, source document, or section context is very large and reused across multiple passes;
-- validate output just as strictly as Anthropic output.
-
-Use when:
-
-- context is too large or too document-heavy for the default Anthropic route;
-- repeated synthesis/review passes over the same large context are expected;
-- Anthropic is unavailable.
+Do not make Opus or Gemini Pro the default synthesis route.
 
 ## Recommended defaults
 
-Initial default role selections:
+Initial cost-aware default role selections:
 
 ```ts
 export const DEFAULT_ORACLE_MODEL_ROUTES = {
-  interview: 'anthropic_claude_sonnet_interview_primary',
-  extraction: 'vertex_gemini_flash_extraction_primary',
-  synthesis: 'anthropic_claude_sonnet_synthesis_primary',
+  interview: 'anthropic_claude_haiku_interview_primary',
+  extraction: 'vertex_gemini_flash_lite_extraction_primary',
+  synthesis: 'vertex_gemini_flash_synthesis_primary',
 };
 ```
 
-Escalation defaults:
+Balanced alternate defaults if evals show quality is too low:
+
+```ts
+export const BALANCED_ORACLE_MODEL_ROUTES = {
+  interview: 'anthropic_claude_haiku_interview_primary',
+  extraction: 'vertex_gemini_flash_extraction_primary',
+  synthesis: 'anthropic_claude_haiku_synthesis_primary',
+};
+```
+
+Escalation routes:
 
 ```ts
 export const ORACLE_ESCALATION_ROUTES = {
-  interviewQualityEscalation: 'anthropic_claude_opus_interview_escalation',
-  extractionStructuredFallback: 'openai_structured_extraction_fallback',
-  extractionNuanceEscalation: 'anthropic_claude_sonnet_extraction_escalation',
-  synthesisQualityEscalation: 'anthropic_claude_opus_synthesis_escalation',
-  synthesisLongContextFallback: 'vertex_gemini_pro_synthesis_long_context',
+  interviewQualityEscalation: 'anthropic_claude_sonnet_interview_escalation',
+  extractionStructuredFallback: 'openai_mini_structured_extraction_fallback',
+  extractionNuanceEscalation: 'anthropic_claude_haiku_or_sonnet_extraction_escalation',
+  synthesisQualityEscalation: 'anthropic_claude_sonnet_synthesis_escalation',
+  synthesisManualFrontier: 'anthropic_claude_opus_synthesis_manual_only',
+  synthesisLongContextFallback: 'vertex_gemini_pro_synthesis_manual_or_eval_only',
 };
 ```
 
@@ -418,6 +517,7 @@ Each selected route should show:
 - provider;
 - model display name;
 - expected strengths;
+- cost tier;
 - cache strategy;
 - structured-output strategy;
 - whether it supports vision;
@@ -429,9 +529,21 @@ Each selected route should show:
 
 Do not show a giant public catalog of models. This app should expose a curated list of approved routes only.
 
+## Model routing rules
+
+Default routing should be cheap-first:
+
+1. Run the lowest-cost approved route for the task.
+2. Validate deterministically.
+3. If schema validation fails, try one repair pass or structured fallback.
+4. If quote validation fails, store failure; do not blindly retry frontier models.
+5. If the task is high-impact or repeatedly fails, escalate.
+6. If synthesis fails backend support validation, escalate once to the next route.
+7. Frontier/manual-only routes require explicit trigger or configured admin approval.
+
 ## Evaluation rule
 
-A model route is not approved because it is fashionable or cheap.
+A model route is not approved because it is fashionable, cheap, or frontier.
 
 A model route is approved only if it performs well on Oracle-specific evals:
 
