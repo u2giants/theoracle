@@ -27,17 +27,39 @@ OpenRouter may remain temporarily as legacy fallback while the retrofit is in pr
 
 This project does not currently use Claude Code persistent memory. If you start, document the memory key naming convention here.
 
+## Context loading protocol
+
+Do not bulk-read documentation with wildcard commands such as:
+
+```bash
+cat docs/oracle/*
+cat *.md
+```
+
+Do not load all docs into context just because they exist.
+
+Instead:
+
+1. Read `HANDOFF.md` first to determine the current objective.
+2. Read `AGENTS.md` for repo conventions.
+3. Read `oracle_master_spec.md` for product/business intent.
+4. Read `DECISIONS.md` for historical decisions that may affect the task.
+5. Read `docs/oracle/00-buildout-index.md`.
+6. Read only the specific `docs/oracle/` files required for the active task.
+
+If the task touches AI architecture generally, read all `docs/oracle/` files one by one in the order listed by `00-buildout-index.md`. Do not use wildcard reads.
+
+If the task is narrow, use this routing:
+
+- model routes/settings: read `01-model-roles-and-routes.md`;
+- provider adapters/caching: read `02-provider-native-ai-architecture.md`;
+- extraction validation/staging: read `03-candidate-before-claim-validation.md`;
+- model runs/context packs/cost dashboards: read `04-context-packs-observability.md`;
+- implementation order: read `05-ai-retrofit-phase-packet.md`.
+
+Before coding, write a short implementation plan in your response or commit notes that names exactly which spec docs were read and why.
+
 ## Context management
-
-Start each session by reading:
-
-1. `HANDOFF.md` — current state, done/pending/blockers.
-2. `AGENTS.md` — developer guide and repo conventions.
-3. `oracle_master_spec.md` — product/business contract.
-4. `DECISIONS.md` — assumptions and decisions.
-5. The relevant `docs/oracle/*.md` addenda for AI work.
-
-If the task touches `packages/ai`, `apps/workers`, model settings, extraction, document ingestion, synthesis, context packs, model runs, or validation, read all files in `docs/oracle/` before editing code.
 
 Do not re-read `pnpm-lock.yaml`, `node_modules/`, `apps/web/.next/`, or generated Drizzle SQL. They are listed in `.claudeignore`.
 
