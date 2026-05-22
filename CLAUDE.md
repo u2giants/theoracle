@@ -1,6 +1,27 @@
 # CLAUDE.md — Claude Code Notes
 
-**Read `AGENTS.md` first.** Everything substantive lives there. This file is just Claude Code-specific.
+**Read `AGENTS.md` first.** Everything substantive about repo operation lives there. This file adds Claude Code-specific instructions and points Claude to the current AI buildout addenda.
+
+## Current priority
+
+The next major implementation work is **not** Phase 6 proactive interjection.
+
+The next major implementation work is the **AI architecture retrofit** described in:
+
+1. `docs/oracle/00-buildout-index.md`
+2. `docs/oracle/01-model-roles-and-routes.md`
+3. `docs/oracle/02-provider-native-ai-architecture.md`
+4. `docs/oracle/03-candidate-before-claim-validation.md`
+5. `docs/oracle/04-context-packs-observability.md`
+6. `docs/oracle/05-ai-retrofit-phase-packet.md`
+
+Do not extend the old OpenRouter-centered architecture for production extraction, document ingestion, synthesis, or cache-sensitive AI work.
+
+OpenRouter may remain temporarily as legacy fallback while the retrofit is in progress, but the target architecture is Big 3 direct-provider adapters:
+
+- Anthropic direct;
+- Google Vertex AI / Gemini direct;
+- OpenAI direct.
 
 ## Memory
 
@@ -8,10 +29,26 @@ This project does not currently use Claude Code persistent memory. If you start,
 
 ## Context management
 
-- The repo is small but dense. Start each session by reading **`HANDOFF.md`** (current state — done/pending/blockers), then `AGENTS.md` (15 sections), then `oracle_master_spec.md` (large but authoritative), then `DECISIONS.md`.
-- Do not re-read `pnpm-lock.yaml`, `node_modules/`, `apps/web/.next/`, or generated Drizzle SQL. They're listed in `.claudeignore`.
-- When in doubt about behavior, read `packages/db/src/schema.ts` and `packages/ai/src/prompts/oracle-system.ts` — those two files plus the spec define everything else.
-- The hand-written SQL migration ordering is documented in `packages/db/migrations/sql/README.md` (numeric prefixes have meaning).
+Start each session by reading:
+
+1. `HANDOFF.md` — current state, done/pending/blockers.
+2. `AGENTS.md` — developer guide and repo conventions.
+3. `oracle_master_spec.md` — product/business contract.
+4. `DECISIONS.md` — assumptions and decisions.
+5. The relevant `docs/oracle/*.md` addenda for AI work.
+
+If the task touches `packages/ai`, `apps/workers`, model settings, extraction, document ingestion, synthesis, context packs, model runs, or validation, read all files in `docs/oracle/` before editing code.
+
+Do not re-read `pnpm-lock.yaml`, `node_modules/`, `apps/web/.next/`, or generated Drizzle SQL. They are listed in `.claudeignore`.
+
+When in doubt about behavior, read:
+
+- `packages/db/src/schema.ts`
+- `packages/db/migrations/sql/*.sql`
+- `packages/ai/src/prompts/oracle-system.ts`
+- `docs/oracle/00-buildout-index.md`
+
+The hand-written SQL migration ordering is documented in `packages/db/migrations/sql/README.md`.
 
 ## `.claudeignore`
 
@@ -19,45 +56,116 @@ Already at the repo root. If you add new build artifacts or large generated dirs
 
 ## Operations / permissions
 
-- **Allowed:** read/write anything under `apps/`, `packages/`, `docs/`, root markdown files. Run `pnpm install`, `pnpm db:generate`, `pnpm db:migrate`, `pnpm typecheck`, `pnpm build`, `pnpm lint`, `pnpm dev`. Run git locally. Use `gh` CLI for read-only GitHub queries.
-- **Allowed with care:** `pnpm db:seed` (idempotent but writes to the real Supabase DB), `git push` to `main` (the user has authorized direct-to-main commits for the build phase).
-- **Not allowed:** `Stop-Process -Force` on `node` broadly (it kills MCP servers and IDEs). Target `pnpm` specifically. Don't run destructive git (`reset --hard`, `push --force`) without explicit per-action approval.
+Allowed:
+
+- read/write anything under `apps/`, `packages/`, `docs/`, and root markdown files;
+- run `pnpm install`, `pnpm db:generate`, `pnpm db:migrate`, `pnpm typecheck`, `pnpm build`, `pnpm lint`, `pnpm dev`;
+- run git locally;
+- use GitHub CLI or GitHub tools for read/write repo operations.
+
+Allowed with care:
+
+- `pnpm db:seed` — idempotent but writes to the real Supabase DB;
+- direct pushes to `main` only when explicitly requested by Albert;
+- migrations that add schema are allowed, but destructive migrations need explicit approval.
+
+Not allowed:
+
+- broad `Stop-Process -Force` on `node`;
+- destructive git such as `reset --hard`, `push --force`, or deleting branches without explicit approval;
+- committing `.env*` files except `.env.example`;
+- committing secrets, Vercel tokens, Supabase service role keys, provider API keys, or Trigger.dev secrets.
 
 ## APIs Claude may call
 
-- **GitHub** (`gh` CLI) — read PRs/issues, create commits/branches/PRs.
-- **Vercel** (via `npx vercel@latest` with the project's token) — link project, pull env vars, list deployments. Do not deploy from Claude — Vercel auto-deploys on push.
-- **Supabase** (via the SDK using the service role key, server-side only) — DB queries, storage uploads.
-- **OpenRouter / OpenAI** — only through the wrappers in `packages/ai/`.
+- GitHub — read/edit files, create branches/commits/PRs.
+- Vercel — link project, pull env vars, list deployments. Do not manually deploy; Vercel auto-deploys on push.
+- Supabase — server-side only, using documented helpers and service role where justified.
+- Anthropic / Google Vertex AI / OpenAI — only through the future `OracleAIClient` provider adapters once implemented.
+- OpenRouter — legacy path only. Do not add new production OpenRouter usage.
 
-## SSH
+## AI architecture rules
 
-There are no SSH targets. The stack is fully managed cloud. If a future task seems to require SSH, that is almost certainly a sign the task is misframed — escalate to Albert before proceeding.
+All new model calls must go through the target architecture:
+
+```text
+OracleAIClient
+  -> ContextCompiler
+  -> ModelRouter
+  -> Provider Adapter
+  -> UsageLogger / CostTracker / ContextPack
+```
+
+Do not call provider SDKs directly from:
+
+- Next.js route handlers;
+- Trigger.dev task files;
+- admin UI components;
+- random helper files.
+
+Provider SDK calls belong inside provider adapters under `packages/ai`.
+
+## Model-role split
+
+The app has three primary model roles:
+
+1. Interview model — human-facing Oracle conversation.
+2. Extraction model — claim candidate extraction from messages/documents.
+3. Synthesis model — Brain section synthesis and high-level operational reasoning.
+
+Default target routes:
+
+```ts
+interview: 'anthropic_claude_sonnet_interview_primary'
+extraction: 'vertex_gemini_flash_extraction_primary'
+synthesis: 'anthropic_claude_sonnet_synthesis_primary'
+```
+
+Do not expose arbitrary model catalogs as production choices. Use curated `OracleModelRoute.routeId` selections.
+
+## Candidate-before-claim rule
+
+Never write AI-extracted operational truth directly into permanent claim tables.
+
+The correct pipeline is:
+
+```text
+model output
+  -> extraction_batches
+  -> extraction_candidates
+  -> extraction_candidate_evidence
+  -> deterministic validation
+  -> transactional promotion
+  -> claims / claim_domains / claim_evidence
+```
+
+If a worker writes directly from model output into `claims`, that worker must be refactored.
 
 ## Commit style
 
 - Conventional commits: `feat(...)`, `fix(...)`, `chore(...)`, `docs(...)`.
-- Reference the phase when relevant: `feat(phase-3): ...`.
-- HEREDOC for multi-line messages.
-- Include the `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` trailer.
-- Never commit `.env*` (except `.env.example`).
-- Do not commit anything containing the Vercel token, Supabase service role key, OpenRouter key, or Trigger.dev secret.
+- Reference the phase or retrofit packet when relevant: `feat(ai-r2): ...`, `docs(ai-retrofit): ...`.
+- HEREDOC for multi-line commit messages.
+- Never commit secrets.
 
 ## Tool preferences
 
-- File ops: `Read`, `Edit`, `Write` — not `cat`/`sed`/`awk`.
-- Search: `Grep` and `Glob` — not `grep`/`rg`/`find`.
-- Long-running scaffolds: spawn an `Agent` (background) rather than blocking the main session.
-- Multi-step research: `Plan` agent. Open-ended exploration: `Explore` agent.
+- File ops: use Claude Code file tools rather than shell text surgery when possible.
+- Search: use code-aware search tools.
+- Long-running scaffolds: spawn an Agent/background task rather than blocking the main session.
+- Multi-step research: use a Plan agent.
+- Open-ended exploration: use an Explore agent.
 
 ## Behaviors to enable
 
-- Always update `DECISIONS.md` when making an assumption that wasn't directly specified.
-- Always update the relevant `docs/*.md` file when behavior changes — don't leave docs as a final-pass task.
-- Update `AGENTS.md` "Pending work" table at the end of every session.
+- Always update `DECISIONS.md` when making an assumption not directly specified.
+- Always update the relevant `docs/oracle/*.md` file when AI architecture behavior changes.
+- Update `HANDOFF.md` at the end of every session.
+- Run typecheck/build before declaring code complete.
 
 ## Behaviors to suppress
 
-- Do not write tests speculatively. Write tests when a behavior is stable and the user asks for coverage.
+- Do not write speculative tests before the behavior is stable unless Albert asks.
 - Do not refactor outside the immediate task scope without raising it as a separate item first.
-- Do not introduce new dependencies without a one-line justification in the commit message.
+- Do not introduce new dependencies without a one-line justification in the commit message and docs/configuration updates.
+- Do not continue building proactive interjection until the AI retrofit and validation pipeline are in place.
