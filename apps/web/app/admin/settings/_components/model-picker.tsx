@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { CAPS } from './caps';
+import { CAPS, type CapKey } from './caps';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -106,10 +106,12 @@ export function ModelPicker({
   currentModel,
   settingKey,
   settingDescription,
+  requiredCaps = [],
 }: {
   currentModel: string | null;
   settingKey: string;
   settingDescription: string;
+  requiredCaps?: CapKey[];
 }) {
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
@@ -201,13 +203,18 @@ export function ModelPicker({
 
   const selectedModel = models.find((m) => m.id === selected);
 
+  // Keep only models that satisfy every required capability, then sort cheapest first.
+  const compatible = models
+    .filter((m) => requiredCaps.every((cap) => m[cap]))
+    .sort((a, b) => (a.promptPer1M ?? Infinity) - (b.promptPer1M ?? Infinity));
+
   const filtered = query.trim()
-    ? models.filter(
+    ? compatible.filter(
         (m) =>
           m.id.toLowerCase().includes(query.toLowerCase()) ||
           m.name.toLowerCase().includes(query.toLowerCase()),
       )
-    : models;
+    : compatible;
 
   if (loading) {
     return <p className="text-sm text-muted-foreground">Loading available models…</p>;
@@ -319,7 +326,7 @@ export function ModelPicker({
               </ul>
 
               <div className="border-t px-3 py-1.5 text-[10px] text-muted-foreground">
-                {filtered.length} of {models.length} models shown
+                {filtered.length} of {compatible.length} compatible models
               </div>
             </div>
           )}

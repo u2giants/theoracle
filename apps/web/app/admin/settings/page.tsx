@@ -171,6 +171,7 @@ export default async function AdminSettingsPage() {
               currentModel={currentValues[role.settingKey] ?? null}
               settingKey={role.settingKey}
               settingDescription={role.settingDescription}
+              requiredCaps={role.requiredCaps}
             />
           </CardContent>
         </Card>
