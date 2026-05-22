@@ -72,6 +72,13 @@ export const oracleContextPacks = pgTable('oracle_context_packs', {
   includedContradictionIds: jsonb('included_contradiction_ids'),
   includedBrainSectionIds: jsonb('included_brain_section_ids'),
 
+  retrievalPlanId: uuid('retrieval_plan_id'),
+  selectedDomains: jsonb('selected_domains'),
+  selectedSourceTypes: jsonb('selected_source_types'),
+  selectedDocumentClasses: jsonb('selected_document_classes'),
+  selectedProcessStages: jsonb('selected_process_stages'),
+  selectedSystems: jsonb('selected_systems'),
+
   inclusionReasonJson: jsonb('inclusion_reason_json'),
   compiledBlocksJson: jsonb('compiled_blocks_json'),
 
@@ -79,7 +86,7 @@ export const oracleContextPacks = pgTable('oracle_context_packs', {
 });
 ```
 
-Store hashes and IDs, not necessarily the full sensitive prompt text. If full prompt capture is enabled for debugging, it must be admin-only and should be configurable.
+Store hashes and IDs by default, not full sensitive prompt text. Full prompt capture is handled by `model_run_payloads` below and must be short-lived, admin-only, and disabled where privacy risk is too high.
 
 ### `model_run_usage_details`
 
@@ -153,6 +160,52 @@ export const providerCachedContent = pgTable('provider_cached_content', {
   deletedAt: timestamp('deleted_at'),
 });
 ```
+
+### `model_run_payloads`
+
+Short-lived debugging table or Supabase Storage-backed payload log for exact prompts/responses.
+
+Purpose:
+
+- hashes are excellent for grouping and cache debugging;
+- hashes are not enough when a model goes rogue and Albert needs to inspect the exact payload;
+- therefore extraction and synthesis jobs may store exact serialized model payloads temporarily.
+
+Recommended fields if using a table:
+
+```ts
+export const modelRunPayloads = pgTable('model_run_payloads', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  modelRunId: uuid('model_run_id').references(() => modelRuns.id).notNull(),
+  contextPackId: uuid('context_pack_id').references(() => oracleContextPacks.id),
+
+  payloadKind: varchar('payload_kind', { length: 50 }).notNull(),
+  // request | response | validation_error
+
+  storageMode: varchar('storage_mode', { length: 50 }).notNull(),
+  // db_json | supabase_storage
+
+  payloadJson: jsonb('payload_json'),
+  storageBucket: varchar('storage_bucket', { length: 100 }),
+  storagePath: text('storage_path'),
+
+  containsSensitiveData: boolean('contains_sensitive_data').default(false).notNull(),
+  redactionApplied: boolean('redaction_applied').default(false).notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  deletedAt: timestamp('deleted_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+```
+
+Payload logging rules:
+
+- default TTL is 7 days;
+- payloads must be admin-only and service-role-only;
+- payload logging is for extraction, synthesis, validation repair, and provider debugging;
+- routine employee chat payload logging should be disabled by default or heavily redacted;
+- sensitive HR/personal-conflict candidates must not be stored in general debug payload views;
+- expired payloads must be deleted by scheduled cleanup;
+- hashes in `oracle_context_packs` remain durable after payload deletion.
 
 ## Required `model_runs` enhancements
 
@@ -305,9 +358,11 @@ Show:
 - included gap/contradiction IDs;
 - hashes;
 - token estimates;
-- reason each item was included.
+- reason each item was included;
+- retrieval plan filters and broadening steps;
+- short-lived payload link if still available and user has permission.
 
-Do not show full sensitive source text by default. Provide admin-only drilldown.
+Do not show full sensitive source text by default. Provide admin-only drilldown. Sensitive HR/personal-conflict payloads require stricter access than normal admin views.
 
 ### Cache dashboard
 
@@ -330,6 +385,8 @@ Show:
 - duplicate warnings;
 - model route;
 - source highlight.
+
+Sensitive rejected candidates must not appear in the standard queue.
 
 ## Stable prefix debugging
 
@@ -362,6 +419,8 @@ Observability retrofit is complete only when:
 - every model call has normalized usage details;
 - cache metrics are captured where provider exposes them;
 - explicit Vertex cached content is tracked in Postgres;
+- short-lived payload logging exists for extraction/synthesis debugging with 7-day TTL;
+- sensitive payloads are excluded from standard admin views;
 - candidate validation failures are measurable by route;
 - admin can inspect cost and validation outcomes;
 - no production AI call is invisible.
