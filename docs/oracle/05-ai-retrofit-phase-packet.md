@@ -28,14 +28,14 @@ Goal: ensure future AI coding agents follow the correct architecture.
 Tasks:
 
 1. Read `docs/oracle/00-buildout-index.md`.
-2. Read all docs in `docs/oracle/`.
+2. Read only the specific docs needed for the active task. Do not use wildcard reads.
 3. Update root onboarding docs as needed so AI agents know OpenRouter is legacy for production AI work.
 4. Do not change runtime code in this phase unless necessary to keep docs accurate.
 
 Acceptance gate:
 
 - README points to the new Oracle addenda.
-- CLAUDE.md tells Claude Code to read the new addenda before touching AI code.
+- CLAUDE.md tells Claude Code to read specific addenda before touching AI code.
 - AGENTS.md or a linked doc clearly states that OpenRouter is legacy for production background workers.
 
 ## Phase R1: Model route configuration
@@ -46,14 +46,18 @@ Tasks:
 
 1. Add a route config module under `packages/ai/src/routes/`.
 2. Define `OracleModelRoute` type.
-3. Define default routes:
-   - interview: `anthropic_claude_sonnet_interview_primary`;
+3. Define cost-aware default routes:
+   - interview: `anthropic_claude_haiku_interview_primary`;
+   - extraction: `vertex_gemini_flash_lite_extraction_primary`;
+   - synthesis: `vertex_gemini_flash_synthesis_primary`.
+4. Define balanced alternate routes:
+   - interview: `anthropic_claude_haiku_interview_primary`;
    - extraction: `vertex_gemini_flash_extraction_primary`;
-   - synthesis: `anthropic_claude_sonnet_synthesis_primary`.
-4. Define fallback/escalation routes from `01-model-roles-and-routes.md`.
-5. Update Admin Settings so model pickers select route IDs, not arbitrary OpenRouter model IDs.
-6. Keep old settings keys during migration, but mark them deprecated.
-7. Add new settings keys:
+   - synthesis: `anthropic_claude_haiku_synthesis_primary`.
+5. Define escalation/manual-only routes from `01-model-roles-and-routes.md`.
+6. Update Admin Settings so model pickers select route IDs, not arbitrary OpenRouter model IDs.
+7. Keep old settings keys during migration, but mark them deprecated.
+8. Add new settings keys:
    - `default_interview_route`;
    - `default_extraction_route`;
    - `default_synthesis_route`.
@@ -64,6 +68,7 @@ Acceptance gate:
 - Admin Settings shows curated route choices.
 - Existing settings rows are migrated or gracefully mapped.
 - OpenRouter catalog browsing is no longer the production model selection path.
+- Frontier models are not default routes for cron workers or routine chat.
 
 ## Phase R2: Provider-native OracleAIClient
 
@@ -87,7 +92,7 @@ Tasks:
 8. Add dependencies only when needed:
    - `@anthropic-ai/sdk`;
    - `openai`;
-   - Google Vertex/Gemini SDK chosen during implementation.
+   - `@google/genai` or the officially supported Google SDK chosen during implementation.
 
 Acceptance gate:
 
@@ -95,6 +100,7 @@ Acceptance gate:
 - `OracleAIClient` can perform at least one mocked or test-mode call per provider shape.
 - No production worker is migrated yet.
 - Existing chat route still works through legacy path until replaced.
+- Provider credentials are read from environment without writing credentials to disk.
 
 ## Phase R3: Context packs and usage logging schema
 
@@ -127,16 +133,22 @@ Tasks:
 2. Add `extraction_candidates`.
 3. Add `extraction_candidate_evidence`.
 4. Add `extraction_validation_results`.
-5. Add indexes for status, batch, source IDs, promoted claim ID, and creation date.
-6. Add check constraints for evidence source type/pointer consistency.
-7. Add unique/idempotency constraints where safe.
-8. Export schema from `@oracle/db`.
+5. Add fields needed for retry safety and circuit breakers:
+   - validation attempt count;
+   - consecutive quote failure count;
+   - failed validation loop status;
+   - route/model-run IDs attempted.
+6. Add indexes for status, batch, source IDs, promoted claim ID, and creation date.
+7. Add check constraints for evidence source type/pointer consistency.
+8. Add unique/idempotency constraints where safe.
+9. Export schema from `@oracle/db`.
 
 Acceptance gate:
 
 - Migrations apply cleanly.
 - Existing claim/evidence tables remain unchanged.
 - Staging rows can be inserted and queried.
+- Circuit-breaker fields exist before worker behavior changes.
 - No worker behavior has been changed yet.
 
 ## Phase R5: Exact quote validator and promotion service
@@ -155,21 +167,41 @@ Tasks:
    - apply allowed normalization only when configured;
    - record validation results;
    - promote valid candidate in transaction.
-4. Add tests or script-level verification fixtures for:
-   - exact match;
-   - missing quote;
-   - repeated quote;
-   - wrong source ID;
-   - whitespace normalization;
-   - multiline quote;
-   - duplicate promotion retry.
+4. Add isolated validation tests before wiring workers.
+
+Required validation tests:
+
+1. Perfect match passes:
+   - source: `I talked to Adam yesterday and we agreed that Burlington seasonal items need to go through the new routing guide.`
+   - quote: `Burlington seasonal items need to go through the new routing guide.`
+   - expected: valid.
+2. Grammar-fix hallucination fails:
+   - source: `the fctry cant ship til thursday because of the storm.`
+   - quote: `The factory cannot ship until Thursday because of the storm.`
+   - expected: invalid.
+3. Synthesized quote fails:
+   - source message 1: `We need approval from Disney.`
+   - source message 2: `And we need it before Friday.`
+   - quote: `We need approval from Disney before Friday.`
+   - expected: invalid because the quote combines two messages.
+4. Punctuation/whitespace rewrite fails:
+   - source: `Wait... let me check Coldlion.`
+   - quote: `Wait let me check Coldlion.`
+   - expected: invalid.
+5. Repeated quote ambiguity fails unless offsets disambiguate:
+   - source contains the same quote twice;
+   - quote is present but no offsets are supplied;
+   - expected: ambiguous.
+6. Duplicate promotion retry does not create duplicate permanent claims.
 
 Acceptance gate:
 
+- All validation tests pass.
 - Invalid quotes never promote.
 - Promotion creates claim, domains, and evidence in one transaction.
 - Duplicate retries do not create duplicate permanent claims.
 - Validation errors are stored and inspectable.
+- Do not proceed to Trigger.dev worker wiring until isolated validator tests pass.
 
 ## Phase R6: Refactor claim extraction worker
 
@@ -187,6 +219,11 @@ Tasks:
 8. Update messages extraction status based on batch result.
 9. Log model run and usage details.
 10. Preserve failed candidates for review.
+11. Implement validation-loop circuit breaker:
+    - if a source batch fails deterministic quote validation more than 3 times in a row, stop retrying it;
+    - mark the batch and affected candidates `failed_validation_loop`;
+    - record the route IDs, model run IDs, source hash, failed quotes, and retry count;
+    - move on to the next independent batch.
 
 Acceptance gate:
 
@@ -194,30 +231,66 @@ Acceptance gate:
 - every model call has model run, usage details, and context pack;
 - valid candidates promote transactionally;
 - invalid candidates remain staged;
-- cron can safely retry.
+- cron can safely retry;
+- validation loops cannot run forever.
 
 ## Phase R7: Refactor document ingestion worker
 
 Goal: use Vertex/Gemini direct for document-heavy extraction and explicit context caching where justified.
 
+Storage bridge requirement:
+
+The durable source of uploaded company documents remains Supabase Storage. Vertex explicit context caching may require a Google-native file handle, Cloud Storage URI, or SDK upload depending on the final SDK/API path. Therefore, the worker must include a secure Supabase-to-Vertex bridge.
+
 Tasks:
 
 1. Parse documents into chunks as before.
-2. Choose implicit vs explicit Vertex caching based on document size/reuse policy.
-3. Store explicit cached content resources in `provider_cached_content`.
-4. Run extraction against chunk/page/document context.
-5. Stage candidates just like message extraction.
-6. Validate quotes against document chunks.
-7. Promote only validated candidates.
-8. Expire/delete explicit caches by policy, not immediate `finally` deletion.
+2. For large document extraction, stream the source file from private Supabase Storage server-side using service-role access.
+3. Do not expose document bytes to the browser.
+4. Upload the file to the Google/Vertex temporary file mechanism or Google Cloud Storage path selected by the official SDK/API implementation.
+5. Create explicit cached content only when the same large source context will be reused.
+6. Store explicit cached content resources in `provider_cached_content`.
+7. Store temporary Google file/resource metadata needed for cleanup.
+8. Run extraction against chunk/page/document context.
+9. Stage candidates just like message extraction.
+10. Validate quotes against document chunks.
+11. Promote only validated candidates.
+12. Expire/delete explicit caches by policy, not immediate `finally` deletion when retries/follow-up passes are expected.
+13. Always clean up temporary Google file resources when their TTL/policy expires.
+
+Credentials rule:
+
+Do not write a physical `credentials.json` file to disk in Trigger.dev.
+
+Preferred authentication options, in order:
+
+1. workload identity or managed identity if available for the deployment setup;
+2. service-account credentials supplied through secure environment variables and constructed in memory;
+3. provider-supported ADC-style environment variables if confirmed by the selected SDK.
+
+The implementation must verify the chosen SDK's exact Vertex authentication behavior before assuming that environment variables such as `GOOGLE_CLIENT_EMAIL` and `GOOGLE_PRIVATE_KEY` are auto-discovered.
+
+Recommended env surface, subject to SDK verification:
+
+```text
+GOOGLE_CLOUD_PROJECT=
+GOOGLE_CLOUD_LOCATION=us-central1
+GOOGLE_CLIENT_EMAIL=
+GOOGLE_PRIVATE_KEY=
+```
+
+If `GOOGLE_PRIVATE_KEY` is stored with escaped newlines, the implementation must convert `\\n` to real newline characters in memory.
 
 Acceptance gate:
 
 - large document extraction can use explicit Vertex cached content;
+- Supabase remains the durable document store;
+- Vertex temporary file/cache resources are tracked;
 - cached content resource metadata is stored;
 - document evidence links to chunk IDs;
 - invalid quotes fail validation;
-- costs/cache metrics are visible.
+- costs/cache metrics are visible;
+- credentials are never written to disk or committed.
 
 ## Phase R8: Refactor chat route
 
@@ -249,21 +322,23 @@ Goal: make Brain synthesis evidence-strict and provider-native.
 Tasks:
 
 1. Use synthesis route through `OracleAIClient`.
-2. Default to Anthropic Sonnet; allow Opus escalation.
-3. Compile stable synthesis prompt/schema before dynamic claims.
-4. Use explicit Anthropic cache breakpoints where available.
-5. Generate structured synthesis diff.
-6. Validate every material paragraph maps to approved claim IDs.
-7. Reject unsupported named people, systems, customers, stages, departments, or process rules.
-8. Do not update current Brain version if validation fails.
-9. Store failed synthesis output for review.
+2. Default to the cost-aware synthesis route from `01-model-roles-and-routes.md`.
+3. Keep Claude Sonnet/Opus or other frontier models as escalation/manual-only routes.
+4. Compile stable synthesis prompt/schema before dynamic claims.
+5. Use provider-native caching for the chosen route.
+6. Generate structured synthesis diff.
+7. Validate every material paragraph maps to approved claim IDs.
+8. Reject unsupported named people, systems, customers, stages, departments, or process rules.
+9. Do not update current Brain version if validation fails.
+10. Store failed synthesis output for review.
 
 Acceptance gate:
 
 - synthesis never updates Brain without validation;
 - every material statement maps to approved claim IDs;
 - failed validation is inspectable;
-- cache/usage/context metrics are logged.
+- cache/usage/context metrics are logged;
+- frontier synthesis is not run by default.
 
 ## Phase R10: Admin observability dashboards
 
@@ -277,6 +352,7 @@ Tasks:
 4. Add extraction candidate review dashboard.
 5. Add model route comparison panel.
 6. Add eval results dashboard placeholder if evals not implemented yet.
+7. Add domain/source-type retrieval diagnostics so Albert can see whether retrieval searched the right knowledge area.
 
 Acceptance gate:
 
@@ -284,7 +360,8 @@ Acceptance gate:
 - Albert can inspect failed candidates;
 - Albert can see which model route produced which candidates;
 - Albert can inspect cache hits/misses;
-- Albert can see why a Brain update was accepted or rejected.
+- Albert can see why a Brain update was accepted or rejected;
+- Albert can see which domains/source types were searched for an Oracle answer.
 
 ## Phase R11: Resume interjection engine
 
@@ -323,7 +400,8 @@ The AI retrofit is complete when:
 - OpenRouter is legacy fallback only;
 - extraction uses candidates before claims;
 - document extraction can use Vertex caching;
-- synthesis uses provider-native Anthropic route;
+- synthesis uses provider-native cost-aware routes;
 - model runs include cache and context-pack metrics;
 - admin can inspect cost, failures, validation, and context;
-- eval metrics can compare routes by cost per useful validated result.
+- eval metrics can compare routes by cost per useful validated result;
+- retrieval can route by domain, source type, entity, process stage, department, and document class.
