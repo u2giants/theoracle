@@ -113,13 +113,23 @@ The app has three primary model roles:
 2. Extraction model — claim candidate extraction from messages/documents.
 3. Synthesis model — Brain section synthesis and high-level operational reasoning.
 
-Default target routes:
+Cost-aware default target routes:
 
 ```ts
-interview: 'anthropic_claude_sonnet_interview_primary'
-extraction: 'vertex_gemini_flash_extraction_primary'
-synthesis: 'anthropic_claude_sonnet_synthesis_primary'
+interview: 'anthropic_claude_haiku_interview_primary'
+extraction: 'vertex_gemini_flash_lite_extraction_primary'
+synthesis: 'vertex_gemini_flash_synthesis_primary'
 ```
+
+Balanced alternate target routes if evals show quality is too low:
+
+```ts
+interview: 'anthropic_claude_haiku_interview_primary'
+extraction: 'vertex_gemini_flash_extraction_primary'
+synthesis: 'anthropic_claude_haiku_synthesis_primary'
+```
+
+Frontier models such as Claude Sonnet/Opus, Gemini Pro, or OpenAI frontier models are escalation/manual-review routes only. Do not run frontier models across routine cron jobs or ordinary chat by default.
 
 Do not expose arbitrary model catalogs as production choices. Use curated `OracleModelRoute.routeId` selections.
 
