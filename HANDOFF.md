@@ -1,244 +1,177 @@
 # HANDOFF — The Oracle
 
-Live in-flight state. A new contributor (human or AI) should be able to read this top to bottom and pick up exactly where the previous session left off — no need to scrape conversation history.
+Live in-flight state for the next contributor or AI coding session.
 
-**Snapshot date:** 2026-05-21
-**Latest commit on `main`:** Phase 5 dashboards commit (see commit log below)
-**Latest successful Vercel production deploy:** auto-deploys on push; check https://vercel.com/popcre/theoracle for current URL
-**Repo:** https://github.com/u2giants/theoracle (**PUBLIC** — never commit secrets)
-**Local checkout:** `C:\repos\oracle` on Windows 11, NTFS volume
-**Active branch:** `main`
-
----
-
-## TL;DR
-
-- Phases 1–4 are **complete and deployed**. Phase 5 (admin review dashboards) is the next build. Phase 6 (interjection engine) follows that.
-- Workers are live on Trigger.dev (version `20260521.1`, 7 tasks). They will fire on the cron schedule once messages/documents exist. No data has been processed yet — all intelligence tables are empty.
-- Admin → Settings has three role-specific model pickers (interview / extraction / synthesis) with correct capability icon detection from the OpenRouter API.
-- **No active blockers.** The dev server runs cleanly. Google OAuth + Microsoft 365 SSO are live. All three worker tasks are deployed and scheduled.
-- Phase 5 admin dashboards are now **live** (Claims, Gaps, Contradictions, Brain). All four pages replace their placeholders with full server-component UIs backed by `getDirectDb()`. Server actions handle approve/reject (claims), resolve/stale (gaps), confirm/dismiss (contradictions).
+**Snapshot date:** 2026-05-22
+**Repo:** https://github.com/u2giants/theoracle
+**Current priority:** AI architecture retrofit before any more proactive interjection work.
 
 ---
 
 ## Read this in order
 
-1. **`HANDOFF.md` (this file)** — current state, what's done, what's next.
-2. **`AGENTS.md`** — the developer guide. §11 "Idiosyncratic decisions" is the most important section.
-3. **`DECISIONS.md`** — assumption log with citations.
-4. **`oracle_master_spec.md`** — authoritative product spec.
-5. **`docs/architecture.md`** — system diagram + data-flow.
+1. `HANDOFF.md` — this file.
+2. `AGENTS.md` — developer guide and repo conventions.
+3. `CLAUDE.md` — Claude Code-specific instructions. This now contains the current AI retrofit priority.
+4. `oracle_master_spec.md` — product/business contract.
+5. `DECISIONS.md` — assumptions and historical decisions.
+6. `docs/oracle/00-buildout-index.md`.
+7. All other docs in `docs/oracle/`.
 
 ---
 
-## Phase status
+## Critical update
 
-| Phase | Status | Wet-tested? |
-|---|---|---|
-| 0 — Bootstrap | done | n/a |
-| 1 — Foundation (schema, RLS, auth, seed) | done | **YES** — Google + M365 SSO end-to-end; denial flow verified. |
-| 2 — Realtime chat + document upload + admin dashboard | code complete | **Partially.** Oracle DM chat fully wet-tested. Phase 2 RLS isolation not yet verified with a second employee. |
-| 3 — Oracle chat route (`POST /api/chat`) | **done + wet-tested** | **YES** — Oracle replies end-to-end. 6.3 s latency. Oracle also fires after document uploads. Vision part stripping for text-only models. Error surfacing in UI. |
-| 4 — Trigger.dev workers | **deployed** — version `20260521.1`, 7 tasks | n/a — workers will process real data on cron schedule; check `job_runs` after first run |
-| 5 — Admin review dashboards (claims, gaps, contradictions, brain) | **placeholder pages only** | n/a — this is the next build |
-| 6 — Interjection engine | empty module with JSDoc | n/a — depends on Phase 5 + real claims |
+Older handoff text said Phase 6, the interjection engine, was next.
 
----
+That is now superseded.
 
-## What was built or fixed in the most recent sessions
+**Do not implement proactive interjection yet.**
 
-### Session (2026-05-21) — Phase 5 admin review dashboards
+The next work is the AI architecture retrofit described in `docs/oracle/05-ai-retrofit-phase-packet.md`.
 
-1. **Claims dashboard** (`apps/web/app/admin/claims/`): Full table view of all claims with lateral join to primary evidence and employee name. Status filter tabs (Pending review / Approved / Rejected / All). Approve and Reject server actions update `claims.status` and revalidate.
+Reason:
 
-2. **Gaps dashboard** (`apps/web/app/admin/gaps/`): Table of gaps with priority and status badges. Filter tabs (Open / Queued / Asked / Resolved / All). Resolve and Stale server actions.
+- interjection depends on trustworthy claims;
+- trustworthy claims depend on candidate-before-claim validation;
+- candidate validation depends on context packs, model run observability, and provider-native model routes;
+- provider-native model routes require replacing the old OpenRouter-centered AI layer.
 
-3. **Contradictions dashboard** (`apps/web/app/admin/contradictions/`): Card-per-contradiction layout showing both claim summaries side-by-side, severity/confidence, and suggested follow-up question. Filter tabs (Possible / Open / Resolved / All). Confirm (possible→open) and Dismiss server actions.
-
-4. **Brain dashboard** (`apps/web/app/admin/brain/`): Card-per-section layout showing title, domain, category, version number, review status badge, full markdown content in a scrollable code block, and timestamps. Read-only for now — re-synthesis trigger is Phase 6.
-
-5. **Server actions** (`_actions.ts` files in each dashboard folder) — all use `'use server'`, `getDirectDb()`, and `revalidatePath`.
-
-### Session (2026-05-21) — Oracle fixes + admin model picker
-
-1. **Oracle silent after document uploads** (`ad9c182`): `DocumentUpload.onDone` now calls `fetchOracleReply`. In DMs always fires; in group chats only when caption starts with `@oracle`.
-
-2. **Oracle failing on second message after image upload** (`0b779c8`, `e70059c`): Root cause was Supabase Storage downloads running for text-only models even though the bytes were discarded. Moved `visionCapable` detection before the attachment query; text-only models skip the Storage download entirely.
-
-3. **Oracle errors were silent** (`0b779c8`): Added `oracleError` state and an inline red bubble in the chat UI. When `POST /api/chat` fails, the error is shown to the user.
-
-4. **Concurrent Oracle calls (race)** (`0b779c8`): `oracleFetchingRef` ref-based lock prevents upload `onDone` and `sendMessage` from triggering simultaneous Oracle calls.
-
-5. **Admin model picker** (`eb03b44`): Custom searchable dropdown replacing native `<select>`. Shows model ID, capability icons (vision, tools, file input, reasoning, image gen), price badges ($/1M in/out), and a selected-model detail card. Full icon legend.
-
-6. **Three model roles in Admin → Settings** (`edba686`): Expanded settings page from one to three model pickers: interview (real-time chat), extraction (async claim extraction), synthesis (brain section synthesis). Each role has a description, requirement chips, and a `ModelPicker`.
-
-7. **Tool use capability detection broken** — two fixes:
-   - First attempt (`104c991`): Added `TOOL_CAPABLE_PATTERN` regex as fallback. Was insufficient.
-   - Correct fix (`9e4c433`): OpenRouter uses `architecture.input_modalities` (array), `architecture.output_modalities` (array), and `supported_parameters` (array with `"tools"`, `"tool_choice"`, etc.) — NOT `architecture.modality` string or `supported_generation_params`. Switched proxy to `/models/user` so dropdowns show only the models the API key has access to (not all of OpenRouter's catalog).
-
-8. **Capability icons on role cards** (`87e1f09`): Each model role card now shows which capability icons are *required* (wrench for tool use, eye for vision, etc.) — extracted to `_components/caps.tsx` shared between server page and client picker.
+Building proactive interjection before the AI retrofit would build on the wrong foundation.
 
 ---
 
-## Commit log (this session and recent prior sessions)
+## Current repo reality
 
-| Commit | What it did |
-|---|---|
-| _(this session)_ | fix(admin): switch OpenRouter proxy to /models/user so dropdowns respect API-key guardrail |
-| _(prior session)_ | feat(phase-5): claims, gaps, contradictions, brain dashboards with server actions |
-| `87e1f09` | feat(admin): required capability icons on each model role card; shared caps.tsx |
-| `9e4c433` | fix(admin): correct OpenRouter capability field names (`input_modalities`, `output_modalities`, `supported_parameters`); switch to `/models` endpoint |
-| `104c991` | fix(admin): tool-use icon detection attempt (superseded by 9e4c433) |
-| `edba686` | feat(admin): three model pickers in settings (interview, extraction, synthesis) |
-| `eb03b44` | feat(admin): rich model picker with capability icons, prices, legend |
-| `0b779c8` | fix(phase-3): skip Storage downloads for text-only models; surface Oracle errors; race lock |
-| `ad9c182` | fix(phase-3): trigger Oracle reply after document uploads |
-| `e70059c` | fix(chat): strip image/file parts for text-only models |
-| _(prior)_ | feat(phase-4): Trigger.dev workers deployed (claim-extraction, document-ingestion, contradiction-watcher, brain-synthesis) |
-| _(prior)_ | feat(phase-3): Oracle chat route, tools, system prompt |
-| _(prior)_ | feat(phase-2): channels UI, document upload, admin dashboard skeleton |
-| _(prior)_ | feat(phase-1): full schema, RLS, auth, seed |
+The repo already has useful working foundation code:
+
+- pnpm + Turborepo TypeScript monorepo;
+- Next.js app under `apps/web`;
+- Trigger.dev workers under `apps/workers`;
+- Supabase/Postgres/Drizzle schema under `packages/db`;
+- Supabase auth helpers under `packages/auth`;
+- current AI helpers under `packages/ai`;
+- admin dashboards and chat UI scaffolding;
+- worker scaffolds and some deployed worker logic.
+
+Do not start over.
+
+This is a major AI/backend retrofit, not a full rebuild.
 
 ---
 
-## The exact next action
+## Current architectural correction
 
-**Build Phase 6 — Interjection engine.**
+The old implementation uses:
 
-Phase 5 dashboards are live. The next build is the interjection engine at `packages/oracle-engines/src/interjection.ts`. It needs:
-- Lull detection (no messages for N minutes in a channel)
-- Contradiction live-interjection (Oracle interjects when a new message triggers a known contradiction)
-- Cooldown logic (don't interject too frequently)
-- Should write rows to `oracle_interventions` and optionally create a `gaps` row
-
-**Resume prompt for a fresh session:**
-
-> I'm continuing work on The Oracle. Read HANDOFF.md at the repo root first, then AGENTS.md, then DECISIONS.md. Phases 1–5 are complete and deployed. Phase 6 (interjection engine) is next. The scaffold exists at `packages/oracle-engines/src/interjection.ts`. It hooks into the real-time chat flow and the contradiction-watcher worker. It must write rows to `oracle_interventions` and optionally create `gaps` rows.
-
----
-
-## Current database state
-
-**`employees` table** (2 rows):
-
-| email | name | role | is_admin |
-|---|---|---|---|
-| `u2giants@gmail.com` | Albert H. | Lead Architect | true |
-| `test-employee@oracle.local` | Test Employee | Production Coordinator | false |
-
-**`employee_identities`** (2 rows, both Albert):
-
-| auth_provider | identity_email | auth_user_id |
-|---|---|---|
-| `google` | `u2giants@gmail.com` | `e0968007-7276-46fb-8abd-25baa108f112` |
-| `microsoft` | `albert@popcre.com` | `751efc6f-b030-43cf-9f22-8e82ac389771` |
-
-**Intelligence tables** — `claims`, `claim_evidence`, `gaps`, `contradictions`, `model_runs`, `job_runs` (for workers), `brain_sections`, `brain_section_versions` — all **empty**. Workers will populate them on the cron schedule once real messages/documents exist.
-
-**`settings`** — 8 rows seeded. Notable model defaults:
-- `default_interview_model` = `deepseek/deepseek-v4-pro`
-- `default_extraction_model` = `google/gemini-2.5-flash`
-- `default_synthesis_model` = `anthropic/claude-sonnet-4.6`
-
----
-
-## Open items
-
-### High value, low friction
-
-1. **Replace `test-employee@oracle.local`** with a real mailbox (e.g. `u2giants+test@gmail.com`) so Phase 2 RLS can be wet-tested with two real logins.
-2. **Wet-test Phase 2 RLS** — requires item 1 first. Recipe in this file below.
-3. **Rotate the Vercel token** from the overnight transcript: https://vercel.com/account/tokens
-4. **Drop deprecated `auth_user_id` / `auth_provider` / `auth_provider_subject` columns** from `employees` after a soak period. New migration `42_drop_legacy_auth_columns.sql`.
-
-### Medium value, medium friction
-
-5. **Enable HNSW vector indexes** — `ORACLE_RUN_VECTOR_INDEXES=1 pnpm db:migrate`. Worth running once claims + document_chunks have embedding data.
-6. **CI: migration job** (`migrate.yml`) gated on manual approval.
-7. **CI: workers deploy** (`workers-deploy.yml`) triggered on pushes to `apps/workers/`.
-
-### High value — the actual next work
-
-8. **Phase 5 — Admin review dashboards** (see "exact next action" above).
-9. **Phase 6 — Interjection engine** — scaffold at `packages/oracle-engines/src/interjection.ts`. Depends on Phase 5 + real approved claims.
-10. **Wire Authentik OIDC** as a third login provider.
-11. **Admin identity management UI** — link/unlink employee identities from the admin panel.
-
----
-
-## Risks and unknowns
-
-- **Intelligence tables are empty.** Workers are deployed but no data has flowed through the pipeline yet. First `job_runs` rows will appear after the claim-extraction cron fires (every 4 hours) once messages with `extraction_status='pending'` exist.
-- **Phase 5 dashboards don't exist yet.** Claim approval is the gate for synthesis — without approving claims, brain sections can never be generated. This is the most important missing piece.
-- **Deprecated auth columns still queryable.** Any code that reads `employees.auth_user_id` gets NULL and may misbehave silently. `AGENTS.md §11` calls this out. Mitigated by: no new code reads those columns.
-- **`test-employee@oracle.local` is not a real mailbox.** Phase 2 RLS cross-channel isolation test is blocked until this is replaced.
-- **Vercel token in build transcript.** Rotate at https://vercel.com/account/tokens before sharing repo access.
-
----
-
-## Phase 2 wet-test recipe
-
-Prerequisites: a second loginable employee.
-
-```sql
--- In Supabase SQL Editor:
-UPDATE employees
-SET email = 'u2giants+test@gmail.com', name = 'Test (Albert alias)'
-WHERE email = 'test-employee@oracle.local';
+```text
+Vercel AI SDK + OpenRouter
 ```
 
-Sign in once via Google as `u2giants+test@gmail.com` to provision its identity.
+That path is now legacy for production AI workloads.
 
-```sql
--- Create a test channel that ONLY the test alias is a member of.
-WITH new_channel AS (
-  INSERT INTO channels (name, is_group_chat, status)
-  VALUES ('rls-test-channel-alias-only', false, 'active')
-  RETURNING id
-)
-INSERT INTO channel_participants (channel_id, employee_id)
-SELECT new_channel.id, employees.id
-FROM new_channel, employees
-WHERE employees.email = 'u2giants+test@gmail.com';
+Target production architecture:
+
+```text
+OracleAIClient
+  -> ContextCompiler
+  -> ModelRouter
+  -> Provider Adapter
+      -> Anthropic direct
+      -> Google Vertex AI / Gemini direct
+      -> OpenAI direct
+  -> UsageLogger / CostTracker / ContextPack
 ```
 
-Then:
-
-1. Sign in as `u2giants@gmail.com` (admin). The new channel should **not** appear in the sidebar (admin is not a participant).
-2. Open `/admin` → Channels tab. The new channel **should** appear (admin service-role reads).
-3. Sign out, sign in as `u2giants+test@gmail.com`. The new channel **should** appear.
-4. As the alias, post a message. As admin, sign back in — message should **not** be visible in the user-facing chat; **should** be visible in `/admin/messages`.
-
-All four checks passing = RLS is correctly isolating.
+OpenRouter may remain temporarily for legacy runtime compatibility or experiments, but do not extend it for production extraction, document ingestion, synthesis, or cache-sensitive AI work.
 
 ---
 
-## Credentials map
+## Model-role decision
 
-| Item | Where | Rotation |
-|---|---|---|
-| GitHub repo | `u2giants/theoracle` (PUBLIC) | SSH keys managed locally |
-| Vercel project | `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | Auto-deploys from `main` |
-| Vercel token | https://vercel.com/account/tokens | **Rotate** — one was exposed in overnight transcript |
-| Supabase project | URL in Vercel env | Supabase → Settings → API → Reset |
-| Supabase Storage bucket | `company_documents` (private) | Confirmed created |
-| Brevo (SMTP) | Account on file | Brevo → SMTP & API → revoke + regenerate; update Supabase Auth SMTP |
-| Google OAuth client | Google Cloud Console | Recreate; update Supabase → Auth → Providers → Google |
-| Microsoft Entra app | popcre tenant | Recreate client secret in Entra; update Supabase → Auth → Providers → Azure |
-| Trigger.dev project | `proj_wgpzsvhmsopqhvwqaycn` | `TRIGGER_SECRET_KEY` in Vercel + Trigger.dev dashboard |
-| OpenRouter | `OPENROUTER_API_KEY` in Vercel | https://openrouter.ai/keys |
-| OpenAI | `OPENAI_API_KEY` in Vercel | Optional — embeddings only |
+The app should keep three primary model roles:
+
+1. **Interview model** — human-facing Oracle chat/interviews.
+2. **Extraction model** — high-volume claim candidate extraction from messages/documents.
+3. **Synthesis model** — Brain section synthesis, contradiction reasoning, and admin-facing operational synthesis.
+
+Initial target defaults:
+
+```ts
+interview: 'anthropic_claude_sonnet_interview_primary'
+extraction: 'vertex_gemini_flash_extraction_primary'
+synthesis: 'anthropic_claude_sonnet_synthesis_primary'
+```
+
+Top choices for each role are defined in `docs/oracle/01-model-roles-and-routes.md`.
 
 ---
 
-## When to delete this file
+## Next build sequence
 
-Delete once **all** of these are true:
+Follow `docs/oracle/05-ai-retrofit-phase-packet.md`.
 
-- Phases 4, 5, and 6 are landed and wet-tested.
-- Deprecated `auth_*` columns on `employees` are dropped.
-- CI is fully wired (pr-check + migrate + workers-deploy).
-- All items in AGENTS.md §15 are resolved or moved to a real backlog.
+Summary:
 
-Until then, **keep this file current** — update it at the end of every session with material progress.
+1. **R0 Documentation reset** — done in principle; verify docs point to `docs/oracle`.
+2. **R1 Model route configuration** — replace arbitrary model strings with curated route IDs.
+3. **R2 Provider-native OracleAIClient** — add Anthropic, Vertex/Gemini, and OpenAI adapters.
+4. **R3 Context packs and usage logging schema** — add observability tables.
+5. **R4 Candidate-before-claim staging schema** — add staging tables.
+6. **R5 Exact quote validator and promotion service** — deterministic validation and transaction promotion.
+7. **R6 Refactor claim extraction worker** — stage candidates, validate, then promote.
+8. **R7 Refactor document ingestion worker** — Vertex/Gemini direct and explicit context caching when justified.
+9. **R8 Refactor chat route** — route through `OracleAIClient`.
+10. **R9 Refactor synthesis worker** — Anthropic direct and strict synthesis validation.
+11. **R10 Admin observability dashboards** — AI runs, context packs, cache dashboard, candidate review.
+12. **R11 Resume interjection engine**.
+
+---
+
+## Existing code that likely needs refactor
+
+High priority:
+
+- `packages/ai/src/openrouter.ts` — mark legacy; replace production usage with `OracleAIClient`.
+- `apps/workers/src/trigger/claim-extraction.ts` — currently writes too directly to permanent claims; refactor to candidates first.
+- `apps/workers/src/trigger/document-ingestion.ts` — should use Vertex/Gemini direct for document-heavy extraction.
+- `apps/workers/src/trigger/brain-synthesis.ts` — should use Anthropic direct and strict validation.
+- `apps/web/app/api/chat/route.ts` — should call `OracleAIClient`, not OpenRouter directly.
+- Admin model picker — should select curated `OracleModelRoute.routeId`, not arbitrary OpenRouter model IDs.
+
+Medium priority:
+
+- add `oracle_context_packs`, `model_run_usage_details`, `provider_cached_content`;
+- add `extraction_batches`, `extraction_candidates`, `extraction_candidate_evidence`, `extraction_validation_results`;
+- add AI cost/cache dashboards;
+- update `.env.example` and `docs/configuration.md` with Big 3 provider variables.
+
+---
+
+## Do not do yet
+
+Do not build these until the AI retrofit and validation pipeline are in place:
+
+- proactive contradiction interjection;
+- lull-based Oracle questions;
+- live group-chat interjection;
+- aggressive automatic claim approval;
+- Brain synthesis from unreviewed or weakly validated claims.
+
+---
+
+## Security reminders
+
+- This repo is public. Never commit secrets.
+- Rotate any Vercel token or provider API key that appeared in transcripts.
+- Keep `.env.local` untracked.
+- Service-role Supabase access must remain server-side only.
+- Employee-facing UI must never directly expose intelligence tables.
+
+---
+
+## Resume prompt for Claude Code
+
+```text
+I'm continuing work on The Oracle. Read HANDOFF.md, AGENTS.md, CLAUDE.md, oracle_master_spec.md, DECISIONS.md, and all docs in docs/oracle/. Do not implement Phase 6 interjection yet. The next work is the AI architecture retrofit: model routes, OracleAIClient, Big 3 provider adapters, context packs, candidate-before-claim staging, deterministic quote validation, and worker refactors. Start with docs/oracle/05-ai-retrofit-phase-packet.md and implement the phases in order.
+```
