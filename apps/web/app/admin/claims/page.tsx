@@ -74,7 +74,7 @@ export default async function AdminClaimsPage({
     ORDER BY c.created_at DESC
   `);
 
-  const rows = result.rows as ClaimRow[];
+  const rows = [...result] as unknown as ClaimRow[];
 
   return (
     <div className="space-y-6">

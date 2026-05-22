@@ -3,7 +3,7 @@
 Live in-flight state. A new contributor (human or AI) should be able to read this top to bottom and pick up exactly where the previous session left off — no need to scrape conversation history.
 
 **Snapshot date:** 2026-05-21
-**Latest commit on `main`:** `87e1f09` — feat(admin): show required capability icons on each model role card
+**Latest commit on `main`:** Phase 5 dashboards commit (see commit log below)
 **Latest successful Vercel production deploy:** auto-deploys on push; check https://vercel.com/popcre/theoracle for current URL
 **Repo:** https://github.com/u2giants/theoracle (**PUBLIC** — never commit secrets)
 **Local checkout:** `C:\repos\oracle` on Windows 11, NTFS volume
@@ -17,6 +17,7 @@ Live in-flight state. A new contributor (human or AI) should be able to read thi
 - Workers are live on Trigger.dev (version `20260521.1`, 7 tasks). They will fire on the cron schedule once messages/documents exist. No data has been processed yet — all intelligence tables are empty.
 - Admin → Settings has three role-specific model pickers (interview / extraction / synthesis) with correct capability icon detection from the OpenRouter API.
 - **No active blockers.** The dev server runs cleanly. Google OAuth + Microsoft 365 SSO are live. All three worker tasks are deployed and scheduled.
+- Phase 5 admin dashboards are now **live** (Claims, Gaps, Contradictions, Brain). All four pages replace their placeholders with full server-component UIs backed by `getDirectDb()`. Server actions handle approve/reject (claims), resolve/stale (gaps), confirm/dismiss (contradictions).
 
 ---
 
@@ -46,6 +47,18 @@ Live in-flight state. A new contributor (human or AI) should be able to read thi
 
 ## What was built or fixed in the most recent sessions
 
+### Session (2026-05-21) — Phase 5 admin review dashboards
+
+1. **Claims dashboard** (`apps/web/app/admin/claims/`): Full table view of all claims with lateral join to primary evidence and employee name. Status filter tabs (Pending review / Approved / Rejected / All). Approve and Reject server actions update `claims.status` and revalidate.
+
+2. **Gaps dashboard** (`apps/web/app/admin/gaps/`): Table of gaps with priority and status badges. Filter tabs (Open / Queued / Asked / Resolved / All). Resolve and Stale server actions.
+
+3. **Contradictions dashboard** (`apps/web/app/admin/contradictions/`): Card-per-contradiction layout showing both claim summaries side-by-side, severity/confidence, and suggested follow-up question. Filter tabs (Possible / Open / Resolved / All). Confirm (possible→open) and Dismiss server actions.
+
+4. **Brain dashboard** (`apps/web/app/admin/brain/`): Card-per-section layout showing title, domain, category, version number, review status badge, full markdown content in a scrollable code block, and timestamps. Read-only for now — re-synthesis trigger is Phase 6.
+
+5. **Server actions** (`_actions.ts` files in each dashboard folder) — all use `'use server'`, `getDirectDb()`, and `revalidatePath`.
+
 ### Session (2026-05-21) — Oracle fixes + admin model picker
 
 1. **Oracle silent after document uploads** (`ad9c182`): `DocumentUpload.onDone` now calls `fetchOracleReply`. In DMs always fires; in group chats only when caption starts with `@oracle`.
@@ -72,6 +85,7 @@ Live in-flight state. A new contributor (human or AI) should be able to read thi
 
 | Commit | What it did |
 |---|---|
+| _(this session)_ | feat(phase-5): claims, gaps, contradictions, brain dashboards with server actions |
 | `87e1f09` | feat(admin): required capability icons on each model role card; shared caps.tsx |
 | `9e4c433` | fix(admin): correct OpenRouter capability field names (`input_modalities`, `output_modalities`, `supported_parameters`); switch to `/models` endpoint |
 | `104c991` | fix(admin): tool-use icon detection attempt (superseded by 9e4c433) |
@@ -89,41 +103,17 @@ Live in-flight state. A new contributor (human or AI) should be able to read thi
 
 ## The exact next action
 
-**Build Phase 5 — Admin review dashboards.**
+**Build Phase 6 — Interjection engine.**
 
-Workers are live and will generate data. Without dashboards there is no way to:
-- See extracted claims or approve/reject them
-- See suggested gaps
-- See detected contradictions
-- Read or trigger brain section synthesis
-
-The natural build order within Phase 5:
-
-1. **Claims dashboard** — highest priority. Claim approval gates everything downstream.
-   - Table of `claims` rows: summary, type, impact/confidence scores, status badge, evidence quote, employee, date.
-   - Approve / Reject buttons (POST to `/api/admin/claims/[id]/status`).
-   - Uses `claims_with_primary_evidence` admin view from `30_admin_views.sql`.
-   - File: `apps/web/app/admin/claims/page.tsx` (placeholder exists).
-
-2. **Gaps dashboard** — questions Oracle wants to ask.
-   - Table of `gaps` rows: question, why-it-matters, priority, status.
-   - Mark resolved / stale / rejected.
-   - File: `apps/web/app/admin/gaps/page.tsx` (placeholder exists).
-
-3. **Contradictions dashboard** — conflicting claims.
-   - Table of `contradictions` rows: claim A vs claim B, confidence, status.
-   - Dismiss or flag.
-   - File: `apps/web/app/admin/contradictions/page.tsx` (placeholder exists).
-
-4. **Brain dashboard** — versioned knowledge sections.
-   - List `brain_sections`, current version, last synthesized date.
-   - Read versioned Markdown with claim-ID annotations.
-   - Admin trigger for re-synthesis.
-   - File: `apps/web/app/admin/brain/page.tsx` (placeholder exists).
+Phase 5 dashboards are live. The next build is the interjection engine at `packages/oracle-engines/src/interjection.ts`. It needs:
+- Lull detection (no messages for N minutes in a channel)
+- Contradiction live-interjection (Oracle interjects when a new message triggers a known contradiction)
+- Cooldown logic (don't interject too frequently)
+- Should write rows to `oracle_interventions` and optionally create a `gaps` row
 
 **Resume prompt for a fresh session:**
 
-> I'm continuing work on The Oracle. Read HANDOFF.md at the repo root first, then AGENTS.md, then DECISIONS.md. Phases 1–4 are complete and deployed. Phase 5 (admin review dashboards) is next. Placeholders exist under `apps/web/app/admin/{claims,gaps,contradictions,brain}/page.tsx`. The DB views they should query are in `packages/db/migrations/sql/30_admin_views.sql`. All DB reads go through `getDirectDb()` (service role). Start with the Claims dashboard — claim approval gates synthesis.
+> I'm continuing work on The Oracle. Read HANDOFF.md at the repo root first, then AGENTS.md, then DECISIONS.md. Phases 1–5 are complete and deployed. Phase 6 (interjection engine) is next. The scaffold exists at `packages/oracle-engines/src/interjection.ts`. It hooks into the real-time chat flow and the contradiction-watcher worker. It must write rows to `oracle_interventions` and optionally create `gaps` rows.
 
 ---
 

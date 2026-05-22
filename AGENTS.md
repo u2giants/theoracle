@@ -488,7 +488,7 @@ Rule added to prevent recurrence:
 | open | Wire Authentik OIDC as a third login provider for internal-only accounts | future build session |
 | done | Deploy Phase 4 to Trigger.dev — version `20260521.1` with 7 tasks running in production (`proj_wgpzsvhmsopqhvwqaycn`). `TRIGGER_PROJECT_REF` set in `.env.local` + Vercel. | 2026-05-21 |
 | done | Admin → Settings: three model pickers (interview/extraction/synthesis) with live capability icons (vision, tool use, file input, reasoning, image gen), price badges, and required-cap indicators per role. OpenRouter `/models` endpoint used — correct capability fields: `input_modalities`, `output_modalities`, `supported_parameters`. | 2026-05-21 |
-| open | Implement Phase 5 — Admin review dashboards (claims, gaps, contradictions, brain) | placeholders exist under `apps/web/app/admin/*`; DB views in `30_admin_views.sql`; workers producing data |
+| done | Implement Phase 5 — Admin review dashboards (claims, gaps, contradictions, brain) | all four dashboards + server actions live; typecheck clean |
 | open | Implement Phase 6 — Interjection engine (lull detection, cooldown, contradiction live-interjection) | scaffold at `packages/oracle-engines/src/interjection.ts` |
 | done | CI: `.github/workflows/pr-check.yml` runs `pnpm --filter @oracle/web build` on PRs + pushes to `main`. Catches production-only typecheck errors (the 2026-05-20 class of failure). Uses placeholder env vars; App Router dynamic-rendering means real secrets aren't needed at build. | 2026-05-21 |
 | open | CI: add migration job (`pnpm db:migrate`) gated on manual approval | — |

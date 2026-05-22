@@ -61,7 +61,11 @@ export default async function AdminGapsPage({
     })
     .from(gaps)
     .leftJoin(employees, eq(employees.id, gaps.targetEmployeeId))
-    .where(activeStatus !== 'all' ? eq(gaps.status, activeStatus as Parameters<typeof eq>[1]) : undefined)
+    .where(
+      activeStatus !== 'all'
+        ? eq(gaps.status, activeStatus as 'open' | 'queued' | 'asked' | 'resolved' | 'stale' | 'rejected')
+        : undefined,
+    )
     .orderBy(desc(gaps.createdAt));
 
   return (
