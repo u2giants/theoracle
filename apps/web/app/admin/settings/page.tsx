@@ -36,21 +36,24 @@ const MODEL_ROLES: {
       <>
         Called synchronously every time an employee sends a message. The employee
         is watching a &ldquo;thinking…&rdquo; indicator. This model must support{' '}
-        <strong>tool use</strong>, follow strict one-question-per-reply output
-        rules, and ideally support <strong>vision</strong> so it can read
-        diagrams and product photos employees share. Latency is user-facing —
-        aim for under 8 s including tool calls.
+        <strong>tool use</strong> and follow strict one-question-per-reply output
+        rules. Employees regularly share images (product photos, diagrams) and
+        upload documents (routing guides, org charts, product specs, PDFs) —{' '}
+        <strong>vision</strong> and <strong>file input</strong> are both required
+        to read this material in-conversation. Latency is user-facing — aim for
+        under 8 s including tool calls.
       </>
     ),
     settingDescription: 'OpenRouter model for real-time Oracle interview chat.',
     requirements: [
       'Tool use required',
-      'Vision strongly recommended',
+      'Vision required (images, diagrams)',
+      'File input required (PDFs, org charts, routing guides)',
       'Low latency (≤8 s)',
       'Strong instruction following',
-      'Context: ~3K–9K tokens per call',
+      'Context: up to ~32K tokens (large documents)',
     ],
-    requiredCaps: ['tools', 'vision'],
+    requiredCaps: ['tools', 'vision', 'files'],
   },
   {
     settingKey: 'default_extraction_model',
@@ -71,7 +74,7 @@ const MODEL_ROLES: {
     requirements: [
       'Structured / JSON output required',
       'Vision recommended (document images)',
-      'File input recommended (PDFs)',
+      'File input recommended (PDFs, DOCX)',
       'High extraction accuracy',
       'No latency requirement (async)',
       'Context: variable, up to ~32K per batch',
