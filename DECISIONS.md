@@ -186,8 +186,8 @@ This file is the running log of every assumption, stub, and resolution made by t
 
 ### D4.openrouter-capability-fields — correct API field names
 
-- **Decision**: `GET /api/admin/models` proxies OpenRouter's `/models` endpoint (not `/models/user`) and uses `architecture.input_modalities`, `architecture.output_modalities`, and `supported_parameters` to derive capability flags.
+- **Decision**: `GET /api/admin/models` proxies OpenRouter's `/models/user` endpoint and uses `architecture.input_modalities`, `architecture.output_modalities`, and `supported_parameters` to derive capability flags.
 - **Why**: The initial implementation used `architecture.modality` (a string like `"text+image->text"`) and `supported_generation_params` — both fields don't exist in the actual API response. The correct fields are arrays: `input_modalities: ["text","image","file"]`, `output_modalities: ["text"]`, `supported_parameters: ["tools","tool_choice","structured_outputs",...]`.
-- **Why `/models` not `/models/user`**: The `/models/user` endpoint omits or truncates capability metadata that the public `/models` endpoint includes. Both reflect the same model access for the user's API key.
+- **Why `/models/user` not `/models`**: `/models/user` returns only the models the API key has been granted access to (the account guardrail), so admin dropdowns show only the models we can actually call. The public `/models` endpoint returns all of OpenRouter's catalog — thousands of models the key may not have access to. An earlier revision incorrectly used `/models` under the belief that `/models/user` stripped capability metadata; that assumption was wrong and has been corrected.
 - **Tool use detection**: `supported_parameters.includes("tools") || supported_parameters.includes("tool_choice")`. No regex fallback needed once the correct field names are used.
 

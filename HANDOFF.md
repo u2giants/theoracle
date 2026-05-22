@@ -75,7 +75,7 @@ Live in-flight state. A new contributor (human or AI) should be able to read thi
 
 7. **Tool use capability detection broken** — two fixes:
    - First attempt (`104c991`): Added `TOOL_CAPABLE_PATTERN` regex as fallback. Was insufficient.
-   - Correct fix (`9e4c433`): OpenRouter uses `architecture.input_modalities` (array), `architecture.output_modalities` (array), and `supported_parameters` (array with `"tools"`, `"tool_choice"`, etc.) — NOT `architecture.modality` string or `supported_generation_params`. Switched proxy from `/models/user` to `/models` (user endpoint strips capability metadata).
+   - Correct fix (`9e4c433`): OpenRouter uses `architecture.input_modalities` (array), `architecture.output_modalities` (array), and `supported_parameters` (array with `"tools"`, `"tool_choice"`, etc.) — NOT `architecture.modality` string or `supported_generation_params`. Switched proxy to `/models/user` so dropdowns show only the models the API key has access to (not all of OpenRouter's catalog).
 
 8. **Capability icons on role cards** (`87e1f09`): Each model role card now shows which capability icons are *required* (wrench for tool use, eye for vision, etc.) — extracted to `_components/caps.tsx` shared between server page and client picker.
 
@@ -85,7 +85,8 @@ Live in-flight state. A new contributor (human or AI) should be able to read thi
 
 | Commit | What it did |
 |---|---|
-| _(this session)_ | feat(phase-5): claims, gaps, contradictions, brain dashboards with server actions |
+| _(this session)_ | fix(admin): switch OpenRouter proxy to /models/user so dropdowns respect API-key guardrail |
+| _(prior session)_ | feat(phase-5): claims, gaps, contradictions, brain dashboards with server actions |
 | `87e1f09` | feat(admin): required capability icons on each model role card; shared caps.tsx |
 | `9e4c433` | fix(admin): correct OpenRouter capability field names (`input_modalities`, `output_modalities`, `supported_parameters`); switch to `/models` endpoint |
 | `104c991` | fix(admin): tool-use icon detection attempt (superseded by 9e4c433) |

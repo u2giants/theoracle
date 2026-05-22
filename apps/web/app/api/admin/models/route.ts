@@ -1,6 +1,6 @@
 // GET /api/admin/models
 //
-// Server-side proxy for https://openrouter.ai/api/v1/models
+// Server-side proxy for https://openrouter.ai/api/v1/models/user
 // Keeps OPENROUTER_API_KEY out of the browser.
 // Restricted to admins.
 //
@@ -84,11 +84,7 @@ export async function GET() {
 
   let upstream: Response;
   try {
-    // Use the public /models endpoint (not /models/user) — it returns the same
-    // models the user has access to via their API key, and crucially it includes
-    // the full capability metadata (input_modalities, output_modalities,
-    // supported_parameters) that /models/user omits or truncates.
-    upstream = await fetch('https://openrouter.ai/api/v1/models', {
+    upstream = await fetch('https://openrouter.ai/api/v1/models/user', {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
