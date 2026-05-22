@@ -13,10 +13,11 @@ The AI may propose claim candidates. It may not create permanent claims.
 All extraction output must pass through:
 
 1. staging;
-2. deterministic validation;
-3. duplicate/overlap checks;
-4. review triage;
-5. transactional promotion.
+2. privacy/sensitivity screening;
+3. deterministic evidence validation;
+4. duplicate/overlap checks;
+5. review triage;
+6. transactional promotion.
 
 Only after those steps may the system write to permanent `claims`, `claim_domains`, and `claim_evidence`.
 
@@ -68,7 +69,8 @@ export const extractionBatches = pgTable('extraction_batches', {
   // message_segment | document_chunk | document_page | transcript_segment
 
   status: varchar('status', { length: 50 }).default('pending_model').notNull(),
-  // pending_model | model_complete | validation_complete | promoted | failed | skipped
+  // pending_model | model_complete | validation_complete | promoted | failed |
+  // skipped | failed_validation_loop
 
   sourceMessageIds: jsonb('source_message_ids'),
   sourceDocumentChunkIds: jsonb('source_document_chunk_ids'),
@@ -76,6 +78,8 @@ export const extractionBatches = pgTable('extraction_batches', {
 
   rawModelOutput: jsonb('raw_model_output'),
   validationSummary: jsonb('validation_summary'),
+  validationAttemptCount: integer('validation_attempt_count').default(0).notNull(),
+  consecutiveQuoteFailureCount: integer('consecutive_quote_failure_count').default(0).notNull(),
   error: text('error'),
 
   startedAt: timestamp('started_at').defaultNow().notNull(),
@@ -105,7 +109,8 @@ export const extractionCandidates = pgTable('extraction_candidates', {
     .notNull(),
 
   status: varchar('status', { length: 50 }).default('pending_validation').notNull(),
-  // pending_validation | validation_failed | validated | duplicate | promoted | rejected
+  // pending_validation | validation_failed | failed_validation_loop | validated |
+  // duplicate | promoted | rejected | rejected_sensitive | quarantined_sensitive
 
   claimType: varchar('claim_type', { length: 100 }).notNull(),
   summary: text('summary').notNull(),
@@ -115,6 +120,11 @@ export const extractionCandidates = pgTable('extraction_candidates', {
   domains: jsonb('domains').notNull(),
   stance: varchar('stance', { length: 50 }),
   // stated | confirmed | challenged | refined | exception_introduced | ambiguity_revealed
+
+  containsSensitivePersonalData: boolean('contains_sensitive_personal_data').default(false).notNull(),
+  containsSensitiveHRData: boolean('contains_sensitive_hr_data').default(false).notNull(),
+  isPersonalConflict: boolean('is_personal_conflict').default(false).notNull(),
+  sensitivityReason: text('sensitivity_reason'),
 
   riskFlags: jsonb('risk_flags'),
   requiresReview: boolean('requires_review').default(true).notNull(),
@@ -131,6 +141,15 @@ export const extractionCandidates = pgTable('extraction_candidates', {
   validatedAt: timestamp('validated_at'),
   promotedAt: timestamp('promoted_at'),
 });
+```
+
+The extraction output schema must include these fields:
+
+```ts
+containsSensitivePersonalData: boolean;
+containsSensitiveHRData: boolean;
+isPersonalConflict: boolean;
+sensitivityReason?: string;
 ```
 
 ### `extraction_candidate_evidence`
@@ -173,7 +192,7 @@ export const extractionCandidateEvidence = pgTable('extraction_candidate_evidenc
   pageNumber: integer('page_number'),
 
   validationStatus: varchar('validation_status', { length: 50 }).default('pending').notNull(),
-  // pending | exact_match | normalized_match | failed | ambiguous
+  // pending | exact_match | normalized_match | failed | ambiguous | failed_validation_loop
 
   validationMethod: varchar('validation_method', { length: 100 }),
   validationError: text('validation_error'),
@@ -204,16 +223,45 @@ export const extractionValidationResults = pgTable('extraction_validation_result
 
   checkName: varchar('check_name', { length: 100 }).notNull(),
   // source_exists | quote_exact_match | quote_offsets_match | source_type_valid |
-  // not_duplicate | domain_valid | score_range_valid | promotion_transaction
+  // not_duplicate | domain_valid | score_range_valid | sensitivity_gate |
+  // promotion_transaction | duplicate_promotion_lock | validation_loop_circuit_breaker
 
   status: varchar('status', { length: 50 }).notNull(),
-  // pass | fail | warning | skipped
+  // pass | fail | warning | skipped | circuit_breaker
 
   detail: text('detail'),
   metadataJson: jsonb('metadata_json'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 ```
+
+## Privacy and sensitivity gate
+
+The Oracle observes workplace conversations. Some messages may contain employee-sensitive, personal, HR, interpersonal, compensation, health, or disciplinary material.
+
+The extraction model must flag sensitive candidates, but the deterministic validator must enforce the policy.
+
+If any of these are true:
+
+- `containsSensitivePersonalData = true`;
+- `containsSensitiveHRData = true`;
+- `isPersonalConflict = true`;
+- deterministic keyword/policy screening flags the candidate as sensitive;
+
+then the candidate must not become normal operational truth.
+
+Required behavior:
+
+1. Mark the candidate `rejected_sensitive` or `quarantined_sensitive`.
+2. Do not promote it to `claims`.
+3. Do not show it in the standard admin claim-review queue.
+4. Do not include it in employee-facing retrieval.
+5. Preserve only the minimum metadata needed for audit/debug, under stricter access control.
+6. Write an `extraction_validation_results` row with `checkName = 'sensitivity_gate'`.
+
+Sensitive material may be reviewed only in a restricted owner/super-admin view if such a view is intentionally built. It must not be visible to general admins by default.
+
+Do not allow the Oracle Brain to become a repository of employee-sensitive or personal-conflict information.
 
 ## Validation checks
 
@@ -278,16 +326,23 @@ For each validated candidate:
 
 1. Re-read candidate and evidence rows with row locks where practical.
 2. Confirm candidate status is `validated` and not already promoted.
-3. Check duplicate claim/candidate constraints.
-4. Insert `claims` row.
-5. Insert `claim_domains` rows.
-6. Insert one or more `claim_evidence` rows using validated evidence data.
-7. Insert suggested `gaps` only after claim insert succeeds.
-8. Update candidate `promotedToClaimId`, `status = promoted`, `promotedAt`.
-9. Update batch summary.
-10. Commit.
+3. Run the privacy/sensitivity gate again.
+4. Acquire a duplicate-promotion lock before inserting a new claim. Use either:
+   - PostgreSQL advisory lock on a stable hash of normalized claim summary + domains + validated evidence/source IDs; or
+   - `SELECT ... FOR UPDATE` against an existing canonical duplicate/claim-key table if implemented.
+5. Check for semantically duplicate approved or pending claims inside the same transaction.
+6. If a duplicate is found, mark the candidate `duplicate`, set `duplicateOfClaimId`, and append validated evidence to the existing claim if policy allows.
+7. If no duplicate is found, insert the `claims` row.
+8. Insert `claim_domains` rows.
+9. Insert one or more `claim_evidence` rows using validated evidence data.
+10. Insert suggested `gaps` only after claim insert succeeds.
+11. Update candidate `promotedToClaimId`, `status = promoted`, `promotedAt`.
+12. Update batch summary.
+13. Commit.
 
 If any step fails, rollback. The database must never contain a permanent claim without evidence.
+
+This locking requirement exists to prevent double-promotion when two asynchronous workers discover the same operational rule at the same time.
 
 ## Idempotency
 
@@ -301,6 +356,26 @@ Use stable hashes and unique constraints where possible:
 - synthesis job hash from section ID + approved claim IDs + current version ID.
 
 If the same worker runs twice, it must not create duplicate permanent claims.
+
+## Circuit breakers and infinite-loop prevention
+
+Workers must not retry invalid quote extraction forever.
+
+For each extraction batch, track validation attempts and consecutive exact-quote failures.
+
+If a batch produces candidates but deterministic quote validation fails more than 3 times in a row for the same source batch, the worker must:
+
+1. stop retrying that batch;
+2. mark the batch status `failed_validation_loop`;
+3. mark affected candidates/evidence `failed_validation_loop`;
+4. insert an `extraction_validation_results` row with `checkName = 'validation_loop_circuit_breaker'` and `status = 'circuit_breaker'`;
+5. store enough metadata to debug the loop: route ID, model run IDs, source hash, failed quote strings, source IDs, and retry count;
+6. mark the source messages/chunks as failed or needs-admin-review according to worker policy;
+7. move on to the next batch.
+
+Do not escalate automatically to a frontier model after repeated quote failures. Exact quote failure usually means the model is paraphrasing or the source chunk is wrong, not that the model needs more intelligence.
+
+Allowed exception: one structured repair attempt may be made with a cheap/balanced route if the failure is clearly schema formatting rather than quote hallucination. After that, trip the circuit breaker.
 
 ## Group-chat semantics
 
@@ -335,6 +410,7 @@ Auto-approval should be conservative.
 
 A candidate may be auto-approved only if all are true:
 
+- privacy/sensitivity gate passes;
 - exact quote validation passes;
 - source is reliable;
 - claim type is low risk;
@@ -368,6 +444,7 @@ The admin review UI should show:
 Admin rejection reasons should be structured:
 
 - not operational;
+- sensitive/personal material;
 - bad quote;
 - wrong source;
 - duplicate;
@@ -380,15 +457,20 @@ Admin rejection reasons should be structured:
 
 These labels feed evals.
 
+Sensitive rejected/quarantined candidates must not appear in this standard queue.
+
 ## Worker retrofit acceptance criteria
 
 The extraction worker retrofit is complete only when:
 
 - LLM output is stored in staging tables before any permanent claim insert;
+- sensitive/personal candidates are blocked from normal promotion and normal admin queues;
 - permanent claims are created only by the promotion transaction;
+- promotion uses locking or an equivalent transaction-safe duplicate guard;
 - exact quote validation records offsets and validation method;
 - invalid candidates are preserved for debugging/review;
 - duplicate worker retries do not create duplicate claims;
+- validation loops trip a circuit breaker instead of retrying forever;
 - `model_runs`, `job_runs`, and `oracle_context_packs` are linked;
 - claim extraction evals can compute validation failure rate by model route;
 - existing admin claims dashboard still works for promoted claims.
