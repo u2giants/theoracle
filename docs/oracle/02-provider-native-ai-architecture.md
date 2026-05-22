@@ -24,6 +24,7 @@ Oracle application
       -> ContextCompiler
       -> ModelRouter
       -> PromptTemplateRegistry
+      -> RetrievalPlanner
       -> StructuredOutputValidator
       -> EvidenceValidator
       -> UsageLogger
@@ -121,6 +122,11 @@ type OraclePromptPlan = {
     includedClaimIds?: string[];
     includedGapIds?: string[];
     includedContradictionIds?: string[];
+    retrievalPlanId?: string;
+    selectedDomains?: string[];
+    selectedSourceTypes?: string[];
+    selectedProcessStages?: string[];
+    selectedEntityIds?: string[];
   };
 };
 
@@ -190,14 +196,151 @@ Dynamic content examples:
 - timestamps;
 - request IDs.
 
+## Knowledge filing and retrieval routing
+
+Knowledge-domain labels alone are not enough.
+
+The Oracle will eventually contain many unrelated kinds of knowledge: vendor manuals, customer routing guides, ERP workflow rules, artwork handoff rules, licensing approval rules, freight documents, costing assumptions, factory communication patterns, and employee interview claims.
+
+The retrieval system must not search the whole knowledge base by default.
+
+A question like:
+
+```text
+When does an image get uploaded to Coldlion?
+```
+
+should not search vendor manuals unless there is a strong reason. It should prefer ERP/Coldlion, artwork files, design handoff, production workflow, and approved operational claims.
+
+### Required metadata dimensions
+
+Every claim, document chunk, message-derived candidate, Brain section, gap, and contradiction should be tagged or linkable by multiple dimensions:
+
+1. Knowledge domain: design, licensing, production, sourcing, logistics, sales, Coldlion, customers, retail compliance, sampling, costing, artwork files, factory communication, quality control, approvals, shipping documents, general.
+2. Source type: message, document chunk, external system, manual admin, Brain section.
+3. Document class: SOP, vendor manual, customer routing guide, tech pack, style guide, ERP export, email, invoice, shipping document, chat transcript, unknown.
+4. Process stage: concept, design, licensor approval, customer approval, costing, sourcing, sample request, sample review, production, quality control, packaging, routing, shipping, invoicing, ERP update, archive.
+5. Department: design, licensing, sourcing, production, logistics, sales, admin, China team, finance, other.
+6. Entity type and entity ID: customer, vendor, factory, licensor, brand, SKU, product line, employee, system, document.
+7. System: Coldlion, ResourceSpace, Supabase, Google Drive, Adobe Illustrator, Photoshop, email, WhatsApp, WeChat, other.
+8. Geography/team: US, China, Brazil, Colombia, customer-specific, factory-specific.
+9. Confidence/review state: candidate, validated, pending review, approved, rejected, superseded, challenged.
+10. Time validity: observed at, effective from, superseded at, archived at.
+
+### Filing rules during ingestion
+
+When ingesting information, the extractor must produce candidate metadata as part of the structured output.
+
+For each extracted claim candidate, the model should propose:
+
+- knowledge domains;
+- process stage;
+- source type;
+- document class if applicable;
+- systems mentioned;
+- departments involved;
+- entities mentioned;
+- whether the claim is a general rule, exception, workaround, bottleneck, requirement, timing rule, ownership rule, or ambiguity.
+
+The deterministic validator does not need to prove all metadata is correct, but the system must store it separately from the evidence quote and make it reviewable.
+
+Do not use a single `general` bucket unless classification genuinely fails.
+
+### RetrievalPlanner rules
+
+All answer generation, chat retrieval, contradiction review, and synthesis must go through `RetrievalPlanner` before vector search.
+
+`RetrievalPlanner` must classify the user/task intent into a retrieval plan containing:
+
+- allowed knowledge domains;
+- excluded knowledge domains;
+- allowed source types;
+- excluded source types;
+- document classes to include/exclude;
+- process stages;
+- systems;
+- entities;
+- review-state requirements;
+- max results per source bucket;
+- fallback broadening policy.
+
+Example for an ERP image-upload question:
+
+```ts
+{
+  query: 'when does an image get uploaded to Coldlion',
+  allowedDomains: ['coldlion', 'artwork_files', 'design', 'production'],
+  excludedDocumentClasses: ['vendor_manual'],
+  preferredSourceTypes: ['approved_claim', 'brain_section', 'message'],
+  systems: ['coldlion'],
+  processStages: ['design', 'erp_update', 'production'],
+  reviewStates: ['approved'],
+  fallbackBroadening: 'ask_permission_or_log_broadening'
+}
+```
+
+### Retrieval execution order
+
+Do not start with one global vector search.
+
+Use this order:
+
+1. Classify the question/task into a retrieval plan.
+2. Apply hard filters first: review status, source type, domain, document class, system, process stage.
+3. Search approved claims and Brain sections before raw documents for normal business questions.
+4. Search raw document chunks only when the query asks about a document/source, approved knowledge is missing, or the retrieval plan allows that document class.
+5. Use vector search inside each allowed bucket.
+6. Use keyword/entity search as a second signal for systems, customers, SKUs, licensors, vendors, and document names.
+7. Merge and rerank results with diversity: do not return 10 chunks from the same manual unless the user asked for that manual.
+8. Log the retrieval plan and actual searched buckets in the context pack.
+
+### Retrieval broadening policy
+
+If filtered retrieval returns weak results, do not silently search everything.
+
+The system may broaden retrieval in stages:
+
+1. same domains, more source types;
+2. adjacent domains;
+3. raw documents in allowed document classes;
+4. broader global search only if logged and justified.
+
+For employee-facing chat, broadening should usually be conservative. For admin/research mode, broadening can be more aggressive but must be shown in the context pack.
+
+### Anti-contamination rules
+
+- Vendor manuals should not answer ERP workflow questions unless the retrieval plan explicitly includes vendor documentation.
+- Customer routing guides should not answer internal design handoff questions unless the question is customer-specific.
+- Raw unapproved candidate claims should not answer employee-facing questions.
+- Superseded claims should not answer current operational questions unless the user asks for history.
+- Document chunks should not override approved claims without contradiction/gap creation.
+- Low-confidence OCR text should not be used as final evidence without review.
+
+### Retrieval observability
+
+Every model call context pack must include:
+
+- retrieval plan ID;
+- selected domains;
+- excluded domains;
+- selected source types;
+- selected document classes;
+- selected systems/process stages;
+- number of results considered per bucket;
+- final included IDs;
+- reason each included item was selected;
+- whether broadening occurred.
+
+This is essential for debugging bad answers.
+
 ## Provider-specific caching
 
 ### Anthropic direct
 
 Use Anthropic for:
 
-- interview/chat default;
-- synthesis default;
+- interview/chat escalation;
+- synthesis escalation;
 - hard contradiction review;
 - high-nuance extraction escalation.
 
@@ -244,6 +387,7 @@ Use Vertex/Gemini for:
 
 - default extraction;
 - document ingestion;
+- default routine synthesis draft route;
 - long-context fallback;
 - multimodal source processing;
 - large document loops.
@@ -270,6 +414,43 @@ Do not use explicit context caching when:
 - the input is a small one-off chunk;
 - the context will be used once;
 - cache storage cost/complexity exceeds likely savings.
+
+### Supabase-to-Vertex storage bridge
+
+Supabase Storage remains the durable source of company documents.
+
+Vertex explicit context caching may require a Google-native file handle, temporary file upload, or Google Cloud Storage URI depending on the selected SDK/API path. Therefore, the document ingestion worker must implement a secure server-side storage bridge:
+
+1. Read the document from private Supabase Storage using service-role access inside Trigger.dev.
+2. Stream or buffer the file server-side only.
+3. Upload it to the Google/Vertex temporary file mechanism or Google Cloud Storage location selected during implementation.
+4. Create explicit cached content from that Google-side file/resource only when reuse justifies it.
+5. Store Google temporary file/resource metadata and cached-content metadata in Postgres.
+6. Track TTL, expiration, source document hash, and cleanup status.
+7. Clean up temporary Google resources according to policy.
+
+Do not expose document bytes to the browser.
+
+Do not write Google service-account credentials to disk inside Trigger.dev.
+
+Preferred authentication options, in order:
+
+1. workload identity or managed identity if available for the deployment setup;
+2. service-account credentials supplied through secure environment variables and constructed in memory;
+3. provider-supported ADC-style environment variables if confirmed by the selected SDK.
+
+The implementation must verify the selected SDK's exact Vertex authentication behavior before assuming that variables such as `GOOGLE_CLIENT_EMAIL` and `GOOGLE_PRIVATE_KEY` are auto-discovered.
+
+Expected environment variables, subject to SDK verification:
+
+```text
+GOOGLE_CLOUD_PROJECT=
+GOOGLE_CLOUD_LOCATION=us-central1
+GOOGLE_CLIENT_EMAIL=
+GOOGLE_PRIVATE_KEY=
+```
+
+If `GOOGLE_PRIVATE_KEY` is stored with escaped newlines, convert `\\n` to real newline characters in memory.
 
 Vertex extraction layout examples:
 
@@ -338,7 +519,8 @@ Use structured output for:
 - gap creation;
 - synthesis diffs;
 - validation repair;
-- model-router decisions.
+- model-router decisions;
+- retrieval-plan decisions.
 
 Use conversational text for:
 
@@ -353,7 +535,8 @@ Native structured output does not prove:
 - the claim is true;
 - the claim is non-duplicate;
 - the evidence source ID is valid;
-- the Brain paragraph is fully supported.
+- the Brain paragraph is fully supported;
+- the retrieval plan chose the correct source buckets.
 
 ## Retry policy
 
@@ -375,7 +558,8 @@ If exact quote validation fails:
 
 - do not promote the candidate;
 - store validation error;
-- do not auto-retry more than once unless the failure is caused by whitespace/normalization that the validator explicitly supports.
+- do not auto-retry more than once unless the failure is caused by whitespace/normalization that the validator explicitly supports;
+- trip the validation-loop circuit breaker defined in `05-ai-retrofit-phase-packet.md` if the same batch repeatedly fails quote validation.
 
 If synthesis validation fails:
 
@@ -389,12 +573,13 @@ If synthesis validation fails:
 Current code to refactor:
 
 - `packages/ai/src/openrouter.ts` becomes legacy/deprecated.
-- `packages/ai` gains `OracleAIClient`, `ModelRouter`, provider adapters, context compiler, usage normalization, validation helpers.
+- `packages/ai` gains `OracleAIClient`, `ModelRouter`, `RetrievalPlanner`, provider adapters, context compiler, usage normalization, validation helpers.
 - `apps/web/app/api/chat/route.ts` should call `OracleAIClient` instead of `getOpenRouter()`.
 - `apps/workers/src/trigger/claim-extraction.ts` should call `OracleAIClient` and stage candidates before promotion.
 - `apps/workers/src/trigger/document-ingestion.ts` should use `VertexGeminiAdapter` for document-heavy extraction and explicit context caching when justified.
-- `apps/workers/src/trigger/brain-synthesis.ts` should use Anthropic adapter by default and strict synthesis validation.
+- `apps/workers/src/trigger/brain-synthesis.ts` should use provider-native synthesis routes and strict synthesis validation.
 - Admin model picker should select curated `OracleModelRoute.routeId`, not arbitrary OpenRouter model IDs.
+- Retrieval helpers should be refactored so they do not perform global vector search without a retrieval plan.
 
 ## Environment variables
 
@@ -405,9 +590,10 @@ Expected new environment variables:
 ```text
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
-GOOGLE_VERTEX_PROJECT_ID=
-GOOGLE_VERTEX_LOCATION=
-GOOGLE_APPLICATION_CREDENTIALS_JSON= # or provider-supported workload identity config
+GOOGLE_CLOUD_PROJECT=
+GOOGLE_CLOUD_LOCATION=us-central1
+GOOGLE_CLIENT_EMAIL=
+GOOGLE_PRIVATE_KEY=
 ORACLE_ENABLE_OPENROUTER_FALLBACK=false
 ```
 
@@ -425,4 +611,5 @@ The provider layer retrofit is complete only when:
 - cache read/write tokens are captured where available;
 - context packs are created for model calls;
 - worker extraction outputs candidates, not direct permanent claims;
+- retrieval is filtered by plan, not global vector search by default;
 - `pnpm typecheck` and the Next production build pass.
