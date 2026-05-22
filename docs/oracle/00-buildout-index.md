@@ -10,7 +10,7 @@ These addenda define the corrected AI implementation architecture for the existi
 
 ## Required reading order for AI work
 
-Before editing `packages/ai`, `apps/workers`, model settings, extraction, synthesis, or Oracle chat behavior, read these in order:
+Before editing `packages/ai`, `apps/workers`, model settings, extraction, synthesis, retrieval, or Oracle chat behavior, read these in order:
 
 1. `README.md` at the repo root.
 2. `AGENTS.md` at the repo root.
@@ -24,6 +24,8 @@ Before editing `packages/ai`, `apps/workers`, model settings, extraction, synthe
 10. `docs/oracle/04-context-packs-observability.md`.
 11. `docs/oracle/05-ai-retrofit-phase-packet.md`.
 
+Do not use wildcard reads such as `cat docs/oracle/*`. Read the index first, then read the specific files required for the active task.
+
 ## Conflict order
 
 If files disagree, resolve conflicts in this order:
@@ -31,7 +33,7 @@ If files disagree, resolve conflicts in this order:
 1. Product intent and non-negotiable Oracle principles in `oracle_master_spec.md`.
 2. Security, RLS, Postgres source-of-truth, and evidence traceability rules.
 3. Candidate-before-claim validation and deterministic evidence validation rules.
-4. Provider-native Big 3 AI architecture in this directory.
+4. Provider-native Big 3 AI architecture and retrieval planning in this directory.
 5. Existing OpenRouter/Vercel AI SDK implementation details in older code or docs.
 6. UI details and convenience implementation notes.
 
@@ -79,12 +81,18 @@ No LLM output becomes official operational truth directly.
 
 All extraction output must flow through staging, deterministic validation, and transactional promotion before it enters permanent `claims`, `claim_domains`, or `claim_evidence` tables.
 
+## Retrieval rule
+
+Do not retrieve by global vector search by default.
+
+All answer generation, chat retrieval, contradiction review, extraction follow-up, and Brain synthesis must use a retrieval plan that filters by knowledge domain, source type, document class, process stage, department, system, entity, review state, and time validity before vector search.
+
 ## Documentation ownership
 
 When implementation changes any of these topics, update the matching document in this directory in the same commit:
 
 - model routes or defaults -> `01-model-roles-and-routes.md`;
-- provider adapters or caching -> `02-provider-native-ai-architecture.md`;
+- provider adapters, caching, retrieval planning, or Supabase-to-Vertex storage bridge -> `02-provider-native-ai-architecture.md`;
 - extraction validation -> `03-candidate-before-claim-validation.md`;
 - model logging, cost, context packs -> `04-context-packs-observability.md`;
 - implementation order -> `05-ai-retrofit-phase-packet.md`.
