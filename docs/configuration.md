@@ -77,9 +77,9 @@ Not all configuration lives in env vars. Operational settings the Oracle reads a
 | `lull_window_seconds` | `60` | How many seconds of silence before the Oracle may consider a "lull" interjection. |
 | `oracle_cooldown_minutes` | `10` | Minimum minutes between Oracle interjections in the same channel. |
 | `max_oracle_interjections_per_hour` | `3` | Hard cap per channel per hour. |
-| `default_interview_model` | `deepseek/deepseek-v4-pro` | Model used by `/api/chat` (real-time, must support tool use). Configurable via Admin → Settings. |
-| `default_extraction_model` | `google/gemini-2.5-flash` | Model used by the claim extraction worker (async, structured JSON output). Configurable via Admin → Settings. |
-| `default_synthesis_model` | `anthropic/claude-sonnet-4.6` | Model used by the brain synthesis worker (long-context, structured JSON). Configurable via Admin → Settings. |
+| `default_interview_model` | `deepseek/deepseek-v4-pro` | **Legacy — OpenRouter model id.** Used by `/api/chat`. Configurable via Admin → Settings → OpenRouter catalog picker. R1 of the AI retrofit (`docs/oracle/05-ai-retrofit-phase-packet.md`) replaces this with `default_interview_route` keyed to curated `OracleModelRoute.routeId` values (cost-aware target: `anthropic_claude_haiku_interview_primary`). The legacy key stays during migration. |
+| `default_extraction_model` | `google/gemini-2.5-flash` | **Legacy — OpenRouter model id.** Used by the claim extraction worker. R1 target: `default_extraction_route` = `vertex_gemini_flash_lite_extraction_primary`. |
+| `default_synthesis_model` | `anthropic/claude-sonnet-4.6` | **Legacy — OpenRouter model id.** Used by the brain synthesis worker. R1 target: `default_synthesis_route` = `vertex_gemini_flash_synthesis_primary`. |
 | `enable_live_contradiction_interjections` | `false` | If false, contradictions are queued silently instead of interjected. Default off is correct (spec 5.1). |
 | `enable_group_chat_lull_questions` | `true` | If false, the Oracle never speaks proactively in group chats. |
 
@@ -118,3 +118,18 @@ If you add a new env var, update:
 2. `turbo.json` → `globalEnv` array (so Turbo doesn't cache across env changes)
 3. This table
 4. The relevant `packages/<x>` README if behavior depends on it
+
+## Future env vars — added during R1–R2 retrofit
+
+These are not yet wired but are reserved by `docs/oracle/02-provider-native-ai-architecture.md`. Add them to `.env.example` and Vercel only when the corresponding adapter lands; do not add empty values prematurely.
+
+| Variable | Purpose | Added in phase |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Anthropic direct provider adapter | R2 |
+| `GOOGLE_CLOUD_PROJECT` | Vertex / Gemini direct | R2 + R7 |
+| `GOOGLE_CLOUD_LOCATION` | Vertex region (default `us-central1`) | R2 + R7 |
+| `GOOGLE_CLIENT_EMAIL` | Vertex service-account email | R2 + R7 |
+| `GOOGLE_PRIVATE_KEY` | Vertex service-account key (`\\n` → real newlines in memory; never written to disk in Trigger.dev) | R2 + R7 |
+| `ORACLE_ENABLE_OPENROUTER_FALLBACK` | Default `false`. When the retrofit is complete, this is the only escape hatch back to the legacy OpenRouter path. | R2 |
+
+`OPENAI_API_KEY` is already wired for embeddings and will be reused by the OpenAI direct adapter — no new key needed for that provider.

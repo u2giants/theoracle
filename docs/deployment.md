@@ -78,7 +78,15 @@ Currently using the default `*.vercel.app` URL. Custom domain config is a TODO i
 ## Workers — Trigger.dev
 
 **Project ref:** `proj_wgpzsvhmsopqhvwqaycn` (set as `TRIGGER_PROJECT_REF` in Vercel env + `.env.local`).
-**Current deployed version:** `20260521.1` (7 tasks: claim-extraction, document-ingestion, contradiction-watcher, brain-synthesis, plus 3 support tasks).
+**Current deployed version:** `20260521.1`. 7 task exports across 4 files in `apps/workers/src/trigger/`:
+
+| File | Exports | Trigger |
+|---|---|---|
+| `claim-extraction.ts` | `claimExtractionTask` | scheduled (cron) |
+| `document-ingestion.ts` | `documentIngestionTask`, `documentIngestionSweepTask` | one-off + scheduled |
+| `contradiction-watcher.ts` | `contradictionWatcherTask`, `contradictionWatcherSweepTask` | one-off + scheduled |
+| `brain-synthesis.ts` | `brainSynthesisTask`, `brainSynthesisScheduledTask` | one-off + scheduled |
+
 **Dashboard:** https://cloud.trigger.dev/projects/v3/proj_wgpzsvhmsopqhvwqaycn
 
 ### Deploying tasks
@@ -97,7 +105,9 @@ Trigger.dev dashboard → task → version history → roll back. Or redeploy fr
 
 ### Runtime env vars
 
-Set in the Trigger.dev project dashboard (not Vercel). Workers need: `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_SERVICE_ROLE_KEY` (workers use service-role to bypass RLS), `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `TRIGGER_SECRET_KEY`.
+Set in the Trigger.dev project dashboard (not Vercel). Current workers need: `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_SERVICE_ROLE_KEY` (workers use service-role to bypass RLS), `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `TRIGGER_SECRET_KEY`.
+
+When R7 (document ingestion refactor) lands, the document-ingestion worker also needs the Vertex / Gemini direct env vars (`GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GOOGLE_CLIENT_EMAIL`, `GOOGLE_PRIVATE_KEY`). See `docs/configuration.md` → "Future env vars". Do not add these to the Trigger.dev project until R7 actually starts; placeholder values would mask a misconfiguration.
 
 ## Database — Supabase migrations
 

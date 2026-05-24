@@ -59,12 +59,16 @@ After this you should have:
 ## Run / build / typecheck / lint
 
 ```bash
-pnpm dev          # turbo dev — runs `next dev` (web) and `trigger dev` (workers) in parallel
-pnpm build        # turbo build — runs every workspace's build
-pnpm typecheck    # turbo typecheck — runs tsc --noEmit everywhere
+pnpm dev          # turbo run dev --filter=@oracle/web (web only — NOT workers)
+pnpm dev:all      # turbo run dev (web + workers in parallel)
+pnpm workers:dev  # just the Trigger.dev CLI
+pnpm build        # turbo build — every workspace
+pnpm typecheck    # turbo typecheck — tsc --noEmit everywhere
 pnpm lint         # turbo lint — ESLint for web, tsc-as-lint for packages
-pnpm format       # prettier write
+pnpm format       # prettier --write across ts/tsx/md/json (not turbo-scoped)
 ```
+
+`pnpm dev` deliberately skips workers because the Trigger.dev CLI needs an interactive login and a project link the first time, which makes the parallel turbo task noisy. Use `pnpm dev:all` once you've signed into the Trigger.dev CLI (or `pnpm workers:dev` standalone).
 
 ### Pre-push gate — run the production web build
 
@@ -167,10 +171,16 @@ If it still fails, **double-check the filesystem** — `Get-Volume D | Select-Ob
 
 **Phase 2 (realtime) — partial:**
 - Requires two real loginable employees. The seeded `test-employee@oracle.local` is not deliverable; replace its email with a Gmail `+`-alias (e.g. `u2giants+test@gmail.com`) or seed a second real employee.
-- Open two browsers, sign in as each, insert a `channels` row + two `channel_participants` rows via SQL (the Phase 5 admin UI isn't built yet).
+- Open two browsers, sign in as each, insert a `channels` row + two `channel_participants` rows via SQL. Channel/participant CRUD is not in the admin UI — Phase 5 only covers the review dashboards (claims/gaps/contradictions/brain). Channel creation remains SQL-only for now; it is in AGENTS.md §15 pending work.
 - Both browsers should see new messages live.
 - A third logged-in employee NOT in the channel must get 0 rows when querying that channel.
 - Upload a document; verify the `documents` row and Storage object both exist.
+
+**Phase 5 (admin review dashboards) — done:**
+- Navigate to `/admin/claims`, `/admin/gaps`, `/admin/contradictions`, `/admin/brain` as the admin employee.
+- The intelligence tables are still empty in dev unless a worker has produced data, so all four pages will likely show empty states. That's expected.
+- Smoke test: click a status-filter tab (e.g. `?status=approved` on claims). The URL should update and the table should re-query.
+- The Approve/Reject/Resolve/Stale/Confirm/Dismiss buttons are POST forms backed by `'use server'` actions in each `_actions.ts`. They call `revalidatePath` after mutation; no client-side state library involved.
 
 **Phase 3 (Oracle chat) — wet-tested ✓:**
 - In a channel, send `@oracle what do you know about our licensing process?`.

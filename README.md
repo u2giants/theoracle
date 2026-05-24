@@ -51,14 +51,16 @@ docs/
 
 ## Required AI buildout docs
 
-Before modifying `packages/ai`, `apps/workers`, `apps/web/app/api/chat/route.ts`, model settings, extraction, synthesis, or validation, read:
+Before modifying `packages/ai`, `apps/workers`, `apps/web/app/api/chat/route.ts`, model settings, extraction, synthesis, validation, retrieval, or evals, read:
 
-1. [`docs/oracle/00-buildout-index.md`](docs/oracle/00-buildout-index.md)
-2. [`docs/oracle/01-model-roles-and-routes.md`](docs/oracle/01-model-roles-and-routes.md)
-3. [`docs/oracle/02-provider-native-ai-architecture.md`](docs/oracle/02-provider-native-ai-architecture.md)
-4. [`docs/oracle/03-candidate-before-claim-validation.md`](docs/oracle/03-candidate-before-claim-validation.md)
-5. [`docs/oracle/04-context-packs-observability.md`](docs/oracle/04-context-packs-observability.md)
-6. [`docs/oracle/05-ai-retrofit-phase-packet.md`](docs/oracle/05-ai-retrofit-phase-packet.md)
+1. [`docs/oracle/00-buildout-index.md`](docs/oracle/00-buildout-index.md) — index, reading order, conflict rules
+2. [`docs/oracle/01-model-roles-and-routes.md`](docs/oracle/01-model-roles-and-routes.md) — three model roles, curated route IDs, escalation routes (including Warmth)
+3. [`docs/oracle/02-provider-native-ai-architecture.md`](docs/oracle/02-provider-native-ai-architecture.md) — `OracleAIClient`, hybrid (pgvector + tsvector) retrieval, Vertex caching heuristic + teardown rule
+4. [`docs/oracle/03-candidate-before-claim-validation.md`](docs/oracle/03-candidate-before-claim-validation.md) — staging tables, PII gate, concurrency-locked promotion, circuit breaker
+5. [`docs/oracle/04-context-packs-observability.md`](docs/oracle/04-context-packs-observability.md) — context packs, model-run usage details, 7-day payload log, cache health dashboard
+6. [`docs/oracle/05-ai-retrofit-phase-packet.md`](docs/oracle/05-ai-retrofit-phase-packet.md) — R0–R11 implementation order (includes R3.5 taxonomy, R5.5 entity extraction, R10.5 taxonomy admin)
+7. [`docs/oracle/06-evaluation-framework.md`](docs/oracle/06-evaluation-framework.md) — CLI-only evals, fixture schemas, metric formulas, phase gates
+8. [`docs/oracle/07-knowledge-segmentation.md`](docs/oracle/07-knowledge-segmentation.md) — three-layer taxonomy, entity registry, `RetrievalPlan`, monthly re-evaluation worker
 
 ## Getting started
 
@@ -85,10 +87,12 @@ For full setup details including platform-specific gotchas, see [`docs/developme
 | 1 — Foundation (schema, RLS, auth, seed) | wet-tested |
 | 2 — Realtime chat + admin dashboard | code complete, partial wet-test |
 | 3 — Oracle chat route + tools | wet-tested on legacy OpenRouter path |
-| 4 — Trigger.dev workers | deployed on legacy AI path |
-| 5 — Admin review dashboards | code present; verify against current handoff |
-| R0-R11 — AI architecture retrofit | **current priority before Phase 6 interjection** |
-| 6 — Interjection engine | pause until AI retrofit and validation pipeline are complete |
+| 4 — Trigger.dev workers | deployed on legacy AI path (7 tasks, version `20260521.1`) |
+| 5 — Admin review dashboards | claims / gaps / contradictions / brain pages with server actions are live on `main`; channel + employee admin CRUD UI not in scope |
+| R0 — AI retrofit doc reset | done — docs 00–07 in `docs/oracle/` |
+| **R1 — Model route configuration** | **next code phase** — see `docs/oracle/05-ai-retrofit-phase-packet.md` |
+| R2–R10.5 — rest of AI architecture retrofit | not started |
+| 6 — Interjection engine | paused until AI retrofit and validation pipeline are complete |
 
 ## What needs attention next
 
@@ -97,11 +101,13 @@ See [`HANDOFF.md`](HANDOFF.md) and [`docs/oracle/05-ai-retrofit-phase-packet.md`
 The short version:
 
 - **Next build: AI architecture retrofit**, not proactive interjection.
-- Add Big 3 direct provider adapters and `OracleAIClient`.
-- Add context packs, usage details, and provider cached-content tracking.
-- Add candidate-before-claim staging tables.
-- Refactor claim/document extraction to stage and validate candidates before permanent claims.
-- Then resume the interjection engine.
+- R1 — curated `OracleModelRoute` IDs in `packages/ai/src/routes/`; admin picker selects route IDs, not raw OpenRouter model strings.
+- R2 — `OracleAIClient` with Anthropic / Vertex-Gemini / OpenAI direct adapters.
+- R3 + R3.5 — context packs, model-run usage details, provider cached-content tracking, three-layer knowledge taxonomy tables.
+- R4 + R5 + R5.5 — candidate-before-claim staging, deterministic quote validator, concurrency-locked promotion, entity-tag extraction.
+- R6 → R9 — refactor each worker and the chat route through `OracleAIClient`.
+- R10 + R10.5 — observability dashboards, taxonomy governance, monthly re-evaluation worker.
+- R11 — resume the interjection engine, on top of trustworthy claims.
 
 Security reminders:
 

@@ -57,18 +57,31 @@ System design for The Oracle. For business context and the operating philosophy,
 
          ┌──────────────────────────────────────┐
          │           LLM providers              │
-         │  OpenRouter (chat / extraction /     │
-         │  synthesis) — default models in      │
-         │  settings table                      │
-         │  OpenAI text-embedding-3-small       │
-         │  (embeddings only)                   │
+         │  Current (legacy):                   │
+         │    OpenRouter (chat / extraction /   │
+         │    synthesis) — default models in    │
+         │    settings table                    │
+         │  Target (AI retrofit, R1+):          │
+         │    Anthropic direct                  │
+         │    Google Vertex / Gemini direct     │
+         │    OpenAI direct                     │
+         │  Embeddings (unchanged):             │
+         │    OpenAI text-embedding-3-small     │
          └──────────────────────────────────────┘
                              ▲
                              │
-                   packages/ai wrappers
-                   (openrouter.ts, embeddings.ts,
-                    retrieval.ts, prompts/)
+                   packages/ai
+                   Current files: openrouter.ts,
+                   embeddings.ts, retrieval.ts,
+                   prompts/oracle-system.ts.
+                   Target files (R1–R2, not yet
+                   present): routes/, oracle-ai-
+                   client.ts, model-router.ts,
+                   providers/{anthropic,vertex-gemini,
+                   openai}-adapter.ts.
 ```
+
+The "current" path is what production actually runs today. The "target" path is what `docs/oracle/02-provider-native-ai-architecture.md` mandates and what R1+ will build. Until R8 lands, `apps/web/app/api/chat/route.ts` still goes through OpenRouter via the Vercel AI SDK — that is current technical debt, not the intended architecture.
 
 ## Identity model
 
@@ -127,9 +140,20 @@ Cron: weekly. Also admin-triggerable.
 3. Validator rejects the run if any material paragraph doesn't map to approved claim IDs — hallucinated claim IDs cause the run to fail.
 4. On success: inserts a new `brain_section_versions` row and updates `brain_sections.current_version_id` (two-step transaction per spec 6.7).
 
-### 6. Interjection engine (Phase 6 — not yet implemented)
+### 6. Admin review (Phase 5 — done)
 
-Lull detection and contradiction-watcher rules are scaffolded as JSDoc in `packages/oracle-engines/src/interjection.ts`. See spec Part 5.1.
+Four server-component dashboards under `/admin/`:
+
+- `/admin/claims` — pending-review queue with lateral join to primary evidence and asserting employee. Status-filter tabs. Approve/Reject server actions (`_actions.ts`) update `claims.status` and `revalidatePath`.
+- `/admin/gaps` — Drizzle query joined with employees. Priority + status badges. Resolve/Stale server actions.
+- `/admin/contradictions` — raw SQL via the `contradictions` table joined with both claim summaries (mirrors `contradictions_with_claim_summaries` view). Card-per-row layout. Confirm (possible→open) / Dismiss server actions.
+- `/admin/brain` — `brain_sections` LEFT JOIN `brain_section_versions` on `current_version_id`. Scrollable markdown preview, review-status badge. Read-only; re-synthesis trigger is post-retrofit.
+
+All four read via `getDirectDb()` (service role) and use `'use server'` actions with `revalidatePath` rather than client-side state.
+
+### 7. Interjection engine (Phase 6 — paused)
+
+Lull detection and contradiction-watcher rules are scaffolded as JSDoc in `packages/oracle-engines/src/interjection.ts`. Resumption is gated on the AI retrofit (R0–R10.5). See spec Part 5.1 and `docs/oracle/05-ai-retrofit-phase-packet.md` "Phase R11".
 
 ### 7. Sign-out
 
@@ -193,4 +217,13 @@ Workers must not import from `apps/web`, and vice versa.
 | Part 9.2 (tools) | `apps/web/app/api/chat/route.ts` |
 | Part 9.4 (claim extraction) | `apps/workers/src/trigger/claim-extraction.ts` (deployed) |
 | Part 10 (system prompt) | `packages/ai/src/prompts/oracle-system.ts` (verbatim) |
-| Settings / model config | `apps/web/app/admin/settings/` — three model-role pickers (interview, extraction, synthesis) backed by `GET /api/admin/models` (OpenRouter) + `POST /api/admin/settings` |
+| Settings / model config | `apps/web/app/admin/settings/` — three model-role pickers (interview, extraction, synthesis) backed by `GET /api/admin/models` (OpenRouter) + `POST /api/admin/settings`. R1 will replace the OpenRouter-catalog picker with a curated `OracleModelRoute.routeId` picker. |
+| Phase 5 admin review dashboards | `apps/web/app/admin/{claims,gaps,contradictions,brain}/page.tsx` + `_actions.ts`. Server actions; no client-state library. |
+
+### Intentionally awkward — flag these before assuming they're bugs
+
+- **`brain_sections.current_version_id` has no FK to `brain_section_versions`.** Looks like a missing constraint; it's a soft reference because the two tables reference each other circularly. Inserts happen as a two-step transaction (insert section with null, insert first version, update section). Documented in AGENTS.md §11 and `oracle_master_spec.md` Part 6.7.
+- **`claims` has no `employee_id` column.** Looks like a schema oversight; it's intentional. A claim can be supported by multiple employees, documents, or external systems across time. Attribution lives on `claim_evidence.asserted_by_employee_id` per row.
+- **Deprecated columns on `employees` (`auth_user_id`, `auth_provider`, `auth_provider_subject`) are NULL-filled and still present.** Looks like dead columns; they're kept during the multi-identity transition because dropping them mid-session would force a column-drop migration. Removal is in AGENTS.md §15 pending work. New code must read identities through `employee_identities`, not these columns.
+- **Workers and chat still call OpenRouter via the Vercel AI SDK.** Looks like the docs/oracle architecture is half-implemented; it is — that's the AI retrofit's whole reason for being. Do not extend the OpenRouter path. R1–R9 replace it.
+- **Embeddings fall back to a deterministic zero vector when `OPENAI_API_KEY` is unset.** Looks like a silent bug. It is intentional so local dev works without a real key; vector similarity is meaningless in that state but the schema and shape are preserved. AGENTS.md §11.
