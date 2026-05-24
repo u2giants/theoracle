@@ -149,6 +149,12 @@ Summary (R3.5, R5.5, R10.5 were inserted after the original packet was written â
 
 ## What landed this session
 
+Admin model picker fixes (2026-05-24, commits `76971c7`, `7606e35`):
+
+- **OpenRouter proxy corrected to `/models/user`** (`apps/web/app/api/admin/models/route.ts`): the proxy was calling `/api/v1/models` (all of OpenRouter's public catalog) instead of `/api/v1/models/user` (only models the API key has been granted access to). Dropdowns were showing thousands of models the account cannot call. Fixed. DECISIONS.md `D4.openrouter-capability-fields` updated to reflect this.
+- **Model dropdowns filtered by required capabilities**: each of the three role pickers now hides any model that doesn't meet every capability the role requires (interview/extraction: `tools + vision + files`; synthesis: `tools + reasoning`). Implemented via a new `requiredCaps` prop on `ModelPicker`.
+- **Dropdown sorted by input price**: models now listed cheapest-first (`promptPer1M` ascending; undisclosed prices sorted to the end) instead of alphabetically.
+
 Phase 5 admin dashboards (already on `main` from commit `e80d4d7`):
 
 - `/admin/claims` â€” review queue with lateral join to primary evidence + employee name, status filter tabs, Approve/Reject server actions.
