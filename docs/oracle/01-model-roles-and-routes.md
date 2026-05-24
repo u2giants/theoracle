@@ -459,7 +459,7 @@ Do not make Opus or Gemini Pro the default synthesis route.
 To prevent architecture bloat during the first production pass, the `ModelRouter` exposes exactly 3 roles. Each role has exactly 1 Primary Route and 1 Fallback Route.
 
 ### 1. Interview Role
-- **Primary:** `anthropic_claude_3_5_sonnet_interview_primary`
+- **Primary:** `anthropic_claude_haiku_4_5_interview_primary`
 - **Fallback:** `openai_gpt4o_interview_fallback`
 *Fallback Condition:* Triggered if Anthropic experiences an outage or rate limit during a live session.
 

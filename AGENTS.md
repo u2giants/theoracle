@@ -229,7 +229,7 @@ The full schema lives in `packages/db/src/schema.ts` and is faithful to `oracle_
 | Trigger.dev project | _(see Vercel env)_ | Trigger.dev | Background workers. |
 | Supabase Storage bucket | `company_documents` | Supabase | Private. Holds uploaded employee documents. |
 | Brevo (SMTP) | account on file | Brevo | Used by Supabase Auth to deliver magic-link emails. Configured in Supabase → Authentication → SMTP Settings. |
-| Interview route ID (target) | `anthropic_claude_3_5_sonnet_interview_primary` | `settings.default_interview_model` row | Set by Admin → Settings model picker. Target route IDs per `docs/oracle/01-model-roles-and-routes.md`. |
+| Interview route ID (target) | `anthropic_claude_haiku_4_5_interview_primary` | `settings.default_interview_model` row | Set by Admin → Settings model picker. Target route IDs per `docs/oracle/01-model-roles-and-routes.md`. |
 | Extraction route ID (target) | `vertex_gemini_2_5_flash_extraction_primary` | `settings.default_extraction_model` row | Set by Admin → Settings. |
 | Synthesis route ID (target) | `anthropic_claude_3_5_sonnet_synthesis_primary` | `settings.default_synthesis_model` row | Set by Admin → Settings. |
 | Embedding model | `text-embedding-3-small` (OpenAI, 1536-dim) | hardcoded in `packages/ai/src/embeddings.ts` | Vector column is `vector(1536)` — see Idiosyncratic Decisions. |

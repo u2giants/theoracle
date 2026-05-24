@@ -138,7 +138,7 @@ The app has three primary model roles:
 Cost-aware default target routes:
 
 ```ts
-interview: 'anthropic_claude_haiku_interview_primary'
+interview: 'anthropic_claude_haiku_4_5_interview_primary'
 extraction: 'vertex_gemini_flash_lite_extraction_primary'
 synthesis: 'vertex_gemini_flash_synthesis_primary'
 ```
@@ -146,7 +146,7 @@ synthesis: 'vertex_gemini_flash_synthesis_primary'
 Balanced alternate target routes if evals show quality is too low:
 
 ```ts
-interview: 'anthropic_claude_haiku_interview_primary'
+interview: 'anthropic_claude_haiku_4_5_interview_primary'
 extraction: 'vertex_gemini_flash_extraction_primary'
 synthesis: 'anthropic_claude_haiku_synthesis_primary'
 ```

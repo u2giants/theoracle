@@ -47,11 +47,11 @@ Tasks:
 1. Add a route config module under `packages/ai/src/routes/`.
 2. Define `OracleModelRoute` type.
 3. Define cost-aware default routes:
-   - interview: `anthropic_claude_haiku_interview_primary`;
+   - interview: `anthropic_claude_haiku_4_5_interview_primary`;
    - extraction: `vertex_gemini_flash_lite_extraction_primary`;
    - synthesis: `vertex_gemini_flash_synthesis_primary`.
 4. Define balanced alternate routes:
-   - interview: `anthropic_claude_haiku_interview_primary`;
+   - interview: `anthropic_claude_haiku_4_5_interview_primary`;
    - extraction: `vertex_gemini_flash_extraction_primary`;
    - synthesis: `anthropic_claude_haiku_synthesis_primary`.
 5. Define escalation/manual-only routes from `01-model-roles-and-routes.md`.
