@@ -123,6 +123,38 @@ Acceptance gate:
 - No old data is dropped.
 - Schema is exported from `@oracle/db`.
 
+## Phase R3.5: Knowledge taxonomy schema
+
+Goal: install the three-layer knowledge taxonomy from `07-knowledge-segmentation.md` before extraction starts producing entity tags.
+
+This phase is schema-only. No worker behavior changes here.
+
+Tasks:
+
+1. Add `knowledge_top_domains` table and seed it from a hand-written migration. Seed values supplied by Albert; do not autogenerate.
+2. Add `knowledge_sub_topics` table with `review_status` constraint and centroid vector column. Empty on install.
+3. Add `claim_top_domains` and `claim_sub_topics` join tables.
+4. Add `entities` canonical registry, seeded with the initial known customers, vendors, and systems.
+5. Add `claim_entities`, `document_chunk_entities`, and `message_entities` join tables.
+6. Add `claim_metadata` table for process stage, department, geography, document class, time validity, supersession pointer.
+7. Add `taxonomy_proposals` queue and `taxonomy_change_log` audit table.
+8. Add `entity_proposals` queue for unknown entity references surfaced by extraction.
+9. Add indexes on every join table by the non-claim side.
+10. Add HNSW index on `knowledge_sub_topics.centroid`.
+11. Backfill `claim_top_domains` from the existing `knowledge_domain` enum column on `claims`. Do not drop the old column yet.
+12. Export new schema from `@oracle/db`.
+13. Update `docs/oracle/07-knowledge-segmentation.md` with the final SQL if anything diverged from the sketch.
+
+Acceptance gate:
+
+- migrations apply cleanly through the custom migration runner;
+- `knowledge_top_domains` is seeded;
+- `entities` is seeded with the initial known customers/vendors/systems;
+- existing claims have a corresponding `claim_top_domains` row via backfill;
+- no claim is silently dropped;
+- the legacy `knowledge_domain` enum column on `claims` is still present and readable;
+- nothing in extraction or chat code has changed yet.
+
 ## Phase R4: Candidate-before-claim staging schema
 
 Goal: add staging tables before changing extraction behavior.
@@ -202,6 +234,41 @@ Acceptance gate:
 - Duplicate retries do not create duplicate permanent claims.
 - Validation errors are stored and inspectable.
 - Do not proceed to Trigger.dev worker wiring until isolated validator tests pass.
+
+## Phase R5.5: Entity and metadata extraction in the candidate pipeline
+
+Goal: extract knowledge taxonomy tags alongside each claim candidate in the same model run, so that promotion writes claims with their full metadata atomically.
+
+This phase extends the extraction prompt and the candidate schema. No worker is wired yet; that happens in R6.
+
+Tasks:
+
+1. Extend the candidate extraction prompt to also produce, per claim candidate:
+   - one or more `top_domain_id` references;
+   - zero or more entity references with `entity_type` and `canonical_value` (or proposed new entity);
+   - optional `process_stage`, `department`, `geography`, `document_class`, `time_validity`.
+2. Extend `extraction_candidates` schema to hold proposed top-domain IDs, proposed entity references, and proposed metadata.
+3. Extend `extraction_candidate_evidence` to carry the document_class and process_stage if the model surfaced them.
+4. Extend the deterministic validator from R5:
+   - validate that every proposed `top_domain_id` exists in `knowledge_top_domains`;
+   - validate that every proposed entity either resolves in `entities` or is queued as a proposal in `entity_proposals`;
+   - reject candidates whose top-domain or entity references cannot be resolved or proposed cleanly.
+5. Extend the promotion service from R5 to write `claim_top_domains`, `claim_entities`, and `claim_metadata` in the same transaction that creates the claim and its evidence.
+6. Add isolated tests for entity normalization (alias resolution to canonical value) before wiring workers.
+
+Required tests:
+
+1. Known entity alias resolves: `"the ERP"` resolves to the existing canonical `system: ERP`.
+2. Unknown entity is staged, not auto-created: `"Frobnitz"` produces an `entity_proposals` row, candidate stays pending until reviewed or promoted with `unknown_entity_allowed` flag false.
+3. Unknown top-level domain is a hard failure: candidates referencing a non-existent `top_domain_id` never promote.
+4. Promotion is transactional: a failure writing `claim_entities` rolls back the claim, evidence, and domain rows.
+
+Acceptance gate:
+
+- candidate schema and validator changes compile and pass tests;
+- entity proposals appear in the admin queue when extraction encounters unknown entities;
+- no production worker has been wired yet;
+- no claim has been promoted with missing required taxonomy fields.
 
 ## Phase R6: Refactor claim extraction worker
 
@@ -363,6 +430,43 @@ Acceptance gate:
 - Albert can see why a Brain update was accepted or rejected;
 - Albert can see which domains/source types were searched for an Oracle answer.
 
+## Phase R10.5: Taxonomy governance dashboard and monthly re-evaluation worker
+
+Goal: give the admin tooling to govern the knowledge taxonomy and run the monthly re-evaluation worker.
+
+Tasks:
+
+1. Add a Trigger.dev scheduled task `taxonomy-reevaluation` that runs monthly by default and can be triggered manually by admin.
+2. Implement the worker steps described in `07-knowledge-segmentation.md`:
+   - per-domain density clustering on stored claim embeddings;
+   - cluster naming via cheap synthesis call;
+   - overlap analysis against current sub-topic centroids;
+   - drift detection per claim;
+   - cross-domain pattern check;
+   - proposal writing to `taxonomy_proposals` only;
+   - no auto-mutation of taxonomy.
+3. Add admin dashboard `/admin/taxonomy` with tabs:
+   - top-level domains: list, add, rename, retire (with safeguards);
+   - sub-topics: list per domain, view members, view centroid drift;
+   - entity registry: list, edit aliases, add `domain_hints`, retire;
+   - proposals queue: review pending taxonomy proposals, approve in batches, reject;
+   - entity proposals queue: review unknown entities surfaced by extraction;
+   - change log: read-only view of `taxonomy_change_log`.
+4. Implement the transactional reclassification job, triggered only by approved proposals:
+   - updates `claim_sub_topics` rows;
+   - writes `taxonomy_change_log` entries;
+   - optionally queues targeted Brain synthesis re-runs for affected sections;
+   - preserves `claim_evidence` unchanged.
+5. Add retrieval diagnostics so the admin can see, for any Oracle answer, which top-level domains, sub-topics, entities, and document classes were searched. Tie this into the `oracle_context_packs` viewer from R10.
+
+Acceptance gate:
+
+- the monthly worker produces proposals on real data without auto-mutating taxonomy;
+- admin can approve, reject, and batch-process proposals;
+- reclassification is transactional and audited;
+- entity proposal queue is reviewable and prevents auto-creation;
+- retrieval diagnostics show domain/entity/document-class filters per Oracle answer.
+
 ## Phase R11: Resume interjection engine
 
 Only after R1-R10 are complete should the project resume Phase 6 interjection.
@@ -399,9 +503,13 @@ The AI retrofit is complete when:
 - model routes are selected by curated route ID;
 - OpenRouter is legacy fallback only;
 - extraction uses candidates before claims;
+- extraction also produces entity, top-domain, and metadata tags atomically with each claim;
+- the three-layer knowledge taxonomy is live (top-level domains, sub-topics, entity registry);
+- the monthly taxonomy worker writes proposals that admin reviews and approves;
 - document extraction can use Vertex caching;
 - synthesis uses provider-native cost-aware routes;
 - model runs include cache and context-pack metrics;
-- admin can inspect cost, failures, validation, and context;
+- admin can inspect cost, failures, validation, context, and taxonomy diagnostics;
 - eval metrics can compare routes by cost per useful validated result;
-- retrieval can route by domain, source type, entity, process stage, department, and document class.
+- retrieval routes every query through a `RetrievalPlan` with metadata pre-filter before vector search;
+- no global vector search path remains in chat, synthesis, contradiction review, or interjection code.

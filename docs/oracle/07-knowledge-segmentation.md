@@ -1,0 +1,363 @@
+# Knowledge Segmentation and Taxonomy Governance
+
+Status: mandatory implementation guidance for any extraction, retrieval, or admin work that touches knowledge domains, sub-topics, entity tags, or retrieval planning.
+
+This document defines how The Oracle organizes and retrieves operational knowledge across a real, growing company. It supersedes any prior assumption that a single static `knowledge_domain` enum is sufficient.
+
+## The problem this fixes
+
+The current schema carries a single `knowledge_domain` enum from `packages/shared`. That enum labels claims, but it does not help retrieval *exclude* irrelevant material. It is not strong enough discrimination for a company that will ultimately hold many thousands of claims spanning customer compliance, overseas production, creative handoff, IT systems, finance, HR, vendor management, and logistics.
+
+The concrete failure case Albert called out:
+
+> A question about "when does an image get uploaded to the ERP system" should not search vendor manuals.
+
+A single flat enum cannot solve that. Even multi-label enums do not solve it cleanly because the discrimination dimensions are heterogeneous: domain is one axis, but *system mentioned*, *customer mentioned*, *process stage*, and *document class* are independent axes that intersect orthogonally.
+
+## Executive decision
+
+The Oracle uses a three-layer knowledge taxonomy:
+
+1. **Top-level domains** — small, slow-moving, admin-curated.
+2. **Sub-topics** — auto-discovered within domains, admin-approved before they take effect.
+3. **Orthogonal entity and metadata tags** — extracted alongside each claim/chunk/message, used as retrieval filters.
+
+These layers have different change rates and different governance. They must not be collapsed into one table or one enum.
+
+## Layer 1: Top-level domains
+
+Purpose: the coarse routing label that aligns with how POP Creations is actually organized as a business.
+
+Examples (illustrative — Albert defines the actual seed list):
+
+- `customer_ops` — retailer compliance, routing guides, customer-specific rules (Burlington, TJX, Ross, Walmart, Hobby Lobby, etc.).
+- `supply_chain` — overseas production, sourcing, factory relationships (China, Brazil, Colombia).
+- `creative_design` — product design, sample creation, art direction, creative-to-technical handoff.
+- `it_systems` — ERP, Coldlion, internal tooling, integrations, automation.
+- `production_lifecycle` — sample → pre-production → production → QC → ship → RA stages.
+- `finance_pricing` — costing, margin rules, customer pricing, vendor terms.
+- `people_org` — employees, departments, roles, internal escalation paths.
+- `vendor_management` — non-customer vendor relationships, vendor manuals, vendor SLAs.
+- `logistics_shipping` — freight, routing, customs, delivery.
+
+Governance:
+
+- Lives in a DB table `knowledge_top_domains`, not in a TypeScript enum, so admin UI can add/rename/retire without a migration.
+- Day-one seed is supplied explicitly by Albert. Do not autogenerate top-level domains from data.
+- New top-level domains may be *proposed* by the monthly worker, but never auto-created.
+- Retiring a top-level domain requires a migration plan because every claim/chunk currently tagged against it must move.
+
+Why this layer must be human-curated: top-level domains map to the business's mental model. If the LLM invents them, retrieval breaks predictability for the only user who matters.
+
+## Layer 2: Sub-topics
+
+Purpose: finer-grained groupings that emerge from the actual data and shift as the company grows.
+
+Examples (illustrative, inside `customer_ops`):
+
+- "Burlington seasonal routing rules"
+- "TJX ticket placement requirements"
+- "Hobby Lobby chargeback patterns"
+- "Walmart EDI exception handling"
+
+Sub-topics are not predeclared. They are discovered by clustering claim and chunk embeddings within a top-level domain, then named and approved by an admin.
+
+Governance:
+
+- Lives in `knowledge_sub_topics` rows owned by a parent `knowledge_top_domains` row.
+- Created only via approved entries in `taxonomy_proposals`.
+- The monthly worker may propose:
+  - `create_sub_topic` — a new cluster has formed with enough mass and coherence;
+  - `merge_sub_topics` — two existing sub-topics now look like one cluster;
+  - `split_sub_topic` — one sub-topic has fragmented into multiple coherent clusters;
+  - `reassign_claims` — claims have drifted and should move from one sub-topic to another;
+  - `promote_to_top_domain` — rare, surfaced only when a cluster repeatedly spans two top-level domains or fits none.
+- All such proposals are reviewed by Albert. Auto-mutation of taxonomy is prohibited.
+- Each accepted proposal writes an entry to `taxonomy_change_log` with before/after state, reason, model run ID, and approver ID.
+
+Activation threshold: sub-topics do not exist on day one. Until clustering has signal (a minimum of N claims per domain — initial proposal: N = 100), retrieval uses top-level domain + entity tags only. Sub-topics activate as critical mass accumulates.
+
+## Layer 3: Orthogonal entity and metadata tags
+
+Purpose: precision filters that cut across the taxonomy. These are not "the topic" — they are what the topic is *about*.
+
+Categories:
+
+- `system` — software systems referenced (ERP, Coldlion, Photoshop, Excel templates, internal scripts).
+- `customer` — retailer or end customer (Burlington, TJX, Ross, etc.).
+- `vendor` — non-customer vendor (factories, freight providers, license holders).
+- `person` — employee ID or external contact string.
+- `sku_or_product_line` — product identifiers.
+- `process_stage` — sample, pre_production, production, qc, pack, ship, ra, post_sale.
+- `department` — creative, production, ops, finance, hr, it.
+- `geography` — country/region of activity.
+- `document_class` — routing_guide, contract, sample_spec, email_thread, screenshot, vendor_manual, internal_sop, voice_memo.
+- `time_validity` — when the claim was last reasserted, whether it has been superseded.
+- `review_state` — pending, approved, rejected (already on claims).
+
+These tags are produced by the same model run that extracts the claim. They are multi-valued. They are stored in claim-tag join tables and chunk-tag join tables, not as JSONB blobs, so Postgres can filter on them at retrieval time without scanning rows.
+
+Normalization: entity values must be normalized through a canonical entity registry. The string "ERP", "the ERP", "NetSuite", and "erp system" should all resolve to the same canonical entity. See schema sketch below.
+
+## The retrieval plan — how this fixes the ERP-vs-vendor-manual case
+
+The ERP-image-upload query routes through:
+
+1. **Query understanding.** A cheap call to the extraction model produces:
+   ```text
+   { domain_hints: ['it_systems', 'production_lifecycle'],
+     systems: ['ERP'],
+     process_stages: ['image_upload'],
+     customers: [],
+     time_filter: 'current' }
+   ```
+2. **Metadata pre-filter.** Postgres `WHERE` clause restricts candidate claims/chunks to:
+   - `top_domain IN domain_hints`
+   - has a `system` tag matching `'ERP'`
+   - is **not** tagged `document_class = 'vendor_manual'` (or is down-weighted heavily)
+3. **Vector search inside the filtered set.** Similarity runs only over the survivors of step 2. Most companies will see the candidate set shrink by 10–100× before similarity is computed.
+4. **Optional cross-encoder re-rank.** Only if precision is still insufficient after the filtered ANN search.
+5. **Citation back to evidence.** Surface matching claims with their `claim_evidence` rows.
+
+Vendor manuals never enter the candidate set because they are tagged `document_class: vendor_manual` and either filtered out or heavily down-weighted by query type. This is enforced by structure, not by prompt engineering.
+
+This is the concrete realization of the "retrieval plan that filters by knowledge domain, source type, document class, process stage, department, system, entity, review state, and time validity before vector search" requirement in `02-provider-native-ai-architecture.md`.
+
+## Cold start strategy
+
+Day one, the system *can* know enough to retrieve usefully:
+
+- **Top-level domains** — Albert seeds them. He knows the company. The seed list lives in a versioned SQL migration.
+- **Entity registry** — seeded with known customers, known systems (ERP, Coldlion), known departments. The list grows as the extraction model surfaces new candidates, which then go through the same admin approval as sub-topics.
+- **Document classes** — seeded with a fixed initial vocabulary (`routing_guide`, `contract`, `sample_spec`, `email_thread`, `screenshot`, `vendor_manual`, `internal_sop`, `voice_memo`). Rarely changes.
+- **Sub-topics** — empty. Retrieval falls back to `top_domain ∩ entity_tags` until clustering has mass.
+- **Process stages** — seeded with the known production lifecycle stages.
+
+Do not invent structure from nothing. Inventing taxonomy on day one with three claims in the database produces noise that takes months to undo.
+
+## Monthly re-evaluation worker
+
+A scheduled Trigger.dev job, distinct from the extraction and synthesis workers.
+
+Cadence: monthly by default, configurable. Can be triggered manually by admin.
+
+Steps:
+
+1. **Embedding freshness check.** Ensure all claims and chunks in scope have current embeddings. Re-embed only items whose embedding model version is stale.
+2. **Per-domain clustering.** For each `knowledge_top_domains` row, pull all approved claims tagged to it and run density-based clustering (HDBSCAN or equivalent) on the embedding space. Reject clusters below minimum mass.
+3. **Cluster naming.** For each candidate cluster, call the synthesis model with a small sample of representative claims to propose a human-readable name and one-sentence description. Cheap because samples are tiny.
+4. **Overlap analysis.** For each candidate cluster, compute Jaccard or cosine overlap against current sub-topic centroids. Classify each as: `new`, `matches_existing`, `merge_candidate`, `split_candidate`.
+5. **Drift detection.** For each existing claim, compute distance from its assigned sub-topic centroid in the *new* embedding space. If it has drifted more than threshold *and* its nearest current sub-topic is a different one, queue it as a `reassign_claims` proposal.
+6. **Cross-domain check.** Flag clusters whose members are split across two top-level domains. Surface as a `promote_to_top_domain` proposal only when the pattern is strong and recurring; otherwise propose a re-tagging.
+7. **Proposal writing.** Write a row per proposed change to `taxonomy_proposals` with `status = pending`. Bundle related proposals so admin can approve in batches.
+8. **Notification.** Surface the open proposal count on the admin dashboard. Do not auto-apply.
+
+Cost discipline: the worker scales with deltas, not total claims. Embeddings are precomputed and stored. Clustering is run once per domain per month, not once per claim. The only per-claim cost is drift distance computation, which is a vector dot product.
+
+Reclassification job:
+
+- Triggered only after admin approves a `merge`, `split`, or `reassign_claims` proposal.
+- Runs as a transactional batch: updates `claim_sub_topics` rows, writes `taxonomy_change_log` entries, optionally re-runs targeted Brain synthesis if the change affects a synthesized section.
+- Never deletes a claim. Never modifies `claim_evidence`. The taxonomy is metadata on top of immutable evidence.
+
+## Schema sketch
+
+The final schema lives in a hand-written migration under `packages/db/migrations/sql/`. The sketch below is illustrative and will be refined in R3.5.
+
+```sql
+-- Layer 1: top-level domains, admin-curated.
+CREATE TABLE knowledge_top_domains (
+  id              text PRIMARY KEY,        -- e.g. 'customer_ops'
+  name            text NOT NULL,
+  description     text NOT NULL,
+  display_order   int  NOT NULL,
+  is_active       boolean NOT NULL DEFAULT true,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- Layer 2: sub-topics, system-discovered, admin-approved.
+CREATE TABLE knowledge_sub_topics (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  top_domain_id    text NOT NULL REFERENCES knowledge_top_domains(id),
+  name             text NOT NULL,
+  description      text,
+  centroid         vector(1536),
+  member_count     int NOT NULL DEFAULT 0,
+  review_status    text NOT NULL CHECK (review_status IN
+                     ('proposed','approved','merged','split','retired')),
+  approved_by_employee_id uuid REFERENCES employees(id),
+  approved_at      timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (top_domain_id, name)
+);
+
+-- Claim → sub-topic assignment (multi-valued).
+CREATE TABLE claim_sub_topics (
+  claim_id              uuid NOT NULL REFERENCES claims(id),
+  sub_topic_id          uuid NOT NULL REFERENCES knowledge_sub_topics(id),
+  assignment_confidence numeric(4,3),
+  assignment_reason     text NOT NULL CHECK (assignment_reason IN
+                          ('extraction','reclassification','manual')),
+  assigned_at           timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (claim_id, sub_topic_id)
+);
+
+-- Claim → top-level domain (multi-valued, replaces single enum column).
+CREATE TABLE claim_top_domains (
+  claim_id      uuid NOT NULL REFERENCES claims(id),
+  top_domain_id text NOT NULL REFERENCES knowledge_top_domains(id),
+  PRIMARY KEY (claim_id, top_domain_id)
+);
+
+-- Layer 3: canonical entity registry.
+CREATE TABLE entities (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  entity_type     text NOT NULL,          -- 'system' | 'customer' | 'vendor' | 'person' | ...
+  canonical_value text NOT NULL,          -- 'ERP', 'Burlington', etc.
+  display_label   text,
+  aliases         jsonb,                  -- ['the ERP', 'erp system', 'NetSuite']
+  domain_hints    text[],                 -- which top-level domains this entity belongs to
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (entity_type, canonical_value)
+);
+
+-- Layer 3: claim → entity tags (multi-valued).
+CREATE TABLE claim_entities (
+  claim_id   uuid NOT NULL REFERENCES claims(id),
+  entity_id  uuid NOT NULL REFERENCES entities(id),
+  PRIMARY KEY (claim_id, entity_id)
+);
+
+-- Layer 3: chunk → entity tags (for pre-claim retrieval).
+CREATE TABLE document_chunk_entities (
+  document_chunk_id uuid NOT NULL REFERENCES document_chunks(id),
+  entity_id         uuid NOT NULL REFERENCES entities(id),
+  PRIMARY KEY (document_chunk_id, entity_id)
+);
+
+-- Layer 3: message → entity tags (for pre-claim retrieval).
+CREATE TABLE message_entities (
+  message_id uuid NOT NULL REFERENCES messages(id),
+  entity_id  uuid NOT NULL REFERENCES entities(id),
+  PRIMARY KEY (message_id, entity_id)
+);
+
+-- Other metadata axes, kept narrow and constrained.
+CREATE TABLE claim_metadata (
+  claim_id        uuid PRIMARY KEY REFERENCES claims(id),
+  process_stage   text,
+  department      text,
+  geography       text,
+  document_class  text,
+  time_validity   tstzrange,
+  superseded_by_claim_id uuid REFERENCES claims(id)
+);
+
+-- Proposals queue (monthly worker writes; admin reviews).
+CREATE TABLE taxonomy_proposals (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  proposal_type          text NOT NULL CHECK (proposal_type IN
+                           ('create_sub_topic','merge_sub_topics','split_sub_topic',
+                            'reassign_claims','promote_to_top_domain','retire_sub_topic')),
+  payload                jsonb NOT NULL,
+  proposed_by_model_run_id uuid REFERENCES model_runs(id),
+  status                 text NOT NULL CHECK (status IN ('pending','approved','rejected')),
+  reviewed_by_employee_id uuid REFERENCES employees(id),
+  reviewed_at            timestamptz,
+  created_at             timestamptz NOT NULL DEFAULT now()
+);
+
+-- Audit log of accepted taxonomy changes.
+CREATE TABLE taxonomy_change_log (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  change_type            text NOT NULL,
+  before_state           jsonb,
+  after_state            jsonb,
+  reason                 text,
+  approved_by_employee_id uuid REFERENCES employees(id),
+  proposal_id            uuid REFERENCES taxonomy_proposals(id),
+  created_at             timestamptz NOT NULL DEFAULT now()
+);
+```
+
+Indexes (illustrative; refine in migration):
+
+- `claim_entities (entity_id)` and `claim_entities (claim_id)`
+- `document_chunk_entities (entity_id)`
+- `message_entities (entity_id)`
+- `claim_sub_topics (sub_topic_id)`
+- `claim_top_domains (top_domain_id)`
+- `claim_metadata (process_stage)`, `claim_metadata (document_class)`
+- HNSW on `knowledge_sub_topics.centroid` for nearest-sub-topic lookups.
+
+Migration plan:
+
+- The existing `knowledge_domain` column on claims is preserved during the transition. A backfill job copies its value into `claim_top_domains` so retrieval continues to work.
+- After R3.5 is live and validated, the column is dropped in a later cleanup migration.
+
+## Integration with the candidate-before-claim pipeline
+
+Tags are extracted by the same model run that extracts a claim candidate. They are stored on the candidate, validated alongside the candidate, and promoted with the candidate in the same transaction.
+
+- `extraction_candidates` carries proposed top-domain IDs and proposed entity references.
+- `extraction_candidate_evidence` carries the document_class and process_stage if the model identifies them.
+- A new validator checks that each proposed entity reference either resolves to an existing entity in the registry or, if new, is flagged for entity-registry review before promotion.
+- Unknown entities are not auto-created. They are queued in a new admin queue (`entity_proposals`) and reviewed alongside taxonomy proposals.
+
+This protects the entity registry from drifting under hallucinated aliases.
+
+## What this does to retrieval code
+
+The `ContextCompiler` and `ModelRouter` from `02-provider-native-ai-architecture.md` need a query-understanding pass that produces a `RetrievalPlan`:
+
+```ts
+type RetrievalPlan = {
+  topDomainHints: string[];           // up to 3
+  requiredEntities: { entityType: string; canonicalValue: string }[];
+  excludedDocumentClasses?: string[]; // e.g. ['vendor_manual'] for system questions
+  processStageHints?: string[];
+  timeFilter?: 'current' | 'all' | 'since:YYYY-MM-DD';
+  vectorQuery: string;                // the actual semantic query
+  topK: number;
+};
+```
+
+The retrieval implementation:
+
+1. Builds a `WHERE` clause from the plan.
+2. Runs the vector search inside the filtered set using HNSW.
+3. Returns claims with their evidence rows ordered by similarity.
+
+The plan itself is stored on the `oracle_context_packs` row alongside the rest of the context for that model run, so every Oracle answer is auditable down to "which domains and entities were searched".
+
+## Acceptance gate
+
+The knowledge segmentation layer is complete when:
+
+- `knowledge_top_domains`, `knowledge_sub_topics`, `entities`, and the join tables exist and are populated by an approved seed migration.
+- Extraction produces canonical entity references alongside claims, validated against the registry before promotion.
+- Retrieval routes every query through a `RetrievalPlan` with metadata pre-filter before vector search.
+- The monthly worker writes proposals to `taxonomy_proposals` but never auto-mutates taxonomy.
+- An admin can review, approve, or reject proposals, and every accepted change writes an audit row.
+- Re-classification is transactional, preserves `claim_evidence`, and never deletes claims.
+- The legacy `knowledge_domain` enum column is preserved during transition and dropped only after backfill is validated.
+
+## Do not do these
+
+- Do not let the extraction model auto-create top-level domains, sub-topics, or entities. Propose only.
+- Do not let the monthly worker mutate taxonomy without admin approval.
+- Do not use JSONB blobs for entity tags. Use join tables so Postgres can filter cheaply.
+- Do not run sub-topic clustering before there is enough mass. Below threshold, retrieval falls back to top-domain + entity tags.
+- Do not delete claims when retiring a sub-topic. Reassign them.
+- Do not modify `claim_evidence` during a taxonomy change. Evidence is immutable; only metadata moves.
+- Do not bypass `RetrievalPlan` from any chat, synthesis, contradiction, or interjection path. Global vector search is forbidden.
+
+## Cross-references
+
+- `02-provider-native-ai-architecture.md` — `ContextCompiler`, `ModelRouter`, retrieval planning.
+- `03-candidate-before-claim-validation.md` — candidate staging, entity-reference validation, transactional promotion.
+- `04-context-packs-observability.md` — `oracle_context_packs` carries the `RetrievalPlan` per model call.
+- `05-ai-retrofit-phase-packet.md` — implementation order. This document adds phases R3.5, R5.5, and R10.5.
+- `06-evaluation-framework.md` — retrieval evals must measure recall and precision separately, partitioned by domain and entity.

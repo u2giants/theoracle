@@ -24,6 +24,7 @@ Before editing `packages/ai`, `apps/workers`, model settings, extraction, synthe
 10. `docs/oracle/04-context-packs-observability.md`.
 11. `docs/oracle/05-ai-retrofit-phase-packet.md`.
 12. `docs/oracle/06-evaluation-framework.md` when implementing or changing evals.
+13. `docs/oracle/07-knowledge-segmentation.md` when implementing or changing knowledge domains, sub-topics, entity tags, taxonomy governance, or retrieval planning.
 
 Do not use wildcard reads such as `cat docs/oracle/*`. Read the index first, then read the specific files required for the active task.
 
@@ -88,6 +89,8 @@ Do not retrieve by global vector search by default.
 
 All answer generation, chat retrieval, contradiction review, extraction follow-up, and Brain synthesis must use a retrieval plan that filters by knowledge domain, source type, document class, process stage, department, system, entity, review state, and time validity before vector search.
 
+The concrete `RetrievalPlan` shape, the three-layer taxonomy that backs it, and the monthly re-evaluation worker are specified in `07-knowledge-segmentation.md`.
+
 ## Evaluation rule
 
 Do not build an evaluation web UI at first.
@@ -103,4 +106,5 @@ When implementation changes any of these topics, update the matching document in
 - extraction validation, sensitivity gates, or promotion locking -> `03-candidate-before-claim-validation.md`;
 - model logging, cost, context packs, or payload retention -> `04-context-packs-observability.md`;
 - implementation order -> `05-ai-retrofit-phase-packet.md`;
-- eval commands, fixtures, metrics, or phase gates -> `06-evaluation-framework.md`.
+- eval commands, fixtures, metrics, or phase gates -> `06-evaluation-framework.md`;
+- knowledge taxonomy, entity registry, sub-topic discovery, retrieval planning, or monthly re-evaluation -> `07-knowledge-segmentation.md`.
