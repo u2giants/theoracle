@@ -21,14 +21,17 @@ The AI implementation is being refit to the Big 3 direct-provider architecture:
 
 The old Vercel AI SDK + OpenRouter path is legacy implementation debt for production AI workloads. Do not extend it for background extraction, document ingestion, synthesis, or other cache-sensitive work. Read `docs/oracle/` before changing AI code.
 
-## Stack
+## Architecture & Tech Stack
 
+- **Frontend:** Next.js App Router, Tailwind CSS, shadcn/ui.
+- **Database & Auth:** Supabase Cloud PostgreSQL, pgvector, Drizzle ORM.
+- **Background Workers:** Trigger.dev Cloud v3.
+- **AI Execution Layer:** Provider-Native Adapter Pattern (`OracleAIClient`).
+  - *No OpenRouter for production tasks.* The Oracle talks directly to the "Big 3" to maximize explicit and implicit caching:
+  - **Anthropic Direct** (`@anthropic-ai/sdk`)
+  - **Google Vertex AI Direct** (`@google/genai`)
+  - **OpenAI Direct** (`openai`)
 - **Next.js 16** App Router (`apps/web`) on **Vercel** (Fluid Compute, Node 24)
-- **Tailwind** + **shadcn/ui** + **lucide-react**
-- **Supabase Cloud** — Postgres + pgvector, Auth, Realtime, Storage
-- **Drizzle ORM** (`packages/db`) — schema + migrations
-- **Trigger.dev v3** (`apps/workers`) — background workers
-- **Direct Big 3 AI provider adapters** target architecture in `packages/ai`
 - **OpenAI** `text-embedding-3-small` — vector embeddings (1536-dim, locked)
 - **Brevo** SMTP — magic-link delivery (configured in Supabase Auth)
 

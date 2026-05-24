@@ -378,6 +378,30 @@ The knowledge segmentation layer is complete when:
 - Do not modify `claim_evidence` during a taxonomy change. Evidence is immutable; only metadata moves.
 - Do not bypass `RetrievalPlan` from any chat, synthesis, contradiction, or interjection path. Global vector search is forbidden.
 
+## The `claim_kind` Taxonomy
+
+Retrieval and Synthesis must never blur how the company *wants* to work with how it *actually* works. Every claim is tagged:
+- `policy`: Official rule or documented SOP.
+- `observed_practice`: How work is actually being executed.
+- `exception`: A conditional deviation (requires `applies_when` context).
+- `workaround`: An unofficial, temporary fix for a broken system.
+- `proposed_future_state`: A planned change not yet active.
+
+**Synthesis Rule:** If the ContextCompiler retrieves a `policy` claim and an `observed_practice` claim that contradict, the Synthesis model must explicitly highlight the delta (e.g., "Official policy states X, but the observed practice is Y due to workaround Z").
+
+## Freshness, Staleness, and Recertification
+
+Claims are not eternally true.
+- `current_as_of`: Timestamp of the most recent evidence row confirming the claim.
+- `last_reasserted_at`: Timestamp when the Oracle successfully verified it's still true.
+- `stale_after`: A known expiration date (e.g., "Holiday 2026 routing guide").
+- `recertification_status`: `fresh`, `review_due`, `stale`.
+
+**Retrieval Behavior:**
+If a claim is `superseded_by_claim_id`, the Vector Search MUST exclude it from the primary context pack unless the user explicitly asks for "historical process." If a claim is `stale`, it is passed to the AI but flagged with a warning so the Interview model can ask the user: *"Is this still how we handle this?"*
+
+---
+
 ## Cross-references
 
 - `02-provider-native-ai-architecture.md` — `ContextCompiler`, `ModelRouter`, retrieval planning.

@@ -16,6 +16,15 @@ The company's real operational reality lives in people's heads ("dark matter"): 
 
 ---
 
+## 1a. Core Architecture
+
+- **Database is Truth:** PostgreSQL (via Supabase) is the sole source of truth. No flat-file Markdown memory.
+- **Provider-Native AI:** Do NOT use OpenRouter for production architecture. All AI calls must route through the `OracleAIClient -> ContextCompiler -> ModelRouter -> Provider-Native Adapters`.
+- **Traceable Intelligence:** Every claim must link to verbatim evidence (`Candidate-Before-Claim` validation) and must declare its `claim_kind` (policy vs. practice) and `corroboration_tier`.
+- **No HR Surveillance:** The Oracle maps operational workflows, hidden bottlenecks, and "Dark Matter." It does NOT evaluate employee performance, flag HR violations, or monitor productivity.
+
+---
+
 ## 2. Multi-model note
 
 There is no universal ignore-file standard across AI coding tools.
@@ -220,9 +229,9 @@ The full schema lives in `packages/db/src/schema.ts` and is faithful to `oracle_
 | Trigger.dev project | _(see Vercel env)_ | Trigger.dev | Background workers. |
 | Supabase Storage bucket | `company_documents` | Supabase | Private. Holds uploaded employee documents. |
 | Brevo (SMTP) | account on file | Brevo | Used by Supabase Auth to deliver magic-link emails. Configured in Supabase → Authentication → SMTP Settings. |
-| OpenRouter model id (default interview) | `deepseek/deepseek-v4-pro` | `settings.default_interview_model` row | Configurable at runtime via Admin → Settings model picker. |
-| OpenRouter model id (default extraction) | `google/gemini-2.5-flash` | `settings.default_extraction_model` row | Configurable via Admin → Settings. |
-| OpenRouter model id (default synthesis) | `anthropic/claude-sonnet-4.6` | `settings.default_synthesis_model` row | Configurable via Admin → Settings. |
+| Interview route ID (target) | `anthropic_claude_3_5_sonnet_interview_primary` | `settings.default_interview_model` row | Set by Admin → Settings model picker. Target route IDs per `docs/oracle/01-model-roles-and-routes.md`. |
+| Extraction route ID (target) | `vertex_gemini_2_5_flash_extraction_primary` | `settings.default_extraction_model` row | Set by Admin → Settings. |
+| Synthesis route ID (target) | `anthropic_claude_3_5_sonnet_synthesis_primary` | `settings.default_synthesis_model` row | Set by Admin → Settings. |
 | Embedding model | `text-embedding-3-small` (OpenAI, 1536-dim) | hardcoded in `packages/ai/src/embeddings.ts` | Vector column is `vector(1536)` — see Idiosyncratic Decisions. |
 
 ---
@@ -240,7 +249,7 @@ This project does not use containers. Everything is fully managed cloud per spec
 | Supabase Auth | Identity | Supabase Cloud | — | Google OAuth + Microsoft 365 SSO (live); email magic-link (fallback). OAuth providers are configured in the Supabase Dashboard. |
 | Supabase Realtime | Chat / presence | Supabase Cloud | — | `postgres_changes` for messages; presence channel for typing. |
 | Brevo | SMTP for magic-link emails | Brevo | account on file | Configured in Supabase Auth → SMTP Settings; replaces Supabase's built-in throttled SMTP. |
-| OpenRouter | LLM provider | OpenRouter | account on file | Used via Vercel AI SDK. |
+| OpenRouter | LLM provider (legacy) | OpenRouter | account on file | **Deprecated for production use.** Legacy fallback only while AI retrofit is in progress. Do not add new production usage. |
 | OpenAI | Embeddings only (`text-embedding-3-small`) | OpenAI | account on file | Optional — falls back to deterministic zero vector if `OPENAI_API_KEY` is unset; **vector dimension does not change**. |
 
 ---

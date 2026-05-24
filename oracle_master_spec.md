@@ -184,18 +184,12 @@ Do not introduce self-managed infrastructure.
 - Storage: **Supabase Storage**
 - ORM: **Drizzle ORM**
 
-## 3.3 AI Layer
+## 3.3 AI Layer & Provider Strategy
 
-- AI SDK: **Vercel AI SDK**
-- Model provider: **OpenRouter.ai**
-- Background workers: **Trigger.dev Cloud v3**
-
-Use the Vercel AI SDK for:
-
-- Streaming chat responses
-- Tool calling
-- Structured object generation
-- Schema-validated model outputs
+- **AI Architecture:** Provider-Native Adapter Pattern (`OracleAIClient -> ContextCompiler -> ModelRouter -> Adapters`).
+- **Primary SDKs:** Direct APIs (`@anthropic-ai/sdk`, `openai`, `@google/genai`). OpenRouter is deprecated and reserved only for temporary experimental model scouting.
+- **Roles:** The system enforces strictly 3 production roles (Interview, Extraction, Synthesis), with exactly one Primary and one Fallback route defined per role.
+- **Background workers:** Trigger.dev Cloud v3.
 
 ## 3.4 Connection Rules
 
@@ -784,24 +778,34 @@ A claim is a universal operational assertion that may be supported by multiple e
 To query claims by employee, join through `claim_evidence.assertedByEmployeeId`.
 
 ```typescript
-export const claims = pgTable(
-  'claims',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    claimType: varchar('claim_type', { length: 100 }).notNull(),
-    summary: text('summary').notNull(),
-    impactScore: integer('impact_score').notNull(),
-    confidenceScore: integer('confidence_score').notNull(),
-    status: claimStatusEnum('status').notNull(),
-    embedding: vector('embedding', { dimensions: 1536 }),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-  },
-  (t) => ({
-    statusCreatedIdx: index('claims_status_created_idx').on(t.status, t.createdAt),
-    impactIdx: index('claims_impact_idx').on(t.impactScore),
-    confidenceIdx: index('claims_confidence_idx').on(t.confidenceScore),
-  })
-);
+export const claims = pgTable('claims', {
+  id: uuid('id').primaryKey().defaultRandom(),
+
+  // Claim Taxonomy
+  claimKind: varchar('claim_kind', { length: 50 }).notNull(), // 'policy', 'observed_practice', 'exception', 'workaround', 'proposed_future_state'
+  summary: text('summary').notNull(),
+  knowledgeDomain: varchar('knowledge_domain', { length: 100 }).notNull(),
+  appliesWhen: text('applies_when'), // Contextual scope for exceptions/workarounds
+
+  // Trust & Provenance
+  corroborationTier: varchar('corroboration_tier', { length: 50 }).default('single_source_observed').notNull(),
+  impactScore: integer('impact_score').notNull(),
+  status: varchar('status', { length: 50 }).notNull(), // pending_review, approved, rejected, archived
+
+  // Freshness & Recertification
+  currentAsOf: timestamp('current_as_of').defaultNow().notNull(),
+  lastReassertedAt: timestamp('last_reasserted_at'),
+  staleAfter: timestamp('stale_after'), // Nullable expiration (e.g., seasonal policy)
+  recertificationTrigger: varchar('recertification_trigger', { length: 100 }), // Event that demands review
+  recertificationStatus: varchar('recertification_status', { length: 50 }).default('fresh'), // fresh, review_due, stale
+
+  // Lineage
+  exceptionOfClaimId: uuid('exception_of_claim_id').references(() => claims.id),
+  supersededByClaimId: uuid('superseded_by_claim_id').references(() => claims.id),
+
+  embedding: vector('embedding', { dimensions: 1536 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
 
 export const claimDomains = pgTable(
   'claim_domains',
@@ -1169,8 +1173,8 @@ app/api/chat/route.ts
 Use:
 
 - Next.js Route Handler
-- Vercel AI SDK `streamText`
-- OpenRouter model provider
+- `OracleAIClient` (interview role) for streaming chat responses
+- Provider-native adapter (target); legacy OpenRouter path while retrofit is in progress
 
 Retrieval constraint:
 
@@ -1504,9 +1508,8 @@ Acceptance gate:
 Tasks:
 
 1. Implement `app/api/chat/route.ts`.
-2. Use Vercel AI SDK `streamText`.
-3. Use OpenRouter.
-4. Add master system prompt.
+2. Use `OracleAIClient` interview role (streaming via provider-native adapter).
+3. Add master system prompt.
 5. Implement direct mention response.
 6. Implement basic tools:
    - `search_company_knowledge`

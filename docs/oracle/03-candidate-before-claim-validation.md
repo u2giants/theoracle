@@ -450,6 +450,25 @@ These labels feed evals.
 
 Sensitive rejected/quarantined candidates must not appear in this standard queue.
 
+## Provenance vs. Corroboration
+
+Validation in The Oracle is a two-step axis.
+
+**1. Provenance Validation (Binary / Deterministic)**
+The deterministic `.includes()` check. It proves the `exactQuote` physically exists in the source text. If this fails, the candidate is destroyed.
+
+**2. Corroboration Tiers (Strength of Trust)**
+If provenance passes, the claim is assigned a Corroboration Tier. Corroboration measures operational truth, not just quoting accuracy. A single claim might have 10 evidence rows (1 person repeating it 10 times) but still have low corroboration.
+
+- `single_source_observed`: One employee mentioned it. Treated as anecdotal.
+- `multi_source_corroborated`: Mentioned by 2+ independent employees in different contexts.
+- `system_verified`: Supported by a direct Coldlion ERP data export or API read.
+- `admin_certified`: Albert manually reviewed and locked the claim as ground truth.
+
+**Impact:** Low corroboration claims (`single_source_observed`) should trigger the Interview model to ask follow-up questions to other departments. High impact claims require `multi_source_corroborated` or `admin_certified` status before the Synthesis role is allowed to update the official Brain section.
+
+---
+
 ## Worker retrofit acceptance criteria
 
 The extraction worker retrofit is complete only when:

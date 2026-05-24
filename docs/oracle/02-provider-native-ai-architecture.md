@@ -4,6 +4,20 @@ Status: mandatory architecture target for the AI retrofit.
 
 This document supersedes the old OpenRouter-centered AI implementation for production AI work.
 
+## The OracleAIClient
+
+The system relies exclusively on direct-provider APIs to guarantee access to native prompt caching and strict structured outputs.
+
+**Flow:**
+`Next.js/Trigger.dev -> OracleAIClient -> ContextCompiler -> ModelRouter -> Provider-Native Adapter`
+
+- **VertexGeminiAdapter:** Manages Google Explicit Caching and temporary Storage bridging.
+- **AnthropicAdapter:** Manages implicit cache breakpoints (`cache_control: "ephemeral"`).
+- **OpenAIAdapter:** Manages strict JSON schema injection and invisible prefix caching.
+- *OpenRouter is strictly deprecated for production operations and must not be used.*
+
+---
+
 ## Executive decision
 
 The Oracle must use a provider-neutral internal architecture with provider-native adapters underneath.
@@ -14,7 +28,7 @@ The production providers are limited to the Big 3 direct APIs:
 - Google Vertex AI / Gemini direct;
 - OpenAI direct.
 
-The target architecture is not `Vercel AI SDK -> OpenRouter -> everything`.
+The target architecture is not a single generic wrapper (e.g. OpenRouter) — that hides the caching, structured-output, and usage details The Oracle needs to optimize.
 
 The target architecture is:
 

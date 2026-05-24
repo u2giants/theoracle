@@ -454,40 +454,32 @@ Use frontier synthesis only when:
 
 Do not make Opus or Gemini Pro the default synthesis route.
 
-## Recommended defaults
+## First Production Pass: 1 Primary + 1 Fallback
 
-Initial cost-aware default role selections:
+To prevent architecture bloat during the first production pass, the `ModelRouter` exposes exactly 3 roles. Each role has exactly 1 Primary Route and 1 Fallback Route.
 
-```ts
-export const DEFAULT_ORACLE_MODEL_ROUTES = {
-  interview: 'anthropic_claude_haiku_interview_primary',
-  extraction: 'vertex_gemini_flash_lite_extraction_primary',
-  synthesis: 'vertex_gemini_flash_synthesis_primary',
-};
-```
+### 1. Interview Role
+- **Primary:** `anthropic_claude_3_5_sonnet_interview_primary`
+- **Fallback:** `openai_gpt4o_interview_fallback`
+*Fallback Condition:* Triggered if Anthropic experiences an outage or rate limit during a live session.
 
-Balanced alternate defaults if evals show quality is too low:
+### 2. Extraction Role
+- **Primary:** `vertex_gemini_2_5_flash_extraction_primary` (Uses Google Explicit/Implicit caching).
+- **Fallback:** `openai_gpt4o_mini_extraction_fallback`
+*Fallback Condition:* Triggered if Vertex API fails or if Gemini repeatedly fails Zod schema validation during extraction.
 
-```ts
-export const BALANCED_ORACLE_MODEL_ROUTES = {
-  interview: 'anthropic_claude_haiku_interview_primary',
-  extraction: 'vertex_gemini_flash_extraction_primary',
-  synthesis: 'anthropic_claude_haiku_synthesis_primary',
-};
-```
+### 3. Synthesis Role
+- **Primary:** `anthropic_claude_3_5_sonnet_synthesis_primary`
+- **Fallback:** `vertex_gemini_2_5_flash_synthesis_fallback`
+*Fallback Condition:* Triggered if the primary model fails to generate valid Markdown diffs mapping to approved claim IDs.
 
-Escalation routes:
+---
 
-```ts
-export const ORACLE_ESCALATION_ROUTES = {
-  interviewQualityEscalation: 'anthropic_claude_sonnet_interview_escalation',
-  extractionStructuredFallback: 'openai_mini_structured_extraction_fallback',
-  extractionNuanceEscalation: 'anthropic_claude_haiku_or_sonnet_extraction_escalation',
-  synthesisQualityEscalation: 'anthropic_claude_sonnet_synthesis_escalation',
-  synthesisManualFrontier: 'anthropic_claude_opus_synthesis_manual_only',
-  synthesisLongContextFallback: 'vertex_gemini_pro_synthesis_manual_or_eval_only',
-};
-```
+### Internal Escalation & Manual Subroutes
+These routes live behind the scenes in the `OracleAIClient` and are not exposed to the admin as primary routing knobs:
+- `vertex_gemini_2_5_flash_lite_message_triage` (Cheap pre-filter scout).
+- `anthropic_claude_haiku_warmth_escalation` (Triggered if employee sentiment is frustrated/confused).
+- `openai_gpt4o_mini_schema_repair` (One-shot fix for malformed JSON candidates).
 
 ## Admin settings behavior
 

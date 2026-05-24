@@ -643,6 +643,19 @@ Steps:
 7. Update `DEFAULT_ORACLE_MODEL_ROUTES` in code, ship via PR.
 8. Schedule a follow-up live-mode eval in 30 days to confirm the route holds up on real traffic patterns.
 
+## Expanded CLI Eval Metrics
+
+**1. Corroboration Accuracy Rate**
+- *Goal:* Ensure the system accurately promotes claims to `multi_source_corroborated` only when sources are truly independent, avoiding false positives where the same employee repeats a claim in different chats.
+
+**2. Claim Taxonomy Precision**
+- *Goal:* Verify the model correctly tags a stated rule as a `workaround` instead of a `policy` based on chat context. Target: >95% accuracy on mock transcripts.
+
+**3. Freshness / Supersession Handling**
+- *Goal:* When fed a transcript containing a new rule that explicitly overwrites an old rule, the system must successfully output a candidate with `supersedes_claim_id` pointing to the old rule, rather than extracting it as a conflicting parallel claim.
+
+---
+
 ## What not to build yet
 
 Do not build:
