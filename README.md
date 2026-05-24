@@ -60,7 +60,7 @@ Before modifying `packages/ai`, `apps/workers`, `apps/web/app/api/chat/route.ts`
 5. [`docs/oracle/04-context-packs-observability.md`](docs/oracle/04-context-packs-observability.md) — context packs, model-run usage details, 7-day payload log, cache health dashboard
 6. [`docs/oracle/05-ai-retrofit-phase-packet.md`](docs/oracle/05-ai-retrofit-phase-packet.md) — R0–R11 implementation order (includes R3.5 taxonomy, R5.5 entity extraction, R10.5 taxonomy admin)
 7. [`docs/oracle/06-evaluation-framework.md`](docs/oracle/06-evaluation-framework.md) — CLI-only evals, fixture schemas, metric formulas, phase gates
-8. [`docs/oracle/07-knowledge-segmentation.md`](docs/oracle/07-knowledge-segmentation.md) — three-layer taxonomy, entity registry, `RetrievalPlan`, monthly re-evaluation worker
+8. [`docs/oracle/07-knowledge-segmentation.md`](docs/oracle/07-knowledge-segmentation.md) — three-layer taxonomy, entity registry, `RetrievalPlan`, maturity-based re-evaluation worker
 
 ## Getting started
 
@@ -106,7 +106,7 @@ The short version:
 - R3 + R3.5 — context packs, model-run usage details, provider cached-content tracking, three-layer knowledge taxonomy tables.
 - R4 + R5 + R5.5 — candidate-before-claim staging, deterministic quote validator, concurrency-locked promotion, entity-tag extraction.
 - R6 → R9 — refactor each worker and the chat route through `OracleAIClient`.
-- R10 + R10.5 — observability dashboards, taxonomy governance, monthly re-evaluation worker.
+- R10 + R10.5 — observability dashboards, taxonomy governance, maturity-based re-evaluation worker.
 - R11 — resume the interjection engine, on top of trustworthy claims.
 
 Security reminders:

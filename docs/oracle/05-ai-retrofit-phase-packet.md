@@ -131,13 +131,13 @@ This phase is schema-only. No worker behavior changes here.
 
 Tasks:
 
-1. Add `knowledge_top_domains` table and seed it from a hand-written migration. Seed values supplied by Albert; do not autogenerate.
+1. Add `knowledge_top_domains` table and support an approved seed set from the system's bootstrap domain-proposal pass. The system may propose top-level domains from company context and early evidence; admin approval activates them.
 2. Add `knowledge_sub_topics` table with `review_status` constraint and centroid vector column. Empty on install.
 3. Add `claim_top_domains` and `claim_sub_topics` join tables.
 4. Add `entities` canonical registry, seeded with the initial known customers, vendors, and systems.
 5. Add `claim_entities`, `document_chunk_entities`, and `message_entities` join tables.
 6. Add `claim_metadata` table for process stage, department, geography, document class, time validity, supersession pointer.
-7. Add `taxonomy_proposals` queue and `taxonomy_change_log` audit table.
+7. Add `taxonomy_proposals` queue and `taxonomy_change_log` audit table. Proposal types must include top-level domain creation/merge/split, sub-topic creation/merge/split, claim reassignment, and retirement.
 8. Add `entity_proposals` queue for unknown entity references surfaced by extraction.
 9. Add indexes on every join table by the non-claim side.
 10. Add HNSW index on `knowledge_sub_topics.centroid`.
@@ -148,7 +148,8 @@ Tasks:
 Acceptance gate:
 
 - migrations apply cleanly through the custom migration runner;
-- `knowledge_top_domains` is seeded;
+- `knowledge_top_domains` is seeded from an approved proposal set;
+- the admin has a compact way to approve/rename/merge/reject proposed top-level domains without reading long source text;
 - `entities` is seeded with the initial known customers/vendors/systems;
 - existing claims have a corresponding `claim_top_domains` row via backfill;
 - no claim is silently dropped;
@@ -260,7 +261,7 @@ Required tests:
 
 1. Known entity alias resolves: `"the ERP"` resolves to the existing canonical `system: ERP`.
 2. Unknown entity is staged, not auto-created: `"Frobnitz"` produces an `entity_proposals` row, candidate stays pending until reviewed or promoted with `unknown_entity_allowed` flag false.
-3. Unknown top-level domain is a hard failure: candidates referencing a non-existent `top_domain_id` never promote.
+3. Unknown top-level domain is staged for review: candidates referencing a non-existent `top_domain_id` never promote directly; they create or link to a `taxonomy_proposals` row.
 4. Promotion is transactional: a failure writing `claim_entities` rolls back the claim, evidence, and domain rows.
 
 Acceptance gate:
@@ -322,8 +323,10 @@ Tasks:
 9. Stage candidates just like message extraction.
 10. Validate quotes against document chunks.
 11. Promote only validated candidates.
-12. Expire/delete explicit caches by policy, not immediate `finally` deletion when retries/follow-up passes are expected.
-13. Always clean up temporary Google file resources when their TTL/policy expires.
+12. Attach every explicit cache to a reuse policy: expected reuse count, latest planned reuse step, hard expiration, cleanup owner, and cleanup status.
+13. Delete explicit caches immediately in `finally` only when the planned reuse window is complete and no retry/follow-up pass is expected.
+14. Keep explicit caches only until the last planned reuse or short TTL expiration when retries, validation repair, synthesis, or follow-up passes are expected.
+15. Always clean up temporary Google file resources when their TTL/policy expires, and record cleanup success/failure in Postgres.
 
 Credentials rule:
 
@@ -352,8 +355,9 @@ Acceptance gate:
 
 - large document extraction can use explicit Vertex cached content;
 - Supabase remains the durable document store;
-- Vertex temporary file/cache resources are tracked;
+- Vertex temporary file/cache resources are tracked with lifecycle status;
 - cached content resource metadata is stored;
+- cache cleanup runs on both success and failure paths;
 - document evidence links to chunk IDs;
 - invalid quotes fail validation;
 - costs/cache metrics are visible;
@@ -430,26 +434,26 @@ Acceptance gate:
 - Albert can see why a Brain update was accepted or rejected;
 - Albert can see which domains/source types were searched for an Oracle answer.
 
-## Phase R10.5: Taxonomy governance dashboard and monthly re-evaluation worker
+## Phase R10.5: Taxonomy governance dashboard and maturity-based re-evaluation worker
 
-Goal: give the admin tooling to govern the knowledge taxonomy and run the monthly re-evaluation worker.
+Goal: give the admin tooling to govern the knowledge taxonomy and run the maturity-based re-evaluation worker.
 
 Tasks:
 
-1. Add a Trigger.dev scheduled task `taxonomy-reevaluation` that runs monthly by default and can be triggered manually by admin.
+1. Add a Trigger.dev scheduled task `taxonomy-reevaluation` that runs on a maturity-based cadence and can be triggered manually by admin. During early learning, run weekly or after enough new evidence lands; once stable, run monthly or quarterly.
 2. Implement the worker steps described in `07-knowledge-segmentation.md`:
    - per-domain density clustering on stored claim embeddings;
    - cluster naming via cheap synthesis call;
    - overlap analysis against current sub-topic centroids;
    - drift detection per claim;
    - cross-domain pattern check;
-   - proposal writing to `taxonomy_proposals` only;
+   - proposal writing to `taxonomy_proposals` only, including top-level domain proposals when current domains do not fit;
    - no auto-mutation of taxonomy.
 3. Add admin dashboard `/admin/taxonomy` with tabs:
-   - top-level domains: list, add, rename, retire (with safeguards);
+   - top-level domains: proposal cards, list, add, rename, merge, split, retire (with safeguards);
    - sub-topics: list per domain, view members, view centroid drift;
    - entity registry: list, edit aliases, add `domain_hints`, retire;
-   - proposals queue: review pending taxonomy proposals, approve in batches, reject;
+   - proposals queue: review compact taxonomy proposal cards, approve in batches, rename/merge/split, reject, defer;
    - entity proposals queue: review unknown entities surfaced by extraction;
    - change log: read-only view of `taxonomy_change_log`.
 4. Implement the transactional reclassification job, triggered only by approved proposals:
@@ -461,7 +465,8 @@ Tasks:
 
 Acceptance gate:
 
-- the monthly worker produces proposals on real data without auto-mutating taxonomy;
+- the re-evaluation worker produces proposals on real data without auto-mutating taxonomy;
+- top-level domain proposals are compact and evidence-backed enough for admin review without reading long raw documents;
 - admin can approve, reject, and batch-process proposals;
 - reclassification is transactional and audited;
 - entity proposal queue is reviewable and prevents auto-creation;
@@ -505,7 +510,7 @@ The AI retrofit is complete when:
 - extraction uses candidates before claims;
 - extraction also produces entity, top-domain, and metadata tags atomically with each claim;
 - the three-layer knowledge taxonomy is live (top-level domains, sub-topics, entity registry);
-- the monthly taxonomy worker writes proposals that admin reviews and approves;
+- the maturity-based taxonomy worker writes proposals that admin reviews and approves;
 - document extraction can use Vertex caching;
 - synthesis uses provider-native cost-aware routes;
 - model runs include cache and context-pack metrics;

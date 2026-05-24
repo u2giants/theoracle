@@ -1,5 +1,9 @@
 # ORACLE AI ARCHITECTURE IMPLEMENTATION PROMPT
 
+Status: historical planning material. This file is useful background for prompt-cache hygiene, module boundaries, and traceability goals, but the current implementation plan lives in `docs/oracle/00-buildout-index.md` through `docs/oracle/07-knowledge-segmentation.md`.
+
+If this file conflicts with the current `docs/oracle/` packet, keep the product boundaries and traceability requirements here, but follow `docs/oracle/` for provider selection, route IDs, candidate-before-claim validation, retrieval planning, cache lifecycle, and implementation order. In particular, the OpenRouter-centered production guidance below is superseded for the AI retrofit; OpenRouter remains a legacy fallback path, not the target production architecture.
+
 **Project:** POP Creations / Spruce Line Enterprise Knowledge Graph  
 **System Name:** The Oracle  
 **Target Agent:** Claude Code / AI coding agent  

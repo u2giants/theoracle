@@ -138,11 +138,11 @@ Summary (R3.5, R5.5, R10.5 were inserted after the original packet was written �
 7. **R5 Exact quote validator and promotion service** — deterministic validation and transaction promotion. Includes PII gate enforcement and concurrency-locked promotion.
 8. **R5.5 Entity and metadata extraction in the candidate pipeline** — extends candidate schema + validator to atomically promote claim + tags. `entity_proposals` queue for unknown entities.
 9. **R6 Refactor claim extraction worker** — stage candidates, validate, then promote. Hooks the validation-loop circuit breaker.
-10. **R7 Refactor document ingestion worker** — Vertex/Gemini direct, explicit context caching with profitability heuristic, aggressive teardown.
+10. **R7 Refactor document ingestion worker** — Vertex/Gemini direct, explicit context caching with profitability heuristic and tracked lifecycle cleanup.
 11. **R8 Refactor chat route** — route through `OracleAIClient`. Use the `RetrievalPlan` + hybrid (pgvector + tsvector) RRF retrieval.
 12. **R9 Refactor synthesis worker** — Vertex/Anthropic direct, strict synthesis validation.
 13. **R10 Admin observability dashboards** — AI runs, context packs, cache dashboard (with traffic-light UX from doc 04), candidate review, 7-day payload log.
-14. **R10.5 Taxonomy governance dashboard + monthly re-evaluation worker** — admin reviews `taxonomy_proposals` and `entity_proposals`; no auto-mutation of taxonomy.
+14. **R10.5 Taxonomy governance dashboard + maturity-based re-evaluation worker** — admin reviews compact `taxonomy_proposals` and `entity_proposals`; no auto-mutation of taxonomy.
 15. **R11 Resume interjection engine** — only after the validation/segmentation pipeline is live and a test transcript has been processed end-to-end.
 
 ---
@@ -164,10 +164,10 @@ Phase 5 admin dashboards (already on `main` from commit `e80d4d7`):
 
 AI retrofit doc work (commits `88fdc22`, `a5ddd1f`, `c195dcf`):
 
-- **New: `docs/oracle/07-knowledge-segmentation.md`** — three-layer taxonomy (top-level domains, sub-topics, orthogonal entity tags), cold-start strategy, monthly re-evaluation worker, concrete `RetrievalPlan` shape, full schema sketch.
-- Inserted phases R3.5 (taxonomy schema), R5.5 (entity & metadata extraction in candidate pipeline), R10.5 (taxonomy admin + monthly worker).
+- **New: `docs/oracle/07-knowledge-segmentation.md`** — three-layer taxonomy (top-level domains, sub-topics, orthogonal entity tags), cold-start strategy, maturity-based re-evaluation worker, concrete `RetrievalPlan` shape, full schema sketch.
+- Inserted phases R3.5 (taxonomy schema), R5.5 (entity & metadata extraction in candidate pipeline), R10.5 (taxonomy admin + maturity-based worker).
 - `01-model-roles-and-routes.md` — added Warmth Escalation route alongside Sonnet reasoning escalation; Flash-Lite Fast-Path Trap warning with the 15% validation-failure threshold.
-- `02-provider-native-ai-architecture.md` — Retrieval execution order now requires Hybrid Search via RRF (pgvector + tsvector). New Vertex `useExplicitGeminiCache` profitability heuristic. **Reversed prior rule:** explicit caches must be `Delete`-d aggressively in `finally` on batch completion, not held for retries.
+- `02-provider-native-ai-architecture.md` — Retrieval execution order now requires Hybrid Search via RRF (pgvector + tsvector). New Vertex `useExplicitGeminiCache` profitability heuristic. Explicit caches now require a tracked reuse policy and cleanup lifecycle instead of unconditional immediate deletion.
 - `03-candidate-before-claim-validation.md` — added PII/Sensitivity Gate as validation item 11; replaced promotion section with "Concurrency Locked" version (advisory lock or `SELECT ... FOR UPDATE` on hashed candidate; mid-transaction duplicate detection appends evidence rather than inserting a duplicate).
 - `04-context-packs-observability.md` — added AI Cache Health traffic-light dashboard spec and the 7-Day Raw Payload Log requirement.
 - `06-evaluation-framework.md` — expanded ~5× with metric formulas, fixture file schemas per category, validation-pipeline evals (PII gate, circuit breaker, concurrent promotion), knowledge-segmentation evals, cache effectiveness evals, per-route comparison protocol, failure-mode taxonomy, worked example.

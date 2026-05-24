@@ -202,8 +202,10 @@ Payload logging rules:
 - default TTL is 7 days;
 - payloads must be admin-only and service-role-only;
 - payload logging is for extraction, synthesis, validation repair, and provider debugging;
-- routine employee chat payload logging should be disabled by default or heavily redacted;
+- routine employee chat payload logging is disabled by default; enable it only for a narrow debug window and prefer redacted payloads;
 - sensitive HR/personal-conflict candidates must not be stored in general debug payload views;
+- payload rows must carry a sensitivity classification and redaction flag before they are visible in any admin UI;
+- payload access must be audited with viewer employee ID, timestamp, and reason;
 - expired payloads must be deleted by scheduled cleanup;
 - hashes in `oracle_context_packs` remain durable after payload deletion.
 
@@ -402,8 +404,10 @@ Add a "Run Cache Test" button that runs the same extraction route twice with a d
 
 ### The 7-Day Raw Payload Log
 Hashes (`stablePrefixHash`) are great for grouping, but if an AI goes rogue at 3 AM, looking at a hash doesn't tell Albert what the prompt actually said.
-- Introduce a `model_run_payloads` table (or Supabase Storage bucket) that stores the exact, raw text payload sent to the LLM for extraction and synthesis.
-- Mandate a strict **7-day Time-To-Live (TTL)**. This gives you one week to debug a hallucination by looking at the exact text, after which it safely auto-deletes to save database costs.
+- Introduce a `model_run_payloads` table (or Supabase Storage bucket) that stores exact serialized payloads for extraction, synthesis, validation repair, and provider debugging.
+- Mandate a strict **7-day Time-To-Live (TTL)**. This gives one week to debug a hallucination by looking at the exact text, after which it auto-deletes to reduce privacy risk and storage cost.
+- Do not enable raw payload logging for normal employee chat by default. Chat payload logging requires an explicit temporary debug flag, redaction where possible, and an audit row for every view.
+- Sensitive HR, personal-conflict, compensation, health, or disciplinary content must be excluded from ordinary payload views even during the 7-day TTL.
 
 ## Stable prefix debugging
 

@@ -41,6 +41,16 @@ If files disagree, resolve conflicts in this order:
 
 The old implementation currently uses OpenRouter and Vercel AI SDK heavily. That is existing technical debt, not the desired target architecture for heavy AI workloads.
 
+## Historical architecture prompt
+
+The root file `oracle_ai_architecture_prompt caching.md` is historical planning material. It remains useful for product intent, cache-hygiene ideas, and the original AI-module breakdown, but it predates the current `docs/oracle/` retrofit packet.
+
+When that file conflicts with this directory:
+
+1. keep the product boundaries and traceability principles;
+2. follow `docs/oracle/01-07` for provider selection, route IDs, candidate-before-claim validation, retrieval planning, cache lifecycle, and implementation order;
+3. treat OpenRouter-centered production guidance in the older file as superseded by the Big 3 direct-provider plan.
+
 ## Big decision summary
 
 The Oracle will support three primary model roles:
@@ -89,7 +99,7 @@ Do not retrieve by global vector search by default.
 
 All answer generation, chat retrieval, contradiction review, extraction follow-up, and Brain synthesis must use a retrieval plan that filters by knowledge domain, source type, document class, process stage, department, system, entity, review state, and time validity before vector search.
 
-The concrete `RetrievalPlan` shape, the three-layer taxonomy that backs it, and the monthly re-evaluation worker are specified in `07-knowledge-segmentation.md`.
+The concrete `RetrievalPlan` shape, the three-layer taxonomy that backs it, and the maturity-based re-evaluation worker are specified in `07-knowledge-segmentation.md`.
 
 ## Evaluation rule
 
@@ -107,4 +117,4 @@ When implementation changes any of these topics, update the matching document in
 - model logging, cost, context packs, or payload retention -> `04-context-packs-observability.md`;
 - implementation order -> `05-ai-retrofit-phase-packet.md`;
 - eval commands, fixtures, metrics, or phase gates -> `06-evaluation-framework.md`;
-- knowledge taxonomy, entity registry, sub-topic discovery, retrieval planning, or monthly re-evaluation -> `07-knowledge-segmentation.md`.
+- knowledge taxonomy, entity registry, sub-topic discovery, retrieval planning, or maturity-based re-evaluation -> `07-knowledge-segmentation.md`.

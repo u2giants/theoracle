@@ -391,11 +391,15 @@ Caching rules:
 - use explicit context caching ONLY when the math justifies the hourly storage cost.
 
 Explicit Cache Heuristic:
-Explicit caching charges $1.00 per 1 million tokens per hour. Do not create explicit caches for small, one-off chunks. Use this heuristic to determine if explicit caching is profitable:
+Explicit caching charges by token volume and wall-clock retention, so a cache can be a cost leak if it is created for one-off work or kept longer than the reuse window. Do not create explicit caches for small, one-off chunks. Use this heuristic to determine if explicit caching is profitable:
 `useExplicitGeminiCache = (sourceTokenEstimate >= 25_000 && expectedReuseCount >= 3) || (sourceTokenEstimate >= 100_000 && expectedReuseCount >= 2)`
 
-Aggressive Cache Teardown Rule:
-Because Explicit Caches bill by the hour, background workers MUST aggressively issue `Delete` API commands the millisecond an extraction batch finishes. Do not rely solely on the 1-hour TTL. If a worker finishes a 100,000-token extraction in 2 minutes, delete the cache immediately in a `finally` block to prevent bleeding cloud costs.
+Explicit Cache Lifecycle Rule:
+Because explicit caches bill while they exist, workers must attach every cache to a short-lived reuse policy before creating it. The policy must record the expected reuse count, the latest planned reuse step, the hard expiration, and the cleanup owner in `provider_cached_content`.
+
+Delete the cache immediately when the planned reuse window is finished. If a 100,000-token extraction batch completes in 2 minutes and no retry, validation-repair, synthesis, or follow-up pass will reuse the cache, delete it in a `finally` block instead of waiting for TTL expiration.
+
+Do not delete the cache immediately when the job has known follow-up passes that will reuse it. In that case, keep the cache only until the last planned pass completes or the short TTL expires, whichever happens first. Every path must update `provider_cached_content.status` to `deleted`, `expired`, or `failed` so cache leaks are visible.
 
 Use explicit context caching when:
 
@@ -409,7 +413,8 @@ Do not use explicit context caching when:
 
 - the input is a small one-off chunk;
 - the context will be used once;
-- cache storage cost/complexity exceeds likely savings.
+- cache storage cost/complexity exceeds likely savings;
+- the worker cannot guarantee cleanup and status tracking.
 
 ### Supabase-to-Vertex storage bridge
 

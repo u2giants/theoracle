@@ -272,8 +272,9 @@ type ValidationFixture = FixtureFile & {
 type SegmentationFixture = FixtureFile & {
   category: 'segmentation';
   inputs: {
-    case: 'entity_alias_resolution' | 'unknown_entity_proposal' | 'cross_domain_contamination'
-        | 'sub_topic_drift' | 'wrong_top_domain';
+    case: 'bootstrap_top_domain_proposal' | 'entity_alias_resolution' | 'unknown_entity_proposal'
+        | 'cross_domain_contamination' | 'sub_topic_drift' | 'wrong_top_domain'
+        | 'unknown_top_domain_proposal' | 'compact_admin_card';
     rawText?: string;
     entityProposal?: { entityType: string; rawValue: string };
     existingRegistry?: Array<{ entityType: string; canonicalValue: string; aliases: string[] }>;
@@ -283,7 +284,9 @@ type SegmentationFixture = FixtureFile & {
     expectedEntityResolution?: { resolvedCanonicalValue?: string; queuedForReview?: boolean };
     expectedDomainAssignment?: string[];
     expectedDriftFlag?: boolean;
-    expectedProposalType?: 'create_sub_topic' | 'merge' | 'split' | 'reassign' | 'create_top_domain';
+    expectedProposalType?: 'create_top_domain' | 'merge_top_domains' | 'split_top_domain'
+      | 'create_sub_topic' | 'merge_sub_topics' | 'split_sub_topic' | 'reassign_claims';
+    expectedAdminCardMaxWords?: number;
   };
 };
 ```
@@ -447,13 +450,15 @@ These exercise the three-layer taxonomy from `07-knowledge-segmentation.md` end-
 
 Required tests:
 
-1. **Entity alias resolution** — input `"the ERP"`. Expected: resolves to existing canonical `system: ERP`. Must not create a duplicate entity.
-2. **Unknown entity proposal** — input `"Frobnitz Module"`. Expected: queued in `entity_proposals`; candidate stays pending; no claim is promoted with an unresolved entity.
-3. **Unknown top-domain hard fail** — candidate references a non-existent top-domain ID. Expected: candidate rejected at validation; no promotion.
-4. **Cross-domain contamination** — query about ERP image upload runs against a corpus seeded with vendor manuals tagged `vendor_management + document_class: vendor_manual`. Expected: zero vendor-manual chunks in the retrieved set.
-5. **Sub-topic drift** — feed a claim whose embedding has shifted past the threshold from its assigned sub-topic centroid. Expected: monthly worker produces a `reassign_claims` proposal; no auto-mutation occurs.
-6. **Cluster spans two domains** — feed cluster members split across two top-domains. Expected: worker produces a proposal but does not auto-create a new top-domain.
-7. **Sub-topic activation threshold** — corpus has fewer than N claims per domain. Expected: no sub-topics generated; retrieval falls back to top-domain + entity tags only.
+1. **Bootstrap top-domain proposal** — seed the fixture with POP Creations business context: licensed entertainment products, overseas manufacturing, import/distribution, major retailers, ERP/Coldlion, and design/licensing/production handoffs. Expected: the system proposes sensible top-level domains such as licensing approvals, product development, supply chain, customer operations, IT systems, import compliance, logistics, and finance/pricing; nothing is auto-activated.
+2. **Compact admin card** — feed one proposed domain with representative claims/documents. Expected: proposal card includes name, one-sentence purpose, representative evidence snippets, common entities, affected count, suggested exclusions, and recommended action in under the configured word budget.
+3. **Entity alias resolution** — input `"the ERP"`. Expected: resolves to existing canonical `system: ERP`. Must not create a duplicate entity.
+4. **Unknown entity proposal** — input `"Frobnitz Module"`. Expected: queued in `entity_proposals`; candidate stays pending; no claim is promoted with an unresolved entity.
+5. **Unknown top-domain proposal** — candidate does not fit any active top-domain. Expected: candidate is staged, a `create_top_domain` or reassignment proposal is created, and no claim is promoted by forcing it into `general`.
+6. **Cross-domain contamination** — query about ERP image upload runs against a corpus seeded with vendor manuals tagged `vendor_management + document_class: vendor_manual`. Expected: zero vendor-manual chunks in the retrieved set.
+7. **Sub-topic drift** — feed a claim whose embedding has shifted past the threshold from its assigned sub-topic centroid. Expected: re-evaluation worker produces a `reassign_claims` proposal; no auto-mutation occurs.
+8. **Cluster spans two domains** — feed cluster members split across two top-domains. Expected: worker produces a merge/split/create proposal but does not auto-activate a new top-domain.
+9. **Sub-topic activation threshold** — corpus has fewer than N claims per domain. Expected: no sub-topics generated; retrieval falls back to top-domain + entity tags only.
 
 ## Cache effectiveness evals
 
@@ -466,7 +471,8 @@ Required tests:
 3. **Reordered tool schema regression** — emit tool definitions in nondeterministic order. Expected: distinct `stablePrefixHash`; eval flags route as broken.
 4. **Explicit cache profitability — large reused source** — `sourceTokenEstimate = 120_000`, `expectedReuseCount = 3`. Expected: `useExplicitGeminiCache = true` per the heuristic.
 5. **Explicit cache profitability — small one-off** — `sourceTokenEstimate = 8_000`, `expectedReuseCount = 1`. Expected: `useExplicitGeminiCache = false`; no cache resource is created.
-6. **Aggressive teardown** — simulate an extraction batch that completes in 2 minutes. Expected: `Delete` API call issued in `finally` immediately on completion; `provider_cached_content.status = deleted` with `deletedAt` set within seconds of `finishedAt`.
+6. **Explicit cache lifecycle — no planned reuse** — simulate an extraction batch that completes in 2 minutes with no retry, validation-repair, synthesis, or follow-up pass expected. Expected: `Delete` API call issued in `finally`; `provider_cached_content.status = deleted` with `deletedAt` set within seconds of `finishedAt`.
+7. **Explicit cache lifecycle — planned reuse** — simulate an extraction batch with a planned validation-repair or synthesis follow-up. Expected: cache remains active only through the last planned reuse or short TTL, then is deleted; `provider_cached_content` records expected reuse count, latest planned reuse step, and cleanup status.
 
 ## Live vs mock mode
 
