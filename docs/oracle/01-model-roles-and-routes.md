@@ -243,18 +243,18 @@ Use when:
 - admin-facing response needs stricter formatting;
 - OpenAI route wins interview evals.
 
-Interview escalation route:
-
-- Anthropic Claude Sonnet direct.
+Interview escalation routes:
+- anthropic_claude_sonnet_interview_escalation (For reasoning/quality)
+- anthropic_claude_haiku_45_interview_warmth_escalation (For emotional sensitivity)
 
 Use Sonnet only when:
-
-- Haiku/Gemini output is not tactful enough;
-- conversation is sensitive;
-- repeated failed responses occur;
+- Haiku/Gemini output lacks sufficient reasoning for a complex workflow;
 - Albert/admin manually selects higher quality.
 
-Do not default routine chat to Opus.
+Use Haiku Warmth Escalation when:
+- employeeSentiment in ['frustrated', 'defensive', 'confused', 'worried'];
+- topicSensitivity in ['personnel_conflict', 'blame', 'error_source', 'customer_issue'].
+The Oracle is an internal tool. If it sounds like a cold HR monitor, employees will lose trust. Route sensitive emotional states to a dedicated prompt/model variant tuned for empathy.
 
 ## Role 2: Extraction model
 
@@ -278,29 +278,14 @@ Most important qualities:
 Cost-aware top 3 extraction routes:
 
 ### 1. Google Gemini Flash-Lite direct through Vertex AI
-
 Default high-volume text extraction route.
 
 Why:
-
 - cheapest practical first pass for routine message extraction;
-- very good fit for cron workers over many short messages;
-- can use direct Vertex implicit caching for repeated stable prefixes;
-- keeps routine extraction from becoming a daily runaway bill.
+- can use direct Vertex implicit caching for repeated stable prefixes.
 
-Caching strategy:
-
-- use `vertex_implicit` for message extraction;
-- stable extraction prompt/schema/domain taxonomy first;
-- dynamic message segment last;
-- log cached token counts.
-
-Use when:
-
-- extracting from normal chat messages;
-- domain tagging;
-- low-risk candidate generation;
-- first-pass extraction before deterministic validation.
+WARNING (The "Fast Path" Trap):
+While Flash-Lite is extremely cheap, it struggles with strict JSON schema compliance compared to Flash 1.5/2.0 or GPT-4o-mini. If you use Flash-Lite for fast-path extraction, you MUST pair it with a rigid `StructuredOutputValidator`. If the validation failure rate exceeds 15%, the cost of retrying the prompt will wipe out the savings. Escalate to Gemini Flash or OpenAI Mini if schema repair is needed.
 
 ### 2. Google Gemini Flash direct through Vertex AI
 

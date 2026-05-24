@@ -279,20 +279,14 @@ Example for an ERP image-upload question:
 }
 ```
 
-### Retrieval execution order
-
-Do not start with one global vector search.
-
-Use this order:
+### Retrieval execution order (Hybrid Search Required)
+Do not rely solely on vector search. Vector search is terrible at exact keyword matching (e.g., finding factory code "FCT-882" or SKU "BR-9901").
 
 1. Classify the question/task into a retrieval plan.
-2. Apply hard filters first: review status, source type, domain, document class, system, process stage.
-3. Search approved claims and Brain sections before raw documents for normal business questions.
-4. Search raw document chunks only when the query asks about a document/source, approved knowledge is missing, or the retrieval plan allows that document class.
-5. Use vector search inside each allowed bucket.
-6. Use keyword/entity search as a second signal for systems, customers, SKUs, licensors, vendors, and document names.
-7. Merge and rerank results with diversity: do not return 10 chunks from the same manual unless the user asked for that manual.
-8. Log the retrieval plan and actual searched buckets in the context pack.
+2. Apply hard filters first: review status, source type, domain, document class.
+3. Use **Hybrid Search (RRF - Reciprocal Rank Fusion)**: Query `pgvector` for semantic meaning AND query PostgreSQL Full-Text Search (`tsvector`) for exact SKUs/Entities.
+4. Merge and rerank results with diversity.
+5. Log the retrieval plan and actual searched buckets in the context pack.
 
 ### Retrieval broadening policy
 
@@ -393,13 +387,15 @@ Use Vertex/Gemini for:
 - large document loops.
 
 Caching rules:
-
 - use implicit caching by default for repeated stable-prefix Gemini 2.5+ calls;
-- use explicit context caching for large reusable contexts;
-- store explicit cached-content resource names, source hashes, TTLs, expiration timestamps, and provider metadata in Postgres;
-- do not immediately delete explicit caches in `finally` if retries, follow-up extraction passes, or review/synthesis passes are likely;
-- delete or expire explicit caches by policy;
-- log cached token counts from provider response metadata.
+- use explicit context caching ONLY when the math justifies the hourly storage cost.
+
+Explicit Cache Heuristic:
+Explicit caching charges $1.00 per 1 million tokens per hour. Do not create explicit caches for small, one-off chunks. Use this heuristic to determine if explicit caching is profitable:
+`useExplicitGeminiCache = (sourceTokenEstimate >= 25_000 && expectedReuseCount >= 3) || (sourceTokenEstimate >= 100_000 && expectedReuseCount >= 2)`
+
+Aggressive Cache Teardown Rule:
+Because Explicit Caches bill by the hour, background workers MUST aggressively issue `Delete` API commands the millisecond an extraction batch finishes. Do not rely solely on the 1-hour TTL. If a worker finishes a 100,000-token extraction in 2 minutes, delete the cache immediately in a `finally` block to prevent bleeding cloud costs.
 
 Use explicit context caching when:
 

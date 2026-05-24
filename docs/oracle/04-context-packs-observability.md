@@ -388,6 +388,23 @@ Show:
 
 Sensitive rejected candidates must not appear in the standard queue.
 
+### AI Cache Health Dashboard (Non-Technical UX)
+Albert needs to know if caching is broken without reading JSON. Build a traffic-light dashboard:
+
+| Metric | Good (Green) | Warning (Yellow) | Bad (Red) |
+| :--- | :--- | :--- | :--- |
+| Cached input % | 60–90%+ | 25–60% | <25% |
+| Repeated-prefix hit rate | 70%+ | 40–70% | <40% |
+| Prompt prefix stability | Stable hash reused | Many variants | Every call unique |
+| Explicit Cache Reuse | 3+ uses/cache | 2 uses/cache | 1 use/cache |
+
+Add a "Run Cache Test" button that runs the same extraction route twice with a dummy message and reports: "Success: Second call reused X cached tokens" or "Fail: 0 tokens reused. Prefix likely changed."
+
+### The 7-Day Raw Payload Log
+Hashes (`stablePrefixHash`) are great for grouping, but if an AI goes rogue at 3 AM, looking at a hash doesn't tell Albert what the prompt actually said.
+- Introduce a `model_run_payloads` table (or Supabase Storage bucket) that stores the exact, raw text payload sent to the LLM for extraction and synthesis.
+- Mandate a strict **7-day Time-To-Live (TTL)**. This gives you one week to debug a hallucination by looking at the exact text, after which it safely auto-deletes to save database costs.
+
 ## Stable prefix debugging
 
 A low cache hit rate should trigger investigation.

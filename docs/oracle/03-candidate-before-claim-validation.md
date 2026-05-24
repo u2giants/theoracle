@@ -284,6 +284,12 @@ For every evidence row:
 9. Reject quotes spanning multiple messages unless the schema explicitly supports multi-message evidence.
 10. Reject quotes from edited/deleted messages unless policy allows historical extraction.
 
+### 11. The PII and Sensitivity Gate
+The Oracle observes live employee chats and will inevitably ingest sensitive topics (medical leave, salaries, HR conflicts).
+- The Zod schema for extraction must include `containsSensitiveHRData: boolean` or `isPersonalConflict: boolean`.
+- If the model flags either as `true`, the deterministic validator MUST instantly route the candidate to a `rejected_sensitive` status.
+- Sensitive candidates must NEVER be auto-approved and must be hidden from the standard admin review queue to protect employee privacy.
+
 ### `.includes()` is not enough
 
 `sourceText.includes(quote)` is a useful first check, but production validation must also handle:
@@ -318,31 +324,16 @@ When normalized matching is used, store:
 
 Do not silently rewrite evidence quotes.
 
-## Candidate promotion transaction
-
-Promotion must happen inside a database transaction.
+## Candidate promotion transaction (Concurrency Locked)
+Trigger.dev workers are asynchronous. If two workers process two different channels that mention the exact same new rule simultaneously, they will create duplicate permanent claims. Promotion must be strictly locked.
 
 For each validated candidate:
-
-1. Re-read candidate and evidence rows with row locks where practical.
-2. Confirm candidate status is `validated` and not already promoted.
-3. Run the privacy/sensitivity gate again.
-4. Acquire a duplicate-promotion lock before inserting a new claim. Use either:
-   - PostgreSQL advisory lock on a stable hash of normalized claim summary + domains + validated evidence/source IDs; or
-   - `SELECT ... FOR UPDATE` against an existing canonical duplicate/claim-key table if implemented.
-5. Check for semantically duplicate approved or pending claims inside the same transaction.
-6. If a duplicate is found, mark the candidate `duplicate`, set `duplicateOfClaimId`, and append validated evidence to the existing claim if policy allows.
-7. If no duplicate is found, insert the `claims` row.
-8. Insert `claim_domains` rows.
-9. Insert one or more `claim_evidence` rows using validated evidence data.
-10. Insert suggested `gaps` only after claim insert succeeds.
-11. Update candidate `promotedToClaimId`, `status = promoted`, `promotedAt`.
-12. Update batch summary.
-13. Commit.
-
-If any step fails, rollback. The database must never contain a permanent claim without evidence.
-
-This locking requirement exists to prevent double-promotion when two asynchronous workers discover the same operational rule at the same time.
+1. Begin Database Transaction.
+2. Acquire an advisory lock or `SELECT ... FOR UPDATE` on a hashed representation of the claim candidate to block concurrent promotions.
+3. Confirm candidate status is `validated` and not already promoted.
+4. Check duplicate claim/candidate constraints. (If a duplicate is detected *during* the transaction due to another worker beating it, mark the current candidate as `duplicate` and append its evidence to the winning claim instead of inserting a new row).
+5. Insert `claims`, `claim_domains`, and `claim_evidence` rows.
+6. Commit.
 
 ## Idempotency
 
