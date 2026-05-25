@@ -60,14 +60,27 @@ export class OpenRouterBridgeAdapter implements OracleProviderAdapter {
   }
 
   async generateText(args: GenerateTextArgs): Promise<OracleTextResult> {
-    const { plan, route } = args;
+    const { plan, route, providerOptions } = args;
     const model = this.resolveModel(route);
     const { systemPrompt, userMessage } = this.flattenPlan(plan);
     const callStartedAt = Date.now();
-    const result = await generateText({
+
+    // The chat route (R8+) passes a pre-built multi-turn `messages` array
+    // through providerOptions; if present it overrides the flattened
+    // single-message form. tools / stopWhen / temperature pass straight
+    // through to the Vercel AI SDK.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const messagesOverride = (providerOptions?.messages as any) ?? [
+      { role: 'user', content: userMessage },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (generateText as any)({
       model,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
+      messages: messagesOverride,
+      tools: providerOptions?.tools,
+      stopWhen: providerOptions?.stopWhen,
+      temperature: providerOptions?.temperature,
     });
     const latencyMs = Date.now() - callStartedAt;
     return {

@@ -1,36 +1,47 @@
-// Oracle chat route — spec Part 9.1, 9.2, 10.
+// R8 — Oracle chat route (refactored through OracleAIClient).
 //
-// Trigger: POST { channelId } — fired by the chat UI when the user message
-// directly addresses the Oracle (matches /^(@oracle|oracle,)/i).
+// Per docs/oracle/05-ai-retrofit-phase-packet.md Phase R8.
 //
-// Behavior:
-//   1. Authenticate the requester via Supabase Auth cookies.
-//   2. Confirm the requester is a participant of channelId.
-//   3. Build a retrieval bundle (spec 9.1): recent messages, employee profile,
-//      top open gaps, top relevant approved claims.
-//   4. Call OpenRouter via Vercel AI SDK streamText with the spec Part 10 prompt
-//      and two tools: search_company_knowledge, check_open_gaps.
-//   5. Persist the Oracle's response as a message with role='assistant' so the
-//      realtime feed picks it up (spec: assistant inserts require service role).
+// What changed vs the legacy route:
+//   - The model call goes through OracleAIClient.runText via the
+//     OpenRouterBridgeAdapter using the curated interview route from
+//     `settings.default_interview_route` (R1 setting key) — not via
+//     `getOpenRouter()` directly. The bridge dispatches to OpenRouter
+//     under the hood; real Anthropic SDK lands when @anthropic-ai/sdk
+//     is wired (R8+ replacement).
+//   - oracle_context_packs + model_run_usage_details rows are written
+//     for every chat turn so cache-hit / fallback dashboards work.
+//   - Tools (search_company_knowledge, check_open_gaps), multi-turn
+//     message history, stopWhen step cap, and temperature are passed
+//     through providerOptions — the chat-specific knobs that don't fit
+//     OracleAIClient's narrow runText/runObject contract.
 //
-// Note on the streaming model: this route returns a normal JSON response after
-// the model finishes because the UI doesn't open a streaming socket for Oracle
-// replies — the realtime feed delivers them. Phase 6 may switch to streamed
-// SSE if we want progressive Oracle messages.
+// What stays the same:
+//   - Auth + channel-participation check.
+//   - Direct-mention gate for group chats (spec Part 10 group chat rules).
+//   - Retrieval bundle: recent messages, employee profile, top open gaps,
+//     top relevant approved claims. No full Brain stuffing.
+//   - Vision-capable model detection + selective attachment downloads.
+//   - Assistant message inserted via service-role client.
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { eq, and, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { generateText, stepCountIs, tool } from 'ai';
+import { stepCountIs, tool } from 'ai';
 import { createServiceRoleClient } from '@oracle/auth/server';
 import {
   ORACLE_SYSTEM_PROMPT,
   ORACLE_SYSTEM_PROMPT_VERSION,
-  getOpenRouter,
+  OpenRouterBridgeAdapter,
+  OracleAIClient,
+  getOracleRoute,
   getRecentMessages,
   getRelevantOpenGaps,
+  makeBlock,
   searchApprovedClaims,
   getOpenGapsForChannel,
+  type OracleModelRoute,
+  type OraclePromptPlan,
 } from '@oracle/ai';
 import { KNOWLEDGE_DOMAINS, type KnowledgeDomain } from '@oracle/shared';
 import { getDirectDb } from '@oracle/db/client';
@@ -42,18 +53,32 @@ import {
   employees,
   messageAttachments,
   messages,
+  modelRunUsageDetails,
   modelRuns,
+  oracleContextPacks,
   settings,
-} from '@oracle/db/schema';
+  type OracleDb,
+} from '@oracle/db';
 import { getServerSupabase } from '@/lib/supabase/server';
 
 const BodySchema = z.object({
   channelId: z.uuid(),
-  // Optional: skip the direct-mention gate (used by /admin/test-chat in future).
   force: z.boolean().optional(),
 });
 
-const FALLBACK_MODEL = 'anthropic/claude-sonnet-4.6';
+const FALLBACK_ROUTE_ID = 'anthropic_claude_haiku_4_5_interview_primary';
+
+// Singleton OracleAIClient with bridge adapters for all 3 providers. Same
+// pattern as R6/R7 workers — until real provider-native SDKs are wired
+// (R8+ replacement), the bridge satisfies "everything through OracleAIClient".
+const oracleClient = new OracleAIClient({
+  adapters: {
+    anthropic: new OpenRouterBridgeAdapter({ provider: 'anthropic' }),
+    vertex: new OpenRouterBridgeAdapter({ provider: 'vertex' }),
+    openai: new OpenRouterBridgeAdapter({ provider: 'openai' }),
+  },
+  fallbackOnError: true,
+});
 
 export async function POST(req: NextRequest) {
   let body: z.infer<typeof BodySchema>;
@@ -63,9 +88,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'bad_request', detail: String(err) }, { status: 400 });
   }
 
-  // -------------------------------------------------------------------
-  // 1. Auth — must be a signed-in approved employee.
-  // -------------------------------------------------------------------
+  // ── 1. Auth ──────────────────────────────────────────────────────────
   const supabase = await getServerSupabase();
   const { data: userData } = await supabase.auth.getUser();
   if (!userData.user) {
@@ -73,7 +96,6 @@ export async function POST(req: NextRequest) {
   }
 
   const db = getDirectDb();
-  // Resolve employee through identities (post D2.multi-identity).
   const meRows = await db
     .select({ employee: employees })
     .from(employees)
@@ -85,9 +107,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'not_approved' }, { status: 403 });
   }
 
-  // -------------------------------------------------------------------
-  // 2. Confirm participation and load channel metadata.
-  // -------------------------------------------------------------------
+  // ── 2. Channel membership + group-chat detection ─────────────────────
   const [membership, channelRows] = await Promise.all([
     db
       .select()
@@ -105,16 +125,12 @@ export async function POST(req: NextRequest) {
       .where(eq(channels.id, body.channelId))
       .limit(1),
   ]);
-
   if (membership.length === 0) {
     return NextResponse.json({ error: 'not_in_channel' }, { status: 403 });
   }
-
   const isGroupChat = channelRows[0]?.isGroupChat ?? false;
 
-  // -------------------------------------------------------------------
-  // 3. Retrieval bundle.
-  // -------------------------------------------------------------------
+  // ── 3. Retrieval bundle ──────────────────────────────────────────────
   const recent = await getRecentMessages(db, body.channelId);
   if (recent.length === 0) {
     return NextResponse.json(
@@ -123,12 +139,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Direct-mention gate (spec Part 10 group chat rules). Phase 6 will add
-  // lull/contradiction triggers.
-  //
-  // In DMs the Oracle is the only other participant — it responds to every
-  // message. In group chats it only responds when directly addressed with
-  // @oracle. The `force` flag bypasses the gate (used by admin test routes).
+  // Direct-mention gate (group chats only; DM is always direct).
   const latestUserMessage = [...recent].reverse().find((m) => m.role === 'user');
   if (!latestUserMessage) {
     return NextResponse.json({ ok: true, skipped: 'no_user_message' });
@@ -140,36 +151,76 @@ export async function POST(req: NextRequest) {
   }
 
   const openGaps = await getRelevantOpenGaps(db, me);
-  const queryForClaims = latestUserMessage?.content ?? '';
+  const queryForClaims = latestUserMessage.content;
   const relevantClaims = queryForClaims
     ? await searchApprovedClaims(db, queryForClaims)
     : [];
 
-  // -------------------------------------------------------------------
-  // 4. Model call.
-  // -------------------------------------------------------------------
-  const modelSetting = await db
-    .select()
-    .from(settings)
-    .where(eq(settings.key, 'default_interview_model'))
-    .limit(1);
-  const modelName =
-    (typeof modelSetting[0]?.value === 'string'
-      ? (modelSetting[0]!.value as string)
-      : null) ??
-    process.env.ORACLE_INTERVIEW_MODEL ??
-    FALLBACK_MODEL;
+  // ── 4. Resolve curated interview route ───────────────────────────────
+  const route = await resolveInterviewRoute(db);
+  const visionCapable = isVisionCapableRoute(route);
 
-  // Detect vision capability up-front so we can skip image downloads for
-  // text-only models entirely. Downloading bytes we're about to discard is
-  // wasteful and a common source of latency / timeouts on the second+ call.
-  const visionCapable = /claude|gpt-4o|gemini|llava|pixtral|qwen.*vl|minicpm/i.test(modelName);
+  // ── 5. Compile prompt blocks (stable system + dynamic context) ───────
+  const contextLines: string[] = [];
+  contextLines.push(`---\nCONTEXT FOR THIS TURN:`);
+  contextLines.push(`You are speaking with ${me.name} (${me.role}, ${me.department}).`);
+  if (openGaps.length > 0) {
+    contextLines.push(`\nOpen gaps you may weave in if relevant:`);
+    for (const g of openGaps) {
+      contextLines.push(`- [${g.priority}] ${g.questionToAsk}`);
+    }
+  }
+  if (relevantClaims.length > 0) {
+    contextLines.push(`\nApproved claims that may be relevant:`);
+    for (const c of relevantClaims) {
+      contextLines.push(`- ${c.summary} (impact ${c.impactScore})`);
+    }
+  }
+  const dynamicContext = contextLines.join('\n');
 
-  // Tools — spec 9.2.
+  const blocks = [
+    makeBlock({
+      id: 'oracle-system',
+      label: 'Oracle interview system prompt',
+      kind: 'stable_system',
+      content: ORACLE_SYSTEM_PROMPT,
+      reasonIncluded: 'oracle prompt v' + ORACLE_SYSTEM_PROMPT_VERSION,
+    }),
+    makeBlock({
+      id: 'turn-context',
+      label: 'Per-turn retrieval bundle (employee + gaps + relevant claims)',
+      kind: 'retrieved_context',
+      content: dynamicContext,
+      reasonIncluded: `gaps=${openGaps.length}, claims=${relevantClaims.length}`,
+    }),
+  ];
+
+  const plan = oracleClient.compile({
+    taskType: 'interview_chat',
+    routeId: route.routeId,
+    promptVersion: ORACLE_SYSTEM_PROMPT_VERSION,
+    blocks,
+    observability: {
+      includedMessageIds: recent.map((m) => m.id),
+      includedGapIds: openGaps.map((g) => g.id),
+      includedClaimIds: relevantClaims.map((c) => c.id),
+    },
+  });
+
+  // ── 6. Stage context pack BEFORE the model call ──────────────────────
+  const [contextPack] = await db
+    .insert(oracleContextPacks)
+    .values(buildContextPackInsert(plan))
+    .returning({ id: oracleContextPacks.id });
+  if (!contextPack) {
+    return NextResponse.json({ error: 'context_pack_failed' }, { status: 500 });
+  }
+
+  // ── 7. Tools (preserved verbatim from legacy route) ──────────────────
   const tools = {
     search_company_knowledge: tool({
       description:
-        'Search the Oracle\'s approved claims and brain sections for operational knowledge. Filter by knowledge domains if relevant.',
+        "Search the Oracle's approved claims and brain sections for operational knowledge. Filter by knowledge domains if relevant.",
       inputSchema: z.object({
         query: z.string().describe('Free-text question or topic to search for.'),
         domains: z
@@ -198,9 +249,7 @@ export async function POST(req: NextRequest) {
     check_open_gaps: tool({
       description:
         'List open knowledge gaps assigned to the current employee, the channel members, or relevant departments. Use these to weave natural questions.',
-      inputSchema: z.object({
-        limit: z.number().int().min(1).max(10).optional(),
-      }),
+      inputSchema: z.object({ limit: z.number().int().min(1).max(10).optional() }),
       execute: async ({ limit }) => {
         const channelGaps = await getOpenGapsForChannel(db, body.channelId, limit ?? 5);
         return {
@@ -217,32 +266,7 @@ export async function POST(req: NextRequest) {
     }),
   };
 
-  // Build the prompt context block. We append to the system prompt rather
-  // than concatenating into the user message to keep the model's role
-  // boundaries clean.
-  const contextLines: string[] = [];
-  contextLines.push(`\n\n---\nCONTEXT FOR THIS TURN:`);
-  contextLines.push(
-    `You are speaking with ${me.name} (${me.role}, ${me.department}).`,
-  );
-  if (openGaps.length > 0) {
-    contextLines.push(`\nOpen gaps you may weave in if relevant:`);
-    for (const g of openGaps) {
-      contextLines.push(`- [${g.priority}] ${g.questionToAsk}`);
-    }
-  }
-  if (relevantClaims.length > 0) {
-    contextLines.push(`\nApproved claims that may be relevant:`);
-    for (const c of relevantClaims) {
-      contextLines.push(`- ${c.summary} (impact ${c.impactScore})`);
-    }
-  }
-  const systemPrompt = ORACLE_SYSTEM_PROMPT + contextLines.join('\n');
-
-  // Load attachments only for vision-capable models. For text-only models
-  // (e.g. DeepSeek) we skip the DB query and the Storage downloads entirely —
-  // the message text already contains the filename/caption so the model has
-  // context without the raw bytes.
+  // ── 8. Build multi-turn conversation (with attachments for vision routes) ─
   const recentIds = recent.map((m) => m.id);
   const attachmentRows =
     visionCapable && recentIds.length > 0
@@ -268,9 +292,6 @@ export async function POST(req: NextRequest) {
   }
 
   const serviceSupabase = createServiceRoleClient();
-
-  // Build multi-modal conversation messages. For messages with file attachments
-  // we fetch the bytes from Storage and pass them as image/file/text parts.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const conversationMessages: any[] = await Promise.all(
     recent
@@ -278,10 +299,7 @@ export async function POST(req: NextRequest) {
       .map(async (m) => {
         const role = m.role === 'assistant' ? ('assistant' as const) : ('user' as const);
         const textContent =
-          m.role === 'user' && m.authorName
-            ? `[${m.authorName}] ${m.content}`
-            : m.content;
-
+          m.role === 'user' && m.authorName ? `[${m.authorName}] ${m.content}` : m.content;
         const atts = attachmentMap.get(m.id) ?? [];
         if (atts.length === 0) return { role, content: textContent };
 
@@ -291,7 +309,6 @@ export async function POST(req: NextRequest) {
           | { type: 'file'; data: string; mimeType: string };
 
         const parts: Part[] = [{ type: 'text', text: textContent }];
-
         for (const att of atts) {
           try {
             const { data: blob, error } = await serviceSupabase.storage
@@ -303,7 +320,6 @@ export async function POST(req: NextRequest) {
             }
             const buf = Buffer.from(await blob.arrayBuffer());
             const b64 = buf.toString('base64');
-
             if (att.fileType.startsWith('image/')) {
               parts.push({ type: 'image', image: `data:${att.fileType};base64,${b64}` });
             } else if (att.fileType === 'application/pdf') {
@@ -312,70 +328,103 @@ export async function POST(req: NextRequest) {
               const text = buf.toString('utf8');
               parts.push({ type: 'text', text: `\n\n[File: ${att.fileName}]\n${text}\n[/File]` });
             }
-            // Other MIME types: skip (binary formats the model can't interpret)
           } catch (err) {
             console.error('[chat] attachment fetch failed', att.storagePath, err);
           }
         }
-
         return { role, content: parts.length === 1 ? textContent : parts };
       }),
   );
 
-  // For non-vision models, attachmentRows is empty so conversationMessages
-  // already contains text-only content. The map below is a safety net in case
-  // a message somehow still has array content (e.g. cached state).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const safeMessages = visionCapable ? conversationMessages : conversationMessages.map((m: any) => {
-    if (!Array.isArray(m.content)) return m;
-    const textOnly = m.content
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((p: any) => p.type === 'text')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((p: any) => p.text as string)
-      .join('\n');
-    return { ...m, content: textOnly };
-  });
+  const safeMessages = visionCapable
+    ? conversationMessages
+    : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      conversationMessages.map((m: any) => {
+        if (!Array.isArray(m.content)) return m;
+        const textOnly = m.content
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .filter((p: any) => p.type === 'text')
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((p: any) => p.text as string)
+          .join('\n');
+        return { ...m, content: textOnly };
+      });
 
+  // ── 9. Dispatch through OracleAIClient ───────────────────────────────
   const startedAt = Date.now();
-  let success = false;
   let oracleText = '';
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
+  let cachedInputTokens: number | undefined;
   let modelError: string | undefined;
+  let success = false;
+  let usageRaw: unknown = null;
+  let providerRequestId: string | undefined;
 
   try {
-    const openrouter = getOpenRouter();
-    const model = openrouter(modelName);
-    const result = await generateText({
-      model,
-      system: systemPrompt,
-      messages: safeMessages,
-      tools,
-      stopWhen: stepCountIs(4),
-      temperature: 0.4,
+    const result = await oracleClient.runText({
+      taskType: 'interview_chat',
+      routeId: route.routeId,
+      promptVersion: ORACLE_SYSTEM_PROMPT_VERSION,
+      blocks,
+      observability: {
+        includedMessageIds: recent.map((m) => m.id),
+        includedGapIds: openGaps.map((g) => g.id),
+        includedClaimIds: relevantClaims.map((c) => c.id),
+      },
+      providerOptions: {
+        messages: safeMessages,
+        tools,
+        stopWhen: stepCountIs(4),
+        temperature: 0.4,
+      },
     });
     oracleText = result.text;
-    inputTokens = result.usage?.inputTokens;
-    outputTokens = result.usage?.outputTokens;
+    inputTokens = result.usage.inputTokens;
+    outputTokens = result.usage.outputTokens;
+    cachedInputTokens = result.usage.cachedInputTokens;
+    usageRaw = result.usage.rawUsageJson;
+    providerRequestId = result.usage.providerRequestId;
     success = true;
   } catch (err) {
     modelError = err instanceof Error ? err.message : String(err);
     console.error('[chat] model error', err);
   }
 
-  // Log the model run.
-  await db.insert(modelRuns).values({
-    taskType: 'interview_chat',
-    model: modelName,
-    provider: 'openrouter',
-    promptVersion: ORACLE_SYSTEM_PROMPT_VERSION,
-    inputTokens: inputTokens ?? null,
-    outputTokens: outputTokens ?? null,
-    latencyMs: Date.now() - startedAt,
-    success,
-    error: modelError ?? null,
-  });
+  // ── 10. Log model_runs + model_run_usage_details + back-link pack ───
+  const [modelRun] = await db
+    .insert(modelRuns)
+    .values({
+      taskType: 'interview_chat',
+      model: route.modelId,
+      provider: route.provider,
+      promptVersion: ORACLE_SYSTEM_PROMPT_VERSION,
+      inputHash: plan.metadata.stablePrefixHash,
+      inputTokens: inputTokens ?? null,
+      outputTokens: outputTokens ?? null,
+      latencyMs: Date.now() - startedAt,
+      success,
+      error: modelError ?? null,
+    })
+    .returning({ id: modelRuns.id });
+
+  if (modelRun) {
+    await db.insert(modelRunUsageDetails).values({
+      modelRunId: modelRun.id,
+      contextPackId: contextPack.id,
+      routeId: route.routeId,
+      inputTokens: inputTokens ?? null,
+      cachedInputTokens: cachedInputTokens ?? null,
+      outputTokens: outputTokens ?? null,
+      providerRequestId: providerRequestId ?? null,
+      rawUsageJson: usageRaw ?? null,
+    });
+    await db
+      .update(oracleContextPacks)
+      .set({ modelRunId: modelRun.id })
+      .where(eq(oracleContextPacks.id, contextPack.id));
+  }
 
   if (!success || !oracleText.trim()) {
     return NextResponse.json(
@@ -384,11 +433,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // -------------------------------------------------------------------
-  // 5. Persist the Oracle's reply as an assistant message.
-  //    Direct DB write via service role bypasses the messages_self_insert
-  //    policy (which restricts authenticated users to role='user').
-  // -------------------------------------------------------------------
+  // ── 11. Persist Oracle reply as assistant message ───────────────────
   const [inserted] = await db
     .insert(messages)
     .values({
@@ -396,14 +441,87 @@ export async function POST(req: NextRequest) {
       employeeId: null,
       role: 'assistant',
       content: oracleText.trim(),
-      extractionStatus: 'skipped', // Oracle responses don't become claims.
+      extractionStatus: 'skipped',
     })
     .returning();
 
   return NextResponse.json({
     ok: true,
     messageId: inserted?.id,
-    model: modelName,
+    routeId: route.routeId,
+    model: route.modelId,
+    provider: route.provider,
+    contextPackId: contextPack.id,
+    modelRunId: modelRun?.id ?? null,
     latencyMs: Date.now() - startedAt,
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────
+
+async function resolveInterviewRoute(db: OracleDb): Promise<OracleModelRoute> {
+  const row = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, 'default_interview_route'))
+    .limit(1);
+  const routeId =
+    typeof row[0]?.value === 'string' ? (row[0]!.value as string) : FALLBACK_ROUTE_ID;
+  const resolved = getOracleRoute(routeId);
+  if (resolved) return resolved;
+  const fb = getOracleRoute(FALLBACK_ROUTE_ID);
+  if (!fb) {
+    throw new Error(
+      `[chat] settings.default_interview_route="${routeId}" not in catalog and fallback "${FALLBACK_ROUTE_ID}" missing.`,
+    );
+  }
+  console.warn(
+    `[chat] settings.default_interview_route="${routeId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
+  );
+  return fb;
+}
+
+function isVisionCapableRoute(route: OracleModelRoute): boolean {
+  // Vision detection from the route's flags + a name regex fallback. The
+  // curated catalog already encodes supportsVision on each route; the
+  // regex is a defensive belt-and-suspenders in case a catalog entry
+  // gets misconfigured.
+  if (route.supportsVision) return true;
+  return /claude|gpt-4o|gemini|llava|pixtral|qwen.*vl|minicpm/i.test(route.modelId);
+}
+
+function buildContextPackInsert(plan: OraclePromptPlan) {
+  return {
+    taskType: plan.taskType,
+    routeId: plan.routeId,
+    promptVersion: plan.promptVersion,
+    schemaVersion: plan.schemaVersion ?? null,
+    stablePrefixHash: plan.metadata.stablePrefixHash,
+    semiStableContextHash: plan.metadata.semiStableContextHash ?? null,
+    retrievedContextHash: plan.metadata.retrievedContextHash ?? null,
+    dynamicInputHash: plan.metadata.dynamicInputHash,
+    toolSchemaHash: plan.metadata.toolSchemaHash ?? null,
+    outputSchemaHash: plan.metadata.outputSchemaHash ?? null,
+    blocksJson: plan.blocks.map((b) => ({
+      id: b.id,
+      label: b.label,
+      kind: b.kind,
+      hash: b.hash,
+      tokenEstimate: b.tokenEstimate ?? null,
+      cacheEligible: b.cacheEligible,
+      reasonIncluded: b.reasonIncluded,
+    })),
+    retrievalPlanId: plan.metadata.retrievalPlanId ?? null,
+    selectedDomains: plan.metadata.selectedDomains ?? null,
+    selectedSourceTypes: plan.metadata.selectedSourceTypes ?? null,
+    selectedProcessStages: plan.metadata.selectedProcessStages ?? null,
+    selectedEntityIds: plan.metadata.selectedEntityIds ?? null,
+    includedMessageIds: plan.metadata.includedMessageIds ?? null,
+    includedDocumentChunkIds: plan.metadata.includedDocumentChunkIds ?? null,
+    includedClaimIds: plan.metadata.includedClaimIds ?? null,
+    includedGapIds: plan.metadata.includedGapIds ?? null,
+    includedContradictionIds: plan.metadata.includedContradictionIds ?? null,
+  };
 }

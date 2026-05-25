@@ -26,6 +26,20 @@ export interface GenerateObjectArgs<TSchema> {
 export interface GenerateTextArgs {
   plan: OraclePromptPlan;
   route: OracleModelRoute;
+  /**
+   * Optional generic escape hatch for adapter-specific parameters that
+   * don't fit into the OraclePromptPlan. The chat route uses this for:
+   *   - `tools` (Vercel AI SDK ToolSet)
+   *   - `stopWhen` (stepCountIs(N) for multi-turn tool calls)
+   *   - `temperature`
+   *   - `messages` — multi-turn conversation history that overrides the
+   *     single (system, user-message) shape flattened from the plan
+   *
+   * Adapters that don't support a given option ignore it silently. The
+   * shape is unconstrained on purpose to avoid leaking provider-specific
+   * types into the OracleAIClient surface.
+   */
+  providerOptions?: Record<string, unknown>;
 }
 
 export interface OracleProviderAdapter {

@@ -47,7 +47,13 @@ export interface OracleAIClientOptions {
 }
 
 export interface RunTextArgs extends CompileArgs {
-  /** Optional override — by default, args.routeId in the compiled plan is used. */
+  /**
+   * Optional generic escape hatch passed through to the provider adapter.
+   * The chat route (R8+) uses this for tool calling, multi-turn message
+   * arrays, stopWhen step caps, and temperature. Adapters that don't
+   * support a given option ignore it silently.
+   */
+  providerOptions?: Record<string, unknown>;
 }
 
 export interface RunObjectArgs<TSchema> extends CompileArgs {
@@ -91,7 +97,7 @@ export class OracleAIClient {
   /** Compile + dispatch a freeform text call (e.g. interview chat). */
   async runText(args: RunTextArgs): Promise<OracleTextResult> {
     const plan = this.compile(args);
-    return this.router.generateText(plan);
+    return this.router.generateText(plan, args.providerOptions);
   }
 
   /** Compile + dispatch a structured-output call. Output is validated against the supplied Zod schema. */

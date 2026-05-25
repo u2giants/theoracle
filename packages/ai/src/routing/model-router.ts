@@ -72,8 +72,13 @@ export class ModelRouter {
     return { route, adapter };
   }
 
-  async generateText(plan: OraclePromptPlan): Promise<OracleTextResult> {
-    return this.dispatch(plan, (adapter, route) => adapter.generateText({ plan, route }));
+  async generateText(
+    plan: OraclePromptPlan,
+    providerOptions?: Record<string, unknown>,
+  ): Promise<OracleTextResult> {
+    return this.dispatch(plan, (adapter, route) =>
+      adapter.generateText({ plan, route, providerOptions }),
+    );
   }
 
   async generateObject<TSchema, TOutput>(
