@@ -58,5 +58,8 @@ coverage/
 # Trigger.dev
 .trigger/
 
+# MCP tool session artifacts (Playwright screenshots, console logs, etc.)
+.playwright-mcp/
+
 .vercel
 .env*.local

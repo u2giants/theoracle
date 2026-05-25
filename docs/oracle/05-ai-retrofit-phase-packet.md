@@ -126,13 +126,13 @@ This phase is schema-only. No worker behavior changes here.
 
 Tasks:
 
-1. Add `knowledge_top_domains` table and support an approved seed set from the system's bootstrap domain-proposal pass. The system may propose top-level domains from company context and early evidence; admin approval activates them.
+1. Add `knowledge_top_domains` table and support an approved seed set from the system's bootstrap domain-proposal pass. The system may propose top-level domains from company context and early evidence; admin approval activates them. Each row must include boundary fields: belongs-here examples, does-not-belong-here examples, common entity hints, default excluded document classes, and neighboring domains.
 2. Add `knowledge_sub_topics` table with `review_status` constraint and centroid vector column. Empty on install.
-3. Add `claim_top_domains` and `claim_sub_topics` join tables.
-4. Add `entities` canonical registry, seeded with the initial known customers, vendors, and systems.
+3. Add `claim_top_domains`, `document_top_domains`, `document_chunk_top_domains`, `message_top_domains`, and `claim_sub_topics` join tables so retrieval can filter raw documents/messages before claims are promoted.
+4. Add `entities` canonical registry, seeded with the initial known customers, licensors, vendors, and systems. `licensor` is a first-class entity type distinct from `vendor`.
 5. Add `claim_entities`, `document_chunk_entities`, and `message_entities` join tables.
 6. Add `claim_metadata` table for process stage, department, geography, document class, time validity, supersession pointer.
-7. Add `taxonomy_proposals` queue and `taxonomy_change_log` audit table. Proposal types must include top-level domain creation/merge/split, sub-topic creation/merge/split, claim reassignment, and retirement.
+7. Add `taxonomy_proposals` queue and `taxonomy_change_log` audit table. Proposal types must include top-level domain creation/merge/split, sub-topic creation/merge/split, claim reassignment, and retirement. The `payload` shape must follow the proposal-card contract in `07-knowledge-segmentation.md`, including evidence IDs, snippets, affected counts, suggested exclusions, recommended action, confidence, and rollback/preview metadata.
 8. Add `entity_proposals` queue for unknown entity references surfaced by extraction.
 9. Add indexes on every join table by the non-claim side.
 10. Add HNSW index on `knowledge_sub_topics.centroid`.
@@ -145,7 +145,9 @@ Acceptance gate:
 - migrations apply cleanly through the custom migration runner;
 - `knowledge_top_domains` is seeded from an approved proposal set;
 - the admin has a compact way to approve/rename/merge/reject proposed top-level domains without reading long source text;
-- `entities` is seeded with the initial known customers/vendors/systems;
+- `knowledge_top_domains` rows include boundary rules, not just names;
+- `entities` is seeded with the initial known customers/licensors/vendors/systems;
+- documents, chunks, messages, and claims can all be tagged by top-level domain;
 - existing claims have a corresponding `claim_top_domains` row via backfill;
 - no claim is silently dropped;
 - the legacy `knowledge_domain` enum column on `claims` is still present and readable;
@@ -245,19 +247,23 @@ Tasks:
    - optional `process_stage`, `department`, `geography`, `document_class`, `time_validity`.
 2. Extend `extraction_candidates` schema to hold proposed top-domain IDs, proposed entity references, and proposed metadata.
 3. Extend `extraction_candidate_evidence` to carry the document_class and process_stage if the model surfaced them.
-4. Extend the deterministic validator from R5:
+4. Extend document ingestion and message preprocessing to write `document_top_domains`, `document_chunk_top_domains`, and `message_top_domains` before claim promotion, using the same validator and proposal flow.
+5. Extend the deterministic validator from R5:
    - validate that every proposed `top_domain_id` exists in `knowledge_top_domains`;
    - validate that every proposed entity either resolves in `entities` or is queued as a proposal in `entity_proposals`;
+   - validate that licensor references resolve to `entity_type = 'licensor'`, not `vendor`;
    - reject candidates whose top-domain or entity references cannot be resolved or proposed cleanly.
-5. Extend the promotion service from R5 to write `claim_top_domains`, `claim_entities`, and `claim_metadata` in the same transaction that creates the claim and its evidence.
-6. Add isolated tests for entity normalization (alias resolution to canonical value) before wiring workers.
+6. Extend the promotion service from R5 to write `claim_top_domains`, `claim_entities`, and `claim_metadata` in the same transaction that creates the claim and its evidence.
+7. Add isolated tests for entity normalization (alias resolution to canonical value) before wiring workers.
 
 Required tests:
 
 1. Known entity alias resolves: `"the ERP"` resolves to the existing canonical `system: ERP`.
 2. Unknown entity is staged, not auto-created: `"Frobnitz"` produces an `entity_proposals` row, candidate stays pending until reviewed or promoted with `unknown_entity_allowed` flag false.
 3. Unknown top-level domain is staged for review: candidates referencing a non-existent `top_domain_id` never promote directly; they create or link to a `taxonomy_proposals` row.
-4. Promotion is transactional: a failure writing `claim_entities` rolls back the claim, evidence, and domain rows.
+4. Licensor is not vendor: `"Disney approval"` resolves to `entity_type = 'licensor'`, not `vendor`.
+5. Pre-claim chunk retrieval works: a tagged document chunk can be included/excluded by top-domain and entity filters before any claim has been promoted from it.
+6. Promotion is transactional: a failure writing `claim_entities` rolls back the claim, evidence, and domain rows.
 
 Acceptance gate:
 
@@ -443,11 +449,12 @@ Tasks:
    - drift detection per claim;
    - cross-domain pattern check;
    - proposal writing to `taxonomy_proposals` only, including top-level domain proposals when current domains do not fit;
+   - proposal payloads that include compact-card fields and boundary-rule previews;
    - no auto-mutation of taxonomy.
 3. Add admin dashboard `/admin/taxonomy` with tabs:
    - top-level domains: proposal cards, list, add, rename, merge, split, retire (with safeguards);
    - sub-topics: list per domain, view members, view centroid drift;
-   - entity registry: list, edit aliases, add `domain_hints`, retire;
+   - entity registry: list, edit aliases, add `domain_hints`, retire, and distinguish licensors from vendors;
    - proposals queue: review compact taxonomy proposal cards, approve in batches, rename/merge/split, reject, defer;
    - entity proposals queue: review unknown entities surfaced by extraction;
    - change log: read-only view of `taxonomy_change_log`.
@@ -462,6 +469,7 @@ Acceptance gate:
 
 - the re-evaluation worker produces proposals on real data without auto-mutating taxonomy;
 - top-level domain proposals are compact and evidence-backed enough for admin review without reading long raw documents;
+- proposal cards include boundary rules and default retrieval exclusions;
 - admin can approve, reject, and batch-process proposals;
 - reclassification is transactional and audited;
 - entity proposal queue is reviewable and prevents auto-creation;

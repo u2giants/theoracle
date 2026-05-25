@@ -228,14 +228,14 @@ should not search vendor manuals unless there is a strong reason. It should pref
 
 ### Required metadata dimensions
 
-Every claim, document chunk, message-derived candidate, Brain section, gap, and contradiction should be tagged or linkable by multiple dimensions:
+Every claim, document, document chunk, message-derived candidate, Brain section, gap, and contradiction should be tagged or linkable by multiple dimensions:
 
-1. Knowledge domain: design, licensing, production, sourcing, logistics, sales, Coldlion, customers, retail compliance, sampling, costing, artwork files, factory communication, quality control, approvals, shipping documents, general.
+1. Top-level domain: licensing approvals, product development, creative design, production lifecycle, supply chain, customer operations, vendor management, logistics/shipping, import compliance, IT systems, finance/pricing, people/org. These are governed by `knowledge_top_domains` and boundary rules in `07-knowledge-segmentation.md`; do not use a freeform `general` bucket except as a temporary unresolved/proposal state.
 2. Source type: message, document chunk, external system, manual admin, Brain section.
 3. Document class: SOP, vendor manual, customer routing guide, tech pack, style guide, ERP export, email, invoice, shipping document, chat transcript, unknown.
 4. Process stage: concept, design, licensor approval, customer approval, costing, sourcing, sample request, sample review, production, quality control, packaging, routing, shipping, invoicing, ERP update, archive.
 5. Department: design, licensing, sourcing, production, logistics, sales, admin, China team, finance, other.
-6. Entity type and entity ID: customer, vendor, factory, licensor, brand, SKU, product line, employee, system, document.
+6. Entity type and entity ID: customer, licensor, factory, freight_provider, testing_lab, packaging_supplier, service_provider, vendor (residual), brand, SKU, product line, employee, system, document. Licensors such as Disney, Marvel, Star Wars, NBCUniversal, and Warner Bros are first-class `licensor` entities, never `vendor`. Operating vendors should resolve to a specific type (`factory`, `freight_provider`, `testing_lab`, `packaging_supplier`, `service_provider`); the generic `vendor` type is a residual bucket only.
 7. System: Coldlion, ResourceSpace, Supabase, Google Drive, Adobe Illustrator, Photoshop, email, WhatsApp, WeChat, other.
 8. Geography/team: US, China, Brazil, Colombia, customer-specific, factory-specific.
 9. Confidence/review state: candidate, validated, pending review, approved, rejected, superseded, challenged.
@@ -247,7 +247,7 @@ When ingesting information, the extractor must produce candidate metadata as par
 
 For each extracted claim candidate, the model should propose:
 
-- knowledge domains;
+- top-level domain IDs;
 - process stage;
 - source type;
 - document class if applicable;
@@ -258,7 +258,7 @@ For each extracted claim candidate, the model should propose:
 
 The deterministic validator does not need to prove all metadata is correct, but the system must store it separately from the evidence quote and make it reviewable.
 
-Do not use a single `general` bucket unless classification genuinely fails.
+If the extractor cannot fit a candidate into any active top-level domain, it must stage a taxonomy proposal instead of forcing the candidate into `general`.
 
 ### RetrievalPlanner rules
 
@@ -266,14 +266,15 @@ All answer generation, chat retrieval, contradiction review, and synthesis must 
 
 `RetrievalPlanner` must classify the user/task intent into a retrieval plan containing:
 
-- allowed knowledge domains;
-- excluded knowledge domains;
+- allowed top-level domains;
+- excluded top-level domains;
 - allowed source types;
 - excluded source types;
 - document classes to include/exclude;
 - process stages;
 - systems;
 - entities;
+- excluded entity types where useful, such as excluding `vendor` for a pure licensor approval question;
 - review-state requirements;
 - max results per source bucket;
 - fallback broadening policy.
@@ -283,11 +284,28 @@ Example for an ERP image-upload question:
 ```ts
 {
   query: 'when does an image get uploaded to Coldlion',
-  allowedDomains: ['coldlion', 'artwork_files', 'design', 'production'],
+  allowedTopDomains: ['it_systems', 'creative_design', 'production_lifecycle'],
   excludedDocumentClasses: ['vendor_manual'],
+  excludedEntityTypes: ['vendor'],
   preferredSourceTypes: ['approved_claim', 'brain_section', 'message'],
-  systems: ['coldlion'],
+  requiredEntities: [{ entityType: 'system', canonicalValue: 'Coldlion' }],
   processStages: ['design', 'erp_update', 'production'],
+  reviewStates: ['approved'],
+  fallbackBroadening: 'ask_permission_or_log_broadening'
+}
+```
+
+Example for a licensor approval question:
+
+```ts
+{
+  query: 'when do Disney approvals need to happen before production',
+  allowedTopDomains: ['licensing_approvals', 'product_development', 'production_lifecycle'],
+  excludedTopDomains: ['vendor_management'],
+  excludedDocumentClasses: ['vendor_manual'],
+  preferredSourceTypes: ['approved_claim', 'document_chunk', 'brain_section'],
+  requiredEntities: [{ entityType: 'licensor', canonicalValue: 'Disney' }],
+  processStages: ['licensor_approval', 'sample_review', 'production'],
   reviewStates: ['approved'],
   fallbackBroadening: 'ask_permission_or_log_broadening'
 }

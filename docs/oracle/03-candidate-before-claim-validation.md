@@ -19,7 +19,7 @@ All extraction output must pass through:
 5. review triage;
 6. transactional promotion.
 
-Only after those steps may the system write to permanent `claims`, `claim_domains`, and `claim_evidence`.
+Only after those steps may the system write to permanent `claims`, `claim_top_domains`, and `claim_evidence`. During the migration window, legacy `claim_domains` is treated as pre-retrofit compatibility state only.
 
 ## Why this exists
 
@@ -332,7 +332,7 @@ For each validated candidate:
 2. Acquire an advisory lock or `SELECT ... FOR UPDATE` on a hashed representation of the claim candidate to block concurrent promotions.
 3. Confirm candidate status is `validated` and not already promoted.
 4. Check duplicate claim/candidate constraints. (If a duplicate is detected *during* the transaction due to another worker beating it, mark the current candidate as `duplicate` and append its evidence to the winning claim instead of inserting a new row).
-5. Insert `claims`, `claim_domains`, and `claim_evidence` rows.
+5. Insert `claims`, `claim_top_domains`, and `claim_evidence` rows.
 6. Commit.
 
 ## Idempotency

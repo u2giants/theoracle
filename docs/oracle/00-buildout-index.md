@@ -91,7 +91,7 @@ The goal is lowest cost per validated, useful, evidence-backed result:
 
 No LLM output becomes official operational truth directly.
 
-All extraction output must flow through staging, deterministic validation, and transactional promotion before it enters permanent `claims`, `claim_domains`, or `claim_evidence` tables.
+All extraction output must flow through staging, deterministic validation, and transactional promotion before it enters permanent `claims`, `claim_top_domains`, or `claim_evidence` tables. Legacy `claim_domains` references belong to the pre-retrofit schema and must be migrated through R3.5.
 
 ## Retrieval rule
 

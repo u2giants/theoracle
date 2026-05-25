@@ -274,7 +274,9 @@ type SegmentationFixture = FixtureFile & {
   inputs: {
     case: 'bootstrap_top_domain_proposal' | 'entity_alias_resolution' | 'unknown_entity_proposal'
         | 'cross_domain_contamination' | 'sub_topic_drift' | 'wrong_top_domain'
-        | 'unknown_top_domain_proposal' | 'compact_admin_card';
+        | 'unknown_top_domain_proposal' | 'compact_admin_card'
+        | 'licensor_vendor_separation' | 'pre_claim_chunk_domain_filter'
+        | 'domain_boundary_rules' | 'operating_vendor_subtype_separation';
     rawText?: string;
     entityProposal?: { entityType: string; rawValue: string };
     existingRegistry?: Array<{ entityType: string; canonicalValue: string; aliases: string[] }>;
@@ -287,6 +289,9 @@ type SegmentationFixture = FixtureFile & {
     expectedProposalType?: 'create_top_domain' | 'merge_top_domains' | 'split_top_domain'
       | 'create_sub_topic' | 'merge_sub_topics' | 'split_sub_topic' | 'reassign_claims';
     expectedAdminCardMaxWords?: number;
+    expectedEntityType?: 'system' | 'customer' | 'licensor' | 'factory' | 'freight_provider' | 'testing_lab' | 'packaging_supplier' | 'service_provider' | 'vendor' | 'person' | 'sku_or_product_line';
+    expectedBoundaryRuleFields?: Array<'belongsHere' | 'doesNotBelongHere' | 'commonEntityHints' | 'defaultExcludedDocumentClasses' | 'neighboringDomainIds'>;
+    expectedPreClaimFilterWorks?: boolean;
   };
 };
 ```
@@ -386,6 +391,14 @@ Required tests:
 6. **Cross-domain customer question** — query about a customer that spans `customer_ops` and `creative_design`.
    - expected retrieval surfaces material from both domains;
    - gate: retrieval recall across both domains ≥0.8.
+7. **Licensor approval vs vendor manual separation** — query: "when do Disney approvals need to happen before production."
+   - expected retrieval plan: `topDomainHints: ['licensing_approvals', 'product_development', 'production_lifecycle']`, `requiredEntities: [{ entityType: 'licensor', canonicalValue: 'Disney' }]`, `excludedDocumentClasses: ['vendor_manual']`;
+   - expected retrieval includes licensor/style-guide/approval evidence;
+   - expected retrieval excludes generic factory manuals and vendor payment/SLA material;
+   - contamination rate must be 0.
+8. **Pre-claim document chunk filtering** — query against a corpus where a newly uploaded licensor style guide has chunks and entities but no promoted claims yet.
+   - expected retrieval can include/exclude chunks using `document_chunk_top_domains` and `document_chunk_entities`;
+   - gate: relevant pre-claim chunks appear in top K; unrelated vendor chunks do not.
 
 Retrieval evals must output:
 
@@ -451,14 +464,18 @@ These exercise the three-layer taxonomy from `07-knowledge-segmentation.md` end-
 Required tests:
 
 1. **Bootstrap top-domain proposal** — seed the fixture with POP Creations business context: licensed entertainment products, overseas manufacturing, import/distribution, major retailers, ERP/Coldlion, and design/licensing/production handoffs. Expected: the system proposes sensible top-level domains such as licensing approvals, product development, supply chain, customer operations, IT systems, import compliance, logistics, and finance/pricing; nothing is auto-activated.
-2. **Compact admin card** — feed one proposed domain with representative claims/documents. Expected: proposal card includes name, one-sentence purpose, representative evidence snippets, common entities, affected count, suggested exclusions, and recommended action in under the configured word budget.
+2. **Compact admin card** — feed one proposed domain with representative claims/documents. Expected: proposal card includes name, one-sentence purpose, representative evidence snippets, common entities, affected count, suggested exclusions, recommended action, confidence, and rollback/preview note in under the configured word budget.
 3. **Entity alias resolution** — input `"the ERP"`. Expected: resolves to existing canonical `system: ERP`. Must not create a duplicate entity.
 4. **Unknown entity proposal** — input `"Frobnitz Module"`. Expected: queued in `entity_proposals`; candidate stays pending; no claim is promoted with an unresolved entity.
 5. **Unknown top-domain proposal** — candidate does not fit any active top-domain. Expected: candidate is staged, a `create_top_domain` or reassignment proposal is created, and no claim is promoted by forcing it into `general`.
 6. **Cross-domain contamination** — query about ERP image upload runs against a corpus seeded with vendor manuals tagged `vendor_management + document_class: vendor_manual`. Expected: zero vendor-manual chunks in the retrieved set.
-7. **Sub-topic drift** — feed a claim whose embedding has shifted past the threshold from its assigned sub-topic centroid. Expected: re-evaluation worker produces a `reassign_claims` proposal; no auto-mutation occurs.
-8. **Cluster spans two domains** — feed cluster members split across two top-domains. Expected: worker produces a merge/split/create proposal but does not auto-activate a new top-domain.
-9. **Sub-topic activation threshold** — corpus has fewer than N claims per domain. Expected: no sub-topics generated; retrieval falls back to top-domain + entity tags only.
+7. **Licensor/vendor separation** — input references Disney, Marvel, Star Wars, NBCUniversal, or Warner Bros approval/style-guide rules. Expected: resolves to `entity_type: licensor`; must not resolve to `vendor`.
+7a. **Operating-vendor subtype separation** — feed a corpus mentioning a China factory (capacity/lead time), a freight provider (routing/customs), and a testing lab (QC compliance). Expected: each resolves to its specific `entity_type` (`factory`, `freight_provider`, `testing_lab`); none collapse to the generic `vendor` bucket. Cross-retrieval: a question about factory lead time must not surface freight-provider material, and vice versa.
+8. **Domain boundary rules present** — approve or propose a top-level domain. Expected: payload includes belongs-here examples, does-not-belong-here examples, common entity hints, default excluded document classes, and neighboring domains.
+9. **Pre-claim chunk domain filter** — document chunks have top-domain/entity tags before claim promotion. Expected: retrieval filters those chunks by top-domain/entity and can exclude unrelated chunks before any claims exist.
+10. **Sub-topic drift** — feed a claim whose embedding has shifted past the threshold from its assigned sub-topic centroid. Expected: re-evaluation worker produces a `reassign_claims` proposal; no auto-mutation occurs.
+11. **Cluster spans two domains** — feed cluster members split across two top-domains. Expected: worker produces a merge/split/create proposal but does not auto-activate a new top-domain.
+12. **Sub-topic activation threshold** — corpus has fewer than N claims per domain. Expected: no sub-topics generated; retrieval falls back to top-domain + entity tags only.
 
 ## Cache effectiveness evals
 

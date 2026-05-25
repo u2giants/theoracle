@@ -43,6 +43,25 @@ Examples for this company (illustrative starting vocabulary, to be proposed and 
 - `logistics_shipping` — freight, routing, customs, delivery.
 - `import_compliance` — import paperwork, customs, tariffs, country-of-origin, regulatory constraints.
 
+Every top-level domain must carry boundary rules, not just a name:
+
+- **Belongs here** — 3-10 short examples of claims/documents/chunks that should route to this domain.
+- **Does not belong here** — 3-10 neighboring-domain examples that should not route here.
+- **Common entities** — typical customers, licensors, systems, departments, factories, geographies, or product lines seen in this domain.
+- **Default retrieval exclusions** — document classes or neighboring domains to exclude or down-weight unless the query explicitly asks for them.
+- **Neighboring domains** — domains that often overlap and require careful disambiguation.
+
+Example boundary rule:
+
+```text
+Domain: licensing_approvals
+Belongs here: Disney/Marvel/Star Wars/NBCUniversal/Warner Bros approval gates, style-guide rules, licensed asset usage, licensor comments, legal approval dependencies.
+Does not belong here: factory capacity, vendor payment terms, freight bookings, generic customer routing guides.
+Common entities: licensor: Disney, licensor: Marvel, licensor: Star Wars, licensor: NBCUniversal, licensor: Warner Bros, system: ResourceSpace.
+Default exclusions: vendor_manual, freight_invoice, generic_factory_sop unless query explicitly mentions a factory/licensor handoff.
+Neighboring domains: creative_design, product_development, production_lifecycle, customer_ops.
+```
+
 Governance:
 
 - Lives in a DB table `knowledge_top_domains`, not in a TypeScript enum, so admin UI can add/rename/retire without a migration.
@@ -53,7 +72,7 @@ Governance:
 What "admin-curated" means:
 
 - The admin reviews compact proposal cards, not pages of source text.
-- Each card shows: proposed domain name, one-sentence purpose, 3-8 representative evidence snippets/claim summaries, common entities/systems/customers/licensors, estimated affected claim count, suggested retrieval exclusions, and confidence.
+- Each card shows: proposed domain name, one-sentence purpose, 3-8 representative evidence snippets/claim summaries, common entities/systems/customers/licensors, estimated affected claim count, suggested retrieval exclusions, recommended action, and confidence.
 - The admin actions are simple: approve, rename, merge into existing, split, reject, defer, or mark "too broad".
 - The admin can batch-approve low-risk proposals after scanning cards. Full evidence is available only as drilldown.
 - The system should recommend the action when possible, for example: "merge into licensing_approvals" or "create new domain import_compliance".
@@ -97,8 +116,14 @@ Purpose: precision filters that cut across the taxonomy. These are not "the topi
 Categories:
 
 - `system` — software systems referenced (ERP, Coldlion, Photoshop, Excel templates, internal scripts).
-- `customer` — retailer or end customer (Burlington, TJX, Ross, etc.).
-- `vendor` — non-customer vendor (factories, freight providers, license holders).
+- `customer` — retailer or end customer (Burlington, TJX, Ross, Hobby Lobby, Walmart, etc.).
+- `licensor` — entertainment/IP rights holders and brand owners (Disney, Marvel, Star Wars, NBCUniversal, Warner Bros, etc.). Do not collapse these into `vendor`; licensors govern approvals, art/brand rules, legal permissions, and style-guide constraints.
+- `factory` — manufacturing facilities (China, Brazil, Colombia, and any future origin country). Governs production capacity, lead times, tooling, sample production, and quality output.
+- `freight_provider` — shipping/logistics/customs/3PL partners. Governs routing, transit times, customs paperwork, and delivery to retailer DCs.
+- `testing_lab` — third-party QC/compliance/safety testing labs (drop test, child safety, materials, country-of-import compliance).
+- `packaging_supplier` — packaging, corrugate, polybag, label, and hangtag suppliers. Often distinct from the factory.
+- `service_provider` — outside service vendors not covered above (e.g., outside designers, IP/licensing attorneys, customs brokers, freight forwarders' agents, photography/video studios).
+- `vendor` — generic residual bucket for non-customer operating vendors that do not yet fit any of the more specific types above. The extraction model should prefer the more specific type when possible; `vendor` should be a small minority of tags once the registry is mature.
 - `person` — employee ID or external contact string.
 - `sku_or_product_line` — product identifiers.
 - `process_stage` — sample, pre_production, production, qc, pack, ship, ra, post_sale.
@@ -111,6 +136,10 @@ Categories:
 These tags are produced by the same model run that extracts the claim. They are multi-valued. They are stored in claim-tag join tables and chunk-tag join tables, not as JSONB blobs, so Postgres can filter on them at retrieval time without scanning rows.
 
 Normalization: entity values must be normalized through a canonical entity registry. The string "ERP", "the ERP", "NetSuite", and "erp system" should all resolve to the same canonical entity. See schema sketch below.
+
+Licensor normalization is mandatory. The strings "Disney", "Walt Disney", "Disney approvals", and "Disney style guide" should resolve to `entity_type = 'licensor', canonical_value = 'Disney'`; Marvel and Star Wars should be represented as licensors or licensor brands according to the approved entity registry. This prevents licensed-IP approval retrieval from being mixed with factory/vendor retrieval.
+
+Operating-vendor normalization follows the same rule. A factory should resolve to `entity_type = 'factory'` (not `vendor`), a freight provider to `entity_type = 'freight_provider'`, and a testing lab to `entity_type = 'testing_lab'`. Use the generic `vendor` type only as a residual bucket while a candidate is pending entity-registry review. This prevents capacity/lead-time questions (factory) from being answered with freight/customs material, and freight/routing questions from being answered with factory-floor material.
 
 ## The retrieval plan — how this fixes the ERP-vs-vendor-manual case
 
@@ -133,6 +162,8 @@ The ERP-image-upload query routes through:
 5. **Citation back to evidence.** Surface matching claims with their `claim_evidence` rows.
 
 Vendor manuals never enter the candidate set because they are tagged `document_class: vendor_manual` and either filtered out or heavily down-weighted by query type. This is enforced by structure, not by prompt engineering.
+
+The same rule applies to licensor-vs-vendor separation. A query about Disney approval timing should include `topDomainHints: ['licensing_approvals', 'product_development']` and `requiredEntities: [{ entityType: 'licensor', canonicalValue: 'Disney' }]`; it should not search generic factory/vendor manuals unless the query explicitly asks how the factory receives or acts on licensor approval.
 
 This is the concrete realization of the "retrieval plan that filters by knowledge domain, source type, document class, process stage, department, system, entity, review state, and time validity before vector search" requirement in `02-provider-native-ai-architecture.md`.
 
@@ -190,6 +221,11 @@ CREATE TABLE knowledge_top_domains (
   id              text PRIMARY KEY,        -- e.g. 'customer_ops'
   name            text NOT NULL,
   description     text NOT NULL,
+  belongs_here    jsonb NOT NULL DEFAULT '[]'::jsonb,
+  does_not_belong_here jsonb NOT NULL DEFAULT '[]'::jsonb,
+  common_entity_hints jsonb NOT NULL DEFAULT '[]'::jsonb,
+  default_excluded_document_classes text[] NOT NULL DEFAULT '{}',
+  neighboring_domain_ids text[] NOT NULL DEFAULT '{}',
   display_order   int  NOT NULL,
   is_active       boolean NOT NULL DEFAULT true,
   created_at      timestamptz NOT NULL DEFAULT now(),
@@ -231,10 +267,40 @@ CREATE TABLE claim_top_domains (
   PRIMARY KEY (claim_id, top_domain_id)
 );
 
+-- Document → top-level domain assignment for pre-claim retrieval and document-level filtering.
+CREATE TABLE document_top_domains (
+  document_id   uuid NOT NULL REFERENCES documents(id),
+  top_domain_id text NOT NULL REFERENCES knowledge_top_domains(id),
+  assignment_confidence numeric(4,3),
+  assignment_reason text NOT NULL CHECK (assignment_reason IN
+                    ('ingestion','reclassification','manual')),
+  PRIMARY KEY (document_id, top_domain_id)
+);
+
+-- Chunk → top-level domain assignment for retrieval before claims are promoted.
+CREATE TABLE document_chunk_top_domains (
+  document_chunk_id uuid NOT NULL REFERENCES document_chunks(id),
+  top_domain_id     text NOT NULL REFERENCES knowledge_top_domains(id),
+  assignment_confidence numeric(4,3),
+  assignment_reason text NOT NULL CHECK (assignment_reason IN
+                    ('ingestion','reclassification','manual')),
+  PRIMARY KEY (document_chunk_id, top_domain_id)
+);
+
+-- Message → top-level domain assignment for retrieval before claims are promoted.
+CREATE TABLE message_top_domains (
+  message_id     uuid NOT NULL REFERENCES messages(id),
+  top_domain_id  text NOT NULL REFERENCES knowledge_top_domains(id),
+  assignment_confidence numeric(4,3),
+  assignment_reason text NOT NULL CHECK (assignment_reason IN
+                    ('extraction','reclassification','manual')),
+  PRIMARY KEY (message_id, top_domain_id)
+);
+
 -- Layer 3: canonical entity registry.
 CREATE TABLE entities (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  entity_type     text NOT NULL,          -- 'system' | 'customer' | 'vendor' | 'person' | ...
+  entity_type     text NOT NULL,          -- 'system' | 'customer' | 'licensor' | 'factory' | 'freight_provider' | 'testing_lab' | 'packaging_supplier' | 'service_provider' | 'vendor' | 'person' | ...
   canonical_value text NOT NULL,          -- 'ERP', 'Burlington', etc.
   display_label   text,
   aliases         jsonb,                  -- ['the ERP', 'erp system', 'NetSuite']
@@ -303,11 +369,52 @@ CREATE TABLE taxonomy_change_log (
 );
 ```
 
+Required `taxonomy_proposals.payload` shape for proposal cards:
+
+```ts
+type TaxonomyProposalPayload = {
+  proposedId?: string;
+  proposedName: string;
+  oneSentencePurpose: string;
+  proposalReason: string;
+  boundaryRules?: {
+    belongsHere: string[];
+    doesNotBelongHere: string[];
+    commonEntityHints: Array<{ entityType: string; canonicalValue: string }>;
+    defaultExcludedDocumentClasses: string[];
+    neighboringDomainIds: string[];
+  };
+  representativeEvidence: Array<{
+    sourceType: 'claim' | 'document_chunk' | 'message';
+    sourceId: string;
+    shortSnippet: string;
+    whyRepresentative: string;
+  }>;
+  commonEntities: Array<{ entityType: string; canonicalValue: string; count?: number }>;
+  affectedCounts: {
+    claims?: number;
+    documents?: number;
+    chunks?: number;
+    messages?: number;
+  };
+  suggestedRetrievalExclusions: string[];
+  recommendedAction: 'approve' | 'rename' | 'merge' | 'split' | 'reject' | 'defer' | 'too_broad';
+  recommendedActionReason: string;
+  confidence: number;
+  rollbackPreview?: string;
+};
+```
+
+The admin UI may render a shorter card, but the persisted payload must include enough evidence IDs and boundary rules to make approval auditable and reversible.
+
 Indexes (illustrative; refine in migration):
 
 - `claim_entities (entity_id)` and `claim_entities (claim_id)`
 - `document_chunk_entities (entity_id)`
 - `message_entities (entity_id)`
+- `document_top_domains (top_domain_id)` and `document_top_domains (document_id)`
+- `document_chunk_top_domains (top_domain_id)` and `document_chunk_top_domains (document_chunk_id)`
+- `message_top_domains (top_domain_id)` and `message_top_domains (message_id)`
 - `claim_sub_topics (sub_topic_id)`
 - `claim_top_domains (top_domain_id)`
 - `claim_metadata (process_stage)`, `claim_metadata (document_class)`
@@ -324,6 +431,8 @@ Tags are extracted by the same model run that extracts a claim candidate. They a
 
 - `extraction_candidates` carries proposed top-domain IDs and proposed entity references.
 - `extraction_candidate_evidence` carries the document_class and process_stage if the model identifies them.
+- Document ingestion must tag documents and chunks with proposed top-domain IDs and entity references before claims exist, so retrieval can isolate raw chunks during extraction, validation repair, and early chat answers.
+- Message extraction may tag messages with top-domain IDs and entity references before claim promotion for the same reason.
 - A new validator checks that each proposed entity reference either resolves to an existing entity in the registry or, if new, is flagged for entity-registry review before promotion.
 - If a candidate does not fit any active top-level domain, it is staged with a `taxonomy_proposals` link instead of being forced into `general`.
 - Unknown entities are not auto-created. They are queued in a new admin queue (`entity_proposals`) and reviewed alongside taxonomy proposals.
@@ -339,6 +448,8 @@ type RetrievalPlan = {
   topDomainHints: string[];           // up to 3
   requiredEntities: { entityType: string; canonicalValue: string }[];
   excludedDocumentClasses?: string[]; // e.g. ['vendor_manual'] for system questions
+  excludedEntityTypes?: string[];     // e.g. ['vendor'] for licensor approval questions
+  excludedTopDomains?: string[];
   processStageHints?: string[];
   timeFilter?: 'current' | 'all' | 'since:YYYY-MM-DD';
   vectorQuery: string;                // the actual semantic query
@@ -360,6 +471,10 @@ The knowledge segmentation layer is complete when:
 
 - `knowledge_top_domains`, `knowledge_sub_topics`, `entities`, and the join tables exist and are populated by an approved seed migration.
 - the initial top-level domain map can be proposed by the system and approved through compact admin proposal cards;
+- each top-level domain has boundary rules: belongs-here examples, does-not-belong-here examples, common entity hints, neighboring domains, and default retrieval exclusions;
+- `licensor` exists as a first-class entity type distinct from `vendor`;
+- documents, document chunks, messages, and claims can all be tagged with top-level domains and entities, so retrieval works before and after claim promotion;
+- `taxonomy_proposals.payload` has a typed proposal-card contract with evidence IDs, snippets, affected counts, suggested exclusions, recommended action, confidence, and rollback/preview metadata;
 - Extraction produces canonical entity references alongside claims, validated against the registry before promotion.
 - Retrieval routes every query through a `RetrievalPlan` with metadata pre-filter before vector search.
 - The maturity-based re-evaluation worker writes proposals to `taxonomy_proposals` but never auto-mutates taxonomy.
