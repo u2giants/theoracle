@@ -648,6 +648,161 @@ export const oracleInterventions = pgTable('oracle_interventions', {
 });
 
 // ---------------------------------------------------------------------------
+// R3 — AI observability: context packs, usage details, provider cache tracking
+//
+// Source of truth for the shapes:
+//   docs/oracle/02-provider-native-ai-architecture.md
+//   docs/oracle/04-context-packs-observability.md
+//   docs/oracle/05-ai-retrofit-phase-packet.md Phase R3
+//
+// Design notes:
+// - `model_runs` (above) keeps its existing minimal shape so legacy callers
+//   are not broken. The new R3 tables hang off `model_runs.id`.
+// - `oracle_context_packs` may be created *before* the model run (so the
+//   context-pack ID can be threaded through the OracleAIClient call); the FK
+//   to `model_runs` is therefore nullable.
+// - `model_run_usage_details` is a 1:1 child of `model_runs` carrying the
+//   richer OracleUsage shape (cached/write/reasoning tokens, raw provider
+//   usage JSON, fallback tracking).
+// - `provider_cached_content` tracks explicit Vertex caches (and any future
+//   provider-managed caches) so the cache-lifecycle teardown rule from
+//   `02-provider-native-ai-architecture.md` can be enforced and audited.
+// ---------------------------------------------------------------------------
+
+export const oracleContextPacks = pgTable(
+  'oracle_context_packs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    // Created-before-or-after-the-run: nullable until the model run is logged.
+    modelRunId: uuid('model_run_id').references(() => modelRuns.id),
+
+    taskType: varchar('task_type', { length: 100 }).notNull(),
+    routeId: varchar('route_id', { length: 100 }).notNull(),
+    promptVersion: varchar('prompt_version', { length: 50 }),
+    schemaVersion: varchar('schema_version', { length: 50 }),
+
+    // Cache-key hashes (sha256 hex = 64 chars).
+    stablePrefixHash: varchar('stable_prefix_hash', { length: 64 }).notNull(),
+    semiStableContextHash: varchar('semi_stable_context_hash', { length: 64 }),
+    retrievedContextHash: varchar('retrieved_context_hash', { length: 64 }),
+    dynamicInputHash: varchar('dynamic_input_hash', { length: 64 }).notNull(),
+    toolSchemaHash: varchar('tool_schema_hash', { length: 64 }),
+    outputSchemaHash: varchar('output_schema_hash', { length: 64 }),
+
+    // Full block list for audit (id, label, kind, hash, tokenEstimate,
+    // cacheEligible, reasonIncluded). Mirrors PromptBlock[] from @oracle/ai.
+    blocksJson: jsonb('blocks_json'),
+
+    // Retrieval-plan observability.
+    retrievalPlanId: varchar('retrieval_plan_id', { length: 100 }),
+    selectedDomains: jsonb('selected_domains'),
+    selectedSourceTypes: jsonb('selected_source_types'),
+    selectedProcessStages: jsonb('selected_process_stages'),
+    selectedEntityIds: jsonb('selected_entity_ids'),
+
+    // Which records were included in the prompt.
+    includedMessageIds: jsonb('included_message_ids'),
+    includedDocumentChunkIds: jsonb('included_document_chunk_ids'),
+    includedClaimIds: jsonb('included_claim_ids'),
+    includedGapIds: jsonb('included_gap_ids'),
+    includedContradictionIds: jsonb('included_contradiction_ids'),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    taskCreatedIdx: index('oracle_context_packs_task_created_idx').on(t.taskType, t.createdAt),
+    routeIdx: index('oracle_context_packs_route_idx').on(t.routeId),
+    modelRunIdx: index('oracle_context_packs_model_run_idx').on(t.modelRunId),
+    stablePrefixHashIdx: index('oracle_context_packs_stable_prefix_hash_idx').on(t.stablePrefixHash),
+  }),
+);
+
+export const modelRunUsageDetails = pgTable(
+  'model_run_usage_details',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    modelRunId: uuid('model_run_id')
+      .references(() => modelRuns.id)
+      .notNull()
+      .unique(),
+    contextPackId: uuid('context_pack_id').references(() => oracleContextPacks.id),
+
+    // Route used. May differ from the originally-requested route if fallback fired.
+    routeId: varchar('route_id', { length: 100 }).notNull(),
+
+    // Token breakdown per OracleUsage.
+    inputTokens: integer('input_tokens'),
+    cachedInputTokens: integer('cached_input_tokens'),
+    cacheWriteTokens: integer('cache_write_tokens'),
+    outputTokens: integer('output_tokens'),
+    reasoningTokens: integer('reasoning_tokens'),
+
+    // Provider audit trail.
+    providerRequestId: varchar('provider_request_id', { length: 255 }),
+    rawUsageJson: jsonb('raw_usage_json'),
+
+    // Fallback dispatch tracking.
+    fellBackFromRouteId: varchar('fell_back_from_route_id', { length: 100 }),
+    fallbackReason: varchar('fallback_reason', { length: 100 }),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    routeIdx: index('model_run_usage_details_route_idx').on(t.routeId),
+    contextPackIdx: index('model_run_usage_details_context_pack_idx').on(t.contextPackId),
+    fellBackFromIdx: index('model_run_usage_details_fellback_idx').on(t.fellBackFromRouteId),
+  }),
+);
+
+export const providerCachedContent = pgTable(
+  'provider_cached_content',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    // 'anthropic' | 'vertex' | 'openai'.
+    provider: varchar('provider', { length: 50 }).notNull(),
+    // 'explicit' (we requested an explicit cache resource) | 'implicit'
+    // (provider-managed prefix cache; we just record observed cache hits).
+    cacheKind: varchar('cache_kind', { length: 50 }).notNull(),
+
+    // Provider-side handle (e.g., Vertex cachedContent resource name).
+    providerResourceName: varchar('provider_resource_name', { length: 500 }),
+
+    // What's cached.
+    sourceHash: varchar('source_hash', { length: 64 }).notNull(),
+    sourceTokenEstimate: integer('source_token_estimate'),
+    sourceDescription: text('source_description'),
+
+    // Reuse policy — required up front per the cache-lifecycle teardown rule
+    // in 02-provider-native-ai-architecture.md.
+    expectedReuseCount: integer('expected_reuse_count').notNull(),
+    actualReuseCount: integer('actual_reuse_count').default(0).notNull(),
+    latestPlannedReuseStep: varchar('latest_planned_reuse_step', { length: 100 }),
+    hardExpirationAt: timestamp('hard_expiration_at').notNull(),
+    cleanupOwner: varchar('cleanup_owner', { length: 100 }),
+
+    // Lifecycle status — every path that ends use of a cache must update this.
+    // 'active' | 'deleted' | 'expired' | 'failed' | 'orphaned'.
+    status: varchar('status', { length: 50 }).default('active').notNull(),
+    deletedAt: timestamp('deleted_at'),
+    statusReason: text('status_reason'),
+
+    // Audit.
+    createdByJobRunId: uuid('created_by_job_run_id').references(() => jobRuns.id),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    statusIdx: index('provider_cached_content_status_idx').on(t.status),
+    providerStatusIdx: index('provider_cached_content_provider_status_idx').on(t.provider, t.status),
+    sourceHashIdx: index('provider_cached_content_source_hash_idx').on(t.sourceHash),
+    expirationIdx: index('provider_cached_content_expiration_idx').on(t.hardExpirationAt),
+    cleanupOwnerIdx: index('provider_cached_content_cleanup_owner_idx').on(t.cleanupOwner),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Type exports for app code
 // ---------------------------------------------------------------------------
 
@@ -662,3 +817,12 @@ export type Gap = typeof gaps.$inferSelect;
 export type Contradiction = typeof contradictions.$inferSelect;
 export type BrainSection = typeof brainSections.$inferSelect;
 export type BrainSectionVersion = typeof brainSectionVersions.$inferSelect;
+// R3 observability
+export type ModelRun = typeof modelRuns.$inferSelect;
+export type NewModelRun = typeof modelRuns.$inferInsert;
+export type OracleContextPack = typeof oracleContextPacks.$inferSelect;
+export type NewOracleContextPack = typeof oracleContextPacks.$inferInsert;
+export type ModelRunUsageDetail = typeof modelRunUsageDetails.$inferSelect;
+export type NewModelRunUsageDetail = typeof modelRunUsageDetails.$inferInsert;
+export type ProviderCachedContent = typeof providerCachedContent.$inferSelect;
+export type NewProviderCachedContent = typeof providerCachedContent.$inferInsert;
