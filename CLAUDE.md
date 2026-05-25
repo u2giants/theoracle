@@ -14,7 +14,12 @@ Retrofit progress as of 2026-05-25:
 - ✅ R3 — Observability schema (`oracle_context_packs`, `model_run_usage_details`, `provider_cached_content`)
 - ✅ R3.5 — Three-layer knowledge taxonomy schema (15 tables, boundary rules, `licensor` first-class)
 - ✅ R4 — Candidate-before-claim staging schema (4 tables, 13 CHECK constraints)
-- ⬜ **R5 — Exact quote validator + promotion service** (next code phase)
+- ✅ R5 — Quote validator + promotion decision (pure functions in `packages/oracle-engines/src/extraction/`; 33-assertion smoke)
+- ✅ R5.5 — Entity resolver + taxonomy validator + extended decision shape (45-assertion smoke)
+- ✅ R6 — Claim extraction worker refactored through staging pipeline + circuit breaker + executor (30-assertion smoke)
+- ✅ R7 — Document ingestion worker refactored + `claims.candidate_hash` + cache profitability/lifecycle + race-safe executor (19-assertion smoke)
+- ✅ R8 — Chat route refactored through `OracleAIClient` with `providerOptions` escape hatch for tools/multi-turn
+- ⬜ **R9 — Synthesis worker refactor** (next code phase) — `apps/workers/src/trigger/brain-synthesis.ts` is the last legacy `getOpenRouter()` caller
 
 The retrofit packet supersedes any older guidance that says Phase 6 interjection is next.
 

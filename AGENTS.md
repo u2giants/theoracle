@@ -68,10 +68,37 @@ oracle/
 │   │   └── drizzle.config.ts
 │   ├── auth/                      # Supabase auth helpers + multi-identity linker
 │   │   └── src/{link.ts,server.ts,client.ts,index.ts}
-│   ├── ai/                        # AI SDK helpers, prompts, retrieval, embeddings
-│   │   └── src/{prompts/oracle-system.ts,openrouter.ts,embeddings.ts,retrieval.ts,index.ts}
-│   └── oracle-engines/            # interjection / curiosity / synthesis logic (Phase 6 scaffold)
-│       └── src/{interjection.ts,index.ts}
+│   ├── ai/                        # AI provider gateway + prompts + retrieval + embeddings
+│   │   └── src/
+│   │       ├── client/             # OracleAIClient (R2)
+│   │       ├── context/            # ContextCompiler + PromptBlock helpers (R2)
+│   │       ├── routing/            # ModelRouter with auto-fallback (R2)
+│   │       ├── providers/          # Adapter interface + Mock/Anthropic/Vertex/OpenAI stubs
+│   │       │                       # + OpenRouterBridgeAdapter (R6 transitional)
+│   │       ├── usage/              # OracleUsage normalizer (R2)
+│   │       ├── validation/         # StructuredOutputValidator + EvidenceValidator (R2)
+│   │       ├── routes/             # Curated OracleModelRoute catalog — 1 Primary + 1 Fallback per role (R1)
+│   │       ├── prompts/            # oracle-system.ts (interview), extraction-system.ts
+│   │       ├── embeddings.ts, retrieval.ts
+│   │       ├── openrouter.ts       # @deprecated — legacy; only used by R9 brain-synthesis until refactored
+│   │       └── index.ts
+│   ├── oracle-engines/            # Extraction pipeline pure logic + DB-aware executor (R5–R7)
+│   │   ├── src/extraction/
+│   │   │   ├── types.ts, normalization.ts
+│   │   │   ├── quote-validator.ts        # R5 pure provenance check
+│   │   │   ├── candidate-hash.ts         # R5 deterministic hash for advisory lock
+│   │   │   ├── promote-candidate.ts      # R5 decidePromotion pure decider (extended in R5.5)
+│   │   │   ├── entity-resolver.ts        # R5.5 alias → canonical, type-mismatch detection
+│   │   │   ├── taxonomy-validator.ts     # R5.5 top-domain + entity validation
+│   │   │   ├── circuit-breaker.ts        # R6 3-strike decider
+│   │   │   ├── domain-mapping.ts         # R6 legacy KNOWLEDGE_DOMAINS → TOP_LEVEL_DOMAINS
+│   │   │   ├── promotion-executor.ts     # R6 Drizzle transaction + advisory lock + race-safe hash lookup (R7)
+│   │   │   ├── cache-profitability.ts    # R7 explicit-cache heuristic
+│   │   │   ├── cache-lifecycle.ts        # R7 provider_cached_content bookkeeping
+│   │   │   └── index.ts
+│   │   ├── src/__verify__/        # Self-contained smoke gates (R5/R5.5/R6/R7)
+│   │   ├── src/interjection.ts    # Phase 6 / R11 scaffold — not yet wired
+│   │   └── src/index.ts
 ├── docs/                          # detailed docs — architecture, development, configuration, deployment
 ├── AGENTS.md                      # this file
 ├── CLAUDE.md                      # Claude Code-specific notes (points back here)
@@ -232,6 +259,10 @@ The full schema lives in `packages/db/src/schema.ts` and is faithful to `oracle_
 | Extraction candidate | `extraction_candidates.id` (uuid) | DB | **R4.** One row per proposed claim. Sensitivity-gate flags (`contains_sensitive_personal_data`, `contains_sensitive_hr_data`, `is_personal_conflict`) are first-class columns; CHECK constraint forces `rejected_sensitive`/`quarantined_sensitive` status to set at least one flag. |
 | Extraction candidate evidence | `extraction_candidate_evidence.id` (uuid) | DB | **R4.** Stores both model-provided AND validator-confirmed quote/offsets. CHECK constraint forces validation pass to populate the validated fields — no silent passes. Source-type/pointer consistency mirrors spec 6.8. |
 | Extraction validation result | `extraction_validation_results.id` (uuid) | DB | **R4.** One row per deterministic check executed; powers the failure-mode taxonomy in `06-evaluation-framework.md`. |
+| Claim candidate hash | `claims.candidate_hash` (varchar(64), nullable) | DB | **R7.** sha256 hex of the canonicalized candidate (see `computeCandidateHash`). Partial UNIQUE index `WHERE candidate_hash IS NOT NULL` enforces "no two distinct claims share the same canonicalized hash" across cron runs. NULL on pre-R7 historical rows. |
+| Document → top-domain assignment | `document_top_domains.(document_id, top_domain_id)` | DB | **R3.5.** Multi-valued join; R7's document worker writes these via `executePromotion`'s success path so retrieval can scope at the document level before any claim search runs. |
+| Document chunk → top-domain assignment | `document_chunk_top_domains.(document_chunk_id, top_domain_id)` | DB | **R3.5.** Same as above, chunk-level. |
+| Document evidence metadata | `extraction_candidate_evidence.documentClass`, `processStage` (varchar(100), nullable) | DB | **R5.5.** Nullable per-evidence metadata that R5.5's extraction prompt can surface inline; the promoter writes these through to `claim_metadata`. |
 
 **External system identifiers** (do not change casually; recorded so a future migration doesn't break references):
 
@@ -459,6 +490,38 @@ The most important section. **Do not undo these without reading the cited spec s
 
 **Do not change because:** swapping in `Error('not implemented')` would prevent fallback from triggering, and the system would surface a bare error to callers instead of dispatching to the alternate provider. The router treats validation errors and assertion errors differently from transient/unavailable errors on purpose.
 
+### The `OpenRouterBridgeAdapter` wears any provider hat — it is intentional, not a misconfiguration
+
+**Looks like:** the worker constructs `OracleAIClient` with `OpenRouterBridgeAdapter` for all 3 provider tags (`anthropic`, `vertex`, `openai`). That seems wrong — the curated route says `vertex_gemini_2_5_flash_extraction_primary`, but the underlying call goes to OpenRouter.
+
+**Actually:** it's a deliberate R6+ transitional layer. The OracleAIClient surface (route resolution, context-pack logging, `model_run_usage_details`, fallback dispatch) is fully active. Only the SDK-level call is bridged to OpenRouter because `@anthropic-ai/sdk` / `@google/genai` / `openai` aren't wired yet. The bridge maps the route's `modelId` to OpenRouter's namespace (`vertex_gemini_2_5_flash` → `google/gemini-2.5-flash`, etc.).
+
+**Why:** R6 / R7 / R8 needed to ship the staging pipeline + observability changes without taking a hard dependency on real cloud SDKs that require credentials + a wet-test path. The bridge satisfies the "everything through OracleAIClient" rule today and gets swapped out per-adapter as R9+ replacements land.
+
+**Do not change because:** removing the bridge before the real adapter is wired means every model call throws `ProviderAdapterNotImplementedError`. The chat route, both workers, and the synthesis worker (when R9 lands) all depend on the bridge for routing today.
+
+### Pure-function-first design in `packages/oracle-engines/src/extraction/`
+
+**Looks like:** R5 / R5.5 / R6 / R7 ship a lot of pure functions (`validateQuote`, `decidePromotion`, `resolveEntity`, `validateTaxonomy`, `decideCircuitBreaker`, `decideCacheProfitability`, `computeCandidateHash`, `mapLegacyDomainsToTopDomains`, `estimateTokensForCache`) that take inputs and return decisions — without touching the database directly.
+
+**Actually:** the workers compose them with DB I/O explicitly. The DB-touching helpers (`executePromotion`, `recordCacheCreation`, `recordCacheTermination`, `recordCacheReuse`) are thin wrappers around Drizzle inserts. The split is intentional so:
+
+1. **Smoke gates run without API keys, DB, or network.** 127 assertions across R2/R5/R5.5/R6/R7 verify business logic in milliseconds, in CI, on any machine.
+2. **Decision logic is auditable.** A reviewer can read `decidePromotion` in 60 lines and know exactly when an `insert_new_claim` becomes an `append_to_existing_claim` becomes a `reject`.
+3. **Tests don't have to mock Drizzle.** The R5 smoke test verifies "duplicate promotion retry safety" by calling `decidePromotion` with a snapshot where `candidate.status === 'promoted'` — no mock DB, no fake transaction.
+
+**Do not change because:** moving business logic into the DB-touching helpers would re-couple decision and execution, force smoke tests to spin up a Postgres, and bury invariants that should be one function lookup away.
+
+### Race-safe promotion: hash lookup inside the advisory lock
+
+**Looks like:** the executor (`packages/oracle-engines/src/extraction/promotion-executor.ts`) does an `existingClaimWithSameHash` lookup INSIDE the Drizzle transaction, after `pg_try_advisory_xact_lock(hashtextextended($1, 0))` returns. That seems redundant — couldn't the caller pre-fetch the existing claim?
+
+**Actually:** if the caller pre-fetches, two workers racing on the same hash will both see "no existing claim" and both try `INSERT INTO claims`. The partial UNIQUE index on `claims.candidate_hash` would catch one of them with a constraint violation, but the loser's evidence rows would already be inserted in a half-rolled-back state — and the candidate.status update path would have to encode the conflict resolution after the fact.
+
+**Why:** the advisory lock serializes concurrent workers on the same hash. INSIDE the lock, the executor re-reads the latest committed view of `claims WHERE candidate_hash = $hash`. If a different worker committed first, the executor automatically upgrades the decision from `insert_new_claim` to `append_to_existing_claim`. This is the "pre-built decision can be stale" guarantee that lets workers call `decidePromotion` outside the transaction and have the executor correct course inside.
+
+**Do not change because:** pulling the lookup back outside the lock re-introduces the race. The advisory lock + in-transaction hash lookup + partial UNIQUE index together form the three-strand cord that makes promotion idempotent across worker restarts and cron retries.
+
 ### Logout uses a POST form to a server route, not client-side `signOut()`
 
 **Looks like:** "just call `supabase.auth.signOut()` from a client button — simpler."
@@ -555,13 +618,13 @@ Rule added to prevent recurrence:
 | done | **R3 — Observability schema** (`oracle_context_packs`, `model_run_usage_details`, `provider_cached_content` + CHECK constraints + `model_runs_with_usage` view) | commit `1e345d3`; Drizzle migration `0001_hot_johnny_blaze.sql` + hand-written `11_observability_constraints.sql`, `31_observability_views.sql` |
 | done | **R3.5 — Three-layer knowledge taxonomy schema** (15 tables; 12 top-domains with boundary rules seeded; 56 entities seeded; `licensor` first-class) | commit `c529594`; Drizzle migration `0002_demonic_kid_colt.sql` + hand-written `12_taxonomy_constraints.sql`, `16_knowledge_top_domains_seed.sql`, `17_entities_seed.sql`, `42_claim_top_domains_backfill.sql`, `48_taxonomy_vector_indexes.sql` |
 | done | **R4 — Candidate-before-claim staging schema** (4 staging tables; 13 CHECK constraints incl. promoted-consistency, sensitive-consistency, validated-fields-required-on-pass) | commit `fe60304`; Drizzle migration `0003_magenta_lionheart.sql` + hand-written `13_extraction_constraints.sql` |
-| open | **R5 — Exact quote validator + promotion service** (next code phase) | `packages/oracle-engines/src/extraction/{quote-validator,promote-candidate}.ts` per `docs/oracle/05-ai-retrofit-phase-packet.md` Phase R5; isolated tests for the 6 cases before R6 worker wiring |
-| open | Apply the new migrations to live Supabase DB | `pnpm db:migrate` will apply `0001`, `0002`, `0003` in order; all hand-written SQL is idempotent; no existing data touched |
-| open | R5.5 — Entity/metadata extraction in candidate pipeline | extend candidate schema + validator |
-| open | R6 — Refactor `apps/workers/src/trigger/claim-extraction.ts` through staging tables | hook the validation-loop circuit breaker |
-| open | R7 — Refactor `apps/workers/src/trigger/document-ingestion.ts` to Vertex/Gemini direct | including Supabase → Vertex storage bridge |
-| open | R8 — Refactor `apps/web/app/api/chat/route.ts` through `OracleAIClient` | use `RetrievalPlan` + hybrid pgvector + tsvector RRF |
-| open | R9 — Refactor `apps/workers/src/trigger/brain-synthesis.ts` to Anthropic direct | strict synthesis validation |
+| done | **R5 — Quote validator + promotion decision** (pure functions in `packages/oracle-engines/src/extraction/{quote-validator,candidate-hash,promote-candidate}.ts`; 33/33 assertions via `pnpm --filter @oracle/engines verify:r5`) | commit `70339c6` |
+| done | **R5.5 — Entity resolver + taxonomy validator** (`entity-resolver.ts` + `taxonomy-validator.ts`; `decidePromotion` extended with `entityAssignments` + `metadata` + `entityProposalsToStage`; 45/45 assertions via `verify:r5.5`) | commit `8cad256`; Drizzle migration `0004_simple_tomas.sql` for `extraction_candidate_evidence.documentClass` + `processStage` |
+| done | **R6 — Refactor `apps/workers/src/trigger/claim-extraction.ts` through staging tables** (circuit breaker + promotion executor + bridge adapter; 30/30 assertions via `verify:r6`) | commit `b46131d`; new `packages/ai/src/providers/openrouter-bridge-adapter.ts` |
+| done | **R7 — Refactor `apps/workers/src/trigger/document-ingestion.ts` through staging** (cache profitability heuristic + `provider_cached_content` lifecycle + race-safe executor + `claims.candidate_hash`; 19/19 assertions via `verify:r7`) | commit `a8a8586`; Drizzle migration `0005_kind_nekra.sql` + hand-written `14_claims_candidate_hash_unique.sql` |
+| done | **R8 — Refactor `apps/web/app/api/chat/route.ts` through `OracleAIClient`** with `providerOptions` escape hatch for tools, multi-turn messages, `stopWhen`, `temperature` | commit `8a38fbd` |
+| open | Apply the new migrations to live Supabase DB | `pnpm db:migrate` will apply `0001`–`0005` in order; all hand-written SQL is idempotent; no existing data touched |
+| open | **R9 — Refactor `apps/workers/src/trigger/brain-synthesis.ts`** (last legacy `getOpenRouter()` caller) — next code phase | use `OracleAIClient` via `OpenRouterBridgeAdapter`; add "every material paragraph maps to approved claim IDs" validator; reject unsupported named entities |
 | open | R10 — Admin observability dashboards (AI runs, context packs, cache traffic-light, candidate review) | reads from `model_runs_with_usage` view |
 | open | R10.5 — Taxonomy admin + maturity-based re-evaluation worker | compact proposal cards for `taxonomy_proposals` / `entity_proposals` |
 | open | R11 — Resume interjection engine (lull detection, contradiction live-interjection) | only after R5–R10.5 — needs trustworthy claims first |

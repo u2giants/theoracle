@@ -368,6 +368,85 @@ model output
 
 13 CHECK constraints (in `migrations/sql/13_extraction_constraints.sql`) enforce the pipeline invariants that schema alone can't — `promoted-consistency`, `sensitive-consistency`, `validated-fields-required-on-pass`, source-type/pointer consistency, etc.
 
-### What's still legacy (R5–R9)
+### Extraction pipeline pure logic (R5 + R5.5, landed)
 
-The Trigger.dev workers (`apps/workers/src/trigger/*.ts`), the chat route (`apps/web/app/api/chat/route.ts`), and the admin model picker all still call OpenRouter directly. The retrofit packet wires them through `OracleAIClient` in R6–R9. Don't extend the OpenRouter path; refactor the call sites toward `OracleAIClient` instead.
+`packages/oracle-engines/src/extraction/` ships the deterministic logic that workers compose. Every function in this list is pure (no DB, no API keys, no network) and covered by a smoke gate:
+
+| Module | Function | Purpose |
+|---|---|---|
+| `quote-validator.ts` | `validateQuote` | Verbatim provenance check. Returns `exact_match` / `normalized_match` / `ambiguous` / `failed`. Supplied offsets are ground truth — they must decode to the exact quote or the row fails with `quote_offsets_match`. |
+| `quote-validator.ts` | `validateSourcePointer` | Mirrors the `extraction_candidate_evidence_source_check` CHECK constraint. Fails fast before the DB insert. |
+| `normalization.ts` | `normalize`, `methodForApplied` | CRLF / smart-quote / whitespace-collapse / trim. All OFF by default. Reports which normalizations actually changed the input so audits can replay the decision. |
+| `candidate-hash.ts` | `computeCandidateHash`, `canonicalizeSummary` | Deterministic sha256 over canonicalized candidate (lowercased + collapsed-whitespace summary; sorted top-domain IDs; sorted validated quotes; sorted source pointers). Stable across order, case, and whitespace. |
+| `promote-candidate.ts` | `decidePromotion` | Pure decider returning `insert_new_claim` / `append_to_existing_claim` / `reject(reason)`. Extended in R5.5 with `entityAssignments`, `metadata`, `entityProposalsToStage`. |
+| `entity-resolver.ts` | `resolveEntity` | Alias → canonical lookup. Returns `resolved` / `unknown` / `type_mismatch` / `ambiguous`. Type-mismatch catches "Disney as vendor" — Disney is a `licensor` in the seed; the resolver refuses to silently create a vendor row. |
+| `taxonomy-validator.ts` | `validateTaxonomy` | Validates every proposed top-domain against `knowledge_top_domains` + every proposed entity against the registry. Surfaces `entityProposalsToCreate` for unknown / type-mismatch entities. |
+| `circuit-breaker.ts` | `decideCircuitBreaker` | 3-strike rule per `docs/oracle/03-candidate-before-claim-validation.md`. Returns `continue` / `allow_repair_pass` / `trip_breaker`. |
+| `domain-mapping.ts` | `mapLegacyDomainsToTopDomains` | Transitional legacy `KNOWLEDGE_DOMAINS` → `TOP_LEVEL_DOMAINS` mapping. Mirrors `migrations/sql/42_claim_top_domains_backfill.sql` exactly. |
+| `cache-profitability.ts` | `decideCacheProfitability`, `estimateTokensForCache` | Vertex explicit-cache heuristic. Returns `create_explicit_cache(rule)` / `skip_explicit_cache(reason)`. |
+
+Run each smoke gate any time: `pnpm --filter @oracle/engines verify:r5` (33/33), `verify:r5.5` (45/45), `verify:r6` (30/30), `verify:r7` (19/19). Combined with R2 (16/16), 143 deterministic assertions cover the business logic.
+
+### DB-aware extraction executor (R6 + R7, landed)
+
+`packages/oracle-engines/src/extraction/promotion-executor.ts` is the only path that inserts into permanent `claims` / `claim_top_domains` / `claim_entities` / `claim_metadata` / `claim_evidence`. The transaction shape:
+
+```
+db.transaction(async (tx) => {
+  // 1. Advisory lock — refuses to block; throws AdvisoryLockBusyError if taken.
+  await tx.execute(sql`SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))`)
+
+  // 2. Race-safe hash lookup INSIDE the lock.
+  const existing = await tx.select(...).from(claims).where(eq(claims.candidateHash, hash))
+
+  // 3. Re-decide (R7+ snapshotInputs path) OR upgrade pre-built insert → append
+  //    if a race was detected (R6 legacy decision path).
+  const decision = input.snapshotInputs
+    ? decidePromotion({ ...input.snapshotInputs, existingClaimWithSameHash: existing })
+    : maybeUpgradeOnRace(input.decision, existing)
+
+  // 4. Stage entity_proposals (they're useful regardless of branch).
+  // 5. Branch on decision.kind:
+  //    insert_new_claim          → claims + claim_top_domains + claim_entities
+  //                                + claim_metadata + claim_evidence
+  //                                + candidate.status='promoted'
+  //                                + extraction_validation_results pass
+  //    append_to_existing_claim  → claim_entities + claim_evidence appended
+  //                                + candidate.status='duplicate'
+  //                                + extraction_validation_results pass
+  //    reject                    → candidate.status updated per reason
+  //                                + extraction_validation_results fail
+})
+```
+
+Cache lifecycle (`packages/oracle-engines/src/extraction/cache-lifecycle.ts`):
+- `recordCacheCreation` inserts a `provider_cached_content` row with `status='active'` and the required reuse policy fields (`expected_reuse_count`, `latest_planned_reuse_step`, `hard_expiration_at`, `cleanup_owner`).
+- `recordCacheReuse(handle)` bumps `actual_reuse_count`.
+- `recordCacheTermination({ handle, status, reason })` marks the row `deleted | expired | failed | orphaned` and stamps `deleted_at`. The CHECK constraint on `provider_cached_content` enforces `deleted_at IS NOT NULL` whenever status is non-active.
+
+### Worker and chat-route integration (R6 + R7 + R8, landed)
+
+After R6/R7/R8, every legacy `getOpenRouter()` caller except `brain-synthesis.ts` (R9) dispatches through `OracleAIClient`:
+
+| Caller | Phase | Status |
+|---|---|---|
+| `apps/workers/src/trigger/claim-extraction.ts` | R6 | ✅ via `OpenRouterBridgeAdapter` |
+| `apps/workers/src/trigger/document-ingestion.ts` | R7 | ✅ via `OpenRouterBridgeAdapter` |
+| `apps/web/app/api/chat/route.ts` | R8 | ✅ via `OpenRouterBridgeAdapter` + `providerOptions` escape hatch for tools/multi-turn |
+| `apps/workers/src/trigger/brain-synthesis.ts` | R9 | ⬜ next code phase — still calls `getOpenRouter()` |
+| `apps/workers/src/trigger/contradiction-watcher.ts` | R11 | ⬜ Phase 6 / interjection territory |
+
+Each refactored caller follows the same pattern:
+1. Build `OracleAIClient` with `OpenRouterBridgeAdapter` for all 3 provider tags.
+2. Resolve the curated route from `settings.default_*_route` (R1 keys).
+3. Compile a prompt plan with `ContextCompiler` (stable_system + dynamic content).
+4. Insert `oracle_context_packs` row BEFORE the model call so its ID can thread through.
+5. Call `OracleAIClient.runText` (chat) or `runObject` (workers).
+6. Insert `model_runs` + `model_run_usage_details` + back-link the context pack.
+7. Workers: stage `extraction_batches` + `extraction_candidates` + `extraction_candidate_evidence`, run validators, call `executePromotion`. Chat: persist the assistant message.
+
+### Transitional bridge adapter (R6 onward)
+
+`packages/ai/src/providers/openrouter-bridge-adapter.ts` is a deliberate transitional layer. It implements `OracleProviderAdapter` for all 3 provider tags (`anthropic`, `vertex`, `openai`) but the underlying network call goes to OpenRouter via the Vercel AI SDK. The bridge maps the route's `modelId` to OpenRouter's namespace (`vertex_gemini_2_5_flash` → `google/gemini-2.5-flash`, etc.).
+
+**The bridge is not part of the target architecture.** R9+ replaces it one provider at a time as each refactored worker needs a specific provider's native caching or structured-output features. After the last replacement, the bridge can be deleted entirely.

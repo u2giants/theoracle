@@ -248,3 +248,56 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Decision**: `OracleAIClient({ mode: 'test' })` automatically registers `MockProviderAdapter` instances for all three providers. Production mode wires the real (stub) `AnthropicAdapter` / `VertexGeminiAdapter` / `OpenAIAdapter`.
 - **Why**: The R2 smoke gate (`pnpm --filter @oracle/ai verify:r2`) needs to exercise the full pipeline (compiler → router → adapter → validator) without API keys or network access. Test mode keeps that single source of truth.
 - **Production behavior unchanged**: production callers don't get mock fallback. If a stub adapter throws `ProviderAdapterNotImplementedError`, the router falls back to the configured Fallback route — it does NOT silently swap in mock output.
+
+---
+
+# AI Architecture Retrofit — R5 through R8 (2026-05-25, second pass)
+
+## D6.pure-function-first — extraction logic split from DB executor
+
+- **Decision**: All R5/R5.5/R6/R7 business logic lives in pure functions in `packages/oracle-engines/src/extraction/` (`validateQuote`, `decidePromotion`, `resolveEntity`, `validateTaxonomy`, `decideCircuitBreaker`, `decideCacheProfitability`, `computeCandidateHash`, `mapLegacyDomainsToTopDomains`, `estimateTokensForCache`). DB I/O is in thin wrappers (`executePromotion`, `recordCacheCreation`, `recordCacheTermination`, `recordCacheReuse`).
+- **Why**: smoke gates run in milliseconds without API keys / DB / network access. 127 assertions across R2/R5/R5.5/R6/R7 verify business invariants in CI on any machine. Decision logic is auditable in 60 lines instead of buried in a 600-line transaction.
+- **Alternative ruled out**: building stateful Worker classes that own the DB connection + the decision logic together. Rejected because it would force every smoke test to spin up Postgres and mock Drizzle's transaction interface, and would bury the "when does insert_new_claim become append_to_existing_claim" rule.
+
+## D6.openrouter-bridge-adapter — transitional dispatch through OracleAIClient
+
+- **Decision**: R6 / R7 / R8 construct `OracleAIClient` with `OpenRouterBridgeAdapter` wearing each provider hat (`anthropic`, `vertex`, `openai`) so calls dispatch through OracleAIClient correctly but the underlying network call goes to OpenRouter via the Vercel AI SDK.
+- **Why**: satisfies the "everything through OracleAIClient" architectural rule (context-pack logging, `model_run_usage_details`, route resolution, fallback handling) without forcing `@anthropic-ai/sdk` / `@google/genai` / `openai` SDK dependencies into the install before there's a wet-test path for them.
+- **Mapping**: route's `modelId` (e.g. `claude-haiku-4-5`) maps to OpenRouter's namespace (`anthropic/claude-haiku-4-5`); if `modelId` already includes a `/`, it passes through as-is.
+- **Removal plan**: per-adapter replacement in R9+ as each worker that needs a specific provider's caching/structured-output gets refactored. R9 (synthesis) is the natural place to wire the Anthropic SDK first.
+
+## D6.candidate-hash-column — historical duplicate detection
+
+- **Decision**: R7 adds a nullable `claims.candidate_hash varchar(64)` column with a partial UNIQUE index `WHERE candidate_hash IS NOT NULL` (in `migrations/sql/14_claims_candidate_hash_unique.sql`). The promotion executor stamps the hash on insert and looks claims up by it INSIDE the advisory-locked transaction.
+- **Why**: R6 shipped advisory locking but had no way to find an existing claim from a past cron run with the same hash. R7 closes the gap: two workers racing on the same hash now both see the same committed view inside their respective locks, the loser auto-upgrades to `append_to_existing_claim`. Historical claims (pre-R7) have NULL hash and don't collide with the partial UNIQUE.
+- **Alternative ruled out**: a full UNIQUE constraint (without WHERE NULL). Rejected because it would require backfilling every historical row, which we can't do without recomputing the hash from the original validated quotes — they're not stored on `claims`.
+
+## D6.race-safe-promotion — hash lookup inside the advisory lock
+
+- **Decision**: `executePromotion` does the `existingClaimWithSameHash` lookup INSIDE the Drizzle transaction, after `pg_try_advisory_xact_lock(hashtextextended($1, 0))` returns. Pre-built decisions from R6 callers are honored except when the in-lock lookup detects a race — in that case an `insert_new_claim` decision is automatically upgraded to `append_to_existing_claim`.
+- **Why**: pulling the lookup outside the lock re-introduces the race window. Inside the lock, the executor sees the latest committed view of the world; only one worker can be in the lock at a time per hash; the partial UNIQUE on `claims.candidate_hash` is the belt to the lock's suspenders.
+- **R5 callers (R6 worker) still work**: they pre-build the decision and pass it. The executor will correct course if a race is detected. R7+ callers (document worker) pass `snapshotInputs` instead so the executor re-decides entirely inside the lock.
+
+## D6.cache-profitability-heuristic — explicit Vertex cache gating
+
+- **Decision**: `decideCacheProfitability` encodes the rule from `docs/oracle/02-provider-native-ai-architecture.md` exactly: `useExplicitGeminiCache = (sourceTokenEstimate >= 25_000 && expectedReuseCount >= 3) OR (sourceTokenEstimate >= 100_000 && expectedReuseCount >= 2)`. The large rule takes precedence when both apply.
+- **Why**: Vertex explicit caches bill while they exist. Creating one for a one-off small chunk is a net cost loss — the storage fee outpaces the saved input-token spend. The heuristic captures the break-even points conservatively.
+- **R7 worker behavior**: document ingestion makes one call per document by default, so the heuristic almost always returns `skip_explicit_cache` today. The bookkeeping path (`recordCacheCreation` / `recordCacheTermination`) is wired and tested, so when multi-pass extraction lands later the cache lifecycle audit trail just works.
+
+## D6.cache-lifecycle-tracking — `provider_cached_content` always recorded
+
+- **Decision**: Every explicit cache, real or notional, gets a `provider_cached_content` row at creation (`recordCacheCreation`) and a termination row update (`recordCacheTermination`) when its reuse window ends. The CHECK constraint `deleted_at IS NULL iff status='active'` is enforced at the DB level.
+- **Why**: caches that aren't tracked become orphaned billing items. The bookkeeping path is identical whether the underlying cache is a real Vertex resource or a stub — when `@google/genai` is wired in a later phase, the lifecycle audit trail already works.
+- **Status whitelist** (`migrations/sql/11_observability_constraints.sql`): `active | deleted | expired | failed | orphaned`. Workers MUST drive transitions through `recordCacheTermination`; direct UPDATEs are still possible but the CHECK constraint catches inconsistent rows.
+
+## D6.providerOptions-escape-hatch — chat-route tool calling without leaking SDK types
+
+- **Decision**: R8's chat route needed multi-turn message history + tool calling + `stopWhen` + `temperature` — none of which fit `OracleAIClient.runText`'s narrow single-system-single-user contract. The fix: add an optional `providerOptions?: Record<string, unknown>` field on `GenerateTextArgs` / `RunTextArgs`. The bridge adapter spreads it into the underlying `generateText` call.
+- **Why**: avoids leaking Vercel AI SDK's `ToolSet` type into the OracleAIClient surface (which would force every adapter to either implement or ignore tool calling). The escape hatch is generic on purpose — each adapter opts in to specific keys.
+- **Backward compat**: R2 smoke (16 assertions) still passes because the field is optional. Mock + stub adapters ignore it.
+- **Removal plan**: when the surface stabilizes (probably after R9 + R10), the `providerOptions` field can be narrowed into typed members (`tools`, `messages`, `temperature`, etc.) without breaking callers.
+
+## D6.legacy-claim-domains-still-preserved (extended through R6/R7)
+
+- **Extension to D5.legacy-claim-domains-preserved**: R6 and R7 workers now write to `claim_top_domains` via `executePromotion` (insert_new_claim path). The legacy `claim_domains` table is no longer written to by the new pipeline — but it's still preserved in the schema and still readable, per the R3.5 acceptance gate. The backfill SQL (`42_claim_top_domains_backfill.sql`) populates `claim_top_domains` from the legacy table on every migrate so the transition stays consistent.
+- **Removal plan**: drop `claim_domains` + the `knowledge_domain` Postgres enum only after R9 + R10 are wired and the admin dashboard reads exclusively from `claim_top_domains`.

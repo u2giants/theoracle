@@ -114,23 +114,43 @@ pnpm --filter @oracle/workers dev     # requires Trigger.dev CLI; the script use
 
 We don't have a full test framework wired yet. When we do, the convention will be Vitest at the package level (`packages/<x>/src/__tests__/*.test.ts`). Don't write speculative tests before then — the spec calls for evaluation gates over real transcripts, not unit coverage on schemas.
 
-### R2 acceptance smoke gate
+### AI retrofit smoke gates
 
-The OracleAIClient pipeline has a self-contained smoke test that exercises the compiler, router, all 3 provider shapes (via mock adapter), `generateText`, Zod-validated `generateObject`, the ModelRouter fallback path, and the EvidenceValidator. It runs without API keys, database, or network access.
+Each phase that ships runtime logic has a self-contained smoke gate. All run without API keys, database, or network access.
 
 ```bash
-pnpm --filter @oracle/ai verify:r2
+pnpm --filter @oracle/ai      verify:r2     # 16/16 — OracleAIClient pipeline + bridge wiring
+pnpm --filter @oracle/engines verify:r5     # 33/33 — quote validator + promotion decider
+pnpm --filter @oracle/engines verify:r5.5   # 45/45 — entity resolver + taxonomy validator
+pnpm --filter @oracle/engines verify:r6     # 30/30 — circuit breaker + legacy domain mapping
+pnpm --filter @oracle/engines verify:r7     # 19/19 — cache profitability + token estimate
 ```
 
-16 assertions, all should pass. Run this any time you touch `packages/ai/src/{client,context,routing,providers,usage,validation}/` to confirm you didn't break the pipeline.
+Run the gate for whichever module you touched. The DB-aware executor (`executePromotion`) and the Trigger.dev workers themselves aren't covered by these gates because they require a live Postgres — the pure decision logic they compose is covered.
+
+### Pre-push gate
+
+Before pushing a commit, run the full gate suite. CI (`.github/workflows/pr-check.yml`) runs the same thing on every PR + push to `main`.
+
+```bash
+pnpm typecheck                              # all 7 packages
+pnpm --filter @oracle/web build             # production Next build
+pnpm --filter @oracle/ai      verify:r2
+pnpm --filter @oracle/engines verify:r5
+pnpm --filter @oracle/engines verify:r5.5
+pnpm --filter @oracle/engines verify:r6
+pnpm --filter @oracle/engines verify:r7
+```
+
+If you only touched one phase's module, you can scope the smoke gate to that phase — but the typecheck + build pair is non-negotiable. The full gate combination is fast (~30 seconds total) because the pure-function smokes finish in milliseconds.
 
 ### AI retrofit phase gates
 
-Each AI retrofit phase has an acceptance gate documented in `docs/oracle/05-ai-retrofit-phase-packet.md`. The current contract is:
+Each AI retrofit phase has an acceptance gate documented in `docs/oracle/05-ai-retrofit-phase-packet.md`. The current contract:
 
-- After each phase, `pnpm typecheck && pnpm --filter @oracle/web build && pnpm --filter @oracle/ai verify:r2` must all pass before commit.
-- New phases must not regress prior gates — re-run them after schema/code work.
-- R5 (the next phase) adds isolated validator tests for the 6 cases in `docs/oracle/05-ai-retrofit-phase-packet.md#phase-r5`. Those tests will run inline as part of `pnpm --filter @oracle/oracle-engines verify:r5` once they're written.
+- After each phase, the pre-push gate above must all pass before commit.
+- New phases must not regress prior gates.
+- R9 (the next phase) will add the synthesis equivalent of R5's quote validator: every material paragraph in a Brain section update must map to approved claim IDs. The validator + worker refactor will land with a `verify:r9` script.
 
 ## Inspection / debugging scripts
 

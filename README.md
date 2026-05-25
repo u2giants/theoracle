@@ -98,8 +98,13 @@ For full setup details including platform-specific gotchas, see [`docs/developme
 | R3 — Observability schema | done — `oracle_context_packs` + `model_run_usage_details` + `provider_cached_content` (commit `1e345d3`) |
 | R3.5 — Knowledge taxonomy schema | done — 15 tables incl. boundary rules + licensor entity type + seeds + backfill (commit `c529594`) |
 | R4 — Candidate-before-claim staging schema | done — `extraction_batches` + `extraction_candidates` + `extraction_candidate_evidence` + `extraction_validation_results` (commit `fe60304`) |
-| **R5 — Exact quote validator + promotion service** | **next code phase** — see `docs/oracle/05-ai-retrofit-phase-packet.md` |
-| R5.5–R10.5 — rest of AI architecture retrofit | not started |
+| R5 — Quote validator + promotion decision | done — `packages/oracle-engines/src/extraction/` pure validator + decider (commit `70339c6`); 33-assertion smoke gate `pnpm --filter @oracle/engines verify:r5` |
+| R5.5 — Entity resolver + taxonomy validator | done — extends `decidePromotion` with `entityAssignments` + `metadata` + `entityProposalsToStage` (commit `8cad256`); 45-assertion smoke `verify:r5.5` |
+| R6 — Claim extraction worker refactor | done — `apps/workers/src/trigger/claim-extraction.ts` through staging pipeline + circuit breaker + promotion executor (commit `b46131d`); 30-assertion smoke `verify:r6` |
+| R7 — Document ingestion + cache infra | done — `apps/workers/src/trigger/document-ingestion.ts` through staging + `claims.candidate_hash` + race-safe executor + cache profitability/lifecycle (commit `a8a8586`); 19-assertion smoke `verify:r7` |
+| R8 — Chat route through OracleAIClient | done — `apps/web/app/api/chat/route.ts` through `OracleAIClient.runText` with `providerOptions` escape hatch for tools/multi-turn (commit `8a38fbd`) |
+| **R9 — Synthesis worker refactor** | **next code phase** — `apps/workers/src/trigger/brain-synthesis.ts`; "every material paragraph maps to approved claim IDs" validator per `docs/oracle/05-ai-retrofit-phase-packet.md` Phase R9 |
+| R10 / R10.5 — Dashboards + taxonomy admin | not started |
 | 6 — Interjection engine | paused until AI retrofit and validation pipeline are complete (R11) |
 
 ## What needs attention next
@@ -108,11 +113,21 @@ See [`HANDOFF.md`](HANDOFF.md) and [`docs/oracle/05-ai-retrofit-phase-packet.md`
 
 The short version:
 
-- **R0–R4 are done.** `packages/ai/src/` has the full OracleAIClient pipeline (R2); the DB schema has observability tables (R3), the three-layer knowledge taxonomy (R3.5), and candidate-before-claim staging (R4).
-- **R5 is next** — exact quote validator + concurrency-locked promotion service in `packages/oracle-engines/src/extraction/`, with isolated tests for the 6 cases in `docs/oracle/05-ai-retrofit-phase-packet.md` Phase R5.
-- After R5: R5.5 (entity/metadata extraction in the candidate pipeline), R6–R9 (refactor the workers and chat route through `OracleAIClient`), R10 / R10.5 (admin dashboards + taxonomy governance), R11 (resume interjection on top of trustworthy claims).
+- **R0–R8 are done.** `packages/ai/src/` has the full `OracleAIClient` pipeline (R2). The DB schema has observability tables (R3), the three-layer knowledge taxonomy (R3.5), and candidate-before-claim staging (R4 + R7's `claims.candidate_hash`). The pure validator/promoter/entity-resolver lives in `packages/oracle-engines/src/extraction/` (R5 + R5.5). The claim extraction worker (R6), the document ingestion worker (R7), and the chat route (R8) all dispatch through `OracleAIClient` via the `OpenRouterBridgeAdapter`.
+- **R9 is next** — refactor `apps/workers/src/trigger/brain-synthesis.ts` through `OracleAIClient` + ship the "every material paragraph maps to approved claim IDs" synthesis validator.
+- After R9: R10 / R10.5 (admin dashboards + taxonomy governance), R11 (resume interjection on top of trustworthy claims).
 
-Run `pnpm --filter @oracle/ai verify:r2` any time to confirm the R2 pipeline still passes its 16-assertion smoke gate.
+Pre-push gate — run any time:
+
+```bash
+pnpm typecheck                              # 7/7 packages
+pnpm --filter @oracle/web build             # production Next build
+pnpm --filter @oracle/ai      verify:r2     # 16/16
+pnpm --filter @oracle/engines verify:r5     # 33/33
+pnpm --filter @oracle/engines verify:r5.5   # 45/45
+pnpm --filter @oracle/engines verify:r6     # 30/30
+pnpm --filter @oracle/engines verify:r7     # 19/19
+```
 
 Security reminders:
 
