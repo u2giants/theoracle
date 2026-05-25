@@ -44,20 +44,15 @@ Goal: replace arbitrary OpenRouter model strings with curated Big 3 route IDs.
 
 Tasks:
 
-1. Add a route config module under `packages/ai/src/routes/`.
-2. Define `OracleModelRoute` type.
-3. Define cost-aware default routes:
-   - interview: `anthropic_claude_haiku_4_5_interview_primary`;
-   - extraction: `vertex_gemini_flash_lite_extraction_primary`;
-   - synthesis: `vertex_gemini_flash_synthesis_primary`.
-4. Define balanced alternate routes:
-   - interview: `anthropic_claude_haiku_4_5_interview_primary`;
-   - extraction: `vertex_gemini_flash_extraction_primary`;
-   - synthesis: `anthropic_claude_haiku_synthesis_primary`.
-5. Define escalation/manual-only routes from `01-model-roles-and-routes.md`.
-6. Update Admin Settings so model pickers select route IDs, not arbitrary OpenRouter model IDs.
-7. Keep old settings keys during migration, but mark them deprecated.
-8. Add new settings keys:
+1. Deprecate OpenRouter raw string usage — remove all production references to arbitrary OpenRouter model ID strings.
+2. Define exactly 1 Primary Route and 1 Fallback Route for each of the 3 roles (Interview, Extraction, Synthesis) as specified in `01-model-roles-and-routes.md`. Do not define "balanced alternate routes" or multiple competing defaults.
+3. Build the internal escalation subroutes (Triage, Warmth, Schema Repair) inside `OracleAIClient` — do not expose them as admin-selectable defaults.
+4. Remove any existing code referencing "balanced alternate routes" or multiple defaults.
+5. Add a route config module under `packages/ai/src/routes/`.
+6. Define `OracleModelRoute` type.
+7. Update Admin Settings so model pickers select route IDs, not arbitrary OpenRouter model IDs.
+8. Keep old settings keys during migration, but mark them deprecated.
+9. Add new settings keys:
    - `default_interview_route`;
    - `default_extraction_route`;
    - `default_synthesis_route`.

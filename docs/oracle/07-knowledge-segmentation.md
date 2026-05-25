@@ -400,6 +400,12 @@ Claims are not eternally true.
 **Retrieval Behavior:**
 If a claim is `superseded_by_claim_id`, the Vector Search MUST exclude it from the primary context pack unless the user explicitly asks for "historical process." If a claim is `stale`, it is passed to the AI but flagged with a warning so the Interview model can ask the user: *"Is this still how we handle this?"*
 
+3. **Corroboration Weighting:** When executing Hybrid Search, claims with `system_verified` or `admin_certified` tiers must be artificially ranked higher than `single_source_observed` claims.
+
+**Freshness fields (extended):**
+- `freshness_basis`: The logic used to determine freshness (e.g., `"seasonal_calendar"`, `"erp_sync"`, `"manual_review"`).
+- `recertification_trigger`: An explicit condition that forces this claim to be reviewed (e.g., `"Customer updates routing guide"`, `"New calendar year"`).
+
 ---
 
 ## Cross-references

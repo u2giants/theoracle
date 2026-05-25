@@ -577,9 +577,9 @@ Required default settings:
 lull_window_seconds = 60
 oracle_cooldown_minutes = 10
 max_oracle_interjections_per_hour = 3
-default_interview_model = "anthropic/claude-sonnet-4.6"
-default_extraction_model = "google/gemini-flash"
-default_synthesis_model = "anthropic/claude-sonnet-4.6"
+default_interview_route = "anthropic_claude_haiku_4_5_interview_primary"
+default_extraction_route = "vertex_gemini_2_5_flash_extraction_primary"
+default_synthesis_route = "anthropic_claude_3_5_sonnet_synthesis_primary"
 enable_live_contradiction_interjections = false
 enable_group_chat_lull_questions = true
 ```
@@ -965,6 +965,13 @@ export const oracleInterventions = pgTable('oracle_interventions', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 ```
+
+### Corroboration Tier Semantics
+
+- `single_source_observed`: Anecdotal. Do not synthesize into Brain without warning.
+- `multi_source_corroborated`: Mentioned by 2+ independent sources. Trusted for synthesis.
+- `system_verified`: Backed by ERP/Coldlion data.
+- `admin_certified`: Locked as ground truth by Albert.
 
 ## 6.7 Brain Section Creation Note
 

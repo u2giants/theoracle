@@ -654,6 +654,9 @@ Steps:
 **3. Freshness / Supersession Handling**
 - *Goal:* When fed a transcript containing a new rule that explicitly overwrites an old rule, the system must successfully output a candidate with `supersedes_claim_id` pointing to the old rule, rather than extracting it as a conflicting parallel claim.
 
+**4. Staleness / Review_Due Handling**
+- *Goal:* Verify that when the ContextCompiler feeds the Interview model a claim marked `recertification_status: 'stale'`, the model successfully generates a proactive question to the user asking if the process is still accurate, rather than asserting it as current fact. Target: >95% accuracy on mock stale-claim transcripts.
+
 ---
 
 ## What not to build yet
