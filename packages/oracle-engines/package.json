@@ -7,13 +7,15 @@
   "types": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "verify:r5": "tsx src/__verify__/r5-validator-smoke.ts"
   },
   "dependencies": {
     "@oracle/db": "workspace:*",
     "@oracle/shared": "workspace:*"
   },
   "devDependencies": {
+    "tsx": "^4.19.2",
     "typescript": "^5.9.3"
   }
 }
