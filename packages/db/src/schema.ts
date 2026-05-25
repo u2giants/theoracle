@@ -436,12 +436,21 @@ export const claims = pgTable(
     confidenceScore: integer('confidence_score').notNull(),
     status: claimStatusEnum('status').notNull(),
     embedding: vector('embedding', { dimensions: EMBEDDING_DIM }),
+    // R7 — sha256 hex of the canonicalized candidate (see
+    // computeCandidateHash in @oracle/engines). The promotion executor
+    // looks claims up by this column inside the advisory lock to detect
+    // historical duplicates across cron runs. Nullable for backward
+    // compatibility with rows promoted before R7; the partial UNIQUE
+    // index in migrations/sql/14_claims_candidate_hash_unique.sql
+    // enforces uniqueness only when populated.
+    candidateHash: varchar('candidate_hash', { length: 64 }),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => ({
     statusCreatedIdx: index('claims_status_created_idx').on(t.status, t.createdAt),
     impactIdx: index('claims_impact_idx').on(t.impactScore),
     confidenceIdx: index('claims_confidence_idx').on(t.confidenceScore),
+    candidateHashIdx: index('claims_candidate_hash_idx').on(t.candidateHash),
   }),
 );
 

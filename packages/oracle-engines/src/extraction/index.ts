@@ -61,3 +61,24 @@ export {
   type ExecutePromotionInput,
   type ExecutePromotionResult,
 } from './promotion-executor';
+
+// R7 — cache profitability + provider_cached_content lifecycle
+export {
+  decideCacheProfitability,
+  estimateTokensForCache,
+  EXPLICIT_CACHE_MEDIUM_SOURCE_TOKEN_THRESHOLD,
+  EXPLICIT_CACHE_MEDIUM_SOURCE_REUSE_THRESHOLD,
+  EXPLICIT_CACHE_LARGE_SOURCE_TOKEN_THRESHOLD,
+  EXPLICIT_CACHE_LARGE_SOURCE_REUSE_THRESHOLD,
+  type CacheProfitabilityInput,
+  type CacheProfitabilityDecision,
+} from './cache-profitability';
+export {
+  recordCacheCreation,
+  recordCacheReuse,
+  recordCacheTermination,
+  type RecordCacheCreationInput,
+  type RecordCacheTerminationInput,
+  type CacheLifecycleHandle,
+  type CacheTerminalStatus,
+} from './cache-lifecycle';

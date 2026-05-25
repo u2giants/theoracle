@@ -29,7 +29,7 @@
  * `getDirectDb()` / `getPooledDb()` clients in @oracle/db.
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import {
   claims,
   claimEvidence,
@@ -41,7 +41,7 @@ import {
   extractionValidationResults,
   type OracleDb,
 } from '@oracle/db';
-import type { PromotionDecision } from './promote-candidate';
+import { decidePromotion, type CandidateSnapshot, type PromotionDecision } from './promote-candidate';
 
 export class AdvisoryLockBusyError extends Error {
   constructor(public readonly candidateHash: string) {
@@ -52,11 +52,38 @@ export class AdvisoryLockBusyError extends Error {
   }
 }
 
+/**
+ * Inputs to executePromotion.
+ *
+ * R7+ shape: the caller supplies the snapshot *without* `existingClaimWithSameHash`
+ * and *without* having called `decidePromotion` yet. The executor:
+ *   1. Acquires the advisory lock inside the transaction.
+ *   2. Looks up any existing claim with the same `candidate_hash` (the
+ *      partial UNIQUE index in 14_claims_candidate_hash_unique.sql means
+ *      at most one will be found).
+ *   3. Calls `decidePromotion` with the snapshot + existing-claim lookup.
+ *   4. Applies the decision.
+ *
+ * This is the race-safe pattern: the hash lookup and the insert happen
+ * inside the same advisory-locked transaction, so two concurrent workers
+ * with the same hash can't both succeed at "insert_new_claim". One will
+ * win; the other will see the existing claim and append.
+ *
+ * The legacy R6 pre-built-decision shape is preserved on `decision` for
+ * callers that still want to make the decision themselves — but the new
+ * snapshot-based path is preferred.
+ */
 export interface ExecutePromotionInput {
   db: OracleDb;
   candidateId: string;
   candidateHash: string;
-  decision: PromotionDecision;
+  /**
+   * Either supply a pre-built `decision` (legacy R6 shape) OR a
+   * `snapshotInputs` (R7 shape) that lets the executor look up existing
+   * claims by hash inside the transaction and decide race-safely.
+   */
+  decision?: PromotionDecision;
+  snapshotInputs?: Omit<CandidateSnapshot, 'existingClaimWithSameHash'>;
   /** Used to stamp entity_proposals rows with provenance. */
   modelRunId?: string;
 }
@@ -70,20 +97,27 @@ export interface ExecutePromotionResult {
   claimId?: string;
   appendedEvidenceCount?: number;
   stagedEntityProposalIds: string[];
+  /** The decision the executor actually applied (after the in-lock re-decide if applicable). */
+  appliedDecision: PromotionDecision;
 }
 
 /**
- * Execute a promotion decision against the live DB.
+ * Execute a promotion against the live DB.
  *
- * Caller MUST run `decidePromotion(...)` first; this function does not
- * re-decide. If the candidate's state changed between the decision and
- * execution (e.g. another worker raced), the executor will see the
- * existing claim row inside the transaction and the caller's decision
- * may be stale — that's why production code re-reads the candidate and
- * re-decides INSIDE the lock. R6's worker follows that pattern.
+ * R7 pattern (preferred): pass `snapshotInputs`. The executor takes the
+ * advisory lock, looks up `claims WHERE candidate_hash = $hash` inside
+ * the transaction, and calls `decidePromotion` with the race-safe view.
+ *
+ * Legacy R6 pattern: pass a pre-built `decision`. The executor still
+ * looks up the existing claim and will UPGRADE an `insert_new_claim`
+ * decision to `append_to_existing_claim` if a race is detected — but
+ * a `reject` or `append_to_existing_claim` decision is honored as-is.
  */
 export async function executePromotion(input: ExecutePromotionInput): Promise<ExecutePromotionResult> {
-  const { db, candidateId, candidateHash, decision, modelRunId } = input;
+  const { db, candidateId, candidateHash, modelRunId } = input;
+  if (!input.decision && !input.snapshotInputs) {
+    throw new Error('executePromotion requires either `decision` or `snapshotInputs`.');
+  }
 
   return db.transaction(async (tx) => {
     // 1. Advisory lock. pg_try_advisory_xact_lock returns FALSE if another
@@ -98,7 +132,54 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
     const locked = rows[0]?.locked === true;
     if (!locked) throw new AdvisoryLockBusyError(candidateHash);
 
-    // 2. Stage any entity_proposals first — they're useful to admin
+    // 2. Race-safe hash lookup. Even if the caller pre-built a decision,
+    // we double-check inside the lock — another worker may have committed
+    // a claim with the same hash between the caller's decide and our
+    // execute. The partial UNIQUE on claims.candidate_hash means at most
+    // one row matches.
+    const existingByHash = await tx
+      .select({ id: claims.id })
+      .from(claims)
+      .where(and(eq(claims.candidateHash, candidateHash), isNotNull(claims.candidateHash)))
+      .limit(1);
+    const existingClaimWithSameHash =
+      existingByHash[0] ? { claimId: existingByHash[0].id } : null;
+
+    // 3. Decide. The R7 path always re-decides inside the lock with the
+    // freshly-looked-up existing claim. The legacy R6 path provided a
+    // decision; we upgrade insert_new_claim → append_to_existing_claim
+    // if a race was detected, but otherwise honor the pre-built decision.
+    let decision: PromotionDecision;
+    if (input.snapshotInputs) {
+      decision = decidePromotion({
+        ...input.snapshotInputs,
+        existingClaimWithSameHash,
+      });
+    } else {
+      const provided = input.decision!;
+      if (
+        existingClaimWithSameHash &&
+        provided.kind === 'insert_new_claim'
+      ) {
+        // Race detected — convert to an append.
+        decision = {
+          kind: 'append_to_existing_claim',
+          candidateHash: provided.candidateHash,
+          existingClaimId: existingClaimWithSameHash.claimId,
+          entityAssignments: provided.entityAssignments,
+          entityProposalsToStage: provided.entityProposalsToStage,
+          evidenceRows: provided.evidenceRows,
+          candidateUpdate: {
+            status: 'duplicate',
+            setDuplicateOfClaimId: existingClaimWithSameHash.claimId,
+          },
+        };
+      } else {
+        decision = provided;
+      }
+    }
+
+    // 4. Stage any entity_proposals first — they're useful to admin
     //    regardless of which decision branch we take.
     const stagedEntityProposalIds: string[] = [];
     const proposalsToStage =
@@ -135,6 +216,7 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
             impactScore: decision.claim.impactScore,
             confidenceScore: decision.claim.confidenceScore ?? 5,
             status: 'pending_review',
+            candidateHash, // R7 — enables historical duplicate detection
           })
           .returning({ id: claims.id });
         if (!newClaim) throw new Error('claims insert returned no row');
@@ -218,6 +300,7 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
           outcome: 'inserted_new_claim',
           claimId,
           stagedEntityProposalIds,
+          appliedDecision: decision,
         };
       }
 
@@ -280,6 +363,7 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
           claimId,
           appendedEvidenceCount,
           stagedEntityProposalIds,
+          appliedDecision: decision,
         };
       }
 
@@ -324,6 +408,7 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
         return {
           outcome: 'recorded_rejection',
           stagedEntityProposalIds,
+          appliedDecision: decision,
         };
       }
     }

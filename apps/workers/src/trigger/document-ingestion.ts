@@ -1,78 +1,114 @@
-// Document ingestion worker — spec Part 9.6.
+// R7 — Document ingestion worker (refactored through OracleAIClient + staging).
 //
-// This task has two modes:
-//   1. Triggered directly with { documentId } — process a single document
-//      (called from the upload API route after a document is inserted).
-//   2. Scheduled sweep (every 4 hours) — picks up documents that are still
-//      pending_processing and triggers individual ingestion tasks for each.
+// Per docs/oracle/05-ai-retrofit-phase-packet.md Phase R7.
 //
-// Per-document workflow (spec 9.6):
-//   1. Download bytes from Supabase Storage (service-role client).
-//   2. Parse into plain text by file type (PDF / XLSX / text).
-//   3. Chunk text (~1500 chars with 150-char overlap); compute contentHash.
-//   4. Embed chunks via @oracle/ai embedMany (1536-dim).
-//   5. INSERT document_chunks rows (dedup by contentHash).
-//   6. Run claim extraction on each chunk (same extraction model / schema).
-//   7. INSERT claims + claim_domains + claim_evidence (source_type='document_chunk').
-//   8. UPDATE documents.status to 'complete' or 'failed'.
-//   9. Log model_runs and job_runs rows (spec Part 9).
+// What changed vs the legacy worker:
+//   - Model calls go through OracleAIClient (R2) via OpenRouterBridgeAdapter
+//     using the curated route ID from `settings.default_extraction_route`.
+//     R7 ships the explicit-cache profitability heuristic +
+//     provider_cached_content lifecycle bookkeeping; real Vertex caches
+//     land when @google/genai is wired.
+//   - Output flows through extraction_batches → extraction_candidates →
+//     extraction_candidate_evidence first. NOTHING writes to permanent
+//     claims tables before R5's deterministic validator passes.
+//   - Per-claim quote validation against the matching document_chunk's text
+//     (not the full document).
+//   - Per-claim taxonomy validation against active knowledge_top_domains.
+//   - Race-safe promotion via executePromotion (snapshotInputs path) —
+//     uses claims.candidate_hash to detect historical duplicates across
+//     ingestion runs.
+//   - document_top_domains + document_chunk_top_domains rows written for
+//     each successfully-promoted claim's domains, so retrieval works at
+//     the document level even before claims accumulate.
+//
+// What stays the same:
+//   - Download from Supabase Storage via service-role client (private).
+//   - PDF / XLSX / CSV / text parsing.
+//   - Chunking + embedding + document_chunks insert (with dedup by hash).
+//   - Direct + sweep task variants (single document + cron safety net).
 
 import { schedules, task, tasks } from '@trigger.dev/sdk/v3';
 import { and, eq, inArray } from 'drizzle-orm';
 import { createHash } from 'crypto';
-import { generateObject } from 'ai';
 import { z } from 'zod';
 import { getDirectDb } from '@oracle/db/client';
 import {
-  claims,
-  claimDomains,
-  claimEvidence,
   documentChunks,
   documents,
-  gaps,
-  modelRuns,
+  documentTopDomains,
+  documentChunkTopDomains,
+  extractionBatches,
+  extractionCandidates,
+  extractionCandidateEvidence,
+  extractionValidationResults,
   jobRuns,
+  modelRunUsageDetails,
+  modelRuns,
+  oracleContextPacks,
   settings,
-} from '@oracle/db/schema';
+  type OracleDb,
+} from '@oracle/db';
 import {
-  getOpenRouter,
+  OpenRouterBridgeAdapter,
+  OracleAIClient,
   embedMany,
+  getOracleRoute,
+  makeBlock,
   EXTRACTION_SYSTEM_PROMPT,
   EXTRACTION_PROMPT_VERSION,
   ExtractionOutputSchema,
-  type FormattedMessage,
-  formatConversationSegment,
+  type ExtractionOutput,
+  type OracleModelRoute,
+  type OraclePromptPlan,
 } from '@oracle/ai';
+import {
+  computeCandidateHash,
+  decideCacheProfitability,
+  estimateTokensForCache,
+  executePromotion,
+  mapLegacyDomainsToTopDomains,
+  recordCacheCreation,
+  recordCacheTermination,
+  validateQuote,
+  validateSourcePointer,
+  validateTaxonomy,
+  AdvisoryLockBusyError,
+  type CandidateSnapshot,
+} from '@oracle/engines';
 import { createServiceRoleClient } from '@oracle/auth/server';
-import type { KnowledgeDomain } from '@oracle/shared';
+import type { KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
 
-const FALLBACK_MODEL = 'google/gemini-2.5-flash';
-const CHUNK_SIZE = 1500;     // characters per chunk
-const CHUNK_OVERLAP = 150;   // character overlap between chunks
+const CHUNK_SIZE = 1500;
+const CHUNK_OVERLAP = 150;
+const MAX_DOCUMENT_TEXT_CHARS = 15_000;
+const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
 
-// Low-risk claim types (same set as claim-extraction worker).
-const LOW_RISK_CLAIM_TYPES = new Set([
-  'process_rule',
-  'exception_rule',
-  'dependency',
-  'system_limitation',
-]);
-
-// ---------------------------------------------------------------------------
-// Payload schema for the single-document task.
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
+// Payload schema for the single-document task
+// ─────────────────────────────────────────────────────────────────────────
 const SingleDocumentPayloadSchema = z.object({
   documentId: z.string().uuid(),
 });
 
-// ---------------------------------------------------------------------------
-// Text chunking helper.
-// ---------------------------------------------------------------------------
-function chunkText(
-  text: string,
-  chunkSize = CHUNK_SIZE,
-  overlap = CHUNK_OVERLAP,
-): string[] {
+// ─────────────────────────────────────────────────────────────────────────
+// Shared OracleAIClient (one per worker process, bridge adapters)
+// ─────────────────────────────────────────────────────────────────────────
+function buildOracleClient(): OracleAIClient {
+  return new OracleAIClient({
+    adapters: {
+      anthropic: new OpenRouterBridgeAdapter({ provider: 'anthropic' }),
+      vertex: new OpenRouterBridgeAdapter({ provider: 'vertex' }),
+      openai: new OpenRouterBridgeAdapter({ provider: 'openai' }),
+    },
+    fallbackOnError: true,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Text helpers
+// ─────────────────────────────────────────────────────────────────────────
+
+function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP): string[] {
   if (text.length <= chunkSize) return [text];
   const chunks: string[] = [];
   let start = 0;
@@ -85,21 +121,13 @@ function chunkText(
   return chunks;
 }
 
-// ---------------------------------------------------------------------------
-// PDF parsing (dynamically imported so the module loads cleanly if pdf-parse
-// is unavailable in some build environments).
-// ---------------------------------------------------------------------------
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
-  // Dynamic import avoids pdf-parse test-file side effect at module load time.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pdfParse = (await import('pdf-parse')).default as (buf: Buffer) => Promise<{ text: string }>;
   const result = await pdfParse(buffer);
   return result.text;
 }
 
-// ---------------------------------------------------------------------------
-// XLSX / CSV parsing.
-// ---------------------------------------------------------------------------
 async function extractTextFromXlsx(buffer: Buffer): Promise<string> {
   const XLSX = await import('xlsx');
   const workbook = XLSX.read(buffer, { type: 'buffer' });
@@ -115,50 +143,46 @@ async function extractTextFromXlsx(buffer: Buffer): Promise<string> {
   return lines.join('\n');
 }
 
-// ---------------------------------------------------------------------------
-// Process a single document.
-// ---------------------------------------------------------------------------
-async function processDocument(documentId: string, triggerRunId: string): Promise<{
+// ─────────────────────────────────────────────────────────────────────────
+// Per-document processor
+// ─────────────────────────────────────────────────────────────────────────
+
+interface ProcessDocumentResult {
   chunksInserted: number;
-  claimsInserted: number;
-}> {
+  candidatesStaged: number;
+  claimsPromoted: number;
+  duplicatesAppended: number;
+  rejections: number;
+}
+
+async function processDocument(documentId: string, jobRunId: string): Promise<ProcessDocumentResult> {
   const db = getDirectDb();
+  const client = buildOracleClient();
   const serviceSupabase = createServiceRoleClient();
+  const outcome: ProcessDocumentResult = {
+    chunksInserted: 0,
+    candidatesStaged: 0,
+    claimsPromoted: 0,
+    duplicatesAppended: 0,
+    rejections: 0,
+  };
 
-  // Load the document row.
-  const [doc] = await db
-    .select()
-    .from(documents)
-    .where(eq(documents.id, documentId))
-    .limit(1);
-
+  // 1. Load + mark processing.
+  const [doc] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
   if (!doc) throw new Error(`Document ${documentId} not found`);
   if (doc.status === 'complete') {
     console.log(`[document-ingestion] ${documentId} already complete — skipping`);
-    return { chunksInserted: 0, claimsInserted: 0 };
+    return outcome;
   }
+  await db.update(documents).set({ status: 'processing' }).where(eq(documents.id, documentId));
 
-  // Mark as processing.
-  await db
-    .update(documents)
-    .set({ status: 'processing' })
-    .where(eq(documents.id, documentId));
+  const route = await resolveExtractionRoute(db);
+  const activeTopDomainIds = await loadActiveTopDomainIds(db);
 
-  // Read extraction model from settings.
-  const modelSetting = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'default_extraction_model'))
-    .limit(1);
-  const modelName =
-    (typeof modelSetting[0]?.value === 'string' ? modelSetting[0].value : null) ??
-    FALLBACK_MODEL;
-
-  // 1. Download bytes from Storage.
+  // 2. Download.
   const { data: blob, error: downloadError } = await serviceSupabase.storage
     .from(doc.storageBucket)
     .download(doc.storagePath);
-
   if (downloadError || !blob) {
     throw new Error(
       `Storage download failed for ${doc.storagePath}: ${downloadError?.message ?? 'empty blob'}`,
@@ -166,7 +190,7 @@ async function processDocument(documentId: string, triggerRunId: string): Promis
   }
   const buffer = Buffer.from(await blob.arrayBuffer());
 
-  // 2. Parse into text.
+  // 3. Parse.
   let rawText: string;
   try {
     if (doc.fileType === 'application/pdf') {
@@ -180,9 +204,8 @@ async function processDocument(documentId: string, triggerRunId: string): Promis
     } else if (doc.fileType.startsWith('text/')) {
       rawText = buffer.toString('utf-8');
     } else {
-      // Unsupported MIME — skip extraction, mark complete (the file is stored; just not parsed).
       console.warn(
-        `[document-ingestion] unsupported file type ${doc.fileType} for doc ${documentId} — marking skipped`,
+        `[document-ingestion] unsupported file type ${doc.fileType} for doc ${documentId} — marking complete with note`,
       );
       await db
         .update(documents)
@@ -192,7 +215,7 @@ async function processDocument(documentId: string, triggerRunId: string): Promis
           processingError: `Unsupported file type: ${doc.fileType}`,
         })
         .where(eq(documents.id, documentId));
-      return { chunksInserted: 0, claimsInserted: 0 };
+      return outcome;
     }
   } catch (parseErr) {
     throw new Error(
@@ -203,218 +226,574 @@ async function processDocument(documentId: string, triggerRunId: string): Promis
   if (!rawText.trim()) {
     await db
       .update(documents)
-      .set({
-        status: 'complete',
-        processedAt: new Date(),
-        processingError: 'No text extracted',
-      })
+      .set({ status: 'complete', processedAt: new Date(), processingError: 'No text extracted' })
       .where(eq(documents.id, documentId));
-    return { chunksInserted: 0, claimsInserted: 0 };
+    return outcome;
   }
 
-  // 3. Chunk text.
+  // 4. Chunk + embed + insert chunks (idempotent dedup by content hash).
   const textChunks = chunkText(rawText);
+  let chunkVectors: (number[] | null)[] = [];
+  try {
+    const { vectors } = await embedMany(textChunks);
+    chunkVectors = vectors;
+  } catch (embedErr) {
+    console.warn('[document-ingestion] embed failed; inserting chunks without vectors', embedErr);
+    chunkVectors = textChunks.map(() => null);
+  }
 
-  // 4. Embed all chunks in one batch call.
-  const { vectors } = await embedMany(textChunks);
-
-  // 5. Insert document_chunks with dedup by contentHash.
-  let chunksInserted = 0;
-  const insertedChunkIds: string[] = [];
-
+  const insertedChunkIds: Array<{ id: string; text: string }> = [];
   for (let i = 0; i < textChunks.length; i++) {
-    const rawTextSlice = textChunks[i]!;
-    const contentHash = createHash('sha256').update(rawTextSlice).digest('hex');
-
+    const text = textChunks[i]!;
+    const contentHash = createHash('sha256').update(text).digest('hex');
     try {
       const [chunk] = await db
         .insert(documentChunks)
         .values({
           documentId,
           chunkIndex: i,
-          rawText: rawTextSlice,
-          tokenCount: Math.ceil(rawTextSlice.length / 4), // rough estimate
+          rawText: text,
+          tokenCount: Math.ceil(text.length / 4),
           contentHash,
-          embedding: vectors[i] ?? null,
+          embedding: chunkVectors[i] ?? null,
           metadataJson: { fileType: doc.fileType, fileName: doc.fileName },
         })
-        .onConflictDoNothing() // dedup by (documentId, chunkIndex)
+        .onConflictDoNothing()
         .returning({ id: documentChunks.id });
-
       if (chunk) {
-        chunksInserted++;
-        insertedChunkIds.push(chunk.id);
+        outcome.chunksInserted += 1;
+        insertedChunkIds.push({ id: chunk.id, text });
       }
     } catch (chunkErr) {
       console.error(`[document-ingestion] chunk ${i} insert failed:`, chunkErr);
     }
   }
 
-  // 6. Run claim extraction on the document text as a whole
-  //    (treat the entire document as a single "conversation segment" for extraction).
-  let claimsInserted = 0;
+  if (insertedChunkIds.length === 0 || rawText.trim().length <= 20) {
+    await db
+      .update(documents)
+      .set({ status: 'complete', processedAt: new Date() })
+      .where(eq(documents.id, documentId));
+    return outcome;
+  }
 
-  if (rawText.trim().length > 20 && insertedChunkIds.length > 0) {
-    // We use a synthetic message ID for document content (not a real message).
-    // The extraction model receives the document text; evidence maps back to chunk IDs.
-    const callStartMs = Date.now();
+  // 5. Stage extraction_batches row.
+  const truncatedText = rawText.slice(0, MAX_DOCUMENT_TEXT_CHARS);
+  const sourceHash = createHash('sha256').update(truncatedText, 'utf8').digest('hex');
+  const [batch] = await db
+    .insert(extractionBatches)
+    .values({
+      jobRunId,
+      batchType: 'document_page',
+      status: 'pending_model',
+      sourceDocumentChunkIds: insertedChunkIds.map((c) => c.id),
+      sourceHash,
+      modelRunIdsAttempted: [],
+      routeIdsAttempted: [route.routeId],
+    })
+    .returning({ id: extractionBatches.id });
+  if (!batch) throw new Error('[document-ingestion] failed to insert extraction_batches row');
 
-    // Format as a pseudo-conversation with a single "document" message.
-    const docFakeMessageId = `doc:${documentId}`;
-    const pseudoMessages: FormattedMessage[] = [
-      {
-        id: docFakeMessageId,
-        role: 'user',
-        content: rawText.slice(0, 15000), // cap at 15k chars to stay within model limits
-        authorName: `[Document: ${doc.fileName}]`,
-        createdAt: new Date(doc.createdAt),
-      },
-    ];
+  // 6. Compile prompt + context pack. The document text becomes the dynamic
+  //    block; the extraction system prompt + the document-specific addendum
+  //    are stable.
+  const documentNote =
+    `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}`;
+  const blocks = [
+    makeBlock({
+      id: 'extraction-system',
+      label: 'Extraction system prompt + document addendum',
+      kind: 'stable_system',
+      content: EXTRACTION_SYSTEM_PROMPT + documentNote,
+      reasonIncluded: 'extraction prompt v' + EXTRACTION_PROMPT_VERSION + ' (document mode)',
+    }),
+    makeBlock({
+      id: 'document-text',
+      label: 'Document content (truncated)',
+      kind: 'dynamic_input',
+      content: truncatedText,
+      reasonIncluded: `${insertedChunkIds.length} chunks → truncated to ${truncatedText.length} chars`,
+    }),
+  ];
+  const plan = client.compile({
+    taskType: 'document_claim_extraction',
+    routeId: route.routeId,
+    promptVersion: EXTRACTION_PROMPT_VERSION,
+    blocks,
+    observability: { includedDocumentChunkIds: insertedChunkIds.map((c) => c.id) },
+  });
 
-    const formattedSegment = formatConversationSegment(pseudoMessages);
-    const documentPromptAddition =
-      `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}`;
+  const [contextPack] = await db
+    .insert(oracleContextPacks)
+    .values(buildContextPackInsert(plan))
+    .returning({ id: oracleContextPacks.id });
+  if (!contextPack) throw new Error('[document-ingestion] failed to insert oracle_context_packs row');
+  await db
+    .update(extractionBatches)
+    .set({ contextPackId: contextPack.id })
+    .where(eq(extractionBatches.id, batch.id));
 
-    try {
-      const openrouter = getOpenRouter();
-      const model = openrouter(modelName);
+  // 7. Cache profitability bookkeeping. R7 records the decision and (when
+  //    the heuristic says yes) creates a provider_cached_content row even
+  //    though no real Vertex cache exists yet — so when @google/genai
+  //    lands, the lifecycle audit trail is already in place. The row is
+  //    marked deleted in `finally` below.
+  const cacheDecision = decideCacheProfitability({
+    sourceTokenEstimate: estimateTokensForCache(truncatedText),
+    expectedReuseCount: 1, // R7 makes a single extraction call per document
+  });
+  let cacheHandle: Awaited<ReturnType<typeof recordCacheCreation>> | null = null;
+  if (cacheDecision.kind === 'create_explicit_cache') {
+    cacheHandle = await recordCacheCreation({
+      db,
+      provider: 'vertex',
+      cacheKind: 'explicit',
+      sourceHash,
+      sourceTokenEstimate: estimateTokensForCache(truncatedText),
+      sourceDescription: `${doc.fileName} (${doc.fileType})`,
+      // providerResourceName: filled when a real Vertex cache resource exists (R7+ SDK wiring).
+      expectedReuseCount: 1,
+      latestPlannedReuseStep: 'document_claim_extraction',
+      hardExpirationAt: new Date(Date.now() + 60 * 60 * 1000), // 1h hard cap
+      cleanupOwner: 'document-ingestion-worker',
+      createdByJobRunId: jobRunId,
+    });
+  }
 
-      const { object, usage } = await generateObject({
-        model,
-        schema: ExtractionOutputSchema,
-        system: EXTRACTION_SYSTEM_PROMPT + documentPromptAddition,
-        messages: [{ role: 'user', content: formattedSegment }],
-        temperature: 0.1,
-      });
+  // 8. Call the model.
+  let modelOutput: ExtractionOutput | null = null;
+  let modelRunId: string | null = null;
+  const callStartedAt = Date.now();
+  try {
+    const result = await client.runObject<ExtractionOutput>({
+      taskType: 'document_claim_extraction',
+      routeId: route.routeId,
+      promptVersion: EXTRACTION_PROMPT_VERSION,
+      blocks,
+      schema: ExtractionOutputSchema,
+      observability: { includedDocumentChunkIds: insertedChunkIds.map((c) => c.id) },
+    });
+    const latencyMs = Date.now() - callStartedAt;
 
-      const latencyMs = Date.now() - callStartMs;
+    const [modelRun] = await db
+      .insert(modelRuns)
+      .values({
+        taskType: 'document-ingestion',
+        model: route.modelId,
+        provider: route.provider,
+        promptVersion: EXTRACTION_PROMPT_VERSION,
+        inputHash: plan.metadata.stablePrefixHash,
+        inputTokens: result.usage.inputTokens ?? null,
+        outputTokens: result.usage.outputTokens ?? null,
+        latencyMs,
+        success: result.validation.ok,
+      })
+      .returning({ id: modelRuns.id });
+    if (!modelRun) throw new Error('[document-ingestion] failed to insert model_runs row');
+    modelRunId = modelRun.id;
 
-      const [modelRun] = await db
-        .insert(modelRuns)
-        .values({
-          taskType: 'document-ingestion',
-          model: modelName,
-          provider: 'openrouter',
-          promptVersion: EXTRACTION_PROMPT_VERSION,
-          inputTokens: usage?.inputTokens ?? null,
-          outputTokens: usage?.outputTokens ?? null,
-          latencyMs,
-          success: true,
-        })
-        .returning({ id: modelRuns.id });
+    await db.insert(modelRunUsageDetails).values({
+      modelRunId: modelRun.id,
+      contextPackId: contextPack.id,
+      routeId: route.routeId,
+      inputTokens: result.usage.inputTokens ?? null,
+      cachedInputTokens: result.usage.cachedInputTokens ?? null,
+      cacheWriteTokens: result.usage.cacheWriteTokens ?? null,
+      outputTokens: result.usage.outputTokens ?? null,
+      reasoningTokens: result.usage.reasoningTokens ?? null,
+      providerRequestId: result.usage.providerRequestId ?? null,
+      rawUsageJson: result.usage.rawUsageJson ?? null,
+    });
+    await db
+      .update(oracleContextPacks)
+      .set({ modelRunId: modelRun.id })
+      .where(eq(oracleContextPacks.id, contextPack.id));
+    await db
+      .update(extractionBatches)
+      .set({
+        modelRunId: modelRun.id,
+        modelRunIdsAttempted: [modelRun.id],
+        rawModelOutput: result.object as unknown as Record<string, unknown>,
+        status: result.validation.ok ? 'model_complete' : 'failed',
+      })
+      .where(eq(extractionBatches.id, batch.id));
 
-      // 7. Insert claims with document_chunk evidence.
-      for (const extracted of object.claims) {
-        // For documents the sourceMessageId is the synthetic doc ID —
-        // we don't do the same substring check we do for real messages,
-        // but we verify the quote is plausibly from the raw text.
-        if (!rawText.includes(extracted.evidence.exactQuote)) {
-          console.warn(
-            `[document-ingestion] exactQuote not found in document ${documentId} — skipping claim`,
-          );
-          continue;
-        }
-
-        const autoApprove =
-          !extracted.requiresReview &&
-          extracted.impactScore <= 6 &&
-          LOW_RISK_CLAIM_TYPES.has(extracted.claimType);
-
-        // Embed the claim summary.
-        let embedding: number[] | null = null;
-        try {
-          const { vectors: claimVectors } = await embedMany([extracted.summary]);
-          embedding = claimVectors[0] ?? null;
-        } catch {
-          // Non-fatal — proceed without embedding.
-        }
-
-        const [claim] = await db
-          .insert(claims)
-          .values({
-            claimType: extracted.claimType,
-            summary: extracted.summary,
-            impactScore: extracted.impactScore,
-            confidenceScore: extracted.confidenceScore,
-            status: autoApprove ? 'approved' : 'pending_review',
-            embedding: embedding ?? undefined,
-          })
-          .returning({ id: claims.id });
-
-        if (!claim) continue;
-        claimsInserted++;
-
-        // Domains.
-        for (const domain of extracted.domains) {
-          await db
-            .insert(claimDomains)
-            .values({ claimId: claim.id, domain: domain as KnowledgeDomain })
-            .onConflictDoNothing();
-        }
-
-        // Find the chunk that best contains the quote (first match).
-        let evidenceChunkId: string | null = insertedChunkIds[0] ?? null;
-        for (let ci = 0; ci < textChunks.length; ci++) {
-          if (textChunks[ci]!.includes(extracted.evidence.exactQuote)) {
-            evidenceChunkId = insertedChunkIds[ci] ?? null;
-            break;
-          }
-        }
-
-        // Evidence.
-        await db.insert(claimEvidence).values({
-          claimId: claim.id,
-          sourceType: 'document_chunk',
-          sourceDocumentChunkId: evidenceChunkId,
-          uploadedByEmployeeId: doc.uploaderId,
-          exactQuote: extracted.evidence.exactQuote,
-          confidence: extracted.evidence.confidence,
-        });
-
-        // Suggested gaps.
-        for (const gap of extracted.suggestedGaps ?? []) {
-          await db.insert(gaps).values({
-            gapType: 'document_extraction_gap',
-            relatedClaimIds: [claim.id],
-            questionToAsk: gap.questionToAsk,
-            whyItMatters: gap.whyItMatters,
-            priority: gap.priority,
-            status: 'open',
-            createdByModelRunId: modelRun?.id ?? null,
-          });
-        }
-      }
-    } catch (extractErr) {
-      console.error('[document-ingestion] extraction LLM call failed:', extractErr);
-
+    if (!result.validation.ok) {
+      throw new Error(
+        '[document-ingestion] model output failed Zod schema validation: ' + result.validation.error.message,
+      );
+    }
+    modelOutput = result.object;
+  } catch (err) {
+    if (!modelRunId) {
       await db.insert(modelRuns).values({
         taskType: 'document-ingestion',
-        model: modelName,
-        provider: 'openrouter',
+        model: route.modelId,
+        provider: route.provider,
         promptVersion: EXTRACTION_PROMPT_VERSION,
-        latencyMs: Date.now() - callStartMs,
+        latencyMs: Date.now() - callStartedAt,
         success: false,
-        error: extractErr instanceof Error ? extractErr.message : String(extractErr),
+        error: err instanceof Error ? err.message : String(err),
       });
-      // Non-fatal — chunks were still inserted; we just won't have claims.
+    }
+    await db
+      .update(extractionBatches)
+      .set({
+        status: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+        finishedAt: new Date(),
+      })
+      .where(eq(extractionBatches.id, batch.id));
+    if (cacheHandle) {
+      await recordCacheTermination({
+        db,
+        handle: cacheHandle,
+        status: 'failed',
+        reason: 'extraction call failed; cache resource never used',
+      });
+    }
+    // Document still has chunks — mark complete with the error noted.
+    await db
+      .update(documents)
+      .set({
+        status: 'complete',
+        processedAt: new Date(),
+        processingError: err instanceof Error ? err.message : String(err),
+      })
+      .where(eq(documents.id, documentId));
+    return outcome;
+  }
+
+  // 9. For each extracted claim: stage candidate + evidence, validate,
+  //    promote. The promoter writes claim_top_domains for the claim; we
+  //    additionally write document_chunk_top_domains so retrieval works
+  //    against the chunk independently.
+  if (modelOutput) {
+    for (const extracted of modelOutput.claims) {
+      // Pick the chunk whose text contains the quote. If none does, the
+      // quote validator will reject it as 'failed' anyway.
+      const matchingChunk = insertedChunkIds.find((c) => c.text.includes(extracted.evidence.exactQuote));
+      const chunkForEvidence = matchingChunk ?? insertedChunkIds[0]!;
+
+      const proposedTopDomainIds = mapLegacyDomainsToTopDomains(
+        extracted.domains as KnowledgeDomain[],
+      );
+
+      const [candidate] = await db
+        .insert(extractionCandidates)
+        .values({
+          extractionBatchId: batch.id,
+          status: 'pending_validation',
+          claimType: extracted.claimType,
+          summary: extracted.summary,
+          impactScore: extracted.impactScore,
+          confidenceScore: extracted.confidenceScore,
+          domains: proposedTopDomainIds satisfies TopLevelDomainId[],
+          proposedEntities: [],
+          containsSensitivePersonalData: false,
+          containsSensitiveHRData: false,
+          isPersonalConflict: false,
+          requiresReview: extracted.requiresReview,
+          reviewReason: extracted.requiresReview ? 'extractor requested review' : null,
+          rawCandidateJson: extracted as unknown as Record<string, unknown>,
+        })
+        .returning({ id: extractionCandidates.id });
+      if (!candidate) continue;
+      outcome.candidatesStaged += 1;
+
+      // Stage candidate evidence (source_type='document_chunk').
+      const sourcePointerRes = validateSourcePointer({
+        sourceType: 'document_chunk',
+        sourceDocumentChunkId: chunkForEvidence.id,
+      });
+      if (!sourcePointerRes.ok) {
+        await db.insert(extractionValidationResults).values({
+          candidateId: candidate.id,
+          checkName: sourcePointerRes.failedCheckName ?? 'source_exists',
+          status: 'fail',
+          detail: sourcePointerRes.detail,
+        });
+        await db
+          .update(extractionCandidates)
+          .set({ status: 'validation_failed', validationError: 'source pointer invalid', validatedAt: new Date() })
+          .where(eq(extractionCandidates.id, candidate.id));
+        outcome.rejections += 1;
+        continue;
+      }
+      const [evRow] = await db
+        .insert(extractionCandidateEvidence)
+        .values({
+          candidateId: candidate.id,
+          sourceType: 'document_chunk',
+          sourceDocumentChunkId: chunkForEvidence.id,
+          uploadedByEmployeeId: doc.uploaderId,
+          exactQuoteProvided: extracted.evidence.exactQuote,
+          validationStatus: 'pending',
+          confidence: extracted.evidence.confidence,
+          documentClass: null,
+          processStage: null,
+        })
+        .returning({ id: extractionCandidateEvidence.id });
+      if (!evRow) continue;
+
+      // Quote validation against the matching chunk's text.
+      const quoteRes = validateQuote({
+        sourceText: chunkForEvidence.text,
+        exactQuoteProvided: extracted.evidence.exactQuote,
+      });
+      await db
+        .update(extractionCandidateEvidence)
+        .set({
+          validationStatus: quoteRes.validationStatus,
+          validationMethod: quoteRes.validationMethod,
+          validatedExactQuote: quoteRes.validatedExactQuote ?? null,
+          validatedCharStart: quoteRes.validatedCharStart ?? null,
+          validatedCharEnd: quoteRes.validatedCharEnd ?? null,
+          validatedAt: new Date(),
+          validationError:
+            quoteRes.verdict === 'exact_match' || quoteRes.verdict === 'normalized_match'
+              ? null
+              : quoteRes.detail,
+        })
+        .where(eq(extractionCandidateEvidence.id, evRow.id));
+      await db.insert(extractionValidationResults).values({
+        candidateId: candidate.id,
+        candidateEvidenceId: evRow.id,
+        checkName: quoteRes.failedCheckName ?? 'quote_exact_match',
+        status:
+          quoteRes.verdict === 'exact_match' || quoteRes.verdict === 'normalized_match'
+            ? 'pass'
+            : 'fail',
+        detail: quoteRes.detail,
+      });
+
+      if (quoteRes.verdict !== 'exact_match' && quoteRes.verdict !== 'normalized_match') {
+        await db
+          .update(extractionCandidates)
+          .set({ status: 'validation_failed', validationError: quoteRes.detail, validatedAt: new Date() })
+          .where(eq(extractionCandidates.id, candidate.id));
+        outcome.rejections += 1;
+        continue;
+      }
+
+      // Taxonomy validation.
+      const taxRes = validateTaxonomy({
+        proposedTopDomainIds,
+        activeTopDomainIds,
+        proposedEntities: [],
+        entityRegistry: [],
+      });
+      await db.insert(extractionValidationResults).values({
+        candidateId: candidate.id,
+        checkName: 'domain_valid',
+        status: taxRes.ok ? 'pass' : 'fail',
+        detail: taxRes.ok
+          ? `Top-domains validated: ${taxRes.validTopDomainIds.join(', ')}`
+          : taxRes.failures.map((f) => f.detail).join('; '),
+      });
+      if (!taxRes.ok) {
+        await db
+          .update(extractionCandidates)
+          .set({ status: 'validation_failed', validationError: 'taxonomy invalid', validatedAt: new Date() })
+          .where(eq(extractionCandidates.id, candidate.id));
+        outcome.rejections += 1;
+        continue;
+      }
+
+      // Mark validated; build snapshot; promote.
+      await db
+        .update(extractionCandidates)
+        .set({ status: 'validated', validatedAt: new Date() })
+        .where(eq(extractionCandidates.id, candidate.id));
+
+      const validatedQuote = quoteRes.validatedExactQuote ?? extracted.evidence.exactQuote;
+      const candidateHash = computeCandidateHash({
+        summary: extracted.summary,
+        topDomainIds: taxRes.validTopDomainIds,
+        validatedQuotes: [validatedQuote],
+        sourcePointers: [`document_chunk:${chunkForEvidence.id}`],
+      });
+
+      const snapshotInputs: Omit<CandidateSnapshot, 'existingClaimWithSameHash'> = {
+        candidateHash,
+        candidate: {
+          id: candidate.id,
+          status: 'validated',
+          summary: extracted.summary,
+          claimType: extracted.claimType,
+          impactScore: extracted.impactScore,
+          confidenceScore: extracted.confidenceScore,
+          domains: taxRes.validTopDomainIds,
+        },
+        validatedEvidence: [
+          {
+            id: evRow.id,
+            sourceType: 'document_chunk',
+            sourceDocumentChunkId: chunkForEvidence.id,
+            uploadedByEmployeeId: doc.uploaderId,
+            validatedExactQuote: validatedQuote,
+            validatedCharStart: quoteRes.validatedCharStart ?? 0,
+            validatedCharEnd: quoteRes.validatedCharEnd ?? validatedQuote.length,
+            confidence: extracted.evidence.confidence,
+          },
+        ],
+        taxonomy: taxRes,
+      };
+
+      try {
+        const result = await executePromotion({
+          db,
+          candidateId: candidate.id,
+          candidateHash,
+          snapshotInputs,
+          modelRunId: modelRunId ?? undefined,
+        });
+        if (result.outcome === 'inserted_new_claim') outcome.claimsPromoted += 1;
+        else if (result.outcome === 'appended_to_existing_claim') outcome.duplicatesAppended += 1;
+        else outcome.rejections += 1;
+
+        // Write document-level + chunk-level top-domain tags for retrieval.
+        if (result.outcome !== 'recorded_rejection') {
+          for (const topDomainId of taxRes.validTopDomainIds) {
+            await db
+              .insert(documentTopDomains)
+              .values({
+                documentId,
+                topDomainId,
+                assignmentReason: 'ingestion',
+              })
+              .onConflictDoNothing();
+            await db
+              .insert(documentChunkTopDomains)
+              .values({
+                documentChunkId: chunkForEvidence.id,
+                topDomainId,
+                assignmentReason: 'ingestion',
+              })
+              .onConflictDoNothing();
+          }
+        }
+      } catch (promErr) {
+        if (promErr instanceof AdvisoryLockBusyError) {
+          await db.insert(extractionValidationResults).values({
+            candidateId: candidate.id,
+            checkName: 'duplicate_promotion_lock',
+            status: 'skipped',
+            detail: 'Advisory lock busy; another worker holds it.',
+          });
+        } else {
+          await db.insert(extractionValidationResults).values({
+            candidateId: candidate.id,
+            checkName: 'promotion_transaction',
+            status: 'fail',
+            detail: promErr instanceof Error ? promErr.message : String(promErr),
+          });
+          outcome.rejections += 1;
+        }
+      }
     }
   }
 
-  // 8. Mark document complete.
+  // 10. Mark batch validation_complete + cache lifecycle teardown.
+  await db
+    .update(extractionBatches)
+    .set({ status: 'validation_complete', finishedAt: new Date() })
+    .where(eq(extractionBatches.id, batch.id));
+
+  if (cacheHandle) {
+    await recordCacheTermination({
+      db,
+      handle: cacheHandle,
+      status: 'deleted',
+      reason: 'document ingestion complete; no further reuse expected',
+    });
+  }
+
   await db
     .update(documents)
     .set({ status: 'complete', processedAt: new Date() })
     .where(eq(documents.id, documentId));
 
-  return { chunksInserted, claimsInserted };
+  return outcome;
 }
 
-// ---------------------------------------------------------------------------
-// Primary task: process a single document (triggered from upload API route).
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────
+
+async function resolveExtractionRoute(db: OracleDb): Promise<OracleModelRoute> {
+  const row = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, 'default_extraction_route'))
+    .limit(1);
+  const routeId =
+    typeof row[0]?.value === 'string' ? (row[0]!.value as string) : FALLBACK_ROUTE_ID;
+  const resolved = getOracleRoute(routeId);
+  if (resolved) return resolved;
+  const fb = getOracleRoute(FALLBACK_ROUTE_ID);
+  if (!fb) {
+    throw new Error(
+      `[document-ingestion] settings.default_extraction_route="${routeId}" not in catalog and fallback "${FALLBACK_ROUTE_ID}" missing.`,
+    );
+  }
+  console.warn(
+    `[document-ingestion] settings.default_extraction_route="${routeId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
+  );
+  return fb;
+}
+
+async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
+  const { sql } = await import('drizzle-orm');
+  const rows = await db.execute<{ id: string }>(
+    sql`SELECT id FROM knowledge_top_domains WHERE is_active = true`,
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const list: Array<{ id: string }> = (rows as any).rows ?? (rows as any);
+  return list.map((r) => r.id);
+}
+
+function buildContextPackInsert(plan: OraclePromptPlan) {
+  return {
+    taskType: plan.taskType,
+    routeId: plan.routeId,
+    promptVersion: plan.promptVersion,
+    schemaVersion: plan.schemaVersion ?? null,
+    stablePrefixHash: plan.metadata.stablePrefixHash,
+    semiStableContextHash: plan.metadata.semiStableContextHash ?? null,
+    retrievedContextHash: plan.metadata.retrievedContextHash ?? null,
+    dynamicInputHash: plan.metadata.dynamicInputHash,
+    toolSchemaHash: plan.metadata.toolSchemaHash ?? null,
+    outputSchemaHash: plan.metadata.outputSchemaHash ?? null,
+    blocksJson: plan.blocks.map((b) => ({
+      id: b.id,
+      label: b.label,
+      kind: b.kind,
+      hash: b.hash,
+      tokenEstimate: b.tokenEstimate ?? null,
+      cacheEligible: b.cacheEligible,
+      reasonIncluded: b.reasonIncluded,
+    })),
+    retrievalPlanId: plan.metadata.retrievalPlanId ?? null,
+    selectedDomains: plan.metadata.selectedDomains ?? null,
+    selectedSourceTypes: plan.metadata.selectedSourceTypes ?? null,
+    selectedProcessStages: plan.metadata.selectedProcessStages ?? null,
+    selectedEntityIds: plan.metadata.selectedEntityIds ?? null,
+    includedMessageIds: plan.metadata.includedMessageIds ?? null,
+    includedDocumentChunkIds: plan.metadata.includedDocumentChunkIds ?? null,
+    includedClaimIds: plan.metadata.includedClaimIds ?? null,
+    includedGapIds: plan.metadata.includedGapIds ?? null,
+    includedContradictionIds: plan.metadata.includedContradictionIds ?? null,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tasks
+// ─────────────────────────────────────────────────────────────────────────
+
 export const documentIngestionTask = task({
   id: 'document-ingestion',
-  maxDuration: 60 * 10, // 10 minutes (large PDFs + LLM call)
+  maxDuration: 60 * 10,
   run: async (payload: z.infer<typeof SingleDocumentPayloadSchema>, { ctx }) => {
     SingleDocumentPayloadSchema.parse(payload);
     const db = getDirectDb();
@@ -429,72 +808,42 @@ export const documentIngestionTask = task({
         inputJson: { documentId: payload.documentId },
       })
       .returning({ id: jobRuns.id });
-
     if (!jobRun) throw new Error('[document-ingestion] failed to insert job_runs row');
 
     try {
-      const result = await processDocument(payload.documentId, ctx.run.id);
-
+      const result = await processDocument(payload.documentId, jobRun.id);
       await db
         .update(jobRuns)
-        .set({
-          status: 'complete',
-          finishedAt: new Date(),
-          outputJson: result,
-        })
+        .set({ status: 'complete', finishedAt: new Date(), outputJson: result })
         .where(eq(jobRuns.id, jobRun.id));
-
       return { ok: true, documentId: payload.documentId, ...result };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-
-      // Mark document failed in DB.
       await db
         .update(documents)
         .set({ status: 'failed', processingError: errMsg, processedAt: new Date() })
         .where(eq(documents.id, payload.documentId));
-
       await db
         .update(jobRuns)
-        .set({
-          status: 'failed',
-          finishedAt: new Date(),
-          error: errMsg,
-        })
+        .set({ status: 'failed', finishedAt: new Date(), error: errMsg })
         .where(eq(jobRuns.id, jobRun.id));
-
-      throw err; // Trigger.dev will retry per config.
+      throw err;
     }
   },
 });
 
-// ---------------------------------------------------------------------------
-// Sweep task: find pending documents and trigger individual ingestion tasks.
-// Runs every 4 hours as a safety net for documents whose direct trigger failed.
-// ---------------------------------------------------------------------------
 export const documentIngestionSweepTask = schedules.task({
   id: 'document-ingestion-sweep',
-  cron: '30 */4 * * *', // offset 30 min from claim-extraction to avoid resource contention
+  cron: '30 */4 * * *',
   maxDuration: 60 * 2,
-  run: async (_payload, { ctx }) => {
+  run: async (_payload) => {
     const db = getDirectDb();
-
-    // Find documents stuck in pending_processing or processing for > 2 hours.
     const stuck = await db
       .select({ id: documents.id })
       .from(documents)
-      .where(
-        and(
-          // Both statuses: pending_processing (never started) and processing (stuck).
-          inArray(documents.status, ['pending_processing', 'processing']),
-        ),
-      )
+      .where(and(inArray(documents.status, ['pending_processing', 'processing'])))
       .limit(20);
-
-    if (stuck.length === 0) {
-      return { ok: true, triggered: 0 };
-    }
-
+    if (stuck.length === 0) return { ok: true, triggered: 0 };
     let triggered = 0;
     for (const doc of stuck) {
       try {
@@ -504,7 +853,6 @@ export const documentIngestionSweepTask = schedules.task({
         console.error(`[document-ingestion-sweep] failed to trigger for ${doc.id}:`, err);
       }
     }
-
     return { ok: true, triggered, total: stuck.length };
   },
 });

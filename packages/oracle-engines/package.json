@@ -10,7 +10,8 @@
     "lint": "tsc --noEmit",
     "verify:r5": "tsx src/__verify__/r5-validator-smoke.ts",
     "verify:r5.5": "tsx src/__verify__/r5-5-taxonomy-smoke.ts",
-    "verify:r6": "tsx src/__verify__/r6-circuit-breaker-smoke.ts"
+    "verify:r6": "tsx src/__verify__/r6-circuit-breaker-smoke.ts",
+    "verify:r7": "tsx src/__verify__/r7-cache-smoke.ts"
   },
   "dependencies": {
     "@oracle/db": "workspace:*",
