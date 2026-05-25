@@ -22,6 +22,78 @@ export {
  */
 export { getOpenRouter } from './openrouter';
 
+// R2: OracleAIClient — the production gateway for all Oracle model calls.
+export {
+  OracleAIClient,
+  getOracleAIClient,
+  __resetOracleAIClientForTests,
+  type OracleAIClientMode,
+  type OracleAIClientOptions,
+  type RunTextArgs,
+  type RunObjectArgs,
+  type RunObjectResult,
+} from './client/oracle-ai-client';
+export {
+  type OracleTaskType,
+  type PromptBlock,
+  type PromptBlockKind,
+  type OraclePromptPlan,
+  type PromptPlanMetadata,
+  type OutputContract,
+  type OracleUsage,
+  type OracleTextResult,
+  type OracleObjectResult,
+} from './client/types';
+export {
+  getContextCompiler,
+  ContextCompiler,
+  type CompileArgs,
+} from './context/context-compiler';
+export {
+  hashContent,
+  hashBlockSequence,
+  estimateTokens,
+  makeBlock,
+  getStablePrefixBlocks,
+  compareBlocksByKind,
+} from './context/prompt-blocks';
+export {
+  ModelRouter,
+  UnknownRouteError,
+  NoAdapterRegisteredError,
+  type ProviderAdapterMap,
+  type ModelRouterOptions,
+} from './routing/model-router';
+export {
+  ProviderAdapterNotImplementedError,
+  type OracleProviderAdapter,
+  type GenerateObjectArgs,
+  type GenerateTextArgs,
+} from './providers/types';
+export { MockProviderAdapter, type MockAdapterOptions } from './providers/mock-adapter';
+export { AnthropicAdapter } from './providers/anthropic-adapter';
+export { VertexGeminiAdapter } from './providers/vertex-gemini-adapter';
+export { OpenAIAdapter } from './providers/openai-adapter';
+export {
+  normalizeUsage,
+  type NormalizeArgs,
+  type AnthropicUsageRaw,
+  type VertexUsageRaw,
+  type OpenAIUsageRaw,
+} from './usage/usage-normalizer';
+export {
+  StructuredOutputValidator,
+  getStructuredOutputValidator,
+  type ValidationResult,
+} from './validation/structured-output-validator';
+export {
+  EvidenceValidator,
+  getEvidenceValidator,
+  type QuoteValidationResult,
+  type QuoteValidationVerdict,
+  type ValidateQuoteArgs,
+} from './validation/evidence-validator';
+
 // R1: Curated Oracle route catalog. All new production code that needs to
 // reference a model route must go through this barrel.
 export {

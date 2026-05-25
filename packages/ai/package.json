@@ -11,12 +11,19 @@
     "./prompts/extraction-system": "./src/prompts/extraction-system.ts",
     "./openrouter": "./src/openrouter.ts",
     "./routes": "./src/routes/index.ts",
+    "./client": "./src/client/oracle-ai-client.ts",
+    "./context": "./src/context/context-compiler.ts",
+    "./routing": "./src/routing/model-router.ts",
+    "./providers": "./src/providers/types.ts",
+    "./usage": "./src/usage/usage-normalizer.ts",
+    "./validation": "./src/validation/structured-output-validator.ts",
     "./embeddings": "./src/embeddings.ts",
     "./retrieval": "./src/retrieval.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "verify:r2": "tsx src/__verify__/oracle-ai-client-smoke.ts"
   },
   "dependencies": {
     "@oracle/shared": "workspace:*",
