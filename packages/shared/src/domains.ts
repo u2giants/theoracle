@@ -122,6 +122,111 @@ export const BRAIN_SECTION_REVIEW_STATUSES = [
 export type BrainSectionReviewStatus =
   (typeof BRAIN_SECTION_REVIEW_STATUSES)[number];
 
+// ===========================================================================
+// R3.5 — Three-layer knowledge taxonomy
+//
+// Layer 1: top-level domains (text PK in `knowledge_top_domains`; this list is
+// the seed source of truth).
+// Layer 2: sub-topics (auto-discovered, NOT predeclared here).
+// Layer 3: orthogonal entity tags (entity_type values below).
+//
+// Per docs/oracle/07-knowledge-segmentation.md.
+// ===========================================================================
+
+export const TOP_LEVEL_DOMAINS = [
+  'customer_ops',
+  'licensing_approvals',
+  'product_development',
+  'creative_design',
+  'supply_chain',
+  'it_systems',
+  'production_lifecycle',
+  'finance_pricing',
+  'people_org',
+  'vendor_management',
+  'logistics_shipping',
+  'import_compliance',
+] as const;
+export type TopLevelDomainId = (typeof TOP_LEVEL_DOMAINS)[number];
+
+/**
+ * Entity types in the canonical entity registry.
+ *
+ * - `licensor` is a first-class type distinct from `vendor` — Disney, Marvel,
+ *   Star Wars, NBCUniversal, Warner Bros, etc. govern approvals and brand
+ *   rules, not capacity or freight.
+ * - Operating vendors are split into specific sub-types so factory questions
+ *   don't surface freight material and vice versa. `vendor` itself is the
+ *   residual bucket.
+ */
+export const ENTITY_TYPES = [
+  'system',
+  'customer',
+  'licensor',
+  'factory',
+  'freight_provider',
+  'testing_lab',
+  'packaging_supplier',
+  'service_provider',
+  'vendor',
+  'person',
+  'sku_or_product_line',
+  'process_stage',
+  'department',
+  'geography',
+  'document_class',
+] as const;
+export type EntityType = (typeof ENTITY_TYPES)[number];
+
+export const SUB_TOPIC_REVIEW_STATUSES = [
+  'proposed',
+  'approved',
+  'merged',
+  'split',
+  'retired',
+] as const;
+export type SubTopicReviewStatus = (typeof SUB_TOPIC_REVIEW_STATUSES)[number];
+
+export const TAXONOMY_PROPOSAL_TYPES = [
+  'create_top_domain',
+  'merge_top_domains',
+  'split_top_domain',
+  'create_sub_topic',
+  'merge_sub_topics',
+  'split_sub_topic',
+  'reassign_claims',
+  'retire_sub_topic',
+] as const;
+export type TaxonomyProposalType = (typeof TAXONOMY_PROPOSAL_TYPES)[number];
+
+export const TAXONOMY_PROPOSAL_STATUSES = ['pending', 'approved', 'rejected'] as const;
+export type TaxonomyProposalStatus = (typeof TAXONOMY_PROPOSAL_STATUSES)[number];
+
+export const ENTITY_PROPOSAL_STATUSES = [
+  'pending',
+  'approved',
+  'rejected',
+  'merged_into_existing',
+] as const;
+export type EntityProposalStatus = (typeof ENTITY_PROPOSAL_STATUSES)[number];
+
+export const ENTITY_PROPOSAL_SOURCE_TYPES = [
+  'claim_candidate',
+  'document_chunk',
+  'message',
+] as const;
+export type EntityProposalSourceType = (typeof ENTITY_PROPOSAL_SOURCE_TYPES)[number];
+
+/** Why a top-domain or sub-topic assignment row exists. */
+export const ASSIGNMENT_REASONS = [
+  'extraction',         // produced inline with the claim/message
+  'ingestion',          // produced when a document was first ingested
+  'reclassification',   // re-evaluation worker moved it
+  'manual',             // admin set it directly
+  'backfill',           // one-shot migration from legacy claim_domains
+] as const;
+export type AssignmentReason = (typeof ASSIGNMENT_REASONS)[number];
+
 // Embedding dimension — locked to OpenAI text-embedding-3-small per spec.
 // Do NOT change without coordinated migration.
 export const EMBEDDING_DIM = 1536 as const;

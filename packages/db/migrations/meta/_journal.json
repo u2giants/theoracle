@@ -15,6 +15,13 @@
       "when": 1779672995082,
       "tag": "0001_hot_johnny_blaze",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779673529519,
+      "tag": "0002_demonic_kid_colt",
+      "breakpoints": true
     }
   ]
 }

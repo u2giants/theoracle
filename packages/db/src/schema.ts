@@ -803,6 +803,327 @@ export const providerCachedContent = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// R3.5 — Three-layer knowledge taxonomy
+//
+// Source of truth for the shapes:
+//   docs/oracle/07-knowledge-segmentation.md
+//   docs/oracle/05-ai-retrofit-phase-packet.md Phase R3.5
+//
+// Layer 1: knowledge_top_domains  (admin-curated text PK, includes boundary rules)
+// Layer 2: knowledge_sub_topics   (auto-discovered, admin-approved, embedding centroid)
+// Layer 3: entities               (canonical registry; licensor is distinct from vendor)
+//
+// Plus join tables so retrieval can filter:
+//   - claims  → claim_top_domains, claim_sub_topics, claim_entities, claim_metadata
+//   - documents/chunks/messages → top-domain + entity tags (so retrieval works
+//     before any claim has been promoted)
+//
+// Plus governance:
+//   - taxonomy_proposals  (queue; auto-mutation prohibited)
+//   - taxonomy_change_log (audit of accepted changes)
+//   - entity_proposals    (unknown entities surfaced by extraction)
+// ---------------------------------------------------------------------------
+
+export const knowledgeTopDomains = pgTable('knowledge_top_domains', {
+  id: varchar('id', { length: 100 }).primaryKey(), // e.g. 'customer_ops'
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description').notNull(),
+
+  // Boundary rules — required per R3.5 task 1.
+  // belongsHere / doesNotBelongHere: arrays of short example strings.
+  belongsHere: jsonb('belongs_here').default([]).notNull(),
+  doesNotBelongHere: jsonb('does_not_belong_here').default([]).notNull(),
+  // commonEntityHints: [{ entityType, canonicalValue }, ...].
+  commonEntityHints: jsonb('common_entity_hints').default([]).notNull(),
+  defaultExcludedDocumentClasses: jsonb('default_excluded_document_classes').default([]).notNull(),
+  neighboringDomainIds: jsonb('neighboring_domain_ids').default([]).notNull(),
+
+  displayOrder: integer('display_order').notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const knowledgeSubTopics = pgTable(
+  'knowledge_sub_topics',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    topDomainId: varchar('top_domain_id', { length: 100 })
+      .references(() => knowledgeTopDomains.id)
+      .notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
+    centroid: vector('centroid', { dimensions: 1536 }),
+    memberCount: integer('member_count').default(0).notNull(),
+    reviewStatus: varchar('review_status', { length: 50 }).notNull(),
+    approvedByEmployeeId: uuid('approved_by_employee_id').references(() => employees.id),
+    approvedAt: timestamp('approved_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    topDomainNameUnique: uniqueIndex('knowledge_sub_topics_top_domain_name_unique').on(t.topDomainId, t.name),
+    topDomainIdx: index('knowledge_sub_topics_top_domain_idx').on(t.topDomainId),
+    reviewStatusIdx: index('knowledge_sub_topics_review_status_idx').on(t.reviewStatus),
+  }),
+);
+
+// Claim → top-level domain (multi-valued; replaces single knowledgeDomainEnum column).
+export const claimTopDomains = pgTable(
+  'claim_top_domains',
+  {
+    claimId: uuid('claim_id')
+      .references(() => claims.id)
+      .notNull(),
+    topDomainId: varchar('top_domain_id', { length: 100 })
+      .references(() => knowledgeTopDomains.id)
+      .notNull(),
+    assignmentConfidence: numeric('assignment_confidence', { precision: 4, scale: 3 }),
+    assignmentReason: varchar('assignment_reason', { length: 50 }).notNull(),
+    assignedAt: timestamp('assigned_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.claimId, t.topDomainId] }),
+    topDomainIdx: index('claim_top_domains_top_domain_idx').on(t.topDomainId),
+  }),
+);
+
+// Document → top-level domain (for pre-claim retrieval / document-level filtering).
+export const documentTopDomains = pgTable(
+  'document_top_domains',
+  {
+    documentId: uuid('document_id')
+      .references(() => documents.id)
+      .notNull(),
+    topDomainId: varchar('top_domain_id', { length: 100 })
+      .references(() => knowledgeTopDomains.id)
+      .notNull(),
+    assignmentConfidence: numeric('assignment_confidence', { precision: 4, scale: 3 }),
+    assignmentReason: varchar('assignment_reason', { length: 50 }).notNull(),
+    assignedAt: timestamp('assigned_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.documentId, t.topDomainId] }),
+    topDomainIdx: index('document_top_domains_top_domain_idx').on(t.topDomainId),
+  }),
+);
+
+// Document chunk → top-level domain (retrieval before claim promotion).
+export const documentChunkTopDomains = pgTable(
+  'document_chunk_top_domains',
+  {
+    documentChunkId: uuid('document_chunk_id')
+      .references(() => documentChunks.id)
+      .notNull(),
+    topDomainId: varchar('top_domain_id', { length: 100 })
+      .references(() => knowledgeTopDomains.id)
+      .notNull(),
+    assignmentConfidence: numeric('assignment_confidence', { precision: 4, scale: 3 }),
+    assignmentReason: varchar('assignment_reason', { length: 50 }).notNull(),
+    assignedAt: timestamp('assigned_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.documentChunkId, t.topDomainId] }),
+    topDomainIdx: index('document_chunk_top_domains_top_domain_idx').on(t.topDomainId),
+  }),
+);
+
+// Message → top-level domain (retrieval before claim promotion).
+export const messageTopDomains = pgTable(
+  'message_top_domains',
+  {
+    messageId: uuid('message_id')
+      .references(() => messages.id)
+      .notNull(),
+    topDomainId: varchar('top_domain_id', { length: 100 })
+      .references(() => knowledgeTopDomains.id)
+      .notNull(),
+    assignmentConfidence: numeric('assignment_confidence', { precision: 4, scale: 3 }),
+    assignmentReason: varchar('assignment_reason', { length: 50 }).notNull(),
+    assignedAt: timestamp('assigned_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.messageId, t.topDomainId] }),
+    topDomainIdx: index('message_top_domains_top_domain_idx').on(t.topDomainId),
+  }),
+);
+
+// Claim → sub-topic (multi-valued).
+export const claimSubTopics = pgTable(
+  'claim_sub_topics',
+  {
+    claimId: uuid('claim_id')
+      .references(() => claims.id)
+      .notNull(),
+    subTopicId: uuid('sub_topic_id')
+      .references(() => knowledgeSubTopics.id)
+      .notNull(),
+    assignmentConfidence: numeric('assignment_confidence', { precision: 4, scale: 3 }),
+    assignmentReason: varchar('assignment_reason', { length: 50 }).notNull(),
+    assignedAt: timestamp('assigned_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.claimId, t.subTopicId] }),
+    subTopicIdx: index('claim_sub_topics_sub_topic_idx').on(t.subTopicId),
+  }),
+);
+
+// Layer 3 — canonical entity registry.
+export const entities = pgTable(
+  'entities',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    entityType: varchar('entity_type', { length: 50 }).notNull(),
+    canonicalValue: varchar('canonical_value', { length: 255 }).notNull(),
+    displayLabel: varchar('display_label', { length: 255 }),
+    aliases: jsonb('aliases'),
+    // Which top-level domains this entity belongs to (text[]).
+    domainHints: jsonb('domain_hints').default([]).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    typeValueUnique: uniqueIndex('entities_type_value_unique').on(t.entityType, t.canonicalValue),
+    typeIdx: index('entities_type_idx').on(t.entityType),
+  }),
+);
+
+// Claim → entity tags.
+export const claimEntities = pgTable(
+  'claim_entities',
+  {
+    claimId: uuid('claim_id')
+      .references(() => claims.id)
+      .notNull(),
+    entityId: uuid('entity_id')
+      .references(() => entities.id)
+      .notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.claimId, t.entityId] }),
+    entityIdx: index('claim_entities_entity_idx').on(t.entityId),
+  }),
+);
+
+// Document chunk → entity tags (for pre-claim retrieval).
+export const documentChunkEntities = pgTable(
+  'document_chunk_entities',
+  {
+    documentChunkId: uuid('document_chunk_id')
+      .references(() => documentChunks.id)
+      .notNull(),
+    entityId: uuid('entity_id')
+      .references(() => entities.id)
+      .notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.documentChunkId, t.entityId] }),
+    entityIdx: index('document_chunk_entities_entity_idx').on(t.entityId),
+  }),
+);
+
+// Message → entity tags (for pre-claim retrieval).
+export const messageEntities = pgTable(
+  'message_entities',
+  {
+    messageId: uuid('message_id')
+      .references(() => messages.id)
+      .notNull(),
+    entityId: uuid('entity_id')
+      .references(() => entities.id)
+      .notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.messageId, t.entityId] }),
+    entityIdx: index('message_entities_entity_idx').on(t.entityId),
+  }),
+);
+
+// Claim metadata — orthogonal axes that don't fit into the join tables above.
+//
+// Note: the spec sketch uses tstzrange for time_validity. To stay Drizzle-
+// queryable we split it into effective_from / effective_until columns.
+export const claimMetadata = pgTable('claim_metadata', {
+  claimId: uuid('claim_id')
+    .primaryKey()
+    .references(() => claims.id),
+  processStage: varchar('process_stage', { length: 100 }),
+  department: varchar('department', { length: 100 }),
+  geography: varchar('geography', { length: 100 }),
+  documentClass: varchar('document_class', { length: 100 }),
+  effectiveFrom: timestamp('effective_from'),
+  effectiveUntil: timestamp('effective_until'),
+  supersededByClaimId: uuid('superseded_by_claim_id').references(() => claims.id),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Governance — proposals queue. Auto-mutation is prohibited; an admin must approve.
+export const taxonomyProposals = pgTable(
+  'taxonomy_proposals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    proposalType: varchar('proposal_type', { length: 50 }).notNull(),
+    // Payload follows the TaxonomyProposalPayload contract in
+    // docs/oracle/07-knowledge-segmentation.md.
+    payload: jsonb('payload').notNull(),
+    proposedByModelRunId: uuid('proposed_by_model_run_id').references(() => modelRuns.id),
+    status: varchar('status', { length: 50 }).notNull(),
+    reviewedByEmployeeId: uuid('reviewed_by_employee_id').references(() => employees.id),
+    reviewedAt: timestamp('reviewed_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    statusIdx: index('taxonomy_proposals_status_idx').on(t.status),
+    typeStatusIdx: index('taxonomy_proposals_type_status_idx').on(t.proposalType, t.status),
+  }),
+);
+
+// Audit log of accepted taxonomy changes.
+export const taxonomyChangeLog = pgTable(
+  'taxonomy_change_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    changeType: varchar('change_type', { length: 100 }).notNull(),
+    beforeState: jsonb('before_state'),
+    afterState: jsonb('after_state'),
+    reason: text('reason'),
+    approvedByEmployeeId: uuid('approved_by_employee_id').references(() => employees.id),
+    proposalId: uuid('proposal_id').references(() => taxonomyProposals.id),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    changeTypeIdx: index('taxonomy_change_log_change_type_idx').on(t.changeType),
+    proposalIdx: index('taxonomy_change_log_proposal_idx').on(t.proposalId),
+  }),
+);
+
+// Unknown-entity proposals queue. When extraction surfaces an entity reference
+// that doesn't resolve to the canonical registry, it's staged here for admin
+// review instead of being auto-created.
+export const entityProposals = pgTable(
+  'entity_proposals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    proposedEntityType: varchar('proposed_entity_type', { length: 50 }).notNull(),
+    proposedCanonicalValue: varchar('proposed_canonical_value', { length: 255 }).notNull(),
+    rawStringsObserved: jsonb('raw_strings_observed').default([]).notNull(),
+    proposedAliases: jsonb('proposed_aliases'),
+    proposedDomainHints: jsonb('proposed_domain_hints'),
+    observedInSourceType: varchar('observed_in_source_type', { length: 50 }).notNull(),
+    observedInSourceId: uuid('observed_in_source_id'),
+    status: varchar('status', { length: 50 }).notNull(),
+    mergedIntoEntityId: uuid('merged_into_entity_id').references(() => entities.id),
+    proposedByModelRunId: uuid('proposed_by_model_run_id').references(() => modelRuns.id),
+    reviewedByEmployeeId: uuid('reviewed_by_employee_id').references(() => employees.id),
+    reviewedAt: timestamp('reviewed_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    statusIdx: index('entity_proposals_status_idx').on(t.status),
+    typeValueIdx: index('entity_proposals_type_value_idx').on(t.proposedEntityType, t.proposedCanonicalValue),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Type exports for app code
 // ---------------------------------------------------------------------------
 
@@ -826,3 +1147,34 @@ export type ModelRunUsageDetail = typeof modelRunUsageDetails.$inferSelect;
 export type NewModelRunUsageDetail = typeof modelRunUsageDetails.$inferInsert;
 export type ProviderCachedContent = typeof providerCachedContent.$inferSelect;
 export type NewProviderCachedContent = typeof providerCachedContent.$inferInsert;
+// R3.5 knowledge taxonomy
+export type KnowledgeTopDomain = typeof knowledgeTopDomains.$inferSelect;
+export type NewKnowledgeTopDomain = typeof knowledgeTopDomains.$inferInsert;
+export type KnowledgeSubTopic = typeof knowledgeSubTopics.$inferSelect;
+export type NewKnowledgeSubTopic = typeof knowledgeSubTopics.$inferInsert;
+export type ClaimTopDomain = typeof claimTopDomains.$inferSelect;
+export type NewClaimTopDomain = typeof claimTopDomains.$inferInsert;
+export type DocumentTopDomain = typeof documentTopDomains.$inferSelect;
+export type NewDocumentTopDomain = typeof documentTopDomains.$inferInsert;
+export type DocumentChunkTopDomain = typeof documentChunkTopDomains.$inferSelect;
+export type NewDocumentChunkTopDomain = typeof documentChunkTopDomains.$inferInsert;
+export type MessageTopDomain = typeof messageTopDomains.$inferSelect;
+export type NewMessageTopDomain = typeof messageTopDomains.$inferInsert;
+export type ClaimSubTopic = typeof claimSubTopics.$inferSelect;
+export type NewClaimSubTopic = typeof claimSubTopics.$inferInsert;
+export type Entity = typeof entities.$inferSelect;
+export type NewEntity = typeof entities.$inferInsert;
+export type ClaimEntity = typeof claimEntities.$inferSelect;
+export type NewClaimEntity = typeof claimEntities.$inferInsert;
+export type DocumentChunkEntity = typeof documentChunkEntities.$inferSelect;
+export type NewDocumentChunkEntity = typeof documentChunkEntities.$inferInsert;
+export type MessageEntity = typeof messageEntities.$inferSelect;
+export type NewMessageEntity = typeof messageEntities.$inferInsert;
+export type ClaimMetadata = typeof claimMetadata.$inferSelect;
+export type NewClaimMetadata = typeof claimMetadata.$inferInsert;
+export type TaxonomyProposal = typeof taxonomyProposals.$inferSelect;
+export type NewTaxonomyProposal = typeof taxonomyProposals.$inferInsert;
+export type TaxonomyChangeLog = typeof taxonomyChangeLog.$inferSelect;
+export type NewTaxonomyChangeLog = typeof taxonomyChangeLog.$inferInsert;
+export type EntityProposal = typeof entityProposals.$inferSelect;
+export type NewEntityProposal = typeof entityProposals.$inferInsert;

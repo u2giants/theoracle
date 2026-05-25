@@ -49,13 +49,18 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `01_extensions.sql` | `CREATE EXTENSION IF NOT EXISTS` for pgvector, pgcrypto, uuid-ossp. |
 | `10_check_constraints.sql` | `claim_evidence_source_check` — enforces that `source_type` matches its non-null FK column (spec 6.8). |
 | `11_observability_constraints.sql` | R3 — value-whitelist CHECKs on `provider_cached_content` (provider, cache_kind, status, deleted_at consistency), non-negative token CHECKs on `model_run_usage_details`, and an `updated_at` trigger on `provider_cached_content`. |
+| `12_taxonomy_constraints.sql` | R3.5 — value-whitelist CHECKs across the taxonomy tables: `knowledge_sub_topics.review_status`, `*_top_domains.assignment_reason` + confidence-range, `entities.entity_type` whitelist (with `licensor` distinct from `vendor` and operating-vendor subtypes enumerated), `taxonomy_proposals.proposal_type`/`status` + reviewed-consistency, `entity_proposals.status`/source-type + merge-consistency. |
 | `15_employee_identities.sql` | DDL for the `employee_identities` table (multi-identity support — DECISIONS.md D2). |
+| `16_knowledge_top_domains_seed.sql` | R3.5 — idempotent seed of the 12 top-level domains with boundary rules (belongs-here / does-not-belong-here / common entities / default exclusions / neighboring domains). ON CONFLICT DO NOTHING so admin edits aren't clobbered. |
+| `17_entities_seed.sql` | R3.5 — idempotent seed of the canonical entity registry: 5 customers, 5 licensors, 10 systems, 8 departments, 4 geographies, 14 process stages, 10 document classes. |
 | `20_rls_helpers.sql` | `current_employee_id()`, `current_employee_is_admin()` — both join through `employee_identities`. |
 | `21_rls_policies.sql` | All RLS policies — employees, channels, messages, documents, intelligence tables, settings, employee_identities. |
 | `30_admin_views.sql` | The seven admin views from spec Part 8 (`claims_with_primary_evidence`, etc.). |
 | `31_observability_views.sql` | R3 — `model_runs_with_usage` view joining `model_runs`, `model_run_usage_details`, and `oracle_context_packs` with a derived `cache_hit_ratio`. |
 | `40_employee_identities_data.sql` | One-shot, idempotent: copy any legacy `employees.auth_*` values into `employee_identities`, run the Albert merge, NULL the deprecated columns. |
 | `41_albert_post_merge_fix.sql` | Idempotent reconciliation for Albert's specific case (Google + M365 identities folded onto one employee row). Uses real auth_user_ids. |
+| `42_claim_top_domains_backfill.sql` | R3.5 — idempotent backfill from legacy `claim_domains` (Postgres enum) to new `claim_top_domains` (text FK). Includes the mechanical mapping (e.g., `licensing` → `licensing_approvals`, `coldlion` → `it_systems`, `general` → `customer_ops` residual). Legacy `claim_domains` is intentionally preserved per R3.5 acceptance gate. |
+| `48_taxonomy_vector_indexes.sql` | R3.5 — HNSW index on `knowledge_sub_topics.centroid`. Always-on (not opt-in like 99) because the table is empty on install per the activation-threshold rule. |
 | `99_vector_indexes.sql` | HNSW indexes on `claims.embedding` and `document_chunks.embedding`. Opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`. |
 
 ## Anti-patterns
