@@ -30,9 +30,16 @@ const DEFAULT_SETTINGS: Array<{
   { key: 'lull_window_seconds', value: 60, description: 'Seconds of human silence before Oracle may interject (spec 5.1).' },
   { key: 'oracle_cooldown_minutes', value: 10, description: 'Minimum minutes between Oracle interjections in a single channel.' },
   { key: 'max_oracle_interjections_per_hour', value: 3, description: 'Per-channel cap on proactive interjections.' },
-  { key: 'default_interview_model', value: 'deepseek/deepseek-v4-pro', description: 'OpenRouter model for live interview / chat.' },
-  { key: 'default_extraction_model', value: 'google/gemini-2.5-flash', description: 'OpenRouter model for claim extraction.' },
-  { key: 'default_synthesis_model', value: 'anthropic/claude-sonnet-4.6', description: 'OpenRouter model for brain synthesis.' },
+  // Legacy OpenRouter model id keys — kept during R1 migration, do not use for new code.
+  // See docs/oracle/05-ai-retrofit-phase-packet.md Phase R1 task 8.
+  { key: 'default_interview_model', value: 'deepseek/deepseek-v4-pro', description: 'DEPRECATED — Legacy OpenRouter model id. Superseded by default_interview_route.' },
+  { key: 'default_extraction_model', value: 'google/gemini-2.5-flash', description: 'DEPRECATED — Legacy OpenRouter model id. Superseded by default_extraction_route.' },
+  { key: 'default_synthesis_model', value: 'anthropic/claude-sonnet-4.6', description: 'DEPRECATED — Legacy OpenRouter model id. Superseded by default_synthesis_route.' },
+  // R1 — Curated Oracle route IDs (Big 3 provider-native). 1 Primary per role.
+  // Source of truth: packages/ai/src/routes/defaults.ts (DEFAULT_ORACLE_ROUTES).
+  { key: 'default_interview_route', value: 'anthropic_claude_haiku_4_5_interview_primary', description: 'Curated OracleModelRoute.routeId for the interview role.' },
+  { key: 'default_extraction_route', value: 'vertex_gemini_2_5_flash_extraction_primary', description: 'Curated OracleModelRoute.routeId for the extraction role.' },
+  { key: 'default_synthesis_route', value: 'anthropic_claude_3_5_sonnet_synthesis_primary', description: 'Curated OracleModelRoute.routeId for the synthesis role.' },
   { key: 'enable_live_contradiction_interjections', value: false, description: 'When false, possible contradictions queue silently (spec 5.1 Rule 1).' },
   { key: 'enable_group_chat_lull_questions', value: true, description: 'When true, Oracle may ask a high-priority gap question during a lull (spec 5.1 Rule 2).' },
 ];

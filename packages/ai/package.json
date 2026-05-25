@@ -10,6 +10,7 @@
     "./prompts/oracle-system": "./src/prompts/oracle-system.ts",
     "./prompts/extraction-system": "./src/prompts/extraction-system.ts",
     "./openrouter": "./src/openrouter.ts",
+    "./routes": "./src/routes/index.ts",
     "./embeddings": "./src/embeddings.ts",
     "./retrieval": "./src/retrieval.ts"
   },
