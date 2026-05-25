@@ -75,6 +75,10 @@ export { AnthropicAdapter } from './providers/anthropic-adapter';
 export { VertexGeminiAdapter } from './providers/vertex-gemini-adapter';
 export { OpenAIAdapter } from './providers/openai-adapter';
 export {
+  OpenRouterBridgeAdapter,
+  type OpenRouterBridgeAdapterOptions,
+} from './providers/openrouter-bridge-adapter';
+export {
   normalizeUsage,
   type NormalizeArgs,
   type AnthropicUsageRaw,

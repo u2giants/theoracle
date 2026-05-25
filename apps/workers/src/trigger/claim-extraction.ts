@@ -1,68 +1,109 @@
-// Claim extraction worker — spec Part 9.4, 9.5.
+// R6 — Claim extraction worker (refactored through OracleAIClient + staging).
 //
-// Cron: every 4 hours.
-// Picks up messages with extractionStatus='pending' AND role='user', groups them
-// into conversation segments by channel + time window, calls the extraction model
-// (generateObject), validates exact quotes, inserts claims / claim_domains /
-// claim_evidence, suggests gaps, and marks messages complete/failed/skipped.
+// Spec compliance:
+//   - docs/oracle/05-ai-retrofit-phase-packet.md Phase R6
+//   - docs/oracle/03-candidate-before-claim-validation.md
 //
-// Spec compliance notes:
-//   - Every LLM call → model_runs row (spec Part 9).
-//   - This task → job_runs row (spec Part 9).
-//   - Exact-quote validation is mandatory (spec 9.4).
-//   - Auto-approve vs pending_review triage per spec 9.4.
-//   - Group chat semantics tracked per spec 9.5.
+// What changed vs the legacy worker:
+//   - Model calls go through OracleAIClient (R2) via the OpenRouterBridgeAdapter,
+//     not via getOpenRouter() directly. The route ID is the R1 curated
+//     `default_extraction_route` setting; the bridge dispatches the call
+//     through OpenRouter under the hood until R7 wires the real Vertex SDK.
+//   - Output flows into extraction_batches → extraction_candidates →
+//     extraction_candidate_evidence first. NOTHING writes to permanent
+//     `claims` / `claim_top_domains` / `claim_evidence` before R5's
+//     deterministic validator passes.
+//   - R5's quote validator runs per evidence row.
+//   - R5.5's taxonomy validator runs per candidate.
+//   - R5's decidePromotion → R6's executePromotion runs in a transaction
+//     with pg_try_advisory_xact_lock for concurrency safety.
+//   - Validation-loop circuit breaker (3-strike) trips when the same source
+//     batch keeps producing invalid quotes.
+//   - oracle_context_packs + model_run_usage_details + provider_cached_content
+//     rows are written for every model call so cost/cache dashboards work.
 
 import { schedules } from '@trigger.dev/sdk/v3';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import { generateObject } from 'ai';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
 import {
-  claims,
-  claimDomains,
-  claimEvidence,
-  gaps,
-  messages,
-  settings,
-  modelRuns,
-  jobRuns,
   employees,
-} from '@oracle/db/schema';
+  extractionBatches,
+  extractionCandidates,
+  extractionCandidateEvidence,
+  extractionValidationResults,
+  jobRuns,
+  messages,
+  modelRunUsageDetails,
+  modelRuns,
+  oracleContextPacks,
+  settings,
+  type OracleDb,
+} from '@oracle/db';
 import {
-  getOpenRouter,
-  embedText,
+  OpenRouterBridgeAdapter,
+  OracleAIClient,
+  getOracleRoute,
+  makeBlock,
+  type OracleModelRoute,
+  type OraclePromptPlan,
   EXTRACTION_SYSTEM_PROMPT,
   EXTRACTION_PROMPT_VERSION,
   ExtractionOutputSchema,
   formatConversationSegment,
   type FormattedMessage,
+  type ExtractionOutput,
 } from '@oracle/ai';
-import type { KnowledgeDomain } from '@oracle/shared';
+import {
+  computeCandidateHash,
+  decideCircuitBreaker,
+  decidePromotion,
+  executePromotion,
+  mapLegacyDomainsToTopDomains,
+  validateQuote,
+  validateSourcePointer,
+  validateTaxonomy,
+  AdvisoryLockBusyError,
+  type CandidateSnapshot,
+} from '@oracle/engines';
+import type { KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
 
-const BATCH_SIZE = 100; // max messages per cron run
-const SEGMENT_GAP_MS = 60 * 60 * 1000; // 60-minute gaps → new conversation segment
-const FALLBACK_MODEL = 'google/gemini-2.5-flash';
+const BATCH_SIZE = 100;
+const SEGMENT_GAP_MS = 60 * 60 * 1000;
 
-// Claim types that are low-risk for auto-approval.
-const LOW_RISK_CLAIM_TYPES = new Set([
-  'process_rule',
-  'exception_rule',
-  'dependency',
-  'system_limitation',
-]);
+// Fallback route — used if the settings row is missing or points at a route
+// not in the catalog. Matches the R1 default.
+const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
+
+// ── Module-singletons ─────────────────────────────────────────────────────
+// The OracleAIClient is constructed once per worker process. We pass the
+// OpenRouterBridgeAdapter for all 3 provider tags so any curated route in
+// the catalog routes through OpenRouter for now. R7+ replaces these with
+// real provider-native adapters.
+function buildOracleClient(): OracleAIClient {
+  return new OracleAIClient({
+    adapters: {
+      anthropic: new OpenRouterBridgeAdapter({ provider: 'anthropic' }),
+      vertex: new OpenRouterBridgeAdapter({ provider: 'vertex' }),
+      openai: new OpenRouterBridgeAdapter({ provider: 'openai' }),
+    },
+    fallbackOnError: true,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Top-level Trigger.dev task
+// ─────────────────────────────────────────────────────────────────────────
 
 export const claimExtractionTask = schedules.task({
   id: 'claim-extraction',
-  // Spec 9.4: "Cron schedule, for example every 4 hours or nightly".
   cron: '0 */4 * * *',
-  maxDuration: 60 * 5, // 5-minute hard cap per Trigger.dev run
+  maxDuration: 60 * 5,
   run: async (_payload, { ctx }) => {
     const db = getDirectDb();
+    const client = buildOracleClient();
     const startedAt = new Date();
 
-    // -----------------------------------------------------------------------
-    // 1. Insert job_runs row (spec requirement — every job must have one).
-    // -----------------------------------------------------------------------
     const [jobRun] = await db
       .insert(jobRuns)
       .values({
@@ -73,30 +114,25 @@ export const claimExtractionTask = schedules.task({
         inputJson: { batchSize: BATCH_SIZE },
       })
       .returning({ id: jobRuns.id });
-
     if (!jobRun) throw new Error('[claim-extraction] failed to insert job_runs row');
 
-    let totalClaimsInserted = 0;
-    let totalMessagesProcessed = 0;
-    let totalErrors = 0;
+    const totals = {
+      batchesProcessed: 0,
+      candidatesStaged: 0,
+      claimsPromoted: 0,
+      duplicatesAppended: 0,
+      rejections: 0,
+      circuitBreakerTrips: 0,
+      messagesProcessed: 0,
+      errors: 0,
+    };
 
     try {
-      // -----------------------------------------------------------------------
-      // 2. Read extraction model from settings.
-      // -----------------------------------------------------------------------
-      const modelSetting = await db
-        .select({ value: settings.value })
-        .from(settings)
-        .where(eq(settings.key, 'default_extraction_model'))
-        .limit(1);
+      // 1. Resolve the curated extraction route.
+      const route = await resolveExtractionRoute(db);
+      const activeTopDomainIds = await loadActiveTopDomainIds(db);
 
-      const modelName =
-        (typeof modelSetting[0]?.value === 'string' ? modelSetting[0].value : null) ??
-        FALLBACK_MODEL;
-
-      // -----------------------------------------------------------------------
-      // 3. Fetch pending user messages, with author names.
-      // -----------------------------------------------------------------------
+      // 2. Pull pending user messages.
       const pendingMessages = await db
         .select({
           id: messages.id,
@@ -109,286 +145,61 @@ export const claimExtractionTask = schedules.task({
         })
         .from(messages)
         .leftJoin(employees, eq(employees.id, messages.employeeId))
-        .where(
-          and(
-            eq(messages.extractionStatus, 'pending'),
-            eq(messages.role, 'user'),
-          ),
-        )
+        .where(and(eq(messages.extractionStatus, 'pending'), eq(messages.role, 'user')))
         .orderBy(messages.createdAt)
         .limit(BATCH_SIZE);
 
       if (pendingMessages.length === 0) {
         await db
           .update(jobRuns)
-          .set({
-            status: 'complete',
-            finishedAt: new Date(),
-            outputJson: { claimsInserted: 0, messagesProcessed: 0, errors: 0 },
-          })
+          .set({ status: 'complete', finishedAt: new Date(), outputJson: totals })
           .where(eq(jobRuns.id, jobRun.id));
-        return { ok: true, claimsInserted: 0, messagesProcessed: 0, errors: 0 };
+        return { ok: true, ...totals };
       }
 
-      // -----------------------------------------------------------------------
-      // 4. Mark all fetched messages as 'processing' (idempotency guard).
-      // -----------------------------------------------------------------------
+      // 3. Mark all fetched messages as 'processing' (idempotency guard).
       const messageIds = pendingMessages.map((m) => m.id);
       await db
         .update(messages)
         .set({ extractionStatus: 'processing' })
         .where(inArray(messages.id, messageIds));
 
-      // -----------------------------------------------------------------------
-      // 5. Group by channel, then by conversation segment (60-min windows).
-      // -----------------------------------------------------------------------
-      const byChannel = new Map<string, typeof pendingMessages>();
-      for (const m of pendingMessages) {
-        const list = byChannel.get(m.channelId) ?? [];
-        list.push(m);
-        byChannel.set(m.channelId, list);
+      // 4. Group by channel → 60-min conversation segments.
+      const segments = groupIntoSegments(pendingMessages);
+
+      // 5. Process each segment as an extraction_batches row.
+      for (const segment of segments) {
+        try {
+          const outcome = await processSegment({
+            db,
+            client,
+            route,
+            activeTopDomainIds,
+            jobRunId: jobRun.id,
+            segment,
+          });
+          totals.batchesProcessed += 1;
+          totals.candidatesStaged += outcome.candidatesStaged;
+          totals.claimsPromoted += outcome.claimsPromoted;
+          totals.duplicatesAppended += outcome.duplicatesAppended;
+          totals.rejections += outcome.rejections;
+          totals.circuitBreakerTrips += outcome.circuitBreakerTripped ? 1 : 0;
+          totals.messagesProcessed += outcome.messagesProcessed;
+        } catch (segErr) {
+          totals.errors += 1;
+          console.error('[claim-extraction] segment processing failed', segErr);
+          // The segment-level error path already updates the batch + messages
+          // to 'failed'; nothing more to do here.
+        }
       }
 
-      for (const [_channelId, channelMessages] of byChannel) {
-        // Sort ascending so segments are chronological.
-        channelMessages.sort(
-          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-        );
-
-        // Split into time-bounded segments.
-        const segments: FormattedMessage[][] = [];
-        let current: FormattedMessage[] = [];
-
-        for (const m of channelMessages) {
-          if (current.length > 0) {
-            const last = current[current.length - 1]!;
-            const gap = new Date(m.createdAt).getTime() - new Date(last.createdAt).getTime();
-            if (gap > SEGMENT_GAP_MS) {
-              segments.push(current);
-              current = [];
-            }
-          }
-          current.push({
-            id: m.id,
-            role: m.role as 'user' | 'assistant' | 'system',
-            content: m.content,
-            authorName: m.authorName ?? null,
-            createdAt: new Date(m.createdAt),
-          });
-        }
-        if (current.length > 0) segments.push(current);
-
-        // -------------------------------------------------------------------
-        // 6. Extract claims from each segment.
-        // -------------------------------------------------------------------
-        for (const segment of segments) {
-          const segmentIds = segment.map((m) => m.id);
-          const userMessagesInSegment = segment.filter((m) => m.role === 'user');
-
-          if (userMessagesInSegment.length === 0) {
-            await db
-              .update(messages)
-              .set({ extractionStatus: 'skipped', extractedAt: new Date() })
-              .where(inArray(messages.id, segmentIds));
-            continue;
-          }
-
-          const formattedSegment = formatConversationSegment(segment);
-          const callStartMs = Date.now();
-
-          try {
-            const openrouter = getOpenRouter();
-            const model = openrouter(modelName);
-
-            const { object, usage } = await generateObject({
-              model,
-              schema: ExtractionOutputSchema,
-              system: EXTRACTION_SYSTEM_PROMPT,
-              messages: [{ role: 'user', content: formattedSegment }],
-              temperature: 0.1,
-            });
-
-            const latencyMs = Date.now() - callStartMs;
-
-            // Log model_runs row (spec requirement).
-            const [modelRun] = await db
-              .insert(modelRuns)
-              .values({
-                taskType: 'claim-extraction',
-                model: modelName,
-                provider: 'openrouter',
-                promptVersion: EXTRACTION_PROMPT_VERSION,
-                inputTokens: usage?.inputTokens ?? null,
-                outputTokens: usage?.outputTokens ?? null,
-                latencyMs,
-                success: true,
-              })
-              .returning({ id: modelRuns.id });
-
-            // -----------------------------------------------------------------
-            // 7. Process extracted claims.
-            // -----------------------------------------------------------------
-            for (const extracted of object.claims) {
-              // Exact-quote validation (spec 9.4, mandatory).
-              const sourceMsg = segment.find(
-                (m) => m.id === extracted.evidence.sourceMessageId,
-              );
-              if (!sourceMsg) {
-                console.warn(
-                  `[claim-extraction] sourceMessageId ${extracted.evidence.sourceMessageId} not in segment — skipping claim`,
-                );
-                continue;
-              }
-              if (!sourceMsg.content.includes(extracted.evidence.exactQuote)) {
-                console.warn(
-                  `[claim-extraction] exactQuote not found verbatim in message ${sourceMsg.id} — skipping claim`,
-                );
-                continue;
-              }
-
-              // Triage: auto-approve vs pending_review (spec 9.4).
-              const autoApprove =
-                !extracted.requiresReview &&
-                extracted.impactScore <= 6 &&
-                LOW_RISK_CLAIM_TYPES.has(extracted.claimType);
-
-              const claimStatus: 'approved' | 'pending_review' = autoApprove
-                ? 'approved'
-                : 'pending_review';
-
-              // Embed the claim summary (zero vector if OPENAI_API_KEY is absent).
-              let embedding: number[] | null = null;
-              try {
-                const { vector } = await embedText(extracted.summary);
-                embedding = vector;
-              } catch (embedErr) {
-                console.warn('[claim-extraction] embedding failed, storing without vector', embedErr);
-              }
-
-              // Insert claim.
-              const [claim] = await db
-                .insert(claims)
-                .values({
-                  claimType: extracted.claimType,
-                  summary: extracted.summary,
-                  impactScore: extracted.impactScore,
-                  confidenceScore: extracted.confidenceScore,
-                  status: claimStatus,
-                  embedding: embedding ?? undefined,
-                })
-                .returning({ id: claims.id });
-
-              if (!claim) {
-                console.error('[claim-extraction] claim insert returned no row — skipping');
-                continue;
-              }
-
-              totalClaimsInserted++;
-
-              // Insert claim_domains.
-              for (const domain of extracted.domains) {
-                await db
-                  .insert(claimDomains)
-                  .values({ claimId: claim.id, domain: domain as KnowledgeDomain })
-                  .onConflictDoNothing();
-              }
-
-              // Locate the char offsets for evidence.
-              const charStart = sourceMsg.content.indexOf(extracted.evidence.exactQuote);
-              const charEnd =
-                charStart >= 0
-                  ? charStart + extracted.evidence.exactQuote.length
-                  : undefined;
-
-              // Locate employee ID for asserted_by.
-              const sourcePending = pendingMessages.find(
-                (m) => m.id === extracted.evidence.sourceMessageId,
-              );
-
-              // Insert claim_evidence.
-              await db.insert(claimEvidence).values({
-                claimId: claim.id,
-                sourceType: 'message',
-                sourceMessageId: extracted.evidence.sourceMessageId,
-                assertedByEmployeeId: sourcePending?.employeeId ?? null,
-                exactQuote: extracted.evidence.exactQuote,
-                charStart: charStart >= 0 ? charStart : null,
-                charEnd: charEnd ?? null,
-                confidence: extracted.evidence.confidence,
-              });
-
-              // Insert suggested gaps.
-              for (const gap of extracted.suggestedGaps ?? []) {
-                await db.insert(gaps).values({
-                  gapType: 'extraction_gap',
-                  relatedClaimIds: [claim.id],
-                  questionToAsk: gap.questionToAsk,
-                  whyItMatters: gap.whyItMatters,
-                  priority: gap.priority,
-                  status: 'open',
-                  createdByModelRunId: modelRun?.id ?? null,
-                });
-              }
-            } // end claim loop
-
-            // Mark messages complete.
-            await db
-              .update(messages)
-              .set({ extractionStatus: 'complete', extractedAt: new Date() })
-              .where(inArray(messages.id, segmentIds));
-
-            totalMessagesProcessed += segmentIds.length;
-          } catch (segErr) {
-            console.error('[claim-extraction] segment processing failed', segErr);
-            totalErrors++;
-
-            // Log failed model_runs row.
-            await db.insert(modelRuns).values({
-              taskType: 'claim-extraction',
-              model: modelName,
-              provider: 'openrouter',
-              promptVersion: EXTRACTION_PROMPT_VERSION,
-              latencyMs: Date.now() - callStartMs,
-              success: false,
-              error: segErr instanceof Error ? segErr.message : String(segErr),
-            });
-
-            // Mark messages failed.
-            await db
-              .update(messages)
-              .set({
-                extractionStatus: 'failed',
-                extractionError: segErr instanceof Error ? segErr.message : String(segErr),
-              })
-              .where(inArray(messages.id, segmentIds));
-          }
-        } // end segment loop
-      } // end channel loop
-
-      // -----------------------------------------------------------------------
-      // 8. Update job_runs row.
-      // -----------------------------------------------------------------------
       await db
         .update(jobRuns)
-        .set({
-          status: 'complete',
-          finishedAt: new Date(),
-          outputJson: {
-            claimsInserted: totalClaimsInserted,
-            messagesProcessed: totalMessagesProcessed,
-            errors: totalErrors,
-          },
-        })
+        .set({ status: 'complete', finishedAt: new Date(), outputJson: totals })
         .where(eq(jobRuns.id, jobRun.id));
 
-      return {
-        ok: true,
-        claimsInserted: totalClaimsInserted,
-        messagesProcessed: totalMessagesProcessed,
-        errors: totalErrors,
-      };
+      return { ok: true, ...totals };
     } catch (fatalErr) {
-      // Unexpected top-level failure — update job_runs and re-throw so Trigger.dev retries.
       await db
         .update(jobRuns)
         .set({
@@ -401,3 +212,642 @@ export const claimExtractionTask = schedules.task({
     }
   },
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Per-segment processing
+// ─────────────────────────────────────────────────────────────────────────
+
+interface SegmentOutcome {
+  candidatesStaged: number;
+  claimsPromoted: number;
+  duplicatesAppended: number;
+  rejections: number;
+  circuitBreakerTripped: boolean;
+  messagesProcessed: number;
+}
+
+interface ProcessSegmentArgs {
+  db: OracleDb;
+  client: OracleAIClient;
+  route: OracleModelRoute;
+  activeTopDomainIds: string[];
+  jobRunId: string;
+  segment: FormattedMessage[];
+}
+
+async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome> {
+  const { db, client, route, activeTopDomainIds, jobRunId, segment } = args;
+  const segmentIds = segment.map((m) => m.id);
+  const userMessages = segment.filter((m) => m.role === 'user');
+
+  const outcome: SegmentOutcome = {
+    candidatesStaged: 0,
+    claimsPromoted: 0,
+    duplicatesAppended: 0,
+    rejections: 0,
+    circuitBreakerTripped: false,
+    messagesProcessed: 0,
+  };
+
+  if (userMessages.length === 0) {
+    await db
+      .update(messages)
+      .set({ extractionStatus: 'skipped', extractedAt: new Date() })
+      .where(inArray(messages.id, segmentIds));
+    outcome.messagesProcessed = segmentIds.length;
+    return outcome;
+  }
+
+  // Compile the prompt plan.
+  const formatted = formatConversationSegment(segment);
+  const blocks = [
+    makeBlock({
+      id: 'extraction-system',
+      label: 'Extraction system prompt',
+      kind: 'stable_system',
+      content: EXTRACTION_SYSTEM_PROMPT,
+      reasonIncluded: 'extraction prompt v' + EXTRACTION_PROMPT_VERSION,
+    }),
+    makeBlock({
+      id: 'segment',
+      label: 'Conversation segment to extract from',
+      kind: 'dynamic_input',
+      content: formatted,
+      reasonIncluded: `segment of ${segment.length} message(s) in this batch`,
+    }),
+  ];
+  const plan = client.compile({
+    taskType: 'message_claim_extraction',
+    routeId: route.routeId,
+    promptVersion: EXTRACTION_PROMPT_VERSION,
+    blocks,
+    observability: { includedMessageIds: segmentIds },
+  });
+  const sourceHash = createHash('sha256').update(formatted, 'utf8').digest('hex');
+
+  // 1. Stage an extraction_batches row.
+  const [batch] = await db
+    .insert(extractionBatches)
+    .values({
+      jobRunId,
+      batchType: 'message_segment',
+      status: 'pending_model',
+      sourceMessageIds: segmentIds,
+      sourceHash,
+      modelRunIdsAttempted: [],
+      routeIdsAttempted: [route.routeId],
+    })
+    .returning({ id: extractionBatches.id });
+  if (!batch) throw new Error('[claim-extraction] failed to insert extraction_batches row');
+
+  // 2. Stage the context pack BEFORE the model call so its ID can thread
+  //    through. model_run_id stays null until the model_run is logged.
+  const [contextPack] = await db
+    .insert(oracleContextPacks)
+    .values(buildContextPackInsert(plan))
+    .returning({ id: oracleContextPacks.id });
+  if (!contextPack) throw new Error('[claim-extraction] failed to insert oracle_context_packs row');
+
+  await db
+    .update(extractionBatches)
+    .set({ contextPackId: contextPack.id })
+    .where(eq(extractionBatches.id, batch.id));
+
+  // 3. Call the model.
+  const callStartedAt = Date.now();
+  let modelOutput: ExtractionOutput | null = null;
+  let modelRunId: string | null = null;
+  let modelError: unknown = null;
+
+  try {
+    const result = await client.runObject<ExtractionOutput>({
+      taskType: 'message_claim_extraction',
+      routeId: route.routeId,
+      promptVersion: EXTRACTION_PROMPT_VERSION,
+      blocks,
+      schema: ExtractionOutputSchema,
+      observability: { includedMessageIds: segmentIds },
+    });
+    const latencyMs = Date.now() - callStartedAt;
+
+    // Log model_runs row.
+    const [modelRun] = await db
+      .insert(modelRuns)
+      .values({
+        taskType: 'claim-extraction',
+        model: route.modelId,
+        provider: route.provider,
+        promptVersion: EXTRACTION_PROMPT_VERSION,
+        inputHash: plan.metadata.stablePrefixHash,
+        inputTokens: result.usage.inputTokens ?? null,
+        outputTokens: result.usage.outputTokens ?? null,
+        latencyMs,
+        success: result.validation.ok,
+      })
+      .returning({ id: modelRuns.id });
+    if (!modelRun) throw new Error('[claim-extraction] failed to insert model_runs row');
+    modelRunId = modelRun.id;
+
+    // Log model_run_usage_details + back-link context pack.
+    await db.insert(modelRunUsageDetails).values({
+      modelRunId: modelRun.id,
+      contextPackId: contextPack.id,
+      routeId: route.routeId,
+      inputTokens: result.usage.inputTokens ?? null,
+      cachedInputTokens: result.usage.cachedInputTokens ?? null,
+      cacheWriteTokens: result.usage.cacheWriteTokens ?? null,
+      outputTokens: result.usage.outputTokens ?? null,
+      reasoningTokens: result.usage.reasoningTokens ?? null,
+      providerRequestId: result.usage.providerRequestId ?? null,
+      rawUsageJson: result.usage.rawUsageJson ?? null,
+    });
+    await db
+      .update(oracleContextPacks)
+      .set({ modelRunId: modelRun.id })
+      .where(eq(oracleContextPacks.id, contextPack.id));
+    await db
+      .update(extractionBatches)
+      .set({
+        modelRunId: modelRun.id,
+        modelRunIdsAttempted: [modelRun.id],
+        rawModelOutput: result.object as unknown as Record<string, unknown>,
+        status: result.validation.ok ? 'model_complete' : 'failed',
+      })
+      .where(eq(extractionBatches.id, batch.id));
+
+    if (!result.validation.ok) {
+      throw new Error(
+        '[claim-extraction] model output failed Zod schema validation: ' +
+          result.validation.error.message,
+      );
+    }
+    modelOutput = result.object;
+  } catch (err) {
+    modelError = err;
+    if (!modelRunId) {
+      // The model_runs row was never inserted. Insert a failed one now so
+      // the batch has provenance.
+      await db.insert(modelRuns).values({
+        taskType: 'claim-extraction',
+        model: route.modelId,
+        provider: route.provider,
+        promptVersion: EXTRACTION_PROMPT_VERSION,
+        latencyMs: Date.now() - callStartedAt,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    await db
+      .update(extractionBatches)
+      .set({
+        status: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+        finishedAt: new Date(),
+      })
+      .where(eq(extractionBatches.id, batch.id));
+    await db
+      .update(messages)
+      .set({
+        extractionStatus: 'failed',
+        extractionError: err instanceof Error ? err.message : String(err),
+      })
+      .where(inArray(messages.id, segmentIds));
+    outcome.messagesProcessed = segmentIds.length;
+    return outcome;
+  }
+
+  if (!modelOutput) return outcome;
+
+  // 4. Stage candidates + evidence, run R5/R5.5 validators, run promotion.
+  let consecutiveQuoteFailureCount = 0;
+  let validationAttemptCount = 0;
+
+  for (const extracted of modelOutput.claims) {
+    validationAttemptCount += 1;
+
+    // Insert the candidate row.
+    const proposedTopDomainIds = mapLegacyDomainsToTopDomains(
+      extracted.domains as KnowledgeDomain[],
+    );
+    const [candidate] = await db
+      .insert(extractionCandidates)
+      .values({
+        extractionBatchId: batch.id,
+        status: 'pending_validation',
+        claimType: extracted.claimType,
+        summary: extracted.summary,
+        impactScore: extracted.impactScore,
+        confidenceScore: extracted.confidenceScore,
+        domains: proposedTopDomainIds satisfies TopLevelDomainId[],
+        proposedEntities: [],
+        stance: legacyStanceToCandidateStance(extracted.semanticRole),
+        containsSensitivePersonalData: false,
+        containsSensitiveHRData: false,
+        isPersonalConflict: false,
+        requiresReview: extracted.requiresReview,
+        reviewReason: extracted.requiresReview ? 'extractor requested review' : null,
+        rawCandidateJson: extracted as unknown as Record<string, unknown>,
+      })
+      .returning({ id: extractionCandidates.id });
+    if (!candidate) {
+      console.warn('[claim-extraction] candidate insert returned no row — skipping');
+      continue;
+    }
+    outcome.candidatesStaged += 1;
+
+    // Insert evidence (single row per candidate for now — the extraction
+    // schema only emits one quote per claim).
+    const sourceMsg = segment.find((m) => m.id === extracted.evidence.sourceMessageId);
+    const sourcePointerCheck = validateSourcePointer({
+      sourceType: 'message',
+      sourceMessageId: extracted.evidence.sourceMessageId,
+    });
+    if (!sourcePointerCheck.ok || !sourceMsg) {
+      await db.insert(extractionValidationResults).values({
+        candidateId: candidate.id,
+        checkName: sourcePointerCheck.failedCheckName ?? 'source_exists',
+        status: 'fail',
+        detail: !sourceMsg
+          ? `sourceMessageId ${extracted.evidence.sourceMessageId} not in segment`
+          : sourcePointerCheck.detail,
+      });
+      await db
+        .update(extractionCandidates)
+        .set({
+          status: 'validation_failed',
+          validationError: 'source pointer invalid',
+          validatedAt: new Date(),
+        })
+        .where(eq(extractionCandidates.id, candidate.id));
+      outcome.rejections += 1;
+      continue;
+    }
+
+    const [evRow] = await db
+      .insert(extractionCandidateEvidence)
+      .values({
+        candidateId: candidate.id,
+        sourceType: 'message',
+        sourceMessageId: extracted.evidence.sourceMessageId,
+        assertedByEmployeeId:
+          (segment.find((m) => m.id === extracted.evidence.sourceMessageId) as
+            | (FormattedMessage & { employeeId?: string })
+            | undefined)?.employeeId ?? null,
+        exactQuoteProvided: extracted.evidence.exactQuote,
+        validationStatus: 'pending',
+        confidence: extracted.evidence.confidence,
+      })
+      .returning({ id: extractionCandidateEvidence.id });
+    if (!evRow) {
+      console.warn('[claim-extraction] candidate evidence insert returned no row — skipping');
+      continue;
+    }
+
+    // R5 — quote validation.
+    const quoteRes = validateQuote({
+      sourceText: sourceMsg.content,
+      exactQuoteProvided: extracted.evidence.exactQuote,
+    });
+    await db
+      .update(extractionCandidateEvidence)
+      .set({
+        validationStatus: quoteRes.validationStatus,
+        validationMethod: quoteRes.validationMethod,
+        validatedExactQuote: quoteRes.validatedExactQuote ?? null,
+        validatedCharStart: quoteRes.validatedCharStart ?? null,
+        validatedCharEnd: quoteRes.validatedCharEnd ?? null,
+        validatedAt: new Date(),
+        validationError:
+          quoteRes.verdict === 'exact_match' || quoteRes.verdict === 'normalized_match'
+            ? null
+            : quoteRes.detail,
+      })
+      .where(eq(extractionCandidateEvidence.id, evRow.id));
+    await db.insert(extractionValidationResults).values({
+      candidateId: candidate.id,
+      candidateEvidenceId: evRow.id,
+      checkName: quoteRes.failedCheckName ?? 'quote_exact_match',
+      status:
+        quoteRes.verdict === 'exact_match' || quoteRes.verdict === 'normalized_match'
+          ? 'pass'
+          : 'fail',
+      detail: quoteRes.detail,
+    });
+
+    if (quoteRes.verdict !== 'exact_match' && quoteRes.verdict !== 'normalized_match') {
+      consecutiveQuoteFailureCount += 1;
+      await db
+        .update(extractionCandidates)
+        .set({
+          status: 'validation_failed',
+          validationError: quoteRes.detail,
+          validatedAt: new Date(),
+        })
+        .where(eq(extractionCandidates.id, candidate.id));
+      outcome.rejections += 1;
+
+      // Circuit-breaker check after each failure.
+      const cbDecision = decideCircuitBreaker({
+        validationAttemptCount,
+        consecutiveQuoteFailureCount,
+      });
+      if (cbDecision.kind === 'trip_breaker') {
+        await db
+          .update(extractionBatches)
+          .set({
+            status: 'failed_validation_loop',
+            consecutiveQuoteFailureCount,
+            validationAttemptCount,
+            finishedAt: new Date(),
+          })
+          .where(eq(extractionBatches.id, batch.id));
+        await db.insert(extractionValidationResults).values({
+          candidateId: candidate.id,
+          checkName: cbDecision.validationResultToWrite.checkName,
+          status: cbDecision.validationResultToWrite.status,
+          detail: cbDecision.validationResultToWrite.detail,
+          metadataJson: {
+            routeId: route.routeId,
+            modelRunIdAttempted: modelRunId,
+            sourceHash,
+          },
+        });
+        outcome.circuitBreakerTripped = true;
+        break; // stop processing this batch
+      }
+      continue;
+    }
+
+    // Quote passed → reset the consecutive failure counter.
+    consecutiveQuoteFailureCount = 0;
+
+    // R5.5 — taxonomy validation.
+    const taxRes = validateTaxonomy({
+      proposedTopDomainIds,
+      activeTopDomainIds,
+      proposedEntities: [], // R5.5 entity extraction lands when the prompt is rewritten
+      entityRegistry: [],
+    });
+    await db.insert(extractionValidationResults).values({
+      candidateId: candidate.id,
+      checkName: 'domain_valid',
+      status: taxRes.ok ? 'pass' : 'fail',
+      detail: taxRes.ok
+        ? `Top-domains validated: ${taxRes.validTopDomainIds.join(', ')}`
+        : taxRes.failures.map((f) => f.detail).join('; '),
+    });
+
+    if (!taxRes.ok) {
+      await db
+        .update(extractionCandidates)
+        .set({
+          status: 'validation_failed',
+          validationError: 'taxonomy invalid',
+          validatedAt: new Date(),
+        })
+        .where(eq(extractionCandidates.id, candidate.id));
+      outcome.rejections += 1;
+      continue;
+    }
+
+    // Mark candidate validated; build snapshot; promote.
+    await db
+      .update(extractionCandidates)
+      .set({ status: 'validated', validatedAt: new Date() })
+      .where(eq(extractionCandidates.id, candidate.id));
+
+    const validatedQuote = quoteRes.validatedExactQuote ?? extracted.evidence.exactQuote;
+    const candidateHash = computeCandidateHash({
+      summary: extracted.summary,
+      topDomainIds: taxRes.validTopDomainIds,
+      validatedQuotes: [validatedQuote],
+      sourcePointers: [`message:${extracted.evidence.sourceMessageId}`],
+    });
+
+    const snapshot: CandidateSnapshot = {
+      candidateHash,
+      candidate: {
+        id: candidate.id,
+        status: 'validated',
+        summary: extracted.summary,
+        claimType: extracted.claimType,
+        impactScore: extracted.impactScore,
+        confidenceScore: extracted.confidenceScore,
+        domains: taxRes.validTopDomainIds,
+      },
+      validatedEvidence: [
+        {
+          id: evRow.id,
+          sourceType: 'message',
+          sourceMessageId: extracted.evidence.sourceMessageId,
+          validatedExactQuote: validatedQuote,
+          validatedCharStart: quoteRes.validatedCharStart ?? 0,
+          validatedCharEnd: quoteRes.validatedCharEnd ?? validatedQuote.length,
+          confidence: extracted.evidence.confidence,
+        },
+      ],
+      taxonomy: taxRes,
+      existingClaimWithSameHash: null, // R6 doesn't yet look these up by hash; R7+ will store the hash on claims.
+    };
+    const decision = decidePromotion(snapshot);
+
+    try {
+      const result = await executePromotion({
+        db,
+        candidateId: candidate.id,
+        candidateHash,
+        decision,
+        modelRunId: modelRunId ?? undefined,
+      });
+      if (result.outcome === 'inserted_new_claim') outcome.claimsPromoted += 1;
+      else if (result.outcome === 'appended_to_existing_claim') outcome.duplicatesAppended += 1;
+      else outcome.rejections += 1;
+    } catch (promErr) {
+      if (promErr instanceof AdvisoryLockBusyError) {
+        // Skip — another worker has the lock. Candidate stays 'validated';
+        // the next cron run will pick it up.
+        await db.insert(extractionValidationResults).values({
+          candidateId: candidate.id,
+          checkName: 'duplicate_promotion_lock',
+          status: 'skipped',
+          detail: 'Advisory lock busy; another worker holds it.',
+        });
+      } else {
+        await db.insert(extractionValidationResults).values({
+          candidateId: candidate.id,
+          checkName: 'promotion_transaction',
+          status: 'fail',
+          detail: promErr instanceof Error ? promErr.message : String(promErr),
+        });
+        outcome.rejections += 1;
+      }
+    }
+  } // end claims loop
+
+  if (!outcome.circuitBreakerTripped) {
+    await db
+      .update(extractionBatches)
+      .set({
+        status: 'validation_complete',
+        consecutiveQuoteFailureCount,
+        validationAttemptCount,
+        finishedAt: new Date(),
+      })
+      .where(eq(extractionBatches.id, batch.id));
+  }
+
+  // Mark messages complete. Even when individual candidates failed, the
+  // segment itself was processed; failed candidates are kept staged for
+  // admin review separately.
+  await db
+    .update(messages)
+    .set({ extractionStatus: 'complete', extractedAt: new Date() })
+    .where(inArray(messages.id, segmentIds));
+  outcome.messagesProcessed = segmentIds.length;
+
+  return outcome;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────
+
+async function resolveExtractionRoute(db: OracleDb): Promise<OracleModelRoute> {
+  const row = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, 'default_extraction_route'))
+    .limit(1);
+  const routeId =
+    typeof row[0]?.value === 'string'
+      ? (row[0]!.value as string)
+      : FALLBACK_ROUTE_ID;
+  const resolved = getOracleRoute(routeId);
+  if (resolved) return resolved;
+  const fallback = getOracleRoute(FALLBACK_ROUTE_ID);
+  if (!fallback) {
+    throw new Error(
+      `[claim-extraction] settings.default_extraction_route="${routeId}" not in catalog, and fallback "${FALLBACK_ROUTE_ID}" also missing.`,
+    );
+  }
+  console.warn(
+    `[claim-extraction] settings.default_extraction_route="${routeId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
+  );
+  return fallback;
+}
+
+async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
+  const rows = await db.execute<{ id: string }>(
+    sql`SELECT id FROM knowledge_top_domains WHERE is_active = true`,
+  );
+  // postgres-js result shape variance — handle both.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const list: Array<{ id: string }> = (rows as any).rows ?? (rows as any);
+  return list.map((r) => r.id);
+}
+
+function groupIntoSegments(
+  pendingMessages: Array<{
+    id: string;
+    channelId: string;
+    employeeId: string | null;
+    role: 'user' | 'assistant' | 'system' | string;
+    content: string;
+    createdAt: Date;
+    authorName: string | null;
+  }>,
+): FormattedMessage[][] {
+  const byChannel = new Map<string, typeof pendingMessages>();
+  for (const m of pendingMessages) {
+    const list = byChannel.get(m.channelId) ?? [];
+    list.push(m);
+    byChannel.set(m.channelId, list);
+  }
+
+  const allSegments: FormattedMessage[][] = [];
+
+  for (const [_channelId, channelMessages] of byChannel) {
+    channelMessages.sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    const segments: FormattedMessage[][] = [];
+    let current: FormattedMessage[] = [];
+
+    for (const m of channelMessages) {
+      if (current.length > 0) {
+        const last = current[current.length - 1]!;
+        const gap = new Date(m.createdAt).getTime() - new Date(last.createdAt).getTime();
+        if (gap > SEGMENT_GAP_MS) {
+          segments.push(current);
+          current = [];
+        }
+      }
+      current.push({
+        id: m.id,
+        role: m.role as 'user' | 'assistant' | 'system',
+        content: m.content,
+        authorName: m.authorName ?? null,
+        createdAt: new Date(m.createdAt),
+      });
+    }
+    if (current.length > 0) segments.push(current);
+    allSegments.push(...segments);
+  }
+
+  return allSegments;
+}
+
+function buildContextPackInsert(plan: OraclePromptPlan) {
+  return {
+    taskType: plan.taskType,
+    routeId: plan.routeId,
+    promptVersion: plan.promptVersion,
+    schemaVersion: plan.schemaVersion ?? null,
+    stablePrefixHash: plan.metadata.stablePrefixHash,
+    semiStableContextHash: plan.metadata.semiStableContextHash ?? null,
+    retrievedContextHash: plan.metadata.retrievedContextHash ?? null,
+    dynamicInputHash: plan.metadata.dynamicInputHash,
+    toolSchemaHash: plan.metadata.toolSchemaHash ?? null,
+    outputSchemaHash: plan.metadata.outputSchemaHash ?? null,
+    blocksJson: plan.blocks.map((b) => ({
+      id: b.id,
+      label: b.label,
+      kind: b.kind,
+      hash: b.hash,
+      tokenEstimate: b.tokenEstimate ?? null,
+      cacheEligible: b.cacheEligible,
+      reasonIncluded: b.reasonIncluded,
+    })),
+    retrievalPlanId: plan.metadata.retrievalPlanId ?? null,
+    selectedDomains: plan.metadata.selectedDomains ?? null,
+    selectedSourceTypes: plan.metadata.selectedSourceTypes ?? null,
+    selectedProcessStages: plan.metadata.selectedProcessStages ?? null,
+    selectedEntityIds: plan.metadata.selectedEntityIds ?? null,
+    includedMessageIds: plan.metadata.includedMessageIds ?? null,
+    includedDocumentChunkIds: plan.metadata.includedDocumentChunkIds ?? null,
+    includedClaimIds: plan.metadata.includedClaimIds ?? null,
+    includedGapIds: plan.metadata.includedGapIds ?? null,
+    includedContradictionIds: plan.metadata.includedContradictionIds ?? null,
+  };
+}
+
+function legacyStanceToCandidateStance(
+  role: string | undefined,
+): 'stated' | 'confirmed' | 'challenged' | 'refined' | 'exception_introduced' | 'ambiguity_revealed' | null {
+  switch (role) {
+    case 'claim_stated':
+      return 'stated';
+    case 'claim_confirmed':
+      return 'confirmed';
+    case 'claim_challenged':
+      return 'challenged';
+    case 'claim_refined':
+      return 'refined';
+    case 'exception_introduced':
+      return 'exception_introduced';
+    case 'process_ambiguity_revealed':
+      return 'ambiguity_revealed';
+    default:
+      return null;
+  }
+}

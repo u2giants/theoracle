@@ -13,6 +13,7 @@
     "@oracle/ai": "workspace:*",
     "@oracle/auth": "workspace:*",
     "@oracle/db": "workspace:*",
+    "@oracle/engines": "workspace:*",
     "@oracle/shared": "workspace:*",
     "@trigger.dev/sdk": "4.4.6",
     "ai": "^6.0.187",

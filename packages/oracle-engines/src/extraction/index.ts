@@ -43,3 +43,21 @@ export {
   type ResolvedEntityAssignment,
   type EntityProposalToCreate,
 } from './taxonomy-validator';
+
+// R6 — circuit breaker, legacy domain mapping, and Drizzle executor
+export {
+  decideCircuitBreaker,
+  DEFAULT_QUOTE_FAILURE_LIMIT,
+  type CircuitBreakerInput,
+  type CircuitBreakerDecision,
+} from './circuit-breaker';
+export {
+  mapLegacyDomainToTopDomain,
+  mapLegacyDomainsToTopDomains,
+} from './domain-mapping';
+export {
+  executePromotion,
+  AdvisoryLockBusyError,
+  type ExecutePromotionInput,
+  type ExecutePromotionResult,
+} from './promotion-executor';

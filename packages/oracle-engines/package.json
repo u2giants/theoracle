@@ -9,11 +9,13 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "verify:r5": "tsx src/__verify__/r5-validator-smoke.ts",
-    "verify:r5.5": "tsx src/__verify__/r5-5-taxonomy-smoke.ts"
+    "verify:r5.5": "tsx src/__verify__/r5-5-taxonomy-smoke.ts",
+    "verify:r6": "tsx src/__verify__/r6-circuit-breaker-smoke.ts"
   },
   "dependencies": {
     "@oracle/db": "workspace:*",
-    "@oracle/shared": "workspace:*"
+    "@oracle/shared": "workspace:*",
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

@@ -1,2 +1,2 @@
 export * from './schema';
-export { getDirectDb, getPooledDb, schema } from './client';
+export { getDirectDb, getPooledDb, schema, type OracleDb } from './client';
