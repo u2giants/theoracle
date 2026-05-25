@@ -8,7 +8,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "verify:r5": "tsx src/__verify__/r5-validator-smoke.ts"
+    "verify:r5": "tsx src/__verify__/r5-validator-smoke.ts",
+    "verify:r5.5": "tsx src/__verify__/r5-5-taxonomy-smoke.ts"
   },
   "dependencies": {
     "@oracle/db": "workspace:*",

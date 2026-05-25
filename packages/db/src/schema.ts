@@ -1296,6 +1296,12 @@ export const extractionCandidateEvidence = pgTable(
     validationError: text('validation_error'),
     confidence: integer('confidence'),
 
+    // R5.5 — taxonomy metadata surfaced inline by the extractor when the
+    // model can infer it from the surrounding context. Nullable; the
+    // promoter writes these through to claim_metadata.
+    documentClass: varchar('document_class', { length: 100 }),
+    processStage: varchar('process_stage', { length: 100 }),
+
     createdAt: timestamp('created_at').defaultNow().notNull(),
     validatedAt: timestamp('validated_at'),
   },

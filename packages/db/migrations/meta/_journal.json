@@ -29,6 +29,13 @@
       "when": 1779675856823,
       "tag": "0003_magenta_lionheart",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779737329090,
+      "tag": "0004_simple_tomas",
+      "breakpoints": true
     }
   ]
 }

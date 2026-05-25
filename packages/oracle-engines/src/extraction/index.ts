@@ -1,11 +1,13 @@
 /**
- * R5 — Extraction pipeline barrel.
+ * R5 + R5.5 — Extraction pipeline barrel.
  *
  * Workers and Trigger.dev tasks import from here. The promotion executor
- * is wired in R6; R5 exports the pure pieces (validator + decision +
- * candidate hash) so the executor is just SQL plumbing on top.
+ * is wired in R6; R5 + R5.5 export the pure pieces (validator + decision +
+ * candidate hash + entity resolver + taxonomy validator) so the executor
+ * is just SQL plumbing on top.
  */
 
+// R5 — quote validator + source pointer check + promotion decision
 export { validateQuote, validateSourcePointer } from './quote-validator';
 export { normalize, methodForApplied } from './normalization';
 export { computeCandidateHash, canonicalizeSummary } from './candidate-hash';
@@ -13,7 +15,9 @@ export {
   decidePromotion,
   PROMOTION_TRANSACTION_RUNBOOK,
   type CandidateSnapshot,
+  type CandidateMetadata,
   type PromotionDecision,
+  type EntityAssignment,
 } from './promote-candidate';
 export type {
   NormalizationPolicy,
@@ -27,3 +31,15 @@ export type {
 } from './types';
 export type { NormalizedString } from './normalization';
 export { STRICT_VERBATIM_POLICY, PDF_OCR_NORMALIZATION_POLICY } from './types';
+
+// R5.5 — taxonomy validation + entity resolution
+export { resolveEntity, type RegistryEntity, type ResolveEntityInput, type ResolveEntityResult } from './entity-resolver';
+export {
+  validateTaxonomy,
+  type ValidateTaxonomyInput,
+  type TaxonomyValidationResult,
+  type TaxonomyValidationFailure,
+  type ProposedEntityReference,
+  type ResolvedEntityAssignment,
+  type EntityProposalToCreate,
+} from './taxonomy-validator';

@@ -24,11 +24,25 @@
  * a pure function so the 6 R5 tests can exercise it without a real DB.
  */
 
-import type { EvidenceSourceType } from '@oracle/shared';
+import type { EntityType, EvidenceSourceType } from '@oracle/shared';
+import type {
+  EntityProposalToCreate,
+  ResolvedEntityAssignment,
+} from './taxonomy-validator';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Decision shapes — what the promoter sees, what it decides to do.
 // ─────────────────────────────────────────────────────────────────────────
+
+/** Claim-level metadata the model surfaced (per R5.5). Goes into claim_metadata. */
+export interface CandidateMetadata {
+  processStage?: string | null;
+  department?: string | null;
+  geography?: string | null;
+  documentClass?: string | null;
+  effectiveFrom?: Date | null;
+  effectiveUntil?: Date | null;
+}
 
 export interface CandidateSnapshot {
   /** Hashed canonical representation of the candidate (see candidate-hash.ts). */
@@ -61,7 +75,33 @@ export interface CandidateSnapshot {
     validatedCharEnd: number;
     pageNumber?: number | null;
     confidence?: number | null;
+    /** R5.5 — surfaced per evidence row when the model could infer them. */
+    documentClass?: string | null;
+    processStage?: string | null;
   }>;
+
+  /**
+   * R5.5 — Taxonomy validation result (from `validateTaxonomy`). Optional
+   * for backward compatibility with R5 callers that don't run the
+   * taxonomy validator yet.
+   *
+   * When present:
+   *  - `validTopDomainIds` replaces `candidate.domains` as the set of
+   *    top-domain rows we'll actually write.
+   *  - `resolvedEntities` becomes the claim_entities inserts.
+   *  - `entityProposalsToCreate` are staged BEFORE the promotion runs.
+   *  - `taxonomyOk: false` blocks promotion entirely.
+   */
+  taxonomy?: {
+    ok: boolean;
+    validTopDomainIds: string[];
+    resolvedEntities: ResolvedEntityAssignment[];
+    entityProposalsToCreate: EntityProposalToCreate[];
+    failureSummary?: string;
+  };
+
+  /** R5.5 — Claim-level metadata to write to claim_metadata. */
+  metadata?: CandidateMetadata;
 
   /**
    * The claim — if any — that the candidate's hash matches. The promoter
@@ -69,6 +109,13 @@ export interface CandidateSnapshot {
    * sees the latest committed state.
    */
   existingClaimWithSameHash?: { claimId: string } | null;
+}
+
+/** R5.5 — Entity tag assignments to write to claim_entities. */
+export interface EntityAssignment {
+  entityId: string;
+  entityType: EntityType;
+  canonicalValue: string;
 }
 
 export type PromotionDecision =
@@ -88,6 +135,12 @@ export type PromotionDecision =
         status: 'pending_review';
       };
       topDomainAssignments: Array<{ topDomainId: string; assignmentReason: 'extraction' }>;
+      /** R5.5 — claim_entities rows to insert. Empty when the candidate had no entities. */
+      entityAssignments: EntityAssignment[];
+      /** R5.5 — claim_metadata row to insert. Undefined when no metadata was surfaced. */
+      metadata?: CandidateMetadata;
+      /** R5.5 — entity_proposals rows to stage before the promotion runs. */
+      entityProposalsToStage: EntityProposalToCreate[];
       evidenceRows: CandidateSnapshot['validatedEvidence'];
       candidateUpdate: { status: 'promoted'; setPromotedToClaimId: true };
     }
@@ -95,6 +148,10 @@ export type PromotionDecision =
       kind: 'append_to_existing_claim';
       candidateHash: string;
       existingClaimId: string;
+      /** R5.5 — entity tags to merge onto the existing claim. */
+      entityAssignments: EntityAssignment[];
+      /** R5.5 — entity_proposals to stage even when the candidate is a duplicate. */
+      entityProposalsToStage: EntityProposalToCreate[];
       evidenceRows: CandidateSnapshot['validatedEvidence'];
       candidateUpdate: { status: 'duplicate'; setDuplicateOfClaimId: string };
     }
@@ -105,8 +162,11 @@ export type PromotionDecision =
         | 'already_promoted'
         | 'no_validated_evidence'
         | 'no_domains'
+        | 'taxonomy_invalid'
         | 'invalid_state';
       detail: string;
+      /** R5.5 — even rejected candidates may surface entity proposals worth staging. */
+      entityProposalsToStage?: EntityProposalToCreate[];
     };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -114,7 +174,12 @@ export type PromotionDecision =
 // ─────────────────────────────────────────────────────────────────────────
 
 export function decidePromotion(snapshot: CandidateSnapshot): PromotionDecision {
-  const { candidate, validatedEvidence, candidateHash, existingClaimWithSameHash } = snapshot;
+  const { candidate, validatedEvidence, candidateHash, existingClaimWithSameHash, taxonomy, metadata } =
+    snapshot;
+
+  // Entity proposals are worth surfacing even when we reject — admin can
+  // review the proposals separately. We thread them through every branch.
+  const entityProposalsToStage = taxonomy?.entityProposalsToCreate ?? [];
 
   // Idempotency: re-running the promoter on an already-promoted candidate
   // returns 'already_promoted' without trying to insert anything.
@@ -123,6 +188,7 @@ export function decidePromotion(snapshot: CandidateSnapshot): PromotionDecision 
       kind: 'reject',
       reason: 'already_promoted',
       detail: `Candidate ${candidate.id} is already promoted to claim ${candidate.promotedToClaimId ?? '<unknown>'}.`,
+      entityProposalsToStage,
     };
   }
 
@@ -134,6 +200,7 @@ export function decidePromotion(snapshot: CandidateSnapshot): PromotionDecision 
       kind: 'reject',
       reason: 'not_validated',
       detail: `Candidate ${candidate.id} has status "${candidate.status}", must be "validated" to promote.`,
+      entityProposalsToStage,
     };
   }
 
@@ -142,16 +209,42 @@ export function decidePromotion(snapshot: CandidateSnapshot): PromotionDecision 
       kind: 'reject',
       reason: 'no_validated_evidence',
       detail: `Candidate ${candidate.id} has no evidence rows with validation_status in (exact_match, normalized_match).`,
+      entityProposalsToStage,
     };
   }
 
-  if (!candidate.domains || candidate.domains.length === 0) {
+  // R5.5: taxonomy validation blocks promotion. Even if the only failure
+  // is "unknown entity needs proposal", we hold the candidate so admin
+  // can resolve the entity registry before a claim is written with a
+  // half-correct tag set.
+  if (taxonomy && !taxonomy.ok) {
+    return {
+      kind: 'reject',
+      reason: 'taxonomy_invalid',
+      detail:
+        `Candidate ${candidate.id} failed taxonomy validation. ` +
+        (taxonomy.failureSummary ?? 'See extraction_validation_results for the per-check breakdown.'),
+      entityProposalsToStage,
+    };
+  }
+
+  // The effective top-domain ID list is the taxonomy-validated subset when
+  // available, otherwise the raw candidate.domains (R5 callers).
+  const effectiveTopDomainIds = taxonomy ? taxonomy.validTopDomainIds : candidate.domains;
+  if (!effectiveTopDomainIds || effectiveTopDomainIds.length === 0) {
     return {
       kind: 'reject',
       reason: 'no_domains',
-      detail: `Candidate ${candidate.id} has no proposed top-domain IDs.`,
+      detail: `Candidate ${candidate.id} has no valid top-domain IDs after taxonomy validation.`,
+      entityProposalsToStage,
     };
   }
+
+  const entityAssignments: EntityAssignment[] = (taxonomy?.resolvedEntities ?? []).map((e) => ({
+    entityId: e.entityId,
+    entityType: e.entityType,
+    canonicalValue: e.canonicalValue,
+  }));
 
   // Duplicate detection. The advisory lock means we're the only writer
   // holding this hash; if there's still an existing claim row, another
@@ -161,6 +254,8 @@ export function decidePromotion(snapshot: CandidateSnapshot): PromotionDecision 
       kind: 'append_to_existing_claim',
       candidateHash,
       existingClaimId: existingClaimWithSameHash.claimId,
+      entityAssignments,
+      entityProposalsToStage,
       evidenceRows: validatedEvidence,
       candidateUpdate: {
         status: 'duplicate',
@@ -169,8 +264,8 @@ export function decidePromotion(snapshot: CandidateSnapshot): PromotionDecision 
     };
   }
 
-  // Happy path: insert a new claim, the top-domain rows, and the evidence
-  // rows, atomically.
+  // Happy path: insert a new claim, the top-domain rows, the entity
+  // tag rows, the metadata row, and the evidence rows, atomically.
   return {
     kind: 'insert_new_claim',
     candidateHash,
@@ -181,13 +276,28 @@ export function decidePromotion(snapshot: CandidateSnapshot): PromotionDecision 
       confidenceScore: candidate.confidenceScore,
       status: 'pending_review',
     },
-    topDomainAssignments: candidate.domains.map((id) => ({
+    topDomainAssignments: effectiveTopDomainIds.map((id) => ({
       topDomainId: id,
       assignmentReason: 'extraction',
     })),
+    entityAssignments,
+    metadata: metadata && hasAnyMetadata(metadata) ? metadata : undefined,
+    entityProposalsToStage,
     evidenceRows: validatedEvidence,
     candidateUpdate: { status: 'promoted', setPromotedToClaimId: true },
   };
+}
+
+/** Internal — true if at least one field in the metadata payload is non-null. */
+function hasAnyMetadata(m: CandidateMetadata): boolean {
+  return Boolean(
+    m.processStage ||
+      m.department ||
+      m.geography ||
+      m.documentClass ||
+      m.effectiveFrom ||
+      m.effectiveUntil,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────
