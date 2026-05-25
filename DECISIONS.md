@@ -191,3 +191,60 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Why `/models/user` not `/models`**: `/models/user` returns only the models the API key has been granted access to (the account guardrail), so admin dropdowns show only the models we can actually call. The public `/models` endpoint returns all of OpenRouter's catalog — thousands of models the key may not have access to. An earlier revision incorrectly used `/models` under the belief that `/models/user` stripped capability metadata; that assumption was wrong and has been corrected.
 - **Tool use detection**: `supported_parameters.includes("tools") || supported_parameters.includes("tool_choice")`. No regex fallback needed once the correct field names are used.
 
+
+
+---
+
+# AI Architecture Retrofit — R1 through R4 (2026-05-25)
+
+## D5.provider-native-architecture — Big 3 direct, not OpenRouter
+
+- **Decision**: All future production AI calls go through `OracleAIClient → ContextCompiler → ModelRouter → Provider-Native Adapter`. Adapters are direct (`@anthropic-ai/sdk`, `@google/genai`, `openai`); OpenRouter is deprecated for production work.
+- **Why**: OpenRouter abstracts away the exact caching primitives — Anthropic explicit breakpoints, Vertex explicit cached content, OpenAI prefix caching with task-specific keys — that make the difference between sub-cent and multi-cent extraction over high-volume batches. For a system that will run extraction workers over thousands of messages a day, that compounds.
+- **Alternative ruled out**: Continue using OpenRouter + Vercel AI SDK. Rejected because the abstraction destroys cache observability and locks us out of provider-native structured-output formats.
+- **Scope**: Established R1 (curated route catalog with strict 1 Primary + 1 Fallback per role) through R2 (the OracleAIClient pipeline itself). Real SDK calls land in R3+ adapter wiring; R2 ships typed stubs that throw `ProviderAdapterNotImplementedError` so the router can fall back correctly even before the SDKs are pulled in.
+
+## D5.default-interview-haiku — Haiku 4.5 default, not Sonnet
+
+- **Decision**: `default_interview_route = anthropic_claude_haiku_4_5_interview_primary`.
+- **Why**: An earlier doc revision proposed Sonnet 3.5 as the primary interview route. For a pre-production app ("not even 30% coded" per Albert), that's an unnecessary cost burden. Haiku 4.5 is the right cost-aware default; Sonnet is wired as the manual escalation route (`anthropic_claude_sonnet_interview_escalation`).
+- **Promotion rule**: Sonnet can only become the default after eval data shows Haiku's interview quality is materially insufficient on POP Creations transcripts. Per `docs/oracle/06-evaluation-framework.md`, that decision must be recorded back here with the eval-run timestamp.
+
+## D5.licensor-vendor-split — `licensor` is a first-class entity type
+
+- **Decision**: `licensor` exists in `entities.entity_type` as a separate type from `vendor`. Operating-vendor subtypes are further split: `factory`, `freight_provider`, `testing_lab`, `packaging_supplier`, `service_provider`. The plain `vendor` value becomes a residual bucket.
+- **Why**: POP Creations sells licensed entertainment products (Disney/Marvel/Star Wars/NBCUniversal/Warner Bros). Licensors govern approvals, art/brand rules, legal permissions, and style-guide constraints. Operating vendors govern capacity, lead times, customs paperwork. A query about *"when do Disney approvals need to happen before production"* must never retrieve generic factory manuals — and that requires structural separation, not prompt engineering.
+- **Enforcement**: CHECK constraints on `entities.entity_type` and `entity_proposals.proposed_entity_type` (in `migrations/sql/12_taxonomy_constraints.sql`) enumerate the full whitelist. Boundary rules on `knowledge_top_domains` list `vendor_manual` / `freight_invoice` as default-excluded document classes for licensor questions.
+
+## D5.boundary-rules-required — every top-domain has belongs-here / does-not-belong-here
+
+- **Decision**: `knowledge_top_domains` is not just a name + display order. Every row carries `belongs_here`, `does_not_belong_here`, `common_entity_hints`, `default_excluded_document_classes`, and `neighboring_domain_ids`.
+- **Why**: Without explicit boundary examples, the LLM has to infer domain boundaries from the domain name alone — which produces inconsistent tagging at scale. Boundaries are the contract the LLM is evaluated against in `segmentation` evals.
+- **Source**: Added in commits `665201b` (doc) and `c529594` (schema + seed).
+
+## D5.claim-metadata-two-columns — `tstzrange` → two timestamp columns
+
+- **Decision**: `claim_metadata` uses `effective_from` + `effective_until` (two `timestamp` columns) rather than the spec sketch's `time_validity tstzrange`. `effective_until IS NULL` means "currently in effect". Half-open semantics: `[from, until)`.
+- **Why**: Drizzle ORM doesn't model `tstzrange` cleanly; consumers would have to learn range overlap operators (`@>`, `<<`, etc.) instead of using ordinary `WHERE` clauses. The two-column form covers every case the spec needs and is the canonical Postgres pattern for half-open intervals.
+- **Doc updated**: `docs/oracle/07-knowledge-segmentation.md` schema sketch updated in commit `fe60304` to match the actual schema.
+
+## D5.candidate-status-consistency-checks — DB-level enforcement of pipeline invariants
+
+- **Decision**: Added 13 CHECK constraints on the R4 staging tables, not just status whitelists. The named consistency rules are:
+  - **`promoted-consistency`**: `extraction_candidates.status='promoted'` iff `promoted_at` and `promoted_to_claim_id` are both populated.
+  - **`duplicate-consistency`**: `status='duplicate'` requires at least one of `duplicate_of_candidate_id` / `duplicate_of_claim_id` to be set.
+  - **`sensitive-consistency`**: `status` in `(rejected_sensitive, quarantined_sensitive)` requires at least one of the three sensitivity flags to be TRUE — catches workers that quarantine without recording why.
+  - **`validated-fields-required-on-pass`**: `extraction_candidate_evidence.validation_status` in `(exact_match, normalized_match)` requires the validated quote + offsets + timestamp to be non-null — no silent passes.
+- **Why**: These invariants would be easy to violate from a worker that's partially refactored. Putting them in the DB means even hand-written admin SQL has to follow them. Spec 6.8's `claim_evidence_source_check` is the precedent.
+
+## D5.legacy-claim-domains-preserved — backfill, don't replace
+
+- **Decision**: `claim_top_domains` is backfilled from the legacy `claim_domains` table (Postgres enum-based) via `migrations/sql/42_claim_top_domains_backfill.sql`. The legacy table and the `knowledge_domain` Postgres enum are intentionally preserved.
+- **Why**: The R3.5 acceptance gate explicitly requires that "the legacy `knowledge_domain` enum column on `claims` is still present and readable" during transition. R6+ migrates the read path; only then does a future cleanup migration drop the legacy table and enum.
+- **Mapping table**: documented inline in `42_*.sql` (e.g., `licensing` → `licensing_approvals`, `coldlion` → `it_systems`, `sampling` → `product_development`, `general` → `customer_ops` residual). Backfilled rows carry `assignment_reason='backfill'` + `assignment_confidence=0.5` so admins can identify and reclassify them later.
+
+## D5.r2-mock-mode — test-mode adapters auto-register
+
+- **Decision**: `OracleAIClient({ mode: 'test' })` automatically registers `MockProviderAdapter` instances for all three providers. Production mode wires the real (stub) `AnthropicAdapter` / `VertexGeminiAdapter` / `OpenAIAdapter`.
+- **Why**: The R2 smoke gate (`pnpm --filter @oracle/ai verify:r2`) needs to exercise the full pipeline (compiler → router → adapter → validator) without API keys or network access. Test mode keeps that single source of truth.
+- **Production behavior unchanged**: production callers don't get mock fallback. If a stub adapter throws `ProviderAdapterNotImplementedError`, the router falls back to the configured Fallback route — it does NOT silently swap in mock output.

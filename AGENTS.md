@@ -218,6 +218,20 @@ The full schema lives in `packages/db/src/schema.ts` and is faithful to `oracle_
 | Brain section | `brain_sections.id` (string slug, e.g. `creative_to_technical_handoff`) | DB | Soft-referenced `current_version_id` is filled via two-step transactional insert (see spec 6.7). |
 | Gap, Contradiction, Oracle intervention | uuid | DB | All link back to claims/messages/employees for audit. |
 | Model run / Job run | uuid | DB | Observability. Every LLM call → `model_runs`. Every Trigger.dev task → `job_runs`. |
+| Oracle context pack | `oracle_context_packs.id` (uuid) | DB | **R3.** Full `OraclePromptPlan` per AI call — block list, hashes, retrieval plan, included record IDs. `model_run_id` is nullable so the pack can be created before the run. |
+| Model run usage detail | `model_run_usage_details.id` (uuid) | DB | **R3.** 1:1 child of `model_runs` (`UNIQUE(model_run_id)`) with the full `OracleUsage` shape: cached/cache-write/reasoning tokens, raw provider usage JSON, and fallback dispatch tracking. |
+| Provider cached content | `provider_cached_content.id` (uuid) | DB | **R3.** Explicit Vertex cache tracking with required `expected_reuse_count`, `latest_planned_reuse_step`, `hard_expiration_at`, `cleanup_owner`, and `status` ∈ `(active, deleted, expired, failed, orphaned)`. CHECK constraint enforces `deleted_at IS NULL iff status='active'`. |
+| Knowledge top domain | `knowledge_top_domains.id` (text, e.g. `customer_ops`) | DB | **R3.5.** Layer 1 of the 3-layer taxonomy. Admin-curated; carries boundary rules (`belongs_here`, `does_not_belong_here`, `common_entity_hints`, `default_excluded_document_classes`, `neighboring_domain_ids`). Seeded with 12 domains. |
+| Knowledge sub-topic | `knowledge_sub_topics.id` (uuid) | DB | **R3.5.** Layer 2 — auto-discovered, admin-approved. Empty on install. `centroid vector(1536)` with HNSW index. |
+| Entity | `entities.id` (uuid) | DB | **R3.5.** Layer 3 canonical registry. UNIQUE `(entity_type, canonical_value)`. `licensor` is a first-class entity type distinct from `vendor`; operating-vendor subtypes (`factory`, `freight_provider`, `testing_lab`, `packaging_supplier`, `service_provider`) are also enumerated. Seeded with 56 entities. |
+| Claim top-domain assignment | `claim_top_domains.(claim_id, top_domain_id)` | DB | **R3.5.** Multi-valued join replacing the single `knowledge_domain` enum column. Carries `assignment_confidence` + `assignment_reason`. Mirror tables exist for documents, document chunks, and messages so retrieval can scope BEFORE claims are promoted. |
+| Claim metadata | `claim_metadata.claim_id` (uuid) | DB | **R3.5.** Orthogonal axes: `process_stage`, `department`, `geography`, `document_class`, `effective_from`, `effective_until` (`NULL` means "currently in effect"), `superseded_by_claim_id`. |
+| Taxonomy proposal | `taxonomy_proposals.id` (uuid) | DB | **R3.5.** Auto-mutation prohibited — admin must approve. CHECK constraint forces `status<>pending` to record reviewer + timestamp. |
+| Entity proposal | `entity_proposals.id` (uuid) | DB | **R3.5.** Unknown entity references queued by extraction. CHECK constraint forces `merged_into_existing` to record `merged_into_entity_id`. |
+| Extraction batch | `extraction_batches.id` (uuid) | DB | **R4.** One row per extraction job segment. Carries the circuit-breaker fields: `validation_attempt_count`, `consecutive_quote_failure_count`, `model_run_ids_attempted` (jsonb), `route_ids_attempted`. |
+| Extraction candidate | `extraction_candidates.id` (uuid) | DB | **R4.** One row per proposed claim. Sensitivity-gate flags (`contains_sensitive_personal_data`, `contains_sensitive_hr_data`, `is_personal_conflict`) are first-class columns; CHECK constraint forces `rejected_sensitive`/`quarantined_sensitive` status to set at least one flag. |
+| Extraction candidate evidence | `extraction_candidate_evidence.id` (uuid) | DB | **R4.** Stores both model-provided AND validator-confirmed quote/offsets. CHECK constraint forces validation pass to populate the validated fields — no silent passes. Source-type/pointer consistency mirrors spec 6.8. |
+| Extraction validation result | `extraction_validation_results.id` (uuid) | DB | **R4.** One row per deterministic check executed; powers the failure-mode taxonomy in `06-evaluation-framework.md`. |
 
 **External system identifiers** (do not change casually; recorded so a future migration doesn't break references):
 
@@ -407,6 +421,44 @@ The most important section. **Do not undo these without reading the cited spec s
 
 **Do not change because:** turning the type check off in `next.config.ts` (`typescript.ignoreBuildErrors: true`) would unblock builds but ship runtime time-bombs. Keep the gate. The right place to enforce it long-term is a GitHub Action that runs `pnpm --filter @oracle/web build` on every PR — that's in pending work.
 
+### `licensor` is a first-class entity type, distinct from `vendor`
+
+**Looks like:** an over-segmentation. Why not just have `vendor` and let the model figure it out?
+
+**Actually:** POP Creations sells licensed entertainment products (Disney, Marvel, Star Wars, NBCUniversal, Warner Bros — see master spec Part 1.1). Licensors govern approvals, art/brand rules, legal permissions, and style-guide constraints. Operating vendors (factories, freight providers, testing labs) govern capacity, lead times, customs paperwork, and cost. These two categories almost never share answers.
+
+**Why:** if `licensor` and `vendor` are collapsed, a query like *"when do Disney approvals need to happen before production"* will retrieve generic factory manuals and freight invoices, which is operationally wrong. Boundary rules on `knowledge_top_domains` reinforce this — the `licensing_approvals` domain explicitly lists `vendor_manual` and `freight_invoice` as default-excluded document classes. The CHECK constraint on `entities.entity_type` and `entity_proposals.proposed_entity_type` includes both `licensor` and `vendor` (plus the operating-vendor subtypes `factory`, `freight_provider`, `testing_lab`, `packaging_supplier`, `service_provider`) so the schema enforces the split at write time.
+
+**Do not change because:** collapsing the types re-introduces the cross-contamination at retrieval time. The taxonomy needs the discrimination, not the LLM.
+
+### `claim_metadata.time_validity` is two timestamp columns, not `tstzrange`
+
+**Looks like:** an unnecessary deviation from the schema sketch in `docs/oracle/07-knowledge-segmentation.md`, which uses `tstzrange`.
+
+**Actually:** Drizzle ORM doesn't model `tstzrange` cleanly, and using `WHERE effective_until IS NULL` to mean "currently in effect" is far more obvious in app code than range overlap operators. The sketch was illustrative; the final schema picks the form that survives application contact. Doc 07 has been updated to call this out (half-open `[effective_from, effective_until)` semantics).
+
+**Do not change because:** rewriting to `tstzrange` would force a custom Drizzle type plus all consumers would have to learn `@>` and other range operators. The two-column form covers every case the spec needs.
+
+### Stable prefix MUST precede dynamic content in `ContextCompiler`
+
+**Looks like:** a strict, almost legalistic invariant that throws an error if violated.
+
+**Actually:** the entire `cache_hit_ratio` metric depends on this. Anthropic prefix caching, Vertex implicit caching, and OpenAI automatic prefix caching ALL identify the cacheable prefix by exact byte-identical content at the start of the prompt. If a dynamic block (current user message, timestamp, retry suffix) appears anywhere before a stable block, the prefix hashes differently on every call and the cache is permanently busted.
+
+**Why:** `packages/ai/src/context/context-compiler.ts` throws if a stable block appears after a dynamic block. The compiler also sorts by `KIND_ORDER` automatically, so most callers don't have to think about it — but the throw catches anyone who tries to bypass the sort by inserting blocks in a `dynamic_input` slot that should be `semi_stable_domain_context`.
+
+**Do not change because:** silently allowing the bypass means the cache hit ratio in dashboards looks healthy while every call is actually paying full input-token price. That regression is invisible without provider-native usage tracking, which we now have but which would only show the problem after a bill arrives.
+
+### Provider adapter stubs throw `ProviderAdapterNotImplementedError`, not generic errors
+
+**Looks like:** a workaround that should be replaced with real implementation ASAP.
+
+**Actually:** the stubs are deliberate. The R2 acceptance gate requires the full pipeline to compile and the smoke test to pass for all three provider shapes. By throwing a typed sentinel, the `ModelRouter` can recognize this specific error as fallback-eligible (same as 429 / timeout) and dispatch to the configured Fallback route. That keeps the system functional today even though the production adapters aren't wired yet.
+
+**Why:** R3+ replaces the stubs with real `@anthropic-ai/sdk` / `@google/genai` / `openai` calls. Until then, anyone running `OracleAIClient` in production mode (not test mode) will see the fallback path exercised correctly. The sentinel error is part of the public interface — `ModelRouter.shouldFallback` checks for it by type.
+
+**Do not change because:** swapping in `Error('not implemented')` would prevent fallback from triggering, and the system would surface a bare error to callers instead of dispatching to the alternate provider. The router treats validation errors and assertion errors differently from transient/unavailable errors on purpose.
+
 ### Logout uses a POST form to a server route, not client-side `signOut()`
 
 **Looks like:** "just call `supabase.auth.signOut()` from a client button — simpler."
@@ -498,7 +550,21 @@ Rule added to prevent recurrence:
 | done | Deploy Phase 4 to Trigger.dev — version `20260521.1` with 7 tasks running in production (`proj_wgpzsvhmsopqhvwqaycn`). `TRIGGER_PROJECT_REF` set in `.env.local` + Vercel. | 2026-05-21 |
 | done | Admin → Settings: three model pickers (interview/extraction/synthesis) with live capability icons (vision, tool use, file input, reasoning, image gen), price badges, and required-cap indicators per role. OpenRouter `/models` endpoint used — correct capability fields: `input_modalities`, `output_modalities`, `supported_parameters`. | 2026-05-21 |
 | done | Implement Phase 5 — Admin review dashboards (claims, gaps, contradictions, brain) | all four dashboards + server actions live; typecheck clean |
-| open | Implement Phase 6 — Interjection engine (lull detection, cooldown, contradiction live-interjection) | scaffold at `packages/oracle-engines/src/interjection.ts` |
+| done | **R1 — Curated Oracle model route catalog** | `packages/ai/src/routes/` (commit `91e44ea`) |
+| done | **R2 — OracleAIClient + ContextCompiler + ModelRouter + provider adapter stubs** | commit `3c51c9b`; 16/16 smoke assertions pass via `pnpm --filter @oracle/ai verify:r2` |
+| done | **R3 — Observability schema** (`oracle_context_packs`, `model_run_usage_details`, `provider_cached_content` + CHECK constraints + `model_runs_with_usage` view) | commit `1e345d3`; Drizzle migration `0001_hot_johnny_blaze.sql` + hand-written `11_observability_constraints.sql`, `31_observability_views.sql` |
+| done | **R3.5 — Three-layer knowledge taxonomy schema** (15 tables; 12 top-domains with boundary rules seeded; 56 entities seeded; `licensor` first-class) | commit `c529594`; Drizzle migration `0002_demonic_kid_colt.sql` + hand-written `12_taxonomy_constraints.sql`, `16_knowledge_top_domains_seed.sql`, `17_entities_seed.sql`, `42_claim_top_domains_backfill.sql`, `48_taxonomy_vector_indexes.sql` |
+| done | **R4 — Candidate-before-claim staging schema** (4 staging tables; 13 CHECK constraints incl. promoted-consistency, sensitive-consistency, validated-fields-required-on-pass) | commit `fe60304`; Drizzle migration `0003_magenta_lionheart.sql` + hand-written `13_extraction_constraints.sql` |
+| open | **R5 — Exact quote validator + promotion service** (next code phase) | `packages/oracle-engines/src/extraction/{quote-validator,promote-candidate}.ts` per `docs/oracle/05-ai-retrofit-phase-packet.md` Phase R5; isolated tests for the 6 cases before R6 worker wiring |
+| open | Apply the new migrations to live Supabase DB | `pnpm db:migrate` will apply `0001`, `0002`, `0003` in order; all hand-written SQL is idempotent; no existing data touched |
+| open | R5.5 — Entity/metadata extraction in candidate pipeline | extend candidate schema + validator |
+| open | R6 — Refactor `apps/workers/src/trigger/claim-extraction.ts` through staging tables | hook the validation-loop circuit breaker |
+| open | R7 — Refactor `apps/workers/src/trigger/document-ingestion.ts` to Vertex/Gemini direct | including Supabase → Vertex storage bridge |
+| open | R8 — Refactor `apps/web/app/api/chat/route.ts` through `OracleAIClient` | use `RetrievalPlan` + hybrid pgvector + tsvector RRF |
+| open | R9 — Refactor `apps/workers/src/trigger/brain-synthesis.ts` to Anthropic direct | strict synthesis validation |
+| open | R10 — Admin observability dashboards (AI runs, context packs, cache traffic-light, candidate review) | reads from `model_runs_with_usage` view |
+| open | R10.5 — Taxonomy admin + maturity-based re-evaluation worker | compact proposal cards for `taxonomy_proposals` / `entity_proposals` |
+| open | R11 — Resume interjection engine (lull detection, contradiction live-interjection) | only after R5–R10.5 — needs trustworthy claims first |
 | done | CI: `.github/workflows/pr-check.yml` runs `pnpm --filter @oracle/web build` on PRs + pushes to `main`. Catches production-only typecheck errors (the 2026-05-20 class of failure). Uses placeholder env vars; App Router dynamic-rendering means real secrets aren't needed at build. | 2026-05-21 |
 | open | CI: add migration job (`pnpm db:migrate`) gated on manual approval | — |
 | open | Vector indexes (`packages/db/migrations/sql/99_vector_indexes.sql`) — apply once enough embedding data exists to justify HNSW | run the SQL when ready |

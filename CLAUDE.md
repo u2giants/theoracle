@@ -4,24 +4,32 @@
 
 ## Current priority
 
-The next major implementation work is **not** Phase 6 proactive interjection.
+The next major implementation work is **not** Phase 6 proactive interjection. Treat `HANDOFF.md` as the authoritative phase-status table.
 
-The next major implementation work is the **AI architecture retrofit** described in:
+Retrofit progress as of 2026-05-25:
 
-1. `docs/oracle/00-buildout-index.md`
-2. `docs/oracle/01-model-roles-and-routes.md`
-3. `docs/oracle/02-provider-native-ai-architecture.md`
-4. `docs/oracle/03-candidate-before-claim-validation.md`
-5. `docs/oracle/04-context-packs-observability.md`
-6. `docs/oracle/05-ai-retrofit-phase-packet.md`
+- ✅ R0 — Documentation reset
+- ✅ R1 — Curated Oracle model route catalog (`packages/ai/src/routes/`)
+- ✅ R2 — OracleAIClient + ContextCompiler + ModelRouter + provider adapter stubs (`packages/ai/src/{client,context,routing,providers,usage,validation}/`)
+- ✅ R3 — Observability schema (`oracle_context_packs`, `model_run_usage_details`, `provider_cached_content`)
+- ✅ R3.5 — Three-layer knowledge taxonomy schema (15 tables, boundary rules, `licensor` first-class)
+- ✅ R4 — Candidate-before-claim staging schema (4 tables, 13 CHECK constraints)
+- ⬜ **R5 — Exact quote validator + promotion service** (next code phase)
 
-Do not extend the old OpenRouter-centered architecture for production extraction, document ingestion, synthesis, or cache-sensitive AI work.
+The retrofit packet supersedes any older guidance that says Phase 6 interjection is next.
 
-OpenRouter may remain temporarily as legacy fallback while the retrofit is in progress, but the target architecture is Big 3 direct-provider adapters:
+Authoritative addenda for the retrofit:
 
-- Anthropic direct;
-- Google Vertex AI / Gemini direct;
-- OpenAI direct.
+1. `docs/oracle/00-buildout-index.md` — index + reading order
+2. `docs/oracle/01-model-roles-and-routes.md` — roles + curated route catalog
+3. `docs/oracle/02-provider-native-ai-architecture.md` — `OracleAIClient` pipeline + hybrid retrieval + cache lifecycle
+4. `docs/oracle/03-candidate-before-claim-validation.md` — staging → validation → promotion
+5. `docs/oracle/04-context-packs-observability.md` — context packs + dashboards
+6. `docs/oracle/05-ai-retrofit-phase-packet.md` — implementation order
+7. `docs/oracle/06-evaluation-framework.md` — CLI evals + phase gates
+8. `docs/oracle/07-knowledge-segmentation.md` — three-layer taxonomy + boundary rules
+
+Do not extend the old OpenRouter-centered architecture for production extraction, document ingestion, synthesis, or cache-sensitive AI work. OpenRouter may remain temporarily as legacy fallback while the retrofit is in progress; the target architecture is Big 3 direct-provider adapters (Anthropic / Vertex / OpenAI).
 
 ## Memory
 

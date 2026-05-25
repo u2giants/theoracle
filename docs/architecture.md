@@ -227,3 +227,147 @@ Workers must not import from `apps/web`, and vice versa.
 - **Deprecated columns on `employees` (`auth_user_id`, `auth_provider`, `auth_provider_subject`) are NULL-filled and still present.** Looks like dead columns; they're kept during the multi-identity transition because dropping them mid-session would force a column-drop migration. Removal is in AGENTS.md §15 pending work. New code must read identities through `employee_identities`, not these columns.
 - **Workers and chat still call OpenRouter via the Vercel AI SDK.** Looks like the docs/oracle architecture is half-implemented; it is — that's the AI retrofit's whole reason for being. Do not extend the OpenRouter path. R1–R9 replace it.
 - **Embeddings fall back to a deterministic zero vector when `OPENAI_API_KEY` is unset.** Looks like a silent bug. It is intentional so local dev works without a real key; vector similarity is meaningless in that state but the schema and shape are preserved. AGENTS.md §11.
+
+---
+
+## AI architecture retrofit — R1–R4 (landed 2026-05-25)
+
+The Oracle's AI layer is mid-retrofit. The legacy `OpenRouter → Vercel AI SDK` path remains live for now, but new production code must go through the provider-native pipeline below. See `docs/oracle/05-ai-retrofit-phase-packet.md` for the full phase plan.
+
+### Runtime pipeline (R2, landed)
+
+```
+                     Next.js route / Trigger.dev worker
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │  OracleAIClient  │  packages/ai/src/client/
+                         └────────┬─────────┘
+                                  │
+                  ┌───────────────┴───────────────┐
+                  ▼                               ▼
+        ┌──────────────────┐            ┌────────────────────┐
+        │ ContextCompiler  │            │   ModelRouter      │  packages/ai/src/routing/
+        │ packages/ai/src/ │            │                    │
+        │ context/         │            │  - resolve routeId │
+        │                  │            │  - dispatch        │
+        │ stable → semi    │            │  - fallback on     │
+        │  → retrieved →   │            │    429 / timeout / │
+        │  dynamic         │            │    NotImplemented  │
+        │                  │            └──────────┬─────────┘
+        │ throws if stable │                       │
+        │ appears after    │            ┌──────────┴──────────┬──────────────┐
+        │ dynamic          │            ▼                     ▼              ▼
+        └──────────────────┘    Anthropic adapter    Vertex Gemini      OpenAI adapter
+                                    (stub)            adapter (stub)        (stub)
+                                                                                │
+                                                       (real SDK wiring in R3+)│
+                                                                                ▼
+                                                                 UsageNormalizer →
+                                                                 model_run_usage_details
+```
+
+**Test mode** auto-registers `MockProviderAdapter` instances for all three providers, so the full pipeline runs without API keys. The smoke gate (`pnpm --filter @oracle/ai verify:r2`) covers 16 assertions including stable-before-dynamic ordering, generateText across all 3 provider shapes, Zod-validated `generateObject`, ModelRouter fallback dispatch, and `EvidenceValidator` accept/reject behavior.
+
+**Validation layer:**
+
+- `packages/ai/src/validation/structured-output-validator.ts` — Zod schema check, returns a discriminated `ValidationResult<T>` so the caller can decide whether to escalate to a repair route.
+- `packages/ai/src/validation/evidence-validator.ts` — deterministic `.includes()` + offset verification with ambiguity guard (multi-occurrence quotes without offsets are flagged `ambiguous`, not silently accepted).
+
+### Curated route catalog (R1, landed)
+
+`packages/ai/src/routes/` defines `OracleModelRoute` and the 9 curated routes. Each of the 3 production roles has **exactly 1 Primary + 1 Fallback** — no balanced alternates or competing defaults.
+
+| Role | Primary | Fallback |
+|---|---|---|
+| Interview | `anthropic_claude_haiku_4_5_interview_primary` | `openai_gpt4o_interview_fallback` |
+| Extraction | `vertex_gemini_2_5_flash_extraction_primary` | `openai_gpt4o_mini_extraction_fallback` |
+| Synthesis | `anthropic_claude_3_5_sonnet_synthesis_primary` | `vertex_gemini_2_5_flash_synthesis_fallback` |
+
+Internal escalation subroutes (Flash-Lite triage, Haiku warmth escalation, GPT-4o-mini schema repair) live inside `OracleAIClient` and are not exposed in admin settings.
+
+### Observability schema (R3, landed)
+
+Three Drizzle tables (created by migration `0001_hot_johnny_blaze.sql`) feed the future cost/cache dashboards:
+
+| Table | Purpose |
+|---|---|
+| `oracle_context_packs` | Full `OraclePromptPlan` per AI call. Block list, prompt/schema versions, cache-key hashes (`stable_prefix_hash`, `dynamic_input_hash`, etc.), retrieval plan, included record IDs. `model_run_id` is nullable so the pack can be created BEFORE the model run. |
+| `model_run_usage_details` | 1:1 child of `model_runs` (UNIQUE on `model_run_id`). Adds the OracleUsage shape: `cached_input_tokens`, `cache_write_tokens`, `reasoning_tokens`, `provider_request_id`, raw provider usage JSON, plus fallback dispatch tracking (`fell_back_from_route_id`, `fallback_reason`). |
+| `provider_cached_content` | Explicit Vertex cache tracking. Required reuse policy fields: `expected_reuse_count`, `latest_planned_reuse_step`, `hard_expiration_at`, `cleanup_owner`. `status` ∈ `(active, deleted, expired, failed, orphaned)`; CHECK constraint enforces `deleted_at IS NULL iff status='active'`. |
+
+The `model_runs_with_usage` view (`migrations/sql/31_observability_views.sql`) joins all three for dashboard queries and computes `cache_hit_ratio = cached_input_tokens / input_tokens`.
+
+### Three-layer knowledge taxonomy (R3.5, landed)
+
+15 tables installing the segmentation from `docs/oracle/07-knowledge-segmentation.md`:
+
+```
+Layer 1   knowledge_top_domains            12 domains seeded; admin-curated
+            ↑                                each carries boundary rules:
+            │                                belongs_here, does_not_belong_here,
+            │                                common_entity_hints,
+            │                                default_excluded_document_classes,
+            │                                neighboring_domain_ids
+            │
+   ┌────────┴────────────────────────────────────┐
+   │                                              │
+   ▼                                              ▼
+Layer 2   knowledge_sub_topics            (Tagging joins)
+            empty on install              claim_top_domains, document_top_domains,
+            centroid vector(1536)         document_chunk_top_domains,
+            HNSW index                    message_top_domains, claim_sub_topics
+                                          → retrieval scopes BEFORE claims exist
+
+Layer 3   entities                        56 entities seeded
+            ↑                                customers (5)   licensors (5; first-class)
+            │                                systems (10)    departments (8)
+            │                                geographies (4) process_stages (14)
+            │                                document_classes (10)
+            │
+   ┌────────┴────────────────────────────────────┐
+   │                                              │
+   ▼                                              ▼
+Tag joins  claim_entities,                claim_metadata
+           document_chunk_entities,         process_stage, department, geography,
+           message_entities                 document_class, effective_from,
+                                            effective_until, superseded_by_claim_id
+
+Governance taxonomy_proposals           Compact admin proposal cards
+           taxonomy_change_log          Audit log of accepted changes
+           entity_proposals             Unknown-entity queue
+                                        Auto-mutation prohibited
+```
+
+The legacy `claim_domains` table and `knowledge_domain` Postgres enum are intentionally preserved during transition. `migrations/sql/42_claim_top_domains_backfill.sql` copies existing claim-domain rows into the new `claim_top_domains` join via an explicit mapping (e.g. `coldlion → it_systems`, `sampling → product_development`).
+
+### Candidate-before-claim staging (R4, landed)
+
+The extraction pipeline runs through 4 new tables (`migrations/0003_magenta_lionheart.sql`):
+
+```
+model output
+  → extraction_batches              circuit-breaker fields:
+                                      validation_attempt_count,
+                                      consecutive_quote_failure_count,
+                                      model_run_ids_attempted,
+                                      route_ids_attempted
+  → extraction_candidates           sensitivity flags first-class:
+                                      contains_sensitive_personal_data,
+                                      contains_sensitive_hr_data,
+                                      is_personal_conflict
+                                    proposed_entities + proposed_metadata
+                                    dedup pointers: duplicate_of_candidate_id,
+                                      duplicate_of_claim_id
+  → extraction_candidate_evidence   stores both model-provided AND validator-
+                                    confirmed quote/offsets
+  → extraction_validation_results   one row per deterministic check
+  → (R5) transactional promotion    advisory-lock → claims +
+                                    claim_top_domains + claim_evidence
+```
+
+13 CHECK constraints (in `migrations/sql/13_extraction_constraints.sql`) enforce the pipeline invariants that schema alone can't — `promoted-consistency`, `sensitive-consistency`, `validated-fields-required-on-pass`, source-type/pointer consistency, etc.
+
+### What's still legacy (R5–R9)
+
+The Trigger.dev workers (`apps/workers/src/trigger/*.ts`), the chat route (`apps/web/app/api/chat/route.ts`), and the admin model picker all still call OpenRouter directly. The retrofit packet wires them through `OracleAIClient` in R6–R9. Don't extend the OpenRouter path; refactor the call sites toward `OracleAIClient` instead.

@@ -119,17 +119,29 @@ If you add a new env var, update:
 3. This table
 4. The relevant `packages/<x>` README if behavior depends on it
 
-## Future env vars — added during R1–R2 retrofit
+## AI retrofit env vars — when each one is required
 
-These are not yet wired but are reserved by `docs/oracle/02-provider-native-ai-architecture.md`. Add them to `.env.example` and Vercel only when the corresponding adapter lands; do not add empty values prematurely.
+`docs/oracle/02-provider-native-ai-architecture.md` reserves these. R2 (already landed, commit `3c51c9b`) ships the adapter interface and stub implementations — the production adapters throw `ProviderAdapterNotImplementedError` until they are wired with real SDK calls in R3+. **Therefore the actual SDK and API-key wiring lands phase-by-phase, not all at once.** Add the var to `.env.example` and Vercel **only when the corresponding adapter wiring lands** — do not add empty values prematurely.
 
-| Variable | Purpose | Added in phase |
+| Variable | Purpose | Required when |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Anthropic direct provider adapter | R2 |
-| `GOOGLE_CLOUD_PROJECT` | Vertex / Gemini direct | R2 + R7 |
-| `GOOGLE_CLOUD_LOCATION` | Vertex region (default `us-central1`) | R2 + R7 |
-| `GOOGLE_CLIENT_EMAIL` | Vertex service-account email | R2 + R7 |
-| `GOOGLE_PRIVATE_KEY` | Vertex service-account key (`\\n` → real newlines in memory; never written to disk in Trigger.dev) | R2 + R7 |
-| `ORACLE_ENABLE_OPENROUTER_FALLBACK` | Default `false`. When the retrofit is complete, this is the only escape hatch back to the legacy OpenRouter path. | R2 |
+| `ANTHROPIC_API_KEY` | Anthropic direct adapter (interview Primary + synthesis Primary) | When `AnthropicAdapter.generateText` / `generateObject` is wired (R6 or R8, whichever wires the interview/synthesis path first) |
+| `GOOGLE_CLOUD_PROJECT` | Vertex / Gemini direct (extraction Primary, synthesis Fallback) | When `VertexGeminiAdapter` is wired — first wiring lands with R7 (document ingestion + Vertex storage bridge) |
+| `GOOGLE_CLOUD_LOCATION` | Vertex region (default `us-central1`) | Same as above |
+| `GOOGLE_CLIENT_EMAIL` | Vertex service-account email | Same as above |
+| `GOOGLE_PRIVATE_KEY` | Vertex service-account key. `\\n` is converted to real newlines in memory. Never written to disk inside Trigger.dev — workload identity is preferred, this is the fallback. | Same as above |
+| `ORACLE_ENABLE_OPENROUTER_FALLBACK` | Default `false`. The escape hatch back to the legacy OpenRouter path while a refactor is in progress. Drop entirely once R9 is done. | R6+ — first time a worker is refactored to `OracleAIClient`, this flag exists so a rollback to OpenRouter is one env-var flip away |
 
-`OPENAI_API_KEY` is already wired for embeddings and will be reused by the OpenAI direct adapter — no new key needed for that provider.
+`OPENAI_API_KEY` is already wired (today, for `text-embedding-3-small` embeddings) and will be reused by the OpenAI direct adapter (interview Fallback + extraction Fallback) — no new key needed for that provider.
+
+### Settings keys changed in R1 (replacing legacy OpenRouter model IDs)
+
+The runtime settings table in `migrations/sql/...` (per `oracle_master_spec.md` §6.2) now uses curated route IDs instead of raw OpenRouter model strings:
+
+```text
+default_interview_route  = "anthropic_claude_haiku_4_5_interview_primary"
+default_extraction_route = "vertex_gemini_2_5_flash_extraction_primary"
+default_synthesis_route  = "anthropic_claude_3_5_sonnet_synthesis_primary"
+```
+
+The legacy keys (`default_interview_model`, `default_extraction_model`, `default_synthesis_model`) remain in the table during transition for the existing OpenRouter-backed code to keep working. Both sets coexist until R6–R9 finish the chat-route and worker refactor; the legacy keys are then dropped in a follow-up cleanup migration.

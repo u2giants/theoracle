@@ -112,7 +112,25 @@ pnpm --filter @oracle/workers dev     # requires Trigger.dev CLI; the script use
 
 ## Tests
 
-We don't have a test framework wired yet. When we do, the convention will be Vitest at the package level (`packages/<x>/src/__tests__/*.test.ts`). Don't write speculative tests before then — the spec calls for evaluation gates over real transcripts, not unit coverage on schemas.
+We don't have a full test framework wired yet. When we do, the convention will be Vitest at the package level (`packages/<x>/src/__tests__/*.test.ts`). Don't write speculative tests before then — the spec calls for evaluation gates over real transcripts, not unit coverage on schemas.
+
+### R2 acceptance smoke gate
+
+The OracleAIClient pipeline has a self-contained smoke test that exercises the compiler, router, all 3 provider shapes (via mock adapter), `generateText`, Zod-validated `generateObject`, the ModelRouter fallback path, and the EvidenceValidator. It runs without API keys, database, or network access.
+
+```bash
+pnpm --filter @oracle/ai verify:r2
+```
+
+16 assertions, all should pass. Run this any time you touch `packages/ai/src/{client,context,routing,providers,usage,validation}/` to confirm you didn't break the pipeline.
+
+### AI retrofit phase gates
+
+Each AI retrofit phase has an acceptance gate documented in `docs/oracle/05-ai-retrofit-phase-packet.md`. The current contract is:
+
+- After each phase, `pnpm typecheck && pnpm --filter @oracle/web build && pnpm --filter @oracle/ai verify:r2` must all pass before commit.
+- New phases must not regress prior gates — re-run them after schema/code work.
+- R5 (the next phase) adds isolated validator tests for the 6 cases in `docs/oracle/05-ai-retrofit-phase-packet.md#phase-r5`. Those tests will run inline as part of `pnpm --filter @oracle/oracle-engines verify:r5` once they're written.
 
 ## Inspection / debugging scripts
 
