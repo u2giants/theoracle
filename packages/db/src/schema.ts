@@ -1124,6 +1124,215 @@ export const entityProposals = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// R4 — Candidate-before-claim staging
+//
+// Source of truth for the shapes:
+//   docs/oracle/03-candidate-before-claim-validation.md
+//   docs/oracle/05-ai-retrofit-phase-packet.md Phase R4
+//
+// Pipeline:
+//   model output
+//     → extraction_batches
+//     → extraction_candidates
+//     → extraction_candidate_evidence
+//     → deterministic validation (extraction_validation_results)
+//     → transactional promotion
+//     → permanent claims / claim_top_domains / claim_evidence
+//
+// Schema-only phase: no worker behavior changes yet. The existing
+// claim-extraction worker continues to insert directly into permanent
+// claims until R6 wires it through this staging pipeline.
+// ---------------------------------------------------------------------------
+
+export const extractionBatches = pgTable(
+  'extraction_batches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    jobRunId: uuid('job_run_id').references(() => jobRuns.id),
+    // Current / latest model run for the batch. Earlier attempts are in
+    // modelRunIdsAttempted.
+    modelRunId: uuid('model_run_id').references(() => modelRuns.id),
+    contextPackId: uuid('context_pack_id').references(() => oracleContextPacks.id),
+
+    // 'message_segment' | 'document_chunk' | 'document_page' | 'transcript_segment'.
+    batchType: varchar('batch_type', { length: 50 }).notNull(),
+
+    // EXTRACTION_BATCH_STATUSES.
+    status: varchar('status', { length: 50 }).default('pending_model').notNull(),
+
+    // What was processed. Arrays of UUIDs as JSONB so a single batch can
+    // span multiple source rows (group-chat segments etc.).
+    sourceMessageIds: jsonb('source_message_ids'),
+    sourceDocumentChunkIds: jsonb('source_document_chunk_ids'),
+    // sha256 hex over the source content fed into the model — used for
+    // idempotency and to identify "same batch retried" for the circuit breaker.
+    sourceHash: varchar('source_hash', { length: 64 }).notNull(),
+
+    rawModelOutput: jsonb('raw_model_output'),
+    validationSummary: jsonb('validation_summary'),
+
+    // Retry safety / circuit breaker.
+    validationAttemptCount: integer('validation_attempt_count').default(0).notNull(),
+    consecutiveQuoteFailureCount: integer('consecutive_quote_failure_count').default(0).notNull(),
+    // History of every model run attempted on this batch (in order).
+    modelRunIdsAttempted: jsonb('model_run_ids_attempted').default([]).notNull(),
+    // History of every route ID attempted on this batch (in order).
+    routeIdsAttempted: jsonb('route_ids_attempted').default([]).notNull(),
+
+    error: text('error'),
+
+    startedAt: timestamp('started_at').defaultNow().notNull(),
+    finishedAt: timestamp('finished_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    statusIdx: index('extraction_batches_status_idx').on(t.status),
+    statusCreatedIdx: index('extraction_batches_status_created_idx').on(t.status, t.createdAt),
+    sourceHashIdx: index('extraction_batches_source_hash_idx').on(t.sourceHash),
+    batchTypeIdx: index('extraction_batches_batch_type_idx').on(t.batchType),
+    modelRunIdx: index('extraction_batches_model_run_idx').on(t.modelRunId),
+    contextPackIdx: index('extraction_batches_context_pack_idx').on(t.contextPackId),
+  }),
+);
+
+export const extractionCandidates = pgTable(
+  'extraction_candidates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    extractionBatchId: uuid('extraction_batch_id')
+      .references(() => extractionBatches.id)
+      .notNull(),
+
+    // EXTRACTION_CANDIDATE_STATUSES.
+    status: varchar('status', { length: 50 }).default('pending_validation').notNull(),
+
+    claimType: varchar('claim_type', { length: 100 }).notNull(),
+    summary: text('summary').notNull(),
+    impactScore: integer('impact_score').notNull(),
+    confidenceScore: integer('confidence_score'),
+
+    // Proposed top-domain IDs (text[] of knowledge_top_domains.id).
+    domains: jsonb('domains').notNull(),
+    // Proposed entity references the model surfaced — array of
+    // { entityType, canonicalValue, resolvedEntityId? }. Unresolved entries
+    // become entity_proposals when promotion is attempted.
+    proposedEntities: jsonb('proposed_entities').default([]).notNull(),
+    // Optional metadata the model surfaced (process_stage, department, etc.).
+    proposedMetadata: jsonb('proposed_metadata'),
+
+    // CANDIDATE_STANCES.
+    stance: varchar('stance', { length: 50 }),
+
+    // Privacy / sensitivity gate per docs/oracle/03 "Privacy and sensitivity gate".
+    containsSensitivePersonalData: boolean('contains_sensitive_personal_data').default(false).notNull(),
+    containsSensitiveHRData: boolean('contains_sensitive_hr_data').default(false).notNull(),
+    isPersonalConflict: boolean('is_personal_conflict').default(false).notNull(),
+    sensitivityReason: text('sensitivity_reason'),
+
+    riskFlags: jsonb('risk_flags'),
+    requiresReview: boolean('requires_review').default(true).notNull(),
+    reviewReason: text('review_reason'),
+
+    // Dedup — within the staging pipeline and against already-promoted claims.
+    duplicateOfCandidateId: uuid('duplicate_of_candidate_id'),
+    duplicateOfClaimId: uuid('duplicate_of_claim_id').references(() => claims.id),
+
+    // After successful promotion, points at the resulting permanent claim.
+    promotedToClaimId: uuid('promoted_to_claim_id').references(() => claims.id),
+
+    rawCandidateJson: jsonb('raw_candidate_json').notNull(),
+    validationError: text('validation_error'),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    validatedAt: timestamp('validated_at'),
+    promotedAt: timestamp('promoted_at'),
+  },
+  (t) => ({
+    statusIdx: index('extraction_candidates_status_idx').on(t.status),
+    batchIdx: index('extraction_candidates_batch_idx').on(t.extractionBatchId),
+    promotedClaimIdx: index('extraction_candidates_promoted_claim_idx').on(t.promotedToClaimId),
+    duplicateClaimIdx: index('extraction_candidates_duplicate_claim_idx').on(t.duplicateOfClaimId),
+    sensitivityIdx: index('extraction_candidates_sensitivity_idx').on(
+      t.containsSensitiveHRData,
+      t.isPersonalConflict,
+    ),
+    createdAtIdx: index('extraction_candidates_created_at_idx').on(t.createdAt),
+  }),
+);
+
+export const extractionCandidateEvidence = pgTable(
+  'extraction_candidate_evidence',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    candidateId: uuid('candidate_id')
+      .references(() => extractionCandidates.id)
+      .notNull(),
+
+    sourceType: evidenceSourceTypeEnum('source_type').notNull(),
+    sourceMessageId: uuid('source_message_id').references(() => messages.id),
+    sourceDocumentChunkId: uuid('source_document_chunk_id').references(() => documentChunks.id),
+    sourceExternalRecordId: varchar('source_external_record_id', { length: 255 }),
+
+    assertedByEmployeeId: uuid('asserted_by_employee_id').references(() => employees.id),
+    uploadedByEmployeeId: uuid('uploaded_by_employee_id').references(() => employees.id),
+    createdByEmployeeId: uuid('created_by_employee_id').references(() => employees.id),
+
+    exactQuoteProvided: text('exact_quote_provided').notNull(),
+    normalizedQuote: text('normalized_quote'),
+    charStartProvided: integer('char_start_provided'),
+    charEndProvided: integer('char_end_provided'),
+
+    // Filled in by the deterministic validator (R5).
+    validatedExactQuote: text('validated_exact_quote'),
+    validatedCharStart: integer('validated_char_start'),
+    validatedCharEnd: integer('validated_char_end'),
+    pageNumber: integer('page_number'),
+
+    // EVIDENCE_VALIDATION_STATUSES.
+    validationStatus: varchar('validation_status', { length: 50 }).default('pending').notNull(),
+
+    // 'verbatim_includes' | 'verbatim_offset_match' | 'normalized_*' | 'none'.
+    validationMethod: varchar('validation_method', { length: 100 }),
+    validationError: text('validation_error'),
+    confidence: integer('confidence'),
+
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    validatedAt: timestamp('validated_at'),
+  },
+  (t) => ({
+    candidateIdx: index('extraction_candidate_evidence_candidate_idx').on(t.candidateId),
+    sourceMessageIdx: index('extraction_candidate_evidence_source_message_idx').on(t.sourceMessageId),
+    sourceChunkIdx: index('extraction_candidate_evidence_source_chunk_idx').on(t.sourceDocumentChunkId),
+    validationStatusIdx: index('extraction_candidate_evidence_validation_status_idx').on(t.validationStatus),
+  }),
+);
+
+export const extractionValidationResults = pgTable(
+  'extraction_validation_results',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    candidateId: uuid('candidate_id').references(() => extractionCandidates.id),
+    candidateEvidenceId: uuid('candidate_evidence_id').references(() => extractionCandidateEvidence.id),
+
+    // VALIDATION_CHECK_NAMES.
+    checkName: varchar('check_name', { length: 100 }).notNull(),
+
+    // VALIDATION_CHECK_STATUSES.
+    status: varchar('status', { length: 50 }).notNull(),
+
+    detail: text('detail'),
+    metadataJson: jsonb('metadata_json'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    candidateIdx: index('extraction_validation_results_candidate_idx').on(t.candidateId),
+    candidateEvidenceIdx: index('extraction_validation_results_candidate_evidence_idx').on(t.candidateEvidenceId),
+    checkNameStatusIdx: index('extraction_validation_results_check_name_status_idx').on(t.checkName, t.status),
+    createdAtIdx: index('extraction_validation_results_created_at_idx').on(t.createdAt),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Type exports for app code
 // ---------------------------------------------------------------------------
 
@@ -1178,3 +1387,12 @@ export type TaxonomyChangeLog = typeof taxonomyChangeLog.$inferSelect;
 export type NewTaxonomyChangeLog = typeof taxonomyChangeLog.$inferInsert;
 export type EntityProposal = typeof entityProposals.$inferSelect;
 export type NewEntityProposal = typeof entityProposals.$inferInsert;
+// R4 candidate-before-claim staging
+export type ExtractionBatch = typeof extractionBatches.$inferSelect;
+export type NewExtractionBatch = typeof extractionBatches.$inferInsert;
+export type ExtractionCandidate = typeof extractionCandidates.$inferSelect;
+export type NewExtractionCandidate = typeof extractionCandidates.$inferInsert;
+export type ExtractionCandidateEvidence = typeof extractionCandidateEvidence.$inferSelect;
+export type NewExtractionCandidateEvidence = typeof extractionCandidateEvidence.$inferInsert;
+export type ExtractionValidationResult = typeof extractionValidationResults.$inferSelect;
+export type NewExtractionValidationResult = typeof extractionValidationResults.$inferInsert;

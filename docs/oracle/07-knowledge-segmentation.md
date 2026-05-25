@@ -331,14 +331,21 @@ CREATE TABLE message_entities (
 );
 
 -- Other metadata axes, kept narrow and constrained.
+--
+-- Note on time validity: the original sketch used `tstzrange`. The final
+-- schema (R3.5) splits it into two separate timestamp columns so Drizzle
+-- ORM can query against them cleanly and so `WHERE effective_until IS NULL`
+-- means "currently in effect". Half-open semantics: [effective_from, effective_until).
 CREATE TABLE claim_metadata (
   claim_id        uuid PRIMARY KEY REFERENCES claims(id),
   process_stage   text,
   department      text,
   geography       text,
   document_class  text,
-  time_validity   tstzrange,
-  superseded_by_claim_id uuid REFERENCES claims(id)
+  effective_from  timestamptz,
+  effective_until timestamptz,            -- NULL means "currently in effect"
+  superseded_by_claim_id uuid REFERENCES claims(id),
+  updated_at      timestamptz NOT NULL DEFAULT now()
 );
 
 -- Proposals queue (re-evaluation worker writes; admin reviews).
