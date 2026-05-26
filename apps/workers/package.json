@@ -17,6 +17,7 @@
     "@oracle/shared": "workspace:*",
     "@trigger.dev/sdk": "4.4.6",
     "ai": "^6.0.187",
+    "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "pdf-parse": "^1.1.1",
     "xlsx": "^0.18.5",

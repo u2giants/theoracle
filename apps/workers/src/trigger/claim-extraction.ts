@@ -93,11 +93,25 @@ function buildOracleClient(): OracleAIClient {
 // Top-level Trigger.dev task
 // ─────────────────────────────────────────────────────────────────────────
 
-export const claimExtractionTask = schedules.task({
-  id: 'claim-extraction',
-  cron: '0 */4 * * *',
-  maxDuration: 60 * 5,
-  run: async (_payload, { ctx }) => {
+export interface ClaimExtractionRunTotals {
+  ok: boolean;
+  batchesProcessed: number;
+  candidatesStaged: number;
+  claimsPromoted: number;
+  duplicatesAppended: number;
+  rejections: number;
+  circuitBreakerTrips: number;
+  messagesProcessed: number;
+  errors: number;
+}
+
+// Core run body extracted so wet-test runners and future integration tests
+// can invoke a single pass without going through the Trigger.dev runtime.
+// `triggerRunId` accepts a real `ctx.run.id` from Trigger.dev OR any unique
+// string for local invocation (the value is stored on the `job_runs` row).
+export async function runClaimExtractionOnce(
+  triggerRunId: string,
+): Promise<ClaimExtractionRunTotals> {
     const db = getDirectDb();
     const client = buildOracleClient();
     const startedAt = new Date();
@@ -105,7 +119,7 @@ export const claimExtractionTask = schedules.task({
     const [jobRun] = await db
       .insert(jobRuns)
       .values({
-        triggerRunId: ctx.run.id,
+        triggerRunId,
         jobType: 'claim-extraction',
         status: 'running',
         startedAt,
@@ -208,6 +222,17 @@ export const claimExtractionTask = schedules.task({
         .where(eq(jobRuns.id, jobRun.id));
       throw fatalErr;
     }
+}
+
+// Trigger.dev scheduled wrapper — production cron entry point. Delegates
+// every line of behavior to runClaimExtractionOnce so the two paths
+// can never drift.
+export const claimExtractionTask = schedules.task({
+  id: 'claim-extraction',
+  cron: '0 */4 * * *',
+  maxDuration: 60 * 5,
+  run: async (_payload, { ctx }) => {
+    return runClaimExtractionOnce(ctx.run.id);
   },
 });
 
