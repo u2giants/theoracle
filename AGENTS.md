@@ -678,8 +678,8 @@ Rule added to prevent recurrence:
 | open | **Trigger.dev redeploy** | `pnpm --filter @oracle/workers deploy` to push R11.0 + R11.2 + R11.3 to Trigger.dev cloud (and remove `OPENROUTER_API_KEY` from the project env on the same deploy). |
 | open | **Vertex production credentials** | local dev uses developer ADC. Cloud workers need a service-account JSON mounted via `GOOGLE_APPLICATION_CREDENTIALS`. |
 | open | **Round-2 interjection improvements** | (a) wire Supabase Realtime presence into `isAnyoneTyping` in `lull-interjection.ts`; (b) add `gaps.embedding` + score topical relevance against recent message embeddings instead of channel-participation. See DECISIONS.md D11. |
-| open | **Retrofit reference docs sweep** | `docs/oracle/02-provider-native-ai-architecture.md` and `docs/oracle/05-ai-retrofit-phase-packet.md` still describe the bridge adapter as the current production path; needs an editorial sweep. Defer to a `docs(retrofit-reference)` commit. |
-| open | **Wet-test walkthrough disposal** | `docs/wet-test-walkthrough.md` is now historical. Either delete or convert to "how to repeat against a new transcript". |
+| done | Retrofit reference docs sweep | This commit. `docs/oracle/02-provider-native-ai-architecture.md` and `docs/oracle/05-ai-retrofit-phase-packet.md` updated to reflect the completed retrofit. Status tables show what shipped vs what's deferred to round 2. |
+| done | Wet-test walkthrough conversion | This commit. `docs/wet-test-walkthrough.md` rewritten as a "how to repeat the wet-test against a new transcript" guide (3 steps + failure shapes + cleanup). |
 | done | CI: `.github/workflows/pr-check.yml` runs `pnpm --filter @oracle/web build` on PRs + pushes to `main`. Catches production-only typecheck errors (the 2026-05-20 class of failure). Uses placeholder env vars; App Router dynamic-rendering means real secrets aren't needed at build. | 2026-05-21 |
 | open | CI: add migration job (`pnpm db:migrate`) gated on manual approval | — |
 | open | Vector indexes (`packages/db/migrations/sql/99_vector_indexes.sql`) — apply once enough embedding data exists to justify HNSW | run the SQL when ready |

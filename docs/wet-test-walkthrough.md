@@ -1,333 +1,160 @@
-# Wet-test walkthrough — R5/R5.5/R6/R7 candidate-before-claim pipeline
+# How to wet-test the extraction pipeline against a new transcript
 
-This guide walks you (Albert) through running the candidate-before-claim
-pipeline end-to-end against the **real Supabase database** for the first
-time. Until you complete this walkthrough, R11 (resume interjection) is
-blocked per `HANDOFF.md`.
+The original wet-test passed end-to-end on 2026-05-26 (commit `51a33ff`) and proved every layer of the candidate-before-claim pipeline against the live Supabase DB. This guide is for **repeating** the test against a new sample — when you want to:
 
-The goal is to:
+- Validate a prompt change in `EXTRACTION_SYSTEM_PROMPT`.
+- Smoke-test extraction against a real (or representative) message before deploying a worker change.
+- Confirm an Anthropic / Vertex / OpenAI key works after rotation.
+- Watch one extraction land in the admin dashboard with full observability rows.
 
-1. Apply the retrofit migrations to Supabase Cloud.
-2. Run one real extraction through the worker (a single small Slack message).
-3. Open the admin observability dashboard at `/admin/ai`.
-4. Confirm that the candidate → validation → promotion path produced exactly
-   the rows we expect.
-5. Confirm sensitive material was NOT promoted into `claims`.
-
-Everything here is reversible up to step 4. Step 4 writes real claim rows;
-delete them by hand if the wet-test reveals a bug.
+The original first-time walkthrough (apply migrations, set up env vars, etc.) has been removed because that work is done. The current `.env.local` + the already-applied migrations + the `runClaimExtractionOnce` runner make this a 3-step operation.
 
 ---
 
 ## 0. Prerequisites
 
-You should already have:
+- `.env.local` populated with `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `OPENAI_API_KEY`. See `docs/configuration.md`.
+- Vertex ADC valid: `gcloud auth application-default print-access-token > /dev/null && echo OK`.
 
-- A working `.env.local` in `apps/web/` pointing at the Supabase project,
-  containing `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and a provider
-  API key (Anthropic or OpenRouter — whichever your active route uses).
-- `pnpm install` already run at the repo root.
-- A Supabase project where you do NOT mind a handful of test rows in
-  `messages`, `extraction_batches`, `extraction_candidates`, and possibly
-  one row in `claims` if everything passes.
-
-Don't proceed if you have production data you can't afford to dirty. The
-wet-test is short but it writes.
+If any of those fail, fix them first.
 
 ---
 
-## 1. Apply the retrofit migrations
+## 1. Insert a test message
 
-The retrofit migrations live in `packages/db/migrations/sql/`. They are
-hand-written, numerically ordered, and idempotent — re-running them is
-safe.
-
-Open a terminal at the repo root and run:
-
-```bash
-pnpm db:migrate
-```
-
-This will:
-
-- Connect to the Supabase URL in your `.env.local`.
-- Run every `.sql` file in `packages/db/migrations/sql/` in numeric order.
-- Skip files whose statements are already applied (each file is wrapped in
-  `IF NOT EXISTS` / `CREATE OR REPLACE` patterns).
-
-Expected output: a series of `applied: NN_*.sql` lines and no errors.
-
-If you get a failure on any specific migration, **stop**. Send me the
-error output and the failing file number. Do not try to "fix forward"
-by hand-editing the SQL — the migrations are append-only.
-
-After it succeeds, double-check by running this query in Supabase SQL
-editor:
+Via Supabase SQL editor or the MCP, with content meaningful enough that extraction will produce at least one claim. Replace the synthetic example below with whatever you want to test.
 
 ```sql
-SELECT table_name
-FROM information_schema.tables
-WHERE table_schema = 'public'
-  AND table_name IN (
-    'extraction_batches',
-    'extraction_candidates',
-    'extraction_candidate_evidence',
-    'extraction_validation_results',
-    'knowledge_top_domains',
-    'knowledge_sub_topics',
-    'entities',
-    'oracle_context_packs',
-    'model_run_usage_details',
-    'provider_cached_content'
-  )
-ORDER BY table_name;
-```
-
-You should see **all ten** tables listed. If any are missing, the migration
-didn't fully apply.
-
-Also confirm the top-domain seed data loaded:
-
-```sql
-SELECT id, label FROM knowledge_top_domains ORDER BY id;
-```
-
-You should see 12 rows: `customer_ops`, `licensing_approvals`,
-`product_development`, `creative_design`, `supply_chain`, `it_systems`,
-`production_lifecycle`, `finance_pricing`, `people_org`, `vendor_management`,
-`logistics_shipping`, `import_compliance`.
-
----
-
-## 2. Pick a small test message
-
-Open the Supabase SQL editor and find a recent, low-stakes message you don't
-mind being extracted. Ideal candidates:
-
-- An operational message about artwork, lead times, or factory rules.
-- Short (under 500 chars).
-- Does NOT mention anyone by full name + an HR action in the same sentence
-  (we don't want to trip the sensitivity gate by accident on the first run).
-
-Note the `id`, the `channel_id`, and the `created_at` timestamp. We'll use
-the `id` as the `messageId` input.
-
-If you don't have a real message handy, run this to insert a synthetic one:
-
-```sql
-INSERT INTO messages (id, channel_id, employee_id, role, content, created_at)
+INSERT INTO messages (channel_id, employee_id, role, content, extraction_status, created_at)
 VALUES (
-  gen_random_uuid(),
-  (SELECT id FROM channels LIMIT 1),
-  (SELECT id FROM employees LIMIT 1),
+  (SELECT id FROM channels WHERE name = 'oracle-smoke-test' LIMIT 1),
+  (SELECT id FROM employees WHERE email = 'u2giants@gmail.com' LIMIT 1),
   'user',
-  'For the Mickey 100th anniversary mug line, all artwork files must be delivered to the factory at 300 DPI minimum. Anything below 300 will be rejected at sampling.',
+  '<your test content here — operational, with a quotable rule>',
+  'pending',
   now()
 )
 RETURNING id;
 ```
 
-Copy the returned `id`.
+Copy the returned `id`. The extraction worker only processes messages where `extraction_status='pending' AND role='user'`.
 
 ---
 
-## 3. Trigger the claim-extraction worker
+## 2. Fire one pass of the extraction worker
 
-The R6 worker is implemented in
-`apps/workers/src/trigger/claim-extraction.ts`. It accepts a payload with
-`{ messageIds: string[] }`.
-
-The simplest way to invoke it locally is to run the workers dev server:
+From the repo root:
 
 ```bash
-cd apps/workers
-pnpm dev
+pnpm --filter @oracle/workers tsx src/wet-test/run-claim-extraction-once.ts wet-test-<short-label>
 ```
 
-Wait until you see `triggers ready` (Trigger.dev v3 dev mode). Then from
-another terminal, invoke the task with your test message ID. Either:
+This calls `runClaimExtractionOnce(triggerRunId)` — the exported core of the production Trigger.dev task. It does not go through Trigger.dev cloud; it runs once locally against the live DB. Typical elapsed time: 5–10 seconds for one message.
 
-**Option A — use the Trigger.dev dev dashboard** (easiest if you have it set up):
+The script prints a JSON summary at the end:
 
-1. Open the Trigger.dev local dev dashboard (URL printed by `pnpm dev`).
-2. Find the `claim-extraction` task.
-3. Click "Test run".
-4. Paste payload `{ "messageIds": ["<your-message-id>"] }` and run.
+```json
+{
+  "ok": true,
+  "batchesProcessed": 1,
+  "candidatesStaged": <N>,
+  "claimsPromoted": <N>,
+  "duplicatesAppended": 0,
+  "rejections": 0,
+  "circuitBreakerTrips": 0,
+  "messagesProcessed": 1,
+  "errors": 0
+}
+```
 
-**Option B — call via SQL** (if you have the trigger wired through Postgres):
-Skip if you're not using the Postgres wake mechanism.
-
-Watch the worker logs. You're looking for:
-
-- `provider call complete` (the LLM returned)
-- `inserted N candidates`
-- `validation complete` with a candidate count
-- `promotion complete` with either `insert_new_claim` or `reject` per candidate
+A successful run has `errors=0` and `claimsPromoted >= 1`. If `claimsPromoted=0` but `candidatesStaged>0`, look at `extraction_validation_results` — something failed the deterministic checks (quote, taxonomy, sensitivity, or hash). If `candidatesStaged=0`, look at `extraction_batches.error` — the model didn't produce parseable output.
 
 ---
 
-## 4. Verify the candidate row landed
+## 3. Inspect what landed
 
-In Supabase SQL editor:
+Run these queries via Supabase MCP or SQL editor. Substitute `<MESSAGE_ID>` with the message id from step 1.
 
+**The batch:**
 ```sql
-SELECT
-  c.id                         AS candidate_id,
-  c.status                     AS candidate_status,
-  c.summary,
-  c.candidate_hash,
-  c.created_at
-FROM extraction_candidates c
-WHERE c.source_message_id = '<your-message-id>'
-ORDER BY c.created_at DESC;
+SELECT id, status, validation_attempt_count, error, started_at, finished_at
+FROM extraction_batches
+WHERE source_message_ids @> to_jsonb(ARRAY['<MESSAGE_ID>']::uuid[])
+ORDER BY created_at DESC LIMIT 1;
 ```
 
-Expected for the routine handoff sample message:
+**Candidates from that batch:**
+```sql
+SELECT id, status, claim_type, summary, impact_score, confidence_score,
+       domains, promoted_to_claim_id, promoted_at
+FROM extraction_candidates
+WHERE extraction_batch_id = (
+  SELECT id FROM extraction_batches
+  WHERE source_message_ids @> to_jsonb(ARRAY['<MESSAGE_ID>']::uuid[])
+  ORDER BY created_at DESC LIMIT 1
+);
+```
 
-- `candidate_status` = `promoted`
-- `summary` matches the model's output
-- `candidate_hash` is a 32-char hex string
-
-Also inspect the validation results:
-
+**Validation results for those candidates:**
 ```sql
 SELECT check_name, status, detail
 FROM extraction_validation_results
-WHERE candidate_id = '<the candidate_id from above>'
-ORDER BY created_at;
-```
-
-For a routine handoff you should see all `pass` rows for: `source_exists`,
-`quote_exact_match`, `domain_valid`, `sensitivity_gate`, `promotion_transaction`.
-
----
-
-## 5. Verify the claim row landed
-
-```sql
-SELECT id, summary, status, candidate_hash, created_at
-FROM claims
-WHERE candidate_hash = '<the candidate_hash from step 4>';
-```
-
-You should see exactly **one** row with `status = 'pending_review'`.
-
-And the linked evidence:
-
-```sql
-SELECT id, claim_id, source_message_id, exact_quote, validated_char_start, validated_char_end
-FROM claim_evidence
-WHERE claim_id = '<the claim id from above>';
-```
-
-The `exact_quote` should be a verbatim substring of the original message
-content. The offsets should land on that substring.
-
----
-
-## 6. Open the admin observability dashboard
-
-Start the web app:
-
-```bash
-cd apps/web
-pnpm dev
-```
-
-Visit `http://localhost:3000/admin/ai`. You should see:
-
-- A model-run row for the run you just triggered, with cost, latency, token
-  counts.
-- A context-pack row showing what was assembled.
-- A taxonomy assignment row for the new claim.
-
-Visit `http://localhost:3000/admin/taxonomy` to confirm the top-domain
-assignment shows up in the governance dashboard.
-
----
-
-## 7. Sensitive-content negative test (recommended)
-
-Repeat steps 2-4 with a message that DOES contain sensitive HR content —
-something like the transcript-03 fixture content. Use a *synthetic* message,
-not a real disciplinary record.
-
-What you SHOULD see:
-
-- An `extraction_candidates` row with `status = 'quarantined_sensitive'` (or
-  `rejected_sensitive`).
-- **No** row in `claims` for that candidate's hash.
-- A validation result with `check_name = 'sensitivity_gate'` and `status = 'fail'`.
-
-If a claim row appears for sensitive content, **stop**. That's a P0 bug.
-Delete the claim row by hand and let me know which check failed.
-
----
-
-## 8. Cleanup (optional)
-
-If you want to remove the wet-test rows entirely:
-
-```sql
--- Delete in reverse FK order
-DELETE FROM extraction_validation_results
 WHERE candidate_id IN (
-  SELECT id FROM extraction_candidates WHERE source_message_id = '<your-message-id>'
-);
-DELETE FROM extraction_candidate_evidence
-WHERE candidate_id IN (
-  SELECT id FROM extraction_candidates WHERE source_message_id = '<your-message-id>'
-);
-DELETE FROM claim_evidence
-WHERE claim_id IN (
-  SELECT id FROM claims WHERE candidate_hash IN (
-    SELECT candidate_hash FROM extraction_candidates
-    WHERE source_message_id = '<your-message-id>'
+  SELECT id FROM extraction_candidates
+  WHERE extraction_batch_id = (
+    SELECT id FROM extraction_batches
+    WHERE source_message_ids @> to_jsonb(ARRAY['<MESSAGE_ID>']::uuid[])
+    ORDER BY created_at DESC LIMIT 1
   )
 );
-DELETE FROM claims
-WHERE candidate_hash IN (
-  SELECT candidate_hash FROM extraction_candidates
-  WHERE source_message_id = '<your-message-id>'
-);
-DELETE FROM extraction_candidates WHERE source_message_id = '<your-message-id>';
-DELETE FROM extraction_batches
-WHERE source_message_id = '<your-message-id>';
 ```
 
-Don't delete the original `messages` row unless you inserted a synthetic one.
+**Promoted claims + their evidence + their top-domains:**
+```sql
+SELECT c.id, c.summary, c.status, c.candidate_hash, c.created_at
+FROM claims c
+WHERE c.candidate_hash IN (
+  SELECT ec.id FROM extraction_candidates ec
+  WHERE ec.promoted_to_claim_id = c.id
+);
+```
+
+Or via the admin UI: open `/admin/ai/runs`, find the most recent `claim-extraction` row, click in to see the full prompt-plan + observability rows.
 
 ---
 
-## 9. Sign off
+## 4. Common failure shapes
 
-When everything in steps 4–7 passes, update `HANDOFF.md`:
-
-- Move R5–R10.5 to "validated against live DB" status.
-- Unblock R11 — resume interjection engine.
-
-Then ping me and we can start R11.
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Script throws on launch with "ANTHROPIC_API_KEY missing" etc. | `.env.local` not loaded or key removed | Check the four required vars; see `docs/configuration.md` § ".env.local override quirk" |
+| Batch ends in `status='failed'` with `error="No object generated: could not parse the response."` | Model didn't return valid JSON matching `ExtractionOutputSchema` | If using a non-default route, check whether that model supports native JSON-schema output. Vertex Gemini Flash via direct `@google/genai` does; verify the route id. |
+| Candidates staged but all `status='validation_failed'` | Quote validator rejected — model paraphrased instead of returning verbatim | Inspect `extraction_validation_results.detail` for `check_name='quote_exact_match'` failures |
+| Candidates staged but `status='quarantined_sensitive'` and no `claims` row | Sensitivity gate fired (HR / PII content) | Expected behavior. Check via `/admin/ai/candidates` → "Sensitive" tab |
+| Vertex call returns 401 | ADC expired or wrong project | `gcloud auth application-default login` and `gcloud config configurations activate oracle` |
 
 ---
 
-## Troubleshooting
+## 5. Cleanup (optional)
 
-**Migration fails on a numbered file**: send me the file number and the error
-text. Do not edit the SQL by hand.
+If you want to remove the test rows after inspection:
 
-**Worker logs show "no active route"**: your `OracleAIClient` configuration
-isn't seeing the route catalog. Check `packages/ai/src/routes/index.ts` and
-the env var that selects the active extraction route.
+```sql
+-- Drop in reverse FK order
+DELETE FROM claim_evidence WHERE claim_id IN (
+  SELECT promoted_to_claim_id FROM extraction_candidates
+  WHERE extraction_batch_id IN (
+    SELECT id FROM extraction_batches
+    WHERE source_message_ids @> to_jsonb(ARRAY['<MESSAGE_ID>']::uuid[])
+  )
+);
+DELETE FROM claim_top_domains WHERE claim_id IN (...);  -- same subquery
+DELETE FROM claims WHERE id IN (...);
+DELETE FROM extraction_validation_results WHERE candidate_id IN (...);
+DELETE FROM extraction_candidate_evidence WHERE candidate_id IN (...);
+DELETE FROM extraction_candidates WHERE extraction_batch_id IN (...);
+DELETE FROM extraction_batches WHERE source_message_ids @> to_jsonb(ARRAY['<MESSAGE_ID>']::uuid[]);
+DELETE FROM messages WHERE id = '<MESSAGE_ID>';
+```
 
-**Quote validator rejects every candidate**: the model is returning paraphrases
-instead of verbatim quotes. The extraction system prompt
-(`packages/ai/src/prompts/extraction-system.ts`) has the verbatim-quote rule;
-confirm the active model isn't trimming it.
-
-**Sensitivity gate over-fires (everything quarantined)**: tune the keyword
-list or extend the rule in `packages/oracle-engines/src/extraction/`. Send me
-the false positives.
-
-**Mock-mode eval already covers this case**: yes — see
-`pnpm --filter @oracle/ai eval:extraction`. The wet-test confirms the *real*
-DB + worker + provider path, which the mock-mode eval can't cover.
+The original wet-test rows (commit `51a33ff`, 2026-05-26) are intentionally preserved as the historical proof of the pipeline working — don't delete those.

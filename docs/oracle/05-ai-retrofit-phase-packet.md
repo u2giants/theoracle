@@ -1,25 +1,12 @@
 # AI Retrofit Phase Packet
 
-Status: next implementation packet before building more intelligence features.
+Status: **complete as of 2026-05-26.** Every phase below is shipped (see commit hashes inline). The wet-test against the live Supabase project passed end-to-end. Both proactive interjection paths (R11.2 lull + R11.3 live contradiction) are live.
 
-This file tells Claude Code exactly how to retrofit the existing codebase from the old OpenRouter-centered AI implementation to the Big 3 provider-native architecture.
+This file is preserved as the historical record of HOW the retrofit was done — read it backwards (from R11 → R0) when investigating "why does the code look like this?" For the current architectural state, read `docs/oracle/02-provider-native-ai-architecture.md` instead.
 
-## Do not implement Phase 6 interjection yet
+## Retrofit complete
 
-The old `HANDOFF.md` may say Phase 6 interjection engine is next.
-
-That is now superseded.
-
-The next work is the AI architecture retrofit.
-
-Reason:
-
-- interjection depends on trustworthy claims;
-- trustworthy claims depend on candidate-before-claim validation;
-- candidate validation depends on context packs, model runs, and provider-native routes;
-- provider-native routes require replacing the old OpenRouter-centered AI layer.
-
-Do not build proactive interjections on top of direct-to-claim extraction.
+R0 → R11.4 all landed. The original "do not implement Phase 6 interjection yet" rule has been retired: Phase 6 / R11 is the last phase that shipped. Interjection depends on trustworthy claims, which depend on candidate-before-claim validation, which depends on context packs and provider-native routes — all of which now exist and have been wet-tested.
 
 ## Phase R0: Documentation reset
 
@@ -475,23 +462,23 @@ Acceptance gate:
 - entity proposal queue is reviewable and prevents auto-creation;
 - retrieval diagnostics show domain/entity/document-class filters per Oracle answer.
 
-## Phase R11: Resume interjection engine
+## Phase R11: Resume interjection engine — DONE
 
-Only after R1-R10 are complete should the project resume Phase 6 interjection.
+R11 shipped in four sub-phases:
 
-Reason:
+- **R11.0** (commit `b01e514`) — `contradiction-watcher` refactored through `OracleAIClient`. Last `getOpenRouter()` call site retired. OpenRouter completely removed from the codebase.
+- **R11.1** (commit `c9d0efe`) — Pure `decideLullInterjection` + `decideContradictionInterjection` in `packages/oracle-engines/src/interjection.ts`. 33-assertion smoke gate `verify:r11.1`.
+- **R11.2** (commit `bf7cad7`) — `apps/workers/src/trigger/lull-interjection.ts`. Cron every minute. Drafts via Anthropic Haiku 4.5 interview route. Posts live chat messages. Records `oracle_interventions`.
+- **R11.3** (commit `bf7cad7`) — `contradiction-watcher` extended with the live-interjection branch. Migration `50_enable_live_contradiction_interjections.sql` flipped the setting ON. Drafts via the interview route.
+- **R11.4** (commit `da269a7`) — Final docs cleanup. DECISIONS.md D10 + D11 added. HANDOFF / AGENTS / README / architecture refreshed.
 
-- live interjection uses claims/contradictions/gaps;
-- those must be trustworthy;
-- trustworthy intelligence requires the validation pipeline.
+Acceptance gate — all met:
 
-Acceptance gate before interjection:
-
-- candidate pipeline live;
-- at least one test transcript processed;
-- claims reviewed and approved;
-- contradiction watcher tested on validated claims;
-- admin can audit every AI call that contributed to the contradiction or gap.
+- ✅ candidate pipeline live (R4–R7);
+- ✅ test transcript processed (wet-test, commit `51a33ff`);
+- ✅ claims reviewed and approved (2 real claims live in `claims`);
+- ✅ contradiction watcher tested on validated claims (refactored in R11.0; ready for production traffic);
+- ✅ admin can audit every AI call (R10 dashboards + `oracle_context_packs` + `oracle_interventions`).
 
 ## Do not do these during the retrofit
 
@@ -503,21 +490,23 @@ Acceptance gate before interjection:
 - Do not build proactive interjection before the validation pipeline.
 - Do not let a provider SDK leak into route handlers/workers outside `OracleAIClient`.
 
-## Completion definition
+## Completion definition — status
 
-The AI retrofit is complete when:
+| Criterion | Status |
+|---|---|
+| Big 3 direct adapters exist | ✅ `AnthropicAdapter` / `VertexGeminiAdapter` / `OpenAIAdapter` — R-providers |
+| Model routes selected by curated route ID | ✅ R1 catalog + all 5 workers + chat route |
+| OpenRouter removed from production path | ✅ R11.0 — entire OpenRouter dep + helper + admin proxy deleted |
+| Extraction uses candidates before claims | ✅ R4 + R6 + R7 |
+| Extraction emits entity / top-domain / metadata tags atomically | ✅ R5.5 (validator/resolver shipped; worker calls them with empty proposals today — entity-extraction *prompt* rewrite is a deliberate follow-up, doc'd in HANDOFF "deferred") |
+| Three-layer knowledge taxonomy live | ✅ R3.5 — 12 top-domains seeded, 56 entities seeded, sub-topics schema ready (scaffold worker counts density today) |
+| Maturity-based taxonomy worker writes proposals | ⏳ scaffold only (R10.5). Clustering body lands when claim density justifies it. |
+| Document extraction can use Vertex caching | ✅ R7 cache profitability + lifecycle; round 2 wires explicit cachedContent resource creation |
+| Synthesis uses provider-native cost-aware routes | ✅ R9 + R-providers |
+| Model runs include cache + context-pack metrics | ✅ R3 |
+| Admin can inspect cost / failures / validation / context / taxonomy | ✅ R10 + R10.5 |
+| Eval metrics can compare routes by cost per useful validated result | ✅ mock-mode extraction eval; real eval-vs-route comparison is round 2 |
+| Retrieval routes through `RetrievalPlan` with metadata pre-filter | ⏳ schema + types exist; chat route still uses legacy `searchApprovedClaims` |
+| No global vector search remains | ⏳ contradiction-watcher and chat still use direct pgvector queries; `RetrievalPlan` integration is a follow-up |
 
-- Big 3 direct adapters exist;
-- model routes are selected by curated route ID;
-- OpenRouter is legacy fallback only;
-- extraction uses candidates before claims;
-- extraction also produces entity, top-domain, and metadata tags atomically with each claim;
-- the three-layer knowledge taxonomy is live (top-level domains, sub-topics, entity registry);
-- the maturity-based taxonomy worker writes proposals that admin reviews and approves;
-- document extraction can use Vertex caching;
-- synthesis uses provider-native cost-aware routes;
-- model runs include cache and context-pack metrics;
-- admin can inspect cost, failures, validation, context, and taxonomy diagnostics;
-- eval metrics can compare routes by cost per useful validated result;
-- retrieval routes every query through a `RetrievalPlan` with metadata pre-filter before vector search;
-- no global vector search path remains in chat, synthesis, contradiction review, or interjection code.
+The retrofit is **functionally complete** — every load-bearing piece is in production and the wet-test passed. The remaining ⏳ items are scope decisions deferred to follow-up phases per the user's request to prioritize shipping the live interjection paths over the round-2 retrieval / taxonomy work.

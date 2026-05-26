@@ -1,8 +1,8 @@
 # Provider-Native AI Architecture
 
-Status: mandatory architecture target for the AI retrofit.
+Status: **production architecture** as of the R-providers + R11 retrofit (commits `bfc0821` + `51a33ff` + `b01e514`, 2026-05-26). OpenRouter has been removed entirely from the codebase. The Vercel AI SDK is forbidden inside `packages/ai/src/providers/` per `DECISIONS.md` D6 + D9.
 
-This document supersedes the old OpenRouter-centered AI implementation for production AI work.
+This document supersedes the old OpenRouter-centered AI implementation for all production AI work.
 
 ## The OracleAIClient
 
@@ -50,7 +50,7 @@ Oracle application
           -> OpenAIAdapter
 ```
 
-OpenRouter may stay temporarily for existing runtime behavior while refactoring. It should be deprecated for production background workers and cache-sensitive workloads.
+OpenRouter has been removed from the codebase entirely (commit `b01e514`, R11.0). The transitional bridge adapter, the `openrouter.ts` helper, the `@openrouter/ai-sdk-provider` dependency, and the `apps/web/app/api/admin/models/route.ts` proxy are all deleted. The `OPENROUTER_API_KEY` env var is no longer read by any production code path.
 
 ## Why provider-native adapters are required
 
@@ -71,14 +71,11 @@ The Oracle should normalize these details after the provider call, not erase the
 
 ## Shared architecture
 
-All model calls, regardless of provider, must go through `OracleAIClient`.
+All model calls, regardless of provider, go through `OracleAIClient`.
 
-No route handler or worker may call Anthropic, Google, OpenAI, Vercel AI SDK, or OpenRouter directly once the retrofit is complete.
+No route handler or worker may call Anthropic, Google, OpenAI, Vercel AI SDK, or OpenRouter directly. The retrofit is complete — there is no longer a transitional bridge.
 
-Allowed exception during transition:
-
-- existing OpenRouter code may remain until the corresponding task has a provider-native replacement;
-- new code must not extend OpenRouter usage for production workloads.
+The Vercel AI SDK (`ai` package + `@ai-sdk/*` providers) is specifically forbidden inside `packages/ai/src/providers/`. The three production adapters (`AnthropicAdapter`, `VertexGeminiAdapter`, `OpenAIAdapter`) use the providers' official raw SDKs directly: `@anthropic-ai/sdk`, `@google/genai`, and `openai`. See `DECISIONS.md` D6 and D9 for the rationale.
 
 ## Core interfaces
 
@@ -601,48 +598,54 @@ If synthesis validation fails:
 - record validation errors;
 - optionally escalate to a stronger synthesis route.
 
-## Existing repo retrofit map
+## Existing repo retrofit map (status as of R11.4)
 
-Current code to refactor:
+All items below are done unless explicitly marked open.
 
-- `packages/ai/src/openrouter.ts` becomes legacy/deprecated.
-- `packages/ai` gains `OracleAIClient`, `ModelRouter`, `RetrievalPlanner`, provider adapters, context compiler, usage normalization, validation helpers.
-- `apps/web/app/api/chat/route.ts` should call `OracleAIClient` instead of `getOpenRouter()`.
-- `apps/workers/src/trigger/claim-extraction.ts` should call `OracleAIClient` and stage candidates before promotion.
-- `apps/workers/src/trigger/document-ingestion.ts` should use `VertexGeminiAdapter` for document-heavy extraction and explicit context caching when justified.
-- `apps/workers/src/trigger/brain-synthesis.ts` should use provider-native synthesis routes and strict synthesis validation.
-- Admin model picker should select curated `OracleModelRoute.routeId`, not arbitrary OpenRouter model IDs.
-- Retrieval helpers should be refactored so they do not perform global vector search without a retrieval plan.
+- ✅ `packages/ai/src/openrouter.ts` — deleted (R11.0, commit `b01e514`).
+- ✅ `packages/ai/` has `OracleAIClient`, `ModelRouter`, provider adapters, context compiler, usage normalization, validation helpers (R2 + R-providers).
+- ✅ `apps/web/app/api/chat/route.ts` calls `OracleAIClient.runText` via `AnthropicAdapter` (R8 + R-providers).
+- ✅ `apps/workers/src/trigger/claim-extraction.ts` calls `OracleAIClient` and stages candidates before promotion (R6 + R-providers).
+- ✅ `apps/workers/src/trigger/document-ingestion.ts` calls `OracleAIClient` via direct adapters; uses Vertex for extraction (R7 + R-providers).
+- ✅ `apps/workers/src/trigger/brain-synthesis.ts` calls `OracleAIClient` via direct adapters; strict synthesis-diff validation enforced (R9 + R-providers).
+- ✅ `apps/workers/src/trigger/contradiction-watcher.ts` calls `OracleAIClient` via direct adapters (R11.0); live-interjection path landed in R11.3.
+- ✅ `apps/workers/src/trigger/lull-interjection.ts` — new in R11.2; calls `OracleAIClient` on the interview route for question drafting.
+- ⏳ **Admin model picker** (`apps/web/app/admin/settings/`) — the OpenRouter `/models` proxy that backed the live capability icons was deleted in `b01e514`. A curated `OracleModelRoute.routeId` picker sourced from `packages/ai/src/routes/catalog.ts` is the planned replacement. Open follow-up.
+- ⏳ **Retrieval helpers** (`packages/ai/src/retrieval.ts`) — still use `searchApprovedClaims` directly without going through a `RetrievalPlan`. Hybrid pgvector + tsvector RRF with metadata pre-filter is documented above but not yet wired in. Open follow-up.
 
 ## Environment variables
 
 Do not commit secrets.
 
-Expected new environment variables:
+The production adapters read these variables (all required):
 
 ```text
-ANTHROPIC_API_KEY=
-OPENAI_API_KEY=
-GOOGLE_CLOUD_PROJECT=
-GOOGLE_CLOUD_LOCATION=us-central1
-GOOGLE_CLIENT_EMAIL=
-GOOGLE_PRIVATE_KEY=
-ORACLE_ENABLE_OPENROUTER_FALLBACK=false
+ANTHROPIC_API_KEY=          # AnthropicAdapter — interview chat (Haiku 4.5)
+OPENAI_API_KEY=             # OpenAIAdapter + text-embedding-3-small
+GOOGLE_CLOUD_PROJECT=       # VertexGeminiAdapter — extraction + synthesis
+GOOGLE_CLOUD_LOCATION=      # default us-central1
 ```
 
-Actual variable names may be refined during implementation, but they must be documented in `.env.example` and `docs/configuration.md`.
+Vertex authentication uses Application Default Credentials. Locally: `gcloud auth application-default login`. Cloud workers need a service-account JSON via `GOOGLE_APPLICATION_CREDENTIALS` (the file path) or the equivalent secret-mounting pattern on the deploy platform.
 
-## Acceptance criteria for provider layer retrofit
+`OPENROUTER_API_KEY` is no longer read by any code path and was removed from `.env.local` in commit `b01e514`. `ORACLE_ENABLE_OPENROUTER_FALLBACK` was never wired and was removed.
 
-The provider layer retrofit is complete only when:
+The full env-var table with sources lives in `docs/configuration.md`.
 
-- no new production code calls `getOpenRouter()`;
-- `OracleAIClient` is the only production model-call gateway;
-- Anthropic, Vertex/Gemini, and OpenAI adapters exist;
-- model routes are selected by route ID, not arbitrary model string;
-- model runs log provider-native usage details;
-- cache read/write tokens are captured where available;
-- context packs are created for model calls;
-- worker extraction outputs candidates, not direct permanent claims;
-- retrieval is filtered by plan, not global vector search by default;
-- `pnpm typecheck` and the Next production build pass.
+## Acceptance criteria for provider layer retrofit — status
+
+| Criterion | Status |
+|---|---|
+| No production code calls `getOpenRouter()` | ✅ — file deleted in `b01e514` |
+| `OracleAIClient` is the only production model-call gateway | ✅ — verified by recursive grep |
+| Anthropic, Vertex/Gemini, and OpenAI adapters exist | ✅ — R-providers commit `bfc0821` |
+| Adapters use raw SDKs (no Vercel AI SDK) | ✅ — D6 + D9 |
+| Model routes selected by curated route ID | ✅ — R1 catalog |
+| Model runs log provider-native usage details | ✅ — R3 + R-providers |
+| Cache read/write tokens captured where available | ✅ — Anthropic + Vertex + OpenAI native fields normalized into `OracleUsage` |
+| Context packs created for model calls | ✅ — `oracle_context_packs` |
+| Worker extraction outputs candidates, not direct claims | ✅ — R4–R7 |
+| Wet-test against live DB | ✅ — 2026-05-26, commit `51a33ff` |
+| `pnpm typecheck` and Next production build pass | ✅ — every commit since R-providers |
+| Retrieval is filtered by plan, not global vector search | ⏳ — open follow-up; legacy `searchApprovedClaims` still in use |
+| Real Vertex explicit cache creation | ⏳ — round 2 of R-providers; implicit caching is wired today |
