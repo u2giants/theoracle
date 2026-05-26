@@ -260,11 +260,12 @@ If you need to re-run migrations from a fresh checkout, `pnpm db:migrate` is ide
 
 ## What's deliberately deferred (not blocking R11)
 
-- **R5.5 entity-extraction prompt rewrite.** R5.5 ships the validator + resolver; the workers call them with empty entity lists. Updating `EXTRACTION_SYSTEM_PROMPT` to emit entities is its own prompt-engineering pass with its own evals.
+- **R5.5 entity-extraction prompt rewrite.** R5.5 ships the validator + resolver; the workers call them with empty entity lists (`claim-extraction.ts:609`, `document-ingestion.ts:582` both pass `proposedEntities: []` + `entityRegistry: []`). Updating `ExtractionClaimSchema` + `EXTRACTION_SYSTEM_PROMPT` to emit entities is its own prompt-engineering pass with its own evals. **Until then, the licensor-vs-vendor resolver cannot fire in production.**
+- **Extraction sensitivity flags.** `ExtractionClaimSchema` has no `sensitivityFlags` field; both workers hardcode `containsSensitivePersonalData: false`, `containsSensitiveHRData: false`, `isPersonalConflict: false` (claim-extraction.ts:466, document-ingestion.ts:494). The sensitivity gate in the validator and the `quarantined_sensitive` candidate status both work in mock-mode evals, but production extraction **cannot flag a candidate as sensitive** until the schema + prompt include the fields. Adding them is bundled naturally with the R5.5 prompt rewrite above.
 - **`RetrievalPlan` + hybrid pgvector/tsvector RRF in the chat route.** R8's chat route uses the legacy `searchApprovedClaims` helper.
 - **Real Vertex explicit cache creation.** Round 1 of R-providers uses implicit caching only; explicit `cachedContent` resource lifecycle is round 2.
-- **R10.5 clustering / drift detection body.** The re-evaluation worker scaffold exists.
-- **R10.5 reclassification job for merge/split/reassign proposals.** `create_top_domain` proposals apply transactionally on approval. Merge/split/reassign approvals are audited but the actual reclassification mutation is queued.
+- **R10.5 clustering / drift detection body.** `taxonomy-reevaluation.ts:68` returns `proposalsWritten: 0` as a *literal type* — the worker counts claims per domain and reports against the activation threshold, but does not write any proposals. Until claim density crosses the threshold this is fine; once it does, the worker needs the embedding-clustering body to start emitting `create_sub_topic` / `split_top_domain` proposals.
+- **R10.5 reclassification job for merge/split/reassign proposals.** `create_top_domain` proposals apply transactionally on approval. **Merge/split/reassign/sub-topic approvals log an audit entry in `taxonomy_change_log` but don't actually reclassify any claims** — the dedicated reclassification job is the next R10.5 follow-up.
 - **R10.5 batch-approve UX.**
 - **Vertex production credentials.** Local dev uses developer ADC. Cloud runtime needs a service-account JSON mounted via `GOOGLE_APPLICATION_CREDENTIALS` — currently not wired in the Vercel / Trigger.dev project.
 

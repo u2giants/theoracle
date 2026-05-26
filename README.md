@@ -98,13 +98,13 @@ Full setup details: [`docs/development.md`](docs/development.md). All env vars: 
 | R3.5 — Knowledge taxonomy schema | done | 15 tables + 12 top-domains seeded + 56 entities seeded (commit `c529594`) |
 | R4 — Candidate staging schema | done | 4 staging tables + 13 CHECK constraints (commit `fe60304`) |
 | R5 — Quote validator + promotion decision | done | `packages/oracle-engines/src/extraction/` (commit `70339c6`) |
-| R5.5 — Entity resolver + taxonomy validator | done | (commit `8cad256`) |
+| R5.5 — Entity resolver + taxonomy validator | partial | Pure validators landed (commit `8cad256`, 45-assertion smoke). **Workers still pass `proposedEntities: []` + `entityRegistry: []`** — model is not yet asked to emit entities. Wiring deferred to a prompt-rewrite pass. |
 | R6 — Claim extraction worker refactor | done | `apps/workers/src/trigger/claim-extraction.ts` (commit `b46131d`) |
 | R7 — Document ingestion + cache infra | done | (commit `a8a8586`) |
 | R8 — Chat route through OracleAIClient | done | `apps/web/app/api/chat/route.ts` (commit `8a38fbd`) |
 | R9 — Synthesis worker + diff validator | done | `apps/workers/src/trigger/brain-synthesis.ts` (commit `8343c2d`) |
 | R10 — Admin AI observability dashboards | done | `/admin/ai/*` (commit `ea33d66`) |
-| R10.5 — Taxonomy governance dashboard | done | `/admin/taxonomy/*` + re-eval worker scaffold (commit `533f39b`) |
+| R10.5 — Taxonomy governance dashboard | partial | `/admin/taxonomy/*` admin pages + `create_top_domain` server action are live (commit `533f39b`). **Re-evaluation worker is a scaffold** — counts claims per domain and returns `proposalsWritten: 0` literal; clustering/drift detection deferred until claim density justifies it. **Merge/split/reassign proposal approvals audit but don't actually reclassify** — reclassification job deferred. |
 | R-providers — Direct provider adapters | done | `VertexGeminiAdapter` via `@google/genai`, `AnthropicAdapter` via `@anthropic-ai/sdk`, `OpenAIAdapter` via `openai` (commits `bfc0821` + `51a33ff`) |
 | **Wet-test** | done | First real claims landed in `claims` table 2026-05-26 — 2 claims from one synthetic message, 0 errors, 8.3s elapsed (commit `51a33ff`) |
 | R11.0 — Contradiction-watcher through OracleAIClient | done | Last `getOpenRouter()` call site retired (commit `b01e514`) |
