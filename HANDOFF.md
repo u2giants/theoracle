@@ -97,9 +97,9 @@ The AI retrofit is code-complete. Remaining work is operational, not architectur
    - Rotate `OPENAI_API_KEY` at https://platform.openai.com/api-keys
    - Revoke the now-unused OpenRouter key at https://openrouter.ai/keys
 
-3. **Trigger.dev deploy.** R11.2 + R11.3 + R11.0 land in the codebase but Trigger.dev still runs the previous worker version. Run `pnpm --filter @oracle/workers deploy` to push the new `lull-interjection` task + the refactored `contradiction-watcher` (and remove `OPENROUTER_API_KEY` from the Trigger.dev project env on the same deploy).
+3. ~~**Trigger.dev deploy.**~~ Done — version `20260526.4` deployed (10 tasks). `OPENROUTER_API_KEY` was already absent from the project env.
 
-4. **Vertex production credentials.** Cloud workers need a service-account JSON mounted via `GOOGLE_APPLICATION_CREDENTIALS` — currently only developer ADC works (local dev only). Provision when deploying R11.x to Trigger.dev cloud.
+4. ~~**Vertex production credentials.**~~ Done — `GOOGLE_APPLICATION_CREDENTIALS_JSON` for `oracle-trigger-worker@vertex-ai-497120.iam.gserviceaccount.com` was already set in the Trigger.dev project env from a prior session.
 
 5. **Deferred items** carried forward (not blocking anything but worth knowing):
    - ~~R5.5 entity-extraction prompt rewrite~~ — done in P1 #2 (sensitivity flags + entity proposals in extraction prompt v2.0.0).
