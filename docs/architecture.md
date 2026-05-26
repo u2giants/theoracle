@@ -57,14 +57,16 @@ System design for The Oracle. For business context and the operating philosophy,
 
          ┌──────────────────────────────────────┐
          │           LLM providers              │
-         │  Current (legacy):                   │
-         │    OpenRouter (chat / extraction /   │
-         │    synthesis) — default models in    │
-         │    settings table                    │
-         │  Target (AI retrofit, R1+):          │
-         │    Anthropic direct                  │
-         │    Google Vertex / Gemini direct     │
-         │    OpenAI direct                     │
+         │  Today (R6–R9 done):                 │
+         │    Every model call routed through   │
+         │    OracleAIClient via                │
+         │    OpenRouterBridgeAdapter (the      │
+         │    bridge wears each provider hat    │
+         │    while dispatching to OpenRouter). │
+         │  Target (post-wet-test):             │
+         │    @anthropic-ai/sdk direct          │
+         │    @google/genai (Vertex) direct     │
+         │    openai direct                     │
          │  Embeddings (unchanged):             │
          │    OpenAI text-embedding-3-small     │
          └──────────────────────────────────────┘
@@ -133,12 +135,13 @@ Cron: every 4 hours (`0 */4 * * *`). Also triggered by document ingestion.
 
 ### 5. Synthesis (worker — deployed, Phase 4)
 
-Cron: weekly. Also admin-triggerable.
+Cron: weekly (Mondays 06:00). Also admin-triggerable.
 
-1. Reads up to 200 approved claims per brain section.
-2. Calls the synthesis model (`settings.default_synthesis_model`, default `anthropic/claude-sonnet-4.6`) via `generateObject`.
-3. Validator rejects the run if any material paragraph doesn't map to approved claim IDs — hallucinated claim IDs cause the run to fail.
-4. On success: inserts a new `brain_section_versions` row and updates `brain_sections.current_version_id` (two-step transaction per spec 6.7).
+1. Reads up to 200 approved claims per brain section (legacy `claim_domains` + `sectionClaims` joins; switch to `claim_top_domains` in a follow-up cleanup).
+2. Routes through `OracleAIClient.runObject` using the curated route from `settings.default_synthesis_route` (default `anthropic_claude_3_5_sonnet_synthesis_primary`). Dispatched via `OpenRouterBridgeAdapter` under the hood until the real `@anthropic-ai/sdk` adapter lands.
+3. `validateSynthesisDiff` rejects the run if (a) any material paragraph cites a non-approved claim ID, OR (b) the markdown mentions a capitalized proper-noun-shaped name not backed by an approved claim summary or the canonical entity registry. See `packages/oracle-engines/src/synthesis/diff-validator.ts`.
+4. On success: inserts a new `brain_section_versions` row (`reviewStatus='draft'` or `'needs_review'`) and updates `brain_sections.current_version_id` (two-step transaction per spec 6.7).
+5. On rejection: inserts a `brain_section_versions` row with `reviewStatus='rejected'` carrying the failed markdown + `validationFailures` + `unsupportedNames` in `structuredContent`. `currentVersionId` is NOT updated — the failed output is preserved for admin review without changing the current Brain version.
 
 ### 6. Admin review (Phase 5 — done)
 
@@ -232,7 +235,7 @@ Workers must not import from `apps/web`, and vice versa.
 
 ## AI architecture retrofit — R1–R4 (landed 2026-05-25)
 
-The Oracle's AI layer is mid-retrofit. The legacy `OpenRouter → Vercel AI SDK` path remains live for now, but new production code must go through the provider-native pipeline below. See `docs/oracle/05-ai-retrofit-phase-packet.md` for the full phase plan.
+The AI architecture retrofit is code-complete (R0–R10.5). Every legacy direct `getOpenRouter()` caller has been refactored to dispatch through `OracleAIClient`. The bridge adapter still routes through OpenRouter under the hood pending a wet-test path for real provider SDKs (`@anthropic-ai/sdk`, `@google/genai`, `openai`). See `docs/oracle/05-ai-retrofit-phase-packet.md` for the full phase log and `HANDOFF.md` for the recommended next-step sequence.
 
 ### Runtime pipeline (R2, landed)
 
@@ -426,15 +429,16 @@ Cache lifecycle (`packages/oracle-engines/src/extraction/cache-lifecycle.ts`):
 
 ### Worker and chat-route integration (R6 + R7 + R8, landed)
 
-After R6/R7/R8, every legacy `getOpenRouter()` caller except `brain-synthesis.ts` (R9) dispatches through `OracleAIClient`:
+After R6 / R7 / R8 / R9, every legacy `getOpenRouter()` caller in the production AI surface has been refactored:
 
 | Caller | Phase | Status |
 |---|---|---|
 | `apps/workers/src/trigger/claim-extraction.ts` | R6 | ✅ via `OpenRouterBridgeAdapter` |
 | `apps/workers/src/trigger/document-ingestion.ts` | R7 | ✅ via `OpenRouterBridgeAdapter` |
 | `apps/web/app/api/chat/route.ts` | R8 | ✅ via `OpenRouterBridgeAdapter` + `providerOptions` escape hatch for tools/multi-turn |
-| `apps/workers/src/trigger/brain-synthesis.ts` | R9 | ⬜ next code phase — still calls `getOpenRouter()` |
+| `apps/workers/src/trigger/brain-synthesis.ts` | R9 | ✅ via `OpenRouterBridgeAdapter` + `validateSynthesisDiff` (claim ID + unsupported-named-entity check) + rejected-version preservation |
 | `apps/workers/src/trigger/contradiction-watcher.ts` | R11 | ⬜ Phase 6 / interjection territory |
+| `apps/workers/src/trigger/taxonomy-reevaluation.ts` | R10.5 | ⬜ scaffold only — clustering body deferred until claim density justifies it |
 
 Each refactored caller follows the same pattern:
 1. Build `OracleAIClient` with `OpenRouterBridgeAdapter` for all 3 provider tags.

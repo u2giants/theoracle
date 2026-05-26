@@ -79,10 +79,10 @@ Not all configuration lives in env vars. Operational settings the Oracle reads a
 | `max_oracle_interjections_per_hour` | `3` | Hard cap per channel per hour. |
 | `default_interview_route` | `anthropic_claude_haiku_4_5_interview_primary` | **R1 — current production key.** Read by `apps/web/app/api/chat/route.ts` (R8) to resolve a curated `OracleModelRoute` from the catalog in `packages/ai/src/routes/`. |
 | `default_extraction_route` | `vertex_gemini_2_5_flash_extraction_primary` | **R1 — current production key.** Read by `apps/workers/src/trigger/claim-extraction.ts` (R6) AND `apps/workers/src/trigger/document-ingestion.ts` (R7). |
-| `default_synthesis_route` | `anthropic_claude_3_5_sonnet_synthesis_primary` | **R1 — current production key.** Will be read by `apps/workers/src/trigger/brain-synthesis.ts` after R9 lands. |
-| `default_interview_model` | `deepseek/deepseek-v4-pro` | **Legacy — kept during transition.** Was the OpenRouter model id used by the pre-R8 chat route. The current chat route no longer reads this; safe to remove in a post-R9 cleanup migration. |
-| `default_extraction_model` | `google/gemini-2.5-flash` | **Legacy — kept during transition.** Was the OpenRouter model id used by the pre-R6 claim-extraction worker. The current worker no longer reads this. |
-| `default_synthesis_model` | `anthropic/claude-sonnet-4.6` | **Legacy — kept during transition.** Read by `apps/workers/src/trigger/brain-synthesis.ts` until R9 refactors it. |
+| `default_synthesis_route` | `anthropic_claude_3_5_sonnet_synthesis_primary` | **R1 — current production key.** Read by `apps/workers/src/trigger/brain-synthesis.ts` after R9 landed (commit `8343c2d`). |
+| `default_interview_model` | `deepseek/deepseek-v4-pro` | **Legacy — kept during transition.** Was the OpenRouter model id used by the pre-R8 chat route. No code path reads this now; safe to drop in a post-retrofit cleanup migration. |
+| `default_extraction_model` | `google/gemini-2.5-flash` | **Legacy — kept during transition.** Was the OpenRouter model id used by the pre-R6 claim-extraction worker. No code path reads this now; safe to drop. |
+| `default_synthesis_model` | `anthropic/claude-sonnet-4.6` | **Legacy — kept during transition.** Was the OpenRouter model id used by the pre-R9 synthesis worker. No code path reads this now; safe to drop. |
 | `enable_live_contradiction_interjections` | `false` | If false, contradictions are queued silently instead of interjected. Default off is correct (spec 5.1). |
 | `enable_group_chat_lull_questions` | `true` | If false, the Oracle never speaks proactively in group chats. |
 
@@ -107,7 +107,7 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 - `apps/web/app/api/chat/route.ts` — reads `settings.default_interview_route` (R8).
 - `apps/workers/src/trigger/claim-extraction.ts` — reads `settings.default_extraction_route` (R6).
 - `apps/workers/src/trigger/document-ingestion.ts` — reads `settings.default_extraction_route` (R7).
-- `apps/workers/src/trigger/brain-synthesis.ts` — reads `settings.default_synthesis_model` (legacy; R9 will switch to `default_synthesis_route`).
+- `apps/workers/src/trigger/brain-synthesis.ts` — reads `settings.default_synthesis_route` (R9).
 - `packages/db/src/client.ts` — `DATABASE_URL`.
 - `packages/db/drizzle.config.ts` — `DIRECT_URL`.
 - `packages/db/src/migrate.ts` — `DIRECT_URL` (loads `.env.local` from monorepo root explicitly).
@@ -115,9 +115,7 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 - `packages/ai/src/openrouter.ts` — `OPENROUTER_API_KEY`.
 - `packages/ai/src/embeddings.ts` — `OPENAI_API_KEY` (optional).
 - `apps/workers/trigger.config.ts` — `TRIGGER_SECRET_KEY`, `TRIGGER_PROJECT_REF`.
-- `apps/web/app/api/chat/route.ts` — reads model id from `settings.default_interview_model`.
-- `apps/workers/src/trigger/claim-extraction.ts` — reads model id from `settings.default_extraction_model`.
-- `apps/workers/src/trigger/brain-synthesis.ts` — reads model id from `settings.default_synthesis_model`.
+(The duplicate "reads model id from `settings.default_*_model`" entries that previously appeared here have been removed — those settings keys are legacy after R8/R9 and are no longer read. The post-retrofit reads are listed above this block.)
 - `apps/web/app/api/admin/models/route.ts` — `OPENROUTER_API_KEY` (proxies OpenRouter `/models` to populate the Admin → Settings model picker).
 
 If you add a new env var, update:
@@ -137,7 +135,7 @@ If you add a new env var, update:
 | `GOOGLE_CLOUD_LOCATION` | Vertex region (default `us-central1`) | Same as above |
 | `GOOGLE_CLIENT_EMAIL` | Vertex service-account email | Same as above |
 | `GOOGLE_PRIVATE_KEY` | Vertex service-account key. `\\n` is converted to real newlines in memory. Never written to disk inside Trigger.dev — workload identity is preferred, this is the fallback. | Same as above |
-| `ORACLE_ENABLE_OPENROUTER_FALLBACK` | Default `false`. The escape hatch back to the legacy OpenRouter path while a refactor is in progress. Drop entirely once R9 is done. | R6+ — first time a worker is refactored to `OracleAIClient`, this flag exists so a rollback to OpenRouter is one env-var flip away |
+| `ORACLE_ENABLE_OPENROUTER_FALLBACK` | Reserved. Was intended as an escape hatch back to the legacy OpenRouter path during R6–R9. R9 has landed and the `OpenRouterBridgeAdapter` already bridges every refactored caller through OpenRouter under the hood, so this flag is currently unused. Safe to remove in a post-retrofit cleanup. | not required |
 
 `OPENAI_API_KEY` is already wired (today, for `text-embedding-3-small` embeddings) and will be reused by the OpenAI direct adapter (interview Fallback + extraction Fallback) — no new key needed for that provider.
 
@@ -151,4 +149,4 @@ default_extraction_route = "vertex_gemini_2_5_flash_extraction_primary"
 default_synthesis_route  = "anthropic_claude_3_5_sonnet_synthesis_primary"
 ```
 
-The legacy keys (`default_interview_model`, `default_extraction_model`, `default_synthesis_model`) remain in the table during transition for the existing OpenRouter-backed code to keep working. Both sets coexist until R6–R9 finish the chat-route and worker refactor; the legacy keys are then dropped in a follow-up cleanup migration.
+The legacy keys (`default_interview_model`, `default_extraction_model`, `default_synthesis_model`) remain in the table from the pre-retrofit era. R6 (claim extraction), R7 (document ingestion), R8 (chat route), and R9 (synthesis) all now read `default_*_route` instead; no code path reads the legacy keys anymore. They're safe to drop in a follow-up cleanup migration.
