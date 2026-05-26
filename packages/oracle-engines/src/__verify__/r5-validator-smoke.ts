@@ -21,8 +21,12 @@ import {
   computeCandidateHash,
   canonicalizeSummary,
   decidePromotion,
+  mapCandidateRowToSnapshotCandidate,
+  mapEvidenceRowToValidatedEvidence,
   PDF_OCR_NORMALIZATION_POLICY,
   type CandidateSnapshot,
+  type ExtractionCandidateRow,
+  type ExtractionCandidateEvidenceRow,
 } from '../extraction';
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -340,6 +344,240 @@ function main() {
     assert(
       res.kind === 'reject' && res.reason === 'no_validated_evidence',
       'Extra: validated candidate with no evidence → reject(no_validated_evidence)',
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════
+  // Section M — In-lock snapshot loader mappers (R7+ executor refactor)
+  //
+  // These pure mappers convert raw DB row shapes into the CandidateSnapshot
+  // fields decidePromotion consumes. The executor's loadCandidateSnapshotInLock
+  // helper is a thin SELECT + map composition; the per-row mapping is here.
+  // ════════════════════════════════════════════════════════════════════
+
+  // M1: undefined candidate row → null
+  {
+    const res = mapCandidateRowToSnapshotCandidate(undefined);
+    assert(res === null, 'M1 undefined candidate row → null');
+    const resNull = mapCandidateRowToSnapshotCandidate(null);
+    assert(resNull === null, 'M1 null candidate row → null');
+  }
+
+  // M2: happy-path candidate row → matching snapshot.candidate
+  {
+    const row: ExtractionCandidateRow = {
+      id: 'cand-1',
+      status: 'validated',
+      summary: 'Burlington seasonal needs new routing.',
+      claim_type: 'process_rule',
+      impact_score: 7,
+      confidence_score: 8,
+      domains: ['customer_ops', 'logistics_shipping'],
+      promoted_to_claim_id: null,
+    };
+    const mapped = mapCandidateRowToSnapshotCandidate(row);
+    assert(mapped !== null, 'M2 mapped is non-null');
+    assert(mapped!.id === 'cand-1', 'M2 id passes through');
+    assert(mapped!.claimType === 'process_rule', 'M2 claim_type → claimType');
+    assert(mapped!.impactScore === 7, 'M2 impact_score → impactScore');
+    assert(mapped!.confidenceScore === 8, 'M2 confidence_score → confidenceScore');
+    assert(
+      Array.isArray(mapped!.domains) && mapped!.domains.length === 2,
+      'M2 domains array passes through',
+    );
+    assert(mapped!.promotedToClaimId === null, 'M2 null promoted_to_claim_id stays null');
+  }
+
+  // M3: confidence_score: null → confidenceScore: undefined (NOT 0 or NaN)
+  {
+    const row: ExtractionCandidateRow = {
+      id: 'cand-2',
+      status: 'pending_validation',
+      summary: 's',
+      claim_type: 'process_rule',
+      impact_score: 3,
+      confidence_score: null,
+      domains: ['it_systems'],
+      promoted_to_claim_id: null,
+    };
+    const mapped = mapCandidateRowToSnapshotCandidate(row);
+    assert(
+      mapped!.confidenceScore === undefined,
+      'M3 null confidence_score → undefined (not 0 or NaN)',
+    );
+  }
+
+  // M4: domains: null (jsonb null) → []
+  {
+    const row = {
+      id: 'cand-3',
+      status: 'validated',
+      summary: 's',
+      claim_type: 'process_rule',
+      impact_score: 5,
+      confidence_score: 5,
+      domains: null,
+      promoted_to_claim_id: null,
+    } as unknown as ExtractionCandidateRow;
+    const mapped = mapCandidateRowToSnapshotCandidate(row);
+    assert(
+      Array.isArray(mapped!.domains) && mapped!.domains.length === 0,
+      'M4 jsonb-null domains → []',
+    );
+  }
+
+  // M5: domains: non-array jsonb (defensive) → []
+  {
+    const row = {
+      id: 'cand-4',
+      status: 'validated',
+      summary: 's',
+      claim_type: 'process_rule',
+      impact_score: 5,
+      confidence_score: 5,
+      domains: { not: 'an array' },
+      promoted_to_claim_id: null,
+    } as unknown as ExtractionCandidateRow;
+    const mapped = mapCandidateRowToSnapshotCandidate(row);
+    assert(
+      Array.isArray(mapped!.domains) && mapped!.domains.length === 0,
+      'M5 non-array jsonb domains → [] (defensive)',
+    );
+  }
+
+  // M6: evidence row with validation_status='exact_match' + populated
+  //     validated_* → included with all fields mapped
+  {
+    const row: ExtractionCandidateEvidenceRow = {
+      id: 'ev-1',
+      source_type: 'message',
+      source_message_id: 'msg-1',
+      source_document_chunk_id: null,
+      source_external_record_id: null,
+      asserted_by_employee_id: 'emp-1',
+      uploaded_by_employee_id: null,
+      created_by_employee_id: null,
+      validation_status: 'exact_match',
+      validated_exact_quote: 'Burlington seasonal items need new routing.',
+      validated_char_start: 12,
+      validated_char_end: 56,
+      page_number: null,
+      confidence: 9,
+    };
+    const mapped = mapEvidenceRowToValidatedEvidence(row);
+    assert(mapped !== null, 'M6 exact_match with validated fields → included');
+    assert(mapped!.id === 'ev-1', 'M6 id passes through');
+    assert(mapped!.sourceType === 'message', 'M6 source_type → sourceType');
+    assert(
+      mapped!.validatedCharStart === 12 && mapped!.validatedCharEnd === 56,
+      'M6 char offsets pass through',
+    );
+    assert(mapped!.assertedByEmployeeId === 'emp-1', 'M6 asserted_by_employee_id → assertedByEmployeeId');
+  }
+
+  // M7: evidence row with validation_status='failed' → excluded (null)
+  {
+    const row: ExtractionCandidateEvidenceRow = {
+      id: 'ev-2',
+      source_type: 'message',
+      source_message_id: 'msg-2',
+      source_document_chunk_id: null,
+      source_external_record_id: null,
+      asserted_by_employee_id: null,
+      uploaded_by_employee_id: null,
+      created_by_employee_id: null,
+      validation_status: 'failed',
+      validated_exact_quote: null,
+      validated_char_start: null,
+      validated_char_end: null,
+      page_number: null,
+      confidence: null,
+    };
+    const mapped = mapEvidenceRowToValidatedEvidence(row);
+    assert(mapped === null, 'M7 validation_status=failed → null (excluded from validated set)');
+  }
+
+  // M8: evidence with validation_status='exact_match' BUT validated_exact_quote
+  //     null → defensive null (shouldn't happen because of the
+  //     extraction_candidate_evidence_validated_fields_check constraint, but
+  //     the mapper refuses to fabricate values regardless).
+  {
+    const row: ExtractionCandidateEvidenceRow = {
+      id: 'ev-3',
+      source_type: 'message',
+      source_message_id: 'msg-3',
+      source_document_chunk_id: null,
+      source_external_record_id: null,
+      asserted_by_employee_id: null,
+      uploaded_by_employee_id: null,
+      created_by_employee_id: null,
+      validation_status: 'exact_match',
+      validated_exact_quote: null, // inconsistent with status
+      validated_char_start: 0,
+      validated_char_end: 10,
+      page_number: null,
+      confidence: null,
+    };
+    const mapped = mapEvidenceRowToValidatedEvidence(row);
+    assert(
+      mapped === null,
+      'M8 exact_match with NULL validated_exact_quote → null (defensive, refuses to fabricate)',
+    );
+  }
+
+  // M9: evidence with validation_status='normalized_match' → included
+  {
+    const row: ExtractionCandidateEvidenceRow = {
+      id: 'ev-4',
+      source_type: 'document_chunk',
+      source_message_id: null,
+      source_document_chunk_id: 'chunk-1',
+      source_external_record_id: null,
+      asserted_by_employee_id: null,
+      uploaded_by_employee_id: 'emp-2',
+      created_by_employee_id: null,
+      validation_status: 'normalized_match',
+      validated_exact_quote: 'Disney approvals must precede tooling.',
+      validated_char_start: 0,
+      validated_char_end: 38,
+      page_number: 3,
+      confidence: 7,
+    };
+    const mapped = mapEvidenceRowToValidatedEvidence(row);
+    assert(mapped !== null, 'M9 normalized_match passes the filter');
+    assert(mapped!.sourceType === 'document_chunk', 'M9 document_chunk source type');
+    assert(
+      mapped!.sourceDocumentChunkId === 'chunk-1' && mapped!.uploadedByEmployeeId === 'emp-2',
+      'M9 doc-chunk + uploader fields map through',
+    );
+  }
+
+  // M10: all optional fields pass through correctly
+  {
+    const row: ExtractionCandidateEvidenceRow = {
+      id: 'ev-5',
+      source_type: 'message',
+      source_message_id: 'msg-5',
+      source_document_chunk_id: null,
+      source_external_record_id: null,
+      asserted_by_employee_id: 'emp-A',
+      uploaded_by_employee_id: 'emp-B',
+      created_by_employee_id: 'emp-C',
+      validation_status: 'exact_match',
+      validated_exact_quote: 'x',
+      validated_char_start: 0,
+      validated_char_end: 1,
+      page_number: 42,
+      confidence: 10,
+    };
+    const mapped = mapEvidenceRowToValidatedEvidence(row);
+    assert(
+      mapped!.pageNumber === 42 &&
+        mapped!.confidence === 10 &&
+        mapped!.assertedByEmployeeId === 'emp-A' &&
+        mapped!.uploadedByEmployeeId === 'emp-B' &&
+        mapped!.createdByEmployeeId === 'emp-C',
+      'M10 optional fields (pageNumber, confidence, all 3 employee FKs) pass through',
     );
   }
 

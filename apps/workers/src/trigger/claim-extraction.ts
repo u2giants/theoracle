@@ -57,14 +57,12 @@ import {
 import {
   computeCandidateHash,
   decideCircuitBreaker,
-  decidePromotion,
   executePromotion,
   mapLegacyDomainsToTopDomains,
   validateQuote,
   validateSourcePointer,
   validateTaxonomy,
   AdvisoryLockBusyError,
-  type CandidateSnapshot,
 } from '@oracle/engines';
 import type { KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
 
@@ -610,7 +608,7 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
       continue;
     }
 
-    // Mark candidate validated; build snapshot; promote.
+    // Mark candidate validated; the executor re-reads it inside the lock.
     await db
       .update(extractionCandidates)
       .set({ status: 'validated', validatedAt: new Date() })
@@ -624,39 +622,17 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
       sourcePointers: [`message:${extracted.evidence.sourceMessageId}`],
     });
 
-    const snapshot: CandidateSnapshot = {
-      candidateHash,
-      candidate: {
-        id: candidate.id,
-        status: 'validated',
-        summary: extracted.summary,
-        claimType: extracted.claimType,
-        impactScore: extracted.impactScore,
-        confidenceScore: extracted.confidenceScore,
-        domains: taxRes.validTopDomainIds,
-      },
-      validatedEvidence: [
-        {
-          id: evRow.id,
-          sourceType: 'message',
-          sourceMessageId: extracted.evidence.sourceMessageId,
-          validatedExactQuote: validatedQuote,
-          validatedCharStart: quoteRes.validatedCharStart ?? 0,
-          validatedCharEnd: quoteRes.validatedCharEnd ?? validatedQuote.length,
-          confidence: extracted.evidence.confidence,
-        },
-      ],
-      taxonomy: taxRes,
-      existingClaimWithSameHash: null, // R6 doesn't yet look these up by hash; R7+ will store the hash on claims.
-    };
-    const decision = decidePromotion(snapshot);
-
+    // executePromotion re-reads the candidate row + validated evidence
+    // INSIDE the advisory lock. We pass only the auxiliary inputs that
+    // can't be reconstructed from candidate-table state: taxonomy
+    // validation result (depends on the live entities/top-domains
+    // registries) and metadata (caller-computed per call).
     try {
       const result = await executePromotion({
         db,
         candidateId: candidate.id,
         candidateHash,
-        decision,
+        auxiliaryInputs: { taxonomy: taxRes },
         modelRunId: modelRunId ?? undefined,
       });
       if (result.outcome === 'inserted_new_claim') outcome.claimsPromoted += 1;

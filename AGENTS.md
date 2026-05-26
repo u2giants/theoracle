@@ -539,15 +539,22 @@ The most important section. **Do not undo these without reading the cited spec s
 
 **Do not change because:** the exclusion is a privacy guarantee that the candidate-before-claim spec mandates. If you need to inspect a specific sensitive case, the explicit "Sensitive" tab is the only path; flipping the SQL would weaken the guarantee for all queries.
 
-### Race-safe promotion: hash lookup inside the advisory lock
+### Race-safe promotion: candidate snapshot + hash lookup inside the advisory lock
 
-**Looks like:** the executor (`packages/oracle-engines/src/extraction/promotion-executor.ts`) does an `existingClaimWithSameHash` lookup INSIDE the Drizzle transaction, after `pg_try_advisory_xact_lock(hashtextextended($1, 0))` returns. That seems redundant — couldn't the caller pre-fetch the existing claim?
+**Looks like:** the executor (`packages/oracle-engines/src/extraction/promotion-executor.ts`) does an `existingClaimWithSameHash` lookup AND re-reads the candidate row + validated evidence INSIDE the Drizzle transaction, after `pg_try_advisory_xact_lock(hashtextextended($1, 0))` returns. The caller seemingly does the same SELECTs minutes earlier; doing them again inside the lock looks wasteful.
 
-**Actually:** if the caller pre-fetches, two workers racing on the same hash will both see "no existing claim" and both try `INSERT INTO claims`. The partial UNIQUE index on `claims.candidate_hash` would catch one of them with a constraint violation, but the loser's evidence rows would already be inserted in a half-rolled-back state — and the candidate.status update path would have to encode the conflict resolution after the fact.
+**Actually:** the caller's reads happen BEFORE the advisory lock is held. Between the caller's reads and the executor's lock acquisition, another worker can mutate the staging tables — promote the same candidate, mark it `validation_failed`, append additional evidence rows, or trip the sensitivity gate. The in-lock re-read closes that race window. The two race-relevant lookups are distinct branches of the decision:
 
-**Why:** the advisory lock serializes concurrent workers on the same hash. INSIDE the lock, the executor re-reads the latest committed view of `claims WHERE candidate_hash = $hash`. If a different worker committed first, the executor automatically upgrades the decision from `insert_new_claim` to `append_to_existing_claim`. This is the "pre-built decision can be stale" guarantee that lets workers call `decidePromotion` outside the transaction and have the executor correct course inside.
+- **Same candidate, re-read inside the lock, status no longer `validated`** (e.g. promoted by another worker, sensitivity quarantined) → `decidePromotion` returns `reject(already_promoted)` or `reject(not_validated)`. The candidate row itself is in a terminal state.
+- **Different candidate, same hash** (the in-lock `claims WHERE candidate_hash = $hash` SELECT finds a row) → `decidePromotion` returns `append_to_existing_claim`. The current candidate is still `validated`; some other candidate (a parallel extraction of the same fact) already committed a claim with the same canonicalized hash. Our validated evidence is appended to their claim and our candidate is marked `duplicate`.
 
-**Do not change because:** pulling the lookup back outside the lock re-introduces the race. The advisory lock + in-transaction hash lookup + partial UNIQUE index together form the three-strand cord that makes promotion idempotent across worker restarts and cron retries.
+**Why:** the advisory lock + in-transaction candidate re-read + in-transaction hash lookup + partial UNIQUE on `claims.candidate_hash` together form the cord that makes promotion idempotent across worker restarts and cron retries. Pulling any of those reads outside the lock re-introduces a race.
+
+**Scope of what's protected:** the candidate row + validated evidence + same-hash claim lookup. The caller-provided `auxiliaryInputs.taxonomy` and `auxiliaryInputs.metadata` are NOT race-protected — taxonomy mutations (`/admin/taxonomy` approvals) are admin-paced (minutes/hours), not worker-paced (ms), so registry drift between the caller's `validateTaxonomy()` and executor promotion is tolerated until production traffic shows it actually fires.
+
+**Special case — missing candidate inside the lock:** if the candidate row is gone (extremely rare, would indicate either a bug or a manual delete), the executor returns `reject(invalid_state)` WITHOUT writing to `extraction_validation_results`. The FK target would be missing. This is the ONLY `reject` branch that skips the audit row; the caller logs the anomaly via `job_runs.error`.
+
+**Do not change because:** moving any of these reads out of the lock re-introduces real races we've observed in design review. The mappers in `promotion-executor.ts` (`mapCandidateRowToSnapshotCandidate`, `mapEvidenceRowToValidatedEvidence`) are exported for testability — they're covered by 23 assertions in the R5 smoke gate (cases M1–M10).
 
 ### Logout uses a POST form to a server route, not client-side `signOut()`
 

@@ -399,28 +399,59 @@ db.transaction(async (tx) => {
   // 1. Advisory lock — refuses to block; throws AdvisoryLockBusyError if taken.
   await tx.execute(sql`SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))`)
 
-  // 2. Race-safe hash lookup INSIDE the lock.
+  // 2. RACE-SAFE re-read of candidate row + validated evidence INSIDE the lock.
+  //    Caller passes only candidateId — the executor SELECTs the latest
+  //    committed state. Pure mappers (mapCandidateRowToSnapshotCandidate,
+  //    mapEvidenceRowToValidatedEvidence) convert DB rows into the snapshot
+  //    shape decidePromotion consumes. Both mappers are unit-tested under
+  //    R5 smoke cases M1–M10.
+  const fresh = await loadCandidateSnapshotInLock(tx, candidateId)
+
+  // 3. Missing candidate? Return invalid_state WITHOUT writing
+  //    extraction_validation_results (FK target doesn't exist). The only
+  //    reject branch that skips the audit row.
+  if (!fresh.candidate) return { outcome: 'recorded_rejection', appliedDecision: { kind: 'reject', reason: 'invalid_state', ... } }
+
+  // 4. Race-safe hash lookup INSIDE the lock. Partial UNIQUE on
+  //    claims.candidate_hash means at most one row matches.
   const existing = await tx.select(...).from(claims).where(eq(claims.candidateHash, hash))
 
-  // 3. Re-decide (R7+ snapshotInputs path) OR upgrade pre-built insert → append
-  //    if a race was detected (R6 legacy decision path).
-  const decision = input.snapshotInputs
-    ? decidePromotion({ ...input.snapshotInputs, existingClaimWithSameHash: existing })
-    : maybeUpgradeOnRace(input.decision, existing)
+  // 5. Decide. The decider sees:
+  //    - fresh candidate (latest committed status — promoted? validation_failed?)
+  //    - fresh validated evidence (includes anything appended since caller's read)
+  //    - in-lock existing-claim-by-hash lookup
+  //    - caller's auxiliaryInputs.taxonomy + auxiliaryInputs.metadata
+  //      (NOT race-protected against registry drift — see scope note below)
+  const decision = decidePromotion({
+    candidateHash, candidate: fresh.candidate, validatedEvidence: fresh.validatedEvidence,
+    taxonomy: input.auxiliaryInputs?.taxonomy, metadata: input.auxiliaryInputs?.metadata,
+    existingClaimWithSameHash: existing[0] ?? null
+  })
 
-  // 4. Stage entity_proposals (they're useful regardless of branch).
-  // 5. Branch on decision.kind:
-  //    insert_new_claim          → claims + claim_top_domains + claim_entities
-  //                                + claim_metadata + claim_evidence
+  // 6. Stage entity_proposals (useful regardless of branch).
+  // 7. Branch on decision.kind:
+  //    insert_new_claim          → claims (with candidate_hash) + claim_top_domains
+  //                                + claim_entities + claim_metadata + claim_evidence
   //                                + candidate.status='promoted'
   //                                + extraction_validation_results pass
   //    append_to_existing_claim  → claim_entities + claim_evidence appended
-  //                                + candidate.status='duplicate'
+  //                                + candidate.status='duplicate' (current candidate
+  //                                  is still validated; some OTHER candidate already
+  //                                  committed a claim with the same hash)
   //                                + extraction_validation_results pass
   //    reject                    → candidate.status updated per reason
   //                                + extraction_validation_results fail
+  //                                  (EXCEPT: invalid_state with missing candidate
+  //                                   skips the audit row — see step 3)
 })
 ```
+
+**Two race scenarios — distinct branches:**
+
+- *Same candidate, re-read inside the lock, status no longer `validated`* → `reject(already_promoted)` (if another worker promoted *this* candidate) or `reject(not_validated)` (if a sensitivity gate fired between reads).
+- *Different candidate, same canonicalized hash* → `append_to_existing_claim`. The current candidate is still `validated`; a parallel extraction of the same operational fact already committed a claim with the same hash. Our validated evidence is appended to their claim and our candidate is marked `duplicate`.
+
+**Scope of what's race-protected:** the candidate row + validated evidence + same-hash claim lookup. The caller-provided `auxiliaryInputs.taxonomy` and `auxiliaryInputs.metadata` are NOT — registry drift between caller-side `validateTaxonomy()` and executor promotion is tolerated. Taxonomy mutations happen via admin approval at `/admin/taxonomy` (minutes/hours scale), not worker activity (ms scale). See `DECISIONS.md` D8.taxonomy-stays-caller-provided for the rationale.
 
 Cache lifecycle (`packages/oracle-engines/src/extraction/cache-lifecycle.ts`):
 - `recordCacheCreation` inserts a `provider_cached_content` row with `status='active'` and the required reuse policy fields (`expected_reuse_count`, `latest_planned_reuse_step`, `hard_expiration_at`, `cleanup_owner`).

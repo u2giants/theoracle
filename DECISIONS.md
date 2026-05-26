@@ -355,3 +355,45 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Extension to D6.openrouter-bridge-adapter**: After R9, every legacy `getOpenRouter()` worker call site has been refactored to dispatch through `OracleAIClient`, but ALL of those callers still bridge to OpenRouter via the `OpenRouterBridgeAdapter`. The real `@anthropic-ai/sdk` / `@google/genai` / `openai` SDKs are still not wired.
 - **Why now**: the architectural rule ("everything through OracleAIClient") is satisfied. Swapping in real provider SDKs requires a wet-test path — cloud credentials, a test transcript, ability to compare provider responses. Pre-wet-test, the bridge ensures the entire pipeline runs identically; post-wet-test, the bridge gets swapped one adapter at a time as each provider's native features (Anthropic cache breakpoints, Vertex explicit caching, OpenAI structured outputs) are needed.
 - **Sequence**: R9 (synthesis) is the natural place to wire Anthropic direct first, because synthesis is cost-sensitive and Claude is the primary route.
+
+---
+
+# Promotion executor — race-safe in-lock snapshot (2026-05-26)
+
+## D8.race-safe-snapshot-reread — full candidate snapshot re-read inside the advisory lock
+
+- **Decision**: `executePromotion` now re-reads the candidate row AND its validated evidence inside the Drizzle transaction, after the advisory lock is acquired. Callers no longer build a `CandidateSnapshot` outside the lock — they pass only `candidateId`, `candidateHash`, `modelRunId`, and `auxiliaryInputs` (which carries the caller-computed `taxonomy` validation result + optional `metadata`).
+- **Why**: D6.race-safe-promotion got the hash lookup right but still trusted the caller's stale candidate/evidence snapshot. Two distinct races could fire there:
+  1. **Same candidate already promoted by another worker** — the caller's snapshot still showed `status='validated'`, the hash lookup found no existing claim (because the other worker's promotion was a different candidate-id but the same hash) OR found one (if it was the same candidate row), and the executor would try to insert duplicate evidence with stale offsets. Now: the in-lock re-read sees `status='promoted'`, `decidePromotion` returns `reject(already_promoted)`, no insert attempted.
+  2. **Evidence rows mutated** — the caller saw N validated evidence rows; another worker added an (N+1)-th between the caller's read and the executor's lock acquisition. Caller's snapshot promoted only N rows; the (N+1)-th was orphaned. Now: the in-lock re-read picks up the full current set.
+- **Distinction between race scenarios** (important — the docs previously conflated these):
+  - *Same* candidate re-read and found `status='promoted'` → `reject(already_promoted)` (the in-lock candidate-state branch)
+  - *Different* candidate, same canonicalized hash → `append_to_existing_claim` (the in-lock hash-lookup branch). The current candidate is still `validated`; we append our validated evidence to the existing claim and mark our candidate `duplicate`.
+
+## D8.missing-candidate-no-validation-result-write — FK target absent
+
+- **Decision**: If the candidate row is missing inside the lock (extremely rare; would indicate a bug or manual delete), the executor returns `recorded_rejection` with `appliedDecision.reason='invalid_state'` WITHOUT writing to `extraction_validation_results`. Every other `reject` branch writes the audit row; this branch is the explicit exception.
+- **Why**: `extraction_validation_results.candidate_id` has a FK to `extraction_candidates(id)`. Inserting an audit row pointing at a missing FK target would itself fail with a constraint violation, hiding the original anomaly behind a less-informative error. The caller logs the missing-candidate signal via `job_runs.error` and `model_runs.error`, which they already maintain; the audit row is gone but the signal isn't lost.
+- **Documented in**: executor JSDoc + AGENTS.md §11 "Race-safe promotion" entry.
+
+## D8.taxonomy-stays-caller-provided — registry drift NOT solved here
+
+- **Decision**: `auxiliaryInputs.taxonomy` and `auxiliaryInputs.metadata` remain caller-computed and are NOT re-validated inside the lock. The in-lock re-read closes the candidate/evidence race; it does NOT close a hypothetical race between caller-side `validateTaxonomy()` and executor promotion where a `knowledge_top_domains` row gets retired or an `entities` row gets merged.
+- **Why**: taxonomy + entity registry mutations only happen via admin approval through `/admin/taxonomy` server actions — which are admin-paced (minutes to hours), not worker-paced (milliseconds). The race window is human-scale; tolerating it until production traffic shows it actually fires is the right call. Re-running `validateTaxonomy()` inside every promotion lock would (a) couple unrelated registries to the lock window, (b) require the executor to depend on the entity registry + active top-domain set, and (c) add latency to every promotion for a race we have no evidence is real.
+- **Removal plan**: if production traffic shows the drift race fires, the executor can be extended to re-validate taxonomy inside the lock against fresh `knowledge_top_domains` + `entities` SELECTs. The signature already supports it — `auxiliaryInputs.taxonomy` becomes optional input that the executor cross-checks rather than blindly trusts. Today it's blind trust.
+
+## D8.executor-mappers-pure-and-tested — DB-row → snapshot mapping is unit-testable
+
+- **Decision**: The two mappers — `mapCandidateRowToSnapshotCandidate(row)` and `mapEvidenceRowToValidatedEvidence(row)` — are exported from `promotion-executor.ts` and exercised by the R5 smoke gate (cases M1–M10, 23 assertions added). Pure functions; no DB access.
+- **Why**: the executor's main risk after the refactor is field mapping (DB column names → snapshot field names, jsonb nullability, validation-status filtering). Without a live-DB test harness, the realistic protection is unit-level coverage of the mapping logic. The mappers ARE the mapping logic; testing them directly catches every realistic field-mapping bug before the executor SELECT even runs.
+- **What's covered**:
+  - undefined / null candidate row → null
+  - happy-path candidate row → matching snapshot.candidate
+  - confidence_score: null → undefined (NOT 0 or NaN — a regression here would silently downgrade impact scoring)
+  - jsonb-null domains → []
+  - non-array jsonb domains → [] (defensive against schema drift)
+  - evidence with validation_status='exact_match' + populated validated_* fields → included with all fields mapped
+  - evidence with validation_status='failed' → null (excluded from validated set)
+  - evidence with validation_status='exact_match' but validated_exact_quote: null → null (defensive — refuses to fabricate values even though the CHECK constraint should prevent this row state existing)
+  - evidence with validation_status='normalized_match' → included
+  - all optional fields (pageNumber, confidence, the 3 employee FKs) pass through correctly

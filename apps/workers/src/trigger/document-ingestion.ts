@@ -73,7 +73,6 @@ import {
   validateSourcePointer,
   validateTaxonomy,
   AdvisoryLockBusyError,
-  type CandidateSnapshot,
 } from '@oracle/engines';
 import { createServiceRoleClient } from '@oracle/auth/server';
 import type { KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
@@ -600,7 +599,9 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
         continue;
       }
 
-      // Mark validated; build snapshot; promote.
+      // Mark validated; the executor re-reads the candidate + evidence
+      // INSIDE the advisory lock. We pass only auxiliary inputs that can't
+      // be reconstructed from candidate-table state.
       await db
         .update(extractionCandidates)
         .set({ status: 'validated', validatedAt: new Date() })
@@ -614,38 +615,12 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
         sourcePointers: [`document_chunk:${chunkForEvidence.id}`],
       });
 
-      const snapshotInputs: Omit<CandidateSnapshot, 'existingClaimWithSameHash'> = {
-        candidateHash,
-        candidate: {
-          id: candidate.id,
-          status: 'validated',
-          summary: extracted.summary,
-          claimType: extracted.claimType,
-          impactScore: extracted.impactScore,
-          confidenceScore: extracted.confidenceScore,
-          domains: taxRes.validTopDomainIds,
-        },
-        validatedEvidence: [
-          {
-            id: evRow.id,
-            sourceType: 'document_chunk',
-            sourceDocumentChunkId: chunkForEvidence.id,
-            uploadedByEmployeeId: doc.uploaderId,
-            validatedExactQuote: validatedQuote,
-            validatedCharStart: quoteRes.validatedCharStart ?? 0,
-            validatedCharEnd: quoteRes.validatedCharEnd ?? validatedQuote.length,
-            confidence: extracted.evidence.confidence,
-          },
-        ],
-        taxonomy: taxRes,
-      };
-
       try {
         const result = await executePromotion({
           db,
           candidateId: candidate.id,
           candidateHash,
-          snapshotInputs,
+          auxiliaryInputs: { taxonomy: taxRes },
           modelRunId: modelRunId ?? undefined,
         });
         if (result.outcome === 'inserted_new_claim') outcome.claimsPromoted += 1;

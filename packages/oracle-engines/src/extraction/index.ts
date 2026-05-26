@@ -58,8 +58,12 @@ export {
 export {
   executePromotion,
   AdvisoryLockBusyError,
+  mapCandidateRowToSnapshotCandidate,
+  mapEvidenceRowToValidatedEvidence,
   type ExecutePromotionInput,
   type ExecutePromotionResult,
+  type ExtractionCandidateRow,
+  type ExtractionCandidateEvidenceRow,
 } from './promotion-executor';
 
 // R7 — cache profitability + provider_cached_content lifecycle

@@ -1,32 +1,50 @@
 /**
- * R6 — Promotion executor.
+ * R6/R7 — Promotion executor (race-safe in-lock snapshot version).
  *
- * Turns a `PromotionDecision` (from R5's `decidePromotion`) into actual
- * Drizzle inserts inside a single transaction. Uses
+ * Turns a validated extraction candidate into permanent
+ * `claims` / `claim_top_domains` / `claim_entities` / `claim_metadata` /
+ * `claim_evidence` rows inside a single transaction. Uses
  * `pg_try_advisory_xact_lock(hashtextextended($1, 0))` to serialize
  * concurrent workers racing for the same candidate hash.
  *
  * Spec: docs/oracle/03-candidate-before-claim-validation.md
- * "Candidate promotion transaction (Concurrency Locked)" — implementation
- * of the PROMOTION_TRANSACTION_RUNBOOK from R5's promote-candidate.ts.
+ * "Candidate promotion transaction (Concurrency Locked)".
  *
- * Failure semantics:
+ * Race-safety scope
+ * -----------------
+ * After acquiring the advisory lock, the executor re-reads the candidate
+ * row AND its validated evidence inside the transaction. The caller's
+ * `auxiliaryInputs` (taxonomy validation result + claim metadata) are
+ * passed through as-is. This is intentional:
  *
- *   - If the advisory lock can't be acquired, the executor throws
- *     `AdvisoryLockBusyError`. The worker should catch this and either
- *     retry after backoff or move on to the next candidate.
+ *   - candidate + evidence: race-safe (re-read inside the lock)
+ *   - existing-claim-by-hash lookup: race-safe (executed inside the lock)
+ *   - taxonomy validation: NOT race-safe against registry drift
+ *     (e.g. a `knowledge_top_domains` row retired between caller-side
+ *     `validateTaxonomy()` and executor promotion). Taxonomy mutations
+ *     are admin-paced (minutes/hours) via `/admin/taxonomy`, not
+ *     worker-paced (ms), so this race window is tolerated until production
+ *     traffic shows it actually fires.
  *
- *   - If the candidate decision is `reject`, the executor records a
- *     `promotion_transaction` validation result row and updates the
- *     candidate status (without inserting a claim).
- *
- *   - Any DB error during the inserts rolls the whole transaction back.
- *     The advisory lock is automatically released at rollback because it's
- *     an *xact* lock.
- *
- * The executor uses the `db.transaction(...)` callback shape from
- * `drizzle-orm/postgres-js`, so it works with the existing
- * `getDirectDb()` / `getPooledDb()` clients in @oracle/db.
+ * Failure semantics
+ * -----------------
+ * - Advisory lock not acquirable → throws `AdvisoryLockBusyError`.
+ *   Worker should retry after backoff or move on.
+ * - Candidate row missing inside the lock → returns
+ *   `recorded_rejection` with reason `invalid_state` WITHOUT writing to
+ *   `extraction_validation_results` (the FK target would be missing).
+ *   The caller logs the anomaly via `job_runs.error` / `model_runs.error`.
+ *   This is the ONLY `reject` branch that skips the validation_results
+ *   audit row.
+ * - Candidate status != 'validated' (e.g. another worker promoted it,
+ *   or sensitivity gate fired) → `reject(already_promoted)` or
+ *   `reject(not_validated)` via `decidePromotion` with the FRESH state.
+ * - Different candidate already committed a claim with the same hash →
+ *   `append_to_existing_claim` (the in-lock hash-lookup branch). The
+ *   candidate itself is still 'validated' in the DB; the duplicate is
+ *   detected by the `claims.candidate_hash` partial UNIQUE index.
+ * - Any DB error during inserts → transaction rolls back; advisory lock
+ *   is released automatically (it's an *xact* lock).
  */
 
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
@@ -38,10 +56,11 @@ import {
   claimTopDomains,
   entityProposals,
   extractionCandidates,
+  extractionCandidateEvidence,
   extractionValidationResults,
   type OracleDb,
 } from '@oracle/db';
-import { decidePromotion, type CandidateSnapshot, type PromotionDecision } from './promote-candidate';
+import { decidePromotion, type CandidateMetadata, type CandidateSnapshot, type PromotionDecision } from './promote-candidate';
 
 export class AdvisoryLockBusyError extends Error {
   constructor(public readonly candidateHash: string) {
@@ -52,91 +71,276 @@ export class AdvisoryLockBusyError extends Error {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Row shape types — local mirrors of the @oracle/db schema columns the
+// loader SELECTs. Kept local (rather than re-exporting Drizzle row types)
+// so the mappers can be unit-tested with hand-built fixtures.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface ExtractionCandidateRow {
+  id: string;
+  status: string;
+  summary: string;
+  claim_type: string;
+  impact_score: number;
+  confidence_score: number | null;
+  domains: unknown; // jsonb — array of strings
+  promoted_to_claim_id: string | null;
+}
+
+export interface ExtractionCandidateEvidenceRow {
+  id: string;
+  source_type: 'message' | 'document_chunk' | 'external_system' | 'manual_admin';
+  source_message_id: string | null;
+  source_document_chunk_id: string | null;
+  source_external_record_id: string | null;
+  asserted_by_employee_id: string | null;
+  uploaded_by_employee_id: string | null;
+  created_by_employee_id: string | null;
+  validation_status: string;
+  validated_exact_quote: string | null;
+  validated_char_start: number | null;
+  validated_char_end: number | null;
+  page_number: number | null;
+  confidence: number | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Pure mappers — exported for unit testing.
+// ─────────────────────────────────────────────────────────────────────────
+
 /**
- * Inputs to executePromotion.
+ * Map a row from `extraction_candidates` into the `CandidateSnapshot.candidate`
+ * shape decidePromotion expects.
  *
- * R7+ shape: the caller supplies the snapshot *without* `existingClaimWithSameHash`
- * and *without* having called `decidePromotion` yet. The executor:
- *   1. Acquires the advisory lock inside the transaction.
- *   2. Looks up any existing claim with the same `candidate_hash` (the
- *      partial UNIQUE index in 14_claims_candidate_hash_unique.sql means
- *      at most one will be found).
- *   3. Calls `decidePromotion` with the snapshot + existing-claim lookup.
- *   4. Applies the decision.
+ * Returns `null` when:
+ *   - The row is missing (executor's "candidate vanished inside the lock" path)
  *
- * This is the race-safe pattern: the hash lookup and the insert happen
- * inside the same advisory-locked transaction, so two concurrent workers
- * with the same hash can't both succeed at "insert_new_claim". One will
- * win; the other will see the existing claim and append.
+ * Pure — no DB access. The caller does the SELECT; this just maps shape.
+ */
+export function mapCandidateRowToSnapshotCandidate(
+  row: ExtractionCandidateRow | undefined | null,
+): CandidateSnapshot['candidate'] | null {
+  if (!row) return null;
+  return {
+    id: row.id,
+    status: row.status,
+    summary: row.summary,
+    claimType: row.claim_type,
+    impactScore: row.impact_score,
+    // NULL must become undefined, not 0. R5 smoke covers this distinction.
+    confidenceScore: row.confidence_score == null ? undefined : row.confidence_score,
+    // jsonb null defends as []; non-array jsonb (defensive) also defaults to [].
+    domains: Array.isArray(row.domains) ? (row.domains as string[]) : [],
+    promotedToClaimId: row.promoted_to_claim_id,
+  };
+}
+
+/**
+ * Map a row from `extraction_candidate_evidence` into a
+ * `CandidateSnapshot.validatedEvidence` entry.
  *
- * The legacy R6 pre-built-decision shape is preserved on `decision` for
- * callers that still want to make the decision themselves — but the new
- * snapshot-based path is preferred.
+ * Returns `null` when:
+ *   - validation_status is not in ('exact_match', 'normalized_match') —
+ *     the evidence didn't pass the R5 quote validator
+ *   - any of the validated_* fields is null even though status passed —
+ *     defensive against DB rows in an inconsistent state (this shouldn't
+ *     exist because of the 13_extraction_constraints.sql
+ *     extraction_candidate_evidence_validated_fields_check CHECK, but the
+ *     mapper refuses to fabricate values regardless)
+ *
+ * Pure — no DB access. Callers compose `.map(...).filter((x): x is NonNull => x != null)`.
+ */
+export function mapEvidenceRowToValidatedEvidence(
+  row: ExtractionCandidateEvidenceRow,
+): CandidateSnapshot['validatedEvidence'][number] | null {
+  if (row.validation_status !== 'exact_match' && row.validation_status !== 'normalized_match') {
+    return null;
+  }
+  if (
+    row.validated_exact_quote == null ||
+    row.validated_char_start == null ||
+    row.validated_char_end == null
+  ) {
+    return null;
+  }
+  return {
+    id: row.id,
+    sourceType: row.source_type,
+    sourceMessageId: row.source_message_id,
+    sourceDocumentChunkId: row.source_document_chunk_id,
+    sourceExternalRecordId: row.source_external_record_id,
+    assertedByEmployeeId: row.asserted_by_employee_id,
+    uploadedByEmployeeId: row.uploaded_by_employee_id,
+    createdByEmployeeId: row.created_by_employee_id,
+    validatedExactQuote: row.validated_exact_quote,
+    validatedCharStart: row.validated_char_start,
+    validatedCharEnd: row.validated_char_end,
+    pageNumber: row.page_number,
+    confidence: row.confidence,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// In-lock snapshot loader — thin wrapper over the two SELECTs + mappers.
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Inside an active transaction (after the advisory lock has been acquired),
+ * re-read the candidate row + its validated evidence. The returned shapes
+ * are exactly what `decidePromotion` consumes.
+ *
+ * Generic over the Drizzle tx type so this works with either `OracleDb`
+ * or the transaction object passed into the `db.transaction((tx) => ...)`
+ * callback.
+ */
+async function loadCandidateSnapshotInLock(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tx: any,
+  candidateId: string,
+): Promise<{
+  candidate: CandidateSnapshot['candidate'] | null;
+  validatedEvidence: CandidateSnapshot['validatedEvidence'];
+}> {
+  const candidateRows = await tx
+    .select({
+      id: extractionCandidates.id,
+      status: extractionCandidates.status,
+      summary: extractionCandidates.summary,
+      claim_type: extractionCandidates.claimType,
+      impact_score: extractionCandidates.impactScore,
+      confidence_score: extractionCandidates.confidenceScore,
+      domains: extractionCandidates.domains,
+      promoted_to_claim_id: extractionCandidates.promotedToClaimId,
+    })
+    .from(extractionCandidates)
+    .where(eq(extractionCandidates.id, candidateId))
+    .limit(1);
+
+  const candidate = mapCandidateRowToSnapshotCandidate(
+    candidateRows[0] as ExtractionCandidateRow | undefined,
+  );
+
+  if (!candidate) {
+    return { candidate: null, validatedEvidence: [] };
+  }
+
+  const evidenceRows = await tx
+    .select({
+      id: extractionCandidateEvidence.id,
+      source_type: extractionCandidateEvidence.sourceType,
+      source_message_id: extractionCandidateEvidence.sourceMessageId,
+      source_document_chunk_id: extractionCandidateEvidence.sourceDocumentChunkId,
+      source_external_record_id: extractionCandidateEvidence.sourceExternalRecordId,
+      asserted_by_employee_id: extractionCandidateEvidence.assertedByEmployeeId,
+      uploaded_by_employee_id: extractionCandidateEvidence.uploadedByEmployeeId,
+      created_by_employee_id: extractionCandidateEvidence.createdByEmployeeId,
+      validation_status: extractionCandidateEvidence.validationStatus,
+      validated_exact_quote: extractionCandidateEvidence.validatedExactQuote,
+      validated_char_start: extractionCandidateEvidence.validatedCharStart,
+      validated_char_end: extractionCandidateEvidence.validatedCharEnd,
+      page_number: extractionCandidateEvidence.pageNumber,
+      confidence: extractionCandidateEvidence.confidence,
+    })
+    .from(extractionCandidateEvidence)
+    .where(eq(extractionCandidateEvidence.candidateId, candidateId));
+
+  const validatedEvidence = (evidenceRows as ExtractionCandidateEvidenceRow[])
+    .map((row) => mapEvidenceRowToValidatedEvidence(row))
+    .filter((v): v is NonNullable<typeof v> => v != null);
+
+  return { candidate, validatedEvidence };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Inputs to `executePromotion`.
+ *
+ * The candidate row, its validated evidence, and the existing-claim-by-hash
+ * lookup are ALL re-read inside the advisory lock — callers do NOT pass them.
+ *
+ * The caller-side fields (`auxiliaryInputs`) carry only the data that isn't
+ * reconstructable from candidate-table state:
+ *   - `taxonomy`: the R5.5 TaxonomyValidationResult derived from the live
+ *     `entities` + `knowledge_top_domains` registries at decision time
+ *   - `metadata`: caller-computed claim_metadata fields
+ *
+ * Registry drift between caller-side validation and executor promotion is
+ * intentionally NOT solved here. See the file header "Race-safety scope".
  */
 export interface ExecutePromotionInput {
   db: OracleDb;
   candidateId: string;
   candidateHash: string;
-  /**
-   * Either supply a pre-built `decision` (legacy R6 shape) OR a
-   * `snapshotInputs` (R7 shape) that lets the executor look up existing
-   * claims by hash inside the transaction and decide race-safely.
-   */
-  decision?: PromotionDecision;
-  snapshotInputs?: Omit<CandidateSnapshot, 'existingClaimWithSameHash'>;
-  /** Used to stamp entity_proposals rows with provenance. */
+  auxiliaryInputs?: {
+    taxonomy?: CandidateSnapshot['taxonomy'];
+    metadata?: CandidateMetadata;
+  };
+  /** Stamped on entity_proposals rows for provenance. */
   modelRunId?: string;
 }
 
 export interface ExecutePromotionResult {
-  /** What the executor actually did. May differ from decision.kind if e.g. an entity_proposals stage was the only outcome. */
-  outcome:
-    | 'inserted_new_claim'
-    | 'appended_to_existing_claim'
-    | 'recorded_rejection';
+  outcome: 'inserted_new_claim' | 'appended_to_existing_claim' | 'recorded_rejection';
   claimId?: string;
   appendedEvidenceCount?: number;
   stagedEntityProposalIds: string[];
-  /** The decision the executor actually applied (after the in-lock re-decide if applicable). */
+  /** The decision the executor actually applied (built from the in-lock snapshot). */
   appliedDecision: PromotionDecision;
 }
 
 /**
  * Execute a promotion against the live DB.
  *
- * R7 pattern (preferred): pass `snapshotInputs`. The executor takes the
- * advisory lock, looks up `claims WHERE candidate_hash = $hash` inside
- * the transaction, and calls `decidePromotion` with the race-safe view.
- *
- * Legacy R6 pattern: pass a pre-built `decision`. The executor still
- * looks up the existing claim and will UPGRADE an `insert_new_claim`
- * decision to `append_to_existing_claim` if a race is detected — but
- * a `reject` or `append_to_existing_claim` decision is honored as-is.
+ * Race-safe pattern:
+ *   1. Acquire advisory lock or throw AdvisoryLockBusyError.
+ *   2. Re-read candidate + validated evidence INSIDE the lock (the race
+ *      window between caller-side reads and lock acquisition is closed).
+ *   3. If candidate missing → return invalid_state WITHOUT writing
+ *      validation_results (FK target wouldn't exist).
+ *   4. Re-look-up existing claim by candidate_hash INSIDE the lock.
+ *   5. Build snapshot from fresh DB reads + caller's auxiliaryInputs
+ *      (taxonomy + metadata).
+ *   6. Call `decidePromotion`.
+ *   7. Apply decision (insert / append / reject branches).
  */
 export async function executePromotion(input: ExecutePromotionInput): Promise<ExecutePromotionResult> {
   const { db, candidateId, candidateHash, modelRunId } = input;
-  if (!input.decision && !input.snapshotInputs) {
-    throw new Error('executePromotion requires either `decision` or `snapshotInputs`.');
-  }
 
   return db.transaction(async (tx) => {
-    // 1. Advisory lock. pg_try_advisory_xact_lock returns FALSE if another
-    //    transaction holds it. We refuse to block.
+    // 1. Advisory lock.
     const lockRes = await tx.execute<{ locked: boolean }>(
       sql`SELECT pg_try_advisory_xact_lock(hashtextextended(${candidateHash}, 0)) AS locked`,
     );
-    // postgres-js result rows can be in `rows` or be the array itself depending
-    // on driver build — handle both shapes.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows: Array<{ locked: boolean }> = (lockRes as any).rows ?? (lockRes as any);
-    const locked = rows[0]?.locked === true;
-    if (!locked) throw new AdvisoryLockBusyError(candidateHash);
+    const lockRows: Array<{ locked: boolean }> = (lockRes as any).rows ?? (lockRes as any);
+    if (lockRows[0]?.locked !== true) throw new AdvisoryLockBusyError(candidateHash);
 
-    // 2. Race-safe hash lookup. Even if the caller pre-built a decision,
-    // we double-check inside the lock — another worker may have committed
-    // a claim with the same hash between the caller's decide and our
-    // execute. The partial UNIQUE on claims.candidate_hash means at most
-    // one row matches.
+    // 2. Re-read candidate + validated evidence inside the lock.
+    const fresh = await loadCandidateSnapshotInLock(tx, candidateId);
+
+    // 3. Missing candidate: return WITHOUT writing extraction_validation_results.
+    //    The FK target candidate_id would be missing; we cannot create the
+    //    audit row. Caller logs the anomaly via job_runs.error.
+    if (!fresh.candidate) {
+      const decision: PromotionDecision = {
+        kind: 'reject',
+        reason: 'invalid_state',
+        detail: `Candidate ${candidateId} not found inside the advisory lock.`,
+        entityProposalsToStage: [],
+      };
+      return {
+        outcome: 'recorded_rejection',
+        stagedEntityProposalIds: [],
+        appliedDecision: decision,
+      };
+    }
+
+    // 4. Race-safe existing-claim-by-hash lookup. Partial UNIQUE on
+    //    claims.candidate_hash means at most one row matches.
     const existingByHash = await tx
       .select({ id: claims.id })
       .from(claims)
@@ -145,42 +349,21 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
     const existingClaimWithSameHash =
       existingByHash[0] ? { claimId: existingByHash[0].id } : null;
 
-    // 3. Decide. The R7 path always re-decides inside the lock with the
-    // freshly-looked-up existing claim. The legacy R6 path provided a
-    // decision; we upgrade insert_new_claim → append_to_existing_claim
-    // if a race was detected, but otherwise honor the pre-built decision.
-    let decision: PromotionDecision;
-    if (input.snapshotInputs) {
-      decision = decidePromotion({
-        ...input.snapshotInputs,
-        existingClaimWithSameHash,
-      });
-    } else {
-      const provided = input.decision!;
-      if (
-        existingClaimWithSameHash &&
-        provided.kind === 'insert_new_claim'
-      ) {
-        // Race detected — convert to an append.
-        decision = {
-          kind: 'append_to_existing_claim',
-          candidateHash: provided.candidateHash,
-          existingClaimId: existingClaimWithSameHash.claimId,
-          entityAssignments: provided.entityAssignments,
-          entityProposalsToStage: provided.entityProposalsToStage,
-          evidenceRows: provided.evidenceRows,
-          candidateUpdate: {
-            status: 'duplicate',
-            setDuplicateOfClaimId: existingClaimWithSameHash.claimId,
-          },
-        };
-      } else {
-        decision = provided;
-      }
-    }
+    // 5. Build snapshot from FRESH candidate + evidence + caller's auxiliary
+    //    inputs (taxonomy validation result + metadata). The decider sees
+    //    the latest committed view of the candidate row + the in-lock hash
+    //    lookup.
+    const decision = decidePromotion({
+      candidateHash,
+      candidate: fresh.candidate,
+      validatedEvidence: fresh.validatedEvidence,
+      taxonomy: input.auxiliaryInputs?.taxonomy,
+      metadata: input.auxiliaryInputs?.metadata,
+      existingClaimWithSameHash,
+    });
 
-    // 4. Stage any entity_proposals first — they're useful to admin
-    //    regardless of which decision branch we take.
+    // 6. Stage any entity_proposals first — useful to admin regardless of
+    //    which decision branch we take.
     const stagedEntityProposalIds: string[] = [];
     const proposalsToStage =
       decision.kind === 'insert_new_claim' || decision.kind === 'append_to_existing_claim'
@@ -205,7 +388,7 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
       if (id) stagedEntityProposalIds.push(id);
     }
 
-    // 3. Branch on the decision.
+    // 7. Branch on the decision.
     switch (decision.kind) {
       case 'insert_new_claim': {
         const [newClaim] = await tx
@@ -216,7 +399,7 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
             impactScore: decision.claim.impactScore,
             confidenceScore: decision.claim.confidenceScore ?? 5,
             status: 'pending_review',
-            candidateHash, // R7 — enables historical duplicate detection
+            candidateHash,
           })
           .returning({ id: claims.id });
         if (!newClaim) throw new Error('claims insert returned no row');
@@ -368,13 +551,13 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
       }
 
       case 'reject': {
-        // Map decision.reason → candidate.status. validated_loop and
-        // already_promoted leave candidate.status alone (already terminal).
+        // The candidate row IS present (we returned early above when it
+        // wasn't), so the FK target for extraction_validation_results.candidate_id
+        // is valid and we can safely write the audit row.
+
         let newCandidateStatus: string | undefined;
         switch (decision.reason) {
           case 'taxonomy_invalid':
-            newCandidateStatus = 'validation_failed';
-            break;
           case 'no_validated_evidence':
           case 'no_domains':
           case 'invalid_state':
@@ -382,6 +565,7 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
             break;
           case 'not_validated':
           case 'already_promoted':
+            // Terminal status set by another worker — don't overwrite.
             newCandidateStatus = undefined;
             break;
         }
