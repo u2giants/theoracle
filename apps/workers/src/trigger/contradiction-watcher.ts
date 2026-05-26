@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
 import {
   claimEvidence,
+  claimTopDomains,
   claims,
   contradictions,
   gaps,
@@ -47,9 +48,13 @@ import {
   getOracleRoute,
   resolveModelRoute,
   makeBlock,
+  searchWithRetrievalPlan,
+  buildDomainScopedPlan,
+  buildGlobalRetrievalPlan,
   type OracleModelRoute,
 } from '@oracle/ai';
-import { EMBEDDING_DIM } from '@oracle/shared';
+// EMBEDDING_DIM removed: ANN search now goes through searchWithRetrievalPlan
+// which handles embedding dimensions internally.
 import {
   decideContradictionInterjection,
   CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD,
@@ -377,41 +382,40 @@ async function checkClaimForContradictions(
     }
   }
 
-  // ANN search: top-K approved claims by cosine similarity, filtered to the
-  // same top-level domains as the target claim (P1 #3 — RetrievalPlan rule).
-  // If the target claim has no claim_top_domains entries (pre-backfill claims),
-  // the subquery returns an empty set and the domain filter is skipped gracefully.
-  const vec = `[${claimEmbedding.join(',')}]`;
-  const similar = await db.execute<{
-    id: string;
-    summary: string;
-    claim_type: string;
-    distance: number;
-  }>(
-    sql`
-      SELECT DISTINCT c.id, c.summary, c.claim_type,
-             (c.embedding <=> ${vec}::vector(${EMBEDDING_DIM})) AS distance
-      FROM claims c
-      LEFT JOIN claim_top_domains ctd ON ctd.claim_id = c.id
-      WHERE c.status = 'approved'
-        AND c.embedding IS NOT NULL
-        AND c.id <> ${claimId}
-        AND (
-          -- Domain-scoped search: only check claims sharing at least one top domain
-          -- with the target claim. Falls back to global search if no domains exist.
-          NOT EXISTS (
-            SELECT 1 FROM claim_top_domains WHERE claim_id = ${claimId}
-          )
-          OR ctd.top_domain_id = ANY(
-            SELECT top_domain_id FROM claim_top_domains WHERE claim_id = ${claimId}
-          )
-        )
-      ORDER BY distance ASC
-      LIMIT ${TOP_K};
-    `,
-  );
+  // ANN search via searchWithRetrievalPlan — enforces the RetrievalPlan
+  // metadata pre-filter contract (no silent global search).
+  //
+  // Domain hints come from the target claim's claim_top_domains rows so that
+  // vendor-manual noise and unrelated licensor claims are suppressed.
+  // If the claim has no taxonomy tags yet (pre-backfill), we fall back to
+  // buildGlobalRetrievalPlan (searchScope='global_explicit') and log a warning.
+  //
+  // Note: searchWithRetrievalPlan calls embedText(claim.summary) internally.
+  // The embedding computed/stored above is kept for DB persistence; the slight
+  // redundancy is acceptable for a background worker.
+  // TODO: add precomputedVector support to RetrievalPlan to avoid the double-embed.
+  const domainRows = await db
+    .select({ topDomainId: claimTopDomains.topDomainId })
+    .from(claimTopDomains)
+    .where(eq(claimTopDomains.claimId, claimId));
+  const domainHints = domainRows.map((r) => r.topDomainId);
 
-  const candidates = similar.filter((r) => r.distance < SIMILARITY_THRESHOLD);
+  const annPlan =
+    domainHints.length > 0
+      ? buildDomainScopedPlan(claim.summary, domainHints, { topK: TOP_K })
+      : (() => {
+          console.warn('[contradiction-watcher] claim has no domain tags — falling back to global ANN', {
+            claimId,
+            hint: 'Run the taxonomy re-evaluation worker to assign claim_top_domains.',
+          });
+          return buildGlobalRetrievalPlan(claim.summary, { topK: TOP_K });
+        })();
+
+  const annResults = await searchWithRetrievalPlan(db, annPlan);
+  // Exclude the target claim itself (searchWithRetrievalPlan doesn't know about it).
+  const candidates = annResults.filter(
+    (r) => r.id !== claimId && r.distance < SIMILARITY_THRESHOLD,
+  );
   if (candidates.length === 0) return { contradictionsFound: 0 };
 
   let contradictionsFound = 0;

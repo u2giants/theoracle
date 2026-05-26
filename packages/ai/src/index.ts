@@ -133,6 +133,9 @@ export {
 } from './retrieval';
 export {
   buildRetrievalPlanFromQuery,
+  buildDomainScopedPlan,
+  buildGlobalRetrievalPlan,
   DEFAULT_TOP_K,
   type RetrievalPlan,
+  type RetrievalPlanSearchScope,
 } from './retrieval-plan';

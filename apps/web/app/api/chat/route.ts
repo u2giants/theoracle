@@ -45,6 +45,7 @@ import {
   getOpenGapsForChannel,
   type OracleModelRoute,
   type OraclePromptPlan,
+  type RetrievalPlanSearchScope,
 } from '@oracle/ai';
 import { getDirectDb } from '@oracle/db/client';
 import {
@@ -210,8 +211,12 @@ export async function POST(req: NextRequest) {
       includedMessageIds: recent.map((m) => m.id),
       includedGapIds: openGaps.map((g) => g.id),
       includedClaimIds: relevantClaims.map((c) => c.id),
-      // P1 #3 — surface the retrieval plan in the context pack for auditing.
-      selectedDomains: retrievalPlan.topDomainHints,
+      // Retrieval scope audit — stored in oracle_context_packs.selected_domains.
+      // domain_filtered → actual domain IDs used for pre-filtering.
+      // global_fallback → '_global_fallback' tag; query
+      //   WHERE selected_domains @> ARRAY['_global_fallback'] to find heuristic gaps.
+      // global_explicit → '_global_explicit' tag (intentional wide search).
+      selectedDomains: scopeTag(retrievalPlan.topDomainHints, retrievalPlan.searchScope),
     },
   });
 
@@ -474,6 +479,17 @@ export async function POST(req: NextRequest) {
 // ─────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build the selectedDomains array for the context pack.
+ * - domain_filtered: return the actual domain IDs.
+ * - global_fallback / global_explicit: return a single sentinel tag so
+ *   operators can query: WHERE selected_domains @> ARRAY['_global_fallback'].
+ */
+function scopeTag(topDomainHints: string[], scope: RetrievalPlanSearchScope): string[] {
+  if (topDomainHints.length > 0) return topDomainHints;
+  return [`_${scope}`]; // '_global_fallback' or '_global_explicit'
+}
 
 async function resolveInterviewRoute(db: OracleDb): Promise<OracleModelRoute> {
   const row = await db

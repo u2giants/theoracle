@@ -119,6 +119,13 @@ export async function getRelevantOpenGaps(
 }
 
 /**
+ * @deprecated Use searchWithRetrievalPlan() instead.
+ *
+ * Raw pgvector cosine-distance search with optional legacy domain filter.
+ * Does not enforce the RetrievalPlan metadata pre-filter contract, does not
+ * log fallback scope, and does not apply entity-type or document-class
+ * exclusions. Retained for backward-compat only — do not add new call sites.
+ *
  * Semantically relevant approved claims via pgvector cosine distance.
  * Optionally filter by domain (joined through claim_domains).
  *
@@ -230,6 +237,17 @@ export async function searchWithRetrievalPlan(
   db: Db,
   plan: RetrievalPlan,
 ): Promise<RelevantClaim[]> {
+  // Enforcement: every global-fallback plan emits a structured warning so
+  // operators can audit oracle_context_packs.selected_domains and improve
+  // the DOMAIN_KEYWORDS heuristics in retrieval-plan.ts.
+  if (plan.searchScope === 'global_fallback') {
+    console.warn('[oracle:retrieval] global_fallback — searching entire claim corpus', {
+      query: plan.vectorQuery.slice(0, 120),
+      hint: 'Add matching keywords to DOMAIN_KEYWORDS in packages/ai/src/retrieval-plan.ts',
+      impact: 'vendor_manual / licensor noise may contaminate results',
+    });
+  }
+
   const limit = plan.topK;
   const { vector, fallback } = await embedText(plan.vectorQuery);
 
@@ -367,6 +385,13 @@ async function _searchFallbackTsvector(
   plan: RetrievalPlan,
   limit: number,
 ): Promise<RelevantClaim[]> {
+  if (plan.searchScope === 'global_fallback') {
+    console.warn('[oracle:retrieval] global_fallback (tsvector path) — searching entire claim corpus', {
+      query: plan.vectorQuery.slice(0, 120),
+      hint: 'Add matching keywords to DOMAIN_KEYWORDS in packages/ai/src/retrieval-plan.ts',
+    });
+  }
+
   // Build domain WHERE fragment for the Drizzle ORM query path.
   // We need a small SQL helper for the optional joins here too.
   const textQuery = plan.vectorQuery;
