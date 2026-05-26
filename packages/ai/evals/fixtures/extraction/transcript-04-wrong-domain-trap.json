@@ -1,0 +1,43 @@
+{
+  "fixtureId": "transcript-04-wrong-domain-trap",
+  "category": "extraction",
+  "description": "Model returns a valid quote but tags the claim with domains that map to the wrong top-domain. Tests that the wrong-domain metric is computed.",
+  "traps": [
+    "Source text is a licensor approval rule, but model tags it with 'logistics' which maps to logistics_shipping — wrong top-domain."
+  ],
+  "inputs": {
+    "sourceType": "message",
+    "routeId": "vertex_gemini_flash_lite_extraction_primary",
+    "messages": [
+      {
+        "messageId": "msg-0401",
+        "employeeId": "emp-laura",
+        "text": "Disney requires all Mickey 100th packaging artwork to be submitted through their BrandLoop portal at least 21 days before factory print start.",
+        "createdAt": "2026-05-04T11:20:00.000Z"
+      }
+    ],
+    "activeTopDomainIds": [
+      "licensing_approvals",
+      "creative_design",
+      "production_lifecycle",
+      "logistics_shipping"
+    ]
+  },
+  "expected": {
+    "claims": [
+      {
+        "summary": "Disney Mickey 100th packaging artwork must be submitted via BrandLoop 21 days before factory print start",
+        "claimType": "operational_rule",
+        "domains": ["licensing", "approvals"],
+        "exactQuote": "Disney requires all Mickey 100th packaging artwork to be submitted through their BrandLoop portal at least 21 days before factory print start.",
+        "sourceMessageId": "msg-0401",
+        "assertedByEmployeeId": "emp-laura",
+        "mustBePromoted": true
+      }
+    ]
+  },
+  "scoringRules": {
+    "minQuoteValidity": 1.0,
+    "maxWrongDomainRate": 1.0
+  }
+}

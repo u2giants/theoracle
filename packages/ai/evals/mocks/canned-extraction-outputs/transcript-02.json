@@ -1,0 +1,17 @@
+{
+  "claims": [
+    {
+      "claimType": "operational_decision",
+      "summary": "StarWars Empire mug program will move from Acme Factory to Tianhe by end of Q3",
+      "impactScore": 8,
+      "confidenceScore": 8,
+      "domains": ["sourcing", "production"],
+      "evidence": {
+        "exactQuote": "We need to move the StarWars Empire mug from Acme to Tianhe",
+        "sourceMessageId": "msg-0201",
+        "confidence": 0.8
+      },
+      "requiresReview": false
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "fixtureId": "transcript-01-routine-handoff",
+  "category": "extraction",
+  "description": "Routine creative-to-technical handoff. Single message stating a concrete production rule. Should produce one promoted claim.",
+  "traps": [],
+  "inputs": {
+    "sourceType": "message",
+    "routeId": "vertex_gemini_flash_lite_extraction_primary",
+    "messages": [
+      {
+        "messageId": "msg-0101",
+        "employeeId": "emp-amy",
+        "text": "For the Mickey 100th anniversary mug line, all artwork files must be delivered to the factory at 300 DPI minimum. Anything below 300 will be rejected at sampling.",
+        "createdAt": "2026-05-01T14:30:00.000Z"
+      }
+    ],
+    "activeTopDomainIds": [
+      "customer_ops",
+      "licensing_approvals",
+      "product_development",
+      "creative_design",
+      "supply_chain",
+      "production_lifecycle"
+    ]
+  },
+  "expected": {
+    "claims": [
+      {
+        "summary": "Mickey 100th anniversary mug artwork files must be delivered at 300 DPI minimum",
+        "claimType": "operational_rule",
+        "domains": ["artwork_files", "production"],
+        "exactQuote": "all artwork files must be delivered to the factory at 300 DPI minimum",
+        "sourceMessageId": "msg-0101",
+        "assertedByEmployeeId": "emp-amy",
+        "mustBePromoted": true
+      }
+    ]
+  },
+  "scoringRules": {
+    "minPrecision": 0.9,
+    "minRecall": 0.9,
+    "minQuoteValidity": 1.0,
+    "maxWrongDomainRate": 0.0
+  }
+}

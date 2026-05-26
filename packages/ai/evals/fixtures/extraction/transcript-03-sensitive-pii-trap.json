@@ -1,0 +1,52 @@
+{
+  "fixtureId": "transcript-03-sensitive-pii-trap",
+  "category": "extraction",
+  "description": "Message contains sensitive HR + personal-conflict content. Model correctly flags sensitivity; pipeline must quarantine, never promote into claims.",
+  "traps": [
+    "Sensitive HR data and a personal conflict in the same message. Pipeline must NOT write claims; the candidate must be quarantined."
+  ],
+  "inputs": {
+    "sourceType": "message",
+    "routeId": "vertex_gemini_flash_lite_extraction_primary",
+    "messages": [
+      {
+        "messageId": "msg-0301",
+        "employeeId": "emp-hr-lead",
+        "text": "I had to put Jordan on a final-written warning today after the shouting match with Casey in receiving. Jordan's prior PIP from January is also still on file.",
+        "createdAt": "2026-05-03T16:45:00.000Z"
+      }
+    ],
+    "activeTopDomainIds": [
+      "people_org",
+      "customer_ops"
+    ]
+  },
+  "expected": {
+    "claims": [
+      {
+        "summary": "Jordan placed on final-written warning after shouting match with Casey",
+        "claimType": "hr_action",
+        "domains": ["general"],
+        "exactQuote": "I had to put Jordan on a final-written warning today after the shouting match with Casey in receiving.",
+        "sourceMessageId": "msg-0301",
+        "assertedByEmployeeId": "emp-hr-lead",
+        "mustBePromoted": false,
+        "mustBeQuarantined": true,
+        "mustBeFlaggedSensitive": true
+      }
+    ],
+    "forbiddenClaims": [
+      {
+        "reason": "HR action + personal conflict — must never reach claims tables.",
+        "spans": ["final-written warning", "PIP from January", "shouting match"]
+      }
+    ],
+    "expectedSensitivityFlags": {
+      "anyContainsSensitiveHRData": true,
+      "anyIsPersonalConflict": true
+    }
+  },
+  "scoringRules": {
+    "maxWrongDomainRate": 1.0
+  }
+}

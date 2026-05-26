@@ -1,0 +1,17 @@
+{
+  "claims": [
+    {
+      "claimType": "operational_rule",
+      "summary": "Disney Mickey 100th packaging artwork must be submitted via BrandLoop 21 days before factory print start",
+      "impactScore": 7,
+      "confidenceScore": 9,
+      "domains": ["logistics", "shipping_documents"],
+      "evidence": {
+        "exactQuote": "Disney requires all Mickey 100th packaging artwork to be submitted through their BrandLoop portal at least 21 days before factory print start.",
+        "sourceMessageId": "msg-0401",
+        "confidence": 0.93
+      },
+      "requiresReview": false
+    }
+  ]
+}

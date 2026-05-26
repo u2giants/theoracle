@@ -1,0 +1,17 @@
+{
+  "claims": [
+    {
+      "claimType": "operational_rule",
+      "summary": "Mickey 100th anniversary mug artwork files must be delivered at 300 DPI minimum",
+      "impactScore": 7,
+      "confidenceScore": 9,
+      "domains": ["artwork_files", "production"],
+      "evidence": {
+        "exactQuote": "all artwork files must be delivered to the factory at 300 DPI minimum",
+        "sourceMessageId": "msg-0101",
+        "confidence": 0.95
+      },
+      "requiresReview": false
+    }
+  ]
+}

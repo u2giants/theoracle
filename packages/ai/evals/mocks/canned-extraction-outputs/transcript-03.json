@@ -1,0 +1,22 @@
+{
+  "claims": [
+    {
+      "claimType": "hr_action",
+      "summary": "Jordan placed on final-written warning after shouting match with Casey",
+      "impactScore": 6,
+      "confidenceScore": 9,
+      "domains": ["general"],
+      "evidence": {
+        "exactQuote": "I had to put Jordan on a final-written warning today after the shouting match with Casey in receiving.",
+        "sourceMessageId": "msg-0301",
+        "confidence": 0.95
+      },
+      "requiresReview": true,
+      "sensitivityFlags": {
+        "containsSensitiveHRData": true,
+        "isPersonalConflict": true,
+        "sensitivityReason": "Disciplinary action + interpersonal conflict; both employees named."
+      }
+    }
+  ]
+}

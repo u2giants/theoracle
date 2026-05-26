@@ -23,11 +23,13 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "verify:r2": "tsx src/__verify__/oracle-ai-client-smoke.ts"
+    "verify:r2": "tsx src/__verify__/oracle-ai-client-smoke.ts",
+    "eval:extraction": "tsx evals/runners/eval-extraction.ts"
   },
   "dependencies": {
     "@oracle/shared": "workspace:*",
     "@oracle/db": "workspace:*",
+    "@oracle/engines": "workspace:*",
     "@openrouter/ai-sdk-provider": "^2.9.0",
     "ai": "^6.0.187",
     "drizzle-orm": "^0.45.2",
@@ -35,6 +37,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.12.4",
+    "tsx": "^4.19.2",
     "typescript": "^5.9.3"
   }
 }

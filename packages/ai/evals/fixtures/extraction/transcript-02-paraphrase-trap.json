@@ -1,0 +1,49 @@
+{
+  "fixtureId": "transcript-02-paraphrase-trap",
+  "category": "extraction",
+  "description": "Model paraphrases instead of returning a verbatim quote. Quote validator MUST reject the candidate so it never reaches claims.",
+  "traps": [
+    "exactQuote is a paraphrase of the source, not a verbatim substring. Tests that validateQuote catches paraphrase claims that look correct semantically."
+  ],
+  "inputs": {
+    "sourceType": "message",
+    "routeId": "vertex_gemini_flash_lite_extraction_primary",
+    "messages": [
+      {
+        "messageId": "msg-0201",
+        "employeeId": "emp-derek",
+        "text": "We need to switch the StarWars Empire mug program from Acme Factory to Tianhe by end of Q3 because Acme keeps missing their lead times.",
+        "createdAt": "2026-05-02T09:15:00.000Z"
+      }
+    ],
+    "activeTopDomainIds": [
+      "supply_chain",
+      "production_lifecycle",
+      "licensing_approvals",
+      "vendor_management"
+    ]
+  },
+  "expected": {
+    "claims": [
+      {
+        "summary": "StarWars Empire mug program will move from Acme Factory to Tianhe by end of Q3",
+        "claimType": "operational_decision",
+        "domains": ["sourcing", "production"],
+        "exactQuote": "switch the StarWars Empire mug program from Acme Factory to Tianhe by end of Q3",
+        "sourceMessageId": "msg-0201",
+        "assertedByEmployeeId": "emp-derek",
+        "mustBePromoted": false
+      }
+    ],
+    "forbiddenClaims": [
+      {
+        "reason": "Paraphrased quote — must not be promoted because exactQuote is not a verbatim substring of the source.",
+        "spans": ["We need to move the StarWars Empire mug from Acme to Tianhe"]
+      }
+    ]
+  },
+  "scoringRules": {
+    "minQuoteValidity": 0.0,
+    "maxWrongDomainRate": 0.0
+  }
+}
