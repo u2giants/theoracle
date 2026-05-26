@@ -32,8 +32,11 @@ import type { OracleModelRoute, OracleProvider } from '../routes';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..', '..', '..', '..');
-loadEnv({ path: resolve(repoRoot, '.env.local') });
-loadEnv({ path: resolve(repoRoot, '.env') });
+// override: true so .env.local wins over any shell-level empty placeholders
+// (some harnesses inject ANTHROPIC_API_KEY="" / OPENAI_API_KEY="" as a
+// credential-redaction safeguard, which would otherwise mask our real keys).
+loadEnv({ path: resolve(repoRoot, '.env.local'), override: true });
+loadEnv({ path: resolve(repoRoot, '.env'), override: false });
 
 // ─── Fixture data ──────────────────────────────────────────────────────────
 

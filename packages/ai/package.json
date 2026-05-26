@@ -27,9 +27,8 @@
     "eval:extraction": "tsx evals/runners/eval-extraction.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.79",
-    "@ai-sdk/google-vertex": "^4.0.137",
-    "@ai-sdk/openai": "^3.0.65",
+    "@anthropic-ai/sdk": "^0.98.0",
+    "@google/genai": "^2.6.0",
     "@openrouter/ai-sdk-provider": "^2.9.0",
     "@oracle/db": "workspace:*",
     "@oracle/engines": "workspace:*",
@@ -37,6 +36,7 @@
     "ai": "^6.0.187",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
+    "openai": "^6.39.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

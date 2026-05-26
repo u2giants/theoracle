@@ -1,33 +1,31 @@
 /**
- * OpenAIAdapter — direct OpenAI API integration via `@ai-sdk/openai`.
+ * OpenAIAdapter — direct OpenAI API integration via the official `openai` SDK.
  *
- * Architecture:
- * - Calls OpenAI's REST API directly (NOT through OpenRouter).
- * - Authenticates via `OPENAI_API_KEY` env var (the SDK auto-reads it).
+ * Architecture (DECISIONS.md D6, docs/oracle/02 §"Shared architecture"):
+ * - Calls OpenAI's REST API directly using the official SDK.
+ * - NO Vercel AI SDK and NO OpenRouter in this path.
+ * - Authenticates via `OPENAI_API_KEY` env var.
  *
  * Caching strategy (round 1 — automatic prefix caching):
- * - OpenAI auto-caches prompts >= 1024 tokens on the same prefix. No
- *   client action required. Cache hits show up as a populated
- *   `prompt_tokens_details.cached_tokens` in usage, normalized into
+ * - OpenAI auto-caches prompts >= 1024 tokens on the same stable prefix; no
+ *   client action required. Cache hits show up in
+ *   `usage.prompt_tokens_details.cached_tokens` and are normalized into
  *   `OracleUsage.cachedInputTokens`.
- * - Explicit cache-retention extensions (`prompt_cache_retention`) are a
- *   round-2 follow-up if we need long-lived caches.
+ * - Explicit cache-retention extensions (`prompt_cache_key`,
+ *   `prompt_cache_retention`) are a round-2 follow-up.
  *
  * Structured output:
- * - Uses `response_format: { type: 'json_schema', strict: true }` via the
- *   Vercel AI SDK's `generateObject`. OpenAI's strict JSON-schema mode
- *   is highly reliable.
+ * - Uses `response_format: { type: 'json_schema', json_schema: { name,
+ *   strict: true, schema } }`. Strict mode enforces the JSON Schema 100%
+ *   on the model — refusals come back as a `refusal` field on the message.
  *
  * Per docs/oracle/02-provider-native-ai-architecture.md → "OpenAI direct".
  */
 
-import { createOpenAI } from '@ai-sdk/openai';
-import type { OpenAIProvider } from '@ai-sdk/openai';
-import { generateObject, generateText } from 'ai';
-import type { LanguageModel } from 'ai';
+import OpenAI from 'openai';
+import type { ChatCompletion, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import type {
   OracleObjectResult,
-  OraclePromptPlan,
   OracleTextResult,
   OracleUsage,
 } from '../client/types';
@@ -37,6 +35,7 @@ import type {
   GenerateTextArgs,
   OracleProviderAdapter,
 } from './types';
+import { flattenPlan, tryZodParse, zodToJsonSchema } from './vertex-gemini-adapter';
 
 export interface OpenAIAdapterOptions {
   /** API key. Defaults to env OPENAI_API_KEY. */
@@ -47,7 +46,7 @@ export interface OpenAIAdapterOptions {
 
 export class OpenAIAdapter implements OracleProviderAdapter {
   readonly provider = 'openai' as const;
-  private readonly client: OpenAIProvider;
+  private readonly client: OpenAI;
 
   constructor(opts: OpenAIAdapterOptions = {}) {
     const apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY;
@@ -57,7 +56,7 @@ export class OpenAIAdapter implements OracleProviderAdapter {
           'Set it in .env.local or pass {apiKey} explicitly.',
       );
     }
-    this.client = createOpenAI({
+    this.client = new OpenAI({
       apiKey,
       organization: opts.organization ?? process.env.OPENAI_ORG_ID,
     });
@@ -65,31 +64,23 @@ export class OpenAIAdapter implements OracleProviderAdapter {
 
   async generateText(args: GenerateTextArgs): Promise<OracleTextResult> {
     const { plan, route, providerOptions } = args;
-    const model = this.resolveModel(route);
-    const { systemPrompt, userMessage } = this.flattenPlan(plan);
+    const { systemPrompt, userMessage } = flattenPlan(plan);
+    const messages = this.buildMessages(systemPrompt, userMessage, providerOptions);
     const callStartedAt = Date.now();
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const messagesOverride = (providerOptions?.messages as any) ?? [
-      { role: 'user', content: userMessage },
-    ];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await (generateText as any)({
-      model,
-      system: systemPrompt,
-      messages: messagesOverride,
-      tools: providerOptions?.tools,
-      stopWhen: providerOptions?.stopWhen,
-      temperature: providerOptions?.temperature,
+    const completion = await this.client.chat.completions.create({
+      model: route.modelId,
+      messages,
+      temperature:
+        typeof providerOptions?.temperature === 'number'
+          ? providerOptions.temperature
+          : undefined,
     });
     const latencyMs = Date.now() - callStartedAt;
+    const choice = completion.choices[0];
     return {
-      text: result.text,
-      usage: this.normalizeUsage(result, latencyMs),
-      rawResponse: {
-        providerResponse: result.response,
-        finishReason: result.finishReason,
-      },
+      text: choice?.message?.content ?? '',
+      usage: this.normalizeUsage(completion, latencyMs),
+      rawResponse: completion,
     };
   }
 
@@ -97,86 +88,112 @@ export class OpenAIAdapter implements OracleProviderAdapter {
     args: GenerateObjectArgs<TSchema>,
   ): Promise<OracleObjectResult<TOutput>> {
     const { plan, route, schema } = args;
-    const model = this.resolveModel(route);
-    const { systemPrompt, userMessage } = this.flattenPlan(plan);
+    const { systemPrompt, userMessage } = flattenPlan(plan);
+    // OpenAI strict mode requires every property to be required +
+    // additionalProperties: false. The Zod JSON-schema converter produces
+    // this shape for closed objects; we layer one safety net on top.
+    const jsonSchema = stripIncompatibleFields(
+      zodToJsonSchema(schema) as Record<string, unknown>,
+    );
     const callStartedAt = Date.now();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await (generateObject as any)({
-      model,
-      schema,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
+    const completion = await this.client.chat.completions.create({
+      model: route.modelId,
+      messages: this.buildMessages(systemPrompt, userMessage),
       temperature: 0.1,
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'oracle_structured_output',
+          strict: true,
+          schema: jsonSchema,
+        },
+      },
     });
     const latencyMs = Date.now() - callStartedAt;
-    return {
-      object: result.object as TOutput,
-      usage: this.normalizeUsage(result, latencyMs),
-      rawResponse: {
-        providerResponse: result.response,
-        finishReason: result.finishReason,
-      },
-    };
-  }
-
-  private resolveModel(route: OracleModelRoute): LanguageModel {
-    return this.client(route.modelId);
-  }
-
-  /**
-   * Flatten the OraclePromptPlan into a (systemPrompt, userMessage) pair.
-   * Stable blocks become the system prompt; semi-stable / retrieved /
-   * dynamic blocks concatenate into the user message.
-   */
-  private flattenPlan(plan: OraclePromptPlan): {
-    systemPrompt: string;
-    userMessage: string;
-  } {
-    const stable: string[] = [];
-    const dynamic: string[] = [];
-    for (const block of plan.blocks) {
-      const isStable =
-        block.kind === 'stable_system' ||
-        block.kind === 'stable_tool_definition' ||
-        block.kind === 'stable_schema' ||
-        block.kind === 'output_contract';
-      if (isStable) stable.push(block.content);
-      else dynamic.push(block.content);
+    const choice = completion.choices[0];
+    const refusal = choice?.message?.refusal;
+    if (refusal) {
+      throw new Error(`OpenAIAdapter.generateObject: model refused: ${refusal}`);
     }
+    const raw = choice?.message?.content;
+    if (!raw) {
+      throw new Error(
+        `OpenAIAdapter.generateObject: empty response. finish_reason=${choice?.finish_reason}`,
+      );
+    }
+    const parsed = JSON.parse(raw);
+    const validated = tryZodParse<TOutput>(schema, parsed);
     return {
-      systemPrompt: stable.join('\n\n'),
-      userMessage: dynamic.join('\n\n'),
+      object: (validated ?? parsed) as TOutput,
+      usage: this.normalizeUsage(completion, latencyMs),
+      rawResponse: completion,
     };
   }
 
+  private buildMessages(
+    systemPrompt: string,
+    userMessage: string,
+    providerOptions?: Record<string, unknown>,
+  ): ChatCompletionMessageParam[] {
+    const override = providerOptions?.messages as
+      | ChatCompletionMessageParam[]
+      | undefined;
+    if (Array.isArray(override) && override.length > 0) {
+      if (systemPrompt && !override.some((m) => m.role === 'system')) {
+        return [{ role: 'system', content: systemPrompt }, ...override];
+      }
+      return override;
+    }
+    const msgs: ChatCompletionMessageParam[] = [];
+    if (systemPrompt) msgs.push({ role: 'system', content: systemPrompt });
+    msgs.push({ role: 'user', content: userMessage });
+    return msgs;
+  }
+
   /**
-   * Normalize OpenAI usage into OracleUsage. OpenAI exposes auto-prefix-
-   * cache reads under `providerMetadata.openai.cachedPromptTokens`.
-   * Reasoning tokens (o-series models) under `providerMetadata.openai.reasoningTokens`.
+   * Normalize OpenAI usage. OpenAI exposes auto-prefix-cache reads under
+   * `usage.prompt_tokens_details.cached_tokens`, and reasoning tokens (o-series)
+   * under `usage.completion_tokens_details.reasoning_tokens`.
    */
-  private normalizeUsage(result: unknown, latencyMs: number): OracleUsage {
-    const r = (result ?? {}) as {
-      usage?: { inputTokens?: number; outputTokens?: number };
-      providerMetadata?: {
-        openai?: {
-          cachedPromptTokens?: number;
-          reasoningTokens?: number;
-        };
-      };
-      response?: { id?: string };
-    };
-    const openaiMeta = r.providerMetadata?.openai ?? {};
+  private normalizeUsage(
+    completion: ChatCompletion,
+    latencyMs: number,
+  ): OracleUsage {
+    const u = completion.usage;
     return {
-      inputTokens: r.usage?.inputTokens,
-      outputTokens: r.usage?.outputTokens,
-      cachedInputTokens: openaiMeta.cachedPromptTokens,
-      reasoningTokens: openaiMeta.reasoningTokens,
+      inputTokens: u?.prompt_tokens,
+      outputTokens: u?.completion_tokens,
+      cachedInputTokens: u?.prompt_tokens_details?.cached_tokens,
+      reasoningTokens: u?.completion_tokens_details?.reasoning_tokens,
       latencyMs,
-      providerRequestId: r.response?.id,
-      rawUsageJson: {
-        usage: r.usage,
-        providerMetadata: r.providerMetadata,
-      },
+      providerRequestId: completion.id,
+      rawUsageJson: u,
     };
   }
+}
+
+/**
+ * OpenAI's strict JSON-schema mode rejects certain keywords that Zod's
+ * converter emits but the OpenAPI subset doesn't support — most commonly
+ * `$schema`, `format` on unrecognised types, and `default` on optional
+ * properties. Strip them defensively so the schema validates server-side.
+ */
+function stripIncompatibleFields(
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  const cloned = JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
+  walk(cloned);
+  return cloned;
+}
+
+function walk(node: unknown): void {
+  if (node === null || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const item of node) walk(item);
+    return;
+  }
+  const obj = node as Record<string, unknown>;
+  delete obj.$schema;
+  delete obj.default;
+  for (const value of Object.values(obj)) walk(value);
 }

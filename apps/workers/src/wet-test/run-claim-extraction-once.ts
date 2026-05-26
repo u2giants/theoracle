@@ -31,8 +31,9 @@ import { runClaimExtractionOnce } from '../trigger/claim-extraction';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..', '..', '..', '..');
-loadEnv({ path: resolve(repoRoot, '.env.local') });
-loadEnv({ path: resolve(repoRoot, '.env') });
+// override: true so .env.local wins over any shell-level empty placeholders.
+loadEnv({ path: resolve(repoRoot, '.env.local'), override: true });
+loadEnv({ path: resolve(repoRoot, '.env'), override: false });
 
 async function main() {
   const runLabel = process.argv[2] ?? `wet-test-${new Date().toISOString()}`;

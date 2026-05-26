@@ -1,34 +1,33 @@
 /**
- * AnthropicAdapter — direct Anthropic API integration via `@ai-sdk/anthropic`.
+ * AnthropicAdapter — direct Anthropic API integration via `@anthropic-ai/sdk`.
  *
- * Architecture:
- * - Calls Anthropic's REST API directly (NOT through OpenRouter).
+ * Architecture (DECISIONS.md D6, docs/oracle/02 §"Shared architecture"):
+ * - Calls Anthropic's REST API directly using Anthropic's official SDK.
+ * - NO Vercel AI SDK and NO OpenRouter in this path.
  * - Authenticates via `ANTHROPIC_API_KEY` env var (the SDK auto-reads it).
  *
  * Caching strategy (round 1 — automatic prefix caching):
- * - Anthropic's prompt cache is opt-in per-block via the `cache_control:
- *   { type: 'ephemeral' }` marker. Round 1 wires automatic prefix caching:
- *   we mark the assembled stable system prompt as cacheable so repeated
- *   calls with the same stable prefix get cache reads.
- * - Cache write tokens land in `usage.cache_creation_input_tokens`;
- *   cache read tokens land in `usage.cache_read_input_tokens`.
- * - Explicit-cache-breakpoint strategies (multiple cache markers across
- *   semi-stable + tool definitions) are a round-2 follow-up.
+ * - Anthropic's prompt cache is opt-in per-block via `cache_control: { type:
+ *   'ephemeral' }`. Round 1 marks the assembled stable system prompt as
+ *   cacheable so repeated calls hit a read.
+ * - Cache writes land in `usage.cache_creation_input_tokens`; cache reads in
+ *   `usage.cache_read_input_tokens`. Both normalize into OracleUsage.
+ * - Explicit-cache-breakpoint strategies (multiple markers across tools,
+ *   schema, and semi-stable context) are a round-2 follow-up.
  *
  * Structured output:
- * - Uses tool-call structured output mode via `generateObject` in the
- *   Vercel AI SDK. The SDK auto-selects tool-call mode for Anthropic.
+ * - Uses Anthropic's native tool-calling mode with a forced single tool
+ *   choice. The tool's `input_schema` is the standard JSON Schema produced
+ *   from the caller's Zod schema. Anthropic enforces the schema on the
+ *   model's tool call.
  *
  * Per docs/oracle/02-provider-native-ai-architecture.md → "Anthropic direct".
  */
 
-import { createAnthropic } from '@ai-sdk/anthropic';
-import type { AnthropicProvider } from '@ai-sdk/anthropic';
-import { generateObject, generateText } from 'ai';
-import type { LanguageModel } from 'ai';
+import Anthropic from '@anthropic-ai/sdk';
+import type { Message } from '@anthropic-ai/sdk/resources/messages';
 import type {
   OracleObjectResult,
-  OraclePromptPlan,
   OracleTextResult,
   OracleUsage,
 } from '../client/types';
@@ -38,18 +37,24 @@ import type {
   GenerateTextArgs,
   OracleProviderAdapter,
 } from './types';
+import { flattenPlan, tryZodParse, zodToJsonSchema } from './vertex-gemini-adapter';
 
 export interface AnthropicAdapterOptions {
   /** API key. Defaults to env ANTHROPIC_API_KEY. */
   apiKey?: string;
-  /** Whether to mark the stable system prompt as cache-control: ephemeral. Default true. */
+  /** Mark the stable system prompt as cache_control: ephemeral. Default true. */
   enableSystemPromptCache?: boolean;
+  /** Max output tokens for both generateText and generateObject. */
+  defaultMaxTokens?: number;
 }
+
+const DEFAULT_MAX_TOKENS = 4096;
 
 export class AnthropicAdapter implements OracleProviderAdapter {
   readonly provider = 'anthropic' as const;
-  private readonly client: AnthropicProvider;
+  private readonly client: Anthropic;
   private readonly enableSystemPromptCache: boolean;
+  private readonly defaultMaxTokens: number;
 
   constructor(opts: AnthropicAdapterOptions = {}) {
     const apiKey = opts.apiKey ?? process.env.ANTHROPIC_API_KEY;
@@ -59,37 +64,32 @@ export class AnthropicAdapter implements OracleProviderAdapter {
           'Set it in .env.local or pass {apiKey} explicitly.',
       );
     }
-    this.client = createAnthropic({ apiKey });
+    this.client = new Anthropic({ apiKey });
     this.enableSystemPromptCache = opts.enableSystemPromptCache ?? true;
+    this.defaultMaxTokens = opts.defaultMaxTokens ?? DEFAULT_MAX_TOKENS;
   }
 
   async generateText(args: GenerateTextArgs): Promise<OracleTextResult> {
     const { plan, route, providerOptions } = args;
-    const model = this.resolveModel(route);
-    const { systemPrompt, userMessage } = this.flattenPlan(plan);
+    const { systemPrompt, userMessage } = flattenPlan(plan);
     const callStartedAt = Date.now();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const messagesOverride = (providerOptions?.messages as any) ?? [
-      { role: 'user', content: userMessage },
-    ];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await (generateText as any)({
-      model,
-      system: this.buildSystemWithCache(systemPrompt),
-      messages: messagesOverride,
-      tools: providerOptions?.tools,
-      stopWhen: providerOptions?.stopWhen,
-      temperature: providerOptions?.temperature,
+    const messages = this.buildMessages(userMessage, providerOptions);
+    const response = await this.client.messages.create({
+      model: route.modelId,
+      max_tokens: this.defaultMaxTokens,
+      temperature:
+        typeof providerOptions?.temperature === 'number'
+          ? providerOptions.temperature
+          : undefined,
+      system: this.buildSystem(systemPrompt),
+      messages,
     });
     const latencyMs = Date.now() - callStartedAt;
     return {
-      text: result.text,
-      usage: this.normalizeUsage(result, latencyMs),
-      rawResponse: {
-        providerResponse: result.response,
-        finishReason: result.finishReason,
-      },
+      text: this.extractText(response),
+      usage: this.normalizeUsage(response, latencyMs),
+      rawResponse: response,
     };
   }
 
@@ -97,43 +97,53 @@ export class AnthropicAdapter implements OracleProviderAdapter {
     args: GenerateObjectArgs<TSchema>,
   ): Promise<OracleObjectResult<TOutput>> {
     const { plan, route, schema } = args;
-    const model = this.resolveModel(route);
-    const { systemPrompt, userMessage } = this.flattenPlan(plan);
+    const { systemPrompt, userMessage } = flattenPlan(plan);
+    const jsonSchema = zodToJsonSchema(schema) as Record<string, unknown>;
     const callStartedAt = Date.now();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await (generateObject as any)({
-      model,
-      schema,
-      system: this.buildSystemWithCache(systemPrompt),
-      messages: [{ role: 'user', content: userMessage }],
+
+    // Force a single tool call. The tool's input_schema is the structured
+    // output contract; Anthropic enforces it on the model.
+    const TOOL_NAME = 'output_structured';
+    const response = await this.client.messages.create({
+      model: route.modelId,
+      max_tokens: this.defaultMaxTokens,
       temperature: 0.1,
+      system: this.buildSystem(systemPrompt),
+      messages: [{ role: 'user', content: userMessage }],
+      tools: [
+        {
+          name: TOOL_NAME,
+          description:
+            'Return the structured output. You MUST use this tool exactly once and never reply in plain text.',
+          input_schema: jsonSchema as Anthropic.Tool.InputSchema,
+        },
+      ],
+      tool_choice: { type: 'tool', name: TOOL_NAME },
     });
     const latencyMs = Date.now() - callStartedAt;
+    const toolUse = response.content.find((b) => b.type === 'tool_use');
+    if (!toolUse || toolUse.type !== 'tool_use') {
+      throw new Error(
+        `AnthropicAdapter.generateObject: response contained no tool_use block. ` +
+          `stop_reason=${response.stop_reason}`,
+      );
+    }
+    const validated = tryZodParse<TOutput>(schema, toolUse.input);
     return {
-      object: result.object as TOutput,
-      usage: this.normalizeUsage(result, latencyMs),
-      rawResponse: {
-        providerResponse: result.response,
-        finishReason: result.finishReason,
-      },
+      object: (validated ?? toolUse.input) as TOutput,
+      usage: this.normalizeUsage(response, latencyMs),
+      rawResponse: response,
     };
   }
 
-  private resolveModel(route: OracleModelRoute): LanguageModel {
-    return this.client(route.modelId);
-  }
-
   /**
-   * Build the system prompt with an ephemeral cache marker if caching is
-   * enabled. The Vercel AI SDK accepts either a plain string OR an array of
-   * content blocks; we use the array form to attach providerOptions.
-   *
-   * `cache_control: { type: 'ephemeral' }` tells Anthropic to cache the
-   * stable prefix for ~5 minutes. Subsequent calls with the same prefix
-   * within the window get cache reads (cheap, fast).
+   * Build the system field. When caching is enabled and the system prompt is
+   * non-empty, use the array-of-blocks form so we can attach
+   * cache_control: { type: 'ephemeral' }. Otherwise pass the plain string.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private buildSystemWithCache(systemPrompt: string): any {
+  private buildSystem(
+    systemPrompt: string,
+  ): string | Anthropic.TextBlockParam[] {
     if (!this.enableSystemPromptCache || systemPrompt.length === 0) {
       return systemPrompt;
     }
@@ -141,68 +151,56 @@ export class AnthropicAdapter implements OracleProviderAdapter {
       {
         type: 'text',
         text: systemPrompt,
-        providerOptions: {
-          anthropic: { cacheControl: { type: 'ephemeral' } },
-        },
+        cache_control: { type: 'ephemeral' },
       },
     ];
   }
 
   /**
-   * Flatten the OraclePromptPlan into a (systemPrompt, userMessage) pair.
-   * Stable blocks become the system prompt; semi-stable / retrieved /
-   * dynamic blocks concatenate into the user message.
+   * Build the messages array. If the caller passed a multi-turn `messages`
+   * override via providerOptions (chat route does this for R8 multi-turn),
+   * pass it through; otherwise wrap the flattened user message in a single
+   * user turn.
    */
-  private flattenPlan(plan: OraclePromptPlan): {
-    systemPrompt: string;
-    userMessage: string;
-  } {
-    const stable: string[] = [];
-    const dynamic: string[] = [];
-    for (const block of plan.blocks) {
-      const isStable =
-        block.kind === 'stable_system' ||
-        block.kind === 'stable_tool_definition' ||
-        block.kind === 'stable_schema' ||
-        block.kind === 'output_contract';
-      if (isStable) stable.push(block.content);
-      else dynamic.push(block.content);
+  private buildMessages(
+    userMessage: string,
+    providerOptions?: Record<string, unknown>,
+  ): Anthropic.MessageParam[] {
+    const override = providerOptions?.messages as
+      | Anthropic.MessageParam[]
+      | undefined;
+    if (Array.isArray(override) && override.length > 0) {
+      return override.filter((m) => m.role === 'user' || m.role === 'assistant');
     }
-    return {
-      systemPrompt: stable.join('\n\n'),
-      userMessage: dynamic.join('\n\n'),
-    };
+    return [{ role: 'user', content: userMessage }];
+  }
+
+  /** Extract concatenated text from response content blocks (ignores tool_use). */
+  private extractText(response: Message): string {
+    const parts: string[] = [];
+    for (const block of response.content) {
+      if (block.type === 'text') parts.push(block.text);
+    }
+    return parts.join('');
   }
 
   /**
-   * Normalize Anthropic usage into OracleUsage. The Anthropic-specific
-   * cache token fields land in `providerMetadata.anthropic.usage`.
+   * Normalize Anthropic usage into OracleUsage.
+   *   - input_tokens                 -> inputTokens
+   *   - output_tokens                -> outputTokens
+   *   - cache_read_input_tokens      -> cachedInputTokens
+   *   - cache_creation_input_tokens  -> cacheWriteTokens
    */
-  private normalizeUsage(result: unknown, latencyMs: number): OracleUsage {
-    const r = (result ?? {}) as {
-      usage?: { inputTokens?: number; outputTokens?: number };
-      providerMetadata?: {
-        anthropic?: {
-          usage?: {
-            cache_read_input_tokens?: number;
-            cache_creation_input_tokens?: number;
-          };
-        };
-      };
-      response?: { id?: string };
-    };
-    const anthropicUsage = r.providerMetadata?.anthropic?.usage ?? {};
+  private normalizeUsage(response: Message, latencyMs: number): OracleUsage {
+    const u = response.usage;
     return {
-      inputTokens: r.usage?.inputTokens,
-      outputTokens: r.usage?.outputTokens,
-      cachedInputTokens: anthropicUsage.cache_read_input_tokens,
-      cacheWriteTokens: anthropicUsage.cache_creation_input_tokens,
+      inputTokens: u.input_tokens,
+      outputTokens: u.output_tokens,
+      cachedInputTokens: u.cache_read_input_tokens ?? undefined,
+      cacheWriteTokens: u.cache_creation_input_tokens ?? undefined,
       latencyMs,
-      providerRequestId: r.response?.id,
-      rawUsageJson: {
-        usage: r.usage,
-        providerMetadata: r.providerMetadata,
-      },
+      providerRequestId: response.id,
+      rawUsageJson: u,
     };
   }
 }
