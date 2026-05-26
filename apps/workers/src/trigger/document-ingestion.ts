@@ -3,11 +3,12 @@
 // Per docs/oracle/05-ai-retrofit-phase-packet.md Phase R7.
 //
 // What changed vs the legacy worker:
-//   - Model calls go through OracleAIClient (R2) via OpenRouterBridgeAdapter
-//     using the curated route ID from `settings.default_extraction_route`.
-//     R7 ships the explicit-cache profitability heuristic +
-//     provider_cached_content lifecycle bookkeeping; real Vertex caches
-//     land when @google/genai is wired.
+//   - Model calls go through OracleAIClient (R2) via direct provider adapters
+//     (Vertex / Anthropic / OpenAI raw SDKs — DECISIONS.md D6 / D9) using
+//     the curated route ID from `settings.default_extraction_route`. R7
+//     ships the explicit-cache profitability heuristic +
+//     provider_cached_content lifecycle bookkeeping; native Vertex
+//     cachedContent lifecycle creation is a round-2 follow-up to R-providers.
 //   - Output flows through extraction_batches → extraction_candidates →
 //     extraction_candidate_evidence first. NOTHING writes to permanent
 //     claims tables before R5's deterministic validator passes.

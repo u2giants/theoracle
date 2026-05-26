@@ -3,12 +3,11 @@
 // Per docs/oracle/05-ai-retrofit-phase-packet.md Phase R8.
 //
 // What changed vs the legacy route:
-//   - The model call goes through OracleAIClient.runText via the
-//     OpenRouterBridgeAdapter using the curated interview route from
+//   - The model call goes through OracleAIClient.runText via the direct
+//     provider adapters (Vertex / Anthropic / OpenAI raw SDKs —
+//     DECISIONS.md D6 / D9) using the curated interview route from
 //     `settings.default_interview_route` (R1 setting key) — not via
-//     `getOpenRouter()` directly. The bridge dispatches to OpenRouter
-//     under the hood; real Anthropic SDK lands when @anthropic-ai/sdk
-//     is wired (R8+ replacement).
+//     `getOpenRouter()` directly.
 //   - oracle_context_packs + model_run_usage_details rows are written
 //     for every chat turn so cache-hit / fallback dashboards work.
 //   - Tools (search_company_knowledge, check_open_gaps), multi-turn

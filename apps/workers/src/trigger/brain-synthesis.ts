@@ -3,10 +3,10 @@
 // Per docs/oracle/05-ai-retrofit-phase-packet.md Phase R9.
 //
 // What changed vs the legacy worker:
-//   - Model calls go through OracleAIClient (R2) via OpenRouterBridgeAdapter
-//     using the curated synthesis route from `settings.default_synthesis_route`
-//     (R1 setting key). The bridge dispatches to OpenRouter under the hood;
-//     real Anthropic / Vertex SDKs land in a later phase.
+//   - Model calls go through OracleAIClient (R2) via direct provider adapters
+//     (Vertex / Anthropic / OpenAI raw SDKs — DECISIONS.md D6 / D9) using
+//     the curated synthesis route from `settings.default_synthesis_route`
+//     (R1 setting key).
 //   - oracle_context_packs + model_run_usage_details rows are written for
 //     every synthesis call so cost / cache / fallback dashboards work.
 //   - The validator in `packages/oracle-engines/src/synthesis/diff-validator.ts`
