@@ -77,9 +77,12 @@ Not all configuration lives in env vars. Operational settings the Oracle reads a
 | `lull_window_seconds` | `60` | How many seconds of silence before the Oracle may consider a "lull" interjection. |
 | `oracle_cooldown_minutes` | `10` | Minimum minutes between Oracle interjections in the same channel. |
 | `max_oracle_interjections_per_hour` | `3` | Hard cap per channel per hour. |
-| `default_interview_model` | `deepseek/deepseek-v4-pro` | **Legacy — OpenRouter model id.** Used by `/api/chat`. Configurable via Admin → Settings → OpenRouter catalog picker. R1 of the AI retrofit (`docs/oracle/05-ai-retrofit-phase-packet.md`) replaces this with `default_interview_route` keyed to curated `OracleModelRoute.routeId` values (cost-aware target: `anthropic_claude_haiku_4_5_interview_primary`). The legacy key stays during migration. |
-| `default_extraction_model` | `google/gemini-2.5-flash` | **Legacy — OpenRouter model id.** Used by the claim extraction worker. R1 target: `default_extraction_route` = `vertex_gemini_flash_lite_extraction_primary`. |
-| `default_synthesis_model` | `anthropic/claude-sonnet-4.6` | **Legacy — OpenRouter model id.** Used by the brain synthesis worker. R1 target: `default_synthesis_route` = `vertex_gemini_flash_synthesis_primary`. |
+| `default_interview_route` | `anthropic_claude_haiku_4_5_interview_primary` | **R1 — current production key.** Read by `apps/web/app/api/chat/route.ts` (R8) to resolve a curated `OracleModelRoute` from the catalog in `packages/ai/src/routes/`. |
+| `default_extraction_route` | `vertex_gemini_2_5_flash_extraction_primary` | **R1 — current production key.** Read by `apps/workers/src/trigger/claim-extraction.ts` (R6) AND `apps/workers/src/trigger/document-ingestion.ts` (R7). |
+| `default_synthesis_route` | `anthropic_claude_3_5_sonnet_synthesis_primary` | **R1 — current production key.** Will be read by `apps/workers/src/trigger/brain-synthesis.ts` after R9 lands. |
+| `default_interview_model` | `deepseek/deepseek-v4-pro` | **Legacy — kept during transition.** Was the OpenRouter model id used by the pre-R8 chat route. The current chat route no longer reads this; safe to remove in a post-R9 cleanup migration. |
+| `default_extraction_model` | `google/gemini-2.5-flash` | **Legacy — kept during transition.** Was the OpenRouter model id used by the pre-R6 claim-extraction worker. The current worker no longer reads this. |
+| `default_synthesis_model` | `anthropic/claude-sonnet-4.6` | **Legacy — kept during transition.** Read by `apps/workers/src/trigger/brain-synthesis.ts` until R9 refactors it. |
 | `enable_live_contradiction_interjections` | `false` | If false, contradictions are queued silently instead of interjected. Default off is correct (spec 5.1). |
 | `enable_group_chat_lull_questions` | `true` | If false, the Oracle never speaks proactively in group chats. |
 
@@ -101,6 +104,10 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 
 - `apps/web/next.config.ts` — explicitly loads `.env.local` from the monorepo root before Next reads anything.
 - `apps/web/lib/supabase/server.ts` — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
+- `apps/web/app/api/chat/route.ts` — reads `settings.default_interview_route` (R8).
+- `apps/workers/src/trigger/claim-extraction.ts` — reads `settings.default_extraction_route` (R6).
+- `apps/workers/src/trigger/document-ingestion.ts` — reads `settings.default_extraction_route` (R7).
+- `apps/workers/src/trigger/brain-synthesis.ts` — reads `settings.default_synthesis_model` (legacy; R9 will switch to `default_synthesis_route`).
 - `packages/db/src/client.ts` — `DATABASE_URL`.
 - `packages/db/drizzle.config.ts` — `DIRECT_URL`.
 - `packages/db/src/migrate.ts` — `DIRECT_URL` (loads `.env.local` from monorepo root explicitly).
