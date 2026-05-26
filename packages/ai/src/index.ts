@@ -120,6 +120,7 @@ export {
   getRecentMessages,
   getRelevantOpenGaps,
   searchApprovedClaims,
+  searchWithRetrievalPlan,
   getBrainSectionSnippets,
   getOpenGapsForChannel,
   DEFAULT_RECENT_MESSAGES,
@@ -128,3 +129,8 @@ export {
   type RecentMessage,
   type RelevantClaim,
 } from './retrieval';
+export {
+  buildRetrievalPlanFromQuery,
+  DEFAULT_TOP_K,
+  type RetrievalPlan,
+} from './retrieval-plan';

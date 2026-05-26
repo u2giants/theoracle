@@ -39,12 +39,12 @@ import {
   getRecentMessages,
   getRelevantOpenGaps,
   makeBlock,
-  searchApprovedClaims,
+  searchWithRetrievalPlan,
+  buildRetrievalPlanFromQuery,
   getOpenGapsForChannel,
   type OracleModelRoute,
   type OraclePromptPlan,
 } from '@oracle/ai';
-import { KNOWLEDGE_DOMAINS, type KnowledgeDomain } from '@oracle/shared';
 import { getDirectDb } from '@oracle/db/client';
 import {
   channels,
@@ -152,9 +152,13 @@ export async function POST(req: NextRequest) {
   }
 
   const openGaps = await getRelevantOpenGaps(db, me);
+  // Build a RetrievalPlan from the latest message — applies domain-hint inference,
+  // entity-type exclusions, and document-class exclusions before vector search
+  // (spec docs/oracle/07-knowledge-segmentation.md "Retrieval rule").
   const queryForClaims = latestUserMessage.content;
+  const retrievalPlan = buildRetrievalPlanFromQuery(queryForClaims, { topK: 8 });
   const relevantClaims = queryForClaims
-    ? await searchApprovedClaims(db, queryForClaims)
+    ? await searchWithRetrievalPlan(db, retrievalPlan)
     : [];
 
   // ── 4. Resolve curated interview route ───────────────────────────────
@@ -205,6 +209,8 @@ export async function POST(req: NextRequest) {
       includedMessageIds: recent.map((m) => m.id),
       includedGapIds: openGaps.map((g) => g.id),
       includedClaimIds: relevantClaims.map((c) => c.id),
+      // P1 #3 — surface the retrieval plan in the context pack for auditing.
+      selectedDomains: retrievalPlan.topDomainHints,
     },
   });
 
@@ -221,20 +227,26 @@ export async function POST(req: NextRequest) {
   const tools = {
     search_company_knowledge: tool({
       description:
-        "Search the Oracle's approved claims and brain sections for operational knowledge. Filter by knowledge domains if relevant.",
+        "Search the Oracle's approved claims and brain sections for operational knowledge. Filter by top-level domain hints if relevant.",
       inputSchema: z.object({
         query: z.string().describe('Free-text question or topic to search for.'),
-        domains: z
-          .array(z.enum(KNOWLEDGE_DOMAINS as unknown as [string, ...string[]]))
+        topDomainHints: z
+          .array(z.string())
           .optional()
-          .describe('Optional list of knowledge domains to filter by.'),
+          .describe(
+            'Optional list of top-level domain IDs to restrict the search ' +
+              '(e.g. it_systems, licensing_approvals, customer_ops, supply_chain, ' +
+              'logistics_shipping, product_development, production_lifecycle, ' +
+              'import_compliance, finance_pricing, people_org). Leave empty to search all.',
+          ),
         limit: z.number().int().min(1).max(20).optional(),
       }),
-      execute: async ({ query, domains, limit }) => {
-        const results = await searchApprovedClaims(db, query, {
-          domains: domains as KnowledgeDomain[] | undefined,
-          limit,
+      execute: async ({ query, topDomainHints, limit }) => {
+        const toolPlan = buildRetrievalPlanFromQuery(query, {
+          topDomainHints: topDomainHints ?? [],
+          topK: limit ?? 8,
         });
+        const results = await searchWithRetrievalPlan(db, toolPlan);
         return {
           claims: results.map((r) => ({
             id: r.id,

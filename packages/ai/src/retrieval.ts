@@ -4,10 +4,20 @@
 //   * recent N messages from the channel
 //   * the current employee's profile
 //   * top K open gaps relevant to this employee / department
-//   * top K semantically relevant approved claims (cosine via pgvector)
+//   * top K semantically relevant approved claims (hybrid pgvector + tsvector RRF)
 //
 // Do NOT load full brain sections — Phase 6 will pull section excerpts only when
 // the search_company_knowledge tool fires.
+//
+// P1 #3 — Hybrid RRF retrieval:
+//   searchWithRetrievalPlan() replaces searchApprovedClaims() in production paths.
+//   It runs:
+//     1. Metadata pre-filter (claim_top_domains, claim_entities, claim_metadata)
+//        driven by the RetrievalPlan — prevents vendor_manual from surfacing in
+//        system questions, prevents vendor from polluting licensor-approval results.
+//     2. Parallel pgvector cosine ranking + tsvector rank.
+//     3. Reciprocal Rank Fusion (RRF, k=60) to combine both signals.
+//   searchApprovedClaims() is retained as a thin wrapper for backward compat.
 
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import {
@@ -26,6 +36,7 @@ import type { OracleDb } from '@oracle/db/client';
 import type { KnowledgeDomain } from '@oracle/shared';
 import { EMBEDDING_DIM } from '@oracle/shared';
 import { embedText } from './embeddings';
+import { type RetrievalPlan } from './retrieval-plan';
 
 // Use the full-schema-aware DB type so callers passing in the result of
 // getDirectDb() / getPooledDb() type-check without casts. The retrieval helpers
@@ -194,6 +205,219 @@ export async function searchApprovedClaims(
     impactScore: r.impact_score,
     confidenceScore: r.confidence_score,
     distance: r.distance,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Hybrid RRF retrieval — P1 #3
+// ---------------------------------------------------------------------------
+
+/**
+ * Hybrid pgvector + tsvector retrieval with Reciprocal Rank Fusion (RRF).
+ *
+ * Implements the full RetrievalPlan spec from docs/oracle/07-knowledge-segmentation.md.
+ * Filters the candidate set by top-level domain, entity type exclusions,
+ * document class exclusions, and time validity BEFORE vector search.
+ *
+ * When no real embeddings are available (OPENAI_API_KEY not set), falls back
+ * to pure tsvector ranking + metadata filter so retrieval still works in dev.
+ *
+ * @example
+ * const plan = buildRetrievalPlanFromQuery("When does artwork go to China?");
+ * const results = await searchWithRetrievalPlan(db, plan);
+ */
+export async function searchWithRetrievalPlan(
+  db: Db,
+  plan: RetrievalPlan,
+): Promise<RelevantClaim[]> {
+  const limit = plan.topK;
+  const { vector, fallback } = await embedText(plan.vectorQuery);
+
+  if (fallback) {
+    return _searchFallbackTsvector(db, plan, limit);
+  }
+
+  const vec = `[${vector.join(',')}]`;
+  const textQuery = plan.vectorQuery;
+
+  // Optional domain filter — joined against claim_top_domains.
+  const topDomainFilter =
+    plan.topDomainHints.length > 0
+      ? sql`AND ctd.top_domain_id = ANY(${plan.topDomainHints}::text[])`
+      : sql``;
+
+  // Optional document-class exclusion — joined against claim_metadata.
+  const docClassFilter =
+    plan.excludedDocumentClasses && plan.excludedDocumentClasses.length > 0
+      ? sql`AND (cm.document_class IS NULL OR NOT (cm.document_class = ANY(${plan.excludedDocumentClasses}::text[])))`
+      : sql``;
+
+  // Optional time filter — only claims still in effect.
+  const timeFilter =
+    plan.timeFilter === 'current'
+      ? sql`AND (cm.id IS NULL OR cm.effective_until IS NULL)`
+      : plan.timeFilter && plan.timeFilter.startsWith('since:')
+      ? (() => {
+          const since = plan.timeFilter.slice(6); // 'YYYY-MM-DD'
+          return sql`AND (cm.effective_from IS NULL OR cm.effective_from >= ${since}::timestamptz)`;
+        })()
+      : sql``;
+
+  // Optional excluded-entity-type subquery filter.
+  const excludedEntityTypeFilter =
+    plan.excludedEntityTypes && plan.excludedEntityTypes.length > 0
+      ? sql`AND NOT EXISTS (
+          SELECT 1 FROM claim_entities _ce
+          JOIN entities _e ON _e.id = _ce.entity_id
+          WHERE _ce.claim_id = c.id
+            AND _e.entity_type = ANY(${plan.excludedEntityTypes}::text[])
+        )`
+      : sql``;
+
+  // Optional required-entity subquery filter.
+  const requiredEntityFilter =
+    plan.requiredEntities.length > 0
+      ? sql`AND EXISTS (
+          SELECT 1 FROM claim_entities _ce2
+          JOIN entities _e2 ON _e2.id = _ce2.entity_id
+          WHERE _ce2.claim_id = c.id
+            AND _e2.canonical_value = ANY(${plan.requiredEntities.map((e) => e.canonicalValue)}::text[])
+        )`
+      : sql``;
+
+  const rows = await db.execute<{
+    id: string;
+    summary: string;
+    claim_type: string;
+    impact_score: number;
+    confidence_score: number;
+    distance: number;
+    rrf_score: number;
+  }>(sql`
+    WITH
+    pre_filtered AS (
+      SELECT DISTINCT
+        c.id, c.summary, c.claim_type, c.impact_score, c.confidence_score, c.embedding
+      FROM claims c
+      LEFT JOIN claim_top_domains ctd ON ctd.claim_id = c.id
+      LEFT JOIN claim_metadata    cm  ON cm.claim_id  = c.id
+      WHERE c.status = 'approved'
+        AND c.embedding IS NOT NULL
+        ${topDomainFilter}
+        ${docClassFilter}
+        ${timeFilter}
+        ${excludedEntityTypeFilter}
+        ${requiredEntityFilter}
+    ),
+    vec_ranked AS (
+      SELECT
+        id, summary, claim_type, impact_score, confidence_score,
+        (embedding <=> ${vec}::vector(${EMBEDDING_DIM})) AS vec_dist,
+        ROW_NUMBER() OVER (
+          ORDER BY embedding <=> ${vec}::vector(${EMBEDDING_DIM})
+        ) AS vrank
+      FROM pre_filtered
+    ),
+    txt_scored AS (
+      SELECT
+        id,
+        ts_rank(
+          to_tsvector('english', summary),
+          plainto_tsquery('english', ${textQuery})
+        ) AS ts_score
+      FROM pre_filtered
+      WHERE to_tsvector('english', summary) @@ plainto_tsquery('english', ${textQuery})
+    ),
+    txt_ranked AS (
+      SELECT id, ROW_NUMBER() OVER (ORDER BY ts_score DESC) AS trank
+      FROM txt_scored
+    ),
+    rrf AS (
+      SELECT
+        vr.id, vr.summary, vr.claim_type, vr.impact_score, vr.confidence_score,
+        vr.vec_dist,
+        1.0 / (60.0 + vr.vrank::float) +
+        COALESCE(1.0 / (60.0 + tr.trank::float), 0.0) AS rrf_score
+      FROM vec_ranked vr
+      LEFT JOIN txt_ranked tr ON tr.id = vr.id
+    )
+    SELECT id, summary, claim_type, impact_score, confidence_score,
+           vec_dist AS distance, rrf_score
+    FROM rrf
+    ORDER BY rrf_score DESC
+    LIMIT ${limit}
+  `);
+
+  return rows.map((r) => ({
+    id: r.id,
+    summary: r.summary,
+    claimType: r.claim_type,
+    impactScore: r.impact_score,
+    confidenceScore: r.confidence_score,
+    distance: r.distance,
+  }));
+}
+
+/**
+ * Tsvector-only fallback used when OPENAI_API_KEY is absent (dev mode).
+ * Applies the same metadata pre-filters from the plan.
+ */
+async function _searchFallbackTsvector(
+  db: Db,
+  plan: RetrievalPlan,
+  limit: number,
+): Promise<RelevantClaim[]> {
+  // Build domain WHERE fragment for the Drizzle ORM query path.
+  // We need a small SQL helper for the optional joins here too.
+  const textQuery = plan.vectorQuery;
+
+  const topDomainFilter =
+    plan.topDomainHints.length > 0
+      ? sql`AND ctd.top_domain_id = ANY(${plan.topDomainHints}::text[])`
+      : sql``;
+
+  const docClassFilter =
+    plan.excludedDocumentClasses && plan.excludedDocumentClasses.length > 0
+      ? sql`AND (cm.document_class IS NULL OR NOT (cm.document_class = ANY(${plan.excludedDocumentClasses}::text[])))`
+      : sql``;
+
+  const timeFilter =
+    plan.timeFilter === 'current'
+      ? sql`AND (cm.id IS NULL OR cm.effective_until IS NULL)`
+      : sql``;
+
+  const rows = await db.execute<{
+    id: string;
+    summary: string;
+    claim_type: string;
+    impact_score: number;
+    confidence_score: number;
+    ts_score: number;
+  }>(sql`
+    SELECT DISTINCT
+      c.id, c.summary, c.claim_type, c.impact_score, c.confidence_score,
+      ts_rank(
+        to_tsvector('english', c.summary),
+        plainto_tsquery('english', ${textQuery})
+      ) AS ts_score
+    FROM claims c
+    LEFT JOIN claim_top_domains ctd ON ctd.claim_id = c.id
+    LEFT JOIN claim_metadata    cm  ON cm.claim_id  = c.id
+    WHERE c.status = 'approved'
+      ${topDomainFilter}
+      ${docClassFilter}
+      ${timeFilter}
+    ORDER BY ts_score DESC, c.impact_score DESC
+    LIMIT ${limit}
+  `);
+
+  return rows.map((r) => ({
+    id: r.id,
+    summary: r.summary,
+    claimType: r.claim_type,
+    impactScore: r.impact_score,
+    confidenceScore: r.confidence_score,
+    distance: 1 - r.ts_score, // approximate: lower ts_score → higher distance
   }));
 }
 

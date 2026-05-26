@@ -375,7 +375,10 @@ async function checkClaimForContradictions(
     }
   }
 
-  // ANN search: top-K approved claims by cosine similarity.
+  // ANN search: top-K approved claims by cosine similarity, filtered to the
+  // same top-level domains as the target claim (P1 #3 — RetrievalPlan rule).
+  // If the target claim has no claim_top_domains entries (pre-backfill claims),
+  // the subquery returns an empty set and the domain filter is skipped gracefully.
   const vec = `[${claimEmbedding.join(',')}]`;
   const similar = await db.execute<{
     id: string;
@@ -384,12 +387,23 @@ async function checkClaimForContradictions(
     distance: number;
   }>(
     sql`
-      SELECT c.id, c.summary, c.claim_type,
+      SELECT DISTINCT c.id, c.summary, c.claim_type,
              (c.embedding <=> ${vec}::vector(${EMBEDDING_DIM})) AS distance
       FROM claims c
+      LEFT JOIN claim_top_domains ctd ON ctd.claim_id = c.id
       WHERE c.status = 'approved'
         AND c.embedding IS NOT NULL
         AND c.id <> ${claimId}
+        AND (
+          -- Domain-scoped search: only check claims sharing at least one top domain
+          -- with the target claim. Falls back to global search if no domains exist.
+          NOT EXISTS (
+            SELECT 1 FROM claim_top_domains WHERE claim_id = ${claimId}
+          )
+          OR ctd.top_domain_id = ANY(
+            SELECT top_domain_id FROM claim_top_domains WHERE claim_id = ${claimId}
+          )
+        )
       ORDER BY distance ASC
       LIMIT ${TOP_K};
     `,
