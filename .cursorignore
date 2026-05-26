@@ -17,6 +17,9 @@ coverage/
 .cache/
 *.tsbuildinfo
 
+# Eval run outputs (per-timestamp)
+packages/ai/evals/runs/
+
 # Logs
 *.log
 npm-debug.log*

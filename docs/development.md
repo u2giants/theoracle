@@ -43,8 +43,17 @@ npx vercel@latest env pull .env.local --environment=development --yes
 
 # If Vercel's Development env vars are empty (sensitive vars can't live there),
 # either convert them to Encrypted type in Vercel and re-pull, or paste values
-# manually from Supabase / OpenRouter / Trigger.dev dashboards.
+# manually from Supabase / Anthropic / OpenAI / Trigger.dev dashboards.
 # See docs/configuration.md for the exact source for each variable.
+
+# Also paste the direct-provider variables that don't live in Vercel:
+#   GOOGLE_CLOUD_PROJECT=vertex-ai-497120
+#   GOOGLE_CLOUD_LOCATION=us-central1
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   OPENAI_API_KEY=sk-proj-...
+# And run once:
+#   gcloud auth application-default login
+# so the Vertex direct adapter can authenticate via ADC.
 
 # Apply schema + raw SQL (RLS, constraints, views, data migrations) + seed
 pnpm db:migrate
@@ -116,18 +125,31 @@ We don't have a full test framework wired yet. When we do, the convention will b
 
 ### AI retrofit smoke gates
 
-Each phase that ships runtime logic has a self-contained smoke gate. All run without API keys, database, or network access.
+Each phase that ships runtime logic has a self-contained deterministic smoke gate. They run without API keys, database, or network access.
 
 ```bash
-pnpm --filter @oracle/ai      verify:r2     # 16/16 — OracleAIClient pipeline + bridge wiring
-pnpm --filter @oracle/engines verify:r5     # 33/33 — quote validator + promotion decider
-pnpm --filter @oracle/engines verify:r5.5   # 45/45 — entity resolver + taxonomy validator
-pnpm --filter @oracle/engines verify:r6     # 30/30 — circuit breaker + legacy domain mapping
-pnpm --filter @oracle/engines verify:r7     # 19/19 — cache profitability + token estimate
-pnpm --filter @oracle/engines verify:r9     # 21/21 — synthesis diff validator
+pnpm --filter @oracle/ai      verify:r2     # OracleAIClient pipeline
+pnpm --filter @oracle/engines verify:r5     # quote validator + promotion decider
+pnpm --filter @oracle/engines verify:r5.5   # entity resolver + taxonomy validator
+pnpm --filter @oracle/engines verify:r6     # circuit breaker + legacy domain mapping
+pnpm --filter @oracle/engines verify:r7     # cache profitability + token estimate
+pnpm --filter @oracle/engines verify:r9     # synthesis diff validator
 ```
 
-164 deterministic assertions across the AI retrofit pure-function modules. Run the gate for whichever module you touched. The DB-aware executor (`executePromotion`), the Trigger.dev workers, and the admin pages themselves aren't covered by these gates because they require a live Postgres — the pure decision logic they compose is covered.
+There's also a mock-mode extraction eval (canned LLM outputs run through the real R5/R5.5 validators):
+
+```bash
+pnpm --filter @oracle/ai eval:extraction    # 4 fixtures: happy path + paraphrase + sensitive + wrong-domain
+```
+
+And a real-provider smoke (hits the three direct adapters against the real APIs — costs ~$0.003):
+
+```bash
+pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts all      # all three
+pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts vertex   # one at a time
+```
+
+Run the gate for whichever module you touched. The DB-aware executor (`executePromotion`), the Trigger.dev workers, and the admin pages themselves aren't covered by these gates because they require a live Postgres — the pure decision logic they compose is covered.
 
 ### Pre-push gate
 
@@ -152,7 +174,7 @@ Each AI retrofit phase has an acceptance gate documented in `docs/oracle/05-ai-r
 
 - After each phase, the pre-push gate above must all pass before commit.
 - New phases must not regress prior gates.
-- R0–R10.5 are complete. R11 (interjection engine) is gated on a wet-test (apply migrations → trigger real extraction → review claims) rather than on additional code.
+- R0 → R10.5 + R-providers + R11.0 are complete. The wet-test passed end-to-end against the live Supabase project on 2026-05-26 — first real `claims` rows landed. **R11.1+** (lull-interjection task, live contradiction interjection) is the next work item. See `HANDOFF.md` for the exact next action.
 
 ## Inspection / debugging scripts
 

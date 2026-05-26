@@ -2,11 +2,31 @@
 
 Live in-flight state for the next contributor or AI coding session.
 
-**Snapshot date:** 2026-05-26
+**Snapshot date:** 2026-05-26 (evening session)
 **Repo:** https://github.com/u2giants/theoracle
-**Current state:** AI retrofit code complete (R0–R10.5) + **R-providers complete** (direct Vertex/Anthropic/OpenAI adapters wired, OpenRouter retired from production paths) + **wet-test passed end-to-end against real Supabase + Vertex** (first real claim rows landed in `claims` 2026-05-26 17:35 UTC). **R11 (interjection engine) is now unblocked.**
+**Current state:** Full AI retrofit complete through R11.0 + wet-test passed. **R11.1–R11.4 (interjection engine completion) is the next work item.**
 
-**Pre-production reminder:** the keys in `.env.local` were pasted in chat for dev convenience. **Rotate `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` before going live.**
+---
+
+## TL;DR
+
+- R0 → R10.5 done.
+- **R-providers done** — direct `@anthropic-ai/sdk` / `@google/genai` / `openai` adapters wired. `@ai-sdk/*` and OpenRouter both retired entirely.
+- **Wet-test passed** — first real `claims` rows landed in the live Supabase project on 2026-05-26 17:35 UTC. 2 claims from one synthetic message, 0 errors, 8.3s elapsed. Real Vertex Gemini Flash call, native JSON-schema enforcement, advisory-locked promotion all working.
+- **R11.0 done** — `contradiction-watcher` refactored through `OracleAIClient`. Last `getOpenRouter()` call site retired.
+- **Next:** R11.1 (pure decision functions for lull + contradiction interjection) → R11.2 (lull-interjection Trigger.dev task with live message posts) → R11.3 (live contradiction interjection posting) → R11.4 (HANDOFF + DECISIONS final cleanup).
+
+---
+
+## Pre-production security reminders
+
+The session that landed R-providers and the wet-test required pasting API keys into chat for dev convenience. The keys live in `.env.local` (gitignored) and work fine for development. **Before the app goes live:**
+
+- Rotate `ANTHROPIC_API_KEY` at https://console.anthropic.com/settings/keys
+- Rotate `OPENAI_API_KEY` at https://platform.openai.com/api-keys
+- Revoke the now-unused OpenRouter key at https://openrouter.ai/keys (it appeared in tool output during R11.0; OpenRouter is no longer used by any code path but the key still works against OpenRouter's API)
+
+Both keys will be re-pasted into `.env.local` once rotated; nothing in the codebase needs to change.
 
 ---
 
@@ -14,239 +34,263 @@ Live in-flight state for the next contributor or AI coding session.
 
 1. `HANDOFF.md` — this file.
 2. `AGENTS.md` — developer guide and repo conventions.
-3. `CLAUDE.md` — Claude Code-specific instructions.
+3. `CLAUDE.md` — Claude Code-specific notes (short; points to AGENTS).
 4. `oracle_master_spec.md` — product/business contract.
-5. `DECISIONS.md` — assumptions and historical decisions.
-6. `docs/oracle/00-buildout-index.md` — index for the AI retrofit docs (lists 01–07).
-7. The specific `docs/oracle/0N-*.md` files required for the active task (do not bulk-read).
+5. `DECISIONS.md` — assumptions and historical decisions (D6 + D9 explain why no Vercel AI SDK, no OpenRouter).
+6. `docs/oracle/00-buildout-index.md` — index for the AI retrofit docs.
+7. The specific `docs/oracle/0N-*.md` file the active task needs — do NOT bulk-read.
 
 ---
 
-## AI retrofit phase status
+## Phase status
 
-| Phase | Status | Commit | What landed |
+| Phase | Status | Commit | Notes |
 |---|---|---|---|
-| R0 — Doc reset | ✅ done | (prior sessions) | `docs/oracle/00–07` |
-| R1 — Curated route catalog | ✅ done | `91e44ea` | `packages/ai/src/routes/` — strict 1 Primary + 1 Fallback per role |
-| R2 — OracleAIClient + adapters | ✅ done | `3c51c9b` | `packages/ai/src/{client,context,routing,providers,usage,validation}/` + 16-assertion smoke |
-| R3 — Observability schema | ✅ done | `1e345d3` | `oracle_context_packs`, `model_run_usage_details`, `provider_cached_content` + view |
-| R3.5 — Knowledge taxonomy schema | ✅ done | `c529594` | 15 taxonomy tables + 12 top-domains seeded + 56 entities seeded + backfill |
+| R0 — Doc reset | ✅ done | (prior) | `docs/oracle/00–07` |
+| R1 — Curated route catalog | ✅ done | `91e44ea` | `packages/ai/src/routes/` |
+| R2 — OracleAIClient + adapters scaffolding | ✅ done | `3c51c9b` | Adapter stubs replaced in R-providers |
+| R3 — Observability schema | ✅ done | `1e345d3` | `oracle_context_packs` + `model_run_usage_details` + `provider_cached_content` |
+| R3.5 — Knowledge taxonomy schema | ✅ done | `c529594` | 15 taxonomy tables + 12 top-domains seeded + 56 entities seeded |
 | R4 — Candidate staging schema | ✅ done | `fe60304` | 4 staging tables + 13 CHECK constraints |
-| R5 — Quote validator + promotion decision | ✅ done | `70339c6` | Pure validator + decider + 33-assertion smoke |
-| R5.5 — Entity resolver + taxonomy validator | ✅ done | `8cad256` | Entity resolver + taxonomy validator + extended decision shape + 45-assertion smoke |
-| R6 — Claim extraction worker refactor | ✅ done | `b46131d` | Worker through staging pipeline + circuit breaker + promotion executor + 30-assertion smoke |
-| R7 — Document ingestion + cache infra | ✅ done | `a8a8586` | Worker through staging + `claims.candidate_hash` + cache profitability/lifecycle + 19-assertion smoke + race-safe executor |
-| R8 — Chat route through OracleAIClient | ✅ done | `8a38fbd` | `apps/web/app/api/chat/route.ts` through `OracleAIClient.runText` with `providerOptions` escape hatch |
-| R9 — Synthesis worker refactor | ✅ done | `8343c2d` | `brain-synthesis.ts` through `OracleAIClient` + `validateSynthesisDiff` (claim ID + unsupported-named-entity check) + rejected-version preservation + 21-assertion smoke |
-| R10 — Admin observability dashboards | ✅ done | `ea33d66` | 6 read-only pages under `/admin/ai`: dashboard, runs list, run detail (context pack viewer), cache, candidates, evals placeholder |
-| R10.5 — Taxonomy admin + re-eval worker | ✅ done | `533f39b` | 5 pages under `/admin/taxonomy` + 4 transactional approve/reject server actions + scheduled `taxonomy-reevaluation` worker scaffold |
-| R-providers — Direct provider adapters | ✅ done | `bfc0821` + `51a33ff` | `VertexGeminiAdapter` via `@google/genai`, `AnthropicAdapter` via `@anthropic-ai/sdk`, `OpenAIAdapter` via `openai`. All 4 worker / route call sites switched off `OpenRouterBridgeAdapter`. Smoke 6/6 green against real provider APIs. |
-| **Wet-test** | ✅ done | `51a33ff` | 1 synthetic message → 2 claims promoted, 0 errors, 8.3s elapsed. Real Vertex Gemini Flash call, native JSON schema enforcement, quote validator + taxonomy validator + advisory-locked promotion all working end-to-end. |
-| **R11 — Resume interjection engine** | ⬜ **unblocked, ready to start** | — | Wet-test passed. Real claim data exists. Can begin tuning interjection thresholds against actual extraction output. |
+| R5 — Quote validator + promotion decision | ✅ done | `70339c6` | Pure functions in `packages/oracle-engines/src/extraction/` |
+| R5.5 — Entity resolver + taxonomy validator | ✅ done | `8cad256` | — |
+| R6 — Claim extraction worker | ✅ done | `b46131d` | — |
+| R7 — Document ingestion + cache infra | ✅ done | `a8a8586` | + race-safe executor |
+| R8 — Chat route through OracleAIClient | ✅ done | `8a38fbd` | — |
+| R9 — Synthesis worker + diff validator | ✅ done | `8343c2d` | — |
+| R10 — Admin AI observability dashboards | ✅ done | `ea33d66` | `/admin/ai/*` |
+| R10.5 — Taxonomy governance | ✅ done | `533f39b` | `/admin/taxonomy/*` + re-eval scaffold |
+| **Live DB migrations applied** | ✅ done | (this session, via Supabase MCP) | 6 Drizzle (0000–0005) + 18 hand-written SQL (10–17, 20–21, 30–31, 40–42, 48, **49 security hardening**). 51 public tables now exist. Supabase advisor: 36 → 2 findings. |
+| **R-providers — direct provider adapters** | ✅ done | `bfc0821` + `51a33ff` | `VertexGeminiAdapter` (`@google/genai`), `AnthropicAdapter` (`@anthropic-ai/sdk`), `OpenAIAdapter` (`openai`). All workers + chat route switched. Real-provider smoke: 6/6 green. |
+| **Wet-test** | ✅ done | `51a33ff` | 1 synthetic message → 2 claims promoted, 0 errors, 8.3s. Real Vertex `provider_request_id` captured. |
+| **R11.0 — Contradiction-watcher refactor** | ✅ done | `b01e514` | Last `getOpenRouter()` retired. OpenRouter completely removed from codebase. |
+| **R11.1 — Pure decision functions** | ⬜ next | — | `decideLullInterjection()` + `decideContradictionInterjection()` in `packages/oracle-engines/src/interjection.ts` + smoke gate |
+| **R11.2 — Lull-interjection task** | ⬜ | — | `apps/workers/src/trigger/lull-interjection.ts` — cron, picks gap, drafts via Anthropic, **posts live messages** |
+| **R11.3 — Live contradiction interjection** | ⬜ | — | Extend contradiction-watcher to post live messages when `enable_live_contradiction_interjections=true` + severity=high |
+| **R11.4 — Final docs cleanup** | ⬜ | — | HANDOFF + DECISIONS + retrofit packet final pass |
 
 ---
 
-## Architectural rules in force
+## R11.1+ — the next session's exact work
+
+User decisions already locked in (this session, 2026-05-26):
+
+1. **Live message posts** — both lull-interjection and contradiction-interjection POST real messages into the chat channel. No dry-run gating. Admin reviews via `oracle_interventions` after the fact.
+2. **`enable_live_contradiction_interjections = true`** is the default going forward. Currently the seed has it as `false`; R11.3 includes a migration to flip it.
+3. **Human-facing message drafting uses the interview route (Anthropic Claude Haiku 4.5).** The contradiction-watcher's adjudication call uses the extraction route (Vertex Gemini Flash) — that's fine because it's machine-internal.
+
+### R11.1 — Pure decision functions
+
+Currently `packages/oracle-engines/src/interjection.ts` is a 39-line stub with JSDoc-only spec comments. Replace with two pure functions + a smoke gate.
+
+```ts
+// decideLullInterjection(input) — pure, no DB
+//
+// Inputs (all numeric / boolean, no I/O):
+//   - secondsSinceLastUserMessage: number
+//   - lullWindowSeconds: number          (from settings)
+//   - isAnyoneTyping: boolean            (caller queries Realtime presence)
+//   - minutesSinceLastOracleInterjection: number | null
+//   - oracleCooldownMinutes: number      (from settings)
+//   - interjectionsInLastHour: number    (caller counts oracle_interventions)
+//   - maxOracleInterjectionsPerHour: number (from settings)
+//   - enableGroupChatLullQuestions: boolean (from settings)
+//   - isGroupChat: boolean
+//   - topRelevantOpenGap: { id, priority, questionToAsk, whyItMatters } | null
+//
+// Output:
+//   { decision: 'ask' | 'skip', reason: string, gapId?: string }
+
+// decideContradictionInterjection(input) — pure, no DB
+//
+// Inputs:
+//   - detectionConfidence: number       (0-100; LLM-reported)
+//   - severity: 'low' | 'medium' | 'high'
+//   - enableLiveContradictionInterjections: boolean
+//   - minutesSinceLastOracleInterjection: number | null
+//   - oracleCooldownMinutes: number
+//   - interjectionsInLastHour: number
+//   - maxOracleInterjectionsPerHour: number
+//   - suggestedQuestion: string | null
+//
+// Output:
+//   { decision: 'live' | 'queue', reason: string }
+```
+
+Smoke gate at `packages/oracle-engines/src/__verify__/r11-1-interjection-decision-smoke.ts` exercising both functions across the gate cases (lull window not yet, lull window passed but rate-capped, lull window passed all gates pass, contradiction below severity threshold, contradiction setting off, contradiction above threshold and setting on, etc.).
+
+### R11.2 — Lull-interjection task
+
+`apps/workers/src/trigger/lull-interjection.ts`:
+
+- `schedules.task` with cron `* * * * *` (every minute).
+- Per channel: query last user-message time, last Oracle-interjection time, count of interjections in last hour, presence (or skip the presence check for now — Realtime presence query is a separate path).
+- Call `decideLullInterjection`.
+- If decision = 'ask': resolve top relevant open gap (pgvector against recent message embeddings → gaps embeddings). Draft the natural-language question via `OracleAIClient.runText` on the interview route (Anthropic Claude Haiku 4.5) with the gap as input. Insert assistant message into `messages`. Insert `oracle_interventions` row with `was_live_interjection=true`, `interjection_message_id=<the new message id>`, `trigger_type='lull_gap'`, `related_gap_id=<gap>`.
+- Update `gaps.status='asked'` + `gaps.askedInMessageId`.
+
+Build the OracleAIClient module-singleton at the top of the file (same pattern as the other workers).
+
+### R11.3 — Live contradiction interjection
+
+Modify `apps/workers/src/trigger/contradiction-watcher.ts`:
+
+- After inserting the `contradictions` row + queued gap, if `decision === 'live_interjection'`:
+  - Resolve the channel context (the contradiction-watcher currently has none — needs to either look up via the most-recent `claim_evidence.source_message_id` for one of the two claims, or accept a `channelId` payload on the per-claim task).
+  - Draft the contradiction surfacing message via `OracleAIClient.runText` on the **interview route** (`object.suggestedQuestion` as input).
+  - Insert assistant message; update the `oracle_interventions` row's `channelId` + `interjection_message_id`.
+
+Also write a migration `50_enable_live_contradiction_interjections.sql` that flips the setting:
+
+```sql
+UPDATE settings
+SET value = 'true'::jsonb, updated_at = now()
+WHERE key = 'enable_live_contradiction_interjections';
+```
+
+### R11.4 — Final cleanup
+
+- Update `HANDOFF.md` — strike R11.1/R11.2/R11.3 from "next", record completion commits, mark **the AI retrofit complete**.
+- Update `DECISIONS.md` with any new D10/D11 entries that emerged.
+- Update `docs/oracle/05-ai-retrofit-phase-packet.md` final completion checklist.
+- Update `docs/architecture.md` `### 7. Interjection engine` section to show both paths live.
+
+---
+
+## Architectural rules in force (read these before any AI code change)
 
 These are load-bearing — undoing any of them silently breaks correctness or observability.
 
-1. **No direct provider SDK calls outside `packages/ai/src/providers/`.** Every production model call goes through `OracleAIClient`. R6/R7/R8/R9 all comply. Production adapters are `AnthropicAdapter` / `VertexGeminiAdapter` / `OpenAIAdapter` using raw provider SDKs (`@anthropic-ai/sdk` / `@google/genai` / `openai`). The Vercel AI SDK is explicitly banned in the production path per DECISIONS.md D6 — its `@ai-sdk/*` wrappers destroy cache observability and provider-native structured-output formats. `OpenRouterBridgeAdapter` remains as inert code (no production import) and will be deleted in a follow-up cleanup.
+1. **No direct provider SDK calls outside `packages/ai/src/providers/`.** Every production model call goes through `OracleAIClient`. Production adapters are `AnthropicAdapter` / `VertexGeminiAdapter` / `OpenAIAdapter` using the providers' raw SDKs. **The Vercel AI SDK is forbidden** inside `packages/ai/src/providers/` (DECISIONS.md D6 + D9). **OpenRouter has been removed entirely** (commit `b01e514`).
 2. **No extracted claim writes to permanent tables.** Stage → validate → promote, always. `executePromotion` in `packages/oracle-engines/src/extraction/promotion-executor.ts` is the only path that can insert into `claims` / `claim_top_domains` / `claim_entities` / `claim_evidence` / `claim_metadata`.
 3. **No global vector search.** Every retrieval that lands must go through a `RetrievalPlan` with metadata pre-filter, then hybrid pgvector + tsvector RRF.
 4. **`licensor` is NOT `vendor`.** Structural enforcement via CHECK constraint + entity resolver `type_mismatch` detection.
-5. **Sensitive material never reaches `claims`.** Quarantined at the candidate stage. The `/admin/ai/candidates` page deliberately hides sensitive rows from the standard queue; they appear ONLY in the explicit "Sensitive" filter tab.
-6. **Vertex explicit caches require a tracked reuse policy.** `recordCacheCreation` / `recordCacheTermination` is the only correct path. CHECK constraint enforces `deleted_at IS NULL iff status='active'`.
+5. **Sensitive material never reaches `claims`.** Quarantined at the candidate stage. `/admin/ai/candidates` hides sensitive rows from the standard queue.
+6. **Vertex explicit caches require a tracked reuse policy.** `recordCacheCreation` / `recordCacheTermination` is the only correct path.
 7. **Stable prompt prefix MUST precede dynamic content.** `ContextCompiler` throws if a stable block appears after a dynamic block.
-8. **Advisory-locked, race-safe promotion.** `executePromotion` acquires `pg_try_advisory_xact_lock(hashtextextended(candidateHash, 0))` AND re-reads the candidate row + validated evidence INSIDE the transaction. The same-hash claim lookup also happens inside the lock. Two distinct branches: same candidate found in a terminal state → `reject(already_promoted | not_validated)`; different candidate with same hash → `append_to_existing_claim`. Partial UNIQUE index on `claims.candidate_hash` is the belt-and-suspenders pair. Caller-provided taxonomy + metadata are NOT race-protected against registry drift (admin-paced mutations only).
-9. **Synthesis output is rejected when unsupported named entities appear.** Every capitalized proper-noun-shaped name in `updatedMarkdown` must be backed by an approved claim summary OR the canonical entity registry. Rejected versions are inserted with `reviewStatus='rejected'` and `currentVersionId` is left unchanged.
-10. **Taxonomy changes are admin-gated.** The re-evaluation worker writes only to `taxonomy_proposals`. No auto-mutation. Approval flows through `/admin/taxonomy/proposals` and `/admin/taxonomy/entity-proposals` server actions.
+8. **Advisory-locked, race-safe promotion.** `executePromotion` acquires `pg_try_advisory_xact_lock(hashtextextended(candidateHash, 0))` AND re-reads the candidate + validated evidence INSIDE the transaction. The same-hash claim lookup also happens inside the lock.
+9. **Synthesis output is rejected when unsupported named entities appear.** Every capitalized proper-noun-shaped name in `updatedMarkdown` must be backed by an approved claim summary OR the canonical entity registry.
+10. **Taxonomy changes are admin-gated.** The re-evaluation worker writes only to `taxonomy_proposals`.
 
 ---
 
-## What runs through `OracleAIClient` today (R6–R9 + R-providers complete)
+## What runs through `OracleAIClient` today
 
 ```
-apps/workers/src/trigger/claim-extraction.ts      ✅  R6 via direct Vertex + Anthropic + OpenAI adapters
-apps/workers/src/trigger/document-ingestion.ts    ✅  R7 via direct Vertex + Anthropic + OpenAI adapters
-apps/web/app/api/chat/route.ts                    ✅  R8 via direct Vertex + Anthropic + OpenAI adapters
-apps/workers/src/trigger/brain-synthesis.ts       ✅  R9 via direct Vertex + Anthropic + OpenAI adapters
-apps/workers/src/trigger/contradiction-watcher.ts ⬜  Phase 6 / R11 territory
+apps/workers/src/trigger/claim-extraction.ts      ✅  R6 + R-providers — direct adapters
+apps/workers/src/trigger/document-ingestion.ts    ✅  R7 + R-providers — direct adapters
+apps/web/app/api/chat/route.ts                    ✅  R8 + R-providers — direct adapters
+apps/workers/src/trigger/brain-synthesis.ts       ✅  R9 + R-providers — direct adapters
+apps/workers/src/trigger/contradiction-watcher.ts ✅  R11.0 — direct adapters
 apps/workers/src/trigger/taxonomy-reevaluation.ts ⬜  scaffold only; clustering body deferred
+apps/workers/src/trigger/lull-interjection.ts     ⬜  to be created in R11.2
 ```
 
-Every production call goes through `OracleAIClient → {Anthropic|Vertex|OpenAI}Adapter` using the raw provider SDKs directly. No Vercel AI SDK, no OpenRouter in the production path. Verified end-to-end by the 2026-05-26 wet-test (commit `51a33ff`).
-
-**Env vars required** (in repo-root `.env.local`):
-- `GOOGLE_CLOUD_PROJECT=vertex-ai-497120`, `GOOGLE_CLOUD_LOCATION=us-central1`, plus working ADC (`gcloud auth application-default login`)
+**Required env vars** (in repo-root `.env.local`):
+- `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `GOOGLE_CLOUD_PROJECT=vertex-ai-497120`, `GOOGLE_CLOUD_LOCATION=us-central1` + working ADC (`gcloud auth application-default login`)
 - `ANTHROPIC_API_KEY=sk-ant-…`
 - `OPENAI_API_KEY=sk-proj-…`
+- `TRIGGER_SECRET_KEY`, `TRIGGER_PROJECT_REF=proj_wgpzsvhmsopqhvwqaycn`
+
+Full table with sources: `docs/configuration.md`.
 
 ---
 
-## Smoke gates available
+## Smoke gates
 
-Every phase that ships runtime logic has a self-contained smoke test that runs without API keys, database, or network access.
+All run without API keys, database, or network access:
 
 ```bash
-pnpm --filter @oracle/ai      verify:r2     # 16/16 — pipeline + bridge wiring
-pnpm --filter @oracle/engines verify:r5     # 33/33 — quote validator + decider
-pnpm --filter @oracle/engines verify:r5.5   # 45/45 — entity resolver + taxonomy validator
-pnpm --filter @oracle/engines verify:r6     # 30/30 — circuit breaker + domain mapping
-pnpm --filter @oracle/engines verify:r7     # 19/19 — cache profitability + estimate
-pnpm --filter @oracle/engines verify:r9     # 21/21 — synthesis diff validator
+pnpm --filter @oracle/ai      verify:r2     # OracleAIClient pipeline
+pnpm --filter @oracle/engines verify:r5     # quote validator + decider
+pnpm --filter @oracle/engines verify:r5.5   # entity resolver + taxonomy validator
+pnpm --filter @oracle/engines verify:r6     # circuit breaker
+pnpm --filter @oracle/engines verify:r7     # cache profitability
+pnpm --filter @oracle/engines verify:r9     # synthesis diff validator
+pnpm --filter @oracle/ai      eval:extraction   # mock-mode extraction eval (4 fixtures)
 ```
 
-**164 deterministic assertions** across the AI retrofit pure-function modules.
+Real-provider smoke (~$0.003 against the real APIs):
+
+```bash
+pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts all
+```
+
+End-to-end wet-test (writes to the live DB; requires the message to be inserted first):
+
+```bash
+pnpm --filter @oracle/workers tsx src/wet-test/run-claim-extraction-once.ts <run-label>
+```
 
 Pre-push gate:
 
 ```bash
-pnpm typecheck                              # 7/7 packages
+pnpm typecheck                              # all 7 packages
 pnpm --filter @oracle/web build             # production Next build
-pnpm --filter @oracle/ai      verify:r2
-pnpm --filter @oracle/engines verify:r5
-pnpm --filter @oracle/engines verify:r5.5
-pnpm --filter @oracle/engines verify:r6
-pnpm --filter @oracle/engines verify:r7
-pnpm --filter @oracle/engines verify:r9
 ```
 
-Total runs in ~30 seconds because the pure smokes complete in milliseconds.
+---
+
+## Live database state (2026-05-26)
+
+Supabase project `vokucjpanhvqunimlvsp` (`theoracle`, Postgres 17, us-east-2).
+
+- **51 public tables** (all retrofit migrations applied via Supabase MCP this session).
+- **6 Drizzle migrations** recorded in `drizzle.__drizzle_migrations`.
+- **49 raw SQL files** in `packages/db/migrations/sql/` are idempotent and source-of-truth.
+- **2 real `claims` rows** (from the wet-test). `extraction_batches`, `extraction_candidates`, `extraction_candidate_evidence`, `model_runs`, `model_run_usage_details`, `oracle_context_packs` all have at least one real row.
+- **Supabase advisor: 2 informational warnings** (vector extension in public schema; Supabase Auth leaked-password protection disabled). Both are config recommendations, not vulnerabilities.
+
+If you need to re-run migrations from a fresh checkout, `pnpm db:migrate` is idempotent and a no-op against this DB.
 
 ---
 
-## Admin observability surface (R10 + R10.5)
+## What's deliberately deferred (not blocking R11)
 
-| Route | What it shows | Reads from |
-|---|---|---|
-| `/admin/ai` | Top-level dashboard: 12 metric cards (runs 24h/7d, success rate, cache hit ratio, fallback rate, token averages, latency, active caches, candidate counts), route usage breakdown, recent runs | `model_runs_with_usage` view + R4 staging + `provider_cached_content` |
-| `/admin/ai/runs` | Paginated runs list with 4 filters (all / success / failed / fallback) + task-type chip filter | `model_runs_with_usage` |
-| `/admin/ai/runs/[id]` | One-run detail: run summary, usage breakdown, full prompt plan (block-by-block), retrieval diagnostics (selected domains / source types / process stages / entity IDs + included record counts), linked extraction batches, linked provider caches | `model_runs_with_usage` + `oracle_context_packs` + `extraction_batches` + `provider_cached_content` |
-| `/admin/ai/cache` | Cache rows filterable by status + provider hit-ratio table | `provider_cached_content` + `model_runs_with_usage` |
-| `/admin/ai/candidates` | Extraction candidates with 8 filter tabs. **Sensitive candidates are hidden by default** and only appear under the explicit "Sensitive" tab. | `extraction_candidates` + `extraction_validation_results` |
-| `/admin/ai/evals` | Placeholder per R10 task 6. Lists the CLI smoke gates with assertion counts. | — |
-| `/admin/taxonomy` | Top-level domains list with full boundary rules + usage counts | `knowledge_top_domains` + all `*_top_domains` join tables |
-| `/admin/taxonomy/proposals` | Taxonomy proposals review queue with approve/reject controls | `taxonomy_proposals` |
-| `/admin/taxonomy/entities` | Entity registry grouped by type (licensor distinct from vendor) | `entities` + `claim_entities` |
-| `/admin/taxonomy/entity-proposals` | Unknown-entity review queue. Approval refines canonical + auto-merges on conflict | `entity_proposals` |
-| `/admin/taxonomy/change-log` | Append-only audit (latest 200 events) | `taxonomy_change_log` |
-
----
-
-## DB migrations — current state
-
-5 Drizzle migrations + 9 hand-written SQL files exist in `packages/db/migrations/` but have **NOT been applied to the live Supabase DB yet**:
-
-| Drizzle migration | Phase | What it ships |
-|---|---|---|
-| `0000_smart_jackpot.sql` | (initial) | Already applied historically |
-| `0001_hot_johnny_blaze.sql` | R3 | Observability tables + Drizzle meta catch-up |
-| `0002_demonic_kid_colt.sql` | R3.5 | 15 taxonomy tables |
-| `0003_magenta_lionheart.sql` | R4 | 4 candidate staging tables |
-| `0004_simple_tomas.sql` | R5.5 | `extraction_candidate_evidence.documentClass` + `processStage` |
-| `0005_kind_nekra.sql` | R7 | `claims.candidate_hash` column + index |
-
-Hand-written SQL in `packages/db/migrations/sql/` (idempotent, run after Drizzle):
-
-| File | Phase |
-|---|---|
-| `11_observability_constraints.sql` | R3 |
-| `12_taxonomy_constraints.sql` | R3.5 |
-| `13_extraction_constraints.sql` | R4 |
-| `14_claims_candidate_hash_unique.sql` | R7 |
-| `16_knowledge_top_domains_seed.sql` | R3.5 |
-| `17_entities_seed.sql` | R3.5 |
-| `31_observability_views.sql` | R3 |
-| `42_claim_top_domains_backfill.sql` | R3.5 |
-| `48_taxonomy_vector_indexes.sql` | R3.5 |
-
-When `pnpm db:migrate` is run next, all of these apply in order. **No existing data is touched.** Legacy `claim_domains` + `claims.knowledge_domain` are preserved during transition.
-
----
-
-## R11 — what's blocking and what's already done
-
-R11 is the proactive interjection engine (the original Phase 6 work paused at the start of the retrofit). The retrofit packet's acceptance gate for R11 (`05-ai-retrofit-phase-packet.md` line 488):
-
-| Prerequisite | Status |
-|---|---|
-| Candidate pipeline live | ✅ R4–R7 done; needs migration applied |
-| At least one test transcript processed | ⬜ requires wet test |
-| Claims reviewed and approved | ⬜ requires wet test |
-| Contradiction watcher tested on validated claims | ⬜ requires wet test |
-| Admin can audit every AI call that contributed to the contradiction or gap | ✅ R10 done |
-
-**Two of four are gated on real data flowing.** Writing R11 code today without that data means guessing at interjection thresholds with no ground truth to tune against. The architectural prerequisites are met; the empirical ones aren't.
-
-**Recommended next step:**
-1. Apply migrations (`pnpm db:migrate` against the live Supabase DB).
-2. Wet-test the R6 worker on real messages.
-3. Wet-test the R7 worker on a real document upload.
-4. Review the resulting claims via `/admin/claims`.
-5. Re-run synthesis (R9) and review the rejected versions if any.
-6. THEN attempt R11 with informed defaults.
-
----
-
-## What's deliberately deferred
-
-- **Real `@anthropic-ai/sdk` / `@google/genai` / `openai` SDK wiring.** The `OpenRouterBridgeAdapter` satisfies the architectural rule today. Real per-provider SDKs land when cloud credentials + a wet-test path are arranged.
 - **R5.5 entity-extraction prompt rewrite.** R5.5 ships the validator + resolver; the workers call them with empty entity lists. Updating `EXTRACTION_SYSTEM_PROMPT` to emit entities is its own prompt-engineering pass with its own evals.
-- **`RetrievalPlan` + hybrid pgvector/tsvector RRF in the chat route.** R8's chat route uses the legacy `searchApprovedClaims` helper. The `RetrievalPlan` infrastructure is documented in `docs/oracle/02-provider-native-ai-architecture.md` but not yet a runtime concern.
-- **Real Vertex explicit cache creation.** R7 ships the profitability heuristic + `provider_cached_content` bookkeeping; cache resources themselves aren't created until `@google/genai` is wired.
-- **R10.5 clustering / drift detection body.** The re-evaluation worker scaffold exists; the actual density clustering + cluster naming + drift detection pipeline waits for real claim density (the worker currently counts claims per domain and reports "not enough data yet").
-- **R10.5 reclassification job for merge/split/reassign proposals.** `create_top_domain` proposals apply transactionally on approval. Merge/split/reassign approvals are audited but the actual reclassification mutation is queued — the dedicated job lands when those proposal types start arriving.
-- **R10.5 batch-approve UX.** Individual approve/reject work today.
+- **`RetrievalPlan` + hybrid pgvector/tsvector RRF in the chat route.** R8's chat route uses the legacy `searchApprovedClaims` helper.
+- **Real Vertex explicit cache creation.** Round 1 of R-providers uses implicit caching only; explicit `cachedContent` resource lifecycle is round 2.
+- **R10.5 clustering / drift detection body.** The re-evaluation worker scaffold exists.
+- **R10.5 reclassification job for merge/split/reassign proposals.** `create_top_domain` proposals apply transactionally on approval. Merge/split/reassign approvals are audited but the actual reclassification mutation is queued.
+- **R10.5 batch-approve UX.**
+- **Vertex production credentials.** Local dev uses developer ADC. Cloud runtime needs a service-account JSON mounted via `GOOGLE_APPLICATION_CREDENTIALS` — currently not wired in the Vercel / Trigger.dev project.
 
 ---
 
-## Security reminders
-
-- This repo is public. Never commit secrets.
-- Rotate any Vercel / Supabase / provider API key that appeared in a transcript.
-- Keep `.env.local` untracked.
-- Service-role Supabase access must remain server-side only.
-- Employee-facing UI must never directly expose intelligence tables.
-
----
-
-## Resume prompt for Claude Code
+## Resume prompt for the next Claude Code session
 
 ```text
-I'm continuing work on The Oracle on a fresh machine. Read HANDOFF.md,
-AGENTS.md, CLAUDE.md, oracle_master_spec.md, DECISIONS.md, then
-docs/oracle/00-buildout-index.md. Do not bulk-read docs/oracle/* — read
-only the specific files the active task needs (per CLAUDE.md routing).
+I'm continuing work on The Oracle. Read HANDOFF.md, AGENTS.md, CLAUDE.md,
+oracle_master_spec.md, DECISIONS.md, then docs/oracle/00-buildout-index.md.
+Do not bulk-read docs/oracle/* — read only the specific files the active
+task needs (per CLAUDE.md routing).
 
-The AI retrofit code is complete: R0–R10.5 are done. R11 is the
-remaining phase but is gated on a wet-test (apply migrations, run the
-extraction worker on real messages, review the resulting claims). Until
-that happens, R11 implementation is guessing at thresholds.
+State: R0 → R11.0 + wet-test all done. The AI retrofit is functionally
+complete; what's left is R11.1 (pure decision functions for interjection)
+through R11.4 (final docs).
 
-If the next task is the wet-test path:
-  1. Apply migrations: pnpm db:migrate (5 Drizzle + 9 hand-written SQL
-     files; all idempotent; no existing data touched).
-  2. Trigger a real extraction run (cron auto-fires, or trigger manually).
-  3. Review via /admin/ai/runs, /admin/ai/candidates, /admin/claims.
+Next task: R11.1. Implement decideLullInterjection() and
+decideContradictionInterjection() in packages/oracle-engines/src/
+interjection.ts. Pure functions, no DB. Add a smoke gate
+packages/oracle-engines/src/__verify__/r11-1-interjection-decision-smoke.ts.
+See HANDOFF.md "R11.1 — Pure decision functions" for the exact input
+shape and decision logic.
 
-If the next task is filling in deferred work:
-  - Real provider SDK adapter (R9+ in @anthropic-ai/sdk or @google/genai).
-  - R5.5 entity-extraction prompt rewrite.
-  - RetrievalPlan + hybrid pgvector/tsvector RRF in the chat route.
-  - R10.5 clustering / drift detection body in the re-evaluation worker.
-  - R10.5 reclassification job for merge/split/reassign proposals.
+After R11.1: R11.2 (lull-interjection Trigger.dev task with live message
+posts, interview route for drafting), R11.3 (live contradiction
+interjection from contradiction-watcher), R11.4 (final docs cleanup).
 
-Hard rules in force: no direct provider SDK calls outside OracleAIClient;
-no extracted claim writes to permanent tables (stage → validate → promote);
-licensor is a first-class entity type distinct from vendor; sensitive
-material is quarantined at the candidate stage; stable prefix MUST
-precede dynamic content in ContextCompiler; synthesis output is
-rejected when unsupported named entities appear; taxonomy changes are
-admin-gated.
+Hard rules: production AI calls go through OracleAIClient with the three
+direct provider adapters; no Vercel AI SDK, no OpenRouter. Sensitive
+content quarantined at candidate stage. Stable prefix before dynamic in
+ContextCompiler. Advisory-locked promotion. Synthesis rejects
+unsupported named entities. Taxonomy mutations admin-gated.
 
-Run all smoke gates before pushing: pnpm typecheck && pnpm --filter
-@oracle/web build && pnpm --filter @oracle/ai verify:r2 && pnpm --filter
-@oracle/engines verify:r5 && pnpm --filter @oracle/engines verify:r5.5 &&
+Pre-push gate: pnpm typecheck && pnpm --filter @oracle/web build &&
+pnpm --filter @oracle/ai verify:r2 && pnpm --filter @oracle/engines
+verify:r5 && pnpm --filter @oracle/engines verify:r5.5 &&
 pnpm --filter @oracle/engines verify:r6 && pnpm --filter @oracle/engines
 verify:r7 && pnpm --filter @oracle/engines verify:r9.
 ```

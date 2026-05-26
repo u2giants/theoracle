@@ -57,33 +57,33 @@ System design for The Oracle. For business context and the operating philosophy,
 
          ┌──────────────────────────────────────┐
          │           LLM providers              │
-         │  Today (R6–R9 done):                 │
-         │    Every model call routed through   │
-         │    OracleAIClient via                │
-         │    OpenRouterBridgeAdapter (the      │
-         │    bridge wears each provider hat    │
-         │    while dispatching to OpenRouter). │
-         │  Target (post-wet-test):             │
-         │    @anthropic-ai/sdk direct          │
-         │    @google/genai (Vertex) direct     │
-         │    openai direct                     │
-         │  Embeddings (unchanged):             │
+         │  Every model call goes through       │
+         │  OracleAIClient → ModelRouter →      │
+         │  one of three direct adapters:       │
+         │    AnthropicAdapter                  │
+         │      (@anthropic-ai/sdk)             │
+         │    VertexGeminiAdapter               │
+         │      (@google/genai)                 │
+         │    OpenAIAdapter                     │
+         │      (openai)                        │
+         │  Embeddings:                         │
          │    OpenAI text-embedding-3-small     │
+         │    via packages/ai/src/embeddings.ts │
          └──────────────────────────────────────┘
                              ▲
                              │
                    packages/ai
-                   Current files: openrouter.ts,
-                   embeddings.ts, retrieval.ts,
-                   prompts/oracle-system.ts.
-                   Target files (R1–R2, not yet
-                   present): routes/, oracle-ai-
-                   client.ts, model-router.ts,
+                   Files: client/oracle-ai-client.ts,
+                   context/context-compiler.ts,
+                   routing/model-router.ts,
                    providers/{anthropic,vertex-gemini,
-                   openai}-adapter.ts.
+                   openai,mock}-adapter.ts,
+                   routes/catalog.ts (curated routes),
+                   embeddings.ts, retrieval.ts,
+                   prompts/{oracle-system,extraction-system}.ts.
 ```
 
-The "current" path is what production actually runs today. The "target" path is what `docs/oracle/02-provider-native-ai-architecture.md` mandates and what R1+ will build. Until R8 lands, `apps/web/app/api/chat/route.ts` still goes through OpenRouter via the Vercel AI SDK — that is current technical debt, not the intended architecture.
+Every production model call goes through this pipeline. The Vercel AI SDK is explicitly forbidden in `packages/ai/src/providers/` per DECISIONS.md D6 + D9 — the adapters use the providers' official raw SDKs directly. OpenRouter was retired entirely in commit `b01e514` (R11.0); no production code path references it.
 
 ## Identity model
 
@@ -109,7 +109,7 @@ One human → one `employees` row → many `employee_identities` rows.
 1. `POST /api/chat` receives `{ channelId }`. The employee is resolved server-side from the Supabase session cookie — the client does not pass an employee ID.
 2. The route resolves the requester's `employees` row through `employee_identities` (matches `auth.uid()` from the Supabase session). Verifies the requester is a participant of `channelId`.
 3. Assembles a minimal retrieval bundle: recent N messages, employee profile, top open gaps for this employee/department, top semantically-relevant approved claims (pgvector cosine).
-4. Calls the Vercel AI SDK with the spec Part 10 system prompt + the retrieval bundle. Model is `settings.default_interview_model` (default `deepseek/deepseek-v4-pro`) via OpenRouter. Image/file parts are stripped for text-only models before the LLM call.
+4. Calls `OracleAIClient.runText` with the spec Part 10 system prompt + the retrieval bundle. Route is `settings.default_interview_route` (default `anthropic_claude_haiku_4_5_interview_primary`), dispatched through the direct `AnthropicAdapter` (`@anthropic-ai/sdk`). Tools, multi-turn `messages`, `stopWhen`, and `temperature` are passed through the `providerOptions` escape hatch. Image/file parts are stripped for text-only models before the call.
 5. Tools exposed: `search_company_knowledge`, `check_open_gaps` — both Zod-validated, both backed by `packages/ai/src/retrieval.ts`.
 6. On completion: inserts the assistant message into `messages` and writes a `model_runs` row with cost/latency/tokens.
 
@@ -127,7 +127,7 @@ Cron: every 4 hours (`0 */4 * * *`). Also triggered by document ingestion.
 
 1. Queries `messages WHERE extraction_status='pending' AND role='user'`. Batches up to 100 messages per run.
 2. Groups by channel, then splits into 60-minute conversation segments.
-3. Calls the extraction model (`settings.default_extraction_model`, default `google/gemini-2.5-flash`) via `generateObject` with a structured Zod schema.
+3. Calls `OracleAIClient.runObject` with the curated extraction route (`settings.default_extraction_route`, default `vertex_gemini_2_5_flash_extraction_primary`), dispatched through the direct `VertexGeminiAdapter` (`@google/genai`) with native `responseJsonSchema` structured-output mode.
 4. Validates exact quotes against the source text verbatim — invalid quotes are rejected without inserting.
 5. Inserts `claims` + `claim_domains` + `claim_evidence` rows. Auto-approves low-risk claim types with impact ≤ 6; others go to `pending_review`.
 6. Suggests `gaps` rows for unanswered questions.
@@ -138,7 +138,7 @@ Cron: every 4 hours (`0 */4 * * *`). Also triggered by document ingestion.
 Cron: weekly (Mondays 06:00). Also admin-triggerable.
 
 1. Reads up to 200 approved claims per brain section (legacy `claim_domains` + `sectionClaims` joins; switch to `claim_top_domains` in a follow-up cleanup).
-2. Routes through `OracleAIClient.runObject` using the curated route from `settings.default_synthesis_route` (default `anthropic_claude_3_5_sonnet_synthesis_primary`). Dispatched via `OpenRouterBridgeAdapter` under the hood until the real `@anthropic-ai/sdk` adapter lands.
+2. Routes through `OracleAIClient.runObject` using the curated route from `settings.default_synthesis_route` (default `anthropic_claude_3_5_sonnet_synthesis_primary`). Dispatched through the direct `AnthropicAdapter` (`@anthropic-ai/sdk`) with forced tool-call structured output.
 3. `validateSynthesisDiff` rejects the run if (a) any material paragraph cites a non-approved claim ID, OR (b) the markdown mentions a capitalized proper-noun-shaped name not backed by an approved claim summary or the canonical entity registry. See `packages/oracle-engines/src/synthesis/diff-validator.ts`.
 4. On success: inserts a new `brain_section_versions` row (`reviewStatus='draft'` or `'needs_review'`) and updates `brain_sections.current_version_id` (two-step transaction per spec 6.7).
 5. On rejection: inserts a `brain_section_versions` row with `reviewStatus='rejected'` carrying the failed markdown + `validationFailures` + `unsupportedNames` in `structuredContent`. `currentVersionId` is NOT updated — the failed output is preserved for admin review without changing the current Brain version.
@@ -154,9 +154,14 @@ Four server-component dashboards under `/admin/`:
 
 All four read via `getDirectDb()` (service role) and use `'use server'` actions with `revalidatePath` rather than client-side state.
 
-### 7. Interjection engine (Phase 6 — paused)
+### 7. Interjection engine (Phase 6 / R11 — in progress)
 
-Lull detection and contradiction-watcher rules are scaffolded as JSDoc in `packages/oracle-engines/src/interjection.ts`. Resumption is gated on the AI retrofit (R0–R10.5). See spec Part 5.1 and `docs/oracle/05-ai-retrofit-phase-packet.md` "Phase R11".
+Two paths per spec Part 5.1:
+
+- **Contradiction-driven** — `apps/workers/src/trigger/contradiction-watcher.ts` (R11.0, done): per-claim and sweep-cron tasks that run pgvector ANN against approved claims, adjudicate semantic pairs via `OracleAIClient.runObject` with the direct Vertex adapter, write `contradictions` rows, queue `gaps` for `queued_gap` decisions, and record `oracle_interventions` rows. `enable_live_contradiction_interjections=true` flips the queued path to a live interjection when severity is `high`.
+- **Lull-driven** (R11.2, not yet done) — scheduled task that detects channel silence past `lull_window_seconds`, checks rate caps (`max_oracle_interjections_per_hour`), picks the highest-priority topically-relevant open gap, drafts the question via `OracleAIClient.runText` with the direct Anthropic adapter (interview route), posts the message, and records the intervention.
+
+Pure decision functions for both paths live in `packages/oracle-engines/src/interjection.ts` (currently a scaffold; R11.1 fills it in). See spec Part 5.1, `docs/oracle/05-ai-retrofit-phase-packet.md` "Phase R11", and `HANDOFF.md`.
 
 ### 7. Sign-out
 
@@ -220,7 +225,7 @@ Workers must not import from `apps/web`, and vice versa.
 | Part 9.2 (tools) | `apps/web/app/api/chat/route.ts` |
 | Part 9.4 (claim extraction) | `apps/workers/src/trigger/claim-extraction.ts` (deployed) |
 | Part 10 (system prompt) | `packages/ai/src/prompts/oracle-system.ts` (verbatim) |
-| Settings / model config | `apps/web/app/admin/settings/` — three model-role pickers (interview, extraction, synthesis) backed by `GET /api/admin/models` (OpenRouter) + `POST /api/admin/settings`. R1 will replace the OpenRouter-catalog picker with a curated `OracleModelRoute.routeId` picker. |
+| Settings / model config | `apps/web/app/admin/settings/` — three model-role pickers (interview, extraction, synthesis) backed by `POST /api/admin/settings`. The OpenRouter catalog proxy was deleted in commit `b01e514`; a curated `OracleModelRoute.routeId` picker sourced from `packages/ai/src/routes/catalog.ts` is the planned replacement. |
 | Phase 5 admin review dashboards | `apps/web/app/admin/{claims,gaps,contradictions,brain}/page.tsx` + `_actions.ts`. Server actions; no client-state library. |
 
 ### Intentionally awkward — flag these before assuming they're bugs
@@ -228,14 +233,16 @@ Workers must not import from `apps/web`, and vice versa.
 - **`brain_sections.current_version_id` has no FK to `brain_section_versions`.** Looks like a missing constraint; it's a soft reference because the two tables reference each other circularly. Inserts happen as a two-step transaction (insert section with null, insert first version, update section). Documented in AGENTS.md §11 and `oracle_master_spec.md` Part 6.7.
 - **`claims` has no `employee_id` column.** Looks like a schema oversight; it's intentional. A claim can be supported by multiple employees, documents, or external systems across time. Attribution lives on `claim_evidence.asserted_by_employee_id` per row.
 - **Deprecated columns on `employees` (`auth_user_id`, `auth_provider`, `auth_provider_subject`) are NULL-filled and still present.** Looks like dead columns; they're kept during the multi-identity transition because dropping them mid-session would force a column-drop migration. Removal is in AGENTS.md §15 pending work. New code must read identities through `employee_identities`, not these columns.
-- **Workers and chat still call OpenRouter via the Vercel AI SDK.** Looks like the docs/oracle architecture is half-implemented; it is — that's the AI retrofit's whole reason for being. Do not extend the OpenRouter path. R1–R9 replace it.
+- **`packages/ai/src/openrouter.ts` and `apps/web/app/api/admin/models/route.ts` are absent on purpose.** Looks like missing files; they were deleted in commit `b01e514` (R11.0). OpenRouter is no longer part of the production AI path. Do not re-introduce them.
 - **Embeddings fall back to a deterministic zero vector when `OPENAI_API_KEY` is unset.** Looks like a silent bug. It is intentional so local dev works without a real key; vector similarity is meaningless in that state but the schema and shape are preserved. AGENTS.md §11.
 
 ---
 
-## AI architecture retrofit — R1–R4 (landed 2026-05-25)
+## AI architecture retrofit — R0 through R11.0 + wet-test (landed 2026-05-26)
 
-The AI architecture retrofit is code-complete (R0–R10.5). Every legacy direct `getOpenRouter()` caller has been refactored to dispatch through `OracleAIClient`. The bridge adapter still routes through OpenRouter under the hood pending a wet-test path for real provider SDKs (`@anthropic-ai/sdk`, `@google/genai`, `openai`). See `docs/oracle/05-ai-retrofit-phase-packet.md` for the full phase log and `HANDOFF.md` for the recommended next-step sequence.
+The AI architecture retrofit is code-complete (R0–R10.5) AND the direct provider adapters (R-providers) are wired AND the wet-test has passed against the live Supabase project (first real `claims` rows landed 2026-05-26). Every production AI call goes through `OracleAIClient` with one of three direct adapters using the providers' raw SDKs. OpenRouter has been removed entirely from the codebase. R11.0 (contradiction-watcher refactor) is done; R11.1 (pure decision functions) through R11.4 (HANDOFF/DECISIONS cleanup) are the next work items.
+
+See `docs/oracle/05-ai-retrofit-phase-packet.md` for the full phase log, `HANDOFF.md` for the current next-action, and `DECISIONS.md` D6 + D9 for the architectural decisions that ruled out the Vercel AI SDK and OpenRouter.
 
 ### Runtime pipeline (R2, landed)
 
@@ -458,21 +465,21 @@ Cache lifecycle (`packages/oracle-engines/src/extraction/cache-lifecycle.ts`):
 - `recordCacheReuse(handle)` bumps `actual_reuse_count`.
 - `recordCacheTermination({ handle, status, reason })` marks the row `deleted | expired | failed | orphaned` and stamps `deleted_at`. The CHECK constraint on `provider_cached_content` enforces `deleted_at IS NOT NULL` whenever status is non-active.
 
-### Worker and chat-route integration (R6 + R7 + R8, landed)
+### Worker and chat-route integration (R6 + R7 + R8 + R9 + R11.0, all landed)
 
-After R6 / R7 / R8 / R9, every legacy `getOpenRouter()` caller in the production AI surface has been refactored:
+Every production AI caller now dispatches through `OracleAIClient` with the three direct provider adapters:
 
 | Caller | Phase | Status |
 |---|---|---|
-| `apps/workers/src/trigger/claim-extraction.ts` | R6 | ✅ via `OpenRouterBridgeAdapter` |
-| `apps/workers/src/trigger/document-ingestion.ts` | R7 | ✅ via `OpenRouterBridgeAdapter` |
-| `apps/web/app/api/chat/route.ts` | R8 | ✅ via `OpenRouterBridgeAdapter` + `providerOptions` escape hatch for tools/multi-turn |
-| `apps/workers/src/trigger/brain-synthesis.ts` | R9 | ✅ via `OpenRouterBridgeAdapter` + `validateSynthesisDiff` (claim ID + unsupported-named-entity check) + rejected-version preservation |
-| `apps/workers/src/trigger/contradiction-watcher.ts` | R11 | ⬜ Phase 6 / interjection territory |
+| `apps/workers/src/trigger/claim-extraction.ts` | R6 + R-providers | ✅ direct Vertex (extraction) / Anthropic (interview) / OpenAI (fallback) |
+| `apps/workers/src/trigger/document-ingestion.ts` | R7 + R-providers | ✅ direct adapters |
+| `apps/web/app/api/chat/route.ts` | R8 + R-providers | ✅ direct adapters + `providerOptions` escape hatch for tools/multi-turn |
+| `apps/workers/src/trigger/brain-synthesis.ts` | R9 + R-providers | ✅ direct adapters + `validateSynthesisDiff` |
+| `apps/workers/src/trigger/contradiction-watcher.ts` | R11.0 | ✅ direct adapters; observability rows on parity with the other workers |
 | `apps/workers/src/trigger/taxonomy-reevaluation.ts` | R10.5 | ⬜ scaffold only — clustering body deferred until claim density justifies it |
 
-Each refactored caller follows the same pattern:
-1. Build `OracleAIClient` with `OpenRouterBridgeAdapter` for all 3 provider tags.
+Each caller follows the same pattern:
+1. Build `OracleAIClient` with `AnthropicAdapter` + `VertexGeminiAdapter` + `OpenAIAdapter` for the three provider tags.
 2. Resolve the curated route from `settings.default_*_route` (R1 keys).
 3. Compile a prompt plan with `ContextCompiler` (stable_system + dynamic content).
 4. Insert `oracle_context_packs` row BEFORE the model call so its ID can thread through.
@@ -480,11 +487,17 @@ Each refactored caller follows the same pattern:
 6. Insert `model_runs` + `model_run_usage_details` + back-link the context pack.
 7. Workers: stage `extraction_batches` + `extraction_candidates` + `extraction_candidate_evidence`, run validators, call `executePromotion`. Chat: persist the assistant message.
 
-### Transitional bridge adapter (R6 onward, still active through R9)
+### Direct adapters (R-providers, landed)
 
-`packages/ai/src/providers/openrouter-bridge-adapter.ts` is a deliberate transitional layer. It implements `OracleProviderAdapter` for all 3 provider tags (`anthropic`, `vertex`, `openai`) but the underlying network call goes to OpenRouter via the Vercel AI SDK. The bridge maps the route's `modelId` to OpenRouter's namespace (`vertex_gemini_2_5_flash` → `google/gemini-2.5-flash`, etc.).
+Three production adapters in `packages/ai/src/providers/`:
 
-**The bridge is not part of the target architecture.** Real `@anthropic-ai/sdk` / `@google/genai` / `openai` SDKs land one at a time as each phase that needs a specific provider's native features (Anthropic cache breakpoints, Vertex explicit caching, OpenAI structured outputs) reaches a wet-test path. After the last replacement, the bridge can be deleted entirely.
+| Adapter | SDK | Native features used |
+|---|---|---|
+| `AnthropicAdapter` | `@anthropic-ai/sdk` (v0.98+) | `cache_control: { type: 'ephemeral' }` on stable system prompt; forced tool-call structured output via `tools` + `tool_choice: { type: 'tool', name }`; `cache_read_input_tokens` + `cache_creation_input_tokens` normalized into `OracleUsage` |
+| `VertexGeminiAdapter` | `@google/genai` (v2.6+) | `responseMimeType: 'application/json'` + `responseJsonSchema` for strict native JSON-schema output; implicit prefix caching; `usageMetadata.cachedContentTokenCount` + `thoughtsTokenCount` (Gemini 2.5 thinking) normalized into `OracleUsage` |
+| `OpenAIAdapter` | `openai` (v6.39+) | `response_format: { type: 'json_schema', strict: true }`; auto-cache via `prompt_tokens_details.cached_tokens`; reasoning tokens via `completion_tokens_details.reasoning_tokens` |
+
+Each adapter authenticates via env vars / ADC (see `docs/configuration.md`). The Vercel AI SDK is explicitly forbidden inside these adapters per DECISIONS.md D6 + D9 — it normalizes provider-specific cache fields and structured-output strategies through a uniform abstraction that destroys both. Raw SDKs preserve every native feature.
 
 ### Synthesis pipeline (R9, landed)
 
@@ -500,7 +513,7 @@ ContextCompiler.compile()
 oracle_context_packs row (modelRunId nullable, set after the call)
   ↓
 OracleAIClient.runObject(SynthesisOutputSchema)
-  via OpenRouterBridgeAdapter for vertex_* or anthropic_* routes
+  via direct VertexGeminiAdapter / AnthropicAdapter / OpenAIAdapter
   ↓
 model_runs + model_run_usage_details + back-link to context pack
   ↓
@@ -568,18 +581,24 @@ Server actions in `apps/web/app/admin/taxonomy/_actions.ts`:
 
 The scheduled `taxonomy-reevaluation` worker (`apps/workers/src/trigger/taxonomy-reevaluation.ts`) is currently a scaffold: it counts approved claims per active top-domain and reports a configurable activation threshold (default 30 claims). The clustering / drift detection / proposal writing body is documented inline as the substitution for the early-exit path; it lands when approved-claim density justifies it.
 
-### Architectural state after R0–R10.5
+### Architectural state after R0 → R11.0 + wet-test
 
 ```
+OpenRouter has been removed entirely from the codebase.
+The Vercel AI SDK is forbidden inside packages/ai/src/providers/.
 Every legacy getOpenRouter() worker has been refactored.
+Every production AI call goes through OracleAIClient with the three
+  direct provider adapters (Anthropic / Vertex / OpenAI raw SDKs).
 Every model call has a context pack + usage detail row.
 Every promotion is advisory-locked and race-safe.
 Every claim insertion is hash-deduped.
 Every taxonomy mutation is admin-gated.
 Every synthesis output is validated; rejected versions preserved.
 Every operationally-sensitive observability dashboard is read-only.
-Every refactored worker still dispatches through OpenRouterBridgeAdapter
-  pending the wet-test that swaps in real provider SDKs one at a time.
+Wet-test passed end-to-end against the live Supabase project on
+  2026-05-26 — first real claim rows landed with all observability
+  metadata captured.
+R11.0 (contradiction-watcher refactor) is done; R11.1–R11.4 are next.
 ```
 
 R11 (interjection engine) is the remaining phase. Architectural prerequisites met; empirical prerequisites (test transcript processed + claims reviewed and approved) need real data flowing through the pipeline first.

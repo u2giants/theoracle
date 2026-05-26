@@ -17,6 +17,10 @@ coverage/
 .cache/
 *.tsbuildinfo
 
+# Eval run outputs (per-timestamp; covered by packages/ai/evals/.gitignore but
+# AI indexers don't read .gitignore — exclude explicitly).
+packages/ai/evals/runs/
+
 # Logs
 *.log
 npm-debug.log*

@@ -19,7 +19,7 @@ The company's real operational reality lives in people's heads ("dark matter"): 
 ## 1a. Core Architecture
 
 - **Database is Truth:** PostgreSQL (via Supabase) is the sole source of truth. No flat-file Markdown memory.
-- **Provider-Native AI:** Do NOT use OpenRouter for production architecture. All AI calls must route through the `OracleAIClient -> ContextCompiler -> ModelRouter -> Provider-Native Adapters`.
+- **Provider-Native AI:** All AI calls go through `OracleAIClient → ContextCompiler → ModelRouter → direct provider adapter`. The three production adapters use the providers' raw SDKs (`@anthropic-ai/sdk`, `@google/genai`, `openai`). The Vercel AI SDK is forbidden in the production AI path (DECISIONS.md D6 + D9). OpenRouter has been removed entirely (commit `b01e514`).
 - **Traceable Intelligence:** Every claim must link to verbatim evidence (`Candidate-Before-Claim` validation) and must declare its `claim_kind` (policy vs. practice) and `corroboration_tier`.
 - **No HR Surveillance:** The Oracle maps operational workflows, hidden bottlenecks, and "Dark Matter." It does NOT evaluate employee performance, flag HR violations, or monitor productivity.
 
@@ -59,9 +59,11 @@ oracle/
 │   │   ├── lib/                               # web-only helpers (supabase client, auth-guard)
 │   │   ├── next.config.ts                     # loads .env.local from monorepo root
 │   │   └── tailwind.config.ts
-│   └── workers/                   # Trigger.dev v3 — background workers (Phase 4 scaffolds)
+│   └── workers/                   # Trigger.dev v3 — background workers
 │       ├── trigger.config.ts
-│       └── src/trigger/{claim-extraction,document-ingestion,contradiction-watcher,brain-synthesis}.ts
+│       └── src/
+│           ├── trigger/{claim-extraction,document-ingestion,contradiction-watcher,brain-synthesis,taxonomy-reevaluation}.ts
+│           └── wet-test/run-claim-extraction-once.ts  # local end-to-end runner (bypasses Trigger.dev)
 ├── packages/
 │   ├── shared/                    # framework-agnostic TS types & constants (KNOWLEDGE_DOMAINS, etc.)
 │   ├── db/                        # Drizzle ORM — schema, migrations, seed, client
@@ -76,14 +78,16 @@ oracle/
 │   │       ├── client/             # OracleAIClient (R2)
 │   │       ├── context/            # ContextCompiler + PromptBlock helpers (R2)
 │   │       ├── routing/            # ModelRouter with auto-fallback (R2)
-│   │       ├── providers/          # Adapter interface + Mock/Anthropic/Vertex/OpenAI stubs
-│   │       │                       # + OpenRouterBridgeAdapter (R6 transitional)
+│   │       ├── providers/          # 3 production adapters (R-providers): AnthropicAdapter (raw @anthropic-ai/sdk),
+│   │       │                       # VertexGeminiAdapter (raw @google/genai), OpenAIAdapter (raw openai),
+│   │       │                       # plus MockProviderAdapter for test mode. NO Vercel AI SDK in this folder.
 │   │       ├── usage/              # OracleUsage normalizer (R2)
 │   │       ├── validation/         # StructuredOutputValidator + EvidenceValidator (R2)
 │   │       ├── routes/             # Curated OracleModelRoute catalog — 1 Primary + 1 Fallback per role (R1)
 │   │       ├── prompts/            # oracle-system.ts (interview), extraction-system.ts
+│   │       ├── __verify__/         # r-providers-smoke.ts (real-API smoke) + earlier deterministic smokes
+│   │       ├── evals/              # mock-mode extraction eval (fixtures + canned LLM outputs + runner)
 │   │       ├── embeddings.ts, retrieval.ts
-│   │       ├── openrouter.ts       # @deprecated — legacy; only used by R9 brain-synthesis until refactored
 │   │       └── index.ts
 │   ├── oracle-engines/            # Pure-logic extraction + synthesis modules + DB-aware executors (R5–R9)
 │   │   ├── src/extraction/
@@ -487,25 +491,21 @@ The most important section. **Do not undo these without reading the cited spec s
 
 **Do not change because:** silently allowing the bypass means the cache hit ratio in dashboards looks healthy while every call is actually paying full input-token price. That regression is invisible without provider-native usage tracking, which we now have but which would only show the problem after a bill arrives.
 
-### Provider adapter stubs throw `ProviderAdapterNotImplementedError`, not generic errors
+### Direct provider adapters use raw SDKs — Vercel AI SDK is forbidden in this folder
 
-**Looks like:** a workaround that should be replaced with real implementation ASAP.
+**Looks like:** the adapter code in `packages/ai/src/providers/` imports `@anthropic-ai/sdk`, `@google/genai`, and `openai` directly, hand-flattens prompt blocks into provider-specific message shapes, hand-converts Zod schemas to JSON Schema, and hand-normalizes usage. There's a `Vercel AI SDK` (`ai` package, `@ai-sdk/*` providers) that would be cleaner.
 
-**Actually:** the stubs are deliberate. The R2 acceptance gate requires the full pipeline to compile and the smoke test to pass for all three provider shapes. By throwing a typed sentinel, the `ModelRouter` can recognize this specific error as fallback-eligible (same as 429 / timeout) and dispatch to the configured Fallback route. That keeps the system functional today even though the production adapters aren't wired yet.
+**Actually:** the project tried that path during R-providers (commit `cf8f087`) and reverted (commit `bfc0821`). `docs/oracle/02-provider-native-ai-architecture.md` §"Shared architecture" forbids the Vercel AI SDK by name. `DECISIONS.md` D6 + D9 record why: the `@ai-sdk/*` wrappers normalize provider-specific cache fields (`cache_read_input_tokens` vs `cachedContentTokenCount` vs `prompt_tokens_details.cached_tokens`) through a uniform-but-lossy abstraction, and they collapse three distinct structured-output strategies (tool call / `responseJsonSchema` / `response_format` strict) into one `generateObject` signature that takes away per-provider tuning. The R7 cache lifecycle and the wet-test JSON-schema enforcement both depend on having native access.
 
-**Why:** R3+ replaces the stubs with real `@anthropic-ai/sdk` / `@google/genai` / `openai` calls. Until then, anyone running `OracleAIClient` in production mode (not test mode) will see the fallback path exercised correctly. The sentinel error is part of the public interface — `ModelRouter.shouldFallback` checks for it by type.
+**Do not change because:** re-introducing `@ai-sdk/*` violates D6 + D9 directly. If a future provider's structured-output mode is too complex to hand-wire, add a tightly-scoped helper inside the relevant adapter rather than reaching for the SDK.
 
-**Do not change because:** swapping in `Error('not implemented')` would prevent fallback from triggering, and the system would surface a bare error to callers instead of dispatching to the alternate provider. The router treats validation errors and assertion errors differently from transient/unavailable errors on purpose.
+### `OpenRouter has been removed entirely` is not a TODO — the files are gone on purpose
 
-### The `OpenRouterBridgeAdapter` wears any provider hat — it is intentional, not a misconfiguration
+**Looks like:** the prior architecture used OpenRouter (`packages/ai/src/openrouter.ts`, `apps/web/app/api/admin/models/route.ts`, `@openrouter/ai-sdk-provider` dep, `OPENROUTER_API_KEY` env var). They're all absent now.
 
-**Looks like:** the worker constructs `OracleAIClient` with `OpenRouterBridgeAdapter` for all 3 provider tags (`anthropic`, `vertex`, `openai`). That seems wrong — the curated route says `vertex_gemini_2_5_flash_extraction_primary`, but the underlying call goes to OpenRouter.
+**Actually:** commit `b01e514` (R11.0) deleted them after `contradiction-watcher` — the last `getOpenRouter()` call site — was refactored through `OracleAIClient`. The codebase has zero functional references to OpenRouter; only doc comments mention it for historical context.
 
-**Actually:** it's a deliberate R6+ transitional layer. The OracleAIClient surface (route resolution, context-pack logging, `model_run_usage_details`, fallback dispatch) is fully active. Only the SDK-level call is bridged to OpenRouter because `@anthropic-ai/sdk` / `@google/genai` / `openai` aren't wired yet. The bridge maps the route's `modelId` to OpenRouter's namespace (`vertex_gemini_2_5_flash` → `google/gemini-2.5-flash`, etc.).
-
-**Why:** R6 / R7 / R8 needed to ship the staging pipeline + observability changes without taking a hard dependency on real cloud SDKs that require credentials + a wet-test path. The bridge satisfies the "everything through OracleAIClient" rule today and gets swapped out per-adapter as R9+ replacements land.
-
-**Do not change because:** removing the bridge before the real adapter is wired means every model call throws `ProviderAdapterNotImplementedError`. The chat route, both workers, and the synthesis worker (when R9 lands) all depend on the bridge for routing today.
+**Do not change because:** D6 deprecated OpenRouter for production; the wet-test proved direct adapters work end-to-end; re-introducing OpenRouter would undo the entire R-providers + R11.0 retirement.
 
 ### Pure-function-first design in `packages/oracle-engines/src/extraction/`
 
@@ -580,9 +580,15 @@ Never commit real values. `.env.local` is git-ignored. Reference values are in t
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key for browser client | Vercel env, `.env.local` | yes | yes |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key (newer alias of anon) | Vercel env, `.env.local` | yes | yes |
 | `SUPABASE_SERVICE_ROLE_KEY` | Bypasses RLS — server-side only | Vercel env, `.env.local` | yes | yes |
-| `OPENROUTER_API_KEY` | LLM provider for chat + extraction + synthesis | Vercel env, `.env.local` | yes | yes |
-| `OPENAI_API_KEY` | Embeddings (`text-embedding-3-small`) | Vercel env, `.env.local` | optional (falls back to zero vector) | yes |
+| `ANTHROPIC_API_KEY` | Direct Anthropic API — `AnthropicAdapter` for interview chat (Claude Haiku 4.5) | `.env.local`, Vercel env, Trigger.dev (workers) | yes | yes |
+| `GOOGLE_CLOUD_PROJECT` | GCP project for Vertex AI — `VertexGeminiAdapter` for extraction + synthesis (Gemini 2.5 Flash). Current value: `vertex-ai-497120`. | `.env.local`, Vercel env, Trigger.dev (workers) | yes | yes |
+| `GOOGLE_CLOUD_LOCATION` | Vertex region (`us-central1`) | `.env.local`, Vercel env, Trigger.dev (workers) | yes | yes |
+| Vertex auth | Application Default Credentials. Locally: `gcloud auth application-default login`. Cloud: service-account JSON mounted via `GOOGLE_APPLICATION_CREDENTIALS`. | `~/.config/gcloud/application_default_credentials.json` locally; secret-mounted JSON in cloud | yes | yes |
+| `OPENAI_API_KEY` | Direct OpenAI API — `OpenAIAdapter` for fallback / schema-repair AND `text-embedding-3-small` embeddings (1536-dim) | `.env.local`, Vercel env, Trigger.dev (workers) | yes | yes |
 | `TRIGGER_SECRET_KEY` | Trigger.dev server-side key | Vercel env (web), Trigger.dev (workers), `.env.local` | yes | yes |
+| `TRIGGER_PROJECT_REF` | Trigger.dev project (`proj_wgpzsvhmsopqhvwqaycn`) | Vercel env, Trigger.dev, `.env.local` | yes | yes |
+
+`OPENROUTER_API_KEY` is no longer used. It was removed from `.env.local` and the codebase in commit `b01e514` (R11.0).
 
 For full details including the Sensitive-vs-Encrypted Vercel quirk, see [`docs/configuration.md`](docs/configuration.md).
 
@@ -601,9 +607,9 @@ The deploy story is fully managed (no Docker, no VPS, per spec Part 2.5):
   - **Rollback:** Vercel dashboard → Deployments → promote the previous production deployment.
 
 - **`apps/workers` → Trigger.dev Cloud.**
-  - Current production version: `20260521.1` (7 tasks). Project: `proj_wgpzsvhmsopqhvwqaycn`.
-  - Deploy from CI or manually: `pnpm --filter @oracle/workers deploy` (invokes `npx trigger.dev@latest deploy`).
-  - Runtime env vars: managed in Trigger.dev project dashboard (not Vercel).
+  - Project: `proj_wgpzsvhmsopqhvwqaycn`. Tasks across 5 files (claim-extraction, document-ingestion, contradiction-watcher, brain-synthesis, taxonomy-reevaluation).
+  - Deploy manually: `pnpm --filter @oracle/workers deploy` (invokes `npx trigger.dev@latest deploy`).
+  - Runtime env vars: managed in Trigger.dev project dashboard (not Vercel). Must include all the direct-provider keys + Vertex service-account JSON.
   - **Rollback:** redeploy from a prior commit, or disable the task in Trigger.dev's UI.
 
 - **Database migrations** are run manually before deploying changes that need them: `pnpm db:migrate`. The runner is idempotent. There is currently no CI-driven migration step — adding one is a Pending Work item.
@@ -618,7 +624,8 @@ For step-by-step deploy operations and rollback procedures, see [`docs/deploymen
 
 | Date | Incident | What we learned |
 |---|---|---|
-| _(none yet)_ | — | Greenfield. |
+| 2026-05-26 | R-providers wired with `@ai-sdk/*` wrappers (commit `cf8f087`) instead of raw SDKs | The Vercel AI SDK normalizes provider-specific cache fields and structured-output strategies through a uniform-but-lossy abstraction. `docs/oracle/02-provider-native-ai-architecture.md` §"Shared architecture" and DECISIONS.md D6 had already ruled this out by name. **Lesson:** read the relevant `docs/oracle/0N-*.md` BEFORE picking a dep. Reverted in commit `bfc0821`. Rule added: any new dep that lives in `packages/ai/src/providers/` must justify why it isn't a raw provider SDK. |
+| 2026-05-26 | OpenRouter API key surfaced in tool output (`.env.local` line dump during R11.0) | Tool output containing file content is logged in the transcript. `.env.local` contained `OPENROUTER_API_KEY=sk-or-v1-...` at the time. **Lesson:** when dumping `.env.local`, always pipe through a `sed` redaction. Rule added: scripts that touch `.env.local` redact secret-shaped values before printing. The leaked key is being rotated as part of the pre-production checklist. |
 
 When something goes wrong, append a section here using the format:
 
@@ -645,7 +652,7 @@ Rule added to prevent recurrence:
 | open | Create the `company_documents` Storage bucket in Supabase if not already done | Albert (Supabase dashboard) |
 | open | Wire Authentik OIDC as a third login provider for internal-only accounts | future build session |
 | done | Deploy Phase 4 to Trigger.dev — version `20260521.1` with 7 tasks running in production (`proj_wgpzsvhmsopqhvwqaycn`). `TRIGGER_PROJECT_REF` set in `.env.local` + Vercel. | 2026-05-21 |
-| done | Admin → Settings: three model pickers (interview/extraction/synthesis) with live capability icons (vision, tool use, file input, reasoning, image gen), price badges, and required-cap indicators per role. OpenRouter `/models` endpoint used — correct capability fields: `input_modalities`, `output_modalities`, `supported_parameters`. | 2026-05-21 |
+| open | Admin → Settings model pickers were sourced from OpenRouter's `/models` proxy (deleted in `b01e514`). Replacement should source from the curated `OracleModelRoute` catalog in `packages/ai/src/routes/catalog.ts` — strict 1 Primary + 1 Fallback per role per docs/oracle/01. | future build session |
 | done | Implement Phase 5 — Admin review dashboards (claims, gaps, contradictions, brain) | all four dashboards + server actions live; typecheck clean |
 | done | **R1 — Curated Oracle model route catalog** | `packages/ai/src/routes/` (commit `91e44ea`) |
 | done | **R2 — OracleAIClient + ContextCompiler + ModelRouter + provider adapter stubs** | commit `3c51c9b`; 16/16 smoke assertions pass via `pnpm --filter @oracle/ai verify:r2` |
@@ -654,22 +661,26 @@ Rule added to prevent recurrence:
 | done | **R4 — Candidate-before-claim staging schema** (4 staging tables; 13 CHECK constraints incl. promoted-consistency, sensitive-consistency, validated-fields-required-on-pass) | commit `fe60304`; Drizzle migration `0003_magenta_lionheart.sql` + hand-written `13_extraction_constraints.sql` |
 | done | **R5 — Quote validator + promotion decision** (pure functions in `packages/oracle-engines/src/extraction/{quote-validator,candidate-hash,promote-candidate}.ts`; 33/33 assertions via `pnpm --filter @oracle/engines verify:r5`) | commit `70339c6` |
 | done | **R5.5 — Entity resolver + taxonomy validator** (`entity-resolver.ts` + `taxonomy-validator.ts`; `decidePromotion` extended with `entityAssignments` + `metadata` + `entityProposalsToStage`; 45/45 assertions via `verify:r5.5`) | commit `8cad256`; Drizzle migration `0004_simple_tomas.sql` for `extraction_candidate_evidence.documentClass` + `processStage` |
-| done | **R6 — Refactor `apps/workers/src/trigger/claim-extraction.ts` through staging tables** (circuit breaker + promotion executor + bridge adapter; 30/30 assertions via `verify:r6`) | commit `b46131d`; new `packages/ai/src/providers/openrouter-bridge-adapter.ts` |
+| done | **R6 — Refactor `apps/workers/src/trigger/claim-extraction.ts` through staging tables** (circuit breaker + promotion executor; smoke assertions via `verify:r6`) | commit `b46131d` (later swapped to direct adapters in R-providers) |
 | done | **R7 — Refactor `apps/workers/src/trigger/document-ingestion.ts` through staging** (cache profitability heuristic + `provider_cached_content` lifecycle + race-safe executor + `claims.candidate_hash`; 19/19 assertions via `verify:r7`) | commit `a8a8586`; Drizzle migration `0005_kind_nekra.sql` + hand-written `14_claims_candidate_hash_unique.sql` |
 | done | **R8 — Refactor `apps/web/app/api/chat/route.ts` through `OracleAIClient`** with `providerOptions` escape hatch for tools, multi-turn messages, `stopWhen`, `temperature` | commit `8a38fbd` |
 | done | **R9 — Synthesis worker refactor + diff validator** (`brain-synthesis.ts` through `OracleAIClient`; `validateSynthesisDiff` in `packages/oracle-engines/src/synthesis/` with claim-ID + unsupported-named-entity checks; rejected-version preservation via `reviewStatus='rejected'`; 21-assertion smoke `verify:r9`) | commit `8343c2d` |
 | done | **R10 — Admin AI observability dashboards** (6 pages under `/admin/ai`: dashboard, runs list, run detail / context pack viewer with retrieval diagnostics, cache, candidates with sensitive-hidden-by-default, evals placeholder) | commit `ea33d66` |
 | done | **R10.5 — Taxonomy governance dashboard + re-evaluation worker scaffold** (5 pages under `/admin/taxonomy`; 4 transactional approve/reject server actions; scheduled `taxonomy-reevaluation` worker counts approved claims per domain and reports activation threshold — clustering body deferred until claim density justifies it) | commit `533f39b` |
-| open | Apply the new migrations to live Supabase DB | `pnpm db:migrate` will apply `0001`–`0005` in order; all hand-written SQL is idempotent; no existing data touched. **This is the next non-coding action that unblocks R11.** |
-| open | Wet-test the candidate-before-claim pipeline end-to-end | After migrations: trigger a real extraction run, review via `/admin/ai/runs` + `/admin/ai/candidates` + `/admin/claims`. |
-| blocked | **R11 — Resume interjection engine** | Gated on wet-test. Architectural prerequisites (candidate pipeline live + admin audit surface) are met; empirical prerequisites (test transcript processed + claims reviewed) need real data first. |
-| open | R10 — Admin observability dashboards (AI runs, context packs, cache traffic-light, candidate review) | reads from `model_runs_with_usage` view |
-| open | R10.5 — Taxonomy admin + maturity-based re-evaluation worker | compact proposal cards for `taxonomy_proposals` / `entity_proposals` |
-| open | R11 — Resume interjection engine (lull detection, contradiction live-interjection) | only after R5–R10.5 — needs trustworthy claims first |
+| done | Apply the new migrations to live Supabase DB | 2026-05-26 — applied via Supabase MCP this session. 6 Drizzle (0000–0005) + 18 hand-written SQL files. 51 public tables. Supabase advisor: 36 → 2. |
+| done | **R-providers — Direct provider adapters** (`AnthropicAdapter` via `@anthropic-ai/sdk`, `VertexGeminiAdapter` via `@google/genai`, `OpenAIAdapter` via `openai`; all 4 production callers switched off the bridge) | commits `bfc0821` + `51a33ff`; 6/6 real-API smoke green |
+| done | Wet-test the candidate-before-claim pipeline end-to-end | 2026-05-26 — 1 synthetic message → 2 promoted claims, 0 errors, 8.3s. Real Vertex Gemini Flash via direct adapter. commit `51a33ff` |
+| done | **R11.0 — Refactor `contradiction-watcher` through `OracleAIClient`**; OpenRouter completely removed from codebase | commit `b01e514` |
+| open | **R11.1 — Pure decision functions** in `packages/oracle-engines/src/interjection.ts` (`decideLullInterjection` + `decideContradictionInterjection`) + smoke gate | next session. See HANDOFF.md for the exact input shape. |
+| open | **R11.2 — Lull-interjection Trigger.dev task** | depends on R11.1. Cron every minute; picks gap; drafts question via OracleAIClient on the interview route (Anthropic Haiku 4.5); posts live message; records intervention. |
+| open | **R11.3 — Live contradiction interjection** | depends on R11.1 + R11.2. Extends `contradiction-watcher` to post live messages when `enable_live_contradiction_interjections=true` + severity=high. Includes migration `50_enable_live_contradiction_interjections.sql`. |
+| open | **R11.4 — Final docs cleanup** | depends on R11.3. HANDOFF + DECISIONS + `docs/oracle/05` final completion pass. |
 | done | CI: `.github/workflows/pr-check.yml` runs `pnpm --filter @oracle/web build` on PRs + pushes to `main`. Catches production-only typecheck errors (the 2026-05-20 class of failure). Uses placeholder env vars; App Router dynamic-rendering means real secrets aren't needed at build. | 2026-05-21 |
 | open | CI: add migration job (`pnpm db:migrate`) gated on manual approval | — |
 | open | Vector indexes (`packages/db/migrations/sql/99_vector_indexes.sql`) — apply once enough embedding data exists to justify HNSW | run the SQL when ready |
 | open | Rotate the Vercel token that was pasted into the build transcript during overnight setup | https://vercel.com/account/tokens |
+| open | Rotate `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and the unused OpenRouter key before going live (all three were exposed in chat transcripts during the R-providers and R11.0 sessions for dev convenience) | https://console.anthropic.com/settings/keys, https://platform.openai.com/api-keys, https://openrouter.ai/keys |
+| open | Delete `OpenRouter`-tagged tasks from the Trigger.dev project's env vars on the next workers deploy (`OPENROUTER_API_KEY` is no longer used) | Trigger.dev dashboard |
 | open | Add an admin UI to link / unlink employee identities (e.g. "this gmail is also Albert") | future Phase 5 task |
 | open | Wet-test the Microsoft 365 + Google login flows on a fresh employee (one with no prior session state) before broader rollout | Albert |
 | done | Phase 1 — Foundation (schema, migrations, RLS, auth callback, admin seed) | **wet-tested** |
