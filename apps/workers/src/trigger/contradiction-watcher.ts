@@ -21,14 +21,16 @@
 //   - Every LLM call → model_runs + model_run_usage_details + oracle_context_packs.
 
 import { schedules, task, tasks } from '@trigger.dev/sdk/v3';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
 import {
+  claimEvidence,
   claims,
   contradictions,
   gaps,
+  messages,
   modelRuns,
   modelRunUsageDetails,
   jobRuns,
@@ -47,11 +49,34 @@ import {
   type OracleModelRoute,
 } from '@oracle/ai';
 import { EMBEDDING_DIM } from '@oracle/shared';
+import {
+  decideContradictionInterjection,
+  CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD,
+} from '@oracle/engines';
 
 // Extraction route is the right home for adjudication too — it's a cheap
-// structured-output call. Different from R11's lull-interjection drafting,
+// structured-output call. Different from R11's live-interjection drafting,
 // which uses the interview route for human-facing warmth.
 const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
+const FALLBACK_INTERVIEW_ROUTE_ID = 'anthropic_claude_haiku_4_5_interview_primary';
+
+// Default settings if the rows are missing — match seed defaults.
+const DEFAULT_ORACLE_COOLDOWN_MINUTES = 10;
+const DEFAULT_MAX_ORACLE_INTERJECTIONS_PER_HOUR = 3;
+
+const LIVE_INTERJECTION_PROMPT_VERSION = 'contradiction-live-1.0.0';
+
+const LIVE_INTERJECTION_SYSTEM = `You are the Oracle — an evidence-backed knowledge assistant for POP Creations / Spruce Line.
+
+Two approved claims on file appear to contradict each other. The team is mid-conversation, so surface the conflict as one warm, natural, chat-shaped question that helps resolve it. Match the tone of a colleague who quietly noticed something off.
+
+Hard rules:
+- Return ONLY the question text — no preface, no explanation, no metadata.
+- 240 characters or less.
+- One question only.
+- Plain text, no markdown.
+- If the suggested question is already concrete, you can use it nearly verbatim.
+- Do not name the model, the system, or "contradictions" — just ask which one is right today.`;
 
 // Similarity threshold — cosine distance below this may indicate related claims.
 // pgvector cosine distance: 0 = identical, 2 = maximally different.
@@ -298,17 +323,44 @@ async function checkClaimForContradictions(
     return { contradictionsFound: 0 };
   }
 
-  // Read settings + resolve route.
-  const [enableLiveSetting, route] = await Promise.all([
+  // Read settings + resolve routes.
+  const [
+    enableLiveSetting,
+    cooldownSetting,
+    rateCapSetting,
+    extractionRoute,
+    interviewRoute,
+  ] = await Promise.all([
     db
       .select({ value: settings.value })
       .from(settings)
       .where(eq(settings.key, 'enable_live_contradiction_interjections'))
       .limit(1),
+    db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'oracle_cooldown_minutes'))
+      .limit(1),
+    db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'max_oracle_interjections_per_hour'))
+      .limit(1),
     resolveContradictionRoute(db),
+    resolveInterviewRoute(db),
   ]);
 
   const enableLiveInterjection = enableLiveSetting[0]?.value === true;
+  const oracleCooldownMinutes =
+    typeof cooldownSetting[0]?.value === 'number'
+      ? (cooldownSetting[0]!.value as number)
+      : DEFAULT_ORACLE_COOLDOWN_MINUTES;
+  const maxOracleInterjectionsPerHour =
+    typeof rateCapSetting[0]?.value === 'number'
+      ? (rateCapSetting[0]!.value as number)
+      : DEFAULT_MAX_ORACLE_INTERJECTIONS_PER_HOUR;
+  // Use extractionRoute for adjudication; interviewRoute for live drafting.
+  const route = extractionRoute;
 
   // Ensure the claim has an embedding; compute one if absent.
   let claimEmbedding = claim.embedding;
@@ -377,10 +429,55 @@ async function checkClaimForContradictions(
 
     contradictionsFound++;
 
-    // Decide: live interjection vs queued (spec 5.1 Rule 1).
-    // Most contradictions → queued. Live only if setting is on + severity=high.
-    const isLive = enableLiveInterjection && object.severity === 'high';
-    const decision = isLive ? 'live_interjection' : 'queued_gap';
+    // Resolve channel context — pick the channel containing the most recent
+    // claim_evidence row for either claim. If neither claim has any
+    // claim_evidence with a source_message_id (document-only evidence),
+    // the contradiction stays as a contradictions row but cannot be live-
+    // posted — there's nowhere to post.
+    const channelCtx = await findChannelForClaimPair(db, claimId, candidate.id);
+
+    // Compute the inputs to decideContradictionInterjection.
+    let cooldownMin: number | null = null;
+    let interjectionsInLastHour = 0;
+    if (channelCtx) {
+      const lastInt = await db
+        .select({ createdAt: oracleInterventions.createdAt })
+        .from(oracleInterventions)
+        .where(eq(oracleInterventions.channelId, channelCtx.channelId))
+        .orderBy(desc(oracleInterventions.createdAt))
+        .limit(1);
+      cooldownMin =
+        lastInt.length > 0 && lastInt[0]
+          ? Math.floor((Date.now() - lastInt[0].createdAt.getTime()) / 60_000)
+          : null;
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const countRows = await db
+        .select({ c: sql<number>`count(*)::int` })
+        .from(oracleInterventions)
+        .where(
+          and(
+            eq(oracleInterventions.channelId, channelCtx.channelId),
+            gte(oracleInterventions.createdAt, oneHourAgo),
+          ),
+        );
+      interjectionsInLastHour = countRows[0]?.c ?? 0;
+    }
+
+    const interjectionDecisionResult = decideContradictionInterjection({
+      detectionConfidence: CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD,
+      severity: object.severity,
+      enableLiveContradictionInterjections: enableLiveInterjection,
+      minutesSinceLastOracleInterjection: cooldownMin,
+      oracleCooldownMinutes,
+      interjectionsInLastHour,
+      maxOracleInterjectionsPerHour,
+      suggestedQuestion: object.suggestedQuestion ?? null,
+    });
+
+    // If we have no channel to post in, force the decision to queue.
+    const willLive =
+      interjectionDecisionResult.decision === 'live' && channelCtx !== null;
+    const decisionLabel = willLive ? 'live_interjection' : 'queued_gap';
 
     const [contradiction] = await db
       .insert(contradictions)
@@ -390,16 +487,53 @@ async function checkClaimForContradictions(
         description: object.explanation,
         severity: object.severity,
         status: 'possible',
-        detectionConfidence: 80,
+        detectionConfidence: CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD,
         retrievedClaimIds: candidates.map((c) => c.id),
-        interjectionDecision: decision,
+        interjectionDecision: decisionLabel,
         suggestedQuestion: object.suggestedQuestion ?? null,
         createdByModelRunId: modelRunId,
       })
       .returning({ id: contradictions.id });
 
-    // If queued_gap, create a gap asking for clarification.
-    if (decision === 'queued_gap' && object.suggestedQuestion) {
+    // Live branch: draft a one-liner via the interview route and post.
+    let interjectionMessageId: string | null = null;
+    if (willLive && channelCtx && object.suggestedQuestion) {
+      try {
+        const drafted = await draftContradictionInterjection(
+          db,
+          client,
+          interviewRoute,
+          {
+            suggestedQuestion: object.suggestedQuestion,
+            claimASummary: claim.summary,
+            claimBSummary: candidate.summary,
+            explanation: object.explanation,
+          },
+        );
+        const [postedMessage] = await db
+          .insert(messages)
+          .values({
+            channelId: channelCtx.channelId,
+            employeeId: null,
+            role: 'assistant',
+            content: drafted.text,
+            metadataJson: {
+              source: 'contradiction-interjection',
+              contradictionId: contradiction?.id,
+              modelRunId: drafted.modelRunId,
+              decisionReason: interjectionDecisionResult.reason,
+            },
+          })
+          .returning({ id: messages.id });
+        interjectionMessageId = postedMessage?.id ?? null;
+      } catch (drafterr) {
+        console.error('[contradiction-watcher] live drafting failed:', drafterr);
+        // Fall through — record the intervention as not-live; the gap still gets queued below.
+      }
+    }
+
+    // If queued (decision wasn't live, or live drafting failed), create a gap.
+    if (!interjectionMessageId && object.suggestedQuestion) {
       await db.insert(gaps).values({
         gapType: 'contradiction_gap',
         relatedClaimIds: [claimId, candidate.id],
@@ -412,21 +546,20 @@ async function checkClaimForContradictions(
       });
     }
 
-    // Log oracle_interventions row — bookkeeping; the actual posting of a
-    // live interjection message is wired in R11.3 (lull-interjection / direct
-    // interjection task) once channel context is available. This row records
-    // that the decision was made; was_live_interjection reflects intent.
+    // Log oracle_interventions row. channelId is the real channel if we found
+    // one, or the all-zero placeholder if the contradiction is between
+    // claims sourced only from documents (no chat channel).
     await db.insert(oracleInterventions).values({
-      // No channel context at this point (batch job, not live chat). R11.3
-      // wires this to the right channel via the contradiction's
-      // originating-message channel lookup.
-      channelId: '00000000-0000-0000-0000-000000000000',
+      channelId: channelCtx?.channelId ?? '00000000-0000-0000-0000-000000000000',
       triggerType: 'possible_contradiction',
       relatedContradictionId: contradiction?.id,
-      confidence: 80,
+      interjectionMessageId,
+      confidence: CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD,
       impactScore: object.severity === 'high' ? 9 : object.severity === 'medium' ? 6 : 3,
-      wasLiveInterjection: isLive,
-      reason: object.explanation,
+      wasLiveInterjection: interjectionMessageId !== null,
+      reason: interjectionDecisionResult.decision === 'live'
+        ? interjectionDecisionResult.reason
+        : `${interjectionDecisionResult.reason} [details: ${object.explanation}]`,
     });
   }
 
@@ -515,3 +648,196 @@ export const contradictionWatcherSweepTask = schedules.task({
     return { ok: true, triggered, total: unchecked.length };
   },
 });
+
+// ─── R11.3 helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Resolve the curated INTERVIEW route (Anthropic Claude Haiku 4.5 by default).
+ * Used for human-facing contradiction interjection drafting.
+ */
+async function resolveInterviewRoute(
+  db: ReturnType<typeof getDirectDb>,
+): Promise<OracleModelRoute> {
+  const row = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, 'default_interview_route'))
+    .limit(1);
+  const routeId =
+    typeof row[0]?.value === 'string'
+      ? (row[0]!.value as string)
+      : FALLBACK_INTERVIEW_ROUTE_ID;
+  const resolved = getOracleRoute(routeId);
+  if (resolved) return resolved;
+  const fallback = getOracleRoute(FALLBACK_INTERVIEW_ROUTE_ID);
+  if (!fallback) {
+    throw new Error(
+      `[contradiction-watcher] settings.default_interview_route="${routeId}" not in catalog, and fallback "${FALLBACK_INTERVIEW_ROUTE_ID}" also missing.`,
+    );
+  }
+  console.warn(
+    `[contradiction-watcher] settings.default_interview_route="${routeId}" not in catalog; using fallback "${FALLBACK_INTERVIEW_ROUTE_ID}".`,
+  );
+  return fallback;
+}
+
+/**
+ * Find a chat channel to post a live interjection in for a pair of contradicting
+ * claims. Picks the channel containing the most-recent claim_evidence
+ * source_message for either claim. Returns null if neither claim has
+ * message-sourced evidence (e.g. both came purely from document chunks).
+ */
+async function findChannelForClaimPair(
+  db: ReturnType<typeof getDirectDb>,
+  claimAId: string,
+  claimBId: string,
+): Promise<{ channelId: string } | null> {
+  const rows = await db
+    .select({
+      channelId: messages.channelId,
+      createdAt: messages.createdAt,
+    })
+    .from(claimEvidence)
+    .innerJoin(messages, eq(claimEvidence.sourceMessageId, messages.id))
+    .where(inArray(claimEvidence.claimId, [claimAId, claimBId]))
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+  return rows.length > 0 && rows[0] ? { channelId: rows[0].channelId } : null;
+}
+
+/**
+ * Draft the live interjection message via the interview route (Anthropic
+ * Claude Haiku 4.5). Writes the standard observability triple (context pack,
+ * model_runs, model_run_usage_details).
+ */
+async function draftContradictionInterjection(
+  db: ReturnType<typeof getDirectDb>,
+  client: OracleAIClient,
+  route: OracleModelRoute,
+  input: {
+    suggestedQuestion: string;
+    claimASummary: string;
+    claimBSummary: string;
+    explanation: string;
+  },
+): Promise<{ text: string; modelRunId: string | null }> {
+  const userMessage = `Suggested question (use this as-is or tighten if needed): ${input.suggestedQuestion}
+
+Why it matters (context for tone — do NOT include in the output):
+Two claims on file appear to contradict:
+- Claim A: ${input.claimASummary}
+- Claim B: ${input.claimBSummary}
+Explanation: ${input.explanation}`;
+
+  const blocks = [
+    makeBlock({
+      id: 'sys',
+      label: 'Contradiction live interjection system prompt',
+      kind: 'stable_system',
+      content: LIVE_INTERJECTION_SYSTEM,
+      cacheEligible: true,
+      reasonIncluded: 'spec 5.1 Rule 1 — live contradiction interjection drafting',
+    }),
+    makeBlock({
+      id: 'input',
+      label: 'Contradiction input',
+      kind: 'dynamic_input',
+      content: userMessage,
+      cacheEligible: false,
+      reasonIncluded: 'current contradiction pair under live drafting',
+    }),
+  ];
+
+  const callStartedAt = Date.now();
+  let modelRunId: string | null = null;
+  try {
+    const result = await client.runText({
+      taskType: 'interview_chat',
+      routeId: route.routeId,
+      promptVersion: LIVE_INTERJECTION_PROMPT_VERSION,
+      blocks,
+      providerOptions: { temperature: 0.4 },
+    });
+    const latencyMs = Date.now() - callStartedAt;
+
+    const [contextPack] = await db
+      .insert(oracleContextPacks)
+      .values({
+        taskType: 'interview_chat',
+        routeId: route.routeId,
+        promptVersion: LIVE_INTERJECTION_PROMPT_VERSION,
+        stablePrefixHash: hashString(LIVE_INTERJECTION_SYSTEM),
+        dynamicInputHash: hashString(userMessage),
+        blocksJson: blocks.map((b) => ({
+          id: b.id,
+          kind: b.kind,
+          hash: b.hash,
+          tokenEstimate: b.tokenEstimate,
+        })),
+      })
+      .returning({ id: oracleContextPacks.id });
+    if (!contextPack) throw new Error('failed to insert oracle_context_packs row');
+
+    const [modelRun] = await db
+      .insert(modelRuns)
+      .values({
+        taskType: 'contradiction-live-interjection',
+        model: route.modelId,
+        provider: route.provider,
+        promptVersion: LIVE_INTERJECTION_PROMPT_VERSION,
+        inputHash: hashString(LIVE_INTERJECTION_SYSTEM),
+        inputTokens: result.usage.inputTokens ?? null,
+        outputTokens: result.usage.outputTokens ?? null,
+        latencyMs,
+        success: true,
+      })
+      .returning({ id: modelRuns.id });
+    if (!modelRun) throw new Error('failed to insert model_runs row');
+    modelRunId = modelRun.id;
+
+    await db.insert(modelRunUsageDetails).values({
+      modelRunId: modelRun.id,
+      contextPackId: contextPack.id,
+      routeId: route.routeId,
+      inputTokens: result.usage.inputTokens ?? null,
+      outputTokens: result.usage.outputTokens ?? null,
+      cachedInputTokens: result.usage.cachedInputTokens ?? null,
+      cacheWriteTokens: result.usage.cacheWriteTokens ?? null,
+      reasoningTokens: result.usage.reasoningTokens ?? null,
+      providerRequestId: result.usage.providerRequestId ?? null,
+      rawUsageJson: (result.usage.rawUsageJson ?? null) as Record<string, unknown> | null,
+    });
+
+    await db
+      .update(oracleContextPacks)
+      .set({ modelRunId: modelRun.id })
+      .where(eq(oracleContextPacks.id, contextPack.id));
+
+    const text = (result.text ?? '').trim();
+    if (text.length === 0) {
+      throw new Error('drafting returned empty text');
+    }
+    return { text, modelRunId };
+  } catch (err) {
+    const latencyMs = Date.now() - callStartedAt;
+    const message = err instanceof Error ? err.message : String(err);
+    try {
+      const [modelRun] = await db
+        .insert(modelRuns)
+        .values({
+          taskType: 'contradiction-live-interjection',
+          model: route.modelId,
+          provider: route.provider,
+          promptVersion: LIVE_INTERJECTION_PROMPT_VERSION,
+          latencyMs,
+          success: false,
+          error: message,
+        })
+        .returning({ id: modelRuns.id });
+      modelRunId = modelRun?.id ?? null;
+    } catch {
+      /* swallow */
+    }
+    throw err;
+  }
+}
