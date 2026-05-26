@@ -2,9 +2,11 @@
 
 Live in-flight state for the next contributor or AI coding session.
 
-**Snapshot date:** 2026-05-25
+**Snapshot date:** 2026-05-26
 **Repo:** https://github.com/u2giants/theoracle
-**Current state:** AI retrofit code complete (R0–R10.5). **The next step is a wet-test, not more code.** R11 (interjection engine) is gated on running the candidate-before-claim pipeline against real data first.
+**Current state:** AI retrofit code complete (R0–R10.5) + **R-providers complete** (direct Vertex/Anthropic/OpenAI adapters wired, OpenRouter retired from production paths) + **wet-test passed end-to-end against real Supabase + Vertex** (first real claim rows landed in `claims` 2026-05-26 17:35 UTC). **R11 (interjection engine) is now unblocked.**
+
+**Pre-production reminder:** the keys in `.env.local` were pasted in chat for dev convenience. **Rotate `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` before going live.**
 
 ---
 
@@ -38,7 +40,9 @@ Live in-flight state for the next contributor or AI coding session.
 | R9 — Synthesis worker refactor | ✅ done | `8343c2d` | `brain-synthesis.ts` through `OracleAIClient` + `validateSynthesisDiff` (claim ID + unsupported-named-entity check) + rejected-version preservation + 21-assertion smoke |
 | R10 — Admin observability dashboards | ✅ done | `ea33d66` | 6 read-only pages under `/admin/ai`: dashboard, runs list, run detail (context pack viewer), cache, candidates, evals placeholder |
 | R10.5 — Taxonomy admin + re-eval worker | ✅ done | `533f39b` | 5 pages under `/admin/taxonomy` + 4 transactional approve/reject server actions + scheduled `taxonomy-reevaluation` worker scaffold |
-| **R11 — Resume interjection engine** | ⬜ **gated on wet-test** | — | Architectural prerequisites met; needs real claim data before tuning interjection thresholds |
+| R-providers — Direct provider adapters | ✅ done | `bfc0821` + `51a33ff` | `VertexGeminiAdapter` via `@google/genai`, `AnthropicAdapter` via `@anthropic-ai/sdk`, `OpenAIAdapter` via `openai`. All 4 worker / route call sites switched off `OpenRouterBridgeAdapter`. Smoke 6/6 green against real provider APIs. |
+| **Wet-test** | ✅ done | `51a33ff` | 1 synthetic message → 2 claims promoted, 0 errors, 8.3s elapsed. Real Vertex Gemini Flash call, native JSON schema enforcement, quote validator + taxonomy validator + advisory-locked promotion all working end-to-end. |
+| **R11 — Resume interjection engine** | ⬜ **unblocked, ready to start** | — | Wet-test passed. Real claim data exists. Can begin tuning interjection thresholds against actual extraction output. |
 
 ---
 
@@ -46,7 +50,7 @@ Live in-flight state for the next contributor or AI coding session.
 
 These are load-bearing — undoing any of them silently breaks correctness or observability.
 
-1. **No direct provider SDK calls outside `packages/ai/src/providers/`.** Every production model call goes through `OracleAIClient`. R6/R7/R8/R9 all comply. The `getOpenRouter()` import is now only used internally by `OpenRouterBridgeAdapter`.
+1. **No direct provider SDK calls outside `packages/ai/src/providers/`.** Every production model call goes through `OracleAIClient`. R6/R7/R8/R9 all comply. Production adapters are `AnthropicAdapter` / `VertexGeminiAdapter` / `OpenAIAdapter` using raw provider SDKs (`@anthropic-ai/sdk` / `@google/genai` / `openai`). The Vercel AI SDK is explicitly banned in the production path per DECISIONS.md D6 — its `@ai-sdk/*` wrappers destroy cache observability and provider-native structured-output formats. `OpenRouterBridgeAdapter` remains as inert code (no production import) and will be deleted in a follow-up cleanup.
 2. **No extracted claim writes to permanent tables.** Stage → validate → promote, always. `executePromotion` in `packages/oracle-engines/src/extraction/promotion-executor.ts` is the only path that can insert into `claims` / `claim_top_domains` / `claim_entities` / `claim_evidence` / `claim_metadata`.
 3. **No global vector search.** Every retrieval that lands must go through a `RetrievalPlan` with metadata pre-filter, then hybrid pgvector + tsvector RRF.
 4. **`licensor` is NOT `vendor`.** Structural enforcement via CHECK constraint + entity resolver `type_mismatch` detection.
@@ -59,18 +63,23 @@ These are load-bearing — undoing any of them silently breaks correctness or ob
 
 ---
 
-## What runs through `OracleAIClient` today (R6–R9 complete)
+## What runs through `OracleAIClient` today (R6–R9 + R-providers complete)
 
 ```
-apps/workers/src/trigger/claim-extraction.ts      ✅  R6 via OpenRouterBridgeAdapter
-apps/workers/src/trigger/document-ingestion.ts    ✅  R7 via OpenRouterBridgeAdapter
-apps/web/app/api/chat/route.ts                    ✅  R8 via OpenRouterBridgeAdapter
-apps/workers/src/trigger/brain-synthesis.ts       ✅  R9 via OpenRouterBridgeAdapter
+apps/workers/src/trigger/claim-extraction.ts      ✅  R6 via direct Vertex + Anthropic + OpenAI adapters
+apps/workers/src/trigger/document-ingestion.ts    ✅  R7 via direct Vertex + Anthropic + OpenAI adapters
+apps/web/app/api/chat/route.ts                    ✅  R8 via direct Vertex + Anthropic + OpenAI adapters
+apps/workers/src/trigger/brain-synthesis.ts       ✅  R9 via direct Vertex + Anthropic + OpenAI adapters
 apps/workers/src/trigger/contradiction-watcher.ts ⬜  Phase 6 / R11 territory
 apps/workers/src/trigger/taxonomy-reevaluation.ts ⬜  scaffold only; clustering body deferred
 ```
 
-The `OpenRouterBridgeAdapter` wears whichever provider hat (anthropic / vertex / openai) the curated route requires; under the hood it still uses OpenRouter + Vercel AI SDK. Real provider-native SDKs (`@anthropic-ai/sdk`, `@google/genai`, `openai`) are NOT yet wired — they get swapped in per-adapter when there's a wet-test path for them.
+Every production call goes through `OracleAIClient → {Anthropic|Vertex|OpenAI}Adapter` using the raw provider SDKs directly. No Vercel AI SDK, no OpenRouter in the production path. Verified end-to-end by the 2026-05-26 wet-test (commit `51a33ff`).
+
+**Env vars required** (in repo-root `.env.local`):
+- `GOOGLE_CLOUD_PROJECT=vertex-ai-497120`, `GOOGLE_CLOUD_LOCATION=us-central1`, plus working ADC (`gcloud auth application-default login`)
+- `ANTHROPIC_API_KEY=sk-ant-…`
+- `OPENAI_API_KEY=sk-proj-…`
 
 ---
 
