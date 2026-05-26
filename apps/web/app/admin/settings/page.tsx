@@ -44,7 +44,7 @@ const MODEL_ROLES: {
         under 8 s including tool calls.
       </>
     ),
-    settingDescription: 'OpenRouter model for real-time Oracle interview chat.',
+    settingDescription: 'Direct-provider model for real-time Oracle interview chat (Anthropic Claude Haiku 4.5 by default).',
     requirements: [
       'Tool use required',
       'Vision required (images, diagrams)',
@@ -70,7 +70,7 @@ const MODEL_ROLES: {
         documents containing embedded images (flow charts, product specs).
       </>
     ),
-    settingDescription: 'OpenRouter model for async claim extraction from messages and documents.',
+    settingDescription: 'Direct-provider model for async claim extraction from messages and documents (Vertex Gemini Flash by default).',
     requirements: [
       'Structured / JSON output required',
       'Vision recommended (document images)',
@@ -97,7 +97,7 @@ const MODEL_ROLES: {
         contradicting evidence. No latency requirement.
       </>
     ),
-    settingDescription: 'OpenRouter model for brain section synthesis (long-context, structured output).',
+    settingDescription: 'Direct-provider model for brain section synthesis — long-context, structured output (Vertex Gemini Flash by default).',
     requirements: [
       'Structured / JSON output required',
       'Long context (≥100K strongly recommended)',
