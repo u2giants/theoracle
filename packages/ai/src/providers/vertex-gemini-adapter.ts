@@ -27,6 +27,9 @@
  * / Gemini direct".
  */
 
+import { writeFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { GoogleGenAI } from '@google/genai';
 import type { Content, GenerateContentResponse } from '@google/genai';
 import { z, type ZodTypeAny } from 'zod';
@@ -50,11 +53,33 @@ export interface VertexGeminiAdapterOptions {
   location?: string;
 }
 
+/**
+ * If `GOOGLE_APPLICATION_CREDENTIALS_JSON` is set but
+ * `GOOGLE_APPLICATION_CREDENTIALS` (the file-path variant ADC reads) is not,
+ * materialize the JSON to a temp file and point ADC at it. This is the
+ * standard pattern for cloud workers (Trigger.dev, Vercel) that can hold
+ * env-var secrets but not mount files. Local dev (where the file path is
+ * already set by `gcloud auth application-default login`) is unaffected.
+ *
+ * Runs at most once per worker process — the temp file is reused.
+ */
+function ensureGoogleApplicationCredentialsFromJson(): void {
+  const json = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+  if (!json) return;
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return;
+  const tmpPath = join(tmpdir(), 'oracle-gcp-application-default-credentials.json');
+  if (!existsSync(tmpPath)) {
+    writeFileSync(tmpPath, json, { mode: 0o600 });
+  }
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = tmpPath;
+}
+
 export class VertexGeminiAdapter implements OracleProviderAdapter {
   readonly provider = 'vertex' as const;
   private readonly client: GoogleGenAI;
 
   constructor(opts: VertexGeminiAdapterOptions = {}) {
+    ensureGoogleApplicationCredentialsFromJson();
     const project = opts.project ?? process.env.GOOGLE_CLOUD_PROJECT;
     const location =
       opts.location ?? process.env.GOOGLE_CLOUD_LOCATION ?? 'us-central1';
