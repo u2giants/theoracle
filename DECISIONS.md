@@ -301,3 +301,57 @@ This file is the running log of every assumption, stub, and resolution made by t
 
 - **Extension to D5.legacy-claim-domains-preserved**: R6 and R7 workers now write to `claim_top_domains` via `executePromotion` (insert_new_claim path). The legacy `claim_domains` table is no longer written to by the new pipeline — but it's still preserved in the schema and still readable, per the R3.5 acceptance gate. The backfill SQL (`42_claim_top_domains_backfill.sql`) populates `claim_top_domains` from the legacy table on every migrate so the transition stays consistent.
 - **Removal plan**: drop `claim_domains` + the `knowledge_domain` Postgres enum only after R9 + R10 are wired and the admin dashboard reads exclusively from `claim_top_domains`.
+
+---
+
+# AI Architecture Retrofit — R9 through R10.5 (2026-05-25, third pass)
+
+## D7.synthesis-unsupported-name-check — deterministic, not LLM-graded
+
+- **Decision**: R9's `validateSynthesisDiff` rejects synthesis output if `updatedMarkdown` mentions a capitalized proper-noun-shaped name that is NOT backed by either an approved claim summary OR the canonical entity registry. The check is a pure deterministic regex + lookup, not an LLM grader.
+- **Why**: provenance must be auditable. An LLM judge for "is this name supported" reintroduces the paraphrase trap R5 solved for quotes — the judge can drift, the failure isn't reproducible, and the rejection isn't explainable to admin. The regex approach is conservative: false positives hold the synthesis for admin review (acceptable), false negatives let fabricated names through (worse), so the stopword list is curated tight.
+- **Implementation**: heading lines are stripped before scanning because headings are structural metadata, not factual claims. Code blocks, inline code, and markdown link URLs are stripped before regex matching. Sentence-start stopwords (A, An, The, Although, ...) and calendar words (Tuesday, January, ...) are explicitly whitelisted. Multi-word capitalized phrases are matched as one candidate so "Walt Disney" is checked as a unit, not as separate tokens.
+- **Removal plan**: none. This is a load-bearing safety net.
+
+## D7.rejected-version-row — preserve failed synthesis without changing currentVersionId
+
+- **Decision**: When R9 synthesis validation fails, the worker INSERTS a `brain_section_versions` row with `reviewStatus='rejected'` carrying the failed markdown + structured `validationFailures` + `unsupportedNames` in `structuredContent`. `brain_sections.currentVersionId` is NOT updated. Existing `brainSectionReviewStatusEnum` already had `'rejected'`, so no schema change.
+- **Why**: "store failed synthesis output for review" (retrofit packet R9 task 10) requires durable inspection of what the model produced. Dropping the row loses the audit trail. Auto-applying the failed output to `currentVersionId` exposes broken synthesis to production reads. Inserting + not pointing at it is the in-between that satisfies both.
+- **Alternative ruled out**: a separate `brain_synthesis_failures` table. Rejected because the existing schema already supports this case via the enum value — adding a parallel table would scatter the synthesis history across two tables and force every admin query to UNION them.
+
+## D7.r10-dashboards-are-read-only — no actions, no new schema, no new dependencies
+
+- **Decision**: All 6 R10 admin pages under `/admin/ai/*` are read-only. Server-rendered Drizzle queries against existing R3/R3.5/R4/R7 surfaces. No new tables, no new server actions, no new client libraries.
+- **Why**: observability dashboards are a substitution for "wire instrumentation everywhere"; the instrumentation is already in the schema (R3 view, R4 staging, R7 cache tracking). The pages just have to show it. Adding actions or new schema would risk introducing bugs in the observability path itself.
+- **Removal plan**: none. The pages will grow filters and exports as the data matures, but the read-only constraint is the invariant that keeps them lightweight to maintain.
+
+## D7.r10-candidates-sensitive-exclusion-at-sql-level — privacy guarantee, not UI toggle
+
+- **Decision**: The `/admin/ai/candidates` page filters out `rejected_sensitive` and `quarantined_sensitive` candidates from EVERY non-explicit tab via the SQL `WHERE` clause. The `"all"` tab uses `WHERE status NOT IN ('rejected_sensitive','quarantined_sensitive')`. Sensitive rows are reachable only via the explicit "Sensitive (hidden by default)" tab.
+- **Why**: per `docs/oracle/03-candidate-before-claim-validation.md` ("Sensitive rejected/quarantined candidates must not appear in this standard queue"), PII / HR conflict / disciplinary material must NEVER leak into the standard admin queue. A UI-only toggle would let a misclick expose them; the SQL-level structural exclusion makes that impossible.
+- **Removal plan**: none. This is a privacy guarantee.
+
+## D7.r10.5-no-auto-mutation — every taxonomy change is admin-gated
+
+- **Decision**: The R10.5 re-evaluation worker writes ONLY to `taxonomy_proposals`. No `INSERT INTO knowledge_top_domains`, no `UPDATE claim_top_domains`, no other taxonomy table modification. The admin approval flow (server actions in `apps/web/app/admin/taxonomy/_actions.ts`) is the ONLY path that can mutate taxonomy.
+- **Why**: per `docs/oracle/07-knowledge-segmentation.md` ("the system should NEVER auto-mutate taxonomy"). Auto-promotion of clustering output would corrupt the registry with whichever model run happened to fire. Compact admin proposal cards mean the admin can vet changes in seconds without reading raw evidence.
+
+## D7.r10.5-create-top-domain-applied-inline-others-queued
+
+- **Decision**: The R10.5 server action `approveTaxonomyProposal` applies `create_top_domain` proposals INLINE in the same transaction as the approval audit. For other proposal types (`merge_top_domains`, `split_top_domain`, `reassign_claims`, `create_sub_topic`, `merge_sub_topics`, `split_sub_topic`, `retire_sub_topic`), the proposal is marked approved with a `taxonomy_change_log` entry of `changeType='approve_pending_reclassification_<type>'`. The actual reclassification mutation is queued for the dedicated reclassification job (R10.5 task 4).
+- **Why**: `create_top_domain` is a single-row INSERT with no claim-level mutation needed. The other types require targeted `claim_top_domains` / `claim_sub_topics` moves + optional Brain synthesis re-runs — exactly the work the reclassification job exists to do correctly. Applying them inline in the approval server action would couple admin UI latency to a potentially large reclassification + risk partial-write bugs if the action times out.
+- **Audit trail**: every queued approval gets a `taxonomy_change_log` row noting `queuedFor: 'taxonomy-reclassification-worker'`, so the admin sees in `/admin/taxonomy/change-log` what's been approved-but-not-yet-applied.
+- **Removal plan**: when the reclassification job lands, the queued approvals get drained automatically.
+
+## D7.r10.5-reevaluation-worker-deferred-clustering-body
+
+- **Decision**: The R10.5 scheduled worker `taxonomy-reevaluation` ships with a scaffolded body that counts approved claims per active top-domain and reports an activation threshold (default 30 claims). It does NOT do clustering, drift detection, or proposal writing yet. `proposalsWritten: 0` is intentional.
+- **Why**: without real claim density, the clustering body would be implementing an algorithm against synthetic data with no way to verify correctness. The scaffold + job_runs telemetry gives admin a clear "we're not there yet" signal instead of silently writing meaningless proposals that pollute the review queue.
+- **What's documented inline**: the worker file's header documents exactly what the clustering pipeline does once it lands — per-domain density clustering on stored claim embeddings → cluster naming via cheap synthesis call → overlap analysis against current sub-topic centroids → drift detection per claim → cross-domain pattern check → proposal writing. Each step is a substitution for the current early-exit path.
+- **Removal plan**: replace the early-exit with the clustering body when approved-claim density justifies it (the `domainsReady` count in the worker output tells admin when that point is reached).
+
+## D7.openrouterbridge-still-bridges-after-r9 — wet-test gate before SDK swap
+
+- **Extension to D6.openrouter-bridge-adapter**: After R9, every legacy `getOpenRouter()` worker call site has been refactored to dispatch through `OracleAIClient`, but ALL of those callers still bridge to OpenRouter via the `OpenRouterBridgeAdapter`. The real `@anthropic-ai/sdk` / `@google/genai` / `openai` SDKs are still not wired.
+- **Why now**: the architectural rule ("everything through OracleAIClient") is satisfied. Swapping in real provider SDKs requires a wet-test path — cloud credentials, a test transcript, ability to compare provider responses. Pre-wet-test, the bridge ensures the entire pipeline runs identically; post-wet-test, the bridge gets swapped one adapter at a time as each provider's native features (Anthropic cache breakpoints, Vertex explicit caching, OpenAI structured outputs) are needed.
+- **Sequence**: R9 (synthesis) is the natural place to wire Anthropic direct first, because synthesis is cost-sensitive and Claude is the primary route.

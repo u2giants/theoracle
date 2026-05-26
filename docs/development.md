@@ -124,9 +124,10 @@ pnpm --filter @oracle/engines verify:r5     # 33/33 — quote validator + promot
 pnpm --filter @oracle/engines verify:r5.5   # 45/45 — entity resolver + taxonomy validator
 pnpm --filter @oracle/engines verify:r6     # 30/30 — circuit breaker + legacy domain mapping
 pnpm --filter @oracle/engines verify:r7     # 19/19 — cache profitability + token estimate
+pnpm --filter @oracle/engines verify:r9     # 21/21 — synthesis diff validator
 ```
 
-Run the gate for whichever module you touched. The DB-aware executor (`executePromotion`) and the Trigger.dev workers themselves aren't covered by these gates because they require a live Postgres — the pure decision logic they compose is covered.
+164 deterministic assertions across the AI retrofit pure-function modules. Run the gate for whichever module you touched. The DB-aware executor (`executePromotion`), the Trigger.dev workers, and the admin pages themselves aren't covered by these gates because they require a live Postgres — the pure decision logic they compose is covered.
 
 ### Pre-push gate
 
@@ -140,6 +141,7 @@ pnpm --filter @oracle/engines verify:r5
 pnpm --filter @oracle/engines verify:r5.5
 pnpm --filter @oracle/engines verify:r6
 pnpm --filter @oracle/engines verify:r7
+pnpm --filter @oracle/engines verify:r9
 ```
 
 If you only touched one phase's module, you can scope the smoke gate to that phase — but the typecheck + build pair is non-negotiable. The full gate combination is fast (~30 seconds total) because the pure-function smokes finish in milliseconds.
@@ -150,7 +152,7 @@ Each AI retrofit phase has an acceptance gate documented in `docs/oracle/05-ai-r
 
 - After each phase, the pre-push gate above must all pass before commit.
 - New phases must not regress prior gates.
-- R9 (the next phase) will add the synthesis equivalent of R5's quote validator: every material paragraph in a Brain section update must map to approved claim IDs. The validator + worker refactor will land with a `verify:r9` script.
+- R0–R10.5 are complete. R11 (interjection engine) is gated on a wet-test (apply migrations → trigger real extraction → review claims) rather than on additional code.
 
 ## Inspection / debugging scripts
 

@@ -445,8 +445,106 @@ Each refactored caller follows the same pattern:
 6. Insert `model_runs` + `model_run_usage_details` + back-link the context pack.
 7. Workers: stage `extraction_batches` + `extraction_candidates` + `extraction_candidate_evidence`, run validators, call `executePromotion`. Chat: persist the assistant message.
 
-### Transitional bridge adapter (R6 onward)
+### Transitional bridge adapter (R6 onward, still active through R9)
 
 `packages/ai/src/providers/openrouter-bridge-adapter.ts` is a deliberate transitional layer. It implements `OracleProviderAdapter` for all 3 provider tags (`anthropic`, `vertex`, `openai`) but the underlying network call goes to OpenRouter via the Vercel AI SDK. The bridge maps the route's `modelId` to OpenRouter's namespace (`vertex_gemini_2_5_flash` → `google/gemini-2.5-flash`, etc.).
 
-**The bridge is not part of the target architecture.** R9+ replaces it one provider at a time as each refactored worker needs a specific provider's native caching or structured-output features. After the last replacement, the bridge can be deleted entirely.
+**The bridge is not part of the target architecture.** Real `@anthropic-ai/sdk` / `@google/genai` / `openai` SDKs land one at a time as each phase that needs a specific provider's native features (Anthropic cache breakpoints, Vertex explicit caching, OpenAI structured outputs) reaches a wet-test path. After the last replacement, the bridge can be deleted entirely.
+
+### Synthesis pipeline (R9, landed)
+
+`packages/oracle-engines/src/synthesis/` ships the deterministic synthesis-diff validator. The synthesis worker composes it with the OracleAIClient bridge pattern:
+
+```
+brain_sections + approved claims + entity registry
+  ↓
+ContextCompiler.compile()
+  ├── stable_system block: ORACLE_SYSTEM_PROMPT + approved claim corpus
+  └── dynamic_input block: per-trigger request
+  ↓
+oracle_context_packs row (modelRunId nullable, set after the call)
+  ↓
+OracleAIClient.runObject(SynthesisOutputSchema)
+  via OpenRouterBridgeAdapter for vertex_* or anthropic_* routes
+  ↓
+model_runs + model_run_usage_details + back-link to context pack
+  ↓
+validateSynthesisDiff({
+  output, approvedClaimIds, approvedClaimSummariesLower,
+  registryEntityCanonicalsLower, expectedSectionId
+})
+  ↓
+  ok=true  → brain_section_versions row (status='draft' or 'needs_review')
+              + UPDATE brain_sections.currentVersionId
+              + sectionClaims membership
+              + newGaps insert + resolvedGaps update
+  ok=false → brain_section_versions row (reviewStatus='rejected')
+              with validationFailures + unsupportedNames in
+              structuredContent. currentVersionId is NOT updated.
+```
+
+The seven failure kinds `validateSynthesisDiff` distinguishes:
+
+| Failure kind | Trigger |
+|---|---|
+| `wrong_section_id` | `output.sectionId` doesn't match the requested section |
+| `paragraph_cites_non_approved_claim` | `paragraphs[].supportingClaimIds` contains an ID not in the approved set |
+| `material_change_cites_non_approved_claim` | `materialChanges[].claimId` not approved |
+| `claim_ref_not_approved` | `claimsAdded` / `claimsStrengthened` / `claimsWeakened` references not approved (`claimsRemoved` is NOT checked — removed claims may no longer be approved by design) |
+| `contradiction_cites_non_approved_claim` | `newContradictions[]` references claims not approved |
+| `gap_missing_required_fields` | `newGaps[]` has empty `questionToAsk` or `whyItMatters` |
+| `unsupported_named_entity` | A capitalized proper-noun-shaped name in `updatedMarkdown` is not backed by an approved claim summary OR the canonical entity registry |
+
+The unsupported-named-entity check is the R9-new addition. It strips Markdown structure (code blocks, inline code, image refs, markdown links, ENTIRE heading lines) before regex-matching for capitalized proper-noun phrases, then checks each candidate against the lowercase approved-summary corpus and the lowercase registry canonical set. Heuristic, not a parser; false positives hold for admin review (acceptable), false negatives let fabricated names through (worse), so the stopword list is curated tight.
+
+### Admin observability surface (R10, landed)
+
+Six read-only Next.js App Router pages under `/admin/ai`. Server-rendered Drizzle queries against existing R3 / R4 / R7 tables and the `model_runs_with_usage` view. No new schema, no new server actions, no new dependencies.
+
+| Route | Purpose | Reads from |
+|---|---|---|
+| `/admin/ai` | Top-level dashboard: 12 metric cards + route usage breakdown + recent runs | `model_runs_with_usage`, `provider_cached_content`, `extraction_candidates` |
+| `/admin/ai/runs` | Paginated runs list (50/page, 4 filters + task-type chips) | `model_runs_with_usage` |
+| `/admin/ai/runs/[id]` | One-run detail: summary, usage breakdown, full prompt-plan block list, retrieval diagnostics, linked extraction batches, linked provider caches | `model_runs_with_usage`, `oracle_context_packs`, `extraction_batches`, `provider_cached_content` |
+| `/admin/ai/cache` | Cache rows filterable by status + provider hit-ratio table | `provider_cached_content`, `model_runs_with_usage` |
+| `/admin/ai/candidates` | Extraction candidate review with 8 filter tabs. Sensitive rows are excluded at the SQL level from every tab except the explicit "Sensitive" tab. | `extraction_candidates`, `extraction_validation_results` |
+| `/admin/ai/evals` | Placeholder. Documents the CLI smoke gates. | — |
+
+The sensitive-candidate exclusion is structural: the SQL `WHERE` clause prevents any UI toggle from leaking sensitive material into the standard queue.
+
+### Taxonomy governance surface (R10.5, landed)
+
+Five admin pages under `/admin/taxonomy` plus four transactional server actions plus a scheduled re-evaluation worker scaffold.
+
+| Route | Purpose |
+|---|---|
+| `/admin/taxonomy` | Top-level domains list with full boundary rules + usage counts |
+| `/admin/taxonomy/proposals` | Taxonomy proposals review queue with approve/reject |
+| `/admin/taxonomy/entities` | Entity registry grouped by type (licensor split from vendor explicitly) |
+| `/admin/taxonomy/entity-proposals` | Unknown-entity review queue. Approval can refine canonical + auto-merges on conflict |
+| `/admin/taxonomy/change-log` | Append-only audit (latest 200 events) |
+
+Server actions in `apps/web/app/admin/taxonomy/_actions.ts`:
+
+- `approveTaxonomyProposal(id, reviewNote?)` — transactional. Applies the mutation INLINE for `create_top_domain` proposals (INSERT into `knowledge_top_domains` with full boundary rules). For `merge_top_domains` / `split_top_domain` / `reassign_claims` / `create_sub_topic` / `merge_sub_topics` / `split_sub_topic` / `retire_sub_topic` the proposal is marked approved with a `taxonomy_change_log` entry of `changeType='approve_pending_reclassification_<type>'`; the actual reclassification work is queued for the dedicated reclassification job (R10.5 task 4) which lands when those proposal types start arriving.
+- `rejectTaxonomyProposal(id, reason)` — transactional reject + change-log audit.
+- `approveEntityProposal(id, finalCanonicalValue?, displayLabel?)` — transactional. INSERTs the `entities` row; auto-merges if the (entity_type, canonical_value) pair already exists. Status becomes `approved` or `merged_into_existing`.
+- `rejectEntityProposal(id, reason)` — transactional reject + change-log audit.
+
+The scheduled `taxonomy-reevaluation` worker (`apps/workers/src/trigger/taxonomy-reevaluation.ts`) is currently a scaffold: it counts approved claims per active top-domain and reports a configurable activation threshold (default 30 claims). The clustering / drift detection / proposal writing body is documented inline as the substitution for the early-exit path; it lands when approved-claim density justifies it.
+
+### Architectural state after R0–R10.5
+
+```
+Every legacy getOpenRouter() worker has been refactored.
+Every model call has a context pack + usage detail row.
+Every promotion is advisory-locked and race-safe.
+Every claim insertion is hash-deduped.
+Every taxonomy mutation is admin-gated.
+Every synthesis output is validated; rejected versions preserved.
+Every operationally-sensitive observability dashboard is read-only.
+Every refactored worker still dispatches through OpenRouterBridgeAdapter
+  pending the wet-test that swaps in real provider SDKs one at a time.
+```
+
+R11 (interjection engine) is the remaining phase. Architectural prerequisites met; empirical prerequisites (test transcript processed + claims reviewed and approved) need real data flowing through the pipeline first.

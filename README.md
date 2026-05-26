@@ -103,9 +103,10 @@ For full setup details including platform-specific gotchas, see [`docs/developme
 | R6 — Claim extraction worker refactor | done — `apps/workers/src/trigger/claim-extraction.ts` through staging pipeline + circuit breaker + promotion executor (commit `b46131d`); 30-assertion smoke `verify:r6` |
 | R7 — Document ingestion + cache infra | done — `apps/workers/src/trigger/document-ingestion.ts` through staging + `claims.candidate_hash` + race-safe executor + cache profitability/lifecycle (commit `a8a8586`); 19-assertion smoke `verify:r7` |
 | R8 — Chat route through OracleAIClient | done — `apps/web/app/api/chat/route.ts` through `OracleAIClient.runText` with `providerOptions` escape hatch for tools/multi-turn (commit `8a38fbd`) |
-| **R9 — Synthesis worker refactor** | **next code phase** — `apps/workers/src/trigger/brain-synthesis.ts`; "every material paragraph maps to approved claim IDs" validator per `docs/oracle/05-ai-retrofit-phase-packet.md` Phase R9 |
-| R10 / R10.5 — Dashboards + taxonomy admin | not started |
-| 6 — Interjection engine | paused until AI retrofit and validation pipeline are complete (R11) |
+| R9 — Synthesis worker refactor + diff validator | done — `apps/workers/src/trigger/brain-synthesis.ts` through `OracleAIClient` + `validateSynthesisDiff` (claim ID + unsupported-named-entity check) + rejected-version preservation (commit `8343c2d`); 21-assertion smoke `verify:r9` |
+| R10 — Admin AI observability dashboards | done — 6 read-only pages under `/admin/ai`: dashboard, runs list, run detail (context pack viewer), cache, candidates, evals placeholder (commit `ea33d66`) |
+| R10.5 — Taxonomy governance dashboard + re-eval worker | done — 5 pages under `/admin/taxonomy` + 4 transactional approve/reject server actions + scheduled `taxonomy-reevaluation` worker scaffold (commit `533f39b`) |
+| **R11 — Resume interjection engine** | **gated on wet-test** — architectural prerequisites met; needs real claim data flowing through the pipeline before tuning interjection thresholds |
 
 ## What needs attention next
 
@@ -113,9 +114,8 @@ See [`HANDOFF.md`](HANDOFF.md) and [`docs/oracle/05-ai-retrofit-phase-packet.md`
 
 The short version:
 
-- **R0–R8 are done.** `packages/ai/src/` has the full `OracleAIClient` pipeline (R2). The DB schema has observability tables (R3), the three-layer knowledge taxonomy (R3.5), and candidate-before-claim staging (R4 + R7's `claims.candidate_hash`). The pure validator/promoter/entity-resolver lives in `packages/oracle-engines/src/extraction/` (R5 + R5.5). The claim extraction worker (R6), the document ingestion worker (R7), and the chat route (R8) all dispatch through `OracleAIClient` via the `OpenRouterBridgeAdapter`.
-- **R9 is next** — refactor `apps/workers/src/trigger/brain-synthesis.ts` through `OracleAIClient` + ship the "every material paragraph maps to approved claim IDs" synthesis validator.
-- After R9: R10 / R10.5 (admin dashboards + taxonomy governance), R11 (resume interjection on top of trustworthy claims).
+- **R0–R10.5 are done. The AI retrofit code is complete.** `packages/ai/src/` has the full `OracleAIClient` pipeline (R2). The DB has observability tables (R3), the three-layer knowledge taxonomy (R3.5), candidate-before-claim staging (R4 + R7), and the `claims.candidate_hash` race guard (R7). The pure validator / promoter / entity-resolver / synthesis-diff-validator lives in `packages/oracle-engines/src/extraction/` and `packages/oracle-engines/src/synthesis/` (R5 + R5.5 + R9). All four workers + the chat route dispatch through `OracleAIClient` via the `OpenRouterBridgeAdapter` (R6 / R7 / R8 / R9). Admin dashboards for AI observability live at `/admin/ai` (R10); taxonomy governance lives at `/admin/taxonomy` (R10.5).
+- **R11 is next but is gated on a wet-test.** The architectural prerequisites (candidate pipeline live + admin audit surface) are met. The empirical prerequisites (test transcript processed + claims reviewed and approved) need real data flowing through the pipeline first. See `HANDOFF.md` for the recommended next-step sequence.
 
 Pre-push gate — run any time:
 
@@ -127,7 +127,10 @@ pnpm --filter @oracle/engines verify:r5     # 33/33
 pnpm --filter @oracle/engines verify:r5.5   # 45/45
 pnpm --filter @oracle/engines verify:r6     # 30/30
 pnpm --filter @oracle/engines verify:r7     # 19/19
+pnpm --filter @oracle/engines verify:r9     # 21/21
 ```
+
+Total: 164 deterministic assertions across the AI retrofit pure-function modules. All run in milliseconds without API keys, database, or network access.
 
 Security reminders:
 

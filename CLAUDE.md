@@ -19,7 +19,10 @@ Retrofit progress as of 2026-05-25:
 - ✅ R6 — Claim extraction worker refactored through staging pipeline + circuit breaker + executor (30-assertion smoke)
 - ✅ R7 — Document ingestion worker refactored + `claims.candidate_hash` + cache profitability/lifecycle + race-safe executor (19-assertion smoke)
 - ✅ R8 — Chat route refactored through `OracleAIClient` with `providerOptions` escape hatch for tools/multi-turn
-- ⬜ **R9 — Synthesis worker refactor** (next code phase) — `apps/workers/src/trigger/brain-synthesis.ts` is the last legacy `getOpenRouter()` caller
+- ✅ R9 — Synthesis worker refactored + `validateSynthesisDiff` (claim ID + unsupported-named-entity check) + rejected-version preservation (21-assertion smoke)
+- ✅ R10 — Admin AI observability dashboards under `/admin/ai`
+- ✅ R10.5 — Taxonomy governance dashboard under `/admin/taxonomy` + re-evaluation worker scaffold
+- ⬜ **R11 — Resume interjection engine** — gated on wet-test (apply migrations → real extraction run → review claims → THEN R11). Code path is the original Phase 6 scaffold at `packages/oracle-engines/src/interjection.ts`.
 
 The retrofit packet supersedes any older guidance that says Phase 6 interjection is next.
 

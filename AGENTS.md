@@ -49,7 +49,10 @@ oracle/
 │   │   │   ├── auth/signout/route.ts          # POST → clears session, redirects to /
 │   │   │   ├── denied/page.tsx                # off-allowlist landing
 │   │   │   ├── channels/                      # employee-facing chat (Phase 2)
-│   │   │   ├── admin/                         # admin dashboard (Phase 2/5)
+│   │   │   ├── admin/                         # admin dashboard (Phase 2/5 + R10/R10.5)
+│   │   │   │   ├── ai/                        # R10 — AI observability (runs, cache, candidates, evals)
+│   │   │   │   ├── taxonomy/                  # R10.5 — taxonomy governance (proposals, entities, change log)
+│   │   │   │   ├── {claims,gaps,contradictions,brain}/   # Phase 5 review dashboards
 │   │   │   ├── api/chat/route.ts              # Oracle chat endpoint (Phase 3)
 │   │   │   └── _components/                   # local UI: login-form, logout-button
 │   │   ├── components/ui/                     # shadcn/ui primitives
@@ -82,7 +85,7 @@ oracle/
 │   │       ├── embeddings.ts, retrieval.ts
 │   │       ├── openrouter.ts       # @deprecated — legacy; only used by R9 brain-synthesis until refactored
 │   │       └── index.ts
-│   ├── oracle-engines/            # Extraction pipeline pure logic + DB-aware executor (R5–R7)
+│   ├── oracle-engines/            # Pure-logic extraction + synthesis modules + DB-aware executors (R5–R9)
 │   │   ├── src/extraction/
 │   │   │   ├── types.ts, normalization.ts
 │   │   │   ├── quote-validator.ts        # R5 pure provenance check
@@ -96,7 +99,11 @@ oracle/
 │   │   │   ├── cache-profitability.ts    # R7 explicit-cache heuristic
 │   │   │   ├── cache-lifecycle.ts        # R7 provider_cached_content bookkeeping
 │   │   │   └── index.ts
-│   │   ├── src/__verify__/        # Self-contained smoke gates (R5/R5.5/R6/R7)
+│   │   ├── src/synthesis/         # R9
+│   │   │   ├── types.ts                  # SynthesisOutput types
+│   │   │   ├── diff-validator.ts         # R9 validateSynthesisDiff — claim ID + unsupported-named-entity check
+│   │   │   └── index.ts
+│   │   ├── src/__verify__/        # Self-contained smoke gates (R5/R5.5/R6/R7/R9)
 │   │   ├── src/interjection.ts    # Phase 6 / R11 scaffold — not yet wired
 │   │   └── src/index.ts
 ├── docs/                          # detailed docs — architecture, development, configuration, deployment
@@ -512,6 +519,26 @@ The most important section. **Do not undo these without reading the cited spec s
 
 **Do not change because:** moving business logic into the DB-touching helpers would re-couple decision and execution, force smoke tests to spin up a Postgres, and bury invariants that should be one function lookup away.
 
+### Synthesis rejection inserts a `reviewStatus='rejected'` version row
+
+**Looks like:** the synthesis worker (`apps/workers/src/trigger/brain-synthesis.ts`) inserts a `brain_section_versions` row even when validation fails, but doesn't update `brain_sections.currentVersionId`. That seems wasteful — why insert anything?
+
+**Actually:** the row IS the audit trail. Per the R9 spec, "store failed synthesis output for review." The existing `brainSectionReviewStatusEnum` already had `'rejected'` as a value, so R9 just uses it. The rejected version preserves the full `updatedMarkdown` the model produced, plus the structured `validationFailures` + `unsupportedNames` in `structuredContent`, so an admin can inspect exactly what the model produced and which checks fired — without changing the current Brain version anyone reads.
+
+**Why:** the `currentVersionId` pointer is the ONLY way the live Brain is read. Leaving it unchanged on rejection means production traffic doesn't see the broken output. The version row is queryable via the existing admin pages (`/admin/brain`), and its `changeSummary` field records the failure summary inline.
+
+**Do not change because:** dropping the row entirely loses the audit trail. Auto-applying the failed output to `currentVersionId` exposes broken synthesis to the user.
+
+### `/admin/ai/candidates` deliberately hides sensitive material
+
+**Looks like:** the candidate dashboard's `"all"` filter doesn't actually show all candidates. It excludes `rejected_sensitive` and `quarantined_sensitive` rows.
+
+**Actually:** that's the only filter that should never accidentally show those rows. Per `docs/oracle/03-candidate-before-claim-validation.md`: "Sensitive rejected/quarantined candidates must not appear in this standard queue." The R10 candidates page enforces this at the SQL level — the `"all"` tab's SQL query explicitly `WHERE status NOT IN ('rejected_sensitive','quarantined_sensitive')`. Sensitive rows are reachable ONLY via the explicit "Sensitive (hidden by default)" tab.
+
+**Why:** PII, HR conflict, and disciplinary material that the extractor flags as sensitive must NEVER leak into the standard admin queue. A simple `WHERE status = ?` filter on the candidates page would let them slip through any time the admin clicked "all". The structural exclusion in the SQL means no UI toggle accident can change that.
+
+**Do not change because:** the exclusion is a privacy guarantee that the candidate-before-claim spec mandates. If you need to inspect a specific sensitive case, the explicit "Sensitive" tab is the only path; flipping the SQL would weaken the guarantee for all queries.
+
 ### Race-safe promotion: hash lookup inside the advisory lock
 
 **Looks like:** the executor (`packages/oracle-engines/src/extraction/promotion-executor.ts`) does an `existingClaimWithSameHash` lookup INSIDE the Drizzle transaction, after `pg_try_advisory_xact_lock(hashtextextended($1, 0))` returns. That seems redundant — couldn't the caller pre-fetch the existing claim?
@@ -623,8 +650,12 @@ Rule added to prevent recurrence:
 | done | **R6 — Refactor `apps/workers/src/trigger/claim-extraction.ts` through staging tables** (circuit breaker + promotion executor + bridge adapter; 30/30 assertions via `verify:r6`) | commit `b46131d`; new `packages/ai/src/providers/openrouter-bridge-adapter.ts` |
 | done | **R7 — Refactor `apps/workers/src/trigger/document-ingestion.ts` through staging** (cache profitability heuristic + `provider_cached_content` lifecycle + race-safe executor + `claims.candidate_hash`; 19/19 assertions via `verify:r7`) | commit `a8a8586`; Drizzle migration `0005_kind_nekra.sql` + hand-written `14_claims_candidate_hash_unique.sql` |
 | done | **R8 — Refactor `apps/web/app/api/chat/route.ts` through `OracleAIClient`** with `providerOptions` escape hatch for tools, multi-turn messages, `stopWhen`, `temperature` | commit `8a38fbd` |
-| open | Apply the new migrations to live Supabase DB | `pnpm db:migrate` will apply `0001`–`0005` in order; all hand-written SQL is idempotent; no existing data touched |
-| open | **R9 — Refactor `apps/workers/src/trigger/brain-synthesis.ts`** (last legacy `getOpenRouter()` caller) — next code phase | use `OracleAIClient` via `OpenRouterBridgeAdapter`; add "every material paragraph maps to approved claim IDs" validator; reject unsupported named entities |
+| done | **R9 — Synthesis worker refactor + diff validator** (`brain-synthesis.ts` through `OracleAIClient`; `validateSynthesisDiff` in `packages/oracle-engines/src/synthesis/` with claim-ID + unsupported-named-entity checks; rejected-version preservation via `reviewStatus='rejected'`; 21-assertion smoke `verify:r9`) | commit `8343c2d` |
+| done | **R10 — Admin AI observability dashboards** (6 pages under `/admin/ai`: dashboard, runs list, run detail / context pack viewer with retrieval diagnostics, cache, candidates with sensitive-hidden-by-default, evals placeholder) | commit `ea33d66` |
+| done | **R10.5 — Taxonomy governance dashboard + re-evaluation worker scaffold** (5 pages under `/admin/taxonomy`; 4 transactional approve/reject server actions; scheduled `taxonomy-reevaluation` worker counts approved claims per domain and reports activation threshold — clustering body deferred until claim density justifies it) | commit `533f39b` |
+| open | Apply the new migrations to live Supabase DB | `pnpm db:migrate` will apply `0001`–`0005` in order; all hand-written SQL is idempotent; no existing data touched. **This is the next non-coding action that unblocks R11.** |
+| open | Wet-test the candidate-before-claim pipeline end-to-end | After migrations: trigger a real extraction run, review via `/admin/ai/runs` + `/admin/ai/candidates` + `/admin/claims`. |
+| blocked | **R11 — Resume interjection engine** | Gated on wet-test. Architectural prerequisites (candidate pipeline live + admin audit surface) are met; empirical prerequisites (test transcript processed + claims reviewed) need real data first. |
 | open | R10 — Admin observability dashboards (AI runs, context packs, cache traffic-light, candidate review) | reads from `model_runs_with_usage` view |
 | open | R10.5 — Taxonomy admin + maturity-based re-evaluation worker | compact proposal cards for `taxonomy_proposals` / `entity_proposals` |
 | open | R11 — Resume interjection engine (lull detection, contradiction live-interjection) | only after R5–R10.5 — needs trustworthy claims first |
