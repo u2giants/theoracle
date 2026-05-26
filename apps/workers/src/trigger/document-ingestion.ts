@@ -38,6 +38,8 @@ import {
   documents,
   documentTopDomains,
   documentChunkTopDomains,
+  entities,
+  entityProposals,
   extractionBatches,
   extractionCandidates,
   extractionCandidateEvidence,
@@ -76,9 +78,10 @@ import {
   validateSourcePointer,
   validateTaxonomy,
   AdvisoryLockBusyError,
+  type RegistryEntity,
 } from '@oracle/engines';
 import { createServiceRoleClient } from '@oracle/auth/server';
-import type { KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
+import type { EntityType, KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
 
 const CHUNK_SIZE = 1500;
 const CHUNK_OVERLAP = 150;
@@ -180,6 +183,7 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
 
   const route = await resolveExtractionRoute(db);
   const activeTopDomainIds = await loadActiveTopDomainIds(db);
+  const entityRegistry = await loadEntityRegistry(db);
 
   // 2. Download.
   const { data: blob, error: downloadError } = await serviceSupabase.storage
@@ -491,10 +495,17 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
           impactScore: extracted.impactScore,
           confidenceScore: extracted.confidenceScore,
           domains: proposedTopDomainIds satisfies TopLevelDomainId[],
-          proposedEntities: [],
-          containsSensitivePersonalData: false,
-          containsSensitiveHRData: false,
-          isPersonalConflict: false,
+          // P2 #1 — proposedEntities now sourced from prompt-2.0.0.
+          proposedEntities: (extracted.proposedEntities ?? []).map((e) => ({
+            entityType: e.entityType,
+            rawString: e.rawString,
+          })),
+          // P1 #2 — sensitivityFlags now sourced from prompt-2.0.0.
+          containsSensitivePersonalData:
+            extracted.sensitivityFlags?.containsSensitivePersonalData ?? false,
+          containsSensitiveHRData: extracted.sensitivityFlags?.containsSensitiveHRData ?? false,
+          isPersonalConflict: extracted.sensitivityFlags?.isPersonalConflict ?? false,
+          sensitivityReason: extracted.sensitivityFlags?.sensitivityReason ?? null,
           requiresReview: extracted.requiresReview,
           reviewReason: extracted.requiresReview ? 'extractor requested review' : null,
           rawCandidateJson: extracted as unknown as Record<string, unknown>,
@@ -578,12 +589,15 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
         continue;
       }
 
-      // Taxonomy validation.
+      // Taxonomy validation. proposedEntities sourced from prompt-2.0.0 (P2 #1).
       const taxRes = validateTaxonomy({
         proposedTopDomainIds,
         activeTopDomainIds,
-        proposedEntities: [],
-        entityRegistry: [],
+        proposedEntities: (extracted.proposedEntities ?? []).map((e) => ({
+          entityType: e.entityType as EntityType,
+          rawString: e.rawString,
+        })),
+        entityRegistry,
       });
       await db.insert(extractionValidationResults).values({
         candidateId: candidate.id,
@@ -593,14 +607,67 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
           ? `Top-domains validated: ${taxRes.validTopDomainIds.join(', ')}`
           : taxRes.failures.map((f) => f.detail).join('; '),
       });
+      // Stage entity proposals regardless of overall taxRes.ok so admin can
+      // review unknown entities surfaced by the model.
+      if (taxRes.entityProposalsToCreate.length > 0) {
+        await db.insert(entityProposals).values(
+          taxRes.entityProposalsToCreate.map((p) => ({
+            proposedEntityType: p.proposedEntityType,
+            proposedCanonicalValue: p.proposedCanonicalValue,
+            rawStringsObserved: [p.rawString],
+            observedInSourceType: 'claim_candidate' as const,
+            observedInSourceId: candidate.id,
+            status: 'pending' as const,
+            proposedByModelRunId: modelRunId,
+          })),
+        );
+      }
+
       if (!taxRes.ok) {
         await db
           .update(extractionCandidates)
-          .set({ status: 'validation_failed', validationError: 'taxonomy invalid', validatedAt: new Date() })
+          .set({ status: 'validation_failed', validationError: taxRes.failureSummary ?? 'taxonomy invalid', validatedAt: new Date() })
           .where(eq(extractionCandidates.id, candidate.id));
         outcome.rejections += 1;
         continue;
       }
+
+      // P1 #2 — Sensitivity gate. Mirrors claim-extraction.ts.
+      const sensitivityFired =
+        extracted.sensitivityFlags?.containsSensitiveHRData === true ||
+        extracted.sensitivityFlags?.containsSensitivePersonalData === true ||
+        extracted.sensitivityFlags?.isPersonalConflict === true;
+      if (sensitivityFired) {
+        await db.insert(extractionValidationResults).values({
+          candidateId: candidate.id,
+          checkName: 'sensitivity_gate',
+          status: 'fail',
+          detail: extracted.sensitivityFlags?.sensitivityReason ?? 'extractor flagged sensitive content',
+          metadataJson: {
+            containsSensitiveHRData: extracted.sensitivityFlags?.containsSensitiveHRData ?? false,
+            containsSensitivePersonalData:
+              extracted.sensitivityFlags?.containsSensitivePersonalData ?? false,
+            isPersonalConflict: extracted.sensitivityFlags?.isPersonalConflict ?? false,
+          },
+        });
+        await db
+          .update(extractionCandidates)
+          .set({
+            status: 'quarantined_sensitive',
+            validationError:
+              extracted.sensitivityFlags?.sensitivityReason ?? 'sensitive content flagged by extractor',
+            validatedAt: new Date(),
+          })
+          .where(eq(extractionCandidates.id, candidate.id));
+        outcome.rejections += 1;
+        continue;
+      }
+      await db.insert(extractionValidationResults).values({
+        candidateId: candidate.id,
+        checkName: 'sensitivity_gate',
+        status: 'pass',
+        detail: 'extractor reported no sensitive content',
+      });
 
       // Mark validated; the executor re-reads the candidate + evidence
       // INSIDE the advisory lock. We pass only auxiliary inputs that can't
@@ -729,6 +796,28 @@ async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const list: Array<{ id: string }> = (rows as any).rows ?? (rows as any);
   return list.map((r) => r.id);
+}
+
+/**
+ * Load the entity registry slice used by R5.5 validateTaxonomy. For round 1
+ * we load all rows (the seed is ~56 rows) — see claim-extraction.ts for the
+ * scoping plan when the registry grows.
+ */
+async function loadEntityRegistry(db: OracleDb): Promise<RegistryEntity[]> {
+  const rows = await db
+    .select({
+      id: entities.id,
+      entityType: entities.entityType,
+      canonicalValue: entities.canonicalValue,
+      aliases: entities.aliases,
+    })
+    .from(entities);
+  return rows.map((r) => ({
+    id: r.id,
+    entityType: r.entityType as EntityType,
+    canonicalValue: r.canonicalValue,
+    aliases: (r.aliases as string[] | null) ?? null,
+  }));
 }
 
 function buildContextPackInsert(plan: OraclePromptPlan) {

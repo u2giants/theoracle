@@ -33,6 +33,8 @@ import {
   extractionValidationResults,
   jobRuns,
   messages,
+  entities,
+  entityProposals,
   modelRunUsageDetails,
   modelRuns,
   oracleContextPacks,
@@ -64,8 +66,9 @@ import {
   validateSourcePointer,
   validateTaxonomy,
   AdvisoryLockBusyError,
+  type RegistryEntity,
 } from '@oracle/engines';
-import type { KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
+import type { EntityType, KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
 
 const BATCH_SIZE = 100;
 const SEGMENT_GAP_MS = 60 * 60 * 1000;
@@ -144,6 +147,7 @@ export async function runClaimExtractionOnce(
       // 1. Resolve the curated extraction route.
       const route = await resolveExtractionRoute(db);
       const activeTopDomainIds = await loadActiveTopDomainIds(db);
+      const entityRegistry = await loadEntityRegistry(db);
 
       // 2. Pull pending user messages.
       const pendingMessages = await db
@@ -188,6 +192,7 @@ export async function runClaimExtractionOnce(
             client,
             route,
             activeTopDomainIds,
+            entityRegistry,
             jobRunId: jobRun.id,
             segment,
           });
@@ -255,12 +260,13 @@ interface ProcessSegmentArgs {
   client: OracleAIClient;
   route: OracleModelRoute;
   activeTopDomainIds: string[];
+  entityRegistry: RegistryEntity[];
   jobRunId: string;
   segment: FormattedMessage[];
 }
 
 async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome> {
-  const { db, client, route, activeTopDomainIds, jobRunId, segment } = args;
+  const { db, client, route, activeTopDomainIds, entityRegistry, jobRunId, segment } = args;
   const segmentIds = segment.map((m) => m.id);
   const userMessages = segment.filter((m) => m.role === 'user');
 
@@ -463,11 +469,23 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
         impactScore: extracted.impactScore,
         confidenceScore: extracted.confidenceScore,
         domains: proposedTopDomainIds satisfies TopLevelDomainId[],
-        proposedEntities: [],
+        // P2 #1 — proposedEntities now sourced from the model (was hardcoded
+        // empty pre-prompt-2.0.0). Empty array if the claim references no
+        // proper-noun entities.
+        proposedEntities: (extracted.proposedEntities ?? []).map((e) => ({
+          entityType: e.entityType,
+          rawString: e.rawString,
+        })),
         stance: legacyStanceToCandidateStance(extracted.semanticRole),
-        containsSensitivePersonalData: false,
-        containsSensitiveHRData: false,
-        isPersonalConflict: false,
+        // P1 #2 — sensitivityFlags now sourced from the model. Was hardcoded
+        // false on every claim pre-prompt-2.0.0, which meant the sensitivity
+        // gate could never fire in production. Strict-mode definitions live
+        // in EXTRACTION_SYSTEM_PROMPT.
+        containsSensitivePersonalData:
+          extracted.sensitivityFlags?.containsSensitivePersonalData ?? false,
+        containsSensitiveHRData: extracted.sensitivityFlags?.containsSensitiveHRData ?? false,
+        isPersonalConflict: extracted.sensitivityFlags?.isPersonalConflict ?? false,
+        sensitivityReason: extracted.sensitivityFlags?.sensitivityReason ?? null,
         requiresReview: extracted.requiresReview,
         reviewReason: extracted.requiresReview ? 'extractor requested review' : null,
         rawCandidateJson: extracted as unknown as Record<string, unknown>,
@@ -605,12 +623,16 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
     // Quote passed → reset the consecutive failure counter.
     consecutiveQuoteFailureCount = 0;
 
-    // R5.5 — taxonomy validation.
+    // R5.5 — taxonomy validation. proposedEntities sourced from prompt-2.0.0
+    // (P2 #1). The resolver picks up licensor-vs-vendor type mismatches.
     const taxRes = validateTaxonomy({
       proposedTopDomainIds,
       activeTopDomainIds,
-      proposedEntities: [], // R5.5 entity extraction lands when the prompt is rewritten
-      entityRegistry: [],
+      proposedEntities: (extracted.proposedEntities ?? []).map((e) => ({
+        entityType: e.entityType as EntityType,
+        rawString: e.rawString,
+      })),
+      entityRegistry,
     });
     await db.insert(extractionValidationResults).values({
       candidateId: candidate.id,
@@ -621,18 +643,76 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
         : taxRes.failures.map((f) => f.detail).join('; '),
     });
 
+    // Regardless of overall taxRes.ok, stage any entity proposals so admin
+    // can review unknown entities or type-mismatch corrections. The
+    // validator returns these per-candidate.
+    if (taxRes.entityProposalsToCreate.length > 0) {
+      await db.insert(entityProposals).values(
+        taxRes.entityProposalsToCreate.map((p) => ({
+          proposedEntityType: p.proposedEntityType,
+          proposedCanonicalValue: p.proposedCanonicalValue,
+          rawStringsObserved: [p.rawString],
+          observedInSourceType: 'claim_candidate' as const,
+          observedInSourceId: candidate.id,
+          status: 'pending' as const,
+          proposedByModelRunId: modelRunId,
+        })),
+      );
+    }
+
     if (!taxRes.ok) {
       await db
         .update(extractionCandidates)
         .set({
           status: 'validation_failed',
-          validationError: 'taxonomy invalid',
+          validationError: taxRes.failureSummary ?? 'taxonomy invalid',
           validatedAt: new Date(),
         })
         .where(eq(extractionCandidates.id, candidate.id));
       outcome.rejections += 1;
       continue;
     }
+
+    // P1 #2 — Sensitivity gate. If the model flagged any sensitivity, the
+    // candidate is quarantined here and never reaches promotion. The
+    // candidate row is preserved with the model's reason so admin can
+    // review it via /admin/ai/candidates → "Sensitive" tab.
+    const sensitivityFired =
+      extracted.sensitivityFlags?.containsSensitiveHRData === true ||
+      extracted.sensitivityFlags?.containsSensitivePersonalData === true ||
+      extracted.sensitivityFlags?.isPersonalConflict === true;
+    if (sensitivityFired) {
+      await db.insert(extractionValidationResults).values({
+        candidateId: candidate.id,
+        checkName: 'sensitivity_gate',
+        status: 'fail',
+        detail: extracted.sensitivityFlags?.sensitivityReason ?? 'extractor flagged sensitive content',
+        metadataJson: {
+          containsSensitiveHRData: extracted.sensitivityFlags?.containsSensitiveHRData ?? false,
+          containsSensitivePersonalData:
+            extracted.sensitivityFlags?.containsSensitivePersonalData ?? false,
+          isPersonalConflict: extracted.sensitivityFlags?.isPersonalConflict ?? false,
+        },
+      });
+      await db
+        .update(extractionCandidates)
+        .set({
+          status: 'quarantined_sensitive',
+          validationError: extracted.sensitivityFlags?.sensitivityReason ?? 'sensitive content flagged by extractor',
+          validatedAt: new Date(),
+        })
+        .where(eq(extractionCandidates.id, candidate.id));
+      outcome.rejections += 1;
+      continue;
+    }
+
+    // Sensitivity gate passed → record the pass row for the audit trail.
+    await db.insert(extractionValidationResults).values({
+      candidateId: candidate.id,
+      checkName: 'sensitivity_gate',
+      status: 'pass',
+      detail: 'extractor reported no sensitive content',
+    });
 
     // Mark candidate validated; the executor re-reads it inside the lock.
     await db
@@ -746,6 +826,28 @@ async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const list: Array<{ id: string }> = (rows as any).rows ?? (rows as any);
   return list.map((r) => r.id);
+}
+
+/**
+ * Load the entity registry slice used by R5.5 validateTaxonomy. For round 1
+ * we load all rows (the seed is ~56 rows) — when the registry grows past a
+ * few hundred, scope to (proposed types ∪ canonical match of raw strings).
+ */
+async function loadEntityRegistry(db: OracleDb): Promise<RegistryEntity[]> {
+  const rows = await db
+    .select({
+      id: entities.id,
+      entityType: entities.entityType,
+      canonicalValue: entities.canonicalValue,
+      aliases: entities.aliases,
+    })
+    .from(entities);
+  return rows.map((r) => ({
+    id: r.id,
+    entityType: r.entityType as EntityType,
+    canonicalValue: r.canonicalValue,
+    aliases: (r.aliases as string[] | null) ?? null,
+  }));
 }
 
 function groupIntoSegments(

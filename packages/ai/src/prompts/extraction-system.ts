@@ -1,12 +1,21 @@
-// Claim extraction system prompt — spec Part 9.4, 9.5.
-// Used by the Trigger.dev claim-extraction worker.
-// Do NOT edit the prompt text without bumping EXTRACTION_PROMPT_VERSION
-// and logging the change in DECISIONS.md.
+// Claim extraction system prompt — spec Part 9.4, 9.5 + R5.5 + R12-prompt.
+// Used by the Trigger.dev claim-extraction worker and the document-ingestion worker.
+//
+// Version 2.0.0 (this revision) adds:
+//   - sensitivityFlags — strict-mode HR/PII/personal-conflict detection so the
+//     candidate-before-claim sensitivity gate can actually fire in production
+//     (P1 #2 from the external code review).
+//   - proposedEntities — model-surfaced entity references (customers, licensors,
+//     factories, systems, etc.) so R5.5's licensor-vs-vendor resolver actually
+//     trips in production (P2 #1 from the same review).
+//
+// Do NOT edit the prompt text without bumping EXTRACTION_PROMPT_VERSION and
+// logging the change in DECISIONS.md.
 
 import { z } from 'zod';
-import { KNOWLEDGE_DOMAINS } from '@oracle/shared';
+import { KNOWLEDGE_DOMAINS, ENTITY_TYPES } from '@oracle/shared';
 
-export const EXTRACTION_PROMPT_VERSION = '1.0.0';
+export const EXTRACTION_PROMPT_VERSION = '2.0.0';
 
 // ---------------------------------------------------------------------------
 // Claim type taxonomy (spec 9.4 + Part 6).
@@ -73,6 +82,63 @@ export const ExtractionGapSchema = z.object({
   priority: z.enum(['low', 'medium', 'high', 'urgent']),
 });
 
+/**
+ * R5.5 — Entity reference the model surfaced from the text. The validator
+ * resolves these against the canonical entity registry; the licensor-vs-
+ * vendor type-mismatch check fires here if the model proposes a known
+ * licensor under `entity_type = 'vendor'`.
+ */
+export const ExtractionEntityProposalSchema = z.object({
+  entityType: z
+    .enum(ENTITY_TYPES as unknown as [string, ...string[]])
+    .describe(
+      'The kind of entity. licensor is for entertainment-IP rights holders (Disney, Marvel, Star Wars, Warner Bros, NBCUniversal) — NEVER use vendor for those. vendor is the residual bucket for non-customer non-factory non-licensor business partners.',
+    ),
+  rawString: z
+    .string()
+    .min(1)
+    .max(255)
+    .describe(
+      'The entity name as it appears in the message (the validator resolves aliases against the canonical registry).',
+    ),
+});
+
+/**
+ * R5.5 / P1 #2 — Sensitivity flags. STRICT mode: only flag content that is
+ * clearly disciplinary, medical, compensation, or hostile interpersonal.
+ * Operational mentions of named employees are NOT sensitive — e.g. "Jordan
+ * handles licensing" is fine. The flag only fires when the content itself
+ * describes personnel/HR/medical/conflict material that shouldn't live in
+ * the operational knowledge graph.
+ *
+ * Setting any of these true causes the candidate to be quarantined and
+ * never promoted into the `claims` table.
+ */
+export const ExtractionSensitivityFlagsSchema = z.object({
+  containsSensitiveHRData: z
+    .boolean()
+    .describe(
+      'True ONLY if the message contains: formal disciplinary action (warning, PIP, termination), compensation specifics (salary numbers, bonus amounts, raise discussions), formal performance reviews/ratings, or formally documented LOA reasons (medical leave, family leave). NOT true for casual operational mentions of who is on vacation, who handles a process, or who is out.',
+    ),
+  containsSensitivePersonalData: z
+    .boolean()
+    .describe(
+      'True ONLY if the message contains explicit personal information: medical conditions or diagnoses, family situations (divorce, deaths, dependents), legal issues (lawsuits, arrests, immigration status), home addresses or personal contact details, or other clearly private personal facts unrelated to operational work.',
+    ),
+  isPersonalConflict: z
+    .boolean()
+    .describe(
+      'True ONLY if the message describes explicit interpersonal hostility BETWEEN NAMED INDIVIDUALS: shouting matches, harassment accusations, character attacks, or formal complaints filed against another employee. NOT true for normal disagreement about a process or generic team frustration.',
+    ),
+  sensitivityReason: z
+    .string()
+    .max(500)
+    .optional()
+    .describe(
+      'If any of the three flags is true, briefly explain which specific spans triggered the flag. Omit if all three are false.',
+    ),
+});
+
 export const ExtractionClaimSchema = z.object({
   claimType: z.enum(CLAIM_TYPES),
   summary: z
@@ -112,6 +178,15 @@ export const ExtractionClaimSchema = z.object({
     .describe(
       'Set true if any of: impact >= 7, the claim names a specific person as a bottleneck, or the claim implies customer or licensor risk.',
     ),
+  proposedEntities: z
+    .array(ExtractionEntityProposalSchema)
+    .optional()
+    .describe(
+      'Distinct entities (customers, licensors, factories, systems, departments, geographies, etc.) referenced in this claim. Omit if no proper-noun entities are mentioned.',
+    ),
+  sensitivityFlags: ExtractionSensitivityFlagsSchema.optional().describe(
+    'Set when any of the three flags is true. Omit when nothing is sensitive (the common case for operational claims).',
+  ),
   suggestedGaps: z
     .array(ExtractionGapSchema)
     .optional()
@@ -135,6 +210,8 @@ export const ExtractionOutputSchema = z.object({
 
 export type ExtractionOutput = z.infer<typeof ExtractionOutputSchema>;
 export type ExtractionClaim = z.infer<typeof ExtractionClaimSchema>;
+export type ExtractionSensitivityFlags = z.infer<typeof ExtractionSensitivityFlagsSchema>;
+export type ExtractionEntityProposal = z.infer<typeof ExtractionEntityProposalSchema>;
 
 // ---------------------------------------------------------------------------
 // System prompt text.
@@ -142,9 +219,11 @@ export type ExtractionClaim = z.infer<typeof ExtractionClaimSchema>;
 
 export const EXTRACTION_SYSTEM_PROMPT = `You are an operational knowledge extractor for The Oracle.
 
-The Oracle is an AI knowledge graph mapping the "dark matter" of POP Creations / Spruce Line — a high-volume home decor company (Brooklyn, NY). They design in-house, manufacture in China, and sell to Burlington, TJX, Ross, Hobby Lobby, Walmart, and others. They use an ERP system called Coldlion.
+The Oracle is an AI knowledge graph mapping the "dark matter" of POP Creations / Spruce Line — a high-volume home decor company (Brooklyn, NY). They design in-house, manufacture in China, and sell to Burlington, TJX, Ross, Hobby Lobby, Walmart, and others. They use an ERP system called Coldlion. They license from Disney, Marvel, Star Wars / Lucasfilm, Warner Bros, and NBCUniversal.
 
-YOUR TASK: Analyze the provided conversation segment and extract concrete, evidence-backed operational claims about how this company actually works.
+YOUR TASK: Analyze the provided conversation segment and extract concrete, evidence-backed operational claims about how this company actually works. For each claim, also surface:
+  (1) the entities it references (customers, licensors, factories, systems, departments, geographies),
+  (2) whether the source content is sensitive in a way that should keep the claim OUT of the operational knowledge graph.
 
 CLAIM TYPES:
 - process_rule: How something normally works ("We always send artwork to China after licensor approval")
@@ -174,6 +253,24 @@ EXTRACTION RULES:
 6. Set requiresReview=true if: impact >= 7, the claim names a specific person as a bottleneck, OR the claim implies customer or licensor risk.
 7. Suggest gaps (follow-up questions) when the segment reveals uncertainty or ambiguity that needs resolution.
 8. Do not flatten group conversation — if two employees express different views about the same process, extract both as separate claims with appropriate semantic roles and potentially a contradiction.
+
+ENTITY EXTRACTION RULES:
+9. List every distinct entity the claim REFERENCES — not just the message-wide entities, but the ones THIS claim depends on.
+10. The entityType values you may use are exactly: system, customer, licensor, factory, freight_provider, testing_lab, packaging_supplier, service_provider, vendor, person, sku_or_product_line, process_stage, department, geography, document_class.
+11. \`licensor\` is reserved for entertainment / IP rights holders: Disney, Marvel, Star Wars, Lucasfilm, Warner Bros, NBCUniversal, etc. NEVER use \`vendor\` for those. \`vendor\` is the residual bucket for non-customer non-factory non-licensor business partners.
+12. \`customer\` is the named retailer / buyer: Burlington, TJX, Ross, Hobby Lobby, Walmart, etc.
+13. \`factory\` is an overseas manufacturer; \`freight_provider\` / \`testing_lab\` / \`packaging_supplier\` / \`service_provider\` are operational-vendor subtypes — pick the specific subtype if it fits, fall back to \`vendor\` only if none does.
+14. \`system\` is software / tooling: Coldlion, ResourceSpace, Photoshop, Illustrator, Excel, Supabase, Email, WhatsApp, etc.
+15. \`rawString\` should be how the entity appears in the message text — don't normalize to canonical form, the validator does that.
+16. Omit \`proposedEntities\` entirely if the claim references no proper-noun entities.
+
+SENSITIVITY RULES — STRICT MODE:
+17. Set \`sensitivityFlags\` ONLY when the content is clearly sensitive. Operational mentions of named people are NOT sensitive by themselves.
+18. \`containsSensitiveHRData\` = true ONLY if the message describes: formal disciplinary actions (warnings, PIPs, terminations), compensation specifics (salary numbers, bonus amounts, raise discussions), formal performance reviews/ratings, or formally documented LOA reasons (medical leave, family leave). "Jordan is out next week" is NOT HR data. "We put Jordan on a final-written warning today" IS.
+19. \`containsSensitivePersonalData\` = true ONLY for explicit personal information: medical conditions or diagnoses, family situations (divorce, deaths, dependents), legal issues, home addresses, personal contact details, or other clearly private personal facts.
+20. \`isPersonalConflict\` = true ONLY for explicit interpersonal hostility BETWEEN NAMED INDIVIDUALS: shouting matches, harassment, character attacks, or formal complaints. Normal disagreement about a process is NOT a personal conflict.
+21. If any flag fires, include a brief \`sensitivityReason\` naming which specific text triggered it. Omit \`sensitivityFlags\` entirely when nothing is sensitive — that's the common case.
+22. When in doubt, do NOT set a flag. The cost of a false positive (admin reviews the quarantined candidate manually) is acceptable; the cost of a false negative (sensitive content reaches the knowledge graph) is not. But the threshold is "would a privacy/HR officer at this company call this sensitive?" — operational mentions of who works on what don't reach that bar.
 
 OUTPUT: Return only the structured JSON matching the schema. No narrative explanation outside the JSON.`;
 
