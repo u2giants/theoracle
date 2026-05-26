@@ -2,9 +2,9 @@
 
 Live in-flight state for the next contributor or AI coding session.
 
-**Snapshot date:** 2026-05-26 (evening session)
+**Snapshot date:** 2026-05-26 (late session)
 **Repo:** https://github.com/u2giants/theoracle
-**Current state:** **AI retrofit complete.** R0 → R11.4 all done. The Oracle now has both proactive interjection paths wired: lull-detection (cron every minute, drafts a chat question for the highest-priority relevant gap) and live contradiction surfacing (when the watcher detects a high-severity high-confidence contradiction in a real channel). Both paths post live messages by default and log every decision to `oracle_interventions`.
+**Current state:** **AI retrofit complete + all 6 external review items closed.** R0 → R11.4 done. Both proactive interjection paths post live chat messages by default. External review pass (P1 #1–4, P2 #1–2) completed: settings overhaul with model pool UI, sensitivity flags, entity extraction prompt, full RetrievalPlan + hybrid RRF, requireAdmin on intelligence actions, and honest R10.5 scaffold labels.
 
 The next milestone is no longer code — it's **operational tuning + real-world observation**. See "What's next" at the bottom.
 
@@ -73,6 +73,11 @@ Both keys will be re-pasted into `.env.local` once rotated; nothing in the codeb
 | **R11.2 — Lull-interjection task** | ✅ done | `bf7cad7` | `apps/workers/src/trigger/lull-interjection.ts` — cron `* * * * *`, picks top open gap for the channel, drafts via Anthropic Haiku 4.5 interview route, posts live message + records `oracle_interventions` |
 | **R11.3 — Live contradiction interjection** | ✅ done | `bf7cad7` | `contradiction-watcher` extended: resolves channel from `claim_evidence → messages`, computes cooldown + rate-cap inputs, calls `decideContradictionInterjection`, drafts + posts on 'live' / queues gap on 'queue'. Migration `50_enable_live_contradiction_interjections.sql` flips the setting ON. |
 | **R11.4 — Final docs cleanup** | ✅ done | (this commit) | HANDOFF / DECISIONS / AGENTS / architecture / retrofit packet updated. |
+| **P1 #4 — requireAdmin on intelligence actions** | ✅ done | (prior session) | `requireAdmin()` guard on claims/gaps/contradictions server actions. |
+| **P2 #2 — Honest R10.5 scaffold labels** | ✅ done | (prior session) | UI comments/labels accurately reflect what's shipped vs scaffolded. |
+| **P1 #2 + P2 #1 — Sensitivity flags + entity extraction** | ✅ done | `191b791` | `EXTRACTION_PROMPT_VERSION=2.0.0`, `ExtractionSensitivityFlagsSchema`, `ExtractionEntityProposalSchema`, sensitivity gate + entity proposal staging block in workers. |
+| **P1 #3 — Full RetrievalPlan + hybrid RRF** | ✅ done | `6a02e36` | `packages/ai/src/retrieval-plan.ts`, `searchWithRetrievalPlan()` with pgvector+tsvector RRF, wired into chat route + contradiction-watcher. Migration `51_claims_fts_index.sql` applied. |
+| **P1 #1 — Settings overhaul + model pool** | ✅ done | `a6affc6` | Correct `ROUTE_SETTING_KEYS` throughout; `/admin/settings/model-pool` checkbox UI; `/api/admin/model-catalog` (OpenRouter Big-3 proxy); `resolveModelRoute()` in all 6 workers. |
 
 ---
 
@@ -96,8 +101,8 @@ The AI retrofit is code-complete. Remaining work is operational, not architectur
 4. **Vertex production credentials.** Cloud workers need a service-account JSON mounted via `GOOGLE_APPLICATION_CREDENTIALS` — currently only developer ADC works (local dev only). Provision when deploying R11.x to Trigger.dev cloud.
 
 5. **Deferred items** carried forward (not blocking anything but worth knowing):
-   - R5.5 entity-extraction prompt rewrite (workers call entity validators with empty entity lists today).
-   - `RetrievalPlan` + hybrid pgvector/tsvector RRF in the chat route (legacy `searchApprovedClaims` works for now).
+   - ~~R5.5 entity-extraction prompt rewrite~~ — done in P1 #2 (sensitivity flags + entity proposals in extraction prompt v2.0.0).
+   - ~~`RetrievalPlan` + hybrid pgvector/tsvector RRF~~ — done in P1 #3 (`searchWithRetrievalPlan`, wired into chat route + contradiction-watcher).
    - Real Vertex explicit cache creation (round 2 of R-providers).
    - R10.5 clustering / drift detection body (re-evaluation worker counts claims today; clustering waits for density).
    - R10.5 reclassification job for merge/split/reassign proposals.

@@ -4,9 +4,9 @@
 
 ## Current state (2026-05-26)
 
-**AI retrofit complete.** R0 → R11.4 all done. Both proactive interjection paths post live chat messages by default, gated by pure decision functions. Wet-test passed end-to-end against the live Supabase project.
+**AI retrofit complete + external review closed.** R0 → R11.4 done. All 6 external reviewer issues resolved (P1 #1–4, P2 #1–2): settings overhaul with model pool UI + `resolveModelRoute`, sensitivity flags + entity extraction prompt v2.0.0, full RetrievalPlan + hybrid pgvector/tsvector RRF, requireAdmin on intelligence actions, and honest R10.5 scaffold labels.
 
-**Next work is operational, not architectural:** Trigger.dev redeploy of R11.x workers, Vertex prod credentials, key rotation, threshold tuning. See `HANDOFF.md` "What's next" for the full list.
+**Next work is operational, not architectural:** Trigger.dev redeploy of updated workers, Vertex prod credentials, key rotation, threshold tuning. See `HANDOFF.md` "What's next" for the full list.
 
 Treat `HANDOFF.md` as the authoritative phase-status table. Treat `DECISIONS.md` as the authoritative decision log (D6 + D9 explain why no Vercel AI SDK / no OpenRouter; D10 + D11 explain the R11 live-interjection switch and lull simplifications).
 
