@@ -63,6 +63,7 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `41_albert_post_merge_fix.sql` | Idempotent reconciliation for Albert's specific case (Google + M365 identities folded onto one employee row). Uses real auth_user_ids. |
 | `42_claim_top_domains_backfill.sql` | R3.5 — idempotent backfill from legacy `claim_domains` (Postgres enum) to new `claim_top_domains` (text FK). Includes the mechanical mapping (e.g., `licensing` → `licensing_approvals`, `coldlion` → `it_systems`, `general` → `customer_ops` residual). Legacy `claim_domains` is intentionally preserved per R3.5 acceptance gate. |
 | `48_taxonomy_vector_indexes.sql` | R3.5 — HNSW index on `knowledge_sub_topics.centroid`. Always-on (not opt-in like 99) because the table is empty on install per the activation-threshold rule. |
+| `49_security_hardening.sql` | Closes Supabase advisor findings: forces all admin views to `SECURITY INVOKER`, adds admin-only RLS policies for the R3/R3.5/R4 tables, revokes EXECUTE on SECURITY DEFINER helpers from anon/authenticated, pins `provider_cached_content_touch_updated_at` search_path. |
 | `99_vector_indexes.sql` | HNSW indexes on `claims.embedding` and `document_chunks.embedding`. Opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`. |
 
 ## Anti-patterns
