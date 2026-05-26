@@ -1,67 +1,82 @@
-// Brain synthesis worker — spec Part 9.7, 9.8, 5.4.
+// R9 — Brain synthesis worker (refactored through OracleAIClient + diff validator).
 //
-// Triggered by:
-//   - Admin manual trigger via POST /api/admin/brain/synthesize
-//   - 'new_claims' event (triggered from claim-extraction after new approved claims)
-//   - 'scheduled' cron (weekly maintenance)
+// Per docs/oracle/05-ai-retrofit-phase-packet.md Phase R9.
 //
-// Per-section workflow (spec 9.7):
-//   1. Load the target brain section and its current version (if any).
-//   2. Retrieve approved claims via claim_domains + sectionClaims joins.
-//   3. Call synthesis model with spec 9.8 structured output schema.
-//   4. Validate output: all paragraphs map to approved claim IDs, etc.
-//   5. Two-step transactional insert (spec 6.7):
-//        a. INSERT brain_sections row (if new), current_version_id = NULL.
-//        b. INSERT brain_section_versions row.
-//        c. UPDATE brain_sections.current_version_id = new version ID.
-//   6. Insert new gaps from synthesis output.
-//   7. Update resolved gaps.
-//   8. Log model_runs and job_runs rows.
+// What changed vs the legacy worker:
+//   - Model calls go through OracleAIClient (R2) via OpenRouterBridgeAdapter
+//     using the curated synthesis route from `settings.default_synthesis_route`
+//     (R1 setting key). The bridge dispatches to OpenRouter under the hood;
+//     real Anthropic / Vertex SDKs land in a later phase.
+//   - oracle_context_packs + model_run_usage_details rows are written for
+//     every synthesis call so cost / cache / fallback dashboards work.
+//   - The validator in `packages/oracle-engines/src/synthesis/diff-validator.ts`
+//     replaces the inline `validateSynthesisOutput`. It adds the R9 rule:
+//     "Reject unsupported named people, systems, customers, stages,
+//      departments, or process rules" — every capitalized proper-noun-shaped
+//     name in `updatedMarkdown` must be backed by an approved claim summary
+//     or by a canonical entity in the R3.5 registry.
+//   - On validation failure: the worker now inserts a brain_section_versions
+//     row with reviewStatus='rejected' and does NOT update
+//     brain_sections.currentVersionId. The failed output is preserved for
+//     admin review without touching the current Brain version.
 //
-// Validation constraint (spec 9.8):
-//   Every material paragraph must map to approved claim IDs.
-//   Synthesis is rejected if any claim ID doesn't exist or isn't approved.
+// What stays the same:
+//   - Two-step transactional insert (spec 6.7) for new approved versions.
+//   - sectionClaims membership maintenance for claimsAdded.
+//   - Gap emission + resolution.
+//   - Scheduled (Monday 6 AM) + on-demand task variants.
 
 import { schedules, task } from '@trigger.dev/sdk/v3';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { generateObject } from 'ai';
+import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
 import {
   brainSections,
   brainSectionVersions,
   claims,
   claimDomains,
+  entities,
   gaps,
-  modelRuns,
   jobRuns,
+  modelRunUsageDetails,
+  modelRuns,
+  oracleContextPacks,
   sectionClaims,
   settings,
-} from '@oracle/db/schema';
-import { getOpenRouter } from '@oracle/ai';
-import { KNOWLEDGE_DOMAINS } from '@oracle/shared';
+  type OracleDb,
+} from '@oracle/db';
+import {
+  OpenRouterBridgeAdapter,
+  OracleAIClient,
+  getOracleRoute,
+  makeBlock,
+  type OracleModelRoute,
+  type OraclePromptPlan,
+} from '@oracle/ai';
+import {
+  validateSynthesisDiff,
+  type SynthesisOutput as PureSynthesisOutput,
+  type SynthesisValidationResult,
+} from '@oracle/engines';
 
-const FALLBACK_MODEL = 'anthropic/claude-sonnet-4.6';
+const FALLBACK_ROUTE_ID = 'anthropic_claude_3_5_sonnet_synthesis_primary';
 const SYNTHESIS_PROMPT_VERSION = '1.0.0';
 
-// ---------------------------------------------------------------------------
-// Spec 9.8 structured output schema.
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
+// Spec 9.8 structured output schema — unchanged from legacy.
+// The shape mirrors the SynthesisOutput type in @oracle/engines.
+// ─────────────────────────────────────────────────────────────────────────
 
 const SynthesisParagraphSchema = z.object({
-  text: z.string().describe('The paragraph text to include in the brain section.'),
-  supportingClaimIds: z
-    .array(z.string().uuid())
-    .min(1)
-    .describe('Approved claim IDs that directly support this paragraph. At least one required.'),
+  text: z.string(),
+  supportingClaimIds: z.array(z.string().uuid()).min(1),
 });
 
 const MaterialChangeSchema = z.object({
-  type: z
-    .enum(['added_claim', 'removed_claim', 'strengthened_claim', 'weakened_claim'])
-    .describe('What kind of change occurred.'),
-  claimId: z.string().uuid().describe('The claim ID affected.'),
-  reason: z.string().describe('Why this change was made.'),
+  type: z.enum(['added_claim', 'removed_claim', 'strengthened_claim', 'weakened_claim']),
+  claimId: z.string().uuid(),
+  reason: z.string(),
 });
 
 const NewGapSchema = z.object({
@@ -72,24 +87,14 @@ const NewGapSchema = z.object({
 });
 
 export const SynthesisOutputSchema = z.object({
-  sectionId: z.string().describe('The brain section ID this output is for.'),
-  paragraphs: z
-    .array(SynthesisParagraphSchema)
-    .describe('All paragraphs of the synthesized section. Each maps to approved claim IDs.'),
-  updatedMarkdown: z
-    .string()
-    .describe('Full Markdown content of the new brain section version.'),
-  materialChanges: z
-    .array(MaterialChangeSchema)
-    .describe('Significant changes from the previous version.'),
-  claimsAdded: z.array(z.string().uuid()).describe('Claim IDs newly incorporated.'),
-  claimsRemoved: z.array(z.string().uuid()).describe('Claim IDs dropped from this version.'),
-  claimsStrengthened: z
-    .array(z.string().uuid())
-    .describe('Claim IDs now more prominently featured.'),
-  claimsWeakened: z
-    .array(z.string().uuid())
-    .describe('Claim IDs given less weight due to contradicting evidence.'),
+  sectionId: z.string(),
+  paragraphs: z.array(SynthesisParagraphSchema),
+  updatedMarkdown: z.string(),
+  materialChanges: z.array(MaterialChangeSchema),
+  claimsAdded: z.array(z.string().uuid()),
+  claimsRemoved: z.array(z.string().uuid()),
+  claimsStrengthened: z.array(z.string().uuid()),
+  claimsWeakened: z.array(z.string().uuid()),
   newContradictions: z
     .array(
       z.object({
@@ -98,44 +103,45 @@ export const SynthesisOutputSchema = z.object({
         description: z.string(),
         severity: z.enum(['low', 'medium', 'high']),
       }),
-    )
-    .describe('New contradictions detected during synthesis.'),
-  resolvedContradictions: z
-    .array(z.string().uuid())
-    .describe('Contradiction IDs that can be marked resolved.'),
-  newGaps: z.array(NewGapSchema).describe('New knowledge gaps identified during synthesis.'),
-  resolvedGaps: z
-    .array(z.string().uuid())
-    .describe('Gap IDs that have been answered by existing approved claims.'),
-  confidenceChange: z
-    .enum(['increased', 'stable', 'decreased'])
-    .describe('Whether the overall confidence in this section improved.'),
-  requiresHumanReview: z
-    .boolean()
-    .describe(
-      'True if: the section contains high-impact claims, there are unresolved contradictions, or the AI is uncertain about claim traceability.',
     ),
-  changeSummary: z
-    .string()
-    .describe('1–3 sentence summary of what changed in this version.'),
+  resolvedContradictions: z.array(z.string().uuid()),
+  newGaps: z.array(NewGapSchema),
+  resolvedGaps: z.array(z.string().uuid()),
+  confidenceChange: z.enum(['increased', 'stable', 'decreased']),
+  requiresHumanReview: z.boolean(),
+  changeSummary: z.string(),
 });
 
 export type SynthesisOutput = z.infer<typeof SynthesisOutputSchema>;
 
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
 // Payload schema.
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
 
 const PayloadSchema = z.object({
   sectionId: z.string().min(1),
   trigger: z.enum(['scheduled', 'admin', 'new_claims']),
-  // Optional: only synthesize if this many or more new claims are available.
   minNewClaims: z.number().int().min(0).optional(),
 });
 
-// ---------------------------------------------------------------------------
-// Build the synthesis system prompt.
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
+// Shared OracleAIClient (one per worker process)
+// ─────────────────────────────────────────────────────────────────────────
+
+function buildOracleClient(): OracleAIClient {
+  return new OracleAIClient({
+    adapters: {
+      anthropic: new OpenRouterBridgeAdapter({ provider: 'anthropic' }),
+      vertex: new OpenRouterBridgeAdapter({ provider: 'vertex' }),
+      openai: new OpenRouterBridgeAdapter({ provider: 'openai' }),
+    },
+    fallbackOnError: true,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Prompt builder — unchanged from legacy (same shape, same rules).
+// ─────────────────────────────────────────────────────────────────────────
 
 function buildSynthesisPrompt(
   section: { id: string; title: string; knowledgeDomain: string; category: string },
@@ -168,7 +174,9 @@ MANDATORY RULES:
 
 TRACEABILITY REQUIREMENT:
 Each paragraph's supportingClaimIds list must contain real claim IDs from the approved list below.
-The backend validator will reject this synthesis if any claim ID does not exist or is not approved.
+The backend validator will reject this synthesis if:
+  - any claim ID does not exist or is not approved, OR
+  - the markdown mentions a named entity (person, system, customer, licensor, department) that is not backed by an approved claim or the canonical entity registry.
 ${currentSection}
 APPROVED CLAIMS FOR THIS SECTION (${approvedClaims.length} total):
 ${claimList || '(No approved claims yet — output an empty section with a gap asking for foundational knowledge.)'}
@@ -176,90 +184,36 @@ ${claimList || '(No approved claims yet — output an empty section with a gap a
 OUTPUT: Return structured JSON matching the schema exactly. The updatedMarkdown field should be well-formatted Markdown suitable for display to the Lead Architect.`;
 }
 
-// ---------------------------------------------------------------------------
-// Validate synthesis output (spec 9.8 backend validator).
-// ---------------------------------------------------------------------------
-
-async function validateSynthesisOutput(
-  output: SynthesisOutput,
-  approvedClaimIds: Set<string>,
-): Promise<{ valid: boolean; errors: string[] }> {
-  const errors: string[] = [];
-
-  // All supporting claim IDs must exist in the approved set.
-  for (const para of output.paragraphs) {
-    for (const cid of para.supportingClaimIds) {
-      if (!approvedClaimIds.has(cid)) {
-        errors.push(`Paragraph references non-approved claim ID: ${cid}`);
-      }
-    }
-  }
-
-  // materialChanges claim IDs must exist.
-  for (const change of output.materialChanges) {
-    if (!approvedClaimIds.has(change.claimId)) {
-      errors.push(`materialChange references non-approved claim ID: ${change.claimId}`);
-    }
-  }
-
-  // claimsAdded / claimsRemoved / strengthened / weakened must be in approved set.
-  const allReferencedIds = [
-    ...output.claimsAdded,
-    ...output.claimsStrengthened,
-    ...output.claimsWeakened,
-    // claimsRemoved may reference claims no longer approved (recently rejected/superseded) — skip check.
-  ];
-  for (const cid of allReferencedIds) {
-    if (!approvedClaimIds.has(cid)) {
-      errors.push(`Claim reference ${cid} not in approved claims set`);
-    }
-  }
-
-  // New gaps must have both questionToAsk and whyItMatters (enforced by Zod already).
-  for (const gap of output.newGaps) {
-    if (!gap.questionToAsk.trim() || !gap.whyItMatters.trim()) {
-      errors.push('Gap missing questionToAsk or whyItMatters');
-    }
-  }
-
-  return { valid: errors.length === 0, errors };
-}
-
-// ---------------------------------------------------------------------------
-// Main synthesis logic.
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
+// Main synthesis logic
+// ─────────────────────────────────────────────────────────────────────────
 
 async function synthesizeSection(
   sectionId: string,
   trigger: string,
-  triggerRunId: string,
-): Promise<{ ok: boolean; versionId?: string; requiresReview?: boolean }> {
+  jobRunId: string,
+): Promise<{
+  ok: boolean;
+  versionId?: string;
+  versionStatus?: 'draft' | 'approved' | 'needs_review' | 'rejected';
+  requiresReview?: boolean;
+  validationFailures?: number;
+}> {
   const db = getDirectDb();
+  const client = buildOracleClient();
 
-  // Read model from settings.
-  const modelSetting = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'default_synthesis_model'))
-    .limit(1);
+  // ── 1. Resolve curated synthesis route + load section + claims ───────
+  const route = await resolveSynthesisRoute(db);
 
-  const modelName =
-    (typeof modelSetting[0]?.value === 'string' ? modelSetting[0].value : null) ??
-    FALLBACK_MODEL;
-
-  // Load or scaffold the brain section.
-  let [section] = await db
+  const [section] = await db
     .select()
     .from(brainSections)
     .where(eq(brainSections.id, sectionId))
     .limit(1);
-
   if (!section) {
-    // Section doesn't exist yet — reject; admin must create it first.
     throw new Error(`Brain section "${sectionId}" does not exist. Create it in the admin UI first.`);
   }
 
-  // Load the current version's Markdown (if any).
   let currentMarkdown: string | null = null;
   if (section.currentVersionId) {
     const [currentVersion] = await db
@@ -270,18 +224,20 @@ async function synthesizeSection(
     currentMarkdown = currentVersion?.markdown ?? null;
   }
 
-  // Load the next version number.
   const lastVersion = await db
     .select({ versionNumber: brainSectionVersions.versionNumber })
     .from(brainSectionVersions)
     .where(eq(brainSectionVersions.sectionId, sectionId))
     .orderBy(desc(brainSectionVersions.versionNumber))
     .limit(1);
-
   const nextVersionNumber = (lastVersion[0]?.versionNumber ?? 0) + 1;
 
-  // Retrieve approved claims for this section.
-  // Claim_domains match OR explicit sectionClaims join.
+  // Approved claims via legacy claim_domains + sectionClaims joins.
+  // (The R3.5 claim_top_domains is also in the DB; the legacy claim_domains
+  //  is preserved during the transition. Joining via the legacy table keeps
+  //  this worker compatible with pre-R7 historical claims that don't have
+  //  claim_top_domains rows yet. Switch to claim_top_domains in a later
+  //  cleanup pass.)
   const domainClaims = await db
     .select({
       id: claims.id,
@@ -318,15 +274,22 @@ async function synthesizeSection(
       ),
     );
 
-  // Merge and deduplicate.
   const allClaimsMap = new Map<string, (typeof domainClaims)[number]>();
   for (const c of [...domainClaims, ...sectionSpecificClaims]) {
     allClaimsMap.set(c.id, c);
   }
   const approvedClaims = Array.from(allClaimsMap.values());
   const approvedClaimIds = new Set(approvedClaims.map((c) => c.id));
+  const approvedClaimSummariesLower = approvedClaims.map((c) => c.summary.toLowerCase());
 
-  // Build synthesis prompt.
+  // Canonical entity names from the R3.5 registry. Used by the unsupported-
+  // named-entity check in the validator.
+  const registryRows = await db.select({ canonicalValue: entities.canonicalValue }).from(entities);
+  const registryEntityCanonicalsLower = new Set(
+    registryRows.map((r) => r.canonicalValue.toLowerCase()),
+  );
+
+  // ── 2. Compile prompt blocks ─────────────────────────────────────────
   const systemPrompt = buildSynthesisPrompt(
     {
       id: section.id,
@@ -338,88 +301,209 @@ async function synthesizeSection(
     approvedClaims,
   );
 
-  // Call synthesis model.
-  const callStartMs = Date.now();
-  const openrouter = getOpenRouter();
-  const model = openrouter(modelName);
+  const blocks = [
+    makeBlock({
+      id: 'synthesis-system',
+      label: 'Synthesis system prompt + approved claim corpus',
+      kind: 'stable_system',
+      content: systemPrompt,
+      reasonIncluded: `synthesis prompt v${SYNTHESIS_PROMPT_VERSION}; ${approvedClaims.length} approved claim(s)`,
+    }),
+    makeBlock({
+      id: 'turn-request',
+      label: 'Synthesis request',
+      kind: 'dynamic_input',
+      content: `Please synthesize brain section: ${section.id}\nTrigger: ${trigger}\nApproved claims available: ${approvedClaims.length}`,
+      reasonIncluded: `trigger=${trigger}`,
+    }),
+  ];
 
-  const { object, usage } = await generateObject({
-    model,
-    schema: SynthesisOutputSchema,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: `Please synthesize brain section: ${section.id}\nTrigger: ${trigger}\nApproved claims available: ${approvedClaims.length}`,
-      },
-    ],
-    temperature: 0.2,
+  const plan = client.compile({
+    taskType: 'brain_synthesis',
+    routeId: route.routeId,
+    promptVersion: SYNTHESIS_PROMPT_VERSION,
+    blocks,
+    observability: { includedClaimIds: approvedClaims.map((c) => c.id) },
   });
 
-  const latencyMs = Date.now() - callStartMs;
+  // ── 3. Stage context pack BEFORE the model call ──────────────────────
+  const [contextPack] = await db
+    .insert(oracleContextPacks)
+    .values(buildContextPackInsert(plan))
+    .returning({ id: oracleContextPacks.id });
+  if (!contextPack) throw new Error('[brain-synthesis] failed to insert oracle_context_packs row');
 
-  // Log model run.
-  const [modelRun] = await db
-    .insert(modelRuns)
-    .values({
-      taskType: 'brain-synthesis',
-      model: modelName,
-      provider: 'openrouter',
+  // ── 4. Dispatch through OracleAIClient ───────────────────────────────
+  const callStartedAt = Date.now();
+  let modelOutput: SynthesisOutput | null = null;
+  let modelRunId: string | null = null;
+  let inputTokens: number | undefined;
+  let outputTokens: number | undefined;
+  let cachedInputTokens: number | undefined;
+  let providerRequestId: string | undefined;
+  let usageRaw: unknown = null;
+
+  try {
+    // The bridge adapter calls Vercel AI SDK generateObject with
+    // temperature=0.1 by default — sensible for synthesis. If a future
+    // phase needs to tune temperature for synthesis, extend
+    // GenerateObjectArgs with providerOptions parallel to
+    // GenerateTextArgs (R8's pattern) and pass it here.
+    const result = await client.runObject<SynthesisOutput>({
+      taskType: 'brain_synthesis',
+      routeId: route.routeId,
       promptVersion: SYNTHESIS_PROMPT_VERSION,
-      inputTokens: usage?.inputTokens ?? null,
-      outputTokens: usage?.outputTokens ?? null,
-      latencyMs,
-      success: true,
-    })
-    .returning({ id: modelRuns.id });
+      blocks,
+      schema: SynthesisOutputSchema,
+      observability: { includedClaimIds: approvedClaims.map((c) => c.id) },
+    });
+    const latencyMs = Date.now() - callStartedAt;
+    inputTokens = result.usage.inputTokens;
+    outputTokens = result.usage.outputTokens;
+    cachedInputTokens = result.usage.cachedInputTokens;
+    providerRequestId = result.usage.providerRequestId;
+    usageRaw = result.usage.rawUsageJson;
 
-  // Validate output (spec 9.8 mandatory validator).
-  const { valid, errors: validationErrors } = await validateSynthesisOutput(object, approvedClaimIds);
+    const [modelRun] = await db
+      .insert(modelRuns)
+      .values({
+        taskType: 'brain-synthesis',
+        model: route.modelId,
+        provider: route.provider,
+        promptVersion: SYNTHESIS_PROMPT_VERSION,
+        inputHash: plan.metadata.stablePrefixHash,
+        inputTokens: inputTokens ?? null,
+        outputTokens: outputTokens ?? null,
+        latencyMs,
+        success: result.validation.ok,
+      })
+      .returning({ id: modelRuns.id });
+    if (!modelRun) throw new Error('[brain-synthesis] failed to insert model_runs row');
+    modelRunId = modelRun.id;
 
-  if (!valid) {
-    const errDetail = validationErrors.join('; ');
-    console.error('[brain-synthesis] validation failed:', errDetail);
-    // Log the failure and abort — do NOT update the brain section.
+    await db.insert(modelRunUsageDetails).values({
+      modelRunId: modelRun.id,
+      contextPackId: contextPack.id,
+      routeId: route.routeId,
+      inputTokens: inputTokens ?? null,
+      cachedInputTokens: cachedInputTokens ?? null,
+      outputTokens: outputTokens ?? null,
+      providerRequestId: providerRequestId ?? null,
+      rawUsageJson: usageRaw ?? null,
+    });
     await db
-      .update(modelRuns)
-      .set({ success: false, error: `Validation failed: ${errDetail}` })
-      .where(eq(modelRuns.id, modelRun!.id));
-    throw new Error(`Brain synthesis validation failed: ${errDetail}`);
+      .update(oracleContextPacks)
+      .set({ modelRunId: modelRun.id })
+      .where(eq(oracleContextPacks.id, contextPack.id));
+
+    if (!result.validation.ok) {
+      throw new Error(
+        '[brain-synthesis] model output failed Zod schema validation: ' +
+          result.validation.error.message,
+      );
+    }
+    modelOutput = result.object;
+  } catch (err) {
+    if (!modelRunId) {
+      await db.insert(modelRuns).values({
+        taskType: 'brain-synthesis',
+        model: route.modelId,
+        provider: route.provider,
+        promptVersion: SYNTHESIS_PROMPT_VERSION,
+        latencyMs: Date.now() - callStartedAt,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    throw err;
   }
 
-  // Two-step transactional insert (spec 6.7).
-  // Step a+b: insert brain_section_versions row.
+  if (!modelOutput) throw new Error('[brain-synthesis] modelOutput is null after dispatch');
+
+  // ── 5. R9 validator — claim IDs + unsupported named entities ─────────
+  const validation: SynthesisValidationResult = validateSynthesisDiff({
+    output: modelOutput as PureSynthesisOutput,
+    approvedClaimIds,
+    approvedClaimSummariesLower,
+    registryEntityCanonicalsLower,
+    expectedSectionId: sectionId,
+  });
+
+  // ── 6. Insert brain_section_versions row in BOTH branches ────────────
+  //    Failure: reviewStatus='rejected', currentVersionId untouched.
+  //    Success: reviewStatus='needs_review' or 'draft', then update
+  //             currentVersionId.
+
+  if (!validation.ok) {
+    const failureSummary = validation.failures
+      .slice(0, 10)
+      .map((f) => `${f.kind}: ${f.detail}`)
+      .join('; ');
+    console.error(`[brain-synthesis] validation failed: ${failureSummary}`);
+
+    const [rejectedVersion] = await db
+      .insert(brainSectionVersions)
+      .values({
+        sectionId,
+        versionNumber: nextVersionNumber,
+        markdown: modelOutput.updatedMarkdown,
+        structuredContent: {
+          paragraphs: modelOutput.paragraphs,
+          materialChanges: modelOutput.materialChanges,
+          claimsAdded: modelOutput.claimsAdded,
+          claimsRemoved: modelOutput.claimsRemoved,
+          claimsStrengthened: modelOutput.claimsStrengthened,
+          claimsWeakened: modelOutput.claimsWeakened,
+          confidenceChange: modelOutput.confidenceChange,
+          validationFailures: validation.failures,
+          unsupportedNames: validation.unsupportedNames,
+        },
+        changeSummary: `[REJECTED] Synthesis failed validation (${validation.failures.length} failure(s)): ${failureSummary}`,
+        createdByModelRunId: modelRunId,
+        reviewStatus: 'rejected',
+      })
+      .returning({ id: brainSectionVersions.id });
+
+    // currentVersionId intentionally NOT updated.
+    return {
+      ok: false,
+      versionId: rejectedVersion?.id,
+      versionStatus: 'rejected',
+      validationFailures: validation.failures.length,
+      requiresReview: true,
+    };
+  }
+
+  // Validation passed. Insert version + update currentVersionId.
   const [newVersion] = await db
     .insert(brainSectionVersions)
     .values({
       sectionId,
       versionNumber: nextVersionNumber,
-      markdown: object.updatedMarkdown,
+      markdown: modelOutput.updatedMarkdown,
       structuredContent: {
-        paragraphs: object.paragraphs,
-        materialChanges: object.materialChanges,
-        claimsAdded: object.claimsAdded,
-        claimsRemoved: object.claimsRemoved,
-        claimsStrengthened: object.claimsStrengthened,
-        claimsWeakened: object.claimsWeakened,
-        confidenceChange: object.confidenceChange,
+        paragraphs: modelOutput.paragraphs,
+        materialChanges: modelOutput.materialChanges,
+        claimsAdded: modelOutput.claimsAdded,
+        claimsRemoved: modelOutput.claimsRemoved,
+        claimsStrengthened: modelOutput.claimsStrengthened,
+        claimsWeakened: modelOutput.claimsWeakened,
+        confidenceChange: modelOutput.confidenceChange,
       },
-      changeSummary: object.changeSummary,
-      createdByModelRunId: modelRun?.id ?? null,
-      reviewStatus: object.requiresHumanReview ? 'needs_review' : 'draft',
+      changeSummary: modelOutput.changeSummary,
+      createdByModelRunId: modelRunId,
+      reviewStatus: modelOutput.requiresHumanReview ? 'needs_review' : 'draft',
     })
     .returning({ id: brainSectionVersions.id });
-
   if (!newVersion) throw new Error('[brain-synthesis] version insert returned no row');
 
-  // Step c: update brain_sections.current_version_id.
   await db
     .update(brainSections)
     .set({ currentVersionId: newVersion.id, updatedAt: new Date() })
     .where(eq(brainSections.id, sectionId));
 
-  // Update sectionClaims: add new claims referenced in this synthesis.
-  for (const claimId of object.claimsAdded) {
+  // sectionClaims membership for newly-added claims.
+  for (const claimId of modelOutput.claimsAdded) {
     if (approvedClaimIds.has(claimId)) {
       await db
         .insert(sectionClaims)
@@ -428,23 +512,23 @@ async function synthesizeSection(
     }
   }
 
-  // Emit new gaps from synthesis output.
-  for (const gap of object.newGaps) {
+  // New gaps.
+  for (const gap of modelOutput.newGaps) {
     await db.insert(gaps).values({
       gapType: 'synthesis_gap',
       sectionId,
-      relatedClaimIds: object.claimsAdded,
+      relatedClaimIds: modelOutput.claimsAdded,
       questionToAsk: gap.questionToAsk,
       whyItMatters: gap.whyItMatters,
       priority: gap.priority,
       targetDepartment: gap.targetDepartment ?? null,
       status: 'open',
-      createdByModelRunId: modelRun?.id ?? null,
+      createdByModelRunId: modelRunId,
     });
   }
 
-  // Resolve gaps that are now answered.
-  for (const gapId of object.resolvedGaps) {
+  // Resolved gaps.
+  for (const gapId of modelOutput.resolvedGaps) {
     await db
       .update(gaps)
       .set({ status: 'resolved', resolvedAt: new Date() })
@@ -454,17 +538,18 @@ async function synthesizeSection(
   return {
     ok: true,
     versionId: newVersion.id,
-    requiresReview: object.requiresHumanReview,
+    versionStatus: modelOutput.requiresHumanReview ? 'needs_review' : 'draft',
+    requiresReview: modelOutput.requiresHumanReview,
   };
 }
 
-// ---------------------------------------------------------------------------
-// Primary task: synthesize a single section.
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────
+// Tasks
+// ─────────────────────────────────────────────────────────────────────────
 
 export const brainSynthesisTask = task({
   id: 'brain-synthesis',
-  maxDuration: 60 * 10, // 10 minutes (large context + complex LLM call)
+  maxDuration: 60 * 10,
   run: async (payload: z.infer<typeof PayloadSchema>, { ctx }) => {
     PayloadSchema.parse(payload);
     const db = getDirectDb();
@@ -479,27 +564,15 @@ export const brainSynthesisTask = task({
         inputJson: { sectionId: payload.sectionId, trigger: payload.trigger },
       })
       .returning({ id: jobRuns.id });
-
     if (!jobRun) throw new Error('[brain-synthesis] failed to insert job_runs row');
 
     try {
-      const result = await synthesizeSection(
-        payload.sectionId,
-        payload.trigger,
-        ctx.run.id,
-      );
-
+      const result = await synthesizeSection(payload.sectionId, payload.trigger, jobRun.id);
       await db
         .update(jobRuns)
-        .set({
-          status: 'complete',
-          finishedAt: new Date(),
-          outputJson: result,
-        })
+        .set({ status: 'complete', finishedAt: new Date(), outputJson: result })
         .where(eq(jobRuns.id, jobRun.id));
-
-      const { ok: _ok, ...resultRest } = result;
-      return { ok: true, sectionId: payload.sectionId, ...resultRest };
+      return { sectionId: payload.sectionId, ...result };
     } catch (err) {
       await db
         .update(jobRuns)
@@ -514,31 +587,20 @@ export const brainSynthesisTask = task({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Scheduled maintenance: run weekly to keep brain sections fresh.
-// ---------------------------------------------------------------------------
-
 export const brainSynthesisScheduledTask = schedules.task({
   id: 'brain-synthesis-scheduled',
-  cron: '0 6 * * 1', // Every Monday at 6:00 AM
-  maxDuration: 60 * 30, // 30 minutes for all sections
+  cron: '0 6 * * 1',
+  maxDuration: 60 * 30,
   run: async (_payload, { ctx }) => {
     const db = getDirectDb();
-
-    // Find all brain sections that have approved claims but haven't been
-    // synthesized in the past week, or have never been synthesized.
     const sectionsToRefresh = await db
       .select({ id: brainSections.id })
       .from(brainSections)
       .orderBy(brainSections.updatedAt)
-      .limit(10); // process up to 10 sections per scheduled run
-
-    if (sectionsToRefresh.length === 0) {
-      return { ok: true, sectionsProcessed: 0 };
-    }
+      .limit(10);
+    if (sectionsToRefresh.length === 0) return { ok: true, sectionsProcessed: 0 };
 
     const results: Array<{ sectionId: string; ok: boolean; error?: string }> = [];
-
     for (const section of sectionsToRefresh) {
       try {
         const result = await synthesizeSection(section.id, 'scheduled', ctx.run.id);
@@ -549,7 +611,66 @@ export const brainSynthesisScheduledTask = schedules.task({
         results.push({ sectionId: section.id, ok: false, error: errMsg });
       }
     }
-
     return { ok: true, sectionsProcessed: results.length, results };
   },
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────
+
+async function resolveSynthesisRoute(db: OracleDb): Promise<OracleModelRoute> {
+  const row = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, 'default_synthesis_route'))
+    .limit(1);
+  const routeId =
+    typeof row[0]?.value === 'string' ? (row[0]!.value as string) : FALLBACK_ROUTE_ID;
+  const resolved = getOracleRoute(routeId);
+  if (resolved) return resolved;
+  const fb = getOracleRoute(FALLBACK_ROUTE_ID);
+  if (!fb) {
+    throw new Error(
+      `[brain-synthesis] settings.default_synthesis_route="${routeId}" not in catalog and fallback "${FALLBACK_ROUTE_ID}" missing.`,
+    );
+  }
+  console.warn(
+    `[brain-synthesis] settings.default_synthesis_route="${routeId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
+  );
+  return fb;
+}
+
+function buildContextPackInsert(plan: OraclePromptPlan) {
+  return {
+    taskType: plan.taskType,
+    routeId: plan.routeId,
+    promptVersion: plan.promptVersion,
+    schemaVersion: plan.schemaVersion ?? null,
+    stablePrefixHash: plan.metadata.stablePrefixHash,
+    semiStableContextHash: plan.metadata.semiStableContextHash ?? null,
+    retrievedContextHash: plan.metadata.retrievedContextHash ?? null,
+    dynamicInputHash: plan.metadata.dynamicInputHash,
+    toolSchemaHash: plan.metadata.toolSchemaHash ?? null,
+    outputSchemaHash: plan.metadata.outputSchemaHash ?? null,
+    blocksJson: plan.blocks.map((b) => ({
+      id: b.id,
+      label: b.label,
+      kind: b.kind,
+      hash: b.hash,
+      tokenEstimate: b.tokenEstimate ?? null,
+      cacheEligible: b.cacheEligible,
+      reasonIncluded: b.reasonIncluded,
+    })),
+    retrievalPlanId: plan.metadata.retrievalPlanId ?? null,
+    selectedDomains: plan.metadata.selectedDomains ?? null,
+    selectedSourceTypes: plan.metadata.selectedSourceTypes ?? null,
+    selectedProcessStages: plan.metadata.selectedProcessStages ?? null,
+    selectedEntityIds: plan.metadata.selectedEntityIds ?? null,
+    includedMessageIds: plan.metadata.includedMessageIds ?? null,
+    includedDocumentChunkIds: plan.metadata.includedDocumentChunkIds ?? null,
+    includedClaimIds: plan.metadata.includedClaimIds ?? null,
+    includedGapIds: plan.metadata.includedGapIds ?? null,
+    includedContradictionIds: plan.metadata.includedContradictionIds ?? null,
+  };
+}
