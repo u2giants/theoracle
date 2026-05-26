@@ -49,8 +49,10 @@ import {
   type OracleDb,
 } from '@oracle/db';
 import {
-  OpenRouterBridgeAdapter,
+  AnthropicAdapter,
+  OpenAIAdapter,
   OracleAIClient,
+  VertexGeminiAdapter,
   embedMany,
   getOracleRoute,
   makeBlock,
@@ -90,14 +92,14 @@ const SingleDocumentPayloadSchema = z.object({
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// Shared OracleAIClient (one per worker process, bridge adapters)
+// Shared OracleAIClient (one per worker process, direct provider adapters)
 // ─────────────────────────────────────────────────────────────────────────
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
     adapters: {
-      anthropic: new OpenRouterBridgeAdapter({ provider: 'anthropic' }),
-      vertex: new OpenRouterBridgeAdapter({ provider: 'vertex' }),
-      openai: new OpenRouterBridgeAdapter({ provider: 'openai' }),
+      anthropic: new AnthropicAdapter(),
+      vertex: new VertexGeminiAdapter(),
+      openai: new OpenAIAdapter(),
     },
     fallbackOnError: true,
   });

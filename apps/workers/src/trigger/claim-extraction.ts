@@ -5,10 +5,9 @@
 //   - docs/oracle/03-candidate-before-claim-validation.md
 //
 // What changed vs the legacy worker:
-//   - Model calls go through OracleAIClient (R2) via the OpenRouterBridgeAdapter,
-//     not via getOpenRouter() directly. The route ID is the R1 curated
-//     `default_extraction_route` setting; the bridge dispatches the call
-//     through OpenRouter under the hood until R7 wires the real Vertex SDK.
+//   - Model calls go through OracleAIClient (R2) via direct provider adapters
+//     (Vertex / Anthropic / OpenAI raw SDKs — DECISIONS.md D6). The route ID
+//     is the R1 curated `default_extraction_route` setting.
 //   - Output flows into extraction_batches → extraction_candidates →
 //     extraction_candidate_evidence first. NOTHING writes to permanent
 //     `claims` / `claim_top_domains` / `claim_evidence` before R5's
@@ -41,8 +40,10 @@ import {
   type OracleDb,
 } from '@oracle/db';
 import {
-  OpenRouterBridgeAdapter,
+  AnthropicAdapter,
+  OpenAIAdapter,
   OracleAIClient,
+  VertexGeminiAdapter,
   getOracleRoute,
   makeBlock,
   type OracleModelRoute,
@@ -74,16 +75,16 @@ const SEGMENT_GAP_MS = 60 * 60 * 1000;
 const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
 
 // ── Module-singletons ─────────────────────────────────────────────────────
-// The OracleAIClient is constructed once per worker process. We pass the
-// OpenRouterBridgeAdapter for all 3 provider tags so any curated route in
-// the catalog routes through OpenRouter for now. R7+ replaces these with
-// real provider-native adapters.
+// The OracleAIClient is constructed once per worker process with the three
+// direct provider adapters (R-providers). Per DECISIONS.md D6 these talk to
+// Anthropic, Vertex, and OpenAI APIs directly via @anthropic-ai/sdk,
+// @google/genai, and openai — NOT through OpenRouter or the Vercel AI SDK.
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
     adapters: {
-      anthropic: new OpenRouterBridgeAdapter({ provider: 'anthropic' }),
-      vertex: new OpenRouterBridgeAdapter({ provider: 'vertex' }),
-      openai: new OpenRouterBridgeAdapter({ provider: 'openai' }),
+      anthropic: new AnthropicAdapter(),
+      vertex: new VertexGeminiAdapter(),
+      openai: new OpenAIAdapter(),
     },
     fallbackOnError: true,
   });

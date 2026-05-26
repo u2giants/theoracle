@@ -30,10 +30,12 @@ import { z } from 'zod';
 import { stepCountIs, tool } from 'ai';
 import { createServiceRoleClient } from '@oracle/auth/server';
 import {
+  AnthropicAdapter,
+  OpenAIAdapter,
   ORACLE_SYSTEM_PROMPT,
   ORACLE_SYSTEM_PROMPT_VERSION,
-  OpenRouterBridgeAdapter,
   OracleAIClient,
+  VertexGeminiAdapter,
   getOracleRoute,
   getRecentMessages,
   getRelevantOpenGaps,
@@ -68,14 +70,14 @@ const BodySchema = z.object({
 
 const FALLBACK_ROUTE_ID = 'anthropic_claude_haiku_4_5_interview_primary';
 
-// Singleton OracleAIClient with bridge adapters for all 3 providers. Same
-// pattern as R6/R7 workers — until real provider-native SDKs are wired
-// (R8+ replacement), the bridge satisfies "everything through OracleAIClient".
+// Singleton OracleAIClient with direct provider adapters (R-providers).
+// Anthropic / Vertex / OpenAI raw SDKs per DECISIONS.md D6 — no Vercel AI
+// SDK, no OpenRouter in this path.
 const oracleClient = new OracleAIClient({
   adapters: {
-    anthropic: new OpenRouterBridgeAdapter({ provider: 'anthropic' }),
-    vertex: new OpenRouterBridgeAdapter({ provider: 'vertex' }),
-    openai: new OpenRouterBridgeAdapter({ provider: 'openai' }),
+    anthropic: new AnthropicAdapter(),
+    vertex: new VertexGeminiAdapter(),
+    openai: new OpenAIAdapter(),
   },
   fallbackOnError: true,
 });

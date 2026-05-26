@@ -47,8 +47,10 @@ import {
   type OracleDb,
 } from '@oracle/db';
 import {
-  OpenRouterBridgeAdapter,
+  AnthropicAdapter,
+  OpenAIAdapter,
   OracleAIClient,
+  VertexGeminiAdapter,
   getOracleRoute,
   makeBlock,
   type OracleModelRoute,
@@ -131,9 +133,9 @@ const PayloadSchema = z.object({
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
     adapters: {
-      anthropic: new OpenRouterBridgeAdapter({ provider: 'anthropic' }),
-      vertex: new OpenRouterBridgeAdapter({ provider: 'vertex' }),
-      openai: new OpenRouterBridgeAdapter({ provider: 'openai' }),
+      anthropic: new AnthropicAdapter(),
+      vertex: new VertexGeminiAdapter(),
+      openai: new OpenAIAdapter(),
     },
     fallbackOnError: true,
   });
