@@ -108,7 +108,7 @@ One human → one `employees` row → many `employee_identities` rows.
 
 1. `POST /api/chat` receives `{ channelId }`. The employee is resolved server-side from the Supabase session cookie — the client does not pass an employee ID.
 2. The route resolves the requester's `employees` row through `employee_identities` (matches `auth.uid()` from the Supabase session). Verifies the requester is a participant of `channelId`.
-3. Assembles a minimal retrieval bundle: recent N messages, employee profile, top open gaps for this employee/department, top semantically-relevant approved claims (pgvector cosine).
+3. Classifies the query via `buildRetrievalPlanFromQuery` (heuristic keyword → `topDomainHints`, `requiredEntities`, `excludedDocumentClasses`, `searchScope`). Runs hybrid pgvector + tsvector RRF via `searchWithRetrievalPlan` with metadata pre-filter. Also fetches recent N messages, employee profile, and top open gaps for this employee/department.
 4. Calls `OracleAIClient.runText` with the spec Part 10 system prompt + the retrieval bundle. Route is `settings.default_interview_route` (default `anthropic_claude_haiku_4_5_interview_primary`), dispatched through the direct `AnthropicAdapter` (`@anthropic-ai/sdk`). Tools, multi-turn `messages`, `stopWhen`, and `temperature` are passed through the `providerOptions` escape hatch. Image/file parts are stripped for text-only models before the call.
 5. Tools exposed: `search_company_knowledge`, `check_open_gaps` — both Zod-validated, both backed by `packages/ai/src/retrieval.ts`.
 6. On completion: inserts the assistant message into `messages` and writes a `model_runs` row with cost/latency/tokens.
@@ -160,7 +160,7 @@ Both paths from spec Part 5.1 are live:
 
 - **Lull-driven** — `apps/workers/src/trigger/lull-interjection.ts` (R11.2). Cron `* * * * *`. Per active channel: query `secondsSinceLastUserMessage`, `minutesSinceLastOracleInterjection`, count of interventions in last hour, top open gap whose target is null or a channel participant. Call `decideLullInterjection` (pure, in `packages/oracle-engines/src/interjection.ts`). On `'ask'`: draft the natural-language question via `OracleAIClient.runText` on the interview route (Anthropic Claude Haiku 4.5), insert the assistant message into `messages`, record `oracle_interventions` with `trigger_type='lull_gap'` + `was_live_interjection=true` + `interjection_message_id` + `related_gap_id`, update the gap `status='asked'` + `askedInMessageId`.
 
-- **Contradiction-driven** — `apps/workers/src/trigger/contradiction-watcher.ts` (R11.0 refactor + R11.3 live branch). Per-claim and sweep-cron tasks run pgvector ANN against approved claims and adjudicate semantic pairs via `OracleAIClient.runObject` on the extraction route (Vertex Gemini Flash). For each detected contradiction: resolve the most-recent message-sourced channel from `claim_evidence → messages`, compute cooldown + rate-cap inputs for that channel, call `decideContradictionInterjection`. On `'live'`: draft a chat-shaped surfacing question via the interview route (Anthropic Haiku 4.5) and post it; the `oracle_interventions` row carries the real `channelId` + `interjection_message_id` + `was_live_interjection=true`. On `'queue'` (or live drafting failure): create a `contradiction_gap` so the question still gets asked through the normal gap pipeline.
+- **Contradiction-driven** — `apps/workers/src/trigger/contradiction-watcher.ts` (R11.0 + R11.3 + retrieval enforcement). Per-claim and sweep-cron tasks build a `RetrievalPlan` via `buildDomainScopedPlan` (when the claim has `claim_top_domains` rows) or `buildGlobalRetrievalPlan` (with a structured warning when domain tags are absent), then call `searchWithRetrievalPlan` for ANN. Semantic pairs are adjudicated via `OracleAIClient.runObject` on the extraction route (Vertex Gemini Flash). For each detected contradiction: resolve the most-recent message-sourced channel from `claim_evidence → messages`, compute cooldown + rate-cap inputs for that channel, call `decideContradictionInterjection`. On `'live'`: draft a chat-shaped surfacing question via the interview route (Anthropic Haiku 4.5) and post it; the `oracle_interventions` row carries the real `channelId` + `interjection_message_id` + `was_live_interjection=true`. On `'queue'` (or live drafting failure): create a `contradiction_gap` so the question still gets asked through the normal gap pipeline.
 
 Both paths log every decision (skip / queue / ask / live) to `oracle_interventions` with the stable `reasonCode` from the pure deciders, so admin can audit miss rates and tune the settings:
 
@@ -240,7 +240,7 @@ Workers must not import from `apps/web`, and vice versa.
 | Part 9.2 (tools) | `apps/web/app/api/chat/route.ts` |
 | Part 9.4 (claim extraction) | `apps/workers/src/trigger/claim-extraction.ts` (deployed) |
 | Part 10 (system prompt) | `packages/ai/src/prompts/oracle-system.ts` (verbatim) |
-| Settings / model config | `apps/web/app/admin/settings/` — three model-role pickers (interview, extraction, synthesis) backed by `POST /api/admin/settings`. The OpenRouter catalog proxy was deleted in commit `b01e514`; a curated `OracleModelRoute.routeId` picker sourced from `packages/ai/src/routes/catalog.ts` is the planned replacement. |
+| Settings / model config | `apps/web/app/admin/settings/model-pool` — model pool checkpoint UI backed by `/api/admin/model-catalog` (OpenRouter Big-3 catalog proxy). Workers resolve their route via `resolveModelRoute(modelIdOrRouteId, role)` in `packages/ai/src/routes/resolve.ts`, which accepts both catalog `routeId`s and OpenRouter-style `provider/model` strings and builds a synthetic `OracleModelRoute` for any non-catalog model. Three `ROUTE_SETTING_KEYS` (`default_interview_route`, `default_extraction_route`, `default_synthesis_route`) feed all six production callers. |
 | Phase 5 admin review dashboards | `apps/web/app/admin/{claims,gaps,contradictions,brain}/page.tsx` + `_actions.ts`. Server actions; no client-state library. |
 
 ### Intentionally awkward — flag these before assuming they're bugs
@@ -249,6 +249,7 @@ Workers must not import from `apps/web`, and vice versa.
 - **`claims` has no `employee_id` column.** Looks like a schema oversight; it's intentional. A claim can be supported by multiple employees, documents, or external systems across time. Attribution lives on `claim_evidence.asserted_by_employee_id` per row.
 - **Deprecated columns on `employees` (`auth_user_id`, `auth_provider`, `auth_provider_subject`) are NULL-filled and still present.** Looks like dead columns; they're kept during the multi-identity transition because dropping them mid-session would force a column-drop migration. Removal is in AGENTS.md §15 pending work. New code must read identities through `employee_identities`, not these columns.
 - **`packages/ai/src/openrouter.ts` and `apps/web/app/api/admin/models/route.ts` are absent on purpose.** Looks like missing files; they were deleted in commit `b01e514` (R11.0). OpenRouter is no longer part of the production AI path. Do not re-introduce them.
+- **`searchApprovedClaims()` is marked `@deprecated` but not deleted.** Looks like dead code. It is still used by the chat route's `search_company_knowledge` and `check_open_gaps` tools. The main chat retrieval path (outside tools) was migrated to `searchWithRetrievalPlan` in P1 #3. Tool implementations are lower-priority to migrate; see AGENTS.md §15 pending work.
 - **Embeddings fall back to a deterministic zero vector when `OPENAI_API_KEY` is unset.** Looks like a silent bug. It is intentional so local dev works without a real key; vector similarity is meaningless in that state but the schema and shape are preserved. AGENTS.md §11.
 
 ---
@@ -609,6 +610,11 @@ Every claim insertion is hash-deduped.
 Every taxonomy mutation is admin-gated.
 Every synthesis output is validated; rejected versions preserved.
 Every operationally-sensitive observability dashboard is read-only.
+Every retrieval query carries an explicit RetrievalPlan.searchScope;
+  global_fallback is logged with a structured warning and tagged in
+  oracle_context_packs.selected_domains for audit.
+Every worker resolves its model route through resolveModelRoute(),
+  which handles both catalog routeIds and OpenRouter-style model IDs.
 Wet-test passed end-to-end against the live Supabase project on
   2026-05-26 — first real claim rows landed with all observability
   metadata captured.
@@ -618,4 +624,4 @@ Both proactive interjection paths (lull-detection and live
   oracle_interventions for admin audit.
 ```
 
-R11 (interjection engine) is the remaining phase. Architectural prerequisites met; empirical prerequisites (test transcript processed + claims reviewed and approved) need real data flowing through the pipeline first.
+R11 (interjection engine) is complete. Both lull-interjection and live-contradiction paths post real chat messages; every decision is logged to `oracle_interventions` for admin audit.

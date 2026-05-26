@@ -103,6 +103,7 @@ Operational settings the Oracle reads at runtime live in the `settings` Postgres
 | `default_synthesis_route` | `anthropic_claude_3_5_sonnet_synthesis_primary` | Read by `apps/workers/src/trigger/brain-synthesis.ts` (R9). |
 | `enable_live_contradiction_interjections` | `true` (post-R11) / `false` (pre-R11) | If false, contradictions are queued silently. R11 flips this to true on install per the live-interjection decision. |
 | `enable_group_chat_lull_questions` | `true` | If false, the Oracle never speaks proactively in group chats. |
+| `model_pool` | `[]` (empty array) | Admin-curated list of OpenRouter model IDs (`string[]` JSON). Read by `/admin/settings/model-pool` (P1 #1). Workers pass the stored value to `resolveModelRoute()`; empty = fall back to the curated catalog in `packages/ai/src/routes/catalog.ts`. |
 
 Legacy `default_*_model` keys (`default_interview_model` / `default_extraction_model` / `default_synthesis_model`) have been removed from the seed. They were the pre-retrofit OpenRouter model identifiers and are no longer read by any code path. If they appear in your live DB from an older deploy, they're inert and can be deleted in a follow-up `DELETE FROM settings` migration.
 
@@ -125,6 +126,8 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 - `apps/web/next.config.ts` — loads `.env.local` from the monorepo root.
 - `apps/web/lib/supabase/server.ts` — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
 - `apps/web/app/api/chat/route.ts` — reads `settings.default_interview_route`; uses `ANTHROPIC_API_KEY` + Vertex ADC + `OPENAI_API_KEY` via the three direct adapters.
+- `apps/web/app/admin/settings/model-pool/` — reads and writes `settings.model_pool` (P1 #1).
+- `apps/web/app/api/admin/model-catalog/route.ts` — fetches OpenRouter Big-3 catalog; reads `settings.model_pool` to determine checked state.
 - `apps/workers/src/trigger/claim-extraction.ts` — reads `settings.default_extraction_route`; same three direct adapters.
 - `apps/workers/src/trigger/document-ingestion.ts` — reads `settings.default_extraction_route`; same three direct adapters.
 - `apps/workers/src/trigger/brain-synthesis.ts` — reads `settings.default_synthesis_route`; same three direct adapters.

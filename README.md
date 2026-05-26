@@ -33,7 +33,7 @@ The master spec (`oracle_master_spec.md`) is the contract for what The Oracle is
 ```
 apps/
   web/        Next.js app — chat UI, admin dashboards (/admin/ai, /admin/taxonomy), /api/chat
-  workers/    Trigger.dev v3 tasks (extraction, ingestion, synthesis, contradiction-watcher, taxonomy-reevaluation)
+  workers/    Trigger.dev v3 tasks (extraction, ingestion, synthesis, lull-interjection, contradiction-watcher, taxonomy-reevaluation)
 packages/
   shared/         constants + types (KNOWLEDGE_DOMAINS, TOP_LEVEL_DOMAINS, ENTITY_TYPES, enums)
   db/             Drizzle schema, hand-written SQL (01–49 raw files for RLS / views / constraints / seeds), seed runner
@@ -98,7 +98,7 @@ Full setup details: [`docs/development.md`](docs/development.md). All env vars: 
 | R3.5 — Knowledge taxonomy schema | done | 15 tables + 12 top-domains seeded + 56 entities seeded (commit `c529594`) |
 | R4 — Candidate staging schema | done | 4 staging tables + 13 CHECK constraints (commit `fe60304`) |
 | R5 — Quote validator + promotion decision | done | `packages/oracle-engines/src/extraction/` (commit `70339c6`) |
-| R5.5 — Entity resolver + taxonomy validator | partial | Pure validators landed (commit `8cad256`, 45-assertion smoke). **Workers still pass `proposedEntities: []` + `entityRegistry: []`** — model is not yet asked to emit entities. Wiring deferred to a prompt-rewrite pass. |
+| R5.5 — Entity resolver + taxonomy validator | done | Pure validators + smoke (`8cad256`). Wiring completed in P1 #2 (commit `191b791`) — workers emit sensitivity flags and entity proposals via `EXTRACTION_PROMPT_VERSION=2.0.0`. |
 | R6 — Claim extraction worker refactor | done | `apps/workers/src/trigger/claim-extraction.ts` (commit `b46131d`) |
 | R7 — Document ingestion + cache infra | done | (commit `a8a8586`) |
 | R8 — Chat route through OracleAIClient | done | `apps/web/app/api/chat/route.ts` (commit `8a38fbd`) |
@@ -113,6 +113,13 @@ Full setup details: [`docs/development.md`](docs/development.md). All env vars: 
 | R11.3 — Live contradiction interjection | done | `contradiction-watcher` extended to draft + post live messages; migration `50_enable_live_contradiction_interjections.sql` (commit `bf7cad7`) |
 | R11.4 — Final docs cleanup | done | This README, AGENTS, HANDOFF, DECISIONS (D10 + D11), docs/architecture |
 | **AI retrofit** | **complete** | Remaining work is operational tuning, not architecture. See `HANDOFF.md` "What's next". |
+| P1 #4 — `requireAdmin` guard on intelligence server actions | done | `claims` / `gaps` / `contradictions` server actions gated behind `requireAdmin()` |
+| P2 #2 — Honest R10.5 scaffold labels | done | UI labels and code comments accurately distinguish shipped vs scaffolded functionality |
+| P1 #2 + P2 #1 — Sensitivity flags + entity extraction (`EXTRACTION_PROMPT_VERSION=2.0.0`) | done | `ExtractionSensitivityFlagsSchema`, `ExtractionEntityProposalSchema`; sensitivity gate + entity proposal staging fully wired in workers (commit `191b791`) |
+| P1 #3 — Full `RetrievalPlan` + hybrid pgvector/tsvector RRF | done | `buildRetrievalPlanFromQuery`, `searchWithRetrievalPlan` with RRF; `DOMAIN_KEYWORDS` expanded; wired into chat route + contradiction-watcher (commit `6a02e36`) |
+| P1 #1 — Settings overhaul + model pool UI + `resolveModelRoute` | done | `/admin/settings/model-pool` UI; `/api/admin/model-catalog`; `resolveModelRoute()` dynamic resolver in all workers; correct `ROUTE_SETTING_KEYS` throughout (commit `a6affc6`) |
+| Retrieval enforcement — `RetrievalPlanSearchScope` + `global_fallback` logging | done | Every plan carries an explicit `searchScope`; `global_fallback` emits structured warning + audit tag in `oracle_context_packs.selected_domains`; contradiction-watcher ANN refactored through `searchWithRetrievalPlan` (commit `aec13ed`) |
+| **External review** | **complete** | All 6 P1 + P2 items closed. |
 
 ## Smoke gates — run any time
 

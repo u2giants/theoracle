@@ -164,6 +164,7 @@ pnpm --filter @oracle/engines verify:r5.5
 pnpm --filter @oracle/engines verify:r6
 pnpm --filter @oracle/engines verify:r7
 pnpm --filter @oracle/engines verify:r9
+pnpm --filter @oracle/engines verify:r11.1
 ```
 
 If you only touched one phase's module, you can scope the smoke gate to that phase — but the typecheck + build pair is non-negotiable. The full gate combination is fast (~30 seconds total) because the pure-function smokes finish in milliseconds.
@@ -174,7 +175,7 @@ Each AI retrofit phase has an acceptance gate documented in `docs/oracle/05-ai-r
 
 - After each phase, the pre-push gate above must all pass before commit.
 - New phases must not regress prior gates.
-- R0 → R10.5 + R-providers + R11.0 are complete. The wet-test passed end-to-end against the live Supabase project on 2026-05-26 — first real `claims` rows landed. **R11.1+** (lull-interjection task, live contradiction interjection) is the next work item. See `HANDOFF.md` for the exact next action.
+- R0 → R11.4 + all 6 external-review items (P1 #1–4, P2 #1–2) are complete. The wet-test passed end-to-end on 2026-05-26. Both interjection paths (R11.2 lull + R11.3 live contradiction) post live chat messages. Remaining work is operational tuning — see `HANDOFF.md` "What's next" for the precise task list.
 
 ## Inspection / debugging scripts
 

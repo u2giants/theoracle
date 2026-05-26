@@ -84,8 +84,9 @@ Currently using the default `*.vercel.app` URL. Custom domain config is a TODO i
 |---|---|---|
 | `claim-extraction.ts` | `claimExtractionTask` | scheduled (cron) — also callable via `runClaimExtractionOnce()` for local wet-tests |
 | `document-ingestion.ts` | `documentIngestionTask`, `documentIngestionSweepTask` | one-off + scheduled |
-| `contradiction-watcher.ts` | `contradictionWatcherTask`, `contradictionWatcherSweepTask` | one-off + scheduled |
 | `brain-synthesis.ts` | `brainSynthesisTask`, `brainSynthesisScheduledTask` | one-off + scheduled |
+| `lull-interjection.ts` | `lullInterjectionTask` | scheduled cron (`* * * * *`) — fires every minute; `decideLullInterjection` gates actual frequency (R11.2) |
+| `contradiction-watcher.ts` | `contradictionWatcherTask`, `contradictionWatcherSweepTask` | one-off + scheduled |
 | `taxonomy-reevaluation.ts` | `taxonomyReevaluationTask` | scheduled (R10.5 scaffold; clustering body deferred) |
 
 **Dashboard:** https://cloud.trigger.dev/projects/v3/proj_wgpzsvhmsopqhvwqaycn

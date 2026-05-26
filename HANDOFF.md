@@ -78,6 +78,7 @@ Both keys will be re-pasted into `.env.local` once rotated; nothing in the codeb
 | **P1 #2 + P2 #1 — Sensitivity flags + entity extraction** | ✅ done | `191b791` | `EXTRACTION_PROMPT_VERSION=2.0.0`, `ExtractionSensitivityFlagsSchema`, `ExtractionEntityProposalSchema`, sensitivity gate + entity proposal staging block in workers. |
 | **P1 #3 — Full RetrievalPlan + hybrid RRF** | ✅ done | `6a02e36` | `packages/ai/src/retrieval-plan.ts`, `searchWithRetrievalPlan()` with pgvector+tsvector RRF, wired into chat route + contradiction-watcher. Migration `51_claims_fts_index.sql` applied. |
 | **P1 #1 — Settings overhaul + model pool** | ✅ done | `a6affc6` | Correct `ROUTE_SETTING_KEYS` throughout; `/admin/settings/model-pool` checkbox UI; `/api/admin/model-catalog` (OpenRouter Big-3 proxy); `resolveModelRoute()` in all 6 workers. |
+| **Retrieval enforcement — `RetrievalPlanSearchScope` + `global_fallback` logging** | ✅ done | `aec13ed` | `searchScope` field on every `RetrievalPlan`; `global_fallback` emits structured warning + audit tag in `oracle_context_packs.selected_domains`; `buildDomainScopedPlan` / `buildGlobalRetrievalPlan` factory functions; contradiction-watcher ANN refactored through `searchWithRetrievalPlan`. |
 
 ---
 
@@ -103,6 +104,9 @@ The AI retrofit is code-complete. Remaining work is operational, not architectur
 5. **Deferred items** carried forward (not blocking anything but worth knowing):
    - ~~R5.5 entity-extraction prompt rewrite~~ — done in P1 #2 (sensitivity flags + entity proposals in extraction prompt v2.0.0).
    - ~~`RetrievalPlan` + hybrid pgvector/tsvector RRF~~ — done in P1 #3 (`searchWithRetrievalPlan`, wired into chat route + contradiction-watcher).
+   - ~~`searchScope` retrieval enforcement~~ — done (commit `aec13ed`; `buildDomainScopedPlan` / `buildGlobalRetrievalPlan`; contradiction-watcher ANN refactored).
+   - **`precomputedVector` support in `RetrievalPlan`** — contradiction-watcher calls `embedText` twice per ANN check. A `precomputedVector` field would let the caller skip the second embed call.
+   - **DOMAIN_KEYWORDS tuning** — queries with no keyword match land in `global_fallback`. Auditable at `WHERE selected_domains @> ARRAY['_global_fallback']`. Extend keywords as production gaps emerge.
    - Real Vertex explicit cache creation (round 2 of R-providers).
    - R10.5 clustering / drift detection body (re-evaluation worker counts claims today; clustering waits for density).
    - R10.5 reclassification job for merge/split/reassign proposals.
@@ -199,7 +203,7 @@ apps/web/app/api/chat/route.ts                    ✅  R8 + R-providers — dire
 apps/workers/src/trigger/brain-synthesis.ts       ✅  R9 + R-providers — direct adapters
 apps/workers/src/trigger/contradiction-watcher.ts ✅  R11.0 — direct adapters
 apps/workers/src/trigger/taxonomy-reevaluation.ts ⬜  scaffold only; clustering body deferred
-apps/workers/src/trigger/lull-interjection.ts     ⬜  to be created in R11.2
+apps/workers/src/trigger/lull-interjection.ts     ✅  R11.2 — cron task; direct Anthropic (interview route)
 ```
 
 **Required env vars** (in repo-root `.env.local`):
@@ -265,9 +269,6 @@ If you need to re-run migrations from a fresh checkout, `pnpm db:migrate` is ide
 
 ## What's deliberately deferred (not blocking R11)
 
-- **R5.5 entity-extraction prompt rewrite.** R5.5 ships the validator + resolver; the workers call them with empty entity lists (`claim-extraction.ts:609`, `document-ingestion.ts:582` both pass `proposedEntities: []` + `entityRegistry: []`). Updating `ExtractionClaimSchema` + `EXTRACTION_SYSTEM_PROMPT` to emit entities is its own prompt-engineering pass with its own evals. **Until then, the licensor-vs-vendor resolver cannot fire in production.**
-- **Extraction sensitivity flags.** `ExtractionClaimSchema` has no `sensitivityFlags` field; both workers hardcode `containsSensitivePersonalData: false`, `containsSensitiveHRData: false`, `isPersonalConflict: false` (claim-extraction.ts:466, document-ingestion.ts:494). The sensitivity gate in the validator and the `quarantined_sensitive` candidate status both work in mock-mode evals, but production extraction **cannot flag a candidate as sensitive** until the schema + prompt include the fields. Adding them is bundled naturally with the R5.5 prompt rewrite above.
-- **`RetrievalPlan` + hybrid pgvector/tsvector RRF in the chat route.** R8's chat route uses the legacy `searchApprovedClaims` helper.
 - **Real Vertex explicit cache creation.** Round 1 of R-providers uses implicit caching only; explicit `cachedContent` resource lifecycle is round 2.
 - **R10.5 clustering / drift detection body.** `taxonomy-reevaluation.ts:68` returns `proposalsWritten: 0` as a *literal type* — the worker counts claims per domain and reports against the activation threshold, but does not write any proposals. Until claim density crosses the threshold this is fine; once it does, the worker needs the embedding-clustering body to start emitting `create_sub_topic` / `split_top_domain` proposals.
 - **R10.5 reclassification job for merge/split/reassign proposals.** `create_top_domain` proposals apply transactionally on approval. **Merge/split/reassign/sub-topic approvals log an audit entry in `taxonomy_change_log` but don't actually reclassify any claims** — the dedicated reclassification job is the next R10.5 follow-up.

@@ -52,6 +52,7 @@ oracle/
 │   │   │   ├── admin/                         # admin dashboard (Phase 2/5 + R10/R10.5)
 │   │   │   │   ├── ai/                        # R10 — AI observability (runs, cache, candidates, evals)
 │   │   │   │   ├── taxonomy/                  # R10.5 — taxonomy governance (proposals, entities, change log)
+│   │   │   │   ├── settings/                  # P1 #1 — model pool UI (/admin/settings/model-pool)
 │   │   │   │   ├── {claims,gaps,contradictions,brain}/   # Phase 5 review dashboards
 │   │   │   ├── api/chat/route.ts              # Oracle chat endpoint (Phase 3)
 │   │   │   └── _components/                   # local UI: login-form, logout-button
@@ -62,7 +63,7 @@ oracle/
 │   └── workers/                   # Trigger.dev v3 — background workers
 │       ├── trigger.config.ts
 │       └── src/
-│           ├── trigger/{claim-extraction,document-ingestion,contradiction-watcher,brain-synthesis,taxonomy-reevaluation}.ts
+│           ├── trigger/{claim-extraction,document-ingestion,brain-synthesis,lull-interjection,contradiction-watcher,taxonomy-reevaluation}.ts
 │           └── wet-test/run-claim-extraction-once.ts  # local end-to-end runner (bypasses Trigger.dev)
 ├── packages/
 │   ├── shared/                    # framework-agnostic TS types & constants (KNOWLEDGE_DOMAINS, etc.)
@@ -83,11 +84,11 @@ oracle/
 │   │       │                       # plus MockProviderAdapter for test mode. NO Vercel AI SDK in this folder.
 │   │       ├── usage/              # OracleUsage normalizer (R2)
 │   │       ├── validation/         # StructuredOutputValidator + EvidenceValidator (R2)
-│   │       ├── routes/             # Curated OracleModelRoute catalog — 1 Primary + 1 Fallback per role (R1)
+│   │       ├── routes/             # Curated OracleModelRoute catalog (R1) + `resolveModelRoute()` dynamic resolver (handles catalog routeIds AND OpenRouter-style `provider/model` strings)
 │   │       ├── prompts/            # oracle-system.ts (interview), extraction-system.ts
 │   │       ├── __verify__/         # r-providers-smoke.ts (real-API smoke) + earlier deterministic smokes
 │   │       ├── evals/              # mock-mode extraction eval (fixtures + canned LLM outputs + runner)
-│   │       ├── embeddings.ts, retrieval.ts
+│   │       ├── embeddings.ts, retrieval.ts, retrieval-plan.ts
 │   │       └── index.ts
 │   ├── oracle-engines/            # Pure-logic extraction + synthesis modules + DB-aware executors (R5–R9)
 │   │   ├── src/extraction/
@@ -305,7 +306,6 @@ This project does not use containers. Everything is fully managed cloud per spec
 | Supabase Auth | Identity | Supabase Cloud | — | Google OAuth + Microsoft 365 SSO (live); email magic-link (fallback). OAuth providers are configured in the Supabase Dashboard. |
 | Supabase Realtime | Chat / presence | Supabase Cloud | — | `postgres_changes` for messages; presence channel for typing. |
 | Brevo | SMTP for magic-link emails | Brevo | account on file | Configured in Supabase Auth → SMTP Settings; replaces Supabase's built-in throttled SMTP. |
-| OpenRouter | LLM provider (legacy) | OpenRouter | account on file | **Deprecated for production use.** Legacy fallback only while AI retrofit is in progress. Do not add new production usage. |
 | OpenAI | Embeddings only (`text-embedding-3-small`) | OpenAI | account on file | Optional — falls back to deterministic zero vector if `OPENAI_API_KEY` is unset; **vector dimension does not change**. |
 
 ---
@@ -566,6 +566,26 @@ The most important section. **Do not undo these without reading the cited spec s
 
 **Do not change because:** moving the signout to a client `useEffect` re-introduces the cached-session bug. If you need progress UI on sign-out, the form-action redirect already handles that without JavaScript.
 
+### `resolveModelRoute()` accepts both catalog routeIds AND OpenRouter-style `provider/model` strings
+
+**Looks like:** an overly permissive API that could silently accept any arbitrary string.
+
+**Actually:** `packages/ai/src/routes/resolve.ts` (`resolveModelRoute(modelIdOrRouteId, role)`) first tries the curated catalog; if no catalog match, it parses a `provider/model` slash string and builds a synthetic `OracleModelRoute` pointing at the matching direct adapter. Workers read `settings.default_*_route`, which can hold either a catalog ID (the default) or a model ID from the admin's model-pool picker. The resolver bridges the two.
+
+**Why:** the model pool UI at `/admin/settings/model-pool` lets the admin select models by OpenRouter ID (e.g. `anthropic/claude-haiku-4-5`) which the curated catalog doesn't know about. Without the resolver, any non-catalog model ID selected in the UI would cause all workers to fail at startup. The synthetic route picks the right adapter via `OR_PROVIDER_MAP` (`google/` → `vertex`, `anthropic/` → `anthropic`, `openai/` → `openai`).
+
+**Do not change because:** removing the fallback parsing means only catalog routeIds work, breaking the model-pool UI for any model the admin selects that isn't already in the curated catalog.
+
+### `RetrievalPlan.searchScope` is mandatory — every plan must declare its search intent
+
+**Looks like:** a nullable or optional field you can skip when you "just want everything."
+
+**Actually:** `packages/ai/src/retrieval-plan.ts` exports three factory functions: `buildRetrievalPlanFromQuery` (heuristic keyword classifier → `'domain_filtered'` or `'global_fallback'`), `buildDomainScopedPlan` (explicit domain list → `'domain_filtered'`), and `buildGlobalRetrievalPlan` (intentional all-corpus → `'global_explicit'`). Every caller picks one of these. There is no path that constructs a plan without a `searchScope`.
+
+**Why:** without explicit scope tagging, global vector searches silently contaminate ERP answers with vendor-manual noise — exactly the failure mode the taxonomy and segmentation layers exist to prevent. `global_fallback` plans emit a `console.warn` with a structured object (query slice, hint about which keywords to add, impact label) and write `['_global_fallback']` to `oracle_context_packs.selected_domains` so admin can audit miss rates at `WHERE selected_domains @> ARRAY['_global_fallback']`. `global_explicit` (reserved for intentional all-corpus analysis) does the same but with `'_global_explicit'` and no warning.
+
+**Do not change because:** adding a `searchScope`-free path re-opens the contamination problem. If a query keeps landing on `global_fallback`, the right fix is to expand `DOMAIN_KEYWORDS` in `retrieval-plan.ts`, not to make `searchScope` optional.
+
 ---
 
 ## 12. Credentials and environment
@@ -652,7 +672,7 @@ Rule added to prevent recurrence:
 | open | Create the `company_documents` Storage bucket in Supabase if not already done | Albert (Supabase dashboard) |
 | open | Wire Authentik OIDC as a third login provider for internal-only accounts | future build session |
 | done | Deploy Phase 4 to Trigger.dev — version `20260521.1` with 7 tasks running in production (`proj_wgpzsvhmsopqhvwqaycn`). `TRIGGER_PROJECT_REF` set in `.env.local` + Vercel. | 2026-05-21 |
-| open | Admin → Settings model pickers were sourced from OpenRouter's `/models` proxy (deleted in `b01e514`). Replacement should source from the curated `OracleModelRoute` catalog in `packages/ai/src/routes/catalog.ts` — strict 1 Primary + 1 Fallback per role per docs/oracle/01. | future build session |
+| done | **P1 #1 — Admin → Settings model pool UI** (`/admin/settings/model-pool`). `resolveModelRoute()` wired to all workers; correct `ROUTE_SETTING_KEYS`; `/api/admin/model-catalog` for OpenRouter Big-3 browsing. | commit `a6affc6` |
 | done | Implement Phase 5 — Admin review dashboards (claims, gaps, contradictions, brain) | all four dashboards + server actions live; typecheck clean |
 | done | **R1 — Curated Oracle model route catalog** | `packages/ai/src/routes/` (commit `91e44ea`) |
 | done | **R2 — OracleAIClient + ContextCompiler + ModelRouter + provider adapter stubs** | commit `3c51c9b`; 16/16 smoke assertions pass via `pnpm --filter @oracle/ai verify:r2` |
@@ -660,7 +680,7 @@ Rule added to prevent recurrence:
 | done | **R3.5 — Three-layer knowledge taxonomy schema** (15 tables; 12 top-domains with boundary rules seeded; 56 entities seeded; `licensor` first-class) | commit `c529594`; Drizzle migration `0002_demonic_kid_colt.sql` + hand-written `12_taxonomy_constraints.sql`, `16_knowledge_top_domains_seed.sql`, `17_entities_seed.sql`, `42_claim_top_domains_backfill.sql`, `48_taxonomy_vector_indexes.sql` |
 | done | **R4 — Candidate-before-claim staging schema** (4 staging tables; 13 CHECK constraints incl. promoted-consistency, sensitive-consistency, validated-fields-required-on-pass) | commit `fe60304`; Drizzle migration `0003_magenta_lionheart.sql` + hand-written `13_extraction_constraints.sql` |
 | done | **R5 — Quote validator + promotion decision** (pure functions in `packages/oracle-engines/src/extraction/{quote-validator,candidate-hash,promote-candidate}.ts`; 33/33 assertions via `pnpm --filter @oracle/engines verify:r5`) | commit `70339c6` |
-| partial | **R5.5 — Entity resolver + taxonomy validator** (`entity-resolver.ts` + `taxonomy-validator.ts`; `decidePromotion` extended with `entityAssignments` + `metadata` + `entityProposalsToStage`; 45/45 assertions via `verify:r5.5`) | commit `8cad256`; Drizzle migration `0004_simple_tomas.sql` for `extraction_candidate_evidence.documentClass` + `processStage`. **Wiring deferred:** workers pass `proposedEntities: []` + `entityRegistry: []` to `validateTaxonomy` (claim-extraction.ts:609, document-ingestion.ts:582) because `ExtractionClaimSchema` has no entity field. Licensor-vs-vendor resolver cannot fire in production until the prompt + schema are extended. |
+| done | **R5.5 — Entity resolver + taxonomy validator** (`entity-resolver.ts` + `taxonomy-validator.ts`; `decidePromotion` extended with `entityAssignments` + `metadata` + `entityProposalsToStage`; 45/45 assertions via `verify:r5.5`) | commit `8cad256`; Drizzle migration `0004_simple_tomas.sql`. Wiring completed in P1 #2 + P2 #1 (commit `191b791`): `ExtractionClaimSchema` now includes `sensitivityFlags` + entity proposal fields; workers emit real sensitivity flags and entity proposals via `EXTRACTION_PROMPT_VERSION=2.0.0`. Licensor-vs-vendor resolver now fires in production. |
 | done | **R6 — Refactor `apps/workers/src/trigger/claim-extraction.ts` through staging tables** (circuit breaker + promotion executor; smoke assertions via `verify:r6`) | commit `b46131d` (later swapped to direct adapters in R-providers) |
 | done | **R7 — Refactor `apps/workers/src/trigger/document-ingestion.ts` through staging** (cache profitability heuristic + `provider_cached_content` lifecycle + race-safe executor + `claims.candidate_hash`; 19/19 assertions via `verify:r7`) | commit `a8a8586`; Drizzle migration `0005_kind_nekra.sql` + hand-written `14_claims_candidate_hash_unique.sql` |
 | done | **R8 — Refactor `apps/web/app/api/chat/route.ts` through `OracleAIClient`** with `providerOptions` escape hatch for tools, multi-turn messages, `stopWhen`, `temperature` | commit `8a38fbd` |
@@ -675,7 +695,9 @@ Rule added to prevent recurrence:
 | done | **R11.2 — Lull-interjection Trigger.dev task** | commit `bf7cad7`. `apps/workers/src/trigger/lull-interjection.ts` — cron `* * * * *`, drafts via Anthropic Haiku 4.5 interview route, posts live message, records intervention. |
 | done | **R11.3 — Live contradiction interjection** | commit `bf7cad7`. `contradiction-watcher` extended: resolves channel from claim_evidence → messages, calls `decideContradictionInterjection`, drafts + posts live on 'live' / queues gap on 'queue'. Migration `50_enable_live_contradiction_interjections.sql` flips the setting ON. |
 | done | **R11.4 — Final docs cleanup** | (this commit). HANDOFF / DECISIONS (D10 + D11) / docs/architecture / retrofit packet updated. |
-| open | **Trigger.dev redeploy** | `pnpm --filter @oracle/workers deploy` to push R11.0 + R11.2 + R11.3 to Trigger.dev cloud (and remove `OPENROUTER_API_KEY` from the project env on the same deploy). |
+| open | **Trigger.dev redeploy** | `pnpm --filter @oracle/workers deploy` to push R11.0 + R11.2 + R11.3 + P1 #1 (resolveModelRoute) + P1 #3 (hybrid RRF) + retrieval enforcement to Trigger.dev cloud; remove `OPENROUTER_API_KEY` from the project env on the same deploy. |
+| open | **`precomputedVector` support in `RetrievalPlan`** | Contradiction-watcher calls `embedText(claim.summary)` twice per ANN check — once to compute/store, once inside `searchWithRetrievalPlan`. Add `precomputedVector?: number[]` to `RetrievalPlan` in `packages/ai/src/retrieval-plan.ts` to skip the second embed call. See TODO in `contradiction-watcher.ts`. |
+| open | **DOMAIN_KEYWORDS tuning** | Query-time domain classification in `buildRetrievalPlanFromQuery` is heuristic (keyword matching). Queries with no keyword match land in `global_fallback` (logged + audit-tagged). Extend `DOMAIN_KEYWORDS` in `packages/ai/src/retrieval-plan.ts` as production queries reveal classification gaps. Auditable at `WHERE selected_domains @> ARRAY['_global_fallback']`. |
 | open | **Vertex production credentials** | local dev uses developer ADC. Cloud workers need a service-account JSON mounted via `GOOGLE_APPLICATION_CREDENTIALS`. |
 | open | **Round-2 interjection improvements** | (a) wire Supabase Realtime presence into `isAnyoneTyping` in `lull-interjection.ts`; (b) add `gaps.embedding` + score topical relevance against recent message embeddings instead of channel-participation. See DECISIONS.md D11. |
 | done | Retrofit reference docs sweep | This commit. `docs/oracle/02-provider-native-ai-architecture.md` and `docs/oracle/05-ai-retrofit-phase-packet.md` updated to reflect the completed retrofit. Status tables show what shipped vs what's deferred to round 2. |
