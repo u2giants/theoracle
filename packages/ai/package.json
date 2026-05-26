@@ -29,7 +29,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
     "@google/genai": "^2.6.0",
-    "@openrouter/ai-sdk-provider": "^2.9.0",
     "@oracle/db": "workspace:*",
     "@oracle/engines": "workspace:*",
     "@oracle/shared": "workspace:*",

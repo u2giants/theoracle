@@ -15,12 +15,9 @@ export {
   type ExtractionClaim,
   type FormattedMessage,
 } from './prompts/extraction-system';
-/**
- * @deprecated Use the OracleAIClient (R2) once available. OpenRouter is the
- * legacy AI path and must not be used by new production code. See
- * docs/oracle/05-ai-retrofit-phase-packet.md.
- */
-export { getOpenRouter } from './openrouter';
+// OpenRouter has been removed from the codebase per R-providers / R11.0.
+// Every production model call goes through OracleAIClient with direct
+// Anthropic / Vertex / OpenAI adapters. See DECISIONS.md D6, D9.
 
 // R2: OracleAIClient — the production gateway for all Oracle model calls.
 export {

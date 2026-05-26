@@ -1,5 +1,11 @@
 // Contradiction watcher — spec Part 9.3 + spec 5.1 Rule 1.
 //
+// R11.0 refactor: all model calls now go through OracleAIClient with direct
+// provider adapters (DECISIONS.md D6 + D9). The previous getOpenRouter() +
+// Vercel-AI-SDK generateObject() path is retired. R3 observability rows
+// (model_run_usage_details + oracle_context_packs) are written for every
+// adjudication call, matching the R6 / R7 / R9 workers.
+//
 // Two modes:
 //   1. Per-claim task: triggered after a new claim is approved, compares it
 //      against existing approved claims via pgvector ANN, then calls a small
@@ -12,26 +18,40 @@
 //   - The setting `enable_live_contradiction_interjections` gates live interjection.
 //   - When a contradiction is found, the default decision is 'queued_gap' or 'admin_review'.
 //   - Log oracle_interventions row if any action is taken.
-//   - Every LLM call → model_runs row. Every job → job_runs row.
+//   - Every LLM call → model_runs + model_run_usage_details + oracle_context_packs.
 
 import { schedules, task, tasks } from '@trigger.dev/sdk/v3';
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { generateObject } from 'ai';
+import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
 import {
   claims,
   contradictions,
   gaps,
   modelRuns,
+  modelRunUsageDetails,
   jobRuns,
+  oracleContextPacks,
   oracleInterventions,
   settings,
 } from '@oracle/db/schema';
-import { getOpenRouter, embedText } from '@oracle/ai';
+import {
+  AnthropicAdapter,
+  OpenAIAdapter,
+  OracleAIClient,
+  VertexGeminiAdapter,
+  embedText,
+  getOracleRoute,
+  makeBlock,
+  type OracleModelRoute,
+} from '@oracle/ai';
 import { EMBEDDING_DIM } from '@oracle/shared';
 
-const FALLBACK_MODEL = 'google/gemini-2.5-flash';
+// Extraction route is the right home for adjudication too — it's a cheap
+// structured-output call. Different from R11's lull-interjection drafting,
+// which uses the interview route for human-facing warmth.
+const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
 
 // Similarity threshold — cosine distance below this may indicate related claims.
 // pgvector cosine distance: 0 = identical, 2 = maximally different.
@@ -40,9 +60,21 @@ const SIMILARITY_THRESHOLD = 0.35;
 // How many similar claims to retrieve per comparison.
 const TOP_K = 8;
 
-// ---------------------------------------------------------------------------
-// LLM adjudication schema: is this a contradiction?
-// ---------------------------------------------------------------------------
+const CONTRADICTION_PROMPT_VERSION = 'contradiction-1.0.0';
+
+// ─── Module-singleton OracleAIClient (mirrors R6/R7/R8/R9 workers) ──────────
+function buildOracleClient(): OracleAIClient {
+  return new OracleAIClient({
+    adapters: {
+      anthropic: new AnthropicAdapter(),
+      vertex: new VertexGeminiAdapter(),
+      openai: new OpenAIAdapter(),
+    },
+    fallbackOnError: true,
+  });
+}
+
+// ─── LLM adjudication schema: is this a contradiction? ──────────────────────
 const ContradictionCheckSchema = z.object({
   isContradiction: z
     .boolean()
@@ -62,6 +94,7 @@ const ContradictionCheckSchema = z.object({
       'A question that would resolve this contradiction if asked in a conversation.',
     ),
 });
+type ContradictionCheck = z.infer<typeof ContradictionCheckSchema>;
 
 const CONTRADICTION_ADJUDICATION_SYSTEM = `You are an operational knowledge consistency checker for The Oracle.
 
@@ -82,21 +115,176 @@ Be precise: "We usually do X" vs "Sometimes we do Y" is NOT a contradiction.
 
 Return only the structured JSON matching the schema.`;
 
-// ---------------------------------------------------------------------------
-// Payload schema.
-// ---------------------------------------------------------------------------
+// ─── Payload schema ─────────────────────────────────────────────────────────
 const ClaimCheckPayloadSchema = z.object({
   claimId: z.string().uuid(),
 });
 
-// ---------------------------------------------------------------------------
-// Check a single claim for contradictions with existing approved claims.
-// ---------------------------------------------------------------------------
+// ─── Curated route resolver (mirrors claim-extraction.ts) ───────────────────
+async function resolveContradictionRoute(
+  db: ReturnType<typeof getDirectDb>,
+): Promise<OracleModelRoute> {
+  const row = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, 'default_extraction_route'))
+    .limit(1);
+  const routeId =
+    typeof row[0]?.value === 'string'
+      ? (row[0]!.value as string)
+      : FALLBACK_ROUTE_ID;
+  const resolved = getOracleRoute(routeId);
+  if (resolved) return resolved;
+  const fallback = getOracleRoute(FALLBACK_ROUTE_ID);
+  if (!fallback) {
+    throw new Error(
+      `[contradiction-watcher] settings.default_extraction_route="${routeId}" not in catalog, and fallback "${FALLBACK_ROUTE_ID}" also missing.`,
+    );
+  }
+  console.warn(
+    `[contradiction-watcher] settings.default_extraction_route="${routeId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
+  );
+  return fallback;
+}
+
+// ─── Single adjudication call: one (claimA, claimB) pair via OracleAIClient.
+//     Writes all three observability rows on success or failure.
+// ─────────────────────────────────────────────────────────────────────────
+async function adjudicateOnePair(
+  db: ReturnType<typeof getDirectDb>,
+  client: OracleAIClient,
+  route: OracleModelRoute,
+  claimASummary: string,
+  claimBSummary: string,
+): Promise<{ object: ContradictionCheck | null; modelRunId: string | null; error: string | null }> {
+  const userContent = `CLAIM A:\n${claimASummary}\n\nCLAIM B:\n${claimBSummary}`;
+
+  const blocks = [
+    makeBlock({
+      id: 'sys',
+      label: 'Contradiction adjudication system',
+      kind: 'stable_system',
+      content: CONTRADICTION_ADJUDICATION_SYSTEM,
+      cacheEligible: true,
+      reasonIncluded: 'spec 5.1 Rule 1 — contradiction adjudication',
+    }),
+    makeBlock({
+      id: 'pair',
+      label: 'Claim pair',
+      kind: 'dynamic_input',
+      content: userContent,
+      cacheEligible: false,
+      reasonIncluded: 'current claim pair under adjudication',
+    }),
+  ];
+
+  const callStartedAt = Date.now();
+  let modelRunId: string | null = null;
+  try {
+    const result = await client.runObject<ContradictionCheck>({
+      taskType: 'contradiction_detection',
+      routeId: route.routeId,
+      promptVersion: CONTRADICTION_PROMPT_VERSION,
+      blocks,
+      schema: ContradictionCheckSchema,
+    });
+    const latencyMs = Date.now() - callStartedAt;
+
+    // Observability — three rows like every other R6+ worker.
+    const [contextPack] = await db
+      .insert(oracleContextPacks)
+      .values({
+        taskType: 'contradiction_detection',
+        routeId: route.routeId,
+        promptVersion: CONTRADICTION_PROMPT_VERSION,
+        stablePrefixHash: hashString(CONTRADICTION_ADJUDICATION_SYSTEM),
+        dynamicInputHash: hashString(userContent),
+        blocksJson: blocks.map((b) => ({
+          id: b.id,
+          kind: b.kind,
+          hash: b.hash,
+          tokenEstimate: b.tokenEstimate,
+        })),
+      })
+      .returning({ id: oracleContextPacks.id });
+    if (!contextPack) throw new Error('failed to insert oracle_context_packs row');
+
+    const [modelRun] = await db
+      .insert(modelRuns)
+      .values({
+        taskType: 'contradiction-check',
+        model: route.modelId,
+        provider: route.provider,
+        promptVersion: CONTRADICTION_PROMPT_VERSION,
+        inputHash: hashString(CONTRADICTION_ADJUDICATION_SYSTEM),
+        inputTokens: result.usage.inputTokens ?? null,
+        outputTokens: result.usage.outputTokens ?? null,
+        latencyMs,
+        success: result.validation.ok,
+      })
+      .returning({ id: modelRuns.id });
+    if (!modelRun) throw new Error('failed to insert model_runs row');
+    modelRunId = modelRun.id;
+
+    await db.insert(modelRunUsageDetails).values({
+      modelRunId: modelRun.id,
+      contextPackId: contextPack.id,
+      routeId: route.routeId,
+      inputTokens: result.usage.inputTokens ?? null,
+      outputTokens: result.usage.outputTokens ?? null,
+      cachedInputTokens: result.usage.cachedInputTokens ?? null,
+      cacheWriteTokens: result.usage.cacheWriteTokens ?? null,
+      reasoningTokens: result.usage.reasoningTokens ?? null,
+      providerRequestId: result.usage.providerRequestId ?? null,
+      rawUsageJson: (result.usage.rawUsageJson ?? null) as Record<string, unknown> | null,
+    });
+
+    await db
+      .update(oracleContextPacks)
+      .set({ modelRunId: modelRun.id })
+      .where(eq(oracleContextPacks.id, contextPack.id));
+
+    if (!result.validation.ok) {
+      return { object: null, modelRunId, error: result.validation.error?.message ?? 'schema validation failed' };
+    }
+    return { object: result.object as ContradictionCheck, modelRunId, error: null };
+  } catch (err) {
+    const latencyMs = Date.now() - callStartedAt;
+    const message = err instanceof Error ? err.message : String(err);
+    // Best-effort failure row so admin dashboards see the attempt.
+    try {
+      const [modelRun] = await db
+        .insert(modelRuns)
+        .values({
+          taskType: 'contradiction-check',
+          model: route.modelId,
+          provider: route.provider,
+          promptVersion: CONTRADICTION_PROMPT_VERSION,
+          latencyMs,
+          success: false,
+          error: message,
+        })
+        .returning({ id: modelRuns.id });
+      modelRunId = modelRun?.id ?? null;
+    } catch {
+      /* observability write itself failed — swallow to surface the real error */
+    }
+    return { object: null, modelRunId, error: message };
+  }
+}
+
+function hashString(s: string): string {
+  return createHash('sha256').update(s).digest('hex');
+}
+
+// ─── Check a single claim for contradictions with existing approved claims.
+// ─────────────────────────────────────────────────────────────────────────
 async function checkClaimForContradictions(
   claimId: string,
-  triggerRunId: string,
+  _triggerRunId: string,
 ): Promise<{ contradictionsFound: number }> {
   const db = getDirectDb();
+  const client = buildOracleClient();
 
   // Load the claim.
   const [claim] = await db
@@ -110,24 +298,17 @@ async function checkClaimForContradictions(
     return { contradictionsFound: 0 };
   }
 
-  // Read settings.
-  const [enableLiveSetting, modelSetting] = await Promise.all([
+  // Read settings + resolve route.
+  const [enableLiveSetting, route] = await Promise.all([
     db
       .select({ value: settings.value })
       .from(settings)
       .where(eq(settings.key, 'enable_live_contradiction_interjections'))
       .limit(1),
-    db
-      .select({ value: settings.value })
-      .from(settings)
-      .where(eq(settings.key, 'default_extraction_model'))
-      .limit(1),
+    resolveContradictionRoute(db),
   ]);
 
   const enableLiveInterjection = enableLiveSetting[0]?.value === true;
-  const modelName =
-    (typeof modelSetting[0]?.value === 'string' ? modelSetting[0].value : null) ??
-    FALLBACK_MODEL;
 
   // Ensure the claim has an embedding; compute one if absent.
   let claimEmbedding = claim.embedding;
@@ -135,11 +316,7 @@ async function checkClaimForContradictions(
     try {
       const { vector } = await embedText(claim.summary);
       claimEmbedding = vector;
-      // Persist the embedding so future comparisons skip this step.
-      await db
-        .update(claims)
-        .set({ embedding: vector })
-        .where(eq(claims.id, claimId));
+      await db.update(claims).set({ embedding: vector }).where(eq(claims.id, claimId));
     } catch (embedErr) {
       console.warn('[contradiction-watcher] embedding failed — skipping ANN search', embedErr);
       return { contradictionsFound: 0 };
@@ -166,13 +343,10 @@ async function checkClaimForContradictions(
     `,
   );
 
-  // Filter to semantically close claims only.
   const candidates = similar.filter((r) => r.distance < SIMILARITY_THRESHOLD);
   if (candidates.length === 0) return { contradictionsFound: 0 };
 
   let contradictionsFound = 0;
-  const openrouter = getOpenRouter();
-  const model = openrouter(modelName);
 
   for (const candidate of candidates) {
     // Skip if this pair already has a contradictions row.
@@ -186,112 +360,83 @@ async function checkClaimForContradictions(
         ),
       )
       .limit(1);
+    if (existing.length > 0) continue;
 
-    if (existing.length > 0) continue; // already recorded
+    const { object, modelRunId, error } = await adjudicateOnePair(
+      db,
+      client,
+      route,
+      claim.summary,
+      candidate.summary,
+    );
+    if (error || !object) {
+      if (error) console.error('[contradiction-watcher] adjudication failed:', error);
+      continue;
+    }
+    if (!object.isContradiction) continue;
 
-    const userContent = `CLAIM A:\n${claim.summary}\n\nCLAIM B:\n${candidate.summary}`;
-    const callStartMs = Date.now();
+    contradictionsFound++;
 
-    try {
-      const { object, usage } = await generateObject({
-        model,
-        schema: ContradictionCheckSchema,
-        system: CONTRADICTION_ADJUDICATION_SYSTEM,
-        messages: [{ role: 'user', content: userContent }],
-        temperature: 0,
-      });
+    // Decide: live interjection vs queued (spec 5.1 Rule 1).
+    // Most contradictions → queued. Live only if setting is on + severity=high.
+    const isLive = enableLiveInterjection && object.severity === 'high';
+    const decision = isLive ? 'live_interjection' : 'queued_gap';
 
-      const latencyMs = Date.now() - callStartMs;
+    const [contradiction] = await db
+      .insert(contradictions)
+      .values({
+        claimAId: claimId,
+        claimBId: candidate.id,
+        description: object.explanation,
+        severity: object.severity,
+        status: 'possible',
+        detectionConfidence: 80,
+        retrievedClaimIds: candidates.map((c) => c.id),
+        interjectionDecision: decision,
+        suggestedQuestion: object.suggestedQuestion ?? null,
+        createdByModelRunId: modelRunId,
+      })
+      .returning({ id: contradictions.id });
 
-      const [modelRun] = await db
-        .insert(modelRuns)
-        .values({
-          taskType: 'contradiction-check',
-          model: modelName,
-          provider: 'openrouter',
-          promptVersion: '1.0.0',
-          inputTokens: usage?.inputTokens ?? null,
-          outputTokens: usage?.outputTokens ?? null,
-          latencyMs,
-          success: true,
-        })
-        .returning({ id: modelRuns.id });
-
-      if (!object.isContradiction) continue;
-
-      contradictionsFound++;
-
-      // Decide: live interjection vs queued (spec 5.1 Rule 1).
-      // Most contradictions → queued. Live only if setting is on + severity=high.
-      const isLive = enableLiveInterjection && object.severity === 'high';
-      const decision = isLive ? 'live_interjection' : 'queued_gap';
-
-      // Insert contradictions row.
-      const [contradiction] = await db
-        .insert(contradictions)
-        .values({
-          claimAId: claimId,
-          claimBId: candidate.id,
-          description: object.explanation,
-          severity: object.severity,
-          status: 'possible',
-          detectionConfidence: 80, // LLM confirmed contradiction
-          retrievedClaimIds: candidates.map((c) => c.id),
-          interjectionDecision: decision,
-          suggestedQuestion: object.suggestedQuestion ?? null,
-          createdByModelRunId: modelRun?.id ?? null,
-        })
-        .returning({ id: contradictions.id });
-
-      // If queued_gap, create a gap asking for clarification.
-      if (decision === 'queued_gap' && object.suggestedQuestion) {
-        await db.insert(gaps).values({
-          gapType: 'contradiction_gap',
-          relatedClaimIds: [claimId, candidate.id],
-          relatedContradictionId: contradiction?.id,
-          questionToAsk: object.suggestedQuestion,
-          whyItMatters: `Two approved claims appear to contradict: "${claim.summary}" vs "${candidate.summary}"`,
-          priority: object.severity === 'high' ? 'high' : 'medium',
-          status: 'open',
-          createdByModelRunId: modelRun?.id ?? null,
-        });
-      }
-
-      // Log oracle_interventions row.
-      await db.insert(oracleInterventions).values({
-        // No channel context at this point (batch job, not live chat).
-        // Use a placeholder — Phase 6 will wire this to the right channel.
-        channelId: '00000000-0000-0000-0000-000000000000',
-        triggerType: 'possible_contradiction',
+    // If queued_gap, create a gap asking for clarification.
+    if (decision === 'queued_gap' && object.suggestedQuestion) {
+      await db.insert(gaps).values({
+        gapType: 'contradiction_gap',
+        relatedClaimIds: [claimId, candidate.id],
         relatedContradictionId: contradiction?.id,
-        confidence: 80,
-        impactScore: object.severity === 'high' ? 9 : object.severity === 'medium' ? 6 : 3,
-        wasLiveInterjection: isLive,
-        reason: object.explanation,
-      });
-    } catch (llmErr) {
-      console.error('[contradiction-watcher] LLM adjudication failed:', llmErr);
-      await db.insert(modelRuns).values({
-        taskType: 'contradiction-check',
-        model: modelName,
-        provider: 'openrouter',
-        promptVersion: '1.0.0',
-        latencyMs: Date.now() - callStartMs,
-        success: false,
-        error: llmErr instanceof Error ? llmErr.message : String(llmErr),
+        questionToAsk: object.suggestedQuestion,
+        whyItMatters: `Two approved claims appear to contradict: "${claim.summary}" vs "${candidate.summary}"`,
+        priority: object.severity === 'high' ? 'high' : 'medium',
+        status: 'open',
+        createdByModelRunId: modelRunId,
       });
     }
+
+    // Log oracle_interventions row — bookkeeping; the actual posting of a
+    // live interjection message is wired in R11.3 (lull-interjection / direct
+    // interjection task) once channel context is available. This row records
+    // that the decision was made; was_live_interjection reflects intent.
+    await db.insert(oracleInterventions).values({
+      // No channel context at this point (batch job, not live chat). R11.3
+      // wires this to the right channel via the contradiction's
+      // originating-message channel lookup.
+      channelId: '00000000-0000-0000-0000-000000000000',
+      triggerType: 'possible_contradiction',
+      relatedContradictionId: contradiction?.id,
+      confidence: 80,
+      impactScore: object.severity === 'high' ? 9 : object.severity === 'medium' ? 6 : 3,
+      wasLiveInterjection: isLive,
+      reason: object.explanation,
+    });
   }
 
   return { contradictionsFound };
 }
 
-// ---------------------------------------------------------------------------
-// Per-claim task (triggered after new claim is approved).
-// ---------------------------------------------------------------------------
+// ─── Per-claim task ─────────────────────────────────────────────────────────
 export const contradictionWatcherTask = task({
   id: 'contradiction-watcher',
-  maxDuration: 60, // 1 minute per claim (multiple LLM calls)
+  maxDuration: 60,
   run: async (payload: z.infer<typeof ClaimCheckPayloadSchema>, { ctx }) => {
     ClaimCheckPayloadSchema.parse(payload);
     const db = getDirectDb();
@@ -311,12 +456,10 @@ export const contradictionWatcherTask = task({
 
     try {
       const result = await checkClaimForContradictions(payload.claimId, ctx.run.id);
-
       await db
         .update(jobRuns)
         .set({ status: 'complete', finishedAt: new Date(), outputJson: result })
         .where(eq(jobRuns.id, jobRun.id));
-
       return { ok: true, claimId: payload.claimId, ...result };
     } catch (err) {
       await db
@@ -332,19 +475,14 @@ export const contradictionWatcherTask = task({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Sweep cron: find recently approved claims not yet checked for contradictions
-// and trigger individual watcher tasks for each.
-// ---------------------------------------------------------------------------
+// ─── Sweep cron ─────────────────────────────────────────────────────────────
 export const contradictionWatcherSweepTask = schedules.task({
   id: 'contradiction-watcher-sweep',
-  cron: '0 */4 * * *', // every 4 hours, same as claim-extraction
+  cron: '0 */4 * * *',
   maxDuration: 60 * 2,
-  run: async (_payload, { ctx }) => {
+  run: async (_payload, { ctx: _ctx }) => {
     const db = getDirectDb();
 
-    // Find approved claims that have no contradiction rows yet.
-    // Uses a NOT EXISTS subquery.
     const unchecked = await db.execute<{ id: string }>(
       sql`
         SELECT c.id

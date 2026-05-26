@@ -8,8 +8,8 @@
  * Or with a custom run label:
  *   pnpm --filter @oracle/workers tsx src/wet-test/run-claim-extraction-once.ts wet-test-2026-05-26-a
  *
- * Reads DATABASE_URL / DIRECT_URL / OPENROUTER_API_KEY from the repo-root
- * .env.local (already loaded by @oracle/db's getDirectDb()).
+ * Reads DATABASE_URL / DIRECT_URL / GOOGLE_CLOUD_PROJECT / ANTHROPIC_API_KEY
+ * / OPENAI_API_KEY from the repo-root .env.local.
  *
  * Side effects:
  *   - Inserts ONE row in job_runs.
@@ -41,8 +41,20 @@ async function main() {
   if (!process.env.DATABASE_URL && !process.env.DIRECT_URL) {
     throw new Error('Neither DATABASE_URL nor DIRECT_URL is set. Check .env.local at repo root.');
   }
-  if (!process.env.OPENROUTER_API_KEY) {
-    throw new Error('OPENROUTER_API_KEY missing. The OpenRouter bridge adapter needs it.');
+  if (!process.env.GOOGLE_CLOUD_PROJECT) {
+    throw new Error(
+      'GOOGLE_CLOUD_PROJECT missing. Vertex direct adapter needs it (extraction route).',
+    );
+  }
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error(
+      'ANTHROPIC_API_KEY missing. Anthropic direct adapter needs it (interview route).',
+    );
+  }
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error(
+      'OPENAI_API_KEY missing. OpenAI direct adapter needs it (fallback route).',
+    );
   }
 
   // The triggerRunId column is varchar(255) on job_runs; use a stable string.

@@ -202,9 +202,6 @@ importers:
       '@google/genai':
         specifier: ^2.6.0
         version: 2.6.0
-      '@openrouter/ai-sdk-provider':
-        specifier: ^2.9.0
-        version: 2.9.0(ai@6.0.187(zod@4.4.3))(zod@4.4.3)
       '@oracle/db':
         specifier: workspace:*
         version: link:../db
