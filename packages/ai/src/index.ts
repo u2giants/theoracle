@@ -114,6 +114,8 @@ export {
   DEFAULT_ORACLE_ROUTES,
   ROUTE_SETTING_KEYS,
   LEGACY_OPENROUTER_SETTING_KEYS,
+  // Dynamic resolver (handles both catalog routeIds and OpenRouter model IDs)
+  resolveModelRoute,
 } from './routes';
 export { embedText, embedMany } from './embeddings';
 export {

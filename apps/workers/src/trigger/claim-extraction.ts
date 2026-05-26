@@ -47,6 +47,7 @@ import {
   OracleAIClient,
   VertexGeminiAdapter,
   getOracleRoute,
+  resolveModelRoute,
   makeBlock,
   type OracleModelRoute,
   type OraclePromptPlan,
@@ -800,20 +801,20 @@ async function resolveExtractionRoute(db: OracleDb): Promise<OracleModelRoute> {
     .from(settings)
     .where(eq(settings.key, 'default_extraction_route'))
     .limit(1);
-  const routeId =
+  const modelIdOrRouteId =
     typeof row[0]?.value === 'string'
       ? (row[0]!.value as string)
       : FALLBACK_ROUTE_ID;
-  const resolved = getOracleRoute(routeId);
+  const resolved = resolveModelRoute(modelIdOrRouteId, 'extraction') ?? getOracleRoute(modelIdOrRouteId);
   if (resolved) return resolved;
   const fallback = getOracleRoute(FALLBACK_ROUTE_ID);
   if (!fallback) {
     throw new Error(
-      `[claim-extraction] settings.default_extraction_route="${routeId}" not in catalog, and fallback "${FALLBACK_ROUTE_ID}" also missing.`,
+      `[claim-extraction] settings.default_extraction_route="${modelIdOrRouteId}" not in catalog, and fallback "${FALLBACK_ROUTE_ID}" also missing.`,
     );
   }
   console.warn(
-    `[claim-extraction] settings.default_extraction_route="${routeId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
+    `[claim-extraction] settings.default_extraction_route="${modelIdOrRouteId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
   );
   return fallback;
 }

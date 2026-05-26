@@ -36,6 +36,7 @@ import {
   OracleAIClient,
   VertexGeminiAdapter,
   getOracleRoute,
+  resolveModelRoute,
   getRecentMessages,
   getRelevantOpenGaps,
   makeBlock,
@@ -480,18 +481,20 @@ async function resolveInterviewRoute(db: OracleDb): Promise<OracleModelRoute> {
     .from(settings)
     .where(eq(settings.key, 'default_interview_route'))
     .limit(1);
-  const routeId =
+  const modelIdOrRouteId =
     typeof row[0]?.value === 'string' ? (row[0]!.value as string) : FALLBACK_ROUTE_ID;
-  const resolved = getOracleRoute(routeId);
+  // resolveModelRoute handles both catalog routeIds and OpenRouter model IDs
+  // (e.g. "anthropic/claude-haiku-4-5" saved by the model-pool picker).
+  const resolved = resolveModelRoute(modelIdOrRouteId, 'interview') ?? getOracleRoute(modelIdOrRouteId);
   if (resolved) return resolved;
   const fb = getOracleRoute(FALLBACK_ROUTE_ID);
   if (!fb) {
     throw new Error(
-      `[chat] settings.default_interview_route="${routeId}" not in catalog and fallback "${FALLBACK_ROUTE_ID}" missing.`,
+      `[chat] settings.default_interview_route="${modelIdOrRouteId}" not resolvable and fallback "${FALLBACK_ROUTE_ID}" missing.`,
     );
   }
   console.warn(
-    `[chat] settings.default_interview_route="${routeId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
+    `[chat] settings.default_interview_route="${modelIdOrRouteId}" not resolvable; using fallback "${FALLBACK_ROUTE_ID}".`,
   );
   return fb;
 }

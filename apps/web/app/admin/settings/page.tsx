@@ -1,10 +1,17 @@
 // Admin → Settings tab.
 // Reads all model settings from the DB server-side, passes to client pickers.
+//
+// P1 #1 fix: setting keys now use the correct _route suffix that workers read
+// (ROUTE_SETTING_KEYS from @oracle/ai/routes). The legacy _model keys are no
+// longer written here — any existing rows with the old keys continue to exist
+// in the DB but are ignored by the production model paths.
 
 import React from 'react';
+import Link from 'next/link';
 import { inArray } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { settings } from '@oracle/db/schema';
+import { ROUTE_SETTING_KEYS } from '@oracle/ai';
 import {
   Card,
   CardContent,
@@ -29,7 +36,7 @@ const MODEL_ROLES: {
   requiredCaps: CapKey[];
 }[] = [
   {
-    settingKey: 'default_interview_model',
+    settingKey: ROUTE_SETTING_KEYS.interview,
     title: 'Interview model',
     subtitle: 'Real-time Oracle chat',
     description: (
@@ -56,7 +63,7 @@ const MODEL_ROLES: {
     requiredCaps: ['tools', 'vision', 'files'],
   },
   {
-    settingKey: 'default_extraction_model',
+    settingKey: ROUTE_SETTING_KEYS.extraction,
     title: 'Extraction model',
     subtitle: 'Async claim extraction from messages & documents',
     description: (
@@ -82,7 +89,7 @@ const MODEL_ROLES: {
     requiredCaps: ['tools', 'vision', 'files'],
   },
   {
-    settingKey: 'default_synthesis_model',
+    settingKey: ROUTE_SETTING_KEYS.synthesis,
     title: 'Synthesis model',
     subtitle: 'Periodic Brain section synthesis',
     description: (
@@ -135,12 +142,23 @@ export default async function AdminSettingsPage() {
 
   return (
     <div className="space-y-8">
-      <header className="space-y-1">
+      <header className="space-y-2">
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="text-sm text-muted-foreground">
           Model configuration for all Oracle tasks. Each role has different
           capability and performance requirements — see descriptions below.
           Changes take effect on the next run of that task.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          The pickers below show models from your{' '}
+          <Link
+            href="/admin/settings/model-pool"
+            className="underline underline-offset-2 text-foreground hover:text-foreground/70"
+          >
+            model pool
+          </Link>
+          . Add or remove models from the pool to control what appears here.
+          Falls back to the curated Oracle catalog when the pool is empty.
         </p>
       </header>
 

@@ -51,6 +51,7 @@ import {
   OracleAIClient,
   VertexGeminiAdapter,
   getOracleRoute,
+  resolveModelRoute,
   makeBlock,
   type OracleModelRoute,
 } from '@oracle/ai';
@@ -110,20 +111,20 @@ async function resolveInterviewRoute(
     .from(settings)
     .where(eq(settings.key, 'default_interview_route'))
     .limit(1);
-  const routeId =
+  const modelIdOrRouteId =
     typeof row[0]?.value === 'string'
       ? (row[0]!.value as string)
       : FALLBACK_INTERVIEW_ROUTE_ID;
-  const resolved = getOracleRoute(routeId);
+  const resolved = resolveModelRoute(modelIdOrRouteId, 'interview') ?? getOracleRoute(modelIdOrRouteId);
   if (resolved) return resolved;
   const fallback = getOracleRoute(FALLBACK_INTERVIEW_ROUTE_ID);
   if (!fallback) {
     throw new Error(
-      `[lull-interjection] settings.default_interview_route="${routeId}" not in catalog, and fallback "${FALLBACK_INTERVIEW_ROUTE_ID}" also missing.`,
+      `[lull-interjection] settings.default_interview_route="${modelIdOrRouteId}" not in catalog, and fallback "${FALLBACK_INTERVIEW_ROUTE_ID}" also missing.`,
     );
   }
   console.warn(
-    `[lull-interjection] settings.default_interview_route="${routeId}" not in catalog; using fallback "${FALLBACK_INTERVIEW_ROUTE_ID}".`,
+    `[lull-interjection] settings.default_interview_route="${modelIdOrRouteId}" not in catalog; using fallback "${FALLBACK_INTERVIEW_ROUTE_ID}".`,
   );
   return fallback;
 }

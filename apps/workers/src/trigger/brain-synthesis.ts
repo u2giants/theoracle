@@ -52,6 +52,7 @@ import {
   OracleAIClient,
   VertexGeminiAdapter,
   getOracleRoute,
+  resolveModelRoute,
   makeBlock,
   type OracleModelRoute,
   type OraclePromptPlan,
@@ -627,18 +628,18 @@ async function resolveSynthesisRoute(db: OracleDb): Promise<OracleModelRoute> {
     .from(settings)
     .where(eq(settings.key, 'default_synthesis_route'))
     .limit(1);
-  const routeId =
+  const modelIdOrRouteId =
     typeof row[0]?.value === 'string' ? (row[0]!.value as string) : FALLBACK_ROUTE_ID;
-  const resolved = getOracleRoute(routeId);
+  const resolved = resolveModelRoute(modelIdOrRouteId, 'synthesis') ?? getOracleRoute(modelIdOrRouteId);
   if (resolved) return resolved;
   const fb = getOracleRoute(FALLBACK_ROUTE_ID);
   if (!fb) {
     throw new Error(
-      `[brain-synthesis] settings.default_synthesis_route="${routeId}" not in catalog and fallback "${FALLBACK_ROUTE_ID}" missing.`,
+      `[brain-synthesis] settings.default_synthesis_route="${modelIdOrRouteId}" not in catalog and fallback "${FALLBACK_ROUTE_ID}" missing.`,
     );
   }
   console.warn(
-    `[brain-synthesis] settings.default_synthesis_route="${routeId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
+    `[brain-synthesis] settings.default_synthesis_route="${modelIdOrRouteId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
   );
   return fb;
 }
