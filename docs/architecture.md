@@ -154,14 +154,29 @@ Four server-component dashboards under `/admin/`:
 
 All four read via `getDirectDb()` (service role) and use `'use server'` actions with `revalidatePath` rather than client-side state.
 
-### 7. Interjection engine (Phase 6 / R11 — in progress)
+### 7. Interjection engine (Phase 6 / R11 — done)
 
-Two paths per spec Part 5.1:
+Both paths from spec Part 5.1 are live:
 
-- **Contradiction-driven** — `apps/workers/src/trigger/contradiction-watcher.ts` (R11.0, done): per-claim and sweep-cron tasks that run pgvector ANN against approved claims, adjudicate semantic pairs via `OracleAIClient.runObject` with the direct Vertex adapter, write `contradictions` rows, queue `gaps` for `queued_gap` decisions, and record `oracle_interventions` rows. `enable_live_contradiction_interjections=true` flips the queued path to a live interjection when severity is `high`.
-- **Lull-driven** (R11.2, not yet done) — scheduled task that detects channel silence past `lull_window_seconds`, checks rate caps (`max_oracle_interjections_per_hour`), picks the highest-priority topically-relevant open gap, drafts the question via `OracleAIClient.runText` with the direct Anthropic adapter (interview route), posts the message, and records the intervention.
+- **Lull-driven** — `apps/workers/src/trigger/lull-interjection.ts` (R11.2). Cron `* * * * *`. Per active channel: query `secondsSinceLastUserMessage`, `minutesSinceLastOracleInterjection`, count of interventions in last hour, top open gap whose target is null or a channel participant. Call `decideLullInterjection` (pure, in `packages/oracle-engines/src/interjection.ts`). On `'ask'`: draft the natural-language question via `OracleAIClient.runText` on the interview route (Anthropic Claude Haiku 4.5), insert the assistant message into `messages`, record `oracle_interventions` with `trigger_type='lull_gap'` + `was_live_interjection=true` + `interjection_message_id` + `related_gap_id`, update the gap `status='asked'` + `askedInMessageId`.
 
-Pure decision functions for both paths live in `packages/oracle-engines/src/interjection.ts` (currently a scaffold; R11.1 fills it in). See spec Part 5.1, `docs/oracle/05-ai-retrofit-phase-packet.md` "Phase R11", and `HANDOFF.md`.
+- **Contradiction-driven** — `apps/workers/src/trigger/contradiction-watcher.ts` (R11.0 refactor + R11.3 live branch). Per-claim and sweep-cron tasks run pgvector ANN against approved claims and adjudicate semantic pairs via `OracleAIClient.runObject` on the extraction route (Vertex Gemini Flash). For each detected contradiction: resolve the most-recent message-sourced channel from `claim_evidence → messages`, compute cooldown + rate-cap inputs for that channel, call `decideContradictionInterjection`. On `'live'`: draft a chat-shaped surfacing question via the interview route (Anthropic Haiku 4.5) and post it; the `oracle_interventions` row carries the real `channelId` + `interjection_message_id` + `was_live_interjection=true`. On `'queue'` (or live drafting failure): create a `contradiction_gap` so the question still gets asked through the normal gap pipeline.
+
+Both paths log every decision (skip / queue / ask / live) to `oracle_interventions` with the stable `reasonCode` from the pure deciders, so admin can audit miss rates and tune the settings:
+
+- `lull_window_seconds` (default 60)
+- `oracle_cooldown_minutes` (default 10)
+- `max_oracle_interjections_per_hour` (default 3)
+- `enable_group_chat_lull_questions` (default true)
+- `enable_live_contradiction_interjections` (default true after R11; was false pre-R11)
+- `CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD` (constant, default 80 — adjust in code for next-phase tuning)
+
+Round-1 simplifications in `lull-interjection.ts` (per `DECISIONS.md` D11):
+
+- `isAnyoneTyping` hardcoded to `false`. Real Supabase Realtime presence query is round 2.
+- Top relevant gap chosen by priority + channel-participation, not by embedding similarity to recent messages. Topical-relevance scoring is round 2.
+
+See spec Part 5.1, `DECISIONS.md` D10 + D11, and `docs/oracle/05-ai-retrofit-phase-packet.md` "Phase R11".
 
 ### 7. Sign-out
 
@@ -238,11 +253,11 @@ Workers must not import from `apps/web`, and vice versa.
 
 ---
 
-## AI architecture retrofit — R0 through R11.0 + wet-test (landed 2026-05-26)
+## AI architecture retrofit — COMPLETE (landed 2026-05-26)
 
-The AI architecture retrofit is code-complete (R0–R10.5) AND the direct provider adapters (R-providers) are wired AND the wet-test has passed against the live Supabase project (first real `claims` rows landed 2026-05-26). Every production AI call goes through `OracleAIClient` with one of three direct adapters using the providers' raw SDKs. OpenRouter has been removed entirely from the codebase. R11.0 (contradiction-watcher refactor) is done; R11.1 (pure decision functions) through R11.4 (HANDOFF/DECISIONS cleanup) are the next work items.
+R0 → R11.4 are all done. Every production AI call goes through `OracleAIClient` with one of three direct adapters (`AnthropicAdapter` / `VertexGeminiAdapter` / `OpenAIAdapter`) using the providers' raw SDKs. OpenRouter has been removed entirely from the codebase. The wet-test passed end-to-end against the live Supabase project (first real `claims` rows landed 2026-05-26 17:35 UTC). Both proactive interjection paths (R11.2 lull + R11.3 live contradiction) post live chat messages by default, gated by the pure decision functions in `packages/oracle-engines/src/interjection.ts`.
 
-See `docs/oracle/05-ai-retrofit-phase-packet.md` for the full phase log, `HANDOFF.md` for the current next-action, and `DECISIONS.md` D6 + D9 for the architectural decisions that ruled out the Vercel AI SDK and OpenRouter.
+The work that remains is operational, not architectural. See `HANDOFF.md` "What's next" for the post-retrofit task list (Trigger.dev deploy, Vertex production credentials, threshold tuning, key rotation, deferred round-2 items). `DECISIONS.md` D6 + D9 record why the Vercel AI SDK and OpenRouter were ruled out; D10 + D11 record the live-interjection switch and the lull-interjection round-1 simplifications.
 
 ### Runtime pipeline (R2, landed)
 
@@ -581,12 +596,11 @@ Server actions in `apps/web/app/admin/taxonomy/_actions.ts`:
 
 The scheduled `taxonomy-reevaluation` worker (`apps/workers/src/trigger/taxonomy-reevaluation.ts`) is currently a scaffold: it counts approved claims per active top-domain and reports a configurable activation threshold (default 30 claims). The clustering / drift detection / proposal writing body is documented inline as the substitution for the early-exit path; it lands when approved-claim density justifies it.
 
-### Architectural state after R0 → R11.0 + wet-test
+### Architectural state — retrofit complete
 
 ```
 OpenRouter has been removed entirely from the codebase.
 The Vercel AI SDK is forbidden inside packages/ai/src/providers/.
-Every legacy getOpenRouter() worker has been refactored.
 Every production AI call goes through OracleAIClient with the three
   direct provider adapters (Anthropic / Vertex / OpenAI raw SDKs).
 Every model call has a context pack + usage detail row.
@@ -598,7 +612,10 @@ Every operationally-sensitive observability dashboard is read-only.
 Wet-test passed end-to-end against the live Supabase project on
   2026-05-26 — first real claim rows landed with all observability
   metadata captured.
-R11.0 (contradiction-watcher refactor) is done; R11.1–R11.4 are next.
+Both proactive interjection paths (lull-detection and live
+  contradiction surfacing) post live chat messages gated by pure
+  decision functions, with every decision logged to
+  oracle_interventions for admin audit.
 ```
 
 R11 (interjection engine) is the remaining phase. Architectural prerequisites met; empirical prerequisites (test transcript processed + claims reviewed and approved) need real data flowing through the pipeline first.

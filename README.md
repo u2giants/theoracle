@@ -108,7 +108,11 @@ Full setup details: [`docs/development.md`](docs/development.md). All env vars: 
 | R-providers — Direct provider adapters | done | `VertexGeminiAdapter` via `@google/genai`, `AnthropicAdapter` via `@anthropic-ai/sdk`, `OpenAIAdapter` via `openai` (commits `bfc0821` + `51a33ff`) |
 | **Wet-test** | done | First real claims landed in `claims` table 2026-05-26 — 2 claims from one synthetic message, 0 errors, 8.3s elapsed (commit `51a33ff`) |
 | R11.0 — Contradiction-watcher through OracleAIClient | done | Last `getOpenRouter()` call site retired (commit `b01e514`) |
-| **R11.1–R11.4 — Interjection engine (lull + contradiction)** | **next** | See `HANDOFF.md` |
+| R11.1 — Pure decision functions | done | `decideLullInterjection` + `decideContradictionInterjection` + 33-assertion smoke gate (commit `c9d0efe`) |
+| R11.2 — Lull-interjection task | done | `apps/workers/src/trigger/lull-interjection.ts` — cron every minute, posts live chat messages (commit `bf7cad7`) |
+| R11.3 — Live contradiction interjection | done | `contradiction-watcher` extended to draft + post live messages; migration `50_enable_live_contradiction_interjections.sql` (commit `bf7cad7`) |
+| R11.4 — Final docs cleanup | done | This README, AGENTS, HANDOFF, DECISIONS (D10 + D11), docs/architecture |
+| **AI retrofit** | **complete** | Remaining work is operational tuning, not architecture. See `HANDOFF.md` "What's next". |
 
 ## Smoke gates — run any time
 
@@ -121,6 +125,7 @@ pnpm --filter @oracle/engines verify:r5.5   # entity resolver + taxonomy validat
 pnpm --filter @oracle/engines verify:r6     # circuit breaker
 pnpm --filter @oracle/engines verify:r7     # cache profitability
 pnpm --filter @oracle/engines verify:r9     # synthesis diff validator
+pnpm --filter @oracle/engines verify:r11.1  # lull + contradiction interjection deciders
 pnpm --filter @oracle/ai      eval:extraction  # mock-mode extraction eval (4 fixtures)
 ```
 

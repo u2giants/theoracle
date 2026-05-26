@@ -4,7 +4,9 @@ Live in-flight state for the next contributor or AI coding session.
 
 **Snapshot date:** 2026-05-26 (evening session)
 **Repo:** https://github.com/u2giants/theoracle
-**Current state:** Full AI retrofit complete through R11.0 + wet-test passed. **R11.1–R11.4 (interjection engine completion) is the next work item.**
+**Current state:** **AI retrofit complete.** R0 → R11.4 all done. The Oracle now has both proactive interjection paths wired: lull-detection (cron every minute, drafts a chat question for the highest-priority relevant gap) and live contradiction surfacing (when the watcher detects a high-severity high-confidence contradiction in a real channel). Both paths post live messages by default and log every decision to `oracle_interventions`.
+
+The next milestone is no longer code — it's **operational tuning + real-world observation**. See "What's next" at the bottom.
 
 ---
 
@@ -14,7 +16,10 @@ Live in-flight state for the next contributor or AI coding session.
 - **R-providers done** — direct `@anthropic-ai/sdk` / `@google/genai` / `openai` adapters wired. `@ai-sdk/*` and OpenRouter both retired entirely.
 - **Wet-test passed** — first real `claims` rows landed in the live Supabase project on 2026-05-26 17:35 UTC. 2 claims from one synthetic message, 0 errors, 8.3s elapsed. Real Vertex Gemini Flash call, native JSON-schema enforcement, advisory-locked promotion all working.
 - **R11.0 done** — `contradiction-watcher` refactored through `OracleAIClient`. Last `getOpenRouter()` call site retired.
-- **Next:** R11.1 (pure decision functions for lull + contradiction interjection) → R11.2 (lull-interjection Trigger.dev task with live message posts) → R11.3 (live contradiction interjection posting) → R11.4 (HANDOFF + DECISIONS final cleanup).
+- **R11.1 done** — pure `decideLullInterjection` + `decideContradictionInterjection` in `packages/oracle-engines/src/interjection.ts`; 33-assertion smoke gate `verify:r11.1`.
+- **R11.2 done** — `apps/workers/src/trigger/lull-interjection.ts` cron task: posts live chat messages drafted through the Anthropic Haiku 4.5 interview route when a channel goes quiet and there's a relevant open gap.
+- **R11.3 done** — `contradiction-watcher` posts live chat messages when `decideContradictionInterjection` returns `live` (severity=high + confidence≥80 + cooldown clear + rate cap clear + suggested question present + channel resolvable). Migration `50_enable_live_contradiction_interjections.sql` flips the setting ON in the live DB.
+- **R11.4 done** — this docs pass.
 
 ---
 
@@ -64,96 +69,102 @@ Both keys will be re-pasted into `.env.local` once rotated; nothing in the codeb
 | **R-providers — direct provider adapters** | ✅ done | `bfc0821` + `51a33ff` | `VertexGeminiAdapter` (`@google/genai`), `AnthropicAdapter` (`@anthropic-ai/sdk`), `OpenAIAdapter` (`openai`). All workers + chat route switched. Real-provider smoke: 6/6 green. |
 | **Wet-test** | ✅ done | `51a33ff` | 1 synthetic message → 2 claims promoted, 0 errors, 8.3s. Real Vertex `provider_request_id` captured. |
 | **R11.0 — Contradiction-watcher refactor** | ✅ done | `b01e514` | Last `getOpenRouter()` retired. OpenRouter completely removed from codebase. |
-| **R11.1 — Pure decision functions** | ⬜ next | — | `decideLullInterjection()` + `decideContradictionInterjection()` in `packages/oracle-engines/src/interjection.ts` + smoke gate |
-| **R11.2 — Lull-interjection task** | ⬜ | — | `apps/workers/src/trigger/lull-interjection.ts` — cron, picks gap, drafts via Anthropic, **posts live messages** |
-| **R11.3 — Live contradiction interjection** | ⬜ | — | Extend contradiction-watcher to post live messages when `enable_live_contradiction_interjections=true` + severity=high |
-| **R11.4 — Final docs cleanup** | ⬜ | — | HANDOFF + DECISIONS + retrofit packet final pass |
+| **R11.1 — Pure decision functions** | ✅ done | `c9d0efe` | `decideLullInterjection` + `decideContradictionInterjection` in `packages/oracle-engines/src/interjection.ts` + 33-assertion smoke gate (`verify:r11.1`) |
+| **R11.2 — Lull-interjection task** | ✅ done | `bf7cad7` | `apps/workers/src/trigger/lull-interjection.ts` — cron `* * * * *`, picks top open gap for the channel, drafts via Anthropic Haiku 4.5 interview route, posts live message + records `oracle_interventions` |
+| **R11.3 — Live contradiction interjection** | ✅ done | `bf7cad7` | `contradiction-watcher` extended: resolves channel from `claim_evidence → messages`, computes cooldown + rate-cap inputs, calls `decideContradictionInterjection`, drafts + posts on 'live' / queues gap on 'queue'. Migration `50_enable_live_contradiction_interjections.sql` flips the setting ON. |
+| **R11.4 — Final docs cleanup** | ✅ done | (this commit) | HANDOFF / DECISIONS / AGENTS / architecture / retrofit packet updated. |
 
 ---
 
-## R11.1+ — the next session's exact work
+## What's next (post-R11)
 
-User decisions already locked in (this session, 2026-05-26):
+The AI retrofit is code-complete. Remaining work is operational, not architectural:
 
-1. **Live message posts** — both lull-interjection and contradiction-interjection POST real messages into the chat channel. No dry-run gating. Admin reviews via `oracle_interventions` after the fact.
-2. **`enable_live_contradiction_interjections = true`** is the default going forward. Currently the seed has it as `false`; R11.3 includes a migration to flip it.
-3. **Human-facing message drafting uses the interview route (Anthropic Claude Haiku 4.5).** The contradiction-watcher's adjudication call uses the extraction route (Vertex Gemini Flash) — that's fine because it's machine-internal.
+1. **Observe what the interjection engine actually does in production.** Both lull and live-contradiction paths post real messages. Admin should watch `/admin/ai/runs` (filter `taskType=lull-interjection` or `contradiction-live-interjection`) and `oracle_interventions` for the first week and tune:
+   - `lull_window_seconds` (default 60) — lower if 60s feels too eager
+   - `oracle_cooldown_minutes` (default 10) — raise if rooms feel pestered
+   - `max_oracle_interjections_per_hour` (default 3) — raise/lower per channel feel
+   - `CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD` (constant in `packages/oracle-engines/src/interjection.ts`, default 80) — adjust if misfires happen
 
-### R11.1 — Pure decision functions
+2. **Pre-production credential rotation** (carried from earlier in this doc):
+   - Rotate `ANTHROPIC_API_KEY` at https://console.anthropic.com/settings/keys
+   - Rotate `OPENAI_API_KEY` at https://platform.openai.com/api-keys
+   - Revoke the now-unused OpenRouter key at https://openrouter.ai/keys
 
-Currently `packages/oracle-engines/src/interjection.ts` is a 39-line stub with JSDoc-only spec comments. Replace with two pure functions + a smoke gate.
+3. **Trigger.dev deploy.** R11.2 + R11.3 + R11.0 land in the codebase but Trigger.dev still runs the previous worker version. Run `pnpm --filter @oracle/workers deploy` to push the new `lull-interjection` task + the refactored `contradiction-watcher` (and remove `OPENROUTER_API_KEY` from the Trigger.dev project env on the same deploy).
 
-```ts
-// decideLullInterjection(input) — pure, no DB
-//
-// Inputs (all numeric / boolean, no I/O):
-//   - secondsSinceLastUserMessage: number
-//   - lullWindowSeconds: number          (from settings)
-//   - isAnyoneTyping: boolean            (caller queries Realtime presence)
-//   - minutesSinceLastOracleInterjection: number | null
-//   - oracleCooldownMinutes: number      (from settings)
-//   - interjectionsInLastHour: number    (caller counts oracle_interventions)
-//   - maxOracleInterjectionsPerHour: number (from settings)
-//   - enableGroupChatLullQuestions: boolean (from settings)
-//   - isGroupChat: boolean
-//   - topRelevantOpenGap: { id, priority, questionToAsk, whyItMatters } | null
-//
-// Output:
-//   { decision: 'ask' | 'skip', reason: string, gapId?: string }
+4. **Vertex production credentials.** Cloud workers need a service-account JSON mounted via `GOOGLE_APPLICATION_CREDENTIALS` — currently only developer ADC works (local dev only). Provision when deploying R11.x to Trigger.dev cloud.
 
-// decideContradictionInterjection(input) — pure, no DB
-//
-// Inputs:
-//   - detectionConfidence: number       (0-100; LLM-reported)
-//   - severity: 'low' | 'medium' | 'high'
-//   - enableLiveContradictionInterjections: boolean
-//   - minutesSinceLastOracleInterjection: number | null
-//   - oracleCooldownMinutes: number
-//   - interjectionsInLastHour: number
-//   - maxOracleInterjectionsPerHour: number
-//   - suggestedQuestion: string | null
-//
-// Output:
-//   { decision: 'live' | 'queue', reason: string }
-```
+5. **Deferred items** carried forward (not blocking anything but worth knowing):
+   - R5.5 entity-extraction prompt rewrite (workers call entity validators with empty entity lists today).
+   - `RetrievalPlan` + hybrid pgvector/tsvector RRF in the chat route (legacy `searchApprovedClaims` works for now).
+   - Real Vertex explicit cache creation (round 2 of R-providers).
+   - R10.5 clustering / drift detection body (re-evaluation worker counts claims today; clustering waits for density).
+   - R10.5 reclassification job for merge/split/reassign proposals.
+   - R10.5 batch-approve UX.
+   - `docs/oracle/02-provider-native-ai-architecture.md` and `docs/oracle/05-ai-retrofit-phase-packet.md` still describe the bridge adapter as the current production path — both need a sweep; deferred to a separate `docs(retrofit-reference)` commit.
+   - `docs/wet-test-walkthrough.md` is historical now that the wet-test ran. Either delete or convert to "how to repeat against a new transcript."
 
-Smoke gate at `packages/oracle-engines/src/__verify__/r11-1-interjection-decision-smoke.ts` exercising both functions across the gate cases (lull window not yet, lull window passed but rate-capped, lull window passed all gates pass, contradiction below severity threshold, contradiction setting off, contradiction above threshold and setting on, etc.).
+6. **Realtime presence in lull-interjection.** R11.2 hardcodes `isAnyoneTyping: false`. Real presence query against Supabase Realtime is round 2 — currently the worker may interrupt someone mid-keystroke.
 
-### R11.2 — Lull-interjection task
+---
 
-`apps/workers/src/trigger/lull-interjection.ts`:
+## R11.1 — Pure decision functions (reference)
 
-- `schedules.task` with cron `* * * * *` (every minute).
-- Per channel: query last user-message time, last Oracle-interjection time, count of interjections in last hour, presence (or skip the presence check for now — Realtime presence query is a separate path).
-- Call `decideLullInterjection`.
-- If decision = 'ask': resolve top relevant open gap (pgvector against recent message embeddings → gaps embeddings). Draft the natural-language question via `OracleAIClient.runText` on the interview route (Anthropic Claude Haiku 4.5) with the gap as input. Insert assistant message into `messages`. Insert `oracle_interventions` row with `was_live_interjection=true`, `interjection_message_id=<the new message id>`, `trigger_type='lull_gap'`, `related_gap_id=<gap>`.
-- Update `gaps.status='asked'` + `gaps.askedInMessageId`.
+Documented here for archival — what landed:
 
-Build the OracleAIClient module-singleton at the top of the file (same pattern as the other workers).
+**Files (now landed):**
+- `packages/oracle-engines/src/interjection.ts` — the two pure functions
+- `packages/oracle-engines/src/__verify__/r11-1-interjection-decision-smoke.ts` — 33 assertions covering every gate path, boundary condition, gate-ordering case
 
-### R11.3 — Live contradiction interjection
+Run with: `pnpm --filter @oracle/engines verify:r11.1`
 
-Modify `apps/workers/src/trigger/contradiction-watcher.ts`:
+**Decision functions:**
+- `decideLullInterjection` — 6 gates: group-chat kill switch → lull window → typing → cooldown → rate cap → relevant gap. Each skip returns a stable `reasonCode` for dashboard grouping.
+- `decideContradictionInterjection` — 6 gates: live setting → severity=high → confidence ≥ `CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD` (80) → cooldown → rate cap → suggested question present. Each queue returns a stable `reasonCode`.
 
-- After inserting the `contradictions` row + queued gap, if `decision === 'live_interjection'`:
-  - Resolve the channel context (the contradiction-watcher currently has none — needs to either look up via the most-recent `claim_evidence.source_message_id` for one of the two claims, or accept a `channelId` payload on the per-claim task).
-  - Draft the contradiction surfacing message via `OracleAIClient.runText` on the **interview route** (`object.suggestedQuestion` as input).
-  - Insert assistant message; update the `oracle_interventions` row's `channelId` + `interjection_message_id`.
+## R11.2 — Lull-interjection task (reference)
 
-Also write a migration `50_enable_live_contradiction_interjections.sql` that flips the setting:
+**File (now landed):** `apps/workers/src/trigger/lull-interjection.ts`
 
-```sql
-UPDATE settings
-SET value = 'true'::jsonb, updated_at = now()
-WHERE key = 'enable_live_contradiction_interjections';
-```
+**Cron:** `* * * * *` (every minute). The gates inside `decideLullInterjection` (cooldown + rate cap) handle actual frequency — the cron just ensures we check often enough that a 60s lull window can fire promptly.
 
-### R11.4 — Final cleanup
+**Per channel:**
+1. Fetch `secondsSinceLastUserMessage` from `messages` (latest non-deleted user message).
+2. Fetch `minutesSinceLastOracleInterjection` from `oracle_interventions` (most recent for this channel).
+3. Count `oracle_interventions` rows in this channel in the last 60 minutes.
+4. Fetch top open gap whose `targetEmployeeId` is null OR a channel participant, ordered by priority (urgent → high → medium → low) then by recency.
+5. Call `decideLullInterjection` with the four `settings` values + the above.
+6. On `decision === 'ask'`:
+   - Draft via `OracleAIClient.runText` on the interview route (Anthropic Haiku 4.5).
+   - Insert assistant message into `messages` (employeeId=null, role='assistant', metadataJson tags source).
+   - Insert `oracle_interventions` row with `trigger_type='lull_gap'`, `was_live_interjection=true`, `interjection_message_id` set.
+   - Update gap: `status='asked'`, `askedInMessageId` set.
 
-- Update `HANDOFF.md` — strike R11.1/R11.2/R11.3 from "next", record completion commits, mark **the AI retrofit complete**.
-- Update `DECISIONS.md` with any new D10/D11 entries that emerged.
-- Update `docs/oracle/05-ai-retrofit-phase-packet.md` final completion checklist.
-- Update `docs/architecture.md` `### 7. Interjection engine` section to show both paths live.
+**Round-1 simplifications (round-2 follow-ups):**
+- `isAnyoneTyping` hardcoded to `false`. Real Supabase Realtime presence query is round 2.
+- Top relevant gap = highest-priority gap with targetEmployeeId-null-or-participant. Embedding-based topical relevance against recent messages is round 2.
+
+## R11.3 — Live contradiction interjection (reference)
+
+**Files (now landed):**
+- `apps/workers/src/trigger/contradiction-watcher.ts` (extended)
+- `packages/db/migrations/sql/50_enable_live_contradiction_interjections.sql` (flips the setting ON; idempotent)
+
+**Per adjudicated contradiction:**
+1. Find channel: join `claim_evidence` → `messages` on either claim, pick the most-recent message-sourced channel. Null = both claims sourced from document chunks only, no channel → forced to queue.
+2. If channel found: compute `cooldownMin` + `interjectionsInLastHour` for that channel.
+3. Call `decideContradictionInterjection`.
+4. Insert `contradictions` row with the decision label (`live_interjection` or `queued_gap`).
+5. On `decision === 'live'` AND channel found:
+   - Draft via `OracleAIClient.runText` on the interview route (Anthropic Haiku 4.5).
+   - Post assistant message to the channel; update `oracle_interventions` row with the real channelId + interjection_message_id.
+   - On drafting failure: fall through to queue.
+6. On `decision === 'queue'` (or live failed):
+   - Create the `contradiction_gap` so the question still gets asked through the normal gap pipeline.
+   - `oracle_interventions.was_live_interjection = false`.
+
+**Migration `50_enable_live_contradiction_interjections.sql`** is idempotent and was applied to the live DB via Supabase MCP this session. The seed will receive a follow-up to default new installs to true (small change; not blocking).
 
 ---
 
@@ -267,30 +278,36 @@ oracle_master_spec.md, DECISIONS.md, then docs/oracle/00-buildout-index.md.
 Do not bulk-read docs/oracle/* — read only the specific files the active
 task needs (per CLAUDE.md routing).
 
-State: R0 → R11.0 + wet-test all done. The AI retrofit is functionally
-complete; what's left is R11.1 (pure decision functions for interjection)
-through R11.4 (final docs).
-
-Next task: R11.1. Implement decideLullInterjection() and
-decideContradictionInterjection() in packages/oracle-engines/src/
-interjection.ts. Pure functions, no DB. Add a smoke gate
-packages/oracle-engines/src/__verify__/r11-1-interjection-decision-smoke.ts.
-See HANDOFF.md "R11.1 — Pure decision functions" for the exact input
-shape and decision logic.
-
-After R11.1: R11.2 (lull-interjection Trigger.dev task with live message
-posts, interview route for drafting), R11.3 (live contradiction
-interjection from contradiction-watcher), R11.4 (final docs cleanup).
+State: AI retrofit is COMPLETE. R0 → R11.4 all done. Wet-test passed.
+Both interjection paths live. The remaining work is operational tuning
+(setting values, observation, threshold adjustment) plus the
+deferred-items list in HANDOFF.md "What's next".
 
 Hard rules: production AI calls go through OracleAIClient with the three
-direct provider adapters; no Vercel AI SDK, no OpenRouter. Sensitive
-content quarantined at candidate stage. Stable prefix before dynamic in
-ContextCompiler. Advisory-locked promotion. Synthesis rejects
-unsupported named entities. Taxonomy mutations admin-gated.
+direct provider adapters (Anthropic + Vertex + OpenAI raw SDKs). No
+Vercel AI SDK. No OpenRouter. Sensitive content quarantined at candidate
+stage. Stable prefix before dynamic in ContextCompiler. Advisory-locked
+promotion. Synthesis rejects unsupported named entities. Taxonomy
+mutations admin-gated.
 
 Pre-push gate: pnpm typecheck && pnpm --filter @oracle/web build &&
 pnpm --filter @oracle/ai verify:r2 && pnpm --filter @oracle/engines
 verify:r5 && pnpm --filter @oracle/engines verify:r5.5 &&
 pnpm --filter @oracle/engines verify:r6 && pnpm --filter @oracle/engines
-verify:r7 && pnpm --filter @oracle/engines verify:r9.
+verify:r7 && pnpm --filter @oracle/engines verify:r9 &&
+pnpm --filter @oracle/engines verify:r11.1.
 ```
+
+---
+
+## When is this HANDOFF.md eligible for deletion?
+
+Per the user's documentation rule: "Delete HANDOFF.md once the work it describes is complete."
+
+The work this file describes (R11.x) is complete. **But** the document still serves three purposes that aren't quite "describing in-flight work":
+
+1. The "What's next (post-R11)" section lists operational tasks the user needs to do (rotate keys, deploy workers to Trigger.dev, provision Vertex prod credentials). These aren't "unfinished code" but they ARE unfinished work.
+2. The reference sections (R11.1, R11.2, R11.3) capture decisions made this session in a form that's easier to find than scrolling the commit history.
+3. The deferred-items list keeps the future-work backlog in one place.
+
+**Recommendation:** keep HANDOFF.md until items 2-3 above are merged into either AGENTS.md §15 (pending work) or DECISIONS.md, and item 1 is either completed or migrated to AGENTS.md. After that, delete it.

@@ -408,3 +408,37 @@ This file is the running log of every assumption, stub, and resolution made by t
   - The decision precedent in D6 was already explicit; reading the docs first would have prevented the detour.
 - **Wet-test confirmation**: with the raw SDKs wired and the workers + chat route switched off `OpenRouterBridgeAdapter` (commit `51a33ff`), a single synthetic operational message produced 2 promoted claims through the full pipeline in 8.3s, with `model_runs.provider = 'vertex'` (not `'openrouter'`), real Vertex `provider_request_id` captured, and the candidate-before-claim guarantee held end-to-end.
 - **OpenRouterBridgeAdapter status**: retained as inert code with no production import. Slated for deletion in a follow-up cleanup once the four direct call sites have a few production days under load.
+
+## D10.live-interjection-on-by-default — Both interjection paths post live messages from R11
+
+- **Decision**: With R11.2 + R11.3 landed, both proactive interjection paths POST real chat messages by default:
+  - `lull-interjection` task (every-minute cron) drafts a question and posts it whenever `decideLullInterjection` returns `'ask'`.
+  - `contradiction-watcher` posts a chat-shaped surfacing question whenever `decideContradictionInterjection` returns `'live'` AND a channel can be resolved from `claim_evidence`.
+  - `settings.enable_live_contradiction_interjections = true` (flipped by `50_enable_live_contradiction_interjections.sql`).
+- **Why**: the original `enable_live_contradiction_interjections=false` default was conservative for an Oracle that hadn't yet been gated by the full validation pipeline. After R11 the gates are: severity=high AND detectionConfidence ≥ 80 AND cooldown ≥ `oracle_cooldown_minutes` AND under `max_oracle_interjections_per_hour` AND a model-suggested question exists AND a channel can be resolved. That stack is strict enough that the silent-default would suppress legitimate operationally-important contradictions; the user's call (HANDOFF 2026-05-26) was to flip it on and let admins observe the first week of behavior.
+- **Alternatives ruled out**:
+  - Dry-run logging only (write to `oracle_interventions` with `was_live_interjection=false` and `interjection_message_id=null`). Rejected because the audit trail already exists either way — the question is whether real users see the Oracle's drafts. If they don't, admin review remains theoretical and the gap-question loop never closes.
+  - Keep `enable_live_contradiction_interjections=false` until production traffic. Rejected because the wet-test that this gate would block is *exactly* the production traffic; deferring means R11 ships but does nothing real.
+- **Removal plan if misfires happen**:
+  - `UPDATE settings SET value = 'false'::jsonb WHERE key = 'enable_live_contradiction_interjections';` — and the contradiction-watcher immediately respects it. Worker doesn't need to be redeployed; the setting is read on every claim-check.
+  - For the lull task, the comparable kill switch is `enable_group_chat_lull_questions=false` (already implemented at the decider level — DMs bypass this).
+  - If a per-channel kill switch is needed, the right shape is a new `channel_settings` table; today's settings are global.
+- **Tuning knobs**:
+  - `lull_window_seconds` (default 60). Lower for chatty channels, higher for slow ones.
+  - `oracle_cooldown_minutes` (default 10).
+  - `max_oracle_interjections_per_hour` (default 3).
+  - `CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD` (constant in `packages/oracle-engines/src/interjection.ts`, default 80). Adjustable for the next phase if confidence-vs-misfire trade off needs shifting.
+
+## D11.lull-interjection-round-1-simplifications — Topical relevance + presence are round 2
+
+- **Decision**: R11.2 ships with two known simplifications that the user's HANDOFF decisions explicitly accepted as round-1 trade-offs:
+  - **Presence (`isAnyoneTyping`) hardcoded to `false`.** A real Supabase Realtime presence query against `presence_state` was out of scope for R11. The risk: the Oracle may post a question while a human is mid-keystroke.
+  - **Top-relevant-open-gap = highest-priority gap with targetEmployeeId null or a channel participant.** Embedding-based topical relevance (gap embeddings vs recent message embeddings) is out of scope for R11. The risk: the gap chosen may be in a domain the channel wasn't discussing.
+- **Why both are acceptable round 1**:
+  - The rate-limiting + cooldown stack ensures any single misfire is at most 3/hour and at least 10 minutes apart per channel.
+  - The first batch of approved claims (just 2 from the wet-test) doesn't yet justify the engineering of embedding-similarity scoring against a sparse gap corpus.
+  - Admin sees every interjection via `oracle_interventions` + `/admin/ai/runs?taskType=lull-interjection` and can identify both classes of misfire and feed that into the round-2 prioritization.
+- **Round 2 work** (already on the HANDOFF "What's next" list):
+  - Wire `supabase.realtime.presenceState()` into the lull task before computing `isAnyoneTyping`.
+  - Add a `gaps.embedding` column + populate it at gap-creation time, then score by cosine similarity against the mean embedding of the channel's recent messages.
+- **Removal plan**: both round-1 shortcuts disappear when round 2 lands. Until then, they are explicit `// round 1` comments in `apps/workers/src/trigger/lull-interjection.ts`.

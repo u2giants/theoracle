@@ -4,13 +4,11 @@
 
 ## Current state (2026-05-26)
 
-- R0 → R10.5 done.
-- R-providers done — direct `@anthropic-ai/sdk`, `@google/genai`, `openai` adapters wired; `@ai-sdk/*` Vercel-AI-SDK wrappers and OpenRouter both retired from the production path.
-- Wet-test passed end-to-end against the live Supabase project — first real `claims` rows landed 2026-05-26.
-- R11.0 done — `contradiction-watcher` refactored through `OracleAIClient`. Last `getOpenRouter()` call site retired.
-- **Next:** R11.1 (pure decision functions for lull + contradiction interjection), R11.2 (lull-interjection task), R11.3 (live contradiction interjection), R11.4 (HANDOFF + DECISIONS cleanup).
+**AI retrofit complete.** R0 → R11.4 all done. Both proactive interjection paths post live chat messages by default, gated by pure decision functions. Wet-test passed end-to-end against the live Supabase project.
 
-Treat `HANDOFF.md` as the authoritative phase-status table. Treat `DECISIONS.md` as the authoritative decision log (D9 records why the Vercel AI SDK was rejected; D6 records the OpenRouter retirement plan).
+**Next work is operational, not architectural:** Trigger.dev redeploy of R11.x workers, Vertex prod credentials, key rotation, threshold tuning. See `HANDOFF.md` "What's next" for the full list.
+
+Treat `HANDOFF.md` as the authoritative phase-status table. Treat `DECISIONS.md` as the authoritative decision log (D6 + D9 explain why no Vercel AI SDK / no OpenRouter; D10 + D11 explain the R11 live-interjection switch and lull simplifications).
 
 ## MCP servers available in this environment
 
