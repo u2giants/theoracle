@@ -13,6 +13,7 @@ const TABS = [
   { href: '/admin/gaps', label: 'Gaps' },
   { href: '/admin/contradictions', label: 'Contradictions' },
   { href: '/admin/brain', label: 'Brain' },
+  { href: '/admin/ai', label: 'AI Observability' },
   { href: '/admin/settings', label: 'Settings' },
 ] as const;
 
