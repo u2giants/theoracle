@@ -30,14 +30,18 @@ export interface RefreshModelCatalogResult {
 /**
  * Look up OpenRouter enrichment for a provider model ID.
  *
- * Direct provider APIs return versioned IDs ("anthropic/claude-opus-4-20250514",
- * "openai/gpt-4-turbo-2024-04-09", "openai/gpt-4-0613") while OpenRouter
- * indexes by canonical slug ("anthropic/claude-opus-4", "openai/gpt-4-turbo",
- * "openai/gpt-4"). We try exact match first, then progressively strip date /
- * version suffixes:
- *   -YYYY-MM-DD  (ISO date, e.g. gpt-4-turbo-2024-04-09)
- *   -YYYYMMDD    (compact date, e.g. claude-opus-4-20250514)
- *   -MMDD / -\d{4}  (4-digit version, e.g. gpt-4-0613, gpt-3.5-turbo-0125)
+ * Direct provider APIs and OpenRouter use different ID conventions:
+ *   Anthropic API : claude-opus-4-7, claude-haiku-4-5-20251001
+ *   OpenAI API    : gpt-4-0613, gpt-4-turbo-2024-04-09
+ *   OpenRouter    : claude-opus-4.7,  claude-haiku-4.5,  gpt-4, gpt-4-turbo
+ *
+ * We try exact match first, then progressively normalize:
+ *   1. Strip date / version suffixes:
+ *        -YYYY-MM-DD (e.g. gpt-4-turbo-2024-04-09)
+ *        -YYYYMMDD   (e.g. claude-opus-4-20250514)
+ *        -\d{4}      (e.g. gpt-4-0613, gpt-3.5-turbo-0125)
+ *   2. Convert dash-separated version numbers to dot-separated
+ *      (claude-opus-4-7 → claude-opus-4.7, claude-3-5-sonnet → claude-3.5-sonnet)
  *
  * Returns { enrichment, matched } so the caller can track which IDs were found.
  */
@@ -45,17 +49,34 @@ function lookupEnrichment(
   map: Map<string, OpenRouterEnrichment>,
   modelId: string,
 ): { enrichment: OpenRouterEnrichment; matched: boolean } {
-  const exact = map.get(modelId);
+  const tryKey = (k: string) => map.get(k);
+
+  // 1. Exact
+  const exact = tryKey(modelId);
   if (exact) return { enrichment: exact, matched: true };
 
-  const normalized = modelId
-    .replace(/-\d{4}-\d{2}-\d{2}$/, '') // ISO date: -YYYY-MM-DD
-    .replace(/-\d{8}$/, '')              // compact date: -YYYYMMDD
-    .replace(/-\d{4}$/, '');             // 4-digit version: -0613, -0125, -1106
+  // 2. Strip date / version suffixes
+  const stripped = modelId
+    .replace(/-\d{4}-\d{2}-\d{2}$/, '')
+    .replace(/-\d{8}$/, '')
+    .replace(/-\d{4}$/, '');
+  if (stripped !== modelId) {
+    const v = tryKey(stripped);
+    if (v) return { enrichment: v, matched: true };
+  }
 
-  if (normalized !== modelId) {
-    const byNorm = map.get(normalized);
-    if (byNorm) return { enrichment: byNorm, matched: true };
+  // 3. Dash → dot for version numbers (after stripping)
+  const dotted = stripped.replace(/-(\d)-(\d)(?=-|$)/g, '-$1.$2');
+  if (dotted !== stripped) {
+    const v = tryKey(dotted);
+    if (v) return { enrichment: v, matched: true };
+  }
+
+  // 4. Dash → dot on the original (covers cases where suffix-strip wasn't applicable)
+  const origDotted = modelId.replace(/-(\d)-(\d)(?=-|$)/g, '-$1.$2');
+  if (origDotted !== modelId && origDotted !== dotted) {
+    const v = tryKey(origDotted);
+    if (v) return { enrichment: v, matched: true };
   }
 
   return { enrichment: EMPTY_ENRICHMENT, matched: false };
