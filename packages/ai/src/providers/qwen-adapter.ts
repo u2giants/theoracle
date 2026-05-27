@@ -40,7 +40,7 @@ import type {
 } from './types';
 import { flattenPlan, tryZodParse } from './vertex-gemini-adapter';
 
-const DASHSCOPE_BASE_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+const DASHSCOPE_BASE_URL = 'https://dashscope-us.aliyuncs.com/compatible-mode/v1';
 
 export interface QwenAdapterOptions {
   /** API key. Defaults to env DASHSCOPE_API_KEY. */

@@ -4,12 +4,12 @@
 // (OpenRouter indexes Qwen models under the "qwen/" slug, which matches).
 //
 // Auth: DASHSCOPE_API_KEY from DashScope International console.
-// Base URL: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+// Base URL: https://dashscope-us.aliyuncs.com/compatible-mode/v1
 
 import OpenAI from 'openai';
 import type { RawProviderModel } from './types';
 
-const DASHSCOPE_BASE_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
+const DASHSCOPE_BASE_URL = 'https://dashscope-us.aliyuncs.com/compatible-mode/v1';
 
 // DashScope returns the full catalog including non-chat models (text-embedding,
 // multimodal embedding, etc.). Filter to qwen* chat/VL models.
