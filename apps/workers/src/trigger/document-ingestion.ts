@@ -55,7 +55,7 @@ import {
   buildStandardAdapters,
   embedMany,
   getOracleRoute,
-  resolveModelRoute,
+  resolveRouteFromSettings,
   makeBlock,
   EXTRACTION_SYSTEM_PROMPT,
   EXTRACTION_PROMPT_VERSION,
@@ -761,23 +761,16 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
 // ─────────────────────────────────────────────────────────────────────────
 
 async function resolveExtractionRoute(db: OracleDb): Promise<OracleModelRoute> {
-  const row = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'default_extraction_route'))
-    .limit(1);
-  const modelIdOrRouteId =
-    typeof row[0]?.value === 'string' ? (row[0]!.value as string) : FALLBACK_ROUTE_ID;
-  const resolved = resolveModelRoute(modelIdOrRouteId, 'extraction') ?? getOracleRoute(modelIdOrRouteId);
+  const resolved = await resolveRouteFromSettings(db, 'extraction');
   if (resolved) return resolved;
   const fb = getOracleRoute(FALLBACK_ROUTE_ID);
   if (!fb) {
     throw new Error(
-      `[document-ingestion] settings.default_extraction_route="${modelIdOrRouteId}" not in catalog and fallback "${FALLBACK_ROUTE_ID}" missing.`,
+      `[document-ingestion] default_extraction_route unset/unresolvable and fallback "${FALLBACK_ROUTE_ID}" missing.`,
     );
   }
   console.warn(
-    `[document-ingestion] settings.default_extraction_route="${modelIdOrRouteId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
+    `[document-ingestion] default_extraction_route unset/unresolvable; using fallback "${FALLBACK_ROUTE_ID}".`,
   );
   return fb;
 }

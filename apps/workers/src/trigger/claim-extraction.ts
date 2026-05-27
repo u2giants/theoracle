@@ -44,7 +44,7 @@ import {
   OracleAIClient,
   buildStandardAdapters,
   getOracleRoute,
-  resolveModelRoute,
+  resolveRouteFromSettings,
   makeBlock,
   type OracleModelRoute,
   type OraclePromptPlan,
@@ -788,25 +788,17 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
 // ─────────────────────────────────────────────────────────────────────────
 
 async function resolveExtractionRoute(db: OracleDb): Promise<OracleModelRoute> {
-  const row = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'default_extraction_route'))
-    .limit(1);
-  const modelIdOrRouteId =
-    typeof row[0]?.value === 'string'
-      ? (row[0]!.value as string)
-      : FALLBACK_ROUTE_ID;
-  const resolved = resolveModelRoute(modelIdOrRouteId, 'extraction') ?? getOracleRoute(modelIdOrRouteId);
+  // Reads both default_extraction_route + default_extraction_reasoning_effort.
+  const resolved = await resolveRouteFromSettings(db, 'extraction');
   if (resolved) return resolved;
   const fallback = getOracleRoute(FALLBACK_ROUTE_ID);
   if (!fallback) {
     throw new Error(
-      `[claim-extraction] settings.default_extraction_route="${modelIdOrRouteId}" not in catalog, and fallback "${FALLBACK_ROUTE_ID}" also missing.`,
+      `[claim-extraction] default_extraction_route unset/unresolvable and fallback "${FALLBACK_ROUTE_ID}" missing.`,
     );
   }
   console.warn(
-    `[claim-extraction] settings.default_extraction_route="${modelIdOrRouteId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
+    `[claim-extraction] default_extraction_route unset/unresolvable; using fallback "${FALLBACK_ROUTE_ID}".`,
   );
   return fallback;
 }

@@ -120,6 +120,8 @@ export {
   MODEL_POOL_SETTING_KEYS,
   GENERAL_PURPOSE_ROUTE_SETTING_KEY,
   REASONING_EFFORT_SETTING_KEYS,
+  type ReasoningEffort,
+  resolveRouteFromSettings,
 } from './routes';
 
 // Model capability discovery — OpenRouter as single source, persisted to DB.

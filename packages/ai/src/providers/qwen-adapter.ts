@@ -33,6 +33,7 @@ import type {
   OracleTextResult,
   OracleUsage,
 } from '../client/types';
+import type { ReasoningEffort } from '../routes';
 import type {
   GenerateObjectArgs,
   GenerateTextArgs,
@@ -80,6 +81,9 @@ export class QwenAdapter implements OracleProviderAdapter {
         typeof providerOptions?.temperature === 'number'
           ? providerOptions.temperature
           : undefined,
+      // Qwen-specific reasoning controls pass through via `extra_body`.
+      // DashScope's OpenAI-compat layer forwards unknown root-level params.
+      ...qwenThinkingExtras(route.reasoningEffort),
     });
     const latencyMs = Date.now() - callStartedAt;
     const choice = completion.choices[0];
@@ -101,6 +105,7 @@ export class QwenAdapter implements OracleProviderAdapter {
       messages: this.buildMessages(systemPrompt, userMessage),
       temperature: 0.1,
       response_format: { type: 'json_object' },
+      ...qwenThinkingExtras(route.reasoningEffort),
     });
     const latencyMs = Date.now() - callStartedAt;
     const choice = completion.choices[0];
@@ -153,4 +158,26 @@ export class QwenAdapter implements OracleProviderAdapter {
       rawUsageJson: u,
     };
   }
+}
+
+/**
+ * Translate unified ReasoningEffort to Qwen / QwQ thinking parameters.
+ *
+ * Qwen3 thinking models accept `enable_thinking: true` (with optional
+ * `thinking_budget` in tokens). DashScope's OpenAI-compat layer forwards
+ * unknown top-level params verbatim, so we set them directly. Non-thinking
+ * Qwen models silently ignore both fields.
+ *
+ *   off    → enable_thinking: false (forces fast path on QwQ / Qwen3-thinking)
+ *   low    → enable_thinking: true, thinking_budget: 2048
+ *   medium → enable_thinking: true, thinking_budget: 8192
+ *   high   → enable_thinking: true, thinking_budget: 24576
+ */
+function qwenThinkingExtras(
+  effort: ReasoningEffort | undefined,
+): Record<string, unknown> {
+  if (!effort) return {};
+  if (effort === 'off') return { enable_thinking: false };
+  const budget = effort === 'low' ? 2048 : effort === 'medium' ? 8192 : 24576;
+  return { enable_thinking: true, thinking_budget: budget };
 }

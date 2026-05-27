@@ -79,6 +79,15 @@ export class DeepSeekAdapter implements OracleProviderAdapter {
     const { plan, route, providerOptions } = args;
     const { systemPrompt, userMessage } = flattenPlan(plan);
     const messages = this.buildMessages(systemPrompt, userMessage, providerOptions);
+    // DeepSeek-reasoner does reasoning internally with no client-side budget
+    // control. Log when an effort was requested so observability can surface
+    // it; the value is otherwise ignored at the API layer.
+    if (route.reasoningEffort && route.reasoningEffort !== 'off') {
+      // eslint-disable-next-line no-console
+      console.info(
+        `[DeepSeekAdapter] reasoningEffort=${route.reasoningEffort} requested for ${route.modelId} — model controls reasoning internally; param ignored.`,
+      );
+    }
     const callStartedAt = Date.now();
     const completion = await this.client.chat.completions.create({
       model: route.modelId,

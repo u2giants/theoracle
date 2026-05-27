@@ -39,7 +39,7 @@ import type {
   OracleTextResult,
   OracleUsage,
 } from '../client/types';
-import type { OracleModelRoute } from '../routes';
+import type { OracleModelRoute, ReasoningEffort } from '../routes';
 import type {
   GenerateObjectArgs,
   GenerateTextArgs,
@@ -107,6 +107,7 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
           typeof providerOptions?.temperature === 'number'
             ? providerOptions.temperature
             : undefined,
+        ...vertexThinkingConfig(route.reasoningEffort),
       },
     });
     const latencyMs = Date.now() - callStartedAt;
@@ -134,6 +135,7 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
         responseMimeType: 'application/json',
         // responseJsonSchema accepts standard JSON Schema as of @google/genai 2.6.
         responseJsonSchema: jsonSchema as unknown,
+        ...vertexThinkingConfig(route.reasoningEffort),
       },
     });
     const latencyMs = Date.now() - callStartedAt;
@@ -258,4 +260,28 @@ export function tryZodParse<T>(schema: unknown, value: unknown): T | null {
     return result.data;
   }
   return null;
+}
+
+/**
+ * Translate unified ReasoningEffort to Vertex Gemini 2.5+'s thinkingConfig.
+ * Returns an object you can spread into the request `config`.
+ *
+ * Budgets (Gemini 2.5 Pro/Flash):
+ *   off    → thinkingBudget: 0  (disables thinking)
+ *   low    → 1024
+ *   medium → 8192
+ *   high   → 24576 (Flash hard cap; Pro accepts up to 32768)
+ *
+ * Models without thinking support (1.x family) ignore the param silently.
+ */
+function vertexThinkingConfig(effort: ReasoningEffort | undefined):
+  | { thinkingConfig: { thinkingBudget: number } }
+  | Record<string, never> {
+  if (!effort) return {};
+  const budget =
+    effort === 'off' ? 0
+      : effort === 'low' ? 1024
+      : effort === 'medium' ? 8192
+      : 24576;
+  return { thinkingConfig: { thinkingBudget: budget } };
 }

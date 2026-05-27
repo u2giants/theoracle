@@ -50,7 +50,7 @@ import {
   OracleAIClient,
   buildStandardAdapters,
   getOracleRoute,
-  resolveModelRoute,
+  resolveRouteFromSettings,
   makeBlock,
   type OracleModelRoute,
   type OraclePromptPlan,
@@ -617,23 +617,18 @@ export const brainSynthesisScheduledTask = schedules.task({
 // ─────────────────────────────────────────────────────────────────────────
 
 async function resolveSynthesisRoute(db: OracleDb): Promise<OracleModelRoute> {
-  const row = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'default_synthesis_route'))
-    .limit(1);
-  const modelIdOrRouteId =
-    typeof row[0]?.value === 'string' ? (row[0]!.value as string) : FALLBACK_ROUTE_ID;
-  const resolved = resolveModelRoute(modelIdOrRouteId, 'synthesis') ?? getOracleRoute(modelIdOrRouteId);
+  // Reads BOTH default_synthesis_route AND default_synthesis_reasoning_effort
+  // in one query; effort is attached to the returned route for the adapter.
+  const resolved = await resolveRouteFromSettings(db, 'synthesis');
   if (resolved) return resolved;
   const fb = getOracleRoute(FALLBACK_ROUTE_ID);
   if (!fb) {
     throw new Error(
-      `[brain-synthesis] settings.default_synthesis_route="${modelIdOrRouteId}" not in catalog and fallback "${FALLBACK_ROUTE_ID}" missing.`,
+      `[brain-synthesis] default_synthesis_route unset / unresolvable and fallback "${FALLBACK_ROUTE_ID}" missing.`,
     );
   }
   console.warn(
-    `[brain-synthesis] settings.default_synthesis_route="${modelIdOrRouteId}" not in catalog; using fallback "${FALLBACK_ROUTE_ID}".`,
+    `[brain-synthesis] default_synthesis_route unset / unresolvable; using fallback "${FALLBACK_ROUTE_ID}".`,
   );
   return fb;
 }

@@ -46,6 +46,17 @@ export type StructuredOutputStrategy =
   | 'tool_call'
   | 'schema_prompt_plus_validator';
 
+/**
+ * Reasoning effort level — unified across providers. Each adapter translates
+ * to its native form:
+ *   Anthropic: thinking.budget_tokens (low=2048, medium=8192, high=24000; off omits the thinking param)
+ *   OpenAI:    reasoning_effort string ('low'|'medium'|'high'; off omits the param)
+ *   Vertex:    thinkingConfig.thinkingBudget (low=1024, medium=8192, high=24576; off=0)
+ *   DeepSeek:  no-op (R1 reasoning is automatic and not client-controlled)
+ *   Qwen:      enable_thinking + optional budget (low/med/high enable; off disables)
+ */
+export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high';
+
 export type FallbackCondition =
   | 'provider_outage'
   | 'provider_rate_limit'
@@ -97,6 +108,14 @@ export interface OracleModelRoute {
 
   maxInputTokens?: number;
   maxOutputTokens?: number;
+
+  /**
+   * Reasoning effort to request from the model. Optional — when undefined,
+   * the adapter omits all thinking/reasoning parameters and the model behaves
+   * with its provider default. Set by resolveRouteFromSettings when the admin
+   * has saved a per-stage effort preference.
+   */
+  reasoningEffort?: ReasoningEffort;
 
   /**
    * For a Primary route, the routeId of its Fallback. Always exactly one.

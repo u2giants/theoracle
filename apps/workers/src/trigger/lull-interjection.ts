@@ -50,7 +50,7 @@ import {
   OracleAIClient,
   buildStandardAdapters,
   getOracleRoute,
-  resolveModelRoute,
+  resolveRouteFromSettings,
   makeBlock,
   type OracleModelRoute,
 } from '@oracle/ai';
@@ -101,25 +101,16 @@ function hashString(s: string): string {
 async function resolveInterviewRoute(
   db: ReturnType<typeof getDirectDb>,
 ): Promise<OracleModelRoute> {
-  const row = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'default_interview_route'))
-    .limit(1);
-  const modelIdOrRouteId =
-    typeof row[0]?.value === 'string'
-      ? (row[0]!.value as string)
-      : FALLBACK_INTERVIEW_ROUTE_ID;
-  const resolved = resolveModelRoute(modelIdOrRouteId, 'interview') ?? getOracleRoute(modelIdOrRouteId);
+  const resolved = await resolveRouteFromSettings(db, 'interview');
   if (resolved) return resolved;
   const fallback = getOracleRoute(FALLBACK_INTERVIEW_ROUTE_ID);
   if (!fallback) {
     throw new Error(
-      `[lull-interjection] settings.default_interview_route="${modelIdOrRouteId}" not in catalog, and fallback "${FALLBACK_INTERVIEW_ROUTE_ID}" also missing.`,
+      `[lull-interjection] default_interview_route unset/unresolvable, and fallback "${FALLBACK_INTERVIEW_ROUTE_ID}" also missing.`,
     );
   }
   console.warn(
-    `[lull-interjection] settings.default_interview_route="${modelIdOrRouteId}" not in catalog; using fallback "${FALLBACK_INTERVIEW_ROUTE_ID}".`,
+    `[lull-interjection] default_interview_route unset/unresolvable; using fallback "${FALLBACK_INTERVIEW_ROUTE_ID}".`,
   );
   return fallback;
 }

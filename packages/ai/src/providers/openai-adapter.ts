@@ -29,7 +29,7 @@ import type {
   OracleTextResult,
   OracleUsage,
 } from '../client/types';
-import type { OracleModelRoute } from '../routes';
+import type { OracleModelRoute, ReasoningEffort } from '../routes';
 import type {
   GenerateObjectArgs,
   GenerateTextArgs,
@@ -67,6 +67,7 @@ export class OpenAIAdapter implements OracleProviderAdapter {
     const { systemPrompt, userMessage } = flattenPlan(plan);
     const messages = this.buildMessages(systemPrompt, userMessage, providerOptions);
     const callStartedAt = Date.now();
+    const reasoningEffort = openaiEffort(route.reasoningEffort);
     const completion = await this.client.chat.completions.create({
       model: route.modelId,
       messages,
@@ -74,6 +75,7 @@ export class OpenAIAdapter implements OracleProviderAdapter {
         typeof providerOptions?.temperature === 'number'
           ? providerOptions.temperature
           : undefined,
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     });
     const latencyMs = Date.now() - callStartedAt;
     const choice = completion.choices[0];
@@ -96,6 +98,7 @@ export class OpenAIAdapter implements OracleProviderAdapter {
       zodToJsonSchema(schema) as Record<string, unknown>,
     );
     const callStartedAt = Date.now();
+    const reasoningEffort = openaiEffort(route.reasoningEffort);
     const completion = await this.client.chat.completions.create({
       model: route.modelId,
       messages: this.buildMessages(systemPrompt, userMessage),
@@ -108,6 +111,7 @@ export class OpenAIAdapter implements OracleProviderAdapter {
           schema: jsonSchema,
         },
       },
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     });
     const latencyMs = Date.now() - callStartedAt;
     const choice = completion.choices[0];
@@ -184,6 +188,18 @@ function stripIncompatibleFields(
   const cloned = JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
   walk(cloned);
   return cloned;
+}
+
+/**
+ * Translate unified ReasoningEffort to OpenAI's `reasoning_effort` enum.
+ * Only meaningful for the o-series (o1/o3/o4) and GPT-5 reasoning models —
+ * non-reasoning models silently accept and ignore the param.
+ *
+ * 'off' returns undefined so the caller can omit the param entirely.
+ */
+function openaiEffort(effort: ReasoningEffort | undefined): 'low' | 'medium' | 'high' | undefined {
+  if (!effort || effort === 'off') return undefined;
+  return effort; // 'low' | 'medium' | 'high' pass through unchanged
 }
 
 function walk(node: unknown): void {

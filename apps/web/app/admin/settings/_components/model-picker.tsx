@@ -12,6 +12,9 @@ import {
   type CapKey,
   type Stage,
 } from '@/lib/stage-requirements';
+import type { ReasoningEffort } from '@oracle/ai';
+
+export type { ReasoningEffort };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,18 +40,6 @@ type Model = {
 };
 
 type Status = 'idle' | 'saving' | 'saved' | 'error';
-
-/**
- * Reasoning effort levels. Unified across providers — each adapter translates
- * to its provider-native form (Anthropic budget_tokens, OpenAI reasoning_effort,
- * Vertex thinkingConfig.thinkingBudget).
- *
- *   off    — disable thinking / use the smallest budget the provider allows
- *   low    — minimal reasoning (Anthropic ~2K tok, OpenAI 'low', Vertex ~1K)
- *   medium — balanced (Anthropic ~8K tok, OpenAI 'medium', Vertex ~8K)
- *   high   — maximum (Anthropic ~24K tok, OpenAI 'high', Vertex ~24K)
- */
-export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high';
 
 const EFFORT_OPTIONS: { value: ReasoningEffort; label: string }[] = [
   { value: 'off',    label: 'Off' },

@@ -34,7 +34,7 @@ import {
   OracleAIClient,
   buildStandardAdapters,
   getOracleRoute,
-  resolveModelRoute,
+  resolveRouteFromSettings,
   getRecentMessages,
   getRelevantOpenGaps,
   makeBlock,
@@ -509,26 +509,17 @@ function scopeTag(topDomainHints: string[], scope: RetrievalPlanSearchScope): st
 }
 
 async function resolveInterviewRoute(db: OracleDb): Promise<OracleModelRoute> {
-  const row = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'default_interview_route'))
-    .limit(1);
-  const modelIdOrRouteId =
-    typeof row[0]?.value === 'string' ? (row[0]!.value as string) : FALLBACK_ROUTE_ID;
-  // resolveModelRoute handles both catalog routeIds and OpenRouter model IDs
-  // (e.g. "anthropic/claude-haiku-4-5" saved by the model-pool picker).
-  const resolved = resolveModelRoute(modelIdOrRouteId, 'interview') ?? getOracleRoute(modelIdOrRouteId);
+  // resolveRouteFromSettings handles catalog routeIds, OpenRouter "provider/model"
+  // IDs from the pool picker, AND attaches the admin's saved reasoning effort.
+  const resolved = await resolveRouteFromSettings(db, 'interview');
   if (resolved) return resolved;
   const fb = getOracleRoute(FALLBACK_ROUTE_ID);
   if (!fb) {
     throw new Error(
-      `[chat] settings.default_interview_route="${modelIdOrRouteId}" not resolvable and fallback "${FALLBACK_ROUTE_ID}" missing.`,
+      `[chat] default_interview_route unset/unresolvable and fallback "${FALLBACK_ROUTE_ID}" missing.`,
     );
   }
-  console.warn(
-    `[chat] settings.default_interview_route="${modelIdOrRouteId}" not resolvable; using fallback "${FALLBACK_ROUTE_ID}".`,
-  );
+  console.warn(`[chat] default_interview_route unset/unresolvable; using fallback "${FALLBACK_ROUTE_ID}".`);
   return fb;
 }
 

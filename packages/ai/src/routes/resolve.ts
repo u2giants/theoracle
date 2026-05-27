@@ -13,7 +13,7 @@
  * picker continue to work even when the saved value is an OpenRouter model ID.
  */
 
-import type { OracleModelRole, OracleModelRoute, OracleProvider } from './types';
+import type { OracleModelRole, OracleModelRoute, OracleProvider, ReasoningEffort } from './types';
 import { ORACLE_MODEL_ROUTES } from './catalog';
 import { getOracleRoute } from './catalog';
 
@@ -123,26 +123,35 @@ function makeSyntheticRoute(
 export function resolveModelRoute(
   modelIdOrRouteId: string,
   role: OracleModelRole,
+  reasoningEffort?: ReasoningEffort,
 ): OracleModelRoute | null {
+  let base: OracleModelRoute | null = null;
+
   // ── 1. Try direct catalog routeId lookup ─────────────────────────────────
   const byRouteId = getOracleRoute(modelIdOrRouteId);
-  if (byRouteId) return byRouteId;
+  if (byRouteId) {
+    base = byRouteId;
+  } else {
+    // ── 2. Parse as OpenRouter-style "provider/model" ────────────────────────
+    const slashIdx = modelIdOrRouteId.indexOf('/');
+    if (slashIdx === -1) return null; // unknown format
 
-  // ── 2. Parse as OpenRouter-style "provider/model" ─────────────────────────
-  const slashIdx = modelIdOrRouteId.indexOf('/');
-  if (slashIdx === -1) return null; // unknown format
+    const prefix = modelIdOrRouteId.slice(0, slashIdx);
+    const modelId = modelIdOrRouteId.slice(slashIdx + 1);
+    const provider = mapPrefix(prefix);
+    if (!provider) return null; // unsupported provider prefix
 
-  const prefix = modelIdOrRouteId.slice(0, slashIdx);
-  const modelId = modelIdOrRouteId.slice(slashIdx + 1);
-  const provider = mapPrefix(prefix);
-  if (!provider) return null; // unsupported provider prefix
+    // ── 3. Try catalog lookup by provider + modelId + role ─────────────────
+    const catalogMatch = Object.values(ORACLE_MODEL_ROUTES).find(
+      (r) => r.provider === provider && r.modelId === modelId && r.role === role,
+    );
+    base = catalogMatch ?? makeSyntheticRoute(modelIdOrRouteId, provider, modelId, role);
+  }
 
-  // ── 3. Try catalog lookup by provider + modelId + role ───────────────────
-  const catalogMatch = Object.values(ORACLE_MODEL_ROUTES).find(
-    (r) => r.provider === provider && r.modelId === modelId && r.role === role,
-  );
-  if (catalogMatch) return catalogMatch;
-
-  // ── 4. Synthesise a minimal route ─────────────────────────────────────────
-  return makeSyntheticRoute(modelIdOrRouteId, provider, modelId, role);
+  // Attach the effort (immutable copy) when provided. Adapters read this off
+  // the route at inference time and translate to provider-native format.
+  if (reasoningEffort) {
+    return { ...base, reasoningEffort };
+  }
+  return base;
 }

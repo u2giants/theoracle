@@ -31,7 +31,7 @@ import type {
   OracleTextResult,
   OracleUsage,
 } from '../client/types';
-import type { OracleModelRoute } from '../routes';
+import type { OracleModelRoute, ReasoningEffort } from '../routes';
 import type {
   GenerateObjectArgs,
   GenerateTextArgs,
@@ -75,15 +75,19 @@ export class AnthropicAdapter implements OracleProviderAdapter {
     const callStartedAt = Date.now();
 
     const messages = this.buildMessages(userMessage, providerOptions);
+    const thinking = thinkingParam(route.reasoningEffort, this.defaultMaxTokens);
     const response = await this.client.messages.create({
       model: route.modelId,
       max_tokens: this.defaultMaxTokens,
-      temperature:
-        typeof providerOptions?.temperature === 'number'
-          ? providerOptions.temperature
-          : undefined,
+      // Anthropic requires temperature=1 when thinking is enabled.
+      temperature: thinking
+        ? 1
+        : (typeof providerOptions?.temperature === 'number'
+            ? providerOptions.temperature
+            : undefined),
       system: this.buildSystem(systemPrompt),
       messages,
+      ...(thinking ? { thinking } : {}),
     });
     const latencyMs = Date.now() - callStartedAt;
     return {
@@ -104,10 +108,12 @@ export class AnthropicAdapter implements OracleProviderAdapter {
     // Force a single tool call. The tool's input_schema is the structured
     // output contract; Anthropic enforces it on the model.
     const TOOL_NAME = 'output_structured';
+    const thinking = thinkingParam(route.reasoningEffort, this.defaultMaxTokens);
     const response = await this.client.messages.create({
       model: route.modelId,
       max_tokens: this.defaultMaxTokens,
-      temperature: 0.1,
+      // Anthropic forbids temperature != 1 when thinking is enabled.
+      temperature: thinking ? 1 : 0.1,
       system: this.buildSystem(systemPrompt),
       messages: [{ role: 'user', content: userMessage }],
       tools: [
@@ -119,6 +125,7 @@ export class AnthropicAdapter implements OracleProviderAdapter {
         },
       ],
       tool_choice: { type: 'tool', name: TOOL_NAME },
+      ...(thinking ? { thinking } : {}),
     });
     const latencyMs = Date.now() - callStartedAt;
     const toolUse = response.content.find((b) => b.type === 'tool_use');
@@ -203,4 +210,22 @@ export class AnthropicAdapter implements OracleProviderAdapter {
       rawUsageJson: u,
     };
   }
+}
+
+/**
+ * Build Anthropic's `thinking` request parameter from a unified effort enum.
+ * Returns undefined when no thinking should be requested (off, undefined, or
+ * when budget would exceed the model's max_tokens). The budget MUST be less
+ * than max_tokens — Anthropic rejects the request otherwise.
+ */
+function thinkingParam(
+  effort: ReasoningEffort | undefined,
+  maxTokens: number,
+): { type: 'enabled'; budget_tokens: number } | undefined {
+  if (!effort || effort === 'off') return undefined;
+  const targetBudget = effort === 'low' ? 2048 : effort === 'medium' ? 8192 : 24000;
+  // Clamp so budget < max_tokens. Reserve at least 512 tokens for the answer.
+  const budget = Math.max(1024, Math.min(targetBudget, maxTokens - 512));
+  if (budget < 1024) return undefined;   // model can't fit even a low budget
+  return { type: 'enabled', budget_tokens: budget };
 }

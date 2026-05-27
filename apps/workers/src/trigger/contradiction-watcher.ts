@@ -44,7 +44,7 @@ import {
   buildStandardAdapters,
   embedText,
   getOracleRoute,
-  resolveModelRoute,
+  resolveRouteFromSettings,
   makeBlock,
   searchWithRetrievalPlan,
   buildDomainScopedPlan,
@@ -149,26 +149,16 @@ const ClaimCheckPayloadSchema = z.object({
 async function resolveContradictionRoute(
   db: ReturnType<typeof getDirectDb>,
 ): Promise<OracleModelRoute> {
-  const row = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'default_extraction_route'))
-    .limit(1);
-  const modelIdOrRouteId =
-    typeof row[0]?.value === 'string'
-      ? (row[0]!.value as string)
-      : FALLBACK_ROUTE_ID;
-  const resolved =
-    resolveModelRoute(modelIdOrRouteId, 'extraction') ?? getOracleRoute(modelIdOrRouteId);
+  const resolved = await resolveRouteFromSettings(db, 'extraction');
   if (resolved) return resolved;
   const fallback = getOracleRoute(FALLBACK_ROUTE_ID);
   if (!fallback) {
     throw new Error(
-      `[contradiction-watcher] settings.default_extraction_route="${modelIdOrRouteId}" not resolvable, and fallback "${FALLBACK_ROUTE_ID}" also missing.`,
+      `[contradiction-watcher] default_extraction_route unset/unresolvable, and fallback "${FALLBACK_ROUTE_ID}" also missing.`,
     );
   }
   console.warn(
-    `[contradiction-watcher] settings.default_extraction_route="${modelIdOrRouteId}" not resolvable; using fallback "${FALLBACK_ROUTE_ID}".`,
+    `[contradiction-watcher] default_extraction_route unset/unresolvable; using fallback "${FALLBACK_ROUTE_ID}".`,
   );
   return fallback;
 }
@@ -676,26 +666,16 @@ export const contradictionWatcherSweepTask = schedules.task({
 async function resolveInterviewRoute(
   db: ReturnType<typeof getDirectDb>,
 ): Promise<OracleModelRoute> {
-  const row = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'default_interview_route'))
-    .limit(1);
-  const modelIdOrRouteId =
-    typeof row[0]?.value === 'string'
-      ? (row[0]!.value as string)
-      : FALLBACK_INTERVIEW_ROUTE_ID;
-  const resolved =
-    resolveModelRoute(modelIdOrRouteId, 'interview') ?? getOracleRoute(modelIdOrRouteId);
+  const resolved = await resolveRouteFromSettings(db, 'interview');
   if (resolved) return resolved;
   const fallback = getOracleRoute(FALLBACK_INTERVIEW_ROUTE_ID);
   if (!fallback) {
     throw new Error(
-      `[contradiction-watcher] settings.default_interview_route="${modelIdOrRouteId}" not resolvable, and fallback "${FALLBACK_INTERVIEW_ROUTE_ID}" also missing.`,
+      `[contradiction-watcher] default_interview_route unset/unresolvable, and fallback "${FALLBACK_INTERVIEW_ROUTE_ID}" also missing.`,
     );
   }
   console.warn(
-    `[contradiction-watcher] settings.default_interview_route="${modelIdOrRouteId}" not in catalog; using fallback "${FALLBACK_INTERVIEW_ROUTE_ID}".`,
+    `[contradiction-watcher] default_interview_route unset/unresolvable; using fallback "${FALLBACK_INTERVIEW_ROUTE_ID}".`,
   );
   return fallback;
 }
