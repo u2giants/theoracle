@@ -1,7 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Braces, Eye, FileText, Sparkles, Wrench, Zap } from 'lucide-react';
+import {
+  Braces,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  Eye,
+  FileText,
+  Sparkles,
+  Wrench,
+  Zap,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ModelCatalogEntry } from '@/app/api/admin/model-catalog/route';
@@ -23,22 +33,29 @@ function fmtCtx(n: number): string {
   return n.toLocaleString();
 }
 
-// ---------------------------------------------------------------------------
-// Capability badge
-// ---------------------------------------------------------------------------
-
 type IconComponent = React.ComponentType<{ className?: string }>;
 
-function CapBadge({ icon: Icon, label, cls }: { icon: IconComponent; label: string; cls: string }) {
-  return (
-    <span className={cn('inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium', cls)}>
-      <Icon className="h-2.5 w-2.5 shrink-0" />
-      {label}
-    </span>
-  );
+// Capability metadata — used for column headers, cells, AND stage-requirement icons.
+type CapabilityField = 'vision' | 'thinking' | 'tools' | 'structuredOutputs' | 'promptCaching' | 'pdf';
+
+interface CapabilityMeta {
+  field: CapabilityField;
+  short: string;       // header tooltip
+  long: string;        // full label
+  icon: IconComponent;
+  color: string;       // text color for the icon when present
 }
 
-// ---------------------------------------------------------------------------
+const CAPABILITIES: ReadonlyArray<CapabilityMeta> = [
+  { field: 'vision',            short: 'Vision',            long: 'Vision (image input)',     icon: Eye,      color: 'text-sky-600 dark:text-sky-400' },
+  { field: 'thinking',          short: 'Thinking',          long: 'Extended thinking / reasoning', icon: Sparkles, color: 'text-violet-600 dark:text-violet-400' },
+  { field: 'tools',             short: 'Tools',             long: 'Tool calling',             icon: Wrench,   color: 'text-emerald-600 dark:text-emerald-400' },
+  { field: 'structuredOutputs', short: 'Structured',        long: 'Native structured outputs', icon: Braces,  color: 'text-orange-600 dark:text-orange-400' },
+  { field: 'promptCaching',     short: 'Caching',           long: 'Prompt caching',           icon: Zap,      color: 'text-amber-600 dark:text-amber-400' },
+  { field: 'pdf',               short: 'PDF',               long: 'PDF input',                icon: FileText, color: 'text-slate-600 dark:text-slate-400' },
+];
+
+const CAP_BY_FIELD = Object.fromEntries(CAPABILITIES.map((c) => [c.field, c])) as Record<CapabilityField, CapabilityMeta>;
 
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
@@ -60,10 +77,10 @@ const STAGE_LABELS: Record<Stage, string> = {
 // Minimum capability a model must have to be selectable for each stage.
 // Interview and Synthesis use tool_call structured-output strategy → need tools.
 // Extraction uses native_json_schema → needs structuredOutputs.
-const STAGE_CAP_REQUIREMENT: Record<Stage, { field: keyof ModelCatalogEntry; label: string }> = {
-  interview: { field: 'tools', label: 'tool calling' },
-  extraction: { field: 'structuredOutputs', label: 'structured outputs' },
-  synthesis: { field: 'tools', label: 'tool calling' },
+const STAGE_CAP_REQUIREMENT: Record<Stage, CapabilityField> = {
+  interview: 'tools',
+  extraction: 'structuredOutputs',
+  synthesis: 'tools',
 };
 
 /** True when we have enrichment data for this model (context OR pricing populated). */
@@ -74,7 +91,7 @@ function hasEnrichment(m: ModelCatalogEntry): boolean {
 /** False only when enrichment is present AND the required cap is explicitly false. */
 function meetsStageReq(m: ModelCatalogEntry, stage: Stage): boolean {
   if (!hasEnrichment(m)) return true; // unknown — allow
-  return !!m[STAGE_CAP_REQUIREMENT[stage].field];
+  return !!m[STAGE_CAP_REQUIREMENT[stage]];
 }
 
 const STAGE_SETTING_KEYS: Record<Stage, string> = {
@@ -84,6 +101,42 @@ const STAGE_SETTING_KEYS: Record<Stage, string> = {
 };
 
 type PoolState = Record<Stage, Set<string>>;
+type SortKey = 'context' | 'price' | null;
+type SortDir = 'asc' | 'desc';
+
+// ---------------------------------------------------------------------------
+// Sortable column header
+// ---------------------------------------------------------------------------
+
+function SortHeader({
+  label,
+  active,
+  dir,
+  onClick,
+  className,
+}: {
+  label: string;
+  active: boolean;
+  dir: SortDir;
+  onClick: () => void;
+  className?: string;
+}) {
+  const Icon = !active ? ChevronsUpDown : dir === 'asc' ? ChevronUp : ChevronDown;
+  return (
+    <th
+      onClick={onClick}
+      className={cn(
+        'cursor-pointer select-none px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap hover:text-foreground',
+        className,
+      )}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <Icon className={cn('h-3 w-3', active ? 'text-foreground' : 'opacity-40')} />
+      </span>
+    </th>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -110,6 +163,10 @@ export function ModelPoolEditor({
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  const [minContext, setMinContext] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
+  const [sortBy, setSortBy] = useState<SortKey>(null);
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   useEffect(() => {
     let cancelled = false;
@@ -177,11 +234,19 @@ export function ModelPoolEditor({
     setSaveStatus('idle');
   }
 
+  function toggleSort(key: 'context' | 'price') {
+    if (sortBy === key) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(key);
+      setSortDir('desc');
+    }
+  }
+
   async function save() {
     setSaveStatus('saving');
     setSaveError(null);
     try {
-      // Save all three pools sequentially so a failure on one is reported clearly.
       for (const stage of STAGES) {
         const res = await fetch('/api/admin/settings', {
           method: 'POST',
@@ -229,13 +294,39 @@ export function ModelPoolEditor({
     );
   }
 
-  const filtered = filter.trim()
-    ? catalog.filter(
-        (m) =>
-          m.id.toLowerCase().includes(filter.toLowerCase()) ||
-          m.name.toLowerCase().includes(filter.toLowerCase()),
-      )
-    : catalog;
+  // ── Filtering ────────────────────────────────────────────────────────────
+  const minCtxNum = minContext.trim()
+    ? parseInt(minContext.replace(/[^\d]/g, ''), 10) || null
+    : null;
+  const maxPriceNum = maxPrice.trim() ? parseFloat(maxPrice) : null;
+  const filterText = filter.trim().toLowerCase();
+
+  const filtered = catalog.filter((m) => {
+    if (filterText && !m.id.toLowerCase().includes(filterText) && !m.name.toLowerCase().includes(filterText)) {
+      return false;
+    }
+    if (minCtxNum != null) {
+      if (m.contextLength == null || m.contextLength < minCtxNum) return false;
+    }
+    if (maxPriceNum != null && Number.isFinite(maxPriceNum)) {
+      if (m.promptPer1M == null || m.promptPer1M > maxPriceNum) return false;
+    }
+    return true;
+  });
+
+  // ── Sorting (applied within each provider section) ───────────────────────
+  function sortModels(models: ModelCatalogEntry[]): ModelCatalogEntry[] {
+    if (sortBy == null) return models;
+    return [...models].sort((a, b) => {
+      const aN = sortBy === 'context' ? a.contextLength : a.promptPer1M;
+      const bN = sortBy === 'context' ? b.contextLength : b.promptPer1M;
+      // Nulls always go to the bottom regardless of direction.
+      if (aN == null && bN == null) return 0;
+      if (aN == null) return 1;
+      if (bN == null) return -1;
+      return sortDir === 'asc' ? aN - bN : bN - aN;
+    });
+  }
 
   return (
     <div className="space-y-5">
@@ -272,15 +363,39 @@ export function ModelPoolEditor({
         </details>
       )}
 
+      {/* Filter / sort controls */}
       <div className="flex items-center gap-3 flex-wrap">
         <input
           type="text"
-          placeholder="Filter models…"
+          placeholder="Filter by name…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2 w-64"
+          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2 w-56"
         />
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <input
+          type="text"
+          placeholder="Min context (tokens)"
+          value={minContext}
+          onChange={(e) => setMinContext(e.target.value)}
+          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2 w-44"
+        />
+        <input
+          type="text"
+          placeholder="Max $/1M input"
+          value={maxPrice}
+          onChange={(e) => setMaxPrice(e.target.value)}
+          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2 w-40"
+        />
+        {(filter || minContext || maxPrice || sortBy) && (
+          <button
+            type="button"
+            onClick={() => { setFilter(''); setMinContext(''); setMaxPrice(''); setSortBy(null); }}
+            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          >
+            Reset
+          </button>
+        )}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground ml-auto">
           {STAGES.map((s) => (
             <span key={s} className="rounded bg-muted px-2 py-0.5">
               {STAGE_LABELS[s]}: <strong className="text-foreground">{pools[s].size}</strong>
@@ -316,10 +431,10 @@ export function ModelPoolEditor({
         ))}
       </div>
 
-      {/* Provider groups, with stage-column checkboxes per row */}
+      {/* Provider groups */}
       <div className="space-y-6">
         {PROVIDER_ORDER.map((providerKey) => {
-          const providerModels = filtered.filter((m) => m.provider === providerKey);
+          const providerModels = sortModels(filtered.filter((m) => m.provider === providerKey));
           if (providerModels.length === 0) return null;
           return (
             <section key={providerKey}>
@@ -331,50 +446,92 @@ export function ModelPoolEditor({
                   <thead className="bg-muted/40">
                     <tr>
                       <th className="text-left px-4 py-2 font-medium text-xs text-muted-foreground">Model</th>
-                      <th className="text-right px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap">Context</th>
-                      <th className="text-right px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap">$/1M (in/out)</th>
-                      {STAGES.map((stage) => (
-                        <th key={stage} className="text-center px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap">
-                          {STAGE_LABELS[stage]}
+                      <SortHeader
+                        label="Context"
+                        active={sortBy === 'context'}
+                        dir={sortDir}
+                        onClick={() => toggleSort('context')}
+                        className="text-right"
+                      />
+                      <SortHeader
+                        label="$/1M (in/out)"
+                        active={sortBy === 'price'}
+                        dir={sortDir}
+                        onClick={() => toggleSort('price')}
+                        className="text-right"
+                      />
+                      {/* Capability columns — icon-only headers */}
+                      {CAPABILITIES.map((cap) => (
+                        <th
+                          key={cap.field}
+                          title={cap.long}
+                          className="text-center px-2 py-2 font-medium text-xs text-muted-foreground w-9"
+                        >
+                          <cap.icon className={cn('h-3.5 w-3.5 inline-block', cap.color)} />
                         </th>
                       ))}
+                      {/* Stage columns — show required capability icon next to label */}
+                      {STAGES.map((stage) => {
+                        const reqMeta = CAP_BY_FIELD[STAGE_CAP_REQUIREMENT[stage]];
+                        return (
+                          <th
+                            key={stage}
+                            className="text-center px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap"
+                          >
+                            <div className="flex items-center justify-center gap-1">
+                              <span>{STAGE_LABELS[stage]}</span>
+                              <reqMeta.icon
+                                className={cn('h-3 w-3', reqMeta.color)}
+                                aria-label={`Requires ${reqMeta.long}`}
+                              />
+                            </div>
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {providerModels.map((m) => (
                       <tr key={m.id} className="hover:bg-muted/30">
-                        <td className="px-4 py-2 align-top">
+                        <td className="px-4 py-2 align-middle">
                           <span className="font-mono text-xs text-foreground block">{m.id}</span>
                           {m.name !== m.id && (
                             <span className="text-xs text-muted-foreground block mt-0.5">{m.name}</span>
                           )}
-                          <div className="flex flex-wrap items-center gap-1 mt-1">
-                            {m.vision && <CapBadge icon={Eye} label="vision" cls="bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300" />}
-                            {m.thinking && <CapBadge icon={Sparkles} label="thinking" cls="bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" />}
-                            {m.tools && <CapBadge icon={Wrench} label="tools" cls="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" />}
-                            {m.structuredOutputs && <CapBadge icon={Braces} label="structured" cls="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" />}
-                            {m.promptCaching && <CapBadge icon={Zap} label="caching" cls="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" />}
-                            {m.pdf && <CapBadge icon={FileText} label="pdf" cls="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400" />}
-                          </div>
                         </td>
-                        <td className="px-3 py-2 align-top text-right text-xs text-muted-foreground whitespace-nowrap">
+                        <td className="px-3 py-2 align-middle text-right text-xs text-muted-foreground whitespace-nowrap">
                           {m.contextLength != null ? `${fmtCtx(m.contextLength)} tok` : '—'}
                         </td>
-                        <td className="px-3 py-2 align-top text-right text-xs text-muted-foreground font-mono whitespace-nowrap">
+                        <td className="px-3 py-2 align-middle text-right text-xs text-muted-foreground font-mono whitespace-nowrap">
                           {m.promptPer1M != null
                             ? (m.promptPer1M === 0 && (m.completionPer1M ?? 0) === 0
                               ? 'Free'
                               : `$${fmtPrice(m.promptPer1M)} / $${fmtPrice(m.completionPer1M ?? 0)}`)
                             : '—'}
                         </td>
+                        {/* Capability cells — colored icon if true, faint dash if false */}
+                        {CAPABILITIES.map((cap) => (
+                          <td
+                            key={cap.field}
+                            className="text-center px-2 py-2 align-middle"
+                            title={m[cap.field] ? cap.long : `No ${cap.short.toLowerCase()}`}
+                          >
+                            {m[cap.field] ? (
+                              <cap.icon className={cn('h-3.5 w-3.5 inline-block', cap.color)} />
+                            ) : (
+                              <span className="text-muted-foreground/30">—</span>
+                            )}
+                          </td>
+                        ))}
+                        {/* Stage checkbox cells */}
                         {STAGES.map((stage) => {
                           const checked = pools[stage].has(m.id);
                           const eligible = meetsStageReq(m, stage);
-                          const req = STAGE_CAP_REQUIREMENT[stage];
+                          const reqMeta = CAP_BY_FIELD[STAGE_CAP_REQUIREMENT[stage]];
                           return (
-                            <td key={stage} className="px-3 py-2 text-center align-top">
+                            <td key={stage} className="px-3 py-2 text-center align-middle">
                               <label
-                                title={eligible ? undefined : `Requires ${req.label}`}
+                                title={eligible ? undefined : `Requires ${reqMeta.long}`}
                                 className={cn(
                                   'inline-flex items-center justify-center rounded px-1.5 py-0.5',
                                   eligible ? 'cursor-pointer' : 'cursor-not-allowed opacity-35',
