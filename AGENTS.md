@@ -63,7 +63,7 @@ oracle/
 │   └── workers/                   # Trigger.dev v3 — background workers
 │       ├── trigger.config.ts
 │       └── src/
-│           ├── trigger/{claim-extraction,document-ingestion,brain-synthesis,lull-interjection,contradiction-watcher,taxonomy-reevaluation}.ts
+│           ├── trigger/{claim-extraction,document-ingestion,brain-synthesis,lull-interjection,contradiction-watcher,taxonomy-reevaluation,taxonomy-reclassification}.ts
 │           └── wet-test/run-claim-extraction-once.ts  # local end-to-end runner (bypasses Trigger.dev)
 ├── packages/
 │   ├── shared/                    # framework-agnostic TS types & constants (KNOWLEDGE_DOMAINS, etc.)
@@ -627,7 +627,7 @@ The deploy story is fully managed (no Docker, no VPS, per spec Part 2.5):
   - **Rollback:** Vercel dashboard → Deployments → promote the previous production deployment.
 
 - **`apps/workers` → Trigger.dev Cloud.**
-  - Project: `proj_wgpzsvhmsopqhvwqaycn`. Tasks across 6 files (claim-extraction, document-ingestion, contradiction-watcher, brain-synthesis, lull-interjection, taxonomy-reevaluation); 10 exported tasks total.
+  - Project: `proj_wgpzsvhmsopqhvwqaycn`. Tasks across 7 files (claim-extraction, document-ingestion, contradiction-watcher, brain-synthesis, lull-interjection, taxonomy-reevaluation, taxonomy-reclassification); 11 exported tasks total.
   - Deploy manually: `pnpm --filter @oracle/workers deploy` (invokes `npx trigger.dev@latest deploy`).
   - Runtime env vars: managed in Trigger.dev project dashboard (not Vercel). Must include all the direct-provider keys + Vertex service-account JSON.
   - **Rollback:** redeploy from a prior commit, or disable the task in Trigger.dev's UI.
@@ -686,7 +686,7 @@ Rule added to prevent recurrence:
 | done | **R8 — Refactor `apps/web/app/api/chat/route.ts` through `OracleAIClient`** with `providerOptions` escape hatch for tools, multi-turn messages, `stopWhen`, `temperature` | commit `8a38fbd` |
 | done | **R9 — Synthesis worker refactor + diff validator** (`brain-synthesis.ts` through `OracleAIClient`; `validateSynthesisDiff` in `packages/oracle-engines/src/synthesis/` with claim-ID + unsupported-named-entity checks; rejected-version preservation via `reviewStatus='rejected'`; 21-assertion smoke `verify:r9`) | commit `8343c2d` |
 | done | **R10 — Admin AI observability dashboards** (6 pages under `/admin/ai`: dashboard, runs list, run detail / context pack viewer with retrieval diagnostics, cache, candidates with sensitive-hidden-by-default, evals placeholder) | commit `ea33d66` |
-| partial | **R10.5 — Taxonomy governance dashboard + re-evaluation worker SCAFFOLD** (5 pages under `/admin/taxonomy`; 4 transactional approve/reject server actions; scheduled `taxonomy-reevaluation` worker) | commit `533f39b`. **Two deliberate deferrals:** (a) `taxonomy-reevaluation.ts:68` returns `proposalsWritten: 0` as a literal type — the clustering / drift-detection body lands when claim density justifies it. (b) Only `create_top_domain` proposals are auto-applied on approval; merge/split/reassign/sub-topic actions log an audit entry but **don't actually reclassify** — the reclassification job is the next R10.5 follow-up. Until both land, the "continually re-evaluate domains for the first year" requirement is met only by manual admin action, not by the worker. |
+| done | **R10.5 — Taxonomy governance dashboard + re-evaluation worker** (5 pages under `/admin/taxonomy`; 4 transactional approve/reject server actions; scheduled `taxonomy-reevaluation` worker with k-means clustering body; companion `taxonomy-reclassification` worker that applies approved mutations idempotently) | commit `533f39b` for scaffold; `3cad3a1` (2026-05-27 session) for clustering body + reclassification job. The "continually re-evaluate domains for the first year" requirement is now fully automated end-to-end. Bulk-approve UX added to `/admin/taxonomy/proposals` in the same session. |
 | done | Apply the new migrations to live Supabase DB | 2026-05-26 — applied via Supabase MCP this session. 6 Drizzle (0000–0005) + 18 hand-written SQL files. 51 public tables. Supabase advisor: 36 → 2. |
 | done | **R-providers — Direct provider adapters** (`AnthropicAdapter` via `@anthropic-ai/sdk`, `VertexGeminiAdapter` via `@google/genai`, `OpenAIAdapter` via `openai`; all 4 production callers switched off the bridge) | commits `bfc0821` + `51a33ff`; 6/6 real-API smoke green |
 | done | Wet-test the candidate-before-claim pipeline end-to-end | 2026-05-26 — 1 synthetic message → 2 promoted claims, 0 errors, 8.3s. Real Vertex Gemini Flash via direct adapter. commit `51a33ff` |
@@ -695,7 +695,11 @@ Rule added to prevent recurrence:
 | done | **R11.2 — Lull-interjection Trigger.dev task** | commit `bf7cad7`. `apps/workers/src/trigger/lull-interjection.ts` — cron `* * * * *`, drafts via Anthropic Haiku 4.5 interview route, posts live message, records intervention. |
 | done | **R11.3 — Live contradiction interjection** | commit `bf7cad7`. `contradiction-watcher` extended: resolves channel from claim_evidence → messages, calls `decideContradictionInterjection`, drafts + posts live on 'live' / queues gap on 'queue'. Migration `50_enable_live_contradiction_interjections.sql` flips the setting ON. |
 | done | **R11.4 — Final docs cleanup** | (this commit). HANDOFF / DECISIONS (D10 + D11) / docs/architecture / retrofit packet updated. |
-| done | **Trigger.dev redeploy** | `20260526.4` deployed (10 tasks). `OPENROUTER_API_KEY` was already absent from the project env. |
+| done | **Trigger.dev redeploy** | `20260527.1` deployed (11 tasks — adds `taxonomy-reclassification`). `OPENROUTER_API_KEY` was already absent from the project env. |
+| done | **Model catalog discovery (2026-05-27 session)** | `packages/ai/src/model-capabilities/` sources from OpenRouter; persisted to `model_capabilities` table (migration 54). Admin "Refresh from OpenRouter" button on `/admin/settings/model-pool`. Per-stage pools (`model_pool_interview` / `_extraction` / `_synthesis`). Fourth `/admin/settings` card: "General-purpose model". |
+| done | **Vercel env vars set (2026-05-27 session)** | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS_JSON`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` all uploaded to all three Vercel targets. |
+| done | **Build-version badge** | `apps/web/next.config.ts` bakes `NEXT_PUBLIC_GIT_SHA` / `NEXT_PUBLIC_GIT_TIMESTAMP` at build. `apps/web/app/admin/layout.tsx` shows them in the top-right of every admin page. |
+| done | **Lazy `OracleAIClient` in `/api/chat`** | Module-level `new OracleAIClient({adapters:{new AnthropicAdapter(),...}})` was throwing during Next.js "Collect page data" build phase. Replaced with `getOracleClient()` lazy helper. Build had been ERROR for ~12h. |
 | done | **Vertex production credentials** | `GOOGLE_APPLICATION_CREDENTIALS_JSON` for `oracle-trigger-worker@vertex-ai-497120.iam.gserviceaccount.com` was already set in the Trigger.dev project env. |
 | done | **`precomputedVector` support in `RetrievalPlan`** | Added `precomputedVector?: number[]` to `RetrievalPlan` + all builder opts. `searchWithRetrievalPlan` skips `embedText` when provided. Contradiction-watcher passes the stored claim embedding, eliminating the double-embed. TODO comment in `contradiction-watcher.ts` removed. |
 | done | **DOMAIN_KEYWORDS tuning (round 1)** | Added ~50 keywords across all 10 domains (IT tooling, logistics trade terms, product materials, finance payment, customer compliance). Extend further via production `global_fallback` audit. |

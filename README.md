@@ -89,7 +89,7 @@ Full setup details: [`docs/development.md`](docs/development.md). All env vars: 
 | 1 — Foundation (schema, RLS, auth, seed) | wet-tested | — |
 | 2 — Realtime chat + admin dashboard | code complete | — |
 | 3 — Oracle chat route + tools | wet-tested (now on direct Anthropic adapter) | `R8` + `R-providers` |
-| 4 — Trigger.dev workers | deployed (10 tasks, version 20260526.4) | 6 task files: claim-extraction, document-ingestion, brain-synthesis, lull-interjection, contradiction-watcher, taxonomy-reevaluation |
+| 4 — Trigger.dev workers | deployed (11 tasks, version 20260527.1) | 7 task files: claim-extraction, document-ingestion, brain-synthesis, lull-interjection, contradiction-watcher, taxonomy-reevaluation, taxonomy-reclassification |
 | 5 — Admin review dashboards | claims / gaps / contradictions / brain pages live | — |
 | R0 — AI retrofit doc reset | done | docs `00–07` in `docs/oracle/` |
 | R1 — Curated model route catalog | done | `packages/ai/src/routes/` (commit `91e44ea`) |
