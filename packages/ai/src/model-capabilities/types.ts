@@ -1,16 +1,17 @@
 /**
  * Unified model capability shape used by the admin model-pool + picker UIs.
  *
- * Filled from OpenRouter's /v1/models endpoint — capability flags, pricing,
- * and context windows all live there. No hand-typed capability tables.
+ * Model list: sourced from the 3 direct provider APIs (Anthropic, OpenAI,
+ * Google Gemini). Pricing and capability flags are enriched from OpenRouter's
+ * /v1/models endpoint and joined onto those models before DB persistence.
  */
 
 export type ModelProvider = 'anthropic' | 'openai' | 'google';
 
 export type ModelCapabilitySource =
-  | 'openrouter'              // openrouter.ai/api/v1/models — primary source
-  | 'anthropic_api'           // optional supplemental source (reserved for follow-up)
-  | 'classifier';             // Gemini Flash-Lite last-resort fallback (reserved)
+  | 'anthropic_api'   // model listed by Anthropic /v1/models
+  | 'openai_api'      // model listed by OpenAI /v1/models
+  | 'google_api';     // model listed by Google generativelanguage.googleapis.com/v1beta/models
 
 export interface ModelCapability {
   /** "provider/modelId" — same id format used in settings.model_pool_*. */

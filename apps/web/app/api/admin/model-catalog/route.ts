@@ -1,9 +1,10 @@
 // GET  /api/admin/model-catalog   — read persisted catalog (with pricing/caps)
-// POST /api/admin/model-catalog   — refresh from OpenRouter, upsert into DB
+// POST /api/admin/model-catalog   — refresh from provider APIs + OpenRouter, upsert into DB
 //
-// Capability and pricing data comes from openrouter.ai/api/v1/models. The
-// catalog lives in the model_capabilities Postgres table; this endpoint does
-// not call OpenRouter on every request — that only happens on POST (admin
+// Model list comes from the 3 direct provider APIs (Anthropic, OpenAI, Google Gemini).
+// Pricing and capability flags are enriched from openrouter.ai/api/v1/models.
+// The catalog lives in the model_capabilities Postgres table; this endpoint does
+// not call any external API on GET — that only happens on POST (admin
 // "Refresh catalog" button or a future cron).
 
 import { NextResponse } from 'next/server';
@@ -83,11 +84,12 @@ export async function POST() {
 
   const db = getDirectDb();
   try {
-    const { catalog, written, refreshedAt } = await refreshModelCatalog(db);
+    const { catalog, written, refreshedAt, errors } = await refreshModelCatalog(db);
     return NextResponse.json({
       models: catalog.map(capabilityToEntry),
       written,
       refreshedAt,
+      errors,   // non-fatal per-source errors (e.g. one provider API was down)
     });
   } catch (err) {
     return NextResponse.json(
