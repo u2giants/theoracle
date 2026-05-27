@@ -13,15 +13,25 @@ export type ModelMeta = {
   reasoning?: boolean;
 };
 
+// `reasoning: true` = model supports a first-class reasoning / extended-thinking
+// mode (hidden test-time compute, thinking budget, or thinking tokens), not
+// just "is smart at multi-step problems." Per provider classifications:
+//   - Anthropic Claude 3.7 Sonnet was the first hybrid-reasoning model;
+//     the 4-series (Opus 4.7, Sonnet 4.6, Haiku 4.5) continues this.
+//   - Google Gemini 2.5 family (Pro/Flash/Flash-Lite) and 2.0 Flash all ship
+//     a thinking mode via `thinkingConfig`.
+//   - OpenAI o-series (o1, o3, o4) are native reasoning models.
+//   - GPT-4o, GPT-4 Turbo, Claude 3.5 Sonnet / 3.5 Haiku / 3 Opus, and
+//     Gemini 1.5 are smart but pre-date the explicit reasoning-mode controls.
 export const MODEL_META: Record<string, ModelMeta> = {
   // ── Anthropic ──────────────────────────────────────────────────────────────
-  'anthropic/claude-opus-4-7':            { contextLength: 200_000, promptPer1M: 15,    completionPer1M: 75,  vision: true  },
-  'anthropic/claude-opus-4-7-20250514':   { contextLength: 200_000, promptPer1M: 15,    completionPer1M: 75,  vision: true  },
-  'anthropic/claude-sonnet-4-6':          { contextLength: 200_000, promptPer1M: 3,     completionPer1M: 15,  vision: true  },
-  'anthropic/claude-sonnet-4-6-20250514': { contextLength: 200_000, promptPer1M: 3,     completionPer1M: 15,  vision: true  },
-  'anthropic/claude-haiku-4-5':           { contextLength: 200_000, promptPer1M: 0.8,   completionPer1M: 4,   vision: true  },
-  'anthropic/claude-haiku-4-5-20251001':  { contextLength: 200_000, promptPer1M: 0.8,   completionPer1M: 4,   vision: true  },
-  'anthropic/claude-3-7-sonnet-20250219': { contextLength: 200_000, promptPer1M: 3,     completionPer1M: 15,  vision: true  },
+  'anthropic/claude-opus-4-7':            { contextLength: 200_000, promptPer1M: 15,    completionPer1M: 75,  vision: true,  reasoning: true  },
+  'anthropic/claude-opus-4-7-20250514':   { contextLength: 200_000, promptPer1M: 15,    completionPer1M: 75,  vision: true,  reasoning: true  },
+  'anthropic/claude-sonnet-4-6':          { contextLength: 200_000, promptPer1M: 3,     completionPer1M: 15,  vision: true,  reasoning: true  },
+  'anthropic/claude-sonnet-4-6-20250514': { contextLength: 200_000, promptPer1M: 3,     completionPer1M: 15,  vision: true,  reasoning: true  },
+  'anthropic/claude-haiku-4-5':           { contextLength: 200_000, promptPer1M: 0.8,   completionPer1M: 4,   vision: true,  reasoning: true  },
+  'anthropic/claude-haiku-4-5-20251001':  { contextLength: 200_000, promptPer1M: 0.8,   completionPer1M: 4,   vision: true,  reasoning: true  },
+  'anthropic/claude-3-7-sonnet-20250219': { contextLength: 200_000, promptPer1M: 3,     completionPer1M: 15,  vision: true,  reasoning: true  },
   'anthropic/claude-3-5-sonnet-20241022': { contextLength: 200_000, promptPer1M: 3,     completionPer1M: 15,  vision: true  },
   'anthropic/claude-3-5-haiku-20241022':  { contextLength: 200_000, promptPer1M: 0.8,   completionPer1M: 4,   vision: true  },
   'anthropic/claude-3-opus-20240229':     { contextLength: 200_000, promptPer1M: 15,    completionPer1M: 75,  vision: true  },
@@ -39,10 +49,10 @@ export const MODEL_META: Record<string, ModelMeta> = {
   'openai/o1-mini':                       { contextLength: 128_000, promptPer1M: 1.1,   completionPer1M: 4.4, vision: false, reasoning: true },
 
   // ── Google / Vertex AI ────────────────────────────────────────────────────
-  'google/gemini-2.5-pro':                { contextLength: 1_000_000, promptPer1M: 1.25, completionPer1M: 10,  vision: true },
-  'google/gemini-2.5-flash':              { contextLength: 1_000_000, promptPer1M: 0.15, completionPer1M: 0.6, vision: true },
-  'google/gemini-2.5-flash-lite':         { contextLength: 1_000_000, promptPer1M: 0.1,  completionPer1M: 0.4, vision: true },
-  'google/gemini-2.0-flash':              { contextLength: 1_000_000, promptPer1M: 0.1,  completionPer1M: 0.4, vision: true },
+  'google/gemini-2.5-pro':                { contextLength: 1_000_000, promptPer1M: 1.25, completionPer1M: 10,  vision: true,  reasoning: true },
+  'google/gemini-2.5-flash':              { contextLength: 1_000_000, promptPer1M: 0.15, completionPer1M: 0.6, vision: true,  reasoning: true },
+  'google/gemini-2.5-flash-lite':         { contextLength: 1_000_000, promptPer1M: 0.1,  completionPer1M: 0.4, vision: true,  reasoning: true },
+  'google/gemini-2.0-flash':              { contextLength: 1_000_000, promptPer1M: 0.1,  completionPer1M: 0.4, vision: true,  reasoning: true },
   'google/gemini-1.5-pro-002':            { contextLength: 2_000_000, promptPer1M: 1.25, completionPer1M: 5,   vision: true },
   'google/gemini-1.5-flash-002':          { contextLength: 1_000_000, promptPer1M: 0.075,completionPer1M: 0.3, vision: true },
 };
