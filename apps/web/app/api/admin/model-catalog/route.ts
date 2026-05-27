@@ -8,7 +8,7 @@
 // "Refresh catalog" button or a future cron).
 
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth-guard';
+import { getCurrentEmployee } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
 import {
   loadModelCatalog,
@@ -56,9 +56,8 @@ function capabilityToEntry(cap: ModelCapability): ModelCatalogEntry {
 }
 
 export async function GET() {
-  try {
-    await requireAdmin();
-  } catch {
+  const employee = await getCurrentEmployee();
+  if (!employee?.isAdmin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -76,9 +75,8 @@ export async function GET() {
 }
 
 export async function POST() {
-  try {
-    await requireAdmin();
-  } catch {
+  const employee = await getCurrentEmployee();
+  if (!employee?.isAdmin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

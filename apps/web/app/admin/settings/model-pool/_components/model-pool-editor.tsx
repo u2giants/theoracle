@@ -175,11 +175,11 @@ export function ModelPoolEditor({
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
           The model catalog hasn&apos;t been refreshed yet. Click below to pull the
-          current list from openrouter.ai (covers Anthropic, OpenAI, and Google
-          Vertex models with pricing).
+          current list from the Anthropic, OpenAI, and Google APIs (with pricing
+          and capability metadata from OpenRouter).
         </p>
         <Button onClick={refreshCatalog} disabled={refreshing} size="sm">
-          {refreshing ? 'Refreshing…' : 'Refresh catalog from OpenRouter'}
+          {refreshing ? 'Refreshing…' : 'Refresh catalog'}
         </Button>
         {refreshError && <p className="text-sm text-destructive">{refreshError}</p>}
       </div>
@@ -206,7 +206,7 @@ export function ModelPoolEditor({
           {' '}({catalog.length} models)
         </span>
         <Button onClick={refreshCatalog} disabled={refreshing} size="sm" variant="outline">
-          {refreshing ? 'Refreshing…' : 'Refresh from OpenRouter'}
+          {refreshing ? 'Refreshing…' : 'Refresh catalog'}
         </Button>
         {refreshError && <span className="text-sm text-destructive">{refreshError}</span>}
       </div>
