@@ -61,6 +61,30 @@ Every PR / non-`main` branch push gets its own preview URL automatically. Previe
 
 Managed in Vercel → Settings → Environment Variables. Scoped per environment (Production / Preview / Development). See `docs/configuration.md` for the full list and the Sensitive-vs-Encrypted caveat.
 
+**Setting env vars programmatically via the Vercel REST API** (when the dashboard is too slow or you're operating from a CLI / agent session):
+
+```powershell
+$token = '<short-lived-vercel-token>'    # https://vercel.com/account/tokens — pick "Full Access" + 1-day expiration
+$projectId = 'prj_rP6Jlima7iK1paffEPhLqxlswGsC'
+$teamId = 'team_FonXKKdriM1qMhxHlJNqzaFz'
+$headers = @{ Authorization = "Bearer $token"; 'Content-Type' = 'application/json' }
+
+# One POST per key, with target = all three environments at once
+$body = @{
+  key    = 'DEEPSEEK_API_KEY'
+  value  = '<the-real-key>'
+  type   = 'encrypted'
+  target = @('production', 'preview', 'development')
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "https://api.vercel.com/v10/projects/$projectId/env?upsert=true&teamId=$teamId" `
+  -Headers $headers -Method Post -Body $body
+```
+
+After the POST, the next deploy will pick up the new env. Rotate the Vercel token immediately after the operation (it lives in your shell history).
+
+**The Vercel MCP does NOT support env-var writes** — it only exposes read tools (project metadata, deployments, build/runtime logs). The REST API call above is the only programmatic write path. CLAUDE.md captures this in the "MCP servers available" section.
+
 ### Rollback
 
 Vercel dashboard → Deployments → find the prior good deployment → **Promote to Production**. That's the whole story. No CLI step needed.
@@ -115,9 +139,11 @@ Set in the Trigger.dev project dashboard (not Vercel). Current workers need:
 - `ANTHROPIC_API_KEY` (interview route; also used by chat/route in the web app)
 - `OPENAI_API_KEY` (extraction fallback + `text-embedding-3-small` embeddings)
 - `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` (Vertex extraction + synthesis routes)
+- `DEEPSEEK_API_KEY` (only required if a stage's pool includes any `deepseek/*` model and the worker dispatches to it)
+- `DASHSCOPE_API_KEY` (only required if a stage's pool includes any `qwen/*` model)
 - Vertex authentication: mount a service-account JSON via the Trigger.dev project's secrets and point `GOOGLE_APPLICATION_CREDENTIALS` at it. ADC (developer login) only works locally; cloud workers need a service-account credential file.
 
-`OPENROUTER_API_KEY` is no longer needed — OpenRouter was retired from the codebase in commit `b01e514` (R11.0). Remove the variable from the Trigger.dev project's env on the next deploy.
+`OPENROUTER_API_KEY` is no longer needed for inference — OpenRouter was retired from the inference path in commit `b01e514` (R11.0). It is still optionally used by the model-catalog enrichment source (`packages/ai/src/model-capabilities/sources/openrouter.ts`) to avoid rate limits on OpenRouter's public `/v1/models` endpoint. Workers DON'T call that endpoint — only the admin "Refresh catalog" button does. Remove it from the Trigger.dev project's env unless you also run catalog refresh from a worker.
 
 ## Database — Supabase migrations
 

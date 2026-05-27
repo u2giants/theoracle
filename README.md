@@ -6,8 +6,9 @@ AI-powered Enterprise Knowledge Graph for POP Creations / Spruce Line.
 > Developer guide: [`AGENTS.md`](AGENTS.md).
 > Claude Code notes: [`CLAUDE.md`](CLAUDE.md).
 > Assumption / decision log: [`DECISIONS.md`](DECISIONS.md).
-> Live in-flight state: [`HANDOFF.md`](HANDOFF.md).
 > AI retrofit reference docs: [`docs/oracle/00-buildout-index.md`](docs/oracle/00-buildout-index.md).
+>
+> No HANDOFF.md right now — all in-flight work from prior sessions has landed. Restore it only when there's unfinished work the next session needs to pick up.
 
 ## What this is
 
@@ -20,11 +21,14 @@ The master spec (`oracle_master_spec.md`) is the contract for what The Oracle is
 - **Frontend:** Next.js 16 App Router (`apps/web`) on Vercel (Fluid Compute, Node 24), Tailwind CSS, shadcn/ui.
 - **Database & Auth:** Supabase Cloud Postgres 17, pgvector 0.8, Drizzle ORM.
 - **Background workers:** Trigger.dev Cloud v3 (`apps/workers`).
-- **AI execution layer:** `OracleAIClient` (`packages/ai/src/client/`) → `ContextCompiler` → `ModelRouter` → direct provider adapters.
-  - **Anthropic direct** via `@anthropic-ai/sdk` — interview chat (Claude Haiku 4.5).
-  - **Google Vertex AI direct** via `@google/genai` — extraction + synthesis (Gemini 2.5 Flash).
-  - **OpenAI direct** via `openai` — fallback + schema repair (GPT-4o-mini).
-  - **No Vercel AI SDK in the production AI path** (DECISIONS.md D6 / D9). No OpenRouter (retired R11.0).
+- **AI execution layer:** `OracleAIClient` (`packages/ai/src/client/`) → `ContextCompiler` → `ModelRouter` → direct provider adapter. Five direct adapters registered through `buildStandardAdapters()`:
+  - **Anthropic** via `@anthropic-ai/sdk` — interview chat (Claude Haiku 4.5 default).
+  - **Google Vertex AI** via `@google/genai` — extraction + synthesis (Gemini 2.5 Flash default).
+  - **OpenAI** via `openai` — fallback + schema repair (GPT-4o-mini default).
+  - **DeepSeek** via `openai` SDK pointed at `api.deepseek.com` — admin-selectable for any stage.
+  - **Alibaba Qwen** via `openai` SDK pointed at `dashscope-us.aliyuncs.com/compatible-mode/v1` — admin-selectable for any stage.
+  - **No Vercel AI SDK in the production AI path** (DECISIONS.md D6 / D9). **No OpenRouter for inference** (used only as catalog metadata source).
+  - **Reasoning effort** is admin-configurable per stage (`'off' | 'low' | 'medium' | 'high'`) and translated to each provider's native parameter inside the adapter — see `docs/architecture.md` § "AI model adapters" for the full translation table.
 - **Embeddings:** OpenAI `text-embedding-3-small` — 1536-dim, locked. Used for hybrid retrieval and contradiction ANN search.
 - **Auth providers:** Google + Microsoft 365 + magic-link (Brevo SMTP).
 
@@ -112,7 +116,7 @@ Full setup details: [`docs/development.md`](docs/development.md). All env vars: 
 | R11.2 — Lull-interjection task | done | `apps/workers/src/trigger/lull-interjection.ts` — cron every minute, posts live chat messages (commit `bf7cad7`) |
 | R11.3 — Live contradiction interjection | done | `contradiction-watcher` extended to draft + post live messages; migration `50_enable_live_contradiction_interjections.sql` (commit `bf7cad7`) |
 | R11.4 — Final docs cleanup | done | This README, AGENTS, HANDOFF, DECISIONS (D10 + D11), docs/architecture |
-| **AI retrofit** | **complete** | Remaining work is operational tuning, not architecture. See `HANDOFF.md` "What's next". |
+| **AI retrofit** | **complete** | Remaining work is operational tuning, not architecture. See `AGENTS.md` § 15 "Pending work". |
 | P1 #4 — `requireAdmin` guard on intelligence server actions | done | `claims` / `gaps` / `contradictions` server actions gated behind `requireAdmin()` |
 | P2 #2 — Honest R10.5 scaffold labels | done | UI labels and code comments accurately distinguish shipped vs scaffolded functionality |
 | P1 #2 + P2 #1 — Sensitivity flags + entity extraction (`EXTRACTION_PROMPT_VERSION=2.0.0`) | done | `ExtractionSensitivityFlagsSchema`, `ExtractionEntityProposalSchema`; sensitivity gate + entity proposal staging fully wired in workers (commit `191b791`) |

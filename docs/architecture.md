@@ -59,16 +59,23 @@ System design for The Oracle. For business context and the operating philosophy,
          │           LLM providers              │
          │  Every model call goes through       │
          │  OracleAIClient → ModelRouter →      │
-         │  one of three direct adapters:       │
+         │  one of five direct adapters         │
+         │  (registered via buildStandardAdapters):
          │    AnthropicAdapter                  │
          │      (@anthropic-ai/sdk)             │
          │    VertexGeminiAdapter               │
          │      (@google/genai)                 │
          │    OpenAIAdapter                     │
          │      (openai)                        │
+         │    DeepSeekAdapter                   │
+         │      (openai SDK + api.deepseek.com) │
+         │    QwenAdapter                       │
+         │      (openai SDK + dashscope-us)     │
          │  Embeddings:                         │
          │    OpenAI text-embedding-3-small     │
          │    via packages/ai/src/embeddings.ts │
+         │  See § "AI model adapters" below     │
+         │  for the full per-provider table.    │
          └──────────────────────────────────────┘
                              ▲
                              │
@@ -83,7 +90,108 @@ System design for The Oracle. For business context and the operating philosophy,
                    prompts/{oracle-system,extraction-system}.ts.
 ```
 
-Every production model call goes through this pipeline. The Vercel AI SDK is explicitly forbidden in `packages/ai/src/providers/` per DECISIONS.md D6 + D9 — the adapters use the providers' official raw SDKs directly. OpenRouter was retired entirely in commit `b01e514` (R11.0); no production code path references it.
+Every production model call goes through this pipeline. The Vercel AI SDK is explicitly forbidden in `packages/ai/src/providers/` per DECISIONS.md D6 + D9 — the adapters use the providers' official raw SDKs directly. OpenRouter is **never** used for inference (the legacy `getOpenRouter()` was retired in commit `b01e514` / R11.0). OpenRouter's `/v1/models` endpoint IS used by `packages/ai/src/model-capabilities/sources/openrouter.ts` to enrich the admin-side model catalog with pricing and capability flags — that's the only OpenRouter touchpoint left.
+
+## AI model adapters
+
+The adapters are the "translation layer" between Oracle's provider-agnostic call shape and each LLM provider's specific API. There are 5 production adapters today.
+
+### The adapter contract
+
+All adapters implement `OracleProviderAdapter` (`packages/ai/src/providers/types.ts`):
+
+```typescript
+interface OracleProviderAdapter {
+  readonly provider: OracleProvider;     // 'anthropic' | 'vertex' | 'openai' | 'deepseek' | 'qwen'
+  generateText(args: GenerateTextArgs): Promise<OracleTextResult>;
+  generateObject<TSchema, TOutput>(args: GenerateObjectArgs<TSchema>): Promise<OracleObjectResult<TOutput>>;
+  streamText?(args: GenerateTextArgs): AsyncIterable<{ delta: string; usage?: OracleUsage }>;
+}
+```
+
+Callers don't pick an adapter directly. They:
+
+1. Read the per-stage setting (`default_${role}_route` + `default_${role}_reasoning_effort`) via `resolveRouteFromSettings(db, role)`.
+2. Get back an `OracleModelRoute` with `provider`, `modelId`, `reasoningEffort`, and cache strategy attached.
+3. Pass the route to `OracleAIClient.runText()` or `runObject()`.
+4. `ModelRouter` looks up the adapter by `route.provider` and dispatches `generateText` or `generateObject` against it.
+5. The adapter calls the provider SDK, normalizes the response into `OracleTextResult` / `OracleObjectResult`, and normalizes usage into `OracleUsage`.
+
+`buildStandardAdapters()` in `packages/ai/src/client/standard-adapters.ts` returns the production adapter map (`{ anthropic, vertex, openai, deepseek, qwen }`). It's tolerant of missing env keys — an adapter whose constructor throws is silently omitted, so a missing `DEEPSEEK_API_KEY` only fails requests routed to DeepSeek, not the whole map. Every worker and the chat route import this helper rather than instantiating adapters individually.
+
+### Per-adapter behavior
+
+| Concern | AnthropicAdapter | OpenAIAdapter | VertexGeminiAdapter | DeepSeekAdapter | QwenAdapter |
+|---|---|---|---|---|---|
+| SDK | `@anthropic-ai/sdk` | `openai` | `@google/genai` | `openai` (custom baseURL) | `openai` (custom baseURL) |
+| Base URL | `api.anthropic.com` (SDK default) | `api.openai.com` (SDK default) | `<region>-aiplatform.googleapis.com` | `https://api.deepseek.com` | `https://dashscope-us.aliyuncs.com/compatible-mode/v1` |
+| Auth env var | `ANTHROPIC_API_KEY` | `OPENAI_API_KEY` (+ optional `OPENAI_ORG_ID`) | Application Default Credentials + `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` | `DEEPSEEK_API_KEY` | `DASHSCOPE_API_KEY` |
+| `generateText` call | `client.messages.create({ model, max_tokens, system, messages, [thinking] })` | `client.chat.completions.create({ model, messages, [temperature], [reasoning_effort] })` | `client.models.generateContent({ model, contents, config: { systemInstruction, [thinkingConfig] } })` | `client.chat.completions.create({ model, messages, [temperature] })` | `client.chat.completions.create({ model, messages, [temperature], [enable_thinking, thinking_budget] })` |
+| `generateObject` strategy | Tool-call enforcement: a single tool named `output_structured` whose `input_schema` is the JSON Schema; `tool_choice: { type: 'tool', name: TOOL_NAME }` forces invocation. | Native `response_format: { type: 'json_schema', json_schema: { name, strict: true, schema } }` — provider enforces the schema. Refusals come back as a `refusal` field. | Native `responseMimeType: 'application/json'` + `responseJsonSchema` — accepts standard JSON Schema since `@google/genai` 2.6. | `response_format: { type: 'json_object' }` + Zod validation pass. DeepSeek does NOT support strict json_schema mode; we embed the schema in the system prompt and validate after. | Same as DeepSeek (json_object + Zod). DashScope's OpenAI-compat exposes `json_object` but not strict json_schema. |
+| Cache strategy | Explicit breakpoints via `cache_control: { type: 'ephemeral' }` on the system block. Enabled by default; can be opted out via `enableSystemPromptCache: false` in adapter opts. | Automatic prefix caching (>= 1024 tokens, no client action). Reads `usage.prompt_tokens_details.cached_tokens`. | Implicit caching for Gemini 2.5+ (automatic). Explicit `cachedContent` lifecycle deferred to R7. | DeepSeek auto-prefix caching. Hits in `usage.prompt_cache_hit_tokens`. | None (DashScope OpenAI-compat doesn't expose client-controlled caching). Native DashScope SDK would, but is intentionally not used (see AGENTS.md § "Qwen MUST use dashscope-us"). |
+| Reasoning effort param | `thinking: { type: 'enabled', budget_tokens: N }` (N: low=2048, medium=8192, high=24000; clamped to `max_tokens - 512`). **Forces `temperature: 1`** because Anthropic rejects any other temp when thinking is on. | `reasoning_effort: 'low' \| 'medium' \| 'high'` (off omits the param). Silently ignored by non-reasoning models. | `thinkingConfig: { thinkingBudget: N }` (off=0, low=1024, medium=8192, high=24576). Ignored by Gemini 1.x. | None passed. R1 reasoning is automatic and not client-controlled; the adapter logs the requested effort for observability. | `enable_thinking` boolean + optional `thinking_budget`. off → `enable_thinking: false`. low/med/high → `enable_thinking: true` with budget 2048/8192/24576. Passed as top-level params (DashScope's OpenAI-compat forwards unknown keys). |
+| Usage normalization (into `OracleUsage`) | `inputTokens` ← `usage.input_tokens`. `outputTokens` ← `usage.output_tokens`. `cachedInputTokens` ← `usage.cache_read_input_tokens`. `cacheWriteTokens` ← `usage.cache_creation_input_tokens`. | `inputTokens` ← `usage.prompt_tokens`. `outputTokens` ← `usage.completion_tokens`. `cachedInputTokens` ← `usage.prompt_tokens_details.cached_tokens`. `reasoningTokens` ← `usage.completion_tokens_details.reasoning_tokens`. | `inputTokens` ← `usageMetadata.promptTokenCount`. `outputTokens` ← `usageMetadata.candidatesTokenCount`. `cachedInputTokens` ← `usageMetadata.cachedContentTokenCount`. `reasoningTokens` ← `usageMetadata.thoughtsTokenCount`. | `inputTokens` ← `usage.prompt_tokens`. `outputTokens` ← `usage.completion_tokens`. `cachedInputTokens` ← `usage.prompt_cache_hit_tokens` (DeepSeek-specific, not the OpenAI shape). `reasoningTokens` ← `usage.completion_tokens_details.reasoning_tokens`. | Same shape as OpenAI normalization (DashScope OpenAI-compat returns the OpenAI usage shape). |
+| Multi-turn messages | `providerOptions.messages` override (Vercel-AI-SDK-shaped `ChatCompletionMessageParam[]`). | Same. | Transforms the multi-turn array into Vertex's `contents` shape. | Same as OpenAI. | Same as OpenAI. |
+| What it CAN'T do today | Streaming-with-tools end-to-end in this codebase; tool_use streaming requires explicit demuxing not yet wired. | Vision input wiring inside the adapter (chat route handles it outside the adapter via a regex — see AGENTS.md pending work). | Explicit cached-content lifecycle (R7 follow-up). | Strict json_schema (deepseek doesn't expose it). Streaming. | Strict json_schema. Streaming. Native explicit caching (requires DashScope SDK swap). |
+
+### The end-to-end call shape
+
+Take a chat-route call. The flow:
+
+```
+POST /api/chat
+  ↓
+apps/web/app/api/chat/route.ts
+  • resolveRouteFromSettings(db, 'interview')
+    → reads settings.default_interview_route ('anthropic_claude_haiku_4_5_interview_primary')
+    → reads settings.default_interview_reasoning_effort ('medium')
+    → returns OracleModelRoute { provider: 'anthropic', modelId: 'claude-haiku-4-5', reasoningEffort: 'medium', ... }
+  • client = getOracleClient()   // lazy-init OracleAIClient with buildStandardAdapters()
+  • result = await client.runText({ plan, route, providerOptions: { messages, temperature, tools } })
+  ↓
+OracleAIClient.runText()
+  • compile()  → OraclePromptPlan { stableBlocks, dynamicBlocks, outputContract }
+  • ModelRouter.resolve(route.routeId) → { route, adapter }   // adapter = AnthropicAdapter instance
+  • adapter.generateText({ plan, route, providerOptions })
+  ↓
+AnthropicAdapter.generateText()
+  • flattenPlan(plan) → { systemPrompt, userMessage }
+  • thinking = thinkingParam(route.reasoningEffort, defaultMaxTokens)
+    → 'medium' → { type: 'enabled', budget_tokens: 8192 }
+  • client.messages.create({
+      model: 'claude-haiku-4-5',
+      max_tokens: 4096,
+      temperature: 1,           // forced because thinking is on
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+      messages: [...userMessage...],
+      thinking
+    })
+  • normalizeUsage(response, latencyMs) → OracleUsage with input/output/cached/cacheWrite/reasoning tokens
+  • return { text, usage, rawResponse }
+  ↓
+OracleAIClient.runText() returns { text, usage, plan, contextPackId }
+  ↓
+apps/web/app/api/chat/route.ts persists to oracle_context_packs + model_runs + model_run_usage_details
+```
+
+Failure modes are handled at the routing layer (auto-fallback if `route.fallbackRouteId` is set and the primary call throws a transient error), at the adapter layer (refusals / parse failures throw typed errors), and at the worker layer (the candidate-before-claim pipeline catches output-validation failures and triggers schema_repair).
+
+### Adding a new provider
+
+Adding a sixth provider (e.g. Mistral, xAI) is a contained change:
+
+1. **Add the provider to the type union** — `packages/ai/src/routes/types.ts` → `OracleProvider`.
+2. **Add the provider's prefix mapping** — `packages/ai/src/routes/resolve.ts` → `OR_PROVIDER_MAP` (so `mistralai/mixtral-8x22b` resolves to provider `mistral`). Without this, picking that model in the admin UI silently falls back to the default catalog route.
+3. **Write the adapter** — `packages/ai/src/providers/<name>-adapter.ts` implementing `OracleProviderAdapter`. ~150–250 LOC; mirror the structure of an existing adapter (DeepSeek/Qwen are the smallest; OpenAI is the canonical reference). Define provider-native cache + reasoning translation in the file.
+4. **Register the adapter** — `packages/ai/src/client/standard-adapters.ts` → add one `tryAdd(map, 'name', () => new XAdapter())`.
+5. **Add a model-list source** — `packages/ai/src/model-capabilities/sources/<name>.ts` returning `RawProviderModel[]`. Update `refreshModelCatalog()` in `packages/ai/src/model-capabilities/index.ts` to call it.
+6. **Add the cache strategy enum value** — `packages/ai/src/routes/types.ts` → `CacheStrategy`. Update `makeSyntheticRoute()` in `resolve.ts` to pick the new strategy.
+7. **Relax the DB CHECK constraint** — `packages/db/migrations/sql/<NN>_model_capabilities_more_providers.sql`.
+8. **Add the env var** — `.env.example` + `turbo.json` `globalEnv` + Vercel project + Trigger.dev project + `docs/configuration.md`.
+9. **Update the UI provider labels** — `apps/web/app/admin/settings/model-pool/_components/model-pool-editor.tsx` → `PROVIDER_LABELS` + `PROVIDER_ORDER`.
+10. **Document it here** — add a row to the per-adapter table above.
+
+The DeepSeek+Qwen rollout (commit `c5cea1d`) added ~600 lines across ~17 files using exactly this checklist. Estimate ~half a day for a new provider with a well-behaved SDK; the only hard parts are the provider-specific quirks (system prompt placement, structured output mode, native tool-calling schema, cache lifecycle), which are unavoidable regardless of architecture.
 
 ## Identity model
 
@@ -259,7 +367,7 @@ Workers must not import from `apps/web`, and vice versa.
 
 R0 → R11.4 are all done. Every production AI call goes through `OracleAIClient` with one of three direct adapters (`AnthropicAdapter` / `VertexGeminiAdapter` / `OpenAIAdapter`) using the providers' raw SDKs. OpenRouter has been removed entirely from the codebase. The wet-test passed end-to-end against the live Supabase project (first real `claims` rows landed 2026-05-26 17:35 UTC). Both proactive interjection paths (R11.2 lull + R11.3 live contradiction) post live chat messages by default, gated by the pure decision functions in `packages/oracle-engines/src/interjection.ts`.
 
-The work that remains is operational, not architectural. See `HANDOFF.md` "What's next" for the post-retrofit task list (Trigger.dev deploy, Vertex production credentials, threshold tuning, key rotation, deferred round-2 items). `DECISIONS.md` D6 + D9 record why the Vercel AI SDK and OpenRouter were ruled out; D10 + D11 record the live-interjection switch and the lull-interjection round-1 simplifications.
+The work that remains is operational, not architectural. See `AGENTS.md` § 15 "Pending work" for the open task list (general-purpose route wiring, vision-detection regex replacement, periodic catalog-refresh cron, key rotation, deferred round-2 items). `DECISIONS.md` D6 + D9 record why the Vercel AI SDK and OpenRouter were ruled out; D10 + D11 record the live-interjection switch and the lull-interjection round-1 simplifications; D12 records the DeepSeek + Qwen addition and the chosen API surfaces.
 
 ### Runtime pipeline (R2, landed)
 

@@ -1,29 +1,21 @@
 # CLAUDE.md — Claude Code Notes
 
-**Read `AGENTS.md` first.** Everything substantive about repo operation, architecture, and conventions lives there. This file adds only Claude Code-specific notes.
+**Read `AGENTS.md` first.** Everything substantive about repo operation, architecture, and conventions lives there. This file only adds Claude Code-specific notes.
 
-## Current state (2026-05-27)
+## Current state
 
-Production SHA `1d91cd5` (Vercel). Model-pool overhaul complete in the previous session:
-- Live model catalog sourced from 3 direct provider APIs (Anthropic, OpenAI, Google Gemini); OpenRouter used for pricing + capability enrichment only. Model list and enrichment persisted to `model_capabilities` table.
-- Per-stage pools (`model_pool_interview` / `_extraction` / `_synthesis`).
-- Fourth `/admin/settings` card: "General-purpose model" picker.
-- `/api/chat` uses lazy `OracleAIClient` init (previous module-level singleton broke Vercel builds for ~12h).
+Production SHA: see `git log -1 --oneline`. Live at https://oracle.designflow.app.
 
-Third session additions (not yet deployed):
-- `employees.departments text[]` — multi-department support. Old `employees.department varchar` kept nullable/deprecated.
-- `departmentHints` soft RRF bonus in `searchWithRetrievalPlan` (+0.002 to claims whose `claim_metadata.department` matches). Never filters; only nudges ranking.
-- Drizzle migration `0006_magical_revanche.sql` + hand-written `56_employees_departments_array.sql` (data migration). Run `pnpm db:migrate` to apply.
-- Admin `/admin` employees page: "Add employee" form, comma-separated departments, updated table showing multi-department.
+AI inference path: `OracleAIClient → ContextCompiler → ModelRouter → provider adapter`. Five direct-provider adapters are wired through `buildStandardAdapters()`: **Anthropic**, **OpenAI**, **Vertex Gemini**, **DeepSeek**, **Alibaba Qwen**. No Vercel AI SDK, no OpenRouter, in the inference path (D6/D9). OpenRouter is enrichment-only for the admin model catalog. Reasoning effort (`'off' | 'low' | 'medium' | 'high'`) is admin-configurable per stage and translated to each provider's native parameter inside its adapter.
 
-See `HANDOFF.md` for the full session log and unfinished work. See `DECISIONS.md` for the why behind the OpenRouter-as-catalog decision (D6, D9 already cover the no-Vercel-AI-SDK, no-OpenRouter-for-inference policy; OpenRouter is admin-side metadata only).
+For why these architectural choices are load-bearing, read DECISIONS.md (D6, D9, D12 cover the no-Vercel-AI-SDK / no-OpenRouter / DeepSeek+Qwen-as-direct-adapters posture).
 
 ## MCP servers available in this environment
 
-This session typically has the following MCP servers connected. Prefer them over shell commands when applicable:
+Prefer MCP tools over shell commands when applicable:
 
-- **Supabase MCP** (`mcp__supabase__*`) — direct SQL execution against the live database, `apply_migration` for schema changes, `list_tables` / `list_migrations` / `get_advisors`. If the tools appear deferred-only, run `authenticate` once.
-- **Vercel MCP** (`mcp__vercel__*`) — deployment list, build/runtime logs, env reads. Does NOT support env-var writes; use the Vercel REST API directly via PowerShell when needed (see HANDOFF.md for the exact pattern).
+- **Supabase MCP** (`mcp__supabase__*`) — direct SQL execution, `apply_migration` for schema changes, `list_tables` / `list_migrations` / `get_advisors`.
+- **Vercel MCP** (`mcp__vercel__*`) — read-only: deployment list, build/runtime logs, project info. **Does NOT support env-var writes.** For writes, use the Vercel REST API directly via PowerShell (pattern documented in `docs/deployment.md`).
 - **gh CLI** — installed and authenticated. Use through Bash for PR/issue/release operations.
 - **gcloud CLI** — installed under `%LOCALAPPDATA%\Google\Cloud SDK\google-cloud-sdk\bin\`. Two configurations: `default` (lithe-breaker-323913, unrelated) and `oracle` (vertex-ai-497120, the production GCP project). Use `--project=vertex-ai-497120` or switch configs explicitly.
 
@@ -33,13 +25,12 @@ If a tool isn't loaded, use `ToolSearch` with `select:<tool_name>` (specific) or
 
 Read order for an unfamiliar task:
 
-1. `HANDOFF.md` — current state + unfinished work
-2. `AGENTS.md` — repo conventions
-3. `oracle_master_spec.md` — product/business intent
-4. `DECISIONS.md` — historical decisions that may bind this task
-5. `docs/architecture.md` for system shape, `docs/configuration.md` for env vars, `docs/development.md` for run/test workflow, `docs/deployment.md` for deploy mechanics
-6. `docs/oracle/00-buildout-index.md` if the task touches the AI retrofit
-7. Only the specific `docs/oracle/0N-*.md` files the task needs — never bulk-read
+1. `AGENTS.md` — repo conventions, what to touch, what not to touch.
+2. `oracle_master_spec.md` — product/business intent.
+3. `DECISIONS.md` — historical decisions that may bind this task.
+4. `docs/architecture.md` for system shape, `docs/configuration.md` for env vars, `docs/development.md` for run/test workflow, `docs/deployment.md` for deploy mechanics.
+5. `docs/oracle/00-buildout-index.md` if the task touches the AI retrofit.
+6. Only the specific `docs/oracle/0N-*.md` files the task needs — never bulk-read.
 
 Do NOT bulk-read with `cat docs/oracle/*` or `cat *.md`. Each retrofit doc is large.
 
@@ -49,14 +40,19 @@ Before coding on a non-trivial task, write a short implementation plan in your r
 
 Do not re-read `pnpm-lock.yaml`, `node_modules/`, `apps/web/.next/`, generated Drizzle SQL (`packages/db/migrations/0*.sql`). They're in `.claudeignore`.
 
-When in doubt about behavior, read:
+When in doubt about AI behavior, read:
+
+- `packages/ai/src/providers/*-adapter.ts` (one file per provider — each is ~150–250 lines)
+- `packages/ai/src/client/standard-adapters.ts` (the `buildStandardAdapters()` helper used by every caller)
+- `packages/ai/src/routes/{catalog,defaults,resolve,from-settings,types}.ts`
+- `packages/ai/src/model-capabilities/` (provider model-list sources + OpenRouter enrichment)
+- `apps/web/lib/stage-requirements.ts` (single source of truth for per-stage capability requirements; shared by model-pool editor and model picker)
+- `packages/ai/src/prompts/{oracle-system,extraction-system}.ts`
+
+When in doubt about DB behavior, read:
 
 - `packages/db/src/schema.ts`
 - `packages/db/migrations/sql/*.sql` (hand-written) and the README in that folder
-- `packages/ai/src/prompts/extraction-system.ts` and `oracle-system.ts`
-- `packages/ai/src/routes/catalog.ts` and `defaults.ts`
-- `packages/ai/src/model-capabilities/` (provider model-list sources + OpenRouter enrichment)
-- `docs/oracle/00-buildout-index.md`
 
 ## `.claudeignore`
 
@@ -66,48 +62,53 @@ Lives at repo root. If you add new build artifacts or large generated dirs, upda
 
 Allowed without asking:
 
-- Read/write under `apps/`, `packages/`, `docs/`, root markdown files
-- Run `pnpm install`, `pnpm db:generate`, `pnpm typecheck`, `pnpm build`, `pnpm lint`, `pnpm dev`
-- Run smoke tests and evals (`verify:*`, `eval:*`)
-- Run git locally (status / diff / log / add / commit; push to `main` when Albert asks)
-- Use Supabase MCP for reads and `apply_migration`
-- Use Vercel MCP for read operations
-- Call Vercel REST API for env-var writes when needed (use a session-scoped token; never commit it)
-- Use `gh` for repo read/write
+- Read/write under `apps/`, `packages/`, `docs/`, root markdown files.
+- Run `pnpm install`, `pnpm db:generate`, `pnpm typecheck`, `pnpm build`, `pnpm lint`, `pnpm dev`.
+- Run smoke tests and evals (`verify:*`, `eval:*`).
+- Run the catalog helpers: `tsx scripts/verify-catalog.ts` (read-only against OpenRouter + provider APIs) and `tsx scripts/refresh-catalog.ts` (writes to the production DB — same as clicking Refresh in the admin UI).
+- Run git locally (status / diff / log / add / commit; push to `main` when Albert asks).
+- Use Supabase MCP for reads and `apply_migration`.
+- Use Vercel MCP for read operations.
+- Call Vercel REST API for env-var writes when needed (use a session-scoped token; never commit it).
+- Use `gh` for repo read/write.
 
 Allowed with care:
 
-- Writing to `extraction_*` / `claims` / `claim_*` tables is fine via the worker code path; never bypass the candidate-before-claim pipeline via direct `INSERT INTO claims`
-- `pnpm db:seed` is idempotent but writes to real Supabase — explicit ok needed for first run
-- Direct push to `main` only when Albert explicitly says push
-- Adding deps requires a one-line justification in the commit message
+- Writing to `extraction_*` / `claims` / `claim_*` tables is fine via the worker code path; never bypass the candidate-before-claim pipeline via direct `INSERT INTO claims`.
+- `pnpm db:seed` is idempotent but writes to real Supabase — explicit ok needed for first run.
+- Direct push to `main` only when Albert explicitly says push.
+- Adding deps requires a one-line justification in the commit message.
 
 Not allowed without explicit approval:
 
-- `git reset --hard`, `git push --force`, deleting branches
-- Destructive Supabase operations (DROP TABLE, TRUNCATE on populated tables)
-- Broad `Stop-Process -Force` on `node`
-- Committing `.env*` files except `.env.example`
-- Committing secrets — provider API keys, Supabase service-role keys, Vercel/Trigger.dev tokens, Vercel API tokens, Google SA JSON files
+- `git reset --hard`, `git push --force`, deleting branches.
+- Destructive Supabase operations (DROP TABLE, TRUNCATE on populated tables).
+- Broad `Stop-Process -Force` on `node`.
+- Committing `.env*` files except `.env.example`.
+- Committing secrets — provider API keys, Supabase service-role keys, Vercel/Trigger.dev tokens, Vercel API tokens, Google SA JSON files.
 
 ## Commit style
 
-- Conventional commits: `feat(...)`, `fix(...)`, `chore(...)`, `docs(...)`, `refactor(...)`
-- Reference the phase or retrofit packet when relevant: `feat(ai-r11.0): ...`, `docs(ai-r-providers): ...`
-- Multi-line commit messages: use a HEREDOC via `git commit -m "$(cat <<'EOF' … EOF)"` to avoid Windows shell mangling
-- Always include the Co-Authored-By trailer
-- Never commit secrets — `.env.local` and similar are gitignored, do not work around that
+- Conventional commits: `feat(...)`, `fix(...)`, `chore(...)`, `docs(...)`, `refactor(...)`.
+- Reference the affected area when relevant: `feat(admin/model-pool): ...`, `fix(qwen): ...`.
+- Multi-line commit messages: use a HEREDOC via `git commit -m "$(cat <<'EOF' … EOF)"` to avoid Windows shell mangling.
+- Always include the Co-Authored-By trailer for AI-authored commits.
+- Never commit secrets — `.env.local` and similar are gitignored, do not work around that.
+
+## Git-add hygiene
+
+Prefer `git add <specific-paths>` over `git add -A` when the working tree has unrelated uncommitted changes (e.g. Drizzle-generated migrations, scratch files, or work from a parallel session). One past incident: a `git add -A` swept in a Drizzle migration that hadn't been applied to production, leading to a 500-error storm on auth callback until the missing column was added (DECISIONS.md D12 area; resolved via migration 57). When in doubt, run `git status` first and stage explicitly.
 
 ## Behaviors to enable
 
-- Update `DECISIONS.md` when making an assumption not directly specified
-- Update the relevant `docs/oracle/*.md` file when AI architecture behavior changes
-- Update `HANDOFF.md` at the end of every session and when phase boundaries land
-- Run `pnpm -r typecheck` before declaring code complete
+- Update `DECISIONS.md` when making an assumption not directly specified.
+- Update the relevant `docs/oracle/*.md` file when AI architecture behavior changes.
+- Run `pnpm -r typecheck` before declaring code complete.
+- When adding a new provider adapter: register it in `buildStandardAdapters()`, add the prefix mapping in `routes/resolve.ts`'s `OR_PROVIDER_MAP`, add the cache strategy to the `CacheStrategy` enum, and update `docs/architecture.md`'s adapter table.
 
 ## Behaviors to suppress
 
-- Do not write speculative tests before the behavior is stable unless Albert asks
-- Do not refactor outside the immediate task scope without raising it as a separate item first
-- Do not re-introduce the Vercel AI SDK or OpenRouter into the production AI path — DECISIONS.md D6 and D9 explicitly rule them out. OpenRouter's `/v1/models` is used ONLY for admin-side catalog metadata via the discovery service, never for inference.
-- Do not hand-type model capability tables. The model list comes from the 3 direct provider APIs; pricing and capability flags come from OpenRouter enrichment. Both are persisted to the `model_capabilities` table.
+- Do not write speculative tests before the behavior is stable unless Albert asks.
+- Do not refactor outside the immediate task scope without raising it as a separate item first.
+- Do not re-introduce the Vercel AI SDK or OpenRouter into the production AI path — DECISIONS.md D6 and D9 explicitly rule them out. OpenRouter's `/v1/models` is used ONLY for admin-side catalog enrichment, never for inference.
+- Do not hand-type model capability tables. The model list comes from the 5 direct provider APIs; pricing and capability flags come from OpenRouter enrichment. Both are persisted to the `model_capabilities` table.

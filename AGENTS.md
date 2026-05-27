@@ -19,7 +19,9 @@ The company's real operational reality lives in people's heads ("dark matter"): 
 ## 1a. Core Architecture
 
 - **Database is Truth:** PostgreSQL (via Supabase) is the sole source of truth. No flat-file Markdown memory.
-- **Provider-Native AI:** All AI calls go through `OracleAIClient → ContextCompiler → ModelRouter → direct provider adapter`. The three production adapters use the providers' raw SDKs (`@anthropic-ai/sdk`, `@google/genai`, `openai`). The Vercel AI SDK is forbidden in the production AI path (DECISIONS.md D6 + D9). OpenRouter has been removed entirely (commit `b01e514`).
+- **Provider-Native AI:** All AI calls go through `OracleAIClient → ContextCompiler → ModelRouter → direct provider adapter`. **Five** production adapters use the providers' raw SDKs: `AnthropicAdapter` (`@anthropic-ai/sdk`), `VertexGeminiAdapter` (`@google/genai`), `OpenAIAdapter` (`openai`), `DeepSeekAdapter` (`openai` SDK pointed at `api.deepseek.com`), `QwenAdapter` (`openai` SDK pointed at Alibaba DashScope's `dashscope-us.aliyuncs.com/compatible-mode/v1`). The Vercel AI SDK is forbidden in the production AI path (DECISIONS.md D6 + D9). OpenRouter is **only** used as enrichment source for the admin-side model catalog; never for inference. Adapters are registered through `buildStandardAdapters()` in `packages/ai/src/client/standard-adapters.ts` — every worker and the chat route call this helper rather than instantiating adapters individually. The helper is tolerant of missing env keys (a provider without its API key is silently omitted from the map; only requests routed to that provider fail).
+- **Reasoning effort is per-stage and admin-configurable.** Settings keys `default_${role}_reasoning_effort` hold a unified `'off' | 'low' | 'medium' | 'high'` value. Each adapter translates to the provider's native parameter at the inference call: Anthropic `thinking.budget_tokens`, OpenAI `reasoning_effort`, Vertex `thinkingConfig.thinkingBudget`, Qwen `enable_thinking`+`thinking_budget`. DeepSeek-reasoner has no client-controlled budget; the requested effort is logged for observability. See `docs/architecture.md` § "AI model adapters" for the full translation table.
+- **Stage requirements are shared.** `apps/web/lib/stage-requirements.ts` is the single source of truth for what each stage (Interview / Extraction / Synthesis) requires of a model (capability flags + context-window threshold). Both the model-pool editor (`/admin/settings/model-pool`) and the model picker (`/admin/settings`) import from this module, so their filtering and icon display stay in lockstep.
 - **Traceable Intelligence:** Every claim must link to verbatim evidence (`Candidate-Before-Claim` validation) and must declare its `claim_kind` (policy vs. practice) and `corroboration_tier`.
 - **No HR Surveillance:** The Oracle maps operational workflows, hidden bottlenecks, and "Dark Matter." It does NOT evaluate employee performance, flag HR violations, or monitor productivity.
 
@@ -76,15 +78,21 @@ oracle/
 │   │   └── src/{link.ts,server.ts,client.ts,index.ts}
 │   ├── ai/                        # AI provider gateway + prompts + retrieval + embeddings
 │   │   └── src/
-│   │       ├── client/             # OracleAIClient (R2)
+│   │       ├── client/             # OracleAIClient (R2) + standard-adapters.ts (buildStandardAdapters helper)
 │   │       ├── context/            # ContextCompiler + PromptBlock helpers (R2)
 │   │       ├── routing/            # ModelRouter with auto-fallback (R2)
-│   │       ├── providers/          # 3 production adapters (R-providers): AnthropicAdapter (raw @anthropic-ai/sdk),
+│   │       ├── providers/          # 5 production adapters: AnthropicAdapter (raw @anthropic-ai/sdk),
 │   │       │                       # VertexGeminiAdapter (raw @google/genai), OpenAIAdapter (raw openai),
-│   │       │                       # plus MockProviderAdapter for test mode. NO Vercel AI SDK in this folder.
-│   │       ├── usage/              # OracleUsage normalizer (R2)
+│   │       │                       # DeepSeekAdapter (openai SDK + api.deepseek.com), QwenAdapter
+│   │       │                       # (openai SDK + dashscope-us OpenAI-compat). Plus MockProviderAdapter
+│   │       │                       # for test mode. NO Vercel AI SDK in this folder.
+│   │       ├── usage/              # OracleUsage normalizer (R2) — anthropic/vertex/openai/deepseek shapes
 │   │       ├── validation/         # StructuredOutputValidator + EvidenceValidator (R2)
-│   │       ├── routes/             # Curated OracleModelRoute catalog (R1) + `resolveModelRoute()` dynamic resolver (handles catalog routeIds AND OpenRouter-style `provider/model` strings)
+│   │       ├── routes/             # Curated OracleModelRoute catalog (R1) + resolveModelRoute() +
+│   │       │                       # resolveRouteFromSettings() (reads BOTH model + effort settings).
+│   │       │                       # CacheStrategy / ReasoningEffort enums.
+│   │       ├── model-capabilities/ # Catalog refresh — 5 provider model-list sources + OpenRouter enrichment;
+│   │       │                       # output_cap + dash→dot ID normalization; written to model_capabilities table
 │   │       ├── prompts/            # oracle-system.ts (interview), extraction-system.ts
 │   │       ├── __verify__/         # r-providers-smoke.ts (real-API smoke) + earlier deterministic smokes
 │   │       ├── evals/              # mock-mode extraction eval (fixtures + canned LLM outputs + runner)
@@ -115,7 +123,7 @@ oracle/
 ├── AGENTS.md                      # this file
 ├── CLAUDE.md                      # Claude Code-specific notes (points back here)
 ├── DECISIONS.md                   # every assumption, citation, alternative ruled out
-├── HANDOFF.md                     # live in-flight state for a new contributor
+├── HANDOFF.md                     # in-flight state — created only when work spans sessions; deleted when caught up
 ├── README.md                      # short orientation
 ├── oracle_master_spec.md          # authoritative product spec — do not edit casually
 ├── .env.example                   # variable names only; never real secrets
@@ -168,7 +176,7 @@ Files outside our owned directories that had to be modified.
 
 | File | Change made | Why it was necessary | Risk during upgrades |
 |---|---|---|---|
-| _(none)_ | — | Greenfield project. No upstream forks. | — |
+| _(none)_ | — | Greenfield project. No upstream forks. The 5 provider adapters import their providers' raw SDKs directly; no upstream code is patched. | — |
 
 If this section is ever non-empty, treat it as the upstream-merge conflict checklist.
 
@@ -332,10 +340,12 @@ Files you SHOULD read when getting oriented:
 1. `AGENTS.md` (this file)
 2. `oracle_master_spec.md` (product spec)
 3. `DECISIONS.md` (assumptions log)
-4. `HANDOFF.md` (live state — what's done, what's next)
+4. `HANDOFF.md` IF it exists — but it's deleted when no work is in flight
 5. `packages/db/src/schema.ts` (data model)
 6. `packages/db/migrations/sql/*.sql` (RLS, constraints, views — hand-written, all signal)
 7. `packages/ai/src/prompts/oracle-system.ts` (Oracle's voice)
+8. `packages/ai/src/providers/*-adapter.ts` (one file per provider; each ~150–250 lines)
+9. `apps/web/lib/stage-requirements.ts` (per-stage capability/threshold predicates — shared by both admin UIs)
 
 ---
 
@@ -578,15 +588,84 @@ The most important section. **Do not undo these without reading the cited spec s
 
 **Do not change because:** moving the signout to a client `useEffect` re-introduces the cached-session bug. If you need progress UI on sign-out, the form-action redirect already handles that without JavaScript.
 
-### `resolveModelRoute()` accepts both catalog routeIds AND OpenRouter-style `provider/model` strings
+### `resolveModelRoute()` accepts both catalog routeIds AND `provider/model` strings (and effort)
 
 **Looks like:** an overly permissive API that could silently accept any arbitrary string.
 
-**Actually:** `packages/ai/src/routes/resolve.ts` (`resolveModelRoute(modelIdOrRouteId, role)`) first tries the curated catalog; if no catalog match, it parses a `provider/model` slash string and builds a synthetic `OracleModelRoute` pointing at the matching direct adapter. Workers read `settings.default_*_route`, which can hold either a catalog ID (the default) or a model ID from the admin's model-pool picker. The resolver bridges the two.
+**Actually:** `packages/ai/src/routes/resolve.ts` (`resolveModelRoute(modelIdOrRouteId, role, effort?)`) first tries the curated catalog; if no catalog match, it parses a `provider/model` slash string and builds a synthetic `OracleModelRoute` pointing at the matching direct adapter. Workers and the chat route normally don't call this function directly — they call `resolveRouteFromSettings(db, role)` (from `packages/ai/src/routes/from-settings.ts`) which reads BOTH the model setting AND the reasoning-effort setting in one query, then passes both through. The resolver bridges curated catalog IDs, provider-pool picker IDs, and per-stage effort preferences into one `OracleModelRoute` the adapter consumes.
 
-**Why:** the model pool UI at `/admin/settings/model-pool` lets the admin select models by OpenRouter ID (e.g. `anthropic/claude-haiku-4-5`) which the curated catalog doesn't know about. Without the resolver, any non-catalog model ID selected in the UI would cause all workers to fail at startup. The synthetic route picks the right adapter via `OR_PROVIDER_MAP` (`google/` → `vertex`, `anthropic/` → `anthropic`, `openai/` → `openai`).
+**Why:** the model pool UI lets the admin pick any model from the discovered catalog (e.g. `anthropic/claude-haiku-4-5`, `deepseek/deepseek-v4-pro`, `qwen/qwen3.7-max`). Without the resolver, any non-catalog model ID would cause workers to fail at startup. The synthetic route picks the right adapter via `OR_PROVIDER_MAP` (`google/` → `vertex`; `anthropic`, `openai`, `deepseek`, `qwen` → identity). **Past incident:** when DeepSeek+Qwen were added without updating `OR_PROVIDER_MAP`, picking one of those models silently fell back to the default catalog route. Fixed in commit `c5cea1d`'s context. Whenever you add a new provider, add it to `OR_PROVIDER_MAP` AND to `buildStandardAdapters()` together.
 
-**Do not change because:** removing the fallback parsing means only catalog routeIds work, breaking the model-pool UI for any model the admin selects that isn't already in the curated catalog.
+**Do not change because:** removing the fallback parsing breaks the model-pool UI for any model not pre-baked into the curated catalog. Skipping `resolveRouteFromSettings` and reading settings inline (the old pattern in workers, refactored in commit `c2a9d99`) drops the reasoning-effort signal because the inline reader only fetched the route key.
+
+### Stage requirements are defined ONCE in `apps/web/lib/stage-requirements.ts`
+
+**Looks like:** there might be one place to read it from in the model-pool editor and another in the model picker.
+
+**Actually:** both pages import the same `STAGE_REQUIREMENTS` array. Each stage's requirements are a list of `StageRequirement` predicates (cap flags via `CAP_REQ('toolCalling')` and numeric thresholds via `CTX_REQ(100_000)`). The model-pool page uses them to grey out checkboxes for ineligible models; the model picker uses them to filter the dropdown and to show the required-capability icons in the card header. The shared `CAPS` array carries icon + color + label, so visual presentation is consistent. The `ReqEvaluable` interface defines exactly which model fields a predicate may read — anything else is a typecheck error.
+
+**Why:** before this module, the pool page hardcoded one set of requirements (`tools` + `structuredOutputs` + `vision` + `ctx > 100K` etc.) and the picker page hardcoded a different set (`tools` / `vision` / `files` / `reasoning`). They drifted out of sync, and the picker would happily show models the pool had blocked. Centralizing prevents that.
+
+**Do not change because:** duplicating the predicate definitions across pages re-opens the drift. Adding a new stage requirement means changing exactly one file (this module); both UIs pick it up automatically. If a stage's needs genuinely diverge between "show me what's eligible" and "let me pick a default," the right move is to add a second helper to this module — not to fork it.
+
+### Reasoning effort is unified `'off' | 'low' | 'medium' | 'high'`, translated per provider in the adapter
+
+**Looks like:** "shouldn't we expose each provider's native vocabulary?" (Anthropic uses budget tokens, OpenAI uses a string enum, Vertex uses budget tokens, DeepSeek uses nothing, Qwen uses a boolean+budget.)
+
+**Actually:** the picker shows ONE unified dropdown with the four levels. Each adapter translates as follows (table also in `docs/architecture.md`):
+
+| Effort | Anthropic | OpenAI | Vertex Gemini 2.5+ | DeepSeek | Qwen |
+|---|---|---|---|---|---|
+| off | `thinking` omitted | `reasoning_effort` omitted | `thinkingBudget: 0` | logged only | `enable_thinking: false` |
+| low | `budget_tokens: 2048` | `reasoning_effort: 'low'` | `thinkingBudget: 1024` | logged only | `enable_thinking: true, thinking_budget: 2048` |
+| medium | `budget_tokens: 8192` | `reasoning_effort: 'medium'` | `thinkingBudget: 8192` | logged only | `enable_thinking: true, thinking_budget: 8192` |
+| high | `budget_tokens: 24000` | `reasoning_effort: 'high'` | `thinkingBudget: 24576` | logged only | `enable_thinking: true, thinking_budget: 24576` |
+
+Important per-provider quirks: Anthropic requires `temperature: 1` when thinking is enabled (adapter forces it); the budget is clamped to `max_tokens - 512`. DeepSeek-reasoner controls reasoning internally; we log the request but don't forward a param. OpenAI's `reasoning_effort` is silently ignored by non-reasoning models.
+
+**Why:** admins shouldn't have to learn five vocabularies; the abstraction is the only sane UX. Each adapter is the right place for the translation — the picker stays simple, the cost/latency tradeoffs become explicit in the table above. The thresholds (2048/8192/24000) are conservative defaults chosen to match what Anthropic, Vertex, and OpenAI advertise as their "balanced" effort tiers.
+
+**Do not change because:** exposing the raw provider vocabulary makes the picker provider-aware, which leaks model-specific surface area into admin UI. The unified enum has been confirmed against all 5 providers and survives the addition of new ones — when adding provider 6, you add one translation block in that adapter, not a new UI vocabulary.
+
+### DeepSeek and Qwen use `json_object` + Zod, not strict json_schema
+
+**Looks like:** "OpenAI's `response_format: { type: 'json_schema', strict: true }` works on its endpoint; we should pass the same to DeepSeek/Qwen since they're OpenAI-compatible."
+
+**Actually:** DeepSeek and Qwen's OpenAI-compat endpoints expose `response_format: { type: 'json_object' }` (free-form JSON) but NOT the strict json_schema mode. Their adapters embed the schema guidance in the system prompt and run a Zod validation pass on the model's output. Schema-repair fallback is via the curated internal `schema_repair` route.
+
+**Why:** sending an unsupported `json_schema` would fail-fast on every call. The json_object + Zod path delivers the same end-user contract (validated structured output) at the cost of a second pass through the validator. The repair route catches genuinely malformed output.
+
+**Do not change because:** trying to "upgrade" either adapter to strict json_schema mode will start 4xx-ing the moment the request goes out. The capability is documented in `model_capabilities.structured_outputs` (true for these models because they DO support `response_format` — just not the strict variant). The picker's stage requirement `structuredOutputs: true` is satisfied; the strictness gap is handled adapter-side.
+
+### Qwen MUST use `dashscope-us.aliyuncs.com/compatible-mode/v1` — `dashscope-intl` does NOT work
+
+**Looks like:** there are several DashScope hostnames documented; pick whichever.
+
+**Actually:** Alibaba's `dashscope-intl.aliyuncs.com` is the **native** DashScope API surface (different request shape, different SDK). Only `dashscope-us.aliyuncs.com/compatible-mode/v1` exposes the OpenAI-compatible REST shape that the `openai` SDK can talk to. The Qwen adapter hardcodes `dashscope-us.aliyuncs.com`. Confirmed by Albert during the DeepSeek+Qwen integration session.
+
+**Why:** the OpenAI SDK speaks one wire format; pointing it at the native endpoint produces opaque shape errors that look like model bugs.
+
+**Do not change because:** silently swapping in the native endpoint will break every Qwen request. If you ever need China-region access (`https://dashscope.aliyuncs.com/compatible-mode/v1`), pass it through `QwenAdapter`'s `baseURL` option rather than changing the default.
+
+### `buildStandardAdapters()` is the single registration site for adapters
+
+**Looks like:** there are 8 callers (chat route + 7 workers) that previously hand-rolled `new OracleAIClient({ adapters: { anthropic: new AnthropicAdapter(), vertex: new VertexGeminiAdapter(), openai: new OpenAIAdapter() } })`. Two registrations sound redundant now — why a helper?
+
+**Actually:** in the previous era, every caller hand-listed three adapters. Adding DeepSeek + Qwen would have touched all 8 files; future provider 6 would touch them again. `buildStandardAdapters()` returns the same `ProviderAdapterMap` from one source, and every caller imports it. Adding a new adapter is now one line in `standard-adapters.ts` plus one entry in `OR_PROVIDER_MAP`.
+
+**Why:** beyond the DRY-up, the helper is **tolerant of missing env vars** — each adapter is constructed in a `try` and a failure logs (in non-prod) but doesn't kill the whole map. That means a missing `DEEPSEEK_API_KEY` doesn't break the chat route; it only fails requests that route to DeepSeek. The old "all-or-nothing" construction would have taken down everything.
+
+**Do not change because:** reintroducing per-caller adapter registration re-opens both the 8-file maintenance burden and the all-or-nothing-fail behavior. If you genuinely need a non-standard adapter set (e.g. a test harness with only the mock adapter), construct `OracleAIClient` directly with a custom map — the helper is the production path, not the only path.
+
+### `apps/web/app/admin/settings/model-pool` requires `output_cap` on the catalog rows
+
+**Looks like:** `output_cap` looks like a redundant flag — most models support setting a max-tokens param.
+
+**Actually:** it's true that almost all proprietary chat models support max_tokens. The flag captures whether the model advertises EITHER `max_completion_tokens` OR `max_tokens` in OpenRouter's `supported_parameters`. The Synthesis stage requirement (`CTX > 400K + structuredOutputs + outputCap`) uses it. With current providers this filter is effectively always-true for everything that also has the context window, but it stays as an explicit predicate so a model that genuinely lacks output-length control (rare) would be caught.
+
+**Why:** synthesis output can run long (up to 200 approved claims worth of Markdown). Without a controllable output cap, the call can OOM the response or get truncated mid-section. The explicit predicate makes the requirement visible in the UI and in `STAGE_REQUIREMENTS`.
+
+**Do not change because:** removing the column requires a migration plus dropping the predicate from `STAGE_REQUIREMENTS` plus updating the model-pool UI. The current state is correct.
 
 ### `RetrievalPlan.searchScope` is mandatory — every plan must declare its search intent
 
@@ -617,6 +696,8 @@ Never commit real values. `.env.local` is git-ignored. Reference values are in t
 | `GOOGLE_CLOUD_LOCATION` | Vertex region (`us-central1`) | `.env.local`, Vercel env, Trigger.dev (workers) | yes | yes |
 | Vertex auth | Application Default Credentials. Locally: `gcloud auth application-default login`. Cloud: service-account JSON mounted via `GOOGLE_APPLICATION_CREDENTIALS`. | `~/.config/gcloud/application_default_credentials.json` locally; secret-mounted JSON in cloud | yes | yes |
 | `OPENAI_API_KEY` | Direct OpenAI API — `OpenAIAdapter` for fallback / schema-repair AND `text-embedding-3-small` embeddings (1536-dim) | `.env.local`, Vercel env, Trigger.dev (workers) | yes | yes |
+| `DEEPSEEK_API_KEY` | Direct DeepSeek API (`api.deepseek.com`, OpenAI-compatible) — `DeepSeekAdapter`. Optional but recommended; without it, deepseek/* models are silently omitted from the adapter map by `buildStandardAdapters()`. | `.env.local`, Vercel env, Trigger.dev (workers) | optional | recommended |
+| `DASHSCOPE_API_KEY` | Alibaba DashScope (`dashscope-us.aliyuncs.com`, OpenAI-compatible) — `QwenAdapter`. Optional; without it, qwen/* models are silently omitted from the adapter map. | `.env.local`, Vercel env, Trigger.dev (workers) | optional | recommended |
 | `TRIGGER_SECRET_KEY` | Trigger.dev server-side key | Vercel env (web), Trigger.dev (workers), `.env.local` | yes | yes |
 | `TRIGGER_PROJECT_REF` | Trigger.dev project (`proj_wgpzsvhmsopqhvwqaycn`) | Vercel env, Trigger.dev, `.env.local` | yes | yes |
 
@@ -658,6 +739,8 @@ For step-by-step deploy operations and rollback procedures, see [`docs/deploymen
 |---|---|---|
 | 2026-05-26 | R-providers wired with `@ai-sdk/*` wrappers (commit `cf8f087`) instead of raw SDKs | The Vercel AI SDK normalizes provider-specific cache fields and structured-output strategies through a uniform-but-lossy abstraction. `docs/oracle/02-provider-native-ai-architecture.md` §"Shared architecture" and DECISIONS.md D6 had already ruled this out by name. **Lesson:** read the relevant `docs/oracle/0N-*.md` BEFORE picking a dep. Reverted in commit `bfc0821`. Rule added: any new dep that lives in `packages/ai/src/providers/` must justify why it isn't a raw provider SDK. |
 | 2026-05-26 | OpenRouter API key surfaced in tool output (`.env.local` line dump during R11.0) | Tool output containing file content is logged in the transcript. `.env.local` contained `OPENROUTER_API_KEY=sk-or-v1-...` at the time. **Lesson:** when dumping `.env.local`, always pipe through a `sed` redaction. Rule added: scripts that touch `.env.local` redact secret-shaped values before printing. The leaked key is being rotated as part of the pre-production checklist. |
+| 2026-05-27 | `/auth/callback` 500-error storm after large feature push | A `git add -A` swept an in-flight Drizzle migration file (`0006_magical_revanche.sql`) into the commit. The file adds `employees.departments text[]`, but the migration was never applied to production. Every employee query that referenced the new column failed (`Failed query: select ...`); the OAuth callback queries `employees` and returned 500 to every signing-in user. **Recovery:** applied missing pieces via Supabase MCP migration `57_employees_departments_array_catchup.sql` — `ALTER TABLE employees ADD COLUMN IF NOT EXISTS departments text[]` + backfill from the existing `department` column. Worked immediately, no redeploy needed. **Rule added:** prefer `git add <specific-paths>` over `git add -A` when the working tree has unrelated changes. Schema-changing migrations must be applied to the live DB BEFORE the corresponding code lands in `main`. CLAUDE.md updated with the git-add hygiene rule. |
+| 2026-05-27 | Database URL with embedded password printed in script error trace | A naive `.env.local` parser didn't strip surrounding quotes from the `DATABASE_URL` value, so `postgres` rejected the URL. The error output included the raw URL — with the DB password in it — in the transcript. **Recovery:** told the user to rotate the Supabase DB password at https://supabase.com/dashboard/.../database. **Rule added:** filter scripts' output through `Select-String -NotMatch 'postgresql\|password\|@aws'` (or similar) when running anything that consumes `.env.local`. The connection-string credentials must never appear in raw output. |
 
 When something goes wrong, append a section here using the format:
 
@@ -675,76 +758,30 @@ Rule added to prevent recurrence:
 
 ## 15. Pending work
 
+Only currently-open items are listed. The git log + DECISIONS.md preserve completed history; this section is a forward-looking todo.
+
 | Status | Item | Owner / next action |
 |---|---|---|
-| open | Delete the deprecated `auth_user_id` / `auth_provider` / `auth_provider_subject` columns from `employees` once all consumers are confirmed migrated | follow-up migration after a week of soak |
-| open | Apply Drizzle migration `0006_magical_revanche.sql` + data migration `56_employees_departments_array.sql` to live Supabase: run `pnpm db:migrate` | before deploying session-3 code |
-| open | Drop deprecated `employees.department` column once all code reads only `departments` | follow-up migration |
-| done | **Session 3 — Employee multi-department + retrieval soft hint.** `employees.departments text[]` added. `departmentHints` RRF bonus in `searchWithRetrievalPlan`. Admin `/admin` employees page + "Add employee" form. SQL migration 56 + Drizzle migration 0006. | 2026-05-27 |
-| open | Replace `test-employee@oracle.local` with a real mailbox (e.g. `u2giants+test@gmail.com`) so the Phase 2 RLS gate can be wet-tested with two real logins | Albert |
-| open | Wet-test Phase 2 RLS (cross-channel isolation between two real employees) | after the test mailbox is set up |
-| done | Wet-test Phase 3 chat route — `@oracle` posted, response received, `model_runs` row confirmed (6.3 s, 2001/98 tokens). Oracle also triggered after document uploads. | 2026-05-21 |
-| open | Create the `company_documents` Storage bucket in Supabase if not already done | Albert (Supabase dashboard) |
-| open | Wire Authentik OIDC as a third login provider for internal-only accounts | future build session |
-| done | Deploy Phase 4 to Trigger.dev — version `20260521.1` with 7 tasks running in production (`proj_wgpzsvhmsopqhvwqaycn`). `TRIGGER_PROJECT_REF` set in `.env.local` + Vercel. | 2026-05-21 |
-| done | **P1 #1 — Admin → Settings model pool UI** (`/admin/settings/model-pool`). `resolveModelRoute()` wired to all workers; correct `ROUTE_SETTING_KEYS`; `/api/admin/model-catalog` for OpenRouter Big-3 browsing. | commit `a6affc6` |
-| done | Implement Phase 5 — Admin review dashboards (claims, gaps, contradictions, brain) | all four dashboards + server actions live; typecheck clean |
-| done | **R1 — Curated Oracle model route catalog** | `packages/ai/src/routes/` (commit `91e44ea`) |
-| done | **R2 — OracleAIClient + ContextCompiler + ModelRouter + provider adapter stubs** | commit `3c51c9b`; 16/16 smoke assertions pass via `pnpm --filter @oracle/ai verify:r2` |
-| done | **R3 — Observability schema** (`oracle_context_packs`, `model_run_usage_details`, `provider_cached_content` + CHECK constraints + `model_runs_with_usage` view) | commit `1e345d3`; Drizzle migration `0001_hot_johnny_blaze.sql` + hand-written `11_observability_constraints.sql`, `31_observability_views.sql` |
-| done | **R3.5 — Three-layer knowledge taxonomy schema** (15 tables; 12 top-domains with boundary rules seeded; 56 entities seeded; `licensor` first-class) | commit `c529594`; Drizzle migration `0002_demonic_kid_colt.sql` + hand-written `12_taxonomy_constraints.sql`, `16_knowledge_top_domains_seed.sql`, `17_entities_seed.sql`, `42_claim_top_domains_backfill.sql`, `48_taxonomy_vector_indexes.sql` |
-| done | **R4 — Candidate-before-claim staging schema** (4 staging tables; 13 CHECK constraints incl. promoted-consistency, sensitive-consistency, validated-fields-required-on-pass) | commit `fe60304`; Drizzle migration `0003_magenta_lionheart.sql` + hand-written `13_extraction_constraints.sql` |
-| done | **R5 — Quote validator + promotion decision** (pure functions in `packages/oracle-engines/src/extraction/{quote-validator,candidate-hash,promote-candidate}.ts`; 33/33 assertions via `pnpm --filter @oracle/engines verify:r5`) | commit `70339c6` |
-| done | **R5.5 — Entity resolver + taxonomy validator** (`entity-resolver.ts` + `taxonomy-validator.ts`; `decidePromotion` extended with `entityAssignments` + `metadata` + `entityProposalsToStage`; 45/45 assertions via `verify:r5.5`) | commit `8cad256`; Drizzle migration `0004_simple_tomas.sql`. Wiring completed in P1 #2 + P2 #1 (commit `191b791`): `ExtractionClaimSchema` now includes `sensitivityFlags` + entity proposal fields; workers emit real sensitivity flags and entity proposals via `EXTRACTION_PROMPT_VERSION=2.0.0`. Licensor-vs-vendor resolver now fires in production. |
-| done | **R6 — Refactor `apps/workers/src/trigger/claim-extraction.ts` through staging tables** (circuit breaker + promotion executor; smoke assertions via `verify:r6`) | commit `b46131d` (later swapped to direct adapters in R-providers) |
-| done | **R7 — Refactor `apps/workers/src/trigger/document-ingestion.ts` through staging** (cache profitability heuristic + `provider_cached_content` lifecycle + race-safe executor + `claims.candidate_hash`; 19/19 assertions via `verify:r7`) | commit `a8a8586`; Drizzle migration `0005_kind_nekra.sql` + hand-written `14_claims_candidate_hash_unique.sql` |
-| done | **R8 — Refactor `apps/web/app/api/chat/route.ts` through `OracleAIClient`** with `providerOptions` escape hatch for tools, multi-turn messages, `stopWhen`, `temperature` | commit `8a38fbd` |
-| done | **R9 — Synthesis worker refactor + diff validator** (`brain-synthesis.ts` through `OracleAIClient`; `validateSynthesisDiff` in `packages/oracle-engines/src/synthesis/` with claim-ID + unsupported-named-entity checks; rejected-version preservation via `reviewStatus='rejected'`; 21-assertion smoke `verify:r9`) | commit `8343c2d` |
-| done | **R10 — Admin AI observability dashboards** (6 pages under `/admin/ai`: dashboard, runs list, run detail / context pack viewer with retrieval diagnostics, cache, candidates with sensitive-hidden-by-default, evals placeholder) | commit `ea33d66` |
-| done | **R10.5 — Taxonomy governance dashboard + re-evaluation worker** (5 pages under `/admin/taxonomy`; 4 transactional approve/reject server actions; scheduled `taxonomy-reevaluation` worker with k-means clustering body; companion `taxonomy-reclassification` worker that applies approved mutations idempotently) | commit `533f39b` for scaffold; `3cad3a1` (2026-05-27 session) for clustering body + reclassification job. The "continually re-evaluate domains for the first year" requirement is now fully automated end-to-end. Bulk-approve UX added to `/admin/taxonomy/proposals` in the same session. |
-| done | Apply the new migrations to live Supabase DB | 2026-05-26 — applied via Supabase MCP this session. 6 Drizzle (0000–0005) + 18 hand-written SQL files. 51 public tables. Supabase advisor: 36 → 2. |
-| done | **R-providers — Direct provider adapters** (`AnthropicAdapter` via `@anthropic-ai/sdk`, `VertexGeminiAdapter` via `@google/genai`, `OpenAIAdapter` via `openai`; all 4 production callers switched off the bridge) | commits `bfc0821` + `51a33ff`; 6/6 real-API smoke green |
-| done | Wet-test the candidate-before-claim pipeline end-to-end | 2026-05-26 — 1 synthetic message → 2 promoted claims, 0 errors, 8.3s. Real Vertex Gemini Flash via direct adapter. commit `51a33ff` |
-| done | **R11.0 — Refactor `contradiction-watcher` through `OracleAIClient`**; OpenRouter completely removed from codebase | commit `b01e514` |
-| done | **R11.1 — Pure decision functions** in `packages/oracle-engines/src/interjection.ts` (`decideLullInterjection` + `decideContradictionInterjection`) + 33-assertion smoke gate `verify:r11.1` | commit `c9d0efe` |
-| done | **R11.2 — Lull-interjection Trigger.dev task** | commit `bf7cad7`. `apps/workers/src/trigger/lull-interjection.ts` — cron `* * * * *`, drafts via Anthropic Haiku 4.5 interview route, posts live message, records intervention. |
-| done | **R11.3 — Live contradiction interjection** | commit `bf7cad7`. `contradiction-watcher` extended: resolves channel from claim_evidence → messages, calls `decideContradictionInterjection`, drafts + posts live on 'live' / queues gap on 'queue'. Migration `50_enable_live_contradiction_interjections.sql` flips the setting ON. |
-| done | **R11.4 — Final docs cleanup** | (this commit). HANDOFF / DECISIONS (D10 + D11) / docs/architecture / retrofit packet updated. |
-| done | **Trigger.dev redeploy** | `20260527.1` deployed (11 tasks — adds `taxonomy-reclassification`). `OPENROUTER_API_KEY` was already absent from the project env. |
-| done | **Model catalog discovery (2026-05-27 session)** | `packages/ai/src/model-capabilities/` sources from OpenRouter; persisted to `model_capabilities` table (migration 54). Admin "Refresh from OpenRouter" button on `/admin/settings/model-pool`. Per-stage pools (`model_pool_interview` / `_extraction` / `_synthesis`). Fourth `/admin/settings` card: "General-purpose model". |
-| done | Model catalog source refactored: model list from 3 direct provider APIs (Anthropic, OpenAI, Google Gemini); OpenRouter demoted to enrichment-only (pricing + caps). ModelCapabilitySource type updated. | commit 1d91cd5 |
-| done | **Vercel env vars set (2026-05-27 session)** | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS_JSON`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` all uploaded to all three Vercel targets. |
-| done | **Build-version badge** | `apps/web/next.config.ts` bakes `NEXT_PUBLIC_GIT_SHA` / `NEXT_PUBLIC_GIT_TIMESTAMP` at build. `apps/web/app/admin/layout.tsx` shows them in the top-right of every admin page. |
-| done | **Lazy `OracleAIClient` in `/api/chat`** | Module-level `new OracleAIClient({adapters:{new AnthropicAdapter(),...}})` was throwing during Next.js "Collect page data" build phase. Replaced with `getOracleClient()` lazy helper. Build had been ERROR for ~12h. |
-| done | **Vertex production credentials** | `GOOGLE_APPLICATION_CREDENTIALS_JSON` for `oracle-trigger-worker@vertex-ai-497120.iam.gserviceaccount.com` was already set in the Trigger.dev project env. |
-| done | **`precomputedVector` support in `RetrievalPlan`** | Added `precomputedVector?: number[]` to `RetrievalPlan` + all builder opts. `searchWithRetrievalPlan` skips `embedText` when provided. Contradiction-watcher passes the stored claim embedding, eliminating the double-embed. TODO comment in `contradiction-watcher.ts` removed. |
-| done | **DOMAIN_KEYWORDS tuning (round 1)** | Added ~50 keywords across all 10 domains (IT tooling, logistics trade terms, product materials, finance payment, customer compliance). Extend further via production `global_fallback` audit. |
-| done | **Typing presence in lull-interjection** | `typing_indicators` table (schema + `52_typing_indicators.sql`). `channel-chat.tsx` upserts on typing-start, deletes on stop. Lull worker queries live instead of hardcoding `false`. |
-| open | **Round-2 interjection improvement (b)** | Add `gaps.embedding` column + score topical relevance of the chosen gap against mean embedding of recent channel messages instead of participant-filter. See DECISIONS.md D11. |
-| open | **Entity proposal write-time fuzzy-dedup** | As claim volume grows, the same unknown entity (e.g. "Microsoft", "MSFT", "Microsoft Corp") may accumulate many `entity_proposals` rows before an admin reviews. At insert time, run a pg_trgm similarity check against open proposals of the same `proposed_entity_type` and collapse into an existing row (increment a counter or append the source candidate ID) if similarity ≥ threshold. Cleaner than a cron and prevents queue noise. Requires pg_trgm extension (already available on Supabase Postgres) + a `proposal_count` or `source_candidate_ids` jsonb column on `entity_proposals`. Defer until `entity_proposals` queue shows actual noise in production. |
-| done | Retrofit reference docs sweep | This commit. `docs/oracle/02-provider-native-ai-architecture.md` and `docs/oracle/05-ai-retrofit-phase-packet.md` updated to reflect the completed retrofit. Status tables show what shipped vs what's deferred to round 2. |
-| done | Wet-test walkthrough conversion | This commit. `docs/wet-test-walkthrough.md` rewritten as a "how to repeat the wet-test against a new transcript" guide (3 steps + failure shapes + cleanup). |
-| done | CI: `.github/workflows/pr-check.yml` runs `pnpm --filter @oracle/web build` on PRs + pushes to `main`. Catches production-only typecheck errors (the 2026-05-20 class of failure). Uses placeholder env vars; App Router dynamic-rendering means real secrets aren't needed at build. | 2026-05-21 |
-| open | CI: add migration job (`pnpm db:migrate`) gated on manual approval | — |
-| open | Vector indexes (`packages/db/migrations/sql/99_vector_indexes.sql`) — apply once enough embedding data exists to justify HNSW | run the SQL when ready |
-| open | Rotate the Vercel token that was pasted into the build transcript during overnight setup | https://vercel.com/account/tokens |
-| open | Rotate `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and the unused OpenRouter key before going live (all three were exposed in chat transcripts during the R-providers and R11.0 sessions for dev convenience) | https://console.anthropic.com/settings/keys, https://platform.openai.com/api-keys, https://openrouter.ai/keys |
-| done | Delete `OpenRouter`-tagged tasks from the Trigger.dev project's env vars on the next workers deploy (`OPENROUTER_API_KEY` is no longer used) | Confirmed absent from Trigger.dev project env on 2026-05-26. |
-| open | Add an admin UI to link / unlink employee identities (e.g. "this gmail is also Albert") | future Phase 5 task |
-| open | Wet-test the Microsoft 365 + Google login flows on a fresh employee (one with no prior session state) before broader rollout | Albert |
-| done | Phase 1 — Foundation (schema, migrations, RLS, auth callback, admin seed) | **wet-tested** |
-| done | Phase 2 — Realtime chat UI + document upload + admin skeleton | code complete, partial wet-test |
-| done | Phase 3 — Oracle chat route + tools + system prompt | code complete |
-| done | Phase 4–6 stub scaffolds | committed |
-| done | Multi-identity refactor (DECISIONS.md D2) | wet-tested with Google + M365 on the same Albert |
-| done | Google OAuth provider live | `u2giants@gmail.com` |
-| done | Microsoft 365 SSO live (popcre tenant only) | `albert@popcre.com` |
-| done | Brevo SMTP integrated for magic-link delivery | configured in Supabase Auth |
-| done | Logout flow | POST `/auth/signout` + form button in admin and channels layouts |
-| done | Next.js bumped 15 → 16 (resolves CVE-2025-66478) | `apps/web/package.json` |
-| done | `next.config.ts` updated for Next 16 (`serverExternalPackages`, eslint block removed) | |
-| done | Fixed `OracleDb` vs `Db` typecheck failure in retrieval helpers (production build was failing every deploy) | `packages/db/src/client.ts` (exported the type) + `packages/ai/src/retrieval.ts` |
-| done | Fixed implicit-any cookie adapter params in `packages/auth/src/server.ts` | typed against `@supabase/ssr`'s `CookieMethodsServer` |
-| done | Added `vercel.json` so Vercel finds `apps/web/.next` in this monorepo | repo root |
+| open | Drop deprecated `employees.department` (varchar) column once all code reads only `departments` text[] | Follow-up migration once a soak period confirms no fallback readers fire in logs. |
+| open | Delete the deprecated `auth_user_id` / `auth_provider` / `auth_provider_subject` columns from `employees` once all consumers are confirmed migrated. | Follow-up migration after the multi-identity rollout settles. |
+| open | Replace `test-employee@oracle.local` (seed row) with a real mailbox (e.g. `u2giants+test@gmail.com`) so the Phase 2 RLS gate can be wet-tested with two real logins. | Albert. |
+| open | Wet-test Phase 2 RLS (cross-channel isolation between two real employees). | After the test mailbox is set up. |
+| open | Create the `company_documents` Storage bucket in Supabase if not already done. | Albert (Supabase dashboard). |
+| open | Wire Authentik OIDC as a third login provider for internal-only accounts. | Future build session. |
+| open | Wire `GENERAL_PURPOSE_ROUTE_SETTING_KEY` into `taxonomy-reevaluation` cluster naming. Currently `apps/workers/src/trigger/taxonomy-reevaluation.ts` has `model: 'gemini-2.5-flash'` hardcoded for cluster naming. Should read `settings.default_general_purpose_route` via `resolveRouteFromSettings(db, 'extraction')` and fall back to the hardcoded id if unset. | Replaces one hardcoded id; ~10 lines. |
+| open | Replace the vision-detection regex in `/api/chat` (`apps/web/app/api/chat/route.ts` ~ line 535: `/claude\|gpt-4o\|gemini\|llava\|pixtral\|qwen.*vl\|minicpm/i`) with a lookup against the resolved route's `vision` flag from `model_capabilities`. The data is already in the DB; this is just a wiring change. | Without it, a new vision-capable model not matching the regex would silently drop attachments. |
+| open | Periodic refresh cron for `model_capabilities`. Right now the catalog only refreshes when the admin clicks the button. A weekly Trigger.dev task `refresh-model-catalog` would keep pricing + capability flags current as providers ship updates. | Net new task file in `apps/workers/src/trigger/`. |
+| open | Default selected model in `ModelPicker` falls back to literal `'anthropic/claude-sonnet-4.6'` (`apps/web/app/admin/settings/_components/model-picker.tsx`) when `currentModel` is null. Should fall back to whichever model in the discovered catalog meets the stage requirements and is cheapest, or leave the picker empty until the admin chooses. | Cosmetic; resilience against the literal id being renamed by Anthropic. |
+| open | Hard-enforce model-pool selection on save. Currently the pool DOES filter the dropdown when non-empty, but it's a soft filter — workers will successfully execute any `provider/modelId` saved to `settings.default_*_route` even if it's not in the pool. For hard enforcement, validate-on-save in `/api/admin/settings` POST. | Defense-in-depth; not yet a real attack vector. |
+| open | Live-chat fallback when chosen Gemini model has no Vertex credentials lacks a clean error path. If the admin picks a Gemini model and Vertex creds aren't set in Vercel (they ARE today, so this doesn't bite us), the chat call fails with a raw error. Add a UI affordance to surface "this model needs Vertex creds" gracefully. | Lower priority. |
+| open | Round-2 interjection improvement (b) — add `gaps.embedding` column + score topical relevance of the chosen gap against mean embedding of recent channel messages instead of the participant-filter heuristic. See DECISIONS.md D11. | New column + worker change. |
+| open | Entity proposal write-time fuzzy-dedup — currently deferred per DECISIONS.md until queue noise is observed in production. | Activate when `/admin/taxonomy/entities` proposals queue grows. |
+| open | CI: add migration job (`pnpm db:migrate`) gated on manual approval. Today, schema-changing migrations are applied manually before the code is pushed — this is fragile (see the 2026-05-27 OAuth callback incident in §14). | `.github/workflows/migrate.yml`. |
+| open | CI: add `workers-deploy.yml` for `pnpm --filter @oracle/workers deploy` on push to `main` touching `apps/workers/**`. | Currently manual. |
+| open | Vector indexes (`packages/db/migrations/sql/99_vector_indexes.sql`) — apply once enough embedding data exists to justify HNSW (currently opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`). | Run the SQL when claim/chunk counts cross the relevant thresholds. |
+| open | Add an admin UI to link / unlink employee identities (e.g. "this gmail is also Albert"). | Future Phase 5 task. |
+| open | Wet-test the Microsoft 365 + Google login flows on a fresh employee with no prior session state before broader rollout. | Albert. |
+| open | **Secret rotations.** The following keys / tokens have been visible in past chat transcripts during dev convenience: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, the (unused) `OPENROUTER_API_KEY`, the Vercel deploy token, the Supabase DB password, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`. Rotate all of these before going live. After rotation: update Vercel env, Trigger.dev project env, and `.env.local`. | Pre-production checklist. |
 
+A summary of completed work that established the current architecture (model catalog, direct provider adapters, candidate-before-claim, reasoning effort plumbing, DeepSeek + Qwen, shared stage requirements) lives in `DECISIONS.md` and the git log. Read those for context on why a given pattern exists; this table is for what still needs doing.
 **Keep this section current.** A stale pending-work list is worse than no list.

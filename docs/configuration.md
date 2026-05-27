@@ -16,6 +16,8 @@ Every environment variable, where it comes from, and what fails when it's missin
 | `GOOGLE_CLOUD_PROJECT` | GCP project ID for Vertex AI — `VertexGeminiAdapter` uses it for extraction (Gemini 2.5 Flash) and synthesis | The active Oracle GCP project. Currently: `vertex-ai-497120`. | yes | yes | Set the value in `.env.local`, AND ensure ADC is configured (`gcloud auth application-default login`) so the SDK can authenticate. |
 | `GOOGLE_CLOUD_LOCATION` | Vertex region | Pick a region with Gemini Flash availability. Currently: `us-central1`. | yes | yes | The `VertexGeminiAdapter` defaults to `us-central1` if unset; setting it explicitly is preferred. |
 | `OPENAI_API_KEY` | Direct OpenAI API key — `OpenAIAdapter` uses it for fallback / schema-repair routes (GPT-4o-mini) AND `text-embedding-3-small` (1536-dim embeddings) | https://platform.openai.com/api-keys | yes | yes | Embeddings are required for hybrid retrieval and contradiction ANN search. Without this key, embeddings fall back to a deterministic zero vector and similarity becomes meaningless. |
+| `DEEPSEEK_API_KEY` | Direct DeepSeek API key — `DeepSeekAdapter` uses `api.deepseek.com` (OpenAI-compatible). | https://platform.deepseek.com/api_keys | optional | recommended | Without it, the DeepSeek adapter is silently omitted from `buildStandardAdapters()` and any worker / chat request routed to a `deepseek/*` model will fail with "no adapter registered for provider deepseek". Add only if you have models selected in any stage's pool that start with `deepseek/`. |
+| `DASHSCOPE_API_KEY` | Alibaba DashScope key — `QwenAdapter` uses `dashscope-us.aliyuncs.com/compatible-mode/v1` (OpenAI-compatible). | https://bailian.console.alibabacloud.com → API Key (International region) | optional | recommended | Same omitted-when-missing behavior as DeepSeek above. Only required if any `qwen/*` model is selected in a stage's pool. **Use only the dashscope-us hostname** — `dashscope-intl` and `dashscope.aliyuncs.com` are the native DashScope API surface, not OpenAI-compat. |
 | `TRIGGER_SECRET_KEY` | Trigger.dev v3 server-side key | Trigger.dev dashboard → project → API keys | yes | yes | Used by `apps/web` to trigger tasks, and by `apps/workers` for self-registration. |
 | `TRIGGER_PROJECT_REF` | Trigger.dev project identifier | Trigger.dev dashboard → project settings | yes | yes | Production value: `proj_wgpzsvhmsopqhvwqaycn`. Without this, the workers deploy command has no target. |
 
@@ -126,6 +128,9 @@ Operational settings the Oracle reads at runtime live in the `settings` Postgres
 | `model_pool_extraction` | `[]` | Same, for the Extraction stage. |
 | `model_pool_synthesis` | `[]` | Same, for the Synthesis stage. |
 | `default_general_purpose_route` | _(unset)_ | Optional: model id for one-off internal jobs (taxonomy cluster naming, future classifier fallbacks). Picked on the 4th card of `/admin/settings`. Not yet wired into worker code paths. |
+| `default_interview_reasoning_effort` | _(unset)_ | One of `'off' \| 'low' \| 'medium' \| 'high'`. Unified across providers; each adapter translates to its native form (Anthropic `thinking.budget_tokens`, OpenAI `reasoning_effort`, Vertex `thinkingConfig.thinkingBudget`, Qwen `enable_thinking + thinking_budget`, DeepSeek: logged but not forwarded). Set in `/admin/settings` via the dropdown next to the model picker when the selected model has reasoning capability. See `docs/architecture.md` § "AI model adapters" for the per-provider translation table. |
+| `default_extraction_reasoning_effort` | _(unset)_ | Same, for the Extraction stage. |
+| `default_synthesis_reasoning_effort` | _(unset)_ | Same, for the Synthesis stage. |
 
 Legacy `default_*_model` keys (`default_interview_model` / `default_extraction_model` / `default_synthesis_model`) have been removed from the seed. They were the pre-retrofit OpenRouter model identifiers and are no longer read by any code path. If they appear in your live DB from an older deploy, they're inert and can be deleted in a follow-up `DELETE FROM settings` migration.
 
@@ -164,6 +169,9 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 - `packages/ai/src/providers/anthropic-adapter.ts` — `ANTHROPIC_API_KEY`.
 - `packages/ai/src/providers/vertex-gemini-adapter.ts` — `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` (ADC for auth).
 - `packages/ai/src/providers/openai-adapter.ts` — `OPENAI_API_KEY` (+ optional `OPENAI_ORG_ID`).
+- `packages/ai/src/providers/deepseek-adapter.ts` — `DEEPSEEK_API_KEY` (+ optional `baseURL` override).
+- `packages/ai/src/providers/qwen-adapter.ts` — `DASHSCOPE_API_KEY` (+ optional `baseURL` override; default `dashscope-us.aliyuncs.com/compatible-mode/v1`).
+- `packages/ai/src/client/standard-adapters.ts` — calls all 5 adapter constructors with `tryAdd()`; failures (missing env) log in non-prod and are silently omitted in prod.
 - `packages/ai/src/embeddings.ts` — `OPENAI_API_KEY` (for `text-embedding-3-small`).
 - `apps/workers/trigger.config.ts` — `TRIGGER_SECRET_KEY`, `TRIGGER_PROJECT_REF`.
 

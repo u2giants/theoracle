@@ -142,12 +142,14 @@ There's also a mock-mode extraction eval (canned LLM outputs run through the rea
 pnpm --filter @oracle/ai eval:extraction    # 4 fixtures: happy path + paraphrase + sensitive + wrong-domain
 ```
 
-And a real-provider smoke (hits the three direct adapters against the real APIs — costs ~$0.003):
+And a real-provider smoke (hits the direct adapters against the real APIs — costs ~$0.003):
 
 ```bash
-pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts all      # all three
+pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts all      # original 3 (anthropic/vertex/openai)
 pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts vertex   # one at a time
 ```
+
+Note: the smoke file currently exercises the original 3 adapters; DeepSeek and Qwen are exercised by `scripts/verify-catalog.ts` (model-list fetch) and end-to-end through admin's "Refresh catalog" → save model in stage pool → trigger a worker run.
 
 Run the gate for whichever module you touched. The DB-aware executor (`executePromotion`), the Trigger.dev workers, and the admin pages themselves aren't covered by these gates because they require a live Postgres — the pure decision logic they compose is covered.
 
@@ -175,7 +177,7 @@ Each AI retrofit phase has an acceptance gate documented in `docs/oracle/05-ai-r
 
 - After each phase, the pre-push gate above must all pass before commit.
 - New phases must not regress prior gates.
-- R0 → R11.4 + all 6 external-review items (P1 #1–4, P2 #1–2) are complete. The wet-test passed end-to-end on 2026-05-26. Both interjection paths (R11.2 lull + R11.3 live contradiction) post live chat messages. Remaining work is operational tuning — see `HANDOFF.md` "What's next" for the precise task list.
+- R0 → R11.4 + all 6 external-review items (P1 #1–4, P2 #1–2) are complete. The wet-test passed end-to-end on 2026-05-26. Both interjection paths (R11.2 lull + R11.3 live contradiction) post live chat messages. The model-catalog overhaul (5-provider discovery + OpenRouter enrichment + per-stage pools + reasoning-effort plumbing) is live. Remaining work is operational tuning — see `AGENTS.md` § 15 for the open task list.
 
 ## Inspection / debugging scripts
 
@@ -184,7 +186,21 @@ Each AI retrofit phase has an acceptance gate documented in `docs/oracle/05-ai-r
 - `verify-identities.ts` — prints current `employees` rows, their `employee_identities`, and any orphan identity rows. Run with `pnpm --filter @oracle/db exec tsx src/verify-identities.ts`.
 - `inspect-auth-users.ts` — prints rows from Supabase's `auth.users` schema so you can see which providers Supabase has on file for each email. Same invocation pattern.
 
-Both load `.env.local` from the monorepo root.
+`scripts/` (repo root) holds two AI-catalog helpers:
+
+- `scripts/verify-catalog.ts` — calls each of the 5 provider model-list APIs + OpenRouter enrichment and reports per-model match/miss against the OpenRouter catalog (canonical-slug + dash→dot + date-stripping normalization). **Does NOT write to the DB.** Useful when debugging "why didn't model X get pricing/capability data" without clicking Refresh in the admin UI. Run:
+  ```powershell
+  # Loads .env.local from the repo root, strips surrounding quotes from values
+  Get-Content .env.local | ForEach-Object {
+    if ($_ -match '^([A-Z_]+)=(.+)$') {
+      Set-Item -Path "env:$($matches[1])" -Value ($matches[2].Trim('"').Trim("'"))
+    }
+  }
+  node_modules\.bin\tsx.CMD scripts\verify-catalog.ts
+  ```
+- `scripts/refresh-catalog.ts` — invokes `refreshModelCatalog(db)` against the live production DB. Same effect as clicking "Refresh catalog" in `/admin/settings/model-pool`, but doesn't require an admin browser session. Useful after adding a new provider's API key locally, or after changing enrichment logic, to populate the `model_capabilities` table without going through the UI. Reads `.env.local` the same way (same here-doc loader as above) — needs `DIRECT_URL` + at least one provider key + (optionally) `OPENROUTER_API_KEY`.
+
+All three load `.env.local` from the monorepo root.
 
 ## When `pnpm install` errors or hangs on Windows
 
