@@ -17,7 +17,8 @@ export type OracleTaskType =
   | 'brain_synthesis'
   | 'gap_generation'
   | 'admin_explanation'
-  | 'validation_repair';
+  | 'validation_repair'
+  | 'model_capability_discovery';
 
 /**
  * The kind tag controls block ordering for provider-native cache friendliness.

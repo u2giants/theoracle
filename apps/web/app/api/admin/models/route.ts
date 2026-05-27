@@ -1,20 +1,17 @@
 // GET /api/admin/models?stage=interview|extraction|synthesis
 //
-// Returns the list of models available in the admin model picker for the
-// given stage. Each stage has its own pool stored in settings as
-// `model_pool_${stage}`.
+// Returns the model list for the ModelPicker on the main /admin/settings page,
+// scoped to one stage's pool. Capabilities come from the discovered catalog
+// (apps/web → @oracle/ai discoverModelCatalog) — no hand-typed tables.
 //
 // Strategy:
-//   1. Read the per-stage `model_pool_${stage}` setting from DB
-//      (JSON array of "provider/modelId" strings).
-//   2. If the pool is non-empty, return those models enriched with static metadata.
-//   3. If the pool is empty, fall back to EVERY model in MODEL_META plus the
-//      6 curated catalog routes. The ModelPicker then filters client-side by
-//      requiredCaps, so reasoning-required stages (Synthesis) surface
-//      o-series models, vision-required stages surface vision models, etc.
-//
-// Model IDs are in "provider/modelId" format (compatible with resolveModelRoute).
-// OpenRouter is NOT used.
+//   1. Read the per-stage model_pool_${stage} setting.
+//   2. Run discovery to get the full capability catalog (cached 1h in memory).
+//   3. If pool is non-empty: return only the catalog entries whose id is in
+//      the pool. Models in the pool but not in the catalog are dropped
+//      silently (the pool may reference IDs that have been removed upstream).
+//   4. If pool is empty: return the full catalog as the fallback — the
+//      ModelPicker filters client-side by required capabilities.
 //
 // Requires admin.
 // Response: { models: Model[] }
@@ -24,14 +21,17 @@ import { eq } from 'drizzle-orm';
 import { requireAdmin } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
 import { settings } from '@oracle/db/schema';
-import { ORACLE_MODEL_ROUTES, PRODUCTION_ROUTE_IDS, MODEL_POOL_SETTING_KEYS } from '@oracle/ai';
-import { MODEL_META } from '@/lib/model-metadata';
+import {
+  AnthropicAdapter,
+  OpenAIAdapter,
+  OracleAIClient,
+  VertexGeminiAdapter,
+  MODEL_POOL_SETTING_KEYS,
+  discoverModelCatalog,
+  type ModelCapability,
+} from '@oracle/ai';
 
 export const dynamic = 'force-dynamic';
-
-// ---------------------------------------------------------------------------
-// Types (must match ModelPicker's `Model` type)
-// ---------------------------------------------------------------------------
 
 export type ModelInfo = {
   id: string;
@@ -46,44 +46,32 @@ export type ModelInfo = {
   imageGen: boolean;
 };
 
-function metaToInfo(id: string): ModelInfo {
-  const meta = MODEL_META[id];
-  const slug = id.split('/')[1] ?? id;
-  // Heuristic reasoning flag: o-series OpenAI models always count, beyond
-  // whatever the static table says.
-  const reasoning = meta?.reasoning ?? (slug.startsWith('o') && /^o\d/.test(slug));
-  return {
-    id,
-    name: id,
-    contextLength: meta?.contextLength ?? null,
-    promptPer1M: meta?.promptPer1M ?? null,
-    completionPer1M: meta?.completionPer1M ?? null,
-    vision: meta?.vision ?? true,
-    tools: true,
-    files: meta?.vision ?? true,
-    reasoning,
-    imageGen: false,
-  };
+let _client: OracleAIClient | null = null;
+function getOracleClient(): OracleAIClient {
+  if (!_client) {
+    _client = new OracleAIClient({
+      adapters: {
+        anthropic: new AnthropicAdapter(),
+        vertex: new VertexGeminiAdapter(),
+        openai: new OpenAIAdapter(),
+      },
+      fallbackOnError: false,
+    });
+  }
+  return _client;
 }
 
-/** Format a curated catalog route as a ModelInfo (empty-pool fallback augment). */
-function catalogRouteToInfo(routeId: string): ModelInfo | null {
-  const route = ORACLE_MODEL_ROUTES[routeId];
-  if (!route) return null;
-  const id = `${route.provider === 'vertex' ? 'google' : route.provider}/${route.modelId}`;
-  // If we already have static metadata for this id, prefer it — it has prices
-  // and context.  Otherwise build a minimal ModelInfo from the route record.
-  if (MODEL_META[id]) return metaToInfo(id);
+function capabilityToModelInfo(cap: ModelCapability): ModelInfo {
   return {
-    id,
-    name: route.displayName,
-    contextLength: null,
+    id: cap.id,
+    name: cap.displayName,
+    contextLength: cap.contextLength,
     promptPer1M: null,
     completionPer1M: null,
-    vision: route.supportsVision,
-    tools: route.supportsToolCalling,
-    files: route.supportsVision,
-    reasoning: route.supportsReasoningControls,
+    vision: cap.vision,
+    tools: cap.toolCalling,
+    files: cap.pdf,
+    reasoning: cap.thinking,
     imageGen: false,
   };
 }
@@ -115,21 +103,24 @@ export async function GET(req: NextRequest) {
 
   const pool: string[] = Array.isArray(poolRow[0]?.value) ? (poolRow[0]!.value as string[]) : [];
 
+  let catalog: ModelCapability[];
+  try {
+    const result = await discoverModelCatalog(getOracleClient(), { force: false });
+    catalog = result.catalog;
+  } catch (err) {
+    return NextResponse.json(
+      { error: 'discovery_failed', detail: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
+  }
+
   if (pool.length > 0) {
-    return NextResponse.json({ models: pool.map(metaToInfo) });
+    const poolSet = new Set(pool);
+    const filtered = catalog.filter((c) => poolSet.has(c.id));
+    return NextResponse.json({ models: filtered.map(capabilityToModelInfo) });
   }
 
-  // Empty pool — fall back to ALL known models so the dropdown is sensible
-  // for every stage including reasoning-required ones. Merge MODEL_META
-  // entries with the 6 curated catalog routes (dedupe by id).
-  const byId = new Map<string, ModelInfo>();
-  for (const id of Object.keys(MODEL_META)) {
-    byId.set(id, metaToInfo(id));
-  }
-  for (const routeId of PRODUCTION_ROUTE_IDS) {
-    const info = catalogRouteToInfo(routeId);
-    if (info && !byId.has(info.id)) byId.set(info.id, info);
-  }
-
-  return NextResponse.json({ models: Array.from(byId.values()) });
+  // Empty pool — return the full discovered catalog. The ModelPicker filters
+  // client-side by the stage's required capabilities (vision / reasoning / etc.).
+  return NextResponse.json({ models: catalog.map(capabilityToModelInfo) });
 }
