@@ -112,7 +112,11 @@ const MODEL_ROLES: {
       'High reasoning quality',
       'Context: potentially 100K+ tokens at scale',
     ],
-    requiredCaps: ['tools', 'reasoning'],
+    // Reasoning controls are nice-to-have for Synthesis but not required —
+    // Claude 3.5 Sonnet (the default) and Gemini Pro both do excellent
+    // synthesis without explicit reasoning controls. Only the o-series
+    // models advertise this cap, so enforcing it would empty the dropdown.
+    requiredCaps: ['tools'],
   },
 ];
 
