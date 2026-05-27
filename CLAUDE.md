@@ -4,8 +4,8 @@
 
 ## Current state (2026-05-27)
 
-Production SHA `65f250e` (Vercel). Model-pool overhaul complete:
-- Live model catalog sourced from openrouter.ai, persisted to `model_capabilities` table.
+Production SHA `1d91cd5` (Vercel). Model-pool overhaul complete:
+- Live model catalog sourced from 3 direct provider APIs (Anthropic, OpenAI, Google Gemini); OpenRouter used for pricing + capability enrichment only. Model list and enrichment persisted to `model_capabilities` table.
 - Per-stage pools (`model_pool_interview` / `_extraction` / `_synthesis`).
 - Fourth `/admin/settings` card: "General-purpose model" picker.
 - `/api/chat` uses lazy `OracleAIClient` init (previous module-level singleton broke Vercel builds for ~12h).
@@ -49,7 +49,7 @@ When in doubt about behavior, read:
 - `packages/db/migrations/sql/*.sql` (hand-written) and the README in that folder
 - `packages/ai/src/prompts/extraction-system.ts` and `oracle-system.ts`
 - `packages/ai/src/routes/catalog.ts` and `defaults.ts`
-- `packages/ai/src/model-capabilities/` (the OpenRouter discovery service)
+- `packages/ai/src/model-capabilities/` (provider model-list sources + OpenRouter enrichment)
 - `docs/oracle/00-buildout-index.md`
 
 ## `.claudeignore`
@@ -104,4 +104,4 @@ Not allowed without explicit approval:
 - Do not write speculative tests before the behavior is stable unless Albert asks
 - Do not refactor outside the immediate task scope without raising it as a separate item first
 - Do not re-introduce the Vercel AI SDK or OpenRouter into the production AI path — DECISIONS.md D6 and D9 explicitly rule them out. OpenRouter's `/v1/models` is used ONLY for admin-side catalog metadata via the discovery service, never for inference.
-- Do not hand-type model capability tables. The capability source is the `model_capabilities` table populated from OpenRouter.
+- Do not hand-type model capability tables. The model list comes from the 3 direct provider APIs; pricing and capability flags come from OpenRouter enrichment. Both are persisted to the `model_capabilities` table.

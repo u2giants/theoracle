@@ -21,7 +21,7 @@ Every environment variable, where it comes from, and what fails when it's missin
 
 `.env.local` lives at the **monorepo root**. Next.js, the migration runner, the seed, the smoke runners, and the wet-test runner all load it explicitly via `dotenv` from there. Next.js's default behavior of reading `.env.local` only from the app directory is overridden in `apps/web/next.config.ts`.
 
-> **`OPENROUTER_API_KEY` is no longer used.** It was removed from `.env.local` when OpenRouter was retired from the codebase (commit `b01e514`, R11.0). If your `.env.local` still has it, you can delete the line.
+> `OPENROUTER_API_KEY` is optional — `packages/ai/src/model-capabilities/sources/openrouter.ts` sends it as a Bearer token when present to avoid rate limits on OpenRouter's public `/v1/models` endpoint (used for model capability and pricing enrichment). If unset, the endpoint is called unauthenticated. It is NOT read by any inference code path. The variable from `.env.example` documents it as optional.
 
 ## Google Cloud / Vertex AI authentication
 
@@ -149,9 +149,9 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 - `apps/web/lib/supabase/server.ts` — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
 - `apps/web/app/api/chat/route.ts` — reads `settings.default_interview_route`; uses `ANTHROPIC_API_KEY` + Vertex ADC + `OPENAI_API_KEY` via the three direct adapters.
 - `apps/web/app/admin/settings/model-pool/` — reads and writes `settings.model_pool_{interview,extraction,synthesis}` (per-stage pools, 2026-05-27).
-- `apps/web/app/api/admin/model-catalog/route.ts` — `GET` reads the persisted `model_capabilities` table; `POST` calls `refreshModelCatalog(db)` which fetches `openrouter.ai/api/v1/models` and upserts every row. Admin-triggered via the "Refresh from OpenRouter" button.
+- `apps/web/app/api/admin/model-catalog/route.ts` — `GET` reads the persisted `model_capabilities` table; `POST` calls `refreshModelCatalog(db)` which fetches models from all 3 direct provider APIs (Anthropic, OpenAI, Google Gemini) and enriches with OpenRouter pricing/caps, then upserts. Non-fatal per-source errors are returned in `errors[]`. Admin-triggered via the "Refresh catalog" button.
 - `apps/web/app/api/admin/models/route.ts` — `?stage=<interview|extraction|synthesis|general>` returns the pool's models from `model_capabilities`. The `general` stage ignores the pool and returns the full catalog.
-- `packages/ai/src/model-capabilities/sources/openrouter.ts` — the OpenRouter parser. Capability flags come from `architecture.input_modalities` + `supported_parameters`; pricing from `pricing.{prompt,completion}` (multiplied to per-1M-tokens); context from `top_provider.context_length` / `top_provider.max_completion_tokens`.
+- `packages/ai/src/model-capabilities/sources/openrouter.ts` — OpenRouter enrichment source only. Returns a `Map<modelId, OpenRouterEnrichment>` keyed by `provider/modelId`. Capability flags come from `architecture.input_modalities` + `supported_parameters`; pricing from `pricing.{prompt,completion}` (×1M); context from `top_provider.context_length` / `max_completion_tokens`. Called by `refreshModelCatalog` after the model list is built from direct provider APIs.
 - `apps/workers/src/trigger/claim-extraction.ts` — reads `settings.default_extraction_route`; same three direct adapters.
 - `apps/workers/src/trigger/document-ingestion.ts` — reads `settings.default_extraction_route`; same three direct adapters.
 - `apps/workers/src/trigger/brain-synthesis.ts` — reads `settings.default_synthesis_route`; same three direct adapters.

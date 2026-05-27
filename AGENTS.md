@@ -499,13 +499,15 @@ The most important section. **Do not undo these without reading the cited spec s
 
 **Do not change because:** re-introducing `@ai-sdk/*` violates D6 + D9 directly. If a future provider's structured-output mode is too complex to hand-wire, add a tightly-scoped helper inside the relevant adapter rather than reaching for the SDK.
 
-### `OpenRouter has been removed entirely` is not a TODO — the files are gone on purpose
+### OpenRouter is enrichment-only — the inference routing wrapper is gone on purpose
 
-**Looks like:** the prior architecture used OpenRouter (`packages/ai/src/openrouter.ts`, `apps/web/app/api/admin/models/route.ts`, `@openrouter/ai-sdk-provider` dep, `OPENROUTER_API_KEY` env var). They're all absent now.
+**Looks like:** The `sources/openrouter.ts` file references OpenRouter, and `OPENROUTER_API_KEY` is still read in production code. Looks like OpenRouter is still in the production AI path.
 
-**Actually:** commit `b01e514` (R11.0) deleted them after `contradiction-watcher` — the last `getOpenRouter()` call site — was refactored through `OracleAIClient`. The codebase has zero functional references to OpenRouter; only doc comments mention it for historical context.
+**Actually:** `packages/ai/src/model-capabilities/sources/openrouter.ts` calls OpenRouter's `/v1/models` endpoint to fetch pricing and capability flags (vision, thinking, tool-calling, etc.) for enrichment of the model catalog. It is never in the inference path. The inference routing wrapper that was `packages/ai/src/openrouter.ts` (deleted in commit `b01e514`) and its deps (`@openrouter/ai-sdk-provider`, `getOpenRouter()`) are gone. OpenRouter does not handle any LLM calls.
 
-**Do not change because:** D6 deprecated OpenRouter for production; the wet-test proved direct adapters work end-to-end; re-introducing OpenRouter would undo the entire R-providers + R11.0 retirement.
+**Why:** OpenRouter's `/v1/models` is the best public source for pricing per token, capability flags, and context windows across all three providers. The model list itself comes from each provider's own API (Anthropic `/v1/models`, OpenAI `/v1/models`, Google Gemini `/v1beta/models`); OpenRouter enriches each model after the list is built.
+
+**Do not change because:** Re-routing inference through OpenRouter would violate DECISIONS.md D6 + D9. Removing the OpenRouter enrichment source would leave pricing and capability flags as null/unknown for all models in the catalog.
 
 ### Pure-function-first design in `packages/oracle-engines/src/extraction/`
 
@@ -608,7 +610,7 @@ Never commit real values. `.env.local` is git-ignored. Reference values are in t
 | `TRIGGER_SECRET_KEY` | Trigger.dev server-side key | Vercel env (web), Trigger.dev (workers), `.env.local` | yes | yes |
 | `TRIGGER_PROJECT_REF` | Trigger.dev project (`proj_wgpzsvhmsopqhvwqaycn`) | Vercel env, Trigger.dev, `.env.local` | yes | yes |
 
-`OPENROUTER_API_KEY` is no longer used. It was removed from `.env.local` and the codebase in commit `b01e514` (R11.0).
+`OPENROUTER_API_KEY` is optional — `packages/ai/src/model-capabilities/sources/openrouter.ts` reads it when present to avoid rate limits on the public `/v1/models` endpoint. It is not required; the endpoint works unauthenticated. It is NOT used in any inference path.
 
 For full details including the Sensitive-vs-Encrypted Vercel quirk, see [`docs/configuration.md`](docs/configuration.md).
 
@@ -697,6 +699,7 @@ Rule added to prevent recurrence:
 | done | **R11.4 — Final docs cleanup** | (this commit). HANDOFF / DECISIONS (D10 + D11) / docs/architecture / retrofit packet updated. |
 | done | **Trigger.dev redeploy** | `20260527.1` deployed (11 tasks — adds `taxonomy-reclassification`). `OPENROUTER_API_KEY` was already absent from the project env. |
 | done | **Model catalog discovery (2026-05-27 session)** | `packages/ai/src/model-capabilities/` sources from OpenRouter; persisted to `model_capabilities` table (migration 54). Admin "Refresh from OpenRouter" button on `/admin/settings/model-pool`. Per-stage pools (`model_pool_interview` / `_extraction` / `_synthesis`). Fourth `/admin/settings` card: "General-purpose model". |
+| done | Model catalog source refactored: model list from 3 direct provider APIs (Anthropic, OpenAI, Google Gemini); OpenRouter demoted to enrichment-only (pricing + caps). ModelCapabilitySource type updated. | commit 1d91cd5 |
 | done | **Vercel env vars set (2026-05-27 session)** | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS_JSON`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` all uploaded to all three Vercel targets. |
 | done | **Build-version badge** | `apps/web/next.config.ts` bakes `NEXT_PUBLIC_GIT_SHA` / `NEXT_PUBLIC_GIT_TIMESTAMP` at build. `apps/web/app/admin/layout.tsx` shows them in the top-right of every admin page. |
 | done | **Lazy `OracleAIClient` in `/api/chat`** | Module-level `new OracleAIClient({adapters:{new AnthropicAdapter(),...}})` was throwing during Next.js "Collect page data" build phase. Replaced with `getOracleClient()` lazy helper. Build had been ERROR for ~12h. |

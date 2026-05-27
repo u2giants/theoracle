@@ -2,11 +2,11 @@
 
 Live in-flight state for the next contributor or AI coding session.
 
-**Snapshot date:** 2026-05-27 (end of overnight session)
+**Snapshot date:** 2026-05-27 (end of second session)
 **Repo:** https://github.com/u2giants/theoracle
 **Live URL:** https://oracle.designflow.app
-**Production SHA:** `65f250e` (Vercel deploy `dpl_8w6QRD6SFRVg9BurSwQejC5X2Uk5`, READY)
-**Current state:** Admin model-pool overhaul complete. Live model-capability discovery now sources from OpenRouter and persists to the DB. Per-stage pools, version badge in the admin header, and a fourth "General-purpose" model picker are live. Vertex/Anthropic/OpenAI all wired through Vercel with full credentials.
+**Production SHA:** `1d91cd5` (last known READY Vercel deploy)
+**Current state:** Admin model-pool overhaul complete. Model catalog now sources from 3 direct provider APIs (Anthropic, OpenAI, Google Gemini) for the model list, with OpenRouter used for pricing + capability enrichment only. Per-stage pools, version badge in the admin header, and a fourth "General-purpose" model picker are live. Vertex/Anthropic/OpenAI all wired through Vercel with full credentials.
 
 ---
 
@@ -22,7 +22,8 @@ Live in-flight state for the next contributor or AI coding session.
 | 6 | `0e4437b` | Reverted bad fix; extracted MODEL_META to `apps/web/lib/model-metadata.ts`; empty-pool fallback returns ALL hardcoded known models (still bad — hand-typed caps) | User pointed out the system should never make its own determinations |
 | 7 | `0e96b15` | Marked Claude 3.7+/4-series and Gemini 2.x as reasoning-capable in catalog + MODEL_META | Correction to Claude/Sonnet's outdated knowledge — but still hand-typed |
 | 8 | `e9abe5b` | Replaced hardcoded MODEL_META with a discovery service: Anthropic /v1/models parsed live, OpenAI + Vertex classified by Gemini 2.5 Flash-Lite (FOUNDATION — superseded) | Eliminate hand-typed capability data; first attempt routed through an AI classifier |
-| 9 | `65f250e` | **Current state.** Single source: openrouter.ai/api/v1/models. Persisted to new `model_capabilities` Postgres table. Admin "Refresh from OpenRouter" button. Fourth `/admin/settings` card: "General-purpose model" picker drawing from the full catalog | OpenRouter exposes capability flags AND pricing AND context windows for every provider in one free public endpoint. No AI classification, no per-page-load cost, persists across server restarts |
+| 9 | `65f250e` | **Prior state.** Single source: openrouter.ai/api/v1/models. Persisted to new `model_capabilities` Postgres table. Admin "Refresh from OpenRouter" button. Fourth `/admin/settings` card: "General-purpose model" picker drawing from the full catalog | OpenRouter exposes capability flags AND pricing AND context windows for every provider in one free public endpoint. No AI classification, no per-page-load cost, persists across server restarts |
+| 10 | `1d91cd5` | Model catalog: direct provider APIs for model list; OpenRouter enrichment-only | Model list now sources from Anthropic /v1/models, OpenAI /v1/models, Google generativelanguage.googleapis.com/v1beta/models. OpenRouter /v1/models fetched in parallel for pricing + capability enrichment only. ModelCapabilitySource type: 'anthropic_api' \| 'openai_api' \| 'google_api'. Non-fatal per-source errors surfaced in POST /api/admin/model-catalog response. |
 
 Vercel deploys: 9 successful (5 of those were the iterative model-pool/discovery work). 1 ERROR fixed in commit 3.
 
@@ -132,11 +133,11 @@ Production Trigger.dev project ref: `proj_wgpzsvhmsopqhvwqaycn`. **Trigger.dev d
 
 ### Model catalog (NEW this session)
 
-- **Source:** openrouter.ai/api/v1/models (public; `OPENROUTER_API_KEY` optional for rate limits)
+- **Source:** Anthropic /v1/models, OpenAI /v1/models, Google generativelanguage.googleapis.com/v1beta/models (direct provider APIs) — model list. openrouter.ai/api/v1/models — enrichment (pricing + capability flags).
 - **Storage:** `model_capabilities` Postgres table (migration `54_model_capabilities.sql`)
-- **Refresh:** Admin clicks "Refresh from OpenRouter" on `/admin/settings/model-pool`. No automatic refresh; no expiry.
+- **Refresh:** Admin clicks "Refresh catalog" on `/admin/settings/model-pool`. Fetches all 3 provider APIs + OpenRouter in parallel; non-fatal per-source errors returned in response. No automatic refresh; no expiry.
 - **Read path:** `/api/admin/model-catalog` (GET) → returns persisted rows. `/api/admin/models?stage=<stage>` → filters by per-stage pool from `settings.model_pool_<stage>`, or returns full catalog if pool is empty.
-- **Write path:** `/api/admin/model-catalog` (POST) → calls `refreshModelCatalog(db)` which fetches OpenRouter and upserts every row by id.
+- **Write path:** `/api/admin/model-catalog` (POST) → calls `refreshModelCatalog(db)` which fetches all 3 provider APIs + OpenRouter enrichment and upserts every row by id.
 
 ### Stage routes & general-purpose model
 
@@ -164,6 +165,7 @@ Workers use `resolveModelRoute(settingValue, role)` to translate either a curate
 - [x] Per-stage model pool (Interview / Extraction / Synthesis), 3 independent settings rows
 - [x] Lazy `OracleAIClient` init in `/api/chat` (the build-was-broken-for-12h fix)
 - [x] Live model-capability discovery via OpenRouter, persisted to `model_capabilities`
+- [x] Model catalog refactored: model list from 3 direct provider APIs; OpenRouter demoted to enrichment-only
 - [x] "General-purpose model" picker on `/admin/settings`
 - [x] Vercel env vars uploaded for all 3 providers (Anthropic, OpenAI, Vertex) via REST API
 - [x] Migration `54_model_capabilities.sql` applied to live DB
@@ -226,7 +228,7 @@ The user explicitly asked for this audit. Anywhere the code embeds a model id, c
 ## Next exact action (for the next session)
 
 1. **First-load smoke check.** Open https://oracle.designflow.app/admin → confirm the top-right shows commit SHA `65f250e`. Hard-refresh if you see anything older.
-2. **Refresh the model catalog.** Open `/admin/settings/model-pool`. The table will be empty (we just created `model_capabilities` and no row is in it yet). Click "Refresh from OpenRouter". Expect a few seconds, then a populated table with ~30-50 rows across Anthropic / OpenAI / Google.
+2. **Refresh the model catalog.** Open `/admin/settings/model-pool`. The table will be empty (we just created `model_capabilities` and no row is in it yet). Click "Refresh catalog". Expect a few seconds, then a populated table with ~30-50 rows across Anthropic / OpenAI / Google.
 3. **Curate the per-stage pools.** Check the boxes for the models you want in each stage's dropdown. Save.
 4. **Pick the active model per stage on `/admin/settings`.** The 4 cards (Interview / Extraction / Synthesis / General-purpose) each have a dropdown drawing from the corresponding pool (or full catalog for General-purpose). Save each.
 5. **Live chat sanity check.** Send a message in a channel. Confirm the Oracle responds. If you picked a Gemini model for Interview, this exercises the Vertex credentials path that was newly set up this session.
@@ -242,6 +244,7 @@ If anything is broken, the most likely culprits in order:
 ## Decisions made this session (recorded here, also worth promoting to DECISIONS.md if they become load-bearing)
 
 1. **Model capability source = OpenRouter, not direct provider APIs + AI classifier.** Anthropic's `/v1/models` returns a rich `capabilities` block; OpenAI's returns nothing useful; Vertex's `publishers/google/models` is the entire Model Garden with no clean capability schema. Going through the discovered catalog for all 3 providers via OpenRouter is simpler, free, and avoids any AI-classifier cost or hallucination risk. The classifier path was built (commits `e9abe5b`) and then replaced (`65f250e`).
+6. **Model list from direct provider APIs, not OpenRouter.** OpenRouter's catalog includes every third-party model and uses OpenRouter-specific routing identifiers. The 3 direct provider APIs return only that provider's own models with authoritative IDs. OpenRouter remains the best source for pricing and capability flags (it parses provider docs and exposes a unified schema), so it's retained as an enrichment step after the model list is built.
 2. **DB persistence over in-memory cache.** Originally cached the discovered catalog in memory with a 1h TTL. Replaced with the `model_capabilities` table; refresh is an explicit admin action, no TTL.
 3. **Reasoning capability on synthesis is required, not optional.** When the picker emptied because no catalog route had `reasoning: true`, the first fix was to drop the requirement. That was wrong (weakens the system). Correct fix: fix the underlying capability data, which led to the entire OpenRouter migration.
 4. **Per-stage pools, not one global pool.** `settings.model_pool` is gone, replaced by `settings.model_pool_interview` / `_extraction` / `_synthesis`. The old key is left in the DB (ignored) — don't delete it manually.

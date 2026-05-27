@@ -78,7 +78,7 @@ Currently using the default `*.vercel.app` URL. Custom domain config is a TODO i
 ## Workers — Trigger.dev
 
 **Project ref:** `proj_wgpzsvhmsopqhvwqaycn` (set as `TRIGGER_PROJECT_REF` in Vercel env + `.env.local`).
-**Current task exports** across 5 files in `apps/workers/src/trigger/`:
+**Current task exports** across 7 files in `apps/workers/src/trigger/`:
 
 | File | Exports | Trigger |
 |---|---|---|
@@ -87,7 +87,8 @@ Currently using the default `*.vercel.app` URL. Custom domain config is a TODO i
 | `brain-synthesis.ts` | `brainSynthesisTask`, `brainSynthesisScheduledTask` | one-off + scheduled |
 | `lull-interjection.ts` | `lullInterjectionTask` | scheduled cron (`* * * * *`) — fires every minute; `decideLullInterjection` gates actual frequency (R11.2) |
 | `contradiction-watcher.ts` | `contradictionWatcherTask`, `contradictionWatcherSweepTask` | one-off + scheduled |
-| `taxonomy-reevaluation.ts` | `taxonomyReevaluationTask` | scheduled (R10.5 scaffold; clustering body deferred) |
+| `taxonomy-reevaluation.ts` | `taxonomyReevaluationTask` | scheduled (every 6h; clusters claim embeddings and writes taxonomy proposals; currently activates only after 30+ approved claims per domain) |
+| `taxonomy-reclassification.ts` | `taxonomyReclassificationTask` | scheduled (every 15 min; applies approved taxonomy mutations idempotently via change-log sentinel rows) |
 
 **Dashboard:** https://cloud.trigger.dev/projects/v3/proj_wgpzsvhmsopqhvwqaycn
 
