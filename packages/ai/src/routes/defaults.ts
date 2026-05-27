@@ -38,3 +38,14 @@ export const LEGACY_OPENROUTER_SETTING_KEYS = {
   extraction: 'default_extraction_model',
   synthesis: 'default_synthesis_model',
 } as const satisfies Record<OracleModelRole, string>;
+
+/**
+ * Per-stage admin model pools. Each row is a JSON string[] of "provider/modelId"
+ * IDs that should appear in that stage's dropdown on /admin/settings. Empty
+ * array means "fall back to the 6 curated Oracle catalog routes".
+ */
+export const MODEL_POOL_SETTING_KEYS = {
+  interview: 'model_pool_interview',
+  extraction: 'model_pool_extraction',
+  synthesis: 'model_pool_synthesis',
+} as const satisfies Record<OracleModelRole, string>;

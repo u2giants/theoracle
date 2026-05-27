@@ -128,12 +128,20 @@ export function ModelPicker({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Load models on mount.
+  // Load models on mount. Stage is derived from settingKey so the API
+  // returns this stage's pool only.
+  const stage = settingKey.includes('interview')
+    ? 'interview'
+    : settingKey.includes('extraction')
+    ? 'extraction'
+    : settingKey.includes('synthesis')
+    ? 'synthesis'
+    : 'interview';
   useEffect(() => {
     let cancelled = false;
     async function loadModels() {
       try {
-        const res = await fetch('/api/admin/models');
+        const res = await fetch(`/api/admin/models?stage=${stage}`);
         if (!res.ok) {
           const body = await res.text();
           throw new Error(`${res.status}: ${body}`);
@@ -155,7 +163,7 @@ export function ModelPicker({
     }
     void loadModels();
     return () => { cancelled = true; };
-  }, [currentModel]);
+  }, [currentModel, stage]);
 
   // Close on outside click.
   useEffect(() => {

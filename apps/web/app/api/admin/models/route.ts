@@ -1,9 +1,12 @@
-// GET /api/admin/models
+// GET /api/admin/models?stage=interview|extraction|synthesis
 //
-// Returns the list of models available in the admin model picker.
+// Returns the list of models available in the admin model picker for the
+// given stage. Each stage has its own pool stored in settings as
+// `model_pool_${stage}`.
 //
 // Strategy:
-//   1. Read `model_pool` setting from DB (JSON array of "provider/modelId" strings).
+//   1. Read the per-stage `model_pool_${stage}` setting from DB
+//      (JSON array of "provider/modelId" strings).
 //   2. If the pool is non-empty, return those models enriched with static metadata.
 //   3. If the pool is empty, fall back to the 6 curated Oracle catalog routes.
 //
@@ -13,12 +16,12 @@
 // Requires admin.
 // Response: { models: Model[] }
 
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { requireAdmin } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
 import { settings } from '@oracle/db/schema';
-import { ORACLE_MODEL_ROUTES, PRODUCTION_ROUTE_IDS } from '@oracle/ai';
+import { ORACLE_MODEL_ROUTES, PRODUCTION_ROUTE_IDS, MODEL_POOL_SETTING_KEYS } from '@oracle/ai';
 
 export const dynamic = 'force-dynamic';
 
@@ -126,18 +129,29 @@ function catalogRouteToInfo(routeId: string): ModelInfo | null {
 // Route handler
 // ---------------------------------------------------------------------------
 
-export async function GET() {
+type Stage = 'interview' | 'extraction' | 'synthesis';
+
+function parseStage(req: NextRequest): Stage {
+  const raw = req.nextUrl.searchParams.get('stage');
+  if (raw === 'interview' || raw === 'extraction' || raw === 'synthesis') return raw;
+  return 'interview';
+}
+
+export async function GET(req: NextRequest) {
   try {
     await requireAdmin();
   } catch {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  const stage = parseStage(req);
+  const poolKey = MODEL_POOL_SETTING_KEYS[stage];
+
   const db = getDirectDb();
   const poolRow = await db
     .select({ value: settings.value })
     .from(settings)
-    .where(eq(settings.key, 'model_pool'))
+    .where(eq(settings.key, poolKey))
     .limit(1);
 
   const pool: string[] = Array.isArray(poolRow[0]?.value) ? (poolRow[0]!.value as string[]) : [];
@@ -147,7 +161,9 @@ export async function GET() {
     return NextResponse.json({ models });
   }
 
-  // Empty pool — fall back to the 6 curated Oracle catalog routes.
+  // Empty pool for this stage — fall back to that stage's curated routes
+  // (primary + fallback), and add the rest of the 6 as well so an empty
+  // pool means "show all curated routes."
   const catalogModels = PRODUCTION_ROUTE_IDS
     .map(catalogRouteToInfo)
     .filter((m): m is ModelInfo => m !== null);
