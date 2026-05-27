@@ -54,6 +54,7 @@ export interface OpenRouterEnrichment {
   structuredOutputs: boolean;
   toolCalling: boolean;
   promptCaching: boolean;
+  outputCap: boolean;            // supports max_completion_tokens OR max_tokens
   knowledgeCutoff: string | null;
 }
 
@@ -83,6 +84,7 @@ function toEnrichment(m: ORModel): OpenRouterEnrichment {
     toolCalling: params.includes('tools') || params.includes('tool_choice'),
     promptCaching:
       m.pricing?.input_cache_read != null || m.pricing?.input_cache_write != null,
+    outputCap: params.includes('max_completion_tokens') || params.includes('max_tokens'),
     knowledgeCutoff: m.knowledge_cutoff ?? null,
   };
 }

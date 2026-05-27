@@ -33,6 +33,8 @@ export interface ModelCapability {
   structuredOutputs: boolean;
   toolCalling: boolean;
   promptCaching: boolean;
+  /** Model supports an output-length cap (max_completion_tokens or max_tokens). */
+  outputCap: boolean;
 
   /** ISO date string (YYYY-MM-DD), if the provider published it. */
   knowledgeCutoff: string | null;

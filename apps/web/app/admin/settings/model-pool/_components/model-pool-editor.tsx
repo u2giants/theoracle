@@ -8,7 +8,9 @@ import {
   ChevronsUpDown,
   Eye,
   FileText,
+  Maximize2,
   Sparkles,
+  Type,
   Wrench,
   Zap,
 } from 'lucide-react';
@@ -35,24 +37,28 @@ function fmtCtx(n: number): string {
 
 type IconComponent = React.ComponentType<{ className?: string }>;
 
-// Capability metadata — used for column headers, cells, AND stage-requirement icons.
-type CapabilityField = 'vision' | 'thinking' | 'tools' | 'structuredOutputs' | 'promptCaching' | 'pdf';
+// ---------------------------------------------------------------------------
+// Capability metadata
+// ---------------------------------------------------------------------------
+
+type CapabilityField = 'vision' | 'thinking' | 'tools' | 'structuredOutputs' | 'promptCaching' | 'pdf' | 'outputCap';
 
 interface CapabilityMeta {
   field: CapabilityField;
-  short: string;       // header tooltip
-  long: string;        // full label
+  short: string;
+  long: string;
   icon: IconComponent;
-  color: string;       // text color for the icon when present
+  color: string;
 }
 
 const CAPABILITIES: ReadonlyArray<CapabilityMeta> = [
-  { field: 'vision',            short: 'Vision',            long: 'Vision (image input)',     icon: Eye,      color: 'text-sky-600 dark:text-sky-400' },
-  { field: 'thinking',          short: 'Thinking',          long: 'Extended thinking / reasoning', icon: Sparkles, color: 'text-violet-600 dark:text-violet-400' },
-  { field: 'tools',             short: 'Tools',             long: 'Tool calling',             icon: Wrench,   color: 'text-emerald-600 dark:text-emerald-400' },
-  { field: 'structuredOutputs', short: 'Structured',        long: 'Native structured outputs', icon: Braces,  color: 'text-orange-600 dark:text-orange-400' },
-  { field: 'promptCaching',     short: 'Caching',           long: 'Prompt caching',           icon: Zap,      color: 'text-amber-600 dark:text-amber-400' },
-  { field: 'pdf',               short: 'PDF',               long: 'PDF input',                icon: FileText, color: 'text-slate-600 dark:text-slate-400' },
+  { field: 'vision',            short: 'Vision',     long: 'Vision (image input)',                   icon: Eye,      color: 'text-sky-600 dark:text-sky-400' },
+  { field: 'thinking',          short: 'Reasoning',  long: 'Reasoning / include_reasoning',          icon: Sparkles, color: 'text-violet-600 dark:text-violet-400' },
+  { field: 'tools',             short: 'Tools',      long: 'Tools / tool_choice',                    icon: Wrench,   color: 'text-emerald-600 dark:text-emerald-400' },
+  { field: 'structuredOutputs', short: 'Structured', long: 'Structured outputs / response_format',   icon: Braces,   color: 'text-orange-600 dark:text-orange-400' },
+  { field: 'promptCaching',     short: 'Caching',    long: 'Prompt caching',                         icon: Zap,      color: 'text-amber-600 dark:text-amber-400' },
+  { field: 'outputCap',         short: 'OutCap',     long: 'Output cap (max_completion_tokens or max_tokens)', icon: Type, color: 'text-teal-600 dark:text-teal-400' },
+  { field: 'pdf',               short: 'PDF',        long: 'PDF input',                              icon: FileText, color: 'text-slate-600 dark:text-slate-400' },
 ];
 
 const CAP_BY_FIELD = Object.fromEntries(CAPABILITIES.map((c) => [c.field, c])) as Record<CapabilityField, CapabilityMeta>;
@@ -74,13 +80,61 @@ const STAGE_LABELS: Record<Stage, string> = {
   synthesis: 'Synthesis',
 };
 
-// Minimum capability a model must have to be selectable for each stage.
-// Interview and Synthesis use tool_call structured-output strategy → need tools.
-// Extraction uses native_json_schema → needs structuredOutputs.
-const STAGE_CAP_REQUIREMENT: Record<Stage, CapabilityField> = {
-  interview: 'tools',
-  extraction: 'structuredOutputs',
-  synthesis: 'tools',
+// ---------------------------------------------------------------------------
+// Stage requirements — model must satisfy ALL listed predicates to be eligible.
+//
+// Spec (per session 2026-05-27):
+//   Interview:  tools, structured, vision, context > 100K
+//   Extraction: structured, reasoning (thinking), vision, context > 100K
+//   Synthesis:  context > 400K, structured (response_format), output cap
+// ---------------------------------------------------------------------------
+
+interface StageRequirement {
+  /** Predicate against the model entry. */
+  check: (m: ModelCatalogEntry) => boolean;
+  /** Header label / tooltip text. */
+  label: string;
+  /** Icon shown in the stage's column header. */
+  icon: IconComponent;
+  /** Tailwind text-color class for the icon. */
+  color: string;
+}
+
+const CTX_REQ = (threshold: number): StageRequirement => ({
+  check: (m) => m.contextLength != null && m.contextLength > threshold,
+  label: `Context > ${threshold >= 1_000_000 ? `${threshold / 1_000_000}M` : `${threshold / 1_000}K`}`,
+  icon: Maximize2,
+  color: 'text-indigo-600 dark:text-indigo-400',
+});
+
+const CAP_REQ = (field: CapabilityField): StageRequirement => {
+  const meta = CAP_BY_FIELD[field];
+  return {
+    check: (m) => !!m[field],
+    label: meta.long,
+    icon: meta.icon,
+    color: meta.color,
+  };
+};
+
+const STAGE_REQUIREMENTS: Record<Stage, StageRequirement[]> = {
+  interview: [
+    CAP_REQ('tools'),
+    CAP_REQ('structuredOutputs'),
+    CAP_REQ('vision'),
+    CTX_REQ(100_000),
+  ],
+  extraction: [
+    CAP_REQ('structuredOutputs'),
+    CAP_REQ('thinking'),
+    CAP_REQ('vision'),
+    CTX_REQ(100_000),
+  ],
+  synthesis: [
+    CTX_REQ(400_000),
+    CAP_REQ('structuredOutputs'),
+    CAP_REQ('outputCap'),
+  ],
 };
 
 /** True when we have enrichment data for this model (context OR pricing populated). */
@@ -88,10 +142,10 @@ function hasEnrichment(m: ModelCatalogEntry): boolean {
   return m.contextLength != null || m.promptPer1M != null;
 }
 
-/** False only when enrichment is present AND the required cap is explicitly false. */
-function meetsStageReq(m: ModelCatalogEntry, stage: Stage): boolean {
-  if (!hasEnrichment(m)) return true; // unknown — allow
-  return !!m[STAGE_CAP_REQUIREMENT[stage]];
+/** Returns the missing requirements for a stage, or [] if eligible (or unknown). */
+function missingReqs(m: ModelCatalogEntry, stage: Stage): StageRequirement[] {
+  if (!hasEnrichment(m)) return []; // unknown — allow
+  return STAGE_REQUIREMENTS[stage].filter((r) => !r.check(m));
 }
 
 const STAGE_SETTING_KEYS: Record<Stage, string> = {
@@ -105,36 +159,22 @@ type SortKey = 'context' | 'price' | null;
 type SortDir = 'asc' | 'desc';
 
 // ---------------------------------------------------------------------------
-// Sortable column header
+// Header components
 // ---------------------------------------------------------------------------
 
-function SortHeader({
-  label,
-  active,
-  dir,
-  onClick,
-  className,
-}: {
-  label: string;
-  active: boolean;
-  dir: SortDir;
-  onClick: () => void;
-  className?: string;
+function SortLabel({ label, active, dir, onClick }: {
+  label: string; active: boolean; dir: SortDir; onClick: () => void;
 }) {
   const Icon = !active ? ChevronsUpDown : dir === 'asc' ? ChevronUp : ChevronDown;
   return (
-    <th
+    <button
+      type="button"
       onClick={onClick}
-      className={cn(
-        'cursor-pointer select-none px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap hover:text-foreground',
-        className,
-      )}
+      className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
     >
-      <span className="inline-flex items-center gap-1">
-        {label}
-        <Icon className={cn('h-3 w-3', active ? 'text-foreground' : 'opacity-40')} />
-      </span>
-    </th>
+      {label}
+      <Icon className={cn('h-3 w-3', active ? 'text-foreground' : 'opacity-40')} />
+    </button>
   );
 }
 
@@ -154,7 +194,7 @@ export function ModelPoolEditor({
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshErrors, setRefreshErrors] = useState<string[]>([]);
-  const [refreshUnenriched, setRefreshUnenriched] = useState<string[]>([]);
+  const [refreshUnenrichedCount, setRefreshUnenrichedCount] = useState(0);
   const [pools, setPools] = useState<PoolState>({
     interview: new Set(initial.interview),
     extraction: new Set(initial.extraction),
@@ -162,9 +202,12 @@ export function ModelPoolEditor({
   });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [filter, setFilter] = useState('');
+
+  // In-header filter state
+  const [nameFilter, setNameFilter] = useState('');
   const [minContext, setMinContext] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
+  const [capFilters, setCapFilters] = useState<Set<CapabilityField>>(new Set());
   const [sortBy, setSortBy] = useState<SortKey>(null);
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -206,7 +249,7 @@ export function ModelPoolEditor({
       setCatalog(data.models);
       setRefreshedAt(data.refreshedAt);
       setRefreshErrors(data.errors ?? []);
-      setRefreshUnenriched(data.unenrichedIds ?? []);
+      setRefreshUnenrichedCount((data.unenrichedIds ?? []).length);
     } catch (err) {
       setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -235,12 +278,22 @@ export function ModelPoolEditor({
   }
 
   function toggleSort(key: 'context' | 'price') {
-    if (sortBy === key) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(key);
-      setSortDir('desc');
-    }
+    if (sortBy === key) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    else { setSortBy(key); setSortDir('desc'); }
+  }
+
+  function toggleCapFilter(field: CapabilityField) {
+    setCapFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(field)) next.delete(field);
+      else next.add(field);
+      return next;
+    });
+  }
+
+  function resetAllFilters() {
+    setNameFilter(''); setMinContext(''); setMaxPrice('');
+    setCapFilters(new Set()); setSortBy(null);
   }
 
   async function save() {
@@ -274,9 +327,7 @@ export function ModelPoolEditor({
     return <p className="text-sm text-muted-foreground">Loading model catalog…</p>;
   }
   if (fetchError) {
-    return (
-      <p className="text-sm text-destructive">Failed to load catalog: {fetchError}</p>
-    );
+    return <p className="text-sm text-destructive">Failed to load catalog: {fetchError}</p>;
   }
   if (catalog.length === 0) {
     return (
@@ -294,39 +345,39 @@ export function ModelPoolEditor({
     );
   }
 
-  // ── Filtering ────────────────────────────────────────────────────────────
-  const minCtxNum = minContext.trim()
-    ? parseInt(minContext.replace(/[^\d]/g, ''), 10) || null
-    : null;
-  const maxPriceNum = maxPrice.trim() ? parseFloat(maxPrice) : null;
-  const filterText = filter.trim().toLowerCase();
+  // ── Hide unenriched models from the table ────────────────────────────────
+  const enrichedCatalog = catalog.filter(hasEnrichment);
+  const hiddenCount = catalog.length - enrichedCatalog.length;
 
-  const filtered = catalog.filter((m) => {
-    if (filterText && !m.id.toLowerCase().includes(filterText) && !m.name.toLowerCase().includes(filterText)) {
-      return false;
-    }
-    if (minCtxNum != null) {
-      if (m.contextLength == null || m.contextLength < minCtxNum) return false;
-    }
-    if (maxPriceNum != null && Number.isFinite(maxPriceNum)) {
-      if (m.promptPer1M == null || m.promptPer1M > maxPriceNum) return false;
+  // ── Apply filters ────────────────────────────────────────────────────────
+  const minCtxNum = minContext.trim() ? parseInt(minContext.replace(/[^\d]/g, ''), 10) || null : null;
+  const maxPriceNum = maxPrice.trim() ? parseFloat(maxPrice) : null;
+  const filterText = nameFilter.trim().toLowerCase();
+
+  const filtered = enrichedCatalog.filter((m) => {
+    if (filterText && !m.id.toLowerCase().includes(filterText) && !m.name.toLowerCase().includes(filterText)) return false;
+    if (minCtxNum != null && (m.contextLength == null || m.contextLength < minCtxNum)) return false;
+    if (maxPriceNum != null && Number.isFinite(maxPriceNum) && (m.promptPer1M == null || m.promptPer1M > maxPriceNum)) return false;
+    for (const cap of capFilters) {
+      if (!m[cap]) return false;
     }
     return true;
   });
 
-  // ── Sorting (applied within each provider section) ───────────────────────
+  // ── Sort within provider groups ──────────────────────────────────────────
   function sortModels(models: ModelCatalogEntry[]): ModelCatalogEntry[] {
     if (sortBy == null) return models;
     return [...models].sort((a, b) => {
       const aN = sortBy === 'context' ? a.contextLength : a.promptPer1M;
       const bN = sortBy === 'context' ? b.contextLength : b.promptPer1M;
-      // Nulls always go to the bottom regardless of direction.
       if (aN == null && bN == null) return 0;
       if (aN == null) return 1;
       if (bN == null) return -1;
       return sortDir === 'asc' ? aN - bN : bN - aN;
     });
   }
+
+  const filtersActive = !!(nameFilter || minContext || maxPrice || capFilters.size || sortBy);
 
   return (
     <div className="space-y-5">
@@ -337,7 +388,11 @@ export function ModelPoolEditor({
           <strong className="text-foreground">
             {refreshedAt ? new Date(refreshedAt).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : 'never'}
           </strong>
-          {' '}({catalog.length} models)
+          {' '}({enrichedCatalog.length} models shown
+          {hiddenCount > 0 && (
+            <span className="text-muted-foreground/70">, {hiddenCount} hidden (no enrichment)</span>
+          )}
+          )
         </span>
         <Button onClick={refreshCatalog} disabled={refreshing} size="sm" variant="outline">
           {refreshing ? 'Refreshing…' : 'Refresh catalog'}
@@ -350,58 +405,30 @@ export function ModelPoolEditor({
           {refreshErrors.map((e, i) => <p key={i}>• {e}</p>)}
         </div>
       )}
-      {refreshUnenriched.length > 0 && (
-        <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer select-none">
-            {catalog.length - refreshUnenriched.length}/{catalog.length} models enriched from OpenRouter —{' '}
-            <span className="text-amber-600 dark:text-amber-400">{refreshUnenriched.length} without pricing/capability data</span>
-            {' '}(click to see)
-          </summary>
-          <ul className="mt-1.5 ml-3 space-y-0.5 font-mono">
-            {refreshUnenriched.map((id) => <li key={id}>{id}</li>)}
-          </ul>
-        </details>
+      {refreshUnenrichedCount > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {refreshUnenrichedCount} model{refreshUnenrichedCount === 1 ? '' : 's'} without OpenRouter enrichment data — hidden from the table.
+        </p>
       )}
 
-      {/* Filter / sort controls */}
+      {/* Pool counts + reset */}
       <div className="flex items-center gap-3 flex-wrap">
-        <input
-          type="text"
-          placeholder="Filter by name…"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2 w-56"
-        />
-        <input
-          type="text"
-          placeholder="Min context (tokens)"
-          value={minContext}
-          onChange={(e) => setMinContext(e.target.value)}
-          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2 w-44"
-        />
-        <input
-          type="text"
-          placeholder="Max $/1M input"
-          value={maxPrice}
-          onChange={(e) => setMaxPrice(e.target.value)}
-          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none ring-offset-background focus:ring-2 focus:ring-ring focus:ring-offset-2 w-40"
-        />
-        {(filter || minContext || maxPrice || sortBy) && (
-          <button
-            type="button"
-            onClick={() => { setFilter(''); setMinContext(''); setMaxPrice(''); setSortBy(null); }}
-            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-          >
-            Reset
-          </button>
-        )}
-        <div className="flex items-center gap-2 text-xs text-muted-foreground ml-auto">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {STAGES.map((s) => (
             <span key={s} className="rounded bg-muted px-2 py-0.5">
               {STAGE_LABELS[s]}: <strong className="text-foreground">{pools[s].size}</strong>
             </span>
           ))}
         </div>
+        {filtersActive && (
+          <button
+            type="button"
+            onClick={resetAllFilters}
+            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          >
+            Reset filters / sort
+          </button>
+        )}
       </div>
 
       {/* Per-stage controls row */}
@@ -444,56 +471,84 @@ export function ModelPoolEditor({
               <div className="overflow-x-auto rounded-md border">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/40">
-                    <tr>
-                      <th className="text-left px-4 py-2 font-medium text-xs text-muted-foreground">Model</th>
-                      <SortHeader
-                        label="Context"
-                        active={sortBy === 'context'}
-                        dir={sortDir}
-                        onClick={() => toggleSort('context')}
-                        className="text-right"
-                      />
-                      <SortHeader
-                        label="$/1M (in/out)"
-                        active={sortBy === 'price'}
-                        dir={sortDir}
-                        onClick={() => toggleSort('price')}
-                        className="text-right"
-                      />
-                      {/* Capability columns — icon-only headers */}
-                      {CAPABILITIES.map((cap) => (
-                        <th
-                          key={cap.field}
-                          title={cap.long}
-                          className="text-center px-2 py-2 font-medium text-xs text-muted-foreground w-9"
-                        >
-                          <cap.icon className={cn('h-3.5 w-3.5 inline-block', cap.color)} />
-                        </th>
-                      ))}
-                      {/* Stage columns — show required capability icon next to label */}
-                      {STAGES.map((stage) => {
-                        const reqMeta = CAP_BY_FIELD[STAGE_CAP_REQUIREMENT[stage]];
+                    <tr className="align-bottom">
+                      {/* Model column header — name filter */}
+                      <th className="text-left px-3 py-2 font-medium text-xs text-muted-foreground">
+                        <div className="flex flex-col gap-1.5">
+                          <span>Model</span>
+                          <input
+                            type="text"
+                            placeholder="filter by name…"
+                            value={nameFilter}
+                            onChange={(e) => setNameFilter(e.target.value)}
+                            className="rounded border border-input bg-background px-2 py-1 text-xs font-normal outline-none focus:ring-1 focus:ring-ring w-44"
+                          />
+                        </div>
+                      </th>
+                      {/* Context column — sort + min-context filter */}
+                      <th className="text-right px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap">
+                        <div className="flex flex-col items-end gap-1.5">
+                          <SortLabel label="Context" active={sortBy === 'context'} dir={sortDir} onClick={() => toggleSort('context')} />
+                          <input
+                            type="text"
+                            placeholder="≥ tokens"
+                            value={minContext}
+                            onChange={(e) => setMinContext(e.target.value)}
+                            className="rounded border border-input bg-background px-2 py-1 text-xs font-normal outline-none focus:ring-1 focus:ring-ring w-24 text-right"
+                          />
+                        </div>
+                      </th>
+                      {/* Price column — sort + max-price filter */}
+                      <th className="text-right px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap">
+                        <div className="flex flex-col items-end gap-1.5">
+                          <SortLabel label="$/1M (in/out)" active={sortBy === 'price'} dir={sortDir} onClick={() => toggleSort('price')} />
+                          <input
+                            type="text"
+                            placeholder="≤ $/1M in"
+                            value={maxPrice}
+                            onChange={(e) => setMaxPrice(e.target.value)}
+                            className="rounded border border-input bg-background px-2 py-1 text-xs font-normal outline-none focus:ring-1 focus:ring-ring w-24 text-right"
+                          />
+                        </div>
+                      </th>
+                      {/* Capability columns — icon header, click icon to filter on this cap */}
+                      {CAPABILITIES.map((cap) => {
+                        const active = capFilters.has(cap.field);
                         return (
-                          <th
-                            key={stage}
-                            className="text-center px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap"
-                          >
-                            <div className="flex items-center justify-center gap-1">
-                              <span>{STAGE_LABELS[stage]}</span>
-                              <reqMeta.icon
-                                className={cn('h-3 w-3', reqMeta.color)}
-                                aria-label={`Requires ${reqMeta.long}`}
-                              />
-                            </div>
+                          <th key={cap.field} className="text-center px-1.5 py-2 font-medium text-xs text-muted-foreground w-10">
+                            <button
+                              type="button"
+                              title={`${cap.long}\nClick to filter to models with this capability`}
+                              onClick={() => toggleCapFilter(cap.field)}
+                              className={cn(
+                                'inline-flex items-center justify-center rounded p-1 hover:bg-muted',
+                                active && 'bg-primary/15 ring-1 ring-primary/40',
+                              )}
+                            >
+                              <cap.icon className={cn('h-3.5 w-3.5', cap.color)} />
+                            </button>
                           </th>
                         );
                       })}
+                      {/* Stage columns — label + all required-cap icons */}
+                      {STAGES.map((stage) => (
+                        <th key={stage} className="text-center px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap">
+                          <div className="flex flex-col items-center gap-1">
+                            <span>{STAGE_LABELS[stage]}</span>
+                            <div className="flex items-center gap-0.5">
+                              {STAGE_REQUIREMENTS[stage].map((req, i) => (
+                                <req.icon key={i} className={cn('h-3 w-3', req.color)} aria-label={`Requires ${req.label}`} />
+                              ))}
+                            </div>
+                          </div>
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {providerModels.map((m) => (
                       <tr key={m.id} className="hover:bg-muted/30">
-                        <td className="px-4 py-2 align-middle">
+                        <td className="px-3 py-2 align-middle">
                           <span className="font-mono text-xs text-foreground block">{m.id}</span>
                           {m.name !== m.id && (
                             <span className="text-xs text-muted-foreground block mt-0.5">{m.name}</span>
@@ -509,11 +564,11 @@ export function ModelPoolEditor({
                               : `$${fmtPrice(m.promptPer1M)} / $${fmtPrice(m.completionPer1M ?? 0)}`)
                             : '—'}
                         </td>
-                        {/* Capability cells — colored icon if true, faint dash if false */}
+                        {/* Capability cells */}
                         {CAPABILITIES.map((cap) => (
                           <td
                             key={cap.field}
-                            className="text-center px-2 py-2 align-middle"
+                            className="text-center px-1.5 py-2 align-middle"
                             title={m[cap.field] ? cap.long : `No ${cap.short.toLowerCase()}`}
                           >
                             {m[cap.field] ? (
@@ -526,12 +581,15 @@ export function ModelPoolEditor({
                         {/* Stage checkbox cells */}
                         {STAGES.map((stage) => {
                           const checked = pools[stage].has(m.id);
-                          const eligible = meetsStageReq(m, stage);
-                          const reqMeta = CAP_BY_FIELD[STAGE_CAP_REQUIREMENT[stage]];
+                          const missing = missingReqs(m, stage);
+                          const eligible = missing.length === 0;
+                          const reasonText = !eligible
+                            ? `Missing: ${missing.map((r) => r.label).join(', ')}`
+                            : undefined;
                           return (
                             <td key={stage} className="px-3 py-2 text-center align-middle">
                               <label
-                                title={eligible ? undefined : `Requires ${reqMeta.long}`}
+                                title={reasonText}
                                 className={cn(
                                   'inline-flex items-center justify-center rounded px-1.5 py-0.5',
                                   eligible ? 'cursor-pointer' : 'cursor-not-allowed opacity-35',

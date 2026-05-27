@@ -311,6 +311,7 @@ export const modelCapabilities = pgTable(
     structuredOutputs: boolean('structured_outputs').default(false).notNull(),
     toolCalling: boolean('tool_calling').default(false).notNull(),
     promptCaching: boolean('prompt_caching').default(false).notNull(),
+    outputCap: boolean('output_cap').default(false).notNull(),
     knowledgeCutoff: date('knowledge_cutoff'),
     source: text('source').notNull(),
     refreshedAt: timestamp('refreshed_at', { withTimezone: true }).defaultNow().notNull(),

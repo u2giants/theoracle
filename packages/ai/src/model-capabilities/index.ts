@@ -93,6 +93,7 @@ const EMPTY_ENRICHMENT: OpenRouterEnrichment = {
   structuredOutputs: false,
   toolCalling: false,
   promptCaching: false,
+  outputCap: false,
   knowledgeCutoff: null,
 };
 
@@ -158,6 +159,7 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
       structuredOutputs: or.structuredOutputs,
       toolCalling: or.toolCalling,
       promptCaching: or.promptCaching,
+      outputCap: or.outputCap,
       knowledgeCutoff: or.knowledgeCutoff,
       source: raw.source,
     };
@@ -181,6 +183,7 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
     structuredOutputs: c.structuredOutputs,
     toolCalling: c.toolCalling,
     promptCaching: c.promptCaching,
+    outputCap: c.outputCap,
     knowledgeCutoff: c.knowledgeCutoff,
     source: c.source,
     refreshedAt: new Date(refreshedAtIso),
@@ -204,6 +207,7 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
         structuredOutputs: sql`excluded.structured_outputs`,
         toolCalling: sql`excluded.tool_calling`,
         promptCaching: sql`excluded.prompt_caching`,
+        outputCap: sql`excluded.output_cap`,
         knowledgeCutoff: sql`excluded.knowledge_cutoff`,
         source: sql`excluded.source`,
         refreshedAt: sql`excluded.refreshed_at`,
@@ -230,6 +234,7 @@ export async function loadModelCatalog(db: OracleDb): Promise<ModelCapability[]>
     structuredOutputs: r.structuredOutputs,
     toolCalling: r.toolCalling,
     promptCaching: r.promptCaching,
+    outputCap: r.outputCap,
     knowledgeCutoff: r.knowledgeCutoff,
     source: r.source as ModelCapability['source'],
   }));

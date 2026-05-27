@@ -33,6 +33,7 @@ export type ModelCatalogEntry = {
   tools: boolean;
   structuredOutputs: boolean;
   promptCaching: boolean;
+  outputCap: boolean;
   knowledgeCutoff: string | null;
 };
 
@@ -51,6 +52,7 @@ function capabilityToEntry(cap: ModelCapability): ModelCatalogEntry {
     tools: cap.toolCalling,
     structuredOutputs: cap.structuredOutputs,
     promptCaching: cap.promptCaching,
+    outputCap: cap.outputCap,
     knowledgeCutoff: cap.knowledgeCutoff,
   };
 }
