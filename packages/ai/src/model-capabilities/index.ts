@@ -23,34 +23,42 @@ export interface RefreshModelCatalogResult {
   catalog: ModelCapability[];
   written: number;
   refreshedAt: string;
-  errors: string[];   // non-fatal per-source errors surfaced to the admin UI
+  errors: string[];       // non-fatal per-source errors surfaced to the admin UI
+  unenrichedIds: string[]; // model IDs that had no OpenRouter enrichment match
 }
 
 /**
  * Look up OpenRouter enrichment for a provider model ID.
  *
  * Direct provider APIs return versioned IDs ("anthropic/claude-opus-4-20250514",
- * "openai/gpt-4-turbo-2024-04-09") while OpenRouter indexes by canonical slug
- * ("anthropic/claude-opus-4", "openai/gpt-4-turbo"). We try exact match first,
- * then strip compact (YYYYMMDD) and ISO (YYYY-MM-DD) date suffixes as a fallback.
+ * "openai/gpt-4-turbo-2024-04-09", "openai/gpt-4-0613") while OpenRouter
+ * indexes by canonical slug ("anthropic/claude-opus-4", "openai/gpt-4-turbo",
+ * "openai/gpt-4"). We try exact match first, then progressively strip date /
+ * version suffixes:
+ *   -YYYY-MM-DD  (ISO date, e.g. gpt-4-turbo-2024-04-09)
+ *   -YYYYMMDD    (compact date, e.g. claude-opus-4-20250514)
+ *   -MMDD / -\d{4}  (4-digit version, e.g. gpt-4-0613, gpt-3.5-turbo-0125)
+ *
+ * Returns { enrichment, matched } so the caller can track which IDs were found.
  */
 function lookupEnrichment(
   map: Map<string, OpenRouterEnrichment>,
   modelId: string,
-): OpenRouterEnrichment {
+): { enrichment: OpenRouterEnrichment; matched: boolean } {
   const exact = map.get(modelId);
-  if (exact) return exact;
+  if (exact) return { enrichment: exact, matched: true };
 
   const normalized = modelId
-    .replace(/-\d{4}-\d{2}-\d{2}$/, '') // strip ISO date suffix: -YYYY-MM-DD
-    .replace(/-\d{8}$/, '');             // strip compact date suffix: -YYYYMMDD
+    .replace(/-\d{4}-\d{2}-\d{2}$/, '') // ISO date: -YYYY-MM-DD
+    .replace(/-\d{8}$/, '')              // compact date: -YYYYMMDD
+    .replace(/-\d{4}$/, '');             // 4-digit version: -0613, -0125, -1106
 
   if (normalized !== modelId) {
     const byNorm = map.get(normalized);
-    if (byNorm) return byNorm;
+    if (byNorm) return { enrichment: byNorm, matched: true };
   }
 
-  return EMPTY_ENRICHMENT;
+  return { enrichment: EMPTY_ENRICHMENT, matched: false };
 }
 
 const EMPTY_ENRICHMENT: OpenRouterEnrichment = {
@@ -109,8 +117,10 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
          new Map());
 
   // Merge: provider model + OpenRouter enrichment.
+  const unenrichedIds: string[] = [];
   const catalog: ModelCapability[] = rawModels.map((raw) => {
-    const or = lookupEnrichment(enrichmentMap, raw.id);
+    const { enrichment: or, matched } = lookupEnrichment(enrichmentMap, raw.id);
+    if (!matched) unenrichedIds.push(raw.id);
     return {
       id: raw.id,
       provider: raw.provider,
@@ -133,7 +143,7 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
   });
 
   if (catalog.length === 0) {
-    return { catalog: [], written: 0, refreshedAt: refreshedAtIso, errors };
+    return { catalog: [], written: 0, refreshedAt: refreshedAtIso, errors, unenrichedIds: [] };
   }
 
   const rows = catalog.map((c) => ({
@@ -179,7 +189,7 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
       },
     });
 
-  return { catalog, written: rows.length, refreshedAt: refreshedAtIso, errors };
+  return { catalog, written: rows.length, refreshedAt: refreshedAtIso, errors, unenrichedIds };
 }
 
 /** Read the persisted catalog. Empty array means "never refreshed". */

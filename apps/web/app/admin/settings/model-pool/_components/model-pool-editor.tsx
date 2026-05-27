@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Braces, Eye, FileText, Sparkles, Wrench, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ModelCatalogEntry } from '@/app/api/admin/model-catalog/route';
@@ -21,6 +22,23 @@ function fmtCtx(n: number): string {
   if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
   return n.toLocaleString();
 }
+
+// ---------------------------------------------------------------------------
+// Capability badge
+// ---------------------------------------------------------------------------
+
+type IconComponent = React.ComponentType<{ className?: string }>;
+
+function CapBadge({ icon: Icon, label, cls }: { icon: IconComponent; label: string; cls: string }) {
+  return (
+    <span className={cn('inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium', cls)}>
+      <Icon className="h-2.5 w-2.5 shrink-0" />
+      {label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
@@ -83,6 +101,7 @@ export function ModelPoolEditor({
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshErrors, setRefreshErrors] = useState<string[]>([]);
+  const [refreshUnenriched, setRefreshUnenriched] = useState<string[]>([]);
   const [pools, setPools] = useState<PoolState>({
     interview: new Set(initial.interview),
     extraction: new Set(initial.extraction),
@@ -126,10 +145,11 @@ export function ModelPoolEditor({
         const body = await res.text();
         throw new Error(`${res.status}: ${body}`);
       }
-      const data = (await res.json()) as { models: ModelCatalogEntry[]; refreshedAt: string; errors?: string[] };
+      const data = (await res.json()) as { models: ModelCatalogEntry[]; refreshedAt: string; errors?: string[]; unenrichedIds?: string[] };
       setCatalog(data.models);
       setRefreshedAt(data.refreshedAt);
       setRefreshErrors(data.errors ?? []);
+      setRefreshUnenriched(data.unenrichedIds ?? []);
     } catch (err) {
       setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -239,6 +259,18 @@ export function ModelPoolEditor({
           {refreshErrors.map((e, i) => <p key={i}>• {e}</p>)}
         </div>
       )}
+      {refreshUnenriched.length > 0 && (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer select-none">
+            {catalog.length - refreshUnenriched.length}/{catalog.length} models enriched from OpenRouter —{' '}
+            <span className="text-amber-600 dark:text-amber-400">{refreshUnenriched.length} without pricing/capability data</span>
+            {' '}(click to see)
+          </summary>
+          <ul className="mt-1.5 ml-3 space-y-0.5 font-mono">
+            {refreshUnenriched.map((id) => <li key={id}>{id}</li>)}
+          </ul>
+        </details>
+      )}
 
       <div className="flex items-center gap-3 flex-wrap">
         <input
@@ -317,12 +349,12 @@ export function ModelPoolEditor({
                             <span className="text-xs text-muted-foreground block mt-0.5">{m.name}</span>
                           )}
                           <div className="flex flex-wrap items-center gap-1 mt-1">
-                            {m.vision && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">vision</span>}
-                            {m.thinking && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">thinking</span>}
-                            {m.tools && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">tools</span>}
-                            {m.structuredOutputs && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">structured</span>}
-                            {m.promptCaching && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">caching</span>}
-                            {m.pdf && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">pdf</span>}
+                            {m.vision && <CapBadge icon={Eye} label="vision" cls="bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300" />}
+                            {m.thinking && <CapBadge icon={Sparkles} label="thinking" cls="bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300" />}
+                            {m.tools && <CapBadge icon={Wrench} label="tools" cls="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" />}
+                            {m.structuredOutputs && <CapBadge icon={Braces} label="structured" cls="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" />}
+                            {m.promptCaching && <CapBadge icon={Zap} label="caching" cls="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" />}
+                            {m.pdf && <CapBadge icon={FileText} label="pdf" cls="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400" />}
                           </div>
                         </td>
                         <td className="px-3 py-2 align-top text-right text-xs text-muted-foreground whitespace-nowrap">

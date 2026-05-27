@@ -29,7 +29,7 @@ async function getAccessToken(saJson: string): Promise<string> {
   const payload = Buffer.from(
     JSON.stringify({
       iss: sa.client_email,
-      scope: 'https://www.googleapis.com/auth/cloud-platform',
+      scope: 'https://www.googleapis.com/auth/generative-language',
       aud: 'https://oauth2.googleapis.com/token',
       iat: now,
       exp: now + 3600,

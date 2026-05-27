@@ -82,12 +82,13 @@ export async function POST() {
 
   const db = getDirectDb();
   try {
-    const { catalog, written, refreshedAt, errors } = await refreshModelCatalog(db);
+    const { catalog, written, refreshedAt, errors, unenrichedIds } = await refreshModelCatalog(db);
     return NextResponse.json({
       models: catalog.map(capabilityToEntry),
       written,
       refreshedAt,
-      errors,   // non-fatal per-source errors (e.g. one provider API was down)
+      errors,         // non-fatal per-source errors (e.g. one provider API was down)
+      unenrichedIds,  // model IDs with no OpenRouter match — shown in admin diagnostics
     });
   } catch (err) {
     return NextResponse.json(
