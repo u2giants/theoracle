@@ -48,7 +48,8 @@ const ADMIN_EMPLOYEE = {
   email: 'u2giants@gmail.com',
   name: 'Albert H.',
   role: 'Lead Architect',
-  department: 'Executive',
+  department: 'Executive',         // legacy field — kept for backward compat
+  departments: ['Executive'],
   isAdmin: true,
 };
 
@@ -58,7 +59,8 @@ const TEST_EMPLOYEE = {
   email: 'test-employee@oracle.local',
   name: 'Test Employee',
   role: 'Production Coordinator',
-  department: 'Production',
+  department: 'Production',        // legacy field
+  departments: ['Production'],
   isAdmin: false,
 };
 
@@ -93,6 +95,7 @@ export async function runSeed(existingClient?: ReturnType<typeof postgres>): Pro
         name: ADMIN_EMPLOYEE.name,
         role: ADMIN_EMPLOYEE.role,
         department: ADMIN_EMPLOYEE.department,
+        departments: ADMIN_EMPLOYEE.departments,
         isAdmin: ADMIN_EMPLOYEE.isAdmin,
       })
       .onConflictDoUpdate({
@@ -101,6 +104,7 @@ export async function runSeed(existingClient?: ReturnType<typeof postgres>): Pro
           name: ADMIN_EMPLOYEE.name,
           role: ADMIN_EMPLOYEE.role,
           department: ADMIN_EMPLOYEE.department,
+          departments: ADMIN_EMPLOYEE.departments,
           isAdmin: ADMIN_EMPLOYEE.isAdmin,
         },
       });
@@ -113,6 +117,7 @@ export async function runSeed(existingClient?: ReturnType<typeof postgres>): Pro
         name: TEST_EMPLOYEE.name,
         role: TEST_EMPLOYEE.role,
         department: TEST_EMPLOYEE.department,
+        departments: TEST_EMPLOYEE.departments,
         isAdmin: TEST_EMPLOYEE.isAdmin,
       })
       .onConflictDoNothing({ target: employees.email });

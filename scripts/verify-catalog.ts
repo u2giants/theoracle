@@ -6,6 +6,8 @@
 import { fetchAnthropicModels } from '../packages/ai/src/model-capabilities/sources/anthropic';
 import { fetchOpenAIModels } from '../packages/ai/src/model-capabilities/sources/openai';
 import { fetchGoogleModels } from '../packages/ai/src/model-capabilities/sources/google';
+import { fetchDeepSeekModels } from '../packages/ai/src/model-capabilities/sources/deepseek';
+import { fetchQwenModels } from '../packages/ai/src/model-capabilities/sources/qwen';
 import { fetchOpenRouterEnrichment } from '../packages/ai/src/model-capabilities/sources/openrouter';
 import type { OpenRouterEnrichment } from '../packages/ai/src/model-capabilities/sources/openrouter';
 
@@ -84,6 +86,8 @@ async function main() {
     { name: 'Anthropic', fn: fetchAnthropicModels, envKey: 'ANTHROPIC_API_KEY' },
     { name: 'OpenAI',    fn: fetchOpenAIModels,    envKey: 'OPENAI_API_KEY' },
     { name: 'Google',    fn: fetchGoogleModels,    envKey: 'GOOGLE_APPLICATION_CREDENTIALS_JSON' },
+    { name: 'DeepSeek',  fn: fetchDeepSeekModels,  envKey: 'DEEPSEEK_API_KEY' },
+    { name: 'Qwen',      fn: fetchQwenModels,      envKey: 'DASHSCOPE_API_KEY' },
   ] as const;
 
   for (const { name, fn, envKey } of providers) {

@@ -51,10 +51,8 @@ import {
   type OracleDb,
 } from '@oracle/db';
 import {
-  AnthropicAdapter,
-  OpenAIAdapter,
   OracleAIClient,
-  VertexGeminiAdapter,
+  buildStandardAdapters,
   embedMany,
   getOracleRoute,
   resolveModelRoute,
@@ -101,11 +99,7 @@ const SingleDocumentPayloadSchema = z.object({
 // ─────────────────────────────────────────────────────────────────────────
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
-    adapters: {
-      anthropic: new AnthropicAdapter(),
-      vertex: new VertexGeminiAdapter(),
-      openai: new OpenAIAdapter(),
-    },
+    adapters: buildStandardAdapters(),
     fallbackOnError: true,
   });
 }

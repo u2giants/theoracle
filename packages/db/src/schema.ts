@@ -174,7 +174,12 @@ export const employees = pgTable('employees', {
 
   name: varchar('name', { length: 255 }).notNull(),
   role: varchar('role', { length: 255 }).notNull(),
-  department: varchar('department', { length: 255 }).notNull(),
+  // DEPRECATED: single-value legacy field. Kept for backward compat during
+  // migration. Authoritative source is now `departments` (text[]).
+  department: varchar('department', { length: 255 }),
+  // Multi-department support. Each value is a free-text department name.
+  // The Oracle retrieval layer uses these as soft RRF score hints (not filters).
+  departments: text('departments').array().notNull().default([]),
   isAdmin: boolean('is_admin').default(false).notNull(),
 
   disabledAt: timestamp('disabled_at'),

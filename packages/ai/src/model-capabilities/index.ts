@@ -15,6 +15,8 @@ import type { OpenRouterEnrichment } from './sources/openrouter';
 import { fetchAnthropicModels } from './sources/anthropic';
 import { fetchOpenAIModels } from './sources/openai';
 import { fetchGoogleModels } from './sources/google';
+import { fetchDeepSeekModels } from './sources/deepseek';
+import { fetchQwenModels } from './sources/qwen';
 import { fetchOpenRouterEnrichment } from './sources/openrouter';
 
 export type { ModelCapability, ModelProvider, ModelCapabilitySource } from './types';
@@ -112,13 +114,21 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
   const errors: string[] = [];
 
   // Fetch model lists and enrichment in parallel.
-  const [anthropicResult, openaiResult, googleResult, enrichmentResult] =
-    await Promise.allSettled([
-      fetchAnthropicModels(),
-      fetchOpenAIModels(),
-      fetchGoogleModels(),
-      fetchOpenRouterEnrichment(),
-    ]);
+  const [
+    anthropicResult,
+    openaiResult,
+    googleResult,
+    deepseekResult,
+    qwenResult,
+    enrichmentResult,
+  ] = await Promise.allSettled([
+    fetchAnthropicModels(),
+    fetchOpenAIModels(),
+    fetchGoogleModels(),
+    fetchDeepSeekModels(),
+    fetchQwenModels(),
+    fetchOpenRouterEnrichment(),
+  ]);
 
   const rawModels = [
     ...(anthropicResult.status === 'fulfilled'
@@ -130,6 +140,12 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
     ...(googleResult.status === 'fulfilled'
       ? googleResult.value
       : (errors.push(`Google: ${googleResult.reason}`), [])),
+    ...(deepseekResult.status === 'fulfilled'
+      ? deepseekResult.value
+      : (errors.push(`DeepSeek: ${deepseekResult.reason}`), [])),
+    ...(qwenResult.status === 'fulfilled'
+      ? qwenResult.value
+      : (errors.push(`Qwen: ${qwenResult.reason}`), [])),
   ];
 
   const enrichmentMap: Map<string, OpenRouterEnrichment> =

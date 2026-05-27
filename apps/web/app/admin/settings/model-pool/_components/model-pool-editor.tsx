@@ -67,9 +67,11 @@ const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   google: 'Google (Vertex AI)',
+  deepseek: 'DeepSeek',
+  qwen: 'Alibaba Qwen',
 };
 
-const PROVIDER_ORDER = ['anthropic', 'openai', 'google'] as const;
+const PROVIDER_ORDER = ['anthropic', 'openai', 'google', 'deepseek', 'qwen'] as const;
 
 const STAGES = ['interview', 'extraction', 'synthesis'] as const;
 type Stage = (typeof STAGES)[number];

@@ -42,6 +42,15 @@ export interface NormalizeArgs {
   providerRequestId?: string;
 }
 
+export interface DeepSeekUsageRaw {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
+  completion_tokens_details?: { reasoning_tokens?: number };
+  total_tokens?: number;
+}
+
 export function normalizeUsage(args: NormalizeArgs): OracleUsage {
   const { provider, raw, latencyMs, providerRequestId } = args;
   switch (provider) {
@@ -50,6 +59,11 @@ export function normalizeUsage(args: NormalizeArgs): OracleUsage {
     case 'vertex':
       return normalizeVertex(raw as VertexUsageRaw, latencyMs, providerRequestId);
     case 'openai':
+      return normalizeOpenAI(raw as OpenAIUsageRaw, latencyMs, providerRequestId);
+    case 'deepseek':
+      return normalizeDeepSeek(raw as DeepSeekUsageRaw, latencyMs, providerRequestId);
+    case 'qwen':
+      // Qwen via DashScope OpenAI-compat returns the OpenAI usage shape.
       return normalizeOpenAI(raw as OpenAIUsageRaw, latencyMs, providerRequestId);
   }
 }
@@ -95,6 +109,23 @@ function normalizeOpenAI(
     inputTokens: raw.prompt_tokens,
     outputTokens: raw.completion_tokens,
     cachedInputTokens: raw.prompt_tokens_details?.cached_tokens,
+    reasoningTokens: raw.completion_tokens_details?.reasoning_tokens,
+    latencyMs,
+    providerRequestId,
+    rawUsageJson: raw,
+  };
+}
+
+/** DeepSeek surfaces cache hits/misses in dedicated top-level fields. */
+function normalizeDeepSeek(
+  raw: DeepSeekUsageRaw,
+  latencyMs: number,
+  providerRequestId?: string,
+): OracleUsage {
+  return {
+    inputTokens: raw.prompt_tokens,
+    outputTokens: raw.completion_tokens,
+    cachedInputTokens: raw.prompt_cache_hit_tokens,
     reasoningTokens: raw.completion_tokens_details?.reasoning_tokens,
     latencyMs,
     providerRequestId,

@@ -2,15 +2,15 @@
 
 Live in-flight state for the next contributor or AI coding session.
 
-**Snapshot date:** 2026-05-27 (end of second session)
+**Snapshot date:** 2026-05-27 (end of third session)
 **Repo:** https://github.com/u2giants/theoracle
 **Live URL:** https://oracle.designflow.app
 **Production SHA:** `1d91cd5` (last known READY Vercel deploy)
-**Current state:** Admin model-pool overhaul complete. Model catalog now sources from 3 direct provider APIs (Anthropic, OpenAI, Google Gemini) for the model list, with OpenRouter used for pricing + capability enrichment only. Per-stage pools, version badge in the admin header, and a fourth "General-purpose" model picker are live. Vertex/Anthropic/OpenAI all wired through Vercel with full credentials.
+**Current state:** Admin model-pool overhaul complete. Model catalog now sources from 3 direct provider APIs (Anthropic, OpenAI, Google Gemini) for the model list, with OpenRouter used for pricing + capability enrichment only. Per-stage pools, version badge in the admin header, and a fourth "General-purpose" model picker are live. Vertex/Anthropic/OpenAI all wired through Vercel with full credentials. Session 3 (same date) added multi-department support for employees and a soft department-hint RRF bonus in retrieval. Not yet deployed — `pnpm db:migrate` needed.
 
 ---
 
-## TL;DR — what shipped this session (chronological)
+## TL;DR — what shipped (all sessions, chronological)
 
 | Order | Commit | What | Why |
 |---|---|---|---|
@@ -24,6 +24,7 @@ Live in-flight state for the next contributor or AI coding session.
 | 8 | `e9abe5b` | Replaced hardcoded MODEL_META with a discovery service: Anthropic /v1/models parsed live, OpenAI + Vertex classified by Gemini 2.5 Flash-Lite (FOUNDATION — superseded) | Eliminate hand-typed capability data; first attempt routed through an AI classifier |
 | 9 | `65f250e` | **Prior state.** Single source: openrouter.ai/api/v1/models. Persisted to new `model_capabilities` Postgres table. Admin "Refresh from OpenRouter" button. Fourth `/admin/settings` card: "General-purpose model" picker drawing from the full catalog | OpenRouter exposes capability flags AND pricing AND context windows for every provider in one free public endpoint. No AI classification, no per-page-load cost, persists across server restarts |
 | 10 | `1d91cd5` | Model catalog: direct provider APIs for model list; OpenRouter enrichment-only | Model list now sources from Anthropic /v1/models, OpenAI /v1/models, Google generativelanguage.googleapis.com/v1beta/models. OpenRouter /v1/models fetched in parallel for pricing + capability enrichment only. ModelCapabilitySource type: 'anthropic_api' \| 'openai_api' \| 'google_api'. Non-fatal per-source errors surfaced in POST /api/admin/model-catalog response. |
+| 11 | _(uncommitted)_ | Employee multi-department + retrieval soft hint | `employees.departments text[]` (multi-value, authoritative). `employees.department varchar` kept nullable/deprecated. `RetrievalPlan.departmentHints` threads employee departments into `searchWithRetrievalPlan` as a +0.002 RRF score bonus on matching `claim_metadata.department`. Drizzle migration `0006_magical_revanche.sql` + hand-written `56_employees_departments_array.sql`. Admin `/admin` employees tab now shows multi-department and has an "Add employee" form. |
 
 Vercel deploys: 9 successful (5 of those were the iterative model-pool/discovery work). 1 ERROR fixed in commit 3.
 
@@ -153,7 +154,27 @@ Workers use `resolveModelRoute(settingValue, role)` to translate either a curate
 
 ---
 
-## What's done in this session (already on `main`, already deployed)
+## What's done in session 3 (on `main`, NOT yet deployed — `pnpm db:migrate` pending)
+
+- [x] `employees.departments text[]` column — schema, Drizzle migration `0006_magical_revanche.sql`, data migration `56_employees_departments_array.sql`
+- [x] `employees.department varchar` made nullable/deprecated (backward compat only)
+- [x] `RetrievalPlan.departmentHints?: string[]` — new soft signal, threaded through `buildRetrievalPlanFromQuery`
+- [x] `searchWithRetrievalPlan` — department RRF bonus (+0.002 to claims whose `claim_metadata.department` ∈ `departmentHints`). Never filters; only nudges.
+- [x] `getRelevantOpenGaps` — updated to use `departments` array (with fallback to legacy `department`)
+- [x] `getOpenGapsForChannel` — updated to flatMap all participant departments
+- [x] `/api/chat` — passes employee `departments` as `departmentHints` to retrieval plan
+- [x] Admin `/admin` employees page — `AddEmployeeForm` card + updated table showing multi-department
+- [x] `apps/web/app/admin/_actions.ts` — `addEmployee` server action (comma-separated departments → `text[]`)
+- [x] `apps/web/app/admin/_components/add-employee-form.tsx` — client form component
+- [x] Seed updated — both `ADMIN_EMPLOYEE` and `TEST_EMPLOYEE` now include `departments` array
+- [x] `packages/ai/src/index.ts` — removed stale `getDomainHintsForDepartment` / `DEPARTMENT_DOMAIN_HINTS` exports (those were the first wrong implementation, reverted before commit)
+- [x] `pnpm -r typecheck` — clean across all 7 packages + web + workers
+
+**To deploy:** run `pnpm db:migrate` to apply migration 0006 + SQL file 56. Then push / let Vercel auto-deploy.
+
+---
+
+## What's done in session 2 (already on `main`, already deployed)
 
 - [x] R10.5 clustering body (k-means with cosine distance, k-means++ init) — `taxonomy-reevaluation`
 - [x] `taxonomy-reclassification` Trigger.dev task (idempotent via change-log sentinel rows)
@@ -173,6 +194,11 @@ Workers use `resolveModelRoute(settingValue, role)` to translate either a curate
 ---
 
 ## What's NOT done / what's deferred
+
+### Session-3 items still pending
+
+- [ ] **Run `pnpm db:migrate`** to apply Drizzle migration `0006_magical_revanche.sql` (adds `departments text[]`, makes `department` nullable) and hand-written `56_employees_departments_array.sql` (copies existing `department` values into the new array for pre-existing employees). Required before deploying session-3 code.
+- [ ] **Drop deprecated `employees.department`** once all readers are confirmed using `departments`. Write a follow-up migration (`packages/db/migrations/sql/57_drop_employees_department.sql`).
 
 ### Easy follow-ups that match what was just built
 
@@ -227,17 +253,24 @@ The user explicitly asked for this audit. Anywhere the code embeds a model id, c
 
 ## Next exact action (for the next session)
 
-1. **First-load smoke check.** Open https://oracle.designflow.app/admin → confirm the top-right shows commit SHA `65f250e`. Hard-refresh if you see anything older.
-2. **Refresh the model catalog.** Open `/admin/settings/model-pool`. The table will be empty (we just created `model_capabilities` and no row is in it yet). Click "Refresh catalog". Expect a few seconds, then a populated table with ~30-50 rows across Anthropic / OpenAI / Google.
-3. **Curate the per-stage pools.** Check the boxes for the models you want in each stage's dropdown. Save.
-4. **Pick the active model per stage on `/admin/settings`.** The 4 cards (Interview / Extraction / Synthesis / General-purpose) each have a dropdown drawing from the corresponding pool (or full catalog for General-purpose). Save each.
-5. **Live chat sanity check.** Send a message in a channel. Confirm the Oracle responds. If you picked a Gemini model for Interview, this exercises the Vertex credentials path that was newly set up this session.
+### Session-3 deployment (do this first)
 
-If anything is broken, the most likely culprits in order:
-- a. Browser cache showing the old build — hard-refresh.
-- b. `model_capabilities` table empty — click the refresh button.
-- c. The stale DB row in `settings.default_interview_route` still points at `deepseek/*` or some other OpenRouter-era value — pick a new model on `/admin/settings` and save.
-- d. A Vercel env var didn't propagate — re-check via the dashboard or `GET /v10/projects/{id}/env`.
+1. **Apply the DB migrations.** `pnpm db:migrate` from the repo root. This applies `0006_magical_revanche.sql` (adds `departments text[]`, makes `department` nullable) and `56_employees_departments_array.sql` (copies existing department values into the new array). Idempotent — safe to run multiple times.
+2. **Commit + push session-3 changes** (if not already committed). Let Vercel auto-deploy.
+3. **Verify admin employees page.** Open `/admin`. Existing employees should show their `department` value under "Department(s)". The "Add employee" form should accept a comma-separated departments list.
+4. **Test add employee.** Add a test employee via the form. Confirm the row appears with the correct `departments` values.
+
+### Session-2 follow-ups (still open)
+
+5. **First-load smoke check.** Open https://oracle.designflow.app/admin → confirm the top-right shows a commit SHA newer than `1d91cd5`. Hard-refresh if you see anything older.
+6. **Refresh the model catalog** if `model_capabilities` table is empty: open `/admin/settings/model-pool` → click "Refresh catalog".
+7. **Curate the per-stage pools** and pick the active model per stage on `/admin/settings`.
+8. **Live chat sanity check.** Send a message in a channel. Confirm the Oracle responds.
+
+If anything is broken after the session-3 deploy, most likely:
+- a. Migration not run — `pnpm db:migrate` was skipped.
+- b. Browser cache — hard-refresh.
+- c. `model_capabilities` table empty — click the catalog refresh button.
 
 ---
 

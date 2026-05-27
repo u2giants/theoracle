@@ -84,6 +84,14 @@ export type RetrievalPlan = {
    * the subsequent ANN search doesn't embed the same summary a second time.
    */
   precomputedVector?: number[];
+  /**
+   * Department(s) of the employee making the request.
+   * Used by searchWithRetrievalPlan() to apply a small RRF score bonus to
+   * claims whose claim_metadata.department matches one of these values.
+   * This is a soft signal — it nudges ranking but never filters results.
+   * Sourced from employees.departments (the full array) at query time.
+   */
+  departmentHints?: string[];
 };
 
 export const DEFAULT_TOP_K = 8;
@@ -383,6 +391,7 @@ export function buildRetrievalPlanFromQuery(
       | 'timeFilter'
       | 'processStageHints'
       | 'precomputedVector'
+      | 'departmentHints'
     >
   >,
 ): RetrievalPlan {
@@ -418,6 +427,7 @@ export function buildRetrievalPlanFromQuery(
     topK: opts?.topK ?? DEFAULT_TOP_K,
     searchScope,
     precomputedVector: opts?.precomputedVector,
+    departmentHints: opts?.departmentHints,
   };
 }
 

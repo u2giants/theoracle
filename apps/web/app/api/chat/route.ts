@@ -29,12 +29,10 @@ import { z } from 'zod';
 import { stepCountIs, tool } from 'ai';
 import { createServiceRoleClient } from '@oracle/auth/server';
 import {
-  AnthropicAdapter,
-  OpenAIAdapter,
   ORACLE_SYSTEM_PROMPT,
   ORACLE_SYSTEM_PROMPT_VERSION,
   OracleAIClient,
-  VertexGeminiAdapter,
+  buildStandardAdapters,
   getOracleRoute,
   resolveModelRoute,
   getRecentMessages,
@@ -83,11 +81,7 @@ let _oracleClient: OracleAIClient | null = null;
 function getOracleClient(): OracleAIClient {
   if (!_oracleClient) {
     _oracleClient = new OracleAIClient({
-      adapters: {
-        anthropic: new AnthropicAdapter(),
-        vertex: new VertexGeminiAdapter(),
-        openai: new OpenAIAdapter(),
-      },
+      adapters: buildStandardAdapters(),
       fallbackOnError: true,
     });
   }
@@ -169,7 +163,16 @@ export async function POST(req: NextRequest) {
   // entity-type exclusions, and document-class exclusions before vector search
   // (spec docs/oracle/07-knowledge-segmentation.md "Retrieval rule").
   const queryForClaims = latestUserMessage.content;
-  const retrievalPlan = buildRetrievalPlanFromQuery(queryForClaims, { topK: 8 });
+  // Use the employee's departments as a soft RRF bonus — not a filter.
+  // Falls back to legacy single `department` field if `departments` is empty.
+  const deptHints =
+    me.departments.length > 0
+      ? me.departments
+      : me.department ? [me.department] : [];
+  const retrievalPlan = buildRetrievalPlanFromQuery(queryForClaims, {
+    topK: 8,
+    departmentHints: deptHints,
+  });
   const relevantClaims = queryForClaims
     ? await searchWithRetrievalPlan(db, retrievalPlan)
     : [];
@@ -181,7 +184,10 @@ export async function POST(req: NextRequest) {
   // ── 5. Compile prompt blocks (stable system + dynamic context) ───────
   const contextLines: string[] = [];
   contextLines.push(`---\nCONTEXT FOR THIS TURN:`);
-  contextLines.push(`You are speaking with ${me.name} (${me.role}, ${me.department}).`);
+  const deptDisplay = me.departments.length > 0
+    ? me.departments.join(', ')
+    : (me.department ?? 'Unknown');
+  contextLines.push(`You are speaking with ${me.name} (${me.role}, ${deptDisplay}).`);
   if (openGaps.length > 0) {
     contextLines.push(`\nOpen gaps you may weave in if relevant:`);
     for (const g of openGaps) {

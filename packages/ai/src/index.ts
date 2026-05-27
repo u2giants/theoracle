@@ -71,6 +71,9 @@ export { MockProviderAdapter, type MockAdapterOptions } from './providers/mock-a
 export { AnthropicAdapter } from './providers/anthropic-adapter';
 export { VertexGeminiAdapter } from './providers/vertex-gemini-adapter';
 export { OpenAIAdapter } from './providers/openai-adapter';
+export { DeepSeekAdapter } from './providers/deepseek-adapter';
+export { QwenAdapter } from './providers/qwen-adapter';
+export { buildStandardAdapters } from './client/standard-adapters';
 export {
   normalizeUsage,
   type NormalizeArgs,

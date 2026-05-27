@@ -41,10 +41,8 @@ import {
   type OracleDb,
 } from '@oracle/db';
 import {
-  AnthropicAdapter,
-  OpenAIAdapter,
   OracleAIClient,
-  VertexGeminiAdapter,
+  buildStandardAdapters,
   getOracleRoute,
   resolveModelRoute,
   makeBlock,
@@ -85,11 +83,7 @@ const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
 // @google/genai, and openai — NOT through OpenRouter or the Vercel AI SDK.
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
-    adapters: {
-      anthropic: new AnthropicAdapter(),
-      vertex: new VertexGeminiAdapter(),
-      openai: new OpenAIAdapter(),
-    },
+    adapters: buildStandardAdapters(),
     fallbackOnError: true,
   });
 }

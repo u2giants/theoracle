@@ -245,7 +245,7 @@ The full schema lives in `packages/db/src/schema.ts` and is faithful to `oracle_
 
 | Entity | Identifier | Where defined | Notes |
 |---|---|---|---|
-| Employee | `employees.id` (uuid) | DB | Authorization roster. `email` is the **primary contact** + first-login bootstrap. Auth identity lives in `employee_identities`, not on this row. |
+| Employee | `employees.id` (uuid) | DB | Authorization roster. `email` is the **primary contact** + first-login bootstrap. Auth identity lives in `employee_identities`, not on this row. `departments text[]` is the authoritative multi-value department list (soft hint for retrieval). `department varchar` is deprecated (nullable, kept for backward compat) — read `departments` in all new code. |
 | Employee identity | `employee_identities.id` (uuid) | DB | One row per (employee × auth provider). `auth_user_id` is Supabase's `auth.users.id`. One employee can hold many identities (Google, Microsoft 365, future Authentik). See Idiosyncratic Decisions. |
 | Auth user | `auth.users.id` (uuid) | Supabase Auth | Managed by Supabase. Owned by the identity provider. |
 | Channel | `channels.id` (uuid) | DB | Group or 1:1 chat. Membership via `channel_participants`. |
@@ -432,6 +432,16 @@ The most important section. **Do not undo these without reading the cited spec s
 **Why:** one source of truth for secrets. Duplicating `.env.local` into each workspace would invite drift.
 
 **Do not change because:** removing the explicit load makes the web app see `<EMPTY>` for `NEXT_PUBLIC_SUPABASE_URL` and friends. Same logic applies to `packages/db/src/{migrate,seed}.ts` which also load from the monorepo root.
+
+### `employees.department` is deprecated — use `departments text[]`
+
+**Looks like:** two fields for the same concept.
+
+**Actually:** `department varchar(255)` was the original single-value field. It is kept nullable for backward compat during migration. `departments text[]` (added in session 3) is the authoritative source — supports employees who belong to multiple departments.
+
+**Why:** most POP Creations employees span multiple departments (e.g. Production + Creative). A single string forces an arbitrary choice and discards the rest. The multi-value array passes all departments as `departmentHints` to `searchWithRetrievalPlan`, which applies a small RRF score bonus (+0.002) to claims whose `claim_metadata.department` matches any of the employee's departments. This is a soft signal — it nudges ranking without filtering results.
+
+**Do not change because:** reverting to a single value breaks the RRF multi-department weighting. The data migration (`packages/db/migrations/sql/56_employees_departments_array.sql`) copies the old single value into the new array for existing rows, so both fields are populated after `pnpm db:migrate`.
 
 ### Test employee in seed (`test-employee@oracle.local`)
 
@@ -668,6 +678,9 @@ Rule added to prevent recurrence:
 | Status | Item | Owner / next action |
 |---|---|---|
 | open | Delete the deprecated `auth_user_id` / `auth_provider` / `auth_provider_subject` columns from `employees` once all consumers are confirmed migrated | follow-up migration after a week of soak |
+| open | Apply Drizzle migration `0006_magical_revanche.sql` + data migration `56_employees_departments_array.sql` to live Supabase: run `pnpm db:migrate` | before deploying session-3 code |
+| open | Drop deprecated `employees.department` column once all code reads only `departments` | follow-up migration |
+| done | **Session 3 — Employee multi-department + retrieval soft hint.** `employees.departments text[]` added. `departmentHints` RRF bonus in `searchWithRetrievalPlan`. Admin `/admin` employees page + "Add employee" form. SQL migration 56 + Drizzle migration 0006. | 2026-05-27 |
 | open | Replace `test-employee@oracle.local` with a real mailbox (e.g. `u2giants+test@gmail.com`) so the Phase 2 RLS gate can be wet-tested with two real logins | Albert |
 | open | Wet-test Phase 2 RLS (cross-channel isolation between two real employees) | after the test mailbox is set up |
 | done | Wet-test Phase 3 chat route — `@oracle` posted, response received, `model_runs` row confirmed (6.3 s, 2001/98 tokens). Oracle also triggered after document uploads. | 2026-05-21 |

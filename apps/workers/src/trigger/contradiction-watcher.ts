@@ -40,10 +40,8 @@ import {
   settings,
 } from '@oracle/db/schema';
 import {
-  AnthropicAdapter,
-  OpenAIAdapter,
   OracleAIClient,
-  VertexGeminiAdapter,
+  buildStandardAdapters,
   embedText,
   getOracleRoute,
   resolveModelRoute,
@@ -96,11 +94,7 @@ const CONTRADICTION_PROMPT_VERSION = 'contradiction-1.0.0';
 // ─── Module-singleton OracleAIClient (mirrors R6/R7/R8/R9 workers) ──────────
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
-    adapters: {
-      anthropic: new AnthropicAdapter(),
-      vertex: new VertexGeminiAdapter(),
-      openai: new OpenAIAdapter(),
-    },
+    adapters: buildStandardAdapters(),
     fallbackOnError: true,
   });
 }

@@ -94,6 +94,10 @@ export async function getRelevantOpenGaps(
   employee: Employee,
   limit = DEFAULT_GAPS_LIMIT,
 ): Promise<Gap[]> {
+  const depts = employee.departments.length > 0
+    ? employee.departments
+    : employee.department ? [employee.department] : [];
+
   const rows = await db
     .select()
     .from(gaps)
@@ -102,7 +106,9 @@ export async function getRelevantOpenGaps(
         inArray(gaps.status, ['open', 'queued', 'asked']),
         or(
           eq(gaps.targetEmployeeId, employee.id),
-          eq(gaps.targetDepartment, employee.department),
+          depts.length > 0
+            ? inArray(gaps.targetDepartment, depts)
+            : undefined,
         ),
       ),
     )
@@ -305,6 +311,29 @@ export async function searchWithRetrievalPlan(
         )`
       : sql``;
 
+  // Small department-match bonus — joins claim_metadata on department to give
+  // a soft nudge to claims tagged with the requesting employee's department(s).
+  // Value (0.002) is intentionally small: roughly equivalent to ~15-rank RRF
+  // lift at mid-list, so it nudges without overriding semantic relevance.
+  const deptHints = plan.departmentHints ?? [];
+  const deptBonusCte =
+    deptHints.length > 0
+      ? sql`
+    dept_bonus AS (
+      SELECT DISTINCT cm_d.claim_id
+      FROM claim_metadata cm_d
+      WHERE cm_d.department = ANY(${deptHints}::text[])
+    ),`
+      : sql``;
+  const deptBonusTerm =
+    deptHints.length > 0
+      ? sql`+ CASE WHEN db.claim_id IS NOT NULL THEN 0.002 ELSE 0.0 END`
+      : sql``;
+  const deptBonusJoin =
+    deptHints.length > 0
+      ? sql`LEFT JOIN dept_bonus db ON db.claim_id = vr.id`
+      : sql``;
+
   const rows = await db.execute<{
     id: string;
     summary: string;
@@ -352,14 +381,17 @@ export async function searchWithRetrievalPlan(
       SELECT id, ROW_NUMBER() OVER (ORDER BY ts_score DESC) AS trank
       FROM txt_scored
     ),
+    ${deptBonusCte}
     rrf AS (
       SELECT
         vr.id, vr.summary, vr.claim_type, vr.impact_score, vr.confidence_score,
         vr.vec_dist,
         1.0 / (60.0 + vr.vrank::float) +
-        COALESCE(1.0 / (60.0 + tr.trank::float), 0.0) AS rrf_score
+        COALESCE(1.0 / (60.0 + tr.trank::float), 0.0)
+        ${deptBonusTerm} AS rrf_score
       FROM vec_ranked vr
       LEFT JOIN txt_ranked tr ON tr.id = vr.id
+      ${deptBonusJoin}
     )
     SELECT id, summary, claim_type, impact_score, confidence_score,
            vec_dist AS distance, rrf_score
@@ -484,6 +516,7 @@ export async function getOpenGapsForChannel(
     .select({
       employeeId: channelParticipants.employeeId,
       department: employees.department,
+      departments: employees.departments,
     })
     .from(channelParticipants)
     .innerJoin(employees, eq(employees.id, channelParticipants.employeeId))
@@ -492,7 +525,14 @@ export async function getOpenGapsForChannel(
   if (members.length === 0) return [];
 
   const employeeIds = members.map((m) => m.employeeId);
-  const departments = Array.from(new Set(members.map((m) => m.department)));
+  // Flatten all departments from all channel members (both old and new fields).
+  const departments = Array.from(new Set(
+    members.flatMap((m) =>
+      m.departments.length > 0
+        ? m.departments
+        : m.department ? [m.department] : [],
+    ),
+  ));
 
   return db
     .select()
@@ -502,7 +542,9 @@ export async function getOpenGapsForChannel(
         inArray(gaps.status, ['open', 'queued', 'asked']),
         or(
           inArray(gaps.targetEmployeeId, employeeIds),
-          inArray(gaps.targetDepartment, departments),
+          departments.length > 0
+            ? inArray(gaps.targetDepartment, departments)
+            : undefined,
         ),
       ),
     )

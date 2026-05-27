@@ -442,3 +442,19 @@ This file is the running log of every assumption, stub, and resolution made by t
   - Wire `supabase.realtime.presenceState()` into the lull task before computing `isAnyoneTyping`.
   - Add a `gaps.embedding` column + populate it at gap-creation time, then score by cosine similarity against the mean embedding of the channel's recent messages.
 - **Removal plan**: both round-1 shortcuts disappear when round 2 lands. Until then, they are explicit `// round 1` comments in `apps/workers/src/trigger/lull-interjection.ts`.
+
+## D12.deepseek-and-qwen-adapters — Two new direct-provider adapters added (2026-05-27)
+
+- **Decision**: Add `DeepSeekAdapter` ([packages/ai/src/providers/deepseek-adapter.ts](packages/ai/src/providers/deepseek-adapter.ts)) and `QwenAdapter` ([packages/ai/src/providers/qwen-adapter.ts](packages/ai/src/providers/qwen-adapter.ts)) to the production adapter map, expanding `OracleProvider` to `'anthropic' | 'vertex' | 'openai' | 'deepseek' | 'qwen'`.
+- **Why**: Admin user requested DeepSeek (V3, R1) and Alibaba Qwen as selectable model families for the per-stage pools. Both expose mature, cost-competitive models with capabilities OpenAI/Anthropic don't (R1's reasoning at much lower cost; Qwen-max's large context).
+- **API surfaces chosen**:
+  - DeepSeek: `https://api.deepseek.com` (their own OpenAI-compatible endpoint). Auth: `DEEPSEEK_API_KEY`. Cache hits live in DeepSeek-specific `prompt_cache_hit_tokens` (NOT OpenAI's `prompt_tokens_details.cached_tokens` shape) — handled in `normalizeUsage`.
+  - Qwen: DashScope International OpenAI-compatible endpoint `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`. Auth: `DASHSCOPE_API_KEY`. Native DashScope SDK rejected for now — overhead of a less-mature SDK doesn't justify the marginal explicit-cache control gain. Can swap to native later if cost analysis warrants.
+- **Naming**: provider keys `deepseek` and `qwen` match OpenRouter's slug convention, so the existing enrichment lookup (with dash→dot normalization) finds them without extra logic.
+- **Per D6/D9 compliance**: Direct provider APIs only — neither adapter touches OpenRouter for inference. OpenRouter is still pricing/capability enrichment only.
+- **Schema impact**: Migration 56 relaxes the `model_capabilities.provider` CHECK constraint to allow the two new values.
+- **Refactor opportunity taken**: Replaced 7 hand-rolled `adapters: { anthropic: new ..., vertex: ..., openai: ... }` blocks (1 chat route + 6 workers) with a single `buildStandardAdapters()` helper ([packages/ai/src/client/standard-adapters.ts](packages/ai/src/client/standard-adapters.ts)). Future provider adds touch one file. The helper is tolerant of missing env vars — a missing DEEPSEEK_API_KEY no longer breaks the entire OracleAIClient boot for endpoints that don't need DeepSeek.
+- **Round-1 trade-offs documented**:
+  - DeepSeek `generateObject` uses `response_format: { type: 'json_object' }` (free-form JSON + Zod validation) rather than strict json_schema, because DeepSeek doesn't expose strict json_schema mode. Risk: malformed JSON is caught by Zod, not by the model itself. Falls back to schema_repair internal subroute on validation failure.
+  - Qwen via OpenAI-compat has no client-controlled prompt cache. Cache strategy `qwen_none`. Native explicit caching deferred until a use case justifies the native SDK swap.
+- **User actions required**: Set `DEEPSEEK_API_KEY` and `DASHSCOPE_API_KEY` in Vercel env (all 3 targets) + local `.env.local` for the workers to dispatch to these models. Without keys set, the adapters are silently omitted from the standard map; admin pool selections still work (you just can't pick a DeepSeek/Qwen model as a default).

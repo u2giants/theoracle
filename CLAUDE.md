@@ -4,11 +4,17 @@
 
 ## Current state (2026-05-27)
 
-Production SHA `1d91cd5` (Vercel). Model-pool overhaul complete:
+Production SHA `1d91cd5` (Vercel). Model-pool overhaul complete in the previous session:
 - Live model catalog sourced from 3 direct provider APIs (Anthropic, OpenAI, Google Gemini); OpenRouter used for pricing + capability enrichment only. Model list and enrichment persisted to `model_capabilities` table.
 - Per-stage pools (`model_pool_interview` / `_extraction` / `_synthesis`).
 - Fourth `/admin/settings` card: "General-purpose model" picker.
 - `/api/chat` uses lazy `OracleAIClient` init (previous module-level singleton broke Vercel builds for ~12h).
+
+Third session additions (not yet deployed):
+- `employees.departments text[]` — multi-department support. Old `employees.department varchar` kept nullable/deprecated.
+- `departmentHints` soft RRF bonus in `searchWithRetrievalPlan` (+0.002 to claims whose `claim_metadata.department` matches). Never filters; only nudges ranking.
+- Drizzle migration `0006_magical_revanche.sql` + hand-written `56_employees_departments_array.sql` (data migration). Run `pnpm db:migrate` to apply.
+- Admin `/admin` employees page: "Add employee" form, comma-separated departments, updated table showing multi-department.
 
 See `HANDOFF.md` for the full session log and unfinished work. See `DECISIONS.md` for the why behind the OpenRouter-as-catalog decision (D6, D9 already cover the no-Vercel-AI-SDK, no-OpenRouter-for-inference policy; OpenRouter is admin-side metadata only).
 

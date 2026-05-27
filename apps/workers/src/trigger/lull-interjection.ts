@@ -47,10 +47,8 @@ import {
   typingIndicators,
 } from '@oracle/db/schema';
 import {
-  AnthropicAdapter,
-  OpenAIAdapter,
   OracleAIClient,
-  VertexGeminiAdapter,
+  buildStandardAdapters,
   getOracleRoute,
   resolveModelRoute,
   makeBlock,
@@ -90,11 +88,7 @@ Hard rules:
 // ─── Module-singleton OracleAIClient (same pattern as the other workers) ────
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
-    adapters: {
-      anthropic: new AnthropicAdapter(),
-      vertex: new VertexGeminiAdapter(),
-      openai: new OpenAIAdapter(),
-    },
+    adapters: buildStandardAdapters(),
     fallbackOnError: true,
   });
 }

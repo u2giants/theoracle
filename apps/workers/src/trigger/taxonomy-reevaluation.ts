@@ -40,10 +40,8 @@ import {
   taxonomyProposals,
 } from '@oracle/db';
 import {
-  AnthropicAdapter,
   OracleAIClient,
-  OpenAIAdapter,
-  VertexGeminiAdapter,
+  buildStandardAdapters,
   makeBlock,
 } from '@oracle/ai';
 
@@ -146,11 +144,7 @@ function kMeans(
 
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
-    adapters: {
-      anthropic: new AnthropicAdapter(),
-      vertex: new VertexGeminiAdapter(),
-      openai: new OpenAIAdapter(),
-    },
+    adapters: buildStandardAdapters(),
     fallbackOnError: true,
   });
 }
