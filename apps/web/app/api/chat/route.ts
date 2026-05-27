@@ -71,17 +71,28 @@ const BodySchema = z.object({
 
 const FALLBACK_ROUTE_ID = 'anthropic_claude_haiku_4_5_interview_primary';
 
-// Singleton OracleAIClient with direct provider adapters (R-providers).
+// Lazy singleton OracleAIClient with direct provider adapters (R-providers).
 // Anthropic / Vertex / OpenAI raw SDKs per DECISIONS.md D6 — no Vercel AI
 // SDK, no OpenRouter in this path.
-const oracleClient = new OracleAIClient({
-  adapters: {
-    anthropic: new AnthropicAdapter(),
-    vertex: new VertexGeminiAdapter(),
-    openai: new OpenAIAdapter(),
-  },
-  fallbackOnError: true,
-});
+//
+// The adapter constructors throw when their provider API key is missing, so
+// we MUST defer instantiation until the first request. At Next.js build time,
+// the "Collect page data" phase imports this module without the runtime env
+// vars in scope — eagerly constructing the singleton there fails the build.
+let _oracleClient: OracleAIClient | null = null;
+function getOracleClient(): OracleAIClient {
+  if (!_oracleClient) {
+    _oracleClient = new OracleAIClient({
+      adapters: {
+        anthropic: new AnthropicAdapter(),
+        vertex: new VertexGeminiAdapter(),
+        openai: new OpenAIAdapter(),
+      },
+      fallbackOnError: true,
+    });
+  }
+  return _oracleClient;
+}
 
 export async function POST(req: NextRequest) {
   let body: z.infer<typeof BodySchema>;
@@ -202,7 +213,7 @@ export async function POST(req: NextRequest) {
     }),
   ];
 
-  const plan = oracleClient.compile({
+  const plan = getOracleClient().compile({
     taskType: 'interview_chat',
     routeId: route.routeId,
     promptVersion: ORACLE_SYSTEM_PROMPT_VERSION,
@@ -382,7 +393,7 @@ export async function POST(req: NextRequest) {
   let providerRequestId: string | undefined;
 
   try {
-    const result = await oracleClient.runText({
+    const result = await getOracleClient().runText({
       taskType: 'interview_chat',
       routeId: route.routeId,
       promptVersion: ORACLE_SYSTEM_PROMPT_VERSION,
