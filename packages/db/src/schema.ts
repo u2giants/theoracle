@@ -4,6 +4,7 @@
 
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -287,6 +288,36 @@ export const typingIndicators = pgTable(
   (t) => ({
     pk: primaryKey({ columns: [t.channelId, t.employeeId] }),
     expiresAtIdx: index('typing_indicators_expires_at_idx').on(t.expiresAt),
+  }),
+);
+
+// Discovered model catalog cache. Refreshed from OpenRouter via the admin
+// "Refresh catalog" button. One row per "provider/modelId" id. Pricing is
+// stored as USD per 1,000,000 tokens (already multiplied from OpenRouter's
+// per-token figures).
+export const modelCapabilities = pgTable(
+  'model_capabilities',
+  {
+    id: text('id').primaryKey(),
+    provider: text('provider').notNull(),
+    displayName: text('display_name').notNull(),
+    contextLength: integer('context_length'),
+    maxOutputTokens: integer('max_output_tokens'),
+    promptPer1mUsd: numeric('prompt_per_1m_usd'),
+    completionPer1mUsd: numeric('completion_per_1m_usd'),
+    vision: boolean('vision').default(false).notNull(),
+    pdf: boolean('pdf').default(false).notNull(),
+    thinking: boolean('thinking').default(false).notNull(),
+    structuredOutputs: boolean('structured_outputs').default(false).notNull(),
+    toolCalling: boolean('tool_calling').default(false).notNull(),
+    promptCaching: boolean('prompt_caching').default(false).notNull(),
+    knowledgeCutoff: date('knowledge_cutoff'),
+    source: text('source').notNull(),
+    refreshedAt: timestamp('refreshed_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    providerIdx: index('model_capabilities_provider_idx').on(t.provider),
+    refreshedIdx: index('model_capabilities_refreshed_idx').on(t.refreshedAt),
   }),
 );
 
@@ -1434,6 +1465,8 @@ export type NewEntityProposal = typeof entityProposals.$inferInsert;
 // Typing presence
 export type TypingIndicator = typeof typingIndicators.$inferSelect;
 export type NewTypingIndicator = typeof typingIndicators.$inferInsert;
+export type ModelCapabilityRow = typeof modelCapabilities.$inferSelect;
+export type NewModelCapabilityRow = typeof modelCapabilities.$inferInsert;
 // R4 candidate-before-claim staging
 export type ExtractionBatch = typeof extractionBatches.$inferSelect;
 export type NewExtractionBatch = typeof extractionBatches.$inferInsert;

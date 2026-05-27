@@ -129,8 +129,11 @@ export function ModelPicker({
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Load models on mount. Stage is derived from settingKey so the API
-  // returns this stage's pool only.
-  const stage = settingKey.includes('interview')
+  // returns this stage's pool only. The "general" stage is special — it
+  // ignores the pool and shows the full catalog.
+  const stage = settingKey.includes('general_purpose')
+    ? 'general'
+    : settingKey.includes('interview')
     ? 'interview'
     : settingKey.includes('extraction')
     ? 'extraction'

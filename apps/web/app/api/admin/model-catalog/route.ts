@@ -1,23 +1,18 @@
-// GET /api/admin/model-catalog
+// GET  /api/admin/model-catalog   — read persisted catalog (with pricing/caps)
+// POST /api/admin/model-catalog   — refresh from OpenRouter, upsert into DB
 //
-// Returns the full discovered model catalog for the admin model-pool page.
-// All capabilities come from either provider /models APIs (Anthropic) or a
-// Gemini Flash-Lite classification of the provider's official docs
-// (OpenAI, Vertex). No hand-typed capability tables.
-//
-// Pass ?refresh=1 to bypass the in-memory cache and re-run discovery.
-//
-// Requires admin.
-// Response: { models: ModelCatalogEntry[], providerErrors: string[], cached: boolean }
+// Capability and pricing data comes from openrouter.ai/api/v1/models. The
+// catalog lives in the model_capabilities Postgres table; this endpoint does
+// not call OpenRouter on every request — that only happens on POST (admin
+// "Refresh catalog" button or a future cron).
 
-import { NextResponse, type NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth-guard';
+import { getDirectDb } from '@oracle/db/client';
 import {
-  AnthropicAdapter,
-  OpenAIAdapter,
-  OracleAIClient,
-  VertexGeminiAdapter,
-  discoverModelCatalog,
+  loadModelCatalog,
+  refreshModelCatalog,
+  getCatalogRefreshedAt,
   type ModelCapability,
 } from '@oracle/ai';
 
@@ -28,28 +23,17 @@ export type ModelCatalogEntry = {
   name: string;
   provider: 'anthropic' | 'openai' | 'google';
   contextLength: number | null;
+  maxOutputTokens: number | null;
   promptPer1M: number | null;
   completionPer1M: number | null;
   vision: boolean;
+  pdf: boolean;
+  thinking: boolean;
   tools: boolean;
+  structuredOutputs: boolean;
+  promptCaching: boolean;
+  knowledgeCutoff: string | null;
 };
-
-// Lazy OracleAIClient — adapter constructors throw if their env vars are
-// missing, so we defer until request time. Same pattern as /api/chat.
-let _client: OracleAIClient | null = null;
-function getOracleClient(): OracleAIClient {
-  if (!_client) {
-    _client = new OracleAIClient({
-      adapters: {
-        anthropic: new AnthropicAdapter(),
-        vertex: new VertexGeminiAdapter(),
-        openai: new OpenAIAdapter(),
-      },
-      fallbackOnError: false,
-    });
-  }
-  return _client;
-}
 
 function capabilityToEntry(cap: ModelCapability): ModelCatalogEntry {
   return {
@@ -57,39 +41,58 @@ function capabilityToEntry(cap: ModelCapability): ModelCatalogEntry {
     name: cap.displayName,
     provider: cap.provider,
     contextLength: cap.contextLength,
-    // Provider /models APIs don't expose pricing yet; left null. A follow-up
-    // can layer a pricing source (e.g. the cost monitoring observability rows)
-    // on top of the capability catalog.
-    promptPer1M: null,
-    completionPer1M: null,
+    maxOutputTokens: cap.maxOutputTokens,
+    promptPer1M: cap.promptPer1mUsd,
+    completionPer1M: cap.completionPer1mUsd,
     vision: cap.vision,
+    pdf: cap.pdf,
+    thinking: cap.thinking,
     tools: cap.toolCalling,
+    structuredOutputs: cap.structuredOutputs,
+    promptCaching: cap.promptCaching,
+    knowledgeCutoff: cap.knowledgeCutoff,
   };
 }
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     await requireAdmin();
   } catch {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const refresh = req.nextUrl.searchParams.get('refresh') === '1';
+  const db = getDirectDb();
+  const [catalog, refreshedAt] = await Promise.all([
+    loadModelCatalog(db),
+    getCatalogRefreshedAt(db),
+  ]);
 
+  return NextResponse.json({
+    models: catalog.map(capabilityToEntry),
+    refreshedAt: refreshedAt ? refreshedAt.toISOString() : null,
+    catalogSize: catalog.length,
+  });
+}
+
+export async function POST() {
   try {
-    const { catalog, providerErrors, cached } = await discoverModelCatalog(
-      getOracleClient(),
-      { force: refresh },
-    );
+    await requireAdmin();
+  } catch {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  const db = getDirectDb();
+  try {
+    const { catalog, written, refreshedAt } = await refreshModelCatalog(db);
     return NextResponse.json({
       models: catalog.map(capabilityToEntry),
-      providerErrors,
-      cached,
+      written,
+      refreshedAt,
     });
   } catch (err) {
     return NextResponse.json(
-      { error: 'discovery_failed', detail: err instanceof Error ? err.message : String(err) },
-      { status: 500 },
+      { error: 'refresh_failed', detail: err instanceof Error ? err.message : String(err) },
+      { status: 502 },
     );
   }
 }

@@ -32,6 +32,14 @@ export const ROUTE_SETTING_KEYS = {
   synthesis: 'default_synthesis_route',
 } as const satisfies Record<OracleModelRole, string>;
 
+/**
+ * Settings key for the general-purpose / utility model — used for internal
+ * one-off jobs that don't fit one of the three primary stages (e.g. taxonomy
+ * cluster naming, future classifier fallbacks). Admin chooses any model from
+ * the discovered catalog.
+ */
+export const GENERAL_PURPOSE_ROUTE_SETTING_KEY = 'default_general_purpose_route';
+
 /** Legacy settings keys kept temporarily during R1 migration. Read-only. */
 export const LEGACY_OPENROUTER_SETTING_KEYS = {
   interview: 'default_interview_model',

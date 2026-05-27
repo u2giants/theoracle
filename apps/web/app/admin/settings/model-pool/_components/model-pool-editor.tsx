@@ -59,7 +59,9 @@ export function ModelPoolEditor({
   const [catalog, setCatalog] = useState<ModelCatalogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [providerErrors, setProviderErrors] = useState<string[]>([]);
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [pools, setPools] = useState<PoolState>({
     interview: new Set(initial.interview),
     extraction: new Set(initial.extraction),
@@ -78,10 +80,10 @@ export function ModelPoolEditor({
           const body = await res.text();
           throw new Error(`${res.status}: ${body}`);
         }
-        const data = (await res.json()) as { models: ModelCatalogEntry[]; providerErrors?: string[] };
+        const data = (await res.json()) as { models: ModelCatalogEntry[]; refreshedAt: string | null };
         if (!cancelled) {
           setCatalog(data.models);
-          if (data.providerErrors?.length) setProviderErrors(data.providerErrors);
+          setRefreshedAt(data.refreshedAt);
         }
       } catch (err) {
         if (!cancelled) setFetchError(err instanceof Error ? err.message : String(err));
@@ -92,6 +94,25 @@ export function ModelPoolEditor({
     void load();
     return () => { cancelled = true; };
   }, []);
+
+  async function refreshCatalog() {
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const res = await fetch('/api/admin/model-catalog', { method: 'POST' });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`${res.status}: ${body}`);
+      }
+      const data = (await res.json()) as { models: ModelCatalogEntry[]; refreshedAt: string };
+      setCatalog(data.models);
+      setRefreshedAt(data.refreshedAt);
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   function toggle(stage: Stage, id: string) {
     setPools((prev) => {
@@ -149,6 +170,21 @@ export function ModelPoolEditor({
       <p className="text-sm text-destructive">Failed to load catalog: {fetchError}</p>
     );
   }
+  if (catalog.length === 0) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          The model catalog hasn&apos;t been refreshed yet. Click below to pull the
+          current list from openrouter.ai (covers Anthropic, OpenAI, and Google
+          Vertex models with pricing).
+        </p>
+        <Button onClick={refreshCatalog} disabled={refreshing} size="sm">
+          {refreshing ? 'Refreshing…' : 'Refresh catalog from OpenRouter'}
+        </Button>
+        {refreshError && <p className="text-sm text-destructive">{refreshError}</p>}
+      </div>
+    );
+  }
 
   const filtered = filter.trim()
     ? catalog.filter(
@@ -160,19 +196,20 @@ export function ModelPoolEditor({
 
   return (
     <div className="space-y-5">
-      {providerErrors.length > 0 && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-4 py-2.5 text-sm text-amber-800 dark:text-amber-300 space-y-1">
-          <p className="font-medium">Some providers could not be reached:</p>
-          {providerErrors.map((e) => (
-            <p key={e} className="text-xs font-mono">{e}</p>
-          ))}
-          <p className="text-xs mt-1">
-            Set the missing API keys in your Vercel project environment variables
-            (<code className="font-mono">ANTHROPIC_API_KEY</code>,{' '}
-            <code className="font-mono">OPENAI_API_KEY</code>) and redeploy.
-          </p>
-        </div>
-      )}
+      {/* Catalog freshness + refresh */}
+      <div className="flex items-center gap-3 flex-wrap text-sm">
+        <span className="text-muted-foreground">
+          Catalog last refreshed:{' '}
+          <strong className="text-foreground">
+            {refreshedAt ? new Date(refreshedAt).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short', timeZoneName: 'short' }) : 'never'}
+          </strong>
+          {' '}({catalog.length} models)
+        </span>
+        <Button onClick={refreshCatalog} disabled={refreshing} size="sm" variant="outline">
+          {refreshing ? 'Refreshing…' : 'Refresh from OpenRouter'}
+        </Button>
+        {refreshError && <span className="text-sm text-destructive">{refreshError}</span>}
+      </div>
 
       <div className="flex items-center gap-3 flex-wrap">
         <input

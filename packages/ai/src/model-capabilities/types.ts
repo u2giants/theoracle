@@ -1,18 +1,16 @@
 /**
  * Unified model capability shape used by the admin model-pool + picker UIs.
  *
- * Hand-typed capability tables are explicitly NOT allowed in this module —
- * every field below must come from either a provider /models API response
- * (Anthropic) or a Gemini Flash-Lite classification of the official
- * provider docs (OpenAI, Vertex). See sources/*.ts.
+ * Filled from OpenRouter's /v1/models endpoint — capability flags, pricing,
+ * and context windows all live there. No hand-typed capability tables.
  */
 
 export type ModelProvider = 'anthropic' | 'openai' | 'google';
 
 export type ModelCapabilitySource =
-  | 'anthropic_api'         // Parsed from api.anthropic.com /v1/models capabilities object
-  | 'openai_classified'     // OpenAI /v1/models id, capabilities inferred by Gemini Flash-Lite
-  | 'vertex_classified';    // Vertex Gemini model id, capabilities inferred by Gemini Flash-Lite
+  | 'openrouter'              // openrouter.ai/api/v1/models — primary source
+  | 'anthropic_api'           // optional supplemental source (reserved for follow-up)
+  | 'classifier';             // Gemini Flash-Lite last-resort fallback (reserved)
 
 export interface ModelCapability {
   /** "provider/modelId" — same id format used in settings.model_pool_*. */
@@ -23,19 +21,20 @@ export interface ModelCapability {
   contextLength: number | null;       // max input tokens
   maxOutputTokens: number | null;     // max output tokens per request
 
-  /** Accepts image inputs (image_url, base64 image, etc.) */
+  /** USD per 1,000,000 input tokens. */
+  promptPer1mUsd: number | null;
+  /** USD per 1,000,000 output tokens. */
+  completionPer1mUsd: number | null;
+
   vision: boolean;
-  /** Accepts PDF/document file inputs directly. */
   pdf: boolean;
-  /** Has a first-class reasoning / extended-thinking mode the API exposes. */
   thinking: boolean;
-  /** Supports server-side structured output (json_schema response_format / native_json_schema). */
   structuredOutputs: boolean;
-  /** Supports the tools / function-calling parameter. */
   toolCalling: boolean;
-  /** Supports provider-native prompt caching. */
   promptCaching: boolean;
 
+  /** ISO date string (YYYY-MM-DD), if the provider published it. */
+  knowledgeCutoff: string | null;
+
   source: ModelCapabilitySource;
-  fetchedAt: string;                  // ISO timestamp of the discovery run
 }

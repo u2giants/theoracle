@@ -11,7 +11,7 @@ import Link from 'next/link';
 import { inArray } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { settings } from '@oracle/db/schema';
-import { ROUTE_SETTING_KEYS } from '@oracle/ai';
+import { ROUTE_SETTING_KEYS, GENERAL_PURPOSE_ROUTE_SETTING_KEY } from '@oracle/ai';
 import {
   Card,
   CardContent,
@@ -113,6 +113,27 @@ const MODEL_ROLES: {
       'Context: potentially 100K+ tokens at scale',
     ],
     requiredCaps: ['tools', 'reasoning'],
+  },
+  {
+    settingKey: GENERAL_PURPOSE_ROUTE_SETTING_KEY,
+    title: 'General-purpose model',
+    subtitle: 'Utility / fallback model for internal jobs',
+    description: (
+      <>
+        Used for one-off internal tasks that don&apos;t fit the three stages
+        above — taxonomy cluster naming, on-demand classification, ad-hoc
+        admin queries. Pick whatever the current best general-purpose model
+        is and update it here when a newer one ships. The picker draws from
+        the full discovered catalog (no pool filter applies).
+      </>
+    ),
+    settingDescription: 'General-purpose / utility model. Admin updates this when a newer model is available.',
+    requirements: [
+      'Tool use recommended',
+      'Vision recommended',
+      'Cheap to medium cost',
+    ],
+    requiredCaps: ['tools'],
   },
 ];
 

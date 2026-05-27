@@ -115,15 +115,18 @@ export {
   ROUTE_SETTING_KEYS,
   LEGACY_OPENROUTER_SETTING_KEYS,
   MODEL_POOL_SETTING_KEYS,
+  GENERAL_PURPOSE_ROUTE_SETTING_KEY,
 } from './routes';
 
-// Model capability discovery — replaces hand-typed capability tables.
+// Model capability discovery — OpenRouter as single source, persisted to DB.
 export {
-  discoverModelCatalog,
-  invalidateCachedCatalog,
+  loadModelCatalog,
+  refreshModelCatalog,
+  getCatalogRefreshedAt,
   type ModelCapability,
   type ModelProvider,
   type ModelCapabilitySource,
+  type RefreshModelCatalogResult,
 } from './model-capabilities';
 
 export {
