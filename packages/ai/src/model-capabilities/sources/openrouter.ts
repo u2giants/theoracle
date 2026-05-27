@@ -108,7 +108,13 @@ export async function fetchOpenRouterEnrichment(): Promise<Map<string, OpenRoute
   const body = (await res.json()) as { data?: ORModel[] };
   const map = new Map<string, OpenRouterEnrichment>();
   for (const m of body.data ?? []) {
-    map.set(m.id, toEnrichment(m));
+    const enrichment = toEnrichment(m);
+    map.set(m.id, enrichment);
+    // Index by canonical_slug too — versioned model IDs (e.g. "anthropic/claude-opus-4-20250514")
+    // can fall back to the canonical form ("anthropic/claude-opus-4") stored here.
+    if (m.canonical_slug && m.canonical_slug !== m.id) {
+      map.set(m.canonical_slug, enrichment);
+    }
   }
   return map;
 }

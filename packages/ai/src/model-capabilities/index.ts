@@ -26,6 +26,33 @@ export interface RefreshModelCatalogResult {
   errors: string[];   // non-fatal per-source errors surfaced to the admin UI
 }
 
+/**
+ * Look up OpenRouter enrichment for a provider model ID.
+ *
+ * Direct provider APIs return versioned IDs ("anthropic/claude-opus-4-20250514",
+ * "openai/gpt-4-turbo-2024-04-09") while OpenRouter indexes by canonical slug
+ * ("anthropic/claude-opus-4", "openai/gpt-4-turbo"). We try exact match first,
+ * then strip compact (YYYYMMDD) and ISO (YYYY-MM-DD) date suffixes as a fallback.
+ */
+function lookupEnrichment(
+  map: Map<string, OpenRouterEnrichment>,
+  modelId: string,
+): OpenRouterEnrichment {
+  const exact = map.get(modelId);
+  if (exact) return exact;
+
+  const normalized = modelId
+    .replace(/-\d{4}-\d{2}-\d{2}$/, '') // strip ISO date suffix: -YYYY-MM-DD
+    .replace(/-\d{8}$/, '');             // strip compact date suffix: -YYYYMMDD
+
+  if (normalized !== modelId) {
+    const byNorm = map.get(normalized);
+    if (byNorm) return byNorm;
+  }
+
+  return EMPTY_ENRICHMENT;
+}
+
 const EMPTY_ENRICHMENT: OpenRouterEnrichment = {
   contextLength: null,
   maxOutputTokens: null,
@@ -83,7 +110,7 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
 
   // Merge: provider model + OpenRouter enrichment.
   const catalog: ModelCapability[] = rawModels.map((raw) => {
-    const or = enrichmentMap.get(raw.id) ?? EMPTY_ENRICHMENT;
+    const or = lookupEnrichment(enrichmentMap, raw.id);
     return {
       id: raw.id,
       provider: raw.provider,

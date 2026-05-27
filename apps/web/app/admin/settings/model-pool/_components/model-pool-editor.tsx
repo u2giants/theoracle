@@ -39,6 +39,26 @@ const STAGE_LABELS: Record<Stage, string> = {
   synthesis: 'Synthesis',
 };
 
+// Minimum capability a model must have to be selectable for each stage.
+// Interview and Synthesis use tool_call structured-output strategy → need tools.
+// Extraction uses native_json_schema → needs structuredOutputs.
+const STAGE_CAP_REQUIREMENT: Record<Stage, { field: keyof ModelCatalogEntry; label: string }> = {
+  interview: { field: 'tools', label: 'tool calling' },
+  extraction: { field: 'structuredOutputs', label: 'structured outputs' },
+  synthesis: { field: 'tools', label: 'tool calling' },
+};
+
+/** True when we have enrichment data for this model (context OR pricing populated). */
+function hasEnrichment(m: ModelCatalogEntry): boolean {
+  return m.contextLength != null || m.promptPer1M != null;
+}
+
+/** False only when enrichment is present AND the required cap is explicitly false. */
+function meetsStageReq(m: ModelCatalogEntry, stage: Stage): boolean {
+  if (!hasEnrichment(m)) return true; // unknown — allow
+  return !!m[STAGE_CAP_REQUIREMENT[stage].field];
+}
+
 const STAGE_SETTING_KEYS: Record<Stage, string> = {
   interview: 'model_pool_interview',
   extraction: 'model_pool_extraction',
@@ -62,6 +82,7 @@ export function ModelPoolEditor({
   const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshErrors, setRefreshErrors] = useState<string[]>([]);
   const [pools, setPools] = useState<PoolState>({
     interview: new Set(initial.interview),
     extraction: new Set(initial.extraction),
@@ -98,15 +119,17 @@ export function ModelPoolEditor({
   async function refreshCatalog() {
     setRefreshing(true);
     setRefreshError(null);
+    setRefreshErrors([]);
     try {
       const res = await fetch('/api/admin/model-catalog', { method: 'POST' });
       if (!res.ok) {
         const body = await res.text();
         throw new Error(`${res.status}: ${body}`);
       }
-      const data = (await res.json()) as { models: ModelCatalogEntry[]; refreshedAt: string };
+      const data = (await res.json()) as { models: ModelCatalogEntry[]; refreshedAt: string; errors?: string[] };
       setCatalog(data.models);
       setRefreshedAt(data.refreshedAt);
+      setRefreshErrors(data.errors ?? []);
     } catch (err) {
       setRefreshError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -210,6 +233,12 @@ export function ModelPoolEditor({
         </Button>
         {refreshError && <span className="text-sm text-destructive">{refreshError}</span>}
       </div>
+      {refreshErrors.length > 0 && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-0.5 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          <p className="font-medium">Partial refresh — some sources failed:</p>
+          {refreshErrors.map((e, i) => <p key={i}>• {e}</p>)}
+        </div>
+      )}
 
       <div className="flex items-center gap-3 flex-wrap">
         <input
@@ -287,10 +316,13 @@ export function ModelPoolEditor({
                           {m.name !== m.id && (
                             <span className="text-xs text-muted-foreground block mt-0.5">{m.name}</span>
                           )}
-                          <div className="flex items-center gap-1.5 mt-1">
-                            {m.vision && (
-                              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">vision</span>
-                            )}
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            {m.vision && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">vision</span>}
+                            {m.thinking && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">thinking</span>}
+                            {m.tools && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">tools</span>}
+                            {m.structuredOutputs && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">structured</span>}
+                            {m.promptCaching && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">caching</span>}
+                            {m.pdf && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">pdf</span>}
                           </div>
                         </td>
                         <td className="px-3 py-2 align-top text-right text-xs text-muted-foreground whitespace-nowrap">
@@ -305,19 +337,24 @@ export function ModelPoolEditor({
                         </td>
                         {STAGES.map((stage) => {
                           const checked = pools[stage].has(m.id);
+                          const eligible = meetsStageReq(m, stage);
+                          const req = STAGE_CAP_REQUIREMENT[stage];
                           return (
                             <td key={stage} className="px-3 py-2 text-center align-top">
                               <label
+                                title={eligible ? undefined : `Requires ${req.label}`}
                                 className={cn(
-                                  'inline-flex items-center justify-center cursor-pointer rounded px-1.5 py-0.5',
-                                  checked && 'bg-primary/10',
+                                  'inline-flex items-center justify-center rounded px-1.5 py-0.5',
+                                  eligible ? 'cursor-pointer' : 'cursor-not-allowed opacity-35',
+                                  checked && eligible && 'bg-primary/10',
                                 )}
                               >
                                 <input
                                   type="checkbox"
                                   checked={checked}
-                                  onChange={() => toggle(stage, m.id)}
-                                  className="size-4 rounded border-gray-300 accent-primary"
+                                  disabled={!eligible}
+                                  onChange={() => eligible && toggle(stage, m.id)}
+                                  className="size-4 rounded border-gray-300 accent-primary disabled:cursor-not-allowed"
                                   aria-label={`Include ${m.id} in ${STAGE_LABELS[stage]} pool`}
                                 />
                               </label>
