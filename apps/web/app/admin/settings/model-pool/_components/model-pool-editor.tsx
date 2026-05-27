@@ -201,7 +201,7 @@ export function ModelPoolEditor({
         <span className="text-muted-foreground">
           Catalog last refreshed:{' '}
           <strong className="text-foreground">
-            {refreshedAt ? new Date(refreshedAt).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short', timeZoneName: 'short' }) : 'never'}
+            {refreshedAt ? new Date(refreshedAt).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : 'never'}
           </strong>
           {' '}({catalog.length} models)
         </span>
