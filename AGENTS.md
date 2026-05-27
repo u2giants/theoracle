@@ -109,7 +109,7 @@ oracle/
 │   │   │   ├── diff-validator.ts         # R9 validateSynthesisDiff — claim ID + unsupported-named-entity check
 │   │   │   └── index.ts
 │   │   ├── src/__verify__/        # Self-contained smoke gates (R5/R5.5/R6/R7/R9)
-│   │   ├── src/interjection.ts    # Phase 6 / R11 scaffold — not yet wired
+│   │   ├── src/interjection.ts    # R11.1 — pure decision functions: decideLullInterjection + decideContradictionInterjection; wired in R11.2 (lull-interjection cron) + R11.3 (contradiction live interjection)
 │   │   └── src/index.ts
 ├── docs/                          # detailed docs — architecture, development, configuration, deployment
 ├── AGENTS.md                      # this file
@@ -627,7 +627,7 @@ The deploy story is fully managed (no Docker, no VPS, per spec Part 2.5):
   - **Rollback:** Vercel dashboard → Deployments → promote the previous production deployment.
 
 - **`apps/workers` → Trigger.dev Cloud.**
-  - Project: `proj_wgpzsvhmsopqhvwqaycn`. Tasks across 5 files (claim-extraction, document-ingestion, contradiction-watcher, brain-synthesis, taxonomy-reevaluation).
+  - Project: `proj_wgpzsvhmsopqhvwqaycn`. Tasks across 6 files (claim-extraction, document-ingestion, contradiction-watcher, brain-synthesis, lull-interjection, taxonomy-reevaluation); 10 exported tasks total.
   - Deploy manually: `pnpm --filter @oracle/workers deploy` (invokes `npx trigger.dev@latest deploy`).
   - Runtime env vars: managed in Trigger.dev project dashboard (not Vercel). Must include all the direct-provider keys + Vertex service-account JSON.
   - **Rollback:** redeploy from a prior commit, or disable the task in Trigger.dev's UI.
@@ -707,7 +707,7 @@ Rule added to prevent recurrence:
 | open | Vector indexes (`packages/db/migrations/sql/99_vector_indexes.sql`) — apply once enough embedding data exists to justify HNSW | run the SQL when ready |
 | open | Rotate the Vercel token that was pasted into the build transcript during overnight setup | https://vercel.com/account/tokens |
 | open | Rotate `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and the unused OpenRouter key before going live (all three were exposed in chat transcripts during the R-providers and R11.0 sessions for dev convenience) | https://console.anthropic.com/settings/keys, https://platform.openai.com/api-keys, https://openrouter.ai/keys |
-| open | Delete `OpenRouter`-tagged tasks from the Trigger.dev project's env vars on the next workers deploy (`OPENROUTER_API_KEY` is no longer used) | Trigger.dev dashboard |
+| done | Delete `OpenRouter`-tagged tasks from the Trigger.dev project's env vars on the next workers deploy (`OPENROUTER_API_KEY` is no longer used) | Confirmed absent from Trigger.dev project env on 2026-05-26. |
 | open | Add an admin UI to link / unlink employee identities (e.g. "this gmail is also Albert") | future Phase 5 task |
 | open | Wet-test the Microsoft 365 + Google login flows on a fresh employee (one with no prior session state) before broader rollout | Albert |
 | done | Phase 1 — Foundation (schema, migrations, RLS, auth callback, admin seed) | **wet-tested** |

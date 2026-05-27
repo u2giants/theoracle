@@ -273,7 +273,6 @@ If you need to re-run migrations from a fresh checkout, `pnpm db:migrate` is ide
 - **R10.5 clustering / drift detection body.** `taxonomy-reevaluation.ts:68` returns `proposalsWritten: 0` as a *literal type* — the worker counts claims per domain and reports against the activation threshold, but does not write any proposals. Until claim density crosses the threshold this is fine; once it does, the worker needs the embedding-clustering body to start emitting `create_sub_topic` / `split_top_domain` proposals.
 - **R10.5 reclassification job for merge/split/reassign proposals.** `create_top_domain` proposals apply transactionally on approval. **Merge/split/reassign/sub-topic approvals log an audit entry in `taxonomy_change_log` but don't actually reclassify any claims** — the dedicated reclassification job is the next R10.5 follow-up.
 - **R10.5 batch-approve UX.**
-- **Vertex production credentials.** Local dev uses developer ADC. Cloud runtime needs a service-account JSON mounted via `GOOGLE_APPLICATION_CREDENTIALS` — currently not wired in the Vercel / Trigger.dev project.
 
 ---
 
