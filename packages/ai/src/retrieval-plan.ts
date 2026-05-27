@@ -73,6 +73,17 @@ export type RetrievalPlan = {
    * '_global_fallback' so operators can query the fallback rate.
    */
   searchScope: RetrievalPlanSearchScope;
+  /**
+   * Optional pre-computed embedding for `vectorQuery`.
+   * When present, searchWithRetrievalPlan() skips the embedText() call and uses
+   * this vector directly, saving one OpenAI API round-trip.
+   *
+   * Must be exactly EMBEDDING_DIM (1536) floats.  The canonical use-case is
+   * contradiction-watcher: it already computes/stores the claim embedding once
+   * to persist it in `claims.embedding`, then threads the same vector here so
+   * the subsequent ANN search doesn't embed the same summary a second time.
+   */
+  precomputedVector?: number[];
 };
 
 export const DEFAULT_TOP_K = 8;
@@ -95,15 +106,21 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
       // Systems and tools
       'erp', 'coldlion', 'resourcespace', 'system', 'software', 'tool',
       'platform', 'portal', 'dashboard',
+      // Collaboration tools
+      'slack', 'teams', 'microsoft teams', 'sharepoint', 'onedrive', 'google drive',
+      'dropbox', 'box ', 'notion', 'airtable', 'monday', 'asana', 'trello',
       // File / data operations
       'upload', 'sync', 'database', 'export', 'import', 'integration',
       'api', 'automat', 'workflow', 'process automation',
       // Asset types
       'image', 'photo', 'file', 'template', 'barcode', 'label', 'report',
       'document', 'spreadsheet',
+      // Access / credentials
+      'password', 'login', 'log in', 'sign in', 'account', 'credentials',
+      'two-factor', '2fa', 'sso', 'access to', 'permission', 'user account',
+      'folder', 'drive', 'shared folder',
       // Common IT question patterns
-      'how does the system', 'how does it work', 'where do i', 'log in',
-      'access to', 'permission', 'user account',
+      'how does the system', 'how does it work', 'where do i',
     ],
   },
   {
@@ -111,16 +128,20 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
     keywords: [
       // Licensors by name
       'disney', 'marvel', 'star wars', 'lucasfilm', 'warner bros', 'nbcuniversal',
-      'nickelodeon', 'hasbro', 'mattel', 'sega', 'nintendo',
+      'nickelodeon', 'hasbro', 'mattel', 'sega', 'nintendo', 'universal',
+      'dreamworks', 'sony pictures', 'paramount', 'nfl', 'nba', 'mlb', 'nhl',
       // License terms
       'licensor', 'license', 'licens', 'licensee', 'ip right',
-      'trademark', 'copyright', 'brand',
+      'trademark', 'copyright', 'brand', 'intellectual property',
       // Approval process
       'approval', 'approve', 'approved', 'submit', 'submission', 'resubmit',
       'round', 'revision', 'notes', 'art notes', 'feedback',
+      'approval form', 'approval timeline', 'approval process', 'approval deadline',
+      'digital sample', 'physical sample approval', 'pre-production approval',
       // Collateral
       'style guide', 'artwork approval', 'licensed', 'brand approval',
-      'art approval', 'character art', 'licensed art',
+      'art approval', 'character art', 'licensed art', 'art submission',
+      'print approval', 'color approval', 'color standard',
     ],
   },
   {
@@ -129,14 +150,19 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
       // Retailers by name
       'burlington', 'tjx', 'tj maxx', 'ross', 'hobby lobby', 'walmart',
       'target', 'amazon', 'five below', 'dollar tree', 'big lots',
+      'marshalls', 'homegoods', 'tuesday morning', 'bealls', 'ollie',
       // Customer ops terms
-      'customer', 'retailer', 'buyer', 'account',
+      'customer', 'retailer', 'buyer', 'account', 'vendor portal',
+      'retail compliance', 'compliance portal',
       // Compliance and logistics
-      'routing guide', 'chargeback', 'edi', 'compliance',
-      'dc ', 'distribution center', 'store', 'floor-ready',
+      'routing guide', 'chargeback', 'chargeback dispute', 'edi', 'compliance',
+      'dc ', 'distribution center', 'store', 'floor-ready', 'floor ready',
+      // Item setup and UPC
+      'upc', 'item setup', 'item number', 'sku setup', 'new item',
+      'gtin', 'barcode setup', 'product setup',
       // Order management
       'purchase order', 'po ', 'order', 'replenishment', 'assortment',
-      'planogram', 'retail price', 'sell-through',
+      'planogram', 'retail price', 'sell-through', 'floor display',
     ],
   },
   {
@@ -144,14 +170,19 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
     keywords: [
       // Geography / partners
       'factory', 'china', 'manufacturing', 'overseas', 'brazil', 'colombia',
-      'vendor', 'supplier',
+      'vendor', 'supplier', 'vietnam', 'bangladesh', 'india', 'cambodia',
+      // Procurement
+      'procurement', 'purchase', 'rfq', 'request for quote', 'quotation',
+      'vendor evaluation', 'supplier evaluation', 'vendor selection',
       // Production terms
       'lead time', 'capacity', 'sourcing', 'production order', 'production run',
       'mold', 'tooling', 'raw material', 'component', 'bom', 'bill of material',
+      'bill of materials',
       // Quantities
-      'quantity', 'moq', 'minimum order', 'lot size',
+      'quantity', 'moq', 'minimum order', 'lot size', 'order quantity',
       // Vendor management
       'vendor management', 'vendor audit', 'factory audit', 'coc',
+      'factory performance', 'vendor performance', 'scorecard',
     ],
   },
   {
@@ -161,19 +192,32 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
       'freight', 'ship', 'shipping', 'delivery', 'transit',
       // Routing and distribution
       'routing', 'warehouse', 'distribution', '3pl', 'container',
-      'booking', 'forwarder', 'last mile', 'trucking',
+      'booking', 'forwarder', 'last mile', 'trucking', 'drayage',
       // Trade terms
       'fob', 'cif', 'incoterm', 'port', 'ocean', 'air freight',
       'customs', 'customs clearance', 'entry',
+      // Documents
+      'bill of lading', 'bol', 'commercial invoice', 'packing list',
+      'telex release', 'sea waybill', 'arrival notice', 'delivery order',
+      // Container types
+      'fcl', 'lcl', 'full container', 'less than container',
+      // Charges
+      'demurrage', 'detention', 'storage fee', 'surcharge', 'fuel surcharge',
       // Tracking
-      'tracking', 'eta', 'in transit', 'on the water',
+      'tracking', 'eta', 'in transit', 'on the water', 'vessel',
+      'departed', 'arrived', 'cleared customs',
     ],
   },
   {
     domainId: 'product_development',
     keywords: [
       // Design / creative
-      'design', 'artwork', 'creative', 'concept', 'sketch',
+      'design', 'artwork', 'creative', 'concept', 'sketch', 'render',
+      'mockup', 'dieline', 'graphic', 'illustration',
+      // Materials and decoration
+      'material', 'fabric', 'color', 'colour', 'pantone', 'decoration',
+      'print', 'embroidery', 'embossing', 'debossing', 'foil', 'screen print',
+      'pattern', 'finish', 'texture', 'coating',
       // Product structure
       'sku', 'product line', 'collection', 'story', 'theme', 'seasonal',
       'assortment', 'roadmap', 'catalog',
@@ -181,7 +225,7 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
       'sample', 'proto', 'prototype', 'pre-production sample', 'salesman sample',
       'spec sheet', 'product spec', 'tech pack',
       // Line review
-      'line review', 'presentation', 'show',
+      'line review', 'presentation', 'show', 'showroom',
     ],
   },
   {
@@ -190,15 +234,22 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
       // Stages
       'pre-production', 'pre production', 'preproduction', 'production stage',
       'bulk', 'mass production', 'post-sale',
+      // Sample stages
+      'top sample', 'top of production', 'bulk sample', 'production sample',
+      'final sample', 'counter sample',
       // QC
       'qc', 'quality', 'inspection', 'testing', 'third-party audit',
+      'qc report', 'qc failure', 'qc pass', 'qc hold', 'rework',
+      'defect rate', 'rejection rate',
       // Packaging
       'pack', 'packing', 'packaging', 'case pack', 'inner pack', 'display',
+      'polybag', 'header card', 'hang tag', 'sticker', 'insert',
       // Scheduling
       'stage', 'lifecycle', 'schedule', 'commit date', 'ship date',
-      'deadline', 'milestone', 'timeline', 'top ', 'ex-factory',
+      'deadline', 'milestone', 'timeline', 'top ', 'ex-factory', 'ex factory',
+      'in-dc date', 'in dc', 'cancel date', 'cancel by',
       // Returns
-      'ra ', 'returns', 'rma', 'defect', 'recall',
+      'ra ', 'returns', 'rma', 'defect', 'recall', 'shortage', 'overage',
     ],
   },
   {
@@ -208,12 +259,16 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
       'import', 'tariff', 'duty', 'hts', 'section 301', 'tariff exclusion',
       'country of origin', 'coo',
       // Customs agencies
-      'cbp', 'ftz', 'dhl', 'customs clearance', 'regulatory',
+      'cbp', 'ftz', 'customs clearance', 'regulatory',
       // Documentation
-      'isf', 'bond', 'classification', 'harmonized code',
-      // Product safety
+      'isf', 'bond', 'classification', 'harmonized code', 'hs code',
+      'certificate of origin', 'form a', 'coo certificate',
+      // Testing and safety
       'cpsc', 'astm', 'en71', 'safety test', 'product safety',
-      'prop 65', 'reach', 'rohs',
+      'test report', 'test lab', 'testing lab', 'third party test',
+      'lead test', 'flammability', 'prop 65', 'reach', 'rohs',
+      'compliance document', 'age grading', 'choking hazard',
+      'california prop', 'phthalate',
     ],
   },
   {
@@ -221,14 +276,22 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
     keywords: [
       // Costs
       'cost', 'costing', 'fob cost', 'landed cost', 'unit cost',
+      'duty cost', 'freight cost', 'all-in cost',
       // Pricing
       'price', 'pricing', 'wholesale', 'retail price', 'msrp',
-      'markup', 'margin', 'gross margin',
+      'markup', 'margin', 'gross margin', 'contribution margin',
+      // Quotes and proformas
+      'quote', 'quotation', 'proforma', 'proforma invoice', 'pi',
+      'price list', 'price sheet',
       // Terms and payments
       'vendor terms', 'finance', 'payment', 'invoice', 'budget',
-      'credit', 'payment terms', 'net 30', 'net 60',
+      'credit', 'payment terms', 'net 30', 'net 60', 'net 45',
+      'wire transfer', 'bank transfer', 'wire', 'tt payment',
+      'letter of credit', 'lc ', 'deposit', 'balance payment',
+      'accounts payable', 'accounts receivable',
       // IP fees
-      'royalty', 'royalties', 'licensing fee', 'advance',
+      'royalty', 'royalties', 'licensing fee', 'advance', 'guarantee',
+      'minimum guarantee', 'mg ',
     ],
   },
   {
@@ -240,9 +303,13 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
       // Questions about ownership
       'who handles', 'who is responsible', 'who owns', 'who should',
       'who manages', 'who do i contact', 'contact',
+      // Handoffs and coverage
+      'hand off', 'handoff', 'handover', 'hand over', 'assign', 'assigned to',
+      'coverage', 'backup', 'vacation coverage', 'out of office', 'ooo',
+      'covering for', 'delegate',
       // HR terms
       'escalat', 'manager', 'ownership', 'role', 'email',
-      'point of contact', 'poc',
+      'point of contact', 'poc', 'new hire', 'onboard', 'onboarding',
     ],
   },
 ];
@@ -315,6 +382,7 @@ export function buildRetrievalPlanFromQuery(
       | 'topK'
       | 'timeFilter'
       | 'processStageHints'
+      | 'precomputedVector'
     >
   >,
 ): RetrievalPlan {
@@ -349,6 +417,7 @@ export function buildRetrievalPlanFromQuery(
     vectorQuery: query,
     topK: opts?.topK ?? DEFAULT_TOP_K,
     searchScope,
+    precomputedVector: opts?.precomputedVector,
   };
 }
 
@@ -374,6 +443,7 @@ export function buildDomainScopedPlan(
       | 'requiredEntities'
       | 'excludedDocumentClasses'
       | 'excludedEntityTypes'
+      | 'precomputedVector'
     >
   >,
 ): RetrievalPlan {
@@ -388,6 +458,7 @@ export function buildDomainScopedPlan(
     vectorQuery: query,
     topK: opts?.topK ?? DEFAULT_TOP_K,
     searchScope: topDomainHints.length > 0 ? 'domain_filtered' : 'global_fallback',
+    precomputedVector: opts?.precomputedVector,
   };
 }
 
@@ -411,6 +482,7 @@ export function buildGlobalRetrievalPlan(
       | 'timeFilter'
       | 'excludedDocumentClasses'
       | 'requiredEntities'
+      | 'precomputedVector'
     >
   >,
 ): RetrievalPlan {
@@ -425,6 +497,7 @@ export function buildGlobalRetrievalPlan(
     vectorQuery: query,
     topK: opts?.topK ?? DEFAULT_TOP_K,
     searchScope: 'global_explicit',
+    precomputedVector: opts?.precomputedVector,
   };
 }
 

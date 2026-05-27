@@ -249,7 +249,9 @@ export async function searchWithRetrievalPlan(
   }
 
   const limit = plan.topK;
-  const { vector, fallback } = await embedText(plan.vectorQuery);
+  const { vector, fallback } = plan.precomputedVector
+    ? { vector: plan.precomputedVector, fallback: false }
+    : await embedText(plan.vectorQuery);
 
   if (fallback) {
     return _searchFallbackTsvector(db, plan, limit);

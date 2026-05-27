@@ -39,7 +39,6 @@ import {
   documentTopDomains,
   documentChunkTopDomains,
   entities,
-  entityProposals,
   extractionBatches,
   extractionCandidates,
   extractionCandidateEvidence,
@@ -75,6 +74,7 @@ import {
   mapLegacyDomainsToTopDomains,
   recordCacheCreation,
   recordCacheTermination,
+  stageEntityProposal,
   validateQuote,
   validateSourcePointer,
   validateTaxonomy,
@@ -610,18 +610,17 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
       });
       // Stage entity proposals regardless of overall taxRes.ok so admin can
       // review unknown entities surfaced by the model.
-      if (taxRes.entityProposalsToCreate.length > 0) {
-        await db.insert(entityProposals).values(
-          taxRes.entityProposalsToCreate.map((p) => ({
-            proposedEntityType: p.proposedEntityType,
-            proposedCanonicalValue: p.proposedCanonicalValue,
-            rawStringsObserved: [p.rawString],
-            observedInSourceType: 'claim_candidate' as const,
-            observedInSourceId: candidate.id,
-            status: 'pending' as const,
-            proposedByModelRunId: modelRunId,
-          })),
-        );
+      // stageEntityProposal() uses pg_trgm fuzzy-dedup: near-duplicate surfaces
+      // (similarity >= 0.85) increment proposal_count instead of creating new rows.
+      for (const p of taxRes.entityProposalsToCreate) {
+        await stageEntityProposal(db, {
+          proposedEntityType: p.proposedEntityType,
+          proposedCanonicalValue: p.proposedCanonicalValue,
+          rawString: p.rawString,
+          observedInSourceType: 'claim_candidate',
+          observedInSourceId: candidate.id,
+          proposedByModelRunId: modelRunId,
+        });
       }
 
       if (!taxRes.ok) {

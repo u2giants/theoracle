@@ -22,12 +22,13 @@ function fmtCtx(n: number): string {
   return n.toLocaleString();
 }
 
-function providerLabel(id: string): string {
-  if (id.startsWith('anthropic/')) return 'Anthropic';
-  if (id.startsWith('openai/')) return 'OpenAI';
-  if (id.startsWith('google/')) return 'Google (Gemini / Vertex)';
-  return 'Other';
-}
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  google: 'Google (Vertex AI)',
+};
+
+const PROVIDER_ORDER = ['anthropic', 'openai', 'google'] as const;
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -37,6 +38,7 @@ export function ModelPoolEditor({ currentPool }: { currentPool: string[] }) {
   const [catalog, setCatalog] = useState<ModelCatalogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [providerErrors, setProviderErrors] = useState<string[]>([]);
   const [pool, setPool] = useState<Set<string>>(new Set(currentPool));
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -51,8 +53,11 @@ export function ModelPoolEditor({ currentPool }: { currentPool: string[] }) {
           const body = await res.text();
           throw new Error(`${res.status}: ${body}`);
         }
-        const data = (await res.json()) as { models: ModelCatalogEntry[] };
-        if (!cancelled) setCatalog(data.models);
+        const data = (await res.json()) as { models: ModelCatalogEntry[]; providerErrors?: string[] };
+        if (!cancelled) {
+          setCatalog(data.models);
+          if (data.providerErrors?.length) setProviderErrors(data.providerErrors);
+        }
       } catch (err) {
         if (!cancelled) setFetchError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -83,7 +88,7 @@ export function ModelPoolEditor({ currentPool }: { currentPool: string[] }) {
         body: JSON.stringify({
           key: 'model_pool',
           value: Array.from(pool),
-          description: 'Admin-curated list of OpenRouter model IDs available in the model pickers.',
+          description: 'Admin-curated shortlist of models available in the stage model pickers.',
         }),
       });
       if (!res.ok) {
@@ -104,7 +109,7 @@ export function ModelPoolEditor({ currentPool }: { currentPool: string[] }) {
   }
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading model catalog from OpenRouter…</p>;
+    return <p className="text-sm text-muted-foreground">Loading model catalog…</p>;
   }
   if (fetchError) {
     return (
@@ -114,9 +119,6 @@ export function ModelPoolEditor({ currentPool }: { currentPool: string[] }) {
     );
   }
 
-  // Group by provider.
-  const providers = Array.from(new Set(catalog.map((m) => m.id.split('/')[0]!)));
-
   const filtered = filter.trim()
     ? catalog.filter(
         (m) =>
@@ -125,12 +127,18 @@ export function ModelPoolEditor({ currentPool }: { currentPool: string[] }) {
       )
     : catalog;
 
-  const groupedProviders = providers.filter((p) =>
-    filtered.some((m) => m.id.startsWith(p + '/')),
-  );
-
   return (
     <div className="space-y-5">
+      {/* Provider-level errors (partial catalog) */}
+      {providerErrors.length > 0 && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-4 py-2.5 text-sm text-amber-800 dark:text-amber-300 space-y-1">
+          <p className="font-medium">Some providers could not be reached:</p>
+          {providerErrors.map((e) => (
+            <p key={e} className="text-xs font-mono">{e}</p>
+          ))}
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap">
         <input
@@ -154,12 +162,13 @@ export function ModelPoolEditor({ currentPool }: { currentPool: string[] }) {
 
       {/* Provider groups */}
       <div className="space-y-6">
-        {groupedProviders.map((providerPrefix) => {
-          const providerModels = filtered.filter((m) => m.id.startsWith(providerPrefix + '/'));
+        {PROVIDER_ORDER.map((providerKey) => {
+          const providerModels = filtered.filter((m) => m.provider === providerKey);
+          if (providerModels.length === 0) return null;
           return (
-            <section key={providerPrefix}>
+            <section key={providerKey}>
               <h2 className="text-sm font-semibold text-foreground mb-2">
-                {providerLabel(providerPrefix + '/x')}
+                {PROVIDER_LABELS[providerKey]}
                 <span className="ml-2 text-xs font-normal text-muted-foreground">
                   ({providerModels.filter((m) => pool.has(m.id)).length} / {providerModels.length} selected)
                 </span>
@@ -187,7 +196,7 @@ export function ModelPoolEditor({ currentPool }: { currentPool: string[] }) {
                           <span className="text-xs text-muted-foreground truncate block">{m.name}</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-4 shrink-0 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-3 shrink-0 text-xs text-muted-foreground">
                         {m.contextLength != null && (
                           <span>{fmtCtx(m.contextLength)} ctx</span>
                         )}
@@ -217,7 +226,7 @@ export function ModelPoolEditor({ currentPool }: { currentPool: string[] }) {
           {saveStatus === 'saving' ? 'Saving…' : 'Save pool'}
         </Button>
         {saveStatus === 'saved' && (
-          <span className="text-sm text-green-600">Pool saved. Return to settings to pick from this list.</span>
+          <span className="text-sm text-green-600">Pool saved. Return to Settings to pick from this list.</span>
         )}
         {saveStatus === 'error' && saveError && (
           <span className="text-sm text-destructive">{saveError}</span>

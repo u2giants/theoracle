@@ -3,16 +3,15 @@
 // Returns the list of models available in the admin model picker.
 //
 // Strategy:
-//   1. Read `model_pool` setting from DB (JSON array of OpenRouter model IDs).
-//   2. If the pool is non-empty, fetch those specific models from OpenRouter's
-//      public catalog endpoint (no API key required) to get pricing + capabilities.
-//   3. If the pool is empty OR OpenRouter is unreachable, fall back to the
-//      curated Oracle catalog routes formatted as Model objects.
+//   1. Read `model_pool` setting from DB (JSON array of "provider/modelId" strings).
+//   2. If the pool is non-empty, return those models enriched with static metadata.
+//   3. If the pool is empty, fall back to the 6 curated Oracle catalog routes.
+//
+// Model IDs are in "provider/modelId" format (compatible with resolveModelRoute).
+// OpenRouter is NOT used.
 //
 // Requires admin.
-//
 // Response: { models: Model[] }
-// where Model matches the shape expected by the ModelPicker client component.
 
 import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
@@ -41,87 +40,86 @@ export type ModelInfo = {
 };
 
 // ---------------------------------------------------------------------------
-// OpenRouter catalog types
+// Static metadata — same table as model-catalog/route.ts
 // ---------------------------------------------------------------------------
 
-type ORModel = {
-  id: string;
-  name: string;
-  context_length?: number;
-  pricing?: { prompt?: string; completion?: string };
-  architecture?: {
-    modality?: string;
-    input_modalities?: string[];
-  };
+type ModelMeta = {
+  contextLength: number;
+  promptPer1M: number;
+  completionPer1M: number;
+  vision: boolean;
+  reasoning?: boolean;
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+const MODEL_META: Record<string, ModelMeta> = {
+  // ── Anthropic ──────────────────────────────────────────────────────────────
+  'anthropic/claude-opus-4-7':            { contextLength: 200_000, promptPer1M: 15,    completionPer1M: 75,  vision: true  },
+  'anthropic/claude-opus-4-7-20250514':   { contextLength: 200_000, promptPer1M: 15,    completionPer1M: 75,  vision: true  },
+  'anthropic/claude-sonnet-4-6':          { contextLength: 200_000, promptPer1M: 3,     completionPer1M: 15,  vision: true  },
+  'anthropic/claude-sonnet-4-6-20250514': { contextLength: 200_000, promptPer1M: 3,     completionPer1M: 15,  vision: true  },
+  'anthropic/claude-haiku-4-5':           { contextLength: 200_000, promptPer1M: 0.8,   completionPer1M: 4,   vision: true  },
+  'anthropic/claude-haiku-4-5-20251001':  { contextLength: 200_000, promptPer1M: 0.8,   completionPer1M: 4,   vision: true  },
+  'anthropic/claude-3-7-sonnet-20250219': { contextLength: 200_000, promptPer1M: 3,     completionPer1M: 15,  vision: true  },
+  'anthropic/claude-3-5-sonnet-20241022': { contextLength: 200_000, promptPer1M: 3,     completionPer1M: 15,  vision: true  },
+  'anthropic/claude-3-5-haiku-20241022':  { contextLength: 200_000, promptPer1M: 0.8,   completionPer1M: 4,   vision: true  },
+  'anthropic/claude-3-opus-20240229':     { contextLength: 200_000, promptPer1M: 15,    completionPer1M: 75,  vision: true  },
 
-function orModelToInfo(m: ORModel): ModelInfo {
-  const inputMods = m.architecture?.input_modalities ?? [];
-  const modality = m.architecture?.modality ?? '';
-  const hasImage = inputMods.includes('image') || modality.includes('image');
-  const hasFile = inputMods.includes('file') || modality.includes('file');
+  // ── OpenAI ────────────────────────────────────────────────────────────────
+  'openai/gpt-4o':                        { contextLength: 128_000, promptPer1M: 2.5,   completionPer1M: 10,  vision: true  },
+  'openai/gpt-4o-2024-11-20':             { contextLength: 128_000, promptPer1M: 2.5,   completionPer1M: 10,  vision: true  },
+  'openai/gpt-4o-mini':                   { contextLength: 128_000, promptPer1M: 0.15,  completionPer1M: 0.6, vision: true  },
+  'openai/gpt-4o-mini-2024-07-18':        { contextLength: 128_000, promptPer1M: 0.15,  completionPer1M: 0.6, vision: true  },
+  'openai/gpt-4-turbo':                   { contextLength: 128_000, promptPer1M: 10,    completionPer1M: 30,  vision: true  },
+  'openai/o4-mini':                       { contextLength: 200_000, promptPer1M: 1.1,   completionPer1M: 4.4, vision: true,  reasoning: true },
+  'openai/o3':                            { contextLength: 200_000, promptPer1M: 10,    completionPer1M: 40,  vision: true,  reasoning: true },
+  'openai/o3-mini':                       { contextLength: 200_000, promptPer1M: 1.1,   completionPer1M: 4.4, vision: false, reasoning: true },
+  'openai/o1':                            { contextLength: 200_000, promptPer1M: 15,    completionPer1M: 60,  vision: true,  reasoning: true },
+  'openai/o1-mini':                       { contextLength: 128_000, promptPer1M: 1.1,   completionPer1M: 4.4, vision: false, reasoning: true },
 
-  const promptRaw = m.pricing?.prompt;
-  const compRaw = m.pricing?.completion;
+  // ── Google / Vertex AI ────────────────────────────────────────────────────
+  'google/gemini-2.5-pro':                { contextLength: 1_000_000, promptPer1M: 1.25, completionPer1M: 10,  vision: true },
+  'google/gemini-2.5-flash':              { contextLength: 1_000_000, promptPer1M: 0.15, completionPer1M: 0.6, vision: true },
+  'google/gemini-2.5-flash-lite':         { contextLength: 1_000_000, promptPer1M: 0.1,  completionPer1M: 0.4, vision: true },
+  'google/gemini-2.0-flash':              { contextLength: 1_000_000, promptPer1M: 0.1,  completionPer1M: 0.4, vision: true },
+  'google/gemini-1.5-pro-002':            { contextLength: 2_000_000, promptPer1M: 1.25, completionPer1M: 5,   vision: true },
+  'google/gemini-1.5-flash-002':          { contextLength: 1_000_000, promptPer1M: 0.075,completionPer1M: 0.3, vision: true },
+};
 
+function poolModelToInfo(id: string): ModelInfo {
+  const meta = MODEL_META[id];
+  const slug = id.split('/')[1] ?? id;
   return {
-    id: m.id,
-    name: m.name || m.id,
-    contextLength: m.context_length ?? null,
-    promptPer1M: promptRaw != null ? parseFloat(promptRaw) * 1_000_000 : null,
-    completionPer1M: compRaw != null ? parseFloat(compRaw) * 1_000_000 : null,
-    vision: hasImage,
-    tools: true,       // all modern models in the pool support tools
-    files: hasFile || hasImage,
-    reasoning: m.id.includes('thinking') || m.id.includes('o1') || m.id.includes('o3'),
+    id,
+    name: meta ? id : id,   // use the ID as display name; pool editor shows friendly names separately
+    contextLength: meta?.contextLength ?? null,
+    promptPer1M: meta?.promptPer1M ?? null,
+    completionPer1M: meta?.completionPer1M ?? null,
+    vision: meta?.vision ?? true,
+    tools: true,
+    files: meta?.vision ?? true,
+    reasoning: meta?.reasoning ?? (slug.startsWith('o') && /^o\d/.test(slug)),
     imageGen: false,
   };
 }
 
-/** Format a curated catalog route as a ModelInfo object (fallback path). */
+/** Format a curated catalog route as a ModelInfo object (empty-pool fallback). */
 function catalogRouteToInfo(routeId: string): ModelInfo | null {
   const route = ORACLE_MODEL_ROUTES[routeId];
   if (!route) return null;
+  // Use "provider/modelId" as the ID so resolveModelRoute can parse it if needed.
+  const id = `${route.provider === 'vertex' ? 'google' : route.provider}/${route.modelId}`;
   return {
-    id: routeId,
+    id,
     name: route.displayName,
-    contextLength: null,        // catalog doesn't store context length
-    promptPer1M: null,          // catalog doesn't store pricing
+    contextLength: null,
+    promptPer1M: null,
     completionPer1M: null,
     vision: route.supportsVision,
     tools: route.supportsToolCalling,
-    files: route.supportsVision, // vision-capable routes handle file attachments too
+    files: route.supportsVision,
     reasoning: route.supportsReasoningControls,
     imageGen: false,
   };
-}
-
-async function fetchOpenRouterModels(ids: string[]): Promise<ModelInfo[]> {
-  const res = await fetch('https://openrouter.ai/api/v1/models', {
-    headers: { Accept: 'application/json' },
-    // 5-second timeout — if OR is slow, fall back to catalog
-    signal: AbortSignal.timeout(5_000),
-  });
-  if (!res.ok) throw new Error(`OpenRouter responded ${res.status}`);
-  const body = (await res.json()) as { data?: ORModel[] };
-  const allModels: ORModel[] = body.data ?? [];
-
-  // Filter to only the requested IDs if we have a pool; otherwise return all
-  // (filtered to supported providers).
-  const idSet = new Set(ids);
-  const filtered = idSet.size > 0
-    ? allModels.filter((m) => idSet.has(m.id))
-    : allModels.filter((m) =>
-        m.id.startsWith('anthropic/') ||
-        m.id.startsWith('openai/') ||
-        m.id.startsWith('google/'),
-      );
-
-  return filtered.map(orModelToInfo);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,19 +142,12 @@ export async function GET() {
 
   const pool: string[] = Array.isArray(poolRow[0]?.value) ? (poolRow[0]!.value as string[]) : [];
 
-  // Try OpenRouter first (enriches with pricing + capabilities).
-  try {
-    const orModels = await fetchOpenRouterModels(pool);
-    if (orModels.length > 0) {
-      return NextResponse.json({ models: orModels });
-    }
-    // OR returned 0 results (empty pool hit — fall through to catalog)
-  } catch (err) {
-    // OpenRouter is unreachable or timed out — fall through to catalog fallback.
-    console.warn('[api/admin/models] OpenRouter fetch failed, using catalog fallback:', err instanceof Error ? err.message : String(err));
+  if (pool.length > 0) {
+    const models = pool.map(poolModelToInfo);
+    return NextResponse.json({ models });
   }
 
-  // Catalog fallback — the 6 production routes always work.
+  // Empty pool — fall back to the 6 curated Oracle catalog routes.
   const catalogModels = PRODUCTION_ROUTE_IDS
     .map(catalogRouteToInfo)
     .filter((m): m is ModelInfo => m !== null);

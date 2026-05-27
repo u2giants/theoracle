@@ -97,7 +97,7 @@ The AI retrofit is code-complete. Remaining work is operational, not architectur
    - Rotate `OPENAI_API_KEY` at https://platform.openai.com/api-keys
    - Revoke the now-unused OpenRouter key at https://openrouter.ai/keys
 
-3. ~~**Trigger.dev deploy.**~~ Done — version `20260526.4` deployed (10 tasks). `OPENROUTER_API_KEY` was already absent from the project env.
+3. ~~**Trigger.dev deploy.**~~ Done — version `20260527.1` deployed (11 tasks — added `taxonomy-reclassification`). Previous: `20260526.4` (10 tasks).
 
 4. ~~**Vertex production credentials.**~~ Done — `GOOGLE_APPLICATION_CREDENTIALS_JSON` for `oracle-trigger-worker@vertex-ai-497120.iam.gserviceaccount.com` was already set in the Trigger.dev project env from a prior session.
 
@@ -105,16 +105,16 @@ The AI retrofit is code-complete. Remaining work is operational, not architectur
    - ~~R5.5 entity-extraction prompt rewrite~~ — done in P1 #2 (sensitivity flags + entity proposals in extraction prompt v2.0.0).
    - ~~`RetrievalPlan` + hybrid pgvector/tsvector RRF~~ — done in P1 #3 (`searchWithRetrievalPlan`, wired into chat route + contradiction-watcher).
    - ~~`searchScope` retrieval enforcement~~ — done (commit `aec13ed`; `buildDomainScopedPlan` / `buildGlobalRetrievalPlan`; contradiction-watcher ANN refactored).
-   - **`precomputedVector` support in `RetrievalPlan`** — contradiction-watcher calls `embedText` twice per ANN check. A `precomputedVector` field would let the caller skip the second embed call.
-   - **DOMAIN_KEYWORDS tuning** — queries with no keyword match land in `global_fallback`. Auditable at `WHERE selected_domains @> ARRAY['_global_fallback']`. Extend keywords as production gaps emerge.
+   - ~~**`precomputedVector` support in `RetrievalPlan`**~~ — done. `RetrievalPlan.precomputedVector?: number[]` added; `searchWithRetrievalPlan` skips `embedText` when provided; contradiction-watcher passes the stored claim embedding through the plan.
+   - ~~**DOMAIN_KEYWORDS tuning** (round 1)~~ — done. Added ~50 keywords across all 10 domains (IT tooling, logistics trade terms, product materials, finance payment, customer compliance). Production `global_fallback` rate should drop significantly. Extend further as gaps emerge.
    - Real Vertex explicit cache creation (round 2 of R-providers).
-   - R10.5 clustering / drift detection body (re-evaluation worker counts claims today; clustering waits for density).
-   - R10.5 reclassification job for merge/split/reassign proposals.
+   - ~~**R10.5 clustering body**~~ — done. `taxonomy-reevaluation.ts` now runs k-means (pure TS, cosine, k=min(8,max(2,round(√(N/4)))), 30 iters) per domain at activation threshold. Novel clusters (cosine sim < 0.88 to any existing sub-topic centroid) are named via Gemini Flash and written as `create_sub_topic` proposals. Payload includes `topDomainId` + `clusterCentroid` + `representativeClaimIds` for the reclassifier.
+   - ~~**R10.5 reclassification job**~~ — done. `apps/workers/src/trigger/taxonomy-reclassification.ts` (Trigger.dev task id: `taxonomy-reclassification`) processes approved proposals deferred with `queuedFor: taxonomy-reclassification-worker`. Handles: `create_sub_topic`, `reassign_claims`, `merge_sub_topics`, `retire_sub_topic`, `merge_top_domains`. `split_top_domain` and `split_sub_topic` are logged as manual-intervention-required. Each run appends a `reclassification_applied_*` or `reclassification_skipped_*` change-log row for idempotency.
    - R10.5 batch-approve UX.
    - `docs/oracle/02-provider-native-ai-architecture.md` and `docs/oracle/05-ai-retrofit-phase-packet.md` still describe the bridge adapter as the current production path — both need a sweep; deferred to a separate `docs(retrofit-reference)` commit.
    - `docs/wet-test-walkthrough.md` is historical now that the wet-test ran. Either delete or convert to "how to repeat against a new transcript."
 
-6. **Realtime presence in lull-interjection.** R11.2 hardcodes `isAnyoneTyping: false`. Real presence query against Supabase Realtime is round 2 — currently the worker may interrupt someone mid-keystroke.
+6. ~~**Realtime presence in lull-interjection.**~~ Done — `typing_indicators` table (schema + migration `52_typing_indicators.sql`). `channel-chat.tsx` upserts on typing-start / deletes on typing-stop. Lull worker queries `typing_indicators WHERE expires_at > NOW()` instead of hardcoding `false`. Outstanding: topical gap relevance (embedding-based) is still round 2.
 
 ---
 

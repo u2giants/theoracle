@@ -44,6 +44,7 @@ import {
   oracleContextPacks,
   oracleInterventions,
   settings,
+  typingIndicators,
 } from '@oracle/db/schema';
 import {
   AnthropicAdapter,
@@ -186,6 +187,7 @@ interface ChannelContext {
   interjectionsInLastHour: number;
   topRelevantOpenGap: RelevantOpenGap | null;
   recentMessageExcerpts: string[];
+  isAnyoneTyping: boolean;
 }
 
 async function loadChannelContext(
@@ -286,6 +288,21 @@ async function loadChannelContext(
       }
     : null;
 
+  // Check whether any employee is currently typing in this channel.
+  // The client upserts a typing_indicators row on keystrokes with expires_at = now+5s;
+  // stale rows (disconnected clients) are excluded by the expires_at filter.
+  const typingRow = await db
+    .select({ channelId: typingIndicators.channelId })
+    .from(typingIndicators)
+    .where(
+      and(
+        eq(typingIndicators.channelId, channelId),
+        sql`${typingIndicators.expiresAt} > NOW()`,
+      ),
+    )
+    .limit(1);
+  const isAnyoneTyping = typingRow.length > 0;
+
   return {
     channelId,
     isGroupChat,
@@ -294,6 +311,7 @@ async function loadChannelContext(
     interjectionsInLastHour,
     topRelevantOpenGap,
     recentMessageExcerpts,
+    isAnyoneTyping,
   };
 }
 
@@ -462,7 +480,7 @@ async function processChannel(
   const decisionInput: LullInterjectionInput = {
     secondsSinceLastUserMessage: ctx.secondsSinceLastUserMessage,
     lullWindowSeconds: settings.lullWindowSeconds,
-    isAnyoneTyping: false, // round 1 default; real presence check is round 2
+    isAnyoneTyping: ctx.isAnyoneTyping,
     minutesSinceLastOracleInterjection: ctx.minutesSinceLastOracleInterjection,
     oracleCooldownMinutes: settings.oracleCooldownMinutes,
     interjectionsInLastHour: ctx.interjectionsInLastHour,

@@ -163,10 +163,29 @@ export function ChannelChat({
   }, [channel.id, me.id, me.name, supabase]);
 
   // Typing indicator with debounce.
+  // Broadcasts via Supabase Realtime presence (for in-browser display) AND
+  // upserts/deletes in typing_indicators (for server-side lull-interjection
+  // worker, which can't subscribe to a Realtime WebSocket).
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   function broadcastTyping(typing: boolean) {
-    if (!presenceChannel.current) return;
-    void presenceChannel.current.track({ name: me.name, typing });
+    if (presenceChannel.current) {
+      void presenceChannel.current.track({ name: me.name, typing });
+    }
+    if (typing) {
+      // expires_at = now + 5s — stale rows are excluded by server queries.
+      void supabase.from('typing_indicators').upsert({
+        channel_id: channel.id,
+        employee_id: me.id,
+        expires_at: new Date(Date.now() + 5_000).toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    } else {
+      void supabase
+        .from('typing_indicators')
+        .delete()
+        .eq('channel_id', channel.id)
+        .eq('employee_id', me.id);
+    }
   }
 
   async function sendMessage(e: React.FormEvent) {

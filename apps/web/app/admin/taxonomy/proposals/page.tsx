@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ProposalCard } from './_components/proposal-card';
+import { ProposalListBulk } from './_components/proposal-list-bulk';
 
 type ProposalRow = {
   id: string;
@@ -93,11 +93,7 @@ export default async function AdminTaxonomyProposalsPage({
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {rows.map((r) => (
-            <ProposalCard key={r.id} proposal={r} />
-          ))}
-        </div>
+        <ProposalListBulk proposals={rows} />
       )}
     </div>
   );

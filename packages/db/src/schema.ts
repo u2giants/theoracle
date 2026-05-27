@@ -265,6 +265,31 @@ export const channelParticipants = pgTable(
   }),
 );
 
+// Typing presence indicators — lightweight heartbeat table so server-side
+// workers (e.g. lull-interjection) can check whether anyone is currently
+// typing in a channel without subscribing to Supabase Realtime WebSocket.
+// The client upserts on typing-start and deletes on typing-stop (or
+// lets the row expire via expires_at so stale indicators self-clean).
+export const typingIndicators = pgTable(
+  'typing_indicators',
+  {
+    channelId: uuid('channel_id')
+      .references(() => channels.id, { onDelete: 'cascade' })
+      .notNull(),
+    employeeId: uuid('employee_id')
+      .references(() => employees.id, { onDelete: 'cascade' })
+      .notNull(),
+    // Client sets expires_at = now() + 5s on every keystroke, so stale rows
+    // mean the client disconnected without sending a stop broadcast.
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.channelId, t.employeeId] }),
+    expiresAtIdx: index('typing_indicators_expires_at_idx').on(t.expiresAt),
+  }),
+);
+
 export const documents = pgTable(
   'documents',
   {
@@ -1124,6 +1149,10 @@ export const entityProposals = pgTable(
     proposedByModelRunId: uuid('proposed_by_model_run_id').references(() => modelRuns.id),
     reviewedByEmployeeId: uuid('reviewed_by_employee_id').references(() => employees.id),
     reviewedAt: timestamp('reviewed_at'),
+    // How many times this entity surface has been observed. Incremented by
+    // stageEntityProposal() when a fuzzy-similar proposal already exists
+    // (pg_trgm similarity >= 0.85) instead of inserting a duplicate row.
+    proposalCount: integer('proposal_count').default(1).notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => ({
@@ -1402,6 +1431,9 @@ export type TaxonomyChangeLog = typeof taxonomyChangeLog.$inferSelect;
 export type NewTaxonomyChangeLog = typeof taxonomyChangeLog.$inferInsert;
 export type EntityProposal = typeof entityProposals.$inferSelect;
 export type NewEntityProposal = typeof entityProposals.$inferInsert;
+// Typing presence
+export type TypingIndicator = typeof typingIndicators.$inferSelect;
+export type NewTypingIndicator = typeof typingIndicators.$inferInsert;
 // R4 candidate-before-claim staging
 export type ExtractionBatch = typeof extractionBatches.$inferSelect;
 export type NewExtractionBatch = typeof extractionBatches.$inferInsert;

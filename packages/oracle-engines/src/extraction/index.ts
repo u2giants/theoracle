@@ -66,6 +66,12 @@ export {
   type ExtractionCandidateEvidenceRow,
 } from './promotion-executor';
 
+// write-time fuzzy-dedup for entity_proposals
+export {
+  stageEntityProposal,
+  type StageEntityProposalArgs,
+} from './stage-entity-proposal';
+
 // R7 — cache profitability + provider_cached_content lifecycle
 export {
   decideCacheProfitability,

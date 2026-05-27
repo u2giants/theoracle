@@ -34,7 +34,6 @@ import {
   jobRuns,
   messages,
   entities,
-  entityProposals,
   modelRunUsageDetails,
   modelRuns,
   oracleContextPacks,
@@ -63,6 +62,7 @@ import {
   decideCircuitBreaker,
   executePromotion,
   mapLegacyDomainsToTopDomains,
+  stageEntityProposal,
   validateQuote,
   validateSourcePointer,
   validateTaxonomy,
@@ -645,20 +645,18 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
     });
 
     // Regardless of overall taxRes.ok, stage any entity proposals so admin
-    // can review unknown entities or type-mismatch corrections. The
-    // validator returns these per-candidate.
-    if (taxRes.entityProposalsToCreate.length > 0) {
-      await db.insert(entityProposals).values(
-        taxRes.entityProposalsToCreate.map((p) => ({
-          proposedEntityType: p.proposedEntityType,
-          proposedCanonicalValue: p.proposedCanonicalValue,
-          rawStringsObserved: [p.rawString],
-          observedInSourceType: 'claim_candidate' as const,
-          observedInSourceId: candidate.id,
-          status: 'pending' as const,
-          proposedByModelRunId: modelRunId,
-        })),
-      );
+    // can review unknown entities or type-mismatch corrections.
+    // stageEntityProposal() uses pg_trgm fuzzy-dedup: near-duplicate surfaces
+    // (similarity >= 0.85) increment proposal_count instead of creating new rows.
+    for (const p of taxRes.entityProposalsToCreate) {
+      await stageEntityProposal(db, {
+        proposedEntityType: p.proposedEntityType,
+        proposedCanonicalValue: p.proposedCanonicalValue,
+        rawString: p.rawString,
+        observedInSourceType: 'claim_candidate',
+        observedInSourceId: candidate.id,
+        proposedByModelRunId: modelRunId,
+      });
     }
 
     if (!taxRes.ok) {

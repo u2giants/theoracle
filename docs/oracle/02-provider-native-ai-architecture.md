@@ -611,7 +611,7 @@ All items below are done unless explicitly marked open.
 - ✅ `apps/workers/src/trigger/contradiction-watcher.ts` calls `OracleAIClient` via direct adapters (R11.0); live-interjection path landed in R11.3.
 - ✅ `apps/workers/src/trigger/lull-interjection.ts` — new in R11.2; calls `OracleAIClient` on the interview route for question drafting.
 - ⏳ **Admin model picker** (`apps/web/app/admin/settings/`) — the OpenRouter `/models` proxy that backed the live capability icons was deleted in `b01e514`. A curated `OracleModelRoute.routeId` picker sourced from `packages/ai/src/routes/catalog.ts` is the planned replacement. Open follow-up.
-- ⏳ **Retrieval helpers** (`packages/ai/src/retrieval.ts`) — still use `searchApprovedClaims` directly without going through a `RetrievalPlan`. Hybrid pgvector + tsvector RRF with metadata pre-filter is documented above but not yet wired in. Open follow-up.
+- ✅ **Retrieval helpers** (`packages/ai/src/retrieval.ts`) — `searchWithRetrievalPlan()` ships hybrid pgvector + tsvector RRF with metadata pre-filter (P1 #3, commit `6a02e36`). `RetrievalPlan` with `searchScope` field enforces domain-filtered vs global-fallback vs global-explicit scopes. `precomputedVector` field short-circuits the `embedText()` call when the caller already has an embedding. Wired into chat route + contradiction-watcher. Legacy `searchApprovedClaims` still present for brain-synthesis backcompat; migrate in a later pass.
 
 ## Environment variables
 
@@ -647,5 +647,5 @@ The full env-var table with sources lives in `docs/configuration.md`.
 | Worker extraction outputs candidates, not direct claims | ✅ — R4–R7 |
 | Wet-test against live DB | ✅ — 2026-05-26, commit `51a33ff` |
 | `pnpm typecheck` and Next production build pass | ✅ — every commit since R-providers |
-| Retrieval is filtered by plan, not global vector search | ⏳ — open follow-up; legacy `searchApprovedClaims` still in use |
+| Retrieval is filtered by plan, not global vector search | ✅ — `searchWithRetrievalPlan()` + hybrid RRF + `RetrievalPlanSearchScope` (P1 #3). Chat route + contradiction-watcher wired. Brain-synthesis still uses legacy `searchApprovedClaims`; migrate later. |
 | Real Vertex explicit cache creation | ⏳ — round 2 of R-providers; implicit caching is wired today |

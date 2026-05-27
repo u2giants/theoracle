@@ -168,7 +168,7 @@ export async function approveTaxonomyProposal(proposalId: string, reviewNote: st
       afterState = {
         queuedFor: 'taxonomy-reclassification-worker',
         proposalType: proposal.proposalType,
-        note: 'Mutation deferred — reclassification job not yet implemented.',
+        note: 'Mutation deferred — trigger task-id: taxonomy-reclassification.',
       };
     }
 
@@ -187,6 +187,44 @@ export async function approveTaxonomyProposal(proposalId: string, reviewNote: st
   revalidatePath('/admin/taxonomy/proposals');
   revalidatePath('/admin/taxonomy');
   revalidatePath('/admin/taxonomy/change-log');
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// taxonomy_proposals — bulk approve / bulk reject
+// ─────────────────────────────────────────────────────────────────────────
+
+export async function bulkApproveTaxonomyProposals(
+  proposalIds: string[],
+  reviewNote: string | null,
+) {
+  if (proposalIds.length === 0) return { approved: 0, errors: [] };
+  const errors: Array<{ proposalId: string; error: string }> = [];
+  let approved = 0;
+  for (const id of proposalIds) {
+    try {
+      await approveTaxonomyProposal(id, reviewNote);
+      approved++;
+    } catch (e) {
+      errors.push({ proposalId: id, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return { approved, errors };
+}
+
+export async function bulkRejectTaxonomyProposals(proposalIds: string[], reason: string) {
+  if (!reason.trim()) throw new Error('A rejection reason is required for bulk reject.');
+  if (proposalIds.length === 0) return { rejected: 0, errors: [] };
+  const errors: Array<{ proposalId: string; error: string }> = [];
+  let rejected = 0;
+  for (const id of proposalIds) {
+    try {
+      await rejectTaxonomyProposal(id, reason);
+      rejected++;
+    } catch (e) {
+      errors.push({ proposalId: id, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return { rejected, errors };
 }
 
 // ─────────────────────────────────────────────────────────────────────────

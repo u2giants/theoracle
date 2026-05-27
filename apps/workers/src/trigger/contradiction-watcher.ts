@@ -390,10 +390,8 @@ async function checkClaimForContradictions(
   // If the claim has no taxonomy tags yet (pre-backfill), we fall back to
   // buildGlobalRetrievalPlan (searchScope='global_explicit') and log a warning.
   //
-  // Note: searchWithRetrievalPlan calls embedText(claim.summary) internally.
-  // The embedding computed/stored above is kept for DB persistence; the slight
-  // redundancy is acceptable for a background worker.
-  // TODO: add precomputedVector support to RetrievalPlan to avoid the double-embed.
+  // Pass the already-computed claimEmbedding as precomputedVector so
+  // searchWithRetrievalPlan skips a second embedText() call for the same summary.
   const domainRows = await db
     .select({ topDomainId: claimTopDomains.topDomainId })
     .from(claimTopDomains)
@@ -402,13 +400,19 @@ async function checkClaimForContradictions(
 
   const annPlan =
     domainHints.length > 0
-      ? buildDomainScopedPlan(claim.summary, domainHints, { topK: TOP_K })
+      ? buildDomainScopedPlan(claim.summary, domainHints, {
+          topK: TOP_K,
+          precomputedVector: claimEmbedding as number[],
+        })
       : (() => {
           console.warn('[contradiction-watcher] claim has no domain tags — falling back to global ANN', {
             claimId,
             hint: 'Run the taxonomy re-evaluation worker to assign claim_top_domains.',
           });
-          return buildGlobalRetrievalPlan(claim.summary, { topK: TOP_K });
+          return buildGlobalRetrievalPlan(claim.summary, {
+            topK: TOP_K,
+            precomputedVector: claimEmbedding as number[],
+          });
         })();
 
   const annResults = await searchWithRetrievalPlan(db, annPlan);

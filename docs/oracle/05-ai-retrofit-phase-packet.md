@@ -8,6 +8,16 @@ This file is preserved as the historical record of HOW the retrofit was done —
 
 R0 → R11.4 all landed. The original "do not implement Phase 6 interjection yet" rule has been retired: Phase 6 / R11 is the last phase that shipped. Interjection depends on trustworthy claims, which depend on candidate-before-claim validation, which depends on context packs and provider-native routes — all of which now exist and have been wet-tested.
 
+**Post-R11.4 additions (2026-05-26 session):**
+
+- **`precomputedVector` on `RetrievalPlan`** — optional `number[]` field that short-circuits the `embedText()` call inside `searchWithRetrievalPlan`. Contradiction-watcher passes the stored claim embedding through, eliminating a redundant embed call.
+- **`DOMAIN_KEYWORDS` tuning** — ~50 new keywords added across all 10 top-level domains in `packages/ai/src/retrieval-plan.ts`. Reduces `global_fallback` rate for IT tooling, logistics, finance, and product material queries.
+- **Typing-presence table** — `typing_indicators` (schema + migration `52_typing_indicators.sql`, applied to live DB). `channel-chat.tsx` upserts on keydown / deletes on stop. Lull-interjection worker queries `WHERE expires_at > NOW()` instead of hardcoding `false`.
+- **R10.5 clustering body** — `taxonomy-reevaluation.ts` now runs k-means (pure TS, cosine, k-means++ init, k = min(8, max(2, round(√(N/4)))), 30 iterations) per domain that meets the activation threshold. Novel clusters (centroid cosine similarity < 0.88 to any existing sub-topic) are named via Gemini Flash and written as `create_sub_topic` proposals. Cluster centroid and representative claim IDs are stored in the payload for the reclassifier.
+- **R10.5 reclassification job** — new Trigger.dev task `taxonomy-reclassification` in `apps/workers/src/trigger/taxonomy-reclassification.ts`. Processes approved proposals deferred with `queuedFor: taxonomy-reclassification-worker`. Handles: `create_sub_topic`, `reassign_claims`, `merge_sub_topics`, `retire_sub_topic`, `merge_top_domains`. Logs `reclassification_applied_*` change-log rows for idempotency. Complex split proposals flagged as manual-intervention-required.
+- **Entity proposal write-time fuzzy-dedup** — `pg_trgm` similarity check (threshold 0.85) at INSERT time in both extraction workers. Same `(entity_type, value)` surface within the fuzzy window increments `proposal_count` instead of inserting a duplicate row. Migration `53_entity_proposals_dedup.sql` adds `pg_trgm` extension + GIN index + `proposal_count` column.
+- **Batch-approve UX** — `/admin/taxonomy/proposals` now supports checkbox multi-select with a sticky bulk-approve / bulk-reject action bar. Backed by `bulkApproveTaxonomyProposals` and `bulkRejectTaxonomyProposals` server actions.
+
 ## Phase R0: Documentation reset
 
 Goal: ensure future AI coding agents follow the correct architecture.
