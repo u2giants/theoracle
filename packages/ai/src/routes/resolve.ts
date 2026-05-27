@@ -25,6 +25,8 @@ const OR_PROVIDER_MAP: Record<string, OracleProvider> = {
   anthropic: 'anthropic',
   openai: 'openai',
   google: 'vertex',   // OpenRouter uses google/ for Gemini models
+  deepseek: 'deepseek',
+  qwen: 'qwen',
   // others (meta-llama, mistralai, etc.) are not supported — return null
 };
 
@@ -72,10 +74,18 @@ function makeSyntheticRoute(
       ? 'anthropic_auto_plus_explicit'
       : provider === 'vertex'
       ? 'vertex_implicit_or_explicit_by_context_size'
+      : provider === 'deepseek'
+      ? 'deepseek_automatic_prefix'
+      : provider === 'qwen'
+      ? 'qwen_none'
       : 'openai_automatic_with_cache_key';
 
+  // DeepSeek and Qwen via OpenAI-compat don't expose strict json_schema mode.
+  // OpenAI does. Vertex Gemini supports native json schema. Anthropic uses tool_call.
   const structuredOutputStrategy =
-    provider === 'vertex' ? 'native_json_schema' : 'tool_call';
+    provider === 'vertex' ? 'native_json_schema'
+      : provider === 'openai' ? 'native_json_schema'
+      : 'tool_call';
 
   return {
     routeId: openRouterId,  // use the OpenRouter ID as the routeId

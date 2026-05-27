@@ -40,6 +40,21 @@ export const ROUTE_SETTING_KEYS = {
  */
 export const GENERAL_PURPOSE_ROUTE_SETTING_KEY = 'default_general_purpose_route';
 
+/**
+ * Reasoning effort settings keys, one per stage. Values are 'off' | 'low' |
+ * 'medium' | 'high' (unified across providers; adapters translate).
+ *
+ * Each stage's effort setting is independent of the model setting — choosing
+ * a non-reasoning model just means the saved effort is ignored at inference
+ * time. The picker UI hides the dropdown when the selected model lacks
+ * reasoning capability.
+ */
+export const REASONING_EFFORT_SETTING_KEYS = {
+  interview: 'default_interview_reasoning_effort',
+  extraction: 'default_extraction_reasoning_effort',
+  synthesis: 'default_synthesis_reasoning_effort',
+} as const satisfies Record<OracleModelRole, string>;
+
 /** Legacy settings keys kept temporarily during R1 migration. Read-only. */
 export const LEGACY_OPENROUTER_SETTING_KEYS = {
   interview: 'default_interview_model',

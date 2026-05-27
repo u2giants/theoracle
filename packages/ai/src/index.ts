@@ -119,6 +119,7 @@ export {
   LEGACY_OPENROUTER_SETTING_KEYS,
   MODEL_POOL_SETTING_KEYS,
   GENERAL_PURPOSE_ROUTE_SETTING_KEY,
+  REASONING_EFFORT_SETTING_KEYS,
 } from './routes';
 
 // Model capability discovery — OpenRouter as single source, persisted to DB.

@@ -1,76 +1,107 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import {
-  Check,
-  ChevronDown,
-  Search,
-} from 'lucide-react';
+import { Check, ChevronDown, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { CAPS, type CapKey } from './caps';
+import {
+  CAPS,
+  STAGE_REQUIREMENTS,
+  meetsStageReq,
+  missingReqs,
+  type CapKey,
+  type Stage,
+} from '@/lib/stage-requirements';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
+// Mirrors the ModelInfo shape from /api/admin/models — includes the canonical
+// capability fields that match the model-pool DB columns and the shared
+// stage-requirements module.
 type Model = {
   id: string;
   name: string;
+  provider: string;
   contextLength: number | null;
   promptPer1M: number | null;
   completionPer1M: number | null;
   vision: boolean;
+  thinking: boolean;
   tools: boolean;
-  files: boolean;
-  reasoning: boolean;
-  imageGen: boolean;
+  structuredOutputs: boolean;
+  promptCaching: boolean;
+  outputCap: boolean;
+  pdf: boolean;
 };
 
 type Status = 'idle' | 'saving' | 'saved' | 'error';
 
-// CAPS imported from ./caps — shared with server components.
+/**
+ * Reasoning effort levels. Unified across providers — each adapter translates
+ * to its provider-native form (Anthropic budget_tokens, OpenAI reasoning_effort,
+ * Vertex thinkingConfig.thinkingBudget).
+ *
+ *   off    — disable thinking / use the smallest budget the provider allows
+ *   low    — minimal reasoning (Anthropic ~2K tok, OpenAI 'low', Vertex ~1K)
+ *   medium — balanced (Anthropic ~8K tok, OpenAI 'medium', Vertex ~8K)
+ *   high   — maximum (Anthropic ~24K tok, OpenAI 'high', Vertex ~24K)
+ */
+export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high';
+
+const EFFORT_OPTIONS: { value: ReasoningEffort; label: string }[] = [
+  { value: 'off',    label: 'Off' },
+  { value: 'low',    label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high',   label: 'High' },
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Format a per-1M-token price for display. */
 function fmtPrice(n: number): string {
   if (n === 0) return '0';
   if (n < 0.001) return n.toFixed(5);
   if (n < 0.1) return n.toFixed(3);
-  if (n < 1) return n.toFixed(2);
   return n.toFixed(2);
 }
 
-/** Format context window size — "200K", "1M", etc. */
 function fmtCtx(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
   if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
   return n.toLocaleString();
 }
 
-/** Build the short price badge text shown inside each dropdown row. */
 function priceBadge(m: Model): string | null {
   if (m.promptPer1M == null) return null;
   if (m.promptPer1M === 0 && (m.completionPer1M ?? 0) === 0) return 'Free';
   return `$${fmtPrice(m.promptPer1M)} / $${fmtPrice(m.completionPer1M ?? 0)}`;
 }
 
+/** Derive stage from a settings key like 'default_interview_route'. */
+function stageFromKey(settingKey: string): Stage | 'general' {
+  if (settingKey.includes('general_purpose')) return 'general';
+  if (settingKey.includes('interview')) return 'interview';
+  if (settingKey.includes('extraction')) return 'extraction';
+  if (settingKey.includes('synthesis')) return 'synthesis';
+  return 'interview';
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
-/** Row of capability icons for a model. */
+/** Row of small capability icons for a model — used inside dropdown rows. */
 function CapIcons({ model, size = 3 }: { model: Model; size?: number }) {
-  const active = CAPS.filter((c) => model[c.key]);
+  const active = CAPS.filter((c) => (model as unknown as Record<CapKey, boolean>)[c.field]);
   if (active.length === 0) return null;
   return (
     <span className="flex items-center gap-0.5 shrink-0">
-      {active.map(({ key, Icon, color, desc }) => (
-        <span key={key} title={desc}>
-          <Icon className={cn(`size-${size}`, color)} />
+      {active.map((cap) => (
+        <span key={cap.field} title={cap.long}>
+          <cap.icon className={cn(`size-${size}`, cap.color)} />
         </span>
       ))}
     </span>
@@ -83,10 +114,10 @@ function Legend() {
     <div className="rounded-md border bg-muted/20 px-3 py-2">
       <p className="text-xs font-medium text-muted-foreground mb-1.5">Icon legend</p>
       <div className="flex flex-wrap gap-x-4 gap-y-1">
-        {CAPS.map(({ key, Icon, color, label, desc }) => (
-          <span key={key} className="flex items-center gap-1 text-xs text-muted-foreground" title={desc}>
-            <Icon className={cn('size-3', color)} />
-            {label}
+        {CAPS.map((cap) => (
+          <span key={cap.field} className="flex items-center gap-1 text-xs text-muted-foreground" title={cap.long}>
+            <cap.icon className={cn('size-3', cap.color)} />
+            {cap.short}
           </span>
         ))}
         <span className="flex items-center gap-1 text-xs text-muted-foreground" title="Cost per 1 million input / output tokens">
@@ -104,14 +135,21 @@ function Legend() {
 
 export function ModelPicker({
   currentModel,
+  currentEffort,
   settingKey,
   settingDescription,
-  requiredCaps = [],
+  effortSettingKey,
+  effortSettingDescription,
 }: {
   currentModel: string | null;
+  currentEffort: ReasoningEffort | null;
   settingKey: string;
   settingDescription: string;
-  requiredCaps?: CapKey[];
+  /** Settings key for the reasoning-effort dropdown. Optional —
+   *  if omitted, the effort selector is hidden entirely (e.g. for general-purpose
+   *  picker where there's no stage to associate effort with). */
+  effortSettingKey?: string;
+  effortSettingDescription?: string;
 }) {
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,6 +157,7 @@ export function ModelPicker({
   const [selected, setSelected] = useState<string>(
     currentModel ?? 'anthropic/claude-sonnet-4.6',
   );
+  const [effort, setEffort] = useState<ReasoningEffort>(currentEffort ?? 'medium');
   const [status, setStatus] = useState<Status>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -128,23 +167,13 @@ export function ModelPicker({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Load models on mount. Stage is derived from settingKey so the API
-  // returns this stage's pool only. The "general" stage is special — it
-  // ignores the pool and shows the full catalog.
-  const stage = settingKey.includes('general_purpose')
-    ? 'general'
-    : settingKey.includes('interview')
-    ? 'interview'
-    : settingKey.includes('extraction')
-    ? 'extraction'
-    : settingKey.includes('synthesis')
-    ? 'synthesis'
-    : 'interview';
+  const stageOrGeneral = stageFromKey(settingKey);
+
   useEffect(() => {
     let cancelled = false;
     async function loadModels() {
       try {
-        const res = await fetch(`/api/admin/models?stage=${stage}`);
+        const res = await fetch(`/api/admin/models?stage=${stageOrGeneral}`);
         if (!res.ok) {
           const body = await res.text();
           throw new Error(`${res.status}: ${body}`);
@@ -166,7 +195,7 @@ export function ModelPicker({
     }
     void loadModels();
     return () => { cancelled = true; };
-  }, [currentModel, stage]);
+  }, [currentModel, stageOrGeneral]);
 
   // Close on outside click.
   useEffect(() => {
@@ -191,6 +220,7 @@ export function ModelPicker({
     setStatus('saving');
     setSaveError(null);
     try {
+      // Save model selection.
       const res = await fetch('/api/admin/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -200,10 +230,22 @@ export function ModelPicker({
           description: settingDescription,
         }),
       });
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(`${res.status}: ${body}`);
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+
+      // Save effort selection if applicable (and the selected model supports reasoning).
+      if (effortSettingKey && selectedModel?.thinking) {
+        const r2 = await fetch('/api/admin/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key: effortSettingKey,
+            value: effort,
+            description: effortSettingDescription ?? `Reasoning effort for ${settingKey}.`,
+          }),
+        });
+        if (!r2.ok) throw new Error(`${r2.status}: ${await r2.text()}`);
       }
+
       setStatus('saved');
       setTimeout(() => setStatus('idle'), 3000);
     } catch (err) {
@@ -214,10 +256,13 @@ export function ModelPicker({
 
   const selectedModel = models.find((m) => m.id === selected);
 
-  // Keep only models that satisfy every required capability, then sort cheapest first.
-  const compatible = models
-    .filter((m) => requiredCaps.every((cap) => m[cap]))
-    .sort((a, b) => (a.promptPer1M ?? Infinity) - (b.promptPer1M ?? Infinity));
+  // Filter the dropdown using the same predicates as the model-pool page.
+  // For the "general" picker (no stage), don't filter — show all models.
+  const compatible = (
+    stageOrGeneral === 'general'
+      ? models
+      : models.filter((m) => meetsStageReq(m, stageOrGeneral))
+  ).sort((a, b) => (a.promptPer1M ?? Infinity) - (b.promptPer1M ?? Infinity));
 
   const filtered = query.trim()
     ? compatible.filter(
@@ -231,117 +276,147 @@ export function ModelPicker({
     return <p className="text-sm text-muted-foreground">Loading available models…</p>;
   }
   if (fetchError) {
-    return (
-      <p className="text-sm text-destructive">Failed to load models: {fetchError}</p>
-    );
+    return <p className="text-sm text-destructive">Failed to load models: {fetchError}</p>;
   }
+
+  // For stage pickers, find which requirements the *selected* model fails.
+  // We use this to surface a small warning under the dropdown when an admin
+  // somehow has a non-compliant model saved (e.g., from before stage reqs changed).
+  const selectedMissing = selectedModel && stageOrGeneral !== 'general'
+    ? missingReqs(selectedModel, stageOrGeneral)
+    : [];
+
+  const effortApplicable = effortSettingKey && selectedModel?.thinking === true;
 
   return (
     <div className="space-y-4">
 
-      {/* ── Dropdown ─────────────────────────────────────────────────────── */}
+      {/* ── Model + effort dropdowns (side by side when effort is applicable) ─ */}
       <div className="space-y-2">
         <label className="text-sm font-medium leading-none">Model</label>
 
-        <div className="relative" ref={dropdownRef}>
-          {/* Trigger button */}
-          <button
-            type="button"
-            onClick={() => { setOpen((v) => !v); }}
-            disabled={status === 'saving'}
-            className={cn(
-              'w-full flex items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm',
-              'ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              'disabled:cursor-not-allowed disabled:opacity-50',
-            )}
-          >
-            <span className="flex items-center gap-2 min-w-0">
-              <span className="font-mono truncate">
-                {selected || 'Select a model…'}
+        <div className="flex items-start gap-2">
+          {/* Model dropdown */}
+          <div className="relative flex-1 min-w-0" ref={dropdownRef}>
+            <button
+              type="button"
+              onClick={() => { setOpen((v) => !v); }}
+              disabled={status === 'saving'}
+              className={cn(
+                'w-full flex items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm',
+                'ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                'disabled:cursor-not-allowed disabled:opacity-50',
+              )}
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="font-mono truncate">
+                  {selected || 'Select a model…'}
+                </span>
+                {selectedModel && <CapIcons model={selectedModel} />}
               </span>
-              {selectedModel && <CapIcons model={selectedModel} />}
-            </span>
-            <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
-          </button>
+              <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+            </button>
 
-          {/* Floating list */}
-          {open && (
-            <div className="absolute z-50 mt-1 w-full rounded-md border bg-background shadow-lg">
-              {/* Search box */}
-              <div className="flex items-center gap-2 border-b px-3 py-2">
-                <Search className="size-3.5 shrink-0 text-muted-foreground" />
-                <input
-                  ref={searchRef}
-                  type="text"
-                  placeholder="Search models…"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                />
-              </div>
-
-              {/* Model rows */}
-              <ul className="max-h-72 overflow-y-auto py-1" role="listbox">
-                {filtered.length === 0 && (
-                  <li className="px-3 py-4 text-center text-sm text-muted-foreground">
-                    No models match &ldquo;{query}&rdquo;
-                  </li>
-                )}
-                {filtered.map((m) => {
-                  const badge = priceBadge(m);
-                  const isSelected = m.id === selected;
-                  return (
-                    <li key={m.id} role="option" aria-selected={isSelected}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelected(m.id);
-                          setStatus('idle');
-                          setOpen(false);
-                          setQuery('');
-                        }}
-                        className={cn(
-                          'w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted',
-                          isSelected && 'bg-muted/60',
-                        )}
-                      >
-                        {/* Left: checkmark + model ID + capability icons */}
-                        <span className="flex items-center gap-1.5 min-w-0">
-                          <Check
-                            className={cn(
-                              'size-3.5 shrink-0',
-                              isSelected ? 'text-foreground' : 'invisible',
-                            )}
-                          />
-                          <span className="font-mono text-xs truncate">{m.id}</span>
-                          <CapIcons model={m} size={3} />
-                        </span>
-
-                        {/* Right: price badge */}
-                        {badge != null && (
-                          <span
-                            className={cn(
-                              'shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px]',
-                              badge === 'Free'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : 'bg-muted text-muted-foreground',
-                            )}
-                          >
-                            {badge}
-                          </span>
-                        )}
-                      </button>
+            {/* Floating list */}
+            {open && (
+              <div className="absolute z-50 mt-1 w-full rounded-md border bg-background shadow-lg">
+                <div className="flex items-center gap-2 border-b px-3 py-2">
+                  <Search className="size-3.5 shrink-0 text-muted-foreground" />
+                  <input
+                    ref={searchRef}
+                    type="text"
+                    placeholder="Search models…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                  />
+                </div>
+                <ul className="max-h-72 overflow-y-auto py-1" role="listbox">
+                  {filtered.length === 0 && (
+                    <li className="px-3 py-4 text-center text-sm text-muted-foreground">
+                      No models match &ldquo;{query}&rdquo;
                     </li>
-                  );
-                })}
-              </ul>
+                  )}
+                  {filtered.map((m) => {
+                    const badge = priceBadge(m);
+                    const isSelected = m.id === selected;
+                    return (
+                      <li key={m.id} role="option" aria-selected={isSelected}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelected(m.id);
+                            setStatus('idle');
+                            setOpen(false);
+                            setQuery('');
+                          }}
+                          className={cn(
+                            'w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted',
+                            isSelected && 'bg-muted/60',
+                          )}
+                        >
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            <Check
+                              className={cn(
+                                'size-3.5 shrink-0',
+                                isSelected ? 'text-foreground' : 'invisible',
+                              )}
+                            />
+                            <span className="font-mono text-xs truncate">{m.id}</span>
+                            <CapIcons model={m} size={3} />
+                          </span>
+                          {badge != null && (
+                            <span
+                              className={cn(
+                                'shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px]',
+                                badge === 'Free'
+                                  ? 'bg-emerald-50 text-emerald-700'
+                                  : 'bg-muted text-muted-foreground',
+                              )}
+                            >
+                              {badge}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
 
-              <div className="border-t px-3 py-1.5 text-[10px] text-muted-foreground">
-                {filtered.length} of {compatible.length} compatible models
+                <div className="border-t px-3 py-1.5 text-[10px] text-muted-foreground">
+                  {filtered.length} of {compatible.length} compatible models
+                </div>
               </div>
+            )}
+          </div>
+
+          {/* Effort dropdown (only when this is a stage picker AND selected model supports reasoning) */}
+          {effortApplicable && (
+            <div className="w-32 shrink-0">
+              <select
+                value={effort}
+                onChange={(e) => { setEffort(e.target.value as ReasoningEffort); setStatus('idle'); }}
+                title="Reasoning effort — translated per-provider (Anthropic budget_tokens, OpenAI reasoning_effort, Vertex thinkingBudget)"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm
+                           ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                {EFFORT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    Effort: {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
         </div>
+
+        {/* Warning if the saved model fails the stage's current requirements */}
+        {selectedMissing.length > 0 && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            ⚠ Selected model doesn&apos;t meet this stage&apos;s requirements:{' '}
+            {selectedMissing.map((r) => r.label).join(', ')}
+          </p>
+        )}
       </div>
 
       {/* ── Selected model detail card ────────────────────────────────────── */}
@@ -364,16 +439,16 @@ export function ModelPicker({
           </div>
 
           {/* Active capabilities */}
-          {CAPS.some((c) => selectedModel[c.key]) && (
+          {CAPS.some((c) => (selectedModel as unknown as Record<CapKey, boolean>)[c.field]) && (
             <div className="flex flex-wrap gap-2 pt-0.5">
-              {CAPS.filter((c) => selectedModel[c.key]).map(({ key, Icon, color, label, desc }) => (
+              {CAPS.filter((c) => (selectedModel as unknown as Record<CapKey, boolean>)[c.field]).map((cap) => (
                 <span
-                  key={key}
-                  title={desc}
+                  key={cap.field}
+                  title={cap.long}
                   className="flex items-center gap-1 text-xs text-muted-foreground"
                 >
-                  <Icon className={cn('size-3', color)} />
-                  {label}
+                  <cap.icon className={cn('size-3', cap.color)} />
+                  {cap.short}
                 </span>
               ))}
             </div>
@@ -384,7 +459,7 @@ export function ModelPicker({
       {/* ── Save button ───────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3">
         <Button onClick={save} disabled={status === 'saving'} size="sm">
-          {status === 'saving' ? 'Saving…' : 'Save model'}
+          {status === 'saving' ? 'Saving…' : effortApplicable ? 'Save model + effort' : 'Save model'}
         </Button>
         {status === 'saved' && (
           <span className="text-sm text-green-600">Saved.</span>
@@ -405,3 +480,7 @@ export function ModelPicker({
     </div>
   );
 }
+
+// Re-export the per-stage requirements + helpers so server components rendering
+// the stage card headers can show the same icon set the picker filters by.
+export { STAGE_REQUIREMENTS } from '@/lib/stage-requirements';

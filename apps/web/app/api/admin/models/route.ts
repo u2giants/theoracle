@@ -30,25 +30,41 @@ export const dynamic = 'force-dynamic';
 export type ModelInfo = {
   id: string;
   name: string;
+  provider: string;
   contextLength: number | null;
   promptPer1M: number | null;
   completionPer1M: number | null;
+  // Canonical capability fields (matches model_capabilities DB columns and
+  // the shared stage-requirements module in apps/web/lib/stage-requirements.ts).
   vision: boolean;
+  thinking: boolean;
   tools: boolean;
-  files: boolean;
-  reasoning: boolean;
-  imageGen: boolean;
+  structuredOutputs: boolean;
+  promptCaching: boolean;
+  outputCap: boolean;
+  pdf: boolean;
+  // Legacy aliases kept for older client code (channel chat, document upload)
+  // that still uses the friendly names. Remove after those callers migrate.
+  files: boolean;       // alias for pdf
+  reasoning: boolean;   // alias for thinking
+  imageGen: boolean;    // not currently sourced; always false
 };
 
 function capabilityToModelInfo(cap: ModelCapability): ModelInfo {
   return {
     id: cap.id,
     name: cap.displayName,
+    provider: cap.provider,
     contextLength: cap.contextLength,
     promptPer1M: cap.promptPer1mUsd,
     completionPer1M: cap.completionPer1mUsd,
     vision: cap.vision,
+    thinking: cap.thinking,
     tools: cap.toolCalling,
+    structuredOutputs: cap.structuredOutputs,
+    promptCaching: cap.promptCaching,
+    outputCap: cap.outputCap,
+    pdf: cap.pdf,
     files: cap.pdf,
     reasoning: cap.thinking,
     imageGen: false,

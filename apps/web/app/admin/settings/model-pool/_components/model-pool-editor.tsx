@@ -2,21 +2,23 @@
 
 import { useEffect, useState } from 'react';
 import {
-  Braces,
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
-  Eye,
-  FileText,
-  Maximize2,
-  Sparkles,
-  Type,
-  Wrench,
-  Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ModelCatalogEntry } from '@/app/api/admin/model-catalog/route';
+import {
+  CAPS,
+  STAGES,
+  STAGE_LABELS,
+  STAGE_REQUIREMENTS,
+  hasEnrichment,
+  missingReqs,
+  type CapKey,
+  type Stage,
+} from '@/lib/stage-requirements';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -35,33 +37,10 @@ function fmtCtx(n: number): string {
   return n.toLocaleString();
 }
 
-type IconComponent = React.ComponentType<{ className?: string }>;
-
 // ---------------------------------------------------------------------------
-// Capability metadata
+// Provider metadata (model-pool–specific; STAGES + CAPS + STAGE_REQUIREMENTS
+// now come from @/lib/stage-requirements, the shared source of truth).
 // ---------------------------------------------------------------------------
-
-type CapabilityField = 'vision' | 'thinking' | 'tools' | 'structuredOutputs' | 'promptCaching' | 'pdf' | 'outputCap';
-
-interface CapabilityMeta {
-  field: CapabilityField;
-  short: string;
-  long: string;
-  icon: IconComponent;
-  color: string;
-}
-
-const CAPABILITIES: ReadonlyArray<CapabilityMeta> = [
-  { field: 'vision',            short: 'Vision',     long: 'Vision (image input)',                   icon: Eye,      color: 'text-sky-600 dark:text-sky-400' },
-  { field: 'thinking',          short: 'Reasoning',  long: 'Reasoning / include_reasoning',          icon: Sparkles, color: 'text-violet-600 dark:text-violet-400' },
-  { field: 'tools',             short: 'Tools',      long: 'Tools / tool_choice',                    icon: Wrench,   color: 'text-emerald-600 dark:text-emerald-400' },
-  { field: 'structuredOutputs', short: 'Structured', long: 'Structured outputs / response_format',   icon: Braces,   color: 'text-orange-600 dark:text-orange-400' },
-  { field: 'promptCaching',     short: 'Caching',    long: 'Prompt caching',                         icon: Zap,      color: 'text-amber-600 dark:text-amber-400' },
-  { field: 'outputCap',         short: 'OutCap',     long: 'Output cap (max_completion_tokens or max_tokens)', icon: Type, color: 'text-teal-600 dark:text-teal-400' },
-  { field: 'pdf',               short: 'PDF',        long: 'PDF input',                              icon: FileText, color: 'text-slate-600 dark:text-slate-400' },
-];
-
-const CAP_BY_FIELD = Object.fromEntries(CAPABILITIES.map((c) => [c.field, c])) as Record<CapabilityField, CapabilityMeta>;
 
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
@@ -72,83 +51,6 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 const PROVIDER_ORDER = ['anthropic', 'openai', 'google', 'deepseek', 'qwen'] as const;
-
-const STAGES = ['interview', 'extraction', 'synthesis'] as const;
-type Stage = (typeof STAGES)[number];
-
-const STAGE_LABELS: Record<Stage, string> = {
-  interview: 'Interview',
-  extraction: 'Extraction',
-  synthesis: 'Synthesis',
-};
-
-// ---------------------------------------------------------------------------
-// Stage requirements — model must satisfy ALL listed predicates to be eligible.
-//
-// Spec (per session 2026-05-27):
-//   Interview:  tools, structured, vision, context > 100K
-//   Extraction: structured, reasoning (thinking), vision, context > 100K
-//   Synthesis:  context > 400K, structured (response_format), output cap
-// ---------------------------------------------------------------------------
-
-interface StageRequirement {
-  /** Predicate against the model entry. */
-  check: (m: ModelCatalogEntry) => boolean;
-  /** Header label / tooltip text. */
-  label: string;
-  /** Icon shown in the stage's column header. */
-  icon: IconComponent;
-  /** Tailwind text-color class for the icon. */
-  color: string;
-}
-
-const CTX_REQ = (threshold: number): StageRequirement => ({
-  check: (m) => m.contextLength != null && m.contextLength > threshold,
-  label: `Context > ${threshold >= 1_000_000 ? `${threshold / 1_000_000}M` : `${threshold / 1_000}K`}`,
-  icon: Maximize2,
-  color: 'text-indigo-600 dark:text-indigo-400',
-});
-
-const CAP_REQ = (field: CapabilityField): StageRequirement => {
-  const meta = CAP_BY_FIELD[field];
-  return {
-    check: (m) => !!m[field],
-    label: meta.long,
-    icon: meta.icon,
-    color: meta.color,
-  };
-};
-
-const STAGE_REQUIREMENTS: Record<Stage, StageRequirement[]> = {
-  interview: [
-    CAP_REQ('tools'),
-    CAP_REQ('structuredOutputs'),
-    CAP_REQ('vision'),
-    CTX_REQ(100_000),
-  ],
-  extraction: [
-    CAP_REQ('structuredOutputs'),
-    CAP_REQ('thinking'),
-    CAP_REQ('vision'),
-    CTX_REQ(100_000),
-  ],
-  synthesis: [
-    CTX_REQ(400_000),
-    CAP_REQ('structuredOutputs'),
-    CAP_REQ('outputCap'),
-  ],
-};
-
-/** True when we have enrichment data for this model (context OR pricing populated). */
-function hasEnrichment(m: ModelCatalogEntry): boolean {
-  return m.contextLength != null || m.promptPer1M != null;
-}
-
-/** Returns the missing requirements for a stage, or [] if eligible (or unknown). */
-function missingReqs(m: ModelCatalogEntry, stage: Stage): StageRequirement[] {
-  if (!hasEnrichment(m)) return []; // unknown — allow
-  return STAGE_REQUIREMENTS[stage].filter((r) => !r.check(m));
-}
 
 const STAGE_SETTING_KEYS: Record<Stage, string> = {
   interview: 'model_pool_interview',
@@ -209,7 +111,7 @@ export function ModelPoolEditor({
   const [nameFilter, setNameFilter] = useState('');
   const [minContext, setMinContext] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
-  const [capFilters, setCapFilters] = useState<Set<CapabilityField>>(new Set());
+  const [capFilters, setCapFilters] = useState<Set<CapKey>>(new Set());
   const [sortBy, setSortBy] = useState<SortKey>(null);
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -284,7 +186,7 @@ export function ModelPoolEditor({
     else { setSortBy(key); setSortDir('desc'); }
   }
 
-  function toggleCapFilter(field: CapabilityField) {
+  function toggleCapFilter(field: CapKey) {
     setCapFilters((prev) => {
       const next = new Set(prev);
       if (next.has(field)) next.delete(field);
@@ -514,7 +416,7 @@ export function ModelPoolEditor({
                         </div>
                       </th>
                       {/* Capability columns — icon header, click icon to filter on this cap */}
-                      {CAPABILITIES.map((cap) => {
+                      {CAPS.map((cap) => {
                         const active = capFilters.has(cap.field);
                         return (
                           <th key={cap.field} className="text-center px-1.5 py-2 font-medium text-xs text-muted-foreground w-10">
@@ -567,7 +469,7 @@ export function ModelPoolEditor({
                             : '—'}
                         </td>
                         {/* Capability cells */}
-                        {CAPABILITIES.map((cap) => (
+                        {CAPS.map((cap) => (
                           <td
                             key={cap.field}
                             className="text-center px-1.5 py-2 align-middle"

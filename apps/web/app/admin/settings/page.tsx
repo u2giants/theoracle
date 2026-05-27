@@ -1,17 +1,19 @@
 // Admin → Settings tab.
-// Reads all model settings from the DB server-side, passes to client pickers.
-//
-// P1 #1 fix: setting keys now use the correct _route suffix that workers read
-// (ROUTE_SETTING_KEYS from @oracle/ai/routes). The legacy _model keys are no
-// longer written here — any existing rows with the old keys continue to exist
-// in the DB but are ignored by the production model paths.
+// Reads all model + reasoning-effort settings from the DB server-side, passes
+// to client pickers. Per-stage required-capability icons rendered from the
+// shared @/lib/stage-requirements module so they match the model-pool page.
 
 import React from 'react';
 import Link from 'next/link';
+import { cn } from '@/lib/utils';
 import { inArray } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { settings } from '@oracle/db/schema';
-import { ROUTE_SETTING_KEYS, GENERAL_PURPOSE_ROUTE_SETTING_KEY } from '@oracle/ai';
+import {
+  GENERAL_PURPOSE_ROUTE_SETTING_KEY,
+  REASONING_EFFORT_SETTING_KEYS,
+  ROUTE_SETTING_KEYS,
+} from '@oracle/ai';
 import {
   Card,
   CardContent,
@@ -19,24 +21,54 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { ModelPicker } from './_components/model-picker';
-import { RequiredCapIcons, type CapKey } from './_components/caps';
+import { ModelPicker, type ReasoningEffort } from './_components/model-picker';
+import { STAGE_REQUIREMENTS, type Stage } from '@/lib/stage-requirements';
 
 // ---------------------------------------------------------------------------
-// The three configurable model roles.
+// Per-stage requirement icons — server component, no 'use client'.
+// Pulls the same predicates the picker uses for filtering.
 // ---------------------------------------------------------------------------
 
-const MODEL_ROLES: {
+function StageRequirementIcons({ stage }: { stage: Stage }) {
+  const reqs = STAGE_REQUIREMENTS[stage];
+  return (
+    <div className="flex flex-wrap items-center gap-2.5 mt-3">
+      {reqs.map((r, i) => (
+        <span
+          key={i}
+          title={r.label}
+          className="flex items-center gap-1 text-xs font-medium text-muted-foreground"
+        >
+          <r.icon className={cn('size-3.5', r.color)} />
+          {r.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The four configurable model roles (3 stages + general-purpose).
+// ---------------------------------------------------------------------------
+
+interface RoleDef {
   settingKey: string;
+  /** null for general-purpose — has no stage requirements. */
+  stage: Stage | null;
+  effortSettingKey?: string;
+  effortSettingDescription?: string;
   title: string;
   subtitle: string;
   description: React.ReactNode;
   settingDescription: string;
-  requirements: readonly string[];
-  requiredCaps: CapKey[];
-}[] = [
+}
+
+const MODEL_ROLES: RoleDef[] = [
   {
     settingKey: ROUTE_SETTING_KEYS.interview,
+    stage: 'interview',
+    effortSettingKey: REASONING_EFFORT_SETTING_KEYS.interview,
+    effortSettingDescription: 'Reasoning effort for the Interview stage. Translated per provider at inference time.',
     title: 'Interview model',
     subtitle: 'Real-time Oracle chat',
     description: (
@@ -45,25 +77,18 @@ const MODEL_ROLES: {
         is watching a &ldquo;thinking…&rdquo; indicator. This model must support{' '}
         <strong>tool use</strong> and follow strict one-question-per-reply output
         rules. Employees regularly share images (product photos, diagrams) and
-        upload documents (routing guides, org charts, product specs, PDFs) —{' '}
-        <strong>vision</strong> and <strong>file input</strong> are both required
-        to read this material in-conversation. Latency is user-facing — aim for
-        under 8 s including tool calls.
+        upload documents — <strong>vision</strong> and a long enough{' '}
+        <strong>context window</strong> are both required. Latency is user-facing —
+        aim for under 8 s including tool calls.
       </>
     ),
-    settingDescription: 'Direct-provider model for real-time Oracle interview chat (Anthropic Claude Haiku 4.5 by default).',
-    requirements: [
-      'Tool use required',
-      'Vision required (images, diagrams)',
-      'File input required (PDFs, org charts, routing guides)',
-      'Low latency (≤8 s)',
-      'Strong instruction following',
-      'Context: up to ~32K tokens (large documents)',
-    ],
-    requiredCaps: ['tools', 'vision', 'files'],
+    settingDescription: 'Direct-provider model for real-time Oracle interview chat.',
   },
   {
     settingKey: ROUTE_SETTING_KEYS.extraction,
+    stage: 'extraction',
+    effortSettingKey: REASONING_EFFORT_SETTING_KEYS.extraction,
+    effortSettingDescription: 'Reasoning effort for async claim extraction. Higher = better recall at higher cost.',
     title: 'Extraction model',
     subtitle: 'Async claim extraction from messages & documents',
     description: (
@@ -73,23 +98,17 @@ const MODEL_ROLES: {
         outputs structured JSON: claim type, summary, impact score, confidence
         score, exact supporting quote, knowledge domains, and suggested gaps.
         Nobody is waiting — optimise for <strong>accuracy</strong> and{' '}
-        <strong>structured output reliability</strong>. Vision is needed for
-        documents containing embedded images (flow charts, product specs).
+        <strong>structured output reliability</strong>. Reasoning models with
+        non-zero effort generally improve quality of impact / confidence scoring.
       </>
     ),
-    settingDescription: 'Direct-provider model for async claim extraction from messages and documents (Vertex Gemini Flash by default).',
-    requirements: [
-      'Structured / JSON output required',
-      'Vision recommended (document images)',
-      'File input recommended (PDFs, DOCX)',
-      'High extraction accuracy',
-      'No latency requirement (async)',
-      'Context: variable, up to ~32K per batch',
-    ],
-    requiredCaps: ['tools', 'vision', 'files'],
+    settingDescription: 'Direct-provider model for async claim extraction from messages and documents.',
   },
   {
     settingKey: ROUTE_SETTING_KEYS.synthesis,
+    stage: 'synthesis',
+    effortSettingKey: REASONING_EFFORT_SETTING_KEYS.synthesis,
+    effortSettingDescription: 'Reasoning effort for brain synthesis. High effort recommended for contradiction reasoning.',
     title: 'Synthesis model',
     subtitle: 'Periodic Brain section synthesis',
     description: (
@@ -104,18 +123,11 @@ const MODEL_ROLES: {
         contradicting evidence. No latency requirement.
       </>
     ),
-    settingDescription: 'Direct-provider model for brain section synthesis — long-context, structured output (Vertex Gemini Flash by default).',
-    requirements: [
-      'Structured / JSON output required',
-      'Long context (≥100K strongly recommended)',
-      'No latency requirement (async, up to 10 min)',
-      'High reasoning quality',
-      'Context: potentially 100K+ tokens at scale',
-    ],
-    requiredCaps: ['tools', 'reasoning'],
+    settingDescription: 'Direct-provider model for brain section synthesis — long-context, structured output.',
   },
   {
     settingKey: GENERAL_PURPOSE_ROUTE_SETTING_KEY,
+    stage: null,
     title: 'General-purpose model',
     subtitle: 'Utility / fallback model for internal jobs',
     description: (
@@ -124,16 +136,10 @@ const MODEL_ROLES: {
         above — taxonomy cluster naming, on-demand classification, ad-hoc
         admin queries. Pick whatever the current best general-purpose model
         is and update it here when a newer one ships. The picker draws from
-        the full discovered catalog (no pool filter applies).
+        the full discovered catalog (no pool or stage requirements apply).
       </>
     ),
     settingDescription: 'General-purpose / utility model. Admin updates this when a newer model is available.',
-    requirements: [
-      'Tool use recommended',
-      'Vision recommended',
-      'Cheap to medium cost',
-    ],
-    requiredCaps: ['tools'],
   },
 ];
 
@@ -141,25 +147,23 @@ const MODEL_ROLES: {
 // Page
 // ---------------------------------------------------------------------------
 
+function isReasoningEffort(v: unknown): v is ReasoningEffort {
+  return v === 'off' || v === 'low' || v === 'medium' || v === 'high';
+}
+
 export default async function AdminSettingsPage() {
   const db = getDirectDb();
 
-  const rows = await db
-    .select()
-    .from(settings)
-    .where(
-      inArray(
-        settings.key,
-        MODEL_ROLES.map((r) => r.settingKey),
-      ),
-    );
+  // Build the full list of settings keys we need to read — both model + effort.
+  const allKeys: string[] = MODEL_ROLES.flatMap((r) =>
+    r.effortSettingKey ? [r.settingKey, r.effortSettingKey] : [r.settingKey],
+  );
 
-  // Build a lookup so we can pass the right current value to each picker.
-  const currentValues: Record<string, string | null> = {};
-  for (const row of rows) {
-    currentValues[row.key] =
-      typeof row.value === 'string' ? row.value : null;
-  }
+  const rows = await db.select().from(settings).where(inArray(settings.key, allKeys));
+
+  // Build lookup so we can pass the right current values to each picker.
+  const currentValues: Record<string, unknown> = {};
+  for (const row of rows) currentValues[row.key] = row.value;
 
   return (
     <div className="space-y-8">
@@ -178,43 +182,45 @@ export default async function AdminSettingsPage() {
           >
             model pool
           </Link>
-          . Add or remove models from the pool to control what appears here.
-          Falls back to the curated Oracle catalog when the pool is empty.
+          . Stage requirements (capability flags + context-window thresholds)
+          are enforced both here and on the pool page — they share the same
+          source of truth.
         </p>
       </header>
 
-      {MODEL_ROLES.map((role) => (
-        <Card key={role.settingKey} className="max-w-2xl">
-          <CardHeader>
-            <CardTitle className="text-base">{role.title}</CardTitle>
-            <CardDescription className="font-medium text-foreground/70">
-              {role.subtitle}
-            </CardDescription>
-            <p className="text-sm text-muted-foreground mt-1">
-              {role.description}
-            </p>
-            <RequiredCapIcons keys={role.requiredCaps} />
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {role.requirements.map((req) => (
-                <span
-                  key={req}
-                  className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground"
-                >
-                  {req}
-                </span>
-              ))}
-            </div>
-          </CardHeader>
-          <CardContent>
-            <ModelPicker
-              currentModel={currentValues[role.settingKey] ?? null}
-              settingKey={role.settingKey}
-              settingDescription={role.settingDescription}
-              requiredCaps={role.requiredCaps}
-            />
-          </CardContent>
-        </Card>
-      ))}
+      {MODEL_ROLES.map((role) => {
+        const currentModel =
+          typeof currentValues[role.settingKey] === 'string'
+            ? (currentValues[role.settingKey] as string)
+            : null;
+        const rawEffort = role.effortSettingKey ? currentValues[role.effortSettingKey] : null;
+        const currentEffort: ReasoningEffort | null = isReasoningEffort(rawEffort) ? rawEffort : null;
+
+        return (
+          <Card key={role.settingKey} className="max-w-2xl">
+            <CardHeader>
+              <CardTitle className="text-base">{role.title}</CardTitle>
+              <CardDescription className="font-medium text-foreground/70">
+                {role.subtitle}
+              </CardDescription>
+              <p className="text-sm text-muted-foreground mt-1">
+                {role.description}
+              </p>
+              {role.stage && <StageRequirementIcons stage={role.stage} />}
+            </CardHeader>
+            <CardContent>
+              <ModelPicker
+                currentModel={currentModel}
+                currentEffort={currentEffort}
+                settingKey={role.settingKey}
+                settingDescription={role.settingDescription}
+                effortSettingKey={role.effortSettingKey}
+                effortSettingDescription={role.effortSettingDescription}
+              />
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
