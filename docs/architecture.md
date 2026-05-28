@@ -280,7 +280,7 @@ Cron: every 4 hours (`0 */4 * * *`). Also triggered by document ingestion.
 
 Cron: weekly (Mondays 06:00). Also admin-triggerable.
 
-1. Reads up to 200 approved claims per brain section via `claim_top_domains` (mapped from the section's legacy `knowledge_domain` enum through `mapLegacyDomainToTopDomain`) plus `sectionClaims` for explicitly-bound claims.
+1. Reads up to 200 approved claims per brain section via `claim_top_domains`. The read scope is the union of the section's `knowledgeDomain` and its `relatedDomains` jsonb array, each legacy value mapped through `mapLegacyDomainToTopDomain`. `sectionClaims` is queried separately for explicitly-bound claims.
 2. Routes through `OracleAIClient.runObject` using the curated route from `settings.default_synthesis_route` (default `anthropic_claude_3_5_sonnet_synthesis_primary`). Dispatched through the direct `AnthropicAdapter` (`@anthropic-ai/sdk`) with forced tool-call structured output.
 3. `validateSynthesisDiff` rejects the run if (a) any material paragraph cites a non-approved claim ID, OR (b) the markdown mentions a capitalized proper-noun-shaped name not backed by an approved claim summary or the canonical entity registry. See `packages/oracle-engines/src/synthesis/diff-validator.ts`.
 4. On success: inserts a new `brain_section_versions` row (`reviewStatus='draft'` or `'needs_review'`) and updates `brain_sections.current_version_id` (two-step transaction per spec 6.7).

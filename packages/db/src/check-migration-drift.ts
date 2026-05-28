@@ -50,21 +50,47 @@ async function main(): Promise<void> {
     const rows = await client<{ hash: string }[]>`
       SELECT hash FROM drizzle.__drizzle_migrations
     `;
-    const journal = new Set(rows.map((r) => r.hash));
-    const missing = onDisk.filter((m) => !journal.has(m.hash));
+    const journalHashes = new Set(rows.map((r) => r.hash));
+    const onDiskHashes = new Set(onDisk.map((m) => m.hash));
 
-    if (missing.length === 0) {
-      console.log(`[drift] OK — all ${onDisk.length} on-disk migrations are recorded in the journal.`);
+    // Direction A — on-disk files not in journal. Two sub-cases hit this:
+    //   1. A migration was applied outside `pnpm db:migrate` (Supabase MCP,
+    //      dashboard SQL editor, drizzle-kit push) — the schema is live but
+    //      the journal never recorded it.
+    //   2. A previously-applied migration file was edited after the fact —
+    //      its old hash is still in the journal but the new hash is not, so
+    //      the runner would attempt to re-apply it and fail.
+    const missingFromJournal = onDisk.filter((m) => !journalHashes.has(m.hash));
+
+    // Direction B — journal rows with no matching on-disk file. Hits when
+    // someone deletes a migration file but the journal row remains. Less
+    // dangerous than Direction A, but still a real inconsistency.
+    const orphanJournalHashes = [...journalHashes].filter((h) => !onDiskHashes.has(h));
+
+    if (missingFromJournal.length === 0 && orphanJournalHashes.length === 0) {
+      console.log(
+        `[drift] OK — ${onDisk.length} on-disk migrations and ${journalHashes.size} journal rows match exactly.`,
+      );
       return;
     }
 
     console.error('\n[drift] DRIFT DETECTED');
-    console.error('The following on-disk migrations are NOT recorded in drizzle.__drizzle_migrations:');
-    for (const m of missing) console.error(`  - ${m.file}  (sha256 ${m.hash})`);
+    if (missingFromJournal.length > 0) {
+      console.error('\nOn-disk migrations NOT recorded in drizzle.__drizzle_migrations:');
+      for (const m of missingFromJournal) console.error(`  - ${m.file}  (sha256 ${m.hash})`);
+      console.error(
+        '  Cause: applied outside `pnpm db:migrate`, OR an applied file was edited after the fact.',
+      );
+    }
+    if (orphanJournalHashes.length > 0) {
+      console.error('\nJournal rows with NO matching on-disk file:');
+      for (const h of orphanJournalHashes) console.error(`  - ${h}`);
+      console.error(
+        '  Cause: a migration file was deleted but its journal row was not removed.',
+      );
+    }
     console.error(
-      '\nThis means a migration was applied outside `pnpm db:migrate` (e.g. via Supabase MCP, the\n' +
-        'dashboard SQL editor, or `drizzle-kit push`). See CLAUDE.md → "Drizzle journal hygiene"\n' +
-        'for the reconciliation steps.',
+      '\nSee CLAUDE.md → "Drizzle journal hygiene" for the reconciliation steps.',
     );
     process.exit(1);
   } finally {

@@ -27,7 +27,7 @@
 //   - Scheduled (Monday 6 AM) + on-demand task variants.
 
 import { schedules, task } from '@trigger.dev/sdk/v3';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
@@ -61,6 +61,21 @@ import {
   type SynthesisOutput as PureSynthesisOutput,
   type SynthesisValidationResult,
 } from '@oracle/engines';
+import { KNOWLEDGE_DOMAINS, type KnowledgeDomain } from '@oracle/shared';
+
+/**
+ * Parse the brain section's `relatedDomains` jsonb column (typed as
+ * `unknown` because Drizzle doesn't constrain jsonb content) into a
+ * validated list of legacy KnowledgeDomain values. Per spec 10.1, the
+ * synthesis read scope is the union of `knowledgeDomain` + `relatedDomains`.
+ * Anything that isn't a known legacy enum value is dropped silently —
+ * the column is admin-editable and we'd rather lose a typo than crash.
+ */
+function parseRelatedDomains(value: unknown): KnowledgeDomain[] {
+  if (!Array.isArray(value)) return [];
+  const allowed = new Set<string>(KNOWLEDGE_DOMAINS);
+  return value.filter((v): v is KnowledgeDomain => typeof v === 'string' && allowed.has(v));
+}
 
 const FALLBACK_ROUTE_ID = 'anthropic_claude_3_5_sonnet_synthesis_primary';
 const SYNTHESIS_PROMPT_VERSION = '1.0.0';
@@ -236,11 +251,19 @@ async function synthesizeSection(
   const nextVersionNumber = (lastVersion[0]?.versionNumber ?? 0) + 1;
 
   // Approved claims via claim_top_domains (R3.5) + sectionClaims joins.
-  // The brain section's legacy knowledgeDomain enum is mapped to a top-level
-  // domain id using the same mechanical mapping as the 42_* backfill SQL and
-  // the R6 worker, so this read path stays in lockstep with the write path
-  // in promotion-executor.ts (which only writes claim_top_domains).
-  const topDomainId = mapLegacyDomainToTopDomain(section.knowledgeDomain);
+  // Spec 10.1: the synthesis read scope is the union of the section's
+  // `knowledgeDomain` and any entries in its `relatedDomains` jsonb array.
+  // Each legacy enum value is run through the same mechanical mapping used by
+  // the 42_* backfill SQL and the R6 worker, so this read path stays in
+  // lockstep with the write path in promotion-executor.ts (which only writes
+  // claim_top_domains).
+  const sectionDomains: KnowledgeDomain[] = [
+    section.knowledgeDomain,
+    ...parseRelatedDomains(section.relatedDomains),
+  ];
+  const topDomainIds = Array.from(
+    new Set(sectionDomains.map((d) => mapLegacyDomainToTopDomain(d))),
+  );
   const domainClaims = await db
     .select({
       id: claims.id,
@@ -254,7 +277,7 @@ async function synthesizeSection(
     .where(
       and(
         eq(claims.status, 'approved'),
-        eq(claimTopDomains.topDomainId, topDomainId),
+        inArray(claimTopDomains.topDomainId, topDomainIds),
       ),
     )
     .orderBy(desc(claims.impactScore))
