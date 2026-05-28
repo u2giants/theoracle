@@ -114,6 +114,7 @@ Specific boundaries:
 | Add an admin page | `apps/web/app/admin/**`, possibly `packages/db/migrations/sql/*.sql` for a new admin view | RLS helpers unless policy changes are truly required |
 | Change auth/linking behavior | `packages/auth/src/**`, `apps/web/app/auth/**`, `apps/web/app/_components/login-form.tsx` | direct edits to Supabase-managed auth tables |
 | Add or change env/config | `.env.example`, `turbo.json`, `docs/configuration.md`, consuming code | `.env.local` in git |
+| Add or change model catalog filtering | `packages/ai/src/model-capabilities/sources/<provider>.ts` (per-provider source/blocklist), `packages/ai/src/model-capabilities/index.ts` (post-enrichment quality filters), `scripts/refresh-catalog.ts` to verify, `docs/architecture.md`, `DECISIONS.md` | provider inference adapters, route catalog |
 | Change deployment behavior | `vercel.json`, `.github/workflows/pr-check.yml`, `apps/workers/trigger.config.ts`, `docs/deployment.md` | ad hoc dashboard-only assumptions without documenting them |
 
 ## 7. Data model and external identifiers
@@ -256,6 +257,20 @@ Responses API session cache needs a stable conversation handle across requests a
 
 Do not change because:
 Without it, Qwen session cache resets every turn and the savings disappear.
+
+### OpenAI model catalog uses a blocklist, not an allowlist
+
+Looks like:
+A new GPT or o-series model is missing from the admin catalog even though it appears in the OpenAI API response.
+
+Actually:
+The source in `packages/ai/src/model-capabilities/sources/openai.ts` uses a blocklist of non-chat categories. A model whose name hits a blocked prefix or substring (`-tts`, `-transcribe`, `-search-api`, etc.) is excluded. Otherwise it passes through automatically.
+
+Why:
+An allowlist required a code change for every new OpenAI model generation. GPT-5.x was invisible until `gpt-5` was manually added to the prefix list. The blocklist lets new chat models appear without a code change; only genuinely non-chat categories are excluded. See `DECISIONS.md` D13.
+
+Do not change because:
+Reverting to an allowlist means future GPT-6/o-series models will be silently missing from the catalog until someone notices and edits the list. Post-enrichment quality filters (no-data models, ≥$15.01/1M input) provide a second layer of junk removal in `index.ts`.
 
 ### Hand-written SQL migrations are authoritative for constraints, views, and data fixes
 

@@ -1,8 +1,12 @@
 // Public barrel for the model-capabilities module.
 //
-// Model list is sourced from 3 direct provider APIs (Anthropic, OpenAI,
-// Google Gemini). OpenRouter is called separately to enrich each model with
-// pricing and capability flags.
+// Model list is sourced from 5 direct provider APIs (Anthropic, OpenAI,
+// Google Gemini, DeepSeek, Qwen/DashScope). OpenRouter is called separately
+// to enrich each model with pricing and capability flags.
+//
+// Post-enrichment quality filters in refreshModelCatalog drop models that
+// have no price AND no capability flags, or that cost ≥ $15.01/1M input
+// tokens. These apply to all 5 providers.
 //
 // `loadModelCatalog(db)` — read path, reads the persisted table.
 // `refreshModelCatalog(db)` — write path, fetches all sources and upserts.
