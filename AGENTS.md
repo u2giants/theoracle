@@ -480,6 +480,25 @@ Rules added to prevent recurrence:
 1. Generated `packages/db/migrations/0NNN_*.sql` files ship ONLY through `pnpm db:migrate`. Hand-written `packages/db/migrations/sql/*.sql` files (idempotent views/constraints) MAY ship via Supabase MCP `apply_migration` — those aren't journaled. Documented in CLAUDE.md → "Drizzle journal hygiene".
 2. Added `pnpm db:check-drift` (`packages/db/src/check-migration-drift.ts`) that compares on-disk migration hashes against the journal. Wired into `.github/workflows/pr-check.yml` so every PR / push to main fails the build on drift. Requires repo secret `PROD_DIRECT_URL`. Commit `35439b2`.
 
+### 2026-05-28 Batch-submit rollback left staging orphans
+
+What happened:
+The initial 2026-05-28 retry-safety fix in `claim-extraction-batch-submit.ts` (commit `830713c`) reverted messages from `processing` back to `pending` on submit failure but left the `extraction_batches` + `oracle_context_packs` rows it had already inserted in place. An inline comment falsely claimed the drain task would reap them later.
+
+Impact:
+There is no reaper in `claim-extraction-batch-drain.ts` for `extraction_batches WHERE provider_batch_job_id IS NULL`. Every failed submit accumulated dead `pending_model` staging rows + orphan context packs that admin observability would surface indefinitely as never-drained batches.
+
+Root cause:
+The fix's inline comment described an invariant that didn't exist in the codebase; the comment was never cross-checked against the drain task it referenced.
+
+Recovery / fix:
+Made the rollback symmetric and timing-aware. The submit task now tracks `stagedBatchIds`, `stagedContextPackIds`, and a `providerAccepted` flag (flipped the instant `adapter.submitBatch` returns). On failure:
+- `providerAccepted === false` (no live provider state): revert messages + DELETE both staging tables, scoped to ids this run created. Drain finds nothing because nothing existed.
+- `providerAccepted === true` (batch live at provider): leave everything in place — drain finds rows by `customId` from the batch result, not by the back-link — and log loudly including the `providerBatchId` so an operator can manually recover if the post-submit DB writes failed.
+
+Rule added to prevent recurrence:
+Any "this gets cleaned up downstream" comment must point at the specific code path doing the cleanup. If no such code exists, do the cleanup inline.
+
 ## 14. Pending work
 
 | Status | Item | Owner/next action |

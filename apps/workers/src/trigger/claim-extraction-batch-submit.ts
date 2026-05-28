@@ -86,8 +86,20 @@ export async function runClaimExtractionBatchSubmitOnce(
       .where(eq(jobRuns.id, jobRun.id));
   };
 
-  // Hoisted so the catch can revert messages this run flipped to 'processing'.
+  // Hoisted so the catch can roll back the state this run created.
+  // - claimedMessageIds: messages we flipped 'pending' → 'processing'.
+  // - stagedBatchIds / stagedContextPackIds: extraction_batches +
+  //   oracle_context_packs rows we inserted as part of staging segments.
+  // - providerAccepted: flipped to true the moment adapter.submitBatch returns
+  //   successfully. If a failure happens after that, the batch is live at the
+  //   provider and the staging rows are still needed (drain finds them by
+  //   customId from the batch result, not by provider_batch_job_id), so we
+  //   leave them in place and log loudly instead of cleaning up.
   let claimedMessageIds: string[] = [];
+  const stagedBatchIds: string[] = [];
+  const stagedContextPackIds: string[] = [];
+  let providerAccepted = false;
+  let providerBatchIdForRecovery: string | null = null;
 
   try {
     // 1. Dispatch-mode gate — mirror image of the sync worker.
@@ -149,7 +161,6 @@ export async function runClaimExtractionBatchSubmitOnce(
     const segments = groupIntoSegments(pendingMessages);
     const client = new OracleAIClient({ adapters, fallbackOnError: false });
     const requests: BatchRequest[] = [];
-    const stagedBatchIds: string[] = [];
     const allMessageIdsForFailure: string[] = [];
 
     for (const segment of segments) {
@@ -206,19 +217,22 @@ export async function runClaimExtractionBatchSubmitOnce(
         })
         .returning({ id: extractionBatches.id });
       if (!batch) throw new Error('[batch-submit] failed to insert extraction_batches row');
+      // Track for rollback immediately — if the context_pack insert below
+      // throws, this row is already orphaned and the catch needs to delete it.
+      stagedBatchIds.push(batch.id);
 
       const [contextPack] = await db
         .insert(oracleContextPacks)
         .values(buildContextPackInsert(plan))
         .returning({ id: oracleContextPacks.id });
       if (!contextPack) throw new Error('[batch-submit] failed to insert oracle_context_packs row');
+      stagedContextPackIds.push(contextPack.id);
 
       await db
         .update(extractionBatches)
         .set({ contextPackId: contextPack.id })
         .where(eq(extractionBatches.id, batch.id));
 
-      stagedBatchIds.push(batch.id);
       requests.push({
         customId: batch.id, // extraction_batches.id IS the customId so drain can map results
         plan,
@@ -237,6 +251,11 @@ export async function runClaimExtractionBatchSubmitOnce(
       requests,
       jsonSchema,
     });
+    // The provider has accepted the batch — from here on, staging rows MUST
+    // survive any catch path because the drain task will need them to map
+    // results back via customId.
+    providerAccepted = true;
+    providerBatchIdForRecovery = submitResult.providerBatchId;
 
     // 8. Insert provider_batch_jobs row.
     const [batchJob] = await db
@@ -272,31 +291,84 @@ export async function runClaimExtractionBatchSubmitOnce(
       providerBatchId: submitResult.providerBatchId,
     };
   } catch (err) {
-    // On any failure during submit, revert the messages this run claimed back
-    // to 'pending' so the next cron tick retries them. Only revert rows still
-    // in 'processing' — segments we explicitly marked 'skipped' (empty user
-    // content) stay skipped. extraction_batches rows we already inserted are
-    // left in pending_model and will be reaped by the drain task once it
-    // notices they have no provider_batch_job_id link.
     const errMsg = err instanceof Error ? err.message : String(err);
-    if (claimedMessageIds.length > 0) {
-      try {
-        await db
-          .update(messages)
-          .set({ extractionStatus: 'pending' })
-          .where(
-            and(
-              inArray(messages.id, claimedMessageIds),
-              eq(messages.extractionStatus, 'processing'),
-            ),
+
+    // Two failure regimes:
+    //
+    //  (a) providerAccepted === false: the failure happened before the
+    //      provider accepted the batch. Nothing is live upstream. Roll back
+    //      everything this run created — messages back to pending, staged
+    //      extraction_batches + oracle_context_packs deleted — so the next
+    //      cron tick gets a clean retry and the admin observability surface
+    //      isn't littered with stale pending_model rows that will never get
+    //      drained.
+    //
+    //  (b) providerAccepted === true: the provider has the batch. A failure
+    //      between submitBatch and the back-link update means messages stay
+    //      'processing' (drain will mark them based on the batch result) and
+    //      the staging rows MUST be kept — drain looks them up by customId
+    //      from the batch result, not by the back-link. We log loudly so an
+    //      operator can investigate any state mismatch.
+    if (!providerAccepted) {
+      if (claimedMessageIds.length > 0) {
+        try {
+          await db
+            .update(messages)
+            .set({ extractionStatus: 'pending' })
+            .where(
+              and(
+                inArray(messages.id, claimedMessageIds),
+                eq(messages.extractionStatus, 'processing'),
+              ),
+            );
+        } catch (revertErr) {
+          console.error(
+            '[claim-extraction-batch-submit] failed to revert messages to pending',
+            revertErr,
           );
-      } catch (revertErr) {
-        console.error(
-          '[claim-extraction-batch-submit] failed to revert messages to pending',
-          revertErr,
-        );
+        }
       }
+      // Delete the FK child first (oracle_context_packs is referenced from
+      // extraction_batches.context_pack_id), then the parent staging rows.
+      // Both deletes are scoped to ids this run created, so they cannot
+      // touch any other batch's state.
+      if (stagedBatchIds.length > 0) {
+        try {
+          await db
+            .delete(extractionBatches)
+            .where(inArray(extractionBatches.id, stagedBatchIds));
+        } catch (cleanupErr) {
+          console.error(
+            '[claim-extraction-batch-submit] failed to delete staged extraction_batches rows',
+            cleanupErr,
+          );
+        }
+      }
+      if (stagedContextPackIds.length > 0) {
+        try {
+          await db
+            .delete(oracleContextPacks)
+            .where(inArray(oracleContextPacks.id, stagedContextPackIds));
+        } catch (cleanupErr) {
+          console.error(
+            '[claim-extraction-batch-submit] failed to delete staged oracle_context_packs rows',
+            cleanupErr,
+          );
+        }
+      }
+    } else {
+      console.error(
+        '[claim-extraction-batch-submit] failure after provider accepted batch — staging rows + messages left as-is for drain or manual recovery',
+        {
+          providerBatchId: providerBatchIdForRecovery,
+          stagedBatchIds,
+          stagedContextPackIds,
+          claimedMessageCount: claimedMessageIds.length,
+          error: errMsg,
+        },
+      );
     }
+
     await db
       .update(jobRuns)
       .set({ status: 'failed', finishedAt: new Date(), error: errMsg })
