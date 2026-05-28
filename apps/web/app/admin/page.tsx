@@ -11,13 +11,27 @@ import {
   employeeIdentities,
 } from '@oracle/db/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  getGraphConfigOrNull,
+  listTenantUsers,
+  type GraphTenantUser,
+} from '@/lib/microsoft-graph';
 import { AddEmployeeForm } from './_components/add-employee-form';
 import { EditEmployeeDepartments } from './_components/edit-employee-departments';
+import { M365InviteRow } from './_components/m365-invite-row';
 
 export default async function AdminEmployeesPage() {
   const db = getDirectDb();
 
-  const [rows, deptOptions] = await Promise.all([
+  const graphConfigured = getGraphConfigOrNull() !== null;
+  const m365UsersPromise: Promise<GraphTenantUser[] | { error: string }> =
+    graphConfigured
+      ? listTenantUsers().catch((err: unknown) => ({
+          error: err instanceof Error ? err.message : String(err),
+        }))
+      : Promise.resolve([]);
+
+  const [rows, deptOptions, m365Result] = await Promise.all([
     db
       .select({
         id: employees.id,
@@ -53,7 +67,19 @@ export default async function AdminEmployeesPage() {
       .select({ id: departments.id, displayLabel: departments.displayLabel })
       .from(departments)
       .orderBy(asc(departments.displayLabel)),
+    m365UsersPromise,
   ]);
+
+  // Diff the tenant directory against existing employees by email (case-
+  // insensitive). Already-onboarded users drop off this list.
+  const existingEmails = new Set(rows.map((r) => r.email.toLowerCase()));
+  const m365Error =
+    Array.isArray(m365Result) ? null : 'error' in m365Result ? m365Result.error : null;
+  const m365UsersToInvite = Array.isArray(m365Result)
+    ? m365Result
+        .filter((u) => u.accountEnabled && !existingEmails.has(u.email))
+        .sort((a, b) => a.displayName.localeCompare(b.displayName))
+    : [];
 
   return (
     <div className="space-y-6">
@@ -132,6 +158,67 @@ export default async function AdminEmployeesPage() {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            M365 users not yet in Oracle
+            {graphConfigured && !m365Error && (
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {m365UsersToInvite.length} found
+              </span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!graphConfigured ? (
+            <p className="text-sm text-muted-foreground">
+              Microsoft Graph backend not configured. Set{' '}
+              <code>AZURE_TENANT_ID</code>, <code>AZURE_GRAPH_CLIENT_ID</code>,
+              and <code>AZURE_GRAPH_CLIENT_SECRET</code> in the environment to
+              enable the tenant directory pull.
+            </p>
+          ) : m365Error ? (
+            <p className="text-sm text-red-600">
+              Graph call failed: {m365Error}
+            </p>
+          ) : m365UsersToInvite.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Every active M365 user is already in Oracle.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b text-left text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="py-2 pr-4">Name</th>
+                    <th className="py-2 pr-4">Email</th>
+                    <th className="py-2 pr-4">Job title</th>
+                    <th className="py-2 pr-4 w-48">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {m365UsersToInvite.map((u) => (
+                    <M365InviteRow
+                      key={u.id}
+                      email={u.email}
+                      displayName={u.displayName}
+                      jobTitle={u.jobTitle}
+                    />
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-3 text-[11px] text-muted-foreground">
+                Invite pre-provisions an Oracle employee row using the M365 name
+                + email and sends a Supabase invite email (Brevo). The user can
+                then sign in via Microsoft SSO or magic link — either way, the
+                identity linker merges them into this row. Department(s) can be
+                assigned via the inline editor above once the row appears.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
