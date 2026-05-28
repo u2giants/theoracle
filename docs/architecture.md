@@ -191,7 +191,7 @@ The contract flows through provider-agnostic types in [packages/ai/src/providers
 |---|---|---|
 | `OpenAIAdapter` | ✅ landed — JSONL via `client.files.create` + `client.batches.create` against `/v1/chat/completions` | None — uses OpenAI's file API |
 | `VertexGeminiAdapter` | ✅ landed — GCS-backed JSONL via `client.batches.create` with `src`/`dest` GCS URIs | `GOOGLE_VERTEX_BATCH_GCS_BUCKET` env var + `roles/storage.objectAdmin` for the SA |
-| `AnthropicAdapter` | ⬜ deferred — Synthesis is weekly/low-volume so the dollar lever is smaller. Anthropic Message Batches via `client.messages.batches.*` is the cleanest API of the three when wired |
+| `AnthropicAdapter` | ✅ landed — Message Batches via `client.messages.batches.create` + `.results()` streaming JSONL. Forced single-tool call for structured output (mirrors `generateObject`). `providerMetadata` is `{}` — the batch ID alone is sufficient | None — Anthropic hosts the input + results |
 | `DeepSeekAdapter` | n/a — no public Batch API |
 | `QwenAdapter` | n/a — DashScope batch surface is non-OpenAI-compat; would require native DashScope SDK swap (D12 deferred) |
 

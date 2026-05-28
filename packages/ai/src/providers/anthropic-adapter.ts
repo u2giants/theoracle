@@ -25,7 +25,8 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { Message } from '@anthropic-ai/sdk/resources/messages';
+import type { Message, MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/messages';
+import type { MessageBatchIndividualResponse } from '@anthropic-ai/sdk/resources/messages/batches';
 import type {
   OracleObjectResult,
   OracleTextResult,
@@ -33,9 +34,15 @@ import type {
 } from '../client/types';
 import type { OracleModelRoute, ReasoningEffort } from '../routes';
 import type {
+  BatchResultItem,
+  BatchStatus,
   GenerateObjectArgs,
   GenerateTextArgs,
   OracleProviderAdapter,
+  RetrieveBatchArgs,
+  RetrieveBatchResult,
+  SubmitBatchArgs,
+  SubmitBatchResult,
 } from './types';
 import {
   estimatePlanStableTokens,
@@ -153,6 +160,139 @@ export class AnthropicAdapter implements OracleProviderAdapter {
       usage: this.normalizeUsage(response, latencyMs),
       rawResponse: response,
     };
+  }
+
+  /**
+   * Submit a batch of requests to Anthropic's Message Batches API. Each
+   * request reuses the same per-call shape as generateText / generateObject
+   * but is bundled into a single `messages.batches.create` call. 50% off
+   * sync pricing with a 24-hour SLA.
+   *
+   * When `jsonSchema` is provided, the batch is treated as generateObject:
+   * each request gets a forced single tool call whose `input_schema` is the
+   * structured-output contract (mirrors generateObject above).
+   *
+   * The batch ID alone is sufficient to retrieve results later, so
+   * providerMetadata is an empty object (see types.ts SubmitBatchResult).
+   */
+  async submitBatch(args: SubmitBatchArgs): Promise<SubmitBatchResult> {
+    const { route, requests, jsonSchema } = args;
+    const thinking = thinkingParam(route.reasoningEffort, this.defaultMaxTokens);
+    const TOOL_NAME = 'output_structured';
+    const structuredTool = jsonSchema
+      ? {
+          name: TOOL_NAME,
+          description:
+            'Return the structured output. You MUST use this tool exactly once and never reply in plain text.',
+          input_schema: jsonSchema as Anthropic.Tool.InputSchema,
+        }
+      : undefined;
+
+    const sdkRequests = requests.map((req) => {
+      const { systemPrompt, userMessage } = flattenPlan(req.plan);
+      const providerOptions = req.providerOptions;
+      const params: MessageCreateParamsNonStreaming = {
+        model: route.modelId,
+        max_tokens: this.defaultMaxTokens,
+        temperature: thinking
+          ? 1
+          : structuredTool
+            ? 0.1
+            : (typeof providerOptions?.temperature === 'number'
+              ? providerOptions.temperature
+              : undefined) as number | undefined,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+        ...(structuredTool
+          ? {
+              tools: [structuredTool],
+              tool_choice: { type: 'tool', name: TOOL_NAME } as const,
+            }
+          : {}),
+        ...(thinking ? { thinking } : {}),
+      };
+      return { custom_id: req.customId, params };
+    });
+
+    const batch = await this.client.messages.batches.create({ requests: sdkRequests });
+    return {
+      providerBatchId: batch.id,
+      providerMetadata: {},
+    };
+  }
+
+  /**
+   * Poll status and, when terminal, stream the per-request results JSONL.
+   * Each line carries the caller's `custom_id` so results map back to the
+   * originating BatchRequest.
+   *
+   * Anthropic processing_status:
+   *   in_progress | canceling → still running ('in_progress')
+   *   ended                   → terminal; iterate results to build items
+   *
+   * Per-item `result.type`:
+   *   succeeded → success; pull text or tool_use block
+   *   errored   → failure with error.message
+   *   canceled  → failure 'request canceled'
+   *   expired   → failure 'request expired'
+   */
+  async retrieveBatch(args: RetrieveBatchArgs): Promise<RetrieveBatchResult> {
+    const { providerBatchId } = args;
+    const batch = await this.client.messages.batches.retrieve(providerBatchId);
+    const counts = batch.request_counts;
+    const requestCount =
+      counts.processing + counts.succeeded + counts.errored + counts.canceled + counts.expired;
+    const completedCount = counts.succeeded;
+    const failedCount = counts.errored + counts.canceled + counts.expired;
+
+    if (batch.processing_status !== 'ended') {
+      return {
+        status: 'in_progress' as BatchStatus,
+        requestCount,
+        completedCount,
+        failedCount,
+      };
+    }
+
+    const results: BatchResultItem[] = [];
+    const stream = await this.client.messages.batches.results(providerBatchId);
+    for await (const entry of stream as AsyncIterable<MessageBatchIndividualResponse>) {
+      results.push(this.normalizeBatchResultItem(entry));
+    }
+
+    return {
+      status: 'completed',
+      results,
+      requestCount,
+      completedCount,
+      failedCount,
+    };
+  }
+
+  private normalizeBatchResultItem(entry: MessageBatchIndividualResponse): BatchResultItem {
+    const customId = entry.custom_id;
+    const result = entry.result;
+    if (result.type === 'errored') {
+      return {
+        customId,
+        success: false,
+        error: result.error?.error?.message ?? 'errored',
+      };
+    }
+    if (result.type === 'canceled') {
+      return { customId, success: false, error: 'request canceled' };
+    }
+    if (result.type === 'expired') {
+      return { customId, success: false, error: 'request expired' };
+    }
+    // succeeded
+    const message = result.message;
+    const usage = this.normalizeUsage(message, 0);
+    const toolUse = message.content.find((b) => b.type === 'tool_use');
+    if (toolUse && toolUse.type === 'tool_use') {
+      return { customId, success: true, output: toolUse.input, usage };
+    }
+    return { customId, success: true, text: this.extractText(message), usage };
   }
 
   /**

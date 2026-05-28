@@ -266,13 +266,15 @@ Looks like:
 `OracleProviderAdapter.submitBatch` and `retrieveBatch` are marked `?` (optional). Existing adapters (Anthropic, DeepSeek, Qwen) don't implement them. The interface looks half-finished.
 
 Actually:
-The methods are optional on purpose. DeepSeek has no public Batch API. Qwen's batch surface is non-OpenAI-compatible (DECISIONS.md D12 deferred the native DashScope SDK swap). Anthropic Message Batches is feasible but synthesis volume doesn't yet justify the wiring. OpenAI and Vertex implement both methods today; future adapters opt in by implementing both.
+The methods are optional on purpose. DeepSeek has no public Batch API. Qwen's batch surface is non-OpenAI-compatible (DECISIONS.md D12 deferred the native DashScope SDK swap). OpenAI, Vertex, and Anthropic implement both methods today; future adapters opt in by implementing both.
 
 Why:
 Forcing every adapter to implement batch would either block adding new providers behind a 50%-discount feature, or paper over it with stub `submitBatch` methods that throw — both worse than the optional pattern. The runtime helper `supportsBatch(adapter)` is the feature-detection contract. See DECISIONS.md D14.
 
 Do not change because:
 Making `submitBatch` / `retrieveBatch` required on the interface would force the DeepSeek and Qwen adapters to throw at construction, which would break the per-provider `tryAdd()` boot in `buildStandardAdapters()` and silently disable both providers.
+
+Anthropic batch specifics: each request is a `messages.batches.create` entry with `custom_id` + `params` (same shape as a sync `messages.create`); when `jsonSchema` is provided we attach the forced single-tool input_schema per-request (mirrors `generateObject`). Status maps `processing_status: ended` → `'completed'` and we stream `messages.batches.results(id)` to produce `BatchResultItem`s. Per-item `result.type` → success (`succeeded` — tool_use input or text), or failure (`errored` / `canceled` / `expired`). `providerMetadata` is `{}` — the batch ID alone is sufficient for retrieve.
 
 ### Two-phase batch worker — submit and drain are independent tasks
 
