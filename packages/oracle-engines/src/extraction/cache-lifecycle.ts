@@ -44,6 +44,7 @@ export interface RecordCacheCreationInput {
   /** Worker/job responsible for cleanup. */
   cleanupOwner?: string;
   createdByJobRunId?: string;
+  providerMetadataJson?: unknown;
 }
 
 export interface CacheLifecycleHandle {
@@ -66,6 +67,7 @@ export async function recordCacheCreation(input: RecordCacheCreationInput): Prom
       sourceHash: input.sourceHash,
       sourceTokenEstimate: input.sourceTokenEstimate ?? null,
       sourceDescription: input.sourceDescription ?? null,
+      providerMetadataJson: input.providerMetadataJson ?? null,
       expectedReuseCount: input.expectedReuseCount,
       latestPlannedReuseStep: input.latestPlannedReuseStep ?? null,
       hardExpirationAt: input.hardExpirationAt,

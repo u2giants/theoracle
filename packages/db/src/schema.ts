@@ -844,6 +844,7 @@ export const providerCachedContent = pgTable(
     sourceHash: varchar('source_hash', { length: 64 }).notNull(),
     sourceTokenEstimate: integer('source_token_estimate'),
     sourceDescription: text('source_description'),
+    providerMetadataJson: jsonb('provider_metadata_json'),
 
     // Reuse policy — required up front per the cache-lifecycle teardown rule
     // in 02-provider-native-ai-architecture.md.
@@ -870,6 +871,33 @@ export const providerCachedContent = pgTable(
     sourceHashIdx: index('provider_cached_content_source_hash_idx').on(t.sourceHash),
     expirationIdx: index('provider_cached_content_expiration_idx').on(t.hardExpirationAt),
     cleanupOwnerIdx: index('provider_cached_content_cleanup_owner_idx').on(t.cleanupOwner),
+  }),
+);
+
+export const providerResponseSessions = pgTable(
+  'provider_response_sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    provider: varchar('provider', { length: 50 }).notNull(),
+    sessionKey: varchar('session_key', { length: 255 }).notNull(),
+    scopeKind: varchar('scope_kind', { length: 50 }).notNull(),
+    scopeId: varchar('scope_id', { length: 255 }).notNull(),
+    modelId: varchar('model_id', { length: 255 }).notNull(),
+    latestResponseId: varchar('latest_response_id', { length: 255 }).notNull(),
+    lastContextPackId: uuid('last_context_pack_id').references(() => oracleContextPacks.id),
+    lastModelRunId: uuid('last_model_run_id').references(() => modelRuns.id),
+    expiresAt: timestamp('expires_at'),
+    metadataJson: jsonb('metadata_json'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    sessionUniqueIdx: uniqueIndex('provider_response_sessions_provider_session_key_unique').on(
+      t.provider,
+      t.sessionKey,
+    ),
+    scopeIdx: index('provider_response_sessions_scope_idx').on(t.scopeKind, t.scopeId),
+    expiresIdx: index('provider_response_sessions_expires_idx').on(t.expiresAt),
   }),
 );
 

@@ -84,9 +84,10 @@ export class ModelRouter {
   async generateObject<TSchema, TOutput>(
     plan: OraclePromptPlan,
     schema: TSchema,
+    providerOptions?: Record<string, unknown>,
   ): Promise<OracleObjectResult<TOutput>> {
     return this.dispatch(plan, (adapter, route) =>
-      adapter.generateObject<TSchema, TOutput>({ plan, route, schema }),
+      adapter.generateObject<TSchema, TOutput>({ plan, route, schema, providerOptions }),
     );
   }
 

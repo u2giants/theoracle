@@ -36,6 +36,7 @@ import type {
   GenerateTextArgs,
   OracleProviderAdapter,
 } from './types';
+import { normalizeMessageContentArray } from './cache-utils';
 import { flattenPlan, tryZodParse } from './vertex-gemini-adapter';
 
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
@@ -143,13 +144,19 @@ export class DeepSeekAdapter implements OracleProviderAdapter {
     providerOptions?: Record<string, unknown>,
   ): ChatCompletionMessageParam[] {
     const override = providerOptions?.messages as
-      | ChatCompletionMessageParam[]
+      | Array<{ role: string; content: unknown }>
       | undefined;
     if (Array.isArray(override) && override.length > 0) {
-      if (systemPrompt && !override.some((m) => m.role === 'system')) {
-        return [{ role: 'system', content: systemPrompt }, ...override];
+      const normalized = override.map((m) => ({
+        role: m.role,
+        content: Array.isArray(m.content)
+          ? normalizeMessageContentArray(m.content)
+          : m.content,
+      })) as unknown as ChatCompletionMessageParam[];
+      if (systemPrompt && !normalized.some((m) => m.role === 'system')) {
+        return [{ role: 'system', content: systemPrompt }, ...normalized];
       }
-      return override;
+      return normalized;
     }
     const msgs: ChatCompletionMessageParam[] = [];
     if (systemPrompt) msgs.push({ role: 'system', content: systemPrompt });

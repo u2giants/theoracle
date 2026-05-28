@@ -9,13 +9,17 @@
  *   service-account JSON or use workload identity — the SDK auto-detects.
  * - Reads `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION` from env.
  *
- * Caching strategy (round 1 — implicit only):
+ * Caching strategy:
  * - Implicit caching is automatic on Gemini's side; no client action needed.
  *   Cache hits show up as `usageMetadata.cachedContentTokenCount` and are
  *   normalized into `OracleUsage.cachedInputTokens`.
- * - Explicit `cachedContent` lifecycle (with `provider_cached_content` row
- *   tracking + TTL cleanup per R7) is a follow-up. The SDK supports
- *   `ai.caches.create(...)` and `ai.caches.delete(...)` for that path.
+ * - For large reusable prefixes, this adapter creates explicit
+ *   `cachedContent` resources, persists them through `provider_cached_content`,
+ *   reuses them across worker processes by `source_hash`, and cleans them up
+ *   once the hard TTL elapses.
+ * - For oversized document artifacts, the adapter can upload a temporary cache
+ *   source object to GCS and create the explicit cache from `fileData`
+ *   instead of re-sending flattened text only.
  *
  * Structured output:
  * - Uses `responseMimeType: 'application/json'` + `responseJsonSchema:
@@ -30,9 +34,19 @@
 import { writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { and, desc, eq, gt, isNotNull, lte } from 'drizzle-orm';
+import { Storage } from '@google-cloud/storage';
 import { GoogleGenAI } from '@google/genai';
 import type { Content, GenerateContentResponse } from '@google/genai';
 import { z, type ZodTypeAny } from 'zod';
+import { providerCachedContent } from '@oracle/db';
+import { getDirectDb } from '@oracle/db/client';
+import {
+  recordCacheCreation,
+  recordCacheReuse,
+  recordCacheTermination,
+  type CacheLifecycleHandle,
+} from '@oracle/engines';
 import type {
   OracleObjectResult,
   OraclePromptPlan,
@@ -45,12 +59,30 @@ import type {
   GenerateTextArgs,
   OracleProviderAdapter,
 } from './types';
+import {
+  estimatePlanStableTokens,
+  estimateTextTokens,
+  getCacheHints,
+  hashCacheKey,
+  normalizeMessageContentArray,
+  pickVertexCacheTtlSeconds,
+  splitPlanForCaching,
+  shouldDisableCache,
+  type VertexFileCacheSource,
+} from './cache-utils';
 
 export interface VertexGeminiAdapterOptions {
   /** GCP project ID. Defaults to env GOOGLE_CLOUD_PROJECT. */
   project?: string;
   /** Vertex region. Defaults to env GOOGLE_CLOUD_LOCATION or 'us-central1'. */
   location?: string;
+}
+
+interface VertexExplicitCacheEntry {
+  name: string;
+  expiresAtMs: number;
+  includesSystemInstruction: boolean;
+  lifecycleHandle?: CacheLifecycleHandle;
 }
 
 /**
@@ -77,6 +109,8 @@ function ensureGoogleApplicationCredentialsFromJson(): void {
 export class VertexGeminiAdapter implements OracleProviderAdapter {
   readonly provider = 'vertex' as const;
   private readonly client: GoogleGenAI;
+  private readonly explicitCacheByKey = new Map<string, VertexExplicitCacheEntry>();
+  private storageClient: Storage | null = null;
 
   constructor(opts: VertexGeminiAdapterOptions = {}) {
     ensureGoogleApplicationCredentialsFromJson();
@@ -94,23 +128,33 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
 
   async generateText(args: GenerateTextArgs): Promise<OracleTextResult> {
     const { plan, route, providerOptions } = args;
-    const { systemPrompt, userMessage } = flattenPlan(plan);
+    const { systemPrompt, prefixContext, dynamicInput } = splitPlanForCaching(plan);
+    const userMessage = [prefixContext, dynamicInput].filter(Boolean).join('\n\n');
+    await this.cleanupExpiredExplicitCaches();
+    await this.cleanupExpiredPersistentCaches();
     const contents = this.buildContents(userMessage, providerOptions);
+    const explicitCache = shouldDisableCache(providerOptions)
+      ? null
+      : await this.prepareExplicitCacheForText(plan, route.modelId, systemPrompt, contents, providerOptions);
     const callStartedAt = Date.now();
 
     const response = await this.client.models.generateContent({
       model: route.modelId,
-      contents,
+      contents: explicitCache?.contentsForRequest ?? contents,
       config: {
-        systemInstruction: systemPrompt || undefined,
+        systemInstruction: explicitCache?.omitSystemInstruction
+          ? undefined
+          : systemPrompt || undefined,
         temperature:
           typeof providerOptions?.temperature === 'number'
             ? providerOptions.temperature
             : undefined,
+        ...(explicitCache?.cacheName ? { cachedContent: explicitCache.cacheName } : {}),
         ...vertexThinkingConfig(route.reasoningEffort),
       },
     });
     const latencyMs = Date.now() - callStartedAt;
+    await this.recordSuccessfulExplicitCacheReuse(explicitCache);
     return {
       text: response.text ?? '',
       usage: this.normalizeUsage(response, latencyMs),
@@ -121,24 +165,34 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
   async generateObject<TSchema, TOutput>(
     args: GenerateObjectArgs<TSchema>,
   ): Promise<OracleObjectResult<TOutput>> {
-    const { plan, route, schema } = args;
-    const { systemPrompt, userMessage } = flattenPlan(plan);
+    const { plan, route, schema, providerOptions } = args;
+    const { systemPrompt, prefixContext, dynamicInput } = splitPlanForCaching(plan);
+    const userMessage = [prefixContext, dynamicInput].filter(Boolean).join('\n\n');
     const jsonSchema = zodToJsonSchema(schema);
+    await this.cleanupExpiredExplicitCaches();
+    await this.cleanupExpiredPersistentCaches();
+    const explicitCache = shouldDisableCache(providerOptions)
+      ? null
+      : await this.prepareExplicitCacheForObject(plan, route.modelId, systemPrompt, providerOptions);
     const callStartedAt = Date.now();
 
     const response = await this.client.models.generateContent({
       model: route.modelId,
-      contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+      contents: [{ role: 'user', parts: [{ text: explicitCache?.requestUserMessage ?? userMessage }] }],
       config: {
-        systemInstruction: systemPrompt || undefined,
+        systemInstruction: explicitCache?.omitSystemInstruction
+          ? undefined
+          : systemPrompt || undefined,
         temperature: 0.1,
         responseMimeType: 'application/json',
         // responseJsonSchema accepts standard JSON Schema as of @google/genai 2.6.
         responseJsonSchema: jsonSchema as unknown,
+        ...(explicitCache?.cacheName ? { cachedContent: explicitCache.cacheName } : {}),
         ...vertexThinkingConfig(route.reasoningEffort),
       },
     });
     const latencyMs = Date.now() - callStartedAt;
+    await this.recordSuccessfulExplicitCacheReuse(explicitCache);
     const text = response.text ?? '';
     const parsed = JSON.parse(text);
     // Best-effort runtime validation if a Zod schema was supplied — gives the
@@ -174,6 +228,457 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
         }));
     }
     return [{ role: 'user', parts: [{ text: userMessage }] }];
+  }
+
+  private async prepareExplicitCacheForText(
+    plan: OraclePromptPlan,
+    modelId: string,
+    systemPrompt: string,
+    contents: Content[],
+    providerOptions?: Record<string, unknown>,
+  ): Promise<{
+    cacheName?: string;
+    omitSystemInstruction: boolean;
+      contentsForRequest: Content[];
+      requestUserMessage?: string;
+      lifecycleHandle?: CacheLifecycleHandle;
+  } | null> {
+    const hints = getCacheHints(providerOptions);
+    const fileCache = await this.prepareExplicitFileCache(plan, modelId, systemPrompt, providerOptions);
+    if (fileCache) {
+      return {
+        cacheName: fileCache.name,
+        omitSystemInstruction: true,
+        contentsForRequest: [{ role: 'user', parts: [{ text: fileCache.dynamicInput }] }],
+        requestUserMessage: fileCache.dynamicInput,
+        lifecycleHandle: fileCache.lifecycleHandle,
+      };
+    }
+    const prefixContents = contents.slice(0, -1);
+    const latestTurn = contents[contents.length - 1];
+    const prefixText = prefixContents
+      .flatMap((content) => content.parts ?? [])
+      .map((part) => String(part.text ?? ''))
+      .join('\n');
+    const stableTokens = estimatePlanStableTokens(plan);
+    const prefixTokens = estimateTextTokens(prefixText);
+    const shouldCreate =
+      hints?.preferExplicitCache === true ||
+      prefixTokens >= 2048 ||
+      stableTokens >= 2048;
+    if (!shouldCreate || !latestTurn) return null;
+
+    const cachePayload = prefixContents.length > 0
+      ? { contents: prefixContents, includesSystemInstruction: !!systemPrompt }
+      : { contents: [], includesSystemInstruction: !!systemPrompt };
+    const sourceText = [systemPrompt, prefixContents.length > 0 ? prefixText : '']
+      .filter(Boolean)
+      .join('\n\n');
+    const explicitCache = await this.getOrCreateExplicitCache({
+      modelId,
+      systemInstruction: systemPrompt || undefined,
+      contents: cachePayload.contents,
+      ttlSeconds: pickVertexCacheTtlSeconds(plan.taskType, providerOptions),
+      cacheKey: hashCacheKey([
+        modelId,
+        plan.metadata.stablePrefixHash,
+        prefixContents.length > 0 ? prefixText : '',
+      ]),
+      sourceHash: hashCacheKey([
+        plan.metadata.stablePrefixHash,
+        prefixContents.length > 0 ? prefixText : '',
+      ]),
+      sourceTokenEstimate: estimateTextTokens(sourceText),
+      sourceDescription:
+        hints?.sourceDescription ?? `${plan.taskType} reusable prefix`,
+      expectedReuseCount: Math.max(1, hints?.expectedReuseCount ?? 1),
+      latestPlannedReuseStep: hints?.latestPlannedReuseStep ?? plan.taskType,
+      cleanupOwner: hints?.cleanupOwner,
+      createdByJobRunId: hints?.createdByJobRunId,
+      persistRecord: hints?.persistProviderCacheRecord === true,
+    });
+    if (!explicitCache) return null;
+    return {
+      cacheName: explicitCache.name,
+      omitSystemInstruction: cachePayload.includesSystemInstruction,
+      contentsForRequest: [latestTurn],
+      lifecycleHandle: explicitCache.lifecycleHandle,
+    };
+  }
+
+  private async prepareExplicitCacheForObject(
+    plan: OraclePromptPlan,
+    modelId: string,
+    systemPrompt: string,
+    providerOptions?: Record<string, unknown>,
+  ): Promise<{
+    cacheName?: string;
+    omitSystemInstruction: boolean;
+    requestUserMessage?: string;
+    lifecycleHandle?: CacheLifecycleHandle;
+  } | null> {
+    const hints = getCacheHints(providerOptions);
+    const fileCache = await this.prepareExplicitFileCache(plan, modelId, systemPrompt, providerOptions);
+    if (fileCache) {
+      return {
+        cacheName: fileCache.name,
+        omitSystemInstruction: true,
+        requestUserMessage: fileCache.dynamicInput,
+        lifecycleHandle: fileCache.lifecycleHandle,
+      };
+    }
+    const stableTokens = estimatePlanStableTokens(plan);
+    if (!(hints?.preferExplicitCache === true || stableTokens >= 2048) || !systemPrompt) {
+      return null;
+    }
+    const explicitCache = await this.getOrCreateExplicitCache({
+      modelId,
+      systemInstruction: systemPrompt,
+      contents: [],
+      ttlSeconds: pickVertexCacheTtlSeconds(plan.taskType, providerOptions),
+      cacheKey: hashCacheKey([modelId, plan.metadata.stablePrefixHash, 'system-only']),
+      sourceHash: hashCacheKey([plan.metadata.stablePrefixHash, 'system-only']),
+      sourceTokenEstimate: estimateTextTokens(systemPrompt),
+      sourceDescription:
+        hints?.sourceDescription ?? `${plan.taskType} system prefix`,
+      expectedReuseCount: Math.max(1, hints?.expectedReuseCount ?? 1),
+      latestPlannedReuseStep: hints?.latestPlannedReuseStep ?? plan.taskType,
+      cleanupOwner: hints?.cleanupOwner,
+      createdByJobRunId: hints?.createdByJobRunId,
+      persistRecord: hints?.persistProviderCacheRecord === true,
+    });
+    if (!explicitCache) return null;
+    return {
+      cacheName: explicitCache.name,
+      omitSystemInstruction: true,
+      lifecycleHandle: explicitCache.lifecycleHandle,
+    };
+  }
+
+  private async getOrCreateExplicitCache(input: {
+    modelId: string;
+    systemInstruction?: string;
+    contents: Content[];
+    ttlSeconds: number;
+    cacheKey: string;
+    sourceHash: string;
+    sourceTokenEstimate: number;
+    sourceDescription: string;
+    expectedReuseCount: number;
+    latestPlannedReuseStep?: string;
+    cleanupOwner?: string;
+    createdByJobRunId?: string;
+    persistRecord: boolean;
+    providerMetadataJson?: unknown;
+  }): Promise<{ name: string; lifecycleHandle?: CacheLifecycleHandle } | null> {
+    const existing = this.explicitCacheByKey.get(input.cacheKey);
+    if (existing && existing.expiresAtMs > Date.now()) {
+      return { name: existing.name, lifecycleHandle: existing.lifecycleHandle };
+    }
+
+    if (input.persistRecord) {
+      const persisted = await this.getPersistedExplicitCache(input);
+      if (persisted) return persisted;
+    }
+    try {
+      const created = await this.client.caches.create({
+        model: input.modelId,
+        config: {
+          contents: input.contents,
+          systemInstruction: input.systemInstruction,
+          displayName: `oracle-${input.cacheKey.slice(0, 32)}`,
+          ttl: `${Math.max(60, input.ttlSeconds)}s`,
+        },
+      });
+      const name = created.name;
+      if (!name) return null;
+      const expiresAtMs = Date.now() + Math.max(60, input.ttlSeconds) * 1000;
+      const lifecycleHandle = input.persistRecord
+        ? await recordCacheCreation({
+            db: getDirectDb(),
+            provider: 'vertex',
+            cacheKind: 'explicit',
+            sourceHash: input.sourceHash,
+            sourceTokenEstimate: input.sourceTokenEstimate,
+            sourceDescription: input.sourceDescription,
+            providerResourceName: name,
+            expectedReuseCount: input.expectedReuseCount,
+            latestPlannedReuseStep: input.latestPlannedReuseStep,
+            hardExpirationAt: new Date(expiresAtMs),
+            cleanupOwner: input.cleanupOwner,
+            createdByJobRunId: input.createdByJobRunId,
+            providerMetadataJson: input.providerMetadataJson,
+          })
+        : undefined;
+      this.explicitCacheByKey.set(input.cacheKey, {
+        name,
+        expiresAtMs,
+        includesSystemInstruction: !!input.systemInstruction,
+        lifecycleHandle,
+      });
+      return { name, lifecycleHandle };
+    } catch (err) {
+      console.warn(
+        `[VertexGeminiAdapter] explicit cache create failed; falling back to implicit cache: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  private async prepareExplicitFileCache(
+    plan: OraclePromptPlan,
+    modelId: string,
+    systemPrompt: string,
+    providerOptions?: Record<string, unknown>,
+  ): Promise<{
+    name: string;
+    dynamicInput: string;
+    lifecycleHandle?: CacheLifecycleHandle;
+  } | null> {
+    const hints = getCacheHints(providerOptions);
+    const fileSource = hints?.vertexFileCacheSource;
+    if (!fileSource || hints?.preferExplicitCache !== true) return null;
+
+    const { dynamicInput } = splitPlanForCaching(plan);
+    const gcsUpload = await this.ensureVertexCacheFileUri(fileSource);
+    if (!gcsUpload?.fileUri) return null;
+
+    const explicitCache = await this.getOrCreateExplicitCache({
+      modelId,
+      systemInstruction: systemPrompt,
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              fileData: {
+                fileUri: gcsUpload.fileUri,
+                mimeType: fileSource.mimeType,
+              },
+            },
+          ],
+        },
+      ],
+      ttlSeconds: pickVertexCacheTtlSeconds(plan.taskType, providerOptions),
+      cacheKey: hashCacheKey([
+        modelId,
+        plan.metadata.stablePrefixHash,
+        fileSource.sourceHash ?? fileSource.gcsUri ?? fileSource.localPath,
+        'file-backed',
+      ]),
+      sourceHash: fileSource.sourceHash ??
+        hashCacheKey([plan.metadata.stablePrefixHash, fileSource.gcsUri ?? fileSource.localPath, 'file-backed']),
+      sourceTokenEstimate: estimatePlanStableTokens(plan),
+      sourceDescription: hints?.sourceDescription ?? `${plan.taskType} file-backed cache`,
+      expectedReuseCount: Math.max(1, hints?.expectedReuseCount ?? 1),
+      latestPlannedReuseStep: hints?.latestPlannedReuseStep ?? plan.taskType,
+      cleanupOwner: hints?.cleanupOwner,
+      createdByJobRunId: hints?.createdByJobRunId,
+      persistRecord: hints?.persistProviderCacheRecord === true,
+      providerMetadataJson: gcsUpload.objectName
+        ? {
+            uploadedGcsUri: gcsUpload.fileUri,
+            uploadedObjectName: gcsUpload.objectName,
+            mimeType: fileSource.mimeType,
+          }
+        : undefined,
+    });
+    if (!explicitCache) return null;
+    return {
+      name: explicitCache.name,
+      dynamicInput,
+      lifecycleHandle: explicitCache.lifecycleHandle,
+    };
+  }
+
+  private async ensureVertexCacheFileUri(fileSource: VertexFileCacheSource): Promise<{
+    fileUri: string;
+    objectName?: string;
+  } | null> {
+    if (fileSource.gcsUri) return { fileUri: fileSource.gcsUri };
+    if (!fileSource.localPath) return null;
+    const bucketName = process.env.GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET;
+    if (!bucketName) {
+      console.warn('[VertexGeminiAdapter] GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET is unset; skipping file-backed cache path');
+      return null;
+    }
+    const prefix = process.env.GOOGLE_VERTEX_CONTEXT_CACHE_GCS_PREFIX ?? 'oracle-context-cache';
+    const objectName = `${prefix}/${fileSource.sourceHash ?? hashCacheKey([fileSource.localPath, fileSource.fileName])}-${fileSource.fileName ?? 'source'}`;
+    const storage = this.getStorageClient();
+    await storage.bucket(bucketName).upload(fileSource.localPath, {
+      destination: objectName,
+      metadata: {
+        contentType: fileSource.mimeType,
+      },
+    });
+    return {
+      fileUri: `gs://${bucketName}/${objectName}`,
+      objectName,
+    };
+  }
+
+  private getStorageClient(): Storage {
+    if (!this.storageClient) {
+      this.storageClient = new Storage();
+    }
+    return this.storageClient;
+  }
+
+  private async getPersistedExplicitCache(input: {
+    cacheKey: string;
+    sourceHash: string;
+    systemInstruction?: string;
+  }): Promise<{ name: string; lifecycleHandle?: CacheLifecycleHandle } | null> {
+    const db = getDirectDb();
+    const [row] = await db
+      .select({
+        id: providerCachedContent.id,
+        providerResourceName: providerCachedContent.providerResourceName,
+        hardExpirationAt: providerCachedContent.hardExpirationAt,
+      })
+      .from(providerCachedContent)
+      .where(
+        and(
+          eq(providerCachedContent.provider, 'vertex'),
+          eq(providerCachedContent.status, 'active'),
+          eq(providerCachedContent.sourceHash, input.sourceHash),
+          isNotNull(providerCachedContent.providerResourceName),
+          gt(providerCachedContent.hardExpirationAt, new Date()),
+        ),
+      )
+      .orderBy(desc(providerCachedContent.createdAt))
+      .limit(1);
+
+    if (!row?.providerResourceName) return null;
+
+    try {
+      await this.client.caches.get({ name: row.providerResourceName });
+      const expiresAtMs = new Date(row.hardExpirationAt).getTime();
+      this.explicitCacheByKey.set(input.cacheKey, {
+        name: row.providerResourceName,
+        expiresAtMs,
+        includesSystemInstruction: !!input.systemInstruction,
+        lifecycleHandle: { id: row.id },
+      });
+      return { name: row.providerResourceName, lifecycleHandle: { id: row.id } };
+    } catch (err) {
+      await recordCacheTermination({
+        db,
+        handle: { id: row.id },
+        status: 'orphaned',
+        reason:
+          'persisted Vertex cache lookup failed before reuse: ' +
+          (err instanceof Error ? err.message : String(err)),
+      });
+      return null;
+    }
+  }
+
+  private async cleanupExpiredExplicitCaches(): Promise<void> {
+    const now = Date.now();
+    const expired = [...this.explicitCacheByKey.entries()].filter(([, entry]) => entry.expiresAtMs <= now);
+    if (expired.length === 0) return;
+    for (const [key, entry] of expired) {
+      this.explicitCacheByKey.delete(key);
+      try {
+        await this.client.caches.delete({ name: entry.name });
+        await this.cleanupUploadedGcsObject(entry.lifecycleHandle);
+        if (entry.lifecycleHandle) {
+          await recordCacheTermination({
+            db: getDirectDb(),
+            handle: entry.lifecycleHandle,
+            status: 'expired',
+            reason: 'local explicit-cache TTL elapsed; provider cache deleted',
+          });
+        }
+      } catch {
+        if (entry.lifecycleHandle) {
+          await recordCacheTermination({
+            db: getDirectDb(),
+            handle: entry.lifecycleHandle,
+            status: 'failed',
+            reason: 'local explicit-cache TTL elapsed; provider cache delete failed',
+          });
+        }
+      }
+    }
+  }
+
+  private async cleanupExpiredPersistentCaches(): Promise<void> {
+    const db = getDirectDb();
+    const expiredRows = await db
+      .select({
+        id: providerCachedContent.id,
+        providerResourceName: providerCachedContent.providerResourceName,
+      })
+      .from(providerCachedContent)
+      .where(
+        and(
+          eq(providerCachedContent.provider, 'vertex'),
+          eq(providerCachedContent.status, 'active'),
+          lte(providerCachedContent.hardExpirationAt, new Date()),
+        ),
+      )
+      .orderBy(providerCachedContent.hardExpirationAt)
+      .limit(10);
+
+    for (const row of expiredRows) {
+      try {
+        if (row.providerResourceName) {
+          await this.client.caches.delete({ name: row.providerResourceName });
+        }
+        await this.cleanupUploadedGcsObject({ id: row.id });
+        await recordCacheTermination({
+          db,
+          handle: { id: row.id },
+          status: 'expired',
+          reason: 'hard expiration elapsed; cache lifecycle sweeper retired provider cache',
+        });
+      } catch {
+        await recordCacheTermination({
+          db,
+          handle: { id: row.id },
+          status: 'failed',
+          reason: 'hard expiration elapsed; provider cache delete failed during sweeper cleanup',
+        });
+      }
+    }
+  }
+
+  private async recordSuccessfulExplicitCacheReuse(
+    explicitCache:
+      | {
+          lifecycleHandle?: CacheLifecycleHandle;
+        }
+      | null,
+  ): Promise<void> {
+    if (!explicitCache?.lifecycleHandle) return;
+    await recordCacheReuse(getDirectDb(), explicitCache.lifecycleHandle);
+  }
+
+  private async cleanupUploadedGcsObject(
+    lifecycleHandle: CacheLifecycleHandle | undefined,
+  ): Promise<void> {
+    if (!lifecycleHandle) return;
+    const db = getDirectDb();
+    const [row] = await db
+      .select({ providerMetadataJson: providerCachedContent.providerMetadataJson })
+      .from(providerCachedContent)
+      .where(eq(providerCachedContent.id, lifecycleHandle.id))
+      .limit(1);
+    const metadata = row?.providerMetadataJson as
+      | { uploadedGcsUri?: string; uploadedObjectName?: string }
+      | undefined;
+    const objectName = metadata?.uploadedObjectName;
+    const bucketName = process.env.GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET;
+    if (!objectName || !bucketName) return;
+    try {
+      await this.getStorageClient().bucket(bucketName).file(objectName).delete({ ignoreNotFound: true });
+    } catch {
+      // Best-effort cleanup. Cache lifecycle status still reflects the cache resource teardown result.
+    }
   }
 
   /**
@@ -212,20 +717,10 @@ export function flattenPlan(plan: OraclePromptPlan): {
   systemPrompt: string;
   userMessage: string;
 } {
-  const stable: string[] = [];
-  const dynamic: string[] = [];
-  for (const block of plan.blocks) {
-    const isStable =
-      block.kind === 'stable_system' ||
-      block.kind === 'stable_tool_definition' ||
-      block.kind === 'stable_schema' ||
-      block.kind === 'output_contract';
-    if (isStable) stable.push(block.content);
-    else dynamic.push(block.content);
-  }
+  const { systemPrompt, prefixContext, dynamicInput } = splitPlanForCaching(plan);
   return {
-    systemPrompt: stable.join('\n\n'),
-    userMessage: dynamic.join('\n\n'),
+    systemPrompt,
+    userMessage: [prefixContext, dynamicInput].filter(Boolean).join('\n\n'),
   };
 }
 

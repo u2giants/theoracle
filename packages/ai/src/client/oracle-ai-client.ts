@@ -58,6 +58,12 @@ export interface RunTextArgs extends CompileArgs {
 
 export interface RunObjectArgs<TSchema> extends CompileArgs {
   schema: ZodType<TSchema>;
+  /**
+   * Optional generic escape hatch passed through to the provider adapter.
+   * Used for cache-control hints, multi-turn context overrides, and other
+   * provider-specific knobs that don't belong on OraclePromptPlan itself.
+   */
+  providerOptions?: Record<string, unknown>;
 }
 
 export interface RunObjectResult<TSchema> extends OracleObjectResult<TSchema> {
@@ -103,7 +109,11 @@ export class OracleAIClient {
   /** Compile + dispatch a structured-output call. Output is validated against the supplied Zod schema. */
   async runObject<TSchema>(args: RunObjectArgs<TSchema>): Promise<RunObjectResult<TSchema>> {
     const plan = this.compile(args);
-    const result = await this.router.generateObject<ZodType<TSchema>, TSchema>(plan, args.schema);
+    const result = await this.router.generateObject<ZodType<TSchema>, TSchema>(
+      plan,
+      args.schema,
+      args.providerOptions,
+    );
     const validation = this.validator.validate(args.schema, result.object);
     return { ...result, validation };
   }

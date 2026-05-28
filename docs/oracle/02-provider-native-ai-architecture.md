@@ -11,9 +11,11 @@ The system relies exclusively on direct-provider APIs to guarantee access to nat
 **Flow:**
 `Next.js/Trigger.dev -> OracleAIClient -> ContextCompiler -> ModelRouter -> Provider-Native Adapter`
 
-- **VertexGeminiAdapter:** Manages Google Explicit Caching and temporary Storage bridging.
-- **AnthropicAdapter:** Manages implicit cache breakpoints (`cache_control: "ephemeral"`).
-- **OpenAIAdapter:** Manages strict JSON schema injection and invisible prefix caching.
+- **VertexGeminiAdapter:** Manages Google implicit caching plus explicit `cachedContent` creation/reuse persisted through `provider_cached_content`, including file-backed cache inputs for oversized artifacts.
+- **AnthropicAdapter:** Manages explicit cache breakpoints (`cache_control: "ephemeral"`) on stable prompt segments and reusable conversation prefixes.
+- **OpenAIAdapter:** Manages strict JSON schema injection plus automatic prefix caching with retention controls.
+- **DeepSeekAdapter:** Manages DeepSeek's automatic disk-backed prefix cache.
+- **QwenAdapter:** Manages DashScope OpenAI-compatible explicit prompt caching on Chat Completions plus Responses-API session cache on the text path, with `previous_response_id` persisted per channel.
 - *OpenRouter is strictly deprecated for production operations and must not be used.*
 
 ---
@@ -75,7 +77,7 @@ All model calls, regardless of provider, go through `OracleAIClient`.
 
 No route handler or worker may call Anthropic, Google, OpenAI, Vercel AI SDK, or OpenRouter directly. The retrofit is complete — there is no longer a transitional bridge.
 
-The Vercel AI SDK (`ai` package + `@ai-sdk/*` providers) is specifically forbidden inside `packages/ai/src/providers/`. The three production adapters (`AnthropicAdapter`, `VertexGeminiAdapter`, `OpenAIAdapter`) use the providers' official raw SDKs directly: `@anthropic-ai/sdk`, `@google/genai`, and `openai`. See `DECISIONS.md` D6 and D9 for the rationale.
+The Vercel AI SDK (`ai` package + `@ai-sdk/*` providers) is specifically forbidden inside `packages/ai/src/providers/`. The production adapters use the providers' official raw SDKs or their official OpenAI-compatible surfaces directly: `@anthropic-ai/sdk`, `@google/genai`, and `openai` (for OpenAI, DeepSeek, and Qwen/DashScope). See `DECISIONS.md` D6, D9, and D12 for the rationale.
 
 ## Core interfaces
 
@@ -642,10 +644,10 @@ The full env-var table with sources lives in `docs/configuration.md`.
 | Adapters use raw SDKs (no Vercel AI SDK) | ✅ — D6 + D9 |
 | Model routes selected by curated route ID | ✅ — R1 catalog |
 | Model runs log provider-native usage details | ✅ — R3 + R-providers |
-| Cache read/write tokens captured where available | ✅ — Anthropic + Vertex + OpenAI native fields normalized into `OracleUsage` |
+| Cache read/write tokens captured where available | ✅ — Anthropic + Vertex + OpenAI + Qwen native/native-compatible fields normalized into `OracleUsage`; DeepSeek cache hits captured from `prompt_cache_hit_tokens` |
 | Context packs created for model calls | ✅ — `oracle_context_packs` |
 | Worker extraction outputs candidates, not direct claims | ✅ — R4–R7 |
 | Wet-test against live DB | ✅ — 2026-05-26, commit `51a33ff` |
 | `pnpm typecheck` and Next production build pass | ✅ — every commit since R-providers |
 | Retrieval is filtered by plan, not global vector search | ✅ — `searchWithRetrievalPlan()` + hybrid RRF + `RetrievalPlanSearchScope` (P1 #3). Chat route + contradiction-watcher wired. Brain-synthesis still uses legacy `searchApprovedClaims`; migrate later. |
-| Real Vertex explicit cache creation | ⏳ — round 2 of R-providers; implicit caching is wired today |
+| Real Vertex explicit cache creation | ✅ — adapter creates explicit `cachedContent` handles, persists them in `provider_cached_content`, reuses them across processes by `source_hash`, and expires them through the lifecycle sweeper |

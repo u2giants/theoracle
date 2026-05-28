@@ -31,6 +31,9 @@
 import { schedules, task, tasks } from '@trigger.dev/sdk/v3';
 import { and, eq, inArray } from 'drizzle-orm';
 import { createHash } from 'crypto';
+import { writeFile, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { getDirectDb } from '@oracle/db/client';
 import {
@@ -66,12 +69,8 @@ import {
 } from '@oracle/ai';
 import {
   computeCandidateHash,
-  decideCacheProfitability,
-  estimateTokensForCache,
   executePromotion,
   mapLegacyDomainsToTopDomains,
-  recordCacheCreation,
-  recordCacheTermination,
   stageEntityProposal,
   validateQuote,
   validateSourcePointer,
@@ -85,6 +84,7 @@ import type { EntityType, KnowledgeDomain, TopLevelDomainId } from '@oracle/shar
 const CHUNK_SIZE = 1500;
 const CHUNK_OVERLAP = 150;
 const MAX_DOCUMENT_TEXT_CHARS = 15_000;
+const VERTEX_FILE_CACHE_MIN_BYTES = 10 * 1024 * 1024;
 const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -190,6 +190,10 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
     );
   }
   const buffer = Buffer.from(await blob.arrayBuffer());
+  const fileBackedCachePath =
+    route.provider === 'vertex' && buffer.length > VERTEX_FILE_CACHE_MIN_BYTES
+      ? await materializeVertexCacheTempFile(buffer, doc.fileName)
+      : null;
 
   // 3. Parse.
   let rawText: string;
@@ -311,9 +315,17 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
     makeBlock({
       id: 'document-text',
       label: 'Document content (truncated)',
-      kind: 'dynamic_input',
+      kind: 'retrieved_context',
       content: truncatedText,
       reasonIncluded: `${insertedChunkIds.length} chunks → truncated to ${truncatedText.length} chars`,
+    }),
+    makeBlock({
+      id: 'document-request',
+      label: 'Document extraction request',
+      kind: 'dynamic_input',
+      content:
+        'Extract operational claims from the provided document corpus. Return only claims that are explicitly supported by the document text.',
+      reasonIncluded: 'small dynamic request so the document corpus can be cached as reusable prefix',
     }),
   ];
   const plan = client.compile({
@@ -334,34 +346,8 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
     .set({ contextPackId: contextPack.id })
     .where(eq(extractionBatches.id, batch.id));
 
-  // 7. Cache profitability bookkeeping. R7 records the decision and (when
-  //    the heuristic says yes) creates a provider_cached_content row even
-  //    though no real Vertex cache exists yet — so when @google/genai
-  //    lands, the lifecycle audit trail is already in place. The row is
-  //    marked deleted in `finally` below.
-  const cacheDecision = decideCacheProfitability({
-    sourceTokenEstimate: estimateTokensForCache(truncatedText),
-    expectedReuseCount: 1, // R7 makes a single extraction call per document
-  });
-  let cacheHandle: Awaited<ReturnType<typeof recordCacheCreation>> | null = null;
-  if (cacheDecision.kind === 'create_explicit_cache') {
-    cacheHandle = await recordCacheCreation({
-      db,
-      provider: 'vertex',
-      cacheKind: 'explicit',
-      sourceHash,
-      sourceTokenEstimate: estimateTokensForCache(truncatedText),
-      sourceDescription: `${doc.fileName} (${doc.fileType})`,
-      // providerResourceName: filled when a real Vertex cache resource exists (R7+ SDK wiring).
-      expectedReuseCount: 1,
-      latestPlannedReuseStep: 'document_claim_extraction',
-      hardExpirationAt: new Date(Date.now() + 60 * 60 * 1000), // 1h hard cap
-      cleanupOwner: 'document-ingestion-worker',
-      createdByJobRunId: jobRunId,
-    });
-  }
-
-  // 8. Call the model.
+  // 7. Call the model. The adapter now owns the real Vertex explicit-cache
+  //    lifecycle, including cross-process reuse via provider_cached_content.
   let modelOutput: ExtractionOutput | null = null;
   let modelRunId: string | null = null;
   const callStartedAt = Date.now();
@@ -373,6 +359,27 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
       blocks,
       schema: ExtractionOutputSchema,
       observability: { includedDocumentChunkIds: insertedChunkIds.map((c) => c.id) },
+      providerOptions: {
+        cache: {
+          preferLongLivedCache: true,
+          preferExplicitCache: route.provider === 'vertex',
+          cacheTtlSeconds: 60 * 60,
+          expectedReuseCount: 2,
+          persistProviderCacheRecord: route.provider === 'vertex',
+          sourceDescription: `${doc.fileName} (${doc.fileType})`,
+          cleanupOwner: 'document-ingestion-worker',
+          createdByJobRunId: jobRunId,
+          latestPlannedReuseStep: 'document_claim_extraction',
+          vertexFileCacheSource: fileBackedCachePath
+            ? {
+                localPath: fileBackedCachePath,
+                mimeType: doc.fileType,
+                fileName: doc.fileName,
+                sourceHash,
+              }
+            : undefined,
+        },
+      },
     });
     const latencyMs = Date.now() - callStartedAt;
 
@@ -445,14 +452,6 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
         finishedAt: new Date(),
       })
       .where(eq(extractionBatches.id, batch.id));
-    if (cacheHandle) {
-      await recordCacheTermination({
-        db,
-        handle: cacheHandle,
-        status: 'failed',
-        reason: 'extraction call failed; cache resource never used',
-      });
-    }
     // Document still has chunks — mark complete with the error noted.
     await db
       .update(documents)
@@ -462,6 +461,9 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
         processingError: err instanceof Error ? err.message : String(err),
       })
       .where(eq(documents.id, documentId));
+    if (fileBackedCachePath) {
+      await unlink(fileBackedCachePath).catch(() => undefined);
+    }
     return outcome;
   }
 
@@ -733,25 +735,20 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
     }
   }
 
-  // 10. Mark batch validation_complete + cache lifecycle teardown.
+  // 10. Mark batch validation_complete.
   await db
     .update(extractionBatches)
     .set({ status: 'validation_complete', finishedAt: new Date() })
     .where(eq(extractionBatches.id, batch.id));
 
-  if (cacheHandle) {
-    await recordCacheTermination({
-      db,
-      handle: cacheHandle,
-      status: 'deleted',
-      reason: 'document ingestion complete; no further reuse expected',
-    });
-  }
-
   await db
     .update(documents)
     .set({ status: 'complete', processedAt: new Date() })
     .where(eq(documents.id, documentId));
+
+  if (fileBackedCachePath) {
+    await unlink(fileBackedCachePath).catch(() => undefined);
+  }
 
   return outcome;
 }
@@ -839,6 +836,16 @@ function buildContextPackInsert(plan: OraclePromptPlan) {
     includedGapIds: plan.metadata.includedGapIds ?? null,
     includedContradictionIds: plan.metadata.includedContradictionIds ?? null,
   };
+}
+
+async function materializeVertexCacheTempFile(buffer: Buffer, fileName: string): Promise<string> {
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const tempPath = join(
+    tmpdir(),
+    `oracle-vertex-cache-${Date.now()}-${safeName}`,
+  );
+  await writeFile(tempPath, buffer);
+  return tempPath;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

@@ -21,6 +21,11 @@ export interface GenerateObjectArgs<TSchema> {
   route: OracleModelRoute;
   /** Zod schema (or compatible) that the output must satisfy. */
   schema: TSchema;
+  /**
+   * Optional generic escape hatch for cache-control hints and other
+   * provider-specific knobs that don't belong on OraclePromptPlan.
+   */
+  providerOptions?: Record<string, unknown>;
 }
 
 export interface GenerateTextArgs {

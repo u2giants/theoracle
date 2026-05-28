@@ -25,6 +25,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { eq, and, inArray } from 'drizzle-orm';
+import { desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { stepCountIs, tool } from 'ai';
 import { createServiceRoleClient } from '@oracle/auth/server';
@@ -57,6 +58,7 @@ import {
   modelRunUsageDetails,
   modelRuns,
   oracleContextPacks,
+  providerResponseSessions,
   settings,
   type OracleDb,
 } from '@oracle/db';
@@ -389,6 +391,24 @@ export async function POST(req: NextRequest) {
 
   // ── 9. Dispatch through OracleAIClient ───────────────────────────────
   const startedAt = Date.now();
+  const qwenSessionKey = route.provider === 'qwen' ? `interview-chat:${body.channelId}` : null;
+  const previousQwenSession =
+    qwenSessionKey
+      ? await db
+          .select({
+            latestResponseId: providerResponseSessions.latestResponseId,
+            modelId: providerResponseSessions.modelId,
+          })
+          .from(providerResponseSessions)
+          .where(
+            and(
+              eq(providerResponseSessions.provider, 'qwen'),
+              eq(providerResponseSessions.sessionKey, qwenSessionKey),
+            ),
+          )
+          .orderBy(desc(providerResponseSessions.updatedAt))
+          .limit(1)
+      : [];
   let oracleText = '';
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
@@ -399,6 +419,15 @@ export async function POST(req: NextRequest) {
   let providerRequestId: string | undefined;
 
   try {
+    const messagesWithContext = [
+      {
+        role: 'user' as const,
+        content:
+          '[Oracle runtime context - not part of the employee chat transcript]\n' +
+          dynamicContext,
+      },
+      ...safeMessages,
+    ];
     const result = await getOracleClient().runText({
       taskType: 'interview_chat',
       routeId: route.routeId,
@@ -410,10 +439,27 @@ export async function POST(req: NextRequest) {
         includedClaimIds: relevantClaims.map((c) => c.id),
       },
       providerOptions: {
-        messages: safeMessages,
+        messages: messagesWithContext,
         tools,
         stopWhen: stepCountIs(4),
         temperature: 0.4,
+        cache: {
+          preferLongLivedCache: true,
+          cacheTtlSeconds: 10 * 60,
+          expectedReuseCount: 6,
+          persistProviderCacheRecord: route.provider === 'vertex',
+          sourceDescription: `channel ${body.channelId} interview context`,
+          cleanupOwner: 'chat-route',
+          latestPlannedReuseStep: 'interview_chat',
+          sessionCacheKey:
+            qwenSessionKey ?? undefined,
+          previousResponseId:
+            route.provider === 'qwen'
+              ? previousQwenSession[0]?.modelId === route.modelId
+                ? previousQwenSession[0]?.latestResponseId
+                : undefined
+              : undefined,
+        },
       },
     });
     oracleText = result.text;
@@ -460,6 +506,40 @@ export async function POST(req: NextRequest) {
       .update(oracleContextPacks)
       .set({ modelRunId: modelRun.id })
       .where(eq(oracleContextPacks.id, contextPack.id));
+
+    if (route.provider === 'qwen' && providerRequestId && qwenSessionKey) {
+      await db
+        .insert(providerResponseSessions)
+        .values({
+          provider: 'qwen',
+          sessionKey: qwenSessionKey,
+          scopeKind: 'channel',
+          scopeId: body.channelId,
+          modelId: route.modelId,
+          latestResponseId: providerRequestId,
+          lastContextPackId: contextPack.id,
+          lastModelRunId: modelRun.id,
+          metadataJson: {
+            routeId: route.routeId,
+          },
+        })
+        .onConflictDoUpdate({
+          target: [
+            providerResponseSessions.provider,
+            providerResponseSessions.sessionKey,
+          ],
+          set: {
+            modelId: route.modelId,
+            latestResponseId: providerRequestId,
+            lastContextPackId: contextPack.id,
+            lastModelRunId: modelRun.id,
+            metadataJson: {
+              routeId: route.routeId,
+            },
+            updatedAt: new Date(),
+          },
+        });
+    }
   }
 
   if (!success || !oracleText.trim()) {

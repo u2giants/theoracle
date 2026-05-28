@@ -37,6 +37,14 @@ import type {
   GenerateTextArgs,
   OracleProviderAdapter,
 } from './types';
+import {
+  estimatePlanStableTokens,
+  getCacheHints,
+  markLastTextPartCacheable,
+  normalizeMessageContentArray,
+  pickAnthropicCacheTtl,
+  shouldDisableCache,
+} from './cache-utils';
 import { flattenPlan, tryZodParse, zodToJsonSchema } from './vertex-gemini-adapter';
 
 export interface AnthropicAdapterOptions {
@@ -49,6 +57,8 @@ export interface AnthropicAdapterOptions {
 }
 
 const DEFAULT_MAX_TOKENS = 4096;
+const ANTHROPIC_SONNET_CACHE_MIN_TOKENS = 1024;
+const ANTHROPIC_HAIKU_CACHE_MIN_TOKENS = 2048;
 
 export class AnthropicAdapter implements OracleProviderAdapter {
   readonly provider = 'anthropic' as const;
@@ -74,7 +84,8 @@ export class AnthropicAdapter implements OracleProviderAdapter {
     const { systemPrompt, userMessage } = flattenPlan(plan);
     const callStartedAt = Date.now();
 
-    const messages = this.buildMessages(userMessage, providerOptions);
+    const ttl = pickAnthropicCacheTtl(plan.taskType, providerOptions);
+    const messages = this.buildMessages(plan, userMessage, providerOptions, ttl);
     const thinking = thinkingParam(route.reasoningEffort, this.defaultMaxTokens);
     const response = await this.client.messages.create({
       model: route.modelId,
@@ -83,9 +94,9 @@ export class AnthropicAdapter implements OracleProviderAdapter {
       temperature: thinking
         ? 1
         : (typeof providerOptions?.temperature === 'number'
-            ? providerOptions.temperature
-            : undefined),
-      system: this.buildSystem(systemPrompt),
+          ? providerOptions.temperature
+          : undefined),
+      system: this.buildSystem(plan, systemPrompt, providerOptions, ttl),
       messages,
       ...(thinking ? { thinking } : {}),
     });
@@ -100,10 +111,11 @@ export class AnthropicAdapter implements OracleProviderAdapter {
   async generateObject<TSchema, TOutput>(
     args: GenerateObjectArgs<TSchema>,
   ): Promise<OracleObjectResult<TOutput>> {
-    const { plan, route, schema } = args;
+    const { plan, route, schema, providerOptions } = args;
     const { systemPrompt, userMessage } = flattenPlan(plan);
     const jsonSchema = zodToJsonSchema(schema) as Record<string, unknown>;
     const callStartedAt = Date.now();
+    const ttl = pickAnthropicCacheTtl(plan.taskType, providerOptions);
 
     // Force a single tool call. The tool's input_schema is the structured
     // output contract; Anthropic enforces it on the model.
@@ -114,8 +126,8 @@ export class AnthropicAdapter implements OracleProviderAdapter {
       max_tokens: this.defaultMaxTokens,
       // Anthropic forbids temperature != 1 when thinking is enabled.
       temperature: thinking ? 1 : 0.1,
-      system: this.buildSystem(systemPrompt),
-      messages: [{ role: 'user', content: userMessage }],
+      system: this.buildSystem(plan, systemPrompt, providerOptions, ttl),
+      messages: this.buildMessages(plan, userMessage, providerOptions, ttl),
       tools: [
         {
           name: TOOL_NAME,
@@ -149,16 +161,22 @@ export class AnthropicAdapter implements OracleProviderAdapter {
    * cache_control: { type: 'ephemeral' }. Otherwise pass the plain string.
    */
   private buildSystem(
+    plan: GenerateTextArgs['plan'],
     systemPrompt: string,
+    providerOptions?: Record<string, unknown>,
+    ttl?: '5m' | '1h',
   ): string | Anthropic.TextBlockParam[] {
-    if (!this.enableSystemPromptCache || systemPrompt.length === 0) {
+    if (!this.enableSystemPromptCache || systemPrompt.length === 0 || shouldDisableCache(providerOptions)) {
       return systemPrompt;
     }
+    const minTokens = anthropicCacheMinTokens(plan.routeId);
+    const stableTokens = estimatePlanStableTokens(plan);
+    if (stableTokens < minTokens) return systemPrompt;
     return [
       {
         type: 'text',
         text: systemPrompt,
-        cache_control: { type: 'ephemeral' },
+        cache_control: ttl ? { type: 'ephemeral', ttl } : { type: 'ephemeral' },
       },
     ];
   }
@@ -170,14 +188,46 @@ export class AnthropicAdapter implements OracleProviderAdapter {
    * user turn.
    */
   private buildMessages(
+    plan: GenerateTextArgs['plan'],
     userMessage: string,
     providerOptions?: Record<string, unknown>,
+    ttl?: '5m' | '1h',
   ): Anthropic.MessageParam[] {
     const override = providerOptions?.messages as
-      | Anthropic.MessageParam[]
+      | Array<{ role: string; content: unknown }>
       | undefined;
     if (Array.isArray(override) && override.length > 0) {
-      return override.filter((m) => m.role === 'user' || m.role === 'assistant');
+      const filtered = override
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: normalizeMessageContentArray(m.content) as unknown as Anthropic.MessageParam['content'],
+        }));
+      if (shouldDisableCache(providerOptions)) return filtered;
+
+      const hint = getCacheHints(providerOptions);
+      const minTokens = anthropicCacheMinTokens(plan.routeId);
+      const prefixText = filtered
+        .slice(0, -1)
+        .map((m) =>
+          Array.isArray(m.content)
+            ? m.content
+                .map((part) => ('text' in part ? String(part.text ?? '') : ''))
+                .join('\n')
+            : '',
+        )
+        .join('\n');
+      if (
+        filtered.length > 1 &&
+        (estimateText(prefixText) >= minTokens || hint?.preferExplicitCache)
+      ) {
+        const target = filtered[filtered.length - 2]!;
+        target.content = markLastTextPartCacheable(
+          target.content as unknown as Array<Record<string, unknown>>,
+          ttl,
+        ) as unknown as Anthropic.MessageParam['content'];
+      }
+      return filtered;
     }
     return [{ role: 'user', content: userMessage }];
   }
@@ -210,6 +260,16 @@ export class AnthropicAdapter implements OracleProviderAdapter {
       rawUsageJson: u,
     };
   }
+}
+
+function anthropicCacheMinTokens(routeId: string): number {
+  return routeId.includes('haiku')
+    ? ANTHROPIC_HAIKU_CACHE_MIN_TOKENS
+    : ANTHROPIC_SONNET_CACHE_MIN_TOKENS;
+}
+
+function estimateText(text: string): number {
+  return Math.ceil(text.length / 4);
 }
 
 /**

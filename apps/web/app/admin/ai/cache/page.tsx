@@ -33,6 +33,36 @@ type ProviderRow = {
   total_runs: number;
   avg_hit_ratio: number | null;
   total_cached_tokens: number | null;
+  total_cache_write_tokens: number | null;
+};
+
+type TaskRouteRow = {
+  task_type: string;
+  route_id: string | null;
+  provider: string;
+  total_runs: number;
+  avg_hit_ratio: number | null;
+  total_input_tokens: number | null;
+  total_cached_tokens: number | null;
+  total_cache_write_tokens: number | null;
+};
+
+type LowHitRow = {
+  model_run_id: string;
+  task_type: string;
+  route_id: string | null;
+  provider: string;
+  input_tokens: number | null;
+  cached_input_tokens: number | null;
+  cache_hit_ratio: number | null;
+  run_created_at: string;
+};
+
+type SummaryRow = {
+  total_runs: number;
+  avg_hit_ratio: number | null;
+  total_cached_tokens: number | null;
+  total_cache_write_tokens: number | null;
 };
 
 function statusBadge(status: string) {
@@ -57,7 +87,7 @@ export default async function AdminAICachePage({
 
   const filterSql = statusFilter === 'all' ? sql`` : sql`WHERE status = ${statusFilter}`;
 
-  const [rowsResult, statusCountsResult, providerHitResult] = await Promise.all([
+  const [rowsResult, statusCountsResult, providerHitResult, taskRouteResult, lowHitResult, summaryResult] = await Promise.all([
     db.execute(sql`
       SELECT id, provider, cache_kind, source_description, source_token_estimate,
              expected_reuse_count, actual_reuse_count, latest_planned_reuse_step,
@@ -74,17 +104,60 @@ export default async function AdminAICachePage({
       SELECT provider,
              COUNT(*) AS total_runs,
              AVG(cache_hit_ratio) AS avg_hit_ratio,
-             SUM(cached_input_tokens) AS total_cached_tokens
+             SUM(cached_input_tokens) AS total_cached_tokens,
+             SUM(cache_write_tokens) AS total_cache_write_tokens
       FROM model_runs_with_usage
       WHERE run_created_at >= now() - interval '7 days'
       GROUP BY provider
       ORDER BY total_runs DESC
+    `),
+    db.execute(sql`
+      SELECT task_type,
+             route_id,
+             provider,
+             COUNT(*) AS total_runs,
+             AVG(cache_hit_ratio) AS avg_hit_ratio,
+             SUM(input_tokens) AS total_input_tokens,
+             SUM(cached_input_tokens) AS total_cached_tokens,
+             SUM(cache_write_tokens) AS total_cache_write_tokens
+      FROM model_runs_with_usage
+      WHERE run_created_at >= now() - interval '7 days'
+      GROUP BY task_type, route_id, provider
+      ORDER BY total_cached_tokens DESC NULLS LAST, total_runs DESC
+      LIMIT 20
+    `),
+    db.execute(sql`
+      SELECT model_run_id,
+             task_type,
+             route_id,
+             provider,
+             input_tokens,
+             cached_input_tokens,
+             cache_hit_ratio,
+             run_created_at
+      FROM model_runs_with_usage
+      WHERE run_created_at >= now() - interval '7 days'
+        AND input_tokens >= 4000
+        AND COALESCE(cache_hit_ratio, 0) < 0.15
+      ORDER BY input_tokens DESC, run_created_at DESC
+      LIMIT 15
+    `),
+    db.execute(sql`
+      SELECT COUNT(*) AS total_runs,
+             AVG(cache_hit_ratio) AS avg_hit_ratio,
+             SUM(cached_input_tokens) AS total_cached_tokens,
+             SUM(cache_write_tokens) AS total_cache_write_tokens
+      FROM model_runs_with_usage
+      WHERE run_created_at >= now() - interval '7 days'
     `),
   ]);
 
   const rows = [...rowsResult] as unknown as CacheRow[];
   const statusCounts = [...statusCountsResult] as unknown as StatusCountRow[];
   const providerHit = [...providerHitResult] as unknown as ProviderRow[];
+  const taskRouteRows = [...taskRouteResult] as unknown as TaskRouteRow[];
+  const lowHitRows = [...lowHitResult] as unknown as LowHitRow[];
+  const summary = ([...summaryResult] as unknown as SummaryRow[])[0];
 
   const STATUS_TABS = [
     { value: 'all', label: 'All' },
@@ -114,6 +187,13 @@ export default async function AdminAICachePage({
         })}
       </div>
 
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <MetricCard title="Runs (7d)" value={Number(summary?.total_runs ?? 0)} />
+        <MetricCard title="Avg hit ratio" value={formatPct(summary?.avg_hit_ratio)} />
+        <MetricCard title="Cached tokens (7d)" value={formatTokens(Number(summary?.total_cached_tokens ?? 0))} />
+        <MetricCard title="Cache writes (7d)" value={formatTokens(Number(summary?.total_cache_write_tokens ?? 0))} />
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Provider hit ratio (last 7 days)</CardTitle>
@@ -129,6 +209,7 @@ export default async function AdminAICachePage({
                   <th className="text-right">Runs</th>
                   <th className="text-right">Avg hit ratio</th>
                   <th className="text-right">Total cached tokens</th>
+                  <th className="text-right">Cache write tokens</th>
                 </tr>
               </thead>
               <tbody>
@@ -138,6 +219,7 @@ export default async function AdminAICachePage({
                     <td className="text-right">{Number(p.total_runs)}</td>
                     <td className="text-right">{formatPct(p.avg_hit_ratio)}</td>
                     <td className="text-right">{formatTokens(Number(p.total_cached_tokens ?? 0))}</td>
+                    <td className="text-right">{formatTokens(Number(p.total_cache_write_tokens ?? 0))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -164,6 +246,90 @@ export default async function AdminAICachePage({
           );
         })}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Task / route efficiency (last 7 days)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {taskRouteRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No cacheable runs in the last 7 days yet.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="border-b text-left">
+                <tr>
+                  <th className="py-2">Task</th>
+                  <th>Route</th>
+                  <th>Provider</th>
+                  <th className="text-right">Runs</th>
+                  <th className="text-right">Avg hit ratio</th>
+                  <th className="text-right">Input tokens</th>
+                  <th className="text-right">Cached tokens</th>
+                  <th className="text-right">Cache writes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {taskRouteRows.map((row) => (
+                  <tr key={`${row.task_type}:${row.route_id ?? 'none'}:${row.provider}`} className="border-b">
+                    <td className="py-2">{row.task_type}</td>
+                    <td className="max-w-xs truncate text-muted-foreground" title={row.route_id ?? undefined}>
+                      {row.route_id ?? '—'}
+                    </td>
+                    <td>{row.provider}</td>
+                    <td className="text-right">{Number(row.total_runs)}</td>
+                    <td className="text-right">{formatPct(row.avg_hit_ratio)}</td>
+                    <td className="text-right">{formatTokens(Number(row.total_input_tokens ?? 0))}</td>
+                    <td className="text-right">{formatTokens(Number(row.total_cached_tokens ?? 0))}</td>
+                    <td className="text-right">{formatTokens(Number(row.total_cache_write_tokens ?? 0))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">High-cost, low-hit runs (last 7 days)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {lowHitRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No large low-hit runs in the last 7 days.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="border-b text-left">
+                <tr>
+                  <th className="py-2">Task</th>
+                  <th>Route</th>
+                  <th>Provider</th>
+                  <th className="text-right">Input tokens</th>
+                  <th className="text-right">Cached tokens</th>
+                  <th className="text-right">Hit ratio</th>
+                  <th>When</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lowHitRows.map((row) => (
+                  <tr key={row.model_run_id} className="border-b">
+                    <td className="py-2">{row.task_type}</td>
+                    <td className="max-w-xs truncate text-muted-foreground" title={row.route_id ?? undefined}>
+                      {row.route_id ?? '—'}
+                    </td>
+                    <td>{row.provider}</td>
+                    <td className="text-right">{formatTokens(row.input_tokens)}</td>
+                    <td className="text-right">{formatTokens(row.cached_input_tokens)}</td>
+                    <td className="text-right">{formatPct(row.cache_hit_ratio)}</td>
+                    <td className="text-muted-foreground">
+                      {new Date(row.run_created_at).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

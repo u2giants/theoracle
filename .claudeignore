@@ -8,6 +8,8 @@ apps/web/.next/
 dist/
 .turbo/
 .vercel/
+.playwright-mcp/
+.claude/
 
 # Test / coverage artifacts
 coverage/

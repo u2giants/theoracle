@@ -15,6 +15,8 @@ Every environment variable, where it comes from, and what fails when it's missin
 | `ANTHROPIC_API_KEY` | Direct Anthropic API key — `AnthropicAdapter` uses it for interview chat (Claude Haiku 4.5) | https://console.anthropic.com/settings/keys | yes | yes | The SDK reads this env var automatically. Loaded by the worker / chat route's adapter constructor via `process.env.ANTHROPIC_API_KEY`. |
 | `GOOGLE_CLOUD_PROJECT` | GCP project ID for Vertex AI — `VertexGeminiAdapter` uses it for extraction (Gemini 2.5 Flash) and synthesis | The active Oracle GCP project. Currently: `vertex-ai-497120`. | yes | yes | Set the value in `.env.local`, AND ensure ADC is configured (`gcloud auth application-default login`) so the SDK can authenticate. |
 | `GOOGLE_CLOUD_LOCATION` | Vertex region | Pick a region with Gemini Flash availability. Currently: `us-central1`. | yes | yes | The `VertexGeminiAdapter` defaults to `us-central1` if unset; setting it explicitly is preferred. |
+| `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` | Temporary GCS bucket used by `VertexGeminiAdapter` when it needs to build a file-backed explicit cache from a large local artifact | A bucket in the same GCP project/region as Vertex when possible | optional | recommended for large-document workloads | Required only for the oversized file-backed cache path. If unset, the adapter falls back to text-prefix caching only. |
+| `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_PREFIX` | Object prefix inside the temporary cache bucket | Any short prefix, e.g. `oracle-context-cache` | optional | optional | Defaults to `oracle-context-cache`. Keeps temporary uploaded cache-source objects grouped for cleanup. |
 | `OPENAI_API_KEY` | Direct OpenAI API key — `OpenAIAdapter` uses it for fallback / schema-repair routes (GPT-4o-mini) AND `text-embedding-3-small` (1536-dim embeddings) | https://platform.openai.com/api-keys | yes | yes | Embeddings are required for hybrid retrieval and contradiction ANN search. Without this key, embeddings fall back to a deterministic zero vector and similarity becomes meaningless. |
 | `DEEPSEEK_API_KEY` | Direct DeepSeek API key — `DeepSeekAdapter` uses `api.deepseek.com` (OpenAI-compatible). | https://platform.deepseek.com/api_keys | optional | recommended | Without it, the DeepSeek adapter is silently omitted from `buildStandardAdapters()` and any worker / chat request routed to a `deepseek/*` model will fail with "no adapter registered for provider deepseek". Add only if you have models selected in any stage's pool that start with `deepseek/`. |
 | `DASHSCOPE_API_KEY` | Alibaba DashScope key — `QwenAdapter` uses `dashscope-us.aliyuncs.com/compatible-mode/v1` (OpenAI-compatible). | https://bailian.console.alibabacloud.com → API Key (International region) | optional | recommended | Same omitted-when-missing behavior as DeepSeek above. Only required if any `qwen/*` model is selected in a stage's pool. **Use only the dashscope-us hostname** — `dashscope-intl` and `dashscope.aliyuncs.com` are the native DashScope API surface, not OpenAI-compat. |
@@ -49,6 +51,11 @@ gcloud services enable aiplatform.googleapis.com --project=vertex-ai-497120
 - `GOOGLE_APPLICATION_CREDENTIALS_JSON` — the JSON content of an SA key for `oracle-trigger-worker@vertex-ai-497120`
 - `GOOGLE_CLOUD_PROJECT` = `vertex-ai-497120`
 - `GOOGLE_CLOUD_LOCATION` = `us-central1`
+
+If you enable the oversized file-backed explicit-cache path, also set:
+
+- `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` — writable by the same ADC/service account
+- `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_PREFIX` — optional grouping prefix for temporary uploaded objects
 
 To rotate the SA key:
 
@@ -152,7 +159,7 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 
 - `apps/web/next.config.ts` — loads `.env.local` from the monorepo root.
 - `apps/web/lib/supabase/server.ts` — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
-- `apps/web/app/api/chat/route.ts` — reads `settings.default_interview_route`; uses `ANTHROPIC_API_KEY` + Vertex ADC + `OPENAI_API_KEY` via the three direct adapters.
+- `apps/web/app/api/chat/route.ts` — reads `settings.default_interview_route`; uses `ANTHROPIC_API_KEY` + Vertex ADC + `OPENAI_API_KEY` via the three direct adapters, and persists Qwen Responses session state in `provider_response_sessions`.
 - `apps/web/app/admin/settings/model-pool/` — reads and writes `settings.model_pool_{interview,extraction,synthesis}` (per-stage pools, 2026-05-27).
 - `apps/web/app/api/admin/model-catalog/route.ts` — `GET` reads the persisted `model_capabilities` table; `POST` calls `refreshModelCatalog(db)` which fetches models from all 3 direct provider APIs (Anthropic, OpenAI, Google Gemini) and enriches with OpenRouter pricing/caps, then upserts. Non-fatal per-source errors are returned in `errors[]`. Admin-triggered via the "Refresh catalog" button.
 - `apps/web/app/api/admin/models/route.ts` — `?stage=<interview|extraction|synthesis|general>` returns the pool's models from `model_capabilities`. The `general` stage ignores the pool and returns the full catalog.
@@ -167,7 +174,7 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 - `packages/db/src/migrate.ts` — `DIRECT_URL`.
 - `packages/db/src/seed.ts` — `DIRECT_URL`.
 - `packages/ai/src/providers/anthropic-adapter.ts` — `ANTHROPIC_API_KEY`.
-- `packages/ai/src/providers/vertex-gemini-adapter.ts` — `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` (ADC for auth).
+- `packages/ai/src/providers/vertex-gemini-adapter.ts` — `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` (ADC for auth) and optional `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` / `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_PREFIX` for file-backed explicit caches.
 - `packages/ai/src/providers/openai-adapter.ts` — `OPENAI_API_KEY` (+ optional `OPENAI_ORG_ID`).
 - `packages/ai/src/providers/deepseek-adapter.ts` — `DEEPSEEK_API_KEY` (+ optional `baseURL` override).
 - `packages/ai/src/providers/qwen-adapter.ts` — `DASHSCOPE_API_KEY` (+ optional `baseURL` override; default `dashscope-us.aliyuncs.com/compatible-mode/v1`).

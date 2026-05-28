@@ -352,6 +352,18 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
       blocks,
       schema: ExtractionOutputSchema,
       observability: { includedMessageIds: segmentIds },
+      providerOptions: {
+        cache: {
+          preferExplicitCache: route.provider === 'vertex',
+          cacheTtlSeconds: 15 * 60,
+          expectedReuseCount: 2,
+          persistProviderCacheRecord: route.provider === 'vertex',
+          sourceDescription: `message segment ${segmentIds[0]}..${segmentIds[segmentIds.length - 1]}`,
+          cleanupOwner: 'claim-extraction-worker',
+          createdByJobRunId: jobRunId,
+          latestPlannedReuseStep: 'message_claim_extraction',
+        },
+      },
     });
     const latencyMs = Date.now() - callStartedAt;
 

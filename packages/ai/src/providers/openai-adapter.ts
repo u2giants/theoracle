@@ -35,6 +35,7 @@ import type {
   GenerateTextArgs,
   OracleProviderAdapter,
 } from './types';
+import { pickOpenAICacheRetention } from './cache-utils';
 import { flattenPlan, tryZodParse, zodToJsonSchema } from './vertex-gemini-adapter';
 
 export interface OpenAIAdapterOptions {
@@ -68,9 +69,11 @@ export class OpenAIAdapter implements OracleProviderAdapter {
     const messages = this.buildMessages(systemPrompt, userMessage, providerOptions);
     const callStartedAt = Date.now();
     const reasoningEffort = openaiEffort(route.reasoningEffort);
+    const promptCacheRetention = pickOpenAICacheRetention(plan.taskType, providerOptions);
     const completion = await this.client.chat.completions.create({
       model: route.modelId,
       messages,
+      prompt_cache_retention: promptCacheRetention,
       temperature:
         typeof providerOptions?.temperature === 'number'
           ? providerOptions.temperature
@@ -89,7 +92,7 @@ export class OpenAIAdapter implements OracleProviderAdapter {
   async generateObject<TSchema, TOutput>(
     args: GenerateObjectArgs<TSchema>,
   ): Promise<OracleObjectResult<TOutput>> {
-    const { plan, route, schema } = args;
+    const { plan, route, schema, providerOptions } = args;
     const { systemPrompt, userMessage } = flattenPlan(plan);
     // OpenAI strict mode requires every property to be required +
     // additionalProperties: false. The Zod JSON-schema converter produces
@@ -99,9 +102,11 @@ export class OpenAIAdapter implements OracleProviderAdapter {
     );
     const callStartedAt = Date.now();
     const reasoningEffort = openaiEffort(route.reasoningEffort);
+    const promptCacheRetention = pickOpenAICacheRetention(plan.taskType, providerOptions);
     const completion = await this.client.chat.completions.create({
       model: route.modelId,
       messages: this.buildMessages(systemPrompt, userMessage),
+      prompt_cache_retention: promptCacheRetention,
       temperature: 0.1,
       response_format: {
         type: 'json_schema',

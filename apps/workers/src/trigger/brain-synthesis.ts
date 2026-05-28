@@ -140,22 +140,9 @@ function buildOracleClient(): OracleAIClient {
 // Prompt builder — unchanged from legacy (same shape, same rules).
 // ─────────────────────────────────────────────────────────────────────────
 
-function buildSynthesisPrompt(
+function buildSynthesisSystemPrompt(
   section: { id: string; title: string; knowledgeDomain: string; category: string },
-  currentMarkdown: string | null,
-  approvedClaims: Array<{ id: string; summary: string; claimType: string; impactScore: number; confidenceScore: number }>,
 ): string {
-  const claimList = approvedClaims
-    .map(
-      (c) =>
-        `  - ID: ${c.id}\n    Type: ${c.claimType}\n    Impact: ${c.impactScore}/10  Confidence: ${c.confidenceScore}/10\n    Claim: ${c.summary}`,
-    )
-    .join('\n');
-
-  const currentSection = currentMarkdown
-    ? `\n\nCURRENT SECTION MARKDOWN (previous version):\n${currentMarkdown}\n`
-    : '\n\n(This is the first version of this section — no prior content.)\n';
-
   return `You are the Oracle Brain Synthesis engine for POP Creations / Spruce Line.
 
 Your task: synthesize a new version of the brain section "${section.title}" (domain: ${section.knowledgeDomain}, category: ${section.category}).
@@ -174,11 +161,29 @@ Each paragraph's supportingClaimIds list must contain real claim IDs from the ap
 The backend validator will reject this synthesis if:
   - any claim ID does not exist or is not approved, OR
   - the markdown mentions a named entity (person, system, customer, licensor, department) that is not backed by an approved claim or the canonical entity registry.
-${currentSection}
-APPROVED CLAIMS FOR THIS SECTION (${approvedClaims.length} total):
-${claimList || '(No approved claims yet — output an empty section with a gap asking for foundational knowledge.)'}
 
 OUTPUT: Return structured JSON matching the schema exactly. The updatedMarkdown field should be well-formatted Markdown suitable for display to the Lead Architect.`;
+}
+
+function buildSynthesisCorpus(
+  currentMarkdown: string | null,
+  approvedClaims: Array<{ id: string; summary: string; claimType: string; impactScore: number; confidenceScore: number }>,
+): string {
+  const claimList = approvedClaims
+    .map(
+      (c) =>
+        `  - ID: ${c.id}\n    Type: ${c.claimType}\n    Impact: ${c.impactScore}/10  Confidence: ${c.confidenceScore}/10\n    Claim: ${c.summary}`,
+    )
+    .join('\n');
+
+  const currentSection = currentMarkdown
+    ? `CURRENT SECTION MARKDOWN (previous version):\n${currentMarkdown}\n`
+    : '(This is the first version of this section — no prior content.)\n';
+
+  return `${currentSection}
+
+APPROVED CLAIMS FOR THIS SECTION (${approvedClaims.length} total):
+${claimList || '(No approved claims yet — output an empty section with a gap asking for foundational knowledge.)'}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -287,24 +292,30 @@ async function synthesizeSection(
   );
 
   // ── 2. Compile prompt blocks ─────────────────────────────────────────
-  const systemPrompt = buildSynthesisPrompt(
+  const systemPrompt = buildSynthesisSystemPrompt(
     {
       id: section.id,
       title: section.title,
       knowledgeDomain: section.knowledgeDomain,
       category: section.category,
     },
-    currentMarkdown,
-    approvedClaims,
   );
+  const synthesisCorpus = buildSynthesisCorpus(currentMarkdown, approvedClaims);
 
   const blocks = [
     makeBlock({
       id: 'synthesis-system',
-      label: 'Synthesis system prompt + approved claim corpus',
+      label: 'Synthesis system prompt',
       kind: 'stable_system',
       content: systemPrompt,
-      reasonIncluded: `synthesis prompt v${SYNTHESIS_PROMPT_VERSION}; ${approvedClaims.length} approved claim(s)`,
+      reasonIncluded: `synthesis prompt v${SYNTHESIS_PROMPT_VERSION}`,
+    }),
+    makeBlock({
+      id: 'synthesis-corpus',
+      label: 'Current section markdown + approved claim corpus',
+      kind: 'retrieved_context',
+      content: synthesisCorpus,
+      reasonIncluded: `${approvedClaims.length} approved claim(s) + current section snapshot`,
     }),
     makeBlock({
       id: 'turn-request',
@@ -353,6 +364,19 @@ async function synthesizeSection(
       blocks,
       schema: SynthesisOutputSchema,
       observability: { includedClaimIds: approvedClaims.map((c) => c.id) },
+      providerOptions: {
+        cache: {
+          preferLongLivedCache: true,
+          preferExplicitCache: route.provider === 'vertex',
+          cacheTtlSeconds: 24 * 60 * 60,
+          expectedReuseCount: 4,
+          persistProviderCacheRecord: route.provider === 'vertex',
+          sourceDescription: `brain section ${section.id} synthesis corpus`,
+          cleanupOwner: 'brain-synthesis-worker',
+          createdByJobRunId: jobRunId,
+          latestPlannedReuseStep: 'brain_synthesis',
+        },
+      },
     });
     const latencyMs = Date.now() - callStartedAt;
     inputTokens = result.usage.inputTokens;

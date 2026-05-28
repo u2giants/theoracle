@@ -1,298 +1,135 @@
 # Development
 
-Local setup, day-to-day workflow, and the gotchas that have already bitten us.
+This file covers local setup and the routine commands that reflect the current repo.
 
 ## Prerequisites
 
-- **Node.js ≥ 20** (we develop on 24). `node -v` should print something ≥ 20.0.
-- **pnpm ≥ 9** (`npm install -g pnpm` or via Corepack: `corepack enable && corepack prepare pnpm@latest --activate`).
-- **Git** with SSH keys configured for `github.com/u2giants`.
-- An **NTFS** repo location on Windows (see below), or any Linux/macOS filesystem.
-- A populated `.env.local` at the **monorepo root** (see `docs/configuration.md`).
-
-## Windows-specific setup
-
-The monorepo uses pnpm workspaces, which need symlinks. Two things have to be true on Windows for that to work:
-
-1. **The repo directory must be on an NTFS volume.** exFAT and FAT32 do not support symlinks at all, and pnpm fails with cryptic `ENOENT: ... rename ... .ignored_*` errors that look like permission problems. Confirm with `Get-Volume D | Select-Object FileSystemType` (substitute your drive letter). If it says anything other than NTFS, **reformat to NTFS or move the repo to an NTFS drive** before doing anything else.
-2. **Windows Developer Mode enabled.** Settings → For Developers → Developer Mode → On. After enabling, **sign out and back in** (or restart) — the symlink privilege is stamped into your session token at logon, so toggling it in an existing session is not enough.
-
-After those two preconditions, `pnpm install` from a regular PowerShell should work. If anything goes wrong, the recovery recipe below covers the common cases. Running the first install from an Administrator PowerShell helps because admin tokens have `SeCreateSymbolicLinkPrivilege` enabled unconditionally.
-
-**Recommended Defender exclusions** (not strictly required, makes installs much faster):
-
-```powershell
-Add-MpPreference -ExclusionPath "D:\repos\oracle"          # adjust path
-Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\pnpm"
-Add-MpPreference -ExclusionProcess "pnpm.exe"
-Add-MpPreference -ExclusionProcess "node.exe"
-```
-
-**No `.npmrc` workaround is checked in.** We tried `node-linker=hoisted`; it does not help with workspace packages. See `AGENTS.md` §11.
+- Node.js 20+; current CI uses Node 24
+- `pnpm` 9.x
+- Git access to `u2giants/theoracle`
+- A local `.env.local` at the repo root
+- Supabase access for the target project
+- Google Cloud ADC if you need Vertex locally: `gcloud auth application-default login`
 
 ## First-time setup
 
 ```bash
-git clone git@github.com:u2giants/theoracle.git oracle
-cd oracle
+git clone git@github.com:u2giants/theoracle.git
+cd theoracle
 pnpm install
-
-# Pull env from Vercel (one-time link, then pull)
 npx vercel@latest link --project prj_rP6Jlima7iK1paffEPhLqxlswGsC --yes
 npx vercel@latest env pull .env.local --environment=development --yes
-
-# If Vercel's Development env vars are empty (sensitive vars can't live there),
-# either convert them to Encrypted type in Vercel and re-pull, or paste values
-# manually from Supabase / Anthropic / OpenAI / Trigger.dev dashboards.
-# See docs/configuration.md for the exact source for each variable.
-
-# Also paste the direct-provider variables that don't live in Vercel:
-#   GOOGLE_CLOUD_PROJECT=vertex-ai-497120
-#   GOOGLE_CLOUD_LOCATION=us-central1
-#   ANTHROPIC_API_KEY=sk-ant-...
-#   OPENAI_API_KEY=sk-proj-...
-# And run once:
-#   gcloud auth application-default login
-# so the Vertex direct adapter can authenticate via ADC.
-
-# Apply schema + raw SQL (RLS, constraints, views, data migrations) + seed
 pnpm db:migrate
 ```
 
-`pnpm db:migrate` is idempotent and runs the seed at the end (admin row + test employee + settings defaults). You don't need to run `pnpm db:seed` separately on a fresh setup.
+Then fill in any direct-provider variables that are not available through the pulled Vercel development env. See `docs/configuration.md`.
 
-After this you should have:
-- A populated Supabase database with the full schema, RLS, views, and the admin row for `u2giants@gmail.com`.
-- A `.env.local` with real secret values at the monorepo root.
+## Daily commands
 
-## Run / build / typecheck / lint
+From the repo root:
 
 ```bash
-pnpm dev          # turbo run dev --filter=@oracle/web (web only — NOT workers)
-pnpm dev:all      # turbo run dev (web + workers in parallel)
-pnpm workers:dev  # just the Trigger.dev CLI
-pnpm build        # turbo build — every workspace
-pnpm typecheck    # turbo typecheck — tsc --noEmit everywhere
-pnpm lint         # turbo lint — ESLint for web, tsc-as-lint for packages
-pnpm format       # prettier --write across ts/tsx/md/json (not turbo-scoped)
+pnpm dev
+pnpm dev:all
+pnpm workers:dev
+pnpm typecheck
+pnpm lint
+pnpm build
+pnpm format
 ```
 
-`pnpm dev` deliberately skips workers because the Trigger.dev CLI needs an interactive login and a project link the first time, which makes the parallel turbo task noisy. Use `pnpm dev:all` once you've signed into the Trigger.dev CLI (or `pnpm workers:dev` standalone).
-
-### Pre-push gate — run the production web build
-
-```bash
-pnpm --filter @oracle/web build
-```
-
-**Always run this before pushing anything that touches types** (schema, retrieval helpers, route handlers, auth glue, etc.). `next dev` with Turbopack skips the TypeScript pass for speed, so type errors that the dev server happily ignores will fail the Vercel production build. `pnpm typecheck` is not a sufficient substitute — it skips Next-specific type generation. The full `next build` is the only thing that matches what Vercel runs.
-
-`AGENTS.md` §11 covers the two type errors that bit us on 2026-05-20 (`OracleDb` vs `Db`, implicit-any cookie adapter) — both would have been caught by this single command.
-
-If you only want the web app (no Trigger.dev CLI invocation), filter:
+Workspace-specific commands:
 
 ```bash
 pnpm --filter @oracle/web dev
-```
-
-Other useful filters:
-
-```bash
-pnpm --filter @oracle/db generate     # drizzle-kit generate (after schema.ts changes)
+pnpm --filter @oracle/web build
+pnpm --filter @oracle/workers deploy
+pnpm --filter @oracle/db generate
 pnpm --filter @oracle/db migrate
 pnpm --filter @oracle/db seed
-pnpm --filter @oracle/workers dev     # requires Trigger.dev CLI; the script uses npx
 ```
 
-## Adding a database change
+## Verification gates
 
-1. Edit `packages/db/src/schema.ts`.
-2. `pnpm db:generate` → produces a new `packages/db/migrations/0NNN_*.sql` file. **Do not hand-edit** it.
-3. If you need constraints, RLS, helper functions, views, or data migrations: add a `packages/db/migrations/sql/NN_<topic>.sql` file with the next free numeric prefix. **See `packages/db/migrations/sql/README.md` for the ordering convention** — files run in lex order on every boot and must be idempotent.
-4. `pnpm db:migrate` applies everything in order. The runner (`packages/db/src/migrate.ts`) is idempotent.
-5. Update `docs/architecture.md`'s data-model table if you added a new top-level entity.
-
-## Adding a new package
-
-1. `mkdir packages/<name>` with `package.json` (`"name": "@oracle/<name>"`, `"private": true`, `"type": "module"`, `"main": "./src/index.ts"`, `"types": "./src/index.ts"`).
-2. Add `tsconfig.json` extending `../../tsconfig.base.json`.
-3. Reference it from another workspace via `"@oracle/<name>": "workspace:*"`.
-4. `pnpm install` to wire the workspace symlinks.
-
-## Tests
-
-We don't have a full test framework wired yet. When we do, the convention will be Vitest at the package level (`packages/<x>/src/__tests__/*.test.ts`). Don't write speculative tests before then — the spec calls for evaluation gates over real transcripts, not unit coverage on schemas.
-
-### AI retrofit smoke gates
-
-Each phase that ships runtime logic has a self-contained deterministic smoke gate. They run without API keys, database, or network access.
+Run these before pushing changes that affect runtime code:
 
 ```bash
-pnpm --filter @oracle/ai      verify:r2     # OracleAIClient pipeline
-pnpm --filter @oracle/engines verify:r5     # quote validator + promotion decider
-pnpm --filter @oracle/engines verify:r5.5   # entity resolver + taxonomy validator
-pnpm --filter @oracle/engines verify:r6     # circuit breaker + legacy domain mapping
-pnpm --filter @oracle/engines verify:r7     # cache profitability + token estimate
-pnpm --filter @oracle/engines verify:r9     # synthesis diff validator
+pnpm typecheck
+pnpm --filter @oracle/web build
 ```
 
-There's also a mock-mode extraction eval (canned LLM outputs run through the real R5/R5.5 validators):
+If you changed AI runtime logic, also run the relevant deterministic gates:
 
 ```bash
-pnpm --filter @oracle/ai eval:extraction    # 4 fixtures: happy path + paraphrase + sensitive + wrong-domain
-```
-
-And a real-provider smoke (hits the direct adapters against the real APIs — costs ~$0.003):
-
-```bash
-pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts all      # original 3 (anthropic/vertex/openai)
-pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts vertex   # one at a time
-```
-
-Note: the smoke file currently exercises the original 3 adapters; DeepSeek and Qwen are exercised by `scripts/verify-catalog.ts` (model-list fetch) and end-to-end through admin's "Refresh catalog" → save model in stage pool → trigger a worker run.
-
-Run the gate for whichever module you touched. The DB-aware executor (`executePromotion`), the Trigger.dev workers, and the admin pages themselves aren't covered by these gates because they require a live Postgres — the pure decision logic they compose is covered.
-
-### Pre-push gate
-
-Before pushing a commit, run the full gate suite. CI (`.github/workflows/pr-check.yml`) runs the same thing on every PR + push to `main`.
-
-```bash
-pnpm typecheck                              # all 7 packages
-pnpm --filter @oracle/web build             # production Next build
-pnpm --filter @oracle/ai      verify:r2
+pnpm --filter @oracle/ai verify:r2
 pnpm --filter @oracle/engines verify:r5
 pnpm --filter @oracle/engines verify:r5.5
 pnpm --filter @oracle/engines verify:r6
 pnpm --filter @oracle/engines verify:r7
 pnpm --filter @oracle/engines verify:r9
-pnpm --filter @oracle/engines verify:r11.1
 ```
 
-If you only touched one phase's module, you can scope the smoke gate to that phase — but the typecheck + build pair is non-negotiable. The full gate combination is fast (~30 seconds total) because the pure-function smokes finish in milliseconds.
-
-### AI retrofit phase gates
-
-Each AI retrofit phase has an acceptance gate documented in `docs/oracle/05-ai-retrofit-phase-packet.md`. The current contract:
-
-- After each phase, the pre-push gate above must all pass before commit.
-- New phases must not regress prior gates.
-- R0 → R11.4 + all 6 external-review items (P1 #1–4, P2 #1–2) are complete. The wet-test passed end-to-end on 2026-05-26. Both interjection paths (R11.2 lull + R11.3 live contradiction) post live chat messages. The model-catalog overhaul (5-provider discovery + OpenRouter enrichment + per-stage pools + reasoning-effort plumbing) is live. Remaining work is operational tuning — see `AGENTS.md` § 15 for the open task list.
-
-## Inspection / debugging scripts
-
-`packages/db/src/` ships two small tsx scripts useful for local debugging:
-
-- `verify-identities.ts` — prints current `employees` rows, their `employee_identities`, and any orphan identity rows. Run with `pnpm --filter @oracle/db exec tsx src/verify-identities.ts`.
-- `inspect-auth-users.ts` — prints rows from Supabase's `auth.users` schema so you can see which providers Supabase has on file for each email. Same invocation pattern.
-
-`scripts/` (repo root) holds two AI-catalog helpers:
-
-- `scripts/verify-catalog.ts` — calls each of the 5 provider model-list APIs + OpenRouter enrichment and reports per-model match/miss against the OpenRouter catalog (canonical-slug + dash→dot + date-stripping normalization). **Does NOT write to the DB.** Useful when debugging "why didn't model X get pricing/capability data" without clicking Refresh in the admin UI. Run:
-  ```powershell
-  # Loads .env.local from the repo root, strips surrounding quotes from values
-  Get-Content .env.local | ForEach-Object {
-    if ($_ -match '^([A-Z_]+)=(.+)$') {
-      Set-Item -Path "env:$($matches[1])" -Value ($matches[2].Trim('"').Trim("'"))
-    }
-  }
-  node_modules\.bin\tsx.CMD scripts\verify-catalog.ts
-  ```
-- `scripts/refresh-catalog.ts` — invokes `refreshModelCatalog(db)` against the live production DB. Same effect as clicking "Refresh catalog" in `/admin/settings/model-pool`, but doesn't require an admin browser session. Useful after adding a new provider's API key locally, or after changing enrichment logic, to populate the `model_capabilities` table without going through the UI. Reads `.env.local` the same way (same here-doc loader as above) — needs `DIRECT_URL` + at least one provider key + (optionally) `OPENROUTER_API_KEY`.
-
-All three load `.env.local` from the monorepo root.
-
-## When `pnpm install` errors or hangs on Windows
-
-If you're on Windows with an NTFS drive and Developer Mode enabled, the install should just work. If it doesn't:
-
-Symptom 1: `ENOENT: no such file or directory, rename '...\.ignored_*'`
-Symptom 2: install stalls at `Progress: resolved N, reused N, downloaded 0, added 0` for >5 minutes.
-
-Recovery in an elevated PowerShell:
-
-```powershell
-# 1. Kill any lingering pnpm processes (NEVER blanket-kill node — kills MCP servers + IDEs)
-Get-Process pnpm -ErrorAction SilentlyContinue | Stop-Process -Force
-
-# 2. Robocopy-nuke node_modules everywhere (handles broken junctions Remove-Item can't)
-$empty = New-Item -ItemType Directory -Path "$env:TEMP\empty-$([guid]::NewGuid())" -Force
-Get-ChildItem -Path D:\repos\oracle -Filter node_modules -Recurse -Force -Directory | ForEach-Object {
-    robocopy $empty.FullName $_.FullName /MIR /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
-    Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
-}
-Remove-Item $empty.FullName -Force -ErrorAction SilentlyContinue
-
-# 3. Optionally prune pnpm's store cache
-pnpm store prune
-
-# 4. Reinstall
-pnpm install
-```
-
-If the lockfile itself was generated under broken conditions, regenerate it:
-
-```powershell
-Remove-Item pnpm-lock.yaml -Force
-pnpm install
-```
-
-…then commit the new lockfile.
-
-If it still fails, **double-check the filesystem** — `Get-Volume D | Select-Object FileSystemType` must return NTFS. This is by far the most common root cause and the one we spent the longest debugging without finding it.
-
-## Verifying Phase acceptance gates locally
-
-**Phase 1 (foundation) — wet-tested:**
-- Click "Sign in with Google" as `u2giants@gmail.com` → land on `/admin`.
-- Click "Sign in with Microsoft 365" as `albert@popcre.com` → land on `/admin` (same Albert, multi-identity confirmed).
-- Sign in with any non-allowlisted address → `/denied?reason=not_approved`.
-
-**Phase 2 (realtime) — partial:**
-- Requires two real loginable employees. The seeded `test-employee@oracle.local` is not deliverable; replace its email with a Gmail `+`-alias (e.g. `u2giants+test@gmail.com`) or seed a second real employee.
-- Open two browsers, sign in as each, insert a `channels` row + two `channel_participants` rows via SQL. Channel/participant CRUD is not in the admin UI — Phase 5 only covers the review dashboards (claims/gaps/contradictions/brain). Channel creation remains SQL-only for now; it is in AGENTS.md §15 pending work.
-- Both browsers should see new messages live.
-- A third logged-in employee NOT in the channel must get 0 rows when querying that channel.
-- Upload a document; verify the `documents` row and Storage object both exist.
-
-**Phase 5 (admin review dashboards) — done:**
-- Navigate to `/admin/claims`, `/admin/gaps`, `/admin/contradictions`, `/admin/brain` as the admin employee.
-- The intelligence tables are still empty in dev unless a worker has produced data, so all four pages will likely show empty states. That's expected.
-- Smoke test: click a status-filter tab (e.g. `?status=approved` on claims). The URL should update and the table should re-query.
-- The Approve/Reject/Resolve/Stale/Confirm/Dismiss buttons are POST forms backed by `'use server'` actions in each `_actions.ts`. They call `revalidatePath` after mutation; no client-side state library involved.
-
-**Phase 3 (Oracle chat) — wet-tested ✓:**
-- In a channel, send `@oracle what do you know about our licensing process?`.
-- An assistant message appears, asking ONE question (spec Part 10 output constraint).
-- Verify a `model_runs` row was inserted (latency, cost, token counts populated).
-- Oracle is also triggered after document uploads — after a file upload completes, the
-  client fires `POST /api/chat`. In DMs this always fires; in group chats only when
-  the upload caption starts with `@oracle`.
-
-**Phase 4 (workers) — deployed, verifiable via DB:**
-- Workers run on Trigger.dev Cloud (version `20260521.1`). They are live and will
-  process data once messages/documents exist.
-- Send a message in any channel, wait up to 4 hours, then check:
-  ```sql
-  SELECT job_type, status, started_at, finished_at, output_json
-  FROM job_runs ORDER BY started_at DESC LIMIT 5;
-  ```
-- After a successful extraction run, `claims` rows should appear with
-  `status = 'pending_review'` or `'approved'`.
-- To trigger a run manually: use the Trigger.dev dashboard →
-  https://cloud.trigger.dev/projects/v3/proj_wgpzsvhmsopqhvwqaycn
-
-## Quick commit recipe
+If you need the mock extraction eval:
 
 ```bash
-git add -A
-git commit -m "$(cat <<'EOF'
-feat(scope): short message
-
-Longer explanation if needed.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
-git push
+pnpm --filter @oracle/ai eval:extraction
 ```
+
+## Working on database changes
+
+1. Edit `packages/db/src/schema.ts`.
+2. Run `pnpm db:generate` if the schema shape changed.
+3. Add a hand-written SQL file under `packages/db/migrations/sql/` if the change needs constraints, RLS, views, or data migration logic.
+4. Run `pnpm db:migrate`.
+5. Update docs if the data model or operations changed.
+
+Do not edit previously applied migration files.
+
+## Working on provider adapters
+
+Relevant files:
+
+- `packages/ai/src/providers/*.ts`
+- `packages/ai/src/client/standard-adapters.ts`
+- `packages/ai/src/routes/{types,resolve}.ts`
+- `packages/ai/src/providers/cache-utils.ts`
+
+Rules:
+
+- Do not call provider SDKs directly from routes or workers.
+- Register providers through `buildStandardAdapters()`.
+- Keep provider-specific cache behavior inside the adapters.
+- Update docs when adapter behavior changes.
+
+## Working on workers
+
+Worker entrypoints live in `apps/workers/src/trigger/`.
+
+Current task files:
+
+- `claim-extraction.ts`
+- `document-ingestion.ts`
+- `brain-synthesis.ts`
+- `lull-interjection.ts`
+- `contradiction-watcher.ts`
+- `taxonomy-reevaluation.ts`
+- `taxonomy-reclassification.ts`
+
+Routine expectations:
+
+- workers insert `job_runs`
+- model calls insert `model_runs` and `model_run_usage_details`
+- prompt plans insert `oracle_context_packs`
+
+## Useful inspection scripts
+
+- `scripts/verify-catalog.ts` — inspects provider model-list fetching and OpenRouter enrichment
+- `scripts/refresh-catalog.ts` — refreshes `model_capabilities` in the real DB
+- `packages/db/src/verify-identities.ts` — employee/identity inspection
+- `packages/db/src/inspect-auth-users.ts` — Supabase auth user inspection
+
+## Current incomplete areas you may encounter
+
+- `apps/workers/src/trigger/taxonomy-reevaluation.ts` is still a scaffolded worker, not a full clustering/proposal pipeline.
+- `apps/web/app/admin/taxonomy/_actions.ts` queues some proposal types for later reclassification instead of applying them inline.
+- Oversized Vertex file-backed caching only activates when `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` is configured.

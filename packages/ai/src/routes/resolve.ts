@@ -77,7 +77,7 @@ function makeSyntheticRoute(
       : provider === 'deepseek'
       ? 'deepseek_automatic_prefix'
       : provider === 'qwen'
-      ? 'qwen_none'
+      ? 'qwen_explicit_context_cache'
       : 'openai_automatic_with_cache_key';
 
   // DeepSeek and Qwen via OpenAI-compat don't expose strict json_schema mode.
