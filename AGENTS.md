@@ -134,6 +134,7 @@ Specific boundaries:
 | Provider cache table | `provider_cached_content` | `packages/db/src/schema.ts` | Explicit Vertex cache lifecycle + provider metadata |
 | Provider response session table | `provider_response_sessions` | `packages/db/src/schema.ts` | Qwen Responses `previous_response_id` persistence |
 | Model catalog table | `model_capabilities` | schema + model-capability refresh code | Populated from direct providers + OpenRouter enrichment |
+| Provider Batch jobs table | `provider_batch_jobs` | `packages/db/src/schema.ts`, migration `60_batch_jobs.sql` | One row per submitted provider Batch API job (D14). `extraction_batches.provider_batch_job_id` links per-input rows to their batch. `model_runs.dispatch_mode` ∈ `'sync' \| 'batch' \| NULL`. |
 
 Do not casually rename or regenerate these identifiers. They are wired across code, DB, and deployment surfaces.
 
@@ -258,6 +259,34 @@ Responses API session cache needs a stable conversation handle across requests a
 Do not change because:
 Without it, Qwen session cache resets every turn and the savings disappear.
 
+### Batch API methods on the adapter contract are optional
+
+Looks like:
+`OracleProviderAdapter.submitBatch` and `retrieveBatch` are marked `?` (optional). Existing adapters (Anthropic, DeepSeek, Qwen) don't implement them. The interface looks half-finished.
+
+Actually:
+The methods are optional on purpose. DeepSeek has no public Batch API. Qwen's batch surface is non-OpenAI-compatible (DECISIONS.md D12 deferred the native DashScope SDK swap). Anthropic Message Batches is feasible but synthesis volume doesn't yet justify the wiring. OpenAI and Vertex implement both methods today; future adapters opt in by implementing both.
+
+Why:
+Forcing every adapter to implement batch would either block adding new providers behind a 50%-discount feature, or paper over it with stub `submitBatch` methods that throw — both worse than the optional pattern. The runtime helper `supportsBatch(adapter)` is the feature-detection contract. See DECISIONS.md D14.
+
+Do not change because:
+Making `submitBatch` / `retrieveBatch` required on the interface would force the DeepSeek and Qwen adapters to throw at construction, which would break the per-provider `tryAdd()` boot in `buildStandardAdapters()` and silently disable both providers.
+
+### Migration 60 (batch jobs) is not auto-applied
+
+Looks like:
+`60_batch_jobs.sql` and the schema additions for `provider_batch_jobs` / `extraction_batches.provider_batch_job_id` / `model_runs.dispatch_mode` are committed, so the live DB should have them.
+
+Actually:
+The migration runner is invoked manually (`pnpm db:migrate`); CI does not run it. Migration 60 has not been applied to the production Supabase project as of commit `f252c85`. Until it is, any code path that queries `provider_batch_jobs` or those new columns will error.
+
+Why:
+The batch worker integration is deferred (`HANDOFF.md`). Applying 60 before the worker code lands is harmless but the timing was deliberately deferred so a failed migration during the worker session doesn't block the rest.
+
+Do not change because:
+Don't ship batch-worker code before running `pnpm db:migrate`. See HANDOFF.md Step 0.
+
 ### OpenAI model catalog uses a blocklist, not an allowlist
 
 Looks like:
@@ -303,6 +332,8 @@ Editing old generated files breaks replay expectations and production drift reco
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` | service-account JSON content for Vertex ADC bootstrapping | Vercel/Trigger.dev secret, optional local | no | yes |
 | `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` | temp GCS bucket for oversized file-backed Vertex caches | env/secret | optional | recommended |
 | `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_PREFIX` | temp GCS prefix for those uploads | env/secret | optional | optional |
+| `GOOGLE_VERTEX_BATCH_GCS_BUCKET` | GCS bucket for Vertex Batch Prediction JSONL I/O (D14) | env/secret | optional | required if batch mode + Vertex |
+| `GOOGLE_VERTEX_BATCH_GCS_PREFIX` | Object prefix inside the batch bucket | env/secret | optional | optional |
 | `DEEPSEEK_API_KEY` | DeepSeek adapter | `.env.local`, Vercel, Trigger.dev | optional | optional |
 | `DASHSCOPE_API_KEY` | Qwen adapter | `.env.local`, Vercel, Trigger.dev | optional | optional |
 | `OPENROUTER_API_KEY` | model catalog enrichment only | `.env.local`, Vercel if desired | optional | optional |

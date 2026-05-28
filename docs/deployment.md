@@ -99,3 +99,4 @@ Use `docs/configuration.md` for the exact variable list.
 - SSH is not part of the normal release workflow.
 - No Docker, Compose, Coolify, or VPS deployment path exists in this repo.
 - If oversized Vertex file-backed caches are needed in production, provision `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` and related access before expecting that path to activate.
+- If Vertex Batch Prediction is enabled (D14), provision `GOOGLE_VERTEX_BATCH_GCS_BUCKET` in the same region as the Vertex endpoint and grant the worker service account `roles/storage.objectAdmin`. OpenAI batch needs no extra infrastructure. The worker integration that consumes these is deferred — see `HANDOFF.md`.

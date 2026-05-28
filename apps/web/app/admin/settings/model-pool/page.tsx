@@ -44,8 +44,8 @@ export default async function ModelPoolPage() {
         <p className="text-sm text-muted-foreground max-w-prose">
           Pick which models appear in each stage&apos;s dropdown on the main
           Settings page. Three independent pools — Interview, Extraction,
-          Synthesis. Oracle calls Anthropic, OpenAI, and Google Vertex
-          directly (no third-party proxy).
+          Synthesis. Oracle calls Anthropic, OpenAI, Google Vertex, DeepSeek,
+          and Alibaba Qwen directly (no third-party proxy).
         </p>
         <p className="text-sm text-muted-foreground">
           Leaving a stage&apos;s pool empty falls back to the 6 curated

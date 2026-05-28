@@ -39,6 +39,8 @@ pnpm db:migrate
 
 This applies `60_batch_jobs.sql` against the production Supabase project. Idempotent.
 
+Then update `packages/db/migrations/sql/31_observability_views.sql` to expose the new `model_runs.dispatch_mode` column in the `model_runs_with_usage` view so `/admin/ai` dashboards can show sync vs batch. The view currently selects ~30 columns from `model_runs` + `model_run_usage_details`; just add `mr.dispatch_mode` near the other `mr.*` selections. Bump the file or write a new `61_*.sql` that does `CREATE OR REPLACE VIEW` — the runner re-applies SQL files on every boot, so it's safe either way.
+
 ### Step 1 — extract `processSegmentOutput` from `claim-extraction.ts`
 
 In [apps/workers/src/trigger/claim-extraction.ts](apps/workers/src/trigger/claim-extraction.ts) the function `processSegment` (line 263) does, in order:

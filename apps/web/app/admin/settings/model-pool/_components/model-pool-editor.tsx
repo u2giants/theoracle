@@ -238,8 +238,8 @@ export function ModelPoolEditor({
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
           The model catalog hasn&apos;t been refreshed yet. Click below to pull the
-          current list from the Anthropic, OpenAI, and Google APIs (with pricing
-          and capability metadata from OpenRouter).
+          current list from all five direct provider APIs (Anthropic, OpenAI, Google,
+          DeepSeek, Qwen) with pricing and capability metadata enriched from OpenRouter.
         </p>
         <Button onClick={refreshCatalog} disabled={refreshing} size="sm">
           {refreshing ? 'Refreshing…' : 'Refresh catalog'}

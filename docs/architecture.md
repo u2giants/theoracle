@@ -619,7 +619,7 @@ Cache lifecycle (`packages/oracle-engines/src/extraction/cache-lifecycle.ts`):
 
 ### Worker and chat-route integration (R6 + R7 + R8 + R9 + R11.0, all landed)
 
-Every production AI caller now dispatches through `OracleAIClient` with the three direct provider adapters:
+Every production AI caller now dispatches through `OracleAIClient` with the five direct provider adapters:
 
 | Caller | Phase | Status |
 |---|---|---|
