@@ -114,7 +114,8 @@ Specific boundaries:
 | Add an admin page | `apps/web/app/admin/**`, possibly `packages/db/migrations/sql/*.sql` for a new admin view | RLS helpers unless policy changes are truly required |
 | Change auth/linking behavior | `packages/auth/src/**`, `apps/web/app/auth/**`, `apps/web/app/_components/login-form.tsx` | direct edits to Supabase-managed auth tables |
 | Add or change env/config | `.env.example`, `turbo.json`, `docs/configuration.md`, consuming code | `.env.local` in git |
-| Add or change model catalog filtering | `packages/ai/src/model-capabilities/sources/<provider>.ts` (per-provider source/blocklist), `packages/ai/src/model-capabilities/index.ts` (post-enrichment quality filters), `scripts/refresh-catalog.ts` to verify, `docs/architecture.md`, `DECISIONS.md` | provider inference adapters, route catalog |
+| Add or change model catalog filtering | `packages/ai/src/model-capabilities/sources/<provider>.ts` (per-provider source/blocklist), `packages/ai/src/model-capabilities/index.ts` (write-time post-enrichment filters), **`apps/web/app/api/admin/model-catalog/route.ts` `passesQualityFilter` (mirror filter at read time)**, `scripts/refresh-catalog.ts` to verify, `docs/architecture.md`, `DECISIONS.md` | provider inference adapters, route catalog |
+| Reorder or regroup admin nav | `apps/web/app/admin/_components/admin-nav.tsx` (GROUPS array + isActive helper). Layout wrapper stays server-rendered for auth. | `apps/web/app/admin/layout.tsx` other than the AdminNav import — auth still runs there |
 | Change deployment behavior | `vercel.json`, `.github/workflows/pr-check.yml`, `apps/workers/trigger.config.ts`, `docs/deployment.md` | ad hoc dashboard-only assumptions without documenting them |
 
 ## 7. Data model and external identifiers
@@ -287,6 +288,48 @@ The flag is read every cron tick — flipping it doesn't require a redeploy. The
 Do not change because:
 Removing the always-on drain task would orphan any in-flight Vertex/OpenAI batches if the flag flipped back to sync mid-stream. Removing the gate from the sync task would double-process in batch mode.
 
+### Model catalog quality filter runs at BOTH write and read time
+
+Looks like:
+The same filter logic appears in `packages/ai/src/model-capabilities/index.ts` (`refreshModelCatalog`) AND `apps/web/app/api/admin/model-catalog/route.ts` (`passesQualityFilter`). Looks duplicated.
+
+Actually:
+Intentional defense in depth. The write-time filter prevents new junk from landing in the DB. The read-time filter handles the legacy case: rows written BEFORE the write-time filter shipped (or when OpenRouter enrichment was unavailable) sit in the DB with no pricing and no capability flags. Deleting them would break pool selections that still reference deprecated model IDs. Filtering at read time hides them from admins without losing the FK target.
+
+Why:
+The write-time-only filter let junk creep back into the admin UI whenever an old OpenRouter outage produced unenriched rows. The read-time filter is the catch-all.
+
+Do not change because:
+Removing the read-time filter resurrects the original "junky models reappear" bug. Removing the write-time filter floods the DB with no-data rows that build up over time. Keep both.
+
+### Ineligible models are SELECTABLE (red checkbox), not disabled
+
+Looks like:
+Models that don't meet a stage's required capabilities still have an active checkbox in the model-pool grid, just colored red.
+
+Actually:
+Admin override is intentional. Sometimes a model is fine for a stage even when one of the canonical capability flags is missing (e.g. OpenRouter hasn't enriched the model yet, but the admin knows it supports tools). Disabling the checkbox would force admins to wait for enrichment or edit settings via SQL.
+
+Why:
+The stage-requirements predicates are a heuristic, not ground truth. Red styling + the missing-caps hover tooltip make the override state obvious; no silent risk of accidental selection.
+
+Do not change because:
+Disabling the checkbox blocks valid admin overrides and forces SQL editing.
+
+### Stage `thinking` requirement is on Synthesis, not Extraction
+
+Looks like:
+The Extraction model card has no reasoning-effort row visible, while Synthesis does — even though extraction is the more "thinking-heavy" task by feel.
+
+Actually:
+`thinking` was moved from `STAGE_REQUIREMENTS.extraction` → `STAGE_REQUIREMENTS.synthesis` on 2026-05-28 (`apps/web/lib/stage-requirements.ts`). Extraction benefits more from speed + verbatim quote fidelity; synthesis benefits from extended reasoning when consolidating a large approved-claim corpus into a single Brain section.
+
+Why:
+Earlier requirement set forced extraction into reasoning models that produced slower, more elaborate JSON for no provable accuracy win. Moving `thinking` to synthesis matches actual cost/quality observations.
+
+Do not change because:
+Putting `thinking` back on extraction excludes Gemini Flash and the cheap GPT-4o-mini path from the extraction pool — both proven good for extraction in our wet-tests.
+
 ### OpenAI model catalog uses a blocklist, not an allowlist
 
 Looks like:
@@ -423,6 +466,6 @@ Apply migrations before pushing code that requires them, and stage git changes e
 | open | Authentik is mentioned in schema/docs but no Authentik login flow is wired in the app. | Treat Authentik as not implemented. |
 | open | Oversized Vertex file-backed caches require `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` in the runtime env. Without it, the adapter falls back to text-prefix caching only. | Provision the bucket/env in environments that need large-document cache optimization. |
 | open | `model_runs_with_usage` view in `31_observability_views.sql` does not yet select `mr.dispatch_mode`. Without it, `/admin/ai` dashboards can't distinguish sync vs batch rows. | Add the column to the SELECT and re-apply via `pnpm db:migrate` (the runner re-applies SQL on every boot). |
-| open | Vertex Batch Prediction requires `GOOGLE_VERTEX_BATCH_GCS_BUCKET` to be provisioned + the worker SA granted `roles/storage.objectAdmin` on it. | One-time admin task before batch mode can be enabled for Vertex routes. OpenAI batch needs no infrastructure setup. To flip extraction to batch: `UPDATE settings SET value = '"batch"'::jsonb WHERE key = 'extraction_dispatch_mode';` |
+| open | Vertex Batch Prediction requires `GOOGLE_VERTEX_BATCH_GCS_BUCKET` to be provisioned + the worker SA granted `roles/storage.objectAdmin` on it. | One-time admin task before batch mode can be enabled for Vertex routes. OpenAI batch needs no infrastructure setup. Flip extraction to batch via `/admin/settings` → "Extraction dispatch mode" card. |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.
