@@ -86,6 +86,9 @@ export async function runClaimExtractionBatchSubmitOnce(
       .where(eq(jobRuns.id, jobRun.id));
   };
 
+  // Hoisted so the catch can revert messages this run flipped to 'processing'.
+  let claimedMessageIds: string[] = [];
+
   try {
     // 1. Dispatch-mode gate — mirror image of the sync worker.
     const dispatchModeRow = await db
@@ -136,6 +139,7 @@ export async function runClaimExtractionBatchSubmitOnce(
 
     // 4. Mark as 'processing' for idempotency.
     const messageIds = pendingMessages.map((m) => m.id);
+    claimedMessageIds = messageIds;
     await db
       .update(messages)
       .set({ extractionStatus: 'processing' })
@@ -268,11 +272,31 @@ export async function runClaimExtractionBatchSubmitOnce(
       providerBatchId: submitResult.providerBatchId,
     };
   } catch (err) {
-    // On any failure during submit, mark the fetched messages back to 'pending'
-    // so the next run retries. extraction_batches rows we already inserted
-    // stay around but their pending_model state will get reaped by a cron
-    // sweeper down the line (or by the drain task noticing no provider job).
+    // On any failure during submit, revert the messages this run claimed back
+    // to 'pending' so the next cron tick retries them. Only revert rows still
+    // in 'processing' — segments we explicitly marked 'skipped' (empty user
+    // content) stay skipped. extraction_batches rows we already inserted are
+    // left in pending_model and will be reaped by the drain task once it
+    // notices they have no provider_batch_job_id link.
     const errMsg = err instanceof Error ? err.message : String(err);
+    if (claimedMessageIds.length > 0) {
+      try {
+        await db
+          .update(messages)
+          .set({ extractionStatus: 'pending' })
+          .where(
+            and(
+              inArray(messages.id, claimedMessageIds),
+              eq(messages.extractionStatus, 'processing'),
+            ),
+          );
+      } catch (revertErr) {
+        console.error(
+          '[claim-extraction-batch-submit] failed to revert messages to pending',
+          revertErr,
+        );
+      }
+    }
     await db
       .update(jobRuns)
       .set({ status: 'failed', finishedAt: new Date(), error: errMsg })

@@ -14,6 +14,7 @@ type RunRow = {
   route_id: string | null;
   provider: string;
   prompt_version: string | null;
+  dispatch_mode: 'sync' | 'batch' | null;
   success: boolean;
   error: string | null;
   input_tokens: number | null;
@@ -60,7 +61,7 @@ export default async function AdminAIRunsPage({
 
   const result = await db.execute(sql`
     SELECT
-      model_run_id, task_type, route_id, provider, prompt_version,
+      model_run_id, task_type, route_id, provider, prompt_version, dispatch_mode,
       success, error,
       input_tokens, cached_input_tokens, output_tokens, reasoning_tokens,
       cache_hit_ratio, fell_back_from_route_id, fallback_reason,
@@ -154,6 +155,7 @@ export default async function AdminAIRunsPage({
                   <th>Task</th>
                   <th>Route</th>
                   <th>Provider</th>
+                  <th>Mode</th>
                   <th className="text-right">In</th>
                   <th className="text-right">Cached</th>
                   <th className="text-right">Out</th>
@@ -183,6 +185,15 @@ export default async function AdminAIRunsPage({
                       )}
                     </td>
                     <td className="text-muted-foreground">{r.provider}</td>
+                    <td>
+                      {r.dispatch_mode === 'batch' ? (
+                        <span className="rounded bg-violet-100 px-1.5 py-0.5 text-violet-800">batch</span>
+                      ) : r.dispatch_mode === 'sync' ? (
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-700">sync</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
                     <td className="text-right">{formatTokens(r.input_tokens)}</td>
                     <td className="text-right">{formatTokens(r.cached_input_tokens)}</td>
                     <td className="text-right">{formatTokens(r.output_tokens)}</td>

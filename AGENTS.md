@@ -462,12 +462,10 @@ Apply migrations before pushing code that requires them, and stage git changes e
 
 | Status | Item | Owner/next action |
 |---|---|---|
-| open | `apps/workers/src/trigger/taxonomy-reevaluation.ts` is still a scaffold that counts claim density and returns without clustering/proposal generation. | Implement the actual clustering/proposal writer when claim volume justifies it. |
 | open | `apps/web/app/admin/taxonomy/_actions.ts` approves some proposal types by queueing reclassification work rather than applying it inline. | Keep the actions as-is until the reclassification path is expanded further. |
 | open | Only `.github/workflows/pr-check.yml` exists. There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers deploy` in the release process until workflows are added. |
 | open | Authentik is mentioned in schema/docs but no Authentik login flow is wired in the app. | Treat Authentik as not implemented. |
 | open | Oversized Vertex file-backed caches require `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` in the runtime env. Without it, the adapter falls back to text-prefix caching only. | Provision the bucket/env in environments that need large-document cache optimization. |
-| open | `model_runs_with_usage` view in `31_observability_views.sql` does not yet select `mr.dispatch_mode`. Without it, `/admin/ai` dashboards can't distinguish sync vs batch rows. | Add the column to the SELECT and re-apply via `pnpm db:migrate` (the runner re-applies SQL on every boot). |
 | open | Vertex Batch Prediction requires `GOOGLE_VERTEX_BATCH_GCS_BUCKET` to be provisioned + the worker SA granted `roles/storage.objectAdmin` on it. | One-time admin task before batch mode can be enabled for Vertex routes. OpenAI batch needs no infrastructure setup. Flip extraction to batch via `/admin/settings` → "Extraction dispatch mode" card. |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.

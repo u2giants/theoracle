@@ -49,6 +49,75 @@ export const DEFAULT_RECENT_MESSAGES = 30;
 export const DEFAULT_GAPS_LIMIT = 5;
 export const DEFAULT_CLAIMS_LIMIT = 5;
 
+/**
+ * Build the shared metadata WHERE fragments used by both the hybrid and
+ * tsvector-fallback retrieval paths. Both paths use `c` as the claims alias,
+ * `ctd` as the claim_top_domains join alias, and `cm` as the claim_metadata
+ * join alias. Keep those alias names stable in the consuming queries.
+ *
+ * Important: requiredEntities matches on both (entity_type, canonical_value)
+ * — matching canonical_value alone lets a name registered under a different
+ * type incorrectly match.
+ */
+function buildPlanMetadataFilters(plan: RetrievalPlan) {
+  const topDomainFilter =
+    plan.topDomainHints.length > 0
+      ? sql`AND ctd.top_domain_id = ANY(${plan.topDomainHints}::text[])`
+      : sql``;
+
+  const docClassFilter =
+    plan.excludedDocumentClasses && plan.excludedDocumentClasses.length > 0
+      ? sql`AND (cm.document_class IS NULL OR NOT (cm.document_class = ANY(${plan.excludedDocumentClasses}::text[])))`
+      : sql``;
+
+  const timeFilter =
+    plan.timeFilter === 'current'
+      ? sql`AND (cm.id IS NULL OR cm.effective_until IS NULL)`
+      : plan.timeFilter && plan.timeFilter.startsWith('since:')
+        ? (() => {
+            const since = plan.timeFilter.slice(6); // 'YYYY-MM-DD'
+            return sql`AND (cm.effective_from IS NULL OR cm.effective_from >= ${since}::timestamptz)`;
+          })()
+        : sql``;
+
+  const excludedEntityTypeFilter =
+    plan.excludedEntityTypes && plan.excludedEntityTypes.length > 0
+      ? sql`AND NOT EXISTS (
+          SELECT 1 FROM claim_entities _ce
+          JOIN entities _e ON _e.id = _ce.entity_id
+          WHERE _ce.claim_id = c.id
+            AND _e.entity_type = ANY(${plan.excludedEntityTypes}::text[])
+        )`
+      : sql``;
+
+  // Tuple match on (entity_type, canonical_value) so a canonical_value
+  // registered under a different entity_type cannot incidentally match.
+  // unnest(arr1, arr2) zips the parallel arrays into a derived table.
+  const requiredEntityFilter =
+    plan.requiredEntities.length > 0
+      ? sql`AND EXISTS (
+          SELECT 1
+          FROM claim_entities _ce2
+          JOIN entities _e2 ON _e2.id = _ce2.entity_id
+          JOIN unnest(
+            ${plan.requiredEntities.map((e) => e.entityType)}::text[],
+            ${plan.requiredEntities.map((e) => e.canonicalValue)}::text[]
+          ) AS _req(t, v)
+            ON _e2.entity_type = _req.t
+           AND _e2.canonical_value = _req.v
+          WHERE _ce2.claim_id = c.id
+        )`
+      : sql``;
+
+  return {
+    topDomainFilter,
+    docClassFilter,
+    timeFilter,
+    excludedEntityTypeFilter,
+    requiredEntityFilter,
+  };
+}
+
 export type RecentMessage = {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -266,50 +335,13 @@ export async function searchWithRetrievalPlan(
   const vec = `[${vector.join(',')}]`;
   const textQuery = plan.vectorQuery;
 
-  // Optional domain filter — joined against claim_top_domains.
-  const topDomainFilter =
-    plan.topDomainHints.length > 0
-      ? sql`AND ctd.top_domain_id = ANY(${plan.topDomainHints}::text[])`
-      : sql``;
-
-  // Optional document-class exclusion — joined against claim_metadata.
-  const docClassFilter =
-    plan.excludedDocumentClasses && plan.excludedDocumentClasses.length > 0
-      ? sql`AND (cm.document_class IS NULL OR NOT (cm.document_class = ANY(${plan.excludedDocumentClasses}::text[])))`
-      : sql``;
-
-  // Optional time filter — only claims still in effect.
-  const timeFilter =
-    plan.timeFilter === 'current'
-      ? sql`AND (cm.id IS NULL OR cm.effective_until IS NULL)`
-      : plan.timeFilter && plan.timeFilter.startsWith('since:')
-      ? (() => {
-          const since = plan.timeFilter.slice(6); // 'YYYY-MM-DD'
-          return sql`AND (cm.effective_from IS NULL OR cm.effective_from >= ${since}::timestamptz)`;
-        })()
-      : sql``;
-
-  // Optional excluded-entity-type subquery filter.
-  const excludedEntityTypeFilter =
-    plan.excludedEntityTypes && plan.excludedEntityTypes.length > 0
-      ? sql`AND NOT EXISTS (
-          SELECT 1 FROM claim_entities _ce
-          JOIN entities _e ON _e.id = _ce.entity_id
-          WHERE _ce.claim_id = c.id
-            AND _e.entity_type = ANY(${plan.excludedEntityTypes}::text[])
-        )`
-      : sql``;
-
-  // Optional required-entity subquery filter.
-  const requiredEntityFilter =
-    plan.requiredEntities.length > 0
-      ? sql`AND EXISTS (
-          SELECT 1 FROM claim_entities _ce2
-          JOIN entities _e2 ON _e2.id = _ce2.entity_id
-          WHERE _ce2.claim_id = c.id
-            AND _e2.canonical_value = ANY(${plan.requiredEntities.map((e) => e.canonicalValue)}::text[])
-        )`
-      : sql``;
+  const {
+    topDomainFilter,
+    docClassFilter,
+    timeFilter,
+    excludedEntityTypeFilter,
+    requiredEntityFilter,
+  } = buildPlanMetadataFilters(plan);
 
   // Small department-match bonus — joins claim_metadata on department to give
   // a soft nudge to claims tagged with the requesting employee's department(s).
@@ -426,24 +458,18 @@ async function _searchFallbackTsvector(
     });
   }
 
-  // Build domain WHERE fragment for the Drizzle ORM query path.
-  // We need a small SQL helper for the optional joins here too.
   const textQuery = plan.vectorQuery;
 
-  const topDomainFilter =
-    plan.topDomainHints.length > 0
-      ? sql`AND ctd.top_domain_id = ANY(${plan.topDomainHints}::text[])`
-      : sql``;
-
-  const docClassFilter =
-    plan.excludedDocumentClasses && plan.excludedDocumentClasses.length > 0
-      ? sql`AND (cm.document_class IS NULL OR NOT (cm.document_class = ANY(${plan.excludedDocumentClasses}::text[])))`
-      : sql``;
-
-  const timeFilter =
-    plan.timeFilter === 'current'
-      ? sql`AND (cm.id IS NULL OR cm.effective_until IS NULL)`
-      : sql``;
+  // Shared filter helper — keeps fallback behaviorally identical to the main
+  // hybrid path for domain / doc-class / time / entity-type / required-entity
+  // pre-filtering, so the dev fallback isn't silently weaker.
+  const {
+    topDomainFilter,
+    docClassFilter,
+    timeFilter,
+    excludedEntityTypeFilter,
+    requiredEntityFilter,
+  } = buildPlanMetadataFilters(plan);
 
   const rows = await db.execute<{
     id: string;
@@ -466,6 +492,8 @@ async function _searchFallbackTsvector(
       ${topDomainFilter}
       ${docClassFilter}
       ${timeFilter}
+      ${excludedEntityTypeFilter}
+      ${requiredEntityFilter}
     ORDER BY ts_score DESC, c.impact_score DESC
     LIMIT ${limit}
   `);

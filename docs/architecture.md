@@ -272,7 +272,7 @@ Cron: every 4 hours (`0 */4 * * *`). Also triggered by document ingestion.
 2. Groups by channel, then splits into 60-minute conversation segments.
 3. Calls `OracleAIClient.runObject` with the curated extraction route (`settings.default_extraction_route`, default `vertex_gemini_2_5_flash_extraction_primary`), dispatched through the direct `VertexGeminiAdapter` (`@google/genai`) with native `responseJsonSchema` structured-output mode.
 4. Validates exact quotes against the source text verbatim — invalid quotes are rejected without inserting.
-5. Inserts `claims` + `claim_domains` + `claim_evidence` rows. Auto-approves low-risk claim types with impact ≤ 6; others go to `pending_review`.
+5. Inserts `claims` + `claim_top_domains` + `claim_evidence` rows via the R5 candidate-before-claim promotion executor. Auto-approves low-risk claim types with impact ≤ 6; others go to `pending_review`. (Legacy `claim_domains` is no longer written; backfilled rows remain in the table for historical reads only.)
 6. Suggests `gaps` rows for unanswered questions.
 7. Marks source messages `extraction_status = 'complete'`, `'failed'`, or `'skipped'`. Writes `job_runs` + `model_runs` rows.
 
@@ -280,7 +280,7 @@ Cron: every 4 hours (`0 */4 * * *`). Also triggered by document ingestion.
 
 Cron: weekly (Mondays 06:00). Also admin-triggerable.
 
-1. Reads up to 200 approved claims per brain section (legacy `claim_domains` + `sectionClaims` joins; switch to `claim_top_domains` in a follow-up cleanup).
+1. Reads up to 200 approved claims per brain section via `claim_top_domains` (mapped from the section's legacy `knowledge_domain` enum through `mapLegacyDomainToTopDomain`) plus `sectionClaims` for explicitly-bound claims.
 2. Routes through `OracleAIClient.runObject` using the curated route from `settings.default_synthesis_route` (default `anthropic_claude_3_5_sonnet_synthesis_primary`). Dispatched through the direct `AnthropicAdapter` (`@anthropic-ai/sdk`) with forced tool-call structured output.
 3. `validateSynthesisDiff` rejects the run if (a) any material paragraph cites a non-approved claim ID, OR (b) the markdown mentions a capitalized proper-noun-shaped name not backed by an approved claim summary or the canonical entity registry. See `packages/oracle-engines/src/synthesis/diff-validator.ts`.
 4. On success: inserts a new `brain_section_versions` row (`reviewStatus='draft'` or `'needs_review'`) and updates `brain_sections.current_version_id` (two-step transaction per spec 6.7).
@@ -636,7 +636,7 @@ Every production AI caller now dispatches through `OracleAIClient` with the five
 | `apps/web/app/api/chat/route.ts` | R8 + R-providers | ✅ direct adapters + `providerOptions` escape hatch for tools/multi-turn |
 | `apps/workers/src/trigger/brain-synthesis.ts` | R9 + R-providers | ✅ direct adapters + `validateSynthesisDiff` |
 | `apps/workers/src/trigger/contradiction-watcher.ts` | R11.0 | ✅ direct adapters; observability rows on parity with the other workers |
-| `apps/workers/src/trigger/taxonomy-reevaluation.ts` | R10.5 | ⬜ scaffold only — clustering body deferred until claim density justifies it |
+| `apps/workers/src/trigger/taxonomy-reevaluation.ts` | R10.5 | ✅ k-means clustering + LLM cluster naming + `taxonomy_proposals` writing; domains below the 30-claim activation threshold are skipped |
 
 Each caller follows the same pattern:
 1. Build `OracleAIClient` with `buildStandardAdapters()` so every configured provider tag (`anthropic`, `vertex`, `openai`, `deepseek`, `qwen`) is registered through one source of truth.
@@ -724,7 +724,7 @@ The sensitive-candidate exclusion is structural: the SQL `WHERE` clause prevents
 
 ### Taxonomy governance surface (R10.5, landed)
 
-Five admin pages under `/admin/taxonomy` plus four transactional server actions plus a scheduled re-evaluation worker scaffold.
+Five admin pages under `/admin/taxonomy` plus four transactional server actions plus a scheduled re-evaluation worker.
 
 | Route | Purpose |
 |---|---|
@@ -741,7 +741,7 @@ Server actions in `apps/web/app/admin/taxonomy/_actions.ts`:
 - `approveEntityProposal(id, finalCanonicalValue?, displayLabel?)` — transactional. INSERTs the `entities` row; auto-merges if the (entity_type, canonical_value) pair already exists. Status becomes `approved` or `merged_into_existing`.
 - `rejectEntityProposal(id, reason)` — transactional reject + change-log audit.
 
-The scheduled `taxonomy-reevaluation` worker (`apps/workers/src/trigger/taxonomy-reevaluation.ts`) is currently a scaffold: it counts approved claims per active top-domain and reports a configurable activation threshold (default 30 claims). The clustering / drift detection / proposal writing body is documented inline as the substitution for the early-exit path; it lands when approved-claim density justifies it.
+The scheduled `taxonomy-reevaluation` worker (`apps/workers/src/trigger/taxonomy-reevaluation.ts`) runs per-domain k-means clustering on stored claim embeddings, names each surviving cluster via a cheap synthesis call, skips clusters whose centroid already matches an existing `knowledge_sub_topics` row (cosine ≥ 0.88), and writes the remainder as `create_sub_topic` proposals into `taxonomy_proposals` for admin review. Domains with fewer than 30 approved, embedded claims are skipped at the activation gate; the worker never mutates the taxonomy directly.
 
 ### Architectural state — retrofit complete
 

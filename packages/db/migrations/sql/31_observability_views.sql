@@ -24,6 +24,7 @@ SELECT
   mr.model,
   mr.provider,
   mr.prompt_version,
+  mr.dispatch_mode,
   mr.input_tokens                    AS legacy_input_tokens,
   mr.output_tokens                   AS legacy_output_tokens,
   mr.cost_usd,

@@ -25,6 +25,7 @@ type RunDetail = {
   model: string;
   provider: string;
   prompt_version: string | null;
+  dispatch_mode: 'sync' | 'batch' | null;
   legacy_input_tokens: number | null;
   legacy_output_tokens: number | null;
   cost_usd: string | null;
@@ -190,6 +191,18 @@ export default async function AdminAIRunDetailPage({
             <Field label="Provider" value={run.provider} />
             <Field label="Model ID" value={<span className="font-mono">{run.model}</span>} />
             <Field label="Prompt version" value={run.prompt_version ?? '—'} />
+            <Field
+              label="Dispatch mode"
+              value={
+                run.dispatch_mode === 'batch' ? (
+                  <span className="rounded bg-violet-100 px-1.5 py-0.5 text-violet-800">batch</span>
+                ) : run.dispatch_mode === 'sync' ? (
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-700">sync</span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )
+              }
+            />
             <Field label="Latency" value={formatMs(run.latency_ms)} />
             <Field
               label="Status"

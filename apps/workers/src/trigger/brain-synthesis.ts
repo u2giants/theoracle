@@ -35,7 +35,7 @@ import {
   brainSections,
   brainSectionVersions,
   claims,
-  claimDomains,
+  claimTopDomains,
   entities,
   gaps,
   jobRuns,
@@ -56,6 +56,7 @@ import {
   type OraclePromptPlan,
 } from '@oracle/ai';
 import {
+  mapLegacyDomainToTopDomain,
   validateSynthesisDiff,
   type SynthesisOutput as PureSynthesisOutput,
   type SynthesisValidationResult,
@@ -234,12 +235,12 @@ async function synthesizeSection(
     .limit(1);
   const nextVersionNumber = (lastVersion[0]?.versionNumber ?? 0) + 1;
 
-  // Approved claims via legacy claim_domains + sectionClaims joins.
-  // (The R3.5 claim_top_domains is also in the DB; the legacy claim_domains
-  //  is preserved during the transition. Joining via the legacy table keeps
-  //  this worker compatible with pre-R7 historical claims that don't have
-  //  claim_top_domains rows yet. Switch to claim_top_domains in a later
-  //  cleanup pass.)
+  // Approved claims via claim_top_domains (R3.5) + sectionClaims joins.
+  // The brain section's legacy knowledgeDomain enum is mapped to a top-level
+  // domain id using the same mechanical mapping as the 42_* backfill SQL and
+  // the R6 worker, so this read path stays in lockstep with the write path
+  // in promotion-executor.ts (which only writes claim_top_domains).
+  const topDomainId = mapLegacyDomainToTopDomain(section.knowledgeDomain);
   const domainClaims = await db
     .select({
       id: claims.id,
@@ -249,11 +250,11 @@ async function synthesizeSection(
       confidenceScore: claims.confidenceScore,
     })
     .from(claims)
-    .innerJoin(claimDomains, eq(claimDomains.claimId, claims.id))
+    .innerJoin(claimTopDomains, eq(claimTopDomains.claimId, claims.id))
     .where(
       and(
         eq(claims.status, 'approved'),
-        eq(claimDomains.domain, section.knowledgeDomain),
+        eq(claimTopDomains.topDomainId, topDomainId),
       ),
     )
     .orderBy(desc(claims.impactScore))
