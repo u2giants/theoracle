@@ -66,6 +66,13 @@ jobs:
           OPENROUTER_API_KEY: ci-placeholder-openrouter-key
           TRIGGER_SECRET_KEY: ci-placeholder-trigger-key
 
+      - name: Retrieval filter-parity guard
+        # Static, DB-free check that every buildPlanMetadataFilters() key is
+        # interpolated into BOTH the hybrid and tsvector-fallback query bodies
+        # in packages/ai/src/retrieval.ts. Catches the recurring "added a
+        # filter to one path, forgot the other" regression.
+        run: pnpm --filter @oracle/ai verify:retrieval-filter-parity
+
       - name: Drizzle journal drift check
         # Compares on-disk packages/db/migrations/0*.sql hashes against
         # drizzle.__drizzle_migrations in production. Catches migrations

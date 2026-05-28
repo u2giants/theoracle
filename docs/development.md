@@ -132,6 +132,8 @@ Routine expectations:
 
 ## Current incomplete areas you may encounter
 
-- `apps/workers/src/trigger/taxonomy-reevaluation.ts` is still a scaffolded worker, not a full clustering/proposal pipeline.
 - `apps/web/app/admin/taxonomy/_actions.ts` queues some proposal types for later reclassification instead of applying them inline.
 - Oversized Vertex file-backed caching only activates when `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` is configured.
+- `RetrievalPlan.requiredEntities` is enforced as disjunctive (any-of) and has no production populator yet; the any-of-vs-all-of decision is deliberately deferred (AGENTS.md §14).
+
+(`taxonomy-reevaluation.ts` is no longer a scaffold — it runs real k-means clustering + LLM cluster-naming + writes `taxonomy_proposals`.)

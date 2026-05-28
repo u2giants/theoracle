@@ -649,5 +649,5 @@ The full env-var table with sources lives in `docs/configuration.md`.
 | Worker extraction outputs candidates, not direct claims | ✅ — R4–R7 |
 | Wet-test against live DB | ✅ — 2026-05-26, commit `51a33ff` |
 | `pnpm typecheck` and Next production build pass | ✅ — every commit since R-providers |
-| Retrieval is filtered by plan, not global vector search | ✅ — `searchWithRetrievalPlan()` + hybrid RRF + `RetrievalPlanSearchScope` (P1 #3). Chat route + contradiction-watcher wired. Brain-synthesis still uses legacy `searchApprovedClaims`; migrate later. |
+| Retrieval is filtered by plan, not global vector search | ✅ — `searchWithRetrievalPlan()` + hybrid RRF + `RetrievalPlanSearchScope` (P1 #3). Chat main path, both chat tools, and contradiction-watcher all wired. Brain-synthesis reads approved claims directly from `claim_top_domains` + `section_claims` (it does not use the vector retrieval path — synthesis consolidates a whole domain, not a query-relevant slice). Legacy `searchApprovedClaims` deleted 2026-05-28. |
 | Real Vertex explicit cache creation | ✅ — adapter creates explicit `cachedContent` handles, persists them in `provider_cached_content`, reuses them across processes by `source_hash`, and expires them through the lifecycle sweeper |

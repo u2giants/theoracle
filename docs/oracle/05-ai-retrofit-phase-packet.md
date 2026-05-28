@@ -509,14 +509,16 @@ Acceptance gate — all met:
 | OpenRouter removed from production path | ✅ R11.0 — entire OpenRouter dep + helper + admin proxy deleted |
 | Extraction uses candidates before claims | ✅ R4 + R6 + R7 |
 | Extraction emits entity / top-domain / metadata tags atomically | ✅ R5.5 (validator/resolver shipped; worker calls them with empty proposals today — entity-extraction *prompt* rewrite is a deliberate follow-up, doc'd in HANDOFF "deferred") |
-| Three-layer knowledge taxonomy live | ✅ R3.5 — 12 top-domains seeded, 56 entities seeded, sub-topics schema ready (scaffold worker counts density today) |
-| Maturity-based taxonomy worker writes proposals | ⏳ scaffold only (R10.5). Clustering body lands when claim density justifies it. |
+| Three-layer knowledge taxonomy live | ✅ R3.5 — 12 top-domains seeded, 56 entities seeded, sub-topics schema ready |
+| Maturity-based taxonomy worker writes proposals | ✅ R10.5 — `taxonomy-reevaluation.ts` runs per-domain k-means clustering on claim embeddings, names clusters via a cheap LLM call, skips clusters already represented by an existing sub-topic (cosine ≥ 0.88), and writes `create_sub_topic` proposals. Domains below the 30-claim activation threshold are skipped. |
 | Document extraction can use Vertex caching | ✅ R7 cache profitability + lifecycle; round 2 wires explicit cachedContent resource creation |
 | Synthesis uses provider-native cost-aware routes | ✅ R9 + R-providers |
 | Model runs include cache + context-pack metrics | ✅ R3 |
 | Admin can inspect cost / failures / validation / context / taxonomy | ✅ R10 + R10.5 |
 | Eval metrics can compare routes by cost per useful validated result | ✅ mock-mode extraction eval; real eval-vs-route comparison is round 2 |
-| Retrieval routes through `RetrievalPlan` with metadata pre-filter | ⏳ schema + types exist; chat route still uses legacy `searchApprovedClaims` |
-| No global vector search remains | ⏳ contradiction-watcher and chat still use direct pgvector queries; `RetrievalPlan` integration is a follow-up |
+| Retrieval routes through `RetrievalPlan` with metadata pre-filter | ✅ chat main path, both chat tools, and contradiction-watcher all call `searchWithRetrievalPlan`. The legacy `searchApprovedClaims` wrapper was deleted (2026-05-28). |
+| No global vector search remains | ✅ all claim retrieval goes through `searchWithRetrievalPlan` (hybrid pgvector + tsvector RRF with metadata pre-filter). Plans with no domain match are flagged `searchScope='global_fallback'` and logged, not silently run as unfiltered global search. |
 
-The retrofit is **functionally complete** — every load-bearing piece is in production and the wet-test passed. The remaining ⏳ items are scope decisions deferred to follow-up phases per the user's request to prioritize shipping the live interjection paths over the round-2 retrieval / taxonomy work.
+The retrofit is **functionally complete** — every load-bearing piece is in production and the wet-test passed.
+
+> **2026-05-28 correction:** the two retrieval rows and the taxonomy-worker row above were previously marked ⏳ ("pending" / "scaffold only"). They were already live in the code by the time this note was added; the table had simply not been updated. The `RetrievalPlan` narrowing contract was also tightened in this pass — `excludedTopDomains` and `processStageHints` are now enforced in SQL on both the hybrid and fallback paths (a `verify:retrieval-filter-parity` guard keeps the two paths in lockstep). `requiredEntities` remains disjunctive (any-of) pending a deliberate decision on how it will be populated; see AGENTS.md §14.

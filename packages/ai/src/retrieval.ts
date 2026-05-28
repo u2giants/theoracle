@@ -10,21 +10,21 @@
 // the search_company_knowledge tool fires.
 //
 // P1 #3 — Hybrid RRF retrieval:
-//   searchWithRetrievalPlan() replaces searchApprovedClaims() in production paths.
-//   It runs:
+//   searchWithRetrievalPlan() is the ONE endorsed claim-retrieval path. It runs:
 //     1. Metadata pre-filter (claim_top_domains, claim_entities, claim_metadata)
 //        driven by the RetrievalPlan — prevents vendor_manual from surfacing in
 //        system questions, prevents vendor from polluting licensor-approval results.
 //     2. Parallel pgvector cosine ranking + tsvector rank.
 //     3. Reciprocal Rank Fusion (RRF, k=60) to combine both signals.
-//   searchApprovedClaims() is retained as a thin wrapper for backward compat.
+//   The fallback tsvector path (_searchFallbackTsvector) MUST stay behaviorally
+//   identical for filtering — both paths build their WHERE clauses from the
+//   shared buildPlanMetadataFilters() helper precisely so they cannot drift.
 
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import {
   brainSections,
   brainSectionVersions,
   channelParticipants,
-  claimDomains,
   claims,
   employees,
   gaps,
@@ -33,7 +33,6 @@ import {
   type Gap,
 } from '@oracle/db/schema';
 import type { OracleDb } from '@oracle/db/client';
-import type { KnowledgeDomain } from '@oracle/shared';
 import { EMBEDDING_DIM } from '@oracle/shared';
 import { embedText } from './embeddings';
 import { type RetrievalPlan } from './retrieval-plan';
@@ -47,7 +46,6 @@ type Db = OracleDb;
 
 export const DEFAULT_RECENT_MESSAGES = 30;
 export const DEFAULT_GAPS_LIMIT = 5;
-export const DEFAULT_CLAIMS_LIMIT = 5;
 
 /**
  * Build the shared metadata WHERE fragments used by both the hybrid and
@@ -65,6 +63,21 @@ function buildPlanMetadataFilters(plan: RetrievalPlan) {
       ? sql`AND ctd.top_domain_id = ANY(${plan.topDomainHints}::text[])`
       : sql``;
 
+  // Exclude claims that carry ANY excluded top-domain. claim_top_domains is
+  // multi-valued, so a direct predicate on the LEFT-JOINed ctd row would let
+  // a claim survive through a different, non-excluded domain row. NOT EXISTS
+  // against the full set is the only correct form. Composes with
+  // topDomainFilter: a claim must (match a hint, if hints given) AND (carry no
+  // excluded domain).
+  const excludedTopDomainFilter =
+    plan.excludedTopDomains && plan.excludedTopDomains.length > 0
+      ? sql`AND NOT EXISTS (
+          SELECT 1 FROM claim_top_domains _xtd
+          WHERE _xtd.claim_id = c.id
+            AND _xtd.top_domain_id = ANY(${plan.excludedTopDomains}::text[])
+        )`
+      : sql``;
+
   const docClassFilter =
     plan.excludedDocumentClasses && plan.excludedDocumentClasses.length > 0
       ? sql`AND (cm.document_class IS NULL OR NOT (cm.document_class = ANY(${plan.excludedDocumentClasses}::text[])))`
@@ -79,6 +92,17 @@ function buildPlanMetadataFilters(plan: RetrievalPlan) {
             return sql`AND (cm.effective_from IS NULL OR cm.effective_from >= ${since}::timestamptz)`;
           })()
         : sql``;
+
+  // Narrowing filter (not a ranking hint): keep only claims whose
+  // claim_metadata.process_stage is one of the requested stages. claim_metadata
+  // is 1:1 with claims, so this predicates directly on the LEFT-JOINed cm row.
+  // A claim with no metadata row (cm.process_stage IS NULL) does not satisfy a
+  // specific-stage requirement and is correctly dropped — `NULL = ANY(...)`
+  // evaluates to NULL, which is not TRUE.
+  const processStageFilter =
+    plan.processStageHints && plan.processStageHints.length > 0
+      ? sql`AND cm.process_stage = ANY(${plan.processStageHints}::text[])`
+      : sql``;
 
   const excludedEntityTypeFilter =
     plan.excludedEntityTypes && plan.excludedEntityTypes.length > 0
@@ -111,8 +135,10 @@ function buildPlanMetadataFilters(plan: RetrievalPlan) {
 
   return {
     topDomainFilter,
+    excludedTopDomainFilter,
     docClassFilter,
     timeFilter,
+    processStageFilter,
     excludedEntityTypeFilter,
     requiredEntityFilter,
   };
@@ -193,103 +219,6 @@ export async function getRelevantOpenGaps(
   return rows;
 }
 
-/**
- * @deprecated Use searchWithRetrievalPlan() instead.
- *
- * Raw pgvector cosine-distance search with optional legacy domain filter.
- * Does not enforce the RetrievalPlan metadata pre-filter contract, does not
- * log fallback scope, and does not apply entity-type or document-class
- * exclusions. Retained for backward-compat only — do not add new call sites.
- *
- * Semantically relevant approved claims via pgvector cosine distance.
- * Optionally filter by domain (joined through claim_domains).
- *
- * If embeddings are stubbed (zero vector), the cosine distance is
- * meaningless — we fall back to ordering by impact_score desc so we
- * still surface SOMETHING useful.
- */
-export async function searchApprovedClaims(
-  db: Db,
-  query: string,
-  options: { limit?: number; domains?: KnowledgeDomain[] } = {},
-): Promise<RelevantClaim[]> {
-  const limit = options.limit ?? DEFAULT_CLAIMS_LIMIT;
-  const { vector, fallback } = await embedText(query);
-
-  if (fallback) {
-    // No real embeddings — return top approved claims by impact score.
-    const baseSelect = db
-      .select({
-        id: claims.id,
-        summary: claims.summary,
-        claimType: claims.claimType,
-        impactScore: claims.impactScore,
-        confidenceScore: claims.confidenceScore,
-        distance: sql<number>`0`.as('distance'),
-      })
-      .from(claims);
-
-    if (options.domains && options.domains.length > 0) {
-      return await baseSelect
-        .innerJoin(claimDomains, eq(claimDomains.claimId, claims.id))
-        .where(
-          and(
-            eq(claims.status, 'approved'),
-            inArray(claimDomains.domain, options.domains),
-          ),
-        )
-        .orderBy(desc(claims.impactScore))
-        .limit(limit);
-    }
-
-    return await baseSelect
-      .where(eq(claims.status, 'approved'))
-      .orderBy(desc(claims.impactScore))
-      .limit(limit);
-  }
-
-  // Real embedding — pgvector cosine.
-  const vec = `[${vector.join(',')}]`;
-  const rows = await db.execute<{
-    id: string;
-    summary: string;
-    claim_type: string;
-    impact_score: number;
-    confidence_score: number;
-    distance: number;
-  }>(
-    options.domains && options.domains.length > 0
-      ? sql`
-        SELECT DISTINCT c.id, c.summary, c.claim_type, c.impact_score, c.confidence_score,
-               (c.embedding <=> ${vec}::vector(${EMBEDDING_DIM})) AS distance
-        FROM claims c
-        INNER JOIN claim_domains cd ON cd.claim_id = c.id
-        WHERE c.status = 'approved'
-          AND c.embedding IS NOT NULL
-          AND cd.domain = ANY(${options.domains}::knowledge_domain[])
-        ORDER BY distance ASC
-        LIMIT ${limit};
-      `
-      : sql`
-        SELECT c.id, c.summary, c.claim_type, c.impact_score, c.confidence_score,
-               (c.embedding <=> ${vec}::vector(${EMBEDDING_DIM})) AS distance
-        FROM claims c
-        WHERE c.status = 'approved' AND c.embedding IS NOT NULL
-        ORDER BY distance ASC
-        LIMIT ${limit};
-      `,
-  );
-
-  return rows.map((r) => ({
-    id: r.id,
-    summary: r.summary,
-    claimType: r.claim_type,
-    impactScore: r.impact_score,
-    confidenceScore: r.confidence_score,
-    distance: r.distance,
-  }));
-}
-
 // ---------------------------------------------------------------------------
 // Hybrid RRF retrieval — P1 #3
 // ---------------------------------------------------------------------------
@@ -337,8 +266,10 @@ export async function searchWithRetrievalPlan(
 
   const {
     topDomainFilter,
+    excludedTopDomainFilter,
     docClassFilter,
     timeFilter,
+    processStageFilter,
     excludedEntityTypeFilter,
     requiredEntityFilter,
   } = buildPlanMetadataFilters(plan);
@@ -385,8 +316,10 @@ export async function searchWithRetrievalPlan(
       WHERE c.status = 'approved'
         AND c.embedding IS NOT NULL
         ${topDomainFilter}
+        ${excludedTopDomainFilter}
         ${docClassFilter}
         ${timeFilter}
+        ${processStageFilter}
         ${excludedEntityTypeFilter}
         ${requiredEntityFilter}
     ),
@@ -461,12 +394,17 @@ async function _searchFallbackTsvector(
   const textQuery = plan.vectorQuery;
 
   // Shared filter helper — keeps fallback behaviorally identical to the main
-  // hybrid path for domain / doc-class / time / entity-type / required-entity
-  // pre-filtering, so the dev fallback isn't silently weaker.
+  // hybrid path for every narrowing field (top-domain hint + exclusion,
+  // doc-class, time, process-stage, entity-type exclusion, required-entity),
+  // so the dev fallback isn't silently weaker. Any filter added here MUST be
+  // consumed in the WHERE clause below too — the parity smoke test
+  // (verify:retrieval-filter-parity) fails if a key is destructured but unused.
   const {
     topDomainFilter,
+    excludedTopDomainFilter,
     docClassFilter,
     timeFilter,
+    processStageFilter,
     excludedEntityTypeFilter,
     requiredEntityFilter,
   } = buildPlanMetadataFilters(plan);
@@ -490,8 +428,10 @@ async function _searchFallbackTsvector(
     LEFT JOIN claim_metadata    cm  ON cm.claim_id  = c.id
     WHERE c.status = 'approved'
       ${topDomainFilter}
+      ${excludedTopDomainFilter}
       ${docClassFilter}
       ${timeFilter}
+      ${processStageFilter}
       ${excludedEntityTypeFilter}
       ${requiredEntityFilter}
     ORDER BY ts_score DESC, c.impact_score DESC

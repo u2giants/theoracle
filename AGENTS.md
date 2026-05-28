@@ -360,6 +360,20 @@ The migration runner applies generated DDL plus hand-written SQL in deterministi
 Do not change because:
 Editing old generated files breaks replay expectations and production drift recovery.
 
+### Claim retrieval has exactly one path, and the two SQL branches must stay in lockstep
+
+Looks like:
+`searchWithRetrievalPlan()` in `packages/ai/src/retrieval.ts` contains two near-duplicate SQL queries — a hybrid pgvector+tsvector path and a `_searchFallbackTsvector()` path — and a separate `verify:retrieval-filter-parity` script that seems redundant with typecheck.
+
+Actually:
+The fallback runs only when `OPENAI_API_KEY` is unset (dev, no embeddings). Both branches build their WHERE clauses from the same private helper `buildPlanMetadataFilters()`, and the parity guard statically asserts every filter the helper returns is interpolated into BOTH branches. `searchApprovedClaims()` (a weaker, plan-less retrieval) was deleted on 2026-05-28 — there is now exactly one endorsed retrieval entry point.
+
+Why:
+The recurring regression here was adding a narrowing filter to the hybrid path and forgetting the fallback, making dev-mode retrieval silently weaker (or vice versa). Typecheck can't catch it — the fragments are SQL strings. The guard runs in CI (`pr-check.yml`) and via `pnpm --filter @oracle/ai verify:retrieval-filter-parity`.
+
+Do not change because:
+Adding a second retrieval path (or a filter to only one branch) reintroduces the exact silent-divergence class the guard exists to prevent. New narrowing fields go in `buildPlanMetadataFilters()` and get interpolated into both branches — nowhere else.
+
 ## 11. Credentials and environment
 
 | Variable | Purpose | Stored where | Required in dev | Required in prod |
@@ -505,6 +519,7 @@ Any "this gets cleaned up downstream" comment must point at the specific code pa
 |---|---|---|
 | open | `apps/web/app/admin/taxonomy/_actions.ts` approves some proposal types by queueing reclassification work rather than applying it inline. | Keep the actions as-is until the reclassification path is expanded further. |
 | open | Only `.github/workflows/pr-check.yml` exists (build + Drizzle drift check). There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers run deploy` (note: `run` keyword required — `pnpm` reserves the bare `deploy` form for its own subcommand) in the release process until workflows are added. |
+| open | `RetrievalPlan.requiredEntities` is enforced as **disjunctive** (a claim matches if it carries ANY of the listed entities). No production caller populates the field today — the heuristic plan builder never derives it. Whether the intended semantics are any-of or all-of depends on how the field will eventually be populated (e.g. NER over the query), which is undecided. | Decide population strategy + intended semantics BEFORE changing the SQL. Conjunctive (all-of) would require a single claim to mention every listed entity, which collapses recall for multi-entity queries since claims are typically single-entity — so disjunctive is the safer default until there's a real populator and use case. Filter lives in `buildPlanMetadataFilters()` in `packages/ai/src/retrieval.ts`. |
 | open | Authentik is mentioned in schema/docs but no Authentik login flow is wired in the app. | Treat Authentik as not implemented. |
 | open | Oversized Vertex file-backed caches require `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` in the runtime env. Without it, the adapter falls back to text-prefix caching only. | Provision the bucket/env in environments that need large-document cache optimization. |
 | open | Vertex Batch Prediction requires `GOOGLE_VERTEX_BATCH_GCS_BUCKET` to be provisioned + the worker SA granted `roles/storage.objectAdmin` on it. | One-time admin task before batch mode can be enabled for Vertex routes. OpenAI batch needs no infrastructure setup. Flip extraction to batch via `/admin/settings` → "Extraction dispatch mode" card. |

@@ -155,13 +155,11 @@ export { embedText, embedMany } from './embeddings';
 export {
   getRecentMessages,
   getRelevantOpenGaps,
-  searchApprovedClaims,
   searchWithRetrievalPlan,
   getBrainSectionSnippets,
   getOpenGapsForChannel,
   DEFAULT_RECENT_MESSAGES,
   DEFAULT_GAPS_LIMIT,
-  DEFAULT_CLAIMS_LIMIT,
   type RecentMessage,
   type RelevantClaim,
 } from './retrieval';
