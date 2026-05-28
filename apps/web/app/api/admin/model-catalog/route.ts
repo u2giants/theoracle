@@ -57,6 +57,26 @@ function capabilityToEntry(cap: ModelCapability): ModelCatalogEntry {
   };
 }
 
+/**
+ * Drop models that have NO pricing AND NO capability flags.
+ *
+ * `refreshModelCatalog` (D13 quality filters) drops these at write time, but
+ * old rows from before the filter shipped — or rows written when OpenRouter
+ * enrichment was unavailable — can still be in the DB. Apply the same filter
+ * at read time so the admin UI never has to render them. Models priced at
+ * >= $15.01/1M are also dropped here for the same reason.
+ */
+function passesQualityFilter(cap: ModelCapability): boolean {
+  const hasPrice = cap.promptPer1mUsd != null;
+  const hasCaps =
+    cap.vision || cap.pdf || cap.thinking ||
+    cap.structuredOutputs || cap.toolCalling ||
+    cap.promptCaching || cap.outputCap;
+  if (!hasPrice && !hasCaps) return false;
+  if (cap.promptPer1mUsd != null && cap.promptPer1mUsd >= 15.01) return false;
+  return true;
+}
+
 export async function GET() {
   const employee = await getCurrentEmployee();
   if (!employee?.isAdmin) {
@@ -69,10 +89,11 @@ export async function GET() {
     getCatalogRefreshedAt(db),
   ]);
 
+  const filtered = catalog.filter(passesQualityFilter);
   return NextResponse.json({
-    models: catalog.map(capabilityToEntry),
+    models: filtered.map(capabilityToEntry),
     refreshedAt: refreshedAt ? refreshedAt.toISOString() : null,
-    catalogSize: catalog.length,
+    catalogSize: filtered.length,
   });
 }
 
@@ -85,8 +106,11 @@ export async function POST() {
   const db = getDirectDb();
   try {
     const { catalog, written, refreshedAt, errors, unenrichedIds } = await refreshModelCatalog(db);
+    // The refresh function applies the quality filter at write time, but a
+    // belt-and-suspenders pass here keeps the read shape consistent.
+    const filtered = catalog.filter(passesQualityFilter);
     return NextResponse.json({
-      models: catalog.map(capabilityToEntry),
+      models: filtered.map(capabilityToEntry),
       written,
       refreshedAt,
       errors,         // non-fatal per-source errors (e.g. one provider API was down)

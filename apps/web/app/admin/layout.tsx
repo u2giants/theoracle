@@ -1,26 +1,9 @@
 import Link from 'next/link';
 import { requireAdmin } from '@/lib/auth-guard';
 import { LogoutButton } from '@/app/_components/logout-button';
+import { AdminNav } from './_components/admin-nav';
 
 export const dynamic = 'force-dynamic';
-
-const TABS = [
-  { href: '/admin', label: 'Employees' },
-  { href: '/admin/channels', label: 'Channels' },
-  { href: '/admin/messages', label: 'Messages' },
-  { href: '/admin/documents', label: 'Documents' },
-  { href: '/admin/claims', label: 'Claims' },
-  { href: '/admin/gaps', label: 'Gaps' },
-  { href: '/admin/contradictions', label: 'Contradictions' },
-  { href: '/admin/brain', label: 'Brain' },
-  { href: '/admin/ai', label: 'AI Observability' },
-  { href: '/admin/taxonomy', label: 'Taxonomy' },
-  { href: '/admin/settings', label: 'Settings' },
-] as const;
-
-// Chat-rooms link lives outside the admin tabs array because it navigates
-// out of /admin entirely.
-const CHAT_HREF = '/channels';
 
 function buildVersion(): { sha: string; label: string } | null {
   const sha = process.env.NEXT_PUBLIC_GIT_SHA;
@@ -45,27 +28,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <header className="border-b">
         <div className="container flex items-center justify-between py-4">
           <div className="flex items-center gap-6">
-            <Link href="/admin" className="text-lg font-semibold">
+            <Link href="/admin" className="text-lg font-semibold whitespace-nowrap">
               The Oracle · Admin
             </Link>
-            <nav className="flex gap-3 text-sm">
-              {TABS.map((t) => (
-                <Link
-                  key={t.href}
-                  href={t.href}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  {t.label}
-                </Link>
-              ))}
-              <Link
-                href={CHAT_HREF}
-                className="font-medium text-foreground hover:text-foreground"
-                title="Go to chat rooms"
-              >
-                ↗ Chat
-              </Link>
-            </nav>
+            <AdminNav />
           </div>
           <div className="flex items-center gap-4">
             {version && (

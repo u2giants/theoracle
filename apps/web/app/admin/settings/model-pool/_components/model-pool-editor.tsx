@@ -372,7 +372,7 @@ export function ModelPoolEditor({
               <h2 className="text-sm font-semibold text-foreground mb-2">
                 {PROVIDER_LABELS[providerKey]}
               </h2>
-              <div className="overflow-x-auto rounded-md border">
+              <div className="rounded-md border">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/40">
                     <tr className="align-bottom">
