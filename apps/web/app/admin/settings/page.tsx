@@ -22,7 +22,10 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { ModelPicker, type ReasoningEffort } from './_components/model-picker';
+import { DispatchModeToggle, type DispatchMode } from './_components/dispatch-mode-toggle';
 import { STAGE_REQUIREMENTS, type Stage } from '@/lib/stage-requirements';
+
+const EXTRACTION_DISPATCH_MODE_KEY = 'extraction_dispatch_mode';
 
 // ---------------------------------------------------------------------------
 // Per-stage requirement icons — server component, no 'use client'.
@@ -154,16 +157,22 @@ function isReasoningEffort(v: unknown): v is ReasoningEffort {
 export default async function AdminSettingsPage() {
   const db = getDirectDb();
 
-  // Build the full list of settings keys we need to read — both model + effort.
-  const allKeys: string[] = MODEL_ROLES.flatMap((r) =>
-    r.effortSettingKey ? [r.settingKey, r.effortSettingKey] : [r.settingKey],
-  );
+  // Build the full list of settings keys we need to read — both model + effort + dispatch mode.
+  const allKeys: string[] = [
+    ...MODEL_ROLES.flatMap((r) =>
+      r.effortSettingKey ? [r.settingKey, r.effortSettingKey] : [r.settingKey],
+    ),
+    EXTRACTION_DISPATCH_MODE_KEY,
+  ];
 
   const rows = await db.select().from(settings).where(inArray(settings.key, allKeys));
 
   // Build lookup so we can pass the right current values to each picker.
   const currentValues: Record<string, unknown> = {};
   for (const row of rows) currentValues[row.key] = row.value;
+
+  const rawDispatchMode = currentValues[EXTRACTION_DISPATCH_MODE_KEY];
+  const dispatchMode: DispatchMode = rawDispatchMode === 'batch' ? 'batch' : 'sync';
 
   return (
     <div className="space-y-8">
@@ -196,7 +205,7 @@ export default async function AdminSettingsPage() {
         const rawEffort = role.effortSettingKey ? currentValues[role.effortSettingKey] : null;
         const currentEffort: ReasoningEffort | null = isReasoningEffort(rawEffort) ? rawEffort : null;
 
-        return (
+        const card = (
           <Card key={role.settingKey} className="max-w-2xl">
             <CardHeader>
               <CardTitle className="text-base">{role.title}</CardTitle>
@@ -220,6 +229,37 @@ export default async function AdminSettingsPage() {
             </CardContent>
           </Card>
         );
+
+        // After the Extraction card, inject the dispatch-mode toggle card —
+        // it controls how the extraction worker dispatches (sync vs Batch API).
+        if (role.stage === 'extraction') {
+          return (
+            <div key={role.settingKey} className="space-y-8">
+              {card}
+              <Card className="max-w-2xl">
+                <CardHeader>
+                  <CardTitle className="text-base">Extraction dispatch mode</CardTitle>
+                  <CardDescription className="font-medium text-foreground/70">
+                    Sync API vs provider Batch API
+                  </CardDescription>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    The Batch API runs claim extraction asynchronously at about 50% off
+                    the sync price with a 24-hour SLA. Within a chat session the Oracle
+                    still reads live message history, so conversation quality is
+                    unchanged — only cross-session knowledge freshness drops by up to
+                    24 hours. See <strong>DECISIONS.md D14</strong> for the full
+                    trade-off analysis.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <DispatchModeToggle currentMode={dispatchMode} />
+                </CardContent>
+              </Card>
+            </div>
+          );
+        }
+
+        return card;
       })}
     </div>
   );
