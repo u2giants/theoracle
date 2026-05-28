@@ -1,15 +1,30 @@
 // OpenAI model list source.
-// Calls OpenAI's /v1/models endpoint and filters down to chat-capable models.
-// The full model list includes embeddings, TTS, Whisper, DALL-E, fine-tuned
-// variants, etc. — we only want the GPT / o-series chat models.
+// Calls OpenAI's /v1/models endpoint and filters out clearly non-chat models.
+// The full model list includes embeddings, TTS, audio, image generation,
+// realtime, transcription, moderation, video, etc. Blocklists by prefix/
+// substring; post-enrichment filters in refreshModelCatalog handle the rest.
 
 import OpenAI from 'openai';
 import type { RawProviderModel } from './types';
 
-const CHAT_ID_PREFIXES = ['gpt-4', 'gpt-3.5', 'o1', 'o3', 'o4', 'chatgpt-'];
+// Block by id prefix.
+const BLOCKED_PREFIXES = [
+  'text-embedding', 'text-moderation', 'text-search', 'text-similarity',
+  'whisper', 'tts-', 'dall-e',
+  'babbage', 'davinci', 'ada', 'curie',
+  'gpt-audio', 'gpt-image', 'gpt-realtime',
+  'chatgpt-image',
+  'omni-moderation',
+  'sora',
+];
 
-function isChatModel(id: string): boolean {
-  return CHAT_ID_PREFIXES.some((p) => id.startsWith(p));
+// Block by substring anywhere in the id (catches `-tts`, `-transcribe`, etc.).
+const BLOCKED_SUBSTRINGS = ['-tts', '-transcribe', '-diarize', '-translate', '-search-api'];
+
+function isBlockedModel(id: string): boolean {
+  if (BLOCKED_PREFIXES.some((p) => id.startsWith(p))) return true;
+  if (BLOCKED_SUBSTRINGS.some((s) => id.includes(s))) return true;
+  return false;
 }
 
 export async function fetchOpenAIModels(): Promise<RawProviderModel[]> {
@@ -20,7 +35,7 @@ export async function fetchOpenAIModels(): Promise<RawProviderModel[]> {
   const page = await client.models.list();
 
   return page.data
-    .filter((m) => isChatModel(m.id))
+    .filter((m) => !isBlockedModel(m.id))
     .map((m) => ({
       id: `openai/${m.id}`,
       provider: 'openai' as const,

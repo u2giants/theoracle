@@ -156,7 +156,7 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
 
   // Merge: provider model + OpenRouter enrichment.
   const unenrichedIds: string[] = [];
-  const catalog: ModelCapability[] = rawModels.map((raw) => {
+  const merged: ModelCapability[] = rawModels.map((raw) => {
     const { enrichment: or, matched } = lookupEnrichment(enrichmentMap, raw.id);
     if (!matched) unenrichedIds.push(raw.id);
     return {
@@ -179,6 +179,19 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
       knowledgeCutoff: or.knowledgeCutoff,
       source: raw.source,
     };
+  });
+
+  // Post-enrichment quality filters:
+  // 1. Drop models with no pricing AND no capability flags — they're unknown/useless.
+  // 2. Drop models priced at $15.01+/1M input tokens — out of our budget range.
+  const catalog = merged.filter((m) => {
+    const hasPrice = m.promptPer1mUsd != null;
+    const hasCapabilities =
+      m.vision || m.pdf || m.thinking || m.structuredOutputs ||
+      m.toolCalling || m.promptCaching || m.outputCap;
+    if (!hasPrice && !hasCapabilities) return false;
+    if (m.promptPer1mUsd != null && m.promptPer1mUsd >= 15.01) return false;
+    return true;
   });
 
   if (catalog.length === 0) {
