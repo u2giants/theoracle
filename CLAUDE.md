@@ -85,6 +85,17 @@ Not allowed without explicit approval:
 
 Prefer `git add <specific-paths>` over `git add -A` when the working tree has unrelated uncommitted changes. One past incident: a `git add -A` swept in a Drizzle migration that hadn't been applied to production, leading to a 500-error storm on auth callback. When in doubt, run `git status` first and stage explicitly.
 
+## Drizzle journal hygiene
+
+The Drizzle `__drizzle_migrations` table in production tracks which generated `packages/db/migrations/0NNN_*.sql` files have been applied. It MUST stay in sync with what has actually run, or `pnpm db:migrate` will error out on Step 2 trying to re-create existing tables.
+
+Rules to keep it in sync:
+
+- **Drizzle-generated migrations** (`packages/db/migrations/0NNN_*.sql`) ship ONLY through `pnpm db:migrate` (or its workspace alias `pnpm -w run db:migrate`). The runner writes the journal row as part of applying the file.
+- **Hand-written idempotent SQL** (`packages/db/migrations/sql/*.sql`) MAY be applied directly via Supabase MCP `apply_migration` — those files are not journaled by Drizzle and re-apply on every boot anyway.
+- **Never** apply a generated `0NNN_*.sql` via Supabase MCP, the Supabase dashboard SQL editor, `psql`, or `drizzle-kit push`. All of those bypass the journal and create the same drift that was reconciled on 2026-05-28.
+- If drift is suspected, compare `SELECT hash FROM drizzle.__drizzle_migrations ORDER BY created_at` against `sha256` of each on-disk `0NNN_*.sql`. Missing rows can be back-filled by INSERTing the correct hash; never DROP the table or TRUNCATE it (that would tell Drizzle every migration is unapplied and replay them all against a populated DB).
+
 ## Behaviors to enable
 
 - Update `DECISIONS.md` when making an assumption not directly specified.

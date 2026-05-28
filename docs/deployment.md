@@ -56,14 +56,13 @@ pnpm db:migrate
 
 Run migrations before pushing code that depends on them.
 
-> **Known drift (2026-05-28):** the runner currently fails at Step 2 (Drizzle
-> generated migrations) with `relation "model_capabilities" already exists`. The
-> Drizzle `__drizzle_migrations` journal in production is out of sync with the
-> on-disk `packages/db/migrations/0*.sql` files — at least one migration ran in
-> prod without being recorded in the journal. Until that is reconciled, apply
-> hand-written SQL changes (`packages/db/migrations/sql/*.sql`) directly via the
-> Supabase MCP `apply_migration` tool. See `HANDOFF.md` for the reconciliation
-> plan.
+To keep `pnpm db:migrate` reliable, **never apply a generated
+`packages/db/migrations/0NNN_*.sql` outside this runner** (no Supabase MCP
+`apply_migration`, no SQL editor, no `drizzle-kit push`). Doing so creates a
+journal-vs-reality drift that makes the runner refuse to start. See
+`CLAUDE.md` → "Drizzle journal hygiene" for the rule and reconciliation steps
+if drift is ever suspected. One such drift was reconciled on 2026-05-28
+(migration `0006_magical_revanche` had been applied without a journal row).
 
 ## CI workflow that currently exists
 
