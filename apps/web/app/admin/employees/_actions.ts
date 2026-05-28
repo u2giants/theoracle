@@ -85,7 +85,7 @@ export async function addEmployee(
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 
-  revalidatePath('/admin');
+  revalidatePath('/admin/employees');
   revalidatePath('/admin/departments');
   return { ok: true };
 }
@@ -155,7 +155,7 @@ export async function updateEmployeeDepartments(
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 
-  revalidatePath('/admin');
+  revalidatePath('/admin/employees');
   revalidatePath('/admin/departments');
   return { ok: true };
 }
@@ -256,15 +256,15 @@ export async function inviteFromM365(
     });
     if (error) {
       console.error('[inviteFromM365] supabase invite email failed', error);
-      revalidatePath('/admin');
+      revalidatePath('/admin/employees');
       return { ok: true, emailFailed: true };
     }
   } catch (err) {
     console.error('[inviteFromM365] supabase invite threw', err);
-    revalidatePath('/admin');
+    revalidatePath('/admin/employees');
     return { ok: true, emailFailed: true };
   }
 
-  revalidatePath('/admin');
+  revalidatePath('/admin/employees');
   return { ok: true };
 }

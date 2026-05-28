@@ -27,7 +27,7 @@ const GROUPS: NavGroup[] = [
   {
     label: 'People',
     items: [
-      { href: '/admin', label: 'Employees' },
+      { href: '/admin/employees', label: 'Employees' },
       { href: '/admin/departments', label: 'Departments' },
       { href: '/admin/channels', label: 'Channels' },
     ],
@@ -64,9 +64,6 @@ const GROUPS: NavGroup[] = [
 const EXTERNAL_LINK = { href: '/channels', label: '↗ Chat' };
 
 function isActive(pathname: string, href: string): boolean {
-  // /admin is "Employees" — only active on the exact match, otherwise every
-  // sub-route would mark it active.
-  if (href === '/admin') return pathname === '/admin';
   return pathname === href || pathname.startsWith(href + '/');
 }
 

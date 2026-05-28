@@ -5,13 +5,11 @@
 // code change + migration. What an admin CAN do here:
 //   - Rename the display label.
 //   - Edit the description.
-//   - Assign (or clear) the department head — used as the prioritized
-//     recipient for clarification requests routed to this department.
-//
-// Department membership is many-to-many via the `employee_departments` table.
-// Membership management lives on the Employees page, not here.
+//   - Add or remove members (writes both the join table and the legacy
+//     employees.departments text[] used by retrieval-plan).
+//   - Assign a department head — restricted to current members.
 
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import {
   departments,
@@ -19,30 +17,22 @@ import {
   employees,
 } from '@oracle/db/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { EditDepartmentRow } from './_components/edit-department-row';
+import { DepartmentCard } from './_components/edit-department-row';
 
 export default async function AdminDepartmentsPage() {
   const db = getDirectDb();
 
-  const [deptRows, employeeRows] = await Promise.all([
+  // One round trip per concept. Total query cost is tiny (9 dept rows,
+  // <100 employees, <500 join rows expected for years).
+  const [deptRows, allEmployees, memberJoins] = await Promise.all([
     db
       .select({
         id: departments.id,
         displayLabel: departments.displayLabel,
         description: departments.description,
         headEmployeeId: departments.headEmployeeId,
-        memberCount: sql<number>`count(${employeeDepartments.employeeId})::int`,
-        memberSummary: sql<string | null>`
-          string_agg(${employees.name}, ', ' ORDER BY ${employees.name})
-        `,
       })
       .from(departments)
-      .leftJoin(
-        employeeDepartments,
-        eq(employeeDepartments.departmentId, departments.id),
-      )
-      .leftJoin(employees, eq(employees.id, employeeDepartments.employeeId))
-      .groupBy(departments.id)
       .orderBy(asc(departments.displayLabel)),
     db
       .select({
@@ -52,7 +42,24 @@ export default async function AdminDepartmentsPage() {
       })
       .from(employees)
       .orderBy(asc(employees.name)),
+    db
+      .select({
+        departmentId: employeeDepartments.departmentId,
+        employeeId: employeeDepartments.employeeId,
+      })
+      .from(employeeDepartments),
   ]);
+
+  // departmentId → Set<employeeId>
+  const membersByDept = new Map<string, Set<string>>();
+  for (const j of memberJoins) {
+    let s = membersByDept.get(j.departmentId);
+    if (!s) {
+      s = new Set();
+      membersByDept.set(j.departmentId, s);
+    }
+    s.add(j.employeeId);
+  }
 
   return (
     <div className="space-y-6">
@@ -60,13 +67,8 @@ export default async function AdminDepartmentsPage() {
         <h1 className="text-2xl font-semibold">Departments</h1>
         <p className="text-sm text-muted-foreground">
           Org-unit list. Used for routing clarification requests to the right
-          people. The enum values are fixed in code; renaming the label, editing
-          the description, or assigning a head is a one-click action below.
-          Membership is managed on the{' '}
-          <a href="/admin" className="underline">
-            Employees
-          </a>{' '}
-          page.
+          people. Department IDs are fixed in code; the label, description,
+          membership, and head are editable below.
         </p>
       </header>
 
@@ -75,30 +77,23 @@ export default async function AdminDepartmentsPage() {
           <CardTitle className="text-base">{deptRows.length} departments</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b text-left text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="py-2 pr-4 w-32">ID</th>
-                  <th className="py-2 pr-4">Label / Description / Head</th>
-                  <th className="py-2 pr-4 w-64">Members</th>
-                </tr>
-              </thead>
-              <tbody>
-                {deptRows.map((d) => (
-                  <EditDepartmentRow
-                    key={d.id}
-                    id={d.id}
-                    displayLabel={d.displayLabel}
-                    description={d.description}
-                    headEmployeeId={d.headEmployeeId}
-                    memberCount={d.memberCount}
-                    memberSummary={d.memberSummary ?? ''}
-                    employees={employeeRows}
-                  />
-                ))}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            {deptRows.map((d) => {
+              const memberSet = membersByDept.get(d.id) ?? new Set<string>();
+              const members = allEmployees.filter((e) => memberSet.has(e.id));
+              const nonMembers = allEmployees.filter((e) => !memberSet.has(e.id));
+              return (
+                <DepartmentCard
+                  key={d.id}
+                  id={d.id}
+                  displayLabel={d.displayLabel}
+                  description={d.description}
+                  headEmployeeId={d.headEmployeeId}
+                  members={members}
+                  nonMembers={nonMembers}
+                />
+              );
+            })}
           </div>
         </CardContent>
       </Card>
