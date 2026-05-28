@@ -47,6 +47,100 @@ export interface GenerateTextArgs {
   providerOptions?: Record<string, unknown>;
 }
 
+// ─── Batch API contract ─────────────────────────────────────────────────────
+//
+// Provider Batch APIs (OpenAI Batch, Vertex Batch Prediction, Anthropic
+// Message Batches) run async at ~50% sync pricing with a 24-hour SLA. The
+// adapter contract is intentionally provider-agnostic; provider-specific
+// identifiers (OpenAI file IDs, Vertex GCS URIs) flow through the opaque
+// `providerMetadata` field which the caller persists to
+// `provider_batch_jobs.provider_metadata_json` and passes back at retrieve
+// time. See DECISIONS.md D14.
+
+export interface BatchRequest {
+  /**
+   * Caller-supplied identifier echoed back in `BatchResultItem.customId`.
+   * The caller uses it to map results to its own per-input rows
+   * (e.g. extraction_batches.id).
+   */
+  customId: string;
+  plan: OraclePromptPlan;
+  /** Provider-specific per-request options (rare; usually empty). */
+  providerOptions?: Record<string, unknown>;
+}
+
+export interface SubmitBatchArgs {
+  route: OracleModelRoute;
+  requests: BatchRequest[];
+  /**
+   * Structured-output JSON Schema applied uniformly to every request.
+   * Adapters translate per provider: Anthropic → forced tool call,
+   * OpenAI → response_format json_schema strict, Vertex → responseJsonSchema.
+   * If omitted, the batch is treated as generateText (free-form output).
+   */
+  jsonSchema?: unknown;
+  /**
+   * Provider-specific batch-level options. Examples:
+   *  - OpenAI: { completionWindow?: '24h' }
+   *  - Vertex: { inputGcsUri?, outputGcsUri? } (adapter generates if omitted)
+   */
+  providerOptions?: Record<string, unknown>;
+}
+
+export interface SubmitBatchResult {
+  /** The provider's batch identifier. Used to poll status later. */
+  providerBatchId: string;
+  /**
+   * Opaque provider-specific metadata. Persist verbatim and pass back at
+   * retrieve time. Examples:
+   *  - OpenAI: { inputFileId, outputFileId?, errorFileId? }
+   *  - Vertex: { inputGcsUri, outputGcsUri }
+   *  - Anthropic: {} (batch ID is sufficient)
+   */
+  providerMetadata: Record<string, unknown>;
+}
+
+export type BatchStatus =
+  | 'submitted'
+  | 'in_progress'
+  | 'completed'
+  | 'failed'
+  | 'expired'
+  | 'canceled';
+
+export interface BatchResultItem {
+  /** Echoed from the original BatchRequest.customId. */
+  customId: string;
+  success: boolean;
+  /** Set for generateText-style outputs (no jsonSchema). */
+  text?: string;
+  /** Set for generateObject-style outputs — parsed JSON (NOT yet Zod-validated). */
+  output?: unknown;
+  /** Provider-reported token usage for the individual request. */
+  usage?: OracleUsage;
+  /** Present when success === false. */
+  error?: string;
+}
+
+export interface RetrieveBatchArgs {
+  providerBatchId: string;
+  /** The `providerMetadata` returned by submitBatch, persisted by the caller. */
+  providerMetadata: Record<string, unknown>;
+  route: OracleModelRoute;
+}
+
+export interface RetrieveBatchResult {
+  status: BatchStatus;
+  /** Populated when status is 'completed' (and optionally partial 'failed'). */
+  results?: BatchResultItem[];
+  /** Provider's reported counts when available. */
+  requestCount?: number;
+  completedCount?: number;
+  failedCount?: number;
+  /** Set when status is 'failed' / 'expired' / 'canceled' and there's a top-level cause. */
+  error?: string;
+}
+
 export interface OracleProviderAdapter {
   readonly provider: OracleProvider;
 
@@ -58,6 +152,22 @@ export interface OracleProviderAdapter {
 
   /** Optional — only adapters that natively support streaming implement this. */
   streamText?(args: GenerateTextArgs): AsyncIterable<{ delta: string; usage?: OracleUsage }>;
+
+  /**
+   * Optional — submit a batch of requests to the provider's Batch API.
+   * Adapters that don't implement this aren't usable in batch mode; the
+   * two-phase extraction worker falls back to sync for those providers.
+   */
+  submitBatch?(args: SubmitBatchArgs): Promise<SubmitBatchResult>;
+
+  /** Optional — poll status and retrieve results once status === 'completed'. */
+  retrieveBatch?(args: RetrieveBatchArgs): Promise<RetrieveBatchResult>;
+}
+
+/** True when the adapter implements the optional Batch API methods. */
+export function supportsBatch(adapter: OracleProviderAdapter): boolean {
+  return typeof adapter.submitBatch === 'function'
+    && typeof adapter.retrieveBatch === 'function';
 }
 
 /**

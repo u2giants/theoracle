@@ -176,6 +176,32 @@ apps/web/app/api/chat/route.ts persists to oracle_context_packs + model_runs + m
 
 Failure modes are handled at the routing layer (auto-fallback if `route.fallbackRouteId` is set and the primary call throws a transient error), at the adapter layer (refusals / parse failures throw typed errors), and at the worker layer (the candidate-before-claim pipeline catches output-validation failures and triggers schema_repair).
 
+### Batch API support (foundation landed 2026-05-28)
+
+`OracleProviderAdapter` exposes two **optional** methods for async batch dispatch via provider Batch APIs (~50% off sync pricing, 24-hour SLA):
+
+```typescript
+submitBatch?(args: SubmitBatchArgs): Promise<SubmitBatchResult>;
+retrieveBatch?(args: RetrieveBatchArgs): Promise<RetrieveBatchResult>;
+```
+
+The contract flows through provider-agnostic types in [packages/ai/src/providers/types.ts](packages/ai/src/providers/types.ts). Provider-specific shapes (OpenAI file IDs, Vertex GCS URIs) live inside the opaque `providerMetadata` field that the caller persists to `provider_batch_jobs.provider_metadata_json` and passes back at retrieve time.
+
+| Provider | submitBatch / retrieveBatch | Infrastructure needed |
+|---|---|---|
+| `OpenAIAdapter` | ✅ landed — JSONL via `client.files.create` + `client.batches.create` against `/v1/chat/completions` | None — uses OpenAI's file API |
+| `VertexGeminiAdapter` | ✅ landed — GCS-backed JSONL via `client.batches.create` with `src`/`dest` GCS URIs | `GOOGLE_VERTEX_BATCH_GCS_BUCKET` env var + `roles/storage.objectAdmin` for the SA |
+| `AnthropicAdapter` | ⬜ deferred — Synthesis is weekly/low-volume so the dollar lever is smaller. Anthropic Message Batches via `client.messages.batches.*` is the cleanest API of the three when wired |
+| `DeepSeekAdapter` | n/a — no public Batch API |
+| `QwenAdapter` | n/a — DashScope batch surface is non-OpenAI-compat; would require native DashScope SDK swap (D12 deferred) |
+
+DB shape (migration `60_batch_jobs.sql`):
+- `provider_batch_jobs` — one row per submitted batch. Status: `submitted | in_progress | completed | failed | expired | canceled`. Stores `provider_metadata_json` and `customIdsInOrder` (for Vertex, which doesn't echo per-request IDs).
+- `extraction_batches.provider_batch_job_id` — nullable FK linking per-input rows to their owning batch job.
+- `model_runs.dispatch_mode` — `'sync' | 'batch' | NULL` for cost dashboards.
+
+Worker integration is **deferred** per DECISIONS.md D14. The foundation is in place but `claim-extraction.ts` doesn't yet branch on `settings.extraction_dispatch_mode` and there is no drain task. See `HANDOFF.md` for the precise next-action.
+
 ### Adding a new provider
 
 Adding a sixth provider (e.g. Mistral, xAI) is a contained change:

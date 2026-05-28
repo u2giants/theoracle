@@ -453,6 +453,9 @@ export const modelRuns = pgTable(
     latencyMs: integer('latency_ms'),
     success: boolean('success').notNull(),
     error: text('error'),
+    // 'sync' (real-time API) | 'batch' (provider Batch API, ~50% off, 24-hour SLA).
+    // NULL = legacy row predating the column.
+    dispatchMode: varchar('dispatch_mode', { length: 20 }),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => ({
@@ -901,6 +904,53 @@ export const providerResponseSessions = pgTable(
   }),
 );
 
+/**
+ * Provider Batch API job tracking. One row per submitted batch (1 batch can
+ * fan out to N requests / N extraction_batches rows). Batch APIs run async
+ * with a 24-hour SLA at ~50% the sync price. A `drain` cron polls in-flight
+ * rows by `(provider, provider_batch_id)` and processes results when status
+ * becomes 'completed'.
+ *
+ * status whitelist: 'submitted','in_progress','completed','failed','expired','canceled'.
+ * provider whitelist matches the OracleProvider union (anthropic/openai/vertex/...).
+ *
+ * `provider_metadata_json` stores provider-specific identifiers needed to
+ * retrieve results — for OpenAI: { inputFileId, outputFileId, errorFileId }.
+ * For Vertex: { inputGcsUri, outputGcsUri }. For Anthropic: nothing
+ * additional (batch ID is sufficient via SDK).
+ */
+export const providerBatchJobs = pgTable(
+  'provider_batch_jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    provider: varchar('provider', { length: 50 }).notNull(),
+    providerBatchId: varchar('provider_batch_id', { length: 255 }).notNull(),
+    status: varchar('status', { length: 50 }).default('submitted').notNull(),
+    taskType: varchar('task_type', { length: 100 }).notNull(),
+    routeId: varchar('route_id', { length: 255 }).notNull(),
+    modelId: varchar('model_id', { length: 255 }).notNull(),
+    requestCount: integer('request_count').notNull(),
+    completedCount: integer('completed_count').default(0).notNull(),
+    failedCount: integer('failed_count').default(0).notNull(),
+    providerMetadataJson: jsonb('provider_metadata_json'),
+    errorJson: jsonb('error_json'),
+    submittedAt: timestamp('submitted_at').defaultNow().notNull(),
+    pollLastAt: timestamp('poll_last_at'),
+    completedAt: timestamp('completed_at'),
+    resultsRetrievedAt: timestamp('results_retrieved_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    statusIdx: index('provider_batch_jobs_status_idx').on(t.status),
+    providerBatchIdx: uniqueIndex('provider_batch_jobs_provider_batch_unique').on(t.provider, t.providerBatchId),
+    taskIdx: index('provider_batch_jobs_task_idx').on(t.taskType),
+    submittedIdx: index('provider_batch_jobs_submitted_idx').on(t.submittedAt),
+  }),
+);
+
+export type ProviderBatchJob = typeof providerBatchJobs.$inferSelect;
+export type NewProviderBatchJob = typeof providerBatchJobs.$inferInsert;
+
 // ---------------------------------------------------------------------------
 // R3.5 — Three-layer knowledge taxonomy
 //
@@ -1256,6 +1306,9 @@ export const extractionBatches = pgTable(
     // modelRunIdsAttempted.
     modelRunId: uuid('model_run_id').references(() => modelRuns.id),
     contextPackId: uuid('context_pack_id').references(() => oracleContextPacks.id),
+    // Set only for batch-mode runs — links the per-input extraction_batches row
+    // to the provider_batch_jobs row that owns the in-flight provider batch.
+    providerBatchJobId: uuid('provider_batch_job_id'),
 
     // 'message_segment' | 'document_chunk' | 'document_page' | 'transcript_segment'.
     batchType: varchar('batch_type', { length: 50 }).notNull(),

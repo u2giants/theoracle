@@ -22,7 +22,7 @@
  * Per docs/oracle/02-provider-native-ai-architecture.md → "OpenAI direct".
  */
 
-import OpenAI from 'openai';
+import OpenAI, { toFile } from 'openai';
 import type { ChatCompletion, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import type {
   OracleObjectResult,
@@ -31,9 +31,15 @@ import type {
 } from '../client/types';
 import type { OracleModelRoute, ReasoningEffort } from '../routes';
 import type {
+  BatchResultItem,
+  BatchStatus,
   GenerateObjectArgs,
   GenerateTextArgs,
   OracleProviderAdapter,
+  RetrieveBatchArgs,
+  RetrieveBatchResult,
+  SubmitBatchArgs,
+  SubmitBatchResult,
 } from './types';
 import { pickOpenAICacheRetention } from './cache-utils';
 import { flattenPlan, tryZodParse, zodToJsonSchema } from './vertex-gemini-adapter';
@@ -139,6 +145,177 @@ export class OpenAIAdapter implements OracleProviderAdapter {
     };
   }
 
+  /**
+   * Submit a batch of requests to OpenAI's Batch API. Builds a JSONL file
+   * (one request per line, each with a caller-supplied `custom_id`),
+   * uploads it via `client.files.create`, then opens the batch via
+   * `client.batches.create` against `/v1/chat/completions`. 50% off sync
+   * pricing with a 24-hour SLA.
+   *
+   * Returns the batch ID + the input file ID (so retrieveBatch can clean it
+   * up after results are pulled, if desired).
+   */
+  async submitBatch(args: SubmitBatchArgs): Promise<SubmitBatchResult> {
+    const { route, requests, jsonSchema } = args;
+    const reasoningEffort = openaiEffort(route.reasoningEffort);
+    const sharedResponseFormat = jsonSchema
+      ? {
+          type: 'json_schema' as const,
+          json_schema: {
+            name: 'oracle_structured_output',
+            strict: true,
+            schema: stripIncompatibleFields(jsonSchema as Record<string, unknown>),
+          },
+        }
+      : undefined;
+
+    const lines: string[] = [];
+    for (const req of requests) {
+      const { systemPrompt, userMessage } = flattenPlan(req.plan);
+      const body: Record<string, unknown> = {
+        model: route.modelId,
+        messages: this.buildMessages(systemPrompt, userMessage),
+        temperature: jsonSchema ? 0.1 : undefined,
+      };
+      if (sharedResponseFormat) body.response_format = sharedResponseFormat;
+      if (reasoningEffort) body.reasoning_effort = reasoningEffort;
+      // Strip undefined to keep the JSONL clean.
+      for (const k of Object.keys(body)) if (body[k] === undefined) delete body[k];
+
+      lines.push(JSON.stringify({
+        custom_id: req.customId,
+        method: 'POST',
+        url: '/v1/chat/completions',
+        body,
+      }));
+    }
+    const jsonl = lines.join('\n') + '\n';
+
+    const uploaded = await this.client.files.create({
+      file: await toFile(Buffer.from(jsonl, 'utf-8'), 'oracle-batch-input.jsonl'),
+      purpose: 'batch',
+    });
+
+    const batch = await this.client.batches.create({
+      input_file_id: uploaded.id,
+      endpoint: '/v1/chat/completions',
+      completion_window: '24h',
+    });
+
+    return {
+      providerBatchId: batch.id,
+      providerMetadata: { inputFileId: uploaded.id },
+    };
+  }
+
+  /**
+   * Poll status and, when complete, download and parse the output JSONL.
+   * Each output line carries the caller's `custom_id` so results map back
+   * to the originating BatchRequest.
+   */
+  async retrieveBatch(args: RetrieveBatchArgs): Promise<RetrieveBatchResult> {
+    const { providerBatchId } = args;
+    const batch = await this.client.batches.retrieve(providerBatchId);
+    const status = mapOpenAIBatchStatus(batch.status);
+    const counts = batch.request_counts;
+
+    if (status === 'in_progress' || status === 'submitted') {
+      return {
+        status,
+        requestCount: counts?.total,
+        completedCount: counts?.completed,
+        failedCount: counts?.failed,
+      };
+    }
+
+    if (status !== 'completed') {
+      // failed / expired / canceled — surface the first error if available
+      const errMsg = batch.errors?.data?.[0]?.message;
+      return {
+        status,
+        error: errMsg,
+        requestCount: counts?.total,
+        completedCount: counts?.completed,
+        failedCount: counts?.failed,
+      };
+    }
+
+    if (!batch.output_file_id) {
+      return {
+        status: 'failed',
+        error: 'completed batch has no output_file_id',
+      };
+    }
+
+    const fileResponse = await this.client.files.content(batch.output_file_id);
+    const outputText = await fileResponse.text();
+    const results: BatchResultItem[] = [];
+
+    for (const rawLine of outputText.split('\n')) {
+      if (!rawLine.trim()) continue;
+      let parsed: {
+        custom_id: string;
+        response: { status_code: number; body: ChatCompletion } | null;
+        error: { code?: string; message?: string } | null;
+      };
+      try {
+        parsed = JSON.parse(rawLine);
+      } catch {
+        // Malformed line — skip. The customId is lost; downstream will see
+        // a missing result for one of its requests and mark it failed.
+        continue;
+      }
+
+      if (parsed.error || !parsed.response) {
+        results.push({
+          customId: parsed.custom_id,
+          success: false,
+          error: parsed.error?.message ?? `status ${parsed.response?.status_code ?? 'unknown'}`,
+        });
+        continue;
+      }
+
+      const completion = parsed.response.body;
+      const choice = completion.choices?.[0];
+      const refusal = choice?.message?.refusal;
+      if (refusal) {
+        results.push({
+          customId: parsed.custom_id,
+          success: false,
+          error: `model refused: ${refusal}`,
+          usage: this.normalizeUsage(completion, 0),
+        });
+        continue;
+      }
+
+      const rawContent = choice?.message?.content ?? '';
+      // Try JSON parse first (structured output); fall back to plain text.
+      let output: unknown;
+      let text: string | undefined;
+      try {
+        output = JSON.parse(rawContent);
+      } catch {
+        text = rawContent;
+      }
+
+      results.push({
+        customId: parsed.custom_id,
+        success: true,
+        output,
+        text,
+        usage: this.normalizeUsage(completion, 0),
+      });
+    }
+
+    return {
+      status: 'completed',
+      results,
+      requestCount: counts?.total,
+      completedCount: counts?.completed,
+      failedCount: counts?.failed,
+    };
+  }
+
   private buildMessages(
     systemPrompt: string,
     userMessage: string,
@@ -217,4 +394,31 @@ function walk(node: unknown): void {
   delete obj.$schema;
   delete obj.default;
   for (const value of Object.values(obj)) walk(value);
+}
+
+/**
+ * Map OpenAI's batch.status enum onto our provider-agnostic BatchStatus.
+ *
+ *   validating | in_progress | finalizing → 'in_progress'
+ *   completed                              → 'completed'
+ *   failed                                 → 'failed'
+ *   expired                                → 'expired'
+ *   cancelling | cancelled                 → 'canceled'
+ */
+function mapOpenAIBatchStatus(s: string): BatchStatus {
+  switch (s) {
+    case 'completed': return 'completed';
+    case 'failed': return 'failed';
+    case 'expired': return 'expired';
+    case 'cancelling':
+    case 'cancelled':
+      return 'canceled';
+    case 'validating':
+    case 'in_progress':
+    case 'finalizing':
+      return 'in_progress';
+    default:
+      // Unknown → treat as still-running so the drain task polls again
+      return 'in_progress';
+  }
 }

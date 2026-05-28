@@ -34,6 +34,7 @@
 import { writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gt, isNotNull, lte } from 'drizzle-orm';
 import { Storage } from '@google-cloud/storage';
 import { GoogleGenAI } from '@google/genai';
@@ -55,9 +56,15 @@ import type {
 } from '../client/types';
 import type { OracleModelRoute, ReasoningEffort } from '../routes';
 import type {
+  BatchResultItem,
+  BatchStatus,
   GenerateObjectArgs,
   GenerateTextArgs,
   OracleProviderAdapter,
+  RetrieveBatchArgs,
+  RetrieveBatchResult,
+  SubmitBatchArgs,
+  SubmitBatchResult,
 } from './types';
 import {
   estimatePlanStableTokens,
@@ -703,6 +710,231 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
       rawUsageJson: u,
     };
   }
+
+  // ─── Batch API (Vertex Batch Prediction with GCS-backed I/O) ──────────────
+  //
+  // Input/output runs through GCS — Vertex doesn't accept inline batch bodies
+  // for Gemini. Requires GOOGLE_VERTEX_BATCH_GCS_BUCKET to be set with the
+  // service account having Storage Object Admin on it. See docs/configuration.md.
+  //
+  // Vertex batch output preserves input ORDER but doesn't echo a user-supplied
+  // request ID. The adapter records customIds in submission order and pairs
+  // them with output lines at retrieve time via providerMetadata.
+
+  /**
+   * Submit a batch of generateContent requests via Vertex Batch Prediction.
+   * Writes a JSONL input file to `gs://$BUCKET/oracle-batch-<uuid>/input.jsonl`,
+   * targets `gs://$BUCKET/oracle-batch-<uuid>/output/` for results, and
+   * returns the BatchJob resource name as providerBatchId.
+   *
+   * providerMetadata: { inputGcsUri, outputGcsPrefix, customIdsInOrder }
+   */
+  async submitBatch(args: SubmitBatchArgs): Promise<SubmitBatchResult> {
+    const { route, requests, jsonSchema } = args;
+    const bucketName = process.env.GOOGLE_VERTEX_BATCH_GCS_BUCKET;
+    if (!bucketName) {
+      throw new Error(
+        'VertexGeminiAdapter.submitBatch: GOOGLE_VERTEX_BATCH_GCS_BUCKET is not set. ' +
+          'Vertex Batch Prediction needs a GCS bucket for JSONL input/output. ' +
+          'See docs/configuration.md.',
+      );
+    }
+    const prefixOverride = process.env.GOOGLE_VERTEX_BATCH_GCS_PREFIX?.trim();
+    const folderId = `oracle-batch-${randomUUID()}`;
+    const objectPrefix = prefixOverride ? `${prefixOverride}/${folderId}` : folderId;
+    const inputObjectName = `${objectPrefix}/input.jsonl`;
+    const outputObjectPrefix = `${objectPrefix}/output/`;
+
+    const customIdsInOrder: string[] = [];
+    const lines: string[] = [];
+    for (const req of requests) {
+      customIdsInOrder.push(req.customId);
+      const { systemPrompt, userMessage } = flattenPlan(req.plan);
+      const contents: Content[] = [{
+        role: 'user',
+        parts: [{ text: userMessage }],
+      }];
+      const generationConfig: Record<string, unknown> = {
+        temperature: jsonSchema ? 0.1 : undefined,
+      };
+      if (jsonSchema) {
+        generationConfig.responseMimeType = 'application/json';
+        generationConfig.responseJsonSchema = jsonSchema;
+      }
+      const thinkingCfg = vertexThinkingConfig(route.reasoningEffort);
+      if ('thinkingConfig' in thinkingCfg) {
+        Object.assign(generationConfig, thinkingCfg);
+      }
+      for (const k of Object.keys(generationConfig)) {
+        if (generationConfig[k] === undefined) delete generationConfig[k];
+      }
+
+      const requestBody: Record<string, unknown> = { contents };
+      if (systemPrompt) {
+        requestBody.systemInstruction = { parts: [{ text: systemPrompt }] };
+      }
+      if (Object.keys(generationConfig).length > 0) {
+        requestBody.generationConfig = generationConfig;
+      }
+      lines.push(JSON.stringify({ request: requestBody }));
+    }
+    const jsonl = lines.join('\n') + '\n';
+
+    const storage = new Storage();
+    const bucket = storage.bucket(bucketName);
+    await bucket.file(inputObjectName).save(Buffer.from(jsonl, 'utf-8'), {
+      contentType: 'application/jsonl',
+      resumable: false,
+    });
+
+    const inputGcsUri = `gs://${bucketName}/${inputObjectName}`;
+    const outputGcsPrefix = `gs://${bucketName}/${outputObjectPrefix}`;
+
+    const batch = await this.client.batches.create({
+      model: route.modelId,
+      src: { format: 'jsonl', gcsUri: [inputGcsUri] },
+      config: {
+        dest: { format: 'jsonl', gcsUri: outputGcsPrefix },
+        displayName: folderId,
+      },
+    });
+
+    const providerBatchId = batch.name;
+    if (!providerBatchId) {
+      throw new Error('VertexGeminiAdapter.submitBatch: batch.name missing from response');
+    }
+
+    return {
+      providerBatchId,
+      providerMetadata: {
+        inputGcsUri,
+        outputGcsPrefix,
+        customIdsInOrder,
+        bucketName,
+        outputObjectPrefix,
+      },
+    };
+  }
+
+  /**
+   * Poll Vertex batch status. When the JobState reaches SUCCEEDED, list the
+   * prediction output objects in GCS (`predictions*.jsonl` — Vertex shards
+   * large outputs), concatenate them in order, and pair each line with the
+   * customId at the same index in providerMetadata.customIdsInOrder.
+   */
+  async retrieveBatch(args: RetrieveBatchArgs): Promise<RetrieveBatchResult> {
+    const { providerBatchId, providerMetadata } = args;
+    const batch = await this.client.batches.get({ name: providerBatchId });
+    const status = mapVertexBatchStatus(batch.state ?? '');
+
+    if (status === 'in_progress' || status === 'submitted') {
+      return {
+        status,
+        requestCount: undefined,
+        completedCount: undefined,
+        failedCount: undefined,
+      };
+    }
+
+    if (status !== 'completed') {
+      // failed / expired / canceled
+      return {
+        status,
+        error: batch.error?.message ?? `state=${batch.state}`,
+      };
+    }
+
+    const bucketName = providerMetadata.bucketName as string | undefined;
+    const outputObjectPrefix = providerMetadata.outputObjectPrefix as string | undefined;
+    const customIdsInOrder = providerMetadata.customIdsInOrder as string[] | undefined;
+    if (!bucketName || !outputObjectPrefix || !customIdsInOrder) {
+      return {
+        status: 'failed',
+        error: 'providerMetadata missing bucketName/outputObjectPrefix/customIdsInOrder',
+      };
+    }
+
+    // List output files. Vertex writes them as predictions-XXXXX-of-YYYYY.jsonl
+    // under outputObjectPrefix, sometimes inside a deeper subdirectory it
+    // generates for the job. Filter for *.jsonl and sort lexically so shards
+    // land in their numbered order.
+    const storage = new Storage();
+    const bucket = storage.bucket(bucketName);
+    const [files] = await bucket.getFiles({ prefix: outputObjectPrefix });
+    const predictionFiles = files
+      .filter((f) => f.name.endsWith('.jsonl') && f.name.includes('prediction'))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    if (predictionFiles.length === 0) {
+      return { status: 'failed', error: `no prediction files under gs://${bucketName}/${outputObjectPrefix}` };
+    }
+
+    const results: BatchResultItem[] = [];
+    let index = 0;
+    let succeeded = 0;
+    let failed = 0;
+    for (const file of predictionFiles) {
+      const [buf] = await file.download();
+      const text = buf.toString('utf-8');
+      for (const rawLine of text.split('\n')) {
+        if (!rawLine.trim()) continue;
+        const customId = customIdsInOrder[index] ?? `unknown-${index}`;
+        index++;
+        let parsed: {
+          status?: string;
+          request?: unknown;
+          response?: GenerateContentResponse;
+        };
+        try {
+          parsed = JSON.parse(rawLine);
+        } catch {
+          results.push({ customId, success: false, error: 'malformed output line' });
+          failed++;
+          continue;
+        }
+
+        // Vertex marks per-line errors by populating `status` with a non-empty
+        // error string. SUCCEEDED lines have an empty/absent status.
+        if (parsed.status && parsed.status !== '') {
+          results.push({ customId, success: false, error: parsed.status });
+          failed++;
+          continue;
+        }
+
+        if (!parsed.response) {
+          results.push({ customId, success: false, error: 'no response in output line' });
+          failed++;
+          continue;
+        }
+
+        const response = parsed.response as GenerateContentResponse;
+        const textOut = extractTextFromGeminiResponse(response);
+        let output: unknown;
+        let outText: string | undefined;
+        try {
+          output = JSON.parse(textOut);
+        } catch {
+          outText = textOut;
+        }
+        results.push({
+          customId,
+          success: true,
+          output,
+          text: outText,
+          usage: this.normalizeUsage(response, 0),
+        });
+        succeeded++;
+      }
+    }
+
+    return {
+      status: 'completed',
+      results,
+      requestCount: customIdsInOrder.length,
+      completedCount: succeeded,
+      failedCount: failed,
+    };
+  }
 }
 
 // ─── Shared helpers (also used by anthropic + openai adapters) ──────────────
@@ -779,4 +1011,58 @@ function vertexThinkingConfig(effort: ReasoningEffort | undefined):
       : effort === 'medium' ? 8192
       : 24576;
   return { thinkingConfig: { thinkingBudget: budget } };
+}
+
+/**
+ * Map @google/genai JobState onto our provider-agnostic BatchStatus.
+ *
+ *   JOB_STATE_QUEUED | _PENDING | _RUNNING | _UPDATING | _PAUSED → 'in_progress'
+ *   JOB_STATE_SUCCEEDED                                          → 'completed'
+ *   JOB_STATE_PARTIALLY_SUCCEEDED                                → 'completed'
+ *   JOB_STATE_FAILED                                             → 'failed'
+ *   JOB_STATE_EXPIRED                                            → 'expired'
+ *   JOB_STATE_CANCELLING | _CANCELLED                            → 'canceled'
+ */
+function mapVertexBatchStatus(state: string): BatchStatus {
+  switch (state) {
+    case 'JOB_STATE_SUCCEEDED':
+    case 'JOB_STATE_PARTIALLY_SUCCEEDED':
+      return 'completed';
+    case 'JOB_STATE_FAILED':
+      return 'failed';
+    case 'JOB_STATE_EXPIRED':
+      return 'expired';
+    case 'JOB_STATE_CANCELLING':
+    case 'JOB_STATE_CANCELLED':
+      return 'canceled';
+    case 'JOB_STATE_QUEUED':
+    case 'JOB_STATE_PENDING':
+    case 'JOB_STATE_RUNNING':
+    case 'JOB_STATE_UPDATING':
+    case 'JOB_STATE_PAUSED':
+      return 'in_progress';
+    default:
+      // Unknown / undocumented → assume still running so the drain task polls again
+      return 'in_progress';
+  }
+}
+
+/**
+ * Pull the text from a GenerateContentResponse. The synchronous adapter relies
+ * on `response.text` (a getter), but offline-deserialized response objects
+ * from the batch output JSONL don't carry the getter — they're plain data.
+ * Walk candidates[0].content.parts[] and concatenate the text parts.
+ */
+function extractTextFromGeminiResponse(response: GenerateContentResponse): string {
+  // Use the SDK getter if it's present (won't be after JSON.parse).
+  const direct = (response as { text?: string }).text;
+  if (typeof direct === 'string' && direct.length > 0) return direct;
+  const candidate = response.candidates?.[0];
+  const parts = candidate?.content?.parts ?? [];
+  const chunks: string[] = [];
+  for (const part of parts) {
+    const partText = (part as { text?: string }).text;
+    if (typeof partText === 'string') chunks.push(partText);
+  }
+  return chunks.join('');
 }

@@ -492,23 +492,43 @@ export function ModelPoolEditor({
                             : undefined;
                           return (
                             <td key={stage} className="px-3 py-2 text-center align-middle">
-                              <label
-                                title={reasonText}
-                                className={cn(
-                                  'inline-flex items-center justify-center rounded px-1.5 py-0.5',
-                                  eligible ? 'cursor-pointer' : 'cursor-not-allowed opacity-35',
-                                  checked && eligible && 'bg-primary/10',
+                              <div className="relative inline-block group">
+                                <label
+                                  title={reasonText}
+                                  className={cn(
+                                    'inline-flex items-center justify-center rounded px-1.5 py-0.5',
+                                    eligible ? 'cursor-pointer' : 'cursor-not-allowed opacity-35',
+                                    checked && eligible && 'bg-primary/10',
+                                  )}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={!eligible}
+                                    onChange={() => eligible && toggle(stage, m.id)}
+                                    className="size-4 rounded border-gray-300 accent-primary disabled:cursor-not-allowed"
+                                    aria-label={`Include ${m.id} in ${STAGE_LABELS[stage]} pool`}
+                                  />
+                                </label>
+                                {!eligible && (
+                                  <div
+                                    role="tooltip"
+                                    className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 -translate-x-1/2 whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100"
+                                  >
+                                    <div className="font-medium text-foreground mb-1">
+                                      Missing for {STAGE_LABELS[stage]}:
+                                    </div>
+                                    <ul className="space-y-0.5">
+                                      {missing.map((r, i) => (
+                                        <li key={i} className="flex items-center gap-1.5">
+                                          <r.icon className={cn('h-3 w-3 shrink-0', r.color)} />
+                                          <span>{r.label}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
                                 )}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  disabled={!eligible}
-                                  onChange={() => eligible && toggle(stage, m.id)}
-                                  className="size-4 rounded border-gray-300 accent-primary disabled:cursor-not-allowed"
-                                  aria-label={`Include ${m.id} in ${STAGE_LABELS[stage]} pool`}
-                                />
-                              </label>
+                              </div>
                             </td>
                           );
                         })}
