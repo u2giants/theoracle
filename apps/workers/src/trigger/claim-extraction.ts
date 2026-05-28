@@ -69,8 +69,8 @@ import {
 } from '@oracle/engines';
 import type { EntityType, KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
 
-const BATCH_SIZE = 100;
-const SEGMENT_GAP_MS = 60 * 60 * 1000;
+export const BATCH_SIZE = 100;
+export const SEGMENT_GAP_MS = 60 * 60 * 1000;
 
 // Fallback route — used if the settings row is missing or points at a route
 // not in the catalog. Matches the R1 default.
@@ -81,7 +81,7 @@ const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
 // direct provider adapters (R-providers). Per DECISIONS.md D6 these talk to
 // Anthropic, Vertex, and OpenAI APIs directly via @anthropic-ai/sdk,
 // @google/genai, and openai — NOT through OpenRouter or the Vercel AI SDK.
-function buildOracleClient(): OracleAIClient {
+export function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
     adapters: buildStandardAdapters(),
     fallbackOnError: true,
@@ -139,6 +139,28 @@ export async function runClaimExtractionOnce(
     };
 
     try {
+      // 0. Dispatch-mode gate. If settings.extraction_dispatch_mode === 'batch'
+      //    the batch-submit worker owns extraction; the sync path bails. The
+      //    flag is read every run so admins can flip back to sync without
+      //    redeploying. See DECISIONS.md D14.
+      const dispatchModeRow = await db
+        .select({ value: settings.value })
+        .from(settings)
+        .where(eq(settings.key, 'extraction_dispatch_mode'))
+        .limit(1);
+      const dispatchMode = (dispatchModeRow[0]?.value as string | undefined) ?? 'sync';
+      if (dispatchMode === 'batch') {
+        await db
+          .update(jobRuns)
+          .set({
+            status: 'complete',
+            finishedAt: new Date(),
+            outputJson: { ...totals, skipped: true, reason: 'extraction_dispatch_mode=batch — handled by claim-extraction-batch-submit' },
+          })
+          .where(eq(jobRuns.id, jobRun.id));
+        return { ok: true, ...totals };
+      }
+
       // 1. Resolve the curated extraction route.
       const route = await resolveExtractionRoute(db);
       const activeTopDomainIds = await loadActiveTopDomainIds(db);
@@ -455,7 +477,81 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
 
   if (!modelOutput) return outcome;
 
-  // 4. Stage candidates + evidence, run R5/R5.5 validators, run promotion.
+  // 4. Delegate per-candidate validation + promotion + final batch/message
+  //    status updates to the shared processSegmentOutput function so the
+  //    batch-drain worker can run identical logic on retrieved Batch API
+  //    results without duplicating any of it.
+  return processSegmentOutput({
+    db,
+    route,
+    activeTopDomainIds,
+    entityRegistry,
+    segment,
+    extractionBatchId: batch.id,
+    modelRunId: modelRunId!,
+    sourceHash,
+    modelOutput,
+    initialOutcome: outcome,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// processSegmentOutput — shared per-segment post-model-call processing
+//
+// Runs the candidate-before-claim pipeline (R5 quote validation, R5.5
+// taxonomy validation, sensitivity gate, executePromotion) against an
+// already-produced ExtractionOutput. Called by BOTH the sync path
+// (claim-extraction.ts processSegment, immediately after the model call)
+// AND the batch-drain path (claim-extraction-batch-drain.ts, after pulling
+// results from the provider Batch API).
+//
+// Preconditions the caller must satisfy:
+//   - extraction_batches row exists (extractionBatchId), in pending_model
+//     or model_complete status
+//   - model_runs row exists (modelRunId), with success=true
+//   - modelOutput parses as ExtractionOutputSchema
+//
+// Postconditions:
+//   - For each claim in modelOutput: extraction_candidates + evidence rows
+//     inserted, validators run, executePromotion attempted
+//   - extraction_batches.status updated to 'validation_complete' (or
+//     'failed_validation_loop' if the circuit breaker tripped)
+//   - All segment messages marked extraction_status='complete'
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface ProcessSegmentOutputArgs {
+  db: OracleDb;
+  route: OracleModelRoute;
+  activeTopDomainIds: string[];
+  entityRegistry: RegistryEntity[];
+  segment: FormattedMessage[];
+  extractionBatchId: string;
+  modelRunId: string;
+  sourceHash: string;
+  modelOutput: ExtractionOutput;
+  /** Sync caller passes its accumulator so candidatesStaged etc. roll up. */
+  initialOutcome?: SegmentOutcome;
+}
+
+export async function processSegmentOutput(
+  args: ProcessSegmentOutputArgs,
+): Promise<SegmentOutcome> {
+  const {
+    db, route, activeTopDomainIds, entityRegistry, segment,
+    extractionBatchId, modelRunId, sourceHash, modelOutput,
+  } = args;
+  const segmentIds = segment.map((m) => m.id);
+  const batch = { id: extractionBatchId };
+  const outcome: SegmentOutcome = args.initialOutcome ?? {
+    candidatesStaged: 0,
+    claimsPromoted: 0,
+    duplicatesAppended: 0,
+    rejections: 0,
+    circuitBreakerTripped: false,
+    messagesProcessed: 0,
+  };
+
+  // Stage candidates + evidence, run R5/R5.5 validators, run promotion.
   let consecutiveQuoteFailureCount = 0;
   let validationAttemptCount = 0;
 
@@ -799,7 +895,7 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
 
-async function resolveExtractionRoute(db: OracleDb): Promise<OracleModelRoute> {
+export async function resolveExtractionRoute(db: OracleDb): Promise<OracleModelRoute> {
   // Reads both default_extraction_route + default_extraction_reasoning_effort.
   const resolved = await resolveRouteFromSettings(db, 'extraction');
   if (resolved) return resolved;
@@ -815,7 +911,7 @@ async function resolveExtractionRoute(db: OracleDb): Promise<OracleModelRoute> {
   return fallback;
 }
 
-async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
+export async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
   const rows = await db.execute<{ id: string }>(
     sql`SELECT id FROM knowledge_top_domains WHERE is_active = true`,
   );
@@ -830,7 +926,7 @@ async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
  * we load all rows (the seed is ~56 rows) — when the registry grows past a
  * few hundred, scope to (proposed types ∪ canonical match of raw strings).
  */
-async function loadEntityRegistry(db: OracleDb): Promise<RegistryEntity[]> {
+export async function loadEntityRegistry(db: OracleDb): Promise<RegistryEntity[]> {
   const rows = await db
     .select({
       id: entities.id,
@@ -847,7 +943,7 @@ async function loadEntityRegistry(db: OracleDb): Promise<RegistryEntity[]> {
   }));
 }
 
-function groupIntoSegments(
+export function groupIntoSegments(
   pendingMessages: Array<{
     id: string;
     channelId: string;
@@ -898,7 +994,7 @@ function groupIntoSegments(
   return allSegments;
 }
 
-function buildContextPackInsert(plan: OraclePromptPlan) {
+export function buildContextPackInsert(plan: OraclePromptPlan) {
   return {
     taskType: plan.taskType,
     routeId: plan.routeId,

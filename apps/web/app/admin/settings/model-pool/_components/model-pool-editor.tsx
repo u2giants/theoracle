@@ -482,13 +482,17 @@ export function ModelPoolEditor({
                             )}
                           </td>
                         ))}
-                        {/* Stage checkbox cells */}
+                        {/* Stage checkbox cells.
+                            Ineligible models stay SELECTABLE; the checkbox renders red
+                            (border + accent) and the hover tooltip lists missing capabilities.
+                            Admin override is intentional — sometimes a model is good enough
+                            for a stage even when one capability flag is missing. */}
                         {STAGES.map((stage) => {
                           const checked = pools[stage].has(m.id);
                           const missing = missingReqs(m, stage);
                           const eligible = missing.length === 0;
                           const reasonText = !eligible
-                            ? `Missing: ${missing.map((r) => r.label).join(', ')}`
+                            ? `Override — missing: ${missing.map((r) => r.label).join(', ')}`
                             : undefined;
                           return (
                             <td key={stage} className="px-3 py-2 text-center align-middle">
@@ -496,27 +500,31 @@ export function ModelPoolEditor({
                                 <label
                                   title={reasonText}
                                   className={cn(
-                                    'inline-flex items-center justify-center rounded px-1.5 py-0.5',
-                                    eligible ? 'cursor-pointer' : 'cursor-not-allowed opacity-35',
+                                    'inline-flex items-center justify-center rounded px-1.5 py-0.5 cursor-pointer',
                                     checked && eligible && 'bg-primary/10',
+                                    checked && !eligible && 'bg-red-100 dark:bg-red-950/40',
                                   )}
                                 >
                                   <input
                                     type="checkbox"
                                     checked={checked}
-                                    disabled={!eligible}
-                                    onChange={() => eligible && toggle(stage, m.id)}
-                                    className="size-4 rounded border-gray-300 accent-primary disabled:cursor-not-allowed"
-                                    aria-label={`Include ${m.id} in ${STAGE_LABELS[stage]} pool`}
+                                    onChange={() => toggle(stage, m.id)}
+                                    className={cn(
+                                      'size-4 rounded',
+                                      eligible
+                                        ? 'border-gray-300 accent-primary'
+                                        : 'border-red-500 accent-red-600 ring-1 ring-red-400/60',
+                                    )}
+                                    aria-label={`Include ${m.id} in ${STAGE_LABELS[stage]} pool${eligible ? '' : ' (override — missing required capabilities)'}`}
                                   />
                                 </label>
                                 {!eligible && (
                                   <div
                                     role="tooltip"
-                                    className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 -translate-x-1/2 whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100"
+                                    className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 -translate-x-1/2 whitespace-nowrap rounded-md border border-red-300 bg-popover px-2.5 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 dark:border-red-800"
                                   >
-                                    <div className="font-medium text-foreground mb-1">
-                                      Missing for {STAGE_LABELS[stage]}:
+                                    <div className="font-medium text-red-700 dark:text-red-400 mb-1">
+                                      Override — missing for {STAGE_LABELS[stage]}:
                                     </div>
                                     <ul className="space-y-0.5">
                                       {missing.map((r, i) => (

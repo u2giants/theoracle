@@ -63,10 +63,22 @@ export {
 } from './routing/model-router';
 export {
   ProviderAdapterNotImplementedError,
+  supportsBatch,
   type OracleProviderAdapter,
   type GenerateObjectArgs,
   type GenerateTextArgs,
+  // Batch API (D14)
+  type BatchRequest,
+  type BatchResultItem,
+  type BatchStatus,
+  type SubmitBatchArgs,
+  type SubmitBatchResult,
+  type RetrieveBatchArgs,
+  type RetrieveBatchResult,
 } from './providers/types';
+// Provider-internal helper exposed for batch submitters that need to convert
+// a Zod schema to JSON Schema before passing it to adapter.submitBatch.
+export { zodToJsonSchema } from './providers/vertex-gemini-adapter';
 export { MockProviderAdapter, type MockAdapterOptions } from './providers/mock-adapter';
 export { AnthropicAdapter } from './providers/anthropic-adapter';
 export { VertexGeminiAdapter } from './providers/vertex-gemini-adapter';

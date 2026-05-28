@@ -110,8 +110,13 @@ const CAP_REQ = (field: CapKey): StageRequirement => {
  * predicates return true. Order matters only for the icon display.
  *
  *   Interview:  tools, structured, vision, ctx > 100K
- *   Extraction: structured, thinking (reasoning), vision, ctx > 100K
- *   Synthesis:  ctx > 400K, structured, outputCap
+ *   Extraction: structured, vision, ctx > 100K
+ *   Synthesis:  ctx > 400K, structured, thinking (reasoning), outputCap
+ *
+ * `thinking` was moved from Extraction → Synthesis 2026-05-28: extraction
+ * benefits more from speed and verbatim quote fidelity than from extended
+ * reasoning; synthesis benefits from reasoning when consolidating large
+ * approved-claim corpora into Brain sections.
  */
 export const STAGE_REQUIREMENTS: Record<Stage, StageRequirement[]> = {
   interview: [
@@ -122,13 +127,13 @@ export const STAGE_REQUIREMENTS: Record<Stage, StageRequirement[]> = {
   ],
   extraction: [
     CAP_REQ('structuredOutputs'),
-    CAP_REQ('thinking'),
     CAP_REQ('vision'),
     CTX_REQ(100_000),
   ],
   synthesis: [
     CTX_REQ(400_000),
     CAP_REQ('structuredOutputs'),
+    CAP_REQ('thinking'),
     CAP_REQ('outputCap'),
   ],
 };

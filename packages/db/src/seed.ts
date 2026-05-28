@@ -42,6 +42,13 @@ const DEFAULT_SETTINGS: Array<{
   { key: 'default_synthesis_route', value: 'anthropic_claude_3_5_sonnet_synthesis_primary', description: 'Curated OracleModelRoute.routeId for the synthesis role.' },
   { key: 'enable_live_contradiction_interjections', value: false, description: 'When false, possible contradictions queue silently (spec 5.1 Rule 1).' },
   { key: 'enable_group_chat_lull_questions', value: true, description: 'When true, Oracle may ask a high-priority gap question during a lull (spec 5.1 Rule 2).' },
+  // D14 — provider Batch API dispatch mode for claim extraction.
+  // 'sync' (default) runs the existing per-segment pipeline against the
+  // sync model API. 'batch' submits all segments via the provider Batch API
+  // (~50% off, 24-hour SLA) and the drain task processes results when ready.
+  // The sync worker bails when set to 'batch'; the batch-submit worker bails
+  // when set to 'sync'. Flag is read every run — flip without redeploying.
+  { key: 'extraction_dispatch_mode', value: 'sync', description: 'sync | batch — D14 provider Batch API dispatch for claim extraction.' },
 ];
 
 const ADMIN_EMPLOYEE = {

@@ -200,7 +200,15 @@ DB shape (migration `60_batch_jobs.sql`):
 - `extraction_batches.provider_batch_job_id` — nullable FK linking per-input rows to their owning batch job.
 - `model_runs.dispatch_mode` — `'sync' | 'batch' | NULL` for cost dashboards.
 
-Worker integration is **deferred** per DECISIONS.md D14. The foundation is in place but `claim-extraction.ts` doesn't yet branch on `settings.extraction_dispatch_mode` and there is no drain task. See `HANDOFF.md` for the precise next-action.
+Worker integration landed 2026-05-28. Three Trigger.dev tasks coordinate via the `extraction_dispatch_mode` setting:
+
+| Task | Cron | Role |
+|---|---|---|
+| `claim-extraction` (sync) | `0 */4 * * *` | Bails when mode is `'batch'`. Otherwise the existing sync pipeline. |
+| `claim-extraction-batch-submit` | `0 */4 * * *` | Bails when mode is `'sync'`. Otherwise: gather messages, build prompts, insert `extraction_batches` + `oracle_context_packs`, call `adapter.submitBatch`, persist `provider_batch_jobs` row, link the batches. |
+| `claim-extraction-batch-drain` | `*/10 * * * *` | Always runs. Polls `provider_batch_jobs` WHERE status IN ('submitted', 'in_progress'); when completed, parses each result, inserts `model_runs` with `dispatch_mode='batch'`, then calls `processSegmentOutput` to run the SAME R5/R5.5 validators + promotion pipeline as the sync path. |
+
+Sync and batch paths share `processSegmentOutput` (exported from `claim-extraction.ts`), so candidate-before-claim validation, taxonomy validation, sensitivity gating, and `executePromotion` behave identically regardless of which model dispatch the segment came from. Flip dispatch mode via `UPDATE settings SET value = '"batch"'::jsonb WHERE key = 'extraction_dispatch_mode';` — read every cron tick, no redeploy needed.
 
 ### Adding a new provider
 

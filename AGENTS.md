@@ -273,19 +273,19 @@ Forcing every adapter to implement batch would either block adding new providers
 Do not change because:
 Making `submitBatch` / `retrieveBatch` required on the interface would force the DeepSeek and Qwen adapters to throw at construction, which would break the per-provider `tryAdd()` boot in `buildStandardAdapters()` and silently disable both providers.
 
-### Migration 60 (batch jobs) is not auto-applied
+### Two-phase batch worker — submit and drain are independent tasks
 
 Looks like:
-`60_batch_jobs.sql` and the schema additions for `provider_batch_jobs` / `extraction_batches.provider_batch_job_id` / `model_runs.dispatch_mode` are committed, so the live DB should have them.
+`claim-extraction.ts`, `claim-extraction-batch-submit.ts`, and `claim-extraction-batch-drain.ts` look redundant. The flag `extraction_dispatch_mode` toggles them, but all three are scheduled.
 
 Actually:
-The migration runner is invoked manually (`pnpm db:migrate`); CI does not run it. Migration 60 has not been applied to the production Supabase project as of commit `f252c85`. Until it is, any code path that queries `provider_batch_jobs` or those new columns will error.
+Each task reads `settings.extraction_dispatch_mode` at the top and bails when it doesn't match its dispatch mode. So at any given time only ONE of (sync) or (submit + drain) is active. The drain task is always scheduled because it always needs to poll outstanding `provider_batch_jobs` rows even after the flag flips back to `'sync'` (any in-flight batches should still be drained, not orphaned).
 
 Why:
-The batch worker integration is deferred (`HANDOFF.md`). Applying 60 before the worker code lands is harmless but the timing was deliberately deferred so a failed migration during the worker session doesn't block the rest.
+The flag is read every cron tick — flipping it doesn't require a redeploy. The drain task running unconditionally ensures no orphaned batches when admin flips back to sync. Per-task short-circuit at the top is the cleanest gate.
 
 Do not change because:
-Don't ship batch-worker code before running `pnpm db:migrate`. See HANDOFF.md Step 0.
+Removing the always-on drain task would orphan any in-flight Vertex/OpenAI batches if the flag flipped back to sync mid-stream. Removing the gate from the sync task would double-process in batch mode.
 
 ### OpenAI model catalog uses a blocklist, not an allowlist
 
@@ -422,7 +422,7 @@ Apply migrations before pushing code that requires them, and stage git changes e
 | open | Only `.github/workflows/pr-check.yml` exists. There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers deploy` in the release process until workflows are added. |
 | open | Authentik is mentioned in schema/docs but no Authentik login flow is wired in the app. | Treat Authentik as not implemented. |
 | open | Oversized Vertex file-backed caches require `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` in the runtime env. Without it, the adapter falls back to text-prefix caching only. | Provision the bucket/env in environments that need large-document cache optimization. |
-| open | Batch API foundation landed 2026-05-28 (DECISIONS.md D14): DB schema, adapter contract, OpenAI + Vertex `submitBatch`/`retrieveBatch` implementations are in place. **Worker integration is not wired** — `settings.extraction_dispatch_mode` is recognized but not yet read by `claim-extraction.ts`, and no drain task exists. | Implement the two-phase worker per `HANDOFF.md`: extract per-segment processing from `claim-extraction.ts processSegment` into a shared `processSegmentOutput(...)` function callable by both sync and drain paths; add `claim-extraction-batch-submit.ts` + `claim-extraction-batch-drain.ts` Trigger.dev tasks. |
-| open | Vertex Batch Prediction requires `GOOGLE_VERTEX_BATCH_GCS_BUCKET` to be provisioned + the worker SA granted `roles/storage.objectAdmin` on it. | One-time admin task before batch mode can be enabled for Vertex routes. OpenAI batch needs no infrastructure setup. |
+| open | `model_runs_with_usage` view in `31_observability_views.sql` does not yet select `mr.dispatch_mode`. Without it, `/admin/ai` dashboards can't distinguish sync vs batch rows. | Add the column to the SELECT and re-apply via `pnpm db:migrate` (the runner re-applies SQL on every boot). |
+| open | Vertex Batch Prediction requires `GOOGLE_VERTEX_BATCH_GCS_BUCKET` to be provisioned + the worker SA granted `roles/storage.objectAdmin` on it. | One-time admin task before batch mode can be enabled for Vertex routes. OpenAI batch needs no infrastructure setup. To flip extraction to batch: `UPDATE settings SET value = '"batch"'::jsonb WHERE key = 'extraction_dispatch_mode';` |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.
