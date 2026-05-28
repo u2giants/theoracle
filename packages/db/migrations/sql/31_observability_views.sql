@@ -24,7 +24,6 @@ SELECT
   mr.model,
   mr.provider,
   mr.prompt_version,
-  mr.dispatch_mode,
   mr.input_tokens                    AS legacy_input_tokens,
   mr.output_tokens                   AS legacy_output_tokens,
   mr.cost_usd,
@@ -58,7 +57,10 @@ SELECT
     WHEN mrud.input_tokens IS NULL OR mrud.input_tokens = 0 THEN NULL
     WHEN mrud.cached_input_tokens IS NULL THEN NULL
     ELSE mrud.cached_input_tokens::float / mrud.input_tokens::float
-  END AS cache_hit_ratio
+  END AS cache_hit_ratio,
+
+  -- Appended after initial 31_* shipped (kept last so CREATE OR REPLACE works).
+  mr.dispatch_mode
 FROM model_runs mr
 LEFT JOIN model_run_usage_details mrud
   ON mrud.model_run_id = mr.id

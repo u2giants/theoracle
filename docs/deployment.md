@@ -38,10 +38,13 @@ Workers are not deployed automatically by CI today.
 Current deploy command:
 
 ```bash
-pnpm --filter @oracle/workers deploy
+pnpm --filter @oracle/workers run deploy
 ```
 
-That uses Trigger.dev and the checked-in `apps/workers/trigger.config.ts`.
+The `run` keyword is required: pnpm reserves the bare `pnpm deploy` form for its own
+package-deployment subcommand, so `pnpm --filter @oracle/workers deploy` fails with
+`ERR_PNPM_INVALID_DEPLOY_TARGET`. The script under the hood is
+`npx trigger.dev@latest deploy` against the checked-in `apps/workers/trigger.config.ts`.
 
 ### Database
 
@@ -52,6 +55,15 @@ pnpm db:migrate
 ```
 
 Run migrations before pushing code that depends on them.
+
+> **Known drift (2026-05-28):** the runner currently fails at Step 2 (Drizzle
+> generated migrations) with `relation "model_capabilities" already exists`. The
+> Drizzle `__drizzle_migrations` journal in production is out of sync with the
+> on-disk `packages/db/migrations/0*.sql` files — at least one migration ran in
+> prod without being recorded in the journal. Until that is reconciled, apply
+> hand-written SQL changes (`packages/db/migrations/sql/*.sql`) directly via the
+> Supabase MCP `apply_migration` tool. See `HANDOFF.md` for the reconciliation
+> plan.
 
 ## CI workflow that currently exists
 

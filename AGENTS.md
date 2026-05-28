@@ -462,6 +462,7 @@ Apply migrations before pushing code that requires them, and stage git changes e
 
 | Status | Item | Owner/next action |
 |---|---|---|
+| open | `pnpm db:migrate` fails at Step 2 with `relation "model_capabilities" already exists` — the Drizzle `__drizzle_migrations` journal in production is out of sync with the on-disk `packages/db/migrations/0*.sql` files. Hand-written SQL changes still ship via Supabase MCP `apply_migration` in the meantime. | Reconcile the journal: identify which generated migrations actually ran in prod, INSERT their hashes into `__drizzle_migrations` so the runner skips them. See `HANDOFF.md`. |
 | open | `apps/web/app/admin/taxonomy/_actions.ts` approves some proposal types by queueing reclassification work rather than applying it inline. | Keep the actions as-is until the reclassification path is expanded further. |
 | open | Only `.github/workflows/pr-check.yml` exists. There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers deploy` in the release process until workflows are added. |
 | open | Authentik is mentioned in schema/docs but no Authentik login flow is wired in the app. | Treat Authentik as not implemented. |
