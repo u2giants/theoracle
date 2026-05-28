@@ -109,7 +109,7 @@ Specific boundaries:
 |---|---|---|
 | Change employee chat behavior | `apps/web/app/api/chat/route.ts`, `packages/ai/src/prompts/oracle-system.ts`, `packages/ai/src/retrieval*.ts`, provider adapters as needed | `node_modules/`, `apps/web/components/ui/**` |
 | Add or change an AI provider behavior | `packages/ai/src/providers/*.ts`, `packages/ai/src/client/standard-adapters.ts`, `packages/ai/src/routes/{types,resolve}.ts`, relevant docs | route handlers or workers calling SDKs directly |
-| Add a database field or table | `packages/db/src/schema.ts`, new file under `packages/db/migrations/sql/` if hand-written SQL is needed, generated Drizzle migration if schema changed | previously applied migration files |
+| Add a database field or table | `packages/db/src/schema.ts`, new file under `packages/db/migrations/sql/` if hand-written SQL is needed, generated Drizzle migration if schema changed. Ship through `pnpm db:migrate` only — never via Supabase MCP `apply_migration` or `drizzle-kit push`, both bypass the journal. Run `pnpm db:check-drift` if unsure of state. | previously applied migration files; `drizzle.__drizzle_migrations` directly |
 | Add a worker | `apps/workers/src/trigger/*.ts`, `apps/workers/trigger.config.ts`, docs if operational behavior changes | `apps/web/**` unless there is a matching UI/API hook |
 | Add an admin page | `apps/web/app/admin/**`, possibly `packages/db/migrations/sql/*.sql` for a new admin view | RLS helpers unless policy changes are truly required |
 | Change auth/linking behavior | `packages/auth/src/**`, `apps/web/app/auth/**`, `apps/web/app/_components/login-form.tsx` | direct edits to Supabase-managed auth tables |
@@ -383,6 +383,7 @@ Editing old generated files breaks replay expectations and production drift reco
 | `DASHSCOPE_API_KEY` | Qwen adapter | `.env.local`, Vercel, Trigger.dev | optional | optional |
 | `OPENROUTER_API_KEY` | model catalog enrichment only | `.env.local`, Vercel if desired | optional | optional |
 | `TRIGGER_SECRET_KEY` | Trigger.dev auth | `.env.local`, Vercel, Trigger.dev | yes | yes |
+| `PROD_DIRECT_URL` | Used by the CI drift-check step to reach production Postgres | GitHub Actions repo secret (`gh secret list`) | no | yes (CI) |
 | `TRIGGER_PROJECT_REF` | Trigger.dev project selector | `.env.local`, Vercel | optional | optional |
 
 For exact sources and setup notes, read `docs/configuration.md`.
@@ -400,10 +401,10 @@ Current deployment path:
 How deployment works today:
 
 1. Merge or push to `main`.
-2. GitHub Actions runs `pr-check.yml`, which installs dependencies and builds `@oracle/web`.
+2. GitHub Actions runs `pr-check.yml`: installs dependencies, builds `@oracle/web`, then runs `pnpm db:check-drift` against production (requires the `PROD_DIRECT_URL` repo secret; skips gracefully if absent). Drift in the Drizzle migration journal fails the build.
 3. Vercel auto-deploys the web app from GitHub using `vercel.json`.
-4. Trigger.dev workers are deployed manually with `pnpm --filter @oracle/workers deploy`.
-5. Database migrations are applied manually with `pnpm db:migrate` before shipping code that depends on them.
+4. Trigger.dev workers are deployed manually with `pnpm --filter @oracle/workers run deploy` (the `run` keyword is required — `pnpm` reserves the bare `deploy` form for its own subcommand).
+5. Database migrations are applied manually with `pnpm db:migrate` before shipping code that depends on them. Hand-written `migrations/sql/*.sql` files MAY be applied via Supabase MCP `apply_migration`; generated `0NNN_*.sql` files MUST go through `pnpm db:migrate` (otherwise the journal drifts — see incident 2026-05-28).
 
 Rollback:
 
@@ -458,12 +459,30 @@ A catch-up migration added and backfilled the missing column.
 Rule added to prevent recurrence:
 Apply migrations before pushing code that requires them, and stage git changes explicitly instead of sweeping unrelated files with `git add -A`.
 
+### 2026-05-28 Drizzle migration journal drifted from production
+
+What happened:
+`pnpm db:migrate` failed at Step 2 with `relation "model_capabilities" already exists`. Migration `0006_magical_revanche` had been applied to production at some earlier point — all four objects it creates (tables `model_capabilities` + `typing_indicators`, columns `employees.departments` + `entity_proposals.proposal_count`) existed in the live DB — but its sha256 was never written to `drizzle.__drizzle_migrations`. The runner therefore tried to replay it on every invocation.
+
+Impact:
+Database migrations could not ship through the canonical runner. Hand-written `migrations/sql/*.sql` files were unreachable because Step 2 failed before Step 3 ran them.
+
+Root cause:
+At least one Drizzle-generated migration was applied through a side channel that does not write to `drizzle.__drizzle_migrations` — most likely Supabase MCP `apply_migration` (which writes to `supabase_migrations.schema_migrations` instead), the Supabase dashboard SQL editor, or `drizzle-kit push`.
+
+Recovery:
+Inserted the correct sha256 (`d273fe37e62858c4e0e0b7e76fb6baa794889e2ed6efbf5f265f83c70d6941db`) into `drizzle.__drizzle_migrations` for `0006_magical_revanche`. `pnpm db:migrate` then completed cleanly. Commit `b108821`.
+
+Rules added to prevent recurrence:
+1. Generated `packages/db/migrations/0NNN_*.sql` files ship ONLY through `pnpm db:migrate`. Hand-written `packages/db/migrations/sql/*.sql` files (idempotent views/constraints) MAY ship via Supabase MCP `apply_migration` — those aren't journaled. Documented in CLAUDE.md → "Drizzle journal hygiene".
+2. Added `pnpm db:check-drift` (`packages/db/src/check-migration-drift.ts`) that compares on-disk migration hashes against the journal. Wired into `.github/workflows/pr-check.yml` so every PR / push to main fails the build on drift. Requires repo secret `PROD_DIRECT_URL`. Commit `35439b2`.
+
 ## 14. Pending work
 
 | Status | Item | Owner/next action |
 |---|---|---|
 | open | `apps/web/app/admin/taxonomy/_actions.ts` approves some proposal types by queueing reclassification work rather than applying it inline. | Keep the actions as-is until the reclassification path is expanded further. |
-| open | Only `.github/workflows/pr-check.yml` exists. There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers deploy` in the release process until workflows are added. |
+| open | Only `.github/workflows/pr-check.yml` exists (build + Drizzle drift check). There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers run deploy` (note: `run` keyword required — `pnpm` reserves the bare `deploy` form for its own subcommand) in the release process until workflows are added. |
 | open | Authentik is mentioned in schema/docs but no Authentik login flow is wired in the app. | Treat Authentik as not implemented. |
 | open | Oversized Vertex file-backed caches require `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` in the runtime env. Without it, the adapter falls back to text-prefix caching only. | Provision the bucket/env in environments that need large-document cache optimization. |
 | open | Vertex Batch Prediction requires `GOOGLE_VERTEX_BATCH_GCS_BUCKET` to be provisioned + the worker SA granted `roles/storage.objectAdmin` on it. | One-time admin task before batch mode can be enabled for Vertex routes. OpenAI batch needs no infrastructure setup. Flip extraction to batch via `/admin/settings` → "Extraction dispatch mode" card. |

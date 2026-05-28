@@ -80,8 +80,10 @@ pnpm --filter @oracle/ai eval:extraction
 1. Edit `packages/db/src/schema.ts`.
 2. Run `pnpm db:generate` if the schema shape changed.
 3. Add a hand-written SQL file under `packages/db/migrations/sql/` if the change needs constraints, RLS, views, or data migration logic.
-4. Run `pnpm db:migrate`.
+4. Run `pnpm db:migrate`. This is the ONLY path that should apply generated `0NNN_*.sql` files — do not use Supabase MCP `apply_migration`, the dashboard SQL editor, or `drizzle-kit push` for those, or the journal drifts (see AGENTS.md incident 2026-05-28).
 5. Update docs if the data model or operations changed.
+
+Useful at any time: `pnpm db:check-drift` compares on-disk migration hashes against `drizzle.__drizzle_migrations` in the live DB and reports any mismatch. CI runs the same check on every push.
 
 Do not edit previously applied migration files.
 
