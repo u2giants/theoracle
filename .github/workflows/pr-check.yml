@@ -65,3 +65,13 @@ jobs:
           DIRECT_URL: postgres://ci:ci@localhost:5432/ci
           OPENROUTER_API_KEY: ci-placeholder-openrouter-key
           TRIGGER_SECRET_KEY: ci-placeholder-trigger-key
+
+      - name: Drizzle journal drift check
+        # Compares on-disk packages/db/migrations/0*.sql hashes against
+        # drizzle.__drizzle_migrations in production. Catches migrations
+        # applied outside `pnpm db:migrate` (e.g. via Supabase MCP, the
+        # dashboard SQL editor, or `drizzle-kit push`).
+        # Skips gracefully when DIRECT_URL secret is missing.
+        run: pnpm -w run db:check-drift
+        env:
+          DIRECT_URL: ${{ secrets.PROD_DIRECT_URL }}

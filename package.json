@@ -12,6 +12,7 @@
     "typecheck": "turbo run typecheck",
     "db:generate": "pnpm --filter @oracle/db generate",
     "db:migrate": "pnpm --filter @oracle/db migrate",
+    "db:check-drift": "pnpm --filter @oracle/db check-drift",
     "db:seed": "pnpm --filter @oracle/db seed",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
   },
