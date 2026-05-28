@@ -28,6 +28,7 @@ const GROUPS: NavGroup[] = [
     label: 'People',
     items: [
       { href: '/admin', label: 'Employees' },
+      { href: '/admin/departments', label: 'Departments' },
       { href: '/admin/channels', label: 'Channels' },
     ],
   },

@@ -24,6 +24,31 @@ export const KNOWLEDGE_DOMAINS = [
 
 export type KnowledgeDomain = (typeof KNOWLEDGE_DOMAINS)[number];
 
+// Org-unit departments. Distinct from KNOWLEDGE_DOMAINS (subject areas the AI
+// tags content with). Departments are an org chart concept: who an employee
+// reports through, who owns a clarification request, who is paged when a
+// claim needs human input. Mirrored in packages/db schema as the `department`
+// Postgres enum, with per-row metadata (display label, head) on the
+// `departments` table.
+//
+// Adding/removing a value requires: (1) edit this const, (2) ALTER TYPE
+// department ADD VALUE … in a new hand-written SQL migration, (3) INSERT the
+// matching row into the `departments` metadata table. Renaming the display
+// label or changing the head is a one-click admin action — no code change.
+export const DEPARTMENTS = [
+  'sales',
+  'design',
+  'licensing',
+  'production',
+  'logistics',
+  'operations',
+  'administrative',
+  'management',
+  'sourcing',
+] as const;
+
+export type Department = (typeof DEPARTMENTS)[number];
+
 export const AUTH_PROVIDERS = [
   'microsoft',
   'google',

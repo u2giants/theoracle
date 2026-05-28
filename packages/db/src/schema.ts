@@ -19,7 +19,7 @@ import {
   varchar,
   customType,
 } from 'drizzle-orm/pg-core';
-import { KNOWLEDGE_DOMAINS, EMBEDDING_DIM } from '@oracle/shared';
+import { DEPARTMENTS, KNOWLEDGE_DOMAINS, EMBEDDING_DIM } from '@oracle/shared';
 
 // ---------------------------------------------------------------------------
 // pgvector column type
@@ -52,6 +52,11 @@ const vector = customType<{
 // ---------------------------------------------------------------------------
 
 export const knowledgeDomainEnum = pgEnum('knowledge_domain', KNOWLEDGE_DOMAINS);
+
+// Org-unit departments. Source list lives in shared/src/domains.ts. The
+// `departments` metadata table (defined below) carries per-row display label,
+// description, and optional head_employee_id.
+export const departmentEnum = pgEnum('department', DEPARTMENTS);
 
 // auth_provider includes the dev-only `magic_link_dev` stub (see DECISIONS.md).
 // Production providers per spec 4.1 are microsoft / google / authentik.
@@ -241,6 +246,41 @@ export const employeeInvites = pgTable('employee_invites', {
   revokedAt: timestamp('revoked_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+// ---------------------------------------------------------------------------
+// Departments — org units. Enum values in `department_enum`; per-row metadata
+// here. `employee_departments` is the many-to-many join (one employee can
+// belong to multiple departments).
+// ---------------------------------------------------------------------------
+
+export const departments = pgTable('departments', {
+  id: departmentEnum('id').primaryKey(),
+  // Human-facing label. Editable in /admin/departments without a migration.
+  displayLabel: varchar('display_label', { length: 120 }).notNull(),
+  description: text('description'),
+  // Optional designated head. Used as the prioritized recipient when a
+  // clarification request routes to this department; falls back to all
+  // members if NULL.
+  headEmployeeId: uuid('head_employee_id').references(() => employees.id, {
+    onDelete: 'set null',
+  }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const employeeDepartments = pgTable(
+  'employee_departments',
+  {
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id, { onDelete: 'cascade' }),
+    departmentId: departmentEnum('department_id')
+      .notNull()
+      .references(() => departments.id, { onDelete: 'cascade' }),
+    addedAt: timestamp('added_at').defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.employeeId, t.departmentId] })],
+);
 
 // ---------------------------------------------------------------------------
 // 6.4 Channels, Documents, Messages, Attachments
