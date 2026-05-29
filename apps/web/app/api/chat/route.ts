@@ -26,6 +26,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { eq, and, inArray } from 'drizzle-orm';
 import { desc } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+import { writeFile, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { stepCountIs, tool } from 'ai';
 import { createServiceRoleClient } from '@oracle/auth/server';
@@ -70,6 +74,12 @@ const BodySchema = z.object({
 });
 
 const FALLBACK_ROUTE_ID = 'anthropic_claude_haiku_4_5_interview_primary';
+
+// Minimum size for routing a chat-attached PDF through the Vertex GCS
+// file-backed cache. Below this, Gemini's explicit-cache minimum-token floor
+// makes caching unprofitable (and risky — see route logic), so we leave small
+// files on the inline path.
+const VERTEX_CHAT_FILE_CACHE_MIN_BYTES = 256 * 1024;
 
 // Lazy singleton OracleAIClient with direct provider adapters (R-providers).
 // Anthropic / Vertex / OpenAI raw SDKs per DECISIONS.md D6 — no Vercel AI
@@ -330,6 +340,57 @@ export async function POST(req: NextRequest) {
   }
 
   const serviceSupabase = createServiceRoleClient();
+
+  // ── 8a. Vertex GCS file-backed cache for a large attached PDF ────────
+  // When the interview route runs on Vertex AND a GCS cache bucket is
+  // configured, cache the most-recent large PDF in the thread as a Gemini
+  // cachedContent prefix (gs:// fileData) instead of re-sending it as base64
+  // on every turn. The conversation turns ride on top of the cache as live
+  // text contents (the adapter preserves multi-turn history on the file-cache
+  // path). When this activates we EXCLUDE inline attachment parts so the doc
+  // is not double-sent; v1 limitation: only this single cached document is
+  // provided to the model, other attachments are not separately inlined.
+  //
+  // Gated on the bucket env: without it the adapter no-ops the file path, so
+  // excluding the inline copy would leave the model with no document at all.
+  const fileCacheEnabled =
+    route.provider === 'vertex' && !!process.env.GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET;
+  let vertexFileCacheSource:
+    | { localPath: string; mimeType: string; fileName: string; sourceHash: string }
+    | undefined;
+  let cachedTempPath: string | undefined;
+  if (fileCacheEnabled) {
+    const candidate = pickCacheablePdf(recent, attachmentMap);
+    if (candidate) {
+      try {
+        const { data: blob, error } = await serviceSupabase.storage
+          .from(candidate.storageBucket)
+          .download(candidate.storagePath);
+        if (error || !blob) {
+          console.warn('[chat] file-cache candidate download failed', candidate.storagePath, error?.message);
+        } else {
+          const buf = Buffer.from(await blob.arrayBuffer());
+          if (buf.length >= VERTEX_CHAT_FILE_CACHE_MIN_BYTES) {
+            cachedTempPath = await materializeVertexCacheTempFile(buf, candidate.fileName);
+            vertexFileCacheSource = {
+              localPath: cachedTempPath,
+              mimeType: candidate.fileType,
+              fileName: candidate.fileName,
+              // `documents` has no content hash column — hash the bytes so the
+              // cache key + GCS object name are stable across turns (enables reuse).
+              sourceHash: createHash('sha256').update(buf).digest('hex'),
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('[chat] file-cache candidate preparation failed', candidate.storagePath, err);
+      }
+    }
+  }
+  // Only exclude inline attachment parts once we are certain the file cache
+  // will carry the document; otherwise keep the existing inline behavior.
+  const excludeInlineAttachments = !!vertexFileCacheSource;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const conversationMessages: any[] = await Promise.all(
     recent
@@ -339,7 +400,7 @@ export async function POST(req: NextRequest) {
         const textContent =
           m.role === 'user' && m.authorName ? `[${m.authorName}] ${m.content}` : m.content;
         const atts = attachmentMap.get(m.id) ?? [];
-        if (atts.length === 0) return { role, content: textContent };
+        if (atts.length === 0 || excludeInlineAttachments) return { role, content: textContent };
 
         type Part =
           | { type: 'text'; text: string }
@@ -445,12 +506,17 @@ export async function POST(req: NextRequest) {
         temperature: 0.4,
         cache: {
           preferLongLivedCache: true,
-          cacheTtlSeconds: 10 * 60,
+          // 30 min when caching an attached document for an active chat;
+          // otherwise the default short interview-context TTL.
+          cacheTtlSeconds: vertexFileCacheSource ? 30 * 60 : 10 * 60,
           expectedReuseCount: 6,
+          // Activates the adapter's explicit file-cache path (Vertex only).
+          preferExplicitCache: !!vertexFileCacheSource,
           persistProviderCacheRecord: route.provider === 'vertex',
           sourceDescription: `channel ${body.channelId} interview context`,
           cleanupOwner: 'chat-route',
           latestPlannedReuseStep: 'interview_chat',
+          vertexFileCacheSource,
           sessionCacheKey:
             qwenSessionKey ?? undefined,
           previousResponseId:
@@ -472,6 +538,12 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     modelError = err instanceof Error ? err.message : String(err);
     console.error('[chat] model error', err);
+  } finally {
+    // The GCS object is reaped by the adapter's cache-TTL sweeper; we only own
+    // the local temp file. Best-effort cleanup.
+    if (cachedTempPath) {
+      await unlink(cachedTempPath).catch(() => undefined);
+    }
   }
 
   // ── 10. Log model_runs + model_run_usage_details + back-link pack ───
@@ -601,6 +673,30 @@ async function resolveInterviewRoute(db: OracleDb): Promise<OracleModelRoute> {
   }
   console.warn(`[chat] default_interview_route unset/unresolvable; using fallback "${FALLBACK_ROUTE_ID}".`);
   return fb;
+}
+
+/**
+ * Pick at most ONE document to route through the Vertex GCS file cache: the
+ * most-recent PDF attachment in the recent-message window. Walks newest→oldest
+ * so an attachment on the latest turn wins.
+ */
+function pickCacheablePdf<T extends { fileType: string }>(
+  recentMessages: Array<{ id: string }>,
+  attachmentMap: Map<string, T[]>,
+): T | null {
+  for (let i = recentMessages.length - 1; i >= 0; i -= 1) {
+    const atts = attachmentMap.get(recentMessages[i]!.id) ?? [];
+    const pdf = atts.find((a) => a.fileType === 'application/pdf');
+    if (pdf) return pdf;
+  }
+  return null;
+}
+
+async function materializeVertexCacheTempFile(buffer: Buffer, fileName: string): Promise<string> {
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const tempPath = join(tmpdir(), `oracle-chat-vertex-cache-${Date.now()}-${safeName}`);
+  await writeFile(tempPath, buffer);
+  return tempPath;
 }
 
 function isVisionCapableRoute(route: OracleModelRoute): boolean {

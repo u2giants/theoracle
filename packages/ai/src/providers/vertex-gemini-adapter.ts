@@ -253,10 +253,19 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
     const hints = getCacheHints(providerOptions);
     const fileCache = await this.prepareExplicitFileCache(plan, modelId, systemPrompt, providerOptions);
     if (fileCache) {
+      // The cached prefix already carries systemInstruction + the file artifact.
+      // For multi-turn chat (interview route), send the FULL conversation as the
+      // live contents on top of the cache so history is preserved. Only collapse
+      // to the single dynamicInput turn when there is no conversation — e.g. a
+      // single-shot text call whose document corpus is the whole input.
+      const liveContents =
+        contents.length > 0
+          ? contents
+          : [{ role: 'user' as const, parts: [{ text: fileCache.dynamicInput }] }];
       return {
         cacheName: fileCache.name,
         omitSystemInstruction: true,
-        contentsForRequest: [{ role: 'user', parts: [{ text: fileCache.dynamicInput }] }],
+        contentsForRequest: liveContents,
         requestUserMessage: fileCache.dynamicInput,
         lifecycleHandle: fileCache.lifecycleHandle,
       };
