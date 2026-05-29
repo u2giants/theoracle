@@ -15,9 +15,9 @@ This file describes the current deploy and release path that exists in the repo 
 ### Web app
 
 1. Push to `main`.
-2. GitHub Actions runs `.github/workflows/pr-check.yml`.
-3. Vercel builds using `vercel.json`.
-4. Vercel deploys the Next.js app.
+2. GitHub Actions runs `.github/workflows/pr-check.yml` (build + verify guards + migration-drift check) for visibility.
+3. Vercel builds using `vercel.json`. The `buildCommand` runs the static verify guards **before** the web build, so a guard failure (or a build failure) fails the Vercel build and **blocks the deploy** — the previous production deployment stays live. This is the hard deploy gate; it lives in Vercel's own build, not in a separate CI deploy step.
+4. Vercel deploys the Next.js app only if that build succeeds.
 
 `vercel.json` is part of the deploy contract:
 
@@ -25,11 +25,13 @@ This file describes the current deploy and release path that exists in the repo 
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "pnpm --filter @oracle/web build",
+  "buildCommand": "pnpm --filter @oracle/ai verify:retrieval-filter-parity && pnpm --filter @oracle/ai verify:vertex-file-cache && pnpm --filter @oracle/web build",
   "installCommand": "pnpm install --frozen-lockfile=false",
   "outputDirectory": "apps/web/.next"
 }
 ```
+
+The verify guards are DB-free and network-free (the Vertex guard stubs its clients), so they run inside the Vercel build with no extra secrets. The migration-drift check is intentionally NOT in the Vercel build — it needs prod DB credentials and stays in `pr-check.yml` as an advisory check.
 
 ### Workers
 
