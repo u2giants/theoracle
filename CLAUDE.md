@@ -63,6 +63,7 @@ Allowed with care:
 - Writing to `extraction_*` / `claims` / `claim_*` tables is fine via the worker code path; never bypass the candidate-before-claim pipeline via direct `INSERT INTO claims`.
 - `pnpm db:seed` is idempotent but writes to real Supabase — explicit ok needed for first run.
 - Direct push to `main` only when Albert explicitly says push.
+- **Branch policy: `main` only.** This is a single-branch repo with no promotion model. Do not create feature/staging/release branches or open routine PRs — commit directly to `main`. See AGENTS.md §12 "Release & CI/CD policy".
 - Adding deps requires a one-line justification in the commit message.
 
 Not allowed without explicit approval:

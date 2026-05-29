@@ -440,6 +440,18 @@ SSH:
 - SSH is not part of the normal deployment path.
 - No VPS/container SSH workflow exists in this repo.
 
+### Release & CI/CD policy (the rules that actually apply here)
+
+This repo is a **managed-platform** deployment — Vercel (web) + Trigger.dev (workers) + Supabase (DB/auth/storage). There are **no containers, no Dockerfiles, no container registry, no Coolify, no production VPS, and no SSH deploy**. Generic container/registry/Coolify/SSH CI-CD rules are therefore **Not Applicable** unless this repo ever adopts a self-hosted containerized model. The rules that DO apply:
+
+- **Single-branch model: work on `main` only.** Do **not** create feature, staging, or release branches, and do not open PRs as a routine workflow — this repo has no promotion model. Commit straight to `main`. (Push to `main` only when Albert says push — see CLAUDE.md.)
+- **One release path, repo-driven:** push to `main` → Vercel builds/deploys the web app from `vercel.json`; workers ship via `pnpm --filter @oracle/workers run deploy`; DB via `pnpm db:migrate`. No alternate routine deploy method.
+- **CI verifies, never deploys.** `pr-check.yml` only builds + runs the static verify guards + checks migration drift. It must not deploy, SSH, mutate production, or publish artifacts.
+- **Repo is authoritative; the platform owns runtime.** Runtime env vars / secrets / domains live in Vercel / Trigger.dev / Supabase — never baked into CI shell commands, images, or committed `.env*` (except `.env.example`).
+- **Schema changes only through the approved migration path** (`pnpm db:migrate` for generated `0NNN_*.sql`; Supabase MCP `apply_migration` for hand-written `sql/*.sql`). Never ad-hoc production schema edits as the normal path.
+- **Traceability:** every production change is auditable from repo commit history + Vercel / Trigger.dev / Supabase deployment history.
+- **Known gap (documented, not silently changed):** Vercel's Git integration deploys the web app on push to `main` independently of `pr-check.yml` success, so CI is currently an advisory gate, not a hard pre-deploy gate. Making it a hard gate is an explicit infra decision; do not change it without Albert's go-ahead.
+
 ## 13. Critical incidents
 
 ### 2026-05-26 Provider-layer regression through a generic SDK abstraction
