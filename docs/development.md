@@ -61,13 +61,29 @@ pnpm --filter @oracle/web build
 If you changed AI runtime logic, also run the relevant deterministic gates:
 
 ```bash
+# OracleAIClient smoke (adapter dispatch, mock providers, fallback)
 pnpm --filter @oracle/ai verify:r2
+
+# Retrieval filter parity — both SQL branches must stay in lockstep (also runs in CI)
+pnpm --filter @oracle/ai verify:retrieval-filter-parity
+
+# Vertex file-cache multi-turn guard — cached prefix must not collapse conversation history (also runs in CI)
+pnpm --filter @oracle/ai verify:vertex-file-cache
+
+# Deterministic extraction/validation/promotion logic
 pnpm --filter @oracle/engines verify:r5
 pnpm --filter @oracle/engines verify:r5.5
 pnpm --filter @oracle/engines verify:r6
 pnpm --filter @oracle/engines verify:r7
+
+# Synthesis diff-validator
 pnpm --filter @oracle/engines verify:r9
+
+# Lull/interjection decision logic
+pnpm --filter @oracle/engines verify:r11.1
 ```
+
+The two guards also run inside Vercel's production build command (`vercel.json` `buildCommand`), so a commit that breaks them will fail the Vercel deploy and leave the previous production deployment live.
 
 If you need the mock extraction eval:
 
@@ -109,7 +125,9 @@ Worker entrypoints live in `apps/workers/src/trigger/`.
 
 Current task files:
 
-- `claim-extraction.ts`
+- `claim-extraction.ts` — sync extraction (runs when `extraction_dispatch_mode = 'sync'`)
+- `claim-extraction-batch-submit.ts` — batch mode: gathers pending messages and submits to provider Batch API (runs when `extraction_dispatch_mode = 'batch'`)
+- `claim-extraction-batch-drain.ts` — batch mode: polls `provider_batch_jobs`, runs validation + promotion on completed batches (always scheduled; handles in-flight batches even if mode flips back to sync)
 - `document-ingestion.ts`
 - `brain-synthesis.ts`
 - `lull-interjection.ts`

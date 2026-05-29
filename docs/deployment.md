@@ -68,17 +68,15 @@ if drift is ever suspected. One such drift was reconciled on 2026-05-28
 
 ## CI workflow that currently exists
 
-Only one workflow is present:
+Only one workflow is present: `.github/workflows/pr-check.yml`
 
-- `.github/workflows/pr-check.yml`
+What it does (in order):
 
-What it does:
-
-- checks out the repo
-- installs `pnpm` 9.5.0
-- uses Node 24
-- runs `pnpm install --frozen-lockfile=false`
-- runs `pnpm --filter @oracle/web build`
+1. Checks out the repo, installs pnpm 9.5.0, uses Node 24, runs `pnpm install --frozen-lockfile=false`.
+2. **Build gate** — `pnpm --filter @oracle/web build`. This is a full production Next.js build (Turbopack); it is the only command that catches Next.js-specific type errors that `pnpm typecheck` alone misses.
+3. **Retrieval filter-parity guard** — `pnpm --filter @oracle/ai verify:retrieval-filter-parity`. DB-free static check that every filter key from `buildPlanMetadataFilters()` is interpolated into both the hybrid and tsvector-fallback SQL branches in `retrieval.ts`.
+4. **Vertex file-cache multi-turn guard** — `pnpm --filter @oracle/ai verify:vertex-file-cache`. DB-free, network-free (clients stubbed). Asserts the file-backed cache path preserves the full conversation as live contents rather than collapsing to a single turn.
+5. **Drizzle journal drift check** — `pnpm -w run db:check-drift`. Compares on-disk migration hashes against `drizzle.__drizzle_migrations` in production. Requires the `PROD_DIRECT_URL` repo secret; skips gracefully if absent.
 
 There is no checked-in workflow for DB migrations or worker deploys.
 

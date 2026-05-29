@@ -4,7 +4,7 @@ name: PR check
 # type errors that the dev server happily ignores fail the Vercel production
 # build. The only command that matches what Vercel runs is the production
 # `next build` — `pnpm typecheck` is NOT a substitute (it skips Next-specific
-# type generation). See AGENTS.md §11 and docs/deployment.md.
+# type generation). See AGENTS.md §12 and docs/deployment.md.
 
 on:
   pull_request:

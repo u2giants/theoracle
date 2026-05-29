@@ -7,7 +7,7 @@ Read `AGENTS.md` first. Everything substantive about repo operation, architectur
 Prefer MCP tools over shell commands when applicable:
 
 - **Supabase MCP** (`mcp__supabase__*`) — direct SQL execution, `apply_migration` for schema changes, `list_tables` / `list_migrations` / `get_advisors`.
-- **Vercel MCP** (`mcp__vercel__*`) — read-only: deployment list, build/runtime logs, project info. **Does NOT support env-var writes.** For writes, use the Vercel REST API directly via PowerShell (pattern documented in `docs/deployment.md`).
+- **Vercel MCP** (`mcp__vercel__*`) — read-only: deployment list, build/runtime logs, project info. **Does NOT support env-var writes or project settings changes.** For env-var writes, use the Vercel dashboard directly or generate a personal access token and call the Vercel REST API.
 - **gh CLI** — installed and authenticated. Use through Bash for PR/issue/release operations.
 - **gcloud CLI** — installed under `%LOCALAPPDATA%\Google\Cloud SDK\google-cloud-sdk\bin\`. Two configurations: `default` (lithe-breaker-323913, unrelated) and `oracle` (vertex-ai-497120, the production GCP project). Use `--project=vertex-ai-497120` or switch configs explicitly.
 
