@@ -73,6 +73,13 @@ jobs:
         # filter to one path, forgot the other" regression.
         run: pnpm --filter @oracle/ai verify:retrieval-filter-parity
 
+      - name: Vertex file-cache multi-turn guard
+        # Static, DB-free + network-free check (the GenAI + Storage clients are
+        # stubbed). Asserts the Vertex file-backed cache path keeps the FULL
+        # multi-turn conversation as live contents instead of collapsing to a
+        # single turn — which would silently erase chat history.
+        run: pnpm --filter @oracle/ai verify:vertex-file-cache
+
       - name: Drizzle journal drift check
         # Compares on-disk packages/db/migrations/0*.sql hashes against
         # drizzle.__drizzle_migrations in production. Catches migrations

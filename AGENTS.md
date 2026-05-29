@@ -418,7 +418,7 @@ Current deployment path:
 How deployment works today:
 
 1. Merge or push to `main`.
-2. GitHub Actions runs `pr-check.yml`: installs dependencies, builds `@oracle/web`, then runs `pnpm db:check-drift` against production (requires the `PROD_DIRECT_URL` repo secret; skips gracefully if absent). Drift in the Drizzle migration journal fails the build.
+2. GitHub Actions runs `pr-check.yml`: installs dependencies, builds `@oracle/web`, runs the static DB-free verify guards (`verify:retrieval-filter-parity`, `verify:vertex-file-cache`), then runs `pnpm db:check-drift` against production (requires the `PROD_DIRECT_URL` repo secret; skips gracefully if absent). Drift in the Drizzle migration journal fails the build.
 3. Vercel auto-deploys the web app from GitHub using `vercel.json`.
 4. Trigger.dev workers are deployed manually with `pnpm --filter @oracle/workers run deploy` (the `run` keyword is required — `pnpm` reserves the bare `deploy` form for its own subcommand).
 5. Database migrations are applied manually with `pnpm db:migrate` before shipping code that depends on them. Hand-written `migrations/sql/*.sql` files MAY be applied via Supabase MCP `apply_migration`; generated `0NNN_*.sql` files MUST go through `pnpm db:migrate` (otherwise the journal drifts — see incident 2026-05-28).
