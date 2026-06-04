@@ -81,7 +81,7 @@ export async function stageEntityProposal(
       ${args.observedInSourceType},
       ${args.observedInSourceId}::uuid,
       'pending',
-      ${args.proposedByModelRunId ?? null}${args.proposedByModelRunId ? '::uuid' : ''},
+      ${args.proposedByModelRunId ? sql`${args.proposedByModelRunId}::uuid` : sql`NULL`},
       1
     )
     RETURNING id
