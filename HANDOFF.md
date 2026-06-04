@@ -1,6 +1,6 @@
-# HANDOFF — Teams transcript ingestion (built, not yet live)
+# HANDOFF — Teams transcript ingestion (live, pending end-to-end test)
 
-Last updated: 2026-06-04. Delete this file once the feature is wired live and verified.
+Last updated: 2026-06-04. Delete this file once the feature is verified end-to-end (real Meet-Now call → messages in DB).
 
 ## What was being built, and why
 
@@ -21,11 +21,7 @@ End-to-end: a transcribed Teams call → Microsoft Graph change-notification sub
 
 ## Partially done / not started
 
-- **Workers NOT deployed to Trigger.dev** (`pnpm --filter @oracle/workers run deploy` not run).
-- **Trigger.dev env NOT set.** The workers need: `AZURE_TENANT_ID`, `AZURE_GRAPH_CLIENT_ID`, `AZURE_GRAPH_CLIENT_SECRET`, `TEAMS_NOTIFICATION_URL=https://oracle.designflow.app/api/teams/notifications`, `TEAMS_NOTIFICATION_PUBLIC_CERT` (base64 DER), `TEAMS_NOTIFICATION_CERT_ID=oracle-teams-adhoc-1`, `TEAMS_WEBHOOK_CLIENT_STATE` (same value as Vercel).
-- **Web NOT redeployed** since the secrets were set → the webhook can't decrypt yet (env vars activate on next deploy).
-- **No live subscription right now** (lapsed; the renewal cron isn't deployed).
-- **Never tested end-to-end with a real call.**
+- **Never tested end-to-end with a real call.** All infrastructure is live; needs a real Meet-Now + transcription test.
 - **Speaker→employee resolution is display-name-only (v1)** — VTT carries display names, not emails/AAD ids; unmatched speakers get `employeeId=null`. AAD-id resolution is a TODO.
 
 ## Decisions made this session (and why)
@@ -42,14 +38,13 @@ End-to-end: a transcribed Teams call → Microsoft Graph change-notification sub
 - The v1.0 subscriptions endpoint rejects this resource; the beta endpoint is required.
 - A "recap" email arriving does NOT mean the developer transcript API can see the call — ad-hoc Meet-Now calls don't appear in `getAllTranscripts` at all (only the subscription catches them).
 
-## Exact next action (ordered)
+## Exact next action
 
-1. **Rotate the leaked secrets** (both were pasted into chat this session): the Azure app client secret (Entra → app → Certificates & secrets) and the Vercel API token used for env writes. Update `AZURE_GRAPH_CLIENT_SECRET` everywhere after rotating.
-2. **Push** is already done for docs + webhook + lint; confirm `3b1c24c` (workers) is on `main`.
-3. **Set the 6 Trigger.dev env vars** listed above. The cert material was generated into a local temp dir `oracle-teams-cert` (`private.pem`, `cert.b64.txt`, `clientState.txt` = `cb3cf30d-56a8-4c40-a832-da9f22867c0a`, `certId.txt` = `oracle-teams-adhoc-1`). If that temp dir is gone, regenerate the keypair (see `.env.example` openssl commands) and re-set both the Vercel private key and the worker public cert from the new pair.
-4. **Deploy workers:** `pnpm --filter @oracle/workers run deploy`. The `teams-subscription-renew` cron will create the subscription within 30 min (or trigger `teams-subscription-manager` once to do it immediately).
-5. **Redeploy `apps/web`** so the two Vercel secrets activate (any push to `main`, or a Vercel redeploy).
-6. **End-to-end test:** start a Teams Meet-Now call **after** the subscription exists, turn transcription **ON**, talk briefly, end it. Watch the webhook receive the notification (Vercel runtime logs) → ingestion worker → new channel + `messages` → claim-extraction picks them up.
+1. **Rotate leaked secrets** (pasted in chat — still pending): Azure app client secret (Entra portal → app `ed0b64b2` → Certificates & secrets) + the Vercel token used for env writes. Update `AZURE_GRAPH_CLIENT_SECRET` in Vercel + Trigger.dev after rotating.
+2. **End-to-end test:** wait up to 30 min for `teams-subscription-renew` cron to fire (or trigger `teams-subscription-manager` manually in Trigger.dev dashboard). Then: start a Teams Meet-Now call **after** the subscription exists, turn transcription **ON**, talk briefly, end it. Watch Vercel runtime logs for the webhook notification → `teams-transcript-ingestion` worker → new channel + `messages` rows → claim-extraction picks them up within 4h.
+3. **Delete this file** once the test passes.
+
+**Cert material** is in `oracle-teams-cert/` (local, not committed): `private.pem` (already in Vercel), `cert.b64.txt` (already in Trigger.dev as `TEAMS_NOTIFICATION_PUBLIC_CERT`). Keep `private.pem` safe — losing it again means regenerating and re-setting both Vercel + Trigger.dev.
 
 ## Risks / unknowns
 
