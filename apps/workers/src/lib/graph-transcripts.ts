@@ -207,3 +207,35 @@ export async function fetchTranscriptVtt(
   }
   return res.text();
 }
+
+/**
+ * Map of lowercased M365 display name -> primary email, for resolving Teams
+ * transcript speakers (VTT carries display names only). Best-effort: returns an
+ * empty map if Graph isn't configured or the call fails, so ingestion can fall
+ * back to display-name matching. One page covers a tenant of a few hundred users.
+ */
+export async function listDisplayNameToEmail(): Promise<Map<string, string>> {
+  const cfg = getConfigOrNull();
+  if (!cfg) return new Map();
+  const token = await getToken(cfg);
+  const map = new Map<string, string>();
+  let url: string | undefined =
+    'https://graph.microsoft.com/v1.0/users?$select=displayName,mail,userPrincipalName&$top=100';
+  while (url) {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) break; // best-effort — caller falls back to name matching
+    const page = (await res.json()) as {
+      value?: Array<{ displayName: string | null; mail: string | null; userPrincipalName: string | null }>;
+      '@odata.nextLink'?: string;
+    };
+    for (const u of page.value ?? []) {
+      const email = (u.mail ?? u.userPrincipalName ?? '').toLowerCase();
+      if (u.displayName && email) map.set(u.displayName.trim().toLowerCase(), email);
+    }
+    url = page['@odata.nextLink'];
+  }
+  return map;
+}

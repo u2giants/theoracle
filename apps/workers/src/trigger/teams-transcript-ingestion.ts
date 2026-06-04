@@ -30,10 +30,11 @@ import {
   channels,
   channelParticipants,
   employees,
+  employeeIdentities,
   jobRuns,
   messages,
 } from '@oracle/db';
-import { fetchTranscriptVtt } from '../lib/graph-transcripts';
+import { fetchTranscriptVtt, listDisplayNameToEmail } from '../lib/graph-transcripts';
 
 interface IngestionPayload {
   resourcePath?: string | null;
@@ -161,9 +162,43 @@ export const teamsTranscriptIngestionTask = task({
         return { ok: true, ...out };
       }
 
-      // Speaker → employee resolution (display-name match; null when unmatched).
-      const emps = await db.select({ id: employees.id, name: employees.name }).from(employees);
-      const byName = new Map(emps.map((e) => [e.name.trim().toLowerCase(), e.id]));
+      // Speaker → employee resolution.
+      // Primary path: VTT display name -> M365 directory email -> employee by
+      // email (employees.email or any employee_identities.email). This mirrors
+      // the auth linker's email-based identity model and is robust to display
+      // names that don't equal employees.name. Fallback: display-name match.
+      const emps = await db
+        .select({ id: employees.id, name: employees.name, email: employees.email })
+        .from(employees);
+      const idents = await db
+        .select({ employeeId: employeeIdentities.employeeId, email: employeeIdentities.email })
+        .from(employeeIdentities);
+      const byName = new Map<string, string>();
+      const byEmail = new Map<string, string>();
+      for (const e of emps) {
+        if (e.name) byName.set(e.name.trim().toLowerCase(), e.id);
+        if (e.email) byEmail.set(e.email.trim().toLowerCase(), e.id);
+      }
+      for (const i of idents) {
+        const key = i.email?.trim().toLowerCase();
+        if (key && !byEmail.has(key)) byEmail.set(key, i.employeeId);
+      }
+      let displayNameToEmail = new Map<string, string>();
+      try {
+        displayNameToEmail = await listDisplayNameToEmail();
+      } catch (err) {
+        console.warn('[teams-transcript-ingestion] directory lookup failed; using name match only', err);
+      }
+      const resolveEmployeeId = (speaker: string | null): string | null => {
+        if (!speaker) return null;
+        const key = speaker.trim().toLowerCase();
+        const email = displayNameToEmail.get(key);
+        if (email) {
+          const viaEmail = byEmail.get(email);
+          if (viaEmail) return viaEmail;
+        }
+        return byName.get(key) ?? null;
+      };
 
       const base = Date.now(); // TODO: anchor to real meeting start when available
       const [channel] = await db
@@ -178,9 +213,7 @@ export const teamsTranscriptIngestionTask = task({
 
       const participantIds = new Set<string>();
       const rows = cues.map((c, i) => {
-        const employeeId = c.speaker
-          ? (byName.get(c.speaker.trim().toLowerCase()) ?? null)
-          : null;
+        const employeeId = resolveEmployeeId(c.speaker);
         if (employeeId) participantIds.add(employeeId);
         return {
           channelId: channel.id,
