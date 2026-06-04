@@ -144,7 +144,7 @@ export const ExtractionClaimSchema = z.object({
   summary: z
     .string()
     .min(10)
-    .max(500)
+    .max(1000)
     .describe(
       'One declarative sentence stating what this claim asserts about company operations. Should be independently comprehensible without the source messages.',
     ),
@@ -201,10 +201,10 @@ export const ExtractionOutputSchema = z.object({
     .describe('All operational claims extracted from this conversation segment. Empty array if no claims found.'),
   segmentSummary: z
     .string()
-    .max(300)
+    .max(2000)
     .optional()
     .describe(
-      'Brief (1–2 sentence) summary of what this conversation segment covered operationally. Omit if the segment was trivial or off-topic.',
+      'Brief (1–2 sentence) summary of what this conversation segment covered operationally. Keep it concise — well under 2000 characters. Omit if the segment was trivial or off-topic.',
     ),
 });
 
