@@ -44,6 +44,13 @@ When in doubt about DB behavior, read:
 - `packages/db/src/schema.ts`
 - `packages/db/migrations/sql/*.sql` (hand-written) and the README in that folder
 
+When in doubt about Teams transcript ingestion, read:
+
+- `docs/architecture.md` § "Teams transcript ingestion" (the data flow + the hard Graph constraints)
+- `apps/web/app/api/teams/notifications/route.ts` + `apps/web/lib/graph-notification-crypto.ts` (the webhook)
+- `apps/workers/src/lib/graph-transcripts.ts` + `apps/workers/src/trigger/teams-*.ts` (subscription manager + ingestion)
+- `AGENTS.md` §10 (why it's after-the-fact, not live) and `HANDOFF.md` (what's left to wire it live)
+
 ## Operations / permissions
 
 Allowed without asking:

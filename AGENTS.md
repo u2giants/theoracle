@@ -63,6 +63,9 @@ Scripts:
 - `scripts/verify-catalog.ts` — provider/model catalog inspection
 - `scripts/refresh-catalog.ts` — model catalog refresh against the real DB
 - `packages/db/src/{migrate,seed,verify-identities,inspect-auth-users}.ts`
+- `scripts/test-teams-transcript-access.ps1` — no-dep PowerShell probe: does the tenant grant the app Teams transcript access?
+- `scripts/diagnose-transcripts.ps1` — tries `getAllTranscripts` variants for an organizer (scheduled meetings only)
+- `scripts/create-adhoc-subscription.ps1` — one-off `adhocCalls/getAllTranscripts` subscription creation (webhook must be live first; the `teams-subscription-manager` worker is the production path)
 
 Migrations:
 
@@ -117,6 +120,7 @@ Specific boundaries:
 | Add or change model catalog filtering | `packages/ai/src/model-capabilities/sources/<provider>.ts` (per-provider source/blocklist), `packages/ai/src/model-capabilities/index.ts` (write-time post-enrichment filters), **`apps/web/app/api/admin/model-catalog/route.ts` `passesQualityFilter` (mirror filter at read time)**, `scripts/refresh-catalog.ts` to verify, `docs/architecture.md`, `DECISIONS.md` | provider inference adapters, route catalog |
 | Reorder or regroup admin nav | `apps/web/app/admin/_components/admin-nav.tsx` (GROUPS array + isActive helper). Layout wrapper stays server-rendered for auth. | `apps/web/app/admin/layout.tsx` other than the AdminNav import — auth still runs there |
 | Change deployment behavior | `vercel.json`, `.github/workflows/pr-check.yml`, `apps/workers/trigger.config.ts`, `docs/deployment.md` | ad hoc dashboard-only assumptions without documenting them |
+| Change Teams transcript ingestion | webhook: `apps/web/app/api/teams/notifications/route.ts` + `apps/web/lib/graph-notification-crypto.ts` + the subscription helpers in `apps/web/lib/microsoft-graph.ts`; workers: `apps/workers/src/trigger/teams-{subscription-manager,transcript-ingestion}.ts` + `apps/workers/src/lib/graph-transcripts.ts`; env in `docs/configuration.md`. Keep the two Graph helper copies in sync (web is reference). | the candidate-before-claim pipeline (ingestion only writes `messages`; never `claims`) |
 
 ## 7. Data model and external identifiers
 
@@ -136,6 +140,11 @@ Specific boundaries:
 | Provider response session table | `provider_response_sessions` | `packages/db/src/schema.ts` | Qwen Responses `previous_response_id` persistence |
 | Model catalog table | `model_capabilities` | schema + model-capability refresh code | Populated from direct providers + OpenRouter enrichment |
 | Provider Batch jobs table | `provider_batch_jobs` | `packages/db/src/schema.ts`, migration `60_batch_jobs.sql` | One row per submitted provider Batch API job (D14). `extraction_batches.provider_batch_job_id` links per-input rows to their batch. `model_runs.dispatch_mode` ∈ `'sync' \| 'batch' \| NULL`. |
+| Entra app (Graph backend) | `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Entra `TheOracle` app | App-only Graph: directory pull + Teams transcripts. Tenant `1caeb1c0-a087-4cb9-b046-a5e22404f971`. |
+| Teams transcript subscription | resource `communications/adhocCalls/getAllTranscripts` | `apps/workers/src/lib/graph-transcripts.ts`, Graph **beta** | The only capture path for ad-hoc calls. ~1h max lifetime; renewed by `teams-subscription-manager`. |
+| Teams webhook | `https://oracle.designflow.app/api/teams/notifications` | `apps/web/app/api/teams/notifications/route.ts` | Graph `notificationUrl` + `lifecycleNotificationUrl`. Must be live before a subscription can be created. |
+| Graph notification cert id | `oracle-teams-adhoc-1` | `TEAMS_NOTIFICATION_CERT_ID` | Self-signed RSA cert; public half encrypts notifications, private half (`TEAMS_NOTIFICATION_PRIVATE_KEY`) decrypts them. |
+| Graph transcript permissions | `OnlineMeetingTranscript.Read.All`, `CallTranscripts.Read.All` | Entra app role assignments | `CallTranscripts.Read.All` (id `4cd61b6d-8692-40bf-9d90-7f38db5e5fce`) is tenant-wide; required for the ad-hoc subscription. Also needs a Teams app access policy. |
 
 Do not casually rename or regenerate these identifiers. They are wired across code, DB, and deployment surfaces.
 
@@ -157,6 +166,7 @@ There are no Docker containers in this repo. Runtime services are fully managed.
 | OpenAI API | Fallback inference and embeddings | OpenAI | external account | `openai` SDK |
 | DeepSeek API | Optional inference provider | DeepSeek | external account | `openai` SDK against `api.deepseek.com` |
 | DashScope | Optional Qwen inference provider | Alibaba | external account | `openai` SDK against `dashscope-us.aliyuncs.com/compatible-mode/v1` |
+| Microsoft Graph | Tenant directory pull (admin onboarding) + Teams call-transcript ingestion. App-only `client_credentials`. | Microsoft Entra | app `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Raw `fetch` (no SDK) — `apps/web/lib/microsoft-graph.ts`, `apps/workers/src/lib/graph-transcripts.ts` |
 
 ## 9. What to ignore
 
@@ -374,6 +384,42 @@ The recurring regression here was adding a narrowing filter to the hybrid path a
 Do not change because:
 Adding a second retrieval path (or a filter to only one branch) reintroduces the exact silent-divergence class the guard exists to prevent. New narrowing fields go in `buildPlanMetadataFilters()` and get interpolated into both branches — nowhere else.
 
+### Teams transcripts arrive after the call, never live — by Microsoft's design
+
+Looks like:
+The Oracle could "sit in" a Teams call and react live, or read the live transcript panel a bot can see on screen.
+
+Actually:
+Microsoft Graph exposes **no** live caption/transcript API, and Teams does not pipe spoken words into the meeting text chat. Transcripts are only available *after* a call ends, and only if transcription was turned on. Ad-hoc "Meet Now" calls are reachable **only** through a `communications/adhocCalls/getAllTranscripts` change-notification subscription (beta endpoint; v1.0 rejects it), which is "listen going forward" — a transcript notifies only if the subscription existed before transcription started.
+
+Why:
+Live spoken awareness would require a media bot (always-on audio-stream infrastructure), which conflicts with this repo's managed-platform, no-VPS/containers posture. After-the-fact ingestion gets the knowledge into the graph without that infrastructure.
+
+Do not change because:
+Building "live" support means standing up media-bot infrastructure and rearchitecting the deployment model. The ingestion path is deliberately post-call. See `docs/architecture.md` § "Teams transcript ingestion".
+
+### The Graph subscription/transcript helper is duplicated on purpose
+
+Looks like:
+`apps/web/lib/microsoft-graph.ts` and `apps/workers/src/lib/graph-transcripts.ts` both implement the app-only token + subscription/transcript calls. Looks like copy-paste that should be a shared package.
+
+Actually:
+`apps/web` (the webhook) and `apps/workers` (the subscription manager + ingestion) are separate runtime processes, and cross-app imports aren't allowed. Both need the same small Graph surface. The web copy (`microsoft-graph.ts`) is the reference; the worker copy is intentionally self-contained.
+
+Do not change because:
+Forcing a shared package for ~150 lines pulls Graph code into a third location and couples the web and worker builds. If they drift, reconcile toward the web copy rather than introducing a shared dependency.
+
+### ESLint config imports eslint-config-next natively, not via FlatCompat
+
+Looks like:
+`apps/web/eslint.config.mjs` imports `eslint-config-next/core-web-vitals` and spreads it directly, instead of the `FlatCompat`-based pattern `create-next-app` generates.
+
+Actually:
+With `eslint-config-next` v16 + ESLint 9, the `FlatCompat` path throws `TypeError: Converting circular structure to JSON` (the bundled react config has a circular `configs` object). v16 ships a native flat-config array, so importing it directly is the working path. The old `.eslintrc.json` + `next lint` were removed (Next 16 dropped the `next lint` subcommand).
+
+Do not change because:
+Reverting to `FlatCompat` reintroduces the circular-structure crash; reverting to `next lint` breaks entirely (`next lint` no longer exists in Next 16).
+
 ## 11. Credentials and environment
 
 | Variable | Purpose | Stored where | Required in dev | Required in prod |
@@ -402,8 +448,13 @@ Adding a second retrieval path (or a filter to only one branch) reintroduces the
 | `AZURE_TENANT_ID` | Entra ID tenant GUID for the Graph backend tenant directory pull | `.env.local`, Vercel | optional | optional |
 | `AZURE_GRAPH_CLIENT_ID` | Entra app (Application) ID — same `TheOracle` app as SSO | `.env.local`, Vercel | optional | optional |
 | `AZURE_GRAPH_CLIENT_SECRET` | Client secret for app-only Graph client_credentials calls. Distinct from the SSO secret (which lives in Supabase). | `.env.local`, Vercel | optional | optional |
+| `TEAMS_NOTIFICATION_PRIVATE_KEY` | PEM key the webhook uses to decrypt Graph transcript notifications | Vercel (webhook) | optional | yes for Teams ingestion |
+| `TEAMS_WEBHOOK_CLIENT_STATE` | Shared secret on every notification (webhook verifies, worker sets) | Vercel + Trigger.dev | optional | yes for Teams ingestion |
+| `TEAMS_NOTIFICATION_URL` | Public webhook URL the worker registers as the subscription target | Trigger.dev | optional | yes for Teams ingestion |
+| `TEAMS_NOTIFICATION_PUBLIC_CERT` | Base64 DER public cert Graph encrypts notifications with | Trigger.dev | optional | yes for Teams ingestion |
+| `TEAMS_NOTIFICATION_CERT_ID` | Identifier for the cert above (`oracle-teams-adhoc-1`) | Trigger.dev | optional | yes for Teams ingestion |
 
-For exact sources and setup notes, read `docs/configuration.md`.
+The Teams transcript app also needs the Graph **Application** permissions `OnlineMeetingTranscript.Read.All` + `CallTranscripts.Read.All` (tenant admin consent) and a Teams application access policy. For exact sources and setup notes, read `docs/configuration.md`.
 
 ## 12. Deployment
 
@@ -539,5 +590,7 @@ Any "this gets cleaned up downstream" comment must point at the specific code pa
 | open | Chat-attachment file-cache (v1) limitations: (1) only ONE PDF per turn is cached; other attachments are not separately inlined while the file cache is active; (2) a cross-provider fallback (Vertex→Anthropic on a transient error) loses the cached document — degraded answer, not an error, logged as a warning. | Acceptable for v1. Hardening = fix Vertex multimodal `buildContents` then keep the attachment inline + dedupe the cached copy in the adapter, and/or constrain a Vertex interview route's fallback to also be Vertex. |
 | open | Vertex `buildContents` collapses each chat turn to a single text part, so inline image/file parts are not translated to `inlineData`/`fileData`. Vertex chat vision is effectively unwired. | Translate AI-SDK parts → Gemini parts. Prerequisite for general Vertex vision and for caching a doc alongside other inline attachments. |
 | open | Vertex Batch Prediction requires `GOOGLE_VERTEX_BATCH_GCS_BUCKET` to be provisioned + the worker SA granted `roles/storage.objectAdmin` on it. | One-time admin task before batch mode can be enabled for Vertex routes. OpenAI batch needs no infrastructure setup. Flip extraction to batch via `/admin/settings` → "Extraction dispatch mode" card. |
+| in progress | **Teams transcript ingestion — built, not wired live.** Webhook + decryption + subscription helpers (commit `a988b4e`); renewal cron + ingestion worker (commit `3b1c24c`). Entra `CallTranscripts.Read.All` + Teams app access policy already granted; the beta subscription was created + proven working once (now lapsed — no renewal cron deployed yet). | See `HANDOFF.md`. Remaining: set Trigger.dev env (`AZURE_*` + `TEAMS_*`), deploy workers, redeploy web so the 2 Vercel secrets activate, then end-to-end test (Meet-Now call w/ transcription on). Speaker→employee match is display-name-only (v1). |
+| open | `pnpm lint` migration surfaced ~10 pre-existing `apps/web` violations the broken script had masked: 2× `react/no-unescaped-entities` (`proposals/_components/proposal-card.tsx`), 2× `react-hooks/set-state-in-effect` (`channel-chat.tsx`, `document-upload.tsx`), ~6 stale `eslint-disable` directives (`api/chat/route.ts`). | Fix in a focused lint-cleanup pass; not blocking (lint isn't in the Vercel build gate). |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.

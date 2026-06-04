@@ -14,8 +14,8 @@ Start here:
 
 ## Repo map
 
-- `apps/web/` — Next.js 16 web app, admin UI, chat route
-- `apps/workers/` — Trigger.dev workers
+- `apps/web/` — Next.js 16 web app, admin UI, chat route, Teams transcript webhook (`/api/teams/notifications`)
+- `apps/workers/` — Trigger.dev workers (claim extraction, doc ingestion, synthesis, contradiction watcher, Teams transcript ingestion + subscription manager)
 - `packages/ai/` — `OracleAIClient`, retrieval, prompts, provider adapters
 - `packages/db/` — Drizzle schema, migrations, seed, DB client
 - `packages/oracle-engines/` — deterministic validation/promotion/synthesis logic

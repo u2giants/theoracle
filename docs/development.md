@@ -91,6 +91,10 @@ If you need the mock extraction eval:
 pnpm --filter @oracle/ai eval:extraction
 ```
 
+### Lint
+
+`pnpm lint` works again as of 2026-06-04. `apps/web` was migrated from `next lint` (removed in Next 16) to the ESLint 9 flat config in `apps/web/eslint.config.mjs`, which imports `eslint-config-next/core-web-vitals` directly (NOT via `FlatCompat` — that hits a circular-structure bug with eslint-config-next v16). Running it currently reports ~10 pre-existing violations (unescaped entities, `react-hooks/set-state-in-effect`, stale `eslint-disable` directives) that the previously-broken script had been masking — see AGENTS.md §14. Lint is NOT part of the Vercel build gate (`vercel.json` runs the verify guards + `build`, not lint).
+
 ## Working on database changes
 
 1. Edit `packages/db/src/schema.ts`.
@@ -134,6 +138,8 @@ Current task files:
 - `contradiction-watcher.ts`
 - `taxonomy-reevaluation.ts`
 - `taxonomy-reclassification.ts`
+- `teams-subscription-manager.ts` — keeps the Teams ad-hoc transcript Graph subscription alive (renew cron `*/30` + webhook-lifecycle repair task). No-ops when the `TEAMS_*`/`AZURE_*` env isn't set.
+- `teams-transcript-ingestion.ts` — webhook-triggered; fetches a call's WebVTT and writes each speaker turn as a `messages` row (extraction_status=pending) in a per-call channel, then the existing `claim-extraction` cron takes over. See `docs/architecture.md` § "Teams transcript ingestion".
 
 Routine expectations:
 
@@ -147,6 +153,9 @@ Routine expectations:
 - `scripts/refresh-catalog.ts` — refreshes `model_capabilities` in the real DB
 - `packages/db/src/verify-identities.ts` — employee/identity inspection
 - `packages/db/src/inspect-auth-users.ts` — Supabase auth user inspection
+- `scripts/test-teams-transcript-access.ps1` — PowerShell probe (no deps); checks whether the tenant grants the app transcript access (token → directory read → transcript read). Reads `AZURE_*` from `.env.local`.
+- `scripts/diagnose-transcripts.ps1` — tries several `getAllTranscripts` variants for a given organizer (proves scheduled-meeting transcripts work; ad-hoc calls won't appear here — that's why ingestion uses a subscription).
+- `scripts/create-adhoc-subscription.ps1` — one-off creation of the `adhocCalls/getAllTranscripts` subscription (needs the webhook deployed first + the cert in the temp dir). The production path is the `teams-subscription-manager` worker, not this script.
 
 ## Current incomplete areas you may encounter
 

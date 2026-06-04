@@ -105,6 +105,18 @@ Use `docs/configuration.md` for the exact variable list.
 - There is no automatic rollback.
 - Ship a compensating migration if a schema/data change must be reversed.
 
+## Teams transcript ingestion (Microsoft Graph)
+
+The webhook (`apps/web/app/api/teams/notifications`) ships with the normal `apps/web` Vercel deploy — no separate step. The two workers (`teams-subscription-manager`, `teams-transcript-ingestion`) ship with the normal `pnpm --filter @oracle/workers run deploy`. To make the feature live (it is built but not yet wired live — see HANDOFF.md / AGENTS.md §14):
+
+1. **Entra permissions (one-time, admin):** grant the app `OnlineMeetingTranscript.Read.All` + `CallTranscripts.Read.All` (Application) and admin-consent. `CallTranscripts.Read.All` is **tenant-wide read of all call transcripts** — a deliberate privacy footprint; it's what the "capture every ad-hoc call" model requires.
+2. **Teams application access policy (one-time, admin, Teams PowerShell):** `New-CsApplicationAccessPolicy -Identity Oracle-Transcripts -AppIds <AZURE_GRAPH_CLIENT_ID>` then `Grant-CsApplicationAccessPolicy -PolicyName Oracle-Transcripts -Global`.
+3. **Vercel env:** `TEAMS_NOTIFICATION_PRIVATE_KEY`, `TEAMS_WEBHOOK_CLIENT_STATE` (Production). Redeploy `apps/web` so the functions pick them up.
+4. **Trigger.dev env:** `AZURE_*`, `TEAMS_NOTIFICATION_URL`, `TEAMS_NOTIFICATION_PUBLIC_CERT`, `TEAMS_NOTIFICATION_CERT_ID`, `TEAMS_WEBHOOK_CLIENT_STATE`. Deploy the workers.
+5. The subscription **cannot be created before the webhook is publicly live** — Graph validates the `notificationUrl` synchronously at create time. Once the worker is deployed, `teams-subscription-manager` creates + renews it automatically (the resource max-lifetime is ~1h; the `*/30` cron keeps it alive — no human re-auth).
+
+Env-var writes to Vercel are done via the Vercel dashboard or the Vercel REST API (the Vercel MCP server is read-only). The Vercel CLI is not installed in this repo's tooling by default.
+
 ## Operational notes
 
 - SSH is not part of the normal release workflow.

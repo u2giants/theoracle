@@ -227,6 +227,43 @@ Adding a sixth provider (e.g. Mistral, xAI) is a contained change:
 
 The DeepSeek+Qwen rollout (commit `c5cea1d`) added ~600 lines across ~17 files using exactly this checklist. Estimate ~half a day for a new provider with a well-behaved SDK; the only hard parts are the provider-specific quirks (system prompt placement, structured output mode, native tool-calling schema, cache lifecycle), which are unavoidable regardless of architecture.
 
+## Teams transcript ingestion (Microsoft Graph)
+
+Pulls Microsoft Teams **call transcripts** into the same evidence pipeline as chat and documents. POP's meetings are all ad-hoc "Meet Now" calls, never scheduled — which constrains the design (see below). Status: **built, not yet wired live** (HANDOFF.md / AGENTS.md §14).
+
+```
+Teams call (transcription ON)
+  ↓  Microsoft publishes a transcript after the call ends
+Microsoft Graph change-notification subscription
+  resource: communications/adhocCalls/getAllTranscripts  (BETA only; v1.0 rejects it)
+  ↓  POST (encrypted) to notificationUrl
+apps/web/app/api/teams/notifications/route.ts   (the "always-on listener", on Vercel)
+  • validation handshake (echo ?validationToken — Graph checks this at create time)
+  • verify clientState, decrypt the rich payload (graph-notification-crypto.ts:
+    RSA-OAEP unwrap → HMAC-SHA256 verify → AES-256-CBC decrypt)
+  • triggerTask('teams-transcript-ingestion', { transcriptContentUrl, meetingId, ... })
+  ↓
+apps/workers/src/trigger/teams-transcript-ingestion.ts
+  • fetch the WebVTT (graph-transcripts.ts:fetchTranscriptVtt)
+  • parseVtt → mergeBySpeaker → one utterance per turn
+  • resolve speaker → employee by display-name (null when unmatched)
+  • INSERT a channel (per call) + channel_participants + messages
+    (role='user', extraction_status='pending', clientMessageId='teams:<transcriptId>:<n>')
+  ↓
+existing claim-extraction cron picks up the pending messages  →  candidate-before-claim
+```
+
+Each utterance becomes a `messages` row (not a `document_chunk`) precisely so it carries speaker attribution (`employeeId`) and verbatim quotes — the same evidence shape as chat. Idempotent: re-running for the same transcript is a no-op (the `clientMessageId` dedupe key). Nothing here writes to `claims` — the normal R5/R6 validators run downstream.
+
+Subscription lifecycle is owned by `teams-subscription-manager.ts`: the `teams-subscription-renew` cron (`*/30`) and a webhook-lifecycle-triggered task both call the idempotent `ensureAdhocSubscription()` (renew if <20 min left, else create). The resource max-lifetime is ~1h, so a machine must keep re-upping it — no human re-authenticates anything.
+
+**Hard constraints (derived from Microsoft Graph, not choices):**
+- **Ad-hoc calls are only reachable via a subscription, and only on beta.** `getAllTranscripts(meetingOrganizerUserId=...)` (used by `diagnose-transcripts.ps1`) enumerates *scheduled* meetings only; ad-hoc "Meet Now" calls never appear there. The subscription is "listen going forward" — a transcript only notifies if the subscription existed *before* transcription started; past calls are unrecoverable.
+- **No live transcript / no live spoken awareness.** Graph exposes no API to read a meeting's live caption/transcript stream, and Teams does not pipe spoken words into the meeting text chat. A bot can read/post the meeting *text* chat live, but understanding the *spoken* call in real time would require a media bot (always-on audio infrastructure) — rejected against this repo's "no VPS/containers" posture. So the Oracle ingests calls *after* they end, not live.
+- **The webhook must be deployed before the subscription can be created** — Graph validates `notificationUrl` synchronously at create time.
+
+The Graph subscription/transcript surface is intentionally duplicated: `apps/web/lib/microsoft-graph.ts` (web/webhook side) and `apps/workers/src/lib/graph-transcripts.ts` (worker side), because apps/web and apps/workers are separate processes and cross-app imports aren't allowed. The web copy is the reference. See AGENTS.md §10.
+
 ## Identity model
 
 One human → one `employees` row → many `employee_identities` rows.
