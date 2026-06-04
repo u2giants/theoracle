@@ -189,8 +189,7 @@ export const teamsTranscriptIngestionTask = task({
       } catch (err) {
         console.warn('[teams-transcript-ingestion] directory lookup failed; using name match only', err);
       }
-      const resolveEmployeeId = (speaker: string | null): string | null => {
-        if (!speaker) return null;
+      const resolveExisting = (speaker: string): string | null => {
         const key = speaker.trim().toLowerCase();
         const email = displayNameToEmail.get(key);
         if (email) {
@@ -199,6 +198,42 @@ export const teamsTranscriptIngestionTask = task({
         }
         return byName.get(key) ?? null;
       };
+
+      // Resolve each distinct speaker once. Bootstrap-create an employee for a
+      // speaker who maps to an @popcre.com directory user but isn't onboarded
+      // yet — mirrors the auth linker's email-based bootstrap. Scoped to
+      // @popcre.com so external/guest participants stay unattributed (null).
+      const resolvedBySpeaker = new Map<string, string | null>();
+      const bootstrapped: string[] = [];
+      const distinctSpeakers = [
+        ...new Set(cues.map((c) => c.speaker).filter((s): s is string => Boolean(s))),
+      ];
+      for (const speaker of distinctSpeakers) {
+        let empId = resolveExisting(speaker);
+        if (!empId) {
+          const email = displayNameToEmail.get(speaker.trim().toLowerCase());
+          if (email && email.endsWith('@popcre.com')) {
+            const [created] = await db
+              .insert(employees)
+              .values({ name: speaker.trim(), email, role: 'Employee' })
+              .onConflictDoNothing({ target: employees.email })
+              .returning({ id: employees.id });
+            if (created) {
+              empId = created.id;
+              bootstrapped.push(email);
+            } else {
+              const [ex] = await db
+                .select({ id: employees.id })
+                .from(employees)
+                .where(eq(employees.email, email))
+                .limit(1);
+              empId = ex?.id ?? null;
+            }
+            if (empId) byEmail.set(email, empId);
+          }
+        }
+        resolvedBySpeaker.set(speaker, empId);
+      }
 
       const base = Date.now(); // TODO: anchor to real meeting start when available
       const [channel] = await db
@@ -213,7 +248,7 @@ export const teamsTranscriptIngestionTask = task({
 
       const participantIds = new Set<string>();
       const rows = cues.map((c, i) => {
-        const employeeId = resolveEmployeeId(c.speaker);
+        const employeeId = c.speaker ? (resolvedBySpeaker.get(c.speaker) ?? null) : null;
         if (employeeId) participantIds.add(employeeId);
         return {
           channelId: channel.id,
@@ -249,6 +284,7 @@ export const teamsTranscriptIngestionTask = task({
         messages: rows.length,
         speakersResolved: participantIds.size,
         speakersTotal: new Set(cues.map((c) => c.speaker)).size,
+        bootstrapped: bootstrapped.length,
       };
       await db
         .update(jobRuns)
