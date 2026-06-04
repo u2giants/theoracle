@@ -32,6 +32,13 @@ Every environment variable, where it comes from, and what fails when it's missin
 | `TEAMS_NOTIFICATION_URL` | Public HTTPS URL of the webhook; the worker registers it as the subscription `notificationUrl`/`lifecycleNotificationUrl`. | `https://oracle.designflow.app/api/teams/notifications` | optional | required for Teams ingestion | Set in **Trigger.dev** (read by the subscription-manager worker). |
 | `TEAMS_NOTIFICATION_PUBLIC_CERT` | Base64 DER of the public cert Graph uses to encrypt notification payloads. | `openssl x509 -outform DER \| base64 -w0` of the cert. | optional | required for Teams ingestion | Set in **Trigger.dev** (the worker passes it as `encryptionCertificate` on create). |
 | `TEAMS_NOTIFICATION_CERT_ID` | Identifier for the cert above; echoed back on each notification. | Any short string. Production: `oracle-teams-adhoc-1`. | optional | required for Teams ingestion | Set in **Trigger.dev**. Must match the cert actually loaded by the webhook. |
+| `RECALL_API_KEY` | Recall.ai API key for creating Teams meeting bots and sending bot chat messages. | Recall.ai dashboard | optional | required for live Teams participation | Set in **Vercel** for `/api/teams/live/start` and **Trigger.dev** for `teams-live-recall-utterance`. |
+| `RECALL_BASE_URL` | Recall.ai region base URL. | Recall.ai region/workspace | optional | required for live Teams participation | Defaults to `https://us-west-2.recall.ai` when unset. Keep Vercel + Trigger.dev aligned. |
+| `RECALL_WEBHOOK_SECRET` | Recall workspace verification secret (`whsec_...`) used to verify real-time transcript webhooks. | Recall.ai dashboard → API keys/secrets | optional | required for live Teams participation | Set in **Vercel**. The webhook rejects unsigned/invalid requests before triggering workers. |
+| `RECALL_REALTIME_WEBHOOK_URL` | Public URL Recall should call for `transcript.data` events. | `https://oracle.designflow.app/api/teams/live/recall` | optional | required for live Teams participation | Used by `/api/teams/live/start` when creating a bot. |
+| `MICROSOFT_BOT_APP_ID` | Azure Bot / Teams app bot App ID. | Azure Bot registration | optional | required to add Oracle from Teams | Set in **Vercel**. The Azure Bot messaging endpoint is `/api/teams/bot/messages`. |
+| `MICROSOFT_BOT_APP_PASSWORD` | Bot client secret/password used by Bot Framework auth. | Azure Bot registration / app registration secret | optional | required to add Oracle from Teams | Set in **Vercel** only. Never expose to the browser. |
+| `MICROSOFT_BOT_TENANT_ID` | Tenant ID for single-tenant Bot Framework auth. | Entra tenant ID | optional | optional | If unset, the bot auth is configured as multi-tenant. |
 
 `.env.local` lives at the **monorepo root**. Next.js, the migration runner, the seed, the smoke runners, and the wet-test runner all load it explicitly via `dotenv` from there. Next.js's default behavior of reading `.env.local` only from the app directory is overridden in `apps/web/next.config.ts`.
 
@@ -180,7 +187,11 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 - `apps/workers/src/trigger/brain-synthesis.ts` — reads `settings.default_synthesis_route`; same three direct adapters.
 - `apps/workers/src/trigger/contradiction-watcher.ts` — reads `settings.default_extraction_route` + `settings.enable_live_contradiction_interjections`; same three direct adapters.
 - `apps/web/app/api/teams/notifications/route.ts` — `TEAMS_WEBHOOK_CLIENT_STATE`, `TEAMS_NOTIFICATION_PRIVATE_KEY` (Teams transcript webhook; runs on Vercel).
+- `apps/web/app/api/teams/live/start/route.ts` — `RECALL_API_KEY`, `RECALL_BASE_URL`, `RECALL_REALTIME_WEBHOOK_URL` (admin-only helper to send a Recall bot into a Teams meeting).
+- `apps/web/app/api/teams/live/recall/route.ts` — `RECALL_WEBHOOK_SECRET` (signed Recall real-time transcript webhook; runs on Vercel and triggers the worker).
+- `apps/web/app/api/teams/bot/messages/route.ts` — `MICROSOFT_BOT_APP_ID`, `MICROSOFT_BOT_APP_PASSWORD`, `MICROSOFT_BOT_TENANT_ID`, `RECALL_API_KEY`, `RECALL_BASE_URL`, `RECALL_REALTIME_WEBHOOK_URL` (Teams-native bot command wrapper; `@The Oracle join <meeting link>` summons the Recall listener).
 - `apps/workers/src/lib/graph-transcripts.ts` — `AZURE_TENANT_ID` / `AZURE_GRAPH_CLIENT_ID` / `AZURE_GRAPH_CLIENT_SECRET`, `TEAMS_NOTIFICATION_URL`, `TEAMS_NOTIFICATION_PUBLIC_CERT`, `TEAMS_NOTIFICATION_CERT_ID`, `TEAMS_WEBHOOK_CLIENT_STATE` (subscription create/renew; read by the `teams-subscription-*` + `teams-transcript-ingestion` tasks on Trigger.dev).
+- `apps/workers/src/lib/recall.ts` + `apps/workers/src/trigger/teams-live-recall-utterance.ts` — `RECALL_API_KEY`, `RECALL_BASE_URL` (posts Oracle questions back to the live Teams meeting chat through Recall).
 - `apps/web/lib/microsoft-graph.ts` — `AZURE_*` (directory pull + the web-side subscription/transcript helpers).
 - `apps/workers/src/wet-test/run-claim-extraction-once.ts` — wet-test driver; validates `DATABASE_URL`/`DIRECT_URL`/`GOOGLE_CLOUD_PROJECT`/`ANTHROPIC_API_KEY`/`OPENAI_API_KEY` before running.
 - `packages/db/src/client.ts` — `DATABASE_URL`.

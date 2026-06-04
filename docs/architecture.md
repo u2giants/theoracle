@@ -259,10 +259,58 @@ Subscription lifecycle is owned by `teams-subscription-manager.ts`: the `teams-s
 
 **Hard constraints (derived from Microsoft Graph, not choices):**
 - **Ad-hoc calls are only reachable via a subscription, and only on beta.** `getAllTranscripts(meetingOrganizerUserId=...)` (used by `diagnose-transcripts.ps1`) enumerates *scheduled* meetings only; ad-hoc "Meet Now" calls never appear there. The subscription is "listen going forward" — a transcript only notifies if the subscription existed *before* transcription started; past calls are unrecoverable.
-- **No live transcript / no live spoken awareness.** Graph exposes no API to read a meeting's live caption/transcript stream, and Teams does not pipe spoken words into the meeting text chat. A bot can read/post the meeting *text* chat live, but understanding the *spoken* call in real time would require a media bot (always-on audio infrastructure) — rejected against this repo's "no VPS/containers" posture. So the Oracle ingests calls *after* they end, not live.
+- **No Graph live transcript / no Graph live spoken awareness.** Graph exposes no API to read a meeting's live caption/transcript stream, and Teams does not pipe spoken words into the meeting text chat. The Graph path therefore ingests calls *after* they end. Live spoken participation is a separate Recall.ai meeting-bot path, not a Graph capability.
 - **The webhook must be deployed before the subscription can be created** — Graph validates `notificationUrl` synchronously at create time.
 
 The Graph subscription/transcript surface is intentionally duplicated: `apps/web/lib/microsoft-graph.ts` (web/webhook side) and `apps/workers/src/lib/graph-transcripts.ts` (worker side), because apps/web and apps/workers are separate processes and cross-app imports aren't allowed. The web copy is the reference. See AGENTS.md §10.
+
+## Teams live participation (Recall.ai)
+
+Adds live Teams meeting awareness without changing the Vercel/Supabase/Trigger.dev infrastructure. Recall.ai owns the meeting bot and audio/STT transport; The Oracle receives finalized transcript utterances and decides whether to ask a short meeting-chat question.
+
+```
+Admin POST /api/teams/live/start { meetingUrl, provider }
+  provider: elevenlabs_streaming first, assembly_ai_v3_streaming fallback
+  ↓
+apps/web/lib/recall.ts creates Recall bot with realtime_endpoints=[/api/teams/live/recall]
+  ↓
+Recall bot joins Teams meeting, transcribes speech live
+  ↓ finalized transcript.data event (not partials)
+apps/web/app/api/teams/live/recall/route.ts
+  • verify Recall whsec_ signature
+  • triggerTask('teams-live-recall-utterance', { event })
+  ↓
+apps/workers/src/trigger/teams-live-recall-utterance.ts
+  • normalize utterance words -> text
+  • create/find per-bot Oracle channel
+  • resolve speaker by email/name when available
+  • insert messages row: role='user', source='teams_live_recall'
+  • keyword gate skips low-signal utterances
+  • interview-route LLM decides whether to ask one short question
+  • rate/cooldown gates via oracle_interventions
+  • Recall send_chat_message posts the question to Teams chat
+```
+
+This path uses finalized utterances only. STT partials are provisional hypotheses while someone is still speaking; acting on them would make Oracle interrupt on half-heard sentences. Post-call Graph transcripts remain the canonical backstop for complete evidence if live bot delivery drops events.
+
+### Teams-native command wrapper
+
+The Recall listener itself cannot be invited from the Teams people picker as an internal employee. To let employees initiate it from Teams, The Oracle also exposes a Bot Framework endpoint:
+
+```
+Teams user adds The Oracle app to a meeting/chat
+  ↓
+@The Oracle join <Teams meeting link>
+  ↓
+Azure Bot Service -> /api/teams/bot/messages
+  • verifies Bot Framework auth via MICROSOFT_BOT_APP_ID/PASSWORD
+  • strips the @mention and parses join/listen/start commands
+  • uses Teams meeting context for joinUrl when available
+  • otherwise asks the user to include the meeting link
+  • creates the Recall live bot
+```
+
+So the user-facing flow originates inside Teams, while the live audio/STT work is still performed by Recall.
 
 ## Identity model
 

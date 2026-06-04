@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/card';
 import { ModelPicker, type ReasoningEffort } from './_components/model-picker';
 import { DispatchModeToggle, type DispatchMode } from './_components/dispatch-mode-toggle';
+import { TeamsLiveBotCard } from './_components/teams-live-bot-card';
 import { STAGE_REQUIREMENTS, type Stage } from '@/lib/stage-requirements';
 
 const EXTRACTION_DISPATCH_MODE_KEY = 'extraction_dispatch_mode';
@@ -196,6 +197,23 @@ export default async function AdminSettingsPage() {
           source of truth.
         </p>
       </header>
+
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardTitle className="text-base">Live Teams meeting bot</CardTitle>
+          <CardDescription className="font-medium text-foreground/70">
+            Bring Oracle into a meeting
+          </CardDescription>
+          <p className="text-sm text-muted-foreground mt-1">
+            Oracle does not appear in the Microsoft Teams people picker yet.
+            Paste a Teams meeting link here and Recall.ai will bring Oracle
+            into the call as a bot participant.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <TeamsLiveBotCard />
+        </CardContent>
+      </Card>
 
       {MODEL_ROLES.map((role) => {
         const currentModel =

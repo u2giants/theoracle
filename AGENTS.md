@@ -143,6 +143,7 @@ Specific boundaries:
 | Entra app (Graph backend) | `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Entra `TheOracle` app | App-only Graph: directory pull + Teams transcripts. Tenant `1caeb1c0-a087-4cb9-b046-a5e22404f971`. |
 | Teams transcript subscription | resource `communications/adhocCalls/getAllTranscripts` | `apps/workers/src/lib/graph-transcripts.ts`, Graph **beta** | The only capture path for ad-hoc calls. ~1h max lifetime; renewed by `teams-subscription-manager`. |
 | Teams webhook | `https://oracle.designflow.app/api/teams/notifications` | `apps/web/app/api/teams/notifications/route.ts` | Graph `notificationUrl` + `lifecycleNotificationUrl`. Must be live before a subscription can be created. |
+| Recall live Teams webhook | `https://oracle.designflow.app/api/teams/live/recall` | `apps/web/app/api/teams/live/recall/route.ts`, `apps/workers/src/trigger/teams-live-recall-utterance.ts` | Optional live meeting path. Recall owns the Teams bot + live STT transport; Oracle receives finalized utterances and can post gated questions back through Recall. |
 | Graph notification cert id | `oracle-teams-adhoc-1` | `TEAMS_NOTIFICATION_CERT_ID` | Self-signed RSA cert; public half encrypts notifications, private half (`TEAMS_NOTIFICATION_PRIVATE_KEY`) decrypts them. |
 | Graph transcript permissions | `OnlineMeetingTranscript.Read.All`, `CallTranscripts.Read.All` | Entra app role assignments | `CallTranscripts.Read.All` (id `4cd61b6d-8692-40bf-9d90-7f38db5e5fce`) is tenant-wide; required for the ad-hoc subscription. Also needs a Teams app access policy. |
 
@@ -384,19 +385,21 @@ The recurring regression here was adding a narrowing filter to the hybrid path a
 Do not change because:
 Adding a second retrieval path (or a filter to only one branch) reintroduces the exact silent-divergence class the guard exists to prevent. New narrowing fields go in `buildPlanMetadataFilters()` and get interpolated into both branches — nowhere else.
 
-### Teams transcripts arrive after the call, never live — by Microsoft's design
+### Microsoft Graph Teams transcripts arrive after the call
 
 Looks like:
 The Oracle could "sit in" a Teams call and react live, or read the live transcript panel a bot can see on screen.
 
 Actually:
-Microsoft Graph exposes **no** live caption/transcript API, and Teams does not pipe spoken words into the meeting text chat. Transcripts are only available *after* a call ends, and only if transcription was turned on. Ad-hoc "Meet Now" calls are reachable **only** through a `communications/adhocCalls/getAllTranscripts` change-notification subscription (beta endpoint; v1.0 rejects it), which is "listen going forward" — a transcript notifies only if the subscription existed before transcription started.
+Microsoft Graph exposes **no** live caption/transcript API, and Teams does not pipe spoken words into the meeting text chat. The Graph transcript path is therefore after-the-fact, and only if transcription was turned on. Ad-hoc "Meet Now" calls are reachable **only** through a `communications/adhocCalls/getAllTranscripts` change-notification subscription (beta endpoint; v1.0 rejects it), which is "listen going forward" — a transcript notifies only if the subscription existed before transcription started.
+
+Live spoken participation now exists through the optional Recall.ai path: Recall provides the meeting bot and STT stream; The Oracle receives finalized `transcript.data` utterances via `/api/teams/live/recall`, writes them as `messages`, and posts only gated questions back to Teams chat through Recall.
 
 Why:
-Live spoken awareness would require a media bot (always-on audio-stream infrastructure), which conflicts with this repo's managed-platform, no-VPS/containers posture. After-the-fact ingestion gets the knowledge into the graph without that infrastructure.
+Native live spoken awareness would require Microsoft media-bot infrastructure. Recall avoids changing Oracle's infrastructure by externalizing the Teams audio/STT transport while keeping Oracle's durable state in Postgres.
 
 Do not change because:
-Building "live" support means standing up media-bot infrastructure and rearchitecting the deployment model. The ingestion path is deliberately post-call. See `docs/architecture.md` § "Teams transcript ingestion".
+Do not confuse the two paths. Graph is post-call evidence/backfill; Recall is live optional participation. Both must still write utterances to `messages` and let candidate-before-claim handle durable knowledge. See `docs/architecture.md` § "Teams transcript ingestion" and § "Teams live participation (Recall.ai)".
 
 ### The Graph subscription/transcript helper is duplicated on purpose
 

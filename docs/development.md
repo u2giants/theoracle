@@ -140,6 +140,7 @@ Current task files:
 - `taxonomy-reclassification.ts`
 - `teams-subscription-manager.ts` — keeps the Teams ad-hoc transcript Graph subscription alive (renew cron `*/30` + webhook-lifecycle repair task). No-ops when the `TEAMS_*`/`AZURE_*` env isn't set.
 - `teams-transcript-ingestion.ts` — webhook-triggered; fetches a call's WebVTT and writes each speaker turn as a `messages` row (extraction_status=pending) in a per-call channel, then the existing `claim-extraction` cron takes over. See `docs/architecture.md` § "Teams transcript ingestion".
+- `teams-live-recall-utterance.ts` — Recall.ai realtime webhook worker. Writes finalized live utterances as `messages`, runs a gated Oracle decision on interesting utterances, and posts short questions back into Teams chat through Recall when allowed.
 
 Routine expectations:
 

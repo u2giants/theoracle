@@ -1,0 +1,60 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.22/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.22",
+  "version": "1.0.0",
+  "id": "REPLACE_WITH_TEAMS_APP_ID",
+  "developer": {
+    "name": "POP Creations / Spruce Line",
+    "websiteUrl": "https://oracle.designflow.app",
+    "privacyUrl": "https://oracle.designflow.app",
+    "termsOfUseUrl": "https://oracle.designflow.app"
+  },
+  "name": {
+    "short": "The Oracle",
+    "full": "The Oracle"
+  },
+  "description": {
+    "short": "Bring The Oracle into live Teams meetings.",
+    "full": "The Oracle can join a Teams meeting through Recall.ai, listen to finalized speech transcript utterances, and ask short clarification questions when it hears operational ambiguity."
+  },
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#2563EB",
+  "bots": [
+    {
+      "botId": "REPLACE_WITH_MICROSOFT_BOT_APP_ID",
+      "scopes": ["personal", "team", "groupChat"],
+      "isNotificationOnly": false,
+      "supportsCalling": false,
+      "supportsVideo": false,
+      "supportsFiles": false,
+      "commandLists": [
+        {
+          "scopes": ["personal", "team", "groupChat"],
+          "commands": [
+            {
+              "title": "join",
+              "description": "Bring Oracle into this Teams meeting. Use: join <meeting link>"
+            },
+            {
+              "title": "listen",
+              "description": "Alias for join."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "validDomains": ["oracle.designflow.app"],
+  "webApplicationInfo": {
+    "id": "REPLACE_WITH_MICROSOFT_BOT_APP_ID",
+    "resource": "api://oracle.designflow.app/REPLACE_WITH_MICROSOFT_BOT_APP_ID"
+  },
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": []
+    }
+  }
+}

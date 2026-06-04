@@ -117,6 +117,28 @@ The webhook (`apps/web/app/api/teams/notifications`) ships with the normal `apps
 
 Env-var writes to Vercel are done via the Vercel dashboard or the Vercel REST API (the Vercel MCP server is read-only). The Vercel CLI is not installed in this repo's tooling by default.
 
+## Teams live participation (Recall.ai)
+
+This is separate from the Microsoft Graph transcript subscription above. Graph remains the post-call evidence/backfill path. Live spoken participation uses a Recall.ai meeting bot because Graph does not expose live Teams caption/transcript streams.
+
+Deploy pieces:
+
+1. **Recall dashboard:** create `RECALL_API_KEY`, add the ElevenLabs key for `elevenlabs_streaming` first, and create a workspace verification secret (`RECALL_WEBHOOK_SECRET`).
+2. **Vercel env:** `RECALL_API_KEY`, `RECALL_BASE_URL`, `RECALL_WEBHOOK_SECRET`, `RECALL_REALTIME_WEBHOOK_URL=https://oracle.designflow.app/api/teams/live/recall`.
+3. **Trigger.dev env:** `RECALL_API_KEY`, `RECALL_BASE_URL`.
+4. Deploy web and workers. Then an admin can `POST /api/teams/live/start` with `{ "meetingUrl": "...", "provider": "elevenlabs_streaming" }`. Use `"assembly_ai_v3_streaming"` as the fallback provider if ElevenLabs quality or integration is not acceptable.
+
+Recall sends finalized `transcript.data` utterances to `/api/teams/live/recall`; that route verifies the Recall signature and triggers `teams-live-recall-utterance`. The worker persists each utterance as a `messages` row (`source='teams_live_recall'`) and only calls the interview model when a cheap keyword gate says the utterance might contain operational knowledge. Oracle questions are rate-limited by the existing interjection settings and posted back with Recall's `send_chat_message` endpoint.
+
+### Add Oracle from Teams
+
+To make this feel native in Teams, register a Microsoft Bot Framework bot and upload the Teams app manifest template at `apps/web/teams-app/oracle/manifest.template.json`.
+
+1. **Azure Bot registration:** create a bot whose Messaging endpoint is `https://oracle.designflow.app/api/teams/bot/messages`.
+2. **Vercel env:** set `MICROSOFT_BOT_APP_ID`, `MICROSOFT_BOT_APP_PASSWORD`, and optionally `MICROSOFT_BOT_TENANT_ID`.
+3. **Teams app package:** copy `manifest.template.json`, replace `REPLACE_WITH_MICROSOFT_BOT_APP_ID` and `REPLACE_WITH_TEAMS_APP_ID`, add Teams PNG icons (`outline.png`, `color.png`), zip the three files, then upload/approve it in Teams Admin Center.
+4. **User flow:** in Teams, add **The Oracle** to the meeting/chat. Type `@The Oracle join <Teams meeting link>`. In meeting scope, plain `@The Oracle join` may work if Teams exposes the join URL through meeting context; otherwise the bot asks for the link.
+
 ## Operational notes
 
 - SSH is not part of the normal release workflow.

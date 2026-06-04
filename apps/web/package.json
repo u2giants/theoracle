@@ -28,6 +28,7 @@
     "@supabase/supabase-js": "^2.47.10",
     "@trigger.dev/sdk": "^4.4.6",
     "ai": "^6.0.187",
+    "botbuilder": "^4.23.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.4.2",
