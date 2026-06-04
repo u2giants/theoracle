@@ -157,6 +157,207 @@ export async function listTenantUsers(): Promise<GraphTenantUser[]> {
   return all;
 }
 
+// ─── Teams ad-hoc transcript subscriptions ──────────────────────────────────
+//
+// Ad-hoc "Meet Now" calls are NOT enumerable after the fact via
+// getAllTranscripts(meetingOrganizerUserId=...) — that only covers *scheduled*
+// meetings. The only way to capture ad-hoc-call transcripts is a standing
+// change-notification subscription to `communications/adhocCalls/getAllTranscripts`.
+//
+// IMPORTANT operational facts (see DECISIONS / memory):
+//   - "Listen going forward" only: a notification fires solely if the
+//     subscription was active BEFORE transcription started. Past calls are gone.
+//   - The resource is currently PREVIEW/beta and per-tenant flighted. If a
+//     create call 4xxs on the v1.0 endpoint, retry against GRAPH_BETA_BASE.
+//   - These notifications REQUIRE includeResourceData:true + an encryption
+//     certificate (transcript content is sensitive; Graph encrypts the payload).
+//   - Subscriptions are short-lived and MUST be renewed before expiry by the
+//     teams-subscription-manager cron, or calls during the gap are lost forever.
+
+const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
+const GRAPH_BETA_BASE = 'https://graph.microsoft.com/beta';
+export const ADHOC_TRANSCRIPTS_RESOURCE =
+  'communications/adhocCalls/getAllTranscripts';
+
+export interface CreateSubscriptionArgs {
+  /** Public HTTPS endpoint that receives change notifications. */
+  notificationUrl: string;
+  /** Public HTTPS endpoint that receives lifecycle (reauth/expiry) pings. */
+  lifecycleNotificationUrl: string;
+  /** Base64 of the X.509 public certificate Graph uses to encrypt payloads. */
+  encryptionCertificate: string;
+  /** Our identifier for the cert above; echoed back on each notification. */
+  encryptionCertificateId: string;
+  /** Secret we set and verify on every inbound notification. */
+  clientState: string;
+  /** Minutes until expiry. Kept conservative; the cron renews well before. */
+  expirationMinutes?: number;
+  /** Force the beta endpoint (preview resource may require it in some tenants). */
+  useBeta?: boolean;
+}
+
+export interface GraphSubscription {
+  id: string;
+  resource: string;
+  expirationDateTime: string;
+  notificationUrl: string;
+}
+
+function subscriptionsUrl(useBeta?: boolean): string {
+  return `${useBeta ? GRAPH_BETA_BASE : GRAPH_BASE}/subscriptions`;
+}
+
+async function graphFetch(
+  url: string,
+  init: RequestInit,
+  cfg: GraphConfig,
+): Promise<Response> {
+  const token = await getAccessToken(cfg);
+  return fetch(url, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+      ...(init.headers ?? {}),
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
+/**
+ * Create the standing subscription for ad-hoc call transcripts. Returns the
+ * subscription id + expiry so the manager can persist and renew it.
+ */
+export async function createAdhocTranscriptSubscription(
+  args: CreateSubscriptionArgs,
+): Promise<GraphSubscription> {
+  const cfg = getGraphConfigOrNull();
+  if (!cfg) throw new GraphNotConfiguredError();
+
+  const expirationDateTime = new Date(
+    Date.now() + (args.expirationMinutes ?? 55) * 60_000,
+  ).toISOString();
+
+  const res = await graphFetch(
+    subscriptionsUrl(args.useBeta),
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        changeType: 'created',
+        resource: ADHOC_TRANSCRIPTS_RESOURCE,
+        notificationUrl: args.notificationUrl,
+        lifecycleNotificationUrl: args.lifecycleNotificationUrl,
+        includeResourceData: true,
+        encryptionCertificate: args.encryptionCertificate,
+        encryptionCertificateId: args.encryptionCertificateId,
+        clientState: args.clientState,
+        expirationDateTime,
+      }),
+    },
+    cfg,
+  );
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(
+      `Graph subscription create failed (${res.status}): ${detail.slice(0, 800)}`,
+    );
+  }
+  const data = (await res.json()) as GraphSubscription;
+  return data;
+}
+
+/** Extend an existing subscription's lifetime. Called by the renewal cron. */
+export async function renewSubscription(
+  subscriptionId: string,
+  expirationMinutes = 55,
+  useBeta?: boolean,
+): Promise<GraphSubscription> {
+  const cfg = getGraphConfigOrNull();
+  if (!cfg) throw new GraphNotConfiguredError();
+  const expirationDateTime = new Date(
+    Date.now() + expirationMinutes * 60_000,
+  ).toISOString();
+
+  const res = await graphFetch(
+    `${subscriptionsUrl(useBeta)}/${subscriptionId}`,
+    { method: 'PATCH', body: JSON.stringify({ expirationDateTime }) },
+    cfg,
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(
+      `Graph subscription renew failed (${res.status}): ${detail.slice(0, 500)}`,
+    );
+  }
+  return (await res.json()) as GraphSubscription;
+}
+
+/** List current subscriptions (used to reconcile / avoid duplicates). */
+export async function listSubscriptions(
+  useBeta?: boolean,
+): Promise<GraphSubscription[]> {
+  const cfg = getGraphConfigOrNull();
+  if (!cfg) throw new GraphNotConfiguredError();
+  const res = await graphFetch(subscriptionsUrl(useBeta), { method: 'GET' }, cfg);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(
+      `Graph subscription list failed (${res.status}): ${detail.slice(0, 500)}`,
+    );
+  }
+  const data = (await res.json()) as { value: GraphSubscription[] };
+  return data.value ?? [];
+}
+
+/** Delete a subscription (cleanup / rotation). */
+export async function deleteSubscription(
+  subscriptionId: string,
+  useBeta?: boolean,
+): Promise<void> {
+  const cfg = getGraphConfigOrNull();
+  if (!cfg) throw new GraphNotConfiguredError();
+  const res = await graphFetch(
+    `${subscriptionsUrl(useBeta)}/${subscriptionId}`,
+    { method: 'DELETE' },
+    cfg,
+  );
+  if (!res.ok && res.status !== 404) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(
+      `Graph subscription delete failed (${res.status}): ${detail.slice(0, 500)}`,
+    );
+  }
+}
+
+/**
+ * Fetch the raw transcript content (WebVTT) for a callTranscript resource.
+ * `transcriptResourcePath` is the Graph path delivered in the notification,
+ * e.g. "users/{id}/onlineMeetings/{id}/transcripts/{id}".
+ */
+export async function getTranscriptVtt(
+  transcriptResourcePath: string,
+): Promise<string> {
+  const cfg = getGraphConfigOrNull();
+  if (!cfg) throw new GraphNotConfiguredError();
+  const token = await getAccessToken(cfg);
+  const path = transcriptResourcePath.replace(/^\/+/, '');
+  const res = await fetch(
+    `${GRAPH_BASE}/${path}/content?$format=text/vtt`,
+    {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'text/vtt' },
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(
+      `Graph transcript content fetch failed (${res.status}): ${detail.slice(0, 500)}`,
+    );
+  }
+  return res.text();
+}
+
 /** For tests / one-off scripts. Clears the in-memory token cache. */
 export function _resetGraphTokenCache(): void {
   cachedToken = null;
