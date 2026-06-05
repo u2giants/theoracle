@@ -496,3 +496,14 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Why**: Microsoft Graph still has no live Teams transcript stream. Native Microsoft app-hosted media bots would require an infrastructure exception. Recall externalizes the media/STT layer while The Oracle keeps its source-of-truth and validation architecture unchanged.
 - **Scope rule**: Live utterances are evidence-shaped `messages` rows, not claims. They enter candidate-before-claim like every other message. Post-call Graph transcript ingestion remains the canonical backstop for complete transcripts.
 - **Safety rule**: The worker ignores STT partials and acts only on finalized `transcript.data` utterances. It applies a cheap keyword gate before calling the interview model, then uses the existing interjection cooldown/rate-cap settings before posting.
+
+## D-transcript-fuzzy-quote — fuzzy quote match for spoken transcripts (2026-06-04)
+
+- **Decision**: `validateQuote` gains an opt-in `allowFuzzy` path. After strict verbatim + normalized matching fail, if the model quote's content tokens overlap the source utterance by >= `fuzzyMinOverlap` (default 0.5), accept as `normalized_match` (method `fuzzy_token_overlap`) and anchor the stored evidence to the REAL source utterance text, not the model's paraphrase. Enabled only on the message/transcript path (`claim-extraction.ts`); documents stay strict.
+- **Why**: First real conversation to hit extraction was a Teams call. Spoken transcripts are disfluent and the model paraphrases them, so the polished quote never appears verbatim — strict matching rejected ~every transcript claim. Product-owner call (2026-06-04) to loosen for spoken sources.
+- **Auditability**: deterministic token check (no LLM grader), and evidence stays a real transcript span — only the "model must reproduce verbatim" requirement is relaxed. Partially overrides the "no fuzzy" note in quote-validator.ts / docs/oracle/03. Knobs: fuzzyMinOverlap (0.5), >=4-token floor.
+
+## D-raw-transcripts — persist raw VTT for re-runnability (2026-06-04)
+
+- **Decision**: Persist each call's raw WebVTT in `raw_transcripts` at ingestion (idempotent on transcript_id). Hand-written `migrations/sql/62_raw_transcripts.sql`; worker uses raw `sql`, not in schema.ts.
+- **Why**: `messages` are a lossy transform (merged turns, resolved speakers, dropped timing) and Microsoft expires ad-hoc transcripts. Raw VTT keeps the whole pipeline re-runnable from true source for iterative fine-tuning.

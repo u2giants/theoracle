@@ -10,6 +10,8 @@ Prefer MCP tools over shell commands when applicable:
 - **Vercel MCP** (`mcp__vercel__*`) — read-only: deployment list, build/runtime logs, project info. **Does NOT support env-var writes or project settings changes.** For env-var writes, use the Vercel dashboard directly or generate a personal access token and call the Vercel REST API.
 - **gh CLI** — installed and authenticated. Use through Bash for PR/issue/release operations.
 - **gcloud CLI** — installed under `%LOCALAPPDATA%\Google\Cloud SDK\google-cloud-sdk\bin\`. Two configurations: `default` (lithe-breaker-323913, unrelated) and `oracle` (vertex-ai-497120, the production GCP project). Use `--project=vertex-ai-497120` or switch configs explicitly.
+- **Trigger.dev MCP** (`mcp__trigger__*`) — `list_runs`, `get_run_details`, `trigger_task`, `wait_for_run_to_complete`, `deploy`. Prod project ref `proj_wgpzsvhmsopqhvwqaycn`, environment `prod`. Used to inspect/trigger workers and deploy from this machine.
+- **Ad-hoc DB queries (when the Supabase MCP isn't connected):** the Supabase CLI (scoop) is authenticated; its token is in Windows Credential Manager target `Supabase CLI:supabase` (read via a `CredRead` P/Invoke). Run SQL through the Management API: `POST https://api.supabase.com/v1/projects/vokucjpanhvqunimlvsp/database/query` with `{ "query": "…" }` and `Authorization: Bearer <sbp_…>`. theoracle Supabase ref = `vokucjpanhvqunimlvsp`. This is for reads/diagnostics; schema changes still follow the Drizzle journal rules below.
 
 ## Context loading protocol
 

@@ -44,3 +44,6 @@ packages/db/migrations/meta/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Teams notification cert material (PRIVATE KEY — never commit)
+oracle-teams-cert/

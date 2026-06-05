@@ -264,6 +264,15 @@ Subscription lifecycle is owned by `teams-subscription-manager.ts`: the `teams-s
 
 The Graph subscription/transcript surface is intentionally duplicated: `apps/web/lib/microsoft-graph.ts` (web/webhook side) and `apps/workers/src/lib/graph-transcripts.ts` (worker side), because apps/web and apps/workers are separate processes and cross-app imports aren't allowed. The web copy is the reference. See AGENTS.md §10.
 
+**Status: LIVE + validated end-to-end (2026-06-04/05).** Real call → 95 speaker-attributed messages → claims. Refinements made while validating on real data:
+
+- **Speaker resolution is email-based.** VTT display name → M365 directory email (Graph `/users`) → employee by `employees.email` or `employee_identities.email`; an unmatched `@popcre.com` speaker bootstraps a provisional employee. (`employees.name` often differs from the transcript display name, so name-matching alone failed.)
+- **Quote validation is fuzzy on the message/transcript path** (`validateQuote` `allowFuzzy`), strict on documents — spoken transcripts are paraphrased, so verbatim matching rejected nearly everything. Deterministic token-overlap; evidence anchored to the real utterance. See AGENTS.md §10 and DECISIONS.md D-transcript-fuzzy-quote.
+- **Raw VTT is persisted** in `raw_transcripts` (hand-written `migrations/sql/62_raw_transcripts.sql`) at ingestion, so the pipeline is re-runnable from true source after Microsoft expires the transcript.
+- **`TRIGGER_SECRET_KEY` in Vercel must be the prod key** or webhook-triggered ingestion lands in the dev env and expires (AGENTS.md §13, 2026-06-04).
+
+A separate **live** capture path also exists (`bfd6612`): a Recall.ai bot joins the call for real-time STT (`apps/web/app/api/teams/{live,bot}/*`, worker `teams-live-recall-utterance.ts`), externalizing the media layer that Graph and the no-VPS posture rule out. Live utterances enter the same candidate-before-claim pipeline as `messages`. See DECISIONS.md.
+
 ## Teams live participation (Recall.ai)
 
 Adds live Teams meeting awareness without changing the Vercel/Supabase/Trigger.dev infrastructure. Recall.ai owns the meeting bot and audio/STT transport; The Oracle receives finalized transcript utterances and decides whether to ask a short meeting-chat question.

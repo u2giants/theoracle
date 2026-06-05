@@ -423,6 +423,34 @@ With `eslint-config-next` v16 + ESLint 9, the `FlatCompat` path throws `TypeErro
 Do not change because:
 Reverting to `FlatCompat` reintroduces the circular-structure crash; reverting to `next lint` breaks entirely (`next lint` no longer exists in Next 16).
 
+### Quote validation is fuzzy for transcripts, strict for documents
+
+Looks like:
+`validateQuote` has an `allowFuzzy` path that accepts a quote when its tokens merely *overlap* the source — contradicting the "deterministic verbatim provenance / no fuzzy match" principle in `docs/oracle/03` and the comment at the top of `quote-validator.ts`.
+
+Actually:
+Spoken Teams transcripts are disfluent and the extraction model paraphrases them, so the polished claim quote never appears verbatim in any utterance — strict matching rejected ~every transcript-derived claim. The fuzzy path (opt-in, enabled only on the message/transcript path in `claim-extraction.ts`; documents stay strict) is a **deterministic** token-overlap check (no LLM grader) and anchors the stored evidence to the **real** utterance text, not the model's paraphrase. See `DECISIONS.md` D-transcript-fuzzy-quote.
+
+Why:
+Without it the entire Teams-transcript feature produces zero promotable claims. Provenance is preserved as "this real utterance supports this claim" rather than "the model copied these exact words."
+
+Do not change because:
+Reverting to strict-only re-breaks transcript extraction. If tightening is wanted, raise `fuzzyMinOverlap` or restrict `allowFuzzy` to transcript-sourced messages — don't remove it.
+
+### `raw_transcripts` is hand-written SQL, not in schema.ts
+
+Looks like:
+`raw_transcripts` (the original VTT per call) is missing from `packages/db/src/schema.ts`, and the ingestion worker reads/writes it with raw `sql` instead of Drizzle.
+
+Actually:
+It's defined only in the hand-written `packages/db/migrations/sql/62_raw_transcripts.sql` (idempotent `CREATE TABLE IF NOT EXISTS`), like the observability views. Keeping it out of `schema.ts` avoids a drizzle-kit drift entry for an ancillary raw-storage table the typed query layer never needs.
+
+Why:
+The VTT is stored so the whole pipeline stays re-runnable from true source after Microsoft expires the transcript (`messages` are a lossy transform). See `DECISIONS.md` D-raw-transcripts.
+
+Do not change because:
+Adding it to `schema.ts` would make drizzle-kit want to generate a migration for an already-applied hand-written table (drift). Leave it as hand-written SQL.
+
 ## 11. Credentials and environment
 
 | Variable | Purpose | Stored where | Required in dev | Required in prod |
@@ -580,6 +608,23 @@ Made the rollback symmetric and timing-aware. The submit task now tracks `staged
 Rule added to prevent recurrence:
 Any "this gets cleaned up downstream" comment must point at the specific code path doing the cleanup. If no such code exists, do the cleanup inline.
 
+### 2026-06-04 Webhook dispatched to the wrong Trigger.dev environment (near-miss)
+
+What happened:
+The Teams transcript webhook called `tasks.trigger('teams-transcript-ingestion')`, but the run landed in the **dev** Trigger.dev environment and **expired** (TTL 10m, never executed) — while the workers are deployed to **prod**. The first real call was silently lost.
+
+Impact:
+Transcript ingestion appeared to work (subscription fired, webhook received + decrypted the notification correctly — confirmed by the decrypted payload on the expired dev run) but produced no messages. Unlike document-ingestion (saved by its 4h sweep cron), transcripts have no sweep, so the call was unrecoverable.
+
+Root cause:
+Vercel's `TRIGGER_SECRET_KEY` was a **dev** environment key. The Trigger.dev SDK routes a trigger to whatever environment the key belongs to. Dev tasks only run when a local `trigger.dev dev` session is connected — none was — so the run sat for its TTL and expired.
+
+Recovery:
+Set Vercel Production `TRIGGER_SECRET_KEY` to the **prod** secret key + redeployed `apps/web`; re-triggered the same transcript in prod via the Trigger MCP → resolved 2/2.
+
+Rule added to prevent recurrence:
+Vercel's `TRIGGER_SECRET_KEY` MUST be the prod-environment secret key. Any `tasks.trigger()` from the web app dispatches to the key's environment; a dev key silently drops production work.
+
 ## 14. Pending work
 
 | Status | Item | Owner/next action |
@@ -593,7 +638,11 @@ Any "this gets cleaned up downstream" comment must point at the specific code pa
 | open | Chat-attachment file-cache (v1) limitations: (1) only ONE PDF per turn is cached; other attachments are not separately inlined while the file cache is active; (2) a cross-provider fallback (Vertex→Anthropic on a transient error) loses the cached document — degraded answer, not an error, logged as a warning. | Acceptable for v1. Hardening = fix Vertex multimodal `buildContents` then keep the attachment inline + dedupe the cached copy in the adapter, and/or constrain a Vertex interview route's fallback to also be Vertex. |
 | open | Vertex `buildContents` collapses each chat turn to a single text part, so inline image/file parts are not translated to `inlineData`/`fileData`. Vertex chat vision is effectively unwired. | Translate AI-SDK parts → Gemini parts. Prerequisite for general Vertex vision and for caching a doc alongside other inline attachments. |
 | open | Vertex Batch Prediction requires `GOOGLE_VERTEX_BATCH_GCS_BUCKET` to be provisioned + the worker SA granted `roles/storage.objectAdmin` on it. | One-time admin task before batch mode can be enabled for Vertex routes. OpenAI batch needs no infrastructure setup. Flip extraction to batch via `/admin/settings` → "Extraction dispatch mode" card. |
-| in progress | **Teams transcript ingestion — deployed, pending end-to-end test.** All infrastructure live as of 2026-06-04: webhook active + decrypting, workers deployed (`20260604.1`), `teams-subscription-renew` cron running (*/30 min), all env vars set in Vercel + Trigger.dev. Next subscription auto-creates within 30 min of workers coming up. | See `HANDOFF.md`. Remaining: (1) rotate leaked Azure client secret + Vercel token; (2) end-to-end test — Meet-Now call w/ transcription on → messages in DB; (3) delete HANDOFF.md. Speaker→employee match is display-name-only (v1). |
+| done | **Teams transcript ingestion — LIVE + validated end-to-end (2026-06-04/05).** Real Meet-Now call → subscription → webhook → ingestion → 95 messages, `speakersResolved 2/2`. Workers `20260605.1`. Speaker resolution now email-based (`fbb82cd`) + bootstrap-by-email for `@popcre.com` (`e73868b`); 38 employees seeded. | No action — feature works. Fuzzy quote matching (`89d2fd9`) + raw_transcripts persistence added. |
+| open | **Extraction gates hold most claims on a fresh system** (not a bug): entity registry is empty → new entities (people, systems, RFQ…) are unresolved → claim **held** + entity queued as `entity_proposals`; `domain_valid` fails when proposed domains don't map to active top-domains; impact≥7 claims → `pending_review`. | Seed the entity registry + active `knowledge_top_domains` to let claims flow. Touches the review/safety model — get owner sign-off before loosening. See HANDOFF.md. |
+| open | **Synthesis never demonstrated** — needs ≥1 approved claim; 4 sit in `pending_review`. | Approve a claim (SQL or admin) → trigger `brain-synthesis` → confirm Brain narrative. |
+| in progress | **Recall.ai live Teams bot path** (`bfd6612`, separate parallel work): `apps/web/app/api/teams/{live,bot}/*` + `teams-live-recall-utterance.ts` worker + `botbuilder` dep. Externalizes live media/STT so the Oracle can interject during a call in real time. | Not verified this session. See DECISIONS.md (D-recall…) before changing. |
+| open | **Secret rotation still pending** — Azure app client secret + the Vercel API token were pasted into chat in prior sessions. | Rotate both; update `AZURE_GRAPH_CLIENT_SECRET` in Vercel + Trigger.dev. |
 | open | `pnpm lint` migration surfaced ~10 pre-existing `apps/web` violations the broken script had masked: 2× `react/no-unescaped-entities` (`proposals/_components/proposal-card.tsx`), 2× `react-hooks/set-state-in-effect` (`channel-chat.tsx`, `document-upload.tsx`), ~6 stale `eslint-disable` directives (`api/chat/route.ts`). | Fix in a focused lint-cleanup pass; not blocking (lint isn't in the Vercel build gate). |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.
