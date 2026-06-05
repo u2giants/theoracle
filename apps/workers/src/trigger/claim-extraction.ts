@@ -648,10 +648,20 @@ export async function processSegmentOutput(
       continue;
     }
 
-    // R5 — quote validation.
+    // R5 — quote validation. Messages (incl. Teams-transcript utterances) get a
+    // lenient policy: normalize whitespace/quotes, plus a fuzzy fallback that
+    // tolerates the model paraphrasing disfluent speech while still anchoring
+    // the evidence to the real utterance. See DECISIONS.md D-transcript-fuzzy-quote.
     const quoteRes = validateQuote({
       sourceText: sourceMsg.content,
       exactQuoteProvided: extracted.evidence.exactQuote,
+      normalizationPolicy: {
+        allowCRLF: true,
+        allowSmartQuotes: true,
+        allowWhitespaceCollapse: true,
+        allowLeadingTrailingTrim: true,
+      },
+      allowFuzzy: true,
     });
     await db
       .update(extractionCandidateEvidence)

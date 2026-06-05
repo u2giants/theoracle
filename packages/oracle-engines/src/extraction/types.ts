@@ -70,6 +70,7 @@ export type ValidationMethod =
   | 'normalized_whitespace'
   | 'normalized_trim'
   | 'normalized_combined'
+  | 'fuzzy_token_overlap'
   | 'none';
 
 export interface ValidateQuoteInput {
@@ -86,6 +87,18 @@ export interface ValidateQuoteInput {
   charEndProvided?: number;
   /** Optional normalization controls. Defaults to strict verbatim. */
   normalizationPolicy?: NormalizationPolicy;
+  /**
+   * Opt-in fuzzy fallback for messy spoken transcripts, where the model
+   * paraphrases disfluent speech rather than reproducing it verbatim. When the
+   * provided quote's content tokens sufficiently overlap the source utterance,
+   * the match is accepted and the evidence is anchored to the REAL source text
+   * (the full utterance), NOT the model's paraphrase — so provenance still
+   * points at real spoken words. OFF by default; document sources stay strict.
+   * See DECISIONS.md D-transcript-fuzzy-quote.
+   */
+  allowFuzzy?: boolean;
+  /** Minimum fraction of quote content-tokens that must appear in the source. Default 0.5. */
+  fuzzyMinOverlap?: number;
 }
 
 export interface QuoteValidationResult {

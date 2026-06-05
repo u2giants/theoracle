@@ -190,6 +190,38 @@ export function validateQuote(input: ValidateQuoteInput): QuoteValidationResult 
     }
   }
 
+  // ── 4. Fuzzy fallback (opt-in via allowFuzzy). For messy spoken transcripts
+  // the model paraphrases disfluent speech, so verbatim/normalized matching
+  // fails even when the claim genuinely came from this utterance. We accept the
+  // match when the quote's content tokens sufficiently overlap the source, and
+  // anchor the evidence to the REAL source text (the full utterance) rather than
+  // the model's paraphrase — provenance still points at actual spoken words.
+  // This is a deterministic token check (no LLM grader). See
+  // DECISIONS.md D-transcript-fuzzy-quote.
+  if (input.allowFuzzy) {
+    const minOverlap = input.fuzzyMinOverlap ?? 0.5;
+    const tokenize = (s: string): string[] => s.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+    const quoteTokens = tokenize(exactQuoteProvided);
+    const sourceTokens = new Set(tokenize(sourceText));
+    if (quoteTokens.length >= 4 && sourceTokens.size > 0) {
+      const present = quoteTokens.filter((t) => sourceTokens.has(t)).length;
+      const overlap = present / quoteTokens.length;
+      if (overlap >= minOverlap) {
+        return {
+          verdict: 'normalized_match',
+          validationStatus: 'normalized_match',
+          validationMethod: 'fuzzy_token_overlap',
+          validatedExactQuote: sourceText,
+          validatedCharStart: 0,
+          validatedCharEnd: sourceText.length,
+          detail: `Fuzzy match: ${present}/${quoteTokens.length} quote tokens (${Math.round(
+            overlap * 100,
+          )}%) present in the source utterance; evidence anchored to the full source utterance.`,
+        };
+      }
+    }
+  }
+
   return {
     verdict: 'failed',
     validationStatus: 'failed',

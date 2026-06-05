@@ -246,6 +246,16 @@ export const teamsTranscriptIngestionTask = task({
         .returning({ id: channels.id });
       if (!channel) throw new Error('failed to create channel for transcript');
 
+      // Persist the raw VTT so the entire pipeline (parsing → messages →
+      // extraction → synthesis) stays re-runnable from true source even after
+      // Microsoft expires the transcript. The `messages` rows are already a
+      // lossy transform (merged turns, resolved speakers); this is the raw.
+      await db.execute(sql`
+        insert into raw_transcripts (channel_id, call_id, transcript_id, vtt)
+        values (${channel.id}::uuid, ${payload.callId ?? null}, ${transcriptId}, ${vtt})
+        on conflict (transcript_id) do nothing
+      `);
+
       const participantIds = new Set<string>();
       const rows = cues.map((c, i) => {
         const employeeId = c.speaker ? (resolvedBySpeaker.get(c.speaker) ?? null) : null;
