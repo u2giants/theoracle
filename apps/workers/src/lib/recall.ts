@@ -1,4 +1,4 @@
-const DEFAULT_RECALL_BASE_URL = 'https://us-west-2.recall.ai';
+const DEFAULT_RECALL_BASE_URL = 'https://us-east-1.recall.ai';
 
 function recallBaseUrl(): string {
   return (process.env.RECALL_BASE_URL ?? DEFAULT_RECALL_BASE_URL).replace(/\/+$/, '');

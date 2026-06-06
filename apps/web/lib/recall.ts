@@ -12,7 +12,7 @@ export interface RecallCreateBotArgs {
 }
 
 function recallBaseUrl(): string {
-  return (process.env.RECALL_BASE_URL ?? 'https://us-west-2.recall.ai').replace(/\/+$/, '');
+  return (process.env.RECALL_BASE_URL ?? 'https://us-east-1.recall.ai').replace(/\/+$/, '');
 }
 
 function recallApiKey(): string {
