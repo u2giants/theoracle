@@ -123,7 +123,7 @@ This is separate from the Microsoft Graph transcript subscription above. Graph r
 
 Deploy pieces:
 
-1. **Recall dashboard:** create `RECALL_API_KEY`, add the ElevenLabs key for `elevenlabs_streaming` first, and create a workspace verification secret (`RECALL_WEBHOOK_SECRET`).
+1. **Recall dashboard (one-time):** obtain `RECALL_API_KEY` from the workspace API keys page. Create a workspace verification secret if one does not yet exist; the value starts with `whsec_`. Optionally add an ElevenLabs API key in the Recall workspace for `elevenlabs_streaming` quality. POP Creations workspace is US East (N. Virginia) — use `https://us-east-1.recall.ai` as the base URL.
 2. **Vercel env:** `RECALL_API_KEY`, `RECALL_BASE_URL`, `RECALL_WEBHOOK_SECRET`, `RECALL_REALTIME_WEBHOOK_URL=https://oracle.designflow.app/api/teams/live/recall`.
 3. **Trigger.dev env:** `RECALL_API_KEY`, `RECALL_BASE_URL`.
 4. Deploy web and workers. Then an admin can `POST /api/teams/live/start` with `{ "meetingUrl": "...", "provider": "elevenlabs_streaming" }`. Use `"assembly_ai_v3_streaming"` as the fallback provider if ElevenLabs quality or integration is not acceptable.

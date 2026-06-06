@@ -14,6 +14,33 @@ There is no universal ignore-file standard across AI coding tools.
 
 When using any other AI tool, paste this file as your first message and follow the instructions in the "What to ignore" section.
 
+## Documentation map: what to read for each task
+
+Always start with `AGENTS.md`. Then load additional docs only when relevant — do not bulk-read every `.md` file.
+
+| Task / question | Read these docs | Usually do not need |
+|---|---|---|
+| Quick repo orientation | `README.md`, `AGENTS.md` | Deep `docs/` unless task requires them |
+| Modify app behavior (chat, extraction, synthesis, admin UI) | `AGENTS.md`, `docs/architecture.md` if system design is affected | `docs/deployment.md` unless deploy behavior changes |
+| Add or change AI provider adapter or model catalog | `AGENTS.md`, `docs/architecture.md` (adapter table + data flow), provider files under `packages/ai/src/providers/`, `DECISIONS.md` | Worker or webhook code |
+| Add or change configuration, env vars, feature flags, secrets | `AGENTS.md` §11, `docs/configuration.md`, `docs/deployment.md` if prod/runtime env is affected | Unrelated architecture docs |
+| Change dev scripts, test/lint/debug workflow, or package scripts | `AGENTS.md`, `docs/development.md` | `docs/deployment.md` unless CI/CD changes |
+| Change deployment, CI/CD, Vercel release, Trigger.dev deploy, rollback | `AGENTS.md` §12, `docs/deployment.md`, `docs/configuration.md` | Local-only development docs |
+| Change database schema, migrations, models, or data flow | `AGENTS.md`, `docs/architecture.md`, `packages/db/src/schema.ts` | Deployment docs unless rollout behavior changes |
+| Add or change a worker task | `AGENTS.md` §6 task-to-file, `apps/workers/src/trigger/`, `docs/architecture.md` if data flow changes | Front-end app code unless there is a matching UI/API hook |
+| Change Teams transcript ingestion (Graph path) | `AGENTS.md` §6 + §10 quirks, `docs/architecture.md` §"Teams transcript ingestion" | Recall docs unless both paths are affected |
+| Change Recall.ai live bot path | `AGENTS.md` §6 + §10 quirks, `docs/architecture.md` §"Teams live participation (Recall.ai)" | Microsoft Graph Teams ingestion docs |
+| Investigate a bug or incident | `AGENTS.md` §13 (critical incidents), docs for the affected area, `HANDOFF.md` if present | Unrelated folder-level READMEs |
+| Continue unfinished work | `AGENTS.md`, `HANDOFF.md`, docs named inside `HANDOFF.md` | Docs unrelated to the handoff scope |
+| Claude Code session | `CLAUDE.md`, then `AGENTS.md` | Other docs unless task requires them |
+| Documentation-only cleanup | `AGENTS.md`, `README.md`, affected `docs/`, `HANDOFF.md` if present | Source files except to verify accuracy |
+
+Rules:
+- MUST be task-based.
+- MUST NOT become a flat list of every Markdown file.
+- Read `HANDOFF.md` whenever it exists — it captures what is in-progress or unfinished.
+- `docs/oracle/` — deeper AI-retrofit reference material; only read when the task touches the AI-retrofit spec directly.
+
 ## 3. Repository structure
 
 This is a `pnpm` + `turbo` TypeScript monorepo.
@@ -144,6 +171,7 @@ Specific boundaries:
 | Teams transcript subscription | resource `communications/adhocCalls/getAllTranscripts` | `apps/workers/src/lib/graph-transcripts.ts`, Graph **beta** | The only capture path for ad-hoc calls. ~1h max lifetime; renewed by `teams-subscription-manager`. |
 | Teams webhook | `https://oracle.designflow.app/api/teams/notifications` | `apps/web/app/api/teams/notifications/route.ts` | Graph `notificationUrl` + `lifecycleNotificationUrl`. Must be live before a subscription can be created. |
 | Recall live Teams webhook | `https://oracle.designflow.app/api/teams/live/recall` | `apps/web/app/api/teams/live/recall/route.ts`, `apps/workers/src/trigger/teams-live-recall-utterance.ts` | Optional live meeting path. Recall owns the Teams bot + live STT transport; Oracle receives finalized utterances and can post gated questions back through Recall. |
+| Recall.ai workspace | `f2f8cedc-6d28-4fd2-8d06-402b74d65bcc` (POP Creations) | Recall.ai dashboard | US East (N. Virginia), API v1.11, base URL `https://us-east-1.recall.ai`. Do not use the `us-west-2` endpoint — wrong region for this workspace. |
 | Graph notification cert id | `oracle-teams-adhoc-1` | `TEAMS_NOTIFICATION_CERT_ID` | Self-signed RSA cert; public half encrypts notifications, private half (`TEAMS_NOTIFICATION_PRIVATE_KEY`) decrypts them. |
 | Graph transcript permissions | `OnlineMeetingTranscript.Read.All`, `CallTranscripts.Read.All` | Entra app role assignments | `CallTranscripts.Read.All` (id `4cd61b6d-8692-40bf-9d90-7f38db5e5fce`) is tenant-wide; required for the ad-hoc subscription. Also needs a Teams app access policy. |
 
@@ -484,6 +512,13 @@ Adding it to `schema.ts` would make drizzle-kit want to generate a migration for
 | `TEAMS_NOTIFICATION_URL` | Public webhook URL the worker registers as the subscription target | Trigger.dev | optional | yes for Teams ingestion |
 | `TEAMS_NOTIFICATION_PUBLIC_CERT` | Base64 DER public cert Graph encrypts notifications with | Trigger.dev | optional | yes for Teams ingestion |
 | `TEAMS_NOTIFICATION_CERT_ID` | Identifier for the cert above (`oracle-teams-adhoc-1`) | Trigger.dev | optional | yes for Teams ingestion |
+| `RECALL_API_KEY` | Recall.ai API key — creates Teams meeting bots and sends bot chat messages | Vercel + Trigger.dev | optional | yes for live Teams participation |
+| `RECALL_WEBHOOK_SECRET` | `whsec_…` signature secret — verifies real-time `transcript.data` webhooks from Recall | Vercel | optional | yes for live Teams participation |
+| `RECALL_BASE_URL` | Recall.ai region endpoint. POP Creations workspace is `https://us-east-1.recall.ai` | Vercel + Trigger.dev | optional | yes for live Teams participation |
+| `RECALL_REALTIME_WEBHOOK_URL` | Public URL Recall calls for `transcript.data` events (set per-bot at create time) | Vercel | optional | yes for live Teams participation |
+| `MICROSOFT_BOT_APP_ID` | Azure Bot Framework app ID — enables `@The Oracle join` command from inside Teams | Vercel | optional | required for Teams-native bot |
+| `MICROSOFT_BOT_APP_PASSWORD` | Bot Framework client secret | Vercel | optional | required for Teams-native bot |
+| `MICROSOFT_BOT_TENANT_ID` | Tenant ID for single-tenant Bot Framework auth; omit for multi-tenant | Vercel | optional | optional |
 
 The Teams transcript app also needs the Graph **Application** permissions `OnlineMeetingTranscript.Read.All` + `CallTranscripts.Read.All` (tenant admin consent) and a Teams application access policy. For exact sources and setup notes, read `docs/configuration.md`.
 
@@ -641,8 +676,8 @@ Vercel's `TRIGGER_SECRET_KEY` MUST be the prod-environment secret key. Any `task
 | done | **Teams transcript ingestion — LIVE + validated end-to-end (2026-06-04/05).** Real Meet-Now call → subscription → webhook → ingestion → 95 messages, `speakersResolved 2/2`. Workers `20260605.1`. Speaker resolution now email-based (`fbb82cd`) + bootstrap-by-email for `@popcre.com` (`e73868b`); 38 employees seeded. | No action — feature works. Fuzzy quote matching (`89d2fd9`) + raw_transcripts persistence added. |
 | open | **Extraction gates hold most claims on a fresh system** (not a bug): entity registry is empty → new entities (people, systems, RFQ…) are unresolved → claim **held** + entity queued as `entity_proposals`; `domain_valid` fails when proposed domains don't map to active top-domains; impact≥7 claims → `pending_review`. | Seed the entity registry + active `knowledge_top_domains` to let claims flow. Touches the review/safety model — get owner sign-off before loosening. See HANDOFF.md. |
 | open | **Synthesis never demonstrated** — needs ≥1 approved claim; 4 sit in `pending_review`. | Approve a claim (SQL or admin) → trigger `brain-synthesis` → confirm Brain narrative. |
-| in progress | **Recall.ai live Teams bot path** (`bfd6612`, separate parallel work): `apps/web/app/api/teams/{live,bot}/*` + `teams-live-recall-utterance.ts` worker + `botbuilder` dep. Externalizes live media/STT so the Oracle can interject during a call in real time. | Not verified this session. See DECISIONS.md (D-recall…) before changing. |
-| open | **Secret rotation still pending** — Azure app client secret + the Vercel API token were pasted into chat in prior sessions. | Rotate both; update `AZURE_GRAPH_CLIENT_SECRET` in Vercel + Trigger.dev. |
+| open | **Recall.ai live Teams bot path — wired but not end-to-end tested.** Code committed (`bfd6612`); region bug fixed (`4219c66`, default now `us-east-1`); env vars set in Vercel (`RECALL_API_KEY`, `RECALL_WEBHOOK_SECRET`, `RECALL_BASE_URL`, `RECALL_REALTIME_WEBHOOK_URL`) and Trigger.dev (`RECALL_API_KEY`, `RECALL_BASE_URL`); workers deployed v20260606.1; webhook responding at production URL (signature verification confirmed). | End-to-end test: `POST https://oracle.designflow.app/api/teams/live/start` with a real Teams meeting URL → admit bot → speak → confirm `messages` row with `source='teams_live_recall'` and optional Oracle question posted to meeting chat. See `docs/deployment.md` § "Teams live participation" and DECISIONS.md before changing behavior. |
+| open | **Secret rotation — CRITICAL.** Three secrets exposed in chat sessions: (1) Azure app client secret (prior session); (2) Vercel API token (prior session); (3) `RECALL_API_KEY` + `RECALL_WEBHOOK_SECRET` (2026-06-06 session). | Rotate in Recall dashboard → update `RECALL_API_KEY` + `RECALL_WEBHOOK_SECRET` in Vercel + Trigger.dev. Rotate Azure client secret in Entra → update `AZURE_GRAPH_CLIENT_SECRET` in Vercel + Trigger.dev. Revoke Vercel API token in Vercel account settings. |
 | open | `pnpm lint` migration surfaced ~10 pre-existing `apps/web` violations the broken script had masked: 2× `react/no-unescaped-entities` (`proposals/_components/proposal-card.tsx`), 2× `react-hooks/set-state-in-effect` (`channel-chat.tsx`, `document-upload.tsx`), ~6 stale `eslint-disable` directives (`api/chat/route.ts`). | Fix in a focused lint-cleanup pass; not blocking (lint isn't in the Vercel build gate). |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.
