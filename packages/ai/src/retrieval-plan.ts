@@ -119,14 +119,14 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
       'dropbox', 'box ', 'notion', 'airtable', 'monday', 'asana', 'trello',
       // File / data operations
       'upload', 'sync', 'database', 'export', 'import', 'integration',
-      'api', 'automat', 'workflow', 'process automation',
+      'api', 'automat', 'process automation',
       // Asset types
-      'image', 'photo', 'file', 'template', 'barcode', 'label', 'report',
+      'image', 'photo', 'template', 'barcode', 'label', 'report',
       'document', 'spreadsheet',
       // Access / credentials
       'password', 'login', 'log in', 'sign in', 'account', 'credentials',
       'two-factor', '2fa', 'sso', 'access to', 'permission', 'user account',
-      'folder', 'drive', 'shared folder',
+      'drive',
       // Common IT question patterns
       'how does the system', 'how does it work', 'where do i',
     ],
@@ -237,11 +237,38 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
     ],
   },
   {
+    domainId: 'design_file_operations',
+    keywords: [
+      // File hygiene and storage
+      'file naming', 'filename', 'file name', 'name files', 'naming convention',
+      'invalid character', 'invalid characters', 'special character',
+      'slash', 'backslash', 'colon', 'asterisk', 'question mark',
+      'save files', 'saving files', 'save as', 'working file', 'source file',
+      'final file', 'native file', 'packaged file', 'archive file',
+      'organize files', 'folder structure', 'folder naming', 'shared folder',
+      'server folder', 'file server', 'design server', 'nas', 'network drive', 'sharepoint folder',
+      // Design-app file size and linking practices
+      'bloated', 'file size', 'large file', 'huge file', 'compress',
+      'flatten', 'linked asset', 'linked assets', 'embedded asset',
+      'embedded assets', 'missing link', 'missing links', 'package links',
+      'collect for output', 'placed image', 'high res', 'resolution',
+      // Creative file formats and handoff artifacts
+      'psd', 'ai file', 'illustrator file', 'photoshop file',
+      'indesign file', 'idml', 'pdf export', 'export settings',
+      'artwork file', 'art files', 'design files', 'designer file', 'designer files',
+      'creative files', 'proof file', 'print file', 'production art file',
+      // Versioning and cleanup
+      'version file', 'file version', 'v1', 'v2', 'revision file',
+      'duplicate file', 'old files', 'cleanup files', 'clean up files',
+      'archive folder', 'archive files',
+    ],
+  },
+  {
     domainId: 'production_lifecycle',
     keywords: [
       // Stages
       'pre-production', 'pre production', 'preproduction', 'production stage',
-      'bulk', 'mass production', 'post-sale',
+      'before production', 'production workflow', 'bulk', 'mass production', 'post-sale',
       // Sample stages
       'top sample', 'top of production', 'bulk sample', 'production sample',
       'final sample', 'counter sample',
@@ -392,12 +419,13 @@ export function buildRetrievalPlanFromQuery(
       | 'processStageHints'
       | 'precomputedVector'
       | 'departmentHints'
+      | 'excludedTopDomains'
     >
   >,
 ): RetrievalPlan {
   const q = query.toLowerCase();
 
-  const topDomainHints: string[] =
+  const inferredTopDomainHints: string[] =
     opts?.topDomainHints && opts.topDomainHints.length > 0
       ? opts.topDomainHints.slice(0, 3)
       : inferTopDomains(q);
@@ -412,6 +440,16 @@ export function buildRetrievalPlanFromQuery(
       ? opts.excludedDocumentClasses
       : inferDocumentClassExclusions(q);
 
+  const excludedTopDomains: string[] =
+    opts?.excludedTopDomains && opts.excludedTopDomains.length > 0
+      ? opts.excludedTopDomains
+      : inferTopDomainExclusions(q, inferredTopDomainHints);
+
+  const topDomainHints =
+    excludedTopDomains.length > 0
+      ? inferredTopDomainHints.filter((d) => !excludedTopDomains.includes(d)).slice(0, 3)
+      : inferredTopDomainHints;
+
   const searchScope: RetrievalPlanSearchScope =
     topDomainHints.length > 0 ? 'domain_filtered' : 'global_fallback';
 
@@ -420,7 +458,7 @@ export function buildRetrievalPlanFromQuery(
     requiredEntities: opts?.requiredEntities ?? [],
     excludedDocumentClasses: excludedDocumentClasses.length > 0 ? excludedDocumentClasses : undefined,
     excludedEntityTypes: excludedEntityTypes.length > 0 ? excludedEntityTypes : undefined,
-    excludedTopDomains: undefined,
+    excludedTopDomains: excludedTopDomains.length > 0 ? excludedTopDomains : undefined,
     processStageHints: opts?.processStageHints,
     timeFilter: opts?.timeFilter ?? 'current',
     vectorQuery: query,
@@ -545,4 +583,24 @@ function inferDocumentClassExclusions(query: string): string[] {
     }
   }
   return Array.from(excluded);
+}
+
+function inferTopDomainExclusions(query: string, topDomainHints: string[]): string[] {
+  if (!topDomainHints.includes('design_file_operations')) return [];
+
+  const looksLikeFileOps =
+    [
+      'file naming', 'filename', 'file name', 'invalid character', 'save files',
+      'saving files', 'bloated', 'file size', 'folder structure', 'shared folder',
+      'server folder', 'design server', 'linked asset', 'embedded asset',
+      'missing link', 'package links', 'artwork file', 'design files',
+      'designer files', 'creative files',
+    ].some((k) => query.includes(k));
+
+  if (!looksLikeFileOps) return [];
+
+  // File-operations questions are about keeping creative files usable, small,
+  // compatible, and findable. They should not silently drift into product
+  // approval/status workflow unless the user asks that workflow question.
+  return ['product_development', 'production_lifecycle', 'it_systems'];
 }

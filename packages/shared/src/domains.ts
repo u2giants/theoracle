@@ -163,6 +163,7 @@ export const TOP_LEVEL_DOMAINS = [
   'licensing_approvals',
   'product_development',
   'creative_design',
+  'design_file_operations',
   'supply_chain',
   'it_systems',
   'production_lifecycle',

@@ -53,8 +53,8 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `13_extraction_constraints.sql` | R4 — value-whitelist + consistency CHECKs across the candidate-before-claim staging tables: `extraction_batches` status/batch_type + non-negative counters, `extraction_candidates` status/stance/impact/confidence + promoted/duplicate/sensitive consistency rules, `extraction_candidate_evidence` source-type/pointer consistency (mirrors spec 6.8) + validation_status + validated-fields-required-on-pass rule + offset ordering, `extraction_validation_results` check_name/status + target-present rule. |
 | `14_claims_candidate_hash_unique.sql` | R7 — partial UNIQUE index on `claims.candidate_hash WHERE candidate_hash IS NOT NULL`. Enforces "no two distinct claims share the same canonicalized hash" across cron runs, while leaving historic pre-R7 rows (where the hash is NULL) untouched. |
 | `15_employee_identities.sql` | DDL for the `employee_identities` table (multi-identity support — DECISIONS.md D2). |
-| `16_knowledge_top_domains_seed.sql` | R3.5 — idempotent seed of the 12 top-level domains with boundary rules (belongs-here / does-not-belong-here / common entities / default exclusions / neighboring domains). ON CONFLICT DO NOTHING so admin edits aren't clobbered. |
-| `17_entities_seed.sql` | R3.5 — idempotent seed of the canonical entity registry: 5 customers, 5 licensors, 10 systems, 8 departments, 4 geographies, 14 process stages, 10 document classes. |
+| `16_knowledge_top_domains_seed.sql` | R3.5 — idempotent seed of the 13 top-level domains with boundary rules (belongs-here / does-not-belong-here / common entities / default exclusions / neighboring domains). ON CONFLICT DO NOTHING so admin edits aren't clobbered. |
+| `17_entities_seed.sql` | R3.5 — idempotent seed of the canonical entity registry: 5 customers, 5 licensors, 12 systems, 8 departments, 4 geographies, 14 process stages, 10 document classes. |
 | `20_rls_helpers.sql` | `current_employee_id()`, `current_employee_is_admin()` — both join through `employee_identities`. |
 | `21_rls_policies.sql` | All RLS policies — employees, channels, messages, documents, intelligence tables, settings, employee_identities. |
 | `30_admin_views.sql` | The seven admin views from spec Part 8 (`claims_with_primary_evidence`, etc.). |
@@ -65,6 +65,7 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `48_taxonomy_vector_indexes.sql` | R3.5 — HNSW index on `knowledge_sub_topics.centroid`. Always-on (not opt-in like 99) because the table is empty on install per the activation-threshold rule. |
 | `49_security_hardening.sql` | Closes Supabase advisor findings: forces all admin views to `SECURITY INVOKER`, adds admin-only RLS policies for the R3/R3.5/R4 tables, revokes EXECUTE on SECURITY DEFINER helpers from anon/authenticated, pins `provider_cached_content_touch_updated_at` search_path. |
 | `50_enable_live_contradiction_interjections.sql` | R11.3 — flips `settings.enable_live_contradiction_interjections` to `true`. Live posting is gated by the full `decideContradictionInterjection` stack (severity=high + confidence≥80 + cooldown + rate cap + suggested question). Idempotent. |
+| `63_design_file_operations_domain.sql` | Adds the `design_file_operations` top domain, narrows neighboring Creative/Product/IT bootstrap boundaries when they still match the original seed, and re-tags legacy `artwork_files` claims into the new domain. |
 | `99_vector_indexes.sql` | HNSW indexes on `claims.embedding` and `document_chunks.embedding`. Opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`. |
 
 ## Anti-patterns

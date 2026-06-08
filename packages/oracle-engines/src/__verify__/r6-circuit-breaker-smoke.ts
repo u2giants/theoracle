@@ -137,7 +137,7 @@ function main() {
       ['shipping_documents', 'logistics_shipping'],
       ['coldlion', 'it_systems'],
       ['design', 'creative_design'],
-      ['artwork_files', 'creative_design'],
+      ['artwork_files', 'design_file_operations'],
       ['sampling', 'product_development'],
       ['production', 'production_lifecycle'],
       ['quality_control', 'production_lifecycle'],
@@ -158,15 +158,16 @@ function main() {
   {
     const got = mapLegacyDomainsToTopDomains([
       'design',
-      'artwork_files', // collides with design → creative_design
+      'artwork_files',
       'sales',
       'customers', // collides with sales → customer_ops
       'production',
     ] as never);
-    assert(got.length === 3, 'B2 deduplicates collisions');
+    assert(got.length === 4, 'B2 preserves distinct design and file-operation domains');
     assert(got[0] === 'creative_design', 'B2 keeps insertion order: creative_design first');
-    assert(got[1] === 'customer_ops', 'B2 customer_ops second');
-    assert(got[2] === 'production_lifecycle', 'B2 production_lifecycle third');
+    assert(got[1] === 'design_file_operations', 'B2 design_file_operations second');
+    assert(got[2] === 'customer_ops', 'B2 customer_ops third');
+    assert(got[3] === 'production_lifecycle', 'B2 production_lifecycle fourth');
   }
 
   // B3: empty input → empty output

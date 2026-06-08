@@ -271,7 +271,8 @@ export async function POST(req: NextRequest) {
           .describe(
             'Optional list of top-level domain IDs to restrict the search ' +
               '(e.g. it_systems, licensing_approvals, customer_ops, supply_chain, ' +
-              'logistics_shipping, product_development, production_lifecycle, ' +
+              'logistics_shipping, product_development, creative_design, ' +
+              'design_file_operations, production_lifecycle, ' +
               'import_compliance, finance_pricing, people_org). Leave empty to search all.',
           ),
         limit: z.number().int().min(1).max(20).optional(),

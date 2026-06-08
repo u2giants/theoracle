@@ -166,6 +166,7 @@ Specific boundaries:
 | Provider cache table | `provider_cached_content` | `packages/db/src/schema.ts` | Explicit Vertex cache lifecycle + provider metadata |
 | Provider response session table | `provider_response_sessions` | `packages/db/src/schema.ts` | Qwen Responses `previous_response_id` persistence |
 | Model catalog table | `model_capabilities` | schema + model-capability refresh code | Populated from direct providers + OpenRouter enrichment |
+| Design file operations domain | `design_file_operations` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from product/design workflow. Covers designer file naming, invalid characters, server folders, file-size reduction, linked assets, packaging, versioning, archive, and handoff file hygiene. |
 | Provider Batch jobs table | `provider_batch_jobs` | `packages/db/src/schema.ts`, migration `60_batch_jobs.sql` | One row per submitted provider Batch API job (D14). `extraction_batches.provider_batch_job_id` links per-input rows to their batch. `model_runs.dispatch_mode` ∈ `'sync' \| 'batch' \| NULL`. |
 | Entra app (Graph backend) | `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Entra `TheOracle` app | App-only Graph: directory pull + Teams transcripts. Tenant `1caeb1c0-a087-4cb9-b046-a5e22404f971`. |
 | Teams transcript subscription | resource `communications/adhocCalls/getAllTranscripts` | `apps/workers/src/lib/graph-transcripts.ts`, Graph **beta** | The only capture path for ad-hoc calls. ~1h max lifetime; renewed by `teams-subscription-manager`. |
@@ -342,6 +343,20 @@ The write-time-only filter let junk creep back into the admin UI whenever an old
 
 Do not change because:
 Removing the read-time filter resurrects the original "junky models reappear" bug. Removing the write-time filter floods the DB with no-data rows that build up over time. Keep both.
+
+### Design file operations are not product/design workflow
+
+Looks like:
+Design-file naming, server organization, invalid filename characters, Photoshop/Illustrator file bloat, linked assets, packaging, and archive cleanup could live under `creative_design`, `product_development`, or `it_systems` because the design team and design tools are involved.
+
+Actually:
+They live in the dedicated top-level domain `design_file_operations`. That domain is for technical creative-file hygiene: keeping design files valid, lightweight, findable, compatible, packaged, versioned, and safe to share. Product/design workflow remains separate: concept intake, design assignment, proofs, approvals, revisions, production handoff, and product lifecycle state belong in `product_development`, `creative_design`, `licensing_approvals`, or `production_lifecycle`.
+
+Why:
+The same employees participate in both knowledge bases, but the user intent is different. "How should I name/save/store this file?" should not retrieve product approval/status claims. "Where is this product in design approval?" should not retrieve filename/server-folder rules.
+
+Do not change because:
+Collapsing these domains causes retrieval bleed between computer/file-management practices and the business workflow of designs/products moving through the company. Keep `design_file_operations` as its own retrieval target and preserve its negative boundary against product workflow domains.
 
 ### Ineligible models are SELECTABLE (red checkbox), not disabled
 

@@ -32,9 +32,10 @@ Examples for this company (illustrative starting vocabulary, to be proposed and 
 
 - `customer_ops` — retailer compliance, routing guides, customer-specific rules (Burlington, TJX, Ross, Walmart, Hobby Lobby, etc.).
 - `licensing_approvals` — licensor workflows, approval gates, asset usage rules, style-guide constraints, and entertainment-brand requirements (Disney, Marvel, Star Wars, NBCUniversal, Warner Bros, etc.).
-- `product_development` — design intent, art direction, SKU/product-line development, sample concepts, and creative-to-technical handoff.
+- `product_development` — SKU/product-line development, concept-to-spec workflow, sample concepts, and creative-to-technical handoff.
 - `supply_chain` — overseas production, sourcing, factory relationships, China/Brazil/Colombia team coordination, capacity, and lead times.
-- `creative_design` — product design, sample creation, art direction, creative-to-technical handoff.
+- `creative_design` — product design, sample creation, visual direction, art direction, and creative-to-technical handoff.
+- `design_file_operations` — designer file-management practices: safe filenames, invalid characters, server/folder organization, file-size reduction, linked assets, packaging, versioning, archive cleanup, and handoff file hygiene.
 - `it_systems` — ERP, Coldlion, ResourceSpace, internal tooling, integrations, automation.
 - `production_lifecycle` — sample → pre-production → production → QC → ship → RA stages.
 - `finance_pricing` — costing, margin rules, customer pricing, vendor terms.
@@ -61,6 +62,17 @@ Common entities: licensor: Disney, licensor: Marvel, licensor: Star Wars, licens
 Default exclusions: vendor_manual, freight_invoice, generic_factory_sop unless query explicitly mentions a factory/licensor handoff.
 Neighboring domains: creative_design, product_development, production_lifecycle, customer_ops.
 ```
+
+Mandatory boundary rule:
+
+```text
+Domain: design_file_operations
+Belongs here: Designer file naming conventions, invalid characters for server-safe filenames, where source/final/export files belong, reducing Photoshop/Illustrator/InDesign file size, linked-vs-embedded asset rules, packaging artwork for handoff, versioning and archive cleanup.
+Does not belong here: Product approval status, design review workflow, customer revision history, production-stage movement, art direction for a new SKU, licensor approval decisions.
+Neighboring domains: creative_design, product_development, production_lifecycle, it_systems.
+```
+
+The same team can appear in both `design_file_operations` and `product_development`, but retrieval must follow the intent of the question. "How should I name/save/store this design file?" belongs in `design_file_operations`. "Where is this product/design in the approval or production workflow?" belongs in the workflow domains.
 
 Governance:
 

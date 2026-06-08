@@ -1,4 +1,4 @@
--- R3.5 — Seed the 12 top-level knowledge domains with boundary rules.
+-- R3.5 — Seed the 13 top-level knowledge domains with boundary rules.
 --
 -- Per docs/oracle/07-knowledge-segmentation.md "Layer 1: Top-level domains".
 --
@@ -45,20 +45,29 @@ INSERT INTO knowledge_top_domains (
 ('product_development', 'Product Development',
  'SKU/product-line development, concept-to-spec workflow, tech-pack handoff, sample concept gating.',
  '["Tech pack handoff requirements","SKU creation in Coldlion","Sample concept approval","Product-line briefs","Pre-production spec sign-off"]'::jsonb,
- '["Factory shipping","Customer-facing pricing","Final retailer routing"]'::jsonb,
+ '["Factory shipping","Customer-facing pricing","Final retailer routing","Creative file naming rules","Server folder cleanup for design files"]'::jsonb,
  '[{"entityType":"system","canonicalValue":"Coldlion"},{"entityType":"system","canonicalValue":"ResourceSpace"}]'::jsonb,
  '["vendor_manual"]'::jsonb,
- '["creative_design","licensing_approvals","supply_chain","production_lifecycle"]'::jsonb,
+ '["creative_design","design_file_operations","licensing_approvals","supply_chain","production_lifecycle"]'::jsonb,
  30, true),
 
 ('creative_design', 'Creative & Design',
- 'Product design, art direction, sample creation, creative-to-technical handoff, artwork file management.',
- '["Design intent for new SKU","Artwork file delivery to tech","Color/material call-outs","Style direction for licensors","Photoshop/Illustrator file conventions"]'::jsonb,
- '["Factory production scheduling","Freight booking","Customer chargebacks"]'::jsonb,
+ 'Product design, art direction, sample creation, visual direction, and creative-to-technical handoff.',
+ '["Design intent for new SKU","Color/material call-outs","Style direction for licensors","New art concept direction","Visual treatment for a product line"]'::jsonb,
+ '["Factory production scheduling","Freight booking","Customer chargebacks","File naming conventions","How to reduce Photoshop file size","Server folder organization"]'::jsonb,
  '[{"entityType":"system","canonicalValue":"Photoshop"},{"entityType":"system","canonicalValue":"Illustrator"},{"entityType":"system","canonicalValue":"ResourceSpace"}]'::jsonb,
  '["vendor_manual","freight_invoice"]'::jsonb,
- '["product_development","licensing_approvals","production_lifecycle"]'::jsonb,
+ '["product_development","design_file_operations","licensing_approvals","production_lifecycle"]'::jsonb,
  40, true),
+
+('design_file_operations', 'Design File Operations',
+ 'Technical file-management practices for designers: naming, saving, slimming, linking, packaging, server storage, versioning, archive, and handoff file hygiene.',
+ '["Designer file naming conventions","Invalid characters for server-safe filenames","How to keep Photoshop and Illustrator files from becoming bloated","Where design source/final/export files belong on the server","Linked versus embedded asset rules","Packaging artwork files for handoff","Versioning and archive cleanup for creative files"]'::jsonb,
+ '["Product approval status","Design review workflow","Customer revision history","Production-stage movement","Art direction for a new SKU","Licensor approval decisions"]'::jsonb,
+ '[{"entityType":"department","canonicalValue":"Design"},{"entityType":"system","canonicalValue":"Photoshop"},{"entityType":"system","canonicalValue":"Illustrator"},{"entityType":"system","canonicalValue":"ResourceSpace"},{"entityType":"system","canonicalValue":"SharePoint"}]'::jsonb,
+ '["vendor_manual","freight_invoice","customer_routing_guide"]'::jsonb,
+ '["creative_design","it_systems","product_development","production_lifecycle"]'::jsonb,
+ 45, true),
 
 ('supply_chain', 'Supply Chain',
  'Overseas production, sourcing, factory relationships, China/Brazil/Colombia team coordination, capacity, lead times.',
@@ -70,12 +79,12 @@ INSERT INTO knowledge_top_domains (
  50, true),
 
 ('it_systems', 'IT & Systems',
- 'ERP (Coldlion), ResourceSpace, internal tooling, integrations, automation, image upload workflows.',
- '["Coldlion image upload step","ResourceSpace sync rules","Excel template conventions","ERP field semantics","Internal script outputs"]'::jsonb,
- '["Vendor capacity","Licensor approval rounds","Customer compliance docs"]'::jsonb,
+ 'ERP (Coldlion), ResourceSpace, internal tooling, integrations, automation, permissions, accounts, and system administration.',
+ '["Coldlion image upload step","ResourceSpace sync rules","Excel template conventions","ERP field semantics","Internal script outputs","SharePoint permission troubleshooting"]'::jsonb,
+ '["Vendor capacity","Licensor approval rounds","Customer compliance docs","Design file naming conventions","How to package Illustrator files for handoff"]'::jsonb,
  '[{"entityType":"system","canonicalValue":"Coldlion"},{"entityType":"system","canonicalValue":"ResourceSpace"},{"entityType":"system","canonicalValue":"Supabase"}]'::jsonb,
  '["vendor_manual"]'::jsonb,
- '["creative_design","product_development","production_lifecycle"]'::jsonb,
+ '["design_file_operations","creative_design","product_development","production_lifecycle"]'::jsonb,
  60, true),
 
 ('production_lifecycle', 'Production Lifecycle',

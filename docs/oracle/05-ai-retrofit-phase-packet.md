@@ -509,7 +509,7 @@ Acceptance gate — all met:
 | OpenRouter removed from production path | ✅ R11.0 — entire OpenRouter dep + helper + admin proxy deleted |
 | Extraction uses candidates before claims | ✅ R4 + R6 + R7 |
 | Extraction emits entity / top-domain / metadata tags atomically | ✅ R5.5 (validator/resolver shipped; worker calls them with empty proposals today — entity-extraction *prompt* rewrite is a deliberate follow-up, doc'd in HANDOFF "deferred") |
-| Three-layer knowledge taxonomy live | ✅ R3.5 — 12 top-domains seeded, 56 entities seeded, sub-topics schema ready |
+| Three-layer knowledge taxonomy live | ✅ R3.5 — 13 top-domains seeded, 56 entities seeded, sub-topics schema ready |
 | Maturity-based taxonomy worker writes proposals | ✅ R10.5 — `taxonomy-reevaluation.ts` runs per-domain k-means clustering on claim embeddings, names clusters via a cheap LLM call, skips clusters already represented by an existing sub-topic (cosine ≥ 0.88), and writes `create_sub_topic` proposals. Domains below the 30-claim activation threshold are skipped. |
 | Document extraction can use Vertex caching | ✅ R7 cache profitability + lifecycle; round 2 wires explicit cachedContent resource creation |
 | Synthesis uses provider-native cost-aware routes | ✅ R9 + R-providers |

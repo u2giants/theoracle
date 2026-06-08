@@ -567,7 +567,7 @@ The `model_runs_with_usage` view (`migrations/sql/31_observability_views.sql`) j
 15 tables installing the segmentation from `docs/oracle/07-knowledge-segmentation.md`:
 
 ```
-Layer 1   knowledge_top_domains            12 domains seeded; admin-curated
+Layer 1   knowledge_top_domains            13 domains seeded; admin-curated
             ↑                                each carries boundary rules:
             │                                belongs_here, does_not_belong_here,
             │                                common_entity_hints,
@@ -604,6 +604,8 @@ Governance taxonomy_proposals           Compact admin proposal cards
 ```
 
 The legacy `claim_domains` table and `knowledge_domain` Postgres enum are intentionally preserved during transition. `migrations/sql/42_claim_top_domains_backfill.sql` copies existing claim-domain rows into the new `claim_top_domains` join via an explicit mapping (e.g. `coldlion → it_systems`, `sampling → product_development`).
+
+`design_file_operations` is a deliberately separate top-level domain for designer file hygiene: safe filenames, invalid characters, server/folder organization, Photoshop/Illustrator/InDesign file bloat, linked assets, packaging, versioning, archive cleanup, and handoff file practices. It is neighboring to `creative_design`, `product_development`, `production_lifecycle`, and `it_systems`, but it is not the same knowledge base. Questions about product/design approval status, customer revisions, or a SKU moving through the design/product workflow should stay in `product_development`, `creative_design`, `licensing_approvals`, or `production_lifecycle`; pure file-management questions should route to `design_file_operations` and avoid workflow domains unless explicitly requested.
 
 ### Candidate-before-claim staging (R4, landed)
 

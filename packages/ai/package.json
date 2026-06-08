@@ -24,6 +24,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "verify:r2": "tsx src/__verify__/oracle-ai-client-smoke.ts",
+    "verify:retrieval-plan-domain-boundaries": "tsx src/__verify__/retrieval-plan-domain-boundaries.ts",
     "verify:retrieval-filter-parity": "tsx src/__verify__/retrieval-filter-parity.ts",
     "verify:vertex-file-cache": "tsx src/__verify__/vertex-file-cache-multiturn.ts",
     "eval:extraction": "tsx evals/runners/eval-extraction.ts"

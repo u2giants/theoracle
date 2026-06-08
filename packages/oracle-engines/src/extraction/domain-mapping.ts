@@ -12,10 +12,10 @@
  * to translate the model output into top-domain IDs that satisfy the
  * taxonomy validator.
  *
- * This is the SAME mapping as
- * `migrations/sql/42_claim_top_domains_backfill.sql`, kept in sync so
- * the transitional read path and the transitional write path produce
- * the same answer.
+ * This started as the same mapping as
+ * `migrations/sql/42_claim_top_domains_backfill.sql`. Later domain splits
+ * are applied through follow-up SQL migrations (for example, `63_...`) and
+ * reflected here for future extraction output.
  */
 
 import type { KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
@@ -30,7 +30,7 @@ const LEGACY_TO_TOP_DOMAIN: Record<KnowledgeDomain, TopLevelDomainId> = {
   shipping_documents: 'logistics_shipping',
   coldlion: 'it_systems',
   design: 'creative_design',
-  artwork_files: 'creative_design',
+  artwork_files: 'design_file_operations',
   sampling: 'product_development',
   production: 'production_lifecycle',
   quality_control: 'production_lifecycle',

@@ -229,7 +229,7 @@ should not search vendor manuals unless there is a strong reason. It should pref
 
 Every claim, document, document chunk, message-derived candidate, Brain section, gap, and contradiction should be tagged or linkable by multiple dimensions:
 
-1. Top-level domain: licensing approvals, product development, creative design, production lifecycle, supply chain, customer operations, vendor management, logistics/shipping, import compliance, IT systems, finance/pricing, people/org. These are governed by `knowledge_top_domains` and boundary rules in `07-knowledge-segmentation.md`; do not use a freeform `general` bucket except as a temporary unresolved/proposal state.
+1. Top-level domain: licensing approvals, product development, creative design, design file operations, production lifecycle, supply chain, customer operations, vendor management, logistics/shipping, import compliance, IT systems, finance/pricing, people/org. These are governed by `knowledge_top_domains` and boundary rules in `07-knowledge-segmentation.md`; do not use a freeform `general` bucket except as a temporary unresolved/proposal state.
 2. Source type: message, document chunk, external system, manual admin, Brain section.
 3. Document class: SOP, vendor manual, customer routing guide, tech pack, style guide, ERP export, email, invoice, shipping document, chat transcript, unknown.
 4. Process stage: concept, design, licensor approval, customer approval, costing, sourcing, sample request, sample review, production, quality control, packaging, routing, shipping, invoicing, ERP update, archive.
@@ -283,7 +283,7 @@ Example for an ERP image-upload question:
 ```ts
 {
   query: 'when does an image get uploaded to Coldlion',
-  allowedTopDomains: ['it_systems', 'creative_design', 'production_lifecycle'],
+  allowedTopDomains: ['it_systems', 'design_file_operations', 'production_lifecycle'],
   excludedDocumentClasses: ['vendor_manual'],
   excludedEntityTypes: ['vendor'],
   preferredSourceTypes: ['approved_claim', 'brain_section', 'message'],
