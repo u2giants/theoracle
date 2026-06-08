@@ -36,6 +36,7 @@ const GROUPS: NavGroup[] = [
     label: 'Activity',
     // Messages + Documents — the raw inputs the Oracle reads from.
     items: [
+      { href: '/admin/import', label: 'Import' },
       { href: '/admin/messages', label: 'Messages' },
       { href: '/admin/documents', label: 'Documents' },
     ],

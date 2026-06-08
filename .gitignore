@@ -48,6 +48,9 @@ Thumbs.db
 # Drizzle
 drizzle/meta/_journal.json.tmp
 
+# Supabase CLI local link/cache state
+supabase/.temp/
+
 # Local Claude config (in workspace)
 .claude/
 
