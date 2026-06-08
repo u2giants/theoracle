@@ -1,6 +1,6 @@
 # HANDOFF — Recall.ai wiring + extraction pipeline tuning
 
-Last updated: 2026-06-06. Delete this file once the remaining items below are closed (secret rotation, end-to-end Recall test, synthesis demo, entity-registry seeding).
+Last updated: 2026-06-08. Delete this file once the remaining items below are closed (secret rotation, end-to-end Recall test, synthesis demo, entity-registry seeding, design-file-operations migration application).
 
 ---
 
@@ -46,6 +46,22 @@ On a fresh system, almost every extraction-derived claim is **held**:
 - **High-impact claims (≥7)** always go to `pending_review` — by design.
 
 This is not a bug; it's the review/safety model working as intended. Get owner sign-off before loosening.
+
+### 5. Apply design file operations taxonomy migration
+
+Commit `616cf95` added the `design_file_operations` top-level domain, retrieval-boundary guard, seed updates, entity hints, and hand-written migration `packages/db/migrations/sql/63_design_file_operations_domain.sql`.
+
+The code was committed and pushed to `main`, but `pnpm db:migrate` did **not** run in the local Codex shell because neither `DIRECT_URL` nor `DATABASE_URL` was set. The migration runner stopped before touching the database with:
+
+```
+DIRECT_URL (or DATABASE_URL) is required to run migrations.
+```
+
+Next action:
+
+1. Populate `DIRECT_URL` in the shell or root `.env.local` with the Supabase session-pooler URL.
+2. Run `corepack.cmd pnpm --filter @oracle/db migrate` from `C:\repos\oracle` (or `pnpm db:migrate` in an environment where pnpm is on PATH).
+3. Verify `knowledge_top_domains.id = 'design_file_operations'` exists and that legacy `artwork_files` claim rows were copied to `claim_top_domains.top_domain_id = 'design_file_operations'`.
 
 ---
 

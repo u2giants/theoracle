@@ -16,30 +16,47 @@ When using any other AI tool, paste this file as your first message and follow t
 
 ## Documentation map: what to read for each task
 
-Always start with `AGENTS.md`. Then load additional docs only when relevant — do not bulk-read every `.md` file.
+Always start with:
+
+- `AGENTS.md`
+
+Then load additional docs only when relevant — do not bulk-read every `.md` file.
 
 | Task / question | Read these docs | Usually do not need |
 |---|---|---|
-| Quick repo orientation | `README.md`, `AGENTS.md` | Deep `docs/` unless task requires them |
-| Modify app behavior (chat, extraction, synthesis, admin UI) | `AGENTS.md`, `docs/architecture.md` if system design is affected | `docs/deployment.md` unless deploy behavior changes |
+| Quick repo orientation | `README.md`, `AGENTS.md` | Deep docs under `docs/` unless task requires them |
+| Modify app behavior or project-owned code | `AGENTS.md`, relevant folder-level `README.md` if present, `docs/architecture.md` if system design is affected | `docs/deployment.md` unless deploy behavior changes |
 | Add or change AI provider adapter or model catalog | `AGENTS.md`, `docs/architecture.md` (adapter table + data flow), provider files under `packages/ai/src/providers/`, `DECISIONS.md` | Worker or webhook code |
 | Add or change configuration, env vars, feature flags, secrets | `AGENTS.md` §11, `docs/configuration.md`, `docs/deployment.md` if prod/runtime env is affected | Unrelated architecture docs |
-| Change dev scripts, test/lint/debug workflow, or package scripts | `AGENTS.md`, `docs/development.md` | `docs/deployment.md` unless CI/CD changes |
-| Change deployment, CI/CD, Vercel release, Trigger.dev deploy, rollback | `AGENTS.md` §12, `docs/deployment.md`, `docs/configuration.md` | Local-only development docs |
-| Change database schema, migrations, models, or data flow | `AGENTS.md`, `docs/architecture.md`, `packages/db/src/schema.ts` | Deployment docs unless rollout behavior changes |
+| Change local setup, dev scripts, test/lint/debug workflow, package scripts, or tooling | `AGENTS.md`, `docs/development.md`, relevant package/config files | `docs/deployment.md` unless CI/CD changes |
+| Change deployment, Docker, CI/CD, hosting, release flow, rollback, or runtime environment | `AGENTS.md` §12, `docs/deployment.md`, `docs/configuration.md`, relevant workflow/deployment files | Local-only development docs unless needed |
+| Change database schema, migrations, models, external IDs, or data flow | `AGENTS.md`, `docs/architecture.md`, `docs/configuration.md` if env/config is affected, `packages/db/src/schema.ts`, relevant migration/model docs | Deployment docs unless rollout/deploy behavior changes |
 | Add or change a worker task | `AGENTS.md` §6 task-to-file, `apps/workers/src/trigger/`, `docs/architecture.md` if data flow changes | Front-end app code unless there is a matching UI/API hook |
 | Change Teams transcript ingestion (Graph path) | `AGENTS.md` §6 + §10 quirks, `docs/architecture.md` §"Teams transcript ingestion" | Recall docs unless both paths are affected |
 | Change Recall.ai live bot path | `AGENTS.md` §6 + §10 quirks, `docs/architecture.md` §"Teams live participation (Recall.ai)" | Microsoft Graph Teams ingestion docs |
 | Investigate a bug or incident | `AGENTS.md` §13 (critical incidents), docs for the affected area, `HANDOFF.md` if present | Unrelated folder-level READMEs |
 | Continue unfinished work | `AGENTS.md`, `HANDOFF.md`, docs named inside `HANDOFF.md` | Docs unrelated to the handoff scope |
+| Work in a subfolder with its own README | `AGENTS.md`, that folder-level `README.md`, and only broader docs referenced there | Other folder-level READMEs |
 | Claude Code session | `CLAUDE.md`, then `AGENTS.md` | Other docs unless task requires them |
-| Documentation-only cleanup | `AGENTS.md`, `README.md`, affected `docs/`, `HANDOFF.md` if present | Source files except to verify accuracy |
+| Documentation-only cleanup | `AGENTS.md`, `README.md`, affected docs under `docs/`, folder-level READMEs only where relevant, `HANDOFF.md` if present | Source files except as needed to verify accuracy |
 
 Rules:
 - MUST be task-based.
 - MUST NOT become a flat list of every Markdown file.
 - Read `HANDOFF.md` whenever it exists — it captures what is in-progress or unfinished.
+- Update this documentation map when documentation files are added, removed, renamed, or repurposed.
 - `docs/oracle/` — deeper AI-retrofit reference material; only read when the task touches the AI-retrofit spec directly.
+
+## Five-minute orientation
+
+If you are new to this repo, read only this path first:
+
+1. `README.md` for the repo shape.
+2. This file through §9 for operating rules, what to touch, external IDs, services, and ignore rules.
+3. `HANDOFF.md` if it exists.
+4. The single topic doc named by the table above.
+
+Do not open every Markdown file. Most tasks need `AGENTS.md` plus one topic doc and the affected source files.
 
 ## 3. Repository structure
 
@@ -133,7 +150,7 @@ Specific boundaries:
 |---|---|---|---|
 | _(none)_ | — | No framework/vendor files are intentionally patched in this repo. | — |
 
-## 6. Task-to-file navigation
+## 6. Task-to-file navigation: what to edit for common changes
 
 | Task | Files to touch | Files not to touch |
 |---|---|---|
@@ -217,16 +234,7 @@ Do not load these into AI context unless a task explicitly requires them:
 - `packages/db/migrations/meta/`
 - `.env.local`
 
-Read these first when orienting:
-
-- `README.md`
-- `AGENTS.md`
-- `docs/architecture.md`
-- `docs/development.md`
-- `docs/configuration.md`
-- `docs/deployment.md`
-- `packages/db/src/schema.ts`
-- `packages/ai/src/providers/*.ts`
+For orientation, follow the documentation map near the top of this file. Do not load broad source files such as `packages/db/src/schema.ts` or `packages/ai/src/providers/*.ts` unless the task needs that subsystem.
 
 ## 10. Intentional quirks and non-obvious decisions
 
@@ -506,6 +514,7 @@ Adding it to `schema.ts` would make drizzle-kit want to generate a migration for
 | `SUPABASE_SERVICE_ROLE_KEY` | server-side privileged Supabase access | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `ANTHROPIC_API_KEY` | Anthropic adapter | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `OPENAI_API_KEY` | OpenAI adapter + embeddings | `.env.local`, Vercel, Trigger.dev | yes | yes |
+| `OPENAI_ORG_ID` | Optional OpenAI organization passed to the OpenAI SDK | `.env.local`, Vercel, Trigger.dev | optional | optional |
 | `GOOGLE_CLOUD_PROJECT` | Vertex adapter project | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `GOOGLE_CLOUD_LOCATION` | Vertex region | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` | service-account JSON content for Vertex ADC bootstrapping | Vercel/Trigger.dev secret, optional local | no | yes |
@@ -519,6 +528,10 @@ Adding it to `schema.ts` would make drizzle-kit want to generate a migration for
 | `TRIGGER_SECRET_KEY` | Trigger.dev auth | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `PROD_DIRECT_URL` | Used by the CI drift-check step to reach production Postgres | GitHub Actions repo secret (`gh secret list`) | no | yes (CI) |
 | `TRIGGER_PROJECT_REF` | Trigger.dev project selector | `.env.local`, Vercel | optional | optional |
+| `ORACLE_RUN_VECTOR_INDEXES` | Opt-in switch for expensive `99_vector_indexes.sql` migration step | shell/env when intentionally running vector index creation | optional | optional |
+| `NEXT_PUBLIC_GIT_SHA` | Build metadata injected by `apps/web/next.config.ts` for admin display | generated at build time | no | no |
+| `NEXT_PUBLIC_GIT_TIMESTAMP` | Build timestamp injected by `apps/web/next.config.ts` for admin display | generated at build time | no | no |
+| `NODE_ENV`, `VERCEL`, `VERCEL_ENV` | Runtime/build environment metadata used by frameworks/tooling and Turbo cache keys | platform/tooling | no | yes |
 | `AZURE_TENANT_ID` | Entra ID tenant GUID for the Graph backend tenant directory pull | `.env.local`, Vercel | optional | optional |
 | `AZURE_GRAPH_CLIENT_ID` | Entra app (Application) ID — same `TheOracle` app as SSO | `.env.local`, Vercel | optional | optional |
 | `AZURE_GRAPH_CLIENT_SECRET` | Client secret for app-only Graph client_credentials calls. Distinct from the SSO secret (which lives in Supabase). | `.env.local`, Vercel | optional | optional |

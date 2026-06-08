@@ -43,7 +43,7 @@ Workspace-specific commands:
 ```bash
 pnpm --filter @oracle/web dev
 pnpm --filter @oracle/web build
-pnpm --filter @oracle/workers deploy
+pnpm --filter @oracle/workers run deploy
 pnpm --filter @oracle/db generate
 pnpm --filter @oracle/db migrate
 pnpm --filter @oracle/db seed

@@ -1,4 +1,4 @@
-# AI indexer ignore list — keep in sync with .claudeignore
+# AI indexer ignore list — keep in sync with the other AI ignore files
 
 # Dependencies
 node_modules/
@@ -19,7 +19,7 @@ coverage/
 .cache/
 *.tsbuildinfo
 
-# Eval run outputs (per-timestamp)
+# Eval run outputs
 packages/ai/evals/runs/
 
 # Logs
@@ -27,10 +27,10 @@ packages/ai/evals/runs/
 npm-debug.log*
 pnpm-debug.log*
 
-# Lockfiles — giant, low signal; trust package.json
+# Lockfiles
 pnpm-lock.yaml
 
-# Generated Drizzle migrations — source of truth is packages/db/src/schema.ts
+# Generated Drizzle migrations
 packages/db/migrations/0*.sql
 packages/db/migrations/meta/
 

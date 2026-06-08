@@ -1,4 +1,4 @@
-# AI indexer ignore list — keep in sync with .claudeignore and .cursorignore
+# AI indexer ignore list — keep in sync with the other AI ignore files
 
 # Dependencies
 node_modules/
@@ -19,7 +19,7 @@ coverage/
 .cache/
 *.tsbuildinfo
 
-# Eval outputs
+# Eval run outputs
 packages/ai/evals/runs/
 
 # Logs
@@ -30,7 +30,7 @@ pnpm-debug.log*
 # Lockfiles
 pnpm-lock.yaml
 
-# Generated migrations
+# Generated Drizzle migrations
 packages/db/migrations/0*.sql
 packages/db/migrations/meta/
 
@@ -42,3 +42,6 @@ packages/db/migrations/meta/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Teams notification cert material (PRIVATE KEY — never commit)
+oracle-teams-cert/
