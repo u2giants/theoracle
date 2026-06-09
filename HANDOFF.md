@@ -81,6 +81,67 @@ Definition of done:
 - The Teams chat post remains concise and does not answer the meeting.
 - Tests or verification runs prove that generic small talk still skips, direct business questions still post, and retrieval-backed contradictions/gaps produce better questions.
 
+### Fresh-developer restart packet (added 2026-06-09)
+
+Use this subsection as the first stop for a brand-new developer. The rest of this file preserves the detailed history and evidence, but this is the current operating snapshot.
+
+Current git/deploy snapshot:
+- Branch `main` matches `origin/main` as of 2026-06-09.
+- Latest pushed commit observed in this session: `5dfe242 feat(workers): harden live Recall interjections`.
+- That commit includes the docs updates and the live Recall worker hardening in `apps/workers/src/trigger/teams-live-recall-utterance.ts`.
+- The earlier note above about uncommitted `teams-live-recall-utterance.ts` changes is historical from before `5dfe242` was committed. Re-check `git status --short --branch` before starting work, but do not assume there are still uncommitted worker changes unless Git shows them.
+- Trigger.dev production worker version `20260609.6` was deployed after removing the temporary `recall-live-bot-create` task. The normal production worker surface should be 17 tasks.
+
+What The Oracle can do now:
+- Post-call Teams transcript ingestion through Microsoft Graph is live and validated for ad-hoc Teams calls when the Graph subscription exists before transcription starts.
+- Recall.ai live Teams participation is live and validated: Recall joins the Teams meeting, streams finalized utterances to Oracle, Oracle stores them as `messages`, and Oracle can post short clarification questions back into Teams chat through Recall.
+- The Teams-native app/bot wrapper is wired: users can interact with the Teams org app `The Oracle`, whose Azure Bot endpoint is `https://oracle.designflow.app/api/teams/bot/messages`.
+- Native Microsoft Teams app/bot commands do not replace Recall for live audio/STT. The Teams Bot Framework wrapper is the command surface; Recall is still the live meeting media/STT transport.
+
+What is intentionally disabled right now:
+- Live Oracle interjections are clamped off in `settings`.
+- Keep them clamped off unless you are running an intentional live test with the user present.
+- Expected clamp values:
+  - `max_oracle_interjections_per_hour = 0`
+  - `teams_live_recall_min_confidence_to_post = 101`
+  - `teams_live_recall_force_model_pass = false`
+  - `teams_live_recall_force_post = false`
+  - `teams_live_recall_disable_posting_limits = false`
+
+Most important next work:
+1. Add retrieval-backed context to `apps/workers/src/trigger/teams-live-recall-utterance.ts`.
+2. Run a synthesis demo by approving at least one pending claim and triggering `brain-synthesis`.
+3. Seed/confirm entity registry and active knowledge domains so extraction does not hold ordinary claims forever.
+
+How to continue the live retrieval work:
+1. Read `AGENTS.md`, then this `HANDOFF.md`, then `docs/architecture.md` sections for Recall live participation and retrieval/claims flow.
+2. In `apps/workers/src/trigger/teams-live-recall-utterance.ts`, locate the flow that normalizes Recall words, inserts a `messages` row, and calls `decideLiveQuestion()`.
+3. Before the decision call, build a small query from the current utterance plus recent utterance window.
+4. Reuse the existing approved-claim retrieval path in `packages/ai/src/retrieval.ts` and related retrieval-plan code. Do not create a second retrieval system.
+5. Pass a short evidence/context block into the live decision prompt.
+6. Store the evidence IDs or source metadata that influenced an Oracle interjection, either in `oracle_interventions` or assistant-message metadata.
+7. Preserve the product rule: inside a live Teams meeting, Oracle asks concise clarification questions; it does not answer like the normal employee chat assistant.
+
+Known-good live test utterance:
+- Spoken: `Oracle, should artwork always go to China after licensor approval, or is Walmart an exception?`
+- Expected posted question shape: `Can we clarify this process question: should artwork always go to China after licensor approval, or is Walmart an exception?`
+- This path was validated through Recall chat delivery on 2026-06-09.
+
+Operational guardrails:
+- Do not rotate the shared Entra app secret without `--append`. The shared app id is `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc`, and it is used by Supabase Microsoft SSO, Graph backend access, and Teams Bot Framework auth.
+- Supabase Microsoft provider URL must be `https://login.microsoftonline.com/1caeb1c0-a087-4cb9-b046-a5e22404f971`; do not add `/v2.0`.
+- Do not paste or commit secret values. During prior debugging, secret-looking values appeared in tool output; future rotations should include any exposed Google service-account JSON, Recall webhook secret, Vercel token, and Trigger keys if policy requires cleanup.
+- `supabase.exe db query --linked` may hang or hit auth circuit breakers. Stop `supabase*` processes and retry gently; do not hammer linked CLI auth.
+- Vercel env writes may require CLI/API/dashboard access; the Vercel MCP is read-only in this environment.
+- Trigger.dev CLI is authenticated on this Windows machine; Trigger production env is project `proj_wgpzsvhmsopqhvwqaycn`.
+
+Before declaring future work done:
+- Confirm `git status --short --branch` is clean or document any intentional uncommitted changes.
+- If worker behavior changed, deploy to Trigger.dev production and record the worker version here.
+- If Vercel route/env behavior changed, redeploy production and record the deployment.
+- If live posting is opened for a test, clamp it off again and record the timestamp.
+- If claims/synthesis state changes, record the exact DB/admin evidence.
+
 ---
 
 ## What is done (since the prior HANDOFF)
