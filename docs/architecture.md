@@ -229,7 +229,7 @@ The DeepSeek+Qwen rollout (commit `c5cea1d`) added ~600 lines across ~17 files u
 
 ## Teams transcript ingestion (Microsoft Graph)
 
-Pulls Microsoft Teams **call transcripts** into the same evidence pipeline as chat and documents. POP's meetings are all ad-hoc "Meet Now" calls, never scheduled — which constrains the design (see below). Status: **built, not yet wired live** (HANDOFF.md / AGENTS.md §14).
+Pulls Microsoft Teams **call transcripts** into the same evidence pipeline as chat and documents. POP's meetings are all ad-hoc "Meet Now" calls, never scheduled — which constrains the design (see below). Status: **LIVE + validated end-to-end** for post-call transcript ingestion (2026-06-04/05).
 
 ```
 Teams call (transcription ON)
@@ -277,6 +277,10 @@ A separate **live** capture path also exists (`bfd6612`): a Recall.ai bot joins 
 
 Adds live Teams meeting awareness without changing the Vercel/Supabase/Trigger.dev infrastructure. Recall.ai owns the meeting bot and audio/STT transport; The Oracle receives finalized transcript utterances and decides whether to ask a short meeting-chat question.
 
+Status: **LIVE + validated end-to-end (2026-06-08/09).** The tested path is: admin start route -> Recall Teams bot join -> ElevenLabs/AssemblyAI live STT -> signed `/api/teams/live/recall` webhook -> Trigger.dev `teams-live-recall-utterance` -> `messages` persistence -> Recall `send_chat_message` -> visible Teams chat post. The latest tested worker deployment is `20260609.6` after removing the temporary test-only bot-create task.
+
+After the live test, posting was deliberately clamped off in `settings` (`max_oracle_interjections_per_hour=0`, `teams_live_recall_min_confidence_to_post=101`, force flags false). The mechanical live path works; the next product gap is context quality. Today the worker reasons over the current utterance plus a recent meeting window, not approved claims, Brain sections, or older relevant messages. Add retrieval through the existing `searchWithRetrievalPlan()` path before expecting the live Oracle to ask deeply informed operational questions.
+
 ```
 Admin POST /api/teams/live/start { meetingUrl, provider }
   provider: elevenlabs_streaming first, assembly_ai_v3_streaming fallback
@@ -320,6 +324,8 @@ Azure Bot Service -> /api/teams/bot/messages
 ```
 
 So the user-facing flow originates inside Teams, while the live audio/STT work is still performed by Recall.
+
+Current production wiring (2026-06-09): Azure Bot resource `theoracle-popcre-teams-bot` routes the Microsoft Teams channel to `https://oracle.designflow.app/api/teams/bot/messages`; the Teams organization app `The Oracle` is uploaded with app id `17ccd7a1-b90b-428c-9966-33e7fb832923`. This does not replace Recall.ai for live audio/STT; it only provides the native Teams command surface.
 
 ## Identity model
 

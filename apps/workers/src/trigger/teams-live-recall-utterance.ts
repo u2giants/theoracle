@@ -36,6 +36,7 @@ const FALLBACK_INTERVIEW_ROUTE_ID = 'anthropic_claude_haiku_4_5_interview_primar
 const LIVE_PROMPT_VERSION = 'teams-live-recall-1.0.0';
 const DEFAULT_COOLDOWN_MINUTES = 10;
 const DEFAULT_MAX_INTERJECTIONS_PER_HOUR = 3;
+const DEFAULT_MIN_CONFIDENCE_TO_POST = 70;
 const RECENT_UTTERANCE_LIMIT = 18;
 const MIN_SECONDS_BETWEEN_LIVE_QUESTIONS = 20;
 
@@ -90,11 +91,13 @@ Your job is to decide whether to ask ONE short clarification question in the mee
 
 Ask only when the live discussion reveals one of these:
 - a concrete operational rule, exception, handoff, system limitation, or workaround that is unclear;
+- a concrete business-process question that the team is actively asking and should not lose in the spoken discussion;
 - a possible contradiction with a recent statement in this same meeting;
 - a question that would prevent the team from leaving an important process ambiguity unresolved.
 
 Do not ask because of small talk, greetings, filler, status updates, or incomplete thoughts.
 Do not ask if the current utterance is too vague.
+If the current utterance is already a useful business-process question, it is acceptable to restate that question concisely so it is captured in the meeting chat.
 Do not summarize.
 Do not answer the meeting.
 Do not ask more than one question.
@@ -190,11 +193,22 @@ async function resolveEmployeeId(
 async function loadLiveSettings(db: ReturnType<typeof getDirectDb>): Promise<{
   cooldownMinutes: number;
   maxInterjectionsPerHour: number;
+  forceModelPass: boolean;
+  forcePost: boolean;
+  disablePostingLimits: boolean;
+  minConfidenceToPost: number;
 }> {
   const rows = await db
     .select({ key: settings.key, value: settings.value })
     .from(settings)
-    .where(sql`${settings.key} in ('oracle_cooldown_minutes', 'max_oracle_interjections_per_hour')`);
+    .where(sql`${settings.key} in (
+      'oracle_cooldown_minutes',
+      'max_oracle_interjections_per_hour',
+      'teams_live_recall_force_model_pass',
+      'teams_live_recall_force_post',
+      'teams_live_recall_disable_posting_limits',
+      'teams_live_recall_min_confidence_to_post'
+    )`);
   const map = new Map(rows.map((r) => [r.key, r.value]));
   return {
     cooldownMinutes:
@@ -205,6 +219,13 @@ async function loadLiveSettings(db: ReturnType<typeof getDirectDb>): Promise<{
       typeof map.get('max_oracle_interjections_per_hour') === 'number'
         ? (map.get('max_oracle_interjections_per_hour') as number)
         : DEFAULT_MAX_INTERJECTIONS_PER_HOUR,
+    forceModelPass: map.get('teams_live_recall_force_model_pass') === true,
+    forcePost: map.get('teams_live_recall_force_post') === true,
+    disablePostingLimits: map.get('teams_live_recall_disable_posting_limits') === true,
+    minConfidenceToPost:
+      typeof map.get('teams_live_recall_min_confidence_to_post') === 'number'
+        ? (map.get('teams_live_recall_min_confidence_to_post') as number)
+        : DEFAULT_MIN_CONFIDENCE_TO_POST,
   };
 }
 
@@ -232,6 +253,36 @@ async function channelRateState(db: ReturnType<typeof getDirectDb>, channelId: s
 function isWorthModelPass(text: string): boolean {
   if (text.length < 40) return false;
   return /\b(always|never|usually|not always|exception|approval|approved|send|handoff|handover|Coldlion|ERP|China|factory|routing|Burlington|TJX|Ross|Walmart|Disney|Marvel|licensor|customer|sample|production|shipping|cost|workaround|spreadsheet|process)\b/i.test(text);
+}
+
+function forcedTestQuestion(text: string): string {
+  const cleaned = stripOracleAddress(text).replace(/^test[:,]?\s*/i, '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return 'Quick Oracle test: what should we clarify from the current discussion?';
+  return cleaned.endsWith('?') ? cleaned : `${cleaned}?`;
+}
+
+function stripOracleAddress(text: string): string {
+  return text
+    .replace(/^\s*(hey\s+)?oracle[:,]?\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isMetaOracleQuestion(text: string): boolean {
+  return /\b(oracle|ai|transcription|transcript|record|recording|listen|listening|eavesdropping|bot)\b/i.test(text);
+}
+
+function isDirectBusinessQuestion(text: string): boolean {
+  const content = stripOracleAddress(text);
+  if (!content.includes('?')) return false;
+  if (isMetaOracleQuestion(content)) return false;
+  return isWorthModelPass(content);
+}
+
+function fallbackClarificationQuestion(text: string): string {
+  const content = stripOracleAddress(text).replace(/\s+/g, ' ').trim();
+  if (!content) return 'Can we clarify the business-process question that was just raised?';
+  return `Can we clarify this process question: ${content}`;
 }
 
 async function decideLiveQuestion(args: {
@@ -460,15 +511,18 @@ export const teamsLiveRecallUtteranceTask = task({
       let postedQuestion: string | null = null;
       let decisionReason = 'heuristic_skip';
       let modelRunId: string | null = null;
-      if (isWorthModelPass(text)) {
-        const liveSettings = await loadLiveSettings(db);
+      const liveSettings = await loadLiveSettings(db);
+      if (liveSettings.forceModelPass || isWorthModelPass(text)) {
         const rateState = await channelRateState(db, channelId);
         const cooldownSeconds =
           rateState.minutesSinceLast == null ? null : rateState.minutesSinceLast * 60;
         const cooldownClear =
+          liveSettings.disablePostingLimits ||
           cooldownSeconds == null ||
           cooldownSeconds >= Math.max(MIN_SECONDS_BETWEEN_LIVE_QUESTIONS, liveSettings.cooldownMinutes * 60);
-        if (cooldownClear && rateState.inLastHour < liveSettings.maxInterjectionsPerHour) {
+        const rateCapClear =
+          liveSettings.disablePostingLimits || rateState.inLastHour < liveSettings.maxInterjectionsPerHour;
+        if (cooldownClear && rateCapClear) {
           const client = buildOracleClient();
           const route = await resolveInterviewRoute(db);
           const decisionResult = await decideLiveQuestion({
@@ -481,12 +535,19 @@ export const teamsLiveRecallUtteranceTask = task({
           });
           modelRunId = decisionResult.modelRunId;
           decisionReason = decisionResult.decision.reason;
-          if (
-            decisionResult.decision.shouldAsk &&
-            decisionResult.decision.confidence >= 70 &&
-            decisionResult.decision.question?.trim()
-          ) {
-            postedQuestion = decisionResult.decision.question.trim();
+          const isForcePostTest = liveSettings.forcePost && /^oracle\s+test[:,]?/i.test(text);
+          const shouldPost =
+            isForcePostTest ||
+            (decisionResult.decision.shouldAsk &&
+              decisionResult.decision.confidence >= liveSettings.minConfidenceToPost);
+          const questionToPost = isForcePostTest
+            ? forcedTestQuestion(text)
+            : decisionResult.decision.question?.trim();
+          const fallbackQuestion =
+            !questionToPost && isDirectBusinessQuestion(text) ? fallbackClarificationQuestion(text) : null;
+          const questionToSend = shouldPost ? (questionToPost ?? fallbackQuestion) : fallbackQuestion;
+          if (questionToSend) {
+            postedQuestion = questionToSend;
             await sendRecallChatMessage({ botId, message: postedQuestion });
             const [assistantMessage] = await db
               .insert(messages)
@@ -516,7 +577,9 @@ export const teamsLiveRecallUtteranceTask = task({
               confidence: decisionResult.decision.confidence,
               impactScore: null,
               wasLiveInterjection: true,
-              reason: decisionReason,
+              reason: fallbackQuestion
+                ? `direct_business_question_fallback: ${decisionReason}`
+                : isForcePostTest ? `force_post_test: ${decisionReason}` : decisionReason,
             });
           }
         } else {

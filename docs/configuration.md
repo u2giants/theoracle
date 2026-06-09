@@ -118,11 +118,13 @@ When copying URLs from Supabase, **toggle "Use IPv4 connection (Shared Pooler)" 
 Configured in **Supabase Dashboard → Authentication → Providers**:
 
 - **Google** — enabled. Client ID + secret from Google Cloud Console → APIs & Services → Credentials → OAuth Client ID (Web application).
-- **Azure / Microsoft 365** — enabled. App registration in Entra ID for the popcre tenant only. Required Microsoft Graph delegated permissions: `openid`, `profile`, `email`, `User.Read`. Admin consent must be granted.
+- **Azure / Microsoft 365** — enabled. App registration in Entra ID for the popcre tenant only. Required Microsoft Graph delegated permissions: `openid`, `profile`, `email`, `User.Read`. Admin consent must be granted. Provider URL must be `https://login.microsoftonline.com/1caeb1c0-a087-4cb9-b046-a5e22404f971` with **no** trailing `/v2.0`; Supabase appends `/oauth2/v2.0/authorize` itself.
 - **Authentik OIDC** — TODO (not yet wired).
 - **Email magic-link** — enabled as a fallback path. Delivery via Brevo SMTP.
 
 The login UI (`apps/web/app/_components/login-form.tsx`) requests the `email` scope explicitly for both OAuth providers. **Do not remove that scope** — Microsoft Entra returns an empty `mail` field for accounts without an Exchange mailbox, which makes Supabase deny with "Error getting user email from external provider".
+
+Client-secret rotation note: the Entra app `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` is shared by Supabase Microsoft SSO, the app-only Graph backend, and the Teams Bot Framework registration. Use `az ad app credential reset --append --display-name <purpose> ...` when creating a new secret for one consumer. Running the command without `--append` removes the other consumers' secrets and breaks sign-in/Graph/Bot auth.
 
 ## Supabase Auth SMTP — Brevo
 
@@ -147,6 +149,10 @@ Operational settings the Oracle reads at runtime live in the `settings` Postgres
 | `lull_window_seconds` | `60` | Seconds of silence before the Oracle may consider a "lull" interjection. |
 | `oracle_cooldown_minutes` | `10` | Minimum minutes between Oracle interjections in the same channel. |
 | `max_oracle_interjections_per_hour` | `3` | Hard cap per channel per hour. |
+| `teams_live_recall_min_confidence_to_post` | `70` | Minimum model confidence required before the Recall live worker posts an Oracle question. Set to `101` to clamp live posting off without a deploy. |
+| `teams_live_recall_force_model_pass` | `false` | Test-only override that sends every live Recall utterance through the model gate. Keep false outside controlled debugging. |
+| `teams_live_recall_force_post` | `false` | Test-only override that posts utterances beginning with `Oracle test...` through Recall chat. Keep false outside controlled debugging. |
+| `teams_live_recall_disable_posting_limits` | `false` | Test-only override that bypasses live Recall cooldown and hourly caps. Keep false outside controlled debugging. |
 | `default_interview_route` | `anthropic_claude_haiku_4_5_interview_primary` | Read by `apps/web/app/api/chat/route.ts` (R8) to resolve a curated `OracleModelRoute` from the catalog in `packages/ai/src/routes/`. |
 | `default_extraction_route` | `vertex_gemini_2_5_flash_extraction_primary` | Read by `apps/workers/src/trigger/claim-extraction.ts` (R6), `apps/workers/src/trigger/document-ingestion.ts` (R7), and `apps/workers/src/trigger/contradiction-watcher.ts` (R11.0). |
 | `default_synthesis_route` | `anthropic_claude_3_5_sonnet_synthesis_primary` | Read by `apps/workers/src/trigger/brain-synthesis.ts` (R9). |
@@ -176,7 +182,7 @@ WHERE key = 'default_interview_route';
 
 ## Feature flags
 
-We don't have a feature-flag service. Boolean settings in the `settings` table fill that role for now (`enable_live_contradiction_interjections`, `enable_group_chat_lull_questions`).
+We don't have a feature-flag service. Boolean settings in the `settings` table fill that role for now (`enable_live_contradiction_interjections`, `enable_group_chat_lull_questions`, and the `teams_live_recall_*` test overrides). Numeric settings can also act as safety clamps; for example `teams_live_recall_min_confidence_to_post=101` disables live Recall posting.
 
 ## Files that read configuration
 
@@ -184,19 +190,19 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 - `apps/web/lib/supabase/server.ts` — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
 - `apps/web/app/api/chat/route.ts` — reads `settings.default_interview_route`; uses `ANTHROPIC_API_KEY` + Vertex ADC + `OPENAI_API_KEY` via the three direct adapters, and persists Qwen Responses session state in `provider_response_sessions`.
 - `apps/web/app/admin/settings/model-pool/` — reads and writes `settings.model_pool_{interview,extraction,synthesis}` (per-stage pools, 2026-05-27).
-- `apps/web/app/api/admin/model-catalog/route.ts` — `GET` reads the persisted `model_capabilities` table; `POST` calls `refreshModelCatalog(db)` which fetches models from all 3 direct provider APIs (Anthropic, OpenAI, Google Gemini) and enriches with OpenRouter pricing/caps, then upserts. Non-fatal per-source errors are returned in `errors[]`. Admin-triggered via the "Refresh catalog" button.
+- `apps/web/app/api/admin/model-catalog/route.ts` — `GET` reads the persisted `model_capabilities` table; `POST` calls `refreshModelCatalog(db)` which fetches models from the direct provider APIs (Anthropic, OpenAI, Google Gemini, DeepSeek, Qwen) and enriches with OpenRouter pricing/caps, then upserts. Non-fatal per-source errors are returned in `errors[]`. Admin-triggered via the "Refresh catalog" button.
 - `apps/web/app/api/admin/models/route.ts` — `?stage=<interview|extraction|synthesis|general>` returns the pool's models from `model_capabilities`. The `general` stage ignores the pool and returns the full catalog.
 - `packages/ai/src/model-capabilities/sources/openrouter.ts` — OpenRouter enrichment source only. Returns a `Map<modelId, OpenRouterEnrichment>` keyed by `provider/modelId`. Capability flags come from `architecture.input_modalities` + `supported_parameters`; pricing from `pricing.{prompt,completion}` (×1M); context from `top_provider.context_length` / `max_completion_tokens`. Called by `refreshModelCatalog` after the model list is built from direct provider APIs.
-- `apps/workers/src/trigger/claim-extraction.ts` — reads `settings.default_extraction_route`; same three direct adapters.
-- `apps/workers/src/trigger/document-ingestion.ts` — reads `settings.default_extraction_route`; same three direct adapters.
-- `apps/workers/src/trigger/brain-synthesis.ts` — reads `settings.default_synthesis_route`; same three direct adapters.
-- `apps/workers/src/trigger/contradiction-watcher.ts` — reads `settings.default_extraction_route` + `settings.enable_live_contradiction_interjections`; same three direct adapters.
+- `apps/workers/src/trigger/claim-extraction.ts` — reads `settings.default_extraction_route`; uses the standard provider-adapter registry.
+- `apps/workers/src/trigger/document-ingestion.ts` — reads `settings.default_extraction_route`; uses the standard provider-adapter registry.
+- `apps/workers/src/trigger/brain-synthesis.ts` — reads `settings.default_synthesis_route`; uses the standard provider-adapter registry.
+- `apps/workers/src/trigger/contradiction-watcher.ts` — reads `settings.default_extraction_route` + `settings.enable_live_contradiction_interjections`; uses the standard provider-adapter registry.
 - `apps/web/app/api/teams/notifications/route.ts` — `TEAMS_WEBHOOK_CLIENT_STATE`, `TEAMS_NOTIFICATION_PRIVATE_KEY` (Teams transcript webhook; runs on Vercel).
 - `apps/web/app/api/teams/live/start/route.ts` — `RECALL_API_KEY`, `RECALL_BASE_URL`, `RECALL_REALTIME_WEBHOOK_URL` (admin-only helper to send a Recall bot into a Teams meeting).
 - `apps/web/app/api/teams/live/recall/route.ts` — `RECALL_WEBHOOK_SECRET` (signed Recall real-time transcript webhook; runs on Vercel and triggers the worker).
 - `apps/web/app/api/teams/bot/messages/route.ts` — `MICROSOFT_BOT_APP_ID`, `MICROSOFT_BOT_APP_PASSWORD`, `MICROSOFT_BOT_TENANT_ID`, `RECALL_API_KEY`, `RECALL_BASE_URL`, `RECALL_REALTIME_WEBHOOK_URL` (Teams-native bot command wrapper; `@The Oracle join <meeting link>` summons the Recall listener).
 - `apps/workers/src/lib/graph-transcripts.ts` — `AZURE_TENANT_ID` / `AZURE_GRAPH_CLIENT_ID` / `AZURE_GRAPH_CLIENT_SECRET`, `TEAMS_NOTIFICATION_URL`, `TEAMS_NOTIFICATION_PUBLIC_CERT`, `TEAMS_NOTIFICATION_CERT_ID`, `TEAMS_WEBHOOK_CLIENT_STATE` (subscription create/renew; read by the `teams-subscription-*` + `teams-transcript-ingestion` tasks on Trigger.dev).
-- `apps/workers/src/lib/recall.ts` + `apps/workers/src/trigger/teams-live-recall-utterance.ts` — `RECALL_API_KEY`, `RECALL_BASE_URL` (posts Oracle questions back to the live Teams meeting chat through Recall).
+- `apps/workers/src/lib/recall.ts` + `apps/workers/src/trigger/teams-live-recall-utterance.ts` — `RECALL_API_KEY`, `RECALL_BASE_URL`; live Recall posting also reads `settings.oracle_cooldown_minutes`, `settings.max_oracle_interjections_per_hour`, and the `settings.teams_live_recall_*` test/safety overrides.
 - `apps/web/lib/microsoft-graph.ts` — `AZURE_*` (directory pull + the web-side subscription/transcript helpers).
 - `apps/workers/src/wet-test/run-claim-extraction-once.ts` — wet-test driver; validates `DATABASE_URL`/`DIRECT_URL`/`GOOGLE_CLOUD_PROJECT`/`ANTHROPIC_API_KEY`/`OPENAI_API_KEY` before running.
 - `packages/db/src/client.ts` — `DATABASE_URL`.

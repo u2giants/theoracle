@@ -107,7 +107,7 @@ Use `docs/configuration.md` for the exact variable list.
 
 ## Teams transcript ingestion (Microsoft Graph)
 
-The webhook (`apps/web/app/api/teams/notifications`) ships with the normal `apps/web` Vercel deploy — no separate step. The two workers (`teams-subscription-manager`, `teams-transcript-ingestion`) ship with the normal `pnpm --filter @oracle/workers run deploy`. To make the feature live (it is built but not yet wired live — see HANDOFF.md / AGENTS.md §14):
+The webhook (`apps/web/app/api/teams/notifications`) ships with the normal `apps/web` Vercel deploy — no separate step. The two workers (`teams-subscription-manager`, `teams-transcript-ingestion`) ship with the normal `pnpm --filter @oracle/workers run deploy`. This post-call Graph ingestion path is **live + validated end-to-end** (2026-06-04/05). Keep these requirements in place for reprovisioning, recovery, or new environments:
 
 1. **Entra permissions (one-time, admin):** grant the app `OnlineMeetingTranscript.Read.All` + `CallTranscripts.Read.All` (Application) and admin-consent. `CallTranscripts.Read.All` is **tenant-wide read of all call transcripts** — a deliberate privacy footprint; it's what the "capture every ad-hoc call" model requires.
 2. **Teams application access policy (one-time, admin, Teams PowerShell):** `New-CsApplicationAccessPolicy -Identity Oracle-Transcripts -AppIds <AZURE_GRAPH_CLIENT_ID>` then `Grant-CsApplicationAccessPolicy -PolicyName Oracle-Transcripts -Global`.
@@ -121,6 +121,8 @@ Env-var writes to Vercel are done via the Vercel dashboard or the Vercel REST AP
 
 This is separate from the Microsoft Graph transcript subscription above. Graph remains the post-call evidence/backfill path. Live spoken participation uses a Recall.ai meeting bot because Graph does not expose live Teams caption/transcript streams.
 
+Status: **live + validated end-to-end (2026-06-08/09).** The current production worker deployment after cleanup is `20260609.6`, with the temporary test-only bot-create task removed. After testing, live posting was intentionally clamped off through runtime `settings`; reopen it only for a controlled test or after the retrieval-backed-context work lands.
+
 Deploy pieces:
 
 1. **Recall dashboard (one-time):** obtain `RECALL_API_KEY` from the workspace API keys page. Create a workspace verification secret if one does not yet exist; the value starts with `whsec_`. Optionally add an ElevenLabs API key in the Recall workspace for `elevenlabs_streaming` quality. POP Creations workspace is US East (N. Virginia) — use `https://us-east-1.recall.ai` as the base URL.
@@ -130,14 +132,59 @@ Deploy pieces:
 
 Recall sends finalized `transcript.data` utterances to `/api/teams/live/recall`; that route verifies the Recall signature and triggers `teams-live-recall-utterance`. The worker persists each utterance as a `messages` row (`source='teams_live_recall'`) and only calls the interview model when a cheap keyword gate says the utterance might contain operational knowledge. Oracle questions are rate-limited by the existing interjection settings and posted back with Recall's `send_chat_message` endpoint.
 
+Runtime settings for a controlled live test:
+
+```sql
+INSERT INTO settings (key, value, description, updated_at)
+VALUES
+  ('max_oracle_interjections_per_hour', '3'::jsonb, 'Hard cap per channel per hour.', now()),
+  ('teams_live_recall_min_confidence_to_post', '70'::jsonb, 'Minimum live Recall model confidence required before posting.', now()),
+  ('teams_live_recall_force_model_pass', 'false'::jsonb, 'Test-only: force all live Recall utterances through the model gate.', now()),
+  ('teams_live_recall_force_post', 'false'::jsonb, 'Test-only: force-post Oracle test utterances.', now()),
+  ('teams_live_recall_disable_posting_limits', 'false'::jsonb, 'Test-only: bypass live Recall posting cooldown and rate caps.', now())
+ON CONFLICT (key) DO UPDATE
+SET value = EXCLUDED.value,
+    description = COALESCE(settings.description, EXCLUDED.description),
+    updated_at = now();
+```
+
+Clamp it off again after testing:
+
+```sql
+INSERT INTO settings (key, value, description, updated_at)
+VALUES
+  ('max_oracle_interjections_per_hour', '0'::jsonb, 'Hard cap per channel per hour.', now()),
+  ('teams_live_recall_min_confidence_to_post', '101'::jsonb, 'Minimum live Recall model confidence required before posting.', now()),
+  ('teams_live_recall_force_model_pass', 'false'::jsonb, 'Test-only: force all live Recall utterances through the model gate.', now()),
+  ('teams_live_recall_force_post', 'false'::jsonb, 'Test-only: force-post Oracle test utterances.', now()),
+  ('teams_live_recall_disable_posting_limits', 'false'::jsonb, 'Test-only: bypass live Recall posting cooldown and rate caps.', now())
+ON CONFLICT (key) DO UPDATE
+SET value = EXCLUDED.value,
+    description = COALESCE(settings.description, EXCLUDED.description),
+    updated_at = now();
+```
+
 ### Add Oracle from Teams
 
-To make this feel native in Teams, register a Microsoft Bot Framework bot and upload the Teams app manifest template at `apps/web/teams-app/oracle/manifest.template.json`.
+To make this feel native in Teams, use the Microsoft Bot Framework wrapper at `apps/web/app/api/teams/bot/messages/route.ts` and the Teams app manifest template at `apps/web/teams-app/oracle/manifest.template.json`.
 
-1. **Azure Bot registration:** create a bot whose Messaging endpoint is `https://oracle.designflow.app/api/teams/bot/messages`.
+Current production state (2026-06-09):
+
+- Azure subscription: `37077c95-ea53-4a19-8380-f3f48f0cc75d` (`paygo for teams Oracle bot`)
+- Resource group: `rg-oracle-teams-bot`
+- Azure Bot resource: `theoracle-popcre-teams-bot`, SKU `F0`, `msaAppType=SingleTenant`
+- Messaging endpoint: `https://oracle.designflow.app/api/teams/bot/messages`
+- Teams channel: enabled
+- Teams organization app: `The Oracle`, Teams app id `17ccd7a1-b90b-428c-9966-33e7fb832923`, external id `850b2963-3583-4af9-bf18-84985ecbcf03`
+- App availability: everyone; installed for Albert on 2026-06-09
+
+If rebuilding from scratch:
+
+1. **Azure Bot registration:** create a single-tenant bot whose Messaging endpoint is `https://oracle.designflow.app/api/teams/bot/messages`, then enable the Microsoft Teams channel.
 2. **Vercel env:** set `MICROSOFT_BOT_APP_ID`, `MICROSOFT_BOT_APP_PASSWORD`, and optionally `MICROSOFT_BOT_TENANT_ID`.
 3. **Teams app package:** copy `manifest.template.json`, replace `REPLACE_WITH_MICROSOFT_BOT_APP_ID` and `REPLACE_WITH_TEAMS_APP_ID`, add Teams PNG icons (`outline.png`, `color.png`), zip the three files, then upload/approve it in Teams Admin Center.
-4. **User flow:** in Teams, add **The Oracle** to the meeting/chat. Type `@The Oracle join <Teams meeting link>`. In meeting scope, plain `@The Oracle join` may work if Teams exposes the join URL through meeting context; otherwise the bot asks for the link.
+4. **App availability/install:** verify `Get-M365TeamsApp -Id 17ccd7a1-b90b-428c-9966-33e7fb832923` shows `IsBlocked=false` and `AvailableTo.AssignmentType=Everyone`. Install for a user/group with `Update-M365TeamsApp` if it does not appear in the user's Apps view after propagation.
+5. **User flow:** in Teams, add **The Oracle** to the meeting/chat. Type `@The Oracle join <Teams meeting link>`. In meeting scope, plain `@The Oracle join` may work if Teams exposes the join URL through meeting context; otherwise the bot asks for the link.
 
 ## Operational notes
 

@@ -5,6 +5,7 @@ The Oracle is an evidence-backed enterprise knowledge graph for POP Creations / 
 Start here:
 
 - `AGENTS.md` — primary developer and AI-session operating guide
+- `HANDOFF.md` — active unfinished work, when present
 - `docs/architecture.md` — current system design and data flow
 - `docs/development.md` — local setup and verification workflow
 - `docs/configuration.md` — env vars and runtime config

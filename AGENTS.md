@@ -1,6 +1,6 @@
 # AGENTS.md — The Oracle Developer Guide
 
-Read this first. It is the canonical operating guide for developers and AI coding sessions working in `D:\repos\oracle`.
+Read this first. It is the canonical operating guide for developers and AI coding sessions working in `C:\repos\oracle`.
 
 ## 1. Project summary
 
@@ -39,6 +39,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 | Work in a subfolder with its own README | `AGENTS.md`, that folder-level `README.md`, and only broader docs referenced there | Other folder-level READMEs |
 | Claude Code session | `CLAUDE.md`, then `AGENTS.md` | Other docs unless task requires them |
 | Documentation-only cleanup | `AGENTS.md`, `README.md`, affected docs under `docs/`, folder-level READMEs only where relevant, `HANDOFF.md` if present | Source files except as needed to verify accuracy |
+| Product/spec contract or AI-retrofit provenance | `AGENTS.md`, `oracle_master_spec.md`, relevant `docs/oracle/*` file, `oracle_ai_architecture_prompt caching.md` only if prompt-cache retrofit history is directly relevant | Current deployment/config docs unless operations are affected |
 
 Rules:
 - MUST be task-based.
@@ -46,6 +47,7 @@ Rules:
 - Read `HANDOFF.md` whenever it exists — it captures what is in-progress or unfinished.
 - Update this documentation map when documentation files are added, removed, renamed, or repurposed.
 - `docs/oracle/` — deeper AI-retrofit reference material; only read when the task touches the AI-retrofit spec directly.
+- `oracle_master_spec.md` and `oracle_ai_architecture_prompt caching.md` are historical/spec reference files, not default orientation docs.
 
 ## Five-minute orientation
 
@@ -100,7 +102,10 @@ Docs:
 - `docs/development.md`
 - `docs/configuration.md`
 - `docs/deployment.md`
+- `docs/wet-test-walkthrough.md`
 - `docs/oracle/` — deeper AI-retrofit reference material
+- `oracle_master_spec.md` — product/spec contract
+- `oracle_ai_architecture_prompt caching.md` — historical AI architecture/prompt-cache reference
 
 Scripts:
 
@@ -186,6 +191,8 @@ Specific boundaries:
 | Design file operations domain | `design_file_operations` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from product/design workflow. Covers designer file naming, invalid characters, server folders, file-size reduction, linked assets, packaging, versioning, archive, and handoff file hygiene. |
 | Provider Batch jobs table | `provider_batch_jobs` | `packages/db/src/schema.ts`, migration `60_batch_jobs.sql` | One row per submitted provider Batch API job (D14). `extraction_batches.provider_batch_job_id` links per-input rows to their batch. `model_runs.dispatch_mode` ∈ `'sync' \| 'batch' \| NULL`. |
 | Entra app (Graph backend) | `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Entra `TheOracle` app | App-only Graph: directory pull + Teams transcripts. Tenant `1caeb1c0-a087-4cb9-b046-a5e22404f971`. |
+| Azure Bot resource | `theoracle-popcre-teams-bot` | Azure subscription `37077c95-ea53-4a19-8380-f3f48f0cc75d`, resource group `rg-oracle-teams-bot` | Free `F0` Bot Service resource. Display name `The Oracle`, endpoint `https://oracle.designflow.app/api/teams/bot/messages`, `msaAppType=SingleTenant`, Teams channel enabled. |
+| Teams org app | Teams app id `17ccd7a1-b90b-428c-9966-33e7fb832923`; external id `850b2963-3583-4af9-bf18-84985ecbcf03` | Teams tenant app store, package generated from `apps/web/teams-app/oracle/manifest.template.json` | Organization/private-catalog app named `The Oracle`. Available to everyone; installed for Albert on 2026-06-09. |
 | Teams transcript subscription | resource `communications/adhocCalls/getAllTranscripts` | `apps/workers/src/lib/graph-transcripts.ts`, Graph **beta** | The only capture path for ad-hoc calls. ~1h max lifetime; renewed by `teams-subscription-manager`. |
 | Teams webhook | `https://oracle.designflow.app/api/teams/notifications` | `apps/web/app/api/teams/notifications/route.ts` | Graph `notificationUrl` + `lifecycleNotificationUrl`. Must be live before a subscription can be created. |
 | Recall live Teams webhook | `https://oracle.designflow.app/api/teams/live/recall` | `apps/web/app/api/teams/live/recall/route.ts`, `apps/workers/src/trigger/teams-live-recall-utterance.ts` | Optional live meeting path. Recall owns the Teams bot + live STT transport; Oracle receives finalized utterances and can post gated questions back through Recall. |
@@ -214,6 +221,8 @@ There are no Docker containers in this repo. Runtime services are fully managed.
 | DeepSeek API | Optional inference provider | DeepSeek | external account | `openai` SDK against `api.deepseek.com` |
 | DashScope | Optional Qwen inference provider | Alibaba | external account | `openai` SDK against `dashscope-us.aliyuncs.com/compatible-mode/v1` |
 | Microsoft Graph | Tenant directory pull (admin onboarding) + Teams call-transcript ingestion. App-only `client_credentials`. | Microsoft Entra | app `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Raw `fetch` (no SDK) — `apps/web/lib/microsoft-graph.ts`, `apps/workers/src/lib/graph-transcripts.ts` |
+| Azure Bot Service | Teams Bot Framework message ingress for `@The Oracle join`. | Azure | subscription `37077c95-ea53-4a19-8380-f3f48f0cc75d`; resource `theoracle-popcre-teams-bot` | Free `F0` Bot Service registration; Teams channel routes signed Bot Framework turns to `/api/teams/bot/messages`. |
+| Teams tenant app store | Makes The Oracle addable/searchable inside Teams. | Microsoft Teams Admin Center / Teams PowerShell | Teams app id `17ccd7a1-b90b-428c-9966-33e7fb832923` | Organization/private-catalog app package built from `apps/web/teams-app/oracle/manifest.template.json`. |
 
 ## 9. What to ignore
 
@@ -233,6 +242,9 @@ Do not load these into AI context unless a task explicitly requires them:
 - `packages/db/migrations/0*.sql`
 - `packages/db/migrations/meta/`
 - `.env.local`
+- `oracle_master_spec.md` unless product/spec alignment is the task
+- `oracle_ai_architecture_prompt caching.md` unless AI architecture or prompt-cache retrofit history is the task
+- `docs/oracle/` unless the task touches the AI-retrofit spec directly
 
 For orientation, follow the documentation map near the top of this file. Do not load broad source files such as `packages/db/src/schema.ts` or `packages/ai/src/providers/*.ts` unless the task needs that subsystem.
 
@@ -688,6 +700,23 @@ Set Vercel Production `TRIGGER_SECRET_KEY` to the **prod** secret key + redeploy
 Rule added to prevent recurrence:
 Vercel's `TRIGGER_SECRET_KEY` MUST be the prod-environment secret key. Any `tasks.trigger()` from the web app dispatches to the key's environment; a dev key silently drops production work.
 
+### 2026-06-09 Entra secret rotation broke Supabase Microsoft login
+
+What happened:
+While wiring the Teams-native Azure Bot, `az ad app credential reset` was run without `--append` against the shared Entra app `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc`. That removed existing client secrets, including the Supabase Azure provider secret and the Graph backend secret. Microsoft sign-in then redirected to `/auth/callback?error=server_error&error_code=unexpected_failure...`; Oracle showed `/denied?reason=no_code`.
+
+Impact:
+Microsoft SSO was temporarily broken. Graph-backed directory/transcript paths also needed fresh secrets in Vercel and Trigger.dev before they could safely run.
+
+Root cause:
+The same Entra app carries three separate client-secret consumers: Supabase Auth Azure provider, app-only Microsoft Graph backend, and Bot Framework authentication. Rotating one without `--append` invalidated the others.
+
+Recovery:
+Created fresh appended Entra secrets. Updated Supabase Auth's Azure provider client secret manually in the Supabase dashboard, updated Vercel `AZURE_GRAPH_CLIENT_SECRET` / `MICROSOFT_BOT_*`, updated Trigger.dev prod `AZURE_GRAPH_CLIENT_SECRET` via `POST https://api.trigger.dev/api/v1/projects/proj_wgpzsvhmsopqhvwqaycn/envvars/prod/import`, and redeployed Vercel production. Supabase Azure provider URL was corrected to `https://login.microsoftonline.com/1caeb1c0-a087-4cb9-b046-a5e22404f971` (no `/v2.0`; Supabase appends `/oauth2/v2.0/authorize`).
+
+Rule added to prevent recurrence:
+When creating or rotating a client secret on the shared Entra app, use `az ad app credential reset --append --display-name <purpose> ...` unless intentionally replacing every consumer. Keep separate display names for `supabase-prod-*`, `oracle-graph-*`, and `oracle-teams-bot-*`. Never put `/v2.0` in the Supabase Azure provider URL.
+
 ## 14. Pending work
 
 | Status | Item | Owner/next action |
@@ -702,10 +731,13 @@ Vercel's `TRIGGER_SECRET_KEY` MUST be the prod-environment secret key. Any `task
 | open | Vertex `buildContents` collapses each chat turn to a single text part, so inline image/file parts are not translated to `inlineData`/`fileData`. Vertex chat vision is effectively unwired. | Translate AI-SDK parts → Gemini parts. Prerequisite for general Vertex vision and for caching a doc alongside other inline attachments. |
 | open | Vertex Batch Prediction requires `GOOGLE_VERTEX_BATCH_GCS_BUCKET` to be provisioned + the worker SA granted `roles/storage.objectAdmin` on it. | One-time admin task before batch mode can be enabled for Vertex routes. OpenAI batch needs no infrastructure setup. Flip extraction to batch via `/admin/settings` → "Extraction dispatch mode" card. |
 | done | **Teams transcript ingestion — LIVE + validated end-to-end (2026-06-04/05).** Real Meet-Now call → subscription → webhook → ingestion → 95 messages, `speakersResolved 2/2`. Workers `20260605.1`. Speaker resolution now email-based (`fbb82cd`) + bootstrap-by-email for `@popcre.com` (`e73868b`); 38 employees seeded. | No action — feature works. Fuzzy quote matching (`89d2fd9`) + raw_transcripts persistence added. |
+| done | **Teams-native Oracle app wrapper is wired (2026-06-09).** Azure Bot resource `theoracle-popcre-teams-bot` (`F0`) points at `/api/teams/bot/messages`, Teams channel is enabled, the organization Teams app `The Oracle` is uploaded, and Albert's user has the app installed. | No repo action. If users cannot see the app, check Teams app propagation/policies and `Get-M365TeamsApp -Id 17ccd7a1-b90b-428c-9966-33e7fb832923`. |
 | open | **Extraction gates hold most claims on a fresh system** (not a bug): entity registry is empty → new entities (people, systems, RFQ…) are unresolved → claim **held** + entity queued as `entity_proposals`; `domain_valid` fails when proposed domains don't map to active top-domains; impact≥7 claims → `pending_review`. | Seed the entity registry + active `knowledge_top_domains` to let claims flow. Touches the review/safety model — get owner sign-off before loosening. See HANDOFF.md. |
 | open | **Synthesis never demonstrated** — needs ≥1 approved claim; 4 sit in `pending_review`. | Approve a claim (SQL or admin) → trigger `brain-synthesis` → confirm Brain narrative. |
-| open | **Recall.ai live Teams bot path — wired but not end-to-end tested.** Code committed (`bfd6612`); region bug fixed (`4219c66`, default now `us-east-1`); env vars set in Vercel (`RECALL_API_KEY`, `RECALL_WEBHOOK_SECRET`, `RECALL_BASE_URL`, `RECALL_REALTIME_WEBHOOK_URL`) and Trigger.dev (`RECALL_API_KEY`, `RECALL_BASE_URL`); workers deployed v20260606.1; webhook responding at production URL (signature verification confirmed). | End-to-end test: `POST https://oracle.designflow.app/api/teams/live/start` with a real Teams meeting URL → admit bot → speak → confirm `messages` row with `source='teams_live_recall'` and optional Oracle question posted to meeting chat. See `docs/deployment.md` § "Teams live participation" and DECISIONS.md before changing behavior. |
-| open | **Secret rotation — CRITICAL.** Three secrets exposed in chat sessions: (1) Azure app client secret (prior session); (2) Vercel API token (prior session); (3) `RECALL_API_KEY` + `RECALL_WEBHOOK_SECRET` (2026-06-06 session). | Rotate in Recall dashboard → update `RECALL_API_KEY` + `RECALL_WEBHOOK_SECRET` in Vercel + Trigger.dev. Rotate Azure client secret in Entra → update `AZURE_GRAPH_CLIENT_SECRET` in Vercel + Trigger.dev. Revoke Vercel API token in Vercel account settings. |
+| done | **Recall.ai live Teams bot path — LIVE + validated end-to-end (2026-06-08/09).** Admin start path, Recall bot join, ElevenLabs/AssemblyAI streaming, signed `/api/teams/live/recall` webhook, Trigger worker, message persistence, Recall `send_chat_message`, and visible Teams chat post were all verified. Current deployed worker version after cleanup: `20260609.6` with 17 tasks. | No action for mechanical live path. Safety/test settings are clamped off after testing (`max_oracle_interjections_per_hour=0`, `teams_live_recall_min_confidence_to_post=101`, force flags false). See `HANDOFF.md` for bot IDs, verification evidence, and the next open item: retrieval-backed live context. |
+| deferred | **Secret rotation.** Earlier sessions exposed several credentials in chat. The user explicitly deferred rotation until the system is up and running. | Do not treat rotation as the first blocker for current live testing. When the owner is ready, rotate Recall API/webhook secrets, any exposed Vercel token, and any Google service-account JSON that appeared in tool output. Azure Graph/Bot/Supabase Entra client secrets were refreshed on 2026-06-09; keep them distinct by display name and use `--append` for future rotations. Never write secret values into docs. |
+| open | **Live Oracle needs retrieval-backed context.** The Recall path can hear and ask short clarification questions, but the live worker currently uses only the current utterance + recent meeting window, not approved claims / Brain sections / older relevant messages. | Add retrieval to `apps/workers/src/trigger/teams-live-recall-utterance.ts` using the existing `searchWithRetrievalPlan()` path. Keep the bot as a clarification asker, not a meeting-answering assistant. See `HANDOFF.md`. |
+| done | **Repository documentation audit from pasted charter.** User supplied a comprehensive Markdown-maintenance spec on 2026-06-09. | Completed in the docs commit from this session: verified canonical docs against repo state, kept `AGENTS.md` canonical, kept `CLAUDE.md` Claude-only, aligned ignore files, and updated `HANDOFF.md` status. |
 | open | `pnpm lint` migration surfaced ~10 pre-existing `apps/web` violations the broken script had masked: 2× `react/no-unescaped-entities` (`proposals/_components/proposal-card.tsx`), 2× `react-hooks/set-state-in-effect` (`channel-chat.tsx`, `document-upload.tsx`), ~6 stale `eslint-disable` directives (`api/chat/route.ts`). | Fix in a focused lint-cleanup pass; not blocking (lint isn't in the Vercel build gate). |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.
