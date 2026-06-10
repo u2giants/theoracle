@@ -24,20 +24,24 @@ import {
 } from '@oracle/db/schema';
 import {
   OracleAIClient,
+  buildRetrievalPlanFromQuery,
   buildStandardAdapters,
   getOracleRoute,
   makeBlock,
   resolveRouteFromSettings,
+  searchWithRetrievalPlan,
   type OracleModelRoute,
+  type RelevantClaim,
 } from '@oracle/ai';
 import { sendRecallChatMessage } from '../lib/recall';
 
 const FALLBACK_INTERVIEW_ROUTE_ID = 'anthropic_claude_haiku_4_5_interview_primary';
-const LIVE_PROMPT_VERSION = 'teams-live-recall-1.0.0';
+const LIVE_PROMPT_VERSION = 'teams-live-recall-1.1.0';
 const DEFAULT_COOLDOWN_MINUTES = 10;
 const DEFAULT_MAX_INTERJECTIONS_PER_HOUR = 3;
 const DEFAULT_MIN_CONFIDENCE_TO_POST = 70;
 const RECENT_UTTERANCE_LIMIT = 18;
+const LIVE_RETRIEVAL_TOP_K = 5;
 const MIN_SECONDS_BETWEEN_LIVE_QUESTIONS = 20;
 
 const RecallWordSchema = z.object({
@@ -82,6 +86,7 @@ const LiveQuestionDecisionSchema = z.object({
   reason: z.string(),
   confidence: z.number().int().min(0).max(100).default(0),
   triggerType: z.enum(['possible_contradiction', 'lull_gap', 'direct_mention', 'none']).default('none'),
+  evidenceClaimIds: z.array(z.string()).default([]),
 });
 type LiveQuestionDecision = z.infer<typeof LiveQuestionDecisionSchema>;
 
@@ -94,6 +99,12 @@ Ask only when the live discussion reveals one of these:
 - a concrete business-process question that the team is actively asking and should not lose in the spoken discussion;
 - a possible contradiction with a recent statement in this same meeting;
 - a question that would prevent the team from leaving an important process ambiguity unresolved.
+
+You may also be given an "Approved company knowledge" block: already-approved operational claims retrieved for the current utterance. Use it only to judge the live discussion:
+- prefer asking when the current utterance conflicts with, updates, or leaves a concrete gap against that approved knowledge;
+- when the current utterance is a direct business-process question, the approved knowledge sharpens the clarification question — it never suppresses capturing the question;
+- never recite the approved knowledge into the meeting chat and never include claim IDs in the question text;
+- list the claim IDs that actually influenced your decision in evidenceClaimIds (empty if none did).
 
 Do not ask because of small talk, greetings, filler, status updates, or incomplete thoughts.
 Do not ask if the current utterance is too vague.
@@ -285,6 +296,30 @@ function fallbackClarificationQuestion(text: string): string {
   return `Can we clarify this process question: ${content}`;
 }
 
+// Retrieval-backed context for the live decision. Reuses the ONE endorsed
+// claim-retrieval path (buildRetrievalPlanFromQuery → searchWithRetrievalPlan)
+// rather than inventing a second retrieval mechanism. A retrieval failure must
+// never block the live utterance path — it degrades to the no-context prompt.
+async function retrieveLiveClaims(
+  db: ReturnType<typeof getDirectDb>,
+  currentUtterance: string,
+): Promise<RelevantClaim[]> {
+  const query = stripOracleAddress(currentUtterance);
+  if (!query) return [];
+  try {
+    const plan = buildRetrievalPlanFromQuery(query, { topK: LIVE_RETRIEVAL_TOP_K });
+    return await searchWithRetrievalPlan(db, plan);
+  } catch (err) {
+    // DrizzleQueryError buries the Postgres error in .cause — surface both.
+    const cause = err instanceof Error && err.cause instanceof Error ? ` cause: ${err.cause.message}` : '';
+    console.warn(
+      '[teams-live-recall-utterance] claim retrieval failed; deciding without approved-knowledge context',
+      `${err instanceof Error ? err.message.slice(0, 300) : String(err)}${cause}`,
+    );
+    return [];
+  }
+}
+
 async function decideLiveQuestion(args: {
   db: ReturnType<typeof getDirectDb>;
   client: OracleAIClient;
@@ -292,6 +327,7 @@ async function decideLiveQuestion(args: {
   channelId: string;
   currentUtterance: string;
   speakerName: string | null;
+  retrievedClaims: RelevantClaim[];
 }): Promise<{ decision: LiveQuestionDecision; modelRunId: string | null }> {
   const recent = await args.db
     .select({ content: messages.content, metadataJson: messages.metadataJson, createdAt: messages.createdAt })
@@ -314,6 +350,16 @@ ${recentContext}
 Current utterance to evaluate:
 ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
 
+  const approvedKnowledgeContent =
+    args.retrievedClaims.length > 0
+      ? `Approved company knowledge retrieved for the current utterance (each line is one approved claim):\n${args.retrievedClaims
+          .map(
+            (c) =>
+              `[claim:${c.id}] (${c.claimType}, impact ${c.impactScore}, confidence ${c.confidenceScore}) ${c.summary}`,
+          )
+          .join('\n')}`
+      : null;
+
   const blocks = [
     makeBlock({
       id: 'sys',
@@ -323,6 +369,18 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
       cacheEligible: true,
       reasonIncluded: 'live Teams meeting interjection decision',
     }),
+    ...(approvedKnowledgeContent
+      ? [
+          makeBlock({
+            id: 'approved-knowledge',
+            label: 'Approved company knowledge',
+            kind: 'retrieved_context' as const,
+            content: approvedKnowledgeContent,
+            cacheEligible: false,
+            reasonIncluded: 'retrieval-backed context for the live interjection decision',
+          }),
+        ]
+      : []),
     makeBlock({
       id: 'utterances',
       label: 'Recent finalized utterances',
@@ -352,7 +410,9 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
         routeId: args.route.routeId,
         promptVersion: LIVE_PROMPT_VERSION,
         stablePrefixHash: hashString(LIVE_ORACLE_SYSTEM),
-        dynamicInputHash: hashString(userContent),
+        dynamicInputHash: hashString(
+          approvedKnowledgeContent ? `${approvedKnowledgeContent}\n---\n${userContent}` : userContent,
+        ),
         blocksJson: blocks.map((b) => ({
           id: b.id,
           kind: b.kind,
@@ -397,7 +457,7 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
 
     if (!result.validation.ok) {
       return {
-        decision: { shouldAsk: false, reason: 'Decision output failed schema validation', confidence: 0, triggerType: 'none' },
+        decision: { shouldAsk: false, reason: 'Decision output failed schema validation', confidence: 0, triggerType: 'none', evidenceClaimIds: [] },
         modelRunId,
       };
     }
@@ -423,7 +483,7 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
       /* swallow */
     }
     return {
-      decision: { shouldAsk: false, reason: `Decision call failed: ${message}`, confidence: 0, triggerType: 'none' },
+      decision: { shouldAsk: false, reason: `Decision call failed: ${message}`, confidence: 0, triggerType: 'none', evidenceClaimIds: [] },
       modelRunId,
     };
   }
@@ -511,6 +571,8 @@ export const teamsLiveRecallUtteranceTask = task({
       let postedQuestion: string | null = null;
       let decisionReason = 'heuristic_skip';
       let modelRunId: string | null = null;
+      let retrievedClaimIds: string[] = [];
+      let evidenceClaimIds: string[] = [];
       const liveSettings = await loadLiveSettings(db);
       if (liveSettings.forceModelPass || isWorthModelPass(text)) {
         const rateState = await channelRateState(db, channelId);
@@ -525,6 +587,8 @@ export const teamsLiveRecallUtteranceTask = task({
         if (cooldownClear && rateCapClear) {
           const client = buildOracleClient();
           const route = await resolveInterviewRoute(db);
+          const retrievedClaims = await retrieveLiveClaims(db, text);
+          retrievedClaimIds = retrievedClaims.map((c) => c.id);
           const decisionResult = await decideLiveQuestion({
             db,
             client,
@@ -532,9 +596,13 @@ export const teamsLiveRecallUtteranceTask = task({
             channelId,
             currentUtterance: text,
             speakerName,
+            retrievedClaims,
           });
           modelRunId = decisionResult.modelRunId;
           decisionReason = decisionResult.decision.reason;
+          // Only trust evidence IDs the model could actually have seen.
+          const retrievedIdSet = new Set(retrievedClaimIds);
+          evidenceClaimIds = decisionResult.decision.evidenceClaimIds.filter((id) => retrievedIdSet.has(id));
           const isForcePostTest = liveSettings.forcePost && /^oracle\s+test[:,]?/i.test(text);
           const shouldPost =
             isForcePostTest ||
@@ -563,6 +631,8 @@ export const teamsLiveRecallUtteranceTask = task({
                   triggerMessageId: message?.id ?? null,
                   modelRunId,
                   decisionReason,
+                  retrievedClaimIds,
+                  evidenceClaimIds,
                 },
               })
               .returning({ id: messages.id });
@@ -594,6 +664,8 @@ export const teamsLiveRecallUtteranceTask = task({
         modelRunId,
         postedQuestion,
         decisionReason,
+        retrievedClaimIds,
+        evidenceClaimIds,
       };
       await db.update(jobRuns).set({ status: 'complete', finishedAt: new Date(), outputJson: out }).where(eq(jobRuns.id, jobRun.id));
       return { ok: true, ...out };

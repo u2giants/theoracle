@@ -58,9 +58,17 @@ export const DEFAULT_GAPS_LIMIT = 5;
  * type incorrectly match.
  */
 function buildPlanMetadataFilters(plan: RetrievalPlan) {
+  // NOTE: list filters are bound as ONE JSON-string parameter and unpacked in
+  // SQL via jsonb_array_elements_text / jsonb_to_recordset. Two driver pitfalls
+  // make the obvious forms break at runtime (2026-06-10 incident):
+  //   * a bare JS array in a drizzle sql template expands to a placeholder
+  //     list `($1, $2)`, so `ANY((...)::text[])` is invalid SQL;
+  //   * binding the array as a single param (sql.param) relies on postgres-js
+  //     array serialization, which mis-serializes for unknown-typed params.
+  // A plain string param + jsonb unpacking is unambiguous on every driver.
   const topDomainFilter =
     plan.topDomainHints.length > 0
-      ? sql`AND ctd.top_domain_id = ANY(${plan.topDomainHints}::text[])`
+      ? sql`AND ctd.top_domain_id IN (SELECT jsonb_array_elements_text(${JSON.stringify(plan.topDomainHints)}::jsonb))`
       : sql``;
 
   // Exclude claims that carry ANY excluded top-domain. claim_top_domains is
@@ -74,18 +82,19 @@ function buildPlanMetadataFilters(plan: RetrievalPlan) {
       ? sql`AND NOT EXISTS (
           SELECT 1 FROM claim_top_domains _xtd
           WHERE _xtd.claim_id = c.id
-            AND _xtd.top_domain_id = ANY(${plan.excludedTopDomains}::text[])
+            AND _xtd.top_domain_id IN (SELECT jsonb_array_elements_text(${JSON.stringify(plan.excludedTopDomains)}::jsonb))
         )`
       : sql``;
 
   const docClassFilter =
     plan.excludedDocumentClasses && plan.excludedDocumentClasses.length > 0
-      ? sql`AND (cm.document_class IS NULL OR NOT (cm.document_class = ANY(${plan.excludedDocumentClasses}::text[])))`
+      ? sql`AND (cm.document_class IS NULL OR cm.document_class NOT IN (SELECT jsonb_array_elements_text(${JSON.stringify(plan.excludedDocumentClasses)}::jsonb)))`
       : sql``;
 
   const timeFilter =
     plan.timeFilter === 'current'
-      ? sql`AND (cm.id IS NULL OR cm.effective_until IS NULL)`
+      ? // claim_metadata's PK is claim_id (1:1 with claims) — there is no id column.
+        sql`AND (cm.claim_id IS NULL OR cm.effective_until IS NULL)`
       : plan.timeFilter && plan.timeFilter.startsWith('since:')
         ? (() => {
             const since = plan.timeFilter.slice(6); // 'YYYY-MM-DD'
@@ -101,7 +110,7 @@ function buildPlanMetadataFilters(plan: RetrievalPlan) {
   // evaluates to NULL, which is not TRUE.
   const processStageFilter =
     plan.processStageHints && plan.processStageHints.length > 0
-      ? sql`AND cm.process_stage = ANY(${plan.processStageHints}::text[])`
+      ? sql`AND cm.process_stage IN (SELECT jsonb_array_elements_text(${JSON.stringify(plan.processStageHints)}::jsonb))`
       : sql``;
 
   const excludedEntityTypeFilter =
@@ -110,23 +119,22 @@ function buildPlanMetadataFilters(plan: RetrievalPlan) {
           SELECT 1 FROM claim_entities _ce
           JOIN entities _e ON _e.id = _ce.entity_id
           WHERE _ce.claim_id = c.id
-            AND _e.entity_type = ANY(${plan.excludedEntityTypes}::text[])
+            AND _e.entity_type IN (SELECT jsonb_array_elements_text(${JSON.stringify(plan.excludedEntityTypes)}::jsonb))
         )`
       : sql``;
 
   // Tuple match on (entity_type, canonical_value) so a canonical_value
   // registered under a different entity_type cannot incidentally match.
-  // unnest(arr1, arr2) zips the parallel arrays into a derived table.
+  // jsonb_to_recordset turns the bound JSON pairs into a derived table.
   const requiredEntityFilter =
     plan.requiredEntities.length > 0
       ? sql`AND EXISTS (
           SELECT 1
           FROM claim_entities _ce2
           JOIN entities _e2 ON _e2.id = _ce2.entity_id
-          JOIN unnest(
-            ${plan.requiredEntities.map((e) => e.entityType)}::text[],
-            ${plan.requiredEntities.map((e) => e.canonicalValue)}::text[]
-          ) AS _req(t, v)
+          JOIN jsonb_to_recordset(${JSON.stringify(
+            plan.requiredEntities.map((e) => ({ t: e.entityType, v: e.canonicalValue })),
+          )}::jsonb) AS _req(t text, v text)
             ON _e2.entity_type = _req.t
            AND _e2.canonical_value = _req.v
           WHERE _ce2.claim_id = c.id
@@ -285,7 +293,7 @@ export async function searchWithRetrievalPlan(
     dept_bonus AS (
       SELECT DISTINCT cm_d.claim_id
       FROM claim_metadata cm_d
-      WHERE cm_d.department = ANY(${deptHints}::text[])
+      WHERE cm_d.department IN (SELECT jsonb_array_elements_text(${JSON.stringify(deptHints)}::jsonb))
     ),`
       : sql``;
   const deptBonusTerm =
@@ -324,11 +332,13 @@ export async function searchWithRetrievalPlan(
         ${requiredEntityFilter}
     ),
     vec_ranked AS (
+      -- EMBEDDING_DIM is inlined via sql.raw: a type modifier like vector(N)
+      -- cannot be a bind parameter, and the constant is project-owned (1536).
       SELECT
         id, summary, claim_type, impact_score, confidence_score,
-        (embedding <=> ${vec}::vector(${EMBEDDING_DIM})) AS vec_dist,
+        (embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))})) AS vec_dist,
         ROW_NUMBER() OVER (
-          ORDER BY embedding <=> ${vec}::vector(${EMBEDDING_DIM})
+          ORDER BY embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))})
         ) AS vrank
       FROM pre_filtered
     ),

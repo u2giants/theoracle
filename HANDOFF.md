@@ -1,38 +1,28 @@
 # HANDOFF — Recall.ai wiring + extraction pipeline tuning
 
-Last updated: 2026-06-09. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, live retrieval context).
+Last updated: 2026-06-10. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding).
 
 ---
 
 ## What is open and needs finishing
 
-### 0. Current repo/deploy state from the 2026-06-09 live test
+### 0. Current repo/deploy state (2026-06-10 retrieval-backed live context session)
 
-This handoff is **not** just historical notes. At the time it was updated, the working tree had uncommitted changes that matter:
+At the time of this update, the working tree has uncommitted changes that are ALREADY DEPLOYED to Trigger.dev production as worker version `20260610.4`:
 
-- `apps/workers/src/trigger/teams-live-recall-utterance.ts`
-- `HANDOFF.md`
+- `apps/workers/src/trigger/teams-live-recall-utterance.ts` — retrieval-backed live decision (prompt `teams-live-recall-1.1.0`).
+- `packages/ai/src/retrieval.ts` — three runtime SQL bugs fixed in `searchWithRetrievalPlan` (see below).
+- `AGENTS.md`, `docs/architecture.md`, `HANDOFF.md` — docs.
 
-The worker code changes in `teams-live-recall-utterance.ts` were deployed to Trigger.dev production during testing:
+Deploy timeline this session: `20260610.1` (retrieval-backed worker), `20260610.2` (first SQL fix attempt), `20260610.3` (jsonb param binding + cause logging), `20260610.4` (final `cm.claim_id` fix — verified good). All with the normal 17 tasks.
 
-- `20260609.1` — live prompt allows spoken business-process questions to be captured.
-- `20260609.2` — deterministic fallback for direct business-process questions when the model omits a `question`.
-- `20260609.3` — strips leading direct address (`Oracle, ...`, `Hey Oracle, ...`) before business-question classification.
-- `20260609.4` — fallback no longer posts exact echo; frames as `Can we clarify this process question: ...`.
-- `20260609.5` — temporary `recall-live-bot-create` task added so Codex could create a fresh bot through Trigger's prod env.
-- `20260609.6` — temporary create task removed; production worker surface back to 17 tasks.
-
-Important:
-- `20260609.6` is deployed and contains the `teams-live-recall-utterance.ts` behavior changes.
-- The temporary `recall-live-bot-create.ts` file was deleted locally and is not present in `20260609.6`.
-- The remaining source changes should be reviewed, tested as needed, committed, and pushed before considering this session closed.
-- Do **not** assume the deployed worker and git history are aligned until these changes are committed.
+Do **not** assume the deployed worker and git history are aligned until these changes are committed and pushed (commit only when Albert asks).
 
 ### 1. Demonstrate synthesis
 
-4 claims are in `pending_review`. Synthesis has never been run. To unblock:
+Claim `bdbc9918-d659-4781-96dd-2baa7e8203e0` (Hobby Lobby holiday-decor SKUs must ship from Atlanta DC instead of Newark, impact 9) was **approved on 2026-06-10** as part of verifying live retrieval — so step 1 below is already done. 3 claims remain in `pending_review`. Synthesis has never been run. To unblock:
 
-1. Approve ≥1 of the 4 `pending_review` claims (SQL: `UPDATE claims SET status='approved' WHERE status='pending_review' LIMIT 1`) or use the admin review UI.
+1. ~~Approve ≥1 of the 4 `pending_review` claims~~ — done (see above).
 2. Trigger `brain-synthesis` via Trigger MCP or the admin UI.
 3. Confirm a `brain_section_versions` row appears + narrative looks right.
 
@@ -45,52 +35,39 @@ On a fresh system, almost every extraction-derived claim is **held**:
 
 This is not a bug; it's the review/safety model working as intended. Get owner sign-off before loosening.
 
-### 3. Add retrieval-backed context to live Oracle
+### 3. Retrieval-backed context for live Oracle — DONE (2026-06-10)
 
-The Recall live Teams path is now mechanically proven end-to-end, but it is not yet proven to be deeply knowledge-backed.
+Implemented and verified in production worker `20260610.4`:
 
-Current live worker behavior:
-- Receives finalized Recall utterances.
-- Stores them as `messages`.
-- Uses a rolling window of recent meeting utterances.
-- Applies heuristic/model/fallback logic to decide whether to post one short clarification question.
+- `teams-live-recall-utterance` now runs the one endorsed retrieval path (`buildRetrievalPlanFromQuery` → `searchWithRetrievalPlan`, topK 5) over each utterance that passes the heuristic + cooldown/rate gates, and injects the approved claims as a `retrieved_context` prompt block (prompt version `teams-live-recall-1.1.0`).
+- The decision schema gained `evidenceClaimIds`; the worker validates them against the retrieved set and stores `retrievedClaimIds` + `evidenceClaimIds` in the job output and (when a question posts) in the interjection assistant-message `metadata_json`.
+- Retrieval failures degrade to the no-context prompt (with the Postgres `cause` surfaced in the warn log); they never block utterance persistence.
+- The live bot still only asks clarification questions; claim IDs never appear in Teams chat text.
 
-Current limitation:
-- The live prompt does **not** yet retrieve approved claims, Brain sections, or older relevant messages before deciding what to ask.
-- Therefore it can capture obvious process ambiguity from the live conversation, but it may not ask the most pertinent company-specific question if the relevant knowledge has not been spoken recently or synthesized yet.
+Verification runs (Trigger prod, synthetic `transcript.data` payloads, bot id `verify-retrieval-20260610`, channel `b3a65666-ff4c-4e0d-8ce8-11a970808f50`):
 
-Recommended next implementation:
-1. In `apps/workers/src/trigger/teams-live-recall-utterance.ts`, before `decideLiveQuestion()`, run the existing retrieval/planning path against the current utterance plus recent live context.
-2. Retrieve a small, bounded set of approved claims / relevant prior messages / Brain sections, with evidence metadata.
-3. Add those snippets to the live decision prompt as context blocks.
-4. Ask only when the live utterance conflicts with, updates, or leaves a gap against retrieved context.
-5. Store evidence IDs in `oracle_interventions` or assistant-message metadata; keep Teams chat text short and citation-free unless the product later wants visible citations.
+- Contradicting utterance ("keep routing all Hobby Lobby holiday decor shipping through the Newark warehouse...") → run `run_cmq8erj3y7uh70uog5qd45swt`: `retrievedClaimIds=[bdbc9918-…]`, `evidenceClaimIds=[bdbc9918-…]`, decision reason explicitly cites the approved Atlanta-DC rule, `postedQuestion=null` (clamp respected).
+- Small talk ("Good morning everyone...") → run `run_cmq8es7a87qdp0hogi33nukgc`: `heuristic_skip`, no model call, no retrieval.
+- `contradiction-watcher` for the approved claim → run `run_cmq8es88r7swt0hok4li3fh3p`: completes (0 contradictions) — it had been failing on the same retrieval SQL.
+- All synthetic test messages in channel `b3a65666-…` were set `extraction_status='skipped'` so the extraction pipeline never treats them as real knowledge.
+- The posting/metadata path (actual Recall `send_chat_message` + assistant-message evidence metadata) still needs one real live-meeting test with the user present; everything up to the post is proven.
 
-Important constraint:
-- Do not let the live bot answer questions directly. It should ask clarifying questions or capture ambiguity, not behave like a full chat assistant inside the meeting.
+Three runtime SQL bugs were fixed in `searchWithRetrievalPlan` / `buildPlanMetadataFilters` (`packages/ai/src/retrieval.ts`) — the hybrid query had NEVER successfully executed with domain hints before, because there were no approved+embedded claims to exercise it:
 
-Best first code-read for this task:
-- `apps/workers/src/trigger/teams-live-recall-utterance.ts` — current live decision task, prompt, test flags, fallback logic.
-- `packages/ai/src/retrieval.ts` and related retrieval-plan files — existing approved-claim retrieval path to reuse instead of inventing a second retrieval mechanism.
-- `docs/architecture.md` sections for Recall live participation and retrieval/claims flow.
-- `AGENTS.md` quirks on the single endorsed claim-retrieval path; keep hybrid and fallback retrieval behavior in lockstep.
+1. Bare JS arrays in drizzle ``sql`` templates expand to `($1, $2)`, so `ANY((...)::text[])` was a syntax error → list filters now bind ONE JSON-string param unpacked via `jsonb_array_elements_text` / `jsonb_to_recordset` (see new AGENTS.md §10 quirk).
+2. `::vector(${EMBEDDING_DIM})` parameterized a type modifier (`vector($4)`) → now inlined with `sql.raw`.
+3. `cm.id` does not exist — `claim_metadata`'s PK is `claim_id` → `timeFilter` now uses `cm.claim_id`.
 
-Definition of done:
-- A live utterance can retrieve relevant approved knowledge before deciding whether to ask.
-- The worker stores which evidence influenced the interjection.
-- The Teams chat post remains concise and does not answer the meeting.
-- Tests or verification runs prove that generic small talk still skips, direct business questions still post, and retrieval-backed contradictions/gaps produce better questions.
+The static parity guard passes unchanged (it checks filter parity between branches, not SQL validity — none of these were catchable statically).
 
 ### Fresh-developer restart packet (added 2026-06-09)
 
 Use this subsection as the first stop for a brand-new developer. The rest of this file preserves the detailed history and evidence, but this is the current operating snapshot.
 
 Current git/deploy snapshot:
-- Branch `main` matches `origin/main` as of 2026-06-09.
-- Latest pushed commit observed in this session: `5dfe242 feat(workers): harden live Recall interjections`.
-- That commit includes the docs updates and the live Recall worker hardening in `apps/workers/src/trigger/teams-live-recall-utterance.ts`.
-- The earlier note above about uncommitted `teams-live-recall-utterance.ts` changes is historical from before `5dfe242` was committed. Re-check `git status --short --branch` before starting work, but do not assume there are still uncommitted worker changes unless Git shows them.
-- Trigger.dev production worker version `20260609.6` was deployed after removing the temporary `recall-live-bot-create` task. The normal production worker surface should be 17 tasks.
+- Latest pushed commit observed: `69cfa08 docs: add fresh developer handoff packet` on `main`.
+- As of 2026-06-10 the working tree has uncommitted (but deployed) changes — see section 0 above. Re-check `git status --short --branch` before starting work.
+- Trigger.dev production worker version is `20260610.4` (17 tasks), containing the retrieval-backed live decision + retrieval SQL fixes.
 
 What The Oracle can do now:
 - Post-call Teams transcript ingestion through Microsoft Graph is live and validated for ad-hoc Teams calls when the Graph subscription exists before transcription starts.
@@ -107,20 +84,12 @@ What is intentionally disabled right now:
   - `teams_live_recall_force_model_pass = false`
   - `teams_live_recall_force_post = false`
   - `teams_live_recall_disable_posting_limits = false`
+- 2026-06-10 settings timeline: `teams_live_recall_disable_posting_limits` was temporarily set `true` at ~18:27 UTC for the synthetic retrieval verification and clamped back `false` at 18:35:44 UTC. Separately, `max_oracle_interjections_per_hour` was found at `3` (changed 2026-06-10 00:01:38 UTC by an unknown actor — NOT this session) and was re-clamped to `0` at 18:36:11 UTC per the guardrail above. If Albert set it to 3 intentionally, restore it deliberately.
 
 Most important next work:
-1. Add retrieval-backed context to `apps/workers/src/trigger/teams-live-recall-utterance.ts`.
-2. Run a synthesis demo by approving at least one pending claim and triggering `brain-synthesis`.
-3. Seed/confirm entity registry and active knowledge domains so extraction does not hold ordinary claims forever.
-
-How to continue the live retrieval work:
-1. Read `AGENTS.md`, then this `HANDOFF.md`, then `docs/architecture.md` sections for Recall live participation and retrieval/claims flow.
-2. In `apps/workers/src/trigger/teams-live-recall-utterance.ts`, locate the flow that normalizes Recall words, inserts a `messages` row, and calls `decideLiveQuestion()`.
-3. Before the decision call, build a small query from the current utterance plus recent utterance window.
-4. Reuse the existing approved-claim retrieval path in `packages/ai/src/retrieval.ts` and related retrieval-plan code. Do not create a second retrieval system.
-5. Pass a short evidence/context block into the live decision prompt.
-6. Store the evidence IDs or source metadata that influenced an Oracle interjection, either in `oracle_interventions` or assistant-message metadata.
-7. Preserve the product rule: inside a live Teams meeting, Oracle asks concise clarification questions; it does not answer like the normal employee chat assistant.
+1. Run a synthesis demo by triggering `brain-synthesis` (one claim is already approved) and confirming a `brain_section_versions` row.
+2. Seed/confirm entity registry and active knowledge domains so extraction does not hold ordinary claims forever.
+3. One real live-meeting test (user present) of the retrieval-backed interjection posting path, confirming `evidenceClaimIds` lands in the assistant-message `metadata_json`.
 
 Known-good live test utterance:
 - Spoken: `Oracle, should artwork always go to China after licensor approval, or is Walmart an exception?`

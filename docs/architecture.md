@@ -279,7 +279,7 @@ Adds live Teams meeting awareness without changing the Vercel/Supabase/Trigger.d
 
 Status: **LIVE + validated end-to-end (2026-06-08/09).** The tested path is: admin start route -> Recall Teams bot join -> ElevenLabs/AssemblyAI live STT -> signed `/api/teams/live/recall` webhook -> Trigger.dev `teams-live-recall-utterance` -> `messages` persistence -> Recall `send_chat_message` -> visible Teams chat post. The latest tested worker deployment is `20260609.6` after removing the temporary test-only bot-create task.
 
-After the live test, posting was deliberately clamped off in `settings` (`max_oracle_interjections_per_hour=0`, `teams_live_recall_min_confidence_to_post=101`, force flags false). The mechanical live path works; the next product gap is context quality. Today the worker reasons over the current utterance plus a recent meeting window, not approved claims, Brain sections, or older relevant messages. Add retrieval through the existing `searchWithRetrievalPlan()` path before expecting the live Oracle to ask deeply informed operational questions.
+After the live test, posting was deliberately clamped off in `settings` (`max_oracle_interjections_per_hour=0`, `teams_live_recall_min_confidence_to_post=101`, force flags false). The live decision is retrieval-backed (prompt version `teams-live-recall-1.1.0`): before the interjection decision, the worker runs the one endorsed claim-retrieval path (`buildRetrievalPlanFromQuery` → `searchWithRetrievalPlan`, top 5) over the current utterance and injects the approved claims as a `retrieved_context` prompt block. The model reports which claim IDs influenced its decision; the worker validates them against the retrieved set and stores `retrievedClaimIds` + `evidenceClaimIds` in the interjection assistant-message `metadata_json` and the job output. Retrieval failures degrade to the no-context prompt — they never block the utterance path. The live Oracle still only asks clarification questions; it never answers the meeting, and claim IDs never appear in the Teams chat text.
 
 ```
 Admin POST /api/teams/live/start { meetingUrl, provider }
@@ -299,8 +299,11 @@ apps/workers/src/trigger/teams-live-recall-utterance.ts
   • resolve speaker by email/name when available
   • insert messages row: role='user', source='teams_live_recall'
   • keyword gate skips low-signal utterances
-  • interview-route LLM decides whether to ask one short question
   • rate/cooldown gates via oracle_interventions
+  • retrieval plan over the utterance -> top approved claims (searchWithRetrievalPlan)
+  • interview-route LLM decides whether to ask one short question, given the
+    retrieved approved-knowledge block + recent utterance window
+  • evidence claim IDs stored on the assistant message metadata_json
   • Recall send_chat_message posts the question to Teams chat
 ```
 

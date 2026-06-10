@@ -448,6 +448,17 @@ The recurring regression here was adding a narrowing filter to the hybrid path a
 Do not change because:
 Adding a second retrieval path (or a filter to only one branch) reintroduces the exact silent-divergence class the guard exists to prevent. New narrowing fields go in `buildPlanMetadataFilters()` and get interpolated into both branches — nowhere else.
 
+### Raw-SQL list parameters are bound as JSON strings, not JS arrays
+
+Looks like:
+`buildPlanMetadataFilters()` in `packages/ai/src/retrieval.ts` could use the simpler `= ANY(${arr}::text[])` form instead of `IN (SELECT jsonb_array_elements_text(${JSON.stringify(arr)}::jsonb))`.
+
+Actually:
+Two driver pitfalls make the obvious forms fail at runtime (found 2026-06-10, the first day a hinted retrieval ran against an approved+embedded claim): a bare JS array in a drizzle ``sql`` template expands to a placeholder list `($1, $2)`, making `ANY((...)::text[])` a syntax error; and binding the array as one param (`sql.param`) relies on postgres-js serialization of unknown-typed params, which is unreliable. Also, a type modifier such as `vector(1536)` cannot be a bind parameter — `EMBEDDING_DIM` is inlined with `sql.raw`. The static verify guards and typecheck cannot catch any of this; it only fails when the query executes.
+
+Do not change because:
+Reverting to `ANY(${arr}::text[])` reintroduces a runtime-only failure that stays invisible until real data exercises the filter. New list filters in raw SQL should follow the JSON-string + `jsonb_array_elements_text` / `jsonb_to_recordset` pattern.
+
 ### Microsoft Graph Teams transcripts arrive after the call
 
 Looks like:
