@@ -37,6 +37,7 @@ Examples for this company (illustrative starting vocabulary, to be proposed and 
 - `creative_design` — product design, sample creation, visual direction, art direction, and creative-to-technical handoff.
 - `design_file_operations` — designer file-management practices: safe filenames, invalid characters, server/folder organization, file-size reduction, linked assets, packaging, versioning, archive cleanup, and handoff file hygiene.
 - `it_systems` — ERP, Coldlion, ResourceSpace, internal tooling, integrations, automation.
+- `operations_systems` — ERP/CRM/PLM business-system workflows, field ownership, source-of-truth rules, and spreadsheet-to-system data integration such as OrderList, MasterData, and TaskList moving from Google Sheets into Designflow PLM.
 - `production_lifecycle` — sample → pre-production → production → QC → ship → RA stages.
 - `finance_pricing` — costing, margin rules, customer pricing, vendor terms.
 - `people_org` — employees, departments, roles, internal escalation paths.
@@ -73,6 +74,17 @@ Neighboring domains: creative_design, product_development, production_lifecycle,
 ```
 
 The same team can appear in both `design_file_operations` and `product_development`, but retrieval must follow the intent of the question. "How should I name/save/store this design file?" belongs in `design_file_operations`. "Where is this product/design in the approval or production workflow?" belongs in the workflow domains.
+
+Mandatory boundary rule:
+
+```text
+Domain: operations_systems
+Belongs here: ERP/CRM/PLM workflow rules, Designflow PLM integration, Google Sheets operational data sources, OrderList, MasterData, TaskList, field mapping, data validation, source-of-truth decisions, import/export/sync handoffs between business systems.
+Does not belong here: Generic account/password troubleshooting, Adobe file hygiene, product art direction, licensor approval decisions, factory capacity planning, customer routing-guide compliance, freight booking status.
+Neighboring domains: it_systems, product_development, production_lifecycle, customer_ops, finance_pricing.
+```
+
+`operations_systems` is deliberately separate from generic `it_systems`. "How do I log into Designflow?" is IT support. "Which OrderList fields become Designflow PLM fields, and what must be cleaned before import?" belongs in `operations_systems`.
 
 Governance:
 

@@ -61,7 +61,8 @@ interface PerClaimOutcome {
 }
 
 function defaultActiveTopDomainIds(): string[] {
-  // Match the 13 domains seeded in migrations/sql/16_knowledge_top_domains_seed.sql.
+  // Match the active domains seeded by migrations/sql/16_knowledge_top_domains_seed.sql
+  // plus additive follow-up domain migrations.
   // Fixtures may override via inputs.activeTopDomainIds.
   return [
     'customer_ops',
@@ -71,6 +72,7 @@ function defaultActiveTopDomainIds(): string[] {
     'design_file_operations',
     'supply_chain',
     'it_systems',
+    'operations_systems',
     'production_lifecycle',
     'finance_pricing',
     'people_org',

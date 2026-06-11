@@ -382,13 +382,16 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
       },
     });
     const latencyMs = Date.now() - callStartedAt;
+    const actualRouteId = result.routeId ?? route.routeId;
+    const actualProvider = result.provider ?? route.provider;
+    const actualModelId = result.modelId ?? route.modelId;
 
     const [modelRun] = await db
       .insert(modelRuns)
       .values({
         taskType: 'document-ingestion',
-        model: route.modelId,
-        provider: route.provider,
+        model: actualModelId,
+        provider: actualProvider,
         promptVersion: EXTRACTION_PROMPT_VERSION,
         inputHash: plan.metadata.stablePrefixHash,
         inputTokens: result.usage.inputTokens ?? null,
@@ -403,7 +406,7 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
     await db.insert(modelRunUsageDetails).values({
       modelRunId: modelRun.id,
       contextPackId: contextPack.id,
-      routeId: route.routeId,
+      routeId: actualRouteId,
       inputTokens: result.usage.inputTokens ?? null,
       cachedInputTokens: result.usage.cachedInputTokens ?? null,
       cacheWriteTokens: result.usage.cacheWriteTokens ?? null,
@@ -411,6 +414,8 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
       reasoningTokens: result.usage.reasoningTokens ?? null,
       providerRequestId: result.usage.providerRequestId ?? null,
       rawUsageJson: result.usage.rawUsageJson ?? null,
+      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
+      fallbackReason: result.fallbackReason ?? null,
     });
     await db
       .update(oracleContextPacks)

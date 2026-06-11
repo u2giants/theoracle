@@ -35,10 +35,14 @@ export function DocumentUpload({
   // Sync when a file is dropped externally (drag-to-upload from parent).
   useEffect(() => {
     if (initialFile) {
-      setFile(initialFile);
-      setStatus('idle');
-      setErrorMsg(null);
+      const id = window.setTimeout(() => {
+        setFile(initialFile);
+        setStatus('idle');
+        setErrorMsg(null);
+      }, 0);
+      return () => window.clearTimeout(id);
     }
+    return undefined;
   }, [initialFile]);
 
   async function upload() {

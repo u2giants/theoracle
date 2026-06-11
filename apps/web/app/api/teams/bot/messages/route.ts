@@ -3,7 +3,7 @@
 // Microsoft Teams Bot Framework endpoint. This is the Teams-native entry point
 // so users can add The Oracle app inside Teams and type:
 //
-//   @The Oracle join <Teams meeting link>
+//   @theoracle join <Teams meeting link>
 //
 // In meeting scope, TeamsInfo.getMeetingInfo() may provide the join URL, so a
 // plain "join" can work there. If Teams does not provide it, we ask for the
@@ -90,7 +90,7 @@ async function meetingJoinUrlFromContext(context: TurnContext): Promise<string |
 async function handleTurn(context: TurnContext, req: NextRequest): Promise<void> {
   if (context.activity.type !== ActivityTypes.Message) {
     if (context.activity.type === ActivityTypes.ConversationUpdate) {
-      await context.sendActivity('The Oracle is ready. In a meeting chat, type "join" or "join <Teams meeting link>".');
+      await context.sendActivity('theoracle is ready. In a meeting chat, type "join" or "join <Teams meeting link>".');
     }
     return;
   }
@@ -117,7 +117,7 @@ async function handleTurn(context: TurnContext, req: NextRequest): Promise<void>
       meetingUrl,
       webhookUrl,
       provider,
-      botName: 'The Oracle',
+      botName: 'theoracle',
       metadata: {
         source: 'teams_bot_command',
         teams_conversation_id: context.activity.conversation?.id ?? '',

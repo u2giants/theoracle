@@ -1,14 +1,16 @@
 # HANDOFF — Recall.ai wiring + extraction pipeline tuning
 
-Last updated: 2026-06-10. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding).
+Last updated: 2026-06-11. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
 
 ---
 
 ## What is open and needs finishing
 
-### 0. Current repo/deploy state (2026-06-10 retrieval-backed live context session)
+### 0. Current repo/deploy state (2026-06-10/11)
 
-At the time of this update, the working tree has uncommitted changes that are ALREADY DEPLOYED to Trigger.dev production as worker version `20260610.4`:
+The working tree has two categories of uncommitted changes:
+
+1. Changes that were already deployed to Trigger.dev production as worker version `20260610.4` during the 2026-06-10 retrieval-backed live context session:
 
 - `apps/workers/src/trigger/teams-live-recall-utterance.ts` — retrieval-backed live decision (prompt `teams-live-recall-1.1.0`).
 - `packages/ai/src/retrieval.ts` — three runtime SQL bugs fixed in `searchWithRetrievalPlan` (see below).
@@ -16,7 +18,19 @@ At the time of this update, the working tree has uncommitted changes that are AL
 
 Deploy timeline this session: `20260610.1` (retrieval-backed worker), `20260610.2` (first SQL fix attempt), `20260610.3` (jsonb param binding + cause logging), `20260610.4` (final `cm.claim_id` fix — verified good). All with the normal 17 tasks.
 
-Do **not** assume the deployed worker and git history are aligned until these changes are committed and pushed (commit only when Albert asks).
+2. Local-only fixes from the 2026-06-11 review session. These were verified locally but were **not** committed, pushed, or deployed during that session:
+
+- `ModelRouter` now attaches actual result route metadata (`routeId`, `provider`, `modelId`, `fellBackFromRouteId`, `fallbackReason`), and chat/workers log those actual values instead of blindly logging the pre-dispatch route.
+- Structured-output adapters parse invalid JSON defensively so schema problems flow through `validation.ok=false` rather than throwing before the validation result can be recorded.
+- Vertex structured-output calls can cache stable + semi-stable + retrieved context and send only dynamic input live.
+- Chat route no longer passes decorative Vercel AI SDK tools through `providerOptions`; retrieval runs deterministically before the model call.
+- Batch submit recovery distinguishes “provider accepted but no `provider_batch_jobs` row” and resets local state for a clean tracked retry.
+- Recall live utterance decisions now write `oracle_context_packs` before the model call and link usage/model-run rows even on failure.
+- The previously masked lint violations in taxonomy proposal card, channel chat, document upload, chat route stale disables, and PostCSS config were fixed.
+
+Verification from 2026-06-11: `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm --filter @oracle/ai verify:r2`, `verify:retrieval-filter-parity`, `verify:retrieval-plan-domain-boundaries`, `verify:vertex-file-cache`, and engine verifies `r5`, `r5.5`, `r6`, `r7`, `r9`, `r11.1` all passed.
+
+Do **not** assume the deployed worker, git history, and local working tree are aligned until these changes are committed/pushed and any needed Vercel/Trigger deployments are performed (commit/deploy only when Albert asks).
 
 ### 1. Demonstrate synthesis
 
@@ -37,9 +51,10 @@ This is not a bug; it's the review/safety model working as intended. Get owner s
 
 ### 3. Retrieval-backed context for live Oracle — DONE (2026-06-10)
 
-Implemented and verified in production worker `20260610.4`:
+Implemented and verified in production worker `20260610.4`; expanded locally on 2026-06-11:
 
 - `teams-live-recall-utterance` now runs the one endorsed retrieval path (`buildRetrievalPlanFromQuery` → `searchWithRetrievalPlan`, topK 5) over each utterance that passes the heuristic + cooldown/rate gates, and injects the approved claims as a `retrieved_context` prompt block (prompt version `teams-live-recall-1.1.0`).
+- The 2026-06-11 local update enriches retrieved claims with quote evidence and linked Brain snippets, includes recent meeting context in the retrieval query, and records the context pack/model-run/usage linkage for the live decision.
 - The decision schema gained `evidenceClaimIds`; the worker validates them against the retrieved set and stores `retrievedClaimIds` + `evidenceClaimIds` in the job output and (when a question posts) in the interjection assistant-message `metadata_json`.
 - Retrieval failures degrade to the no-context prompt (with the Postgres `cause` surfaced in the warn log); they never block utterance persistence.
 - The live bot still only asks clarification questions; claim IDs never appear in Teams chat text.

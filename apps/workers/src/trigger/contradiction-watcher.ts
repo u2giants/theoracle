@@ -205,6 +205,9 @@ async function adjudicateOnePair(
       schema: ContradictionCheckSchema,
     });
     const latencyMs = Date.now() - callStartedAt;
+    const actualRouteId = result.routeId ?? route.routeId;
+    const actualProvider = result.provider ?? route.provider;
+    const actualModelId = result.modelId ?? route.modelId;
 
     // Observability — three rows like every other R6+ worker.
     const [contextPack] = await db
@@ -229,8 +232,8 @@ async function adjudicateOnePair(
       .insert(modelRuns)
       .values({
         taskType: 'contradiction-check',
-        model: route.modelId,
-        provider: route.provider,
+        model: actualModelId,
+        provider: actualProvider,
         promptVersion: CONTRADICTION_PROMPT_VERSION,
         inputHash: hashString(CONTRADICTION_ADJUDICATION_SYSTEM),
         inputTokens: result.usage.inputTokens ?? null,
@@ -245,7 +248,7 @@ async function adjudicateOnePair(
     await db.insert(modelRunUsageDetails).values({
       modelRunId: modelRun.id,
       contextPackId: contextPack.id,
-      routeId: route.routeId,
+      routeId: actualRouteId,
       inputTokens: result.usage.inputTokens ?? null,
       outputTokens: result.usage.outputTokens ?? null,
       cachedInputTokens: result.usage.cachedInputTokens ?? null,
@@ -253,6 +256,8 @@ async function adjudicateOnePair(
       reasoningTokens: result.usage.reasoningTokens ?? null,
       providerRequestId: result.usage.providerRequestId ?? null,
       rawUsageJson: (result.usage.rawUsageJson ?? null) as Record<string, unknown> | null,
+      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
+      fallbackReason: result.fallbackReason ?? null,
     });
 
     await db
@@ -758,6 +763,9 @@ Explanation: ${input.explanation}`;
       providerOptions: { temperature: 0.4 },
     });
     const latencyMs = Date.now() - callStartedAt;
+    const actualRouteId = result.routeId ?? route.routeId;
+    const actualProvider = result.provider ?? route.provider;
+    const actualModelId = result.modelId ?? route.modelId;
 
     const [contextPack] = await db
       .insert(oracleContextPacks)
@@ -781,8 +789,8 @@ Explanation: ${input.explanation}`;
       .insert(modelRuns)
       .values({
         taskType: 'contradiction-live-interjection',
-        model: route.modelId,
-        provider: route.provider,
+        model: actualModelId,
+        provider: actualProvider,
         promptVersion: LIVE_INTERJECTION_PROMPT_VERSION,
         inputHash: hashString(LIVE_INTERJECTION_SYSTEM),
         inputTokens: result.usage.inputTokens ?? null,
@@ -797,7 +805,7 @@ Explanation: ${input.explanation}`;
     await db.insert(modelRunUsageDetails).values({
       modelRunId: modelRun.id,
       contextPackId: contextPack.id,
-      routeId: route.routeId,
+      routeId: actualRouteId,
       inputTokens: result.usage.inputTokens ?? null,
       outputTokens: result.usage.outputTokens ?? null,
       cachedInputTokens: result.usage.cachedInputTokens ?? null,
@@ -805,6 +813,8 @@ Explanation: ${input.explanation}`;
       reasoningTokens: result.usage.reasoningTokens ?? null,
       providerRequestId: result.usage.providerRequestId ?? null,
       rawUsageJson: (result.usage.rawUsageJson ?? null) as Record<string, unknown> | null,
+      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
+      fallbackReason: result.fallbackReason ?? null,
     });
 
     await db

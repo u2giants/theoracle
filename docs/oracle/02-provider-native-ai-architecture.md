@@ -56,7 +56,7 @@ OpenRouter has been removed from the codebase entirely (commit `b01e514`, R11.0)
 
 ## Why provider-native adapters are required
 
-The three providers do not expose caching, structured output, tools, usage accounting, or reasoning controls the same way.
+The direct providers do not expose caching, structured output, tools, usage accounting, or reasoning controls the same way.
 
 A single generic wrapper hides exactly the details The Oracle needs to optimize:
 
@@ -155,23 +155,33 @@ type OracleUsage = {
   rawUsageJson?: unknown;
 };
 
+type OracleRunRouteMetadata = {
+  routeId?: string;
+  provider?: string;
+  modelId?: string;
+  fellBackFromRouteId?: string;
+  fallbackReason?: string;
+};
+
 interface OracleProviderAdapter {
-  provider: 'anthropic' | 'vertex' | 'openai';
+  provider: 'anthropic' | 'vertex' | 'openai' | 'deepseek' | 'qwen';
   generateObject<T>(args: {
     plan: OraclePromptPlan;
     route: OracleModelRoute;
     schema: unknown;
-  }): Promise<{ object: T; usage: OracleUsage; rawResponse: unknown }>;
+  }): Promise<{ object: T; usage: OracleUsage; rawResponse: unknown } & OracleRunRouteMetadata>;
   generateText(args: {
     plan: OraclePromptPlan;
     route: OracleModelRoute;
-  }): Promise<{ text: string; usage: OracleUsage; rawResponse: unknown }>;
+  }): Promise<{ text: string; usage: OracleUsage; rawResponse: unknown } & OracleRunRouteMetadata>;
   streamText?(args: {
     plan: OraclePromptPlan;
     route: OracleModelRoute;
   }): AsyncIterable<unknown>;
 }
 ```
+
+`ModelRouter` attaches the route metadata after dispatch. Callers that log `model_runs` / `model_run_usage_details` must prefer the result metadata so fallback runs are attributed to the route and provider that actually ran.
 
 ## ContextCompiler rules
 
@@ -229,7 +239,7 @@ should not search vendor manuals unless there is a strong reason. It should pref
 
 Every claim, document, document chunk, message-derived candidate, Brain section, gap, and contradiction should be tagged or linkable by multiple dimensions:
 
-1. Top-level domain: licensing approvals, product development, creative design, design file operations, production lifecycle, supply chain, customer operations, vendor management, logistics/shipping, import compliance, IT systems, finance/pricing, people/org. These are governed by `knowledge_top_domains` and boundary rules in `07-knowledge-segmentation.md`; do not use a freeform `general` bucket except as a temporary unresolved/proposal state.
+1. Top-level domain: licensing approvals, product development, creative design, design file operations, operations systems, production lifecycle, supply chain, customer operations, vendor management, logistics/shipping, import compliance, IT systems, finance/pricing, people/org. These are governed by `knowledge_top_domains` and boundary rules in `07-knowledge-segmentation.md`; do not use a freeform `general` bucket except as a temporary unresolved/proposal state.
 2. Source type: message, document chunk, external system, manual admin, Brain section.
 3. Document class: SOP, vendor manual, customer routing guide, tech pack, style guide, ERP export, email, invoice, shipping document, chat transcript, unknown.
 4. Process stage: concept, design, licensor approval, customer approval, costing, sourcing, sample request, sample review, production, quality control, packaging, routing, shipping, invoicing, ERP update, archive.
@@ -613,7 +623,7 @@ All items below are done unless explicitly marked open.
 - ✅ `apps/workers/src/trigger/contradiction-watcher.ts` calls `OracleAIClient` via direct adapters (R11.0); live-interjection path landed in R11.3.
 - ✅ `apps/workers/src/trigger/lull-interjection.ts` — new in R11.2; calls `OracleAIClient` on the interview route for question drafting.
 - ⏳ **Admin model picker** (`apps/web/app/admin/settings/`) — the OpenRouter `/models` proxy that backed the live capability icons was deleted in `b01e514`. A curated `OracleModelRoute.routeId` picker sourced from `packages/ai/src/routes/catalog.ts` is the planned replacement. Open follow-up.
-- ✅ **Retrieval helpers** (`packages/ai/src/retrieval.ts`) — `searchWithRetrievalPlan()` ships hybrid pgvector + tsvector RRF with metadata pre-filter (P1 #3, commit `6a02e36`). `RetrievalPlan` with `searchScope` field enforces domain-filtered vs global-fallback vs global-explicit scopes. `precomputedVector` field short-circuits the `embedText()` call when the caller already has an embedding. Wired into chat route + contradiction-watcher. Legacy `searchApprovedClaims` still present for brain-synthesis backcompat; migrate in a later pass.
+- ✅ **Retrieval helpers** (`packages/ai/src/retrieval.ts`) — `searchWithRetrievalPlan()` ships hybrid pgvector + tsvector RRF with metadata pre-filter (P1 #3, commit `6a02e36`). `RetrievalPlan` with `searchScope` field enforces domain-filtered vs global-fallback vs global-explicit scopes. `precomputedVector` field short-circuits the `embedText()` call when the caller already has an embedding. Wired into chat route, Recall live decisions, and contradiction-watcher. `searchApprovedClaims()` has been removed; do not reintroduce a parallel retrieval path.
 
 ## Environment variables
 
@@ -649,5 +659,5 @@ The full env-var table with sources lives in `docs/configuration.md`.
 | Worker extraction outputs candidates, not direct claims | ✅ — R4–R7 |
 | Wet-test against live DB | ✅ — 2026-05-26, commit `51a33ff` |
 | `pnpm typecheck` and Next production build pass | ✅ — every commit since R-providers |
-| Retrieval is filtered by plan, not global vector search | ✅ — `searchWithRetrievalPlan()` + hybrid RRF + `RetrievalPlanSearchScope` (P1 #3). Chat main path, both chat tools, and contradiction-watcher all wired. Brain-synthesis reads approved claims directly from `claim_top_domains` + `section_claims` (it does not use the vector retrieval path — synthesis consolidates a whole domain, not a query-relevant slice). Legacy `searchApprovedClaims` deleted 2026-05-28. |
+| Retrieval is filtered by plan, not global vector search | ✅ — `searchWithRetrievalPlan()` + hybrid RRF + `RetrievalPlanSearchScope` (P1 #3). Chat route, Recall live decisions, and contradiction-watcher all wired. The chat route retrieves deterministically before the model call instead of passing AI SDK tools through native adapters. Brain-synthesis reads approved claims directly from `claim_top_domains` + `section_claims` (it does not use the vector retrieval path — synthesis consolidates a whole domain, not a query-relevant slice). Legacy `searchApprovedClaims` deleted 2026-05-28. |
 | Real Vertex explicit cache creation | ✅ — adapter creates explicit `cachedContent` handles, persists them in `provider_cached_content`, reuses them across processes by `source_hash`, and expires them through the lifecycle sweeper |

@@ -180,7 +180,14 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
     await this.cleanupExpiredPersistentCaches();
     const explicitCache = shouldDisableCache(providerOptions)
       ? null
-      : await this.prepareExplicitCacheForObject(plan, route.modelId, systemPrompt, providerOptions);
+      : await this.prepareExplicitCacheForObject(
+          plan,
+          route.modelId,
+          systemPrompt,
+          prefixContext,
+          dynamicInput,
+          providerOptions,
+        );
     const callStartedAt = Date.now();
 
     const response = await this.client.models.generateContent({
@@ -201,7 +208,7 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
     const latencyMs = Date.now() - callStartedAt;
     await this.recordSuccessfulExplicitCacheReuse(explicitCache);
     const text = response.text ?? '';
-    const parsed = JSON.parse(text);
+    const parsed = parseJsonOrRaw(text);
     // Best-effort runtime validation if a Zod schema was supplied — gives the
     // caller a typed error rather than silently passing through malformed output.
     const validated = tryZodParse<TOutput>(schema, parsed);
@@ -326,6 +333,8 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
     plan: OraclePromptPlan,
     modelId: string,
     systemPrompt: string,
+    prefixContext: string,
+    dynamicInput: string,
     providerOptions?: Record<string, unknown>,
   ): Promise<{
     cacheName?: string;
@@ -344,19 +353,37 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
       };
     }
     const stableTokens = estimatePlanStableTokens(plan);
-    if (!(hints?.preferExplicitCache === true || stableTokens >= 2048) || !systemPrompt) {
+    const prefixTokens = estimateTextTokens(prefixContext);
+    const cacheableTokenEstimate = stableTokens + prefixTokens;
+    if (
+      !(hints?.preferExplicitCache === true || cacheableTokenEstimate >= 2048) ||
+      (!systemPrompt && !prefixContext)
+    ) {
       return null;
     }
     const explicitCache = await this.getOrCreateExplicitCache({
       modelId,
-      systemInstruction: systemPrompt,
-      contents: [],
+      systemInstruction: systemPrompt || undefined,
+      contents: prefixContext
+        ? [{ role: 'user', parts: [{ text: prefixContext }] }]
+        : [],
       ttlSeconds: pickVertexCacheTtlSeconds(plan.taskType, providerOptions),
-      cacheKey: hashCacheKey([modelId, plan.metadata.stablePrefixHash, 'system-only']),
-      sourceHash: hashCacheKey([plan.metadata.stablePrefixHash, 'system-only']),
-      sourceTokenEstimate: estimateTextTokens(systemPrompt),
+      cacheKey: hashCacheKey([
+        modelId,
+        plan.metadata.stablePrefixHash,
+        plan.metadata.semiStableContextHash,
+        plan.metadata.retrievedContextHash,
+        'object-prefix',
+      ]),
+      sourceHash: hashCacheKey([
+        plan.metadata.stablePrefixHash,
+        plan.metadata.semiStableContextHash,
+        plan.metadata.retrievedContextHash,
+        'object-prefix',
+      ]),
+      sourceTokenEstimate: estimateTextTokens([systemPrompt, prefixContext].filter(Boolean).join('\n\n')),
       sourceDescription:
-        hints?.sourceDescription ?? `${plan.taskType} system prefix`,
+        hints?.sourceDescription ?? `${plan.taskType} structured-output prefix`,
       expectedReuseCount: Math.max(1, hints?.expectedReuseCount ?? 1),
       latestPlannedReuseStep: hints?.latestPlannedReuseStep ?? plan.taskType,
       cleanupOwner: hints?.cleanupOwner,
@@ -367,6 +394,7 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
     return {
       cacheName: explicitCache.name,
       omitSystemInstruction: true,
+      requestUserMessage: dynamicInput,
       lifecycleHandle: explicitCache.lifecycleHandle,
     };
   }
@@ -988,14 +1016,18 @@ export function tryZodParse<T>(schema: unknown, value: unknown): T | null {
   const s = schema as { safeParse?: (v: unknown) => { success: boolean; data: T; error: unknown } };
   if (s && typeof s === 'object' && typeof s.safeParse === 'function') {
     const result = s.safeParse(value);
-    if (!result.success) {
-      throw new Error(
-        `VertexGeminiAdapter.generateObject: model output failed Zod validation: ${String(result.error)}`,
-      );
-    }
+    if (!result.success) return null;
     return result.data;
   }
   return null;
+}
+
+export function parseJsonOrRaw(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 /**

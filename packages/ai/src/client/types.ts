@@ -110,15 +110,23 @@ export interface OracleUsage {
   rawUsageJson?: unknown;
 }
 
+export interface OracleRunRouteMetadata {
+  routeId?: string;
+  provider?: string;
+  modelId?: string;
+  fellBackFromRouteId?: string;
+  fallbackReason?: string;
+}
+
 /** Result of a generateText call. */
-export interface OracleTextResult {
+export interface OracleTextResult extends OracleRunRouteMetadata {
   text: string;
   usage: OracleUsage;
   rawResponse: unknown;
 }
 
 /** Result of a generateObject call (structured output). */
-export interface OracleObjectResult<T> {
+export interface OracleObjectResult<T> extends OracleRunRouteMetadata {
   object: T;
   usage: OracleUsage;
   rawResponse: unknown;

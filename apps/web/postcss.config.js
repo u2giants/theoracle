@@ -1,7 +1,7 @@
-// Tailwind v4 PostCSS plugin. v4 bundles autoprefixer behavior internally,
-// so no separate autoprefixer entry is needed.
-export default {
+const config = {
   plugins: {
     '@tailwindcss/postcss': {},
   },
 };
+
+export default config;

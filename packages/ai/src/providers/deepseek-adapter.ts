@@ -37,7 +37,7 @@ import type {
   OracleProviderAdapter,
 } from './types';
 import { normalizeMessageContentArray } from './cache-utils';
-import { flattenPlan, tryZodParse } from './vertex-gemini-adapter';
+import { flattenPlan, parseJsonOrRaw, tryZodParse } from './vertex-gemini-adapter';
 
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 
@@ -129,7 +129,7 @@ export class DeepSeekAdapter implements OracleProviderAdapter {
         `DeepSeekAdapter.generateObject: empty response. finish_reason=${choice?.finish_reason}`,
       );
     }
-    const parsed = JSON.parse(raw);
+    const parsed = parseJsonOrRaw(raw);
     const validated = tryZodParse<TOutput>(schema, parsed);
     return {
       object: (validated ?? parsed) as TOutput,

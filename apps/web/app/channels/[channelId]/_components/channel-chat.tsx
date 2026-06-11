@@ -73,17 +73,20 @@ export function ChannelChat({
   // them here. We merge by ID so optimistic updates and realtime messages
   // are never clobbered, and we re-sort chronologically.
   useEffect(() => {
-    setMessages((cur) => {
-      const knownIds = new Set(cur.map((m) => m.id));
-      const incoming = initialMessages.filter((m) => !knownIds.has(m.id));
-      if (incoming.length === 0) return cur; // nothing new — skip re-render
-      const merged = [...cur, ...incoming];
-      merged.sort(
-        (a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-      );
-      return merged;
-    });
+    const id = window.setTimeout(() => {
+      setMessages((cur) => {
+        const knownIds = new Set(cur.map((m) => m.id));
+        const incoming = initialMessages.filter((m) => !knownIds.has(m.id));
+        if (incoming.length === 0) return cur; // nothing new — skip re-render
+        const merged = [...cur, ...incoming];
+        merged.sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        );
+        return merged;
+      });
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [initialMessages]);
 
   // Auto-scroll on new messages.

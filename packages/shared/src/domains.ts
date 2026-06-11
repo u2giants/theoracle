@@ -166,6 +166,7 @@ export const TOP_LEVEL_DOMAINS = [
   'design_file_operations',
   'supply_chain',
   'it_systems',
+  'operations_systems',
   'production_lifecycle',
   'finance_pricing',
   'people_org',

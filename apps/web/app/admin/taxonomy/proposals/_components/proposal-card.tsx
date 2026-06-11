@@ -180,7 +180,7 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
                   <span className="font-mono text-[10px] text-muted-foreground">
                     {e.sourceType}:{e.sourceId.slice(0, 8)}…
                   </span>
-                  <div className="mt-0.5 italic">"{e.shortSnippet}"</div>
+                  <div className="mt-0.5 italic">&quot;{e.shortSnippet}&quot;</div>
                   {e.whyRepresentative && (
                     <div className="text-[10px] text-muted-foreground">{e.whyRepresentative}</div>
                   )}

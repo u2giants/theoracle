@@ -100,6 +100,7 @@ export async function runClaimExtractionBatchSubmitOnce(
   const stagedContextPackIds: string[] = [];
   let providerAccepted = false;
   let providerBatchIdForRecovery: string | null = null;
+  let providerBatchJobInserted = false;
 
   try {
     // 1. Dispatch-mode gate — mirror image of the sync worker.
@@ -272,6 +273,7 @@ export async function runClaimExtractionBatchSubmitOnce(
       })
       .returning({ id: providerBatchJobs.id });
     if (!batchJob) throw new Error('[batch-submit] failed to insert provider_batch_jobs row');
+    providerBatchJobInserted = true;
 
     // 9. Link extraction_batches rows to the batch job.
     await db
@@ -303,13 +305,22 @@ export async function runClaimExtractionBatchSubmitOnce(
     //      isn't littered with stale pending_model rows that will never get
     //      drained.
     //
-    //  (b) providerAccepted === true: the provider has the batch. A failure
-    //      between submitBatch and the back-link update means messages stay
-    //      'processing' (drain will mark them based on the batch result) and
-    //      the staging rows MUST be kept — drain looks them up by customId
-    //      from the batch result, not by the back-link. We log loudly so an
-    //      operator can investigate any state mismatch.
-    if (!providerAccepted) {
+    //  (b) providerAccepted === true but providerBatchJobInserted === false:
+    //      the provider has an upstream batch, but Oracle has no durable row
+    //      for the drain task to poll. That upstream batch is intentionally
+    //      abandoned; reset local state so the next cron can submit a tracked
+    //      retry instead of leaving messages stuck as 'processing'.
+    //
+    //  (c) providerBatchJobInserted === true: the provider batch is tracked.
+    //      A failure after that point means messages stay 'processing' and
+    //      staging rows MUST be kept — drain can recover by polling the job.
+    if (!providerAccepted || !providerBatchJobInserted) {
+      if (providerAccepted) {
+        console.error(
+          '[claim-extraction-batch-submit] provider accepted a batch but local provider_batch_jobs insert failed; abandoning upstream batch and resetting local state',
+          { providerBatchId: providerBatchIdForRecovery, error: errMsg },
+        );
+      }
       if (claimedMessageIds.length > 0) {
         try {
           await db
@@ -358,7 +369,7 @@ export async function runClaimExtractionBatchSubmitOnce(
       }
     } else {
       console.error(
-        '[claim-extraction-batch-submit] failure after provider accepted batch — staging rows + messages left as-is for drain or manual recovery',
+        '[claim-extraction-batch-submit] failure after tracked provider batch creation — staging rows + messages left as-is for drain or manual recovery',
         {
           providerBatchId: providerBatchIdForRecovery,
           stagedBatchIds,

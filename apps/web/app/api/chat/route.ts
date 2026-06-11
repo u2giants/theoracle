@@ -10,10 +10,9 @@
 //     `getOpenRouter()` directly.
 //   - oracle_context_packs + model_run_usage_details rows are written
 //     for every chat turn so cache-hit / fallback dashboards work.
-//   - Tools (search_company_knowledge, check_open_gaps), multi-turn
-//     message history, stopWhen step cap, and temperature are passed
-//     through providerOptions — the chat-specific knobs that don't fit
-//     OracleAIClient's narrow runText/runObject contract.
+//   - The chat route executes retrieval deterministically before the model call
+//     (recent messages, open gaps, approved claims); multi-turn message history
+//     and temperature are passed through providerOptions.
 //
 // What stays the same:
 //   - Auth + channel-participation check.
@@ -31,7 +30,6 @@ import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { stepCountIs, tool } from 'ai';
 import { createServiceRoleClient } from '@oracle/auth/server';
 import {
   ORACLE_SYSTEM_PROMPT,
@@ -45,7 +43,6 @@ import {
   makeBlock,
   searchWithRetrievalPlan,
   buildRetrievalPlanFromQuery,
-  getOpenGapsForChannel,
   type OracleModelRoute,
   type OraclePromptPlan,
   type RetrievalPlanSearchScope,
@@ -258,64 +255,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'context_pack_failed' }, { status: 500 });
   }
 
-  // ── 7. Tools (preserved verbatim from legacy route) ──────────────────
-  const tools = {
-    search_company_knowledge: tool({
-      description:
-        "Search the Oracle's approved claims and brain sections for operational knowledge. Filter by top-level domain hints if relevant.",
-      inputSchema: z.object({
-        query: z.string().describe('Free-text question or topic to search for.'),
-        topDomainHints: z
-          .array(z.string())
-          .optional()
-          .describe(
-            'Optional list of top-level domain IDs to restrict the search ' +
-              '(e.g. it_systems, licensing_approvals, customer_ops, supply_chain, ' +
-              'logistics_shipping, product_development, creative_design, ' +
-              'design_file_operations, production_lifecycle, ' +
-              'import_compliance, finance_pricing, people_org). Leave empty to search all.',
-          ),
-        limit: z.number().int().min(1).max(20).optional(),
-      }),
-      execute: async ({ query, topDomainHints, limit }) => {
-        const toolPlan = buildRetrievalPlanFromQuery(query, {
-          topDomainHints: topDomainHints ?? [],
-          topK: limit ?? 8,
-        });
-        const results = await searchWithRetrievalPlan(db, toolPlan);
-        return {
-          claims: results.map((r) => ({
-            id: r.id,
-            summary: r.summary,
-            claimType: r.claimType,
-            impact: r.impactScore,
-            confidence: r.confidenceScore,
-          })),
-          count: results.length,
-        };
-      },
-    }),
-    check_open_gaps: tool({
-      description:
-        'List open knowledge gaps assigned to the current employee, the channel members, or relevant departments. Use these to weave natural questions.',
-      inputSchema: z.object({ limit: z.number().int().min(1).max(10).optional() }),
-      execute: async ({ limit }) => {
-        const channelGaps = await getOpenGapsForChannel(db, body.channelId, limit ?? 5);
-        return {
-          gaps: channelGaps.map((g) => ({
-            id: g.id,
-            question: g.questionToAsk,
-            whyItMatters: g.whyItMatters,
-            priority: g.priority,
-            sectionId: g.sectionId,
-          })),
-          count: channelGaps.length,
-        };
-      },
-    }),
-  };
-
-  // ── 8. Build multi-turn conversation (with attachments for vision routes) ─
+  // ── 7. Build multi-turn conversation (with attachments for vision routes) ─
   const recentIds = recent.map((m) => m.id);
   const attachmentRows =
     visionCapable && recentIds.length > 0
@@ -342,7 +282,7 @@ export async function POST(req: NextRequest) {
 
   const serviceSupabase = createServiceRoleClient();
 
-  // ── 8a. Vertex GCS file-backed cache for a large attached PDF ────────
+  // ── 7a. Vertex GCS file-backed cache for a large attached PDF ────────
   // When the interview route runs on Vertex AND a GCS cache bucket is
   // configured, cache the most-recent large PDF in the thread as a Gemini
   // cachedContent prefix (gs:// fileData) instead of re-sending it as base64
@@ -392,8 +332,16 @@ export async function POST(req: NextRequest) {
   // will carry the document; otherwise keep the existing inline behavior.
   const excludeInlineAttachments = !!vertexFileCacheSource;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const conversationMessages: any[] = await Promise.all(
+  type ChatContentPart =
+    | { type: 'text'; text: string }
+    | { type: 'image'; image: string }
+    | { type: 'file'; data: string; mimeType: string };
+  type ConversationMessage = {
+    role: 'user' | 'assistant';
+    content: string | ChatContentPart[];
+  };
+
+  const conversationMessages: ConversationMessage[] = await Promise.all(
     recent
       .filter((m) => m.role !== 'system')
       .map(async (m) => {
@@ -403,12 +351,7 @@ export async function POST(req: NextRequest) {
         const atts = attachmentMap.get(m.id) ?? [];
         if (atts.length === 0 || excludeInlineAttachments) return { role, content: textContent };
 
-        type Part =
-          | { type: 'text'; text: string }
-          | { type: 'image'; image: string }
-          | { type: 'file'; data: string; mimeType: string };
-
-        const parts: Part[] = [{ type: 'text', text: textContent }];
+        const parts: ChatContentPart[] = [{ type: 'text', text: textContent }];
         for (const att of atts) {
           try {
             const { data: blob, error } = await serviceSupabase.storage
@@ -436,22 +379,18 @@ export async function POST(req: NextRequest) {
       }),
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const safeMessages = visionCapable
+  const safeMessages: ConversationMessage[] = visionCapable
     ? conversationMessages
-    : // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      conversationMessages.map((m: any) => {
+    : conversationMessages.map((m) => {
         if (!Array.isArray(m.content)) return m;
         const textOnly = m.content
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .filter((p: any) => p.type === 'text')
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((p: any) => p.text as string)
+          .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+          .map((p) => p.text)
           .join('\n');
         return { ...m, content: textOnly };
       });
 
-  // ── 9. Dispatch through OracleAIClient ───────────────────────────────
+  // ── 8. Dispatch through OracleAIClient ───────────────────────────────
   const startedAt = Date.now();
   const qwenSessionKey = route.provider === 'qwen' ? `interview-chat:${body.channelId}` : null;
   const previousQwenSession =
@@ -479,6 +418,11 @@ export async function POST(req: NextRequest) {
   let success = false;
   let usageRaw: unknown = null;
   let providerRequestId: string | undefined;
+  let actualRouteId = route.routeId;
+  let actualProvider = route.provider;
+  let actualModelId = route.modelId;
+  let fellBackFromRouteId: string | undefined;
+  let fallbackReason: string | undefined;
 
   try {
     const messagesWithContext = [
@@ -502,8 +446,6 @@ export async function POST(req: NextRequest) {
       },
       providerOptions: {
         messages: messagesWithContext,
-        tools,
-        stopWhen: stepCountIs(4),
         temperature: 0.4,
         cache: {
           preferLongLivedCache: true,
@@ -535,6 +477,11 @@ export async function POST(req: NextRequest) {
     cachedInputTokens = result.usage.cachedInputTokens;
     usageRaw = result.usage.rawUsageJson;
     providerRequestId = result.usage.providerRequestId;
+    actualRouteId = result.routeId ?? route.routeId;
+    actualProvider = (result.provider as typeof route.provider | undefined) ?? route.provider;
+    actualModelId = result.modelId ?? route.modelId;
+    fellBackFromRouteId = result.fellBackFromRouteId;
+    fallbackReason = result.fallbackReason;
     success = true;
   } catch (err) {
     modelError = err instanceof Error ? err.message : String(err);
@@ -547,13 +494,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── 10. Log model_runs + model_run_usage_details + back-link pack ───
+  // ── 9. Log model_runs + model_run_usage_details + back-link pack ───
   const [modelRun] = await db
     .insert(modelRuns)
     .values({
       taskType: 'interview_chat',
-      model: route.modelId,
-      provider: route.provider,
+      model: actualModelId,
+      provider: actualProvider,
       promptVersion: ORACLE_SYSTEM_PROMPT_VERSION,
       inputHash: plan.metadata.stablePrefixHash,
       inputTokens: inputTokens ?? null,
@@ -568,19 +515,21 @@ export async function POST(req: NextRequest) {
     await db.insert(modelRunUsageDetails).values({
       modelRunId: modelRun.id,
       contextPackId: contextPack.id,
-      routeId: route.routeId,
+      routeId: actualRouteId,
       inputTokens: inputTokens ?? null,
       cachedInputTokens: cachedInputTokens ?? null,
       outputTokens: outputTokens ?? null,
       providerRequestId: providerRequestId ?? null,
       rawUsageJson: usageRaw ?? null,
+      fellBackFromRouteId: fellBackFromRouteId ?? null,
+      fallbackReason: fallbackReason ?? null,
     });
     await db
       .update(oracleContextPacks)
       .set({ modelRunId: modelRun.id })
       .where(eq(oracleContextPacks.id, contextPack.id));
 
-    if (route.provider === 'qwen' && providerRequestId && qwenSessionKey) {
+    if (actualProvider === 'qwen' && providerRequestId && qwenSessionKey) {
       await db
         .insert(providerResponseSessions)
         .values({
@@ -588,12 +537,12 @@ export async function POST(req: NextRequest) {
           sessionKey: qwenSessionKey,
           scopeKind: 'channel',
           scopeId: body.channelId,
-          modelId: route.modelId,
+          modelId: actualModelId,
           latestResponseId: providerRequestId,
           lastContextPackId: contextPack.id,
           lastModelRunId: modelRun.id,
           metadataJson: {
-            routeId: route.routeId,
+            routeId: actualRouteId,
           },
         })
         .onConflictDoUpdate({
@@ -602,12 +551,12 @@ export async function POST(req: NextRequest) {
             providerResponseSessions.sessionKey,
           ],
           set: {
-            modelId: route.modelId,
+            modelId: actualModelId,
             latestResponseId: providerRequestId,
             lastContextPackId: contextPack.id,
             lastModelRunId: modelRun.id,
             metadataJson: {
-              routeId: route.routeId,
+              routeId: actualRouteId,
             },
             updatedAt: new Date(),
           },
@@ -622,7 +571,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── 11. Persist Oracle reply as assistant message ───────────────────
+  // ── 10. Persist Oracle reply as assistant message ───────────────────
   const [inserted] = await db
     .insert(messages)
     .values({
@@ -637,9 +586,9 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     messageId: inserted?.id,
-    routeId: route.routeId,
-    model: route.modelId,
-    provider: route.provider,
+    routeId: actualRouteId,
+    model: actualModelId,
+    provider: actualProvider,
     contextPackId: contextPack.id,
     modelRunId: modelRun?.id ?? null,
     latencyMs: Date.now() - startedAt,

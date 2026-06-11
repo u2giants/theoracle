@@ -147,7 +147,7 @@ apps/web/app/api/chat/route.ts
     → reads settings.default_interview_reasoning_effort ('medium')
     → returns OracleModelRoute { provider: 'anthropic', modelId: 'claude-haiku-4-5', reasoningEffort: 'medium', ... }
   • client = getOracleClient()   // lazy-init OracleAIClient with buildStandardAdapters()
-  • result = await client.runText({ plan, route, providerOptions: { messages, temperature, tools } })
+  • result = await client.runText({ plan, route, providerOptions: { messages, temperature, cache } })
   ↓
 OracleAIClient.runText()
   • compile()  → OraclePromptPlan { stableBlocks, dynamicBlocks, outputContract }
@@ -279,7 +279,7 @@ Adds live Teams meeting awareness without changing the Vercel/Supabase/Trigger.d
 
 Status: **LIVE + validated end-to-end (2026-06-08/09).** The tested path is: admin start route -> Recall Teams bot join -> ElevenLabs/AssemblyAI live STT -> signed `/api/teams/live/recall` webhook -> Trigger.dev `teams-live-recall-utterance` -> `messages` persistence -> Recall `send_chat_message` -> visible Teams chat post. The latest tested worker deployment is `20260609.6` after removing the temporary test-only bot-create task.
 
-After the live test, posting was deliberately clamped off in `settings` (`max_oracle_interjections_per_hour=0`, `teams_live_recall_min_confidence_to_post=101`, force flags false). The live decision is retrieval-backed (prompt version `teams-live-recall-1.1.0`): before the interjection decision, the worker runs the one endorsed claim-retrieval path (`buildRetrievalPlanFromQuery` → `searchWithRetrievalPlan`, top 5) over the current utterance and injects the approved claims as a `retrieved_context` prompt block. The model reports which claim IDs influenced its decision; the worker validates them against the retrieved set and stores `retrievedClaimIds` + `evidenceClaimIds` in the interjection assistant-message `metadata_json` and the job output. Retrieval failures degrade to the no-context prompt — they never block the utterance path. The live Oracle still only asks clarification questions; it never answers the meeting, and claim IDs never appear in the Teams chat text.
+After the live test, posting was deliberately clamped off in `settings` (`max_oracle_interjections_per_hour=0`, `teams_live_recall_min_confidence_to_post=101`, force flags false). The live decision is retrieval-backed (prompt version `teams-live-recall-1.1.0`): before the interjection decision, the worker runs the one endorsed claim-retrieval path (`buildRetrievalPlanFromQuery` → `searchWithRetrievalPlan`, top 5) over the current utterance plus recent meeting context, enriches the results with evidence and linked Brain snippets, and injects that approved knowledge as a `retrieved_context` prompt block. The worker writes an `oracle_context_packs` row before the model call, links it to `model_runs` / `model_run_usage_details`, and records actual fallback metadata from the AI result. The model reports which claim IDs influenced its decision; the worker validates them against the retrieved set and stores `retrievedClaimIds` + `evidenceClaimIds` in the interjection assistant-message `metadata_json` and the job output. Retrieval failures degrade to the no-context prompt — they never block the utterance path. The live Oracle still only asks clarification questions; it never answers the meeting, and claim IDs never appear in the Teams chat text.
 
 ```
 Admin POST /api/teams/live/start { meetingUrl, provider }
@@ -355,9 +355,9 @@ One human → one `employees` row → many `employee_identities` rows.
 1. `POST /api/chat` receives `{ channelId }`. The employee is resolved server-side from the Supabase session cookie — the client does not pass an employee ID.
 2. The route resolves the requester's `employees` row through `employee_identities` (matches `auth.uid()` from the Supabase session). Verifies the requester is a participant of `channelId`.
 3. Classifies the query via `buildRetrievalPlanFromQuery` (heuristic keyword → `topDomainHints`, `requiredEntities`, `excludedDocumentClasses`, `searchScope`). Passes the employee's `departments` array as `departmentHints` — a soft signal added to the RRF score (+0.002 per claim whose `claim_metadata.department` matches). Runs hybrid pgvector + tsvector RRF via `searchWithRetrievalPlan` with metadata pre-filter. Also fetches recent N messages, employee profile, and top open gaps for this employee/department.
-4. Calls `OracleAIClient.runText` with the spec Part 10 system prompt + the retrieval bundle. Route is `settings.default_interview_route` (default `anthropic_claude_haiku_4_5_interview_primary`), dispatched through the direct `AnthropicAdapter` (`@anthropic-ai/sdk`). Tools, multi-turn `messages`, `stopWhen`, and `temperature` are passed through the `providerOptions` escape hatch. Image/file parts are stripped for text-only models before the call.
-5. Tools exposed: `search_company_knowledge`, `check_open_gaps` — both Zod-validated, both backed by `packages/ai/src/retrieval.ts`.
-6. On completion: inserts the assistant message into `messages` and writes a `model_runs` row with cost/latency/tokens.
+4. Builds prompt blocks with the spec Part 10 system prompt plus the deterministic retrieval bundle. Multi-turn `messages`, `temperature`, provider cache hints, and optional Qwen session handles are passed through `providerOptions`; Vercel AI SDK tool definitions are not used by the direct adapters.
+5. Calls `OracleAIClient.runText`. Route is `settings.default_interview_route` (default `anthropic_claude_haiku_4_5_interview_primary`) and may fall back through `ModelRouter`.
+6. On completion: inserts the assistant message into `messages`, writes `model_runs` + `model_run_usage_details`, and uses the AI result metadata to record the actual dispatched route plus any fallback origin/reason.
 
 ### 3. Document upload
 
@@ -483,7 +483,7 @@ Workers must not import from `apps/web`, and vice versa.
 | Part 7 (RLS) | `packages/db/migrations/sql/20_rls_helpers.sql`, `21_rls_policies.sql` |
 | Part 8 (admin views) | `packages/db/migrations/sql/30_admin_views.sql` |
 | Part 9.1 (chat route) | `apps/web/app/api/chat/route.ts` + `packages/ai/src/retrieval.ts` |
-| Part 9.2 (tools) | `apps/web/app/api/chat/route.ts` |
+| Part 9.2 (retrieval context) | `apps/web/app/api/chat/route.ts` + `packages/ai/src/retrieval.ts` |
 | Part 9.4 (claim extraction) | `apps/workers/src/trigger/claim-extraction.ts` (deployed) |
 | Part 10 (system prompt) | `packages/ai/src/prompts/oracle-system.ts` (verbatim) |
 | Settings / model config | `apps/web/app/admin/settings/model-pool` — per-stage pool checkbox table (Interview / Extraction / Synthesis columns) backed by the persisted `model_capabilities` Postgres table. **Model discovery:** each of the 5 provider APIs is called in parallel (`sources/anthropic.ts` → Anthropic `/v1/models`, `sources/openai.ts` → OpenAI `/v1/models`, `sources/google.ts` → Google Gemini `/v1beta/models`, `sources/deepseek.ts`, `sources/qwen.ts`). **OpenAI filtering:** the OpenAI source uses a blocklist of non-chat categories (audio, image, realtime, TTS, transcription, moderation, video, legacy completion) rather than an allowlist of chat prefixes — new GPT/o-series generations pass through automatically. **Post-enrichment quality filters (all 5 providers):** (1) models with no pricing AND no capability flags are dropped; (2) models priced ≥ $15.01/1M input tokens are dropped. Pricing and capability flags come from OpenRouter (`sources/openrouter.ts` → `openrouter.ai/api/v1/models`, joined by model id with dash→dot + date-stripping normalization). All sources are fetched in parallel; per-source failures are non-fatal and surfaced in `errors[]`. **Defense in depth:** the same filter is applied again in `/api/admin/model-catalog` GET (`passesQualityFilter`) so rows already in the DB from before the write-time filter shipped are never returned to the admin UI. Existing DB rows are preserved (deprecated models may still be referenced by pool selections) — they're just filtered at read time. `/api/admin/model-catalog`: GET reads the table (filtered), POST triggers a full refresh (also filtered). `/api/admin/models?stage=<>`: returns the per-stage pool (`settings.model_pool_<stage>`) or full catalog if pool is empty. Workers resolve their route via `resolveModelRoute(modelIdOrRouteId, role)` in `packages/ai/src/routes/resolve.ts`, which accepts both catalog `routeId`s and `provider/model` strings. Three role-setting keys (`default_interview_route`, `default_extraction_route`, `default_synthesis_route`) feed all six production callers; a fourth `default_general_purpose_route` exists for internal one-off jobs but is not yet wired to any caller. |
@@ -495,7 +495,7 @@ Workers must not import from `apps/web`, and vice versa.
 - **`claims` has no `employee_id` column.** Looks like a schema oversight; it's intentional. A claim can be supported by multiple employees, documents, or external systems across time. Attribution lives on `claim_evidence.asserted_by_employee_id` per row.
 - **Deprecated columns on `employees` (`auth_user_id`, `auth_provider`, `auth_provider_subject`) are NULL-filled and still present.** Looks like dead columns; they're kept during the multi-identity transition because dropping them mid-session would force a column-drop migration. Removal is in AGENTS.md §15 pending work. New code must read identities through `employee_identities`, not these columns.
 - **`packages/ai/src/openrouter.ts` and `apps/web/app/api/admin/models/route.ts` are absent on purpose.** Looks like missing files; they were deleted in commit `b01e514` (R11.0). OpenRouter is no longer part of the production AI path. Do not re-introduce them.
-- **There is exactly one endorsed claim-retrieval path: `searchWithRetrievalPlan()`.** The chat main path, both chat tools (`search_company_knowledge`, `check_open_gaps`), and contradiction-watcher all use it. The legacy `searchApprovedClaims()` wrapper was deleted in this session (it had zero runtime callers; `@oracle/ai` is workspace-internal so there was no external-consumer reason to keep a deprecated export). Do not reintroduce a second retrieval path.
+- **There is exactly one endorsed claim-retrieval path: `searchWithRetrievalPlan()`.** The chat route, Recall live worker, and contradiction-watcher all use it. The chat route performs retrieval deterministically before the model call; it does not rely on Vercel AI SDK tool definitions passed through `providerOptions`, because the direct provider adapters do not execute those tools. The legacy `searchApprovedClaims()` wrapper was deleted in this session (it had zero runtime callers; `@oracle/ai` is workspace-internal so there was no external-consumer reason to keep a deprecated export). Do not reintroduce a second retrieval path.
 - **Embeddings fall back to a deterministic zero vector when `OPENAI_API_KEY` is unset.** Looks like a silent bug. It is intentional so local dev works without a real key; vector similarity is meaningless in that state but the schema and shape are preserved. AGENTS.md §11.
 
 ---
@@ -526,6 +526,8 @@ The work that remains is operational, not architectural. See `AGENTS.md` § 15 "
         │ stable → semi    │            │  - fallback on     │
         │  → retrieved →   │            │    429 / timeout / │
         │  dynamic         │            │    NotImplemented  │
+        │                  │            │  - attach actual   │
+        │                  │            │    route metadata  │
         │                  │            └──────────┬─────────┘
         │ throws if stable │                       │
         │ appears after    │            ┌──────────┴──────────┬──────────────┐
@@ -576,7 +578,7 @@ The `model_runs_with_usage` view (`migrations/sql/31_observability_views.sql`) j
 15 tables installing the segmentation from `docs/oracle/07-knowledge-segmentation.md`:
 
 ```
-Layer 1   knowledge_top_domains            13 domains seeded; admin-curated
+Layer 1   knowledge_top_domains            14 domains seeded; admin-curated
             ↑                                each carries boundary rules:
             │                                belongs_here, does_not_belong_here,
             │                                common_entity_hints,
@@ -592,9 +594,9 @@ Layer 2   knowledge_sub_topics            (Tagging joins)
             HNSW index                    message_top_domains, claim_sub_topics
                                           → retrieval scopes BEFORE claims exist
 
-Layer 3   entities                        56 entities seeded
+Layer 3   entities                        61 entities seeded
             ↑                                customers (5)   licensors (5; first-class)
-            │                                systems (10)    departments (8)
+            │                                systems (17)    departments (8)
             │                                geographies (4) process_stages (14)
             │                                document_classes (10)
             │
@@ -615,6 +617,8 @@ Governance taxonomy_proposals           Compact admin proposal cards
 The legacy `claim_domains` table and `knowledge_domain` Postgres enum are intentionally preserved during transition. `migrations/sql/42_claim_top_domains_backfill.sql` copies existing claim-domain rows into the new `claim_top_domains` join via an explicit mapping (e.g. `coldlion → it_systems`, `sampling → product_development`).
 
 `design_file_operations` is a deliberately separate top-level domain for designer file hygiene: safe filenames, invalid characters, server/folder organization, Photoshop/Illustrator/InDesign file bloat, linked assets, packaging, versioning, archive cleanup, and handoff file practices. It is neighboring to `creative_design`, `product_development`, `production_lifecycle`, and `it_systems`, but it is not the same knowledge base. Questions about product/design approval status, customer revisions, or a SKU moving through the design/product workflow should stay in `product_development`, `creative_design`, `licensing_approvals`, or `production_lifecycle`; pure file-management questions should route to `design_file_operations` and avoid workflow domains unless explicitly requested.
+
+`operations_systems` is the dedicated domain for operational business-system workflows: ERP, CRM, PLM, spreadsheet-to-system migration, source-of-truth rules, field mapping, validation, and integration handoffs. The initial anchor workflow is moving OrderList, MasterData, and TaskList data from Google Sheets into Designflow PLM. It neighbors `it_systems`, `product_development`, `production_lifecycle`, `customer_ops`, and `finance_pricing`, but should not be used for generic account troubleshooting or broad IT administration unless the query is about business data flow.
 
 ### Candidate-before-claim staging (R4, landed)
 
@@ -738,7 +742,7 @@ Every production AI caller now dispatches through `OracleAIClient` with the five
 |---|---|---|
 | `apps/workers/src/trigger/claim-extraction.ts` | R6 + R-providers | ✅ direct Vertex (extraction) / Anthropic (interview) / OpenAI (fallback) |
 | `apps/workers/src/trigger/document-ingestion.ts` | R7 + R-providers | ✅ direct adapters |
-| `apps/web/app/api/chat/route.ts` | R8 + R-providers | ✅ direct adapters + `providerOptions` escape hatch for tools/multi-turn |
+| `apps/web/app/api/chat/route.ts` | R8 + R-providers | ✅ direct adapters + deterministic retrieval before the model call + `providerOptions` escape hatch for multi-turn/temperature |
 | `apps/workers/src/trigger/brain-synthesis.ts` | R9 + R-providers | ✅ direct adapters + `validateSynthesisDiff` |
 | `apps/workers/src/trigger/contradiction-watcher.ts` | R11.0 | ✅ direct adapters; observability rows on parity with the other workers |
 | `apps/workers/src/trigger/taxonomy-reevaluation.ts` | R10.5 | ✅ k-means clustering + LLM cluster naming + `taxonomy_proposals` writing; domains below the 30-claim activation threshold are skipped |
@@ -748,8 +752,8 @@ Each caller follows the same pattern:
 2. Resolve the curated route from `settings.default_*_route` (R1 keys).
 3. Compile a prompt plan with `ContextCompiler` (stable_system + dynamic content).
 4. Insert `oracle_context_packs` row BEFORE the model call so its ID can thread through.
-5. Call `OracleAIClient.runText` (chat) or `runObject` (workers).
-6. Insert `model_runs` + `model_run_usage_details` + back-link the context pack.
+5. Call `OracleAIClient.runText` (chat) or `runObject` (workers). The result may carry `routeId`, `provider`, `modelId`, `fellBackFromRouteId`, and `fallbackReason` from `ModelRouter`.
+6. Insert `model_runs` + `model_run_usage_details` + back-link the context pack. Use the result route/provider/model metadata for the actual dispatched route; use the pre-resolved route only as a fallback when metadata is absent.
 7. Workers: stage `extraction_batches` + `extraction_candidates` + `extraction_candidate_evidence`, run validators, call `executePromotion`. Chat: persist the assistant message.
 
 ### Direct adapters (R-providers, landed)
@@ -759,12 +763,14 @@ Five production adapters in `packages/ai/src/providers/`:
 | Adapter | SDK | Native features used |
 |---|---|---|
 | `AnthropicAdapter` | `@anthropic-ai/sdk` (v0.98+) | Per-block `cache_control: { type: 'ephemeral', ttl }` markers on stable system blocks and reusable multi-turn prefixes; forced tool-call structured output via `tools` + `tool_choice: { type: 'tool', name }`; `cache_read_input_tokens` + `cache_creation_input_tokens` normalized into `OracleUsage` |
-| `VertexGeminiAdapter` | `@google/genai` (v2.6+) | `responseMimeType: 'application/json'` + `responseJsonSchema` for strict native JSON-schema output; implicit prefix caching plus explicit `client.caches.create(...)` / `cachedContent` reuse persisted through `provider_cached_content`; `usageMetadata.cachedContentTokenCount` + `thoughtsTokenCount` normalized into `OracleUsage` |
+| `VertexGeminiAdapter` | `@google/genai` (v2.6+) | `responseMimeType: 'application/json'` + `responseJsonSchema` for strict native JSON-schema output; implicit prefix caching plus explicit `client.caches.create(...)` / `cachedContent` reuse persisted through `provider_cached_content`; structured-output calls can cache stable + semi-stable + retrieved context while sending only dynamic input live; `usageMetadata.cachedContentTokenCount` + `thoughtsTokenCount` normalized into `OracleUsage` |
 | `OpenAIAdapter` | `openai` (v6.39+) | `response_format: { type: 'json_schema', strict: true }`; auto-cache via `prompt_tokens_details.cached_tokens`; per-request `prompt_cache_retention`; reasoning tokens via `completion_tokens_details.reasoning_tokens` |
 | `DeepSeekAdapter` | `openai` (custom baseURL to `api.deepseek.com`) | Automatic disk-backed prefix caching only; `prompt_cache_hit_tokens` normalized into `OracleUsage.cachedInputTokens`; no user-managed explicit cache resource exists today |
 | `QwenAdapter` | `openai` (custom baseURL to DashScope OpenAI-compat) | Explicit prompt caching on Chat Completions via `cache_control` markers on reusable prefixes plus Responses-API session cache for text calls; `prompt_tokens_details.cached_tokens` / `cache_creation_input_tokens` and Responses cached-token usage normalized into `OracleUsage` |
 
 Each adapter authenticates via env vars / ADC (see `docs/configuration.md`). The Vercel AI SDK is explicitly forbidden inside these adapters per DECISIONS.md D6 + D9 — it normalizes provider-specific cache fields and structured-output strategies through a uniform abstraction that destroys both. Raw SDKs preserve every native feature.
+
+Structured-output adapters should parse JSON defensively (`parseJsonOrRaw`) and let `OracleAIClient` / Zod return `validation.ok=false` for schema mismatches whenever possible. Provider/network failures should still throw, but invalid model JSON should not bypass the validation result path.
 
 ### Synthesis pipeline (R9, landed)
 

@@ -189,6 +189,7 @@ Specific boundaries:
 | Provider response session table | `provider_response_sessions` | `packages/db/src/schema.ts` | Qwen Responses `previous_response_id` persistence |
 | Model catalog table | `model_capabilities` | schema + model-capability refresh code | Populated from direct providers + OpenRouter enrichment |
 | Design file operations domain | `design_file_operations` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from product/design workflow. Covers designer file naming, invalid characters, server folders, file-size reduction, linked assets, packaging, versioning, archive, and handoff file hygiene. |
+| Operations systems domain | `operations_systems` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from generic IT support. Covers ERP/CRM/PLM workflows, Google Sheets to Designflow PLM integration, OrderList, MasterData, TaskList, field mapping, validation, and source-of-truth rules. |
 | Provider Batch jobs table | `provider_batch_jobs` | `packages/db/src/schema.ts`, migration `60_batch_jobs.sql` | One row per submitted provider Batch API job (D14). `extraction_batches.provider_batch_job_id` links per-input rows to their batch. `model_runs.dispatch_mode` ∈ `'sync' \| 'batch' \| NULL`. |
 | Entra app (Graph backend) | `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Entra `TheOracle` app | App-only Graph: directory pull + Teams transcripts. Tenant `1caeb1c0-a087-4cb9-b046-a5e22404f971`. |
 | Azure Bot resource | `theoracle-popcre-teams-bot` | Azure subscription `37077c95-ea53-4a19-8380-f3f48f0cc75d`, resource group `rg-oracle-teams-bot` | Free `F0` Bot Service resource. Display name `The Oracle`, endpoint `https://oracle.designflow.app/api/teams/bot/messages`, `msaAppType=SingleTenant`, Teams channel enabled. |
@@ -277,6 +278,34 @@ The project depends on provider-specific caching and structured-output behavior 
 
 Do not change because:
 Direct SDK calls bypass context-pack logging, cache observability, route fallback, and consistent validation.
+
+### Log the actual AI result route, not only the planned route
+
+Looks like:
+The caller already resolved a route before calling `OracleAIClient`, so it can log that route in `model_runs` and `model_run_usage_details`.
+
+Actually:
+`ModelRouter` may dispatch to a fallback route. `OracleTextResult` and `OracleObjectResult` carry `routeId`, `provider`, `modelId`, `fellBackFromRouteId`, and `fallbackReason` after dispatch.
+
+Why:
+Cost/cache dashboards and fallback debugging need the route that actually ran, while still preserving the original route when fallback happened.
+
+Do not change because:
+Logging the pre-dispatch route hides provider fallback and makes cache-hit/cost accounting wrong. New AI callers should use the result metadata when writing usage rows, with the pre-resolved route only as a fallback if metadata is absent.
+
+### Chat retrieval is deterministic, not AI-SDK tool calling
+
+Looks like:
+The chat route used to define `search_company_knowledge` and `check_open_gaps` tools, so re-adding `tools` to `providerOptions` might seem like restoring agentic retrieval.
+
+Actually:
+The native provider adapters do not execute Vercel AI SDK tool definitions from `providerOptions`. The chat route now performs retrieval deterministically before the model call and injects recent messages, open gaps, approved claims, and Brain snippets into prompt blocks.
+
+Why:
+All inference goes through raw provider adapters to preserve provider-native cache/usage fields. Passing AI SDK tools through this boundary looked useful but was decorative unless every native adapter learned tool orchestration.
+
+Do not change because:
+Reintroducing AI SDK tools in the chat route can create a false sense that the model is searching live. Add retrieval through `searchWithRetrievalPlan()` and prompt blocks, or implement tool orchestration explicitly inside the native adapter boundary.
 
 ### OpenRouter is enrichment-only
 
@@ -377,6 +406,20 @@ The same employees participate in both knowledge bases, but the user intent is d
 
 Do not change because:
 Collapsing these domains causes retrieval bleed between computer/file-management practices and the business workflow of designs/products moving through the company. Keep `design_file_operations` as its own retrieval target and preserve its negative boundary against product workflow domains.
+
+### Operations systems are not generic IT support
+
+Looks like:
+ERP, CRM, PLM, Google Sheets, and integration work could all live under `it_systems`.
+
+Actually:
+Business-system data-flow knowledge lives in `operations_systems`. That domain covers ERP/CRM/PLM workflows, field mapping, source-of-truth rules, validation, and integrations such as moving OrderList, MasterData, and TaskList from Google Sheets into Designflow PLM. Generic account access, password resets, permission troubleshooting, and system administration remain in `it_systems`.
+
+Why:
+The Oracle needs to guide operational integration decisions, not just answer technical support questions. "How do I log into Designflow?" and "Which MasterData fields become Designflow PLM item fields?" should retrieve different evidence.
+
+Do not change because:
+Collapsing `operations_systems` back into generic `it_systems` makes business-process integration knowledge compete with IT support noise and weakens retrieval for ERP/CRM/PLM data migration work.
 
 ### Ineligible models are SELECTABLE (red checkbox), not disabled
 
@@ -687,9 +730,10 @@ Root cause:
 The fix's inline comment described an invariant that didn't exist in the codebase; the comment was never cross-checked against the drain task it referenced.
 
 Recovery / fix:
-Made the rollback symmetric and timing-aware. The submit task now tracks `stagedBatchIds`, `stagedContextPackIds`, and a `providerAccepted` flag (flipped the instant `adapter.submitBatch` returns). On failure:
+Made the rollback symmetric and timing-aware. The submit task now tracks `stagedBatchIds`, `stagedContextPackIds`, `providerAccepted` (flipped the instant `adapter.submitBatch` returns), and `providerBatchJobInserted` (flipped after the durable `provider_batch_jobs` row exists). On failure:
 - `providerAccepted === false` (no live provider state): revert messages + DELETE both staging tables, scoped to ids this run created. Drain finds nothing because nothing existed.
-- `providerAccepted === true` (batch live at provider): leave everything in place — drain finds rows by `customId` from the batch result, not by the back-link — and log loudly including the `providerBatchId` so an operator can manually recover if the post-submit DB writes failed.
+- `providerAccepted === true` but `providerBatchJobInserted === false`: the provider accepted work, but Oracle has no durable job row for the drain task to poll. Abandon that upstream batch, reset local messages/staging for a clean tracked retry, and log the provider batch id for operator awareness.
+- `providerBatchJobInserted === true`: leave messages/staging in place. The provider batch is durably tracked, and the drain task can recover by polling `provider_batch_jobs`.
 
 Rule added to prevent recurrence:
 Any "this gets cleaned up downstream" comment must point at the specific code path doing the cleanup. If no such code exists, do the cleanup inline.
@@ -747,8 +791,8 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 | open | **Synthesis never demonstrated** — needs ≥1 approved claim; 4 sit in `pending_review`. | Approve a claim (SQL or admin) → trigger `brain-synthesis` → confirm Brain narrative. |
 | done | **Recall.ai live Teams bot path — LIVE + validated end-to-end (2026-06-08/09).** Admin start path, Recall bot join, ElevenLabs/AssemblyAI streaming, signed `/api/teams/live/recall` webhook, Trigger worker, message persistence, Recall `send_chat_message`, and visible Teams chat post were all verified. Current deployed worker version after cleanup: `20260609.6` with 17 tasks. | No action for mechanical live path. Safety/test settings are clamped off after testing (`max_oracle_interjections_per_hour=0`, `teams_live_recall_min_confidence_to_post=101`, force flags false). See `HANDOFF.md` for bot IDs, verification evidence, and the next open item: retrieval-backed live context. |
 | deferred | **Secret rotation.** Earlier sessions exposed several credentials in chat. The user explicitly deferred rotation until the system is up and running. | Do not treat rotation as the first blocker for current live testing. When the owner is ready, rotate Recall API/webhook secrets, any exposed Vercel token, and any Google service-account JSON that appeared in tool output. Azure Graph/Bot/Supabase Entra client secrets were refreshed on 2026-06-09; keep them distinct by display name and use `--append` for future rotations. Never write secret values into docs. |
-| open | **Live Oracle needs retrieval-backed context.** The Recall path can hear and ask short clarification questions, but the live worker currently uses only the current utterance + recent meeting window, not approved claims / Brain sections / older relevant messages. | Add retrieval to `apps/workers/src/trigger/teams-live-recall-utterance.ts` using the existing `searchWithRetrievalPlan()` path. Keep the bot as a clarification asker, not a meeting-answering assistant. See `HANDOFF.md`. |
+| done | **Live Oracle has retrieval-backed context.** The Recall path now retrieves approved claims plus linked Brain snippets with `searchWithRetrievalPlan()` before the live decision, stores the context pack/model run linkage, and records `retrievedClaimIds` / validated `evidenceClaimIds` in job/interjection metadata. | Keep the bot as a clarification asker, not a meeting-answering assistant. Retrieval failures must degrade to the no-context prompt and must not block utterance persistence. See `HANDOFF.md`. |
 | done | **Repository documentation audit from pasted charter.** User supplied a comprehensive Markdown-maintenance spec on 2026-06-09. | Completed in the docs commit from this session: verified canonical docs against repo state, kept `AGENTS.md` canonical, kept `CLAUDE.md` Claude-only, aligned ignore files, and updated `HANDOFF.md` status. |
-| open | `pnpm lint` migration surfaced ~10 pre-existing `apps/web` violations the broken script had masked: 2× `react/no-unescaped-entities` (`proposals/_components/proposal-card.tsx`), 2× `react-hooks/set-state-in-effect` (`channel-chat.tsx`, `document-upload.tsx`), ~6 stale `eslint-disable` directives (`api/chat/route.ts`). | Fix in a focused lint-cleanup pass; not blocking (lint isn't in the Vercel build gate). |
+| done | `pnpm lint` migration surfaced pre-existing `apps/web` violations the broken script had masked; the 2026-06-11 cleanup fixed the taxonomy quote escaping, initial state-sync effects, stale `eslint-disable` directives, and PostCSS config warning. | No action. `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass locally as of the cleanup session. |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.

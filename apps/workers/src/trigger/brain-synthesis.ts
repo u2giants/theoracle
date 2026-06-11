@@ -408,13 +408,16 @@ async function synthesizeSection(
     cachedInputTokens = result.usage.cachedInputTokens;
     providerRequestId = result.usage.providerRequestId;
     usageRaw = result.usage.rawUsageJson;
+    const actualRouteId = result.routeId ?? route.routeId;
+    const actualProvider = result.provider ?? route.provider;
+    const actualModelId = result.modelId ?? route.modelId;
 
     const [modelRun] = await db
       .insert(modelRuns)
       .values({
         taskType: 'brain-synthesis',
-        model: route.modelId,
-        provider: route.provider,
+        model: actualModelId,
+        provider: actualProvider,
         promptVersion: SYNTHESIS_PROMPT_VERSION,
         inputHash: plan.metadata.stablePrefixHash,
         inputTokens: inputTokens ?? null,
@@ -429,12 +432,14 @@ async function synthesizeSection(
     await db.insert(modelRunUsageDetails).values({
       modelRunId: modelRun.id,
       contextPackId: contextPack.id,
-      routeId: route.routeId,
+      routeId: actualRouteId,
       inputTokens: inputTokens ?? null,
       cachedInputTokens: cachedInputTokens ?? null,
       outputTokens: outputTokens ?? null,
       providerRequestId: providerRequestId ?? null,
       rawUsageJson: usageRaw ?? null,
+      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
+      fallbackReason: result.fallbackReason ?? null,
     });
     await db
       .update(oracleContextPacks)

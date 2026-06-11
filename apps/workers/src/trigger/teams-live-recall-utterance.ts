@@ -6,13 +6,14 @@
 // one-question interjection should be posted back to the Teams meeting chat.
 
 import { task } from '@trigger.dev/sdk/v3';
-import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
 import {
   channelParticipants,
   channels,
+  claimEvidence,
   employees,
   jobRuns,
   messages,
@@ -20,16 +21,19 @@ import {
   modelRunUsageDetails,
   oracleContextPacks,
   oracleInterventions,
+  sectionClaims,
   settings,
 } from '@oracle/db/schema';
 import {
   OracleAIClient,
   buildRetrievalPlanFromQuery,
   buildStandardAdapters,
+  getBrainSectionSnippets,
   getOracleRoute,
   makeBlock,
   resolveRouteFromSettings,
   searchWithRetrievalPlan,
+  type RetrievalPlan,
   type OracleModelRoute,
   type RelevantClaim,
 } from '@oracle/ai';
@@ -89,6 +93,24 @@ const LiveQuestionDecisionSchema = z.object({
   evidenceClaimIds: z.array(z.string()).default([]),
 });
 type LiveQuestionDecision = z.infer<typeof LiveQuestionDecisionSchema>;
+
+type LiveRetrievedClaimContext = RelevantClaim & {
+  evidenceId: string | null;
+  evidenceQuote: string | null;
+  sourceMessageId: string | null;
+  sourceDocumentChunkId: string | null;
+  sourceExternalRecordId: string | null;
+};
+
+type LiveRetrievalContext = {
+  plan: RetrievalPlan;
+  claims: LiveRetrievedClaimContext[];
+  brainSections: Array<{ sectionId: string; title: string; markdown: string }>;
+  contextText: string;
+  includedClaimIds: string[];
+  includedEvidenceIds: string[];
+  includedBrainSectionIds: string[];
+};
 
 const LIVE_ORACLE_SYSTEM = `You are the Oracle listening to a live Microsoft Teams meeting for POP Creations / Spruce Line.
 
@@ -296,27 +318,126 @@ function fallbackClarificationQuestion(text: string): string {
   return `Can we clarify this process question: ${content}`;
 }
 
-// Retrieval-backed context for the live decision. Reuses the ONE endorsed
-// claim-retrieval path (buildRetrievalPlanFromQuery → searchWithRetrievalPlan)
-// rather than inventing a second retrieval mechanism. A retrieval failure must
-// never block the live utterance path — it degrades to the no-context prompt.
-async function retrieveLiveClaims(
+function truncateForPrompt(text: string, maxChars: number): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+async function loadEvidenceForClaims(
   db: ReturnType<typeof getDirectDb>,
-  currentUtterance: string,
-): Promise<RelevantClaim[]> {
-  const query = stripOracleAddress(currentUtterance);
-  if (!query) return [];
+  claimIds: string[],
+): Promise<Map<string, {
+  evidenceId: string;
+  exactQuote: string;
+  sourceMessageId: string | null;
+  sourceDocumentChunkId: string | null;
+  sourceExternalRecordId: string | null;
+}>> {
+  if (claimIds.length === 0) return new Map();
+
+  const rows = await db
+    .select({
+      evidenceId: claimEvidence.id,
+      claimId: claimEvidence.claimId,
+      exactQuote: claimEvidence.exactQuote,
+      sourceMessageId: claimEvidence.sourceMessageId,
+      sourceDocumentChunkId: claimEvidence.sourceDocumentChunkId,
+      sourceExternalRecordId: claimEvidence.sourceExternalRecordId,
+      createdAt: claimEvidence.createdAt,
+    })
+    .from(claimEvidence)
+    .where(inArray(claimEvidence.claimId, claimIds))
+    .orderBy(desc(claimEvidence.createdAt));
+
+  const byClaim = new Map<string, {
+    evidenceId: string;
+    exactQuote: string;
+    sourceMessageId: string | null;
+    sourceDocumentChunkId: string | null;
+    sourceExternalRecordId: string | null;
+  }>();
+  for (const row of rows) {
+    if (byClaim.has(row.claimId)) continue;
+    byClaim.set(row.claimId, {
+      evidenceId: row.evidenceId,
+      exactQuote: row.exactQuote,
+      sourceMessageId: row.sourceMessageId,
+      sourceDocumentChunkId: row.sourceDocumentChunkId,
+      sourceExternalRecordId: row.sourceExternalRecordId,
+    });
+  }
+  return byClaim;
+}
+
+async function buildLiveRetrievalContext(args: {
+  db: ReturnType<typeof getDirectDb>;
+  currentUtterance: string;
+  recentContext: string;
+}): Promise<LiveRetrievalContext | null> {
+  const retrievalQuery = [
+    stripOracleAddress(args.currentUtterance),
+    args.recentContext ? `Recent meeting context:\n${args.recentContext}` : '',
+  ].filter(Boolean).join('\n\n');
+  if (!retrievalQuery) return null;
+
   try {
-    const plan = buildRetrievalPlanFromQuery(query, { topK: LIVE_RETRIEVAL_TOP_K });
-    return await searchWithRetrievalPlan(db, plan);
+    const plan = buildRetrievalPlanFromQuery(retrievalQuery, { topK: LIVE_RETRIEVAL_TOP_K });
+    const claims = await searchWithRetrievalPlan(args.db, plan);
+    const evidenceByClaim = await loadEvidenceForClaims(args.db, claims.map((c) => c.id));
+    const sectionRows = claims.length > 0
+      ? await args.db
+          .select({ sectionId: sectionClaims.sectionId })
+          .from(sectionClaims)
+          .where(inArray(sectionClaims.claimId, claims.map((c) => c.id)))
+          .limit(2)
+      : [];
+    const sectionIds = Array.from(new Set(sectionRows.map((r) => r.sectionId))).slice(0, 2);
+    const brainSnippets = await getBrainSectionSnippets(args.db, sectionIds);
+
+    const enrichedClaims: LiveRetrievedClaimContext[] = claims.map((claim) => {
+      const evidence = evidenceByClaim.get(claim.id);
+      return {
+        ...claim,
+        evidenceId: evidence?.evidenceId ?? null,
+        evidenceQuote: evidence?.exactQuote ?? null,
+        sourceMessageId: evidence?.sourceMessageId ?? null,
+        sourceDocumentChunkId: evidence?.sourceDocumentChunkId ?? null,
+        sourceExternalRecordId: evidence?.sourceExternalRecordId ?? null,
+      };
+    });
+
+    const claimsText = enrichedClaims.length > 0
+      ? enrichedClaims.map((claim, i) => {
+          const quote = claim.evidenceQuote
+            ? ` Evidence: "${truncateForPrompt(claim.evidenceQuote, 220)}"`
+            : '';
+          return `[C${i + 1}] ${truncateForPrompt(claim.summary, 260)} (impact ${claim.impactScore}, confidence ${claim.confidenceScore}).${quote}`;
+        }).join('\n')
+      : 'No approved claims matched this live context.';
+    const brainText = brainSnippets.length > 0
+      ? brainSnippets.map((section, i) =>
+          `[B${i + 1}] ${section.title}: ${truncateForPrompt(section.markdown, 420)}`,
+        ).join('\n')
+      : 'No linked Brain sections found for retrieved claims.';
+    const contextText = `Approved claims:\n${claimsText}\n\nLinked Brain sections:\n${brainText}`;
+
+    return {
+      plan,
+      claims: enrichedClaims,
+      brainSections: brainSnippets,
+      contextText,
+      includedClaimIds: enrichedClaims.map((c) => c.id),
+      includedEvidenceIds: enrichedClaims.flatMap((c) => c.evidenceId ? [c.evidenceId] : []),
+      includedBrainSectionIds: brainSnippets.map((s) => s.sectionId),
+    };
   } catch (err) {
-    // DrizzleQueryError buries the Postgres error in .cause — surface both.
     const cause = err instanceof Error && err.cause instanceof Error ? ` cause: ${err.cause.message}` : '';
     console.warn(
-      '[teams-live-recall-utterance] claim retrieval failed; deciding without approved-knowledge context',
+      '[teams-live-recall-utterance] retrieval failed; deciding without approved-knowledge context',
       `${err instanceof Error ? err.message.slice(0, 300) : String(err)}${cause}`,
     );
-    return [];
+    return null;
   }
 }
 
@@ -327,10 +448,13 @@ async function decideLiveQuestion(args: {
   channelId: string;
   currentUtterance: string;
   speakerName: string | null;
-  retrievedClaims: RelevantClaim[];
-}): Promise<{ decision: LiveQuestionDecision; modelRunId: string | null }> {
+}): Promise<{
+  decision: LiveQuestionDecision;
+  modelRunId: string | null;
+  retrievalContext: LiveRetrievalContext | null;
+}> {
   const recent = await args.db
-    .select({ content: messages.content, metadataJson: messages.metadataJson, createdAt: messages.createdAt })
+    .select({ id: messages.id, content: messages.content, metadataJson: messages.metadataJson, createdAt: messages.createdAt })
     .from(messages)
     .where(and(eq(messages.channelId, args.channelId), eq(messages.role, 'user'), isNull(messages.deletedAt)))
     .orderBy(desc(messages.createdAt))
@@ -344,21 +468,20 @@ async function decideLiveQuestion(args: {
       return `[${i + 1}] ${meta.speaker ? `${meta.speaker}: ` : ''}${m.content}`;
     })
     .join('\n');
+  const retrievalContext = await buildLiveRetrievalContext({
+    db: args.db,
+    currentUtterance: args.currentUtterance,
+    recentContext,
+  });
+  const retrievalContextText = retrievalContext?.contextText ?? 'Approved-knowledge retrieval was unavailable for this utterance.';
   const userContent = `Recent finalized meeting utterances (oldest first):
 ${recentContext}
 
+Retrieved approved Oracle knowledge:
+${retrievalContextText}
+
 Current utterance to evaluate:
 ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
-
-  const approvedKnowledgeContent =
-    args.retrievedClaims.length > 0
-      ? `Approved company knowledge retrieved for the current utterance (each line is one approved claim):\n${args.retrievedClaims
-          .map(
-            (c) =>
-              `[claim:${c.id}] (${c.claimType}, impact ${c.impactScore}, confidence ${c.confidenceScore}) ${c.summary}`,
-          )
-          .join('\n')}`
-      : null;
 
   const blocks = [
     makeBlock({
@@ -369,15 +492,15 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
       cacheEligible: true,
       reasonIncluded: 'live Teams meeting interjection decision',
     }),
-    ...(approvedKnowledgeContent
+    ...(retrievalContext
       ? [
           makeBlock({
-            id: 'approved-knowledge',
-            label: 'Approved company knowledge',
+            id: 'retrieved-claims',
+            label: 'Retrieved approved Oracle knowledge',
             kind: 'retrieved_context' as const,
-            content: approvedKnowledgeContent,
+            content: retrievalContext.contextText,
             cacheEligible: false,
-            reasonIncluded: 'retrieval-backed context for the live interjection decision',
+            reasonIncluded: 'approved claims and Brain sections retrieved for live Teams decision',
           }),
         ]
       : []),
@@ -391,6 +514,37 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
     }),
   ];
 
+  const [contextPack] = await args.db
+    .insert(oracleContextPacks)
+    .values({
+      taskType: 'interview_chat',
+      routeId: args.route.routeId,
+      promptVersion: LIVE_PROMPT_VERSION,
+      stablePrefixHash: hashString(LIVE_ORACLE_SYSTEM),
+      retrievedContextHash: retrievalContext ? hashString(retrievalContext.contextText) : null,
+      dynamicInputHash: hashString(userContent),
+      blocksJson: blocks.map((b) => ({
+        id: b.id,
+        kind: b.kind,
+        hash: b.hash,
+        tokenEstimate: b.tokenEstimate,
+      })),
+      selectedDomains: retrievalContext
+        ? retrievalContext.plan.searchScope === 'domain_filtered'
+          ? retrievalContext.plan.topDomainHints
+          : [retrievalContext.plan.searchScope === 'global_explicit' ? '_global_explicit' : '_global_fallback']
+        : [],
+      selectedSourceTypes: retrievalContext?.includedBrainSectionIds.length
+        ? ['approved_claim', 'brain_section', 'message']
+        : retrievalContext ? ['approved_claim', 'message'] : ['message'],
+      selectedProcessStages: retrievalContext?.plan.processStageHints ?? [],
+      selectedEntityIds: retrievalContext?.plan.requiredEntities.map((e) => `${e.entityType}:${e.canonicalValue}`) ?? [],
+      includedMessageIds: recent.map((m) => m.id),
+      includedClaimIds: retrievalContext?.includedClaimIds ?? [],
+    })
+    .returning({ id: oracleContextPacks.id });
+  if (!contextPack) throw new Error('failed to insert oracle_context_packs row');
+
   const callStartedAt = Date.now();
   let modelRunId: string | null = null;
   try {
@@ -402,33 +556,16 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
       schema: LiveQuestionDecisionSchema,
     });
     const latencyMs = Date.now() - callStartedAt;
-
-    const [contextPack] = await args.db
-      .insert(oracleContextPacks)
-      .values({
-        taskType: 'interview_chat',
-        routeId: args.route.routeId,
-        promptVersion: LIVE_PROMPT_VERSION,
-        stablePrefixHash: hashString(LIVE_ORACLE_SYSTEM),
-        dynamicInputHash: hashString(
-          approvedKnowledgeContent ? `${approvedKnowledgeContent}\n---\n${userContent}` : userContent,
-        ),
-        blocksJson: blocks.map((b) => ({
-          id: b.id,
-          kind: b.kind,
-          hash: b.hash,
-          tokenEstimate: b.tokenEstimate,
-        })),
-      })
-      .returning({ id: oracleContextPacks.id });
-    if (!contextPack) throw new Error('failed to insert oracle_context_packs row');
+    const actualRouteId = result.routeId ?? args.route.routeId;
+    const actualProvider = result.provider ?? args.route.provider;
+    const actualModelId = result.modelId ?? args.route.modelId;
 
     const [modelRun] = await args.db
       .insert(modelRuns)
       .values({
         taskType: 'teams-live-interjection',
-        model: args.route.modelId,
-        provider: args.route.provider,
+        model: actualModelId,
+        provider: actualProvider,
         promptVersion: LIVE_PROMPT_VERSION,
         inputHash: hashString(LIVE_ORACLE_SYSTEM),
         inputTokens: result.usage.inputTokens ?? null,
@@ -444,7 +581,7 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
     await args.db.insert(modelRunUsageDetails).values({
       modelRunId: modelRun.id,
       contextPackId: contextPack.id,
-      routeId: args.route.routeId,
+      routeId: actualRouteId,
       inputTokens: result.usage.inputTokens ?? null,
       outputTokens: result.usage.outputTokens ?? null,
       cachedInputTokens: result.usage.cachedInputTokens ?? null,
@@ -452,6 +589,8 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
       reasoningTokens: result.usage.reasoningTokens ?? null,
       providerRequestId: result.usage.providerRequestId ?? null,
       rawUsageJson: (result.usage.rawUsageJson ?? null) as Record<string, unknown> | null,
+      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
+      fallbackReason: result.fallbackReason ?? null,
     });
     await args.db.update(oracleContextPacks).set({ modelRunId: modelRun.id }).where(eq(oracleContextPacks.id, contextPack.id));
 
@@ -459,9 +598,10 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
       return {
         decision: { shouldAsk: false, reason: 'Decision output failed schema validation', confidence: 0, triggerType: 'none', evidenceClaimIds: [] },
         modelRunId,
+        retrievalContext,
       };
     }
-    return { decision: result.object as LiveQuestionDecision, modelRunId };
+    return { decision: result.object as LiveQuestionDecision, modelRunId, retrievalContext };
   } catch (err) {
     const latencyMs = Date.now() - callStartedAt;
     const message = err instanceof Error ? err.message : String(err);
@@ -479,12 +619,24 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
         })
         .returning({ id: modelRuns.id });
       modelRunId = modelRun?.id ?? null;
+      if (modelRunId) {
+        await args.db.insert(modelRunUsageDetails).values({
+          modelRunId,
+          contextPackId: contextPack.id,
+          routeId: args.route.routeId,
+        });
+        await args.db
+          .update(oracleContextPacks)
+          .set({ modelRunId })
+          .where(eq(oracleContextPacks.id, contextPack.id));
+      }
     } catch {
       /* swallow */
     }
     return {
       decision: { shouldAsk: false, reason: `Decision call failed: ${message}`, confidence: 0, triggerType: 'none', evidenceClaimIds: [] },
       modelRunId,
+      retrievalContext: null,
     };
   }
 }
@@ -573,6 +725,7 @@ export const teamsLiveRecallUtteranceTask = task({
       let modelRunId: string | null = null;
       let retrievedClaimIds: string[] = [];
       let evidenceClaimIds: string[] = [];
+      let retrievalContext: LiveRetrievalContext | null = null;
       const liveSettings = await loadLiveSettings(db);
       if (liveSettings.forceModelPass || isWorthModelPass(text)) {
         const rateState = await channelRateState(db, channelId);
@@ -587,8 +740,6 @@ export const teamsLiveRecallUtteranceTask = task({
         if (cooldownClear && rateCapClear) {
           const client = buildOracleClient();
           const route = await resolveInterviewRoute(db);
-          const retrievedClaims = await retrieveLiveClaims(db, text);
-          retrievedClaimIds = retrievedClaims.map((c) => c.id);
           const decisionResult = await decideLiveQuestion({
             db,
             client,
@@ -596,9 +747,10 @@ export const teamsLiveRecallUtteranceTask = task({
             channelId,
             currentUtterance: text,
             speakerName,
-            retrievedClaims,
           });
           modelRunId = decisionResult.modelRunId;
+          retrievalContext = decisionResult.retrievalContext;
+          retrievedClaimIds = retrievalContext?.includedClaimIds ?? [];
           decisionReason = decisionResult.decision.reason;
           // Only trust evidence IDs the model could actually have seen.
           const retrievedIdSet = new Set(retrievedClaimIds);
@@ -633,6 +785,17 @@ export const teamsLiveRecallUtteranceTask = task({
                   decisionReason,
                   retrievedClaimIds,
                   evidenceClaimIds,
+                  retrievalContext: retrievalContext
+                    ? {
+                        searchScope: retrievalContext.plan.searchScope,
+                        topDomainHints: retrievalContext.plan.topDomainHints,
+                        excludedTopDomains: retrievalContext.plan.excludedTopDomains ?? [],
+                        excludedDocumentClasses: retrievalContext.plan.excludedDocumentClasses ?? [],
+                        includedClaimIds: retrievalContext.includedClaimIds,
+                        includedEvidenceIds: retrievalContext.includedEvidenceIds,
+                        includedBrainSectionIds: retrievalContext.includedBrainSectionIds,
+                      }
+                    : null,
                 },
               })
               .returning({ id: messages.id });
@@ -666,6 +829,15 @@ export const teamsLiveRecallUtteranceTask = task({
         decisionReason,
         retrievedClaimIds,
         evidenceClaimIds,
+        retrieval: retrievalContext
+          ? {
+              searchScope: retrievalContext.plan.searchScope,
+              topDomainHints: retrievalContext.plan.topDomainHints,
+              claimCount: retrievalContext.claims.length,
+              evidenceCount: retrievalContext.includedEvidenceIds.length,
+              brainSectionCount: retrievalContext.includedBrainSectionIds.length,
+            }
+          : null,
       };
       await db.update(jobRuns).set({ status: 'complete', finishedAt: new Date(), outputJson: out }).where(eq(jobRuns.id, jobRun.id));
       return { ok: true, ...out };

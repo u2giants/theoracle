@@ -132,6 +132,29 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
     ],
   },
   {
+    domainId: 'operations_systems',
+    keywords: [
+      // Business systems and system families
+      'operations system', 'operations systems', 'operational system',
+      'business system', 'business systems', 'erp', 'crm', 'plm',
+      'designflow', 'design flow', 'designflow plm',
+      'coldlion',
+      // Google Sheets sources that feed Designflow/PLM workflows
+      'google sheets', 'google sheet', 'sheets',
+      'orderlist', 'order list',
+      'masterdata', 'master data',
+      'tasklist', 'task list',
+      // Data movement and integration language
+      'data migration', 'migrate data', 'move data', 'data flow',
+      'field mapping', 'map fields', 'field semantics', 'source of truth',
+      'data validation', 'data cleanup', 'data clean up',
+      'import into designflow', 'import to designflow',
+      'load into designflow', 'sync to designflow',
+      'spreadsheet to plm', 'sheets to plm', 'erp integration',
+      'crm integration', 'plm integration',
+    ],
+  },
+  {
     domainId: 'licensing_approvals',
     keywords: [
       // Licensors by name
@@ -361,7 +384,10 @@ const ENTITY_EXCLUSION_HINTS: Array<{ keywords: string[]; excludeEntityTypes: st
   },
   {
     // IT system questions → exclude licensor + vendor from results.
-    keywords: ['erp', 'coldlion', 'system', 'software', 'tool', 'platform', 'portal'],
+    keywords: [
+      'erp', 'coldlion', 'system', 'software', 'tool', 'platform', 'portal',
+      'plm', 'designflow', 'google sheets', 'orderlist', 'masterdata', 'tasklist',
+    ],
     excludeEntityTypes: ['licensor', 'vendor'],
   },
 ];
@@ -370,7 +396,11 @@ const ENTITY_EXCLUSION_HINTS: Array<{ keywords: string[]; excludeEntityTypes: st
 const DOCUMENT_CLASS_EXCLUSIONS: Array<{ keywords: string[]; excludeClasses: string[] }> = [
   {
     // IT system questions should not pull vendor manuals.
-    keywords: ['erp', 'coldlion', 'system', 'software', 'tool', 'upload', 'sync', 'platform'],
+    keywords: [
+      'erp', 'coldlion', 'system', 'software', 'tool', 'upload', 'sync', 'platform',
+      'plm', 'designflow', 'google sheets', 'orderlist', 'masterdata', 'tasklist',
+      'field mapping', 'data migration',
+    ],
     excludeClasses: ['vendor_manual'],
   },
   {
@@ -586,6 +616,23 @@ function inferDocumentClassExclusions(query: string): string[] {
 }
 
 function inferTopDomainExclusions(query: string, topDomainHints: string[]): string[] {
+  if (topDomainHints.includes('operations_systems')) {
+    const looksLikeOperationsSystems =
+      [
+        'designflow', 'design flow', 'plm', 'google sheets', 'google sheet',
+        'orderlist', 'order list', 'masterdata', 'master data', 'tasklist',
+        'task list', 'field mapping', 'map fields', 'data migration',
+        'spreadsheet to plm', 'sheets to plm', 'source of truth',
+      ].some((k) => query.includes(k));
+
+    if (looksLikeOperationsSystems) {
+      // Data-flow questions about business systems should not be pulled into
+      // generic customer orders, licensor approvals, or design-art workflow
+      // just because the source sheet or PLM name contains overlapping words.
+      return ['customer_ops', 'licensing_approvals', 'creative_design'];
+    }
+  }
+
   if (!topDomainHints.includes('design_file_operations')) return [];
 
   const looksLikeFileOps =

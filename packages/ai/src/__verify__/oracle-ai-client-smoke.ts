@@ -24,7 +24,7 @@ import {
   ProviderAdapterNotImplementedError,
   MockProviderAdapter,
   ModelRouter,
-  AnthropicAdapter,
+  type OracleProviderAdapter,
   type OraclePromptPlan,
 } from '../index';
 
@@ -97,12 +97,22 @@ async function main() {
   assert(objResult.object.provider === 'vertex', 'mock object carries provider tag');
 
   // ── 4. ModelRouter fallback path ────────────────────────────────────────
-  // Build a router with the REAL Anthropic stub for anthropic, and a mock for openai.
-  // The Anthropic stub throws ProviderAdapterNotImplementedError, which is in our
-  // fallback whitelist → the router should dispatch to the Fallback route.
+  const unavailableAnthropicAdapter: OracleProviderAdapter = {
+    provider: 'anthropic',
+    async generateText() {
+      throw new ProviderAdapterNotImplementedError('anthropic');
+    },
+    async generateObject() {
+      throw new ProviderAdapterNotImplementedError('anthropic');
+    },
+  };
+
+  // Build a router with an unavailable Anthropic adapter and a mock for openai.
+  // ProviderAdapterNotImplementedError is in our fallback whitelist, so the
+  // router should dispatch to the configured fallback route.
   const fallbackRouter = new ModelRouter({
     adapters: {
-      anthropic: new AnthropicAdapter(),
+      anthropic: unavailableAnthropicAdapter,
       openai: new MockProviderAdapter({ provider: 'openai', cannedText: 'fallback-OK' }),
     },
     fallbackOnError: true,
@@ -115,10 +125,15 @@ async function main() {
   });
   const fbResult = await fallbackRouter.generateText(fallbackPlan);
   assert(fbResult.text === 'fallback-OK', 'ModelRouter dispatched to Fallback route when primary stub threw NotImplemented');
+  assert(fbResult.routeId === 'openai_gpt4o_interview_fallback', 'fallback result records the actual fallback route');
+  assert(
+    fbResult.fellBackFromRouteId === 'anthropic_claude_haiku_4_5_interview_primary',
+    'fallback result records the original route',
+  );
 
   // ── 5. ModelRouter surfaces non-transient errors (no fallback) ──────────
   const strictRouter = new ModelRouter({
-    adapters: { anthropic: new AnthropicAdapter() },
+    adapters: { anthropic: unavailableAnthropicAdapter },
     fallbackOnError: false,
   });
   let threw = false;

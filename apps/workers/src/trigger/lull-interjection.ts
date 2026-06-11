@@ -348,6 +348,9 @@ ${recentContext}`;
       providerOptions: { temperature: 0.4 },
     });
     const latencyMs = Date.now() - callStartedAt;
+    const actualRouteId = result.routeId ?? route.routeId;
+    const actualProvider = result.provider ?? route.provider;
+    const actualModelId = result.modelId ?? route.modelId;
 
     const [contextPack] = await db
       .insert(oracleContextPacks)
@@ -372,8 +375,8 @@ ${recentContext}`;
       .insert(modelRuns)
       .values({
         taskType: 'lull-interjection',
-        model: route.modelId,
-        provider: route.provider,
+        model: actualModelId,
+        provider: actualProvider,
         promptVersion: LULL_INTERJECTION_PROMPT_VERSION,
         inputHash: hashString(LULL_DRAFT_SYSTEM),
         inputTokens: result.usage.inputTokens ?? null,
@@ -388,7 +391,7 @@ ${recentContext}`;
     await db.insert(modelRunUsageDetails).values({
       modelRunId: modelRun.id,
       contextPackId: contextPack.id,
-      routeId: route.routeId,
+      routeId: actualRouteId,
       inputTokens: result.usage.inputTokens ?? null,
       outputTokens: result.usage.outputTokens ?? null,
       cachedInputTokens: result.usage.cachedInputTokens ?? null,
@@ -396,6 +399,8 @@ ${recentContext}`;
       reasoningTokens: result.usage.reasoningTokens ?? null,
       providerRequestId: result.usage.providerRequestId ?? null,
       rawUsageJson: (result.usage.rawUsageJson ?? null) as Record<string, unknown> | null,
+      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
+      fallbackReason: result.fallbackReason ?? null,
     });
 
     await db

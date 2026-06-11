@@ -42,7 +42,7 @@ import type {
   SubmitBatchResult,
 } from './types';
 import { pickOpenAICacheRetention } from './cache-utils';
-import { flattenPlan, tryZodParse, zodToJsonSchema } from './vertex-gemini-adapter';
+import { flattenPlan, parseJsonOrRaw, tryZodParse, zodToJsonSchema } from './vertex-gemini-adapter';
 
 export interface OpenAIAdapterOptions {
   /** API key. Defaults to env OPENAI_API_KEY. */
@@ -136,7 +136,7 @@ export class OpenAIAdapter implements OracleProviderAdapter {
         `OpenAIAdapter.generateObject: empty response. finish_reason=${choice?.finish_reason}`,
       );
     }
-    const parsed = JSON.parse(raw);
+    const parsed = parseJsonOrRaw(raw);
     const validated = tryZodParse<TOutput>(schema, parsed);
     return {
       object: (validated ?? parsed) as TOutput,

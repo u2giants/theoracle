@@ -56,7 +56,7 @@ import {
   pickOpenAICacheRetention,
   shouldDisableCache,
 } from './cache-utils';
-import { flattenPlan, tryZodParse } from './vertex-gemini-adapter';
+import { flattenPlan, parseJsonOrRaw, tryZodParse } from './vertex-gemini-adapter';
 
 const DASHSCOPE_BASE_URL = 'https://dashscope-us.aliyuncs.com/compatible-mode/v1';
 
@@ -188,7 +188,7 @@ export class QwenAdapter implements OracleProviderAdapter {
         `QwenAdapter.generateObject: empty response. finish_reason=${choice?.finish_reason}`,
       );
     }
-    const parsed = JSON.parse(raw);
+    const parsed = parseJsonOrRaw(raw);
     const validated = tryZodParse<TOutput>(schema, parsed);
     return {
       object: (validated ?? parsed) as TOutput,

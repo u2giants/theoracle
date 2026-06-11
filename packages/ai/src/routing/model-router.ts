@@ -97,7 +97,7 @@ export class ModelRouter {
   ): Promise<T> {
     const { route, adapter } = this.resolve(plan.routeId);
     try {
-      return await call(adapter, route);
+      return this.withRouteMetadata(await call(adapter, route), route);
     } catch (err) {
       if (!this.fallbackOnError) throw err;
       if (!route.fallbackRouteId) throw err;
@@ -106,8 +106,34 @@ export class ModelRouter {
       // observability records reflect which route actually ran.
       const fallbackPlan = { ...plan, routeId: route.fallbackRouteId };
       const { route: fbRoute, adapter: fbAdapter } = this.resolve(fallbackPlan.routeId);
-      return call(fbAdapter, fbRoute);
+      return this.withRouteMetadata(await call(fbAdapter, fbRoute), fbRoute, route.routeId, err);
     }
+  }
+
+  private withRouteMetadata<T>(
+    result: T,
+    route: OracleModelRoute,
+    fellBackFromRouteId?: string,
+    fallbackError?: unknown,
+  ): T {
+    if (!result || typeof result !== 'object') return result;
+    return {
+      ...(result as Record<string, unknown>),
+      routeId: route.routeId,
+      provider: route.provider,
+      modelId: route.modelId,
+      fellBackFromRouteId,
+      fallbackReason: fallbackError ? this.fallbackReason(fallbackError) : undefined,
+    } as T;
+  }
+
+  private fallbackReason(err: unknown): string {
+    if (err instanceof Error) {
+      const msg = err.message || err.name;
+      return msg.length > 100 ? `${msg.slice(0, 97)}...` : msg;
+    }
+    const msg = String(err);
+    return msg.length > 100 ? `${msg.slice(0, 97)}...` : msg;
   }
 
   /**

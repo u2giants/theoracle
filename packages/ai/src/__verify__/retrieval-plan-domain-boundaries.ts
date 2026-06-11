@@ -52,6 +52,18 @@ function assertDomains(query: string, expected: string[]) {
 
 {
   const plan = assertDomains(
+    'How should we move OrderList, MasterData, and TaskList from Google Sheets into Designflow PLM?',
+    ['operations_systems'],
+  );
+  assert.equal(
+    plan.excludedDocumentClasses?.includes('vendor_manual'),
+    true,
+    'Operations-system integration questions should exclude vendor manuals by default.',
+  );
+}
+
+{
+  const plan = assertDomains(
     'Where is this product in the design approval workflow before production?',
     ['licensing_approvals', 'product_development', 'production_lifecycle'],
   );
