@@ -19,6 +19,7 @@ export default async function AdminDocumentsPage() {
       createdAt: documents.createdAt,
       processedAt: documents.processedAt,
       processingError: documents.processingError,
+      context: documents.context,
     })
     .from(documents)
     .leftJoin(employees, eq(documents.uploaderId, employees.id))
@@ -76,6 +77,7 @@ export default async function AdminDocumentsPage() {
                 <th className="py-2 pr-4">Uploaded by</th>
                 <th className="py-2 pr-4">Uploaded</th>
                 <th className="py-2 pr-4">Processed</th>
+                <th className="py-2 pr-4">What is this?</th>
                 <th className="py-2 pr-4">Details</th>
               </tr>
             </thead>
@@ -91,6 +93,20 @@ export default async function AdminDocumentsPage() {
                   </td>
                   <td className="py-2 pr-4">
                     {d.processedAt ? new Date(d.processedAt).toLocaleString() : '—'}
+                  </td>
+                  <td className="max-w-xs py-2 pr-4 align-top">
+                    {d.context ? (
+                      <details className="group">
+                        <summary className="cursor-pointer list-none text-xs font-medium text-foreground underline underline-offset-2">
+                          View upload note
+                        </summary>
+                        <div className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-2 text-xs text-foreground">
+                          {d.context}
+                        </div>
+                      </details>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </td>
                   <td className="max-w-md py-2 pr-4 align-top">
                     {d.processingError ? (
