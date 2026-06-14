@@ -87,6 +87,19 @@ jobs:
         # hidden operation leaks into the always-on surface.
         run: pnpm --filter @oracle/web verify:mcp
 
+      - name: Vertex inline-image guard
+        # Static, DB-free + network-free check (the GenAI client is stubbed).
+        # Asserts an inline image message part becomes a Gemini inlineData part
+        # (the image vision-transcription path) and string content still works.
+        run: pnpm --filter @oracle/ai verify:vertex-inline-image
+
+      - name: Auxiliary-model default-route guard
+        # Static, DB-free check that every auxiliary model's defaultRouteId
+        # resolves in the curated catalog, and that the image-vision model always
+        # has a vision-capable default. Prevents the worker vision fallback from
+        # throwing "vision route unresolvable" when an admin clears the setting.
+        run: pnpm --filter @oracle/ai verify:auxiliary-defaults
+
       - name: Drizzle journal drift check
         # Compares on-disk packages/db/migrations/0*.sql hashes against
         # drizzle.__drizzle_migrations in production. Catches migrations

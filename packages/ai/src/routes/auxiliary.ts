@@ -51,7 +51,18 @@ export interface AuxiliaryModelDef {
    * (full catalog, like the general-purpose picker).
    */
   requiredCapability?: AuxiliaryCapabilityFilter;
-  /** Shipped fallback route id used only when the setting is unset/unparseable. */
+  /**
+   * Shipped fallback route id used only when the setting is unset/unparseable.
+   *
+   * INVARIANT: when present, this MUST resolve via getOracleRoute() — i.e. it
+   * has to be a live entry in the curated catalog (ORACLE_MODEL_ROUTES), not
+   * just any string. Workers that fall back to it (e.g. the image-vision
+   * transcription pass) throw if it doesn't resolve, which would break the
+   * feature exactly when an admin temporarily clears the setting. The
+   * `verify:auxiliary-defaults` guard enforces this at build/test time; keep it
+   * pointing at a real catalog route object's `.routeId` (see
+   * DEFAULT_VISION_ROUTE_ID).
+   */
   defaultRouteId?: string;
   /** Short plain-text label. The GUI may render richer copy keyed by id. */
   label: string;
