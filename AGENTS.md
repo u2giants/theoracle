@@ -168,6 +168,7 @@ Specific boundaries:
 | Change auth/linking behavior | `packages/auth/src/**`, `apps/web/app/auth/**`, `apps/web/app/_components/login-form.tsx` | direct edits to Supabase-managed auth tables |
 | Add or change env/config | `.env.example`, `turbo.json`, `docs/configuration.md`, consuming code | `.env.local` in git |
 | Add or change model catalog filtering | `packages/ai/src/model-capabilities/sources/<provider>.ts` (per-provider source/blocklist), `packages/ai/src/model-capabilities/index.ts` (write-time post-enrichment filters), **`apps/web/app/api/admin/model-catalog/route.ts` `passesQualityFilter` (mirror filter at read time)**, `scripts/refresh-catalog.ts` to verify, `docs/architecture.md`, `DECISIONS.md` | provider inference adapters, route catalog |
+| Add or change model picker stage requirements / job briefs | `apps/web/lib/stage-requirements.ts` (shared requirement predicates), `apps/web/app/admin/settings/page.tsx` (role descriptions + Copy job brief text), `docs/configuration.md`, `docs/architecture.md` if behavior changes | provider inference adapters unless runtime dispatch changes |
 | Reorder or regroup admin nav | `apps/web/app/admin/_components/admin-nav.tsx` (GROUPS array + isActive helper). Layout wrapper stays server-rendered for auth. | `apps/web/app/admin/layout.tsx` other than the AdminNav import — auth still runs there |
 | Change deployment behavior | `vercel.json`, `.github/workflows/pr-check.yml`, `apps/workers/trigger.config.ts`, `docs/deployment.md` | ad hoc dashboard-only assumptions without documenting them |
 | Change Teams transcript ingestion | webhook: `apps/web/app/api/teams/notifications/route.ts` + `apps/web/lib/graph-notification-crypto.ts` + the subscription helpers in `apps/web/lib/microsoft-graph.ts`; workers: `apps/workers/src/trigger/teams-{subscription-manager,transcript-ingestion}.ts` + `apps/workers/src/lib/graph-transcripts.ts`; env in `docs/configuration.md`. Keep the two Graph helper copies in sync (web is reference). | the candidate-before-claim pipeline (ingestion only writes `messages`; never `claims`) |
@@ -606,6 +607,20 @@ A single-pass "image → claims" call would force bypassing quote validation, br
 
 Do not change because:
 Inline image input is implemented only in the Vertex adapter (`toVertexParts` → Gemini `inlineData`); the worker formats the part per provider. The vision route is pinned via the auxiliary registry, not the extraction route, so flipping the extraction model to a non-vision provider does not silently break image ingestion.
+
+### Extraction picker intentionally does not require vision
+
+Looks like:
+The Extraction stage handles uploaded-image knowledge, so the model picker should require vision.
+
+Actually:
+Images are transcribed by the separate auxiliary Image Vision model before Extraction sees them. `claim-extraction` and the extraction pass inside `document-ingestion` call `OracleAIClient.runObject<ExtractionOutput>()` over text blocks and expect structured JSON. The hard picker requirements for Extraction are therefore structured output plus context window, not image input.
+
+Why:
+Requiring vision on Extraction filters out strong text/JSON extraction models for a capability the runtime does not use. The provenance-critical image path remains protected by `default_vision_route`.
+
+Do not change because:
+Adding `vision` back to `STAGE_REQUIREMENTS.extraction` in `apps/web/lib/stage-requirements.ts` should only happen if a runtime path starts sending raw image parts directly into the extraction route again. Verify with `document-ingestion.ts` first.
 
 ### Auxiliary models are a registry, not a 4th pipeline role
 

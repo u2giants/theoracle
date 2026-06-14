@@ -174,6 +174,180 @@ CAPABILITIES IT DOES NOT NEED (do not pay for these; some actively hurt)
 BOTTOM LINE
 Pick the cheapest, most reliable vision model with the best OCR plus document/diagram comprehension and the strictest instruction-following. Ignore reasoning, tools, structured output, and long context — they are irrelevant here, and reasoning effort should stay low.`;
 
+const INTERVIEW_MODEL_BRIEF = `THE ORACLE — "Interview Model" role brief
+(Paste this into a model-evaluation assistant or vendor comparison to judge whether a given model is the right pick for this setting.)
+
+PURPOSE
+This model is The Oracle's employee-facing conversation engine. It answers direct chat messages, asks clarifying questions, and helps employees surface operational knowledge without pretending the knowledge graph contains facts it does not contain. It is the human interface to the system, so tone, latency, groundedness, and restraint all matter.
+
+WHERE IT SITS IN THE PIPELINE
+An employee sends a chat message -> the app deterministically retrieves recent conversation, open gaps, approved claims, Brain snippets, and relevant evidence -> this model writes the assistant reply -> the reply and usage metadata are stored for audit. It does NOT perform live retrieval through model-side tools; retrieval happens before the model call and is injected into the prompt. It should use the supplied evidence, ask follow-up questions when knowledge is thin, and avoid making unsupported business assertions.
+
+WHAT IT IS FED (input)
+- The Oracle system prompt and conversation rules.
+- Recent channel messages and the user's latest message.
+- Deterministically retrieved approved claims, quotes, open gaps, Brain snippets, and metadata when relevant.
+- Optional image/document attachment text or image parts when the selected route supports vision.
+- Provider cache hints and, for Qwen, a reusable session handle.
+Typical topics: process questions, shipment routing, product-development decisions, customer exceptions, designer file practices, system workflows, meeting follow-ups, and "is this still true?" recertification questions.
+
+WHAT IS EXPECTED (output)
+- A helpful, grounded chat response to the employee.
+- Usually one concise answer or one high-value follow-up question.
+- No invented policy, no fake citations, no claim IDs exposed to the employee unless the UI explicitly asks for them.
+- Clear distinction between "the approved knowledge says..." and "I do not have enough evidence yet."
+- Warm, tactful language for people-sensitive or blame-prone topics.
+- Good behavior in multi-turn context: remember the current conversation, but do not treat recent chat as approved truth unless the prompt labels it that way.
+
+PROCESS IT USES
+A synchronous, user-facing text or multimodal generation call. The user is waiting. The model receives prebuilt context blocks and must compose a response directly. It may receive tool-oriented prompt structure, but the direct provider adapters do not run arbitrary Vercel AI SDK tools; choose a model for instruction following over agentic tool autonomy.
+
+WHAT MAKES A MODEL PERFECTLY SUITED
+- Low latency under real chat pressure, ideally comfortably under 8 seconds including retrieval and provider overhead.
+- Excellent instruction following and refusal discipline: grounded answers, one-question behavior, no unsupported business facts.
+- Strong long-context handling for channel history, retrieved evidence, and document/image attachment context.
+- Good vision support for product photos, diagrams, screenshots, and uploaded-document images shared in chat.
+- Tool/function-call capability and structured-output capability are useful because this role shares infrastructure with direct adapters and may be extended with more structured chat behaviors.
+- Strong conversational tone: clear, calm, tactful, and natural with employees.
+- Good cache behavior for reusable system and conversation prefixes.
+- Reasonable cost: this runs on demand whenever employees chat, so cost can climb quickly.
+
+CAPABILITIES IT NEEDS (hard requirements in the picker)
+- Tool/function calling.
+- Structured output or response-format support.
+- Vision/image input.
+- Context window greater than 100K tokens.
+
+CAPABILITIES THAT ARE NICE TO HAVE
+- Prompt caching, especially for stable system/context prefixes.
+- Reasoning controls when they do not harm latency.
+- PDF/file input if the provider route can use it directly, though much document ingestion happens elsewhere.
+
+CAPABILITIES IT DOES NOT NEED MOST
+- Very high reasoning budgets for every turn — often too slow and expensive for routine employee chat.
+- Huge output length — replies should be concise.
+- Image generation, audio, video, or batch processing.
+
+BOTTOM LINE
+Pick the fastest reliable model that can follow strict grounding rules, handle vision and long context, speak naturally to employees, and keep cost sane at chat volume. Do not pick a brilliant but slow model as the default unless evals prove the cheaper real-time model is materially insufficient.`;
+
+const EXTRACTION_MODEL_BRIEF = `THE ORACLE — "Extraction Model" role brief
+(Paste this into a model-evaluation assistant or vendor comparison to judge whether a given model is the right pick for this setting.)
+
+PURPOSE
+This model turns raw operational text into structured claim candidates. It is the first intelligence pass after messages, Teams transcripts, documents, and image transcriptions enter the system. It does not directly approve knowledge; deterministic validators and admin review decide what can become an approved claim.
+
+WHERE IT SITS IN THE PIPELINE
+Messages and document chunks are grouped into extraction batches -> this model receives the source text plus extraction instructions -> it returns structured JSON candidates with exact supporting quotes -> deterministic validation checks quote presence, schema validity, domains, entities, confidence, impact, and promotion rules -> approved or reviewable claims move into the knowledge graph. If the model omits the exact quote or invents text, the candidate fails.
+
+WHAT IT IS FED (input)
+- One or more employee messages, transcript turns, or document chunks.
+- Source metadata such as speaker, channel, document context, upload hints, and known domains/entities.
+- A strict extraction schema and instructions for claim typing, evidence quotes, confidence, impact, domains, gaps, and entity proposals.
+- For images, this role usually receives the text produced by the separate image-vision pass, not the raw image itself.
+Typical material: meeting transcripts, process explanations, exception rules, customer-specific routing, operational decisions, file-handling rules, system workflows, and policy/practice discrepancies.
+
+WHAT IS EXPECTED (output)
+- Strict structured JSON matching the extraction schema.
+- Candidate claims only when the source text actually supports them.
+- Exact quote strings copied from the input text, not paraphrases.
+- Accurate claim type, summary, confidence score, impact score, knowledge domains, entities, and suggested follow-up gaps.
+- Conservative handling of ambiguity: lower confidence, held candidates, or gaps instead of invented certainty.
+- No polished prose; this is machine-consumed extraction output.
+
+PROCESS IT USES
+An asynchronous structured-output call, either sync API or provider Batch API depending on extraction dispatch mode. Nobody is waiting in the UI. The system can tolerate slower calls, but bad schema adherence or bad quote fidelity damages the entire knowledge graph. The model result is always passed through deterministic validators before promotion.
+
+WHAT MAKES A MODEL PERFECTLY SUITED
+- Excellent structured-output reliability with JSON schema or equivalent constrained output.
+- Strong quote fidelity: can copy exact spans from noisy transcripts and document text.
+- High recall without hallucination: finds operationally important claims while skipping chatter.
+- Good domain/entity reasoning, especially across messy business language.
+- Handles long batches and document chunks without losing local evidence.
+- Low enough cost for high-volume background processing.
+- Good batch support is valuable when extraction_dispatch_mode is set to batch.
+- Reasoning can help impact/confidence/domain decisions, but only if it does not reduce quote fidelity or throughput.
+
+CAPABILITIES IT NEEDS (hard requirements in the picker)
+- Structured output or response-format support.
+- Context window greater than 100K tokens.
+
+CAPABILITIES THAT ARE NICE TO HAVE
+- Prompt caching for stable extraction prompts and schemas.
+- Reasoning controls at low/medium effort for nuanced domain and impact scoring.
+- Batch API support in the adapter/provider for cheaper high-volume runs.
+- Large max output tokens for dense batches with many candidate claims.
+
+CAPABILITIES IT DOES NOT NEED MOST
+- Chatty conversational style.
+- Streaming — workers consume the final JSON only.
+- Tool calling unless the provider uses tool-call mode for structured output.
+- Very expensive frontier reasoning if a cheaper model preserves quotes and schema better.
+- Native PDF input for this stage specifically; documents are usually parsed/chunked before extraction.
+- Vision/image input for this stage specifically; images are transcribed by the separate Image Vision model before extraction receives text.
+
+BOTTOM LINE
+Pick the model with the best combination of strict JSON reliability, exact quote copying, high operational-claim recall, and low high-volume cost. For extraction, a cheaper model that never breaks schema and never fabricates quotes is usually better than a smarter model that is loose with evidence.`;
+
+const SYNTHESIS_MODEL_BRIEF = `THE ORACLE — "Synthesis Model" role brief
+(Paste this into a model-evaluation assistant or vendor comparison to judge whether a given model is the right pick for this setting.)
+
+PURPOSE
+This model maintains The Oracle's Brain sections: versioned, evidence-backed Markdown documents that summarize approved business knowledge. It consolidates many approved claims into coherent operational guidance while preserving traceability back to claim IDs and evidence.
+
+WHERE IT SITS IN THE PIPELINE
+An admin or schedule selects a Brain section -> the worker loads the section, approved claims, existing content, and related metadata -> this model proposes a structured synthesis diff and updated Markdown -> deterministic validators check unsupported names, claim references, structured shape, and traceability -> valid versions can become the current Brain section. Failed versions are stored for review but not published.
+
+WHAT IT IS FED (input)
+- Up to hundreds of approved claims for a section, with summaries, evidence, domains, entities, timestamps, and claim IDs.
+- Existing Brain section content and version history.
+- Instructions to map every substantive paragraph back to approved claim IDs.
+- Contradiction/staleness context when available.
+Typical sections: departmental process knowledge, customer-specific exceptions, routing rules, product-development workflows, file-handling practices, and operational system procedures.
+
+WHAT IS EXPECTED (output)
+- Structured JSON containing synthesis changes plus updated Markdown.
+- Clear, readable Brain-section prose that compresses many claims into useful operational knowledge.
+- Every substantive paragraph tied to approved claim IDs.
+- Explicit handling of contradictions, exceptions, and stale/uncertain knowledge.
+- No invented names, policies, customers, dates, or procedures.
+- Respect for existing section structure when updating rather than rewriting needlessly.
+
+PROCESS IT USES
+An asynchronous, high-judgment structured-output call. No employee is waiting, and quality matters far more than latency. The model must reason over a large evidence set, decide what belongs in the Brain section, preserve provenance, and emit output that deterministic validators can accept.
+
+WHAT MAKES A MODEL PERFECTLY SUITED
+- Very strong long-context comprehension, ideally far beyond 400K tokens.
+- Excellent synthesis and contradiction reasoning across many short evidence items.
+- Strong structured-output reliability.
+- Strong output discipline: every paragraph grounded in claim IDs, no unsupported proper nouns.
+- Large enough max output cap to produce complete Markdown sections and metadata.
+- Reasoning controls are valuable here; higher effort can be worth it because runs are less frequent and quality-sensitive.
+- Prompt caching can reduce cost for stable synthesis prompts and schemas.
+- Cost matters, but this stage runs far less often than chat or extraction.
+
+CAPABILITIES IT NEEDS (hard requirements in the picker)
+- Context window greater than 400K tokens.
+- Structured output or response-format support.
+- Reasoning/thinking support.
+- Output-length cap support.
+
+CAPABILITIES THAT ARE NICE TO HAVE
+- Prompt caching for stable prompts/schemas.
+- Strong JSON schema support rather than loose JSON prompting.
+- High max output tokens.
+- Excellent instruction hierarchy and citation/provenance discipline.
+
+CAPABILITIES IT DOES NOT NEED MOST
+- Vision/image input — image content should already have become approved text claims before synthesis.
+- Fast latency — it is a background/admin workflow.
+- Streaming.
+- Tool calling unless needed for structured-output mode.
+- Batch processing, unless many sections are being regenerated at once.
+
+BOTTOM LINE
+Pick the highest-quality long-context reasoning model that reliably emits structured JSON and can produce grounded Markdown with claim-level provenance. This is the place to spend more for careful reasoning, because a bad synthesis can make the official Brain misleading even when the underlying claims are correct.`;
+
 // Clipboard "job brief" text by auxiliary-model id. Declared after the brief
 // literals (which are large) so the earlier AUX_PRESENTATION map stays free of
 // forward references. Aux models without a brief simply omit an entry.
@@ -201,6 +375,7 @@ const STAGE_MODEL_ROLES: RoleDef[] = [
       </>
     ),
     settingDescription: 'Direct-provider model for real-time Oracle interview chat.',
+    clipboardBrief: INTERVIEW_MODEL_BRIEF,
   },
   {
     settingKey: ROUTE_SETTING_KEYS.extraction,
@@ -221,6 +396,7 @@ const STAGE_MODEL_ROLES: RoleDef[] = [
       </>
     ),
     settingDescription: 'Direct-provider model for async claim extraction from messages and documents.',
+    clipboardBrief: EXTRACTION_MODEL_BRIEF,
   },
   {
     settingKey: ROUTE_SETTING_KEYS.synthesis,
@@ -242,6 +418,7 @@ const STAGE_MODEL_ROLES: RoleDef[] = [
       </>
     ),
     settingDescription: 'Direct-provider model for brain section synthesis — long-context, structured output.',
+    clipboardBrief: SYNTHESIS_MODEL_BRIEF,
   },
 ];
 

@@ -136,6 +136,7 @@ Current task files:
 - `brain-synthesis.ts`
 - `lull-interjection.ts`
 - `contradiction-watcher.ts`
+- `model-catalog-refresh.ts` — nightly refresh of the persisted admin model catalog (`model_capabilities`) from provider APIs plus OpenRouter enrichment.
 - `taxonomy-reevaluation.ts`
 - `taxonomy-reclassification.ts`
 - `teams-subscription-manager.ts` — keeps the Teams ad-hoc transcript Graph subscription alive (renew cron `*/30` + webhook-lifecycle repair task). No-ops when the `TEAMS_*`/`AZURE_*` env isn't set.

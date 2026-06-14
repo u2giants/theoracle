@@ -86,7 +86,8 @@ Use this subsection as the first stop for a brand-new developer. The rest of thi
 Current git/deploy snapshot:
 - Latest pushed commit observed: `69cfa08 docs: add fresh developer handoff packet` on `main`.
 - As of 2026-06-10 the working tree has uncommitted (but deployed) changes — see section 0 above. Re-check `git status --short --branch` before starting work.
-- Trigger.dev production worker version is **`20260614.3`** (17 tasks) as of 2026-06-14 — adds Word/.docx parsing, two-pass image vision ingestion (structured text-topology transcription), the auxiliary-model vision route, and per-document context/domain-hint prompting, on top of the retrieval-backed live decision + retrieval SQL fixes. (Earlier this branch shipped `20260610.4` for the live-context work.)
+- Trigger.dev production worker version is **`20260614.4`** (18 tasks) as of 2026-06-14 — adds a nightly `model-catalog-refresh-nightly` schedule on top of the `20260614.3` document-ingestion/vision work. The one-time production run `run_cmqdsbbag23s70hoq9y3mxw4s` completed at `2026-06-14T12:52:53Z` and wrote 85 catalog rows, with partial-refresh errors for missing production `DEEPSEEK_API_KEY` and `DASHSCOPE_API_KEY`.
+- Admin Settings stage pickers now have restored "Copy job brief" text for Interview, Extraction, and Synthesis. Extraction's hard picker requirements were corrected to structured output + context >100K only; it no longer requires vision because document-image ingestion routes raw images through the auxiliary Image Vision model first, then Extraction receives text chunks.
 
 What The Oracle can do now:
 - Post-call Teams transcript ingestion through Microsoft Graph is live and validated for ad-hoc Teams calls when the Graph subscription exists before transcription starts.
