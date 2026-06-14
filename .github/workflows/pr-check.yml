@@ -80,6 +80,13 @@ jobs:
         # single turn — which would silently erase chat history.
         run: pnpm --filter @oracle/ai verify:vertex-file-cache
 
+      - name: MCP registry guard
+        # Static, DB-free check of the Oracle MCP lazy-loaded registry: tools/list
+        # stays limited to the five always-on tools, capability metadata/tiers are
+        # complete, tool_search/enablement/contract/arg-validation behave, and no
+        # hidden operation leaks into the always-on surface.
+        run: pnpm --filter @oracle/web verify:mcp
+
       - name: Drizzle journal drift check
         # Compares on-disk packages/db/migrations/0*.sql hashes against
         # drizzle.__drizzle_migrations in production. Catches migrations

@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:mcp": "tsx lib/mcp/__verify__/mcp-registry.ts"
   },
   "dependencies": {
     "@openrouter/ai-sdk-provider": "^2.9.0",
@@ -24,6 +25,7 @@
     "@radix-ui/react-separator": "^1.1.1",
     "@radix-ui/react-slot": "^1.1.1",
     "@radix-ui/react-tabs": "^1.1.2",
+    "@modelcontextprotocol/sdk": "1.26.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.47.10",
     "@trigger.dev/sdk": "^4.4.6",
@@ -34,6 +36,7 @@
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.16.0",
+    "mcp-handler": "^1.1.0",
     "next": "16.2.6",
     "postgres": "^3.4.5",
     "react": "^19.2.6",
@@ -51,6 +54,7 @@
     "eslint-config-next": "^16.2.6",
     "postcss": "^8.4.49",
     "tailwindcss": "^4.3.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }
 }

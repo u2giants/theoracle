@@ -210,6 +210,7 @@ There are no Docker containers in this repo. Runtime services are fully managed.
 | Container/service | Purpose | Managed by | App/project ID | Image/source |
 |---|---|---|---|---|
 | Vercel Functions | Next.js web app and API routes | Vercel | `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | `apps/web` build via `vercel.json` |
+| Oracle MCP server | Read-only MCP endpoint exposing approved business knowledge (claims, Brain sections, domain taxonomy) to external AI agents. Streamable HTTP at `/api/mcp/mcp`, bearer-token auth (`ORACLE_MCP_TOKEN`). | Vercel (in-app route) | same web project | `apps/web/app/api/mcp/[transport]/route.ts` + `apps/web/lib/mcp/` |
 | Trigger.dev Cloud | Background workers | Trigger.dev | `proj_wgpzsvhmsopqhvwqaycn` | `apps/workers` |
 | Supabase Postgres | Primary database | Supabase | configured by env | managed Postgres + pgvector |
 | Supabase Auth | Login and session identity | Supabase | same project | managed Auth |
@@ -591,6 +592,7 @@ Adding it to `schema.ts` would make drizzle-kit want to generate a migration for
 | `DEEPSEEK_API_KEY` | DeepSeek adapter | `.env.local`, Vercel, Trigger.dev | optional | optional |
 | `DASHSCOPE_API_KEY` | Qwen adapter | `.env.local`, Vercel, Trigger.dev | optional | optional |
 | `OPENROUTER_API_KEY` | model catalog enrichment only | `.env.local`, Vercel if desired | optional | optional |
+| `ORACLE_MCP_TOKEN` | Static bearer token for the remote MCP knowledge endpoint (`/api/mcp/mcp`). External AI agents present it to query approved business knowledge. If unset, the endpoint rejects all requests. | `.env.local`, Vercel | optional | yes for MCP access |
 | `TRIGGER_SECRET_KEY` | Trigger.dev auth | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `PROD_DIRECT_URL` | Used by the CI drift-check step to reach production Postgres | GitHub Actions repo secret (`gh secret list`) | no | yes (CI) |
 | `TRIGGER_PROJECT_REF` | Trigger.dev project selector | `.env.local`, Vercel | optional | optional |
@@ -629,7 +631,7 @@ Current deployment path:
 How deployment works today:
 
 1. Merge or push to `main`.
-2. GitHub Actions runs `pr-check.yml`: installs dependencies, builds `@oracle/web`, runs the static DB-free verify guards (`verify:retrieval-filter-parity`, `verify:vertex-file-cache`), then runs `pnpm db:check-drift` against production (requires the `PROD_DIRECT_URL` repo secret; skips gracefully if absent). Drift in the Drizzle migration journal fails the build.
+2. GitHub Actions runs `pr-check.yml`: installs dependencies, builds `@oracle/web`, runs the static DB-free verify guards (`verify:retrieval-filter-parity`, `verify:vertex-file-cache`, `verify:mcp`), then runs `pnpm db:check-drift` against production (requires the `PROD_DIRECT_URL` repo secret; skips gracefully if absent). Drift in the Drizzle migration journal fails the build.
 3. Vercel auto-deploys the web app from GitHub using `vercel.json`.
 4. Trigger.dev workers are deployed manually with `pnpm --filter @oracle/workers run deploy` (the `run` keyword is required — `pnpm` reserves the bare `deploy` form for its own subcommand).
 5. Database migrations are applied manually with `pnpm db:migrate` before shipping code that depends on them. Hand-written `migrations/sql/*.sql` files MAY be applied via Supabase MCP `apply_migration`; generated `0NNN_*.sql` files MUST go through `pnpm db:migrate` (otherwise the journal drifts — see incident 2026-05-28).
@@ -658,7 +660,7 @@ This repo is a **managed-platform** deployment — Vercel (web) + Trigger.dev (w
 - **Single-branch model: work on `main` only.** Do **not** create feature, staging, or release branches, and do not open PRs as a routine workflow — this repo has no promotion model. Commit straight to `main`. (Push to `main` only when Albert says push — see CLAUDE.md.)
 - **One release path, repo-driven:** push to `main` → Vercel builds/deploys the web app from `vercel.json`; workers ship via `pnpm --filter @oracle/workers run deploy`; DB via `pnpm db:migrate`. No alternate routine deploy method.
 - **CI verifies, never deploys.** `pr-check.yml` only builds + runs the static verify guards + checks migration drift. It must not deploy, SSH, mutate production, or publish artifacts.
-- **The deploy gate is native to Vercel's build.** `vercel.json` `buildCommand` runs the static verify guards (`verify:retrieval-filter-parity`, `verify:vertex-file-cache`) **before** `@oracle/web build`. If a guard or the build fails, Vercel's production build fails and the previous deployment stays live — so a guard-breaking or build-breaking commit cannot reach production. This is the "hard blocker": enforcement lives in the platform's own build, not in a separate CI deploy step.
+- **The deploy gate is native to Vercel's build.** `vercel.json` `buildCommand` runs the static verify guards (`verify:retrieval-filter-parity`, `verify:vertex-file-cache`, `verify:mcp`) **before** `@oracle/web build`. If a guard or the build fails, Vercel's production build fails and the previous deployment stays live — so a guard-breaking or build-breaking commit cannot reach production. This is the "hard blocker": enforcement lives in the platform's own build, not in a separate CI deploy step.
 - **Repo is authoritative; the platform owns runtime.** Runtime env vars / secrets / domains live in Vercel / Trigger.dev / Supabase — never baked into CI shell commands, images, or committed `.env*` (except `.env.example`).
 - **Schema changes only through the approved migration path** (`pnpm db:migrate` for generated `0NNN_*.sql`; Supabase MCP `apply_migration` for hand-written `sql/*.sql`). Never ad-hoc production schema edits as the normal path.
 - **Traceability:** every production change is auditable from repo commit history + Vercel / Trigger.dev / Supabase deployment history.
