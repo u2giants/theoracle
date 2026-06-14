@@ -1,7 +1,8 @@
 import { desc, eq } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { documents, employees } from '@oracle/db/schema';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { AdminDocumentUpload } from './_components/admin-document-upload';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,9 +29,25 @@ export default async function AdminDocumentsPage() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Documents</h1>
         <p className="text-sm text-muted-foreground">
-          Read-only list of uploaded documents. Ingestion worker runs in Phase 4.
+          Upload company and process documents here. Each file is parsed,
+          chunked, and run through claim extraction in the background — no chat
+          channel required.
         </p>
       </header>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Upload documents</CardTitle>
+          <CardDescription>
+            Knowledge is extracted automatically. High-impact claims and new
+            entities go to the review queues before they become permanent.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AdminDocumentUpload />
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{rows.length} documents</CardTitle>
