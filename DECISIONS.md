@@ -507,3 +507,27 @@ This file is the running log of every assumption, stub, and resolution made by t
 
 - **Decision**: Persist each call's raw WebVTT in `raw_transcripts` at ingestion (idempotent on transcript_id). Hand-written `migrations/sql/62_raw_transcripts.sql`; worker uses raw `sql`, not in schema.ts.
 - **Why**: `messages` are a lossy transform (merged turns, resolved speakers, dropped timing) and Microsoft expires ad-hoc transcripts. Raw VTT keeps the whole pipeline re-runnable from true source for iterative fine-tuning.
+
+# Document ingestion: Word, image vision, auxiliary models, context (2026-06-14)
+
+## D-image-vision-two-pass — transcribe images to text before extraction
+
+- **Decision**: Uploaded images (PNG/JPEG/WebP/HEIC) are ingested in two passes. Pass 1 (`transcribeImageToText` in `document-ingestion.ts`) calls a vision model to render the image to faithful text — a structured text topology for diagrams (nodes `[Shape/Color: "label"]`, edges `[A] --(cond)--> [B]`, swimlane `### headers`), with verbatim labels kept inside the nodes. Pass 2 is the unchanged chunk → extract → quote-validate → promote pipeline run over that text.
+- **Why**: Every claim's `exactQuote` must validate against a `document_chunk`. An image has no text to validate against, so a single-pass "image → claims" call would force bypassing quote validation and break the candidate-before-claim provenance guarantee. The transcription becomes the chunk text; the verbatim-label rule keeps quotes matchable. The topology output (vs free-form prose) gives the extractor un-scrambled structure.
+- **Provider path**: Inline image input is implemented in the Vertex adapter (`toVertexParts` → Gemini `inlineData`, guard `verify:vertex-inline-image`); the worker formats the image part per provider (Gemini/Anthropic/OpenAI). Inference is provider-direct (`@google/genai`), never OpenRouter. The file-backed Vertex cache is skipped for images (a lone image is below the cache token minimum).
+
+## D-auxiliary-models — single-pick models outside OracleModelRole
+
+- **Decision**: Admin-selectable models that are not one of the 3 strict pipeline roles (vision, general-purpose) are "auxiliary models" defined in a registry (`packages/ai/src/routes/auxiliary.ts`, `AUXILIARY_MODELS`) and resolved by `resolveAuxiliaryRouteFromSettings(db, id)`. `OracleModelRole` stays frozen at `interview | extraction | synthesis`. The settings page, picker, and `/api/admin/models` iterate the registry; none special-case `'vision'`/`'general'`.
+- **Why**: Pipeline roles carry structure auxiliary models don't (strict primary+fallback catalog pair, stage requirements, model pools, batch dispatch). Folding vision into `OracleModelRole` would ripple through every `Record<OracleModelRole, …>` map and the 1-primary/1-fallback invariant. The registry adds the next utility model with one entry and no new branches.
+- **Setting**: `default_vision_route` (+ `default_vision_reasoning_effort`), shipped fallback `vertex_gemini_2_5_flash_extraction_primary`, seeded with `ON CONFLICT DO NOTHING`.
+
+## D-admin-document-upload — company docs decouple from chat channels
+
+- **Decision**: `POST /api/admin/documents` (admin-only, multi-file) uploads knowledge documents directly from Admin → Documents with no channel — it stores the file, inserts a `documents` row, and triggers `document-ingestion`. The channel-based `POST /api/documents` remains for chat attachments.
+- **Why**: There is no UI to create a chat channel (channels are only created by the Teams flows / admin raw-import), so the channel-coupled uploader made company-doc upload unreachable. `documents` has no channel dependency — the worker reads by id — so decoupling is clean and is the correct model for company/process knowledge.
+
+## D-document-context-and-hints — uploader context as a soft signal
+
+- **Decision**: `documents` gains nullable `context` (text) and `domain_hints` (jsonb of `knowledge_top_domains.id`). `context` is injected into both the extraction prompt and the Pass-1 image-vision prompt; `domain_hints` are rendered as a non-binding prior. Per-claim `domain_valid` stays authoritative — hints never force or override classification, which stays per-claim (a document legitimately spans multiple domains).
+- **Migration nuance**: shipped via hand-written `migrations/sql/65_document_context_and_domain_hints.sql` (idempotent `ADD COLUMN IF NOT EXISTS`) AND added to `schema.ts`, but with no Drizzle-generated migration. So `db:check-drift` may flag it and a fresh-DB `db:migrate` won't recreate the columns unless `sql/65` is applied. Consistent with the `raw_transcripts` hand-written precedent; fold into a generated migration if drift is undesirable.

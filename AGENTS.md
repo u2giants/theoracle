@@ -171,6 +171,8 @@ Specific boundaries:
 | Reorder or regroup admin nav | `apps/web/app/admin/_components/admin-nav.tsx` (GROUPS array + isActive helper). Layout wrapper stays server-rendered for auth. | `apps/web/app/admin/layout.tsx` other than the AdminNav import — auth still runs there |
 | Change deployment behavior | `vercel.json`, `.github/workflows/pr-check.yml`, `apps/workers/trigger.config.ts`, `docs/deployment.md` | ad hoc dashboard-only assumptions without documenting them |
 | Change Teams transcript ingestion | webhook: `apps/web/app/api/teams/notifications/route.ts` + `apps/web/lib/graph-notification-crypto.ts` + the subscription helpers in `apps/web/lib/microsoft-graph.ts`; workers: `apps/workers/src/trigger/teams-{subscription-manager,transcript-ingestion}.ts` + `apps/workers/src/lib/graph-transcripts.ts`; env in `docs/configuration.md`. Keep the two Graph helper copies in sync (web is reference). | the candidate-before-claim pipeline (ingestion only writes `messages`; never `claims`) |
+| Change document ingestion (formats / image vision / prompts) | `apps/workers/src/trigger/document-ingestion.ts` (`resolveParseKind`, `extractTextFrom*`, `transcribeImageToText`, `IMAGE_TRANSCRIPTION_SYSTEM`, `buildUploaderContextNote`); image inline support in `packages/ai/src/providers/vertex-gemini-adapter.ts` (`toVertexParts`); admin upload UI `apps/web/app/admin/documents/**` + `apps/web/app/api/admin/documents/route.ts`. Redeploy the worker for parse/prompt changes. | the candidate-before-claim pipeline; the channel-based `POST /api/documents` (separate, chat path) |
+| Add/change an auxiliary model (vision, general-purpose, …) | `packages/ai/src/routes/auxiliary.ts` (registry entry), `apps/web/app/admin/settings/page.tsx` (`AUX_PRESENTATION` entry). Resolver, picker, and `/api/admin/models` already iterate the registry — no new branches needed. | `OracleModelRole` (stays the 3 pipeline roles); the pipeline route catalog |
 
 ## 7. Data model and external identifiers
 
@@ -189,6 +191,10 @@ Specific boundaries:
 | Provider cache table | `provider_cached_content` | `packages/db/src/schema.ts` | Explicit Vertex cache lifecycle + provider metadata |
 | Provider response session table | `provider_response_sessions` | `packages/db/src/schema.ts` | Qwen Responses `previous_response_id` persistence |
 | Model catalog table | `model_capabilities` | schema + model-capability refresh code | Populated from direct providers + OpenRouter enrichment |
+| Auxiliary-model registry | `AUXILIARY_MODELS` | `packages/ai/src/routes/auxiliary.ts` | Admin-selectable models that are NOT one of the 3 strict `OracleModelRole`s (which stay frozen): currently `vision` and `general`. Each entry = `{ id, routeSettingKey, reasoningEffortSettingKey?, requiredCapability?, defaultRouteId? }`. Resolved at runtime by `resolveAuxiliaryRouteFromSettings(db, id)`. The picker, `/api/admin/models`, and the settings page all iterate it. |
+| Image-vision route setting | `default_vision_route` | `settings` row + `auxiliary.ts` (`VISION_AUXILIARY_MODEL`) | Vision model used by `document-ingestion` to transcribe uploaded images to text (Pass 1) before extraction. Shipped fallback `vertex_gemini_2_5_flash_extraction_primary`. Chosen at Admin → Settings → "Image vision model" (no redeploy). Seeded with `ON CONFLICT DO NOTHING`. |
+| Document context/hints | `documents.context`, `documents.domain_hints` | `packages/db/src/schema.ts`, migration `65_document_context_and_domain_hints.sql` | Optional uploader-provided free-text context (fed into extraction + image-vision prompts) and suggested top-domain ids (a non-binding prior). Per-claim `domain_valid` stays authoritative. |
+| Admin document upload | `POST /api/admin/documents` | `apps/web/app/api/admin/documents/route.ts` | Admin-only, multi-file, **no channel** — stores the file, inserts a `documents` row, triggers `document-ingestion`. The channel-based `POST /api/documents` still exists for chat attachments. There is no UI to create a channel, so this is the path for company/process docs. |
 | Design file operations domain | `design_file_operations` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from product/design workflow. Covers designer file naming, invalid characters, server folders, file-size reduction, linked assets, packaging, versioning, archive, and handoff file hygiene. |
 | Operations systems domain | `operations_systems` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from generic IT support. Covers ERP/CRM/PLM workflows, Google Sheets to Designflow PLM integration, OrderList, MasterData, TaskList, field mapping, validation, and source-of-truth rules. |
 | Provider Batch jobs table | `provider_batch_jobs` | `packages/db/src/schema.ts`, migration `60_batch_jobs.sql` | One row per submitted provider Batch API job (D14). `extraction_batches.provider_batch_job_id` links per-input rows to their batch. `model_runs.dispatch_mode` ∈ `'sync' \| 'batch' \| NULL`. |
@@ -587,6 +593,34 @@ Do not change because:
 - New write (tier-2+) capabilities MUST go through the `invoke_tool` preview/confirm gate; never let a write run without `args.confirmed === true`.
 - Full design + "how to add a capability" lives in `apps/web/lib/mcp/README.md` — read it before changing the MCP surface.
 
+### Uploaded images become knowledge via a two-pass vision→text→extract flow
+
+Looks like:
+`document-ingestion` could just send an uploaded image straight to a vision model and ask it for claims. Instead it runs a vision model first to produce a text transcription, then runs the normal extraction model over that text.
+
+Actually:
+This is deliberate and load-bearing for provenance. Pass 1 (`transcribeImageToText`) renders the image to faithful text (a structured text topology for diagrams — nodes/edges/swimlane headers, verbatim labels kept inside the nodes). Pass 2 is the unchanged chunk → extract → quote-validate → promote pipeline. Every claim's `exactQuote` is validated against a `document_chunk`, and an image has no text to validate against — so the transcription IS the chunk text, and the verbatim-label rule keeps quotes matchable. The transcription is persisted, so the whole thing stays re-runnable and auditable.
+
+Why:
+A single-pass "image → claims" call would force bypassing quote validation, breaking the candidate-before-claim provenance guarantee. Keep the two passes separate.
+
+Do not change because:
+Inline image input is implemented only in the Vertex adapter (`toVertexParts` → Gemini `inlineData`); the worker formats the part per provider. The vision route is pinned via the auxiliary registry, not the extraction route, so flipping the extraction model to a non-vision provider does not silently break image ingestion.
+
+### Auxiliary models are a registry, not a 4th pipeline role
+
+Looks like:
+The image-vision model selection looks like it should be a 4th `OracleModelRole` next to interview/extraction/synthesis.
+
+Actually:
+`OracleModelRole` is intentionally frozen at exactly 3 pipeline stages (each with a strict primary+fallback catalog pair, stage requirements, pools, batch dispatch). Vision and general-purpose are "auxiliary models" — single-pick selections with at most one capability filter and a default route — defined in `AUXILIARY_MODELS` (`packages/ai/src/routes/auxiliary.ts`) and resolved by `resolveAuxiliaryRouteFromSettings`. The settings page, picker, and `/api/admin/models` iterate the registry; none of them special-case `'vision'` or `'general'` by string.
+
+Why:
+Auxiliary models have none of a pipeline role's structure, and folding them into `OracleModelRole` would ripple through every `Record<OracleModelRole, …>` map and the strict 1-primary/1-fallback invariant. The registry adds new utility-model selections with zero new branches.
+
+Do not change because:
+Adding `'vision'` to `OracleModelRole` to "unify" things reintroduces exactly the ripple the registry avoids. Add a registry entry instead.
+
 ## 11. Credentials and environment
 
 | Variable | Purpose | Stored where | Required in dev | Required in prod |
@@ -803,7 +837,7 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 | open | Authentik is mentioned in schema/docs but no Authentik login flow is wired in the app. | Treat Authentik as not implemented. |
 | open | Oversized Vertex file-backed caches require `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` in the runtime env. Without it, the adapter falls back to text-prefix caching only. Used by both the extraction worker and (since the chat-attachment file-cache v1) the interview chat route for large attached PDFs. | Provision the bucket/env in environments that need large-document cache optimization. |
 | open | Chat-attachment file-cache (v1) limitations: (1) only ONE PDF per turn is cached; other attachments are not separately inlined while the file cache is active; (2) a cross-provider fallback (Vertex→Anthropic on a transient error) loses the cached document — degraded answer, not an error, logged as a warning. | Acceptable for v1. Hardening = fix Vertex multimodal `buildContents` then keep the attachment inline + dedupe the cached copy in the adapter, and/or constrain a Vertex interview route's fallback to also be Vertex. |
-| open | Vertex `buildContents` collapses each chat turn to a single text part, so inline image/file parts are not translated to `inlineData`/`fileData`. Vertex chat vision is effectively unwired. | Translate AI-SDK parts → Gemini parts. Prerequisite for general Vertex vision and for caching a doc alongside other inline attachments. |
+| partial | Vertex `buildContents` now translates inline image message parts (`{type:'image',mimeType,data}`) into Gemini `inlineData` via `toVertexParts` (2026-06-14, guard `verify:vertex-inline-image`). Used by `document-ingestion`'s image vision pass. **`fileData`** parts (e.g. caching a PDF alongside other inline attachments in the interview chat route) are still not generalized. | Done for inline images. For chat attachments, extend `toVertexParts` to also emit `fileData` parts and dedupe against the file-backed cache. |
 | open | Vertex Batch Prediction requires `GOOGLE_VERTEX_BATCH_GCS_BUCKET` to be provisioned + the worker SA granted `roles/storage.objectAdmin` on it. | One-time admin task before batch mode can be enabled for Vertex routes. OpenAI batch needs no infrastructure setup. Flip extraction to batch via `/admin/settings` → "Extraction dispatch mode" card. |
 | done | **Teams transcript ingestion — LIVE + validated end-to-end (2026-06-04/05).** Real Meet-Now call → subscription → webhook → ingestion → 95 messages, `speakersResolved 2/2`. Workers `20260605.1`. Speaker resolution now email-based (`fbb82cd`) + bootstrap-by-email for `@popcre.com` (`e73868b`); 38 employees seeded. | No action — feature works. Fuzzy quote matching (`89d2fd9`) + raw_transcripts persistence added. |
 | done | **Teams-native Oracle app wrapper is wired (2026-06-09).** Azure Bot resource `theoracle-popcre-teams-bot` (`F0`) points at `/api/teams/bot/messages`, Teams channel is enabled, the organization Teams app `The Oracle` is uploaded, and Albert's user has the app installed. | No repo action. If users cannot see the app, check Teams app propagation/policies and `Get-M365TeamsApp -Id 17ccd7a1-b90b-428c-9966-33e7fb832923`. |
@@ -816,5 +850,9 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 | done | `pnpm lint` migration surfaced pre-existing `apps/web` violations the broken script had masked; the 2026-06-11 cleanup fixed the taxonomy quote escaping, initial state-sync effects, stale `eslint-disable` directives, and PostCSS config warning. | No action. `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass locally as of the cleanup session. |
 
 | partial | **Remote MCP knowledge endpoint shipped (2026-06-14)** — `/api/mcp/mcp` (lazy registry: `search_business_knowledge`, `list_knowledge_domains`, `list/get_brain_section`). Code is live in `main` and Vercel auto-deploys it. The endpoint **fails closed until `ORACLE_MCP_TOKEN` is set in Vercel Production** — until then it 401s every request. | Set `ORACLE_MCP_TOKEN` (e.g. `openssl rand -hex 32`) in Vercel Production env, then agents connect with `Authorization: Bearer <token>`. Note: `search_business_knowledge` only returns substance once claims are **approved** — most still sit in `pending_review` (see the extraction-gates row above); `list_knowledge_domains` already returns all 14 domains. |
+| done | **Word (.docx) + image (vision) document ingestion (2026-06-14).** `mammoth` for `.docx`; PNG/JPEG/WebP/HEIC images run a two-pass vision→text→extract flow with structured text-topology transcription. Provider-agnostic image input (Gemini inlineData / Anthropic / OpenAI). Worker `20260614.3`. | No action. Live image upload→`complete`→claims test still pending a human. GIF/BMP/TIFF unsupported; `.doc` (binary) unsupported. |
+| done | **GUI-configurable vision model via the auxiliary-model registry (2026-06-14).** `default_vision_route` chosen at Admin → Settings → "Image vision model"; `OracleModelRole` stays at 3. Seeded to the Gemini route in prod. | No action. To add another auxiliary model: one `AUXILIARY_MODELS` entry + one `AUX_PRESENTATION` entry. |
+| done | **Admin company-document uploader, no channel (2026-06-14).** `POST /api/admin/documents` on Admin → Documents. Decouples company-doc upload from chat (no create-channel UI exists). | No action. |
+| open | **Per-document `context` / `domain_hints` added via hand-written SQL only (2026-06-14, migration `65`).** Columns are in `schema.ts` + applied to prod, but there is no Drizzle-generated migration, so `pnpm db:check-drift` may flag them and a fresh-DB `pnpm db:migrate` won't recreate them. | If drift matters, fold the two nullable columns into a generated Drizzle migration; otherwise keep the hand-written `sql/65` as authoritative (consistent with the `raw_transcripts` precedent). |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.

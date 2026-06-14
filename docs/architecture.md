@@ -361,11 +361,18 @@ One human → one `employees` row → many `employee_identities` rows.
 
 ### 3. Document upload
 
-1. Browser uploads file to Supabase Storage bucket `company_documents`.
-2. Creates a `documents` row (`status='pending_processing'`).
-3. Creates a `message_attachments` row linking the document to the message that referenced it.
-4. After the upload completes, the client triggers `POST /api/chat` — same Oracle reply flow as flow 2. In DMs this always fires; in group chats it fires only when the upload caption starts with `@oracle`.
-5. The document ingestion worker (Phase 4) picks up `status='pending_processing'`, chunks the file into `document_chunks`, embeds them, then runs claim extraction over the chunks.
+Two entry points, both ending in the same `document-ingestion` worker:
+
+- **Admin → Documents** (company/process docs): `POST /api/admin/documents` (admin-only, multi-file, **no channel**). Stores each file to `company_documents`, inserts a `documents` row (`status='pending_processing'`) with optional uploader `context` + `domain_hints`, and triggers `document-ingestion`. This is the path for seeding company knowledge — there is no UI to create a chat channel.
+- **Channel attachment** (chat): `POST /api/documents` requires a channel; it additionally inserts an `extraction_status='skipped'` attachment message and a `message_attachments` row, then triggers `POST /api/chat` (DMs always; group chats only when the caption starts with `@oracle`).
+
+The `document-ingestion` worker then:
+
+1. Loads the `documents` row and parses by format (`resolveParseKind`, matching MIME or filename extension): **PDF** (`pdf-parse`), **Word .docx** (`mammoth`), **Excel/CSV** (`xlsx`), **plain text/markdown/vtt**, and **images** (PNG/JPEG/WebP/HEIC).
+2. **Images run a two-pass flow:** Pass 1 (`transcribeImageToText`) sends the image to the admin-selected vision model (`default_vision_route`; default Gemini, provider-direct) and gets back a faithful text rendering — a structured text topology for diagrams (nodes `[Shape: "label"]`, edges `[A] --(cond)--> [B]`, swimlane headers), verbatim labels kept inside the nodes. That text is the substrate for Pass 2.
+3. Chunks the text into `document_chunks`, embeds them.
+4. Runs claim extraction over the chunks via the extraction route. The uploader `context` is injected into the extraction prompt (and the Pass-1 vision prompt); `domain_hints` are a non-binding prior — per-claim `domain_valid` stays authoritative.
+5. Promotes claims through the candidate-before-claim executor. Every claim's `exactQuote` is validated against a `document_chunk`; for images this is the transcription, so the verbatim-label rule keeps quotes matchable and provenance intact.
 
 ### 4. Claim extraction (worker — deployed, Phase 4)
 

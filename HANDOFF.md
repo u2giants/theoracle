@@ -86,7 +86,7 @@ Use this subsection as the first stop for a brand-new developer. The rest of thi
 Current git/deploy snapshot:
 - Latest pushed commit observed: `69cfa08 docs: add fresh developer handoff packet` on `main`.
 - As of 2026-06-10 the working tree has uncommitted (but deployed) changes — see section 0 above. Re-check `git status --short --branch` before starting work.
-- Trigger.dev production worker version is `20260610.4` (17 tasks), containing the retrieval-backed live decision + retrieval SQL fixes.
+- Trigger.dev production worker version is **`20260614.3`** (17 tasks) as of 2026-06-14 — adds Word/.docx parsing, two-pass image vision ingestion (structured text-topology transcription), the auxiliary-model vision route, and per-document context/domain-hint prompting, on top of the retrieval-backed live decision + retrieval SQL fixes. (Earlier this branch shipped `20260610.4` for the live-context work.)
 
 What The Oracle can do now:
 - Post-call Teams transcript ingestion through Microsoft Graph is live and validated for ad-hoc Teams calls when the Graph subscription exists before transcription starts.
@@ -134,18 +134,33 @@ Before declaring future work done:
 
 ## What is done (since the prior HANDOFF)
 
-### Document ingestion: Word + image (vision) support + auxiliary-model registry (2026-06-14)
+### Document ingestion: Word + image (vision), admin uploader, context/hints, auxiliary models (2026-06-14)
 
-Expanded the upload→extraction pipeline and made model selection fully GUI-driven.
+Committed (`d8dd2d6`, `195f9fc`, `bdb07c3`, `a2f9851`, `105addf`, `c388593`) and **deployed**: Trigger prod worker **`20260614.3`** (17 tasks) + Vercel production (auto-deploys on push to `main`). All `@oracle/*` typecheck, web ESLint, and `verify:vertex-inline-image` / `verify:vertex-file-cache` pass.
 
-- **Word (.docx)**: `document-ingestion` now parses `.docx` via `mammoth`. Old binary `.doc` is still unsupported (convert to `.docx`/PDF). Format detection now also falls back to the filename extension when the browser sends `application/octet-stream`.
-- **Images (vision)**: uploaded PNG/JPEG/WebP/HEIC images are transcribed to faithful text by a vision model (Pass 1), then flow through the SAME chunk → extract → quote-validate → promote pipeline (Pass 2). This preserves the quote-validation provenance guarantee — claims quote the persisted transcription (`document_chunks`), not the raw image. GIF/BMP/TIFF route to unsupported.
-- **Vertex adapter** gained inline-image support (`toVertexParts` → Gemini `inlineData`); the worker formats the image part per provider (Gemini inlineData / Anthropic image block / OpenAI image_url) so any chosen vision model works. Guard: `pnpm --filter @oracle/ai verify:vertex-inline-image`.
-- **Vision model is GUI-choosable** at Admin → Settings → "Image vision model" (no redeploy). It is NOT a 4th pipeline role: `OracleModelRole` stays frozen at 3. Instead there is a new **auxiliary-model registry** (`packages/ai/src/routes/auxiliary.ts`, `AUXILIARY_MODELS`) that also now owns the pre-existing general-purpose model. The picker, models API, and resolver (`resolveAuxiliaryRouteFromSettings`) all iterate the registry — adding the next auxiliary model is one registry entry + one web presentation entry.
-- **Setting**: `default_vision_route` (+ `default_vision_reasoning_effort`). Shipped fallback when unset: `vertex_gemini_2_5_flash_extraction_primary` (Gemini — already credentialed in prod). Seed it idempotently with `ON CONFLICT (key) DO NOTHING` so an admin choice is never clobbered.
-- The "Copy job brief" button on the vision picker copies a detailed model-suitability spec.
+**New input formats**
+- **Word (.docx)** parsed via `mammoth` (added to `apps/workers/package.json`). Old binary `.doc` still unsupported (convert to `.docx`/PDF). `resolveParseKind()` now falls back to the filename extension when the browser sends `application/octet-stream`.
+- **Images (vision)** — PNG/JPEG/WebP/HEIC. Two-pass: Pass 1 = a vision model transcribes the image to faithful text; Pass 2 = that text flows through the SAME chunk → extract → quote-validate → promote pipeline. The transcription is persisted as `document_chunks`, so the quote-validation provenance guarantee holds (claims quote the transcription, never the raw image). GIF/BMP/TIFF → unsupported.
+- Pass 1 prompt (`IMAGE_TRANSCRIPTION_SYSTEM`) instructs a **structured text-topology** output for diagrams/flowcharts/org charts — nodes `[Shape/Color: "label"]`, edges `[A] --(condition)--> [B]`, swimlane `### headers` — with verbatim labels kept inside the nodes so they stay exactly quotable.
 
-Verified: `@oracle/ai` + `@oracle/workers` + `@oracle/web` typecheck, web ESLint, `verify:vertex-inline-image`, `verify:vertex-file-cache`. Requires a `@oracle/workers` Trigger.dev deploy to take effect (image/docx parsing lives in the worker).
+**Vision is GUI-choosable, provider-agnostic**
+- The Vertex adapter `buildContents`/`toVertexParts` now translate an inline `{type:'image',mimeType,data}` part into a Gemini `inlineData` part (guard: `verify:vertex-inline-image`). The worker formats the image part per provider (Gemini inlineData / Anthropic image block / OpenAI image_url) so whatever model the admin picks works. The file-backed Vertex cache path is skipped for images (a lone image is below the cache token minimum).
+- **Auxiliary-model registry** (`packages/ai/src/routes/auxiliary.ts`, `AUXILIARY_MODELS`): vision + general-purpose are "auxiliary models" — single-pick selections that are NOT one of the 3 strict `OracleModelRole`s (which stay frozen). The picker, `/api/admin/models`, and `resolveAuxiliaryRouteFromSettings(db, id)` all iterate the registry. Adding the next one (e.g. audio transcription) = one registry entry + one `AUX_PRESENTATION` entry in the settings page.
+- Settings: **`default_vision_route`** (+ `default_vision_reasoning_effort`). Shipped fallback `vertex_gemini_2_5_flash_extraction_primary` (Gemini — already credentialed in prod). **Seeded in prod** with `ON CONFLICT (key) DO NOTHING` (won't clobber an admin choice). Admin → Settings → "Image vision model" has a "Copy job brief" button.
+
+**Inference vs catalog APIs** — the model dropdown reads the cached `model_capabilities` table (`GET /api/admin/models?stage=vision`), populated by `refreshModelCatalog` from direct provider list APIs + OpenRouter enrichment. Inference is always **provider-direct** (Gemini via `@google/genai`), never OpenRouter.
+
+**Admin company-document uploader (no channel)**
+- Channels can only be created by the Teams flows or the admin raw-import path — there is no "create channel" UI. So uploading company docs via a chat channel was unreachable. New: **Admin → Documents** has a multi-file drag-drop uploader → `POST /api/admin/documents` (admin-only) stores each file, inserts a `documents` row, triggers `document-ingestion`. No channel needed (the worker reads documents by id; `documents` has no channel dependency — the channel was only ever for the chat attachment message).
+
+**Per-document context + domain hints**
+- Hand-written idempotent migration `packages/db/migrations/sql/65_document_context_and_domain_hints.sql` adds nullable `documents.context` (text) and `documents.domain_hints` (jsonb), applied to prod **and** added to `schema.ts`. ⚠️ No Drizzle-generated migration accompanies the schema.ts change — the columns exist via the hand-written SQL only, so `pnpm db:check-drift` may flag them and a fresh-DB `pnpm db:migrate` will not recreate them unless the hand-written `sql/65` file is applied. Follow-up: fold into a generated migration if drift is undesirable.
+- The admin uploader has a "What is this?" textarea + active-domain chips (batch-level, applied to every file in the upload). `document-ingestion` feeds `context` into BOTH the extraction prompt and the image vision prompt, and renders `domain_hints` as a non-binding prior — per-claim `domain_valid` stays authoritative.
+
+**Not yet done / caveats**
+- Vision/topology only affects images processed from now on; re-upload older images to reprocess.
+- Live end-to-end image test (real upload → `complete` → claims) still pending a human upload.
+- Cross-provider vision is wired but only the Vertex/Gemini path has a regression guard.
 
 ### Documentation maintenance audit from pasted task spec (2026-06-09)
 
