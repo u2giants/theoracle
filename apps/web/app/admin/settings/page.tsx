@@ -140,7 +140,7 @@ Typical images: process diagrams, flowcharts, org charts, spreadsheets/tables, s
 WHAT IS EXPECTED (output)
 - Plain text only — no markdown code fences, no "Here is..." preamble.
 - VERBATIM transcription of every piece of visible text: labels, headings, every table cell, captions, callouts, stamps, axis labels, legends, handwriting.
-- Description of structure and meaning: what the boxes/nodes are, how arrows/lines connect them, what each table row contains, and spatial grouping (columns, swimlanes, before/after, hierarchy, sequence).
+- Diagrams/flowcharts/org charts rendered as an explicit TEXT TOPOLOGY — nodes as [Shape/Color: "verbatim label"], edges as annotated directional arrows ([A] --(condition)--> [B]), swimlanes/columns as headers — NOT free-form prose. Tables rendered row-by-row. Verbatim labels kept inside the nodes so they stay exactly quotable.
 - Concrete operational content surfaced: rules, steps, routing, ownership, dates, quantities, statuses, conditions, exceptions.
 - Honesty about uncertainty: explicitly flag anything unreadable or ambiguous; never invent detail.
 

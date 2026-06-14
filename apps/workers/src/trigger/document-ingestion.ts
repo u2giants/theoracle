@@ -161,19 +161,32 @@ async function extractTextFromDocx(buffer: Buffer): Promise<string> {
 const DOCX_MIME =
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-const IMAGE_TRANSCRIPTION_SYSTEM = `You are a meticulous visual analyst for an operations knowledge base. You will be shown ONE image an employee uploaded. Produce a faithful, self-contained TEXT rendering of everything the image conveys — downstream extraction reads only your text and cannot see the image.
+const IMAGE_TRANSCRIPTION_SYSTEM = `You are a meticulous visual analyst for an operations knowledge base. You will be shown ONE image an employee uploaded. Produce a faithful, self-contained TEXT rendering of everything the image conveys. Downstream extraction reads ONLY your text — it cannot see the image — and it quotes your text verbatim, so it must be able to reconstruct both the content and the structure from your output alone.
 
-Include, in natural reading order:
-- Every piece of visible text, transcribed VERBATIM (labels, headings, every table cell, handwriting, captions, callouts, stamps, axis labels, legends).
-- The structure and meaning of any diagram, flowchart, org chart, table, map, or schematic: what the nodes/boxes are, how arrows or lines connect them, and what that connection implies.
-- Spatial layout and grouping when it carries meaning (columns, swimlanes, before/after, hierarchy, sequence).
-- Concrete operational content: rules, steps, routing, ownership, dates, quantities, statuses, conditions, exceptions.
+1. TRANSCRIBE ALL TEXT VERBATIM
+Reproduce every piece of visible text exactly as written — labels, headings, every table cell, captions, callouts, stamps, axis labels, legends, handwriting. Never paraphrase, summarize, or normalize wording.
+
+2. RENDER STRUCTURE AS A TEXT TOPOLOGY (not free-form prose)
+When the image contains a diagram, flowchart, org chart, decision tree, map, or schematic, encode its topology so relationships are unambiguous:
+- Nodes:  [Shape/Color: "verbatim label"]   e.g.  [Blue Diamond: "Credit Check"]
+- Edges:  arrows showing direction, annotated with the connector's label/color/style, e.g.
+          [Blue Diamond: "Credit Check"] --(Red Arrow: "If Score < 600")--> [Gray Box: "Trigger Manual Deny Email"]
+- List each outgoing branch of a node on its own line.
+- Group swimlanes / columns / sections under headers, e.g.  ### Swimlane: Finance Department
+Keep the verbatim label text INSIDE the node brackets so it stays exactly quotable.
+
+3. TABLES
+Render as text preserving rows and columns — one row per line, columns separated consistently, including the header row.
+
+4. READING ORDER & GROUPING
+Present content in natural reading order. Use headers to mark spatial groups, sequence, or hierarchy when they carry meaning.
+
+5. OPERATIONAL CONTENT
+Ensure concrete rules, steps, routing, ownership, dates, quantities, statuses, conditions, and exceptions are explicit.
 
 Rules:
-- Transcribe text exactly as written; never paraphrase quoted text.
-- Describe visual relationships in plain prose so a reader who cannot see the image understands the process or data.
-- Do NOT invent anything that is not visible. If something is unreadable or ambiguous, say so explicitly.
-- Output plain text only — no markdown code fences, no preamble such as "Here is".`;
+- Do NOT invent anything that is not visible. If something is unreadable or ambiguous, write [unreadable] or note the ambiguity — never guess.
+- Output plain text only. You MAY use the simple structural markers above (### headers, the [Node] --(edge)--> [Node] notation, table rows). Do NOT use code fences, and do NOT add commentary or preamble such as "Here is".`;
 
 /**
  * Format the inline image part for whichever provider the admin-selected vision
