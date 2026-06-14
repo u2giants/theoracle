@@ -53,6 +53,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No files provided' }, { status: 400 });
   }
 
+  // Optional uploader context applied to every file in this upload.
+  const contextRaw = formData.get('context');
+  const context = typeof contextRaw === 'string' && contextRaw.trim() ? contextRaw.trim() : null;
+
+  let domainHints: string[] | null = null;
+  const hintsRaw = formData.get('domainHints');
+  if (typeof hintsRaw === 'string' && hintsRaw.trim()) {
+    try {
+      const parsed = JSON.parse(hintsRaw);
+      if (Array.isArray(parsed)) {
+        const ids = parsed.filter((x): x is string => typeof x === 'string' && x.length > 0);
+        if (ids.length > 0) domainHints = ids;
+      }
+    } catch {
+      // Ignore malformed hints — they're an optional prior, not load-bearing.
+    }
+  }
+
   const db = getDirectDb();
   const serviceSupabase = createServiceRoleClient();
   const results: UploadResult[] = [];
@@ -86,6 +104,8 @@ export async function POST(req: NextRequest) {
           storagePath,
           fileType: file.type || 'application/octet-stream',
           status: 'pending_processing',
+          context,
+          domainHints,
         })
         .returning({ id: documents.id });
       if (!doc) throw new Error('Insert returned no row');

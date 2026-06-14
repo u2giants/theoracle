@@ -1,6 +1,6 @@
-import { desc, eq } from 'drizzle-orm';
+import { asc, desc, eq } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
-import { documents, employees } from '@oracle/db/schema';
+import { documents, employees, knowledgeTopDomains } from '@oracle/db/schema';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { AdminDocumentUpload } from './_components/admin-document-upload';
 
@@ -24,6 +24,12 @@ export default async function AdminDocumentsPage() {
     .orderBy(desc(documents.createdAt))
     .limit(100);
 
+  const domains = await db
+    .select({ id: knowledgeTopDomains.id, name: knowledgeTopDomains.name })
+    .from(knowledgeTopDomains)
+    .where(eq(knowledgeTopDomains.isActive, true))
+    .orderBy(asc(knowledgeTopDomains.displayOrder));
+
   return (
     <div className="space-y-6">
       <header className="space-y-1">
@@ -44,7 +50,7 @@ export default async function AdminDocumentsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <AdminDocumentUpload />
+          <AdminDocumentUpload domains={domains} />
         </CardContent>
       </Card>
 

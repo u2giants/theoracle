@@ -225,7 +225,7 @@ async function transcribeImageToText(
   client: OracleAIClient,
   db: OracleDb,
   buffer: Buffer,
-  doc: { fileName: string; fileType: string },
+  doc: { fileName: string; fileType: string; context?: string | null },
 ): Promise<string> {
   const fallbackRouteId = VISION_AUXILIARY_MODEL.defaultRouteId;
   const route =
@@ -237,7 +237,11 @@ async function transcribeImageToText(
     );
   }
   const mimeType = imageMimeFor(doc.fileType, doc.fileName);
-  const requestText = `Render the attached image "${doc.fileName}" as faithful, complete text.`;
+  const contextLine =
+    doc.context && doc.context.trim()
+      ? ` Context from the uploader about this image: "${doc.context.trim()}". Use it to interpret ambiguous labels, but transcribe only what is actually visible — do not add details that are not in the image.`
+      : '';
+  const requestText = `Render the attached image "${doc.fileName}" as faithful, complete text.${contextLine}`;
 
   const blocks = [
     makeBlock({
@@ -377,6 +381,7 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
   const parseKind = resolveParseKind(doc.fileType, doc.fileName);
   const route = await resolveExtractionRoute(db);
   const activeTopDomainIds = await loadActiveTopDomainIds(db);
+  const topDomainNameMap = await loadTopDomainNameMap(db);
   const entityRegistry = await loadEntityRegistry(db);
 
   // 2. Download.
@@ -511,10 +516,11 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
   // 6. Compile prompt + context pack. The document text becomes the dynamic
   //    block; the extraction system prompt + the document-specific addendum
   //    are stable.
-  const documentNote =
+  const baseDocumentNote =
     parseKind === 'image'
       ? `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded image (not a conversation, not a native text document). Extract claims about operational processes, rules, systems, and dependencies that are explicitly supported by this transcription.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}`
       : `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}`;
+  const documentNote = baseDocumentNote + buildUploaderContextNote(doc, topDomainNameMap);
   const blocks = [
     makeBlock({
       id: 'extraction-system',
@@ -996,6 +1002,39 @@ async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const list: Array<{ id: string }> = (rows as any).rows ?? (rows as any);
   return list.map((r) => r.id);
+}
+
+/** Map of active top-domain id -> human name, for rendering uploader hints. */
+async function loadTopDomainNameMap(db: OracleDb): Promise<Map<string, string>> {
+  const { sql } = await import('drizzle-orm');
+  const rows = await db.execute<{ id: string; name: string }>(
+    sql`SELECT id, name FROM knowledge_top_domains WHERE is_active = true`,
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const list: Array<{ id: string; name: string }> = (rows as any).rows ?? (rows as any);
+  return new Map(list.map((r) => [r.id, r.name]));
+}
+
+/**
+ * Build the uploader-context addendum for the extraction prompt from a
+ * document's optional `context` and `domainHints`. Domain hints are rendered as
+ * a non-binding prior — per-claim domain validation stays authoritative.
+ */
+function buildUploaderContextNote(
+  doc: { context?: string | null; domainHints?: string[] | null },
+  nameMap: Map<string, string>,
+): string {
+  let note = '';
+  if (doc.context && doc.context.trim()) {
+    note += `\nUploader-provided context for this document: "${doc.context.trim()}"`;
+  }
+  if (doc.domainHints && doc.domainHints.length > 0) {
+    const names = doc.domainHints.map((id) => nameMap.get(id) ?? id);
+    note +=
+      `\nThe uploader suggests these knowledge areas are likely relevant: ${names.join(', ')}. ` +
+      `Treat this only as a prior — classify each claim on its own merits and do not force claims into these areas.`;
+  }
+  return note;
 }
 
 /**

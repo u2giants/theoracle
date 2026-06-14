@@ -383,6 +383,13 @@ export const documents = pgTable(
     processedAt: timestamp('processed_at'),
     parserVersion: varchar('parser_version', { length: 50 }),
     ocrConfidence: integer('ocr_confidence'),
+    // Optional uploader-provided context fed into the extraction (and image
+    // vision) prompts to disambiguate the document. Soft signal only.
+    context: text('context'),
+    // Optional uploader-suggested knowledge_top_domains.id values, used as a
+    // prior in the extraction prompt. Per-claim domain validation stays
+    // authoritative — these never override it.
+    domainHints: jsonb('domain_hints').$type<string[]>(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => ({

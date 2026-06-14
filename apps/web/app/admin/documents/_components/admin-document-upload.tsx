@@ -10,14 +10,25 @@ type UploadResult =
   | { fileName: string; ok: true; documentId: string }
   | { fileName: string; ok: false; error: string };
 
-export function AdminDocumentUpload() {
+export function AdminDocumentUpload({
+  domains,
+}: {
+  /** Active knowledge top-domains, for the optional domain-hint chips. */
+  domains: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [status, setStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle');
   const [results, setResults] = useState<UploadResult[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [context, setContext] = useState('');
+  const [hintIds, setHintIds] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  function toggleHint(id: string) {
+    setHintIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
 
   function addFiles(list: FileList | null) {
     if (!list || list.length === 0) return;
@@ -38,6 +49,8 @@ export function AdminDocumentUpload() {
     try {
       const body = new FormData();
       for (const f of files) body.append('files', f);
+      if (context.trim()) body.append('context', context.trim());
+      if (hintIds.length > 0) body.append('domainHints', JSON.stringify(hintIds));
 
       const res = await fetch('/api/admin/documents', { method: 'POST', body });
       const data = (await res.json()) as { ok: boolean; results?: UploadResult[]; error?: string };
@@ -47,6 +60,8 @@ export function AdminDocumentUpload() {
       setResults(data.results ?? []);
       setStatus(data.ok ? 'done' : 'error');
       setFiles([]);
+      setContext('');
+      setHintIds([]);
       // Surface the newly-created rows (status pending_processing).
       router.refresh();
     } catch (err) {
@@ -126,6 +141,57 @@ export function AdminDocumentUpload() {
           ))}
         </ul>
       )}
+
+      {/* Optional context + domain hints — applied to every file in this upload. */}
+      <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+        <div className="space-y-1">
+          <label htmlFor="doc-context" className="text-sm font-medium">
+            What is this? <span className="font-normal text-muted-foreground">(optional, recommended)</span>
+          </label>
+          <textarea
+            id="doc-context"
+            value={context}
+            onChange={(e) => setContext(e.target.value)}
+            disabled={status === 'uploading'}
+            rows={2}
+            placeholder="e.g. Our China artwork-routing process after licensor approval, updated May 2026."
+            className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50"
+          />
+          <p className="text-xs text-muted-foreground">
+            Helps the extractor (and image reader) interpret the document. Applies to all files in this upload.
+          </p>
+        </div>
+
+        {domains.length > 0 && (
+          <div className="space-y-1.5">
+            <span className="text-sm font-medium">
+              Likely knowledge areas{' '}
+              <span className="font-normal text-muted-foreground">(optional hint — the system still classifies each claim)</span>
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {domains.map((d) => {
+                const active = hintIds.includes(d.id);
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => toggleHint(d.id)}
+                    disabled={status === 'uploading'}
+                    className={cn(
+                      'rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50',
+                      active
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-input bg-background text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {d.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="flex items-center gap-3">
         <Button type="button" size="sm" onClick={upload} disabled={files.length === 0 || status === 'uploading'}>
