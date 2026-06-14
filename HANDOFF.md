@@ -34,9 +34,13 @@ Do **not** assume the deployed worker, git history, and local working tree are a
 
 ### 1. Demonstrate synthesis
 
-Claim `bdbc9918-d659-4781-96dd-2baa7e8203e0` (Hobby Lobby holiday-decor SKUs must ship from Atlanta DC instead of Newark, impact 9) was **approved on 2026-06-10** as part of verifying live retrieval — so step 1 below is already done. 3 claims remain in `pending_review`. Synthesis has never been run. To unblock:
+Claim `bdbc9918-d659-4781-96dd-2baa7e8203e0` (Hobby Lobby holiday-decor SKUs must ship from Atlanta DC instead of Newark, impact 9) was **approved on 2026-06-10** as part of verifying live retrieval. 3 claims remain in `pending_review`. Synthesis has never been run.
 
-1. ~~Approve ≥1 of the 4 `pending_review` claims~~ — done (see above).
+**You cannot meaningfully synthesize with only 1 approved claim.** Synthesis composes a narrative across a body of related approved knowledge — a single claim produces nothing worth demonstrating (and may be a degenerate/no-op run). Before running the synthesis demo, get a real corpus of approved claims first: approve the remaining `pending_review` claims and/or run real transcripts through extraction so there are several related, approved claims in the same knowledge domain. Only then is a `brain-synthesis` run a useful test.
+
+To unblock:
+
+1. Build up an approved-claim corpus (multiple related claims, not just the one above) — approve the remaining `pending_review` claims and/or ingest more real transcripts.
 2. Trigger `brain-synthesis` via Trigger MCP or the admin UI.
 3. Confirm a `brain_section_versions` row appears + narrative looks right.
 
@@ -129,6 +133,19 @@ Before declaring future work done:
 ---
 
 ## What is done (since the prior HANDOFF)
+
+### Document ingestion: Word + image (vision) support + auxiliary-model registry (2026-06-14)
+
+Expanded the upload→extraction pipeline and made model selection fully GUI-driven.
+
+- **Word (.docx)**: `document-ingestion` now parses `.docx` via `mammoth`. Old binary `.doc` is still unsupported (convert to `.docx`/PDF). Format detection now also falls back to the filename extension when the browser sends `application/octet-stream`.
+- **Images (vision)**: uploaded PNG/JPEG/WebP/HEIC images are transcribed to faithful text by a vision model (Pass 1), then flow through the SAME chunk → extract → quote-validate → promote pipeline (Pass 2). This preserves the quote-validation provenance guarantee — claims quote the persisted transcription (`document_chunks`), not the raw image. GIF/BMP/TIFF route to unsupported.
+- **Vertex adapter** gained inline-image support (`toVertexParts` → Gemini `inlineData`); the worker formats the image part per provider (Gemini inlineData / Anthropic image block / OpenAI image_url) so any chosen vision model works. Guard: `pnpm --filter @oracle/ai verify:vertex-inline-image`.
+- **Vision model is GUI-choosable** at Admin → Settings → "Image vision model" (no redeploy). It is NOT a 4th pipeline role: `OracleModelRole` stays frozen at 3. Instead there is a new **auxiliary-model registry** (`packages/ai/src/routes/auxiliary.ts`, `AUXILIARY_MODELS`) that also now owns the pre-existing general-purpose model. The picker, models API, and resolver (`resolveAuxiliaryRouteFromSettings`) all iterate the registry — adding the next auxiliary model is one registry entry + one web presentation entry.
+- **Setting**: `default_vision_route` (+ `default_vision_reasoning_effort`). Shipped fallback when unset: `vertex_gemini_2_5_flash_extraction_primary` (Gemini — already credentialed in prod). Seed it idempotently with `ON CONFLICT (key) DO NOTHING` so an admin choice is never clobbered.
+- The "Copy job brief" button on the vision picker copies a detailed model-suitability spec.
+
+Verified: `@oracle/ai` + `@oracle/workers` + `@oracle/web` typecheck, web ESLint, `verify:vertex-inline-image`, `verify:vertex-file-cache`. Requires a `@oracle/workers` Trigger.dev deploy to take effect (image/docx parsing lives in the worker).
 
 ### Documentation maintenance audit from pasted task spec (2026-06-09)
 
