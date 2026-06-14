@@ -63,6 +63,27 @@ function assertDomains(query: string, expected: string[]) {
 }
 
 {
+  const query = 'How does our overall company process work from customer request through shipping?';
+  const plan = buildRetrievalPlanFromQuery(query);
+  assert.equal(plan.searchScope, 'domain_filtered', `Expected domain-filtered plan for: ${query}`);
+  for (const domain of [
+    'business_process',
+    'licensing_approvals',
+    'product_development',
+    'production_lifecycle',
+    'supply_chain',
+    'customer_ops',
+    'logistics_shipping',
+  ]) {
+    assert.equal(
+      plan.topDomainHints.includes(domain),
+      true,
+      `Broad process query should include ${domain}.`,
+    );
+  }
+}
+
+{
   const plan = assertDomains(
     'Where is this product in the design approval workflow before production?',
     ['licensing_approvals', 'product_development', 'production_lifecycle'],

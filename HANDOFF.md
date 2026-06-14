@@ -86,7 +86,7 @@ Use this subsection as the first stop for a brand-new developer. The rest of thi
 Current git/deploy snapshot:
 - Latest pushed commit observed: `69cfa08 docs: add fresh developer handoff packet` on `main`.
 - As of 2026-06-10 the working tree has uncommitted (but deployed) changes — see section 0 above. Re-check `git status --short --branch` before starting work.
-- Trigger.dev production worker version is **`20260614.4`** (18 tasks) as of 2026-06-14 — adds a nightly `model-catalog-refresh-nightly` schedule on top of the `20260614.3` document-ingestion/vision work. The one-time production run `run_cmqdsbbag23s70hoq9y3mxw4s` completed at `2026-06-14T12:52:53Z` and wrote 85 catalog rows, with partial-refresh errors for missing production `DEEPSEEK_API_KEY` and `DASHSCOPE_API_KEY`.
+- Trigger.dev production worker version is **`20260614.9`** (18 tasks) as of 2026-06-15 — adds the Business Process domain extraction/routing work, fixes the Node 21 Supabase `ws` transport crash in document ingestion, clears stale document processing errors on successful retry, reuses existing chunk IDs on document reprocess, and switches future document chunking to larger paragraph-aware chunks. Earlier `20260614.4` added nightly `model-catalog-refresh-nightly`; the one-time production run `run_cmqdsbbag23s70hoq9y3mxw4s` completed at `2026-06-14T12:52:53Z` and wrote 85 catalog rows, with partial-refresh errors for missing production `DEEPSEEK_API_KEY` and `DASHSCOPE_API_KEY`.
 - Admin Settings stage pickers now have restored "Copy job brief" text for Interview, Extraction, and Synthesis. Extraction's hard picker requirements were corrected to structured output + context >100K only; it no longer requires vision because document-image ingestion routes raw images through the auxiliary Image Vision model first, then Extraction receives text chunks.
 
 What The Oracle can do now:
@@ -162,6 +162,7 @@ Committed (`d8dd2d6`, `195f9fc`, `bdb07c3`, `a2f9851`, `105addf`, `c388593`) and
 - Vision/topology only affects images processed from now on; re-upload older images to reprocess.
 - Live end-to-end image test (real upload → `complete` → claims) still pending a human upload.
 - Cross-provider vision is wired but only the Vertex/Gemini path has a regression guard.
+- `business-process.md` uploaded on 2026-06-15 originally failed because Trigger's Node 21 runtime needed an explicit Supabase WebSocket transport. That crash is fixed in worker `20260614.5+`, and the document row `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea` was retried successfully to `status='complete'` with `processing_error=NULL`. However, the extraction attempts promoted 0 claims: the latest checked run (`run_cmqefjl0h1jif0olkl3kkpjk9`, batch `01469d78-0400-4a1e-a2fd-4f235980a94b`) staged 45 candidates, rejected 42 for strict quote mismatch and 3 for unresolved taxonomy entities. Worker `20260614.9` improves future uploads with paragraph-aware 4000-char chunks, but the existing row still has old 1500-char chunks. Re-upload the file or do a deliberate admin reprocess that recreates chunks if you want the new chunking applied to this document.
 
 ### Documentation maintenance audit from pasted task spec (2026-06-09)
 

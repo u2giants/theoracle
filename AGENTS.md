@@ -198,6 +198,7 @@ Specific boundaries:
 | Admin document upload | `POST /api/admin/documents` | `apps/web/app/api/admin/documents/route.ts` | Admin-only, multi-file, **no channel** — stores the file, inserts a `documents` row, triggers `document-ingestion`. The channel-based `POST /api/documents` still exists for chat attachments. There is no UI to create a channel, so this is the path for company/process docs. |
 | Design file operations domain | `design_file_operations` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from product/design workflow. Covers designer file naming, invalid characters, server folders, file-size reduction, linked assets, packaging, versioning, archive, and handoff file hygiene. |
 | Operations systems domain | `operations_systems` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from generic IT support. Covers ERP/CRM/PLM workflows, Google Sheets to Designflow PLM integration, OrderList, MasterData, TaskList, field mapping, validation, and source-of-truth rules. |
+| Business process domain | `business_process` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts`, `packages/oracle-engines/src/extraction/domain-mapping.ts` | Cross-functional company workflows and operating-model overviews. Use with narrower department/process domains for end-to-end flows; do not use as a generic dumping ground. |
 | Provider Batch jobs table | `provider_batch_jobs` | `packages/db/src/schema.ts`, migration `60_batch_jobs.sql` | One row per submitted provider Batch API job (D14). `extraction_batches.provider_batch_job_id` links per-input rows to their batch. `model_runs.dispatch_mode` ∈ `'sync' \| 'batch' \| NULL`. |
 | Entra app (Graph backend) | `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Entra `TheOracle` app | App-only Graph: directory pull + Teams transcripts. Tenant `1caeb1c0-a087-4cb9-b046-a5e22404f971`. |
 | Azure Bot resource | `theoracle-popcre-teams-bot` | Azure subscription `37077c95-ea53-4a19-8380-f3f48f0cc75d`, resource group `rg-oracle-teams-bot` | Free `F0` Bot Service resource. Display name `The Oracle`, endpoint `https://oracle.designflow.app/api/teams/bot/messages`, `msaAppType=SingleTenant`, Teams channel enabled. |
@@ -430,6 +431,20 @@ The Oracle needs to guide operational integration decisions, not just answer tec
 Do not change because:
 Collapsing `operations_systems` back into generic `it_systems` makes business-process integration knowledge compete with IT support noise and weakens retrieval for ERP/CRM/PLM data migration work.
 
+### Business Process is for cross-functional workflow overviews
+
+Looks like:
+`business_process` could become a vague "company process" bucket for anything operational.
+
+Actually:
+It is only for end-to-end workflows, operating-model explanations, and handoffs that span multiple departments. A claim can and should carry `business_process` plus narrower domains like `licensing_approvals`, `product_development`, `production_lifecycle`, `customer_ops`, `logistics_shipping`, or `finance_pricing` when those areas are materially involved.
+
+Why:
+Broad questions such as "how does the overall company process work?" need to retrieve overview claims without losing department-specific facts.
+
+Do not change because:
+Mapping cross-functional extraction output back to `customer_ops` buries companywide workflow knowledge under a single department and makes broad process queries unreliable.
+
 ### Ineligible models are SELECTABLE (red checkbox), not disabled
 
 Looks like:
@@ -607,6 +622,20 @@ A single-pass "image → claims" call would force bypassing quote validation, br
 
 Do not change because:
 Inline image input is implemented only in the Vertex adapter (`toVertexParts` → Gemini `inlineData`); the worker formats the part per provider. The vision route is pinned via the auxiliary registry, not the extraction route, so flipping the extraction model to a non-vision provider does not silently break image ingestion.
+
+### Document extraction quotes must stay inside persisted chunks
+
+Looks like:
+The extractor could read a whole uploaded document and return any true statement with a quote from anywhere in the document.
+
+Actually:
+`document-ingestion` persists `document_chunks`, formats extraction input as labeled chunk blocks, and expects document-derived candidates to use the exact chunk id as `sourceMessageId`. The promotion executor validates every `exactQuote` against one persisted chunk. Existing uploaded rows keep their old chunks until re-uploaded or deliberately reprocessed with chunk recreation.
+
+Why:
+Document claims need quote-level provenance that can be re-run and audited. A quote spanning two chunks, even if semantically correct, cannot be promoted because there is no single chunk evidence row that contains it verbatim.
+
+Do not change because:
+Letting document extraction use document-level source ids, paraphrased quotes, or cross-chunk quotes breaks the candidate-before-claim evidence contract and can make valid-looking claims impossible to trace.
 
 ### Extraction picker intentionally does not require vision
 

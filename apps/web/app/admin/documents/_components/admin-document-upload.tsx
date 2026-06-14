@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Paperclip, UploadCloud, X } from 'lucide-react';
+import { Info, Paperclip, UploadCloud, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -10,11 +10,55 @@ type UploadResult =
   | { fileName: string; ok: true; documentId: string }
   | { fileName: string; ok: false; error: string };
 
+type DomainHint = {
+  id: string;
+  name: string;
+  description: string;
+  belongsHere: unknown;
+  doesNotBelongHere: unknown;
+  commonEntityHints: unknown;
+};
+
+function stringList(value: unknown, limit = 3): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).slice(0, limit)
+    : [];
+}
+
+function entityHintList(value: unknown, limit = 4): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const hint = item as { entityType?: unknown; canonicalValue?: unknown };
+      if (typeof hint.canonicalValue !== 'string' || !hint.canonicalValue.trim()) return null;
+      return typeof hint.entityType === 'string' && hint.entityType.trim()
+        ? `${hint.canonicalValue} (${hint.entityType})`
+        : hint.canonicalValue;
+    })
+    .filter((item): item is string => Boolean(item))
+    .slice(0, limit);
+}
+
+function tooltipTitle(domain: DomainHint): string {
+  const belongsHere = stringList(domain.belongsHere);
+  const doesNotBelongHere = stringList(domain.doesNotBelongHere, 2);
+  const entityHints = entityHintList(domain.commonEntityHints, 3);
+  return [
+    domain.description,
+    belongsHere.length ? `Use for: ${belongsHere.join('; ')}` : null,
+    doesNotBelongHere.length ? `Not for: ${doesNotBelongHere.join('; ')}` : null,
+    entityHints.length ? `Common signals: ${entityHints.join('; ')}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 export function AdminDocumentUpload({
   domains,
 }: {
   /** Active knowledge top-domains, for the optional domain-hint chips. */
-  domains: { id: string; name: string }[];
+  domains: DomainHint[];
 }) {
   const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
@@ -171,21 +215,55 @@ export function AdminDocumentUpload({
             <div className="flex flex-wrap gap-1.5">
               {domains.map((d) => {
                 const active = hintIds.includes(d.id);
+                const belongsHere = stringList(d.belongsHere);
+                const doesNotBelongHere = stringList(d.doesNotBelongHere, 2);
+                const entityHints = entityHintList(d.commonEntityHints, 3);
+                const tooltipId = `domain-hint-${d.id}`;
                 return (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => toggleHint(d.id)}
-                    disabled={status === 'uploading'}
-                    className={cn(
-                      'rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50',
-                      active
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-input bg-background text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    {d.name}
-                  </button>
+                  <span key={d.id} className="group relative inline-flex">
+                    <button
+                      type="button"
+                      onClick={() => toggleHint(d.id)}
+                      disabled={status === 'uploading'}
+                      aria-describedby={tooltipId}
+                      title={tooltipTitle(d)}
+                      className={cn(
+                        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50',
+                        active
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : 'border-input bg-background text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      <span>{d.name}</span>
+                      <Info className="size-3 shrink-0 opacity-70" aria-hidden="true" />
+                    </button>
+                    <span
+                      id={tooltipId}
+                      role="tooltip"
+                      className="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-80 max-w-[calc(100vw-2rem)] rounded-md border bg-popover p-3 text-left text-xs text-popover-foreground opacity-0 shadow-md transition-opacity duration-150 group-hover:block group-hover:opacity-100 group-focus-within:block group-focus-within:opacity-100"
+                    >
+                      <span className="block font-medium text-foreground">{d.name}</span>
+                      <span className="mt-1 block text-muted-foreground">{d.description}</span>
+                      {belongsHere.length > 0 && (
+                        <span className="mt-2 block">
+                          <span className="font-medium">Use for: </span>
+                          {belongsHere.join('; ')}
+                        </span>
+                      )}
+                      {doesNotBelongHere.length > 0 && (
+                        <span className="mt-1 block">
+                          <span className="font-medium">Not for: </span>
+                          {doesNotBelongHere.join('; ')}
+                        </span>
+                      )}
+                      {entityHints.length > 0 && (
+                        <span className="mt-1 block">
+                          <span className="font-medium">Common signals: </span>
+                          {entityHints.join('; ')}
+                        </span>
+                      )}
+                    </span>
+                  </span>
                 );
               })}
             </div>

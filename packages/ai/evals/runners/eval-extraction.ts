@@ -65,6 +65,7 @@ function defaultActiveTopDomainIds(): string[] {
   // plus additive follow-up domain migrations.
   // Fixtures may override via inputs.activeTopDomainIds.
   return [
+    'business_process',
     'customer_ops',
     'licensing_approvals',
     'product_development',

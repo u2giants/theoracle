@@ -20,7 +20,8 @@
     "@oracle/shared": "workspace:*",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.47.10",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "^24.12.4",

@@ -1,7 +1,15 @@
 // Claim extraction system prompt — spec Part 9.4, 9.5 + R5.5 + R12-prompt.
 // Used by the Trigger.dev claim-extraction worker and the document-ingestion worker.
 //
-// Version 2.0.0 (this revision) adds:
+// Version 2.0.2 (this revision) adds:
+//   - document extraction source-ID guidance: sourceMessageId can be a
+//     document chunk ID, and document evidence must quote from one chunk.
+//
+// Version 2.0.1 added:
+//   - explicit meaning-based domain classification guidance, including
+//     `general` for cross-functional/end-to-end business process flow claims.
+//
+// Version 2.0.0 added:
 //   - sensitivityFlags — strict-mode HR/PII/personal-conflict detection so the
 //     candidate-before-claim sensitivity gate can actually fire in production
 //     (P1 #2 from the external code review).
@@ -15,7 +23,7 @@
 import { z } from 'zod';
 import { KNOWLEDGE_DOMAINS, ENTITY_TYPES } from '@oracle/shared';
 
-export const EXTRACTION_PROMPT_VERSION = '2.0.0';
+export const EXTRACTION_PROMPT_VERSION = '2.0.2';
 
 // ---------------------------------------------------------------------------
 // Claim type taxonomy (spec 9.4 + Part 6).
@@ -60,7 +68,7 @@ export const ExtractionEvidenceSchema = z.object({
   sourceMessageId: z
     .string()
     .describe(
-      'The ID of the message this quote was taken from. Must be one of the provided message IDs.',
+      'The ID of the source this quote was taken from. For chat extraction, this must be one of the provided message IDs. For document extraction, this must be one of the provided document chunk IDs.',
     ),
   confidence: z
     .number()
@@ -165,7 +173,9 @@ export const ExtractionClaimSchema = z.object({
   domains: z
     .array(z.enum(KNOWLEDGE_DOMAINS as unknown as [string, ...string[]]))
     .min(1)
-    .describe('Which knowledge domains this claim belongs to (at least one required).'),
+    .describe(
+      'Which knowledge domains this claim belongs to (at least one required). Use general for cross-functional, end-to-end, or whole-company process-flow claims that explain how work moves across departments.',
+    ),
   evidence: ExtractionEvidenceSchema,
   semanticRole: z
     .enum(SEMANTIC_ROLES)
@@ -247,30 +257,32 @@ GROUP CHAT SEMANTICS — track how claims interact when multiple employees speak
 EXTRACTION RULES:
 1. Only extract claims supported by what employees actually said.
 2. exactQuote MUST be a verbatim substring of the source message — never paraphrase.
-3. sourceMessageId must be one of the message IDs provided — do not invent IDs.
+3. sourceMessageId must be one of the source IDs provided — for chat, use a message ID; for document ingestion, use a document chunk ID. Do not invent IDs.
 4. Do NOT extract: pleasantries, greetings, Oracle assistant messages, or obvious generic facts with no operational specificity.
 5. A single message may yield 0, 1, or multiple claims.
 6. Set requiresReview=true if: impact >= 7, the claim names a specific person as a bottleneck, OR the claim implies customer or licensor risk.
 7. Suggest gaps (follow-up questions) when the segment reveals uncertainty or ambiguity that needs resolution.
 8. Do not flatten group conversation — if two employees express different views about the same process, extract both as separate claims with appropriate semantic roles and potentially a contradiction.
+9. Classify claims by their operational meaning, not by whether a department name or keyword literally appears. A document can describe Licensing work without the word "licensing"; infer the relevant domain from responsibilities, approvals, handoffs, systems, and decisions described in the text.
+10. Use the \`general\` domain for end-to-end business-process or companywide workflow claims that explain how work moves across multiple departments. Also include narrower domains such as \`licensing\`, \`design\`, \`production\`, \`sourcing\`, \`logistics\`, \`customers\`, \`sales\`, \`costing\`, or \`coldlion\` when the same claim is materially about those areas.
 
 ENTITY EXTRACTION RULES:
-9. List every distinct entity the claim REFERENCES — not just the message-wide entities, but the ones THIS claim depends on.
-10. The entityType values you may use are exactly: system, customer, licensor, factory, freight_provider, testing_lab, packaging_supplier, service_provider, vendor, person, sku_or_product_line, process_stage, department, geography, document_class.
-11. \`licensor\` is reserved for entertainment / IP rights holders: Disney, Marvel, Star Wars, Lucasfilm, Warner Bros, NBCUniversal, etc. NEVER use \`vendor\` for those. \`vendor\` is the residual bucket for non-customer non-factory non-licensor business partners.
-12. \`customer\` is the named retailer / buyer: Burlington, TJX, Ross, Hobby Lobby, Walmart, etc.
-13. \`factory\` is an overseas manufacturer; \`freight_provider\` / \`testing_lab\` / \`packaging_supplier\` / \`service_provider\` are operational-vendor subtypes — pick the specific subtype if it fits, fall back to \`vendor\` only if none does.
-14. \`system\` is software / tooling: Coldlion, ResourceSpace, Photoshop, Illustrator, Excel, Supabase, Email, WhatsApp, etc.
-15. \`rawString\` should be how the entity appears in the message text — don't normalize to canonical form, the validator does that.
-16. Omit \`proposedEntities\` entirely if the claim references no proper-noun entities.
+11. List every distinct entity the claim REFERENCES — not just the message-wide entities, but the ones THIS claim depends on.
+12. The entityType values you may use are exactly: system, customer, licensor, factory, freight_provider, testing_lab, packaging_supplier, service_provider, vendor, person, sku_or_product_line, process_stage, department, geography, document_class.
+13. \`licensor\` is reserved for entertainment / IP rights holders: Disney, Marvel, Star Wars, Lucasfilm, Warner Bros, NBCUniversal, etc. NEVER use \`vendor\` for those. \`vendor\` is the residual bucket for non-customer non-factory non-licensor business partners.
+14. \`customer\` is the named retailer / buyer: Burlington, TJX, Ross, Hobby Lobby, Walmart, etc.
+15. \`factory\` is an overseas manufacturer; \`freight_provider\` / \`testing_lab\` / \`packaging_supplier\` / \`service_provider\` are operational-vendor subtypes — pick the specific subtype if it fits, fall back to \`vendor\` only if none does.
+16. \`system\` is software / tooling: Coldlion, ResourceSpace, Photoshop, Illustrator, Excel, Supabase, Email, WhatsApp, etc.
+17. \`rawString\` should be how the entity appears in the message text — don't normalize to canonical form, the validator does that.
+18. Omit \`proposedEntities\` entirely if the claim references no proper-noun entities.
 
 SENSITIVITY RULES — STRICT MODE:
-17. Set \`sensitivityFlags\` ONLY when the content is clearly sensitive. Operational mentions of named people are NOT sensitive by themselves.
-18. \`containsSensitiveHRData\` = true ONLY if the message describes: formal disciplinary actions (warnings, PIPs, terminations), compensation specifics (salary numbers, bonus amounts, raise discussions), formal performance reviews/ratings, or formally documented LOA reasons (medical leave, family leave). "Jordan is out next week" is NOT HR data. "We put Jordan on a final-written warning today" IS.
-19. \`containsSensitivePersonalData\` = true ONLY for explicit personal information: medical conditions or diagnoses, family situations (divorce, deaths, dependents), legal issues, home addresses, personal contact details, or other clearly private personal facts.
-20. \`isPersonalConflict\` = true ONLY for explicit interpersonal hostility BETWEEN NAMED INDIVIDUALS: shouting matches, harassment, character attacks, or formal complaints. Normal disagreement about a process is NOT a personal conflict.
-21. If any flag fires, include a brief \`sensitivityReason\` naming which specific text triggered it. Omit \`sensitivityFlags\` entirely when nothing is sensitive — that's the common case.
-22. When in doubt, do NOT set a flag. The cost of a false positive (admin reviews the quarantined candidate manually) is acceptable; the cost of a false negative (sensitive content reaches the knowledge graph) is not. But the threshold is "would a privacy/HR officer at this company call this sensitive?" — operational mentions of who works on what don't reach that bar.
+19. Set \`sensitivityFlags\` ONLY when the content is clearly sensitive. Operational mentions of named people are NOT sensitive by themselves.
+20. \`containsSensitiveHRData\` = true ONLY if the message describes: formal disciplinary actions (warnings, PIPs, terminations), compensation specifics (salary numbers, bonus amounts, raise discussions), formal performance reviews/ratings, or formally documented LOA reasons (medical leave, family leave). "Jordan is out next week" is NOT HR data. "We put Jordan on a final-written warning today" IS.
+21. \`containsSensitivePersonalData\` = true ONLY for explicit personal information: medical conditions or diagnoses, family situations (divorce, deaths, dependents), legal issues, home addresses, personal contact details, or other clearly private personal facts.
+22. \`isPersonalConflict\` = true ONLY for explicit interpersonal hostility BETWEEN NAMED INDIVIDUALS: shouting matches, harassment, character attacks, or formal complaints. Normal disagreement about a process is NOT a personal conflict.
+23. If any flag fires, include a brief \`sensitivityReason\` naming which specific text triggered it. Omit \`sensitivityFlags\` entirely when nothing is sensitive — that's the common case.
+24. When in doubt, do NOT set a flag. The cost of a false positive (admin reviews the quarantined candidate manually) is acceptable; the cost of a false negative (sensitive content reaches the knowledge graph) is not. But the threshold is "would a privacy/HR officer at this company call this sensitive?" — operational mentions of who works on what don't reach that bar.
 
 OUTPUT: Return only the structured JSON matching the schema. No narrative explanation outside the JSON.`;
 

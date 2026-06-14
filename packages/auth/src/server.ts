@@ -9,6 +9,7 @@
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 
 export type CookieAdapter = {
   getAll(): Array<{ name: string; value: string }>;
@@ -22,6 +23,8 @@ function requireEnv(name: string): string {
   if (!v) throw new Error(`Missing required env var ${name}.`);
   return v;
 }
+
+const WebSocketTransport = WebSocket as unknown as typeof globalThis.WebSocket;
 
 export function createAuthClient(cookies: CookieAdapter) {
   return createServerClient(
@@ -51,6 +54,9 @@ export function createServiceRoleClient() {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
+      },
+      realtime: {
+        transport: WebSocketTransport,
       },
     },
   );

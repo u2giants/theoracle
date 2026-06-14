@@ -43,7 +43,7 @@ export type RetrievalPlanSearchScope =
   | 'global_explicit';
 
 export type RetrievalPlan = {
-  /** Up to 3 top-level domain IDs from knowledge_top_domains. Empty = search all. */
+  /** Top-level domain IDs from knowledge_top_domains. Empty = search all. */
   topDomainHints: string[];
   /** Entity references the query is about; matched against canonical entity registry. */
   requiredEntities: { entityType: string; canonicalValue: string }[];
@@ -108,6 +108,24 @@ export const DEFAULT_TOP_K = 8;
 // ---------------------------------------------------------------------------
 
 const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
+  {
+    domainId: 'business_process',
+    keywords: [
+      // Broad company workflow / operating model questions
+      'business process', 'business processes', 'company process', 'company processes',
+      'company workflow', 'company workflows', 'overall process', 'overall workflow',
+      'end to end', 'end-to-end', 'how things work', 'how the company works',
+      'how does the company work', 'how does the business work', 'how our business works',
+      'operating model', 'process flow', 'process flows', 'workflow overview',
+      'company overview', 'business overview', 'cross-functional', 'cross functional',
+      'handoff between departments', 'handoffs between departments',
+      'department handoff', 'department handoffs',
+      // Common broad process arcs
+      'order to ship', 'order-to-ship', 'quote to cash', 'quote-to-cash',
+      'concept to production', 'concept-to-production', 'request to delivery',
+      'customer request through shipping',
+    ],
+  },
   {
     domainId: 'it_systems',
     keywords: [
@@ -589,10 +607,33 @@ function inferTopDomains(query: string): string[] {
     const score = keywords.filter((k) => query.includes(k)).length;
     if (score > 0) scores.set(domainId, score);
   }
+  if (scores.has('business_process')) {
+    return expandBusinessProcessDomains(scores);
+  }
   return Array.from(scores.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
     .map(([id]) => id);
+}
+
+function expandBusinessProcessDomains(scores: Map<string, number>): string[] {
+  const broadProcessDomains = [
+    'business_process',
+    'licensing_approvals',
+    'product_development',
+    'production_lifecycle',
+    'supply_chain',
+    'customer_ops',
+    'logistics_shipping',
+    'operations_systems',
+    'finance_pricing',
+    'people_org',
+  ];
+  const specificMatches = Array.from(scores.entries())
+    .filter(([id]) => id !== 'business_process')
+    .sort((a, b) => b[1] - a[1])
+    .map(([id]) => id);
+  return Array.from(new Set(['business_process', ...specificMatches, ...broadProcessDomains]));
 }
 
 function inferEntityExclusions(query: string): string[] {

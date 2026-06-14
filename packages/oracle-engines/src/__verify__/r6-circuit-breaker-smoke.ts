@@ -145,7 +145,7 @@ function main() {
       ['sales', 'customer_ops'],
       ['retail_compliance', 'customer_ops'],
       ['costing', 'finance_pricing'],
-      ['general', 'customer_ops'],
+      ['general', 'business_process'],
     ];
     for (const [legacy, expected] of cases) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -181,7 +181,7 @@ function main() {
   {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const got = mapLegacyDomainToTopDomain('not_a_real_domain' as any);
-    assert(got === 'customer_ops', 'B4 unknown legacy value → customer_ops residual');
+    assert(got === 'business_process', 'B4 unknown legacy value → business_process residual');
   }
 
   console.log('\nR6 smoke gate: PASS');

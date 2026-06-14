@@ -83,8 +83,8 @@ import {
 import { createServiceRoleClient } from '@oracle/auth/server';
 import type { EntityType, KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
 
-const CHUNK_SIZE = 1500;
-const CHUNK_OVERLAP = 150;
+const CHUNK_SIZE = 4000;
+const CHUNK_OVERLAP = 400;
 const MAX_DOCUMENT_TEXT_CHARS = 15_000;
 const VERTEX_FILE_CACHE_MIN_BYTES = 10 * 1024 * 1024;
 const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
@@ -112,6 +112,27 @@ function buildOracleClient(): OracleAIClient {
 
 function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP): string[] {
   if (text.length <= chunkSize) return [text];
+  const paragraphs = text.split(/\n{2,}/);
+  if (paragraphs.length > 1) {
+    const chunks: string[] = [];
+    let current = '';
+    for (const paragraph of paragraphs) {
+      const next = current ? `${current}\n\n${paragraph}` : paragraph;
+      if (next.length <= chunkSize) {
+        current = next;
+        continue;
+      }
+      if (current.trim()) chunks.push(current);
+      if (paragraph.length > chunkSize) {
+        chunks.push(...chunkText(paragraph, chunkSize, overlap));
+        current = '';
+      } else {
+        current = paragraph;
+      }
+    }
+    if (current.trim()) chunks.push(current);
+    return chunks;
+  }
   const chunks: string[] = [];
   let start = 0;
   while (start < text.length) {
@@ -121,6 +142,25 @@ function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP
     if (start >= text.length) break;
   }
   return chunks;
+}
+
+function formatDocumentChunksForExtraction(
+  chunks: Array<{ id: string; text: string }>,
+  maxChars = MAX_DOCUMENT_TEXT_CHARS,
+): string {
+  const parts: string[] = [];
+  let used = 0;
+  for (const chunk of chunks) {
+    const header = `DOCUMENT CHUNK\nDocument Chunk ID: ${chunk.id}\nContent:\n`;
+    const footer = '\n---\n';
+    const available = maxChars - used - header.length - footer.length;
+    if (available <= 0) break;
+    const text = chunk.text.slice(0, available);
+    parts.push(`${header}${text}${footer}`);
+    used += header.length + text.length + footer.length;
+    if (text.length < chunk.text.length) break;
+  }
+  return parts.join('');
 }
 
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
@@ -333,7 +373,10 @@ function resolveParseKind(
   ) {
     return 'image';
   }
-  if (fileType.startsWith('text/') || ext === 'txt' || ext === 'md' || ext === 'vtt') {
+  if (
+    fileType.startsWith('text/') ||
+    ['txt', 'md', 'markdown', 'vtt'].includes(ext)
+  ) {
     return 'text';
   }
   return 'unsupported';
@@ -389,7 +432,10 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
     console.log(`[document-ingestion] ${documentId} already complete — skipping`);
     return outcome;
   }
-  await db.update(documents).set({ status: 'processing' }).where(eq(documents.id, documentId));
+  await db
+    .update(documents)
+    .set({ status: 'processing', processingError: null, processedAt: null })
+    .where(eq(documents.id, documentId));
 
   const parseKind = resolveParseKind(doc.fileType, doc.fileName);
   const route = await resolveExtractionRoute(db);
@@ -495,6 +541,20 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
       if (chunk) {
         outcome.chunksInserted += 1;
         insertedChunkIds.push({ id: chunk.id, text });
+      } else {
+        const [existingChunk] = await db
+          .select({ id: documentChunks.id })
+          .from(documentChunks)
+          .where(
+            and(
+              eq(documentChunks.documentId, documentId),
+              eq(documentChunks.contentHash, contentHash),
+            ),
+          )
+          .limit(1);
+        if (existingChunk) {
+          insertedChunkIds.push({ id: existingChunk.id, text });
+        }
       }
     } catch (chunkErr) {
       console.error(`[document-ingestion] chunk ${i} insert failed:`, chunkErr);
@@ -510,8 +570,8 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
   }
 
   // 5. Stage extraction_batches row.
-  const truncatedText = rawText.slice(0, MAX_DOCUMENT_TEXT_CHARS);
-  const sourceHash = createHash('sha256').update(truncatedText, 'utf8').digest('hex');
+  const documentCorpus = formatDocumentChunksForExtraction(insertedChunkIds);
+  const sourceHash = createHash('sha256').update(documentCorpus, 'utf8').digest('hex');
   const [batch] = await db
     .insert(extractionBatches)
     .values({
@@ -544,17 +604,17 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
     }),
     makeBlock({
       id: 'document-text',
-      label: 'Document content (truncated)',
+      label: 'Document chunks (truncated)',
       kind: 'retrieved_context',
-      content: truncatedText,
-      reasonIncluded: `${insertedChunkIds.length} chunks → truncated to ${truncatedText.length} chars`,
+      content: documentCorpus,
+      reasonIncluded: `${insertedChunkIds.length} chunks → formatted/truncated to ${documentCorpus.length} chars`,
     }),
     makeBlock({
       id: 'document-request',
       label: 'Document extraction request',
       kind: 'dynamic_input',
       content:
-        'Extract operational claims from the provided document corpus. Return only claims that are explicitly supported by the document text.',
+        'Read the document chunks as a whole, infer the operational process flow they describe, and extract evidence-backed operational claims. Classify by meaning and handoff structure, not by literal keywords. Every exactQuote must be copied verbatim from within ONE provided document chunk, and sourceMessageId must be that exact Document Chunk ID. Return only claims that are explicitly supported by the document text.',
       reasonIncluded: 'small dynamic request so the document corpus can be cached as reusable prefix',
     }),
   ];
@@ -711,7 +771,8 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
       // Pick the chunk whose text contains the quote. If none does, the
       // quote validator will reject it as 'failed' anyway.
       const matchingChunk = insertedChunkIds.find((c) => c.text.includes(extracted.evidence.exactQuote));
-      const chunkForEvidence = matchingChunk ?? insertedChunkIds[0]!;
+      const sourceIdChunk = insertedChunkIds.find((c) => c.id === extracted.evidence.sourceMessageId);
+      const chunkForEvidence = matchingChunk ?? sourceIdChunk ?? insertedChunkIds[0]!;
 
       const proposedTopDomainIds = mapLegacyDomainsToTopDomains(
         extracted.domains as KnowledgeDomain[],
@@ -727,12 +788,12 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
           impactScore: extracted.impactScore,
           confidenceScore: extracted.confidenceScore,
           domains: proposedTopDomainIds satisfies TopLevelDomainId[],
-          // P2 #1 — proposedEntities now sourced from prompt-2.0.0.
+          // P2 #1 — proposedEntities now sourced from prompt-2.x.
           proposedEntities: (extracted.proposedEntities ?? []).map((e) => ({
             entityType: e.entityType,
             rawString: e.rawString,
           })),
-          // P1 #2 — sensitivityFlags now sourced from prompt-2.0.0.
+          // P1 #2 — sensitivityFlags now sourced from prompt-2.x.
           containsSensitivePersonalData:
             extracted.sensitivityFlags?.containsSensitivePersonalData ?? false,
           containsSensitiveHRData: extracted.sensitivityFlags?.containsSensitiveHRData ?? false,
@@ -821,7 +882,7 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
         continue;
       }
 
-      // Taxonomy validation. proposedEntities sourced from prompt-2.0.0 (P2 #1).
+      // Taxonomy validation. proposedEntities sourced from prompt-2.x (P2 #1).
       const taxRes = validateTaxonomy({
         proposedTopDomainIds,
         activeTopDomainIds,
@@ -978,7 +1039,7 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
 
   await db
     .update(documents)
-    .set({ status: 'complete', processedAt: new Date() })
+    .set({ status: 'complete', processingError: null, processedAt: new Date() })
     .where(eq(documents.id, documentId));
 
   if (fileBackedCachePath) {
@@ -1045,7 +1106,8 @@ function buildUploaderContextNote(
     const names = doc.domainHints.map((id) => nameMap.get(id) ?? id);
     note +=
       `\nThe uploader suggests these knowledge areas are likely relevant: ${names.join(', ')}. ` +
-      `Treat this only as a prior — classify each claim on its own merits and do not force claims into these areas.`;
+      `Treat this only as a prior — classify each claim on its own merits and do not force claims into these areas. ` +
+      `If a suggested area is Business Process, represent cross-functional or end-to-end workflow claims with the general output domain.`;
   }
   return note;
 }

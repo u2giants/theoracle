@@ -38,18 +38,18 @@ const LEGACY_TO_TOP_DOMAIN: Record<KnowledgeDomain, TopLevelDomainId> = {
   sales: 'customer_ops',
   retail_compliance: 'customer_ops',
   costing: 'finance_pricing',
-  // 'general' has no clean target — drop to customer_ops as the best-effort
-  // residual; admin can reclassify via R10.5 admin UI.
-  general: 'customer_ops',
+  // Cross-functional / whole-company process knowledge.
+  general: 'business_process',
 };
 
 /**
  * Map a legacy knowledge-domain value to a top-level-domain ID.
- * Returns the residual `customer_ops` if the input is unrecognized — that
- * matches the backfill SQL's behavior.
+ * Returns the cross-functional `business_process` residual if the input is
+ * unrecognized. Older backfills used customer_ops; new extraction should not
+ * bury whole-company workflow knowledge under customer operations.
  */
 export function mapLegacyDomainToTopDomain(domain: KnowledgeDomain): TopLevelDomainId {
-  return LEGACY_TO_TOP_DOMAIN[domain] ?? 'customer_ops';
+  return LEGACY_TO_TOP_DOMAIN[domain] ?? 'business_process';
 }
 
 /**

@@ -578,7 +578,7 @@ export async function processSegmentOutput(
         confidenceScore: extracted.confidenceScore,
         domains: proposedTopDomainIds satisfies TopLevelDomainId[],
         // P2 #1 — proposedEntities now sourced from the model (was hardcoded
-        // empty pre-prompt-2.0.0). Empty array if the claim references no
+        // empty pre-prompt-2.x). Empty array if the claim references no
         // proper-noun entities.
         proposedEntities: (extracted.proposedEntities ?? []).map((e) => ({
           entityType: e.entityType,
@@ -586,7 +586,7 @@ export async function processSegmentOutput(
         })),
         stance: legacyStanceToCandidateStance(extracted.semanticRole),
         // P1 #2 — sensitivityFlags now sourced from the model. Was hardcoded
-        // false on every claim pre-prompt-2.0.0, which meant the sensitivity
+        // false on every claim pre-prompt-2.x, which meant the sensitivity
         // gate could never fire in production. Strict-mode definitions live
         // in EXTRACTION_SYSTEM_PROMPT.
         containsSensitivePersonalData:
@@ -741,7 +741,7 @@ export async function processSegmentOutput(
     // Quote passed → reset the consecutive failure counter.
     consecutiveQuoteFailureCount = 0;
 
-    // R5.5 — taxonomy validation. proposedEntities sourced from prompt-2.0.0
+    // R5.5 — taxonomy validation. proposedEntities sourced from prompt-2.x
     // (P2 #1). The resolver picks up licensor-vs-vendor type mismatches.
     const taxRes = validateTaxonomy({
       proposedTopDomainIds,

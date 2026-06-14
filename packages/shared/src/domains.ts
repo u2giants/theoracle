@@ -159,6 +159,7 @@ export type BrainSectionReviewStatus =
 // ===========================================================================
 
 export const TOP_LEVEL_DOMAINS = [
+  'business_process',
   'customer_ops',
   'licensing_approvals',
   'product_development',
