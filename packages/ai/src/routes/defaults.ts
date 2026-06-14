@@ -41,6 +41,25 @@ export const ROUTE_SETTING_KEYS = {
 export const GENERAL_PURPOSE_ROUTE_SETTING_KEY = 'default_general_purpose_route';
 
 /**
+ * Image-vision model — used by the document-ingestion worker to transcribe an
+ * uploaded image to text before claim extraction runs over that text.
+ *
+ * Like the general-purpose key, this is NOT one of the three strict pipeline
+ * roles (interview / extraction / synthesis), so it lives as a standalone
+ * setting rather than extending OracleModelRole. The admin picker filters it to
+ * vision-capable models from any provider; whatever model is saved is read at
+ * runtime via resolveVisionRouteFromSettings() with no redeploy.
+ *
+ * DEFAULT_VISION_ROUTE_ID is the shipped fallback used only when the setting is
+ * unset/unparseable — it points at the Gemini extraction route, which is
+ * vision-capable and already credentialed in production.
+ */
+export const VISION_ROUTE_SETTING_KEY = 'default_vision_route';
+export const VISION_REASONING_EFFORT_SETTING_KEY = 'default_vision_reasoning_effort';
+export const VISION_MODEL_POOL_SETTING_KEY = 'model_pool_vision';
+export const DEFAULT_VISION_ROUTE_ID = vertex_gemini_2_5_flash_extraction_primary.routeId;
+
+/**
  * Reasoning effort settings keys, one per stage. Values are 'off' | 'low' |
  * 'medium' | 'high' (unified across providers; adapters translate).
  *

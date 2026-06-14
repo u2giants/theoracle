@@ -1,16 +1,16 @@
-// GET /api/admin/models?stage=interview|extraction|synthesis|general
+// GET /api/admin/models?stage=interview|extraction|synthesis|<auxiliary id>
 //
-// Returns the model list for the ModelPicker on /admin/settings, scoped to
-// the requested stage's pool. Reads the persisted model_capabilities table
-// for capability + pricing data — no provider API calls per request.
+// Returns the model list for the ModelPicker on /admin/settings. Reads the
+// persisted model_capabilities table for capability + pricing data — no
+// provider API calls per request.
 //
 // Strategy:
-//   1. Read the per-stage model_pool_${stage} setting (or, for the special
-//      "general" picker, ignore the pool — the general-purpose picker shows
-//      the full catalog so the admin can pick any model).
-//   2. Load the persisted catalog from model_capabilities.
-//   3. Pool non-empty → return only catalog rows in the pool.
-//      Pool empty → return the full catalog (client filters by required caps).
+//   1. Pipeline stages (interview/extraction/synthesis) read the per-stage
+//      model_pool_${stage} setting: non-empty pool → only those rows; empty →
+//      full catalog (the client filters by the stage's required caps).
+//   2. Any auxiliary-model id (general-purpose, vision, …) draws from the full
+//      catalog; the client filters by that aux model's single required
+//      capability (or not at all).
 //
 // Requires admin.
 
@@ -21,6 +21,7 @@ import { getDirectDb } from '@oracle/db/client';
 import { settings } from '@oracle/db/schema';
 import {
   MODEL_POOL_SETTING_KEYS,
+  AUXILIARY_MODEL_IDS,
   loadModelCatalog,
   type ModelCapability,
 } from '@oracle/ai';
@@ -71,12 +72,20 @@ function capabilityToModelInfo(cap: ModelCapability): ModelInfo {
   };
 }
 
-type StageOrGeneral = 'interview' | 'extraction' | 'synthesis' | 'general';
+type PipelineStage = 'interview' | 'extraction' | 'synthesis';
+type ModelScope = { kind: 'stage'; stage: PipelineStage } | { kind: 'full' };
 
-function parseStage(req: NextRequest): StageOrGeneral {
+function parseScope(req: NextRequest): ModelScope {
   const raw = req.nextUrl.searchParams.get('stage');
-  if (raw === 'interview' || raw === 'extraction' || raw === 'synthesis' || raw === 'general') return raw;
-  return 'interview';
+  if (raw === 'interview' || raw === 'extraction' || raw === 'synthesis') {
+    return { kind: 'stage', stage: raw };
+  }
+  // Any auxiliary-model id (general-purpose, vision, …) → full catalog; the
+  // client filters by that model's required capability.
+  if (raw && AUXILIARY_MODEL_IDS.has(raw)) {
+    return { kind: 'full' };
+  }
+  return { kind: 'stage', stage: 'interview' };
 }
 
 export async function GET(req: NextRequest) {
@@ -86,16 +95,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const stage = parseStage(req);
+  const scope = parseScope(req);
   const db = getDirectDb();
   const catalog = await loadModelCatalog(db);
 
-  // The general-purpose picker draws from the full catalog (no pool).
-  if (stage === 'general') {
+  // Auxiliary-model pickers draw from the full catalog (no per-stage pool); the
+  // client filters by the aux model's single required capability.
+  if (scope.kind === 'full') {
     return NextResponse.json({ models: catalog.map(capabilityToModelInfo) });
   }
 
-  const poolKey = MODEL_POOL_SETTING_KEYS[stage];
+  const poolKey = MODEL_POOL_SETTING_KEYS[scope.stage];
   const poolRow = await db
     .select({ value: settings.value })
     .from(settings)

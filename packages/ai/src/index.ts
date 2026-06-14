@@ -132,8 +132,21 @@ export {
   MODEL_POOL_SETTING_KEYS,
   GENERAL_PURPOSE_ROUTE_SETTING_KEY,
   REASONING_EFFORT_SETTING_KEYS,
+  VISION_ROUTE_SETTING_KEY,
+  VISION_REASONING_EFFORT_SETTING_KEY,
+  VISION_MODEL_POOL_SETTING_KEY,
+  DEFAULT_VISION_ROUTE_ID,
   type ReasoningEffort,
   resolveRouteFromSettings,
+  resolveAuxiliaryRouteFromSettings,
+  // Auxiliary model registry (non-pipeline-role model selections)
+  AUXILIARY_MODELS,
+  AUXILIARY_MODEL_IDS,
+  VISION_AUXILIARY_MODEL,
+  GENERAL_PURPOSE_AUXILIARY_MODEL,
+  getAuxiliaryModelDef,
+  type AuxiliaryModelDef,
+  type AuxiliaryCapabilityFilter,
 } from './routes';
 
 // Model capability discovery — OpenRouter as single source, persisted to DB.

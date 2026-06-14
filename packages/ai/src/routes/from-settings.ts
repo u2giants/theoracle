@@ -15,6 +15,7 @@ import { inArray } from 'drizzle-orm';
 import type { OracleDb } from '@oracle/db';
 import { settings } from '@oracle/db/schema';
 import { ROUTE_SETTING_KEYS, REASONING_EFFORT_SETTING_KEYS } from './defaults';
+import { getAuxiliaryModelDef } from './auxiliary';
 import { resolveModelRoute } from './resolve';
 import type { OracleModelRole, OracleModelRoute, ReasoningEffort } from './types';
 
@@ -46,4 +47,52 @@ export async function resolveRouteFromSettings(
     : undefined;
 
   return resolveModelRoute(modelIdOrRouteId, role, effort);
+}
+
+/**
+ * Resolve an admin-chosen auxiliary model (e.g. 'vision') from settings.
+ *
+ * Auxiliary models are not one of the 3 strict pipeline roles, so they're keyed
+ * by an entry in the AUXILIARY_MODELS registry rather than by OracleModelRole.
+ * This reads the entry's route + (optional) reasoning-effort settings keys and
+ * resolves them the same way resolveRouteFromSettings() does for roles.
+ *
+ * Returns null when the registry id is unknown or the setting is
+ * unset/unparseable — callers fall back to the entry's `defaultRouteId`.
+ *
+ * The value is resolved under the 'extraction' role for synthetic-route
+ * labeling only (the role merely tags routes that aren't in the curated
+ * catalog). The returned route's `provider` is what the caller uses to format
+ * provider-native input (e.g. the image part for a vision model).
+ */
+export async function resolveAuxiliaryRouteFromSettings(
+  db: OracleDb,
+  auxiliaryId: string,
+): Promise<OracleModelRoute | null> {
+  const def = getAuxiliaryModelDef(auxiliaryId);
+  if (!def) return null;
+
+  const keys = def.reasoningEffortSettingKey
+    ? [def.routeSettingKey, def.reasoningEffortSettingKey]
+    : [def.routeSettingKey];
+
+  const rows = await db
+    .select({ key: settings.key, value: settings.value })
+    .from(settings)
+    .where(inArray(settings.key, keys));
+
+  const routeRow = rows.find((r) => r.key === def.routeSettingKey);
+  const effortRow = def.reasoningEffortSettingKey
+    ? rows.find((r) => r.key === def.reasoningEffortSettingKey)
+    : undefined;
+
+  const modelIdOrRouteId =
+    typeof routeRow?.value === 'string' ? routeRow.value : null;
+  if (!modelIdOrRouteId) return null;
+
+  const effort: ReasoningEffort | undefined = isReasoningEffort(effortRow?.value)
+    ? effortRow.value
+    : undefined;
+
+  return resolveModelRoute(modelIdOrRouteId, 'extraction', effort);
 }

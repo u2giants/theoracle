@@ -10,5 +10,6 @@
 export * from './types';
 export * from './catalog';
 export * from './defaults';
+export * from './auxiliary';
 export { resolveModelRoute } from './resolve';
-export { resolveRouteFromSettings } from './from-settings';
+export { resolveRouteFromSettings, resolveAuxiliaryRouteFromSettings } from './from-settings';

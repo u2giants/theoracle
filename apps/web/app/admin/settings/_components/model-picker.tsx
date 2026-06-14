@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Search } from 'lucide-react';
+import { Check, ChevronDown, Copy, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -12,7 +12,7 @@ import {
   type CapKey,
   type Stage,
 } from '@/lib/stage-requirements';
-import type { ReasoningEffort } from '@oracle/ai';
+import type { ReasoningEffort, AuxiliaryCapabilityFilter } from '@oracle/ai';
 
 export type { ReasoningEffort };
 
@@ -71,9 +71,12 @@ function priceBadge(m: Model): string | null {
   return `$${fmtPrice(m.promptPer1M)} / $${fmtPrice(m.completionPer1M ?? 0)}`;
 }
 
-/** Derive stage from a settings key like 'default_interview_route'. */
-function stageFromKey(settingKey: string): Stage | 'general' {
-  if (settingKey.includes('general_purpose')) return 'general';
+/**
+ * Derive the pipeline stage from a settings key like 'default_interview_route'.
+ * Only used for the 3 pipeline-role pickers — auxiliary-model pickers (vision,
+ * general-purpose) pass an explicit `auxiliary` prop instead.
+ */
+function stageFromKey(settingKey: string): Stage {
   if (settingKey.includes('interview')) return 'interview';
   if (settingKey.includes('extraction')) return 'extraction';
   if (settingKey.includes('synthesis')) return 'synthesis';
@@ -131,6 +134,8 @@ export function ModelPicker({
   settingDescription,
   effortSettingKey,
   effortSettingDescription,
+  clipboardBrief,
+  auxiliary,
 }: {
   currentModel: string | null;
   currentEffort: ReasoningEffort | null;
@@ -141,6 +146,14 @@ export function ModelPicker({
    *  picker where there's no stage to associate effort with). */
   effortSettingKey?: string;
   effortSettingDescription?: string;
+  /** When provided, a "Copy job brief" button appears next to the Model label
+   *  and copies this detailed role description to the clipboard — useful for
+   *  pasting into a model-evaluation prompt or vendor comparison. */
+  clipboardBrief?: string;
+  /** Set for auxiliary-model pickers (vision, general-purpose). When present,
+   *  the model list is fetched by the aux id and filtered by its single
+   *  required capability (if any) rather than by pipeline-stage requirements. */
+  auxiliary?: { id: string; requiredCapability?: AuxiliaryCapabilityFilter };
 }) {
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
@@ -151,6 +164,18 @@ export function ModelPicker({
   const [effort, setEffort] = useState<ReasoningEffort>(currentEffort ?? 'medium');
   const [status, setStatus] = useState<Status>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [briefCopied, setBriefCopied] = useState(false);
+
+  async function copyBrief() {
+    if (!clipboardBrief) return;
+    try {
+      await navigator.clipboard.writeText(clipboardBrief);
+      setBriefCopied(true);
+      setTimeout(() => setBriefCopied(false), 2500);
+    } catch {
+      // Clipboard API unavailable (insecure context / denied) — no-op.
+    }
+  }
 
   // Dropdown open state + search filter.
   const [open, setOpen] = useState(false);
@@ -158,13 +183,16 @@ export function ModelPicker({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const stageOrGeneral = stageFromKey(settingKey);
+  // Pipeline pickers filter by stage requirements; auxiliary pickers filter by
+  // a single capability (or not at all). `stage` is null for auxiliary models.
+  const stage: Stage | null = auxiliary ? null : stageFromKey(settingKey);
+  const modelListParam = auxiliary ? auxiliary.id : (stage as Stage);
 
   useEffect(() => {
     let cancelled = false;
     async function loadModels() {
       try {
-        const res = await fetch(`/api/admin/models?stage=${stageOrGeneral}`);
+        const res = await fetch(`/api/admin/models?stage=${modelListParam}`);
         if (!res.ok) {
           const body = await res.text();
           throw new Error(`${res.status}: ${body}`);
@@ -186,7 +214,7 @@ export function ModelPicker({
     }
     void loadModels();
     return () => { cancelled = true; };
-  }, [currentModel, stageOrGeneral]);
+  }, [currentModel, modelListParam]);
 
   // Close on outside click.
   useEffect(() => {
@@ -247,12 +275,16 @@ export function ModelPicker({
 
   const selectedModel = models.find((m) => m.id === selected);
 
-  // Filter the dropdown using the same predicates as the model-pool page.
-  // For the "general" picker (no stage), don't filter — show all models.
+  // Pipeline pickers use the same stage predicates as the model-pool page.
+  // Auxiliary pickers filter by a single capability flag (or show all models
+  // when the aux model declares no required capability).
+  const auxCap = auxiliary?.requiredCapability;
   const compatible = (
-    stageOrGeneral === 'general'
-      ? models
-      : models.filter((m) => meetsStageReq(m, stageOrGeneral))
+    auxiliary
+      ? auxCap
+        ? models.filter((m) => m[auxCap])
+        : models
+      : models.filter((m) => meetsStageReq(m, stage as Stage))
   ).sort((a, b) => (a.promptPer1M ?? Infinity) - (b.promptPer1M ?? Infinity));
 
   const filtered = query.trim()
@@ -273,9 +305,8 @@ export function ModelPicker({
   // For stage pickers, find which requirements the *selected* model fails.
   // We use this to surface a small warning under the dropdown when an admin
   // somehow has a non-compliant model saved (e.g., from before stage reqs changed).
-  const selectedMissing = selectedModel && stageOrGeneral !== 'general'
-    ? missingReqs(selectedModel, stageOrGeneral)
-    : [];
+  const selectedMissing =
+    selectedModel && !auxiliary ? missingReqs(selectedModel, stage as Stage) : [];
 
   const effortApplicable = effortSettingKey && selectedModel?.thinking === true;
 
@@ -284,7 +315,20 @@ export function ModelPicker({
 
       {/* ── Model + effort dropdowns (side by side when effort is applicable) ─ */}
       <div className="space-y-2">
-        <label className="text-sm font-medium leading-none">Model</label>
+        <div className="flex items-center justify-between gap-2">
+          <label className="text-sm font-medium leading-none">Model</label>
+          {clipboardBrief && (
+            <button
+              type="button"
+              onClick={copyBrief}
+              title="Copy a detailed brief of this model's job — what it's fed, what's expected, and which capabilities it needs — to your clipboard"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {briefCopied ? <Check className="size-3.5 text-green-600" /> : <Copy className="size-3.5" />}
+              {briefCopied ? 'Copied' : 'Copy job brief'}
+            </button>
+          )}
+        </div>
 
         <div className="flex items-start gap-2">
           {/* Model dropdown */}
