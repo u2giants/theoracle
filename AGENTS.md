@@ -37,6 +37,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 | Investigate a bug or incident | `AGENTS.md` §13 (critical incidents), docs for the affected area, `HANDOFF.md` if present | Unrelated folder-level READMEs |
 | Continue unfinished work | `AGENTS.md`, `HANDOFF.md`, docs named inside `HANDOFF.md` | Docs unrelated to the handoff scope |
 | Work in a subfolder with its own README | `AGENTS.md`, that folder-level `README.md`, and only broader docs referenced there | Other folder-level READMEs |
+| Change the remote MCP knowledge endpoint (tools agents query) | `AGENTS.md` §10 MCP quirk, `apps/web/lib/mcp/README.md`, `apps/web/lib/mcp/*`, `apps/web/app/api/mcp/[transport]/route.ts` | Unrelated chat/worker code |
 | Claude Code session | `CLAUDE.md`, then `AGENTS.md` | Other docs unless task requires them |
 | Documentation-only cleanup | `AGENTS.md`, `README.md`, affected docs under `docs/`, folder-level READMEs only where relevant, `HANDOFF.md` if present | Source files except as needed to verify accuracy |
 | Product/spec contract or AI-retrofit provenance | `AGENTS.md`, `oracle_master_spec.md`, relevant `docs/oracle/*` file, `oracle_ai_architecture_prompt caching.md` only if prompt-cache retrofit history is directly relevant | Current deployment/config docs unless operations are affected |
@@ -569,6 +570,23 @@ The VTT is stored so the whole pipeline stays re-runnable from true source after
 Do not change because:
 Adding it to `schema.ts` would make drizzle-kit want to generate a migration for an already-applied hand-written table (drift). Leave it as hand-written SQL.
 
+### The Oracle MCP server is lazy-loaded on purpose — `tools/list` stays at five tools
+
+Looks like:
+`apps/web/lib/mcp/capabilities.ts` defines real operations (search claims, list domains, read Brain sections) but none are registered as MCP tools. Only five generic tools appear in `tools/list` (`health`, `list_capabilities`, `tool_search`, `get_capability_details`, `invoke_tool`). It looks like indirection that could be simplified by registering each operation directly as its own MCP tool.
+
+Actually:
+This is a deliberate lazy-loaded capability registry. Real operations live in a hidden registry and are reached via `invoke_tool` after discovery through `tool_search` / `get_capability_details`. Keeping `tools/list` tiny means MCP clients that cache the initial list never miss capabilities — we intentionally do **not** rely on `tools/list_changed`. The `verify:mcp` guard (`apps/web/lib/mcp/__verify__/mcp-registry.ts`, wired into the Vercel build gate + `pr-check.yml`) asserts `tools/list` is exactly those five.
+
+Why:
+The endpoint is for external AI agents building software for us; the design follows the house lazy-registry standard (same shape as the `devops-mcp` / `synology-monitor` servers). It is read-only and only surfaces approved knowledge (`searchWithRetrievalPlan` filters `status = 'approved'`; Brain tools require `review_status = 'approved'`).
+
+Do not change because:
+- Registering capabilities directly as MCP tools reintroduces the exact anti-pattern the design avoids and breaks `verify:mcp` (build fails).
+- The live endpoint is `/api/mcp/mcp`. The doubled segment is correct, not a typo: `mcp-handler` requires a `[transport]` route segment and `basePath: '/api/mcp'` derives the Streamable-HTTP endpoint as `<basePath>/mcp`.
+- New write (tier-2+) capabilities MUST go through the `invoke_tool` preview/confirm gate; never let a write run without `args.confirmed === true`.
+- Full design + "how to add a capability" lives in `apps/web/lib/mcp/README.md` — read it before changing the MCP surface.
+
 ## 11. Credentials and environment
 
 | Variable | Purpose | Stored where | Required in dev | Required in prod |
@@ -796,5 +814,7 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 | done | **Live Oracle has retrieval-backed context.** The Recall path now retrieves approved claims plus linked Brain snippets with `searchWithRetrievalPlan()` before the live decision, stores the context pack/model run linkage, and records `retrievedClaimIds` / validated `evidenceClaimIds` in job/interjection metadata. | Keep the bot as a clarification asker, not a meeting-answering assistant. Retrieval failures must degrade to the no-context prompt and must not block utterance persistence. See `HANDOFF.md`. |
 | done | **Repository documentation audit from pasted charter.** User supplied a comprehensive Markdown-maintenance spec on 2026-06-09. | Completed in the docs commit from this session: verified canonical docs against repo state, kept `AGENTS.md` canonical, kept `CLAUDE.md` Claude-only, aligned ignore files, and updated `HANDOFF.md` status. |
 | done | `pnpm lint` migration surfaced pre-existing `apps/web` violations the broken script had masked; the 2026-06-11 cleanup fixed the taxonomy quote escaping, initial state-sync effects, stale `eslint-disable` directives, and PostCSS config warning. | No action. `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass locally as of the cleanup session. |
+
+| partial | **Remote MCP knowledge endpoint shipped (2026-06-14)** — `/api/mcp/mcp` (lazy registry: `search_business_knowledge`, `list_knowledge_domains`, `list/get_brain_section`). Code is live in `main` and Vercel auto-deploys it. The endpoint **fails closed until `ORACLE_MCP_TOKEN` is set in Vercel Production** — until then it 401s every request. | Set `ORACLE_MCP_TOKEN` (e.g. `openssl rand -hex 32`) in Vercel Production env, then agents connect with `Authorization: Bearer <token>`. Note: `search_business_knowledge` only returns substance once claims are **approved** — most still sit in `pending_review` (see the extraction-gates row above); `list_knowledge_domains` already returns all 14 domains. |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.
