@@ -27,6 +27,7 @@
     "verify:retrieval-plan-domain-boundaries": "tsx src/__verify__/retrieval-plan-domain-boundaries.ts",
     "verify:retrieval-filter-parity": "tsx src/__verify__/retrieval-filter-parity.ts",
     "verify:vertex-file-cache": "tsx src/__verify__/vertex-file-cache-multiturn.ts",
+    "verify:vertex-inline-image": "tsx src/__verify__/vertex-inline-image.ts",
     "eval:extraction": "tsx evals/runners/eval-extraction.ts"
   },
   "dependencies": {

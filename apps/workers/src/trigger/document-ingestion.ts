@@ -59,6 +59,8 @@ import {
   embedMany,
   getOracleRoute,
   resolveRouteFromSettings,
+  resolveAuxiliaryRouteFromSettings,
+  VISION_AUXILIARY_MODEL,
   makeBlock,
   EXTRACTION_SYSTEM_PROMPT,
   EXTRACTION_PROMPT_VERSION,
@@ -143,6 +145,202 @@ async function extractTextFromXlsx(buffer: Buffer): Promise<string> {
   return lines.join('\n');
 }
 
+async function extractTextFromDocx(buffer: Buffer): Promise<string> {
+  // mammoth is CommonJS; normalize the namespace whether it comes through as a
+  // default export or a flat module object.
+  const mod = (await import('mammoth')) as unknown as {
+    extractRawText?: (opts: { buffer: Buffer }) => Promise<{ value: string }>;
+    default?: { extractRawText: (opts: { buffer: Buffer }) => Promise<{ value: string }> };
+  };
+  const extractRawText = mod.extractRawText ?? mod.default?.extractRawText;
+  if (!extractRawText) throw new Error('mammoth.extractRawText unavailable');
+  const result = await extractRawText({ buffer });
+  return result.value;
+}
+
+const DOCX_MIME =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+const IMAGE_TRANSCRIPTION_SYSTEM = `You are a meticulous visual analyst for an operations knowledge base. You will be shown ONE image an employee uploaded. Produce a faithful, self-contained TEXT rendering of everything the image conveys — downstream extraction reads only your text and cannot see the image.
+
+Include, in natural reading order:
+- Every piece of visible text, transcribed VERBATIM (labels, headings, every table cell, handwriting, captions, callouts, stamps, axis labels, legends).
+- The structure and meaning of any diagram, flowchart, org chart, table, map, or schematic: what the nodes/boxes are, how arrows or lines connect them, and what that connection implies.
+- Spatial layout and grouping when it carries meaning (columns, swimlanes, before/after, hierarchy, sequence).
+- Concrete operational content: rules, steps, routing, ownership, dates, quantities, statuses, conditions, exceptions.
+
+Rules:
+- Transcribe text exactly as written; never paraphrase quoted text.
+- Describe visual relationships in plain prose so a reader who cannot see the image understands the process or data.
+- Do NOT invent anything that is not visible. If something is unreadable or ambiguous, say so explicitly.
+- Output plain text only — no markdown code fences, no preamble such as "Here is".`;
+
+/**
+ * Format the inline image part for whichever provider the admin-selected vision
+ * model uses. Each adapter forwards `providerOptions.messages` content to its
+ * provider natively, so we emit the provider's own image-part shape:
+ *   - vertex (Gemini): a generic { type:'image', mimeType, data } that the
+ *     Vertex adapter translates to an inlineData part.
+ *   - anthropic:       a native Anthropic image block (base64 source).
+ *   - openai:          a native OpenAI image_url block (data: URL).
+ */
+function buildVisionMessageContent(
+  provider: OracleModelRoute['provider'],
+  mimeType: string,
+  base64: string,
+  requestText: string,
+): Array<Record<string, unknown>> {
+  if (provider === 'anthropic') {
+    return [
+      { type: 'text', text: requestText },
+      { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+    ];
+  }
+  if (provider === 'openai') {
+    return [
+      { type: 'text', text: requestText },
+      { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
+    ];
+  }
+  // vertex / default — our Vertex adapter turns this into a Gemini inlineData part.
+  return [
+    { type: 'text', text: requestText },
+    { type: 'image', mimeType, data: base64 },
+  ];
+}
+
+/**
+ * Pass 1 of image ingestion: send the raw image to the admin-selected
+ * vision-capable model and get back a faithful text rendering (verbatim text +
+ * described visual meaning). That text then flows through the SAME chunk →
+ * extract → validate → promote pipeline as every other document, which keeps
+ * the quote-validation provenance guarantee intact (claims quote the
+ * transcription, which is persisted as document_chunks).
+ *
+ * The model is chosen in Admin → Settings ("Image vision model") and read here
+ * via the auxiliary-model registry; the registry's defaultRouteId is only the
+ * unset/unresolvable fallback.
+ */
+async function transcribeImageToText(
+  client: OracleAIClient,
+  db: OracleDb,
+  buffer: Buffer,
+  doc: { fileName: string; fileType: string },
+): Promise<string> {
+  const fallbackRouteId = VISION_AUXILIARY_MODEL.defaultRouteId;
+  const route =
+    (await resolveAuxiliaryRouteFromSettings(db, VISION_AUXILIARY_MODEL.id)) ??
+    (fallbackRouteId ? getOracleRoute(fallbackRouteId) : null);
+  if (!route) {
+    throw new Error(
+      `vision route unresolvable and default "${fallbackRouteId ?? '(none)'}" is not registered`,
+    );
+  }
+  const mimeType = imageMimeFor(doc.fileType, doc.fileName);
+  const requestText = `Render the attached image "${doc.fileName}" as faithful, complete text.`;
+
+  const blocks = [
+    makeBlock({
+      id: 'image-vision-system',
+      label: 'Image vision transcription system prompt',
+      kind: 'stable_system',
+      content: IMAGE_TRANSCRIPTION_SYSTEM,
+      reasonIncluded: 'vision transcription pass for an uploaded image',
+    }),
+    makeBlock({
+      id: 'image-vision-request',
+      label: 'Image vision transcription request',
+      kind: 'dynamic_input',
+      content: requestText,
+      reasonIncluded: 'dynamic request paired with the inline image',
+    }),
+  ];
+
+  const result = await client.runText({
+    taskType: 'document_claim_extraction',
+    routeId: route.routeId,
+    promptVersion: EXTRACTION_PROMPT_VERSION,
+    blocks,
+    providerOptions: {
+      // One-shot vision call — nothing reusable to cache.
+      cache: { disableCache: true },
+      messages: [
+        {
+          role: 'user',
+          content: buildVisionMessageContent(
+            route.provider,
+            mimeType,
+            buffer.toString('base64'),
+            requestText,
+          ),
+        },
+      ],
+    },
+  });
+  return result.text ?? '';
+}
+
+/**
+ * Decide how to parse a document from its declared MIME type, falling back to
+ * the filename extension when the browser/OS sends a generic
+ * `application/octet-stream` (common for .docx on some platforms).
+ */
+function resolveParseKind(
+  fileType: string,
+  fileName: string,
+): 'pdf' | 'xlsx' | 'docx' | 'image' | 'text' | 'unsupported' {
+  const ext = fileName.toLowerCase().split('.').pop() ?? '';
+  if (fileType === 'application/pdf' || ext === 'pdf') return 'pdf';
+  if (
+    fileType === 'application/vnd.ms-excel' ||
+    fileType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    fileType === 'text/csv' ||
+    ext === 'xlsx' ||
+    ext === 'xls' ||
+    ext === 'csv'
+  ) {
+    return 'xlsx';
+  }
+  if (fileType === DOCX_MIME || ext === 'docx') return 'docx';
+  // Images go through a vision-model transcription pass. Only the formats
+  // Gemini accepts natively are routed here; GIF/BMP/TIFF fall through to
+  // 'unsupported' so we don't hand the model a mime type it rejects.
+  if (
+    fileType === 'image/png' ||
+    fileType === 'image/jpeg' ||
+    fileType === 'image/jpg' ||
+    fileType === 'image/webp' ||
+    fileType === 'image/heic' ||
+    fileType === 'image/heif' ||
+    ['png', 'jpg', 'jpeg', 'webp', 'heic', 'heif'].includes(ext)
+  ) {
+    return 'image';
+  }
+  if (fileType.startsWith('text/') || ext === 'txt' || ext === 'md' || ext === 'vtt') {
+    return 'text';
+  }
+  return 'unsupported';
+}
+
+/** Map a stored file type / name to a Gemini-accepted image MIME type. */
+function imageMimeFor(fileType: string, fileName: string): string {
+  if (fileType.startsWith('image/')) return fileType === 'image/jpg' ? 'image/jpeg' : fileType;
+  const ext = fileName.toLowerCase().split('.').pop() ?? '';
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'webp':
+      return 'image/webp';
+    case 'heic':
+      return 'image/heic';
+    case 'heif':
+      return 'image/heif';
+    default:
+      return 'image/png';
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Per-document processor
 // ─────────────────────────────────────────────────────────────────────────
@@ -176,6 +374,7 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
   }
   await db.update(documents).set({ status: 'processing' }).where(eq(documents.id, documentId));
 
+  const parseKind = resolveParseKind(doc.fileType, doc.fileName);
   const route = await resolveExtractionRoute(db);
   const activeTopDomainIds = await loadActiveTopDomainIds(db);
   const entityRegistry = await loadEntityRegistry(db);
@@ -190,23 +389,33 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
     );
   }
   const buffer = Buffer.from(await blob.arrayBuffer());
+  // The file-backed Vertex cache feeds the raw artifact to the EXTRACTION pass.
+  // For images that pass runs over the vision transcription (text), not the
+  // image, so never attach the raw image as a file-backed cache source.
   const fileBackedCachePath =
-    route.provider === 'vertex' && buffer.length > VERTEX_FILE_CACHE_MIN_BYTES
+    route.provider === 'vertex' &&
+    parseKind !== 'image' &&
+    buffer.length > VERTEX_FILE_CACHE_MIN_BYTES
       ? await materializeVertexCacheTempFile(buffer, doc.fileName)
       : null;
 
   // 3. Parse.
   let rawText: string;
   try {
-    if (doc.fileType === 'application/pdf') {
+    if (parseKind === 'pdf') {
       rawText = await extractTextFromPdf(buffer);
-    } else if (
-      doc.fileType === 'application/vnd.ms-excel' ||
-      doc.fileType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-      doc.fileType === 'text/csv'
-    ) {
+    } else if (parseKind === 'xlsx') {
       rawText = await extractTextFromXlsx(buffer);
-    } else if (doc.fileType.startsWith('text/')) {
+    } else if (parseKind === 'docx') {
+      rawText = await extractTextFromDocx(buffer);
+    } else if (parseKind === 'image') {
+      // Pass 1: vision model renders the image to faithful text. Prefix a
+      // provenance header so the persisted chunk is self-describing.
+      const transcription = await transcribeImageToText(client, db, buffer, doc);
+      rawText = transcription.trim()
+        ? `Visual transcription of uploaded image "${doc.fileName}" (${doc.fileType}), produced by a vision model because the source is an image rather than text.\n\n${transcription}`
+        : '';
+    } else if (parseKind === 'text') {
       rawText = buffer.toString('utf-8');
     } else {
       console.warn(
@@ -303,7 +512,9 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
   //    block; the extraction system prompt + the document-specific addendum
   //    are stable.
   const documentNote =
-    `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}`;
+    parseKind === 'image'
+      ? `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded image (not a conversation, not a native text document). Extract claims about operational processes, rules, systems, and dependencies that are explicitly supported by this transcription.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}`
+      : `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}`;
   const blocks = [
     makeBlock({
       id: 'extraction-system',

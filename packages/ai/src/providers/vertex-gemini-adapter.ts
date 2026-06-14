@@ -38,7 +38,7 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, gt, isNotNull, lte } from 'drizzle-orm';
 import { Storage } from '@google-cloud/storage';
 import { GoogleGenAI } from '@google/genai';
-import type { Content, GenerateContentResponse } from '@google/genai';
+import type { Content, GenerateContentResponse, Part } from '@google/genai';
 import { z, type ZodTypeAny } from 'zod';
 import { providerCachedContent } from '@oracle/db';
 import { getDirectDb } from '@oracle/db/client';
@@ -229,16 +229,17 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
     providerOptions?: Record<string, unknown>,
   ): Content[] {
     const messages = providerOptions?.messages as
-      | Array<{ role: 'user' | 'assistant' | 'system'; content: string }>
+      | Array<{ role: 'user' | 'assistant' | 'system'; content: unknown }>
       | undefined;
     if (Array.isArray(messages) && messages.length > 0) {
       // Vertex uses 'model' instead of 'assistant'; system goes in
-      // systemInstruction not contents.
+      // systemInstruction not contents. Content may be a plain string or a
+      // multimodal part array (text + inline images) — see toVertexParts.
       return messages
         .filter((m) => m.role !== 'system')
         .map((m) => ({
           role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }],
+          parts: toVertexParts(m.content),
         }));
     }
     return [{ role: 'user', parts: [{ text: userMessage }] }];
@@ -975,6 +976,45 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
 }
 
 // ─── Shared helpers (also used by anthropic + openai adapters) ──────────────
+
+/**
+ * Translate a chat message's `content` into Vertex `parts`.
+ *
+ * - A plain string becomes a single text part.
+ * - An array may interleave text parts and inline image parts:
+ *     { type: 'text', text }                       -> { text }
+ *     { type: 'image', mimeType, data: <base64> }  -> { inlineData: { mimeType, data } }
+ *   Inline base64 images are how the document-ingestion worker feeds an
+ *   uploaded image to Gemini for its vision-transcription pass (a lone image is
+ *   far below the explicit-cache token minimum, so the fileData/cache path
+ *   isn't viable for it).
+ * - Any other shape is stringified into a text part so content is never
+ *   silently dropped.
+ */
+function toVertexParts(content: unknown): Part[] {
+  if (typeof content === 'string') return [{ text: content }];
+  if (!Array.isArray(content)) return [{ text: String(content ?? '') }];
+  const parts: Part[] = [];
+  for (const raw of content) {
+    if (raw && typeof raw === 'object') {
+      const part = raw as Record<string, unknown>;
+      if (
+        part.type === 'image' &&
+        typeof part.data === 'string' &&
+        typeof part.mimeType === 'string'
+      ) {
+        parts.push({ inlineData: { mimeType: part.mimeType, data: part.data } });
+        continue;
+      }
+      if ((part.type === 'text' || part.type === undefined) && typeof part.text === 'string') {
+        parts.push({ text: part.text });
+        continue;
+      }
+    }
+    parts.push({ text: String(raw) });
+  }
+  return parts;
+}
 
 /**
  * Flatten the OraclePromptPlan into a (systemPrompt, userMessage) pair.
