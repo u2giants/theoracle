@@ -88,6 +88,7 @@ export { zodToJsonSchema } from './providers/vertex-gemini-adapter';
 export { MockProviderAdapter, type MockAdapterOptions } from './providers/mock-adapter';
 export { AnthropicAdapter } from './providers/anthropic-adapter';
 export { VertexGeminiAdapter } from './providers/vertex-gemini-adapter';
+export { GoogleGeminiAdapter } from './providers/google-gemini-adapter';
 export { OpenAIAdapter } from './providers/openai-adapter';
 export { DeepSeekAdapter } from './providers/deepseek-adapter';
 export { QwenAdapter } from './providers/qwen-adapter';

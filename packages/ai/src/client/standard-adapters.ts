@@ -12,6 +12,7 @@
 
 import { AnthropicAdapter } from '../providers/anthropic-adapter';
 import { VertexGeminiAdapter } from '../providers/vertex-gemini-adapter';
+import { GoogleGeminiAdapter } from '../providers/google-gemini-adapter';
 import { OpenAIAdapter } from '../providers/openai-adapter';
 import { DeepSeekAdapter } from '../providers/deepseek-adapter';
 import { QwenAdapter } from '../providers/qwen-adapter';
@@ -42,6 +43,7 @@ export function buildStandardAdapters(): ProviderAdapterMap {
   const map: ProviderAdapterMap = {};
   tryAdd(map, 'anthropic', () => new AnthropicAdapter());
   tryAdd(map, 'vertex',    () => new VertexGeminiAdapter());
+  tryAdd(map, 'google',    () => new GoogleGeminiAdapter());
   tryAdd(map, 'openai',    () => new OpenAIAdapter());
   tryAdd(map, 'deepseek',  () => new DeepSeekAdapter());
   tryAdd(map, 'qwen',      () => new QwenAdapter());

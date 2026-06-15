@@ -334,6 +334,17 @@ Inference requires native provider features and exact usage fields; catalog enri
 Do not change because:
 Reintroducing OpenRouter into the inference path would erase provider-native cache and usage behavior that the rest of the system expects.
 
+### `google/*` model settings are real Gemini API routes, not Vertex aliases
+
+What changed:
+`google/*` model IDs now resolve to the `GoogleGeminiAdapter`, while curated `vertex_*` routes continue to use `VertexGeminiAdapter`.
+
+Why:
+Gemini 3.1 Flash-Lite (`gemini-3.1-flash-lite`) returned `NOT_FOUND` through the configured Vertex project/region, but worked through the Gemini API using the deployed service-account OAuth path. The extraction A/B/C eval route `google_gemini_3_1_flash_lite_extraction_eval` depends on this split.
+
+Future sessions should:
+Do not map `google/*` back to `vertex` in `packages/ai/src/routes/resolve.ts` unless the exact model has been verified in the configured Vertex region. `GEMINI_API_KEY` is optional; `GoogleGeminiAdapter` can also mint Gemini API OAuth tokens from `GOOGLE_APPLICATION_CREDENTIALS_JSON`.
+
 ### Explicit Vertex caches are tracked in Postgres
 
 Looks like:
@@ -742,6 +753,7 @@ Adding `'vision'` to `OracleModelRole` to "unify" things reintroduces exactly th
 | `GOOGLE_CLOUD_PROJECT` | Vertex adapter project | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `GOOGLE_CLOUD_LOCATION` | Vertex region | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` | service-account JSON content for Vertex ADC bootstrapping | Vercel/Trigger.dev secret, optional local | no | yes |
+| `GEMINI_API_KEY` | Optional direct Gemini API key for `google/*` routes; `GoogleGeminiAdapter` falls back to `GOOGLE_APPLICATION_CREDENTIALS_JSON` OAuth when unset | `.env.local`, Vercel/Trigger.dev secret if used | no | no |
 | `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` | temp GCS bucket for oversized file-backed Vertex caches | env/secret | optional | recommended |
 | `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_PREFIX` | temp GCS prefix for those uploads | env/secret | optional | optional |
 | `GOOGLE_VERTEX_BATCH_GCS_BUCKET` | GCS bucket for Vertex Batch Prediction JSONL I/O (D14) | env/secret | optional | required if batch mode + Vertex |

@@ -75,6 +75,8 @@ export function normalizeUsage(args: NormalizeArgs): OracleUsage {
       return normalizeAnthropic(raw as AnthropicUsageRaw, latencyMs, providerRequestId);
     case 'vertex':
       return normalizeVertex(raw as VertexUsageRaw, latencyMs, providerRequestId);
+    case 'google':
+      return normalizeVertex(raw as VertexUsageRaw, latencyMs, providerRequestId);
     case 'openai':
       return normalizeOpenAI(raw as OpenAIUsageRaw, latencyMs, providerRequestId);
     case 'deepseek':
