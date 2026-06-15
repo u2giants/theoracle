@@ -18,7 +18,7 @@ import {
 } from '@oracle/ai';
 
 const EvalOutputSchema = z.object({
-  claim: ExtractionClaimSchema.nullable(),
+  claim: ExtractionClaimSchema.nullable().optional().default(null),
   noClaimReason: z.string().optional(),
 });
 
