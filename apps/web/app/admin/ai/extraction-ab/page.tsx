@@ -54,7 +54,6 @@ const VARIANT_OPTIONS = [
   { value: 'existing_gemini_2_5', label: 'Existing Gemini 2.5 claim' },
   { value: 'gemini_3_1_flash_lite', label: 'Gemini 3.1 Flash Lite' },
   { value: 'qwen_3_7_max', label: 'Qwen 3.7 Max' },
-  { value: 'human_revision', label: 'My revision' },
 ];
 
 function domainBadges(domains: string[] | null | undefined) {
@@ -210,6 +209,7 @@ export default async function ExtractionAbPage() {
         <p className="text-sm text-muted-foreground">
           Compare the existing Gemini 2.5-era claim, Gemini 3.1 Flash Lite,
           Qwen 3.7 Max, and your approved revision on the same source evidence.
+          Pick the best AI output; your revision stays visible as the answer key.
           Generated outputs are stored here only and never promoted into claims.
         </p>
       </header>
@@ -283,13 +283,16 @@ export default async function ExtractionAbPage() {
                 />
                 <ClaimColumn
                   title="My revision"
-                  subtitle="approved human correction"
+                  subtitle="reference answer, not scored"
                   claim={revisedClaim(row)}
                 />
               </div>
 
               <form action={scoreExtractionAbTest} className="rounded border bg-muted/20 p-3">
                 <input type="hidden" name="reviewEventId" value={row.review_event_id} />
+                <p className="mb-2 text-xs font-medium text-muted-foreground">
+                  Choose the best AI-generated claim. Use your revision only as the reference.
+                </p>
                 <div className="flex flex-wrap gap-3 text-xs">
                   {VARIANT_OPTIONS.map((option) => (
                     <label key={option.value} className="flex items-center gap-1.5">

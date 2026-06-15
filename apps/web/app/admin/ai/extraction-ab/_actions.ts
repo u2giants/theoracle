@@ -219,7 +219,6 @@ export async function scoreExtractionAbTest(formData: FormData) {
     'existing_gemini_2_5',
     'gemini_3_1_flash_lite',
     'qwen_3_7_max',
-    'human_revision',
   ];
   if (!reviewEventId || !allowed.includes(bestVariant)) {
     throw new Error('Choose the best column before saving.');
