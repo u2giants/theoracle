@@ -75,11 +75,15 @@ function ClaimColumn({
   subtitle,
   claim,
   error,
+  noClaimReason,
+  hasOutput,
 }: {
   title: string;
   subtitle?: string;
   claim: ClaimLike;
   error?: string | null;
+  noClaimReason?: string;
+  hasOutput?: boolean;
 }) {
   return (
     <div className="min-w-[18rem] rounded border bg-background p-3">
@@ -104,6 +108,10 @@ function ClaimColumn({
             </blockquote>
           )}
         </div>
+      ) : hasOutput ? (
+        <p className="rounded border border-yellow-200 bg-yellow-50 p-2 text-xs text-yellow-800">
+          Model returned no claim{noClaimReason ? `: ${noClaimReason}` : '.'}
+        </p>
       ) : (
         <p className="text-xs text-muted-foreground">Not run yet.</p>
       )}
@@ -267,12 +275,16 @@ export default async function ExtractionAbPage() {
                   subtitle="current default + correction lessons"
                   claim={generatedClaim(row.gemini_3_1_output_json)}
                   error={row.gemini_3_1_error}
+                  noClaimReason={row.gemini_3_1_output_json?.noClaimReason}
+                  hasOutput={!!row.gemini_3_1_output_json}
                 />
                 <ClaimColumn
                   title="Qwen 3.7 Max"
                   subtitle="stronger comparison model"
                   claim={generatedClaim(row.qwen_3_7_output_json)}
                   error={row.qwen_3_7_error}
+                  noClaimReason={row.qwen_3_7_output_json?.noClaimReason}
+                  hasOutput={!!row.qwen_3_7_output_json}
                 />
                 <ClaimColumn
                   title="My revision"

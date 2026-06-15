@@ -18,7 +18,7 @@ import {
 } from '@oracle/ai';
 
 const EvalOutputSchema = z.object({
-  claim: ExtractionClaimSchema.nullable().optional().default(null),
+  claim: ExtractionClaimSchema,
   noClaimReason: z.string().optional(),
 });
 
@@ -131,7 +131,7 @@ async function runVariant(input: {
       id: 'eval-source',
       label: 'Source text for one claim extraction eval',
       kind: 'dynamic_input',
-      content: `SOURCE TEXT:\n${input.sourceExcerpt}\n\nReturn the single best operational claim supported by this source text. If there is no operational claim, return claim=null and a short noClaimReason. The claim must quote this source text exactly.`,
+      content: `SOURCE TEXT:\n${input.sourceExcerpt}\n\nThis source text is from an already-approved human claim revision, so it does contain an operational claim. Return the single best operational claim supported by this source text. You must return a claim object, not null. The claim must quote this source text exactly.`,
       reasonIncluded: 'same source text used across extraction A/B/C variants',
     }),
   ];
