@@ -621,6 +621,53 @@ export const claimEvidence = pgTable(
   }),
 );
 
+// Domain-scoped claim review permissions. Members of a department listed here
+// can review claims carrying the corresponding top-domain without full admin.
+export const knowledgeDomainReviewDepartments = pgTable(
+  'knowledge_domain_review_departments',
+  {
+    topDomainId: varchar('top_domain_id', { length: 100 })
+      .references(() => knowledgeTopDomains.id, { onDelete: 'cascade' })
+      .notNull(),
+    departmentId: departmentEnum('department_id')
+      .references(() => departments.id, { onDelete: 'cascade' })
+      .notNull(),
+    canReviewClaims: boolean('can_review_claims').default(true).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.topDomainId, t.departmentId] }),
+    departmentIdx: index('knowledge_domain_review_departments_department_idx').on(t.departmentId),
+  }),
+);
+
+// Append-only audit trail for claim review decisions and revisions.
+export const claimReviewEvents = pgTable(
+  'claim_review_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    claimId: uuid('claim_id')
+      .references(() => claims.id, { onDelete: 'cascade' })
+      .notNull(),
+    replacementClaimId: uuid('replacement_claim_id').references(() => claims.id, {
+      onDelete: 'set null',
+    }),
+    action: varchar('action', { length: 50 }).notNull(),
+    reviewedByEmployeeId: uuid('reviewed_by_employee_id')
+      .references(() => employees.id)
+      .notNull(),
+    reviewerNote: text('reviewer_note'),
+    beforeState: jsonb('before_state').notNull(),
+    afterState: jsonb('after_state'),
+    aiComparisonJson: jsonb('ai_comparison_json'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    claimIdx: index('claim_review_events_claim_idx').on(t.claimId, t.createdAt),
+    replacementClaimIdx: index('claim_review_events_replacement_claim_idx').on(t.replacementClaimId),
+  }),
+);
+
 export const brainSections = pgTable('brain_sections', {
   id: varchar('id', { length: 255 }).primaryKey(),
   knowledgeDomain: knowledgeDomainEnum('knowledge_domain').notNull(),
@@ -1590,6 +1637,10 @@ export type MessageEntity = typeof messageEntities.$inferSelect;
 export type NewMessageEntity = typeof messageEntities.$inferInsert;
 export type ClaimMetadata = typeof claimMetadata.$inferSelect;
 export type NewClaimMetadata = typeof claimMetadata.$inferInsert;
+export type KnowledgeDomainReviewDepartment = typeof knowledgeDomainReviewDepartments.$inferSelect;
+export type NewKnowledgeDomainReviewDepartment = typeof knowledgeDomainReviewDepartments.$inferInsert;
+export type ClaimReviewEvent = typeof claimReviewEvents.$inferSelect;
+export type NewClaimReviewEvent = typeof claimReviewEvents.$inferInsert;
 export type TaxonomyProposal = typeof taxonomyProposals.$inferSelect;
 export type NewTaxonomyProposal = typeof taxonomyProposals.$inferInsert;
 export type TaxonomyChangeLog = typeof taxonomyChangeLog.$inferSelect;

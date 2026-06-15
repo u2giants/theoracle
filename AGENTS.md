@@ -201,6 +201,8 @@ Specific boundaries:
 | Business process domain | `business_process` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts`, `packages/oracle-engines/src/extraction/domain-mapping.ts` | Cross-functional company workflows and operating-model overviews. Use with narrower department/process domains for end-to-end flows; do not use as a generic dumping ground. |
 | Training enablement domain | `training_enablement` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from `people_org` and sensitive HR records. Covers onboarding, role training, SOP learning paths, shadowing, cross-training, skill checks, and refresher guidance. |
 | Provider Batch jobs table | `provider_batch_jobs` | `packages/db/src/schema.ts`, migration `60_batch_jobs.sql` | One row per submitted provider Batch API job (D14). `extraction_batches.provider_batch_job_id` links per-input rows to their batch. `model_runs.dispatch_mode` ∈ `'sync' \| 'batch' \| NULL`. |
+| Claim review events | `claim_review_events` | `packages/db/src/schema.ts`, migration `68_claim_review_workflow.sql` | Append-only audit for approve/reject/revise claim decisions. Revise creates a replacement claim and supersedes the original; do not overwrite original AI output in place. |
+| Domain review permissions | `knowledge_domain_review_departments` | same | Department-to-domain authorization map for non-admin claim reviewers. Members can review claims whose `claim_top_domains` intersect their mapped departments. |
 | Entra app (Graph backend) | `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Entra `TheOracle` app | App-only Graph: directory pull + Teams transcripts. Tenant `1caeb1c0-a087-4cb9-b046-a5e22404f971`. |
 | Azure Bot resource | `theoracle-popcre-teams-bot` | Azure subscription `37077c95-ea53-4a19-8380-f3f48f0cc75d`, resource group `rg-oracle-teams-bot` | Free `F0` Bot Service resource. Display name `The Oracle`, endpoint `https://oracle.designflow.app/api/teams/bot/messages`, `msaAppType=SingleTenant`, Teams channel enabled. |
 | Teams org app | Teams app id `17ccd7a1-b90b-428c-9966-33e7fb832923`; external id `850b2963-3583-4af9-bf18-84985ecbcf03` | Teams tenant app store, package generated from `apps/web/teams-app/oracle/manifest.template.json` | Organization/private-catalog app named `The Oracle`. Available to everyone; installed for Albert on 2026-06-09. |
@@ -459,6 +461,20 @@ The retrieval intent is different. "Who owns onboarding for the design team?" is
 
 Do not change because:
 Collapsing `training_enablement` into `people_org` makes procedural learning material compete with org charts, escalation paths, and ownership facts. Keep sensitive HR/personnel records — compensation, discipline, performance evaluation, and personal conflicts — out of this domain.
+
+### Claim revision is supersede-and-replace, not overwrite
+
+Looks like:
+If a pending claim is 80% correct, the admin/reviewer could simply edit `claims.summary` and approve it.
+
+Actually:
+Claim revision creates a replacement claim, copies the supporting evidence/domain/entity metadata, marks the original claim `superseded`, links `claim_metadata.superseded_by_claim_id`, and writes an append-only `claim_review_events` row with before/after state and reviewer note.
+
+Why:
+The original row is the AI's first interpretation of the evidence. Keeping it makes review quality auditable and gives future AI comparison tools a clean before/after pair to analyze.
+
+Do not change because:
+Overwriting claims in place destroys the evidence of what the model got wrong and weakens the provenance chain that makes Oracle answers explainable.
 
 ### Ineligible models are SELECTABLE (red checkbox), not disabled
 

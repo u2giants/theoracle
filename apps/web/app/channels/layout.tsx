@@ -36,6 +36,9 @@ export default async function ChannelsLayout({ children }: { children: React.Rea
             The Oracle
           </Link>
           <div className="flex items-center gap-4">
+            <Link href="/claims" className="text-sm text-muted-foreground hover:text-foreground">
+              Claims
+            </Link>
             {me.isAdmin ? (
               <Link href="/admin" className="text-sm text-muted-foreground hover:text-foreground">
                 ↗ Admin

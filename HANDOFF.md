@@ -6,9 +6,27 @@ Last updated: 2026-06-15. Delete this file once the remaining items below are cl
 
 ## What is open and needs finishing
 
+### 0a. 2026-06-15 local/pushed commits and review workflow
+
+Status:
+Partial. The `training_enablement` top-domain work was committed locally as `018c2d3 Add training enablement knowledge domain`. Claim-review/revise work was implemented and typechecked in this session, then requested for commit/push. Verify final GitHub state with `git status --short --branch` and `git log --oneline -3`.
+
+Done:
+- Added `training_enablement` domain, retrieval hints, boundary docs, and migration `packages/db/migrations/sql/67_training_enablement_domain.sql`.
+- Implemented claim-review workflow: `/admin/claims` shows top-domain chips and supports approve/reject/revise; `/claims` is the non-admin domain-review queue; `packages/db/migrations/sql/68_claim_review_workflow.sql` adds `claim_review_events` and `knowledge_domain_review_departments`.
+- Verified locally on 2026-06-15: `corepack pnpm --filter @oracle/ai verify:retrieval-plan-domain-boundaries`, `corepack pnpm --filter @oracle/web typecheck`, `corepack pnpm --filter @oracle/db typecheck`. Browser smoke reached `/claims`, compiled the route, and redirected to login; authenticated UI was not exercised because the in-app browser had no session.
+
+Next action:
+Run the hand-written migrations through the normal DB path before relying on `/claims` or claim revision in a deployed environment. Then redeploy Vercel so the new route/actions are live.
+
+Risks / watchouts:
+- The claim-review feature depends on both new tables from `68_claim_review_workflow.sql`; without the migration, the UI/actions will fail at runtime.
+- The seeded domain-review map is a conservative starting permission map. It controls review authorization only; it is not a retrieval signal.
+- Revision intentionally supersedes the original AI claim and creates a replacement claim; do not change it into in-place edits unless the audit/provenance model is redesigned.
+
 ### 0. Current repo/deploy state (2026-06-10/11)
 
-The working tree has two categories of uncommitted changes:
+The working tree has two categories of uncommitted changes from before the 2026-06-15 claim-review commit:
 
 1. Changes that were already deployed to Trigger.dev production as worker version `20260610.4` during the 2026-06-10 retrieval-backed live context session:
 
@@ -29,6 +47,11 @@ Deploy timeline this session: `20260610.1` (retrieval-backed worker), `20260610.
 - The previously masked lint violations in taxonomy proposal card, channel chat, document upload, chat route stale disables, and PostCSS config were fixed.
 
 Verification from 2026-06-11: `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm --filter @oracle/ai verify:r2`, `verify:retrieval-filter-parity`, `verify:retrieval-plan-domain-boundaries`, `verify:vertex-file-cache`, and engine verifies `r5`, `r5.5`, `r6`, `r7`, `r9`, `r11.1` all passed.
+
+Additional 2026-06-15 assessment of the older AI/worker diffs:
+- They appear to be correctness/hardening improvements: structured provider fallback on HTTP status, stricter evidence offsets, safer embedding batching, Qwen usage normalization, worker retry/idempotency hardening, taxonomy duplicate-proposal reduction, and live interjection locking/rate re-checks.
+- Package checks passed: `corepack pnpm --filter @oracle/ai typecheck`, `corepack pnpm --filter @oracle/workers typecheck`, `corepack pnpm --filter @oracle/engines typecheck`, and `corepack pnpm --filter @oracle/ai verify:retrieval-plan-domain-boundaries`.
+- They are **not proven non-breaking**. Several changes affect live worker retry semantics, Recall send handling, contradiction/lull interjection transaction ordering, and synthesis/taxonomy transaction boundaries. Treat them as promising but still requiring runtime review and intentional deploy sign-off.
 
 Do **not** assume the deployed worker, git history, and local working tree are aligned until these changes are committed/pushed and any needed Vercel/Trigger deployments are performed (commit/deploy only when Albert asks).
 

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { updateClaimStatus } from './_actions';
+import { reviseClaim, updateClaimStatus } from './_actions';
 
 type ClaimRow = {
   id: string;
@@ -17,6 +17,8 @@ type ClaimRow = {
   exact_quote: string | null;
   source_type: string | null;
   employee_name: string | null;
+  domain_ids: string[] | null;
+  domain_names: string[] | null;
 };
 
 const STATUS_TABS = [
@@ -60,7 +62,9 @@ export default async function AdminClaimsPage({
       c.created_at,
       ce.exact_quote,
       ce.source_type,
-      e.name AS employee_name
+      e.name AS employee_name,
+      COALESCE(d.domain_ids, ARRAY[]::text[]) AS domain_ids,
+      COALESCE(d.domain_names, ARRAY[]::text[]) AS domain_names
     FROM claims c
     LEFT JOIN LATERAL (
       SELECT exact_quote, source_type, asserted_by_employee_id
@@ -70,6 +74,14 @@ export default async function AdminClaimsPage({
       LIMIT 1
     ) ce ON true
     LEFT JOIN employees e ON e.id = ce.asserted_by_employee_id
+    LEFT JOIN LATERAL (
+      SELECT
+        array_agg(ktd.id ORDER BY ktd.display_order, ktd.name) AS domain_ids,
+        array_agg(ktd.name ORDER BY ktd.display_order, ktd.name) AS domain_names
+      FROM claim_top_domains ctd
+      JOIN knowledge_top_domains ktd ON ktd.id = ctd.top_domain_id
+      WHERE ctd.claim_id = c.id
+    ) d ON true
     ${whereClause}
     ORDER BY c.created_at DESC
   `);
@@ -123,6 +135,7 @@ export default async function AdminClaimsPage({
                     <th className="py-2 pr-4">Summary</th>
                     <th className="py-2 pr-4">Type</th>
                     <th className="py-2 pr-4">Status</th>
+                    <th className="py-2 pr-4">Domains</th>
                     <th className="py-2 pr-4">Impact</th>
                     <th className="py-2 pr-4">Confidence</th>
                     <th className="py-2 pr-4">Employee</th>
@@ -147,6 +160,23 @@ export default async function AdminClaimsPage({
                           {row.status.replace(/_/g, ' ')}
                         </span>
                       </td>
+                      <td className="py-3 pr-4 max-w-[14rem]">
+                        {row.domain_names && row.domain_names.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {row.domain_names.map((name, i) => (
+                              <span
+                                key={`${row.id}-${row.domain_ids?.[i] ?? name}`}
+                                className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                                title={row.domain_ids?.[i] ?? name}
+                              >
+                                {name}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
                       <td className="py-3 pr-4 text-center">{row.impact_score}</td>
                       <td className="py-3 pr-4 text-center">{row.confidence_score}</td>
                       <td className="py-3 pr-4 whitespace-nowrap">
@@ -166,7 +196,8 @@ export default async function AdminClaimsPage({
                       </td>
                       <td className="py-3">
                         {row.status === 'pending_review' && (
-                          <div className="flex gap-2">
+                          <div className="flex min-w-[18rem] flex-col gap-2">
+                            <div className="flex gap-2">
                             <form action={updateClaimStatus}>
                               <input type="hidden" name="id" value={row.id} />
                               <input type="hidden" name="status" value="approved" />
@@ -187,6 +218,71 @@ export default async function AdminClaimsPage({
                                 Reject
                               </button>
                             </form>
+                            </div>
+                            <details className="rounded border bg-background p-2">
+                              <summary className="cursor-pointer text-xs font-medium">
+                                Revise
+                              </summary>
+                              <form action={reviseClaim} className="mt-2 space-y-2">
+                                <input type="hidden" name="id" value={row.id} />
+                                <label className="block text-[11px] font-medium text-muted-foreground">
+                                  Claim type
+                                  <input
+                                    name="claimType"
+                                    defaultValue={row.claim_type}
+                                    className="mt-1 w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
+                                  />
+                                </label>
+                                <label className="block text-[11px] font-medium text-muted-foreground">
+                                  Corrected summary
+                                  <textarea
+                                    name="summary"
+                                    defaultValue={row.summary}
+                                    rows={3}
+                                    className="mt-1 w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
+                                  />
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <label className="block text-[11px] font-medium text-muted-foreground">
+                                    Impact
+                                    <input
+                                      name="impactScore"
+                                      type="number"
+                                      min="1"
+                                      max="10"
+                                      defaultValue={row.impact_score}
+                                      className="mt-1 w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
+                                    />
+                                  </label>
+                                  <label className="block text-[11px] font-medium text-muted-foreground">
+                                    Confidence
+                                    <input
+                                      name="confidenceScore"
+                                      type="number"
+                                      min="1"
+                                      max="10"
+                                      defaultValue={row.confidence_score}
+                                      className="mt-1 w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
+                                    />
+                                  </label>
+                                </div>
+                                <label className="block text-[11px] font-medium text-muted-foreground">
+                                  Reviewer note
+                                  <textarea
+                                    name="reviewerNote"
+                                    rows={2}
+                                    placeholder="What did the AI get wrong?"
+                                    className="mt-1 w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
+                                  />
+                                </label>
+                                <button
+                                  type="submit"
+                                  className="rounded bg-foreground px-2 py-1 text-xs text-background hover:bg-foreground/90"
+                                >
+                                  Save revised claim
+                                </button>
+                              </form>
+                            </details>
                           </div>
                         )}
                       </td>

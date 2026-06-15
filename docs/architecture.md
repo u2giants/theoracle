@@ -404,7 +404,8 @@ Cron: weekly (Mondays 06:00). Also admin-triggerable.
 
 Four server-component dashboards under `/admin/`:
 
-- `/admin/claims` — pending-review queue with lateral join to primary evidence and asserting employee. Status-filter tabs. Approve/Reject server actions (`_actions.ts`) update `claims.status` and `revalidatePath`.
+- `/admin/claims` — pending-review queue with lateral join to primary evidence, asserting employee, and `claim_top_domains` domain chips. Approve/Reject/Revise server actions (`_actions.ts`) are audited in `claim_review_events`. Revise creates a replacement claim, copies evidence/domain/entity metadata, marks the original `superseded`, and links `claim_metadata.superseded_by_claim_id`.
+- `/claims` — non-admin domain-review queue. A user can review a claim when they belong to a department mapped to at least one of the claim's top domains through `knowledge_domain_review_departments`; admins can review all claims.
 - `/admin/gaps` — Drizzle query joined with employees. Priority + status badges. Resolve/Stale server actions.
 - `/admin/contradictions` — raw SQL via the `contradictions` table joined with both claim summaries (mirrors `contradictions_with_claim_summaries` view). Card-per-row layout. Confirm (possible→open) / Dismiss server actions.
 - `/admin/brain` — `brain_sections` LEFT JOIN `brain_section_versions` on `current_version_id`. Scrollable markdown preview, review-status badge. Read-only; re-synthesis trigger is post-retrofit.
@@ -634,6 +635,8 @@ The legacy `claim_domains` table and `knowledge_domain` Postgres enum are intent
 `operations_systems` is the dedicated domain for operational business-system workflows: ERP, CRM, PLM, spreadsheet-to-system migration, source-of-truth rules, field mapping, validation, and integration handoffs. The initial anchor workflow is moving OrderList, MasterData, and TaskList data from Google Sheets into Designflow PLM. It neighbors `it_systems`, `product_development`, `production_lifecycle`, `customer_ops`, and `finance_pricing`, but should not be used for generic account troubleshooting or broad IT administration unless the query is about business data flow.
 
 `training_enablement` is the domain for teaching employees how to do their jobs: onboarding plans, role-specific training checklists, SOP learning paths, shadowing, cross-training, skill checks, and refresher training after workflow changes. It neighbors `people_org`, `it_systems`, `operations_systems`, `product_development`, `production_lifecycle`, and `customer_ops`, but is not an HR/personnel-record domain. Questions about who owns a workflow or who reports to whom stay in `people_org`; questions about compensation, discipline, performance evaluation, and personal conflicts should not route here.
+
+Knowledge domains are now associated with departments for claim review through `knowledge_domain_review_departments`. This is an authorization map, not a retrieval signal: retrieval still uses `claim_top_domains`, entity tags, metadata, and employee department hints. Department members can approve, reject, or revise claims in mapped domains without full admin access; the action boundary re-checks the claim's domains before mutating anything.
 
 ### Candidate-before-claim staging (R4, landed)
 
