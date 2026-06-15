@@ -105,6 +105,13 @@ async function canReviewClaim(employeeId: string, isAdmin: boolean, claimId: str
         ON ed.department_id = kdrd.department_id
       WHERE ctd.claim_id = ${claimId}::uuid
         AND ed.employee_id = ${employeeId}::uuid
+      UNION ALL
+      SELECT 1
+      FROM gaps g
+      WHERE g.gap_type = 'claim_review_question'
+        AND g.target_employee_id = ${employeeId}::uuid
+        AND g.status IN ('open', 'queued', 'asked')
+        AND g.related_claim_ids ? ${claimId}
     ) AS allowed
   `);
   const row = [...result][0] as { allowed?: boolean } | undefined;

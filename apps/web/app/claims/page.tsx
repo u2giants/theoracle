@@ -23,6 +23,10 @@ type ClaimRow = {
   domain_names: string[] | null;
   revision_reviewer_id: string | null;
   revision_reviewer_name: string | null;
+  assigned_gap_id: string | null;
+  assigned_question: string | null;
+  assigned_status: string | null;
+  assigned_at: string | null;
 };
 
 type EmployeeOption = {
@@ -38,6 +42,12 @@ const STATUS_TABS = [
   { label: 'All', value: 'all' },
 ] as const;
 
+const VIEW_TABS = [
+  { label: 'Assigned to me', value: 'assigned' },
+  { label: 'My review domains', value: 'domains' },
+  { label: 'All I can review', value: 'all' },
+] as const;
+
 function statusBadge(status: string) {
   const map: Record<string, string> = {
     pending_review: 'bg-yellow-100 text-yellow-800',
@@ -51,11 +61,12 @@ function statusBadge(status: string) {
 export default async function ClaimsReviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; view?: string }>;
 }) {
   const me = await requireEmployee();
-  const { status } = await searchParams;
+  const { status, view } = await searchParams;
   const activeStatus = status ?? 'pending_review';
+  const activeView = VIEW_TABS.some((tab) => tab.value === view) ? view : 'assigned';
   const db = getDirectDb();
 
   const statusWhere =
@@ -75,6 +86,37 @@ export default async function ClaimsReviewPage({
           AND ed.employee_id = ${me.id}::uuid
       )
     `;
+  const assignedWhere = sql`
+    EXISTS (
+      SELECT 1
+      FROM gaps g_perm
+      WHERE g_perm.gap_type = 'claim_review_question'
+        AND g_perm.target_employee_id = ${me.id}::uuid
+        AND g_perm.status IN ('open', 'queued', 'asked')
+        AND g_perm.related_claim_ids ? c.id::text
+    )
+  `;
+  const domainWhere = me.isAdmin
+    ? sql`true`
+    : sql`
+      EXISTS (
+        SELECT 1
+        FROM claim_top_domains ctd_perm
+        JOIN knowledge_domain_review_departments kdrd
+          ON kdrd.top_domain_id = ctd_perm.top_domain_id
+         AND kdrd.can_review_claims = true
+        JOIN employee_departments ed
+          ON ed.department_id = kdrd.department_id
+        WHERE ctd_perm.claim_id = c.id
+          AND ed.employee_id = ${me.id}::uuid
+      )
+    `;
+  const accessWhere =
+    activeView === 'assigned'
+      ? sql`AND ${assignedWhere}`
+      : activeView === 'domains'
+        ? sql`AND ${domainWhere}`
+        : sql`AND (${assignedWhere} OR ${domainWhere})`;
 
   const result = await db.execute(sql`
     SELECT
@@ -90,7 +132,11 @@ export default async function ClaimsReviewPage({
       COALESCE(d.domain_ids, ARRAY[]::text[]) AS domain_ids,
       COALESCE(d.domain_names, ARRAY[]::text[]) AS domain_names,
       rev.reviewed_by_employee_id AS revision_reviewer_id,
-      rev.reviewer_name AS revision_reviewer_name
+      rev.reviewer_name AS revision_reviewer_name,
+      assigned.id AS assigned_gap_id,
+      assigned.question_to_ask AS assigned_question,
+      assigned.status AS assigned_status,
+      assigned.created_at AS assigned_at
     FROM claims c
     LEFT JOIN LATERAL (
       SELECT exact_quote, asserted_by_employee_id
@@ -117,10 +163,20 @@ export default async function ClaimsReviewPage({
       ORDER BY cre.created_at DESC
       LIMIT 1
     ) rev ON true
+    LEFT JOIN LATERAL (
+      SELECT g.id, g.question_to_ask, g.status, g.created_at
+      FROM gaps g
+      WHERE g.gap_type = 'claim_review_question'
+        AND g.target_employee_id = ${me.id}::uuid
+        AND g.status IN ('open', 'queued', 'asked')
+        AND g.related_claim_ids ? c.id::text
+      ORDER BY g.created_at DESC
+      LIMIT 1
+    ) assigned ON true
     WHERE true
     ${statusWhere}
-    ${reviewerWhere}
-    ORDER BY c.created_at DESC
+    ${accessWhere}
+    ORDER BY assigned.created_at DESC NULLS LAST, c.created_at DESC
   `);
   const employeesResult = await db.execute(sql`
     SELECT id, name, role
@@ -159,10 +215,29 @@ export default async function ClaimsReviewPage({
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Claims to review</h1>
           <p className="text-sm text-muted-foreground">
-            Domain reviewers can approve, reject, or revise claims for their assigned
-            knowledge areas.
+            Direct assignments are shown first. Domain-review queues are available in
+            the tabs below.
           </p>
         </header>
+
+        <div className="flex flex-wrap gap-2 text-sm">
+          {VIEW_TABS.map((tab) => {
+            const isActive = tab.value === activeView;
+            return (
+              <Link
+                key={tab.value}
+                href={`/claims?view=${tab.value}&status=${activeStatus}`}
+                className={`rounded px-3 py-1 ${
+                  isActive
+                    ? 'bg-foreground text-background'
+                    : 'bg-muted text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {tab.label}
+              </Link>
+            );
+          })}
+        </div>
 
         <div className="flex gap-2 text-sm">
           {STATUS_TABS.map((tab) => {
@@ -170,7 +245,7 @@ export default async function ClaimsReviewPage({
             return (
               <Link
                 key={tab.value}
-                href={`/claims?status=${tab.value}`}
+                href={`/claims?view=${activeView}&status=${tab.value}`}
                 className={`rounded px-3 py-1 ${
                   isActive
                     ? 'bg-foreground text-background'
@@ -190,7 +265,9 @@ export default async function ClaimsReviewPage({
           <CardContent>
             {rows.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
-                No claims are currently assigned to your review domains.
+                {activeView === 'assigned'
+                  ? 'No claims have been assigned directly to you.'
+                  : 'No claims are currently available in this review queue.'}
               </p>
             ) : (
               <div className="overflow-x-auto">
@@ -209,14 +286,31 @@ export default async function ClaimsReviewPage({
                     {rows.map((row) => {
                       const wasCorrected = row.revision_reviewer_id !== null;
                       const correctedByMe = row.revision_reviewer_id === me.id;
+                      const isAssignedToMe = row.assigned_gap_id !== null;
                       return (
                       <tr
                         key={row.id}
                         className={`border-b last:border-0 ${
-                          wasCorrected ? 'border-l-4 border-l-sky-500 bg-sky-50/60' : ''
+                          isAssignedToMe
+                            ? 'border-l-4 border-l-amber-500 bg-amber-50/70'
+                            : wasCorrected
+                              ? 'border-l-4 border-l-sky-500 bg-sky-50/60'
+                              : ''
                         }`}
                       >
                         <td className="max-w-[28rem] whitespace-pre-wrap py-3 pr-4 align-top">
+                          {isAssignedToMe && (
+                            <div className="mb-2 space-y-1">
+                              <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">
+                                Assigned to you
+                              </span>
+                              {row.assigned_question && (
+                                <div className="max-w-[28rem] whitespace-pre-wrap rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-950">
+                                  {row.assigned_question}
+                                </div>
+                              )}
+                            </div>
+                          )}
                           {wasCorrected && (
                             <div className="mb-2">
                               <span className="rounded bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800">
