@@ -221,7 +221,7 @@ export default async function AdminAIPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-4 text-xs">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-5 text-xs">
         <Link href="/admin/ai/runs" className="rounded border bg-card p-3 hover:bg-muted">
           <div className="font-semibold">Model runs →</div>
           <div className="text-muted-foreground">Paginated view of every AI call.</div>
@@ -237,6 +237,10 @@ export default async function AdminAIPage() {
         <Link href="/admin/ai/evals" className="rounded border bg-card p-3 hover:bg-muted">
           <div className="font-semibold">Evals (placeholder) →</div>
           <div className="text-muted-foreground">Eval results will land here.</div>
+        </Link>
+        <Link href="/admin/ai/claim-lessons" className="rounded border bg-card p-3 hover:bg-muted">
+          <div className="font-semibold">Claim lessons →</div>
+          <div className="text-muted-foreground">Approved revisions that steer future extraction.</div>
         </Link>
       </div>
 

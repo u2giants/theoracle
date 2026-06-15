@@ -15,6 +15,12 @@ export {
   type ExtractionClaim,
   type FormattedMessage,
 } from './prompts/extraction-system';
+export {
+  buildClaimCorrectionLessonPromptBlock,
+  loadClaimCorrectionLessonPack,
+  type ClaimCorrectionLessonPack,
+  type ClaimCorrectionLessonRow,
+} from './prompts/claim-correction-lessons';
 // OpenRouter has been removed from the codebase per R-providers / R11.0.
 // Every production model call goes through OracleAIClient with direct
 // Anthropic / Vertex / OpenAI adapters. See DECISIONS.md D6, D9.

@@ -476,6 +476,20 @@ The original row is the AI's first interpretation of the evidence. Keeping it ma
 Do not change because:
 Overwriting claims in place destroys the evidence of what the model got wrong and weakens the provenance chain that makes Oracle answers explainable.
 
+### Claim corrections become prompt lessons, not training or evidence
+
+Looks like:
+Reviewer notes and revised claims should make the model "learn" automatically or become Brain evidence.
+
+Actually:
+Approved replacement claims feed a semi-stable extraction prompt block through `packages/ai/src/prompts/claim-correction-lessons.ts`. The sync extraction worker, batch-submit worker, and document-ingestion worker include that block in future extraction calls; `/admin/ai/claim-lessons` shows the exact block.
+
+Why:
+The project needs an immediate auditable feedback loop from human corrections without pretending to fine-tune the model or treating review commentary as source evidence.
+
+Do not change because:
+Reviewer notes are not evidence. Keep correction lessons as prompt guidance only; the candidate-before-claim validators still decide whether new model output can become a claim.
+
 ### Ineligible models are SELECTABLE (red checkbox), not disabled
 
 Looks like:

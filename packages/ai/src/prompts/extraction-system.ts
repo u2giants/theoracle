@@ -1,7 +1,12 @@
 // Claim extraction system prompt — spec Part 9.4, 9.5 + R5.5 + R12-prompt.
 // Used by the Trigger.dev claim-extraction worker and the document-ingestion worker.
 //
-// Version 2.0.2 (this revision) adds:
+// Version 2.1.0 (this revision) adds:
+//   - semi-stable reviewer correction lesson blocks, derived from approved
+//     claim revisions, to steer future extraction toward human-approved style,
+//     scope, terminology, and domain decisions.
+//
+// Version 2.0.2 added:
 //   - document extraction source-ID guidance: sourceMessageId can be a
 //     document chunk ID, and document evidence must quote from one chunk.
 //
@@ -23,7 +28,7 @@
 import { z } from 'zod';
 import { KNOWLEDGE_DOMAINS, ENTITY_TYPES } from '@oracle/shared';
 
-export const EXTRACTION_PROMPT_VERSION = '2.0.2';
+export const EXTRACTION_PROMPT_VERSION = '2.1.0';
 
 // ---------------------------------------------------------------------------
 // Claim type taxonomy (spec 9.4 + Part 6).

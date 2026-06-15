@@ -65,6 +65,7 @@ import {
   EXTRACTION_SYSTEM_PROMPT,
   EXTRACTION_PROMPT_VERSION,
   ExtractionOutputSchema,
+  loadClaimCorrectionLessonPack,
   type ExtractionOutput,
   type OracleModelRoute,
   type OraclePromptPlan,
@@ -487,6 +488,7 @@ async function processDocument(
   const activeTopDomainIds = await loadActiveTopDomainIds(db);
   const topDomainNameMap = await loadTopDomainNameMap(db);
   const entityRegistry = await loadEntityRegistry(db);
+  const correctionLessons = await loadClaimCorrectionLessonPack(db);
 
   // 2. Download.
   const { data: blob, error: downloadError } = await serviceSupabase.storage
@@ -664,6 +666,17 @@ async function processDocument(
         content: EXTRACTION_SYSTEM_PROMPT + documentNote,
         reasonIncluded: 'extraction prompt v' + EXTRACTION_PROMPT_VERSION + ' (document mode)',
       }),
+      ...(correctionLessons.promptBlock
+        ? [
+            makeBlock({
+              id: 'reviewer-correction-lessons',
+              label: 'Approved reviewer correction lessons',
+              kind: 'semi_stable_domain_context' as const,
+              content: correctionLessons.promptBlock,
+              reasonIncluded: 'approved claim revisions teach extraction corrections',
+            }),
+          ]
+        : []),
       makeBlock({
         id: 'document-text',
         label: 'Document chunks',

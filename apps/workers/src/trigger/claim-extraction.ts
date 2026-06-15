@@ -52,6 +52,7 @@ import {
   EXTRACTION_PROMPT_VERSION,
   ExtractionOutputSchema,
   formatConversationSegment,
+  loadClaimCorrectionLessonPack,
   type FormattedMessage,
   type ExtractionOutput,
 } from '@oracle/ai';
@@ -188,6 +189,7 @@ export async function runClaimExtractionOnce(
       const route = await resolveExtractionRoute(db);
       const activeTopDomainIds = await loadActiveTopDomainIds(db);
       const entityRegistry = await loadEntityRegistry(db);
+      const correctionLessons = await loadClaimCorrectionLessonPack(db);
 
       // 2. Pull pending user messages.
       const pendingMessages = await db
@@ -233,6 +235,7 @@ export async function runClaimExtractionOnce(
             route,
             activeTopDomainIds,
             entityRegistry,
+            correctionLessonsPromptBlock: correctionLessons.promptBlock,
             jobRunId: jobRun.id,
             segment,
           });
@@ -301,12 +304,22 @@ interface ProcessSegmentArgs {
   route: OracleModelRoute;
   activeTopDomainIds: string[];
   entityRegistry: RegistryEntity[];
+  correctionLessonsPromptBlock: string;
   jobRunId: string;
   segment: FormattedMessage[];
 }
 
 async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome> {
-  const { db, client, route, activeTopDomainIds, entityRegistry, jobRunId, segment } = args;
+  const {
+    db,
+    client,
+    route,
+    activeTopDomainIds,
+    entityRegistry,
+    correctionLessonsPromptBlock,
+    jobRunId,
+    segment,
+  } = args;
   const segmentIds = segment.map((m) => m.id);
   const userMessages = segment.filter((m) => m.role === 'user');
 
@@ -338,6 +351,17 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
       content: EXTRACTION_SYSTEM_PROMPT,
       reasonIncluded: 'extraction prompt v' + EXTRACTION_PROMPT_VERSION,
     }),
+    ...(correctionLessonsPromptBlock
+      ? [
+          makeBlock({
+            id: 'reviewer-correction-lessons',
+            label: 'Approved reviewer correction lessons',
+            kind: 'semi_stable_domain_context' as const,
+            content: correctionLessonsPromptBlock,
+            reasonIncluded: 'approved claim revisions teach extraction corrections',
+          }),
+        ]
+      : []),
     makeBlock({
       id: 'segment',
       label: 'Conversation segment to extract from',
