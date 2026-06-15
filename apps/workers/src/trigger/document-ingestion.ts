@@ -111,34 +111,61 @@ function buildOracleClient(): OracleAIClient {
 // Text helpers
 // ─────────────────────────────────────────────────────────────────────────
 
-function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP): string[] {
-  if (text.length <= chunkSize) return [text];
+interface TextChunk {
+  text: string;
+  /** Inclusive start offset into the source rawText. */
+  start: number;
+  /** Exclusive end offset into the source rawText. */
+  end: number;
+}
+
+type InsertedDocumentChunk = TextChunk & { id: string };
+
+function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP): TextChunk[] {
+  if (text.length <= chunkSize) return [{ text, start: 0, end: text.length }];
   const paragraphs = text.split(/\n{2,}/);
   if (paragraphs.length > 1) {
-    const chunks: string[] = [];
+    const chunks: TextChunk[] = [];
     let current = '';
+    let currentStart = 0;
+    let searchOffset = 0;
     for (const paragraph of paragraphs) {
-      const next = current ? `${current}\n\n${paragraph}` : paragraph;
+      const paragraphStart = text.indexOf(paragraph, searchOffset);
+      const safeParagraphStart = paragraphStart >= 0 ? paragraphStart : searchOffset;
+      searchOffset = safeParagraphStart + paragraph.length;
+      const next = current ? text.slice(currentStart, safeParagraphStart + paragraph.length) : paragraph;
       if (next.length <= chunkSize) {
         current = next;
+        currentStart = current ? currentStart : safeParagraphStart;
         continue;
       }
-      if (current.trim()) chunks.push(current);
+      if (current.trim()) {
+        chunks.push({ text: current, start: currentStart, end: currentStart + current.length });
+      }
       if (paragraph.length > chunkSize) {
-        chunks.push(...chunkText(paragraph, chunkSize, overlap));
+        chunks.push(
+          ...chunkText(paragraph, chunkSize, overlap).map((chunk) => ({
+            text: chunk.text,
+            start: safeParagraphStart + chunk.start,
+            end: safeParagraphStart + chunk.end,
+          })),
+        );
         current = '';
       } else {
         current = paragraph;
+        currentStart = safeParagraphStart;
       }
     }
-    if (current.trim()) chunks.push(current);
+    if (current.trim()) {
+      chunks.push({ text: current, start: currentStart, end: currentStart + current.length });
+    }
     return chunks;
   }
-  const chunks: string[] = [];
+  const chunks: TextChunk[] = [];
   let start = 0;
   while (start < text.length) {
     const end = Math.min(start + chunkSize, text.length);
-    chunks.push(text.slice(start, end));
+    chunks.push({ text: text.slice(start, end), start, end });
     start += chunkSize - overlap;
     if (start >= text.length) break;
   }
@@ -155,12 +182,12 @@ function formatDocumentChunksForExtraction(chunks: Array<{ id: string; text: str
   return parts.join('\n');
 }
 
-function buildDocumentChunkWindows(
-  chunks: Array<{ id: string; text: string }>,
+function buildDocumentChunkWindows<TChunk extends { id: string; text: string }>(
+  chunks: TChunk[],
   maxChars = MAX_DOCUMENT_TEXT_CHARS,
-): Array<{ chunks: Array<{ id: string; text: string }>; content: string }> {
-  const windows: Array<{ chunks: Array<{ id: string; text: string }>; content: string }> = [];
-  let current: Array<{ id: string; text: string }> = [];
+): Array<{ chunks: TChunk[]; content: string }> {
+  const windows: Array<{ chunks: TChunk[]; content: string }> = [];
+  let current: TChunk[] = [];
 
   for (const chunk of chunks) {
     const next = [...current, chunk];
@@ -511,9 +538,15 @@ async function processDocument(
           processingError: `Unsupported file type: ${doc.fileType}`,
         })
         .where(eq(documents.id, documentId));
+      if (fileBackedCachePath) {
+        await unlink(fileBackedCachePath).catch(() => undefined);
+      }
       return outcome;
     }
   } catch (parseErr) {
+    if (fileBackedCachePath) {
+      await unlink(fileBackedCachePath).catch(() => undefined);
+    }
     throw new Error(
       `File parse failed for ${doc.fileName}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
     );
@@ -524,6 +557,9 @@ async function processDocument(
       .update(documents)
       .set({ status: 'complete', processedAt: new Date(), processingError: 'No text extracted' })
       .where(eq(documents.id, documentId));
+    if (fileBackedCachePath) {
+      await unlink(fileBackedCachePath).catch(() => undefined);
+    }
     return outcome;
   }
 
@@ -531,25 +567,25 @@ async function processDocument(
   const textChunks = chunkText(rawText);
   let chunkVectors: (number[] | null)[] = [];
   try {
-    const { vectors } = await embedMany(textChunks);
+    const { vectors } = await embedMany(textChunks.map((c) => c.text));
     chunkVectors = vectors;
   } catch (embedErr) {
     console.warn('[document-ingestion] embed failed; inserting chunks without vectors', embedErr);
     chunkVectors = textChunks.map(() => null);
   }
 
-  const insertedChunkIds: Array<{ id: string; text: string }> = [];
+  const insertedChunkIds: InsertedDocumentChunk[] = [];
   for (let i = 0; i < textChunks.length; i++) {
-    const text = textChunks[i]!;
-    const contentHash = createHash('sha256').update(text).digest('hex');
+    const chunkTextWindow = textChunks[i]!;
+    const contentHash = createHash('sha256').update(chunkTextWindow.text).digest('hex');
     try {
       const [chunk] = await db
         .insert(documentChunks)
         .values({
           documentId,
           chunkIndex: i,
-          rawText: text,
-          tokenCount: Math.ceil(text.length / 4),
+          rawText: chunkTextWindow.text,
+          tokenCount: Math.ceil(chunkTextWindow.text.length / 4),
           contentHash,
           embedding: chunkVectors[i] ?? null,
           metadataJson: { fileType: doc.fileType, fileName: doc.fileName },
@@ -558,7 +594,7 @@ async function processDocument(
         .returning({ id: documentChunks.id });
       if (chunk) {
         outcome.chunksInserted += 1;
-        insertedChunkIds.push({ id: chunk.id, text });
+        insertedChunkIds.push({ id: chunk.id, ...chunkTextWindow });
       } else {
         const [existingChunk] = await db
           .select({ id: documentChunks.id })
@@ -571,7 +607,7 @@ async function processDocument(
           )
           .limit(1);
         if (existingChunk) {
-          insertedChunkIds.push({ id: existingChunk.id, text });
+          insertedChunkIds.push({ id: existingChunk.id, ...chunkTextWindow });
         }
       }
     } catch (chunkErr) {
@@ -584,6 +620,9 @@ async function processDocument(
       .update(documents)
       .set({ status: 'complete', processedAt: new Date() })
       .where(eq(documents.id, documentId));
+    if (fileBackedCachePath) {
+      await unlink(fileBackedCachePath).catch(() => undefined);
+    }
     return outcome;
   }
 
@@ -794,13 +833,13 @@ async function processDocument(
     //    against the chunk independently.
     if (modelOutput) {
       for (const extracted of modelOutput.claims) {
-        // Pick the chunk whose text contains the quote. If none does, the
-        // quote validator will reject it as 'failed' anyway.
-        const matchingChunk = windowChunks.find((c) =>
-          c.text.includes(extracted.evidence.exactQuote),
-        );
         const sourceIdChunk = windowChunks.find((c) => c.id === extracted.evidence.sourceMessageId);
-        const chunkForEvidence = matchingChunk ?? sourceIdChunk ?? windowChunks[0]!;
+        const chunkForEvidence = pickEvidenceChunk(
+          rawText,
+          extracted.evidence.exactQuote,
+          windowChunks,
+          sourceIdChunk,
+        );
 
         const proposedTopDomainIds = mapLegacyDomainsToTopDomains(
           extracted.domains as KnowledgeDomain[],
@@ -1215,6 +1254,47 @@ function buildContextPackInsert(plan: OraclePromptPlan) {
     includedGapIds: plan.metadata.includedGapIds ?? null,
     includedContradictionIds: plan.metadata.includedContradictionIds ?? null,
   };
+}
+
+/**
+ * Choose the document chunk to attach as the evidence pointer for a quote.
+ *
+ * Searches the full rawText first, then maps the match offset into the current
+ * extraction window. This catches quotes that straddle chunk-overlap boundaries
+ * better than checking each chunk's text independently.
+ */
+function pickEvidenceChunk<TChunk extends InsertedDocumentChunk>(
+  rawText: string,
+  exactQuote: string,
+  chunks: TChunk[],
+  sourceIdFallback?: TChunk,
+): TChunk {
+  const fallback = sourceIdFallback ?? chunks[0]!;
+  if (!exactQuote) return fallback;
+
+  let matchOffset = rawText.indexOf(exactQuote);
+  if (matchOffset < 0) {
+    const collapsedRaw = rawText.replace(/\s+/g, ' ');
+    const collapsedQuote = exactQuote.replace(/\s+/g, ' ').trim();
+    const collapsedIdx = collapsedQuote ? collapsedRaw.indexOf(collapsedQuote) : -1;
+    if (collapsedIdx < 0) return fallback;
+    let consumed = 0;
+    for (let i = 0; i < rawText.length; i++) {
+      if (consumed >= collapsedIdx) {
+        matchOffset = i;
+        break;
+      }
+      if (/\s/.test(rawText[i]!)) {
+        if (i === 0 || !/\s/.test(rawText[i - 1]!)) consumed += 1;
+      } else {
+        consumed += 1;
+      }
+    }
+    if (matchOffset < 0) return fallback;
+  }
+
+  const covering = chunks.find((c) => matchOffset >= c.start && matchOffset < c.end);
+  return covering ?? fallback;
 }
 
 async function materializeVertexCacheTempFile(buffer: Buffer, fileName: string): Promise<string> {

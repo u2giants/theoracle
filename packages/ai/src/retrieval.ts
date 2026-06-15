@@ -454,7 +454,11 @@ async function _searchFallbackTsvector(
     claimType: r.claim_type,
     impactScore: r.impact_score,
     confidenceScore: r.confidence_score,
-    distance: 1 - r.ts_score, // approximate: lower ts_score → higher distance
+    // `distance` is PATH-DEPENDENT and must NOT be cross-thresholded against
+    // the hybrid path: there it is cosine vec_dist, here it is an approximate
+    // 1 - ts_score (clamped to >= 0, since ts_rank can exceed 1 and would
+    // otherwise yield a negative distance). Lower ts_score → higher distance.
+    distance: Math.max(0, 1 - r.ts_score),
   }));
 }
 

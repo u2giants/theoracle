@@ -1,9 +1,10 @@
 'use server';
 
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { requireEmployee } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
+import { buildRetrievalPlanFromQuery } from '@oracle/ai';
 import {
   claimEntities,
   claimEvidence,
@@ -11,6 +12,9 @@ import {
   claimReviewEvents,
   claims,
   claimTopDomains,
+  employees,
+  gaps,
+  knowledgeTopDomains,
 } from '@oracle/db/schema';
 
 type ReviewStatus = 'approved' | 'rejected';
@@ -20,6 +24,66 @@ function intFromForm(formData: FormData, key: string, fallback: number): number 
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, Math.min(10, parsed));
+}
+
+function buildAutoRevisionNote(input: {
+  beforeSummary: string;
+  afterSummary: string;
+  beforeClaimType: string;
+  afterClaimType: string;
+  beforeImpact: number;
+  afterImpact: number;
+  beforeConfidence: number;
+  afterConfidence: number;
+  beforeDomains: string[];
+  afterDomains: string[];
+}): string {
+  const changes: string[] = [];
+  if (input.beforeSummary !== input.afterSummary) {
+    changes.push(`summary changed from "${input.beforeSummary}" to "${input.afterSummary}"`);
+  }
+  if (input.beforeClaimType !== input.afterClaimType) {
+    changes.push(`claim type changed from ${input.beforeClaimType} to ${input.afterClaimType}`);
+  }
+  if (input.beforeImpact !== input.afterImpact) {
+    changes.push(`impact changed from ${input.beforeImpact} to ${input.afterImpact}`);
+  }
+  if (input.beforeConfidence !== input.afterConfidence) {
+    changes.push(`confidence changed from ${input.beforeConfidence} to ${input.afterConfidence}`);
+  }
+  const beforeDomains = input.beforeDomains.join(', ') || '(none)';
+  const afterDomains = input.afterDomains.join(', ') || '(none)';
+  if (beforeDomains !== afterDomains) {
+    changes.push(`domains changed from ${beforeDomains} to ${afterDomains}`);
+  }
+  return changes.length > 0
+    ? `Reviewer revised the AI claim: ${changes.join('; ')}.`
+    : 'Reviewer resubmitted the claim without changing the reviewed fields.';
+}
+
+async function recalculateClaimDomainIds(input: {
+  summary: string;
+  claimType: string;
+  fallbackDomainIds: string[];
+}): Promise<{ domainIds: string[]; method: 'retrieval_plan_heuristic' | 'fallback_original_domains' }> {
+  const db = getDirectDb();
+  const plan = buildRetrievalPlanFromQuery(`${input.claimType}\n${input.summary}`);
+  const inferredDomainIds = plan.topDomainHints;
+  if (inferredDomainIds.length === 0) {
+    return { domainIds: input.fallbackDomainIds, method: 'fallback_original_domains' };
+  }
+
+  const validDomains = await db
+    .select({ id: knowledgeTopDomains.id })
+    .from(knowledgeTopDomains)
+    .where(inArray(knowledgeTopDomains.id, inferredDomainIds));
+  const validDomainIds = inferredDomainIds.filter((id) =>
+    validDomains.some((domain) => domain.id === id),
+  );
+
+  return validDomainIds.length > 0
+    ? { domainIds: validDomainIds, method: 'retrieval_plan_heuristic' }
+    : { domainIds: input.fallbackDomainIds, method: 'fallback_original_domains' };
 }
 
 async function canReviewClaim(employeeId: string, isAdmin: boolean, claimId: string): Promise<boolean> {
@@ -70,6 +134,7 @@ async function claimSnapshot(claimId: string) {
 function refreshClaimPages() {
   revalidatePath('/admin/claims');
   revalidatePath('/claims');
+  revalidatePath('/admin/gaps');
 }
 
 export async function updateClaimStatus(formData: FormData) {
@@ -103,7 +168,7 @@ export async function reviseClaim(formData: FormData) {
   const id = String(formData.get('id') ?? '');
   const summary = String(formData.get('summary') ?? '').trim();
   const claimType = String(formData.get('claimType') ?? '').trim();
-  const reviewerNote = String(formData.get('reviewerNote') ?? '').trim();
+  const reviewerNoteInput = String(formData.get('reviewerNote') ?? '').trim();
   if (!id || !summary || !claimType) return;
 
   const me = await requireClaimReviewer(id);
@@ -111,6 +176,29 @@ export async function reviseClaim(formData: FormData) {
   const db = getDirectDb();
   const impactScore = intFromForm(formData, 'impactScore', before.claim.impactScore);
   const confidenceScore = intFromForm(formData, 'confidenceScore', before.claim.confidenceScore);
+  const domainRecalculation = await recalculateClaimDomainIds({
+    summary,
+    claimType,
+    fallbackDomainIds: before.topDomainIds,
+  });
+  const validDomainIds = domainRecalculation.domainIds;
+  if (validDomainIds.length === 0) {
+    throw new Error('The system could not infer a knowledge domain for this revised claim.');
+  }
+  const reviewerNote =
+    reviewerNoteInput ||
+    buildAutoRevisionNote({
+      beforeSummary: before.claim.summary,
+      afterSummary: summary,
+      beforeClaimType: before.claim.claimType,
+      afterClaimType: claimType,
+      beforeImpact: before.claim.impactScore,
+      afterImpact: impactScore,
+      beforeConfidence: before.claim.confidenceScore,
+      afterConfidence: confidenceScore,
+      beforeDomains: before.topDomainIds,
+      afterDomains: validDomainIds,
+    });
 
   await db.transaction(async (tx) => {
     const [replacement] = await tx
@@ -127,17 +215,14 @@ export async function reviseClaim(formData: FormData) {
     if (!replacement) throw new Error('Replacement claim insert returned no row.');
     const replacementClaimId = replacement.id;
 
-    const domains = await tx.select().from(claimTopDomains).where(eq(claimTopDomains.claimId, id));
-    if (domains.length > 0) {
-      await tx.insert(claimTopDomains).values(
-        domains.map((d) => ({
+    await tx.insert(claimTopDomains).values(
+      validDomainIds.map((topDomainId) => ({
           claimId: replacementClaimId,
-          topDomainId: d.topDomainId,
-          assignmentConfidence: d.assignmentConfidence,
+          topDomainId,
+          assignmentConfidence: '1',
           assignmentReason: 'manual',
-        })),
-      );
-    }
+      })),
+    );
 
     const entities = await tx.select().from(claimEntities).where(eq(claimEntities.claimId, id));
     if (entities.length > 0) {
@@ -181,16 +266,6 @@ export async function reviseClaim(formData: FormData) {
       );
     }
 
-    if (reviewerNote) {
-      await tx.insert(claimEvidence).values({
-        claimId: replacementClaimId,
-        sourceType: 'manual_admin',
-        createdByEmployeeId: me.id,
-        exactQuote: reviewerNote,
-        confidence: 100,
-      });
-    }
-
     await tx.update(claims).set({ status: 'superseded' }).where(eq(claims.id, id));
 
     await tx
@@ -224,9 +299,68 @@ export async function reviseClaim(formData: FormData) {
           confidenceScore,
           status: 'pending_review',
         },
-        topDomainIds: domains.map((d) => d.topDomainId),
+        topDomainIds: validDomainIds,
       },
-      aiComparisonJson: null,
+      aiComparisonJson: {
+        originalSummary: before.claim.summary,
+        revisedSummary: summary,
+        originalTopDomainIds: before.topDomainIds,
+        revisedTopDomainIds: validDomainIds,
+        domainRecalculationMethod: domainRecalculation.method,
+        reviewerNoteWasGenerated: !reviewerNoteInput,
+      },
+    });
+  });
+
+  refreshClaimPages();
+}
+
+export async function assignClaimQuestion(formData: FormData) {
+  const claimId = String(formData.get('claimId') ?? '').trim();
+  const targetEmployeeId = String(formData.get('targetEmployeeId') ?? '').trim();
+  const questionInput = String(formData.get('question') ?? '').trim();
+  if (!claimId || !targetEmployeeId) return;
+
+  const me = await requireClaimReviewer(claimId);
+  const before = await claimSnapshot(claimId);
+  const db = getDirectDb();
+  const [target] = await db
+    .select({ id: employees.id, name: employees.name })
+    .from(employees)
+    .where(eq(employees.id, targetEmployeeId))
+    .limit(1);
+  if (!target) throw new Error('Target employee not found.');
+
+  const question =
+    questionInput ||
+    `Can you help correct or confirm this claim?\n\n${before.claim.summary}`;
+
+  await db.transaction(async (tx) => {
+    const [gap] = await tx
+      .insert(gaps)
+      .values({
+        gapType: 'claim_review_question',
+        relatedClaimIds: [claimId],
+        questionToAsk: question,
+        whyItMatters:
+          'A reviewer flagged this claim as needing subject-matter input before it can be approved.',
+        targetEmployeeId: target.id,
+        priority: 'medium',
+        status: 'open',
+      })
+      .returning({ id: gaps.id });
+
+    await tx.insert(claimReviewEvents).values({
+      claimId,
+      action: 'assign_question',
+      reviewedByEmployeeId: me.id,
+      reviewerNote: `Assigned follow-up question to ${target.name}.`,
+      beforeState: before,
+      afterState: {
+        assignedGapId: gap?.id ?? null,
+        targetEmployeeId: target.id,
+        questionToAsk: question,
+      },
     });
   });
 

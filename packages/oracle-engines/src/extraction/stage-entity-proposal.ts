@@ -52,7 +52,7 @@ export async function stageEntityProposal(
         proposal_count        = proposal_count + 1,
         raw_strings_observed  = (
           CASE
-            WHEN ${args.rawString} = ANY(SELECT jsonb_array_elements_text(raw_strings_observed))
+            WHEN ${args.rawString} IN (SELECT jsonb_array_elements_text(raw_strings_observed))
             THEN raw_strings_observed
             ELSE raw_strings_observed || to_jsonb(${args.rawString}::text)
           END

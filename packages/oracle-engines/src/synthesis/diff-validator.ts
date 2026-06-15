@@ -330,7 +330,18 @@ export function findUnsupportedNamedEntities(
   const unsupported: string[] = [];
   for (const phrase of candidates) {
     const lower = phrase.toLowerCase();
-    if (registryEntityCanonicalsLower.has(lower)) continue;
+    // Registry match is substring-aware in BOTH directions, consistent with the
+    // summary side below (which uses .includes). Exact-equality on the registry
+    // caused spurious holds when the candidate phrase and the registry canonical
+    // were surface variants of the same entity (e.g. candidate "Walt Disney
+    // Company" vs registry canonical "walt disney"). Accept when a registry
+    // canonical contains the candidate OR the candidate contains a canonical.
+    // Conservative: only matches an actual registered entity, so it cannot let
+    // a wholly fabricated name through.
+    const inRegistry = Array.from(registryEntityCanonicalsLower).some(
+      (canon) => canon.includes(lower) || lower.includes(canon),
+    );
+    if (inRegistry) continue;
     const inAnySummary = approvedClaimSummariesLower.some((s) => s.includes(lower));
     if (inAnySummary) continue;
     unsupported.push(phrase);

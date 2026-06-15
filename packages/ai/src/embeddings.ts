@@ -13,9 +13,11 @@ import { EMBEDDING_DIM } from '@oracle/shared';
 
 const OPENAI_EMBEDDING_URL = 'https://api.openai.com/v1/embeddings';
 const MODEL = 'text-embedding-3-small';
+/** Max inputs per embeddings request before we split into multiple calls. */
+const MAX_BATCH = 256;
 
 type EmbeddingResponse = {
-  data: Array<{ embedding: number[] }>;
+  data: Array<{ index: number; embedding: number[] }>;
 };
 
 /**
@@ -68,20 +70,42 @@ export async function embedMany(texts: string[]): Promise<{
       fallback: true,
     };
   }
-  const res = await fetch(OPENAI_EMBEDDING_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({ model: MODEL, input: texts }),
-  });
-  if (!res.ok) {
-    throw new Error(`OpenAI embeddings call failed: ${res.status} ${await res.text()}`);
+  const vectors: number[][] = [];
+  // The embeddings endpoint caps inputs per request; split into safe chunks
+  // and concatenate results in order.
+  for (let start = 0; start < texts.length; start += MAX_BATCH) {
+    const chunk = texts.slice(start, start + MAX_BATCH);
+    const res = await fetch(OPENAI_EMBEDDING_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ model: MODEL, input: chunk }),
+    });
+    if (!res.ok) {
+      throw new Error(`OpenAI embeddings call failed: ${res.status} ${await res.text()}`);
+    }
+    const body = (await res.json()) as EmbeddingResponse;
+    // The API does not guarantee response order — sort by `index` ascending.
+    const sorted = [...body.data].sort((a, b) => a.index - b.index);
+    if (sorted.length !== chunk.length) {
+      throw new Error(
+        `OpenAI returned ${sorted.length} embeddings for ${chunk.length} inputs.`,
+      );
+    }
+    for (const d of sorted) {
+      if (!d.embedding || d.embedding.length !== EMBEDDING_DIM) {
+        throw new Error(
+          `OpenAI returned unexpected embedding length: ${d.embedding?.length}. ` +
+            `Spec locks vector(${EMBEDDING_DIM}).`,
+        );
+      }
+      vectors.push(d.embedding);
+    }
   }
-  const body = (await res.json()) as EmbeddingResponse;
   return {
-    vectors: body.data.map((d) => d.embedding),
+    vectors,
     model: MODEL,
     fallback: false,
   };

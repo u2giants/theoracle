@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { reviseClaim, updateClaimStatus } from './_actions';
+import { assignClaimQuestion, reviseClaim, updateClaimStatus } from './_actions';
 
 type ClaimRow = {
   id: string;
@@ -19,6 +19,12 @@ type ClaimRow = {
   employee_name: string | null;
   domain_ids: string[] | null;
   domain_names: string[] | null;
+};
+
+type EmployeeOption = {
+  id: string;
+  name: string;
+  role: string;
 };
 
 const STATUS_TABS = [
@@ -85,8 +91,15 @@ export default async function AdminClaimsPage({
     ${whereClause}
     ORDER BY c.created_at DESC
   `);
+  const employeesResult = await db.execute(sql`
+    SELECT id, name, role
+    FROM employees
+    WHERE disabled_at IS NULL
+    ORDER BY name
+  `);
 
   const rows = [...result] as unknown as ClaimRow[];
+  const employeeOptions = [...employeesResult] as unknown as EmployeeOption[];
 
   return (
     <div className="space-y-6">
@@ -147,8 +160,8 @@ export default async function AdminClaimsPage({
                 <tbody>
                   {rows.map((row) => (
                     <tr key={row.id} className="border-b last:border-0">
-                      <td className="py-3 pr-4 max-w-xs">
-                        <span className="line-clamp-2">{row.summary}</span>
+                      <td className="max-w-[28rem] whitespace-pre-wrap py-3 pr-4 align-top">
+                        {row.summary}
                       </td>
                       <td className="py-3 pr-4 whitespace-nowrap text-xs text-muted-foreground">
                         {row.claim_type}
@@ -182,9 +195,9 @@ export default async function AdminClaimsPage({
                       <td className="py-3 pr-4 whitespace-nowrap">
                         {row.employee_name ?? '—'}
                       </td>
-                      <td className="py-3 pr-4 max-w-xs text-xs text-muted-foreground">
+                      <td className="max-w-[34rem] whitespace-pre-wrap py-3 pr-4 align-top text-xs text-muted-foreground">
                         {row.exact_quote ? (
-                          <span className="line-clamp-2 italic">
+                          <span className="italic">
                             &ldquo;{row.exact_quote}&rdquo;
                           </span>
                         ) : (
@@ -280,6 +293,44 @@ export default async function AdminClaimsPage({
                                   className="rounded bg-foreground px-2 py-1 text-xs text-background hover:bg-foreground/90"
                                 >
                                   Save revised claim
+                                </button>
+                              </form>
+                            </details>
+                            <details className="rounded border bg-background p-2">
+                              <summary className="cursor-pointer text-xs font-medium">
+                                Ask someone
+                              </summary>
+                              <form action={assignClaimQuestion} className="mt-2 space-y-2">
+                                <input type="hidden" name="claimId" value={row.id} />
+                                <label className="block text-[11px] font-medium text-muted-foreground">
+                                  Person
+                                  <select
+                                    name="targetEmployeeId"
+                                    required
+                                    className="mt-1 w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
+                                  >
+                                    <option value="">Choose a person</option>
+                                    {employeeOptions.map((employee) => (
+                                      <option key={employee.id} value={employee.id}>
+                                        {employee.name} — {employee.role}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="block text-[11px] font-medium text-muted-foreground">
+                                  Question
+                                  <textarea
+                                    name="question"
+                                    rows={3}
+                                    defaultValue={`Can you help correct or confirm this claim?\n\n${row.summary}`}
+                                    className="mt-1 w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
+                                  />
+                                </label>
+                                <button
+                                  type="submit"
+                                  className="rounded bg-muted px-2 py-1 text-xs text-foreground hover:bg-muted/80"
+                                >
+                                  Assign question
                                 </button>
                               </form>
                             </details>

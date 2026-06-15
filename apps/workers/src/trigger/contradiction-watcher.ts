@@ -21,7 +21,7 @@
 //   - Every LLM call → model_runs + model_run_usage_details + oracle_context_packs.
 
 import { schedules, task, tasks } from '@trigger.dev/sdk/v3';
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
@@ -111,6 +111,15 @@ const ContradictionCheckSchema = z.object({
     .enum(['low', 'medium', 'high'])
     .describe(
       'If a contradiction: how serious the conflict is. low=minor nuance, medium=significant disagreement, high=directly conflicting facts that cannot both be true.',
+    ),
+  confidence: z
+    .number()
+    .int()
+    .min(0)
+    .max(100)
+    .optional()
+    .describe(
+      'How confident you are that this is a real contradiction, 0-100. 0=almost certainly not, 100=certain. Omit if unsure.',
     ),
   suggestedQuestion: z
     .string()
@@ -298,6 +307,39 @@ function hashString(s: string): string {
   return createHash('sha256').update(s).digest('hex');
 }
 
+/**
+ * Read the per-channel interjection rate state (minutes since last + count in
+ * the last hour). Accepts a db handle or a transaction handle so it can be
+ * re-read inside the advisory lock.
+ */
+async function readChannelRateState(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  dbOrTx: any,
+  channelId: string,
+): Promise<{ cooldownMin: number | null; interjectionsInLastHour: number }> {
+  const lastInt = await dbOrTx
+    .select({ createdAt: oracleInterventions.createdAt })
+    .from(oracleInterventions)
+    .where(eq(oracleInterventions.channelId, channelId))
+    .orderBy(desc(oracleInterventions.createdAt))
+    .limit(1);
+  const cooldownMin =
+    lastInt.length > 0 && lastInt[0]
+      ? Math.floor((Date.now() - lastInt[0].createdAt.getTime()) / 60_000)
+      : null;
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  const countRows = await dbOrTx
+    .select({ c: sql<number>`count(*)::int` })
+    .from(oracleInterventions)
+    .where(
+      and(
+        eq(oracleInterventions.channelId, channelId),
+        gte(oracleInterventions.createdAt, oneHourAgo),
+      ),
+    );
+  return { cooldownMin, interjectionsInLastHour: countRows[0]?.c ?? 0 };
+}
+
 // ─── Check a single claim for contradictions with existing approved claims.
 // ─────────────────────────────────────────────────────────────────────────
 async function checkClaimForContradictions(
@@ -414,14 +456,17 @@ async function checkClaimForContradictions(
   let contradictionsFound = 0;
 
   for (const candidate of candidates) {
-    // Skip if this pair already has a contradictions row.
+    // Skip if this pair already has a contradictions row. The previous
+    // `claimAId IN [a,b] AND claimBId IN [a,b]` form also matched the
+    // degenerate (a,a)/(b,b) rows and was loose about ordering; use an explicit
+    // unordered-pair check so only the real (a,b)/(b,a) pair is treated as dup.
     const existing = await db
       .select({ id: contradictions.id })
       .from(contradictions)
       .where(
-        and(
-          inArray(contradictions.claimAId, [claimId, candidate.id]),
-          inArray(contradictions.claimBId, [claimId, candidate.id]),
+        or(
+          and(eq(contradictions.claimAId, claimId), eq(contradictions.claimBId, candidate.id)),
+          and(eq(contradictions.claimAId, candidate.id), eq(contradictions.claimBId, claimId)),
         ),
       )
       .limit(1);
@@ -449,130 +494,166 @@ async function checkClaimForContradictions(
     // posted — there's nowhere to post.
     const channelCtx = await findChannelForClaimPair(db, claimId, candidate.id);
 
-    // Compute the inputs to decideContradictionInterjection.
-    let cooldownMin: number | null = null;
-    let interjectionsInLastHour = 0;
-    if (channelCtx) {
-      const lastInt = await db
-        .select({ createdAt: oracleInterventions.createdAt })
-        .from(oracleInterventions)
-        .where(eq(oracleInterventions.channelId, channelCtx.channelId))
-        .orderBy(desc(oracleInterventions.createdAt))
-        .limit(1);
-      cooldownMin =
-        lastInt.length > 0 && lastInt[0]
-          ? Math.floor((Date.now() - lastInt[0].createdAt.getTime()) / 60_000)
-          : null;
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-      const countRows = await db
-        .select({ c: sql<number>`count(*)::int` })
-        .from(oracleInterventions)
-        .where(
-          and(
-            eq(oracleInterventions.channelId, channelCtx.channelId),
-            gte(oracleInterventions.createdAt, oneHourAgo),
-          ),
-        );
-      interjectionsInLastHour = countRows[0]?.c ?? 0;
-    }
+    // Use the model's reported confidence when present; otherwise fall back to
+    // the threshold constant (preserves prior always-pass-the-confidence-gate
+    // behavior when the model omits it).
+    const detectionConfidence =
+      typeof object.confidence === 'number'
+        ? object.confidence
+        : CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD;
 
-    const interjectionDecisionResult = decideContradictionInterjection({
-      detectionConfidence: CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD,
+    // Pre-evaluate (pre-lock) whether a live post is even a possibility, using
+    // a first-pass rate read. This decides whether we pay for the (multi-second)
+    // drafting LLM call. The authoritative re-check happens INSIDE the lock.
+    const preState = channelCtx ? await readChannelRateState(db, channelCtx.channelId) : null;
+    const preDecision = decideContradictionInterjection({
+      detectionConfidence,
       severity: object.severity,
       enableLiveContradictionInterjections: enableLiveInterjection,
-      minutesSinceLastOracleInterjection: cooldownMin,
+      minutesSinceLastOracleInterjection: preState?.cooldownMin ?? null,
       oracleCooldownMinutes,
-      interjectionsInLastHour,
+      interjectionsInLastHour: preState?.interjectionsInLastHour ?? 0,
       maxOracleInterjectionsPerHour,
       suggestedQuestion: object.suggestedQuestion ?? null,
     });
+    const mightLive =
+      preDecision.decision === 'live' && channelCtx !== null && !!object.suggestedQuestion;
 
-    // If we have no channel to post in, force the decision to queue.
-    const willLive =
-      interjectionDecisionResult.decision === 'live' && channelCtx !== null;
-    const decisionLabel = willLive ? 'live_interjection' : 'queued_gap';
-
-    const [contradiction] = await db
-      .insert(contradictions)
-      .values({
-        claimAId: claimId,
-        claimBId: candidate.id,
-        description: object.explanation,
-        severity: object.severity,
-        status: 'possible',
-        detectionConfidence: CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD,
-        retrievedClaimIds: candidates.map((c) => c.id),
-        interjectionDecision: decisionLabel,
-        suggestedQuestion: object.suggestedQuestion ?? null,
-        createdByModelRunId: modelRunId,
-      })
-      .returning({ id: contradictions.id });
-
-    // Live branch: draft a one-liner via the interview route and post.
-    let interjectionMessageId: string | null = null;
-    if (willLive && channelCtx && object.suggestedQuestion) {
+    // Draft the live one-liner OUTSIDE the lock (don't hold the advisory lock
+    // across an LLM call). The post + re-check happen inside the lock below.
+    let draftedText: string | null = null;
+    let draftedModelRunId: string | null = null;
+    if (mightLive && channelCtx && object.suggestedQuestion) {
       try {
-        const drafted = await draftContradictionInterjection(
-          db,
-          client,
-          interviewRoute,
-          {
-            suggestedQuestion: object.suggestedQuestion,
-            claimASummary: claim.summary,
-            claimBSummary: candidate.summary,
-            explanation: object.explanation,
-          },
+        const drafted = await draftContradictionInterjection(db, client, interviewRoute, {
+          suggestedQuestion: object.suggestedQuestion,
+          claimASummary: claim.summary,
+          claimBSummary: candidate.summary,
+          explanation: object.explanation,
+        });
+        draftedText = drafted.text;
+        draftedModelRunId = drafted.modelRunId;
+      } catch (drafterr) {
+        console.error('[contradiction-watcher] live drafting failed:', drafterr);
+        // Fall through — record the intervention as not-live; gap still queued.
+      }
+    }
+
+    // Commit sequence inside a transaction. When there is a channel to post in,
+    // acquire a per-channel advisory lock and RE-READ the rate/cooldown state
+    // before deciding to post — so two workers can't both blow past the
+    // per-hour interjection cap on the same channel. The contradiction row and
+    // gap are durable knowledge artifacts and are written regardless; only the
+    // live POST is gated by the lock + re-check.
+    await db.transaction(async (tx) => {
+      let interjectionDecisionResult = preDecision;
+      let interjectionMessageId: string | null = null;
+
+      if (channelCtx) {
+        const lockRes = await tx.execute<{ locked: boolean }>(
+          sql`SELECT pg_try_advisory_xact_lock(hashtext(${channelCtx.channelId})) AS locked`,
         );
-        const [postedMessage] = await db
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const lockRows: Array<{ locked: boolean }> = (lockRes as any).rows ?? (lockRes as any);
+        const locked = lockRows[0]?.locked === true;
+
+        if (locked) {
+          // Re-read rate/cooldown state inside the lock and re-decide.
+          const freshState = await readChannelRateState(tx, channelCtx.channelId);
+          interjectionDecisionResult = decideContradictionInterjection({
+            detectionConfidence,
+            severity: object.severity,
+            enableLiveContradictionInterjections: enableLiveInterjection,
+            minutesSinceLastOracleInterjection: freshState.cooldownMin,
+            oracleCooldownMinutes,
+            interjectionsInLastHour: freshState.interjectionsInLastHour,
+            maxOracleInterjectionsPerHour,
+            suggestedQuestion: object.suggestedQuestion ?? null,
+          });
+        } else {
+          // Lock contended — another worker is committing for this channel.
+          // Skip the live post; queue instead.
+          console.warn(
+            `[contradiction-watcher] advisory lock contended for channel ${channelCtx.channelId}; skipping live post (queued).`,
+          );
+          interjectionDecisionResult = {
+            decision: 'queue',
+            reason: `skipped: lock_contended (${preDecision.reason})`,
+            reasonCode: 'rate_cap_reached',
+          };
+        }
+      }
+
+      const willLive =
+        interjectionDecisionResult.decision === 'live' &&
+        channelCtx !== null &&
+        draftedText !== null;
+      const decisionLabel = willLive ? 'live_interjection' : 'queued_gap';
+
+      const [contradiction] = await tx
+        .insert(contradictions)
+        .values({
+          claimAId: claimId,
+          claimBId: candidate.id,
+          description: object.explanation,
+          severity: object.severity,
+          status: 'possible',
+          detectionConfidence,
+          retrievedClaimIds: candidates.map((c) => c.id),
+          interjectionDecision: decisionLabel,
+          suggestedQuestion: object.suggestedQuestion ?? null,
+          createdByModelRunId: modelRunId,
+        })
+        .returning({ id: contradictions.id });
+
+      if (willLive && channelCtx && draftedText) {
+        const [postedMessage] = await tx
           .insert(messages)
           .values({
             channelId: channelCtx.channelId,
             employeeId: null,
             role: 'assistant',
-            content: drafted.text,
+            content: draftedText,
             metadataJson: {
               source: 'contradiction-interjection',
               contradictionId: contradiction?.id,
-              modelRunId: drafted.modelRunId,
+              modelRunId: draftedModelRunId,
               decisionReason: interjectionDecisionResult.reason,
             },
           })
           .returning({ id: messages.id });
         interjectionMessageId = postedMessage?.id ?? null;
-      } catch (drafterr) {
-        console.error('[contradiction-watcher] live drafting failed:', drafterr);
-        // Fall through — record the intervention as not-live; the gap still gets queued below.
       }
-    }
 
-    // If queued (decision wasn't live, or live drafting failed), create a gap.
-    if (!interjectionMessageId && object.suggestedQuestion) {
-      await db.insert(gaps).values({
-        gapType: 'contradiction_gap',
-        relatedClaimIds: [claimId, candidate.id],
+      // If queued (decision wasn't live, or live drafting failed), create a gap.
+      if (!interjectionMessageId && object.suggestedQuestion) {
+        await tx.insert(gaps).values({
+          gapType: 'contradiction_gap',
+          relatedClaimIds: [claimId, candidate.id],
+          relatedContradictionId: contradiction?.id,
+          questionToAsk: object.suggestedQuestion,
+          whyItMatters: `Two approved claims appear to contradict: "${claim.summary}" vs "${candidate.summary}"`,
+          priority: object.severity === 'high' ? 'high' : 'medium',
+          status: 'open',
+          createdByModelRunId: modelRunId,
+        });
+      }
+
+      // Log oracle_interventions row. channelId is the real channel if we found
+      // one, or the all-zero placeholder if the contradiction is between
+      // claims sourced only from documents (no chat channel).
+      await tx.insert(oracleInterventions).values({
+        channelId: channelCtx?.channelId ?? '00000000-0000-0000-0000-000000000000',
+        triggerType: 'possible_contradiction',
         relatedContradictionId: contradiction?.id,
-        questionToAsk: object.suggestedQuestion,
-        whyItMatters: `Two approved claims appear to contradict: "${claim.summary}" vs "${candidate.summary}"`,
-        priority: object.severity === 'high' ? 'high' : 'medium',
-        status: 'open',
-        createdByModelRunId: modelRunId,
+        interjectionMessageId,
+        confidence: detectionConfidence,
+        impactScore: object.severity === 'high' ? 9 : object.severity === 'medium' ? 6 : 3,
+        wasLiveInterjection: interjectionMessageId !== null,
+        reason: interjectionDecisionResult.decision === 'live'
+          ? interjectionDecisionResult.reason
+          : `${interjectionDecisionResult.reason} [details: ${object.explanation}]`,
       });
-    }
-
-    // Log oracle_interventions row. channelId is the real channel if we found
-    // one, or the all-zero placeholder if the contradiction is between
-    // claims sourced only from documents (no chat channel).
-    await db.insert(oracleInterventions).values({
-      channelId: channelCtx?.channelId ?? '00000000-0000-0000-0000-000000000000',
-      triggerType: 'possible_contradiction',
-      relatedContradictionId: contradiction?.id,
-      interjectionMessageId,
-      confidence: CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD,
-      impactScore: object.severity === 'high' ? 9 : object.severity === 'medium' ? 6 : 3,
-      wasLiveInterjection: interjectionMessageId !== null,
-      reason: interjectionDecisionResult.decision === 'live'
-        ? interjectionDecisionResult.reason
-        : `${interjectionDecisionResult.reason} [details: ${object.explanation}]`,
     });
   }
 
@@ -626,6 +707,9 @@ export const contradictionWatcherSweepTask = schedules.task({
   id: 'contradiction-watcher-sweep',
   cron: '0 */4 * * *',
   maxDuration: 60 * 2,
+  // Retries disabled: scheduled cron; a retry would re-trigger per-claim checks
+  // that may post interjections. The next scheduled run is the natural retry.
+  retry: { maxAttempts: 1 },
   run: async (_payload, { ctx: _ctx }) => {
     const db = getDirectDb();
 

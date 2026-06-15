@@ -51,6 +51,23 @@ export interface DeepSeekUsageRaw {
   total_tokens?: number;
 }
 
+/**
+ * Qwen via DashScope's OpenAI-compat layer can return either the Chat
+ * Completions usage shape (`prompt_tokens_details.cached_tokens`) or the
+ * Responses API shape (`input_tokens_details.cached_tokens`), depending on
+ * which endpoint the adapter used. We accept both.
+ */
+export interface QwenUsageRaw {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number };
+  input_tokens?: number;
+  output_tokens?: number;
+  input_tokens_details?: { cached_tokens?: number };
+  output_tokens_details?: { reasoning_tokens?: number };
+  total_tokens?: number;
+}
+
 export function normalizeUsage(args: NormalizeArgs): OracleUsage {
   const { provider, raw, latencyMs, providerRequestId } = args;
   switch (provider) {
@@ -63,8 +80,9 @@ export function normalizeUsage(args: NormalizeArgs): OracleUsage {
     case 'deepseek':
       return normalizeDeepSeek(raw as DeepSeekUsageRaw, latencyMs, providerRequestId);
     case 'qwen':
-      // Qwen via DashScope OpenAI-compat returns the OpenAI usage shape.
-      return normalizeOpenAI(raw as OpenAIUsageRaw, latencyMs, providerRequestId);
+      return normalizeQwen(raw as QwenUsageRaw, latencyMs, providerRequestId);
+    default:
+      throw new Error(`normalizeUsage: unhandled provider "${provider as string}"`);
   }
 }
 
@@ -110,6 +128,28 @@ function normalizeOpenAI(
     outputTokens: raw.completion_tokens,
     cachedInputTokens: raw.prompt_tokens_details?.cached_tokens,
     reasoningTokens: raw.completion_tokens_details?.reasoning_tokens,
+    latencyMs,
+    providerRequestId,
+    rawUsageJson: raw,
+  };
+}
+
+/**
+ * Qwen/DashScope: handle BOTH the Chat (`prompt_tokens`/`prompt_tokens_details`)
+ * and Responses (`input_tokens`/`input_tokens_details`) usage shapes.
+ */
+function normalizeQwen(
+  raw: QwenUsageRaw,
+  latencyMs: number,
+  providerRequestId?: string,
+): OracleUsage {
+  return {
+    inputTokens: raw.prompt_tokens ?? raw.input_tokens,
+    outputTokens: raw.completion_tokens ?? raw.output_tokens,
+    cachedInputTokens:
+      raw.prompt_tokens_details?.cached_tokens ??
+      raw.input_tokens_details?.cached_tokens,
+    reasoningTokens: raw.output_tokens_details?.reasoning_tokens,
     latencyMs,
     providerRequestId,
     rawUsageJson: raw,

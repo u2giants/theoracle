@@ -264,25 +264,27 @@ EXTRACTION RULES:
 7. Suggest gaps (follow-up questions) when the segment reveals uncertainty or ambiguity that needs resolution.
 8. Do not flatten group conversation — if two employees express different views about the same process, extract both as separate claims with appropriate semantic roles and potentially a contradiction.
 9. Classify claims by their operational meaning, not by whether a department name or keyword literally appears. A document can describe Licensing work without the word "licensing"; infer the relevant domain from responsibilities, approvals, handoffs, systems, and decisions described in the text.
-10. Use the \`general\` domain for end-to-end business-process or companywide workflow claims that explain how work moves across multiple departments. Also include narrower domains such as \`licensing\`, \`design\`, \`production\`, \`sourcing\`, \`logistics\`, \`customers\`, \`sales\`, \`costing\`, or \`coldlion\` when the same claim is materially about those areas.
+10. Use the \`general\` domain for end-to-end business-process or companywide workflow claims that explain how work moves across multiple departments. Also include narrower domains such as \`licensing\`, \`design\`, \`production\`, \`sourcing\`, \`logistics\`, \`customers\`, \`sales\`, \`costing\`, or \`coldlion\` when the same claim is materially about those areas. \`costing\` means product/SKU costing and customer product pricing, not company finance/accounting. A costing sheet created by Design and sent to factories should usually include \`costing\` plus \`design\`, \`production\`, and/or \`sourcing\` if those handoffs are part of the claim.
+11. Prefer small, reviewable operational claims over broad document summaries. Do not turn an entire form, spreadsheet, or SOP into one vague claim. Extract the concrete rule, handoff, responsibility, input, output, or exception.
+12. For handoff claims, include every materially involved workflow domain. Example: "Design sends the costing sheet to factories so factories can quote production costs" is not just \`costing\`; it also involves \`design\` and \`sourcing\`/factory communication.
 
 ENTITY EXTRACTION RULES:
-11. List every distinct entity the claim REFERENCES — not just the message-wide entities, but the ones THIS claim depends on.
-12. The entityType values you may use are exactly: system, customer, licensor, factory, freight_provider, testing_lab, packaging_supplier, service_provider, vendor, person, sku_or_product_line, process_stage, department, geography, document_class.
-13. \`licensor\` is reserved for entertainment / IP rights holders: Disney, Marvel, Star Wars, Lucasfilm, Warner Bros, NBCUniversal, etc. NEVER use \`vendor\` for those. \`vendor\` is the residual bucket for non-customer non-factory non-licensor business partners.
-14. \`customer\` is the named retailer / buyer: Burlington, TJX, Ross, Hobby Lobby, Walmart, etc.
-15. \`factory\` is an overseas manufacturer; \`freight_provider\` / \`testing_lab\` / \`packaging_supplier\` / \`service_provider\` are operational-vendor subtypes — pick the specific subtype if it fits, fall back to \`vendor\` only if none does.
-16. \`system\` is software / tooling: Coldlion, ResourceSpace, Photoshop, Illustrator, Excel, Supabase, Email, WhatsApp, etc.
-17. \`rawString\` should be how the entity appears in the message text — don't normalize to canonical form, the validator does that.
-18. Omit \`proposedEntities\` entirely if the claim references no proper-noun entities.
+13. List every distinct entity the claim REFERENCES — not just the message-wide entities, but the ones THIS claim depends on.
+14. The entityType values you may use are exactly: system, customer, licensor, factory, freight_provider, testing_lab, packaging_supplier, service_provider, vendor, person, sku_or_product_line, process_stage, department, geography, document_class.
+15. \`licensor\` is reserved for entertainment / IP rights holders: Disney, Marvel, Star Wars, Lucasfilm, Warner Bros, NBCUniversal, etc. NEVER use \`vendor\` for those. \`vendor\` is the residual bucket for non-customer non-factory non-licensor business partners.
+16. \`customer\` is the named retailer / buyer: Burlington, TJX, Ross, Hobby Lobby, Walmart, etc.
+17. \`factory\` is an overseas manufacturer; \`freight_provider\` / \`testing_lab\` / \`packaging_supplier\` / \`service_provider\` are operational-vendor subtypes — pick the specific subtype if it fits, fall back to \`vendor\` only if none does.
+18. \`system\` is software / tooling: Coldlion, ResourceSpace, Photoshop, Illustrator, Excel, Supabase, Email, WhatsApp, etc.
+19. \`rawString\` should be how the entity appears in the message text — don't normalize to canonical form, the validator does that.
+20. Omit \`proposedEntities\` entirely if the claim references no proper-noun entities.
 
 SENSITIVITY RULES — STRICT MODE:
-19. Set \`sensitivityFlags\` ONLY when the content is clearly sensitive. Operational mentions of named people are NOT sensitive by themselves.
-20. \`containsSensitiveHRData\` = true ONLY if the message describes: formal disciplinary actions (warnings, PIPs, terminations), compensation specifics (salary numbers, bonus amounts, raise discussions), formal performance reviews/ratings, or formally documented LOA reasons (medical leave, family leave). "Jordan is out next week" is NOT HR data. "We put Jordan on a final-written warning today" IS.
-21. \`containsSensitivePersonalData\` = true ONLY for explicit personal information: medical conditions or diagnoses, family situations (divorce, deaths, dependents), legal issues, home addresses, personal contact details, or other clearly private personal facts.
-22. \`isPersonalConflict\` = true ONLY for explicit interpersonal hostility BETWEEN NAMED INDIVIDUALS: shouting matches, harassment, character attacks, or formal complaints. Normal disagreement about a process is NOT a personal conflict.
-23. If any flag fires, include a brief \`sensitivityReason\` naming which specific text triggered it. Omit \`sensitivityFlags\` entirely when nothing is sensitive — that's the common case.
-24. When in doubt, do NOT set a flag. The cost of a false positive (admin reviews the quarantined candidate manually) is acceptable; the cost of a false negative (sensitive content reaches the knowledge graph) is not. But the threshold is "would a privacy/HR officer at this company call this sensitive?" — operational mentions of who works on what don't reach that bar.
+21. Set \`sensitivityFlags\` ONLY when the content is clearly sensitive. Operational mentions of named people are NOT sensitive by themselves.
+22. \`containsSensitiveHRData\` = true ONLY if the message describes: formal disciplinary actions (warnings, PIPs, terminations), compensation specifics (salary numbers, bonus amounts, raise discussions), formal performance reviews/ratings, or formally documented LOA reasons (medical leave, family leave). "Jordan is out next week" is NOT HR data. "We put Jordan on a final-written warning today" IS.
+23. \`containsSensitivePersonalData\` = true ONLY for explicit personal information: medical conditions or diagnoses, family situations (divorce, deaths, dependents), legal issues, home addresses, personal contact details, or other clearly private personal facts.
+24. \`isPersonalConflict\` = true ONLY for explicit interpersonal hostility BETWEEN NAMED INDIVIDUALS: shouting matches, harassment, character attacks, or formal complaints. Normal disagreement about a process is NOT a personal conflict.
+25. If any flag fires, include a brief \`sensitivityReason\` naming which specific text triggered it. Omit \`sensitivityFlags\` entirely when nothing is sensitive — that's the common case.
+26. When in doubt, do NOT set a flag. The cost of a false positive (admin reviews the quarantined candidate manually) is acceptable; the cost of a false negative (sensitive content reaches the knowledge graph) is not. But the threshold is "would a privacy/HR officer at this company call this sensitive?" — operational mentions of who works on what don't reach that bar.
 
 OUTPUT: Return only the structured JSON matching the schema. No narrative explanation outside the JSON.`;
 

@@ -37,7 +37,7 @@ import {
   type OracleModelRoute,
   type RelevantClaim,
 } from '@oracle/ai';
-import { sendRecallChatMessage } from '../lib/recall';
+import { sendRecallChatMessage, RecallTransientSendError } from '../lib/recall';
 
 const FALLBACK_INTERVIEW_ROUTE_ID = 'anthropic_claude_haiku_4_5_interview_primary';
 const LIVE_PROMPT_VERSION = 'teams-live-recall-1.1.0';
@@ -262,7 +262,13 @@ async function loadLiveSettings(db: ReturnType<typeof getDirectDb>): Promise<{
   };
 }
 
-async function channelRateState(db: ReturnType<typeof getDirectDb>, channelId: string): Promise<{
+async function channelRateState(
+  // Accepts a db or transaction handle so the rate state can be re-read inside
+  // the per-channel advisory lock.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any,
+  channelId: string,
+): Promise<{
   minutesSinceLast: number | null;
   inLastHour: number;
 }> {
@@ -644,6 +650,11 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
 export const teamsLiveRecallUtteranceTask = task({
   id: 'teams-live-recall-utterance',
   maxDuration: 60 * 2,
+  // Retries disabled: a retry re-runs the task, but the persisted utterance
+  // makes the dedup short-circuit the retry, silently dropping any interjection
+  // (and a successful post would otherwise risk duplication). Transient send
+  // failures are swallowed in-run so the task completes. (Override of default=3.)
+  retry: { maxAttempts: 1 },
   run: async (rawPayload: unknown, { ctx }) => {
     const payload = PayloadSchema.parse(rawPayload);
     if (payload.event.event !== 'transcript.data') {
@@ -767,52 +778,101 @@ export const teamsLiveRecallUtteranceTask = task({
             !questionToPost && isDirectBusinessQuestion(text) ? fallbackClarificationQuestion(text) : null;
           const questionToSend = shouldPost ? (questionToPost ?? fallbackQuestion) : fallbackQuestion;
           if (questionToSend) {
-            postedQuestion = questionToSend;
-            await sendRecallChatMessage({ botId, message: postedQuestion });
-            const [assistantMessage] = await db
-              .insert(messages)
-              .values({
+            // Commit under a per-channel advisory lock with a re-read of the
+            // rate/cooldown state so two concurrent utterance runs can't both
+            // blow past the per-hour interjection cap for the same channel.
+            await db.transaction(async (tx) => {
+              const lockRes = await tx.execute<{ locked: boolean }>(
+                sql`SELECT pg_try_advisory_xact_lock(hashtext(${channelId})) AS locked`,
+              );
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const lockRows: Array<{ locked: boolean }> = (lockRes as any).rows ?? (lockRes as any);
+              if (lockRows[0]?.locked !== true) {
+                decisionReason = `skipped: lock_contended (${decisionReason})`;
+                return;
+              }
+
+              // Re-read rate/cooldown state inside the lock and re-check the
+              // limits (unless posting limits are disabled).
+              if (!liveSettings.disablePostingLimits) {
+                const fresh = await channelRateState(tx, channelId);
+                const freshCooldownSeconds =
+                  fresh.minutesSinceLast == null ? null : fresh.minutesSinceLast * 60;
+                const freshCooldownClear =
+                  freshCooldownSeconds == null ||
+                  freshCooldownSeconds >=
+                    Math.max(MIN_SECONDS_BETWEEN_LIVE_QUESTIONS, liveSettings.cooldownMinutes * 60);
+                const freshRateCapClear = fresh.inLastHour < liveSettings.maxInterjectionsPerHour;
+                if (!freshCooldownClear || !freshRateCapClear) {
+                  decisionReason = freshRateCapClear ? 'cooldown_active' : 'rate_cap_reached';
+                  return;
+                }
+              }
+
+              // Post to Recall. A TRANSIENT send failure is logged and
+              // swallowed so the task COMPLETES — re-throwing would let Trigger
+              // retry the task, and the utterance dedup would then short-circuit
+              // the retry, silently dropping the interjection. Non-transient
+              // errors still throw.
+              try {
+                await sendRecallChatMessage({ botId, message: questionToSend });
+              } catch (sendErr) {
+                if (sendErr instanceof RecallTransientSendError) {
+                  decisionReason = `send_failed_transient: ${sendErr.message.slice(0, 200)}`;
+                  console.warn(
+                    `[teams-live-recall-utterance] transient Recall send failure; completing without retry: ${sendErr.message}`,
+                  );
+                  return;
+                }
+                throw sendErr;
+              }
+              postedQuestion = questionToSend;
+
+              const [assistantMessage] = await tx
+                .insert(messages)
+                .values({
+                  channelId,
+                  employeeId: null,
+                  role: 'assistant',
+                  content: postedQuestion,
+                  extractionStatus: 'skipped',
+                  metadataJson: {
+                    source: 'teams_live_recall_interjection',
+                    botId,
+                    triggerMessageId: message?.id ?? null,
+                    modelRunId,
+                    decisionReason,
+                    retrievedClaimIds,
+                    evidenceClaimIds,
+                    retrievalContext: retrievalContext
+                      ? {
+                          searchScope: retrievalContext.plan.searchScope,
+                          topDomainHints: retrievalContext.plan.topDomainHints,
+                          excludedTopDomains: retrievalContext.plan.excludedTopDomains ?? [],
+                          excludedDocumentClasses: retrievalContext.plan.excludedDocumentClasses ?? [],
+                          includedClaimIds: retrievalContext.includedClaimIds,
+                          includedEvidenceIds: retrievalContext.includedEvidenceIds,
+                          includedBrainSectionIds: retrievalContext.includedBrainSectionIds,
+                        }
+                      : null,
+                  },
+                })
+                .returning({ id: messages.id });
+              await tx.insert(oracleInterventions).values({
                 channelId,
-                employeeId: null,
-                role: 'assistant',
-                content: postedQuestion,
-                extractionStatus: 'skipped',
-                metadataJson: {
-                  source: 'teams_live_recall_interjection',
-                  botId,
-                  triggerMessageId: message?.id ?? null,
-                  modelRunId,
-                  decisionReason,
-                  retrievedClaimIds,
-                  evidenceClaimIds,
-                  retrievalContext: retrievalContext
-                    ? {
-                        searchScope: retrievalContext.plan.searchScope,
-                        topDomainHints: retrievalContext.plan.topDomainHints,
-                        excludedTopDomains: retrievalContext.plan.excludedTopDomains ?? [],
-                        excludedDocumentClasses: retrievalContext.plan.excludedDocumentClasses ?? [],
-                        includedClaimIds: retrievalContext.includedClaimIds,
-                        includedEvidenceIds: retrievalContext.includedEvidenceIds,
-                        includedBrainSectionIds: retrievalContext.includedBrainSectionIds,
-                      }
-                    : null,
-                },
-              })
-              .returning({ id: messages.id });
-            await db.insert(oracleInterventions).values({
-              channelId,
-              triggerType:
-                decisionResult.decision.triggerType === 'possible_contradiction'
-                  ? 'possible_contradiction'
-                  : 'lull_gap',
-              relatedMessageId: message?.id ?? null,
-              interjectionMessageId: assistantMessage?.id ?? null,
-              confidence: decisionResult.decision.confidence,
-              impactScore: null,
-              wasLiveInterjection: true,
-              reason: fallbackQuestion
-                ? `direct_business_question_fallback: ${decisionReason}`
-                : isForcePostTest ? `force_post_test: ${decisionReason}` : decisionReason,
+                triggerType:
+                  decisionResult.decision.triggerType === 'possible_contradiction'
+                    ? 'possible_contradiction'
+                    : 'lull_gap',
+                relatedMessageId: message?.id ?? null,
+                interjectionMessageId: assistantMessage?.id ?? null,
+                confidence: decisionResult.decision.confidence,
+                impactScore: null,
+                wasLiveInterjection: true,
+                reason: fallbackQuestion
+                  ? `direct_business_question_fallback: ${decisionReason}`
+                  : isForcePostTest ? `force_post_test: ${decisionReason}` : decisionReason,
+              });
             });
           }
         } else {

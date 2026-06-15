@@ -1048,15 +1048,17 @@ export function zodToJsonSchema(schema: unknown): unknown {
 
 /**
  * Best-effort Zod runtime validation. Returns the validated value on success,
- * or null if the input doesn't look like a Zod schema (so the caller can fall
- * back to the raw parsed JSON). Throws on Zod validation failure — the caller
- * decides what to do.
+ * or null ONLY when the input doesn't look like a Zod schema (so the caller can
+ * fall back to the raw parsed JSON). When a real Zod schema is supplied and
+ * validation fails, this THROWS the Zod error so it propagates to the caller —
+ * the router's shouldFallback can then act on a genuine schema failure rather
+ * than silently passing unvalidated output through.
  */
 export function tryZodParse<T>(schema: unknown, value: unknown): T | null {
   const s = schema as { safeParse?: (v: unknown) => { success: boolean; data: T; error: unknown } };
   if (s && typeof s === 'object' && typeof s.safeParse === 'function') {
     const result = s.safeParse(value);
-    if (!result.success) return null;
+    if (!result.success) throw result.error;
     return result.data;
   }
   return null;

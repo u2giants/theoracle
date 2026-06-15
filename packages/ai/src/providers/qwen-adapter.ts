@@ -71,9 +71,11 @@ export interface QwenAdapterOptions {
 interface QwenUsageRaw {
   prompt_tokens?: number;
   completion_tokens?: number;
+  // DashScope reports cache READS in prompt_tokens_details.cached_tokens.
+  // It does NOT report cache-creation/write tokens, so there is no
+  // cacheWriteTokens-equivalent field to read here.
   prompt_tokens_details?: {
     cached_tokens?: number;
-    cache_creation_input_tokens?: number;
   };
 }
 
@@ -227,11 +229,12 @@ export class QwenAdapter implements OracleProviderAdapter {
     latencyMs: number,
   ): OracleUsage {
     const u = completion.usage as QwenUsageRaw | undefined;
+    // DashScope does not report cache-creation (write) tokens — only reads via
+    // prompt_tokens_details.cached_tokens — so cacheWriteTokens is omitted.
     return {
       inputTokens: u?.prompt_tokens,
       outputTokens: u?.completion_tokens,
       cachedInputTokens: u?.prompt_tokens_details?.cached_tokens,
-      cacheWriteTokens: u?.prompt_tokens_details?.cache_creation_input_tokens,
       latencyMs,
       providerRequestId: completion.id,
       rawUsageJson: u,

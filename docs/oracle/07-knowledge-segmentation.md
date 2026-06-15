@@ -39,7 +39,7 @@ Examples for this company (illustrative starting vocabulary, to be proposed and 
 - `it_systems` — ERP, Coldlion, ResourceSpace, internal tooling, integrations, automation.
 - `operations_systems` — ERP/CRM/PLM business-system workflows, field ownership, source-of-truth rules, and spreadsheet-to-system data integration such as OrderList, MasterData, and TaskList moving from Google Sheets into Designflow PLM.
 - `production_lifecycle` — sample → pre-production → production → QC → ship → RA stages.
-- `finance_pricing` — costing, margin rules, customer pricing, vendor terms.
+- `finance_pricing` — product costing sheets, SKU cost build-up, customer product pricing, margin assumptions, factory quote inputs, and costing handoffs. Company finance/accounting does not belong here.
 - `people_org` — employees, departments, roles, internal escalation paths.
 - `training_enablement` — onboarding, role-based training, SOP learning paths, shadowing, cross-training, skill checks, and refresher guidance for employees learning how to do their jobs.
 - `vendor_management` — non-customer vendor relationships, vendor manuals, vendor SLAs.

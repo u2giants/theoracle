@@ -148,6 +148,19 @@ export class ModelRouter {
    */
   private shouldFallback(err: unknown): boolean {
     if (err instanceof ProviderAdapterNotImplementedError) return true;
+    // Prefer typed HTTP status when the error object carries one (e.g. provider
+    // SDK errors expose numeric `status` / `statusCode`). 429 or any 5xx is a
+    // transient/server condition worth falling back on. Substring checks below
+    // remain as a fallback for errors without a structured status.
+    if (err && typeof err === 'object') {
+      const status =
+        'status' in err && typeof (err as { status: unknown }).status === 'number'
+          ? (err as { status: number }).status
+          : 'statusCode' in err && typeof (err as { statusCode: unknown }).statusCode === 'number'
+            ? (err as { statusCode: number }).statusCode
+            : undefined;
+      if (status !== undefined && (status === 429 || status >= 500)) return true;
+    }
     if (err instanceof Error) {
       const msg = err.message.toLowerCase();
       if (msg.includes('429') || msg.includes('rate limit')) return true;

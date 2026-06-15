@@ -155,6 +155,11 @@ function buildOracleClient(): OracleAIClient {
 
 type ClusterName = { name: string; purpose: string };
 
+const ClusterNameSchema = z.object({
+  name: z.string(),
+  purpose: z.string(),
+});
+
 async function nameCluster(
   client: OracleAIClient,
   domainId: string,
@@ -163,10 +168,11 @@ async function nameCluster(
   const topSummaries = claimSummaries.slice(0, 5);
   const listText = topSummaries.map((s, i) => `${i + 1}. ${s}`).join('\n');
 
-  const result = await client.runText({
+  const result = await client.runObject<ClusterName>({
     taskType: 'admin_explanation',
     routeId: CLUSTER_NAMING_ROUTE_ID,
     promptVersion: CLUSTER_NAMING_PROMPT_VERSION,
+    schema: ClusterNameSchema,
     blocks: [
       makeBlock({
         id: 'cluster-naming-system',
@@ -177,40 +183,27 @@ Given a set of claim summaries that cluster together within a knowledge domain, 
 
 Rules:
 - Name: 2–6 words, title case, no punctuation at the end.
-- Purpose: one sentence, plain English, describes what claims in this sub-topic have in common.
-- Return ONLY valid JSON: {"name": "...", "purpose": "..."}`,
+- Purpose: one sentence, plain English, describes what claims in this sub-topic have in common.`,
+        // Stable system instructions are identical across every cluster/domain
+        // naming call, so this prefix is cache-eligible.
+        cacheEligible: true,
         reasonIncluded: 'cluster naming stable system',
       }),
       makeBlock({
         id: 'cluster-naming-input',
         label: 'Claim summaries for this cluster',
         kind: 'dynamic_input',
-        content: `Domain: ${domainId}\n\nClaim summaries:\n${listText}\n\nReturn JSON only.`,
+        content: `Domain: ${domainId}\n\nClaim summaries:\n${listText}`,
         reasonIncluded: `${topSummaries.length} representative claims`,
       }),
     ],
   });
 
-  try {
-    const jsonMatch = /\{[\s\S]*\}/.exec(result.text);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]) as unknown;
-      if (
-        parsed &&
-        typeof parsed === 'object' &&
-        'name' in parsed &&
-        'purpose' in parsed &&
-        typeof (parsed as Record<string, unknown>).name === 'string' &&
-        typeof (parsed as Record<string, unknown>).purpose === 'string'
-      ) {
-        return {
-          name: String((parsed as Record<string, unknown>).name),
-          purpose: String((parsed as Record<string, unknown>).purpose),
-        };
-      }
+  if (result.validation.ok) {
+    const obj = result.object;
+    if (obj.name.trim() && obj.purpose.trim()) {
+      return { name: obj.name, purpose: obj.purpose };
     }
-  } catch {
-    // fall through to fallback
   }
 
   return {
@@ -267,13 +260,38 @@ async function processReadyDomain(
     .map((st) => st.centroid)
     .filter((c): c is number[] => c !== null && c.length > 0);
 
+  // Also dedupe against still-PENDING create_sub_topic proposals for this
+  // domain. Without this, repeated re-evaluation runs (before an admin acts on
+  // the queue) flood the queue with duplicate proposals for the same cluster.
+  const pendingProposalRows = await db
+    .select({ payload: taxonomyProposals.payload })
+    .from(taxonomyProposals)
+    .where(
+      and(
+        eq(taxonomyProposals.proposalType, 'create_sub_topic'),
+        eq(taxonomyProposals.status, 'pending'),
+      ),
+    );
+  const pendingCentroids = pendingProposalRows
+    .map((r) => {
+      const p = (r.payload ?? {}) as { topDomainId?: unknown; clusterCentroid?: unknown };
+      if (p.topDomainId !== domainId) return null;
+      const centroid = p.clusterCentroid;
+      return Array.isArray(centroid) && centroid.every((n) => typeof n === 'number')
+        ? (centroid as number[])
+        : null;
+    })
+    .filter((c): c is number[] => c !== null && c.length > 0);
+  const noveltyCentroids = [...existingCentroids, ...pendingCentroids];
+
   let proposalsWritten = 0;
 
   for (const cluster of clusters) {
     if (cluster.memberIndices.length < MIN_CLUSTER_SIZE) continue;
 
-    // Novelty check: skip if too similar to an existing sub-topic.
-    const maxExistingSim = existingCentroids.reduce(
+    // Novelty check: skip if too similar to an existing sub-topic OR an
+    // already-pending create_sub_topic proposal for this domain.
+    const maxExistingSim = noveltyCentroids.reduce(
       (max, existing) => Math.max(max, cosineSimilarity(cluster.centroid, existing)),
       -Infinity,
     );
@@ -498,6 +516,9 @@ export const taxonomyReevaluationScheduledTask = schedules.task({
   id: 'taxonomy-reevaluation',
   cron: '0 7 * * 1',
   maxDuration: 60 * 10,
+  // Retries disabled: scheduled cron; a retry would re-cluster and could write
+  // duplicate proposals. The next weekly run is the natural retry.
+  retry: { maxAttempts: 1 },
   run: async (_payload, { ctx }) => {
     return runReevaluation({
       triggerRunId: ctx.run.id,

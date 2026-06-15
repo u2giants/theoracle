@@ -88,6 +88,12 @@ function lookupEnrichment(
   return { enrichment: EMPTY_ENRICHMENT, matched: false };
 }
 
+/**
+ * Models priced at or above this many USD per 1M input tokens are dropped as
+ * out of our budget range during catalog refresh.
+ */
+const MAX_INPUT_PRICE_PER_M = 15.01;
+
 const EMPTY_ENRICHMENT: OpenRouterEnrichment = {
   contextLength: null,
   maxOutputTokens: null,
@@ -104,7 +110,7 @@ const EMPTY_ENRICHMENT: OpenRouterEnrichment = {
 };
 
 /**
- * Refresh the persisted catalog by fetching from all 3 provider APIs and
+ * Refresh the persisted catalog by fetching from all 5 provider APIs and
  * enriching with OpenRouter pricing + capability data. Each provider source
  * is fetched concurrently; a single source failure is non-fatal (the admin
  * UI receives the error list so they know which provider was skipped).
@@ -194,7 +200,7 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
       m.vision || m.pdf || m.thinking || m.structuredOutputs ||
       m.toolCalling || m.promptCaching || m.outputCap;
     if (!hasPrice && !hasCapabilities) return false;
-    if (m.promptPer1mUsd != null && m.promptPer1mUsd >= 15.01) return false;
+    if (m.promptPer1mUsd != null && m.promptPer1mUsd >= MAX_INPUT_PRICE_PER_M) return false;
     return true;
   });
 
