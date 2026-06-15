@@ -12,12 +12,22 @@ loadEnv({ path: resolve(__dirname, '..', '..', '.env') });
 // Capture git commit info at build time so the running version is visible in
 // the admin header without any runtime git dependency.
 function getGitInfo(): { sha: string; timestamp: string } {
+  const envSha = process.env.NEXT_PUBLIC_GIT_SHA || process.env.VERCEL_GIT_COMMIT_SHA;
+  const envTimestamp =
+    process.env.NEXT_PUBLIC_GIT_TIMESTAMP || process.env.VERCEL_GIT_COMMIT_TIMESTAMP;
+  if (envSha && envSha !== 'unknown' && envTimestamp && envTimestamp !== '0') {
+    return { sha: envSha, timestamp: envTimestamp };
+  }
+
   try {
     const sha = execSync('git log -1 --format=%H', { encoding: 'utf8' }).trim();
     const timestamp = execSync('git log -1 --format=%ct', { encoding: 'utf8' }).trim();
     return { sha, timestamp };
   } catch {
-    return { sha: 'unknown', timestamp: '0' };
+    if (envSha && envSha !== 'unknown') {
+      return { sha: envSha, timestamp: String(Math.floor(Date.now() / 1000)) };
+    }
+    return { sha: 'build', timestamp: String(Math.floor(Date.now() / 1000)) };
   }
 }
 

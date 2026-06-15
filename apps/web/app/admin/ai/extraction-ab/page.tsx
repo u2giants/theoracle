@@ -3,7 +3,8 @@ export const dynamic = 'force-dynamic';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { runExtractionAbTest, scoreExtractionAbTest } from './_actions';
+import { scoreExtractionAbTest } from './_actions';
+import { RunModelsForm } from './_components/run-models-form';
 
 type ClaimLike = {
   claimType?: string;
@@ -251,15 +252,7 @@ export default async function ExtractionAbPage() {
                     <code>{row.original_claim_id.slice(0, 8)}</code>
                   </p>
                 </div>
-                <form action={runExtractionAbTest}>
-                  <input type="hidden" name="reviewEventId" value={row.review_event_id} />
-                  <button
-                    type="submit"
-                    className="rounded bg-foreground px-3 py-1.5 text-xs text-background hover:bg-foreground/90"
-                  >
-                    {row.test_id ? 'Re-run models' : 'Run Gemini 3.1 + Qwen'}
-                  </button>
-                </form>
+                <RunModelsForm reviewEventId={row.review_event_id} hasTest={!!row.test_id} />
               </div>
             </CardHeader>
             <CardContent className="space-y-4">

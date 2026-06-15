@@ -24,6 +24,11 @@ const EvalOutputSchema = z.object({
 
 type EvalOutput = z.infer<typeof EvalOutputSchema>;
 
+export type ExtractionAbActionState = {
+  status: 'idle' | 'success' | 'error';
+  message: string;
+};
+
 const VARIANTS = {
   gemini31: {
     label: 'Gemini 3.1 Flash Lite',
@@ -147,67 +152,86 @@ async function runVariant(input: {
   return result.object;
 }
 
-export async function runExtractionAbTest(formData: FormData) {
-  await requireAdmin();
-  const reviewEventId = String(formData.get('reviewEventId') ?? '').trim();
-  if (!reviewEventId) throw new Error('Missing review event id.');
+export async function runExtractionAbTest(
+  _prevState: ExtractionAbActionState,
+  formData: FormData,
+): Promise<ExtractionAbActionState> {
+  try {
+    await requireAdmin();
+    const reviewEventId = String(formData.get('reviewEventId') ?? '').trim();
+    if (!reviewEventId) throw new Error('Missing review event id.');
 
-  const db = getDirectDb();
-  const source = await loadSourceForReviewEvent(reviewEventId);
-  const lessonPack = await loadClaimCorrectionLessonPack(db, { limit: 14 });
-  const client = new OracleAIClient({
-    adapters: buildStandardAdapters(),
-    fallbackOnError: false,
-  });
+    const db = getDirectDb();
+    const source = await loadSourceForReviewEvent(reviewEventId);
+    const lessonPack = await loadClaimCorrectionLessonPack(db, { limit: 14 });
+    const client = new OracleAIClient({
+      adapters: buildStandardAdapters(),
+      fallbackOnError: false,
+    });
 
-  await db.execute(sql`
-    INSERT INTO claim_extraction_ab_tests (
-      claim_review_event_id,
-      source_claim_id,
-      revised_claim_id,
-      source_type,
-      source_id,
-      source_excerpt
-    )
-    VALUES (
-      ${source.review_event_id}::uuid,
-      ${source.source_claim_id}::uuid,
-      ${source.revised_claim_id}::uuid,
-      ${source.source_type},
-      ${source.source_id}::uuid,
-      ${source.source_excerpt}
-    )
-    ON CONFLICT (claim_review_event_id) DO UPDATE
-      SET source_excerpt = EXCLUDED.source_excerpt,
-          updated_at = now()
-  `);
-
-  for (const variant of Object.values(VARIANTS)) {
-    try {
-      const output = await runVariant({
-        client,
-        route: resolveEvalRoute(variant.routeId),
-        sourceExcerpt: source.source_excerpt,
-        correctionLessonsPromptBlock: lessonPack.promptBlock,
-      });
-      await db.execute(sql`
-        UPDATE claim_extraction_ab_tests
-        SET ${sql.raw(variant.column)} = ${JSON.stringify(output)}::jsonb,
-            ${sql.raw(variant.errorColumn)} = NULL,
+    await db.execute(sql`
+      INSERT INTO claim_extraction_ab_tests (
+        claim_review_event_id,
+        source_claim_id,
+        revised_claim_id,
+        source_type,
+        source_id,
+        source_excerpt
+      )
+      VALUES (
+        ${source.review_event_id}::uuid,
+        ${source.source_claim_id}::uuid,
+        ${source.revised_claim_id}::uuid,
+        ${source.source_type},
+        ${source.source_id}::uuid,
+        ${source.source_excerpt}
+      )
+      ON CONFLICT (claim_review_event_id) DO UPDATE
+        SET source_excerpt = EXCLUDED.source_excerpt,
             updated_at = now()
-        WHERE claim_review_event_id = ${reviewEventId}::uuid
-      `);
-    } catch (error) {
-      await db.execute(sql`
-        UPDATE claim_extraction_ab_tests
-        SET ${sql.raw(variant.errorColumn)} = ${error instanceof Error ? error.message : String(error)},
-            updated_at = now()
-        WHERE claim_review_event_id = ${reviewEventId}::uuid
-      `);
+    `);
+
+    const failedVariants: string[] = [];
+    for (const variant of Object.values(VARIANTS)) {
+      try {
+        const output = await runVariant({
+          client,
+          route: resolveEvalRoute(variant.routeId),
+          sourceExcerpt: source.source_excerpt,
+          correctionLessonsPromptBlock: lessonPack.promptBlock,
+        });
+        await db.execute(sql`
+          UPDATE claim_extraction_ab_tests
+          SET ${sql.raw(variant.column)} = ${JSON.stringify(output)}::jsonb,
+              ${sql.raw(variant.errorColumn)} = NULL,
+              updated_at = now()
+          WHERE claim_review_event_id = ${reviewEventId}::uuid
+        `);
+      } catch (error) {
+        failedVariants.push(variant.label);
+        await db.execute(sql`
+          UPDATE claim_extraction_ab_tests
+          SET ${sql.raw(variant.errorColumn)} = ${error instanceof Error ? error.message : String(error)},
+              updated_at = now()
+          WHERE claim_review_event_id = ${reviewEventId}::uuid
+        `);
+      }
     }
-  }
 
-  revalidatePath('/admin/ai/extraction-ab');
+    revalidatePath('/admin/ai/extraction-ab');
+    if (failedVariants.length > 0) {
+      return {
+        status: 'error',
+        message: `Finished, but ${failedVariants.join(' and ')} failed. The error is shown in its column.`,
+      };
+    }
+    return { status: 'success', message: 'Models finished. Results refreshed below.' };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export async function scoreExtractionAbTest(formData: FormData) {
