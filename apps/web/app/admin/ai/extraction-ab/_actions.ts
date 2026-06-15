@@ -13,7 +13,7 @@ import {
   loadClaimCorrectionLessonPack,
   makeBlock,
   OracleAIClient,
-  resolveModelRoute,
+  getOracleRoute,
   type OracleModelRoute,
 } from '@oracle/ai';
 
@@ -27,13 +27,13 @@ type EvalOutput = z.infer<typeof EvalOutputSchema>;
 const VARIANTS = {
   gemini31: {
     label: 'Gemini 3.1 Flash Lite',
-    modelId: 'google/gemini-3.1-flash-lite',
+    routeId: 'google_gemini_3_1_flash_lite_extraction_eval',
     column: 'gemini_3_1_output_json',
     errorColumn: 'gemini_3_1_error',
   },
   qwen37: {
     label: 'Qwen 3.7 Max',
-    modelId: 'qwen/qwen3.7-max',
+    routeId: 'qwen_3_7_max_extraction_eval',
     column: 'qwen_3_7_output_json',
     errorColumn: 'qwen_3_7_error',
   },
@@ -91,9 +91,9 @@ async function loadSourceForReviewEvent(reviewEventId: string) {
   };
 }
 
-function resolveEvalRoute(modelId: string): OracleModelRoute {
-  const route = resolveModelRoute(modelId, 'extraction', 'low');
-  if (!route) throw new Error(`Could not resolve eval model ${modelId}.`);
+function resolveEvalRoute(routeId: string): OracleModelRoute {
+  const route = getOracleRoute(routeId);
+  if (!route) throw new Error(`Could not resolve eval route ${routeId}.`);
   return route;
 }
 
@@ -186,7 +186,7 @@ export async function runExtractionAbTest(formData: FormData) {
     try {
       const output = await runVariant({
         client,
-        route: resolveEvalRoute(variant.modelId),
+        route: resolveEvalRoute(variant.routeId),
         sourceExcerpt: source.source_excerpt,
         correctionLessonsPromptBlock: lessonPack.promptBlock,
       });
