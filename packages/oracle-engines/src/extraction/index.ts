@@ -30,10 +30,19 @@ export type {
   ValidationResultRecord,
 } from './types';
 export type { NormalizedString } from './normalization';
-export { STRICT_VERBATIM_POLICY, PDF_OCR_NORMALIZATION_POLICY } from './types';
+export {
+  STRICT_VERBATIM_POLICY,
+  PDF_OCR_NORMALIZATION_POLICY,
+  MARKDOWN_DOCUMENT_NORMALIZATION_POLICY,
+} from './types';
 
 // R5.5 — taxonomy validation + entity resolution
-export { resolveEntity, type RegistryEntity, type ResolveEntityInput, type ResolveEntityResult } from './entity-resolver';
+export {
+  resolveEntity,
+  type RegistryEntity,
+  type ResolveEntityInput,
+  type ResolveEntityResult,
+} from './entity-resolver';
 export {
   validateTaxonomy,
   type ValidateTaxonomyInput,
@@ -51,10 +60,7 @@ export {
   type CircuitBreakerInput,
   type CircuitBreakerDecision,
 } from './circuit-breaker';
-export {
-  mapLegacyDomainToTopDomain,
-  mapLegacyDomainsToTopDomains,
-} from './domain-mapping';
+export { mapLegacyDomainToTopDomain, mapLegacyDomainsToTopDomains } from './domain-mapping';
 export {
   executePromotion,
   AdvisoryLockBusyError,
@@ -67,10 +73,7 @@ export {
 } from './promotion-executor';
 
 // write-time fuzzy-dedup for entity_proposals
-export {
-  stageEntityProposal,
-  type StageEntityProposalArgs,
-} from './stage-entity-proposal';
+export { stageEntityProposal, type StageEntityProposalArgs } from './stage-entity-proposal';
 
 // R7 — cache profitability + provider_cached_content lifecycle
 export {

@@ -258,8 +258,9 @@ function main() {
     });
     assert(!res.ok, 'B3 licensor-as-vendor → not ok');
     assert(
-      res.failures.some((f) =>
-        f.detail.toLowerCase().includes('disney') && f.detail.toLowerCase().includes('licensor'),
+      res.failures.some(
+        (f) =>
+          f.detail.toLowerCase().includes('disney') && f.detail.toLowerCase().includes('licensor'),
       ),
       'B3 failure detail names Disney and licensor',
     );
@@ -355,15 +356,15 @@ function main() {
     assert(decision.kind === 'insert_new_claim', 'C1 happy path → insert_new_claim');
     if (decision.kind === 'insert_new_claim') {
       assert(decision.entityAssignments.length === 1, 'C1 entityAssignments includes Disney');
-      assert(decision.entityAssignments[0]!.entityId === 'ent-disney', 'C1 entity id is ent-disney');
+      assert(
+        decision.entityAssignments[0]!.entityId === 'ent-disney',
+        'C1 entity id is ent-disney',
+      );
       assert(
         decision.metadata?.processStage === 'licensor_approval',
         'C1 metadata carries processStage',
       );
-      assert(
-        decision.metadata?.department === 'Licensing',
-        'C1 metadata carries department',
-      );
+      assert(decision.metadata?.department === 'Licensing', 'C1 metadata carries department');
       assert(
         decision.topDomainAssignments[0]!.topDomainId === 'licensing_approvals',
         'C1 topDomainAssignments comes from taxonomy.validTopDomainIds',
@@ -372,9 +373,9 @@ function main() {
     }
   }
 
-  // C2: taxonomy invalid → reject(taxonomy_invalid) — entityProposalsToStage still surfaced
+  // C2: unknown-only entities still stage proposals, but do not block promotion.
   {
-    const taxonomyBad: TaxonomyValidationResult = {
+    const taxonomyUnknownOnly: TaxonomyValidationResult = {
       ok: false,
       validTopDomainIds: ['licensing_approvals'],
       resolvedEntities: [],
@@ -415,15 +416,14 @@ function main() {
           validatedCharEnd: 41,
         },
       ],
-      taxonomy: taxonomyBad,
+      taxonomy: taxonomyUnknownOnly,
       existingClaimWithSameHash: null,
     });
-    assert(decision.kind === 'reject', 'C2 taxonomy invalid → reject');
-    if (decision.kind === 'reject') {
-      assert(decision.reason === 'taxonomy_invalid', 'C2 reason is taxonomy_invalid');
+    assert(decision.kind === 'insert_new_claim', 'C2 unknown-only entities → insert_new_claim');
+    if (decision.kind === 'insert_new_claim') {
       assert(
-        decision.entityProposalsToStage?.length === 1,
-        'C2 entityProposalsToStage threaded through reject',
+        decision.entityProposalsToStage.length === 1,
+        'C2 entityProposalsToStage threaded through insert',
       );
     }
   }
@@ -461,8 +461,7 @@ function main() {
           id: 'ev-3',
           sourceType: 'message',
           sourceMessageId: 'msg-3',
-          validatedExactQuote:
-            'Marvel approvals run on the same calendar as Disney.',
+          validatedExactQuote: 'Marvel approvals run on the same calendar as Disney.',
           validatedCharStart: 0,
           validatedCharEnd: 52,
         },
@@ -470,10 +469,7 @@ function main() {
       taxonomy: taxonomyOk,
       existingClaimWithSameHash: { claimId: 'claim-existing' },
     });
-    assert(
-      decision.kind === 'append_to_existing_claim',
-      'C3 race → append_to_existing_claim',
-    );
+    assert(decision.kind === 'append_to_existing_claim', 'C3 race → append_to_existing_claim');
     if (decision.kind === 'append_to_existing_claim') {
       assert(
         decision.entityAssignments[0]!.entityId === 'ent-marvel',

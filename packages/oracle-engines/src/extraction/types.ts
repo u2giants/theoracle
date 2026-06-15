@@ -40,6 +40,13 @@ export interface NormalizationPolicy {
   allowWhitespaceCollapse?: boolean;
   /** Strip leading/trailing whitespace before matching. */
   allowLeadingTrailingTrim?: boolean;
+  /**
+   * Treat Markdown presentation markers as formatting, not quote content.
+   * Intended for uploaded Markdown documents where the source may contain
+   * emphasis markers, inline code ticks, links, or table cell separators that
+   * a model naturally omits while still copying the same visible words.
+   */
+  allowMarkdownFormatting?: boolean;
 }
 
 export const STRICT_VERBATIM_POLICY: NormalizationPolicy = {};
@@ -52,15 +59,20 @@ export const PDF_OCR_NORMALIZATION_POLICY: NormalizationPolicy = {
   allowLeadingTrailingTrim: true,
 };
 
+/** Conservative policy for Markdown/plain-text documents. */
+export const MARKDOWN_DOCUMENT_NORMALIZATION_POLICY: NormalizationPolicy = {
+  allowCRLF: true,
+  allowSmartQuotes: true,
+  allowWhitespaceCollapse: true,
+  allowLeadingTrailingTrim: true,
+  allowMarkdownFormatting: true,
+};
+
 // ─────────────────────────────────────────────────────────────────────────
 // Quote validation
 // ─────────────────────────────────────────────────────────────────────────
 
-export type QuoteValidationVerdict =
-  | 'exact_match'
-  | 'normalized_match'
-  | 'failed'
-  | 'ambiguous';
+export type QuoteValidationVerdict = 'exact_match' | 'normalized_match' | 'failed' | 'ambiguous';
 
 export type ValidationMethod =
   | 'verbatim_offset_match'
@@ -69,6 +81,7 @@ export type ValidationMethod =
   | 'normalized_smart_quotes'
   | 'normalized_whitespace'
   | 'normalized_trim'
+  | 'normalized_markdown'
   | 'normalized_combined'
   | 'fuzzy_token_overlap'
   | 'none';

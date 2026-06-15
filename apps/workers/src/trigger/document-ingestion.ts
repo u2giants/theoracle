@@ -73,6 +73,7 @@ import {
   computeCandidateHash,
   executePromotion,
   mapLegacyDomainsToTopDomains,
+  MARKDOWN_DOCUMENT_NORMALIZATION_POLICY,
   stageEntityProposal,
   validateQuote,
   validateSourcePointer,
@@ -144,28 +145,46 @@ function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP
   return chunks;
 }
 
-function formatDocumentChunksForExtraction(
-  chunks: Array<{ id: string; text: string }>,
-  maxChars = MAX_DOCUMENT_TEXT_CHARS,
-): string {
+function formatDocumentChunksForExtraction(chunks: Array<{ id: string; text: string }>): string {
   const parts: string[] = [];
-  let used = 0;
   for (const chunk of chunks) {
     const header = `DOCUMENT CHUNK\nDocument Chunk ID: ${chunk.id}\nContent:\n`;
     const footer = '\n---\n';
-    const available = maxChars - used - header.length - footer.length;
-    if (available <= 0) break;
-    const text = chunk.text.slice(0, available);
-    parts.push(`${header}${text}${footer}`);
-    used += header.length + text.length + footer.length;
-    if (text.length < chunk.text.length) break;
+    parts.push(`${header}${chunk.text}${footer}`);
   }
-  return parts.join('');
+  return parts.join('\n');
+}
+
+function buildDocumentChunkWindows(
+  chunks: Array<{ id: string; text: string }>,
+  maxChars = MAX_DOCUMENT_TEXT_CHARS,
+): Array<{ chunks: Array<{ id: string; text: string }>; content: string }> {
+  const windows: Array<{ chunks: Array<{ id: string; text: string }>; content: string }> = [];
+  let current: Array<{ id: string; text: string }> = [];
+
+  for (const chunk of chunks) {
+    const next = [...current, chunk];
+    const nextContent = formatDocumentChunksForExtraction(next);
+    if (current.length > 0 && nextContent.length > maxChars) {
+      windows.push({ chunks: current, content: formatDocumentChunksForExtraction(current) });
+      current = [chunk];
+    } else {
+      current = next;
+    }
+  }
+
+  if (current.length > 0) {
+    windows.push({ chunks: current, content: formatDocumentChunksForExtraction(current) });
+  }
+
+  return windows;
 }
 
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pdfParse = (await import('pdf-parse')).default as (buf: Buffer) => Promise<{ text: string }>;
+  const pdfParse = (await import('pdf-parse')).default as (
+    buf: Buffer,
+  ) => Promise<{ text: string }>;
   const result = await pdfParse(buffer);
   return result.text;
 }
@@ -198,8 +217,7 @@ async function extractTextFromDocx(buffer: Buffer): Promise<string> {
   return result.value;
 }
 
-const DOCX_MIME =
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 const IMAGE_TRANSCRIPTION_SYSTEM = `You are a meticulous visual analyst for an operations knowledge base. You will be shown ONE image an employee uploaded. Produce a faithful, self-contained TEXT rendering of everything the image conveys. Downstream extraction reads ONLY your text — it cannot see the image — and it quotes your text verbatim, so it must be able to reconstruct both the content and the structure from your output alone.
 
@@ -373,10 +391,7 @@ function resolveParseKind(
   ) {
     return 'image';
   }
-  if (
-    fileType.startsWith('text/') ||
-    ['txt', 'md', 'markdown', 'vtt'].includes(ext)
-  ) {
+  if (fileType.startsWith('text/') || ['txt', 'md', 'markdown', 'vtt'].includes(ext)) {
     return 'text';
   }
   return 'unsupported';
@@ -413,7 +428,10 @@ interface ProcessDocumentResult {
   rejections: number;
 }
 
-async function processDocument(documentId: string, jobRunId: string): Promise<ProcessDocumentResult> {
+async function processDocument(
+  documentId: string,
+  jobRunId: string,
+): Promise<ProcessDocumentResult> {
   const db = getDirectDb();
   const client = buildOracleClient();
   const serviceSupabase = createServiceRoleClient();
@@ -569,473 +587,504 @@ async function processDocument(documentId: string, jobRunId: string): Promise<Pr
     return outcome;
   }
 
-  // 5. Stage extraction_batches row.
-  const documentCorpus = formatDocumentChunksForExtraction(insertedChunkIds);
-  const sourceHash = createHash('sha256').update(documentCorpus, 'utf8').digest('hex');
-  const [batch] = await db
-    .insert(extractionBatches)
-    .values({
-      jobRunId,
-      batchType: 'document_page',
-      status: 'pending_model',
-      sourceDocumentChunkIds: insertedChunkIds.map((c) => c.id),
-      sourceHash,
-      modelRunIdsAttempted: [],
-      routeIdsAttempted: [route.routeId],
-    })
-    .returning({ id: extractionBatches.id });
-  if (!batch) throw new Error('[document-ingestion] failed to insert extraction_batches row');
+  // 5. Process every chunk window. Each model call is bounded, but the
+  // document itself is not silently truncated.
+  const extractionWindows = buildDocumentChunkWindows(insertedChunkIds);
+  for (let windowIndex = 0; windowIndex < extractionWindows.length; windowIndex++) {
+    const extractionWindow = extractionWindows[windowIndex]!;
+    const windowChunks = extractionWindow.chunks;
+    const documentCorpus = extractionWindow.content;
+    const sourceHash = createHash('sha256').update(documentCorpus, 'utf8').digest('hex');
+    const [batch] = await db
+      .insert(extractionBatches)
+      .values({
+        jobRunId,
+        batchType: 'document_page',
+        status: 'pending_model',
+        sourceDocumentChunkIds: windowChunks.map((c) => c.id),
+        sourceHash,
+        modelRunIdsAttempted: [],
+        routeIdsAttempted: [route.routeId],
+      })
+      .returning({ id: extractionBatches.id });
+    if (!batch) throw new Error('[document-ingestion] failed to insert extraction_batches row');
 
-  // 6. Compile prompt + context pack. The document text becomes the dynamic
-  //    block; the extraction system prompt + the document-specific addendum
-  //    are stable.
-  const baseDocumentNote =
-    parseKind === 'image'
-      ? `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded image (not a conversation, not a native text document). Extract claims about operational processes, rules, systems, and dependencies that are explicitly supported by this transcription.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}`
-      : `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}`;
-  const documentNote = baseDocumentNote + buildUploaderContextNote(doc, topDomainNameMap);
-  const blocks = [
-    makeBlock({
-      id: 'extraction-system',
-      label: 'Extraction system prompt + document addendum',
-      kind: 'stable_system',
-      content: EXTRACTION_SYSTEM_PROMPT + documentNote,
-      reasonIncluded: 'extraction prompt v' + EXTRACTION_PROMPT_VERSION + ' (document mode)',
-    }),
-    makeBlock({
-      id: 'document-text',
-      label: 'Document chunks (truncated)',
-      kind: 'retrieved_context',
-      content: documentCorpus,
-      reasonIncluded: `${insertedChunkIds.length} chunks → formatted/truncated to ${documentCorpus.length} chars`,
-    }),
-    makeBlock({
-      id: 'document-request',
-      label: 'Document extraction request',
-      kind: 'dynamic_input',
-      content:
-        'Read the document chunks as a whole, infer the operational process flow they describe, and extract evidence-backed operational claims. Classify by meaning and handoff structure, not by literal keywords. Every exactQuote must be copied verbatim from within ONE provided document chunk, and sourceMessageId must be that exact Document Chunk ID. Return only claims that are explicitly supported by the document text.',
-      reasonIncluded: 'small dynamic request so the document corpus can be cached as reusable prefix',
-    }),
-  ];
-  const plan = client.compile({
-    taskType: 'document_claim_extraction',
-    routeId: route.routeId,
-    promptVersion: EXTRACTION_PROMPT_VERSION,
-    blocks,
-    observability: { includedDocumentChunkIds: insertedChunkIds.map((c) => c.id) },
-  });
-
-  const [contextPack] = await db
-    .insert(oracleContextPacks)
-    .values(buildContextPackInsert(plan))
-    .returning({ id: oracleContextPacks.id });
-  if (!contextPack) throw new Error('[document-ingestion] failed to insert oracle_context_packs row');
-  await db
-    .update(extractionBatches)
-    .set({ contextPackId: contextPack.id })
-    .where(eq(extractionBatches.id, batch.id));
-
-  // 7. Call the model. The adapter now owns the real Vertex explicit-cache
-  //    lifecycle, including cross-process reuse via provider_cached_content.
-  let modelOutput: ExtractionOutput | null = null;
-  let modelRunId: string | null = null;
-  const callStartedAt = Date.now();
-  try {
-    const result = await client.runObject<ExtractionOutput>({
+    // 6. Compile prompt + context pack. The document text becomes the dynamic
+    //    block; the extraction system prompt + the document-specific addendum
+    //    are stable.
+    const baseDocumentNote =
+      parseKind === 'image'
+        ? `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded image (not a conversation, not a native text document). Extract claims about operational processes, rules, systems, and dependencies that are explicitly supported by this transcription.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}`
+        : `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}`;
+    const documentNote = baseDocumentNote + buildUploaderContextNote(doc, topDomainNameMap);
+    const blocks = [
+      makeBlock({
+        id: 'extraction-system',
+        label: 'Extraction system prompt + document addendum',
+        kind: 'stable_system',
+        content: EXTRACTION_SYSTEM_PROMPT + documentNote,
+        reasonIncluded: 'extraction prompt v' + EXTRACTION_PROMPT_VERSION + ' (document mode)',
+      }),
+      makeBlock({
+        id: 'document-text',
+        label: 'Document chunks',
+        kind: 'retrieved_context',
+        content: documentCorpus,
+        reasonIncluded: `window ${windowIndex + 1}/${extractionWindows.length}: ${windowChunks.length} chunks → formatted to ${documentCorpus.length} chars`,
+      }),
+      makeBlock({
+        id: 'document-request',
+        label: 'Document extraction request',
+        kind: 'dynamic_input',
+        content:
+          'Read the document chunks as a whole, infer the operational process flow they describe, and extract evidence-backed operational claims. Classify by meaning and handoff structure, not by literal keywords. Every exactQuote must be copied verbatim from within ONE provided document chunk, and sourceMessageId must be that exact Document Chunk ID. Return only claims that are explicitly supported by the document text.',
+        reasonIncluded:
+          'small dynamic request so the document corpus can be cached as reusable prefix',
+      }),
+    ];
+    const plan = client.compile({
       taskType: 'document_claim_extraction',
       routeId: route.routeId,
       promptVersion: EXTRACTION_PROMPT_VERSION,
       blocks,
-      schema: ExtractionOutputSchema,
-      observability: { includedDocumentChunkIds: insertedChunkIds.map((c) => c.id) },
-      providerOptions: {
-        cache: {
-          preferLongLivedCache: true,
-          preferExplicitCache: route.provider === 'vertex',
-          cacheTtlSeconds: 60 * 60,
-          expectedReuseCount: 2,
-          persistProviderCacheRecord: route.provider === 'vertex',
-          sourceDescription: `${doc.fileName} (${doc.fileType})`,
-          cleanupOwner: 'document-ingestion-worker',
-          createdByJobRunId: jobRunId,
-          latestPlannedReuseStep: 'document_claim_extraction',
-          vertexFileCacheSource: fileBackedCachePath
-            ? {
-                localPath: fileBackedCachePath,
-                mimeType: doc.fileType,
-                fileName: doc.fileName,
-                sourceHash,
-              }
-            : undefined,
+      observability: { includedDocumentChunkIds: windowChunks.map((c) => c.id) },
+    });
+
+    const [contextPack] = await db
+      .insert(oracleContextPacks)
+      .values(buildContextPackInsert(plan))
+      .returning({ id: oracleContextPacks.id });
+    if (!contextPack)
+      throw new Error('[document-ingestion] failed to insert oracle_context_packs row');
+    await db
+      .update(extractionBatches)
+      .set({ contextPackId: contextPack.id })
+      .where(eq(extractionBatches.id, batch.id));
+
+    // 7. Call the model. The adapter now owns the real Vertex explicit-cache
+    //    lifecycle, including cross-process reuse via provider_cached_content.
+    let modelOutput: ExtractionOutput | null = null;
+    let modelRunId: string | null = null;
+    const callStartedAt = Date.now();
+    try {
+      const result = await client.runObject<ExtractionOutput>({
+        taskType: 'document_claim_extraction',
+        routeId: route.routeId,
+        promptVersion: EXTRACTION_PROMPT_VERSION,
+        blocks,
+        schema: ExtractionOutputSchema,
+        observability: { includedDocumentChunkIds: windowChunks.map((c) => c.id) },
+        providerOptions: {
+          cache: {
+            preferLongLivedCache: true,
+            preferExplicitCache: route.provider === 'vertex',
+            cacheTtlSeconds: 60 * 60,
+            expectedReuseCount: 2,
+            persistProviderCacheRecord: route.provider === 'vertex',
+            sourceDescription: `${doc.fileName} (${doc.fileType})`,
+            cleanupOwner: 'document-ingestion-worker',
+            createdByJobRunId: jobRunId,
+            latestPlannedReuseStep: 'document_claim_extraction',
+            vertexFileCacheSource: fileBackedCachePath
+              ? {
+                  localPath: fileBackedCachePath,
+                  mimeType: doc.fileType,
+                  fileName: doc.fileName,
+                  sourceHash,
+                }
+              : undefined,
+          },
         },
-      },
-    });
-    const latencyMs = Date.now() - callStartedAt;
-    const actualRouteId = result.routeId ?? route.routeId;
-    const actualProvider = result.provider ?? route.provider;
-    const actualModelId = result.modelId ?? route.modelId;
+      });
+      const latencyMs = Date.now() - callStartedAt;
+      const actualRouteId = result.routeId ?? route.routeId;
+      const actualProvider = result.provider ?? route.provider;
+      const actualModelId = result.modelId ?? route.modelId;
 
-    const [modelRun] = await db
-      .insert(modelRuns)
-      .values({
-        taskType: 'document-ingestion',
-        model: actualModelId,
-        provider: actualProvider,
-        promptVersion: EXTRACTION_PROMPT_VERSION,
-        inputHash: plan.metadata.stablePrefixHash,
-        inputTokens: result.usage.inputTokens ?? null,
-        outputTokens: result.usage.outputTokens ?? null,
-        latencyMs,
-        success: result.validation.ok,
-      })
-      .returning({ id: modelRuns.id });
-    if (!modelRun) throw new Error('[document-ingestion] failed to insert model_runs row');
-    modelRunId = modelRun.id;
+      const [modelRun] = await db
+        .insert(modelRuns)
+        .values({
+          taskType: 'document-ingestion',
+          model: actualModelId,
+          provider: actualProvider,
+          promptVersion: EXTRACTION_PROMPT_VERSION,
+          inputHash: plan.metadata.stablePrefixHash,
+          inputTokens: result.usage.inputTokens ?? null,
+          outputTokens: result.usage.outputTokens ?? null,
+          latencyMs,
+          success: result.validation.ok,
+        })
+        .returning({ id: modelRuns.id });
+      if (!modelRun) throw new Error('[document-ingestion] failed to insert model_runs row');
+      modelRunId = modelRun.id;
 
-    await db.insert(modelRunUsageDetails).values({
-      modelRunId: modelRun.id,
-      contextPackId: contextPack.id,
-      routeId: actualRouteId,
-      inputTokens: result.usage.inputTokens ?? null,
-      cachedInputTokens: result.usage.cachedInputTokens ?? null,
-      cacheWriteTokens: result.usage.cacheWriteTokens ?? null,
-      outputTokens: result.usage.outputTokens ?? null,
-      reasoningTokens: result.usage.reasoningTokens ?? null,
-      providerRequestId: result.usage.providerRequestId ?? null,
-      rawUsageJson: result.usage.rawUsageJson ?? null,
-      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
-      fallbackReason: result.fallbackReason ?? null,
-    });
-    await db
-      .update(oracleContextPacks)
-      .set({ modelRunId: modelRun.id })
-      .where(eq(oracleContextPacks.id, contextPack.id));
-    await db
-      .update(extractionBatches)
-      .set({
+      await db.insert(modelRunUsageDetails).values({
         modelRunId: modelRun.id,
-        modelRunIdsAttempted: [modelRun.id],
-        rawModelOutput: result.object as unknown as Record<string, unknown>,
-        status: result.validation.ok ? 'model_complete' : 'failed',
-      })
-      .where(eq(extractionBatches.id, batch.id));
-
-    if (!result.validation.ok) {
-      throw new Error(
-        '[document-ingestion] model output failed Zod schema validation: ' + result.validation.error.message,
-      );
-    }
-    modelOutput = result.object;
-  } catch (err) {
-    if (!modelRunId) {
-      await db.insert(modelRuns).values({
-        taskType: 'document-ingestion',
-        model: route.modelId,
-        provider: route.provider,
-        promptVersion: EXTRACTION_PROMPT_VERSION,
-        latencyMs: Date.now() - callStartedAt,
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-    await db
-      .update(extractionBatches)
-      .set({
-        status: 'failed',
-        error: err instanceof Error ? err.message : String(err),
-        finishedAt: new Date(),
-      })
-      .where(eq(extractionBatches.id, batch.id));
-    // Document still has chunks — mark complete with the error noted.
-    await db
-      .update(documents)
-      .set({
-        status: 'complete',
-        processedAt: new Date(),
-        processingError: err instanceof Error ? err.message : String(err),
-      })
-      .where(eq(documents.id, documentId));
-    if (fileBackedCachePath) {
-      await unlink(fileBackedCachePath).catch(() => undefined);
-    }
-    return outcome;
-  }
-
-  // 9. For each extracted claim: stage candidate + evidence, validate,
-  //    promote. The promoter writes claim_top_domains for the claim; we
-  //    additionally write document_chunk_top_domains so retrieval works
-  //    against the chunk independently.
-  if (modelOutput) {
-    for (const extracted of modelOutput.claims) {
-      // Pick the chunk whose text contains the quote. If none does, the
-      // quote validator will reject it as 'failed' anyway.
-      const matchingChunk = insertedChunkIds.find((c) => c.text.includes(extracted.evidence.exactQuote));
-      const sourceIdChunk = insertedChunkIds.find((c) => c.id === extracted.evidence.sourceMessageId);
-      const chunkForEvidence = matchingChunk ?? sourceIdChunk ?? insertedChunkIds[0]!;
-
-      const proposedTopDomainIds = mapLegacyDomainsToTopDomains(
-        extracted.domains as KnowledgeDomain[],
-      );
-
-      const [candidate] = await db
-        .insert(extractionCandidates)
-        .values({
-          extractionBatchId: batch.id,
-          status: 'pending_validation',
-          claimType: extracted.claimType,
-          summary: extracted.summary,
-          impactScore: extracted.impactScore,
-          confidenceScore: extracted.confidenceScore,
-          domains: proposedTopDomainIds satisfies TopLevelDomainId[],
-          // P2 #1 — proposedEntities now sourced from prompt-2.x.
-          proposedEntities: (extracted.proposedEntities ?? []).map((e) => ({
-            entityType: e.entityType,
-            rawString: e.rawString,
-          })),
-          // P1 #2 — sensitivityFlags now sourced from prompt-2.x.
-          containsSensitivePersonalData:
-            extracted.sensitivityFlags?.containsSensitivePersonalData ?? false,
-          containsSensitiveHRData: extracted.sensitivityFlags?.containsSensitiveHRData ?? false,
-          isPersonalConflict: extracted.sensitivityFlags?.isPersonalConflict ?? false,
-          sensitivityReason: extracted.sensitivityFlags?.sensitivityReason ?? null,
-          requiresReview: extracted.requiresReview,
-          reviewReason: extracted.requiresReview ? 'extractor requested review' : null,
-          rawCandidateJson: extracted as unknown as Record<string, unknown>,
-        })
-        .returning({ id: extractionCandidates.id });
-      if (!candidate) continue;
-      outcome.candidatesStaged += 1;
-
-      // Stage candidate evidence (source_type='document_chunk').
-      const sourcePointerRes = validateSourcePointer({
-        sourceType: 'document_chunk',
-        sourceDocumentChunkId: chunkForEvidence.id,
-      });
-      if (!sourcePointerRes.ok) {
-        await db.insert(extractionValidationResults).values({
-          candidateId: candidate.id,
-          checkName: sourcePointerRes.failedCheckName ?? 'source_exists',
-          status: 'fail',
-          detail: sourcePointerRes.detail,
-        });
-        await db
-          .update(extractionCandidates)
-          .set({ status: 'validation_failed', validationError: 'source pointer invalid', validatedAt: new Date() })
-          .where(eq(extractionCandidates.id, candidate.id));
-        outcome.rejections += 1;
-        continue;
-      }
-      const [evRow] = await db
-        .insert(extractionCandidateEvidence)
-        .values({
-          candidateId: candidate.id,
-          sourceType: 'document_chunk',
-          sourceDocumentChunkId: chunkForEvidence.id,
-          uploadedByEmployeeId: doc.uploaderId,
-          exactQuoteProvided: extracted.evidence.exactQuote,
-          validationStatus: 'pending',
-          confidence: extracted.evidence.confidence,
-          documentClass: null,
-          processStage: null,
-        })
-        .returning({ id: extractionCandidateEvidence.id });
-      if (!evRow) continue;
-
-      // Quote validation against the matching chunk's text.
-      const quoteRes = validateQuote({
-        sourceText: chunkForEvidence.text,
-        exactQuoteProvided: extracted.evidence.exactQuote,
+        contextPackId: contextPack.id,
+        routeId: actualRouteId,
+        inputTokens: result.usage.inputTokens ?? null,
+        cachedInputTokens: result.usage.cachedInputTokens ?? null,
+        cacheWriteTokens: result.usage.cacheWriteTokens ?? null,
+        outputTokens: result.usage.outputTokens ?? null,
+        reasoningTokens: result.usage.reasoningTokens ?? null,
+        providerRequestId: result.usage.providerRequestId ?? null,
+        rawUsageJson: result.usage.rawUsageJson ?? null,
+        fellBackFromRouteId: result.fellBackFromRouteId ?? null,
+        fallbackReason: result.fallbackReason ?? null,
       });
       await db
-        .update(extractionCandidateEvidence)
+        .update(oracleContextPacks)
+        .set({ modelRunId: modelRun.id })
+        .where(eq(oracleContextPacks.id, contextPack.id));
+      await db
+        .update(extractionBatches)
         .set({
-          validationStatus: quoteRes.validationStatus,
-          validationMethod: quoteRes.validationMethod,
-          validatedExactQuote: quoteRes.validatedExactQuote ?? null,
-          validatedCharStart: quoteRes.validatedCharStart ?? null,
-          validatedCharEnd: quoteRes.validatedCharEnd ?? null,
-          validatedAt: new Date(),
-          validationError:
-            quoteRes.verdict === 'exact_match' || quoteRes.verdict === 'normalized_match'
-              ? null
-              : quoteRes.detail,
+          modelRunId: modelRun.id,
+          modelRunIdsAttempted: [modelRun.id],
+          rawModelOutput: result.object as unknown as Record<string, unknown>,
+          status: result.validation.ok ? 'model_complete' : 'failed',
         })
-        .where(eq(extractionCandidateEvidence.id, evRow.id));
-      await db.insert(extractionValidationResults).values({
-        candidateId: candidate.id,
-        candidateEvidenceId: evRow.id,
-        checkName: quoteRes.failedCheckName ?? 'quote_exact_match',
-        status:
-          quoteRes.verdict === 'exact_match' || quoteRes.verdict === 'normalized_match'
-            ? 'pass'
-            : 'fail',
-        detail: quoteRes.detail,
-      });
+        .where(eq(extractionBatches.id, batch.id));
 
-      if (quoteRes.verdict !== 'exact_match' && quoteRes.verdict !== 'normalized_match') {
-        await db
-          .update(extractionCandidates)
-          .set({ status: 'validation_failed', validationError: quoteRes.detail, validatedAt: new Date() })
-          .where(eq(extractionCandidates.id, candidate.id));
-        outcome.rejections += 1;
-        continue;
+      if (!result.validation.ok) {
+        throw new Error(
+          '[document-ingestion] model output failed Zod schema validation: ' +
+            result.validation.error.message,
+        );
       }
-
-      // Taxonomy validation. proposedEntities sourced from prompt-2.x (P2 #1).
-      const taxRes = validateTaxonomy({
-        proposedTopDomainIds,
-        activeTopDomainIds,
-        proposedEntities: (extracted.proposedEntities ?? []).map((e) => ({
-          entityType: e.entityType as EntityType,
-          rawString: e.rawString,
-        })),
-        entityRegistry,
-      });
-      await db.insert(extractionValidationResults).values({
-        candidateId: candidate.id,
-        checkName: 'domain_valid',
-        status: taxRes.ok ? 'pass' : 'fail',
-        detail: taxRes.ok
-          ? `Top-domains validated: ${taxRes.validTopDomainIds.join(', ')}`
-          : taxRes.failures.map((f) => f.detail).join('; '),
-      });
-      // Stage entity proposals regardless of overall taxRes.ok so admin can
-      // review unknown entities surfaced by the model.
-      // stageEntityProposal() uses pg_trgm fuzzy-dedup: near-duplicate surfaces
-      // (similarity >= 0.85) increment proposal_count instead of creating new rows.
-      for (const p of taxRes.entityProposalsToCreate) {
-        await stageEntityProposal(db, {
-          proposedEntityType: p.proposedEntityType,
-          proposedCanonicalValue: p.proposedCanonicalValue,
-          rawString: p.rawString,
-          observedInSourceType: 'claim_candidate',
-          observedInSourceId: candidate.id,
-          proposedByModelRunId: modelRunId,
+      modelOutput = result.object;
+    } catch (err) {
+      if (!modelRunId) {
+        await db.insert(modelRuns).values({
+          taskType: 'document-ingestion',
+          model: route.modelId,
+          provider: route.provider,
+          promptVersion: EXTRACTION_PROMPT_VERSION,
+          latencyMs: Date.now() - callStartedAt,
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
         });
       }
-
-      if (!taxRes.ok) {
-        await db
-          .update(extractionCandidates)
-          .set({ status: 'validation_failed', validationError: taxRes.failureSummary ?? 'taxonomy invalid', validatedAt: new Date() })
-          .where(eq(extractionCandidates.id, candidate.id));
-        outcome.rejections += 1;
-        continue;
+      await db
+        .update(extractionBatches)
+        .set({
+          status: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+          finishedAt: new Date(),
+        })
+        .where(eq(extractionBatches.id, batch.id));
+      // Document still has chunks — mark complete with the error noted.
+      await db
+        .update(documents)
+        .set({
+          status: 'complete',
+          processedAt: new Date(),
+          processingError: err instanceof Error ? err.message : String(err),
+        })
+        .where(eq(documents.id, documentId));
+      if (fileBackedCachePath) {
+        await unlink(fileBackedCachePath).catch(() => undefined);
       }
+      return outcome;
+    }
 
-      // P1 #2 — Sensitivity gate. Mirrors claim-extraction.ts.
-      const sensitivityFired =
-        extracted.sensitivityFlags?.containsSensitiveHRData === true ||
-        extracted.sensitivityFlags?.containsSensitivePersonalData === true ||
-        extracted.sensitivityFlags?.isPersonalConflict === true;
-      if (sensitivityFired) {
+    // 9. For each extracted claim: stage candidate + evidence, validate,
+    //    promote. The promoter writes claim_top_domains for the claim; we
+    //    additionally write document_chunk_top_domains so retrieval works
+    //    against the chunk independently.
+    if (modelOutput) {
+      for (const extracted of modelOutput.claims) {
+        // Pick the chunk whose text contains the quote. If none does, the
+        // quote validator will reject it as 'failed' anyway.
+        const matchingChunk = windowChunks.find((c) =>
+          c.text.includes(extracted.evidence.exactQuote),
+        );
+        const sourceIdChunk = windowChunks.find((c) => c.id === extracted.evidence.sourceMessageId);
+        const chunkForEvidence = matchingChunk ?? sourceIdChunk ?? windowChunks[0]!;
+
+        const proposedTopDomainIds = mapLegacyDomainsToTopDomains(
+          extracted.domains as KnowledgeDomain[],
+        );
+
+        const [candidate] = await db
+          .insert(extractionCandidates)
+          .values({
+            extractionBatchId: batch.id,
+            status: 'pending_validation',
+            claimType: extracted.claimType,
+            summary: extracted.summary,
+            impactScore: extracted.impactScore,
+            confidenceScore: extracted.confidenceScore,
+            domains: proposedTopDomainIds satisfies TopLevelDomainId[],
+            // P2 #1 — proposedEntities now sourced from prompt-2.x.
+            proposedEntities: (extracted.proposedEntities ?? []).map((e) => ({
+              entityType: e.entityType,
+              rawString: e.rawString,
+            })),
+            // P1 #2 — sensitivityFlags now sourced from prompt-2.x.
+            containsSensitivePersonalData:
+              extracted.sensitivityFlags?.containsSensitivePersonalData ?? false,
+            containsSensitiveHRData: extracted.sensitivityFlags?.containsSensitiveHRData ?? false,
+            isPersonalConflict: extracted.sensitivityFlags?.isPersonalConflict ?? false,
+            sensitivityReason: extracted.sensitivityFlags?.sensitivityReason ?? null,
+            requiresReview: extracted.requiresReview,
+            reviewReason: extracted.requiresReview ? 'extractor requested review' : null,
+            rawCandidateJson: extracted as unknown as Record<string, unknown>,
+          })
+          .returning({ id: extractionCandidates.id });
+        if (!candidate) continue;
+        outcome.candidatesStaged += 1;
+
+        // Stage candidate evidence (source_type='document_chunk').
+        const sourcePointerRes = validateSourcePointer({
+          sourceType: 'document_chunk',
+          sourceDocumentChunkId: chunkForEvidence.id,
+        });
+        if (!sourcePointerRes.ok) {
+          await db.insert(extractionValidationResults).values({
+            candidateId: candidate.id,
+            checkName: sourcePointerRes.failedCheckName ?? 'source_exists',
+            status: 'fail',
+            detail: sourcePointerRes.detail,
+          });
+          await db
+            .update(extractionCandidates)
+            .set({
+              status: 'validation_failed',
+              validationError: 'source pointer invalid',
+              validatedAt: new Date(),
+            })
+            .where(eq(extractionCandidates.id, candidate.id));
+          outcome.rejections += 1;
+          continue;
+        }
+        const [evRow] = await db
+          .insert(extractionCandidateEvidence)
+          .values({
+            candidateId: candidate.id,
+            sourceType: 'document_chunk',
+            sourceDocumentChunkId: chunkForEvidence.id,
+            uploadedByEmployeeId: doc.uploaderId,
+            exactQuoteProvided: extracted.evidence.exactQuote,
+            validationStatus: 'pending',
+            confidence: extracted.evidence.confidence,
+            documentClass: null,
+            processStage: null,
+          })
+          .returning({ id: extractionCandidateEvidence.id });
+        if (!evRow) continue;
+
+        // Quote validation against the matching chunk's text.
+        const quoteRes = validateQuote({
+          sourceText: chunkForEvidence.text,
+          exactQuoteProvided: extracted.evidence.exactQuote,
+          normalizationPolicy:
+            parseKind === 'text' ? MARKDOWN_DOCUMENT_NORMALIZATION_POLICY : undefined,
+        });
+        await db
+          .update(extractionCandidateEvidence)
+          .set({
+            validationStatus: quoteRes.validationStatus,
+            validationMethod: quoteRes.validationMethod,
+            validatedExactQuote: quoteRes.validatedExactQuote ?? null,
+            validatedCharStart: quoteRes.validatedCharStart ?? null,
+            validatedCharEnd: quoteRes.validatedCharEnd ?? null,
+            validatedAt: new Date(),
+            validationError:
+              quoteRes.verdict === 'exact_match' || quoteRes.verdict === 'normalized_match'
+                ? null
+                : quoteRes.detail,
+          })
+          .where(eq(extractionCandidateEvidence.id, evRow.id));
+        await db.insert(extractionValidationResults).values({
+          candidateId: candidate.id,
+          candidateEvidenceId: evRow.id,
+          checkName: quoteRes.failedCheckName ?? 'quote_exact_match',
+          status:
+            quoteRes.verdict === 'exact_match' || quoteRes.verdict === 'normalized_match'
+              ? 'pass'
+              : 'fail',
+          detail: quoteRes.detail,
+        });
+
+        if (quoteRes.verdict !== 'exact_match' && quoteRes.verdict !== 'normalized_match') {
+          await db
+            .update(extractionCandidates)
+            .set({
+              status: 'validation_failed',
+              validationError: quoteRes.detail,
+              validatedAt: new Date(),
+            })
+            .where(eq(extractionCandidates.id, candidate.id));
+          outcome.rejections += 1;
+          continue;
+        }
+
+        // Taxonomy validation. proposedEntities sourced from prompt-2.x (P2 #1).
+        const taxRes = validateTaxonomy({
+          proposedTopDomainIds,
+          activeTopDomainIds,
+          proposedEntities: (extracted.proposedEntities ?? []).map((e) => ({
+            entityType: e.entityType as EntityType,
+            rawString: e.rawString,
+          })),
+          entityRegistry,
+        });
+        const taxonomyAllowsPromotion = taxRes.ok || taxRes.blockedByOnlyUnknownEntities;
+        await db.insert(extractionValidationResults).values({
+          candidateId: candidate.id,
+          checkName: 'domain_valid',
+          status: taxonomyAllowsPromotion ? 'pass' : 'fail',
+          detail: taxRes.ok
+            ? `Top-domains validated: ${taxRes.validTopDomainIds.join(', ')}`
+            : taxRes.blockedByOnlyUnknownEntities
+              ? `Top-domains validated: ${taxRes.validTopDomainIds.join(', ')}; unknown entity proposals staged for admin review.`
+              : taxRes.failures.map((f) => f.detail).join('; '),
+        });
+        // Stage entity proposals regardless of overall taxRes.ok so admin can
+        // review unknown entities surfaced by the model.
+        // stageEntityProposal() uses pg_trgm fuzzy-dedup: near-duplicate surfaces
+        // (similarity >= 0.85) increment proposal_count instead of creating new rows.
+        for (const p of taxRes.entityProposalsToCreate) {
+          await stageEntityProposal(db, {
+            proposedEntityType: p.proposedEntityType,
+            proposedCanonicalValue: p.proposedCanonicalValue,
+            rawString: p.rawString,
+            observedInSourceType: 'claim_candidate',
+            observedInSourceId: candidate.id,
+            proposedByModelRunId: modelRunId,
+          });
+        }
+
+        if (!taxonomyAllowsPromotion) {
+          await db
+            .update(extractionCandidates)
+            .set({
+              status: 'validation_failed',
+              validationError: taxRes.failureSummary ?? 'taxonomy invalid',
+              validatedAt: new Date(),
+            })
+            .where(eq(extractionCandidates.id, candidate.id));
+          outcome.rejections += 1;
+          continue;
+        }
+
+        // P1 #2 — Sensitivity gate. Mirrors claim-extraction.ts.
+        const sensitivityFired =
+          extracted.sensitivityFlags?.containsSensitiveHRData === true ||
+          extracted.sensitivityFlags?.containsSensitivePersonalData === true ||
+          extracted.sensitivityFlags?.isPersonalConflict === true;
+        if (sensitivityFired) {
+          await db.insert(extractionValidationResults).values({
+            candidateId: candidate.id,
+            checkName: 'sensitivity_gate',
+            status: 'fail',
+            detail:
+              extracted.sensitivityFlags?.sensitivityReason ??
+              'extractor flagged sensitive content',
+            metadataJson: {
+              containsSensitiveHRData: extracted.sensitivityFlags?.containsSensitiveHRData ?? false,
+              containsSensitivePersonalData:
+                extracted.sensitivityFlags?.containsSensitivePersonalData ?? false,
+              isPersonalConflict: extracted.sensitivityFlags?.isPersonalConflict ?? false,
+            },
+          });
+          await db
+            .update(extractionCandidates)
+            .set({
+              status: 'quarantined_sensitive',
+              validationError:
+                extracted.sensitivityFlags?.sensitivityReason ??
+                'sensitive content flagged by extractor',
+              validatedAt: new Date(),
+            })
+            .where(eq(extractionCandidates.id, candidate.id));
+          outcome.rejections += 1;
+          continue;
+        }
         await db.insert(extractionValidationResults).values({
           candidateId: candidate.id,
           checkName: 'sensitivity_gate',
-          status: 'fail',
-          detail: extracted.sensitivityFlags?.sensitivityReason ?? 'extractor flagged sensitive content',
-          metadataJson: {
-            containsSensitiveHRData: extracted.sensitivityFlags?.containsSensitiveHRData ?? false,
-            containsSensitivePersonalData:
-              extracted.sensitivityFlags?.containsSensitivePersonalData ?? false,
-            isPersonalConflict: extracted.sensitivityFlags?.isPersonalConflict ?? false,
-          },
+          status: 'pass',
+          detail: 'extractor reported no sensitive content',
         });
+
+        // Mark validated; the executor re-reads the candidate + evidence
+        // INSIDE the advisory lock. We pass only auxiliary inputs that can't
+        // be reconstructed from candidate-table state.
         await db
           .update(extractionCandidates)
-          .set({
-            status: 'quarantined_sensitive',
-            validationError:
-              extracted.sensitivityFlags?.sensitivityReason ?? 'sensitive content flagged by extractor',
-            validatedAt: new Date(),
-          })
+          .set({ status: 'validated', validatedAt: new Date() })
           .where(eq(extractionCandidates.id, candidate.id));
-        outcome.rejections += 1;
-        continue;
-      }
-      await db.insert(extractionValidationResults).values({
-        candidateId: candidate.id,
-        checkName: 'sensitivity_gate',
-        status: 'pass',
-        detail: 'extractor reported no sensitive content',
-      });
 
-      // Mark validated; the executor re-reads the candidate + evidence
-      // INSIDE the advisory lock. We pass only auxiliary inputs that can't
-      // be reconstructed from candidate-table state.
-      await db
-        .update(extractionCandidates)
-        .set({ status: 'validated', validatedAt: new Date() })
-        .where(eq(extractionCandidates.id, candidate.id));
-
-      const validatedQuote = quoteRes.validatedExactQuote ?? extracted.evidence.exactQuote;
-      const candidateHash = computeCandidateHash({
-        summary: extracted.summary,
-        topDomainIds: taxRes.validTopDomainIds,
-        validatedQuotes: [validatedQuote],
-        sourcePointers: [`document_chunk:${chunkForEvidence.id}`],
-      });
-
-      try {
-        const result = await executePromotion({
-          db,
-          candidateId: candidate.id,
-          candidateHash,
-          auxiliaryInputs: { taxonomy: taxRes },
-          modelRunId: modelRunId ?? undefined,
+        const validatedQuote = quoteRes.validatedExactQuote ?? extracted.evidence.exactQuote;
+        const candidateHash = computeCandidateHash({
+          summary: extracted.summary,
+          topDomainIds: taxRes.validTopDomainIds,
+          validatedQuotes: [validatedQuote],
+          sourcePointers: [`document_chunk:${chunkForEvidence.id}`],
         });
-        if (result.outcome === 'inserted_new_claim') outcome.claimsPromoted += 1;
-        else if (result.outcome === 'appended_to_existing_claim') outcome.duplicatesAppended += 1;
-        else outcome.rejections += 1;
 
-        // Write document-level + chunk-level top-domain tags for retrieval.
-        if (result.outcome !== 'recorded_rejection') {
-          for (const topDomainId of taxRes.validTopDomainIds) {
-            await db
-              .insert(documentTopDomains)
-              .values({
-                documentId,
-                topDomainId,
-                assignmentReason: 'ingestion',
-              })
-              .onConflictDoNothing();
-            await db
-              .insert(documentChunkTopDomains)
-              .values({
-                documentChunkId: chunkForEvidence.id,
-                topDomainId,
-                assignmentReason: 'ingestion',
-              })
-              .onConflictDoNothing();
+        try {
+          const result = await executePromotion({
+            db,
+            candidateId: candidate.id,
+            candidateHash,
+            auxiliaryInputs: { taxonomy: taxRes },
+            modelRunId: modelRunId ?? undefined,
+          });
+          if (result.outcome === 'inserted_new_claim') outcome.claimsPromoted += 1;
+          else if (result.outcome === 'appended_to_existing_claim') outcome.duplicatesAppended += 1;
+          else outcome.rejections += 1;
+
+          // Write document-level + chunk-level top-domain tags for retrieval.
+          if (result.outcome !== 'recorded_rejection') {
+            for (const topDomainId of taxRes.validTopDomainIds) {
+              await db
+                .insert(documentTopDomains)
+                .values({
+                  documentId,
+                  topDomainId,
+                  assignmentReason: 'ingestion',
+                })
+                .onConflictDoNothing();
+              await db
+                .insert(documentChunkTopDomains)
+                .values({
+                  documentChunkId: chunkForEvidence.id,
+                  topDomainId,
+                  assignmentReason: 'ingestion',
+                })
+                .onConflictDoNothing();
+            }
           }
-        }
-      } catch (promErr) {
-        if (promErr instanceof AdvisoryLockBusyError) {
-          await db.insert(extractionValidationResults).values({
-            candidateId: candidate.id,
-            checkName: 'duplicate_promotion_lock',
-            status: 'skipped',
-            detail: 'Advisory lock busy; another worker holds it.',
-          });
-        } else {
-          await db.insert(extractionValidationResults).values({
-            candidateId: candidate.id,
-            checkName: 'promotion_transaction',
-            status: 'fail',
-            detail: promErr instanceof Error ? promErr.message : String(promErr),
-          });
-          outcome.rejections += 1;
+        } catch (promErr) {
+          if (promErr instanceof AdvisoryLockBusyError) {
+            await db.insert(extractionValidationResults).values({
+              candidateId: candidate.id,
+              checkName: 'duplicate_promotion_lock',
+              status: 'skipped',
+              detail: 'Advisory lock busy; another worker holds it.',
+            });
+          } else {
+            await db.insert(extractionValidationResults).values({
+              candidateId: candidate.id,
+              checkName: 'promotion_transaction',
+              status: 'fail',
+              detail: promErr instanceof Error ? promErr.message : String(promErr),
+            });
+            outcome.rejections += 1;
+          }
         }
       }
     }
-  }
 
-  // 10. Mark batch validation_complete.
-  await db
-    .update(extractionBatches)
-    .set({ status: 'validation_complete', finishedAt: new Date() })
-    .where(eq(extractionBatches.id, batch.id));
+    // 10. Mark batch validation_complete.
+    await db
+      .update(extractionBatches)
+      .set({ status: 'validation_complete', finishedAt: new Date() })
+      .where(eq(extractionBatches.id, batch.id));
+  }
 
   await db
     .update(documents)
@@ -1170,10 +1219,7 @@ function buildContextPackInsert(plan: OraclePromptPlan) {
 
 async function materializeVertexCacheTempFile(buffer: Buffer, fileName: string): Promise<string> {
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const tempPath = join(
-    tmpdir(),
-    `oracle-vertex-cache-${Date.now()}-${safeName}`,
-  );
+  const tempPath = join(tmpdir(), `oracle-vertex-cache-${Date.now()}-${safeName}`);
   await writeFile(tempPath, buffer);
   return tempPath;
 }

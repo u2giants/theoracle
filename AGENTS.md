@@ -637,6 +637,22 @@ Document claims need quote-level provenance that can be re-run and audited. A qu
 Do not change because:
 Letting document extraction use document-level source ids, paraphrased quotes, or cross-chunk quotes breaks the candidate-before-claim evidence contract and can make valid-looking claims impossible to trace.
 
+Large uploads are processed by `buildDocumentChunkWindows()` in bounded extraction windows. There should be no document-level "first N characters only" cap; each window covers whole persisted chunks and produces its own extraction batch/model run. Reintroducing a silent whole-document cap will make long company docs appear to process successfully while losing most of the knowledge.
+
+### Markdown document quotes normalize formatting, not meaning
+
+Looks like:
+A Markdown upload should require the model to reproduce every `**`, table pipe, heading marker, and link exactly.
+
+Actually:
+Document quote validation uses `MARKDOWN_DOCUMENT_NORMALIZATION_POLICY` for text/markdown uploads. It deterministically strips or normalizes Markdown syntax such as emphasis markers, heading/list prefixes, inline code ticks, links/images to display text, and table separators before matching. It does not rewrite meaning, do fuzzy matching, or allow cross-chunk quotes.
+
+Why:
+Business-process docs commonly contain tables and formatted labels. Models often quote the visible text instead of the raw Markdown punctuation, so strict raw matching rejected true claims even when the source chunk contained the visible statement.
+
+Do not change because:
+Documents still need deterministic quote-level provenance. If a new format needs looser matching, add an explicit normalization policy for that format rather than enabling transcript-style fuzzy matching on documents.
+
 ### Extraction picker intentionally does not require vision
 
 Looks like:

@@ -25,10 +25,7 @@
  */
 
 import type { EntityType, EvidenceSourceType } from '@oracle/shared';
-import type {
-  EntityProposalToCreate,
-  ResolvedEntityAssignment,
-} from './taxonomy-validator';
+import type { EntityProposalToCreate, ResolvedEntityAssignment } from './taxonomy-validator';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Decision shapes — what the promoter sees, what it decides to do.
@@ -90,13 +87,16 @@ export interface CandidateSnapshot {
    *    top-domain rows we'll actually write.
    *  - `resolvedEntities` becomes the claim_entities inserts.
    *  - `entityProposalsToCreate` are staged BEFORE the promotion runs.
-   *  - `taxonomyOk: false` blocks promotion entirely.
+   *  - `ok: false` blocks promotion unless every failure is an unknown entity
+   *    proposal (`blockedByOnlyUnknownEntities`), in which case proposals are
+   *    staged and the claim can still be written with validated domains.
    */
   taxonomy?: {
     ok: boolean;
     validTopDomainIds: string[];
     resolvedEntities: ResolvedEntityAssignment[];
     entityProposalsToCreate: EntityProposalToCreate[];
+    blockedByOnlyUnknownEntities?: boolean;
     failureSummary?: string;
   };
 
@@ -174,8 +174,14 @@ export type PromotionDecision =
 // ─────────────────────────────────────────────────────────────────────────
 
 export function decidePromotion(snapshot: CandidateSnapshot): PromotionDecision {
-  const { candidate, validatedEvidence, candidateHash, existingClaimWithSameHash, taxonomy, metadata } =
-    snapshot;
+  const {
+    candidate,
+    validatedEvidence,
+    candidateHash,
+    existingClaimWithSameHash,
+    taxonomy,
+    metadata,
+  } = snapshot;
 
   // Entity proposals are worth surfacing even when we reject — admin can
   // review the proposals separately. We thread them through every branch.
@@ -213,17 +219,18 @@ export function decidePromotion(snapshot: CandidateSnapshot): PromotionDecision 
     };
   }
 
-  // R5.5: taxonomy validation blocks promotion. Even if the only failure
-  // is "unknown entity needs proposal", we hold the candidate so admin
-  // can resolve the entity registry before a claim is written with a
-  // half-correct tag set.
-  if (taxonomy && !taxonomy.ok) {
+  // R5.5: hard taxonomy failures block promotion. Unknown-only entity
+  // references still stage proposals, but do not hold an otherwise
+  // evidence-backed claim; the claim can be useful with domain tags while
+  // admins clean up optional entity tags later.
+  if (taxonomy && !taxonomy.ok && !taxonomy.blockedByOnlyUnknownEntities) {
     return {
       kind: 'reject',
       reason: 'taxonomy_invalid',
       detail:
         `Candidate ${candidate.id} failed taxonomy validation. ` +
-        (taxonomy.failureSummary ?? 'See extraction_validation_results for the per-check breakdown.'),
+        (taxonomy.failureSummary ??
+          'See extraction_validation_results for the per-check breakdown.'),
       entityProposalsToStage,
     };
   }
@@ -292,11 +299,11 @@ export function decidePromotion(snapshot: CandidateSnapshot): PromotionDecision 
 function hasAnyMetadata(m: CandidateMetadata): boolean {
   return Boolean(
     m.processStage ||
-      m.department ||
-      m.geography ||
-      m.documentClass ||
-      m.effectiveFrom ||
-      m.effectiveUntil,
+    m.department ||
+    m.geography ||
+    m.documentClass ||
+    m.effectiveFrom ||
+    m.effectiveUntil,
   );
 }
 

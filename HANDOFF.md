@@ -1,6 +1,6 @@
 # HANDOFF — Recall.ai wiring + extraction pipeline tuning
 
-Last updated: 2026-06-11. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+Last updated: 2026-06-15. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
 
 ---
 
@@ -34,13 +34,13 @@ Do **not** assume the deployed worker, git history, and local working tree are a
 
 ### 1. Demonstrate synthesis
 
-Claim `bdbc9918-d659-4781-96dd-2baa7e8203e0` (Hobby Lobby holiday-decor SKUs must ship from Atlanta DC instead of Newark, impact 9) was **approved on 2026-06-10** as part of verifying live retrieval. 3 claims remain in `pending_review`. Synthesis has never been run.
+The old Mickey/Hobby Lobby placeholder claims were hard-deleted on 2026-06-15 because they were unrelated test data. The latest `business-process.md` reprocess produced 139 real document claims in `pending_review`, but they are not approved/retrievable until reviewed. Synthesis has never been run against a real approved business-process corpus.
 
-**You cannot meaningfully synthesize with only 1 approved claim.** Synthesis composes a narrative across a body of related approved knowledge — a single claim produces nothing worth demonstrating (and may be a degenerate/no-op run). Before running the synthesis demo, get a real corpus of approved claims first: approve the remaining `pending_review` claims and/or run real transcripts through extraction so there are several related, approved claims in the same knowledge domain. Only then is a `brain-synthesis` run a useful test.
+**You cannot meaningfully synthesize without approved real claims.** Synthesis composes a narrative across a body of related approved knowledge. Before running the synthesis demo, review/approve a coherent subset of the `business-process.md` claims and/or run real transcripts through extraction so there are several related, approved claims in the same knowledge domain. Only then is a `brain-synthesis` run a useful test.
 
 To unblock:
 
-1. Build up an approved-claim corpus (multiple related claims, not just the one above) — approve the remaining `pending_review` claims and/or ingest more real transcripts.
+1. Build up an approved-claim corpus (multiple related real claims) — approve a coherent subset of the `business-process.md` pending-review claims and/or ingest more real transcripts.
 2. Trigger `brain-synthesis` via Trigger MCP or the admin UI.
 3. Confirm a `brain_section_versions` row appears + narrative looks right.
 
@@ -86,7 +86,8 @@ Use this subsection as the first stop for a brand-new developer. The rest of thi
 Current git/deploy snapshot:
 - Latest pushed commit observed: `69cfa08 docs: add fresh developer handoff packet` on `main`.
 - As of 2026-06-10 the working tree has uncommitted (but deployed) changes — see section 0 above. Re-check `git status --short --branch` before starting work.
-- Trigger.dev production worker version is **`20260614.9`** (18 tasks) as of 2026-06-15 — adds the Business Process domain extraction/routing work, fixes the Node 21 Supabase `ws` transport crash in document ingestion, clears stale document processing errors on successful retry, reuses existing chunk IDs on document reprocess, and switches future document chunking to larger paragraph-aware chunks. Earlier `20260614.4` added nightly `model-catalog-refresh-nightly`; the one-time production run `run_cmqdsbbag23s70hoq9y3mxw4s` completed at `2026-06-14T12:52:53Z` and wrote 85 catalog rows, with partial-refresh errors for missing production `DEEPSEEK_API_KEY` and `DASHSCOPE_API_KEY`.
+- Trigger.dev production worker version is **`20260615.4`** (18 tasks) as of 2026-06-15 — includes the earlier Business Process domain extraction/routing work, fixes the Node 21 Supabase `ws` transport crash in document ingestion, clears stale document processing errors on successful retry, reuses existing chunk IDs on document reprocess, switches future document chunking to larger paragraph-aware chunks, and adds large-document extraction windowing plus Markdown quote normalization. Earlier `20260614.4` added nightly `model-catalog-refresh-nightly`; the one-time production run `run_cmqdsbbag23s70hoq9y3mxw4s` completed at `2026-06-14T12:52:53Z` and wrote 85 catalog rows, with partial-refresh errors for missing production `DEEPSEEK_API_KEY` and `DASHSCOPE_API_KEY`.
+- `business-process.md` document `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea` was reprocessed successfully in Trigger run `run_cmqehatni237e0un5ioyywuez`: 12 chunks, 155 extraction candidates, 139 claims promoted to `pending_review`, 16 rejected candidates, document status `complete`, `processing_error = NULL`. These claims are still not chat/synthesis knowledge until reviewed and approved.
 - Admin Settings stage pickers now have restored "Copy job brief" text for Interview, Extraction, and Synthesis. Extraction's hard picker requirements were corrected to structured output + context >100K only; it no longer requires vision because document-image ingestion routes raw images through the auxiliary Image Vision model first, then Extraction receives text chunks.
 
 What The Oracle can do now:

@@ -55,7 +55,8 @@ function main() {
     assert(res.validationMethod === 'verbatim_includes', 'R5#1 method is verbatim_includes');
     assert(res.validatedExactQuote === quote, 'R5#1 reports the validated quote');
     assert(
-      typeof res.validatedCharStart === 'number' && res.validatedCharStart === source.indexOf(quote),
+      typeof res.validatedCharStart === 'number' &&
+        res.validatedCharStart === source.indexOf(quote),
       'R5#1 reports the correct charStart',
     );
     assert(
@@ -241,6 +242,27 @@ function main() {
     );
   }
 
+  // ── Markdown formatting can normalize for uploaded Markdown docs ────
+  {
+    const source = '| **Project Manager** | Jessica Cortázar | The whole POP pipeline. |';
+    const quote = 'Project Manager Jessica Cortázar The whole POP pipeline.';
+    const strict = validateQuote({ sourceText: source, exactQuoteProvided: quote });
+    assert(strict.verdict === 'failed', 'Extra: Markdown table quote fails strict verbatim');
+    const lenient = validateQuote({
+      sourceText: source,
+      exactQuoteProvided: quote,
+      normalizationPolicy: {
+        allowMarkdownFormatting: true,
+        allowWhitespaceCollapse: true,
+        allowLeadingTrailingTrim: true,
+      },
+    });
+    assert(
+      lenient.verdict === 'normalized_match',
+      'Extra: Markdown formatting matches under allowMarkdownFormatting',
+    );
+  }
+
   // ── Source-pointer validation ───────────────────────────────────────
   {
     const ok = validateSourcePointer({ sourceType: 'message', sourceMessageId: 'msg-1' });
@@ -259,10 +281,7 @@ function main() {
     assert(docChunkOk.ok, 'Extra: document_chunk with chunk id → ok');
 
     const externalNeeds = validateSourcePointer({ sourceType: 'external_system' });
-    assert(
-      !externalNeeds.ok,
-      'Extra: external_system without external record id → fails',
-    );
+    assert(!externalNeeds.ok, 'Extra: external_system without external record id → fails');
 
     const adminOk = validateSourcePointer({
       sourceType: 'manual_admin',
@@ -472,7 +491,10 @@ function main() {
       mapped!.validatedCharStart === 12 && mapped!.validatedCharEnd === 56,
       'M6 char offsets pass through',
     );
-    assert(mapped!.assertedByEmployeeId === 'emp-1', 'M6 asserted_by_employee_id → assertedByEmployeeId');
+    assert(
+      mapped!.assertedByEmployeeId === 'emp-1',
+      'M6 asserted_by_employee_id → assertedByEmployeeId',
+    );
   }
 
   // M7: evidence row with validation_status='failed' → excluded (null)
