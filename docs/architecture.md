@@ -589,7 +589,7 @@ The `model_runs_with_usage` view (`migrations/sql/31_observability_views.sql`) j
 15 tables installing the segmentation from `docs/oracle/07-knowledge-segmentation.md`:
 
 ```
-Layer 1   knowledge_top_domains            14 domains seeded; admin-curated
+Layer 1   knowledge_top_domains            15 domains seeded; admin-curated
             ↑                                each carries boundary rules:
             │                                belongs_here, does_not_belong_here,
             │                                common_entity_hints,
@@ -632,6 +632,8 @@ The legacy `claim_domains` table and `knowledge_domain` Postgres enum are intent
 `business_process` is the cross-functional domain for end-to-end company workflows, operating-model overviews, and handoffs that span multiple departments. It is not a generic dumping ground: specific claims should still carry narrower domains such as `licensing_approvals`, `product_development`, `production_lifecycle`, `customer_ops`, `logistics_shipping`, or `finance_pricing` when those domains are materially involved. Broad process queries expand across `business_process` and neighboring process domains so a question about the overall company workflow can retrieve both overview claims and department-specific process facts.
 
 `operations_systems` is the dedicated domain for operational business-system workflows: ERP, CRM, PLM, spreadsheet-to-system migration, source-of-truth rules, field mapping, validation, and integration handoffs. The initial anchor workflow is moving OrderList, MasterData, and TaskList data from Google Sheets into Designflow PLM. It neighbors `it_systems`, `product_development`, `production_lifecycle`, `customer_ops`, and `finance_pricing`, but should not be used for generic account troubleshooting or broad IT administration unless the query is about business data flow.
+
+`training_enablement` is the domain for teaching employees how to do their jobs: onboarding plans, role-specific training checklists, SOP learning paths, shadowing, cross-training, skill checks, and refresher training after workflow changes. It neighbors `people_org`, `it_systems`, `operations_systems`, `product_development`, `production_lifecycle`, and `customer_ops`, but is not an HR/personnel-record domain. Questions about who owns a workflow or who reports to whom stay in `people_org`; questions about compensation, discipline, performance evaluation, and personal conflicts should not route here.
 
 ### Candidate-before-claim staging (R4, landed)
 

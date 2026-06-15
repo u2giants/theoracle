@@ -371,6 +371,23 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
     ],
   },
   {
+    domainId: 'training_enablement',
+    keywords: [
+      // Learning how to perform a job or workflow, distinct from people_org's
+      // ownership/escalation map and from sensitive HR performance records.
+      'training', 'train people', 'train employees', 'trained on',
+      'how to train', 'training plan', 'training guide', 'training material',
+      'training materials', 'training checklist', 'training video',
+      'onboarding checklist', 'new hire training', 'new employee training',
+      'job training', 'role training', 'sop training', 'standard operating procedure',
+      'work instruction', 'work instructions', 'shadowing', 'job shadow',
+      'cross train', 'cross-training', 'cross training', 'refresher training',
+      'certification', 'skill check', 'skills check', 'competency',
+      'learn to do', 'learn how to', 'teach someone', 'teach the team',
+      'how do i learn', 'how should i learn',
+    ],
+  },
+  {
     domainId: 'people_org',
     keywords: [
       // Org
@@ -671,6 +688,26 @@ function inferTopDomainExclusions(query: string, topDomainHints: string[]): stri
       // generic customer orders, licensor approvals, or design-art workflow
       // just because the source sheet or PLM name contains overlapping words.
       return ['customer_ops', 'licensing_approvals', 'creative_design'];
+    }
+  }
+
+  if (topDomainHints.includes('training_enablement')) {
+    const looksLikeTraining =
+      [
+        'training', 'trained on', 'training plan', 'training guide',
+        'training material', 'training materials', 'training checklist',
+        'onboarding checklist', 'new hire training', 'job training',
+        'role training', 'sop training', 'work instruction', 'shadowing',
+        'cross train', 'cross-training', 'cross training', 'refresher training',
+        'certification', 'skill check', 'skills check', 'competency',
+        'learn to do', 'learn how to', 'teach someone', 'teach the team',
+      ].some((k) => query.includes(k));
+
+    if (looksLikeTraining) {
+      // Training questions need procedural learning material. They should not
+      // drift into org ownership or sensitive HR/performance context unless the
+      // user explicitly asks who owns the training or about personnel records.
+      return ['people_org'];
     }
   }
 

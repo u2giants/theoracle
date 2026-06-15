@@ -41,6 +41,7 @@ Examples for this company (illustrative starting vocabulary, to be proposed and 
 - `production_lifecycle` — sample → pre-production → production → QC → ship → RA stages.
 - `finance_pricing` — costing, margin rules, customer pricing, vendor terms.
 - `people_org` — employees, departments, roles, internal escalation paths.
+- `training_enablement` — onboarding, role-based training, SOP learning paths, shadowing, cross-training, skill checks, and refresher guidance for employees learning how to do their jobs.
 - `vendor_management` — non-customer vendor relationships, vendor manuals, vendor SLAs.
 - `logistics_shipping` — freight, routing, customs, delivery.
 - `import_compliance` — import paperwork, customs, tariffs, country-of-origin, regulatory constraints.
@@ -85,6 +86,17 @@ Neighboring domains: it_systems, product_development, production_lifecycle, cust
 ```
 
 `operations_systems` is deliberately separate from generic `it_systems`. "How do I log into Designflow?" is IT support. "Which OrderList fields become Designflow PLM fields, and what must be cleaned before import?" belongs in `operations_systems`.
+
+Mandatory boundary rule:
+
+```text
+Domain: training_enablement
+Belongs here: New-hire training checklists, role-specific onboarding plans, SOP training, work instructions, shadowing plans, cross-training for backup coverage, skill checks, refresher training after workflow changes.
+Does not belong here: Org-chart ownership, reporting lines, compensation, performance evaluation, discipline, personal conflicts, generic account troubleshooting, customer routing rules themselves, product approval status.
+Neighboring domains: people_org, it_systems, operations_systems, product_development, production_lifecycle, customer_ops.
+```
+
+`training_enablement` is deliberately separate from `people_org`. "Who owns onboarding for the design team?" belongs in `people_org`. "What checklist should a new design hire follow to learn proof setup?" belongs in `training_enablement`.
 
 Governance:
 

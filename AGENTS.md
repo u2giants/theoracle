@@ -199,6 +199,7 @@ Specific boundaries:
 | Design file operations domain | `design_file_operations` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from product/design workflow. Covers designer file naming, invalid characters, server folders, file-size reduction, linked assets, packaging, versioning, archive, and handoff file hygiene. |
 | Operations systems domain | `operations_systems` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from generic IT support. Covers ERP/CRM/PLM workflows, Google Sheets to Designflow PLM integration, OrderList, MasterData, TaskList, field mapping, validation, and source-of-truth rules. |
 | Business process domain | `business_process` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts`, `packages/oracle-engines/src/extraction/domain-mapping.ts` | Cross-functional company workflows and operating-model overviews. Use with narrower department/process domains for end-to-end flows; do not use as a generic dumping ground. |
+| Training enablement domain | `training_enablement` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from `people_org` and sensitive HR records. Covers onboarding, role training, SOP learning paths, shadowing, cross-training, skill checks, and refresher guidance. |
 | Provider Batch jobs table | `provider_batch_jobs` | `packages/db/src/schema.ts`, migration `60_batch_jobs.sql` | One row per submitted provider Batch API job (D14). `extraction_batches.provider_batch_job_id` links per-input rows to their batch. `model_runs.dispatch_mode` ∈ `'sync' \| 'batch' \| NULL`. |
 | Entra app (Graph backend) | `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Entra `TheOracle` app | App-only Graph: directory pull + Teams transcripts. Tenant `1caeb1c0-a087-4cb9-b046-a5e22404f971`. |
 | Azure Bot resource | `theoracle-popcre-teams-bot` | Azure subscription `37077c95-ea53-4a19-8380-f3f48f0cc75d`, resource group `rg-oracle-teams-bot` | Free `F0` Bot Service resource. Display name `The Oracle`, endpoint `https://oracle.designflow.app/api/teams/bot/messages`, `msaAppType=SingleTenant`, Teams channel enabled. |
@@ -444,6 +445,20 @@ Broad questions such as "how does the overall company process work?" need to ret
 
 Do not change because:
 Mapping cross-functional extraction output back to `customer_ops` buries companywide workflow knowledge under a single department and makes broad process queries unreliable.
+
+### Training enablement is not people/org ownership or HR records
+
+Looks like:
+Training people to do their jobs could live under `people_org` because it involves employees, departments, roles, and onboarding.
+
+Actually:
+Job-training knowledge lives in the dedicated top-level domain `training_enablement`. That domain covers onboarding plans, role-specific training checklists, SOP learning paths, work instructions, shadowing, cross-training, skill checks, and refresher training after workflow changes.
+
+Why:
+The retrieval intent is different. "Who owns onboarding for the design team?" is an ownership/org question. "What checklist should a new design hire follow to learn proof setup?" is training enablement.
+
+Do not change because:
+Collapsing `training_enablement` into `people_org` makes procedural learning material compete with org charts, escalation paths, and ownership facts. Keep sensitive HR/personnel records — compensation, discipline, performance evaluation, and personal conflicts — out of this domain.
 
 ### Ineligible models are SELECTABLE (red checkbox), not disabled
 
