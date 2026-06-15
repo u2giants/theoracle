@@ -6,7 +6,8 @@ import { LogoutButton } from '@/app/_components/logout-button';
 import { requireEmployee } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { assignClaimQuestion, reviseClaim, updateClaimStatus } from '@/app/admin/claims/_actions';
+import { AssignQuestionForm } from '@/app/admin/claims/_components/assign-question-form';
+import { reviseClaim, updateClaimStatus } from '@/app/admin/claims/_actions';
 
 type ClaimRow = {
   id: string;
@@ -20,6 +21,8 @@ type ClaimRow = {
   employee_name: string | null;
   domain_ids: string[] | null;
   domain_names: string[] | null;
+  revision_reviewer_id: string | null;
+  revision_reviewer_name: string | null;
 };
 
 type EmployeeOption = {
@@ -85,7 +88,9 @@ export default async function ClaimsReviewPage({
       ce.exact_quote,
       e.name AS employee_name,
       COALESCE(d.domain_ids, ARRAY[]::text[]) AS domain_ids,
-      COALESCE(d.domain_names, ARRAY[]::text[]) AS domain_names
+      COALESCE(d.domain_names, ARRAY[]::text[]) AS domain_names,
+      rev.reviewed_by_employee_id AS revision_reviewer_id,
+      rev.reviewer_name AS revision_reviewer_name
     FROM claims c
     LEFT JOIN LATERAL (
       SELECT exact_quote, asserted_by_employee_id
@@ -103,6 +108,15 @@ export default async function ClaimsReviewPage({
       JOIN knowledge_top_domains ktd ON ktd.id = ctd.top_domain_id
       WHERE ctd.claim_id = c.id
     ) d ON true
+    LEFT JOIN LATERAL (
+      SELECT cre.reviewed_by_employee_id, reviewer.name AS reviewer_name
+      FROM claim_review_events cre
+      LEFT JOIN employees reviewer ON reviewer.id = cre.reviewed_by_employee_id
+      WHERE cre.replacement_claim_id = c.id
+        AND cre.action = 'revise'
+      ORDER BY cre.created_at DESC
+      LIMIT 1
+    ) rev ON true
     WHERE true
     ${statusWhere}
     ${reviewerWhere}
@@ -192,9 +206,26 @@ export default async function ClaimsReviewPage({
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row) => (
-                      <tr key={row.id} className="border-b last:border-0">
+                    {rows.map((row) => {
+                      const wasCorrected = row.revision_reviewer_id !== null;
+                      const correctedByMe = row.revision_reviewer_id === me.id;
+                      return (
+                      <tr
+                        key={row.id}
+                        className={`border-b last:border-0 ${
+                          wasCorrected ? 'border-l-4 border-l-sky-500 bg-sky-50/60' : ''
+                        }`}
+                      >
                         <td className="max-w-[28rem] whitespace-pre-wrap py-3 pr-4 align-top">
+                          {wasCorrected && (
+                            <div className="mb-2">
+                              <span className="rounded bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800">
+                                {correctedByMe
+                                  ? 'Corrected by you'
+                                  : `Corrected by ${row.revision_reviewer_name ?? 'reviewer'}`}
+                              </span>
+                            </div>
+                          )}
                           <div className="font-medium">{row.summary}</div>
                           <div className="mt-1 text-xs text-muted-foreground">{row.claim_type}</div>
                         </td>
@@ -306,39 +337,19 @@ export default async function ClaimsReviewPage({
                               </details>
                               <details className="rounded border bg-background p-2">
                                 <summary className="cursor-pointer text-xs font-medium">Ask someone</summary>
-                                <form action={assignClaimQuestion} className="mt-2 space-y-2">
-                                  <input type="hidden" name="claimId" value={row.id} />
-                                  <select
-                                    name="targetEmployeeId"
-                                    required
-                                    className="w-full rounded border bg-background px-2 py-1 text-xs"
-                                  >
-                                    <option value="">Choose a person</option>
-                                    {employeeOptions.map((employee) => (
-                                      <option key={employee.id} value={employee.id}>
-                                        {employee.name} — {employee.role}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <textarea
-                                    name="question"
-                                    rows={3}
-                                    defaultValue={`Can you help correct or confirm this claim?\n\n${row.summary}`}
-                                    className="w-full rounded border bg-background px-2 py-1 text-xs"
-                                  />
-                                  <button
-                                    type="submit"
-                                    className="rounded bg-muted px-2 py-1 text-xs text-foreground hover:bg-muted/80"
-                                  >
-                                    Assign question
-                                  </button>
-                                </form>
+                                <AssignQuestionForm
+                                  claimId={row.id}
+                                  claimSummary={row.summary}
+                                  employees={employeeOptions}
+                                  compact
+                                />
                               </details>
                             </div>
                           )}
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
               </div>

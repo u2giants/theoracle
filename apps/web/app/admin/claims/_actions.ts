@@ -19,6 +19,11 @@ import {
 
 type ReviewStatus = 'approved' | 'rejected';
 
+export type AssignClaimQuestionState = {
+  status: 'idle' | 'success' | 'error';
+  message: string | null;
+};
+
 function intFromForm(formData: FormData, key: string, fallback: number): number {
   const raw = String(formData.get(key) ?? '').trim();
   const parsed = Number.parseInt(raw, 10);
@@ -315,11 +320,12 @@ export async function reviseClaim(formData: FormData) {
   refreshClaimPages();
 }
 
-export async function assignClaimQuestion(formData: FormData) {
+async function assignClaimQuestionImpl(formData: FormData): Promise<{ targetName: string }> {
   const claimId = String(formData.get('claimId') ?? '').trim();
   const targetEmployeeId = String(formData.get('targetEmployeeId') ?? '').trim();
   const questionInput = String(formData.get('question') ?? '').trim();
-  if (!claimId || !targetEmployeeId) return;
+  if (!claimId) throw new Error('Missing claim.');
+  if (!targetEmployeeId) throw new Error('Choose a person before assigning the question.');
 
   const me = await requireClaimReviewer(claimId);
   const before = await claimSnapshot(claimId);
@@ -365,4 +371,27 @@ export async function assignClaimQuestion(formData: FormData) {
   });
 
   refreshClaimPages();
+  return { targetName: target.name };
+}
+
+export async function assignClaimQuestion(formData: FormData) {
+  await assignClaimQuestionImpl(formData);
+}
+
+export async function assignClaimQuestionWithState(
+  _previousState: AssignClaimQuestionState,
+  formData: FormData,
+): Promise<AssignClaimQuestionState> {
+  try {
+    const result = await assignClaimQuestionImpl(formData);
+    return {
+      status: 'success',
+      message: `Question assigned to ${result.targetName}.`,
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'The question could not be assigned.',
+    };
+  }
 }
