@@ -130,8 +130,8 @@ export const anthropic_claude_3_5_sonnet_synthesis_primary: OracleModelRoute = {
   tier: 'primary',
   internalPurpose: null,
   provider: 'anthropic',
-  modelId: 'claude-3-5-sonnet-latest',
-  displayName: 'Claude 3.5 Sonnet (Synthesis)',
+  modelId: 'claude-sonnet-4-6',
+  displayName: 'Claude Sonnet 4.6 (Synthesis)',
   recommendedUse:
     'Brain section synthesis. Evidence fidelity, structured diffs, contradiction reasoning. Uses Anthropic explicit cache breakpoints on stable synthesis prompt/schema.',
   costTier: 'expensive_escalation',

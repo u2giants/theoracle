@@ -13,6 +13,7 @@ import {
   REASONING_EFFORT_SETTING_KEYS,
   ROUTE_SETTING_KEYS,
   AUXILIARY_MODELS,
+  resolveModelRoute,
   type AuxiliaryCapabilityFilter,
 } from '@oracle/ai';
 import {
@@ -453,6 +454,19 @@ function isReasoningEffort(v: unknown): v is ReasoningEffort {
   return v === 'off' || v === 'low' || v === 'medium' || v === 'high';
 }
 
+function providerModelId(provider: string, modelId: string): string {
+  const prefix =
+    provider === 'vertex'
+      ? 'google'
+      : provider === 'anthropic' ||
+          provider === 'openai' ||
+          provider === 'deepseek' ||
+          provider === 'qwen'
+        ? provider
+        : provider;
+  return `${prefix}/${modelId}`;
+}
+
 export default async function AdminSettingsPage() {
   const db = getDirectDb();
 
@@ -518,6 +532,11 @@ export default async function AdminSettingsPage() {
           typeof currentValues[role.settingKey] === 'string'
             ? (currentValues[role.settingKey] as string)
             : null;
+        const resolved =
+          currentModel && role.stage ? resolveModelRoute(currentModel, role.stage) : null;
+        const currentResolvedModel = resolved
+          ? providerModelId(resolved.provider, resolved.modelId)
+          : null;
         const rawEffort = role.effortSettingKey ? currentValues[role.effortSettingKey] : null;
         const currentEffort: ReasoningEffort | null = isReasoningEffort(rawEffort) ? rawEffort : null;
 
@@ -536,6 +555,7 @@ export default async function AdminSettingsPage() {
             <CardContent>
               <ModelPicker
                 currentModel={currentModel}
+                currentResolvedModel={currentResolvedModel}
                 currentEffort={currentEffort}
                 settingKey={role.settingKey}
                 settingDescription={role.settingDescription}

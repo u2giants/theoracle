@@ -129,6 +129,7 @@ function Legend() {
 
 export function ModelPicker({
   currentModel,
+  currentResolvedModel,
   currentEffort,
   settingKey,
   settingDescription,
@@ -138,6 +139,7 @@ export function ModelPicker({
   auxiliary,
 }: {
   currentModel: string | null;
+  currentResolvedModel?: string | null;
   currentEffort: ReasoningEffort | null;
   settingKey: string;
   settingDescription: string;
@@ -274,6 +276,7 @@ export function ModelPicker({
   }
 
   const selectedModel = models.find((m) => m.id === selected);
+  const savedModel = currentModel ? models.find((m) => m.id === currentModel) : undefined;
 
   // Pipeline pickers use the same stage predicates as the model-pool page.
   // Auxiliary pickers filter by a single capability flag (or show all models
@@ -307,6 +310,7 @@ export function ModelPicker({
   // somehow has a non-compliant model saved (e.g., from before stage reqs changed).
   const selectedMissing =
     selectedModel && !auxiliary ? missingReqs(selectedModel, stage as Stage) : [];
+  const savedValueOutsidePicker = Boolean(currentModel && !savedModel);
 
   const effortApplicable = effortSettingKey && selectedModel?.thinking === true;
 
@@ -451,6 +455,26 @@ export function ModelPicker({
             ⚠ Selected model doesn&apos;t meet this stage&apos;s requirements:{' '}
             {selectedMissing.map((r) => r.label).join(', ')}
           </p>
+        )}
+        {savedValueOutsidePicker && (
+          <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <p className="font-medium">Saved value is not in this dropdown&apos;s approved model pool.</p>
+            <p className="mt-1">
+              Saved setting:{' '}
+              <code className="font-mono">{currentModel}</code>
+              {currentResolvedModel && currentResolvedModel !== currentModel && (
+                <>
+                  {' '}
+                  resolves at runtime to{' '}
+                  <code className="font-mono">{currentResolvedModel}</code>.
+                </>
+              )}
+            </p>
+            <p className="mt-1">
+              Choose a model from the dropdown and save to bring production back in
+              sync with the approved pool.
+            </p>
+          </div>
         )}
       </div>
 
