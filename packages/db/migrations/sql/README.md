@@ -72,6 +72,7 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `67_training_enablement_domain.sql` | Adds the `training_enablement` top domain for role training, onboarding, SOP learning paths, shadowing, cross-training, skill checks, and refresher guidance. |
 | `68_claim_review_workflow.sql` | Adds domain-to-department claim-review permissions and append-only `claim_review_events` audit rows for approve/reject/revise decisions. |
 | `69_claim_review_assignment_and_costing_domain.sql` | Allows claim-review assignment events and renames/rebounds `finance_pricing` as product costing/pricing rather than company finance. |
+| `70_claim_extraction_ab_tests.sql` | Stores non-promoting A/B/C claim-extraction comparison outputs and reviewer winner selections. |
 | `99_vector_indexes.sql` | HNSW indexes on `claims.embedding` and `document_chunks.embedding`. Opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`. |
 
 ## Anti-patterns
