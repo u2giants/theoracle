@@ -352,5 +352,23 @@ export type ValidationCheckStatus = (typeof VALIDATION_CHECK_STATUSES)[number];
 // Do NOT change without coordinated migration.
 export const EMBEDDING_DIM = 1536 as const;
 
+// Supported content/reader languages for the bilingual claim + Brain layer.
+// 'en' = English; 'zh-CN' = Simplified Chinese (mainland). See china_imp.md.
+// Stored in claims.source_lang, employees.locale, claim_translations.lang, and
+// brain_section_version_translations.lang. Add new variants here (e.g. 'zh-TW')
+// without a migration — the columns are varchar(12).
+export const SUPPORTED_LOCALES = ['en', 'zh-CN'] as const;
+export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
+export const DEFAULT_LOCALE: SupportedLocale = 'en';
+
+export function isSupportedLocale(value: unknown): value is SupportedLocale {
+  return typeof value === 'string' && (SUPPORTED_LOCALES as readonly string[]).includes(value);
+}
+
+/** Normalize an arbitrary stored/string value to a SupportedLocale, defaulting to 'en'. */
+export function coerceLocale(value: unknown): SupportedLocale {
+  return isSupportedLocale(value) ? value : DEFAULT_LOCALE;
+}
+
 // Storage bucket names
 export const STORAGE_BUCKET_COMPANY_DOCUMENTS = 'company_documents' as const;

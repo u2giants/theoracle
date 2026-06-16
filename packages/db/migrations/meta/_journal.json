@@ -50,6 +50,13 @@
       "when": 1779912981145,
       "tag": "0006_magical_revanche",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781620975480,
+      "tag": "0007_huge_shotgun",
+      "breakpoints": true
     }
   ]
 }

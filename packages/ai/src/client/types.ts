@@ -18,7 +18,10 @@ export type OracleTaskType =
   | 'gap_generation'
   | 'admin_explanation'
   | 'validation_repair'
-  | 'model_capability_discovery';
+  | 'model_capability_discovery'
+  // Bilingual claim/Brain layer (china_imp.md): translate an approved claim
+  // summary or Brain section markdown into another supported language.
+  | 'claim_translation';
 
 /**
  * The kind tag controls block ordering for provider-native cache friendliness.

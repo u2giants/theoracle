@@ -54,12 +54,14 @@ import {
   claimEntities,
   claimMetadata,
   claimTopDomains,
+  employees,
   entityProposals,
   extractionCandidates,
   extractionCandidateEvidence,
   extractionValidationResults,
   type OracleDb,
 } from '@oracle/db';
+import { coerceLocale, DEFAULT_LOCALE } from '@oracle/shared';
 import { decidePromotion, type CandidateMetadata, type CandidateSnapshot, type PromotionDecision } from './promote-candidate';
 
 export class AdvisoryLockBusyError extends Error {
@@ -391,6 +393,25 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
     // 7. Branch on the decision.
     switch (decision.kind) {
       case 'insert_new_claim': {
+        // Bilingual (china_imp.md): stamp the claim's source language from the
+        // authoring employee's locale, so a claim extracted from a China-group
+        // employee's Chinese content is marked 'zh-CN' (canonical Chinese) and
+        // the translation worker generates the English rendering — and vice
+        // versa. Falls back to the default locale ('en') when unknown.
+        const authoringEmployeeId =
+          decision.evidenceRows.find((e) => e.assertedByEmployeeId)?.assertedByEmployeeId ??
+          decision.evidenceRows.find((e) => e.createdByEmployeeId)?.createdByEmployeeId ??
+          decision.evidenceRows.find((e) => e.uploadedByEmployeeId)?.uploadedByEmployeeId ??
+          null;
+        let sourceLang: string = DEFAULT_LOCALE;
+        if (authoringEmployeeId) {
+          const [emp] = await tx
+            .select({ locale: employees.locale })
+            .from(employees)
+            .where(eq(employees.id, authoringEmployeeId))
+            .limit(1);
+          sourceLang = coerceLocale(emp?.locale);
+        }
         const [newClaim] = await tx
           .insert(claims)
           .values({
@@ -399,6 +420,7 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
             impactScore: decision.claim.impactScore,
             confidenceScore: decision.claim.confidenceScore ?? 5,
             status: 'pending_review',
+            sourceLang,
             candidateHash,
           })
           .returning({ id: claims.id });

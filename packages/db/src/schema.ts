@@ -187,6 +187,12 @@ export const employees = pgTable('employees', {
   departments: text('departments').array().notNull().default([]),
   isAdmin: boolean('is_admin').default(false).notNull(),
 
+  // Preferred content/chat language for this employee. Set manually by an admin
+  // to route an employee into the "China group" ('zh-CN'). Drives retrieval
+  // rendering, Brain snippet language, answer language, and the source_lang
+  // stamped on claims this employee authors. Defaults to English. See china_imp.md.
+  locale: varchar('locale', { length: 12 }).notNull().default('en'),
+
   disabledAt: timestamp('disabled_at'),
   // "Most recent login from any identity" — denormalized convenience column.
   // Per-identity last_login_at lives on employee_identities.
@@ -547,6 +553,11 @@ export const claims = pgTable(
     impactScore: integer('impact_score').notNull(),
     confidenceScore: integer('confidence_score').notNull(),
     status: claimStatusEnum('status').notNull(),
+    // Language the claim was originally created in (language of the source
+    // conversation/document). The canonical `summary` + `embedding` are in this
+    // language; renderings in other languages live in `claim_translations`.
+    // See china_imp.md.
+    sourceLang: varchar('source_lang', { length: 12 }).notNull().default('en'),
     embedding: vector('embedding', { dimensions: EMBEDDING_DIM }),
     // R7 — sha256 hex of the canonicalized candidate (see
     // computeCandidateHash in @oracle/engines). The promotion executor
@@ -621,6 +632,36 @@ export const claimEvidence = pgTable(
   }),
 );
 
+// Bilingual claim layer — display-only translations of a claim's summary into
+// other languages. The canonical claim (claims.summary + claims.embedding, in
+// claims.source_lang) is authoritative; these rows are renderings for readers
+// in a different language. NEVER used for quote validation, candidate hashing,
+// or promotion — evidence stays in the source language. See china_imp.md.
+export const claimTranslations = pgTable(
+  'claim_translations',
+  {
+    claimId: uuid('claim_id')
+      .references(() => claims.id)
+      .notNull(),
+    lang: varchar('lang', { length: 12 }).notNull(), // 'zh-CN' | 'en'
+    summary: text('summary').notNull(),
+    // Embedding of the translated summary (same model/dimension as claims).
+    embedding: vector('embedding', { dimensions: EMBEDDING_DIM }),
+    translatedByModelRunId: uuid('translated_by_model_run_id').references(
+      () => modelRuns.id,
+    ),
+    // sha256 hex of the canonical summary at translation time. The translation
+    // worker re-translates when this no longer matches the current summary.
+    sourceHash: varchar('source_hash', { length: 64 }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.claimId, t.lang] }),
+    langIdx: index('claim_translations_lang_idx').on(t.lang),
+  }),
+);
+
 export const brainSections = pgTable('brain_sections', {
   id: varchar('id', { length: 255 }).primaryKey(),
   knowledgeDomain: knowledgeDomainEnum('knowledge_domain').notNull(),
@@ -667,6 +708,28 @@ export const brainSectionVersions = pgTable(
       t.sectionId,
       t.versionNumber,
     ),
+  }),
+);
+
+// Bilingual Brain layer — display-only translations of an immutable brain
+// section version's markdown into other languages. Keyed to the version id
+// (versions are immutable snapshots). See china_imp.md.
+export const brainSectionVersionTranslations = pgTable(
+  'brain_section_version_translations',
+  {
+    versionId: uuid('version_id')
+      .references(() => brainSectionVersions.id)
+      .notNull(),
+    lang: varchar('lang', { length: 12 }).notNull(),
+    markdown: text('markdown').notNull(),
+    structuredContent: jsonb('structured_content'),
+    translatedByModelRunId: uuid('translated_by_model_run_id').references(
+      () => modelRuns.id,
+    ),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.versionId, t.lang] }),
   }),
 );
 
@@ -1552,6 +1615,10 @@ export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type Document = typeof documents.$inferSelect;
 export type Claim = typeof claims.$inferSelect;
+export type ClaimTranslation = typeof claimTranslations.$inferSelect;
+export type NewClaimTranslation = typeof claimTranslations.$inferInsert;
+export type BrainSectionVersionTranslation =
+  typeof brainSectionVersionTranslations.$inferSelect;
 export type Gap = typeof gaps.$inferSelect;
 export type Contradiction = typeof contradictions.$inferSelect;
 export type BrainSection = typeof brainSections.$inferSelect;

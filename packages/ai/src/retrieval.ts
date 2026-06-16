@@ -24,6 +24,7 @@ import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import {
   brainSections,
   brainSectionVersions,
+  brainSectionVersionTranslations,
   channelParticipants,
   claims,
   employees,
@@ -33,7 +34,7 @@ import {
   type Gap,
 } from '@oracle/db/schema';
 import type { OracleDb } from '@oracle/db/client';
-import { EMBEDDING_DIM } from '@oracle/shared';
+import { EMBEDDING_DIM, DEFAULT_LOCALE, type SupportedLocale } from '@oracle/shared';
 import { embedText } from './embeddings';
 import { type RetrievalPlan } from './retrieval-plan';
 
@@ -57,7 +58,25 @@ export const DEFAULT_GAPS_LIMIT = 5;
  * — matching canonical_value alone lets a name registered under a different
  * type incorrectly match.
  */
-function buildPlanMetadataFilters(plan: RetrievalPlan) {
+function buildPlanMetadataFilters(plan: RetrievalPlan, locale: SupportedLocale) {
+  // Bilingual claim layer (china_imp.md). These three fragments localize the
+  // claim text/keyword-search to the reader's language and MUST be interpolated
+  // into BOTH the hybrid and fallback query bodies — the parity guard
+  // (verify:retrieval-filter-parity) enforces that every key returned here
+  // appears in both paths, so they cannot silently drift:
+  //   * translationJoin   — LEFT JOIN the reader's translation row (≤1 per claim)
+  //   * localizedSummary  — COALESCE(ct.summary, c.summary): translated text, else canonical
+  //   * ftsConfig         — tsvector regconfig: 'simple' for zh-CN (Postgres can't
+  //                         tokenize spaceless Chinese), 'english' otherwise.
+  // The localized EMBEDDING (COALESCE(ct.embedding, c.embedding)) is hybrid-only
+  // — the fallback path has no embedding concept — so it is applied inline in the
+  // hybrid query rather than returned here (like the dept-bonus CTE).
+  const translationJoin = sql`LEFT JOIN claim_translations ct ON ct.claim_id = c.id AND ct.lang = ${locale}`;
+  const localizedSummary = sql`COALESCE(ct.summary, c.summary)`;
+  // regconfig is derived from a coerced locale (never user input), injected as
+  // raw SQL because a tsvector config cannot be a bind parameter.
+  const ftsConfig = sql.raw(locale === 'zh-CN' ? `'simple'` : `'english'`);
+
   // NOTE: list filters are bound as ONE JSON-string parameter and unpacked in
   // SQL via jsonb_array_elements_text / jsonb_to_recordset. Two driver pitfalls
   // make the obvious forms break at runtime (2026-06-10 incident):
@@ -149,6 +168,9 @@ function buildPlanMetadataFilters(plan: RetrievalPlan) {
     processStageFilter,
     excludedEntityTypeFilter,
     requiredEntityFilter,
+    translationJoin,
+    localizedSummary,
+    ftsConfig,
   };
 }
 
@@ -248,6 +270,7 @@ export async function getRelevantOpenGaps(
 export async function searchWithRetrievalPlan(
   db: Db,
   plan: RetrievalPlan,
+  locale: SupportedLocale = DEFAULT_LOCALE,
 ): Promise<RelevantClaim[]> {
   // Enforcement: every global-fallback plan emits a structured warning so
   // operators can audit oracle_context_packs.selected_domains and improve
@@ -266,7 +289,7 @@ export async function searchWithRetrievalPlan(
     : await embedText(plan.vectorQuery);
 
   if (fallback) {
-    return _searchFallbackTsvector(db, plan, limit);
+    return _searchFallbackTsvector(db, plan, limit, locale);
   }
 
   const vec = `[${vector.join(',')}]`;
@@ -280,7 +303,10 @@ export async function searchWithRetrievalPlan(
     processStageFilter,
     excludedEntityTypeFilter,
     requiredEntityFilter,
-  } = buildPlanMetadataFilters(plan);
+    translationJoin,
+    localizedSummary,
+    ftsConfig,
+  } = buildPlanMetadataFilters(plan, locale);
 
   // Small department-match bonus — joins claim_metadata on department to give
   // a soft nudge to claims tagged with the requesting employee's department(s).
@@ -316,13 +342,17 @@ export async function searchWithRetrievalPlan(
   }>(sql`
     WITH
     pre_filtered AS (
+      -- Bilingual: render summary/embedding in the reader's locale, falling
+      -- back to the canonical claim when no translation row exists.
       SELECT DISTINCT
-        c.id, c.summary, c.claim_type, c.impact_score, c.confidence_score, c.embedding
+        c.id, ${localizedSummary} AS summary, c.claim_type, c.impact_score, c.confidence_score,
+        COALESCE(ct.embedding, c.embedding) AS embedding
       FROM claims c
+      ${translationJoin}
       LEFT JOIN claim_top_domains ctd ON ctd.claim_id = c.id
       LEFT JOIN claim_metadata    cm  ON cm.claim_id  = c.id
       WHERE c.status = 'approved'
-        AND c.embedding IS NOT NULL
+        AND COALESCE(ct.embedding, c.embedding) IS NOT NULL
         ${topDomainFilter}
         ${excludedTopDomainFilter}
         ${docClassFilter}
@@ -346,11 +376,11 @@ export async function searchWithRetrievalPlan(
       SELECT
         id,
         ts_rank(
-          to_tsvector('english', summary),
-          plainto_tsquery('english', ${textQuery})
+          to_tsvector(${ftsConfig}, summary),
+          plainto_tsquery(${ftsConfig}, ${textQuery})
         ) AS ts_score
       FROM pre_filtered
-      WHERE to_tsvector('english', summary) @@ plainto_tsquery('english', ${textQuery})
+      WHERE to_tsvector(${ftsConfig}, summary) @@ plainto_tsquery(${ftsConfig}, ${textQuery})
     ),
     txt_ranked AS (
       SELECT id, ROW_NUMBER() OVER (ORDER BY ts_score DESC) AS trank
@@ -393,6 +423,7 @@ async function _searchFallbackTsvector(
   db: Db,
   plan: RetrievalPlan,
   limit: number,
+  locale: SupportedLocale = DEFAULT_LOCALE,
 ): Promise<RelevantClaim[]> {
   if (plan.searchScope === 'global_fallback') {
     console.warn('[oracle:retrieval] global_fallback (tsvector path) — searching entire claim corpus', {
@@ -417,7 +448,10 @@ async function _searchFallbackTsvector(
     processStageFilter,
     excludedEntityTypeFilter,
     requiredEntityFilter,
-  } = buildPlanMetadataFilters(plan);
+    translationJoin,
+    localizedSummary,
+    ftsConfig,
+  } = buildPlanMetadataFilters(plan, locale);
 
   const rows = await db.execute<{
     id: string;
@@ -428,12 +462,13 @@ async function _searchFallbackTsvector(
     ts_score: number;
   }>(sql`
     SELECT DISTINCT
-      c.id, c.summary, c.claim_type, c.impact_score, c.confidence_score,
+      c.id, ${localizedSummary} AS summary, c.claim_type, c.impact_score, c.confidence_score,
       ts_rank(
-        to_tsvector('english', c.summary),
-        plainto_tsquery('english', ${textQuery})
+        to_tsvector(${ftsConfig}, ${localizedSummary}),
+        plainto_tsquery(${ftsConfig}, ${textQuery})
       ) AS ts_score
     FROM claims c
+    ${translationJoin}
     LEFT JOIN claim_top_domains ctd ON ctd.claim_id = c.id
     LEFT JOIN claim_metadata    cm  ON cm.claim_id  = c.id
     WHERE c.status = 'approved'
@@ -462,18 +497,28 @@ async function _searchFallbackTsvector(
 export async function getBrainSectionSnippets(
   db: Db,
   sectionIds: string[],
+  locale: SupportedLocale = DEFAULT_LOCALE,
 ): Promise<Array<{ sectionId: string; title: string; markdown: string }>> {
   if (sectionIds.length === 0) return [];
+  // Bilingual: render the current version's markdown in the reader's locale,
+  // falling back to the canonical markdown when no translation row exists.
   const rows = await db
     .select({
       sectionId: brainSections.id,
       title: brainSections.title,
-      markdown: brainSectionVersions.markdown,
+      markdown: sql<string | null>`COALESCE(${brainSectionVersionTranslations.markdown}, ${brainSectionVersions.markdown})`,
     })
     .from(brainSections)
     .leftJoin(
       brainSectionVersions,
       eq(brainSectionVersions.id, brainSections.currentVersionId),
+    )
+    .leftJoin(
+      brainSectionVersionTranslations,
+      and(
+        eq(brainSectionVersionTranslations.versionId, brainSections.currentVersionId),
+        eq(brainSectionVersionTranslations.lang, locale),
+      ),
     )
     .where(inArray(brainSections.id, sectionIds));
   return rows.map((r) => ({

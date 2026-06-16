@@ -30,6 +30,7 @@ import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { coerceLocale } from '@oracle/shared';
 import { createServiceRoleClient } from '@oracle/auth/server';
 import {
   ORACLE_SYSTEM_PROMPT,
@@ -182,8 +183,11 @@ export async function POST(req: NextRequest) {
     topK: 8,
     departmentHints: deptHints,
   });
+  // Reader locale ('zh-CN' for the manually-routed China group, else 'en').
+  // Drives claim/Brain rendering language and the answer-language instruction.
+  const locale = coerceLocale(me.locale);
   const relevantClaims = queryForClaims
-    ? await searchWithRetrievalPlan(db, retrievalPlan)
+    ? await searchWithRetrievalPlan(db, retrievalPlan, locale)
     : [];
 
   // ── 4. Resolve curated interview route ───────────────────────────────
@@ -193,6 +197,14 @@ export async function POST(req: NextRequest) {
   // ── 5. Compile prompt blocks (stable system + dynamic context) ───────
   const contextLines: string[] = [];
   contextLines.push(`---\nCONTEXT FOR THIS TURN:`);
+  // Bilingual (china_imp.md): instruct the model to converse in the reader's
+  // language. Claims/Brain context above is already rendered in this locale.
+  if (locale === 'zh-CN') {
+    contextLines.push(
+      `Respond to this employee entirely in Simplified Chinese (简体中文). ` +
+        `Write your questions, explanations, and summaries in Chinese.`,
+    );
+  }
   const deptDisplay = me.departments.length > 0
     ? me.departments.join(', ')
     : (me.department ?? 'Unknown');
