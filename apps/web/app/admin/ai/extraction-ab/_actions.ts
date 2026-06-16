@@ -46,16 +46,18 @@ const VARIANTS = {
   },
 } as const;
 
-function normalizeSourceText(text: string, quote: string | null): string {
-  const trimmed = text.trim();
-  if (trimmed.length <= 12_000) return trimmed;
-  if (!quote) return trimmed.slice(0, 12_000);
+function normalizeSourceText(text: string | null, quote: string | null): string {
+  const trimmed = (text ?? '').trim();
+  const trimmedQuote = (quote ?? '').trim();
+  if (!trimmed && trimmedQuote) return trimmedQuote;
+  if (!trimmed) return '';
+  if (!trimmedQuote) return trimmed.slice(0, 12_000);
 
-  const quoteIndex = trimmed.indexOf(quote);
-  if (quoteIndex < 0) return trimmed.slice(0, 12_000);
+  const quoteIndex = trimmed.indexOf(trimmedQuote);
+  if (quoteIndex < 0) return trimmedQuote;
 
   const start = Math.max(0, quoteIndex - 4_000);
-  const end = Math.min(trimmed.length, quoteIndex + quote.length + 4_000);
+  const end = Math.min(trimmed.length, quoteIndex + trimmedQuote.length + 4_000);
   return trimmed.slice(start, end);
 }
 
@@ -71,13 +73,25 @@ async function loadSourceForReviewEvent(reviewEventId: string) {
       ce.exact_quote,
       COALESCE(m.content, dc.raw_text, ce.exact_quote) AS source_text
     FROM claim_review_events cre
-    JOIN claim_evidence ce ON ce.claim_id = cre.claim_id
+    JOIN LATERAL (
+      SELECT *
+      FROM (
+        SELECT ce.*, 0 AS evidence_priority
+        FROM claim_evidence ce
+        WHERE ce.claim_id = cre.replacement_claim_id
+        UNION ALL
+        SELECT ce.*, 1 AS evidence_priority
+        FROM claim_evidence ce
+        WHERE ce.claim_id = cre.claim_id
+      ) ranked_evidence
+      ORDER BY evidence_priority, confidence DESC NULLS LAST, created_at ASC
+      LIMIT 1
+    ) ce ON true
     LEFT JOIN messages m ON m.id = ce.source_message_id
     LEFT JOIN document_chunks dc ON dc.id = ce.source_document_chunk_id
     WHERE cre.id = ${reviewEventId}::uuid
       AND cre.action = 'revise'
       AND cre.replacement_claim_id IS NOT NULL
-    ORDER BY ce.confidence DESC NULLS LAST, ce.created_at ASC
     LIMIT 1
   `);
   const row = [...result][0] as
@@ -88,13 +102,15 @@ async function loadSourceForReviewEvent(reviewEventId: string) {
         source_type: string;
         source_id: string | null;
         exact_quote: string | null;
-        source_text: string;
+        source_text: string | null;
       }
     | undefined;
   if (!row) throw new Error('Could not find source evidence for this revised claim.');
+  const sourceExcerpt = normalizeSourceText(row.source_text, row.exact_quote);
+  if (!sourceExcerpt) throw new Error('Could not find usable source evidence text for this revised claim.');
   return {
     ...row,
-    source_excerpt: normalizeSourceText(row.source_text, row.exact_quote),
+    source_excerpt: sourceExcerpt,
   };
 }
 
@@ -109,6 +125,7 @@ async function runVariant(input: {
   route: OracleModelRoute;
   sourceId: string;
   sourceExcerpt: string;
+  sourceExactQuote: string | null;
   correctionLessonsPromptBlock: string;
 }): Promise<EvalOutput> {
   let lastError: Error | null = null;
@@ -121,6 +138,7 @@ async function runVariant(input: {
         blocks: buildVariantBlocks({
           sourceId: input.sourceId,
           sourceExcerpt: input.sourceExcerpt,
+          sourceExactQuote: input.sourceExactQuote,
           correctionLessonsPromptBlock: input.correctionLessonsPromptBlock,
           repairInstruction:
             attempt === 1
@@ -150,9 +168,11 @@ async function runVariant(input: {
 function buildVariantBlocks(input: {
   sourceId: string;
   sourceExcerpt: string;
+  sourceExactQuote: string | null;
   correctionLessonsPromptBlock: string;
   repairInstruction: string | null;
 }) {
+  const exactQuote = input.sourceExactQuote?.trim() || null;
   return [
     makeBlock({
       id: 'extraction-system',
@@ -176,7 +196,7 @@ function buildVariantBlocks(input: {
       id: 'eval-source',
       label: 'Source text for one claim extraction eval',
       kind: 'dynamic_input',
-      content: `SOURCE ID:\n${input.sourceId}\n\nSOURCE TEXT:\n${input.sourceExcerpt}\n\nThis source text is from an already-approved human claim revision, so it does contain an operational claim. Return the single best operational claim supported by this source text.\n\nOutput requirements:\n- Return JSON with top-level key "claim"; "claim" must be an object, never null.\n- claim.claimType must be one of: ${CLAIM_TYPES.join(', ')}.\n- claim.impactScore must be an integer from 1 to 10.\n- claim.confidenceScore must be an integer from 1 to 10.\n- claim.domains must contain only these exact IDs: ${KNOWLEDGE_DOMAINS.join(', ')}. Do not invent display names or top-domain labels.\n- claim.evidence must be an object with exactQuote, sourceMessageId, and confidence.\n- claim.evidence.sourceMessageId must be exactly: ${input.sourceId}.\n- claim.evidence.exactQuote must be copied character-for-character from SOURCE TEXT.`,
+      content: `SOURCE ID:\n${input.sourceId}\n\nEXACT QUOTE TO USE:\n${exactQuote ?? '(No separate quote was stored; choose one exact quote from SOURCE TEXT.)'}\n\nSOURCE TEXT:\n${input.sourceExcerpt}\n\nThis source text is from an already-approved human claim revision, so it does contain an operational claim. Return the single best operational claim supported by this source text.\n\nOutput requirements:\n- Return JSON with top-level key "claim"; "claim" must be an object, never null.\n- claim.claimType must be one of: ${CLAIM_TYPES.join(', ')}.\n- claim.impactScore must be an integer from 1 to 10.\n- claim.confidenceScore must be an integer from 1 to 10.\n- claim.domains must contain only these exact IDs: ${KNOWLEDGE_DOMAINS.join(', ')}. Do not invent display names or top-domain labels.\n- claim.evidence must be an object with exactQuote, sourceMessageId, and confidence.\n- claim.evidence.sourceMessageId must be exactly: ${input.sourceId}.\n- claim.evidence.exactQuote must be exactly EXACT QUOTE TO USE when a stored quote is shown; otherwise copy it character-for-character from SOURCE TEXT.`,
       reasonIncluded: 'same source text used across extraction A/B/C variants',
     }),
     ...(input.repairInstruction
@@ -240,6 +260,7 @@ export async function runExtractionAbTest(
           route: resolveEvalRoute(variant.routeId),
           sourceId: source.source_id ?? source.review_event_id,
           sourceExcerpt: source.source_excerpt,
+          sourceExactQuote: source.exact_quote,
           correctionLessonsPromptBlock: lessonPack.promptBlock,
         });
         await db.execute(sql`

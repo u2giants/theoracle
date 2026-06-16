@@ -642,6 +642,8 @@ Approved revisions now feed a correction-lesson loop for future extraction. `pac
 
 `/admin/ai/extraction-ab` is a non-promoting A/B/C review surface for those same approved revisions. It compares the existing Gemini 2.5-era claim, a fresh `google/gemini-3.1-flash-lite` extraction, a fresh `qwen/qwen3.7-max` extraction, and the human revision. Reviewers score only the AI outputs; the human revision is the reference answer, not a scoreable variant. These eval outputs are never inserted into `claims`; they are only for choosing better extraction models/prompts.
 
+The A/B/C source excerpt must stay anchored to the reviewed evidence quote. The page prefers evidence from the human replacement claim, falls back to the original claim evidence, and uses `claim_evidence.exact_quote` directly when the full message/document chunk does not contain that quote. Do not fall back to the leading text of a large document chunk on quote mismatch; that creates rows where model outputs are about completely different subjects than the original/revised claim.
+
 ### Gemini 3.1 eval route uses Google API, not Vertex
 
 What changed:
