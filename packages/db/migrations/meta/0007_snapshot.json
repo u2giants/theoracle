@@ -1,94 +1,9 @@
 {
-  "id": "d1175ec7-3895-4b4d-8af1-d25138b6e772",
+  "id": "df8f7c46-0bc5-42ae-b528-ea0f2cfb42dd",
   "prevId": "fcf0c4f1-7cc3-4883-a52d-61012698f962",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.brain_section_version_translations": {
-      "name": "brain_section_version_translations",
-      "schema": "",
-      "columns": {
-        "version_id": {
-          "name": "version_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "lang": {
-          "name": "lang",
-          "type": "varchar(12)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "markdown": {
-          "name": "markdown",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "structured_content": {
-          "name": "structured_content",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "translated_by_model_run_id": {
-          "name": "translated_by_model_run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "brain_section_version_translations_version_id_brain_section_versions_id_fk": {
-          "name": "brain_section_version_translations_version_id_brain_section_versions_id_fk",
-          "tableFrom": "brain_section_version_translations",
-          "tableTo": "brain_section_versions",
-          "columnsFrom": [
-            "version_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "brain_section_version_translations_translated_by_model_run_id_model_runs_id_fk": {
-          "name": "brain_section_version_translations_translated_by_model_run_id_model_runs_id_fk",
-          "tableFrom": "brain_section_version_translations",
-          "tableTo": "model_runs",
-          "columnsFrom": [
-            "translated_by_model_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "brain_section_version_translations_version_id_lang_pk": {
-          "name": "brain_section_version_translations_version_id_lang_pk",
-          "columns": [
-            "version_id",
-            "lang"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.brain_section_versions": {
       "name": "brain_section_versions",
       "schema": "",

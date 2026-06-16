@@ -155,7 +155,13 @@ Notes:
 - `translatedByModelRunId` ties each translation to the model run that produced
   it, consistent with the project's provenance-everywhere approach.
 
-### 3.3 New sidecar table `brain_section_version_translations`
+### 3.3 ~~New sidecar table `brain_section_version_translations`~~ — DROPPED
+
+> **Decision (2026-06-16): Brain synthesis is English-only.** Chinese employees
+> read **claims** in Chinese but the synthesized **Brain** narrative in English.
+> This table and the Brain-translation worker were therefore **not** implemented;
+> `getBrainSectionSnippets` returns canonical English markdown only. The original
+> design (kept below for reference) would have been:
 
 Brain section versions (`brain_section_versions`) are immutable snapshots, so the
 translation is keyed to the **version id** (not the section id).
@@ -399,8 +405,9 @@ route.
 | Translate evidence quotes? | **No** — canonical/original-language quote only. |
 | Chinese full-text search strategy | **`'simple'` config now**, vector-dominant; `zhparser` later (optional). |
 | Locale codes | **`'en'` and `'zh-CN'`**; `lang`/`source_lang` stored as `varchar(12)`. |
-| Locale assignment | **Manual** — Albert routes employees into the China group. |
-| Separate Chinese knowledge segment? | **No** — one brain, bilingual rendering. |
+| Locale assignment | **Manual** — Albert routes employees into the China group (set `employees.locale = 'zh-CN'`). |
+| Separate Chinese knowledge segment? | **No** — one brain, bilingual claim rendering. |
+| Translate the synthesized Brain? | **No** — Brain synthesis is English-only; only **claims** are bilingual. |
 
 ## 13. File-by-file touch list
 

@@ -501,6 +501,36 @@ The migration runner applies generated DDL plus hand-written SQL in deterministi
 Do not change because:
 Editing old generated files breaks replay expectations and production drift recovery.
 
+### The Drizzle snapshot was baselined at migration 0007 — some tables exist only via hand SQL
+
+Looks like:
+`drizzle-kit generate` wants to CREATE tables that already exist in production —
+`departments`, `employee_departments`, `provider_batch_jobs`,
+`provider_response_sessions` — plus columns like `documents.context`,
+`model_runs.dispatch_mode`, `provider_cached_content.provider_metadata_json`.
+It looks like a fresh, legitimate migration.
+
+Actually:
+Those objects were added to `schema.ts` and materialized via **hand-written
+`migrations/sql/*.sql`** files (56–65), but were never captured in a *generated*
+Drizzle migration, so the Drizzle snapshot drifted behind `schema.ts`. Migration
+`0007` re-syncs the snapshot to the true full schema (so future `generate` runs
+are clean), but its **SQL was trimmed by hand** to only the genuinely-new objects
+(`claim_translations`, `claims.source_lang`, `employees.locale`). Applying the
+un-trimmed generate output would fail on the live DB with `type "department"
+already exists`.
+
+Why:
+A fresh DB still gets those tables — the hand-written `sql/` files create them in
+the migrate runner's step 3 (after generated migrations in step 2). So both paths
+work: existing DBs already have them; fresh DBs get them from hand SQL.
+
+Do not change because:
+Do NOT "fix" a future `generate` by committing its full output if it re-emits
+`departments`/`provider_*`/etc. — trim those statements (they already exist) and
+keep only your new objects, exactly as `0007` does. Re-emitting them breaks
+`pnpm db:migrate` on every already-migrated database.
+
 ### Claim retrieval has exactly one path, and the two SQL branches must stay in lockstep
 
 Looks like:

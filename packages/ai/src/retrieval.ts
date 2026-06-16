@@ -24,7 +24,6 @@ import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import {
   brainSections,
   brainSectionVersions,
-  brainSectionVersionTranslations,
   channelParticipants,
   claims,
   employees,
@@ -497,28 +496,20 @@ async function _searchFallbackTsvector(
 export async function getBrainSectionSnippets(
   db: Db,
   sectionIds: string[],
-  locale: SupportedLocale = DEFAULT_LOCALE,
 ): Promise<Array<{ sectionId: string; title: string; markdown: string }>> {
   if (sectionIds.length === 0) return [];
-  // Bilingual: render the current version's markdown in the reader's locale,
-  // falling back to the canonical markdown when no translation row exists.
+  // Brain synthesis is English-only (china_imp.md decision), so no per-locale
+  // rendering here — return the canonical markdown.
   const rows = await db
     .select({
       sectionId: brainSections.id,
       title: brainSections.title,
-      markdown: sql<string | null>`COALESCE(${brainSectionVersionTranslations.markdown}, ${brainSectionVersions.markdown})`,
+      markdown: brainSectionVersions.markdown,
     })
     .from(brainSections)
     .leftJoin(
       brainSectionVersions,
       eq(brainSectionVersions.id, brainSections.currentVersionId),
-    )
-    .leftJoin(
-      brainSectionVersionTranslations,
-      and(
-        eq(brainSectionVersionTranslations.versionId, brainSections.currentVersionId),
-        eq(brainSectionVersionTranslations.lang, locale),
-      ),
     )
     .where(inArray(brainSections.id, sectionIds));
   return rows.map((r) => ({

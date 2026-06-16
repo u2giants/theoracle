@@ -711,28 +711,6 @@ export const brainSectionVersions = pgTable(
   }),
 );
 
-// Bilingual Brain layer — display-only translations of an immutable brain
-// section version's markdown into other languages. Keyed to the version id
-// (versions are immutable snapshots). See china_imp.md.
-export const brainSectionVersionTranslations = pgTable(
-  'brain_section_version_translations',
-  {
-    versionId: uuid('version_id')
-      .references(() => brainSectionVersions.id)
-      .notNull(),
-    lang: varchar('lang', { length: 12 }).notNull(),
-    markdown: text('markdown').notNull(),
-    structuredContent: jsonb('structured_content'),
-    translatedByModelRunId: uuid('translated_by_model_run_id').references(
-      () => modelRuns.id,
-    ),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-  },
-  (t) => ({
-    pk: primaryKey({ columns: [t.versionId, t.lang] }),
-  }),
-);
-
 export const sectionClaims = pgTable(
   'section_claims',
   {
@@ -1617,8 +1595,6 @@ export type Document = typeof documents.$inferSelect;
 export type Claim = typeof claims.$inferSelect;
 export type ClaimTranslation = typeof claimTranslations.$inferSelect;
 export type NewClaimTranslation = typeof claimTranslations.$inferInsert;
-export type BrainSectionVersionTranslation =
-  typeof brainSectionVersionTranslations.$inferSelect;
 export type Gap = typeof gaps.$inferSelect;
 export type Contradiction = typeof contradictions.$inferSelect;
 export type BrainSection = typeof brainSections.$inferSelect;
