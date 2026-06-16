@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { employees, employeeDepartments, departments } from '@oracle/db';
 import { getDirectDb } from '@oracle/db/client';
@@ -157,6 +157,83 @@ export async function updateEmployeeDepartments(
 
   revalidatePath('/admin/employees');
   revalidatePath('/admin/departments');
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Disable / re-enable employee access.
+// Soft-disable via employees.disabled_at so historical messages, claims,
+// evidence, assignments, and audit records keep their employee references.
+// ---------------------------------------------------------------------------
+
+const UpdateEmployeeAccessSchema = z.object({
+  employeeId: z.string().uuid(),
+  action: z.enum(['disable', 'enable']),
+});
+
+export type UpdateEmployeeAccessState = {
+  ok: boolean;
+  error?: string;
+};
+
+export async function updateEmployeeAccess(
+  _prev: UpdateEmployeeAccessState,
+  formData: FormData,
+): Promise<UpdateEmployeeAccessState> {
+  const me = await requireAdmin();
+  const db = getDirectDb();
+
+  const parsed = UpdateEmployeeAccessSchema.safeParse({
+    employeeId: formData.get('employeeId'),
+    action: formData.get('action'),
+  });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues.map((i) => i.message).join('; ') };
+  }
+
+  const { employeeId, action } = parsed.data;
+  if (action === 'disable' && employeeId === me.id) {
+    return { ok: false, error: 'You cannot disable your own active admin account.' };
+  }
+
+  try {
+    const [target] = await db
+      .select({
+        id: employees.id,
+        isAdmin: employees.isAdmin,
+        disabledAt: employees.disabledAt,
+      })
+      .from(employees)
+      .where(eq(employees.id, employeeId))
+      .limit(1);
+    if (!target) return { ok: false, error: 'Employee not found.' };
+
+    if (action === 'disable' && target.isAdmin && !target.disabledAt) {
+      const adminCountResult = await db.execute(sql`
+        SELECT count(*)::int AS active_admin_count
+        FROM employees
+        WHERE is_admin = true
+          AND disabled_at IS NULL
+          AND id <> ${employeeId}::uuid
+      `);
+      const activeAdminCount = Number(
+        ([...adminCountResult][0] as { active_admin_count?: number } | undefined)
+          ?.active_admin_count ?? 0,
+      );
+      if (activeAdminCount < 1) {
+        return { ok: false, error: 'At least one active admin must remain.' };
+      }
+    }
+
+    await db
+      .update(employees)
+      .set({ disabledAt: action === 'disable' ? new Date() : null })
+      .where(eq(employees.id, employeeId));
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  revalidatePath('/admin/employees');
   return { ok: true };
 }
 
