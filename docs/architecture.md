@@ -342,6 +342,7 @@ One human → one `employees` row → many `employee_identities` rows.
 - The RLS helper `current_employee_id()` joins `employees` with `employee_identities` on `auth.uid()` — RLS does not read `employees.auth_user_id` directly.
 - Deprecated columns `employees.auth_user_id`, `employees.auth_provider`, `employees.auth_provider_subject` remain on the schema as NULL placeholders during the multi-identity transition. They will be dropped in a follow-up migration. See `DECISIONS.md` D2.multi-identity.
 - `employees.departments text[]` (multi-value, authoritative) replaces `employees.department varchar` (single-value, nullable, deprecated). All new code reads `departments`; legacy code falls back to `department`. The retrieval layer uses `departments` as `departmentHints` — a soft RRF signal, never a hard filter.
+- Employee removal is a soft-disable: Admin -> Employees writes `employees.disabled_at` through `updateEmployeeAccess()`. Disabled employees cannot link or continue sessions (`packages/auth/src/link.ts`, `apps/web/lib/auth-guard.ts`, and RLS helpers check `disabled_at IS NULL`), but historical references remain intact. Do not hard-delete employees from the GUI without a separate archival/reference-cleanup design.
 
 ## Data flow — the load-bearing paths
 

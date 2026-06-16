@@ -278,6 +278,17 @@ One person may log in through Google and Microsoft 365 and still be the same emp
 Do not change because:
 Collapsing back to one auth identity per employee breaks real user linkage and RLS helpers.
 
+### Employee removal is soft-disable, not hard delete
+
+What changed:
+Admin -> Employees exposes Disable/Re-enable controls backed by `employees.disabled_at`.
+
+Why:
+Employee rows are referenced by identities, messages, claims/evidence, documents, assignments, review events, and audit history. Hard-deleting a person can break provenance and historical records, while `disabled_at` already blocks login/linking and active RLS helpers.
+
+Future sessions should:
+Use `apps/web/app/admin/employees/_components/employee-access-form.tsx` and `updateEmployeeAccess()` for GUI access changes. Do not add hard-delete employee buttons unless you first design archival/reference cleanup across all employee FKs.
+
 ### All inference must go through `OracleAIClient`
 
 Looks like:
@@ -344,6 +355,17 @@ Gemini 3.1 Flash-Lite (`gemini-3.1-flash-lite`) returned `NOT_FOUND` through the
 
 Future sessions should:
 Do not map `google/*` back to `vertex` in `packages/ai/src/routes/resolve.ts` unless the exact model has been verified in the configured Vertex region. `GEMINI_API_KEY` is optional; `GoogleGeminiAdapter` can also mint Gemini API OAuth tokens from `GOOGLE_APPLICATION_CREDENTIALS_JSON`.
+
+### Trigger.dev schedule slots are currently full
+
+What changed:
+The `extraction-ab-eval` worker is an immediate Trigger.dev task with no cron sweep. A cron fallback was attempted on 2026-06-16, but Trigger.dev deploy failed because the project already had 10/10 schedules.
+
+Why:
+Adding another `schedules.task()` currently blocks worker deployment. The A/B eval page queues rows and dispatches `extraction-ab-eval` immediately from Vercel through `TRIGGER_SECRET_KEY`.
+
+Future sessions should:
+Do not add new Trigger schedules casually. Reuse/consolidate an existing schedule or increase the Trigger.dev schedule limit before adding another `schedules.task()`. Deploy workers with `corepack pnpm --filter @oracle/workers run deploy`.
 
 ### Explicit Vertex caches are tracked in Postgres
 

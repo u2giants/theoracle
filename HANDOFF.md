@@ -1,6 +1,28 @@
 # HANDOFF — Recall.ai wiring + extraction pipeline tuning
 
-Last updated: 2026-06-15. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+Last updated: 2026-06-16. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+
+---
+
+## 2026-06-16 extraction A/B + employee-access update
+
+Status:
+Done. Code was committed, pushed, DB changes were applied where needed, and production web/workers were deployed.
+
+Done:
+- Fixed `/admin/ai/extraction-ab` source alignment: A/B/C model reruns now anchor to reviewed evidence quotes and do not fall back to unrelated leading document-chunk text when the quote is missing from the chunk.
+- Moved extraction A/B/C reruns out of the page server action. `/admin/ai/extraction-ab` now queues rows through `claim_extraction_ab_tests.run_status`; Trigger.dev task `extraction-ab-eval` runs Gemini/Qwen and writes outputs/errors back. Migration `72_claim_extraction_ab_run_status.sql` was applied to production through linked Supabase CLI because this checkout did not have `DIRECT_URL` / `DATABASE_URL` for `pnpm db:migrate`.
+- Trigger.dev worker deploy `20260616.2` succeeded after removing the attempted cron sweep. Trigger.dev was at 10/10 schedule slots, so `extraction-ab-eval` uses immediate dispatch only.
+- Added Admin -> Employees Disable/Re-enable controls. They write `employees.disabled_at`; disabled employees cannot log in/link, but historical employee references remain intact.
+- Production Vercel deployments were completed through commit `39c58fd Add employee access controls` before this documentation pass.
+
+Next action:
+Use Admin -> Employees for roster cleanup. For A/B/C evals, click rerun rows and let the queued worker populate results; if rows remain queued indefinitely, verify Vercel production `TRIGGER_SECRET_KEY` is a prod Trigger key and inspect Trigger.dev task runs for `extraction-ab-eval`.
+
+Risks / watchouts:
+- Do not hard-delete employees unless a separate archival/reference cleanup is designed.
+- Do not move Gemini/Qwen A/B/C calls back into the page server action; multiple simultaneous rows previously hung the UI.
+- Do not add another Trigger.dev schedule until the schedule limit is increased or existing schedules are consolidated.
 
 ---
 
