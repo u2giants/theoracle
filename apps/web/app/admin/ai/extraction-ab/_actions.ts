@@ -18,7 +18,7 @@ import {
 } from '@oracle/ai';
 
 const EvalOutputSchema = z.object({
-  claim: ExtractionClaimSchema,
+  claim: ExtractionClaimSchema.nullable().optional().default(null),
   noClaimReason: z.string().optional(),
 });
 
@@ -108,7 +108,47 @@ async function runVariant(input: {
   sourceExcerpt: string;
   correctionLessonsPromptBlock: string;
 }): Promise<EvalOutput> {
-  const blocks = [
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const result = await input.client.runObject<EvalOutput>({
+        taskType: 'message_claim_extraction',
+        routeId: input.route.routeId,
+        promptVersion: EXTRACTION_PROMPT_VERSION,
+        blocks: buildVariantBlocks({
+          sourceExcerpt: input.sourceExcerpt,
+          correctionLessonsPromptBlock: input.correctionLessonsPromptBlock,
+          repairInstruction:
+            attempt === 1
+              ? null
+              : 'Your previous response did not include the required claim object. Return JSON with a top-level "claim" object that matches the extraction schema. Do not return null, {}, or a no-claim response.',
+        }),
+        schema: EvalOutputSchema,
+        providerOptions: {
+          cache: { disableCache: true },
+        },
+      });
+      if (!result.validation.ok) {
+        throw new Error(result.validation.error.message);
+      }
+      if (!result.object.claim) {
+        throw new Error('Model returned no claim object.');
+      }
+      return result.object;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  throw lastError ?? new Error('Model did not return a claim object.');
+}
+
+function buildVariantBlocks(input: {
+  sourceExcerpt: string;
+  correctionLessonsPromptBlock: string;
+  repairInstruction: string | null;
+}) {
+  return [
     makeBlock({
       id: 'extraction-system',
       label: 'Extraction system prompt',
@@ -134,22 +174,18 @@ async function runVariant(input: {
       content: `SOURCE TEXT:\n${input.sourceExcerpt}\n\nThis source text is from an already-approved human claim revision, so it does contain an operational claim. Return the single best operational claim supported by this source text. You must return a claim object, not null. The claim must quote this source text exactly.`,
       reasonIncluded: 'same source text used across extraction A/B/C variants',
     }),
+    ...(input.repairInstruction
+      ? [
+          makeBlock({
+            id: 'eval-repair-instruction',
+            label: 'Extraction eval repair instruction',
+            kind: 'dynamic_input' as const,
+            content: input.repairInstruction,
+            reasonIncluded: 'retry malformed extraction eval output',
+          }),
+        ]
+      : []),
   ];
-
-  const result = await input.client.runObject<EvalOutput>({
-    taskType: 'message_claim_extraction',
-    routeId: input.route.routeId,
-    promptVersion: EXTRACTION_PROMPT_VERSION,
-    blocks,
-    schema: EvalOutputSchema,
-    providerOptions: {
-      cache: { disableCache: true },
-    },
-  });
-  if (!result.validation.ok) {
-    throw new Error(result.validation.error.message);
-  }
-  return result.object;
 }
 
 export async function runExtractionAbTest(
