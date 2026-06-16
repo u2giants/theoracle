@@ -1,4 +1,4 @@
-import { schedules, task } from '@trigger.dev/sdk/v3';
+import { task } from '@trigger.dev/sdk/v3';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import {
@@ -303,27 +303,5 @@ export const extractionAbEvalTask = task({
   id: 'extraction-ab-eval',
   run: async (payload: { reviewEventId: string }) => {
     return processExtractionAbEval(payload.reviewEventId);
-  },
-});
-
-export const extractionAbEvalSweepTask = schedules.task({
-  id: 'extraction-ab-eval-sweep',
-  cron: '*/2 * * * *',
-  run: async () => {
-    const db = getDirectDb();
-    const result = await db.execute(sql`
-      SELECT claim_review_event_id
-      FROM claim_extraction_ab_tests
-      WHERE run_status = 'queued'
-         OR (run_status = 'running' AND run_started_at < now() - interval '15 minutes')
-      ORDER BY run_requested_at ASC NULLS FIRST, created_at ASC
-      LIMIT 5
-    `);
-    const rows = [...result] as Array<{ claim_review_event_id: string }>;
-    const outputs = [];
-    for (const row of rows) {
-      outputs.push(await processExtractionAbEval(row.claim_review_event_id));
-    }
-    return { ok: true, processed: outputs.length, outputs };
   },
 });
