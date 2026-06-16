@@ -7,6 +7,7 @@ import { requireAdmin } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
 import {
   buildStandardAdapters,
+  CLAIM_TYPES,
   ExtractionClaimSchema,
   EXTRACTION_PROMPT_VERSION,
   EXTRACTION_SYSTEM_PROMPT,
@@ -16,6 +17,7 @@ import {
   getOracleRoute,
   type OracleModelRoute,
 } from '@oracle/ai';
+import { KNOWLEDGE_DOMAINS } from '@oracle/shared';
 
 const EvalOutputSchema = z.object({
   claim: ExtractionClaimSchema.nullable().optional().default(null),
@@ -105,23 +107,25 @@ function resolveEvalRoute(routeId: string): OracleModelRoute {
 async function runVariant(input: {
   client: OracleAIClient;
   route: OracleModelRoute;
+  sourceId: string;
   sourceExcerpt: string;
   correctionLessonsPromptBlock: string;
 }): Promise<EvalOutput> {
   let lastError: Error | null = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const result = await input.client.runObject<EvalOutput>({
         taskType: 'message_claim_extraction',
         routeId: input.route.routeId,
         promptVersion: EXTRACTION_PROMPT_VERSION,
         blocks: buildVariantBlocks({
+          sourceId: input.sourceId,
           sourceExcerpt: input.sourceExcerpt,
           correctionLessonsPromptBlock: input.correctionLessonsPromptBlock,
           repairInstruction:
             attempt === 1
               ? null
-              : 'Your previous response did not include the required claim object. Return JSON with a top-level "claim" object that matches the extraction schema. Do not return null, {}, or a no-claim response.',
+              : `Your previous response did not pass validation: ${lastError?.message ?? 'unknown validation error'}\n\nReturn corrected JSON with a top-level "claim" object that matches the exact extraction schema. Do not return null, {}, display-name domains, or a no-claim response.`,
         }),
         schema: EvalOutputSchema,
         providerOptions: {
@@ -144,6 +148,7 @@ async function runVariant(input: {
 }
 
 function buildVariantBlocks(input: {
+  sourceId: string;
   sourceExcerpt: string;
   correctionLessonsPromptBlock: string;
   repairInstruction: string | null;
@@ -171,7 +176,7 @@ function buildVariantBlocks(input: {
       id: 'eval-source',
       label: 'Source text for one claim extraction eval',
       kind: 'dynamic_input',
-      content: `SOURCE TEXT:\n${input.sourceExcerpt}\n\nThis source text is from an already-approved human claim revision, so it does contain an operational claim. Return the single best operational claim supported by this source text. You must return a claim object, not null. The claim must quote this source text exactly.`,
+      content: `SOURCE ID:\n${input.sourceId}\n\nSOURCE TEXT:\n${input.sourceExcerpt}\n\nThis source text is from an already-approved human claim revision, so it does contain an operational claim. Return the single best operational claim supported by this source text.\n\nOutput requirements:\n- Return JSON with top-level key "claim"; "claim" must be an object, never null.\n- claim.claimType must be one of: ${CLAIM_TYPES.join(', ')}.\n- claim.impactScore must be an integer from 1 to 10.\n- claim.confidenceScore must be an integer from 1 to 10.\n- claim.domains must contain only these exact IDs: ${KNOWLEDGE_DOMAINS.join(', ')}. Do not invent display names or top-domain labels.\n- claim.evidence must be an object with exactQuote, sourceMessageId, and confidence.\n- claim.evidence.sourceMessageId must be exactly: ${input.sourceId}.\n- claim.evidence.exactQuote must be copied character-for-character from SOURCE TEXT.`,
       reasonIncluded: 'same source text used across extraction A/B/C variants',
     }),
     ...(input.repairInstruction
@@ -233,6 +238,7 @@ export async function runExtractionAbTest(
         const output = await runVariant({
           client,
           route: resolveEvalRoute(variant.routeId),
+          sourceId: source.source_id ?? source.review_event_id,
           sourceExcerpt: source.source_excerpt,
           correctionLessonsPromptBlock: lessonPack.promptBlock,
         });
