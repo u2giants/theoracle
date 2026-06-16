@@ -644,6 +644,8 @@ Approved revisions now feed a correction-lesson loop for future extraction. `pac
 
 The A/B/C source excerpt must stay anchored to the reviewed evidence quote. The page prefers evidence from the human replacement claim, falls back to the original claim evidence, and uses `claim_evidence.exact_quote` directly when the full message/document chunk does not contain that quote. Do not fall back to the leading text of a large document chunk on quote mismatch; that creates rows where model outputs are about completely different subjects than the original/revised claim.
 
+Model reruns on this page are queued through `run_status` fields in `claim_extraction_ab_tests` and processed by the Trigger.dev `extraction-ab-eval` task, with `extraction-ab-eval-sweep` as a fallback for queued rows. Do not move Gemini/Qwen calls back into the page server action; several simultaneous rows can exceed Vercel request time and leave the UI stuck on "Running models".
+
 ### Gemini 3.1 eval route uses Google API, not Vertex
 
 What changed:

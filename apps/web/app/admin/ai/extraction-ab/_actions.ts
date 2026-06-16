@@ -2,49 +2,14 @@
 
 import { revalidatePath } from 'next/cache';
 import { sql } from 'drizzle-orm';
-import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth-guard';
+import { triggerTask } from '@/lib/trigger';
 import { getDirectDb } from '@oracle/db/client';
-import {
-  buildStandardAdapters,
-  CLAIM_TYPES,
-  ExtractionClaimSchema,
-  EXTRACTION_PROMPT_VERSION,
-  EXTRACTION_SYSTEM_PROMPT,
-  loadClaimCorrectionLessonPack,
-  makeBlock,
-  OracleAIClient,
-  getOracleRoute,
-  type OracleModelRoute,
-} from '@oracle/ai';
-import { KNOWLEDGE_DOMAINS } from '@oracle/shared';
-
-const EvalOutputSchema = z.object({
-  claim: ExtractionClaimSchema.nullable().optional().default(null),
-  noClaimReason: z.string().optional(),
-});
-
-type EvalOutput = z.infer<typeof EvalOutputSchema>;
 
 export type ExtractionAbActionState = {
   status: 'idle' | 'success' | 'error';
   message: string;
 };
-
-const VARIANTS = {
-  gemini31: {
-    label: 'Gemini 3.1 Flash Lite',
-    routeId: 'google_gemini_3_1_flash_lite_extraction_eval',
-    column: 'gemini_3_1_output_json',
-    errorColumn: 'gemini_3_1_error',
-  },
-  qwen37: {
-    label: 'Qwen 3.7 Max',
-    routeId: 'qwen_3_7_max_extraction_eval',
-    column: 'qwen_3_7_output_json',
-    errorColumn: 'qwen_3_7_error',
-  },
-} as const;
 
 function normalizeSourceText(text: string | null, quote: string | null): string {
   const trimmed = (text ?? '').trim();
@@ -114,105 +79,6 @@ async function loadSourceForReviewEvent(reviewEventId: string) {
   };
 }
 
-function resolveEvalRoute(routeId: string): OracleModelRoute {
-  const route = getOracleRoute(routeId);
-  if (!route) throw new Error(`Could not resolve eval route ${routeId}.`);
-  return route;
-}
-
-async function runVariant(input: {
-  client: OracleAIClient;
-  route: OracleModelRoute;
-  sourceId: string;
-  sourceExcerpt: string;
-  sourceExactQuote: string | null;
-  correctionLessonsPromptBlock: string;
-}): Promise<EvalOutput> {
-  let lastError: Error | null = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const result = await input.client.runObject<EvalOutput>({
-        taskType: 'message_claim_extraction',
-        routeId: input.route.routeId,
-        promptVersion: EXTRACTION_PROMPT_VERSION,
-        blocks: buildVariantBlocks({
-          sourceId: input.sourceId,
-          sourceExcerpt: input.sourceExcerpt,
-          sourceExactQuote: input.sourceExactQuote,
-          correctionLessonsPromptBlock: input.correctionLessonsPromptBlock,
-          repairInstruction:
-            attempt === 1
-              ? null
-              : `Your previous response did not pass validation: ${lastError?.message ?? 'unknown validation error'}\n\nReturn corrected JSON with a top-level "claim" object that matches the exact extraction schema. Do not return null, {}, display-name domains, or a no-claim response.`,
-        }),
-        schema: EvalOutputSchema,
-        providerOptions: {
-          cache: { disableCache: true },
-        },
-      });
-      if (!result.validation.ok) {
-        throw new Error(result.validation.error.message);
-      }
-      if (!result.object.claim) {
-        throw new Error('Model returned no claim object.');
-      }
-      return result.object;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-    }
-  }
-
-  throw lastError ?? new Error('Model did not return a claim object.');
-}
-
-function buildVariantBlocks(input: {
-  sourceId: string;
-  sourceExcerpt: string;
-  sourceExactQuote: string | null;
-  correctionLessonsPromptBlock: string;
-  repairInstruction: string | null;
-}) {
-  const exactQuote = input.sourceExactQuote?.trim() || null;
-  return [
-    makeBlock({
-      id: 'extraction-system',
-      label: 'Extraction system prompt',
-      kind: 'stable_system',
-      content: EXTRACTION_SYSTEM_PROMPT,
-      reasonIncluded: 'A/B/C extraction eval prompt v' + EXTRACTION_PROMPT_VERSION,
-    }),
-    ...(input.correctionLessonsPromptBlock
-      ? [
-          makeBlock({
-            id: 'reviewer-correction-lessons',
-            label: 'Approved reviewer correction lessons',
-            kind: 'semi_stable_domain_context' as const,
-            content: input.correctionLessonsPromptBlock,
-            reasonIncluded: 'approved claim revisions teach extraction corrections',
-          }),
-        ]
-      : []),
-    makeBlock({
-      id: 'eval-source',
-      label: 'Source text for one claim extraction eval',
-      kind: 'dynamic_input',
-      content: `SOURCE ID:\n${input.sourceId}\n\nEXACT QUOTE TO USE:\n${exactQuote ?? '(No separate quote was stored; choose one exact quote from SOURCE TEXT.)'}\n\nSOURCE TEXT:\n${input.sourceExcerpt}\n\nThis source text is from an already-approved human claim revision, so it does contain an operational claim. Return the single best operational claim supported by this source text.\n\nOutput requirements:\n- Return JSON with top-level key "claim"; "claim" must be an object, never null.\n- claim.claimType must be one of: ${CLAIM_TYPES.join(', ')}.\n- claim.impactScore must be an integer from 1 to 10.\n- claim.confidenceScore must be an integer from 1 to 10.\n- claim.domains must contain only these exact IDs: ${KNOWLEDGE_DOMAINS.join(', ')}. Do not invent display names or top-domain labels.\n- claim.evidence must be an object with exactQuote, sourceMessageId, and confidence.\n- claim.evidence.sourceMessageId must be exactly: ${input.sourceId}.\n- claim.evidence.exactQuote must be exactly EXACT QUOTE TO USE when a stored quote is shown; otherwise copy it character-for-character from SOURCE TEXT.`,
-      reasonIncluded: 'same source text used across extraction A/B/C variants',
-    }),
-    ...(input.repairInstruction
-      ? [
-          makeBlock({
-            id: 'eval-repair-instruction',
-            label: 'Extraction eval repair instruction',
-            kind: 'dynamic_input' as const,
-            content: input.repairInstruction,
-            reasonIncluded: 'retry malformed extraction eval output',
-          }),
-        ]
-      : []),
-  ];
-}
-
 export async function runExtractionAbTest(
   _prevState: ExtractionAbActionState,
   formData: FormData,
@@ -224,11 +90,6 @@ export async function runExtractionAbTest(
 
     const db = getDirectDb();
     const source = await loadSourceForReviewEvent(reviewEventId);
-    const lessonPack = await loadClaimCorrectionLessonPack(db, { limit: 14 });
-    const client = new OracleAIClient({
-      adapters: buildStandardAdapters(),
-      fallbackOnError: false,
-    });
 
     await db.execute(sql`
       INSERT INTO claim_extraction_ab_tests (
@@ -237,7 +98,20 @@ export async function runExtractionAbTest(
         revised_claim_id,
         source_type,
         source_id,
-        source_excerpt
+        source_excerpt,
+        gemini_3_1_output_json,
+        qwen_3_7_output_json,
+        gemini_3_1_error,
+        qwen_3_7_error,
+        best_variant,
+        reviewer_note,
+        reviewed_by_employee_id,
+        reviewed_at,
+        run_status,
+        run_requested_at,
+        run_started_at,
+        run_completed_at,
+        last_run_error
       )
       VALUES (
         ${source.review_event_id}::uuid,
@@ -245,50 +119,42 @@ export async function runExtractionAbTest(
         ${source.revised_claim_id}::uuid,
         ${source.source_type},
         ${source.source_id}::uuid,
-        ${source.source_excerpt}
+        ${source.source_excerpt},
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        'queued',
+        now(),
+        NULL,
+        NULL,
+        NULL
       )
       ON CONFLICT (claim_review_event_id) DO UPDATE
         SET source_excerpt = EXCLUDED.source_excerpt,
+            gemini_3_1_output_json = NULL,
+            qwen_3_7_output_json = NULL,
+            gemini_3_1_error = NULL,
+            qwen_3_7_error = NULL,
+            best_variant = NULL,
+            reviewer_note = NULL,
+            reviewed_by_employee_id = NULL,
+            reviewed_at = NULL,
+            run_status = 'queued',
+            run_requested_at = now(),
+            run_started_at = NULL,
+            run_completed_at = NULL,
+            last_run_error = NULL,
             updated_at = now()
     `);
 
-    const failedVariants: string[] = [];
-    for (const variant of Object.values(VARIANTS)) {
-      try {
-        const output = await runVariant({
-          client,
-          route: resolveEvalRoute(variant.routeId),
-          sourceId: source.source_id ?? source.review_event_id,
-          sourceExcerpt: source.source_excerpt,
-          sourceExactQuote: source.exact_quote,
-          correctionLessonsPromptBlock: lessonPack.promptBlock,
-        });
-        await db.execute(sql`
-          UPDATE claim_extraction_ab_tests
-          SET ${sql.raw(variant.column)} = ${JSON.stringify(output)}::jsonb,
-              ${sql.raw(variant.errorColumn)} = NULL,
-              updated_at = now()
-          WHERE claim_review_event_id = ${reviewEventId}::uuid
-        `);
-      } catch (error) {
-        failedVariants.push(variant.label);
-        await db.execute(sql`
-          UPDATE claim_extraction_ab_tests
-          SET ${sql.raw(variant.errorColumn)} = ${error instanceof Error ? error.message : String(error)},
-              updated_at = now()
-          WHERE claim_review_event_id = ${reviewEventId}::uuid
-        `);
-      }
-    }
-
+    await triggerTask('extraction-ab-eval', { reviewEventId });
     revalidatePath('/admin/ai/extraction-ab');
-    if (failedVariants.length > 0) {
-      return {
-        status: 'error',
-        message: `Finished, but ${failedVariants.join(' and ')} failed. The error is shown in its column.`,
-      };
-    }
-    return { status: 'success', message: 'Models finished. Results refreshed below.' };
+    return { status: 'success', message: 'Queued. Results will appear here when the worker finishes.' };
   } catch (error) {
     return {
       status: 'error',

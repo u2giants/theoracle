@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { scoreExtractionAbTest } from './_actions';
+import { ExtractionAbAutoRefresh } from './_components/auto-refresh';
 import { RunModelsForm } from './_components/run-models-form';
 
 type ClaimLike = {
@@ -49,6 +50,11 @@ type Row = {
   qwen_3_7_error: string | null;
   best_variant: string | null;
   reviewer_note: string | null;
+  run_status: string | null;
+  run_requested_at: string | null;
+  run_started_at: string | null;
+  run_completed_at: string | null;
+  last_run_error: string | null;
 };
 
 const VARIANT_OPTIONS = [
@@ -173,7 +179,12 @@ export default async function ExtractionAbPage() {
       ab.gemini_3_1_error,
       ab.qwen_3_7_error,
       ab.best_variant,
-      ab.reviewer_note
+      ab.reviewer_note,
+      ab.run_status,
+      ab.run_requested_at,
+      ab.run_started_at,
+      ab.run_completed_at,
+      ab.last_run_error
     FROM claim_review_events cre
     JOIN claims original ON original.id = cre.claim_id
     JOIN claims replacement ON replacement.id = cre.replacement_claim_id
@@ -210,9 +221,13 @@ export default async function ExtractionAbPage() {
   `);
   const rows = [...result] as unknown as Row[];
   const scoredCount = rows.filter((row) => row.best_variant).length;
+  const activeRunCount = rows.filter(
+    (row) => row.run_status === 'queued' || row.run_status === 'running',
+  ).length;
 
   return (
     <div className="space-y-6">
+      <ExtractionAbAutoRefresh active={activeRunCount > 0} />
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Extraction A/B/C Test</h1>
         <p className="text-sm text-muted-foreground">
@@ -223,7 +238,7 @@ export default async function ExtractionAbPage() {
         </p>
       </header>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Approved revisions</CardTitle>
@@ -244,6 +259,12 @@ export default async function ExtractionAbPage() {
           </CardHeader>
           <CardContent className="text-2xl font-semibold">{scoredCount}</CardContent>
         </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Queued / running</CardTitle>
+          </CardHeader>
+          <CardContent className="text-2xl font-semibold">{activeRunCount}</CardContent>
+        </Card>
       </div>
 
       <div className="space-y-5">
@@ -260,7 +281,12 @@ export default async function ExtractionAbPage() {
                     <code>{row.original_claim_id.slice(0, 8)}</code>
                   </p>
                 </div>
-                <RunModelsForm reviewEventId={row.review_event_id} hasTest={!!row.test_id} />
+                <RunModelsForm
+                  reviewEventId={row.review_event_id}
+                  hasTest={!!row.test_id}
+                  runStatus={row.run_status}
+                  lastRunError={row.last_run_error}
+                />
               </div>
             </CardHeader>
             <CardContent className="space-y-4">

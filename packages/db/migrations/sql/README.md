@@ -74,6 +74,7 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `69_claim_review_assignment_and_costing_domain.sql` | Allows claim-review assignment events and renames/rebounds `finance_pricing` as product costing/pricing rather than company finance. |
 | `70_claim_extraction_ab_tests.sql` | Stores non-promoting A/B/C claim-extraction comparison outputs and reviewer winner selections. |
 | `71_claim_extraction_ab_ai_only_scoring.sql` | Narrows A/B/C winner choices to AI outputs only; the human revision remains a reference column, not a scoreable variant. |
+| `72_claim_extraction_ab_run_status.sql` | Adds queued/running/complete/failed status fields so A/B/C model reruns can be processed by Trigger.dev workers instead of long page requests. |
 | `99_vector_indexes.sql` | HNSW indexes on `claims.embedding` and `document_chunks.embedding`. Opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`. |
 
 ## Anti-patterns

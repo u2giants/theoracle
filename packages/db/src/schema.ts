@@ -668,6 +668,48 @@ export const claimReviewEvents = pgTable(
   }),
 );
 
+export const claimExtractionAbTests = pgTable(
+  'claim_extraction_ab_tests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    claimReviewEventId: uuid('claim_review_event_id')
+      .references(() => claimReviewEvents.id, { onDelete: 'cascade' })
+      .notNull(),
+    sourceClaimId: uuid('source_claim_id')
+      .references(() => claims.id, { onDelete: 'cascade' })
+      .notNull(),
+    revisedClaimId: uuid('revised_claim_id')
+      .references(() => claims.id, { onDelete: 'cascade' })
+      .notNull(),
+    sourceType: varchar('source_type', { length: 50 }).notNull(),
+    sourceId: uuid('source_id'),
+    sourceExcerpt: text('source_excerpt').notNull(),
+    gemini31OutputJson: jsonb('gemini_3_1_output_json'),
+    qwen37OutputJson: jsonb('qwen_3_7_output_json'),
+    gemini31Error: text('gemini_3_1_error'),
+    qwen37Error: text('qwen_3_7_error'),
+    bestVariant: varchar('best_variant', { length: 50 }),
+    reviewerNote: text('reviewer_note'),
+    reviewedByEmployeeId: uuid('reviewed_by_employee_id').references(() => employees.id),
+    reviewedAt: timestamp('reviewed_at'),
+    runStatus: varchar('run_status', { length: 20 }).default('idle').notNull(),
+    runRequestedAt: timestamp('run_requested_at'),
+    runStartedAt: timestamp('run_started_at'),
+    runCompletedAt: timestamp('run_completed_at'),
+    lastRunError: text('last_run_error'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    eventUnique: uniqueIndex('claim_extraction_ab_tests_event_unique').on(t.claimReviewEventId),
+    reviewedIdx: index('claim_extraction_ab_tests_reviewed_idx').on(t.reviewedAt, t.createdAt),
+    runStatusIdx: index('claim_extraction_ab_tests_run_status_idx').on(
+      t.runStatus,
+      t.runRequestedAt,
+    ),
+  }),
+);
+
 export const brainSections = pgTable('brain_sections', {
   id: varchar('id', { length: 255 }).primaryKey(),
   knowledgeDomain: knowledgeDomainEnum('knowledge_domain').notNull(),
