@@ -87,7 +87,7 @@ import type { EntityType, KnowledgeDomain, TopLevelDomainId } from '@oracle/shar
 
 const CHUNK_SIZE = 4000;
 const CHUNK_OVERLAP = 400;
-const MAX_DOCUMENT_TEXT_CHARS = 15_000;
+const MAX_DOCUMENT_TEXT_CHARS = 6_000;
 const VERTEX_FILE_CACHE_MIN_BYTES = 10 * 1024 * 1024;
 const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
 
@@ -656,7 +656,7 @@ async function processDocument(
     const baseDocumentNote =
       parseKind === 'image'
         ? `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded image (not a conversation, not a native text document). Extract claims about operational processes, rules, systems, and dependencies that are explicitly supported by this transcription.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}`
-        : `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}`;
+        : `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}\n\nDOCUMENT EXTRACTION DENSITY:\n- If the document is an SOP, checklist, responsibility list, training guide, or numbered/bulleted workflow, treat each actionable responsibility, required input, required output, system update, file-save rule, approval step, exception, handoff, or escalation as its own candidate claim when it has distinct evidence.\n- Do not summarize an entire section into one broad claim when the section contains multiple concrete steps.\n- It is acceptable and expected for a dense responsibilities document to produce many small claims from one chunk.`;
     const documentNote = baseDocumentNote + buildUploaderContextNote(doc, topDomainNameMap);
     const blocks = [
       makeBlock({
@@ -689,7 +689,7 @@ async function processDocument(
         label: 'Document extraction request',
         kind: 'dynamic_input',
         content:
-          'Read the document chunks as a whole, infer the operational process flow they describe, and extract evidence-backed operational claims. Classify by meaning and handoff structure, not by literal keywords. Every exactQuote must be copied verbatim from within ONE provided document chunk, and sourceMessageId must be that exact Document Chunk ID. Return only claims that are explicitly supported by the document text.',
+          'Read the document chunks as a whole, infer the operational process flow they describe, and extract dense, evidence-backed operational claims. For SOP/checklist/responsibility-list text, extract each concrete actionable step or handoff as a separate claim; do not collapse a numbered list or section into one broad summary. Classify by meaning and handoff structure, not by literal keywords. Every exactQuote must be copied verbatim from within ONE provided document chunk, and sourceMessageId must be that exact Document Chunk ID. Return only claims that are explicitly supported by the document text.',
         reasonIncluded:
           'small dynamic request so the document corpus can be cached as reusable prefix',
       }),
