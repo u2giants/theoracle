@@ -2,6 +2,7 @@ import { asc, desc, eq } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { documents, employees, knowledgeTopDomains } from '@oracle/db/schema';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 import { AdminDocumentUpload } from './_components/admin-document-upload';
 
 export const dynamic = 'force-dynamic';
@@ -89,10 +90,10 @@ export default async function AdminDocumentsPage() {
                   <td className="py-2 pr-4">{d.status}</td>
                   <td className="py-2 pr-4">{d.uploadedBy ?? '—'}</td>
                   <td className="py-2 pr-4">
-                    {new Date(d.createdAt).toLocaleString()}
+                    {formatNYDateTime(d.createdAt)}
                   </td>
                   <td className="py-2 pr-4">
-                    {d.processedAt ? new Date(d.processedAt).toLocaleString() : '—'}
+                    {d.processedAt ? formatNYDateTime(d.processedAt) : '—'}
                   </td>
                   <td className="max-w-xs py-2 pr-4 align-top">
                     {d.context ? (

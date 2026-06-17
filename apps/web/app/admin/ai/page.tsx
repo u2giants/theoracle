@@ -17,6 +17,7 @@ import Link from 'next/link';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 import { MetricCard, formatPct, formatTokens, formatMs } from './_components/metric-card';
 
 type SummaryRow = {
@@ -311,7 +312,7 @@ export default async function AdminAIPage() {
                 {recentRuns.map((r) => (
                   <tr key={r.model_run_id} className="border-b">
                     <td className="py-2 font-mono text-muted-foreground">
-                      {new Date(r.run_created_at).toLocaleString()}
+                      {formatNYDateTime(r.run_created_at)}
                     </td>
                     <td>{r.task_type}</td>
                     <td className="font-mono">

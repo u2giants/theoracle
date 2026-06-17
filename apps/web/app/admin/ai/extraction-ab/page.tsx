@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 import { scoreExtractionAbTest } from './_actions';
 import { ExtractionAbAutoRefresh } from './_components/auto-refresh';
 import { RunModelsForm } from './_components/run-models-form';
@@ -274,7 +275,7 @@ export default async function ExtractionAbPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <CardTitle className="text-base">
-                    Reviewed {new Date(row.reviewed_at).toLocaleString()}
+                    Reviewed {formatNYDateTime(row.reviewed_at)}
                   </CardTitle>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {row.reviewer_name ?? 'Reviewer'} revised original claim{' '}

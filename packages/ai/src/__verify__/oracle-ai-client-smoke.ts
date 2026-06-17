@@ -150,6 +150,26 @@ async function main() {
   assert(dynamicResult.provider === 'qwen', 'dynamic route metadata records provider');
   assert(dynamicResult.modelId === 'qwen3.7-plus', 'dynamic route metadata records model id');
 
+  const dynamicFallbackRouter = new ModelRouter({
+    adapters: {
+      vertex: new MockProviderAdapter({ provider: 'vertex', cannedText: 'dynamic-fallback-OK' }),
+    },
+    fallbackOnError: true,
+  });
+  const dynamicFallbackResult = await dynamicFallbackRouter.generateText(dynamicPlan);
+  assert(
+    dynamicFallbackResult.text === 'dynamic-fallback-OK',
+    'ModelRouter falls back when a dynamic route provider adapter is unavailable',
+  );
+  assert(
+    dynamicFallbackResult.routeId === 'vertex_gemini_2_5_flash_extraction_primary',
+    'dynamic fallback result records the actual fallback route',
+  );
+  assert(
+    dynamicFallbackResult.fellBackFromRouteId === 'qwen/qwen3.7-plus',
+    'dynamic fallback result records the original provider/model route',
+  );
+
   // ── 5. ModelRouter surfaces non-transient errors (no fallback) ──────────
   const strictRouter = new ModelRouter({
     adapters: { anthropic: unavailableAnthropicAdapter },

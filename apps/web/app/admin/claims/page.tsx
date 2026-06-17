@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDate } from '@/lib/time';
 import { AssignQuestionForm } from './_components/assign-question-form';
 import { reviseClaim, updateClaimStatus } from './_actions';
 
@@ -252,7 +253,7 @@ export default async function AdminClaimsPage({
                         )}
                       </td>
                       <td className="py-3 pr-4 whitespace-nowrap text-xs text-muted-foreground">
-                        {new Date(row.created_at).toLocaleDateString()}
+                        {formatNYDate(row.created_at)}
                       </td>
                       <td className="py-3">
                         {['pending_review', 'approved'].includes(row.status) && (

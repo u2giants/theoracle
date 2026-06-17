@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 import { formatMs, formatPct, formatTokens } from '../_components/metric-card';
 
 type RunRow = {
@@ -168,7 +169,7 @@ export default async function AdminAIRunsPage({
                 {rows.map((r) => (
                   <tr key={r.model_run_id} className="border-b align-top">
                     <td className="py-2 font-mono text-muted-foreground">
-                      {new Date(r.run_created_at).toLocaleString()}
+                      {formatNYDateTime(r.run_created_at)}
                     </td>
                     <td>{r.task_type}</td>
                     <td className="font-mono">

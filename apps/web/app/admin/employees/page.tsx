@@ -17,6 +17,7 @@ import {
   listTenantUsers,
   type GraphTenantUser,
 } from '@/lib/microsoft-graph';
+import { formatNYDateTime } from '@/lib/time';
 import { AddEmployeeForm } from './_components/add-employee-form';
 import { EmployeeAccessForm } from './_components/employee-access-form';
 import { EditEmployeeDepartments } from './_components/edit-employee-departments';
@@ -174,7 +175,7 @@ export default async function AdminEmployeesPage() {
                       <td className="py-2 pr-4">{e.identityProviders ?? '—'}</td>
                       <td className="py-2 pr-4">
                         {e.lastLoginAt
-                          ? new Date(e.lastLoginAt).toLocaleString()
+                          ? formatNYDateTime(e.lastLoginAt)
                           : '—'}
                       </td>
                     </tr>

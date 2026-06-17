@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { getDirectDb } from '@oracle/db/client';
 import { loadClaimCorrectionLessonPack } from '@oracle/ai';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 
 export default async function ClaimLessonsPage() {
   const db = getDirectDb();
@@ -86,7 +87,7 @@ export default async function ClaimLessonsPage() {
                         {row.reviewer_note ?? '-'}
                       </td>
                       <td className="whitespace-nowrap py-3 align-top text-muted-foreground">
-                        {new Date(row.reviewed_at).toLocaleString()}
+                        {formatNYDateTime(row.reviewed_at)}
                       </td>
                     </tr>
                   ))}

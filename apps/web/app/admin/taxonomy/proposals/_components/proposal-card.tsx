@@ -7,6 +7,7 @@ import { useState, useTransition } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatNYDateTime } from '@/lib/time';
 import {
   approveTaxonomyProposal,
   rejectTaxonomyProposal,
@@ -207,12 +208,12 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
 
         <div className="flex items-center justify-between border-t pt-2 text-[10px] text-muted-foreground">
           <span>
-            Created {new Date(proposal.created_at).toLocaleString()}
+            Created {formatNYDateTime(proposal.created_at)}
             {proposal.reviewer_name && proposal.reviewed_at && (
               <>
                 {' '}
                 · Reviewed by <strong>{proposal.reviewer_name}</strong>{' '}
-                {new Date(proposal.reviewed_at).toLocaleString()}
+                {formatNYDateTime(proposal.reviewed_at)}
               </>
             )}
           </span>

@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 import { MetricCard, formatPct, formatTokens } from '../_components/metric-card';
 
 type CacheRow = {
@@ -321,7 +322,7 @@ export default async function AdminAICachePage({
                     <td className="text-right">{formatTokens(row.cached_input_tokens)}</td>
                     <td className="text-right">{formatPct(row.cache_hit_ratio)}</td>
                     <td className="text-muted-foreground">
-                      {new Date(row.run_created_at).toLocaleString()}
+                      {formatNYDateTime(row.run_created_at)}
                     </td>
                   </tr>
                 ))}
@@ -365,7 +366,7 @@ export default async function AdminAICachePage({
                       {r.actual_reuse_count} / {r.expected_reuse_count}
                     </td>
                     <td className="font-mono text-muted-foreground">
-                      {new Date(r.hard_expiration_at).toLocaleString()}
+                      {formatNYDateTime(r.hard_expiration_at)}
                     </td>
                     <td>{r.cleanup_owner ?? '—'}</td>
                     <td>

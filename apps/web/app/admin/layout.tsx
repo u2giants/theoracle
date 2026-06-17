@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { requireAdmin } from '@/lib/auth-guard';
 import { LogoutButton } from '@/app/_components/logout-button';
 import { AdminNav } from './_components/admin-nav';
+import { formatNYDateTime } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,14 +10,7 @@ function buildVersion(): { sha: string; label: string } | null {
   const sha = process.env.NEXT_PUBLIC_GIT_SHA;
   const ts = parseInt(process.env.NEXT_PUBLIC_GIT_TIMESTAMP ?? '0', 10);
   if (!sha || sha === 'unknown' || !ts) return null;
-  const label = new Date(ts * 1000).toLocaleString('en-US', {
-    timeZone: 'America/New_York',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short',
-  });
+  const label = formatNYDateTime(ts * 1000);
   return { sha: sha.slice(0, 7), label };
 }
 

@@ -12,14 +12,14 @@
 export async function triggerTask(
   taskId: string,
   payload: Record<string, unknown>,
-): Promise<void> {
+): Promise<boolean> {
   const secretKey = process.env.TRIGGER_SECRET_KEY;
   if (!secretKey) {
     console.warn(
       `[trigger] TRIGGER_SECRET_KEY not configured — skipping trigger for "${taskId}". ` +
         'Set it in Vercel env to enable real-time task dispatch. Cron sweeps will pick up the work.',
     );
-    return;
+    return false;
   }
 
   try {
@@ -28,8 +28,10 @@ export async function triggerTask(
     const { tasks } = await import('@trigger.dev/sdk/v3');
     await tasks.trigger(taskId, payload);
     console.log(`[trigger] dispatched task "${taskId}"`, payload);
+    return true;
   } catch (err) {
     // Non-fatal: the cron sweep will catch it.
     console.warn(`[trigger] could not dispatch task "${taskId}":`, err);
+    return false;
   }
 }

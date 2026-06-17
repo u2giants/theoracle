@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { formatNYTime } from '@/lib/time';
 import { DocumentUpload } from './document-upload';
 
 type ChatMessage = {
@@ -507,7 +508,7 @@ function MessageRow({ message, isMine }: { message: ChatMessage; isMine: boolean
     >
       <div className="text-xs text-muted-foreground">
         {isOracle ? 'Oracle' : message.authorName ?? 'Unknown'} ·{' '}
-        {new Date(message.createdAt).toLocaleTimeString()}
+        {formatNYTime(message.createdAt)}
       </div>
       <div
         className={cn(

@@ -78,8 +78,7 @@ export class ModelRouter {
    * route shape produced by resolveRouteFromSettings().
    */
   resolve(routeId: string, taskType?: OracleTaskType): { route: OracleModelRoute; adapter: OracleProviderAdapter } {
-    const route = getOracleRoute(routeId) ?? this.resolveDynamicRoute(routeId, taskType);
-    if (!route) throw new UnknownRouteError(routeId);
+    const route = this.resolveRoute(routeId, taskType);
     const adapter = this.adapters[route.provider];
     if (!adapter) throw new NoAdapterRegisteredError(route.provider);
     return { route, adapter };
@@ -108,8 +107,10 @@ export class ModelRouter {
     plan: OraclePromptPlan,
     call: (adapter: OracleProviderAdapter, route: OracleModelRoute) => Promise<T>,
   ): Promise<T> {
-    const { route, adapter } = this.resolve(plan.routeId, plan.taskType);
+    const route = this.resolveRoute(plan.routeId, plan.taskType);
+    const adapter = this.adapters[route.provider];
     try {
+      if (!adapter) throw new NoAdapterRegisteredError(route.provider);
       return this.withRouteMetadata(await call(adapter, route), route);
     } catch (err) {
       if (!this.fallbackOnError) throw err;
@@ -124,6 +125,12 @@ export class ModelRouter {
       );
       return this.withRouteMetadata(await call(fbAdapter, fbRoute), fbRoute, route.routeId, err);
     }
+  }
+
+  private resolveRoute(routeId: string, taskType?: OracleTaskType): OracleModelRoute {
+    const route = getOracleRoute(routeId) ?? this.resolveDynamicRoute(routeId, taskType);
+    if (!route) throw new UnknownRouteError(routeId);
+    return route;
   }
 
   private resolveDynamicRoute(
@@ -191,6 +198,7 @@ export class ModelRouter {
    *   - assertion errors from ContextCompiler
    */
   private shouldFallback(err: unknown): boolean {
+    if (err instanceof NoAdapterRegisteredError) return true;
     if (err instanceof ProviderAdapterNotImplementedError) return true;
     // Prefer typed HTTP status when the error object carries one (e.g. provider
     // SDK errors expose numeric `status` / `statusCode`). 429 or any 5xx is a

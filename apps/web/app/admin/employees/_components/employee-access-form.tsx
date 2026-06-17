@@ -6,6 +6,7 @@ import {
   type UpdateEmployeeAccessState,
 } from '../_actions';
 import { Button } from '@/components/ui/button';
+import { formatNYDate } from '@/lib/time';
 
 const initial: UpdateEmployeeAccessState = { ok: false };
 
@@ -21,7 +22,7 @@ export function EmployeeAccessForm({
   isCurrentUser: boolean;
 }) {
   const [state, dispatch, isPending] = useActionState(updateEmployeeAccess, initial);
-  const disabledDate = disabledAt ? new Date(disabledAt).toLocaleDateString() : null;
+  const disabledDate = disabledAt ? formatNYDate(disabledAt) : null;
 
   return (
     <form

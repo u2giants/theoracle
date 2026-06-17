@@ -10,6 +10,7 @@ export const dynamic = 'force-dynamic';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 import { MetricCard } from '../_components/metric-card';
 
 type CandidateRow = {
@@ -223,7 +224,7 @@ export default async function AdminAICandidatesPage({
                       </div>
                       <div className="text-right text-xs text-muted-foreground">
                         <div className="font-mono">{r.id.slice(0, 8)}…</div>
-                        <div>{new Date(r.created_at).toLocaleString()}</div>
+                        <div>{formatNYDateTime(r.created_at)}</div>
                         {r.promoted_to_claim_id && (
                           <div className="mt-1">
                             → <span className="font-mono">{r.promoted_to_claim_id.slice(0, 8)}…</span>

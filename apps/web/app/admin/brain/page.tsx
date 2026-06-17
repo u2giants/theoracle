@@ -4,6 +4,7 @@ import { desc, eq } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { brainSections, brainSectionVersions } from '@oracle/db/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 
 function reviewBadge(status: string) {
   const map: Record<string, string> = {
@@ -112,11 +113,11 @@ export default async function AdminBrainPage() {
                     <p className="text-xs text-muted-foreground">
                       Synthesized{' '}
                       {row.versionCreatedAt
-                        ? new Date(row.versionCreatedAt).toLocaleString()
+                        ? formatNYDateTime(row.versionCreatedAt)
                         : '—'}
                       {row.reviewedAt && (
                         <>
-                          {' · '}reviewed {new Date(row.reviewedAt).toLocaleString()}
+                          {' · '}reviewed {formatNYDateTime(row.reviewedAt)}
                         </>
                       )}
                     </p>

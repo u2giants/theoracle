@@ -16,6 +16,7 @@
 import type { OracleModelRole, OracleModelRoute, OracleProvider, ReasoningEffort } from './types';
 import { ORACLE_MODEL_ROUTES } from './catalog';
 import { getOracleRoute } from './catalog';
+import { DEFAULT_ORACLE_ROUTES } from './defaults';
 
 // ---------------------------------------------------------------------------
 // Provider-prefix mapping (OpenRouter prefix → Oracle provider name).
@@ -47,8 +48,6 @@ const SYNTHETIC_CAPS: Pick<
   | 'supportsStructuredOutput'
   | 'supportsReasoningControls'
   | 'costTier'
-  | 'fallbackRouteId'
-  | 'fallbackCondition'
   | 'enabled'
 > = {
   supportsVision: true,
@@ -57,8 +56,6 @@ const SYNTHETIC_CAPS: Pick<
   supportsStructuredOutput: true,
   supportsReasoningControls: false,
   costTier: 'balanced_default',
-  fallbackRouteId: null,
-  fallbackCondition: 'not_applicable',
   enabled: true,
 };
 
@@ -100,6 +97,8 @@ function makeSyntheticRoute(
     recommendedUse: `Dynamically resolved from model pool (${openRouterId}).`,
     cacheStrategy,
     structuredOutputStrategy,
+    fallbackRouteId: DEFAULT_ORACLE_ROUTES[role],
+    fallbackCondition: 'provider_outage',
     ...SYNTHETIC_CAPS,
   };
 }

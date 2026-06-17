@@ -3,6 +3,7 @@ import { desc, eq, sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { channels, channelParticipants, employees, messages } from '@oracle/db/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,7 +58,7 @@ export default async function AdminChannelsPage() {
                   <td className="py-2 pr-4">{c.status}</td>
                   <td className="py-2 pr-4">{c.messageCount}</td>
                   <td className="py-2 pr-4">
-                    {new Date(c.createdAt).toLocaleString()}
+                    {formatNYDateTime(c.createdAt)}
                   </td>
                   <td className="py-2 pr-4">
                     <Link

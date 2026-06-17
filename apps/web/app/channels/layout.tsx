@@ -5,6 +5,7 @@ import { getDirectDb } from '@oracle/db/client';
 import { channels, channelParticipants, messages } from '@oracle/db/schema';
 import { cn } from '@/lib/utils';
 import { LogoutButton } from '@/app/_components/logout-button';
+import { formatNYDateTime } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,7 +78,7 @@ export default async function ChannelsLayout({ children }: { children: React.Rea
               <div className="text-xs text-muted-foreground">
                 {c.isGroup ? 'group' : 'direct'} ·{' '}
                 {c.lastMessageAt
-                  ? new Date(c.lastMessageAt).toLocaleString()
+                  ? formatNYDateTime(c.lastMessageAt)
                   : 'no messages yet'}
               </div>
             </Link>
