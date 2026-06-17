@@ -1,6 +1,6 @@
 # HANDOFF — Recall.ai wiring + extraction pipeline tuning
 
-Last updated: 2026-06-16. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+Last updated: 2026-06-17. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
 
 ---
 
@@ -27,6 +27,19 @@ Risks / watchouts:
 ---
 
 ## What is open and needs finishing
+
+### 0b. 2026-06-17 dynamic model route dispatch fix
+
+Status:
+Done. Commit `fe22f19 Support dynamic model routes in router` was pushed to `main`, and Trigger.dev production worker version `20260617.1` deployed successfully with 19 detected tasks.
+
+Done:
+- Fixed `ModelRouter` so admin-selected provider/model route IDs such as `qwen/qwen3.7-plus` resolve dynamically at dispatch time instead of failing static catalog lookup with `No OracleModelRoute found`.
+- Added a smoke assertion covering `qwen/qwen3.7-plus` for a `document_claim_extraction` plan.
+- Verified: `corepack pnpm --filter @oracle/ai typecheck`, `corepack pnpm --filter @oracle/ai exec tsx src/__verify__/oracle-ai-client-smoke.ts`, and `corepack pnpm --filter @oracle/workers typecheck`.
+
+Watchout:
+- The failed document upload that hit the old worker may need to be retried/reprocessed; new document-ingestion runs should use worker `20260617.1`.
 
 ### 0a. 2026-06-15 local/pushed commits and review workflow
 
