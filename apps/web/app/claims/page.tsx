@@ -35,6 +35,12 @@ type EmployeeOption = {
   role: string;
 };
 
+type GroupOption = {
+  id: string;
+  name: string;
+  memberCount: number;
+};
+
 const STATUS_TABS = [
   { label: 'Pending review', value: 'pending_review' },
   { label: 'Approved', value: 'approved' },
@@ -184,9 +190,22 @@ export default async function ClaimsReviewPage({
     WHERE disabled_at IS NULL
     ORDER BY name
   `);
+  const groupsResult = await db.execute(sql`
+    SELECT
+      crg.id,
+      crg.name,
+      COUNT(e.id)::int AS "memberCount"
+    FROM claim_review_groups crg
+    LEFT JOIN claim_review_group_members crgm ON crgm.group_id = crg.id
+    LEFT JOIN employees e ON e.id = crgm.employee_id AND e.disabled_at IS NULL
+    WHERE crg.archived_at IS NULL
+    GROUP BY crg.id, crg.name
+    ORDER BY crg.name
+  `);
 
   const rows = [...result] as unknown as ClaimRow[];
   const employeeOptions = [...employeesResult] as unknown as EmployeeOption[];
+  const groupOptions = [...groupsResult] as unknown as GroupOption[];
 
   return (
     <div className="min-h-screen bg-background">
@@ -435,6 +454,7 @@ export default async function ClaimsReviewPage({
                                   claimId={row.id}
                                   claimSummary={row.summary}
                                   employees={employeeOptions}
+                                  groups={groupOptions}
                                   compact
                                 />
                               </details>

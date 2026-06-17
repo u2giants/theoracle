@@ -19,6 +19,7 @@ import {
   varchar,
   customType,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { DEPARTMENTS, KNOWLEDGE_DOMAINS, EMBEDDING_DIM } from '@oracle/shared';
 
 // ---------------------------------------------------------------------------
@@ -280,6 +281,51 @@ export const employeeDepartments = pgTable(
     addedAt: timestamp('added_at').defaultNow().notNull(),
   },
   (t) => [primaryKey({ columns: [t.employeeId, t.departmentId] })],
+);
+
+// Admin-managed reviewer groups for sending a claim-review question to several
+// people at once. These are intentionally separate from org departments:
+// departments drive permissions and routing, while groups are lightweight
+// assignment lists such as "Licensor reviewers" or "Walmart SOP owners".
+export const claimReviewGroups = pgTable(
+  'claim_review_groups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: varchar('name', { length: 120 }).notNull(),
+    description: text('description'),
+    createdByEmployeeId: uuid('created_by_employee_id').references(() => employees.id, {
+      onDelete: 'set null',
+    }),
+    archivedAt: timestamp('archived_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    activeNameUnique: uniqueIndex('claim_review_groups_active_name_unique')
+      .on(t.name)
+      .where(sql`archived_at IS NULL`),
+    archivedIdx: index('claim_review_groups_archived_idx').on(t.archivedAt),
+  }),
+);
+
+export const claimReviewGroupMembers = pgTable(
+  'claim_review_group_members',
+  {
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => claimReviewGroups.id, { onDelete: 'cascade' }),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id, { onDelete: 'cascade' }),
+    addedByEmployeeId: uuid('added_by_employee_id').references(() => employees.id, {
+      onDelete: 'set null',
+    }),
+    addedAt: timestamp('added_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.groupId, t.employeeId] }),
+    employeeIdx: index('claim_review_group_members_employee_idx').on(t.employeeId),
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -1636,6 +1682,10 @@ export const extractionValidationResults = pgTable(
 
 export type Employee = typeof employees.$inferSelect;
 export type NewEmployee = typeof employees.$inferInsert;
+export type ClaimReviewGroup = typeof claimReviewGroups.$inferSelect;
+export type NewClaimReviewGroup = typeof claimReviewGroups.$inferInsert;
+export type ClaimReviewGroupMember = typeof claimReviewGroupMembers.$inferSelect;
+export type NewClaimReviewGroupMember = typeof claimReviewGroupMembers.$inferInsert;
 export type Channel = typeof channels.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;

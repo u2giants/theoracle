@@ -29,6 +29,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: '/admin/employees', label: 'Employees' },
       { href: '/admin/departments', label: 'Departments' },
+      { href: '/admin/claim-groups', label: 'Review Groups' },
       { href: '/admin/channels', label: 'Channels' },
     ],
   },

@@ -1,6 +1,6 @@
 'use server';
 
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { requireEmployee } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
@@ -9,6 +9,8 @@ import {
   claimEntities,
   claimEvidence,
   claimMetadata,
+  claimReviewGroupMembers,
+  claimReviewGroups,
   claimReviewEvents,
   claims,
   claimTopDomains,
@@ -329,56 +331,146 @@ export async function reviseClaim(formData: FormData) {
 
 async function assignClaimQuestionImpl(formData: FormData): Promise<{ targetName: string }> {
   const claimId = String(formData.get('claimId') ?? '').trim();
-  const targetEmployeeId = String(formData.get('targetEmployeeId') ?? '').trim();
+  const targetEmployeeIds = formData
+    .getAll('targetEmployeeIds')
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+  const targetGroupIds = formData
+    .getAll('targetGroupIds')
+    .map((value) => String(value).trim())
+    .filter(Boolean);
   const questionInput = String(formData.get('question') ?? '').trim();
   if (!claimId) throw new Error('Missing claim.');
-  if (!targetEmployeeId) throw new Error('Choose a person before assigning the question.');
+  if (targetEmployeeIds.length === 0 && targetGroupIds.length === 0) {
+    throw new Error('Choose at least one person or group before assigning the question.');
+  }
 
   const me = await requireClaimReviewer(claimId);
   const before = await claimSnapshot(claimId);
   const db = getDirectDb();
-  const [target] = await db
-    .select({ id: employees.id, name: employees.name })
-    .from(employees)
-    .where(eq(employees.id, targetEmployeeId))
-    .limit(1);
-  if (!target) throw new Error('Target employee not found.');
+
+  const directTargets =
+    targetEmployeeIds.length > 0
+      ? await db
+          .select({ id: employees.id, name: employees.name })
+          .from(employees)
+          .where(and(inArray(employees.id, targetEmployeeIds), isNull(employees.disabledAt)))
+      : [];
+
+  const groupTargets =
+    targetGroupIds.length > 0
+      ? await db
+          .select({
+            employeeId: employees.id,
+            employeeName: employees.name,
+            groupId: claimReviewGroups.id,
+            groupName: claimReviewGroups.name,
+          })
+          .from(claimReviewGroupMembers)
+          .innerJoin(
+            claimReviewGroups,
+            eq(claimReviewGroups.id, claimReviewGroupMembers.groupId),
+          )
+          .innerJoin(employees, eq(employees.id, claimReviewGroupMembers.employeeId))
+          .where(
+            and(
+              inArray(claimReviewGroupMembers.groupId, targetGroupIds),
+              isNull(claimReviewGroups.archivedAt),
+              isNull(employees.disabledAt),
+            ),
+          )
+      : [];
+
+  const recipientsById = new Map<string, { id: string; name: string; groupNames: string[] }>();
+  for (const target of directTargets) {
+    recipientsById.set(target.id, { id: target.id, name: target.name, groupNames: [] });
+  }
+  for (const target of groupTargets) {
+    const existing = recipientsById.get(target.employeeId);
+    if (existing) {
+      if (!existing.groupNames.includes(target.groupName)) {
+        existing.groupNames.push(target.groupName);
+      }
+    } else {
+      recipientsById.set(target.employeeId, {
+        id: target.employeeId,
+        name: target.employeeName,
+        groupNames: [target.groupName],
+      });
+    }
+  }
+
+  const recipients = [...recipientsById.values()].sort((a, b) => a.name.localeCompare(b.name));
+  if (recipients.length === 0) {
+    throw new Error('No active employees were found for the selected people or groups.');
+  }
 
   const question =
     questionInput ||
     `Can you help correct or confirm this claim?\n\n${before.claim.summary}`;
 
+  const existingAssignments = await db.execute(sql`
+    SELECT target_employee_id
+    FROM gaps
+    WHERE gap_type = 'claim_review_question'
+      AND status IN ('open', 'queued', 'asked')
+      AND related_claim_ids ? ${claimId}
+      AND target_employee_id IN (
+        SELECT value::uuid
+        FROM jsonb_array_elements_text(${JSON.stringify(recipients.map((recipient) => recipient.id))}::jsonb)
+      )
+  `);
+  const alreadyAssignedIds = new Set(
+    ([...existingAssignments] as Array<{ target_employee_id: string | null }>)
+      .map((row) => row.target_employee_id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const newRecipients = recipients.filter((recipient) => !alreadyAssignedIds.has(recipient.id));
+
+  if (newRecipients.length === 0) {
+    throw new Error('All selected recipients already have an open assignment for this claim.');
+  }
+
   await db.transaction(async (tx) => {
-    const [gap] = await tx
+    const insertedGaps = await tx
       .insert(gaps)
-      .values({
+      .values(newRecipients.map((recipient) => ({
         gapType: 'claim_review_question',
         relatedClaimIds: [claimId],
         questionToAsk: question,
         whyItMatters:
           'A reviewer flagged this claim as needing subject-matter input before it can be approved.',
-        targetEmployeeId: target.id,
-        priority: 'medium',
-        status: 'open',
-      })
+        targetEmployeeId: recipient.id,
+        priority: 'medium' as const,
+        status: 'open' as const,
+      })))
       .returning({ id: gaps.id });
 
     await tx.insert(claimReviewEvents).values({
       claimId,
       action: 'assign_question',
       reviewedByEmployeeId: me.id,
-      reviewerNote: `Assigned follow-up question to ${target.name}.`,
+      reviewerNote: `Assigned follow-up question to ${newRecipients
+        .map((recipient) => recipient.name)
+        .join(', ')}.`,
       beforeState: before,
       afterState: {
-        assignedGapId: gap?.id ?? null,
-        targetEmployeeId: target.id,
+        assignedGapIds: insertedGaps.map((gap) => gap.id),
+        targetEmployeeIds: newRecipients.map((recipient) => recipient.id),
+        targetGroupIds,
+        skippedAlreadyAssignedEmployeeIds: [...alreadyAssignedIds],
         questionToAsk: question,
       },
     });
   });
 
   refreshClaimPages();
-  return { targetName: target.name };
+  const skippedCount = alreadyAssignedIds.size;
+  const targetName =
+    newRecipients.length === 1
+      ? newRecipients[0]!.name
+      : `${newRecipients.length} people${skippedCount > 0 ? ` (${skippedCount} already assigned)` : ''}`;
+  return { targetName };
 }
 
 export async function assignClaimQuestion(formData: FormData) {
