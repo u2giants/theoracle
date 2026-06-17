@@ -201,8 +201,9 @@ Specific boundaries:
 | Business process domain | `business_process` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts`, `packages/oracle-engines/src/extraction/domain-mapping.ts` | Cross-functional company workflows and operating-model overviews. Use with narrower department/process domains for end-to-end flows; do not use as a generic dumping ground. |
 | Training enablement domain | `training_enablement` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from `people_org` and sensitive HR records. Covers onboarding, role training, SOP learning paths, shadowing, cross-training, skill checks, and refresher guidance. |
 | Provider Batch jobs table | `provider_batch_jobs` | `packages/db/src/schema.ts`, migration `60_batch_jobs.sql` | One row per submitted provider Batch API job (D14). `extraction_batches.provider_batch_job_id` links per-input rows to their batch. `model_runs.dispatch_mode` ∈ `'sync' \| 'batch' \| NULL`. |
-| Claim review events | `claim_review_events` | `packages/db/src/schema.ts`, migration `68_claim_review_workflow.sql` | Append-only audit for approve/reject/revise claim decisions. Revise creates a replacement claim and supersedes the original; do not overwrite original AI output in place. |
-| Domain review permissions | `knowledge_domain_review_departments` | same | Department-to-domain authorization map for non-admin claim reviewers. Members can review claims whose `claim_top_domains` intersect their mapped departments. |
+| Claim review events | `claim_review_events` | `packages/db/src/schema.ts`, migration `68_claim_review_workflow.sql` | Append-only audit for approve/reject/revise/assign decisions. Revise creates a replacement claim and supersedes the original; do not overwrite original AI output in place. |
+| Claim review groups | `claim_review_groups`, `claim_review_group_members` | `packages/db/src/schema.ts`, migration `73_claim_review_groups.sql` | Admin-managed recipient lists for sending a claim-review question to multiple employees. Sending to a group expands into one `gaps` assignment per active employee. |
+| Domain review permissions | `knowledge_domain_review_departments` | same | Department-to-domain authorization map retained for future claim-review routing. It is currently not exposed in `/claims`; non-admin claim review is direct-assignment only. |
 | Entra app (Graph backend) | `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Entra `TheOracle` app | App-only Graph: directory pull + Teams transcripts. Tenant `1caeb1c0-a087-4cb9-b046-a5e22404f971`. |
 | Azure Bot resource | `theoracle-popcre-teams-bot` | Azure subscription `37077c95-ea53-4a19-8380-f3f48f0cc75d`, resource group `rg-oracle-teams-bot` | Free `F0` Bot Service resource. Display name `The Oracle`, endpoint `https://oracle.designflow.app/api/teams/bot/messages`, `msaAppType=SingleTenant`, Teams channel enabled. |
 | Teams org app | Teams app id `17ccd7a1-b90b-428c-9966-33e7fb832923`; external id `850b2963-3583-4af9-bf18-84985ecbcf03` | Teams tenant app store, package generated from `apps/web/teams-app/oracle/manifest.template.json` | Organization/private-catalog app named `The Oracle`. Available to everyone; installed for Albert on 2026-06-09. |
@@ -498,16 +499,30 @@ Collapsing `training_enablement` into `people_org` makes procedural learning mat
 ### Claim revision is supersede-and-replace, not overwrite
 
 Looks like:
-If a pending claim is 80% correct, the admin/reviewer could simply edit `claims.summary` and approve it.
+If a pending or approved claim is 80% correct, the admin/reviewer could simply edit `claims.summary` and approve it.
 
 Actually:
-Claim revision creates a replacement claim, copies the supporting evidence/domain/entity metadata, marks the original claim `superseded`, links `claim_metadata.superseded_by_claim_id`, and writes an append-only `claim_review_events` row with before/after state and reviewer note.
+Claim revision creates a replacement claim, copies the supporting evidence/domain/entity metadata, marks the original claim `superseded`, links `claim_metadata.superseded_by_claim_id`, and writes an append-only `claim_review_events` row with before/after state and reviewer note. Admins can edit approved claims from `/admin/claims`; that edit creates a replacement claim in `pending_review`, so the replacement must be approved before it becomes active Brain/retrieval knowledge.
 
 Why:
 The original row is the AI's first interpretation of the evidence. Keeping it makes review quality auditable and gives future AI comparison tools a clean before/after pair to analyze.
 
 Do not change because:
 Overwriting claims in place destroys the evidence of what the model got wrong and weakens the provenance chain that makes Oracle answers explainable.
+
+### Non-admin claim review is direct-assignment only for now
+
+Looks like:
+`knowledge_domain_review_departments` means department members should see every claim in their mapped domains.
+
+Actually:
+The table remains in the schema as a future routing/authorization map, but the current `/claims` page only shows claims that were directly assigned through a `claim_review_question` gap. The old "My review domains" queue is intentionally hidden, and the server action permission check only allows admins or the employee directly assigned to that claim.
+
+Why:
+The team wants explicit review sends, including multi-person and review-group assignment, before reopening broad domain queues.
+
+Do not change because:
+Re-enabling domain queues can expose large pending-review surfaces to non-admin employees. If domain review is restored later, update `/claims`, `canReviewClaim()`, and this guide together.
 
 ### Claim corrections become prompt lessons, not training or evidence
 

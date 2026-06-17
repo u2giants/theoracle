@@ -99,16 +99,6 @@ async function canReviewClaim(employeeId: string, isAdmin: boolean, claimId: str
   const result = await db.execute(sql`
     SELECT EXISTS (
       SELECT 1
-      FROM claim_top_domains ctd
-      JOIN knowledge_domain_review_departments kdrd
-        ON kdrd.top_domain_id = ctd.top_domain_id
-       AND kdrd.can_review_claims = true
-      JOIN employee_departments ed
-        ON ed.department_id = kdrd.department_id
-      WHERE ctd.claim_id = ${claimId}::uuid
-        AND ed.employee_id = ${employeeId}::uuid
-      UNION ALL
-      SELECT 1
       FROM gaps g
       WHERE g.gap_type = 'claim_review_question'
         AND g.target_employee_id = ${employeeId}::uuid
@@ -187,6 +177,9 @@ export async function reviseClaim(formData: FormData) {
 
   const me = await requireClaimReviewer(id);
   const before = await claimSnapshot(id);
+  if (!['pending_review', 'approved'].includes(before.claim.status)) {
+    throw new Error('Only pending or approved claims can be revised.');
+  }
   const db = getDirectDb();
   const impactScore = intFromForm(formData, 'impactScore', before.claim.impactScore);
   const confidenceScore = intFromForm(formData, 'confidenceScore', before.claim.confidenceScore);

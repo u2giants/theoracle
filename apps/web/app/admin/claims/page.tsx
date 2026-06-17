@@ -255,33 +255,35 @@ export default async function AdminClaimsPage({
                         {new Date(row.created_at).toLocaleDateString()}
                       </td>
                       <td className="py-3">
-                        {row.status === 'pending_review' && (
+                        {['pending_review', 'approved'].includes(row.status) && (
                           <div className="flex min-w-[18rem] flex-col gap-2">
-                            <div className="flex gap-2">
-                            <form action={updateClaimStatus}>
-                              <input type="hidden" name="id" value={row.id} />
-                              <input type="hidden" name="status" value="approved" />
-                              <button
-                                type="submit"
-                                className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
-                              >
-                                Approve
-                              </button>
-                            </form>
-                            <form action={updateClaimStatus}>
-                              <input type="hidden" name="id" value={row.id} />
-                              <input type="hidden" name="status" value="rejected" />
-                              <button
-                                type="submit"
-                                className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700"
-                              >
-                                Reject
-                              </button>
-                            </form>
-                            </div>
+                            {row.status === 'pending_review' && (
+                              <div className="flex gap-2">
+                              <form action={updateClaimStatus}>
+                                <input type="hidden" name="id" value={row.id} />
+                                <input type="hidden" name="status" value="approved" />
+                                <button
+                                  type="submit"
+                                  className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
+                                >
+                                  Approve
+                                </button>
+                              </form>
+                              <form action={updateClaimStatus}>
+                                <input type="hidden" name="id" value={row.id} />
+                                <input type="hidden" name="status" value="rejected" />
+                                <button
+                                  type="submit"
+                                  className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700"
+                                >
+                                  Reject
+                                </button>
+                              </form>
+                              </div>
+                            )}
                             <details className="rounded border bg-background p-2">
                               <summary className="cursor-pointer text-xs font-medium">
-                                Revise
+                                {row.status === 'approved' ? 'Edit approved claim' : 'Revise'}
                               </summary>
                               <form action={reviseClaim} className="mt-2 space-y-2">
                                 <input type="hidden" name="id" value={row.id} />
@@ -294,7 +296,7 @@ export default async function AdminClaimsPage({
                                   />
                                 </label>
                                 <label className="block text-[11px] font-medium text-muted-foreground">
-                                  Corrected summary
+                                  {row.status === 'approved' ? 'Updated summary' : 'Corrected summary'}
                                   <textarea
                                     name="summary"
                                     defaultValue={row.summary}
@@ -331,7 +333,11 @@ export default async function AdminClaimsPage({
                                   <textarea
                                     name="reviewerNote"
                                     rows={2}
-                                    placeholder="What did the AI get wrong?"
+                                    placeholder={
+                                      row.status === 'approved'
+                                        ? 'Why is this approved claim changing?'
+                                        : 'What did the AI get wrong?'
+                                    }
                                     className="mt-1 w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
                                   />
                                 </label>
@@ -339,21 +345,25 @@ export default async function AdminClaimsPage({
                                   type="submit"
                                   className="rounded bg-foreground px-2 py-1 text-xs text-background hover:bg-foreground/90"
                                 >
-                                  Save revised claim
+                                  {row.status === 'approved'
+                                    ? 'Create replacement for review'
+                                    : 'Save revised claim'}
                                 </button>
                               </form>
                             </details>
-                            <details className="rounded border bg-background p-2">
-                              <summary className="cursor-pointer text-xs font-medium">
-                                Ask someone
-                              </summary>
-                              <AssignQuestionForm
-                                claimId={row.id}
-                                claimSummary={row.summary}
-                                employees={employeeOptions}
-                                groups={groupOptions}
-                              />
-                            </details>
+                            {row.status === 'pending_review' && (
+                              <details className="rounded border bg-background p-2">
+                                <summary className="cursor-pointer text-xs font-medium">
+                                  Ask someone
+                                </summary>
+                                <AssignQuestionForm
+                                  claimId={row.id}
+                                  claimSummary={row.summary}
+                                  employees={employeeOptions}
+                                  groups={groupOptions}
+                                />
+                              </details>
+                            )}
                           </div>
                         )}
                       </td>

@@ -31,19 +31,20 @@ Risks / watchouts:
 ### 0a. 2026-06-15 local/pushed commits and review workflow
 
 Status:
-Partial. The `training_enablement` top-domain work was committed locally as `018c2d3 Add training enablement knowledge domain`. Claim-review/revise work was implemented and typechecked in this session, then requested for commit/push. Verify final GitHub state with `git status --short --branch` and `git log --oneline -3`.
+Superseded by later claim-review updates. The `training_enablement` top-domain work was committed locally as `018c2d3 Add training enablement knowledge domain`. Claim-review/revise work landed, and the review surface has since been narrowed to direct assignments plus admin-managed review groups.
 
 Done:
 - Added `training_enablement` domain, retrieval hints, boundary docs, and migration `packages/db/migrations/sql/67_training_enablement_domain.sql`.
-- Implemented claim-review workflow: `/admin/claims` shows top-domain chips and supports approve/reject/revise; `/claims` is the non-admin domain-review queue; `packages/db/migrations/sql/68_claim_review_workflow.sql` adds `claim_review_events` and `knowledge_domain_review_departments`.
+- Implemented claim-review workflow: `/admin/claims` shows top-domain chips and supports approve/reject/revise/assign; approved-claim edits supersede the original and create a replacement in `pending_review`; `/claims` is now direct-assignment only for non-admin reviewers; `packages/db/migrations/sql/68_claim_review_workflow.sql` adds `claim_review_events` and `knowledge_domain_review_departments`.
+- Added claim review groups (`/admin/claim-groups`, migration `73_claim_review_groups.sql`) so a claim-review question can be sent to multiple people or reusable groups. Group sends materialize as one `claim_review_question` gap per active employee.
 - Verified locally on 2026-06-15: `corepack pnpm --filter @oracle/ai verify:retrieval-plan-domain-boundaries`, `corepack pnpm --filter @oracle/web typecheck`, `corepack pnpm --filter @oracle/db typecheck`. Browser smoke reached `/claims`, compiled the route, and redirected to login; authenticated UI was not exercised because the in-app browser had no session.
 
 Next action:
-Run the hand-written migrations through the normal DB path before relying on `/claims` or claim revision in a deployed environment. Then redeploy Vercel so the new route/actions are live.
+Redeploy Vercel after claim-review UI/action changes so the new route/actions are live.
 
 Risks / watchouts:
-- The claim-review feature depends on both new tables from `68_claim_review_workflow.sql`; without the migration, the UI/actions will fail at runtime.
-- The seeded domain-review map is a conservative starting permission map. It controls review authorization only; it is not a retrieval signal.
+- The claim-review feature depends on the tables from `68_claim_review_workflow.sql`; group assignment depends on `73_claim_review_groups.sql`.
+- The seeded domain-review map is retained but not currently exposed through `/claims`. Non-admin review is direct-assignment only until domain queues are intentionally restored.
 - Revision intentionally supersedes the original AI claim and creates a replacement claim; do not change it into in-place edits unless the audit/provenance model is redesigned.
 
 ### 0. Current repo/deploy state (2026-06-10/11)

@@ -48,12 +48,6 @@ const STATUS_TABS = [
   { label: 'All', value: 'all' },
 ] as const;
 
-const VIEW_TABS = [
-  { label: 'Assigned to me', value: 'assigned' },
-  { label: 'My review domains', value: 'domains' },
-  { label: 'All I can review', value: 'all' },
-] as const;
-
 function statusBadge(status: string) {
   const map: Record<string, string> = {
     pending_review: 'bg-yellow-100 text-yellow-800',
@@ -67,31 +61,15 @@ function statusBadge(status: string) {
 export default async function ClaimsReviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; view?: string }>;
+  searchParams: Promise<{ status?: string }>;
 }) {
   const me = await requireEmployee();
-  const { status, view } = await searchParams;
+  const { status } = await searchParams;
   const activeStatus = status ?? 'pending_review';
-  const activeView = VIEW_TABS.some((tab) => tab.value === view) ? view : 'assigned';
   const db = getDirectDb();
 
   const statusWhere =
     activeStatus !== 'all' ? sql`AND c.status = ${activeStatus}` : sql``;
-  const reviewerWhere = me.isAdmin
-    ? sql``
-    : sql`
-      AND EXISTS (
-        SELECT 1
-        FROM claim_top_domains ctd_perm
-        JOIN knowledge_domain_review_departments kdrd
-          ON kdrd.top_domain_id = ctd_perm.top_domain_id
-         AND kdrd.can_review_claims = true
-        JOIN employee_departments ed
-          ON ed.department_id = kdrd.department_id
-        WHERE ctd_perm.claim_id = c.id
-          AND ed.employee_id = ${me.id}::uuid
-      )
-    `;
   const assignedWhere = sql`
     EXISTS (
       SELECT 1
@@ -102,27 +80,6 @@ export default async function ClaimsReviewPage({
         AND g_perm.related_claim_ids ? c.id::text
     )
   `;
-  const domainWhere = me.isAdmin
-    ? sql`true`
-    : sql`
-      EXISTS (
-        SELECT 1
-        FROM claim_top_domains ctd_perm
-        JOIN knowledge_domain_review_departments kdrd
-          ON kdrd.top_domain_id = ctd_perm.top_domain_id
-         AND kdrd.can_review_claims = true
-        JOIN employee_departments ed
-          ON ed.department_id = kdrd.department_id
-        WHERE ctd_perm.claim_id = c.id
-          AND ed.employee_id = ${me.id}::uuid
-      )
-    `;
-  const accessWhere =
-    activeView === 'assigned'
-      ? sql`AND ${assignedWhere}`
-      : activeView === 'domains'
-        ? sql`AND ${domainWhere}`
-        : sql`AND (${assignedWhere} OR ${domainWhere})`;
 
   const result = await db.execute(sql`
     SELECT
@@ -181,7 +138,7 @@ export default async function ClaimsReviewPage({
     ) assigned ON true
     WHERE true
     ${statusWhere}
-    ${accessWhere}
+    AND ${assignedWhere}
     ORDER BY assigned.created_at DESC NULLS LAST, c.created_at DESC
   `);
   const employeesResult = await db.execute(sql`
@@ -234,29 +191,9 @@ export default async function ClaimsReviewPage({
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Claims to review</h1>
           <p className="text-sm text-muted-foreground">
-            Direct assignments are shown first. Domain-review queues are available in
-            the tabs below.
+            Claims sent directly to you for confirmation, correction, or review.
           </p>
         </header>
-
-        <div className="flex flex-wrap gap-2 text-sm">
-          {VIEW_TABS.map((tab) => {
-            const isActive = tab.value === activeView;
-            return (
-              <Link
-                key={tab.value}
-                href={`/claims?view=${tab.value}&status=${activeStatus}`}
-                className={`rounded px-3 py-1 ${
-                  isActive
-                    ? 'bg-foreground text-background'
-                    : 'bg-muted text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {tab.label}
-              </Link>
-            );
-          })}
-        </div>
 
         <div className="flex gap-2 text-sm">
           {STATUS_TABS.map((tab) => {
@@ -264,7 +201,7 @@ export default async function ClaimsReviewPage({
             return (
               <Link
                 key={tab.value}
-                href={`/claims?view=${activeView}&status=${tab.value}`}
+                href={`/claims?status=${tab.value}`}
                 className={`rounded px-3 py-1 ${
                   isActive
                     ? 'bg-foreground text-background'
@@ -284,9 +221,7 @@ export default async function ClaimsReviewPage({
           <CardContent>
             {rows.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
-                {activeView === 'assigned'
-                  ? 'No claims have been assigned directly to you.'
-                  : 'No claims are currently available in this review queue.'}
+                No claims have been assigned directly to you.
               </p>
             ) : (
               <div className="overflow-x-auto">
