@@ -131,6 +131,25 @@ async function main() {
     'fallback result records the original route',
   );
 
+  // ── 4b. Dynamic provider/model route IDs ─────────────────────────────────
+  const dynamicRouter = new ModelRouter({
+    adapters: {
+      qwen: new MockProviderAdapter({ provider: 'qwen', cannedText: 'dynamic-OK' }),
+    },
+    fallbackOnError: true,
+  });
+  const dynamicPlan: OraclePromptPlan = client.compile({
+    taskType: 'document_claim_extraction',
+    routeId: 'qwen/qwen3.7-plus',
+    promptVersion: 'r2-smoke',
+    blocks: baseBlocks,
+  });
+  const dynamicResult = await dynamicRouter.generateText(dynamicPlan);
+  assert(dynamicResult.text === 'dynamic-OK', 'ModelRouter dispatches dynamic provider/model route IDs');
+  assert(dynamicResult.routeId === 'qwen/qwen3.7-plus', 'dynamic route metadata preserves provider/model routeId');
+  assert(dynamicResult.provider === 'qwen', 'dynamic route metadata records provider');
+  assert(dynamicResult.modelId === 'qwen3.7-plus', 'dynamic route metadata records model id');
+
   // ── 5. ModelRouter surfaces non-transient errors (no fallback) ──────────
   const strictRouter = new ModelRouter({
     adapters: { anthropic: unavailableAnthropicAdapter },

@@ -17,9 +17,16 @@
 import type {
   OracleObjectResult,
   OraclePromptPlan,
+  OracleTaskType,
   OracleTextResult,
 } from '../client/types';
-import { getOracleRoute, type OracleModelRoute, type OracleProvider } from '../routes';
+import {
+  getOracleRoute,
+  resolveModelRoute,
+  type OracleModelRole,
+  type OracleModelRoute,
+  type OracleProvider,
+} from '../routes';
 import {
   ProviderAdapterNotImplementedError,
   type OracleProviderAdapter,
@@ -39,7 +46,7 @@ export interface ModelRouterOptions {
 export class UnknownRouteError extends Error {
   constructor(routeId: string) {
     super(
-      `No OracleModelRoute found for routeId "${routeId}". Routes must be registered in packages/ai/src/routes/catalog.ts.`,
+      `No OracleModelRoute found for routeId "${routeId}". Use a catalog routeId or a supported provider/model id.`,
     );
     this.name = 'UnknownRouteError';
   }
@@ -63,9 +70,15 @@ export class ModelRouter {
     this.fallbackOnError = opts.fallbackOnError ?? true;
   }
 
-  /** Resolve a route + adapter pair, or throw with a descriptive error. */
-  resolve(routeId: string): { route: OracleModelRoute; adapter: OracleProviderAdapter } {
-    const route = getOracleRoute(routeId);
+  /**
+   * Resolve a route + adapter pair, or throw with a descriptive error.
+   *
+   * Static catalog routes are preferred. If the routeId is an admin-selected
+   * provider/model id such as "qwen/qwen3.7-plus", synthesize the same dynamic
+   * route shape produced by resolveRouteFromSettings().
+   */
+  resolve(routeId: string, taskType?: OracleTaskType): { route: OracleModelRoute; adapter: OracleProviderAdapter } {
+    const route = getOracleRoute(routeId) ?? this.resolveDynamicRoute(routeId, taskType);
     if (!route) throw new UnknownRouteError(routeId);
     const adapter = this.adapters[route.provider];
     if (!adapter) throw new NoAdapterRegisteredError(route.provider);
@@ -95,7 +108,7 @@ export class ModelRouter {
     plan: OraclePromptPlan,
     call: (adapter: OracleProviderAdapter, route: OracleModelRoute) => Promise<T>,
   ): Promise<T> {
-    const { route, adapter } = this.resolve(plan.routeId);
+    const { route, adapter } = this.resolve(plan.routeId, plan.taskType);
     try {
       return this.withRouteMetadata(await call(adapter, route), route);
     } catch (err) {
@@ -105,8 +118,39 @@ export class ModelRouter {
       // Dispatch to fallback. Rebuild the plan with the fallback routeId so
       // observability records reflect which route actually ran.
       const fallbackPlan = { ...plan, routeId: route.fallbackRouteId };
-      const { route: fbRoute, adapter: fbAdapter } = this.resolve(fallbackPlan.routeId);
+      const { route: fbRoute, adapter: fbAdapter } = this.resolve(
+        fallbackPlan.routeId,
+        fallbackPlan.taskType,
+      );
       return this.withRouteMetadata(await call(fbAdapter, fbRoute), fbRoute, route.routeId, err);
+    }
+  }
+
+  private resolveDynamicRoute(
+    routeId: string,
+    taskType?: OracleTaskType,
+  ): OracleModelRoute | null {
+    if (!routeId.includes('/')) return null;
+    const role = this.roleForTaskType(taskType);
+    return role ? resolveModelRoute(routeId, role) : null;
+  }
+
+  private roleForTaskType(taskType?: OracleTaskType): OracleModelRole | null {
+    switch (taskType) {
+      case 'interview_chat':
+      case 'gap_generation':
+        return 'interview';
+      case 'message_claim_extraction':
+      case 'document_claim_extraction':
+      case 'contradiction_detection':
+      case 'validation_repair':
+        return 'extraction';
+      case 'brain_synthesis':
+        return 'synthesis';
+      case 'admin_explanation':
+      case 'model_capability_discovery':
+      default:
+        return null;
     }
   }
 
