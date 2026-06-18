@@ -1,6 +1,27 @@
-# HANDOFF — Recall.ai wiring + extraction pipeline tuning
+# HANDOFF — Recall.ai wiring + extraction tuning + China bilingual layer
 
-Last updated: 2026-06-15. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+Last updated: 2026-06-18. Delete this file once the remaining items below are closed (China bilingual merge/deploy, synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+
+---
+
+## China bilingual claim layer — implemented on a branch, migration applied, NOT merged/deployed (2026-06-18)
+
+What it is: serve the knowledge graph to a China team in Mandarin while keeping one unified brain. Full design + resolved decisions are in `china_imp.md`; AGENTS.md §7–§10 document the code surfaces.
+
+Exact current state:
+- All code is on branch **`docs/china-bilingual-plan`** (GitHub **PR #1**, `u2giants/theoracle`). It is **NOT merged to `main`**, so Vercel production (which deploys from `main`) does not run it yet, and the new workers are **NOT deployed** to Trigger.dev prod.
+- DB migration **`0007_tricky_charles_xavier.sql`** WAS applied to the prod DB (`vokucjpanhvqunimlvsp`) via `pnpm db:migrate` on 2026-06-18. Verified live: `claim_translations` table, `claims.source_lang`, `employees.locale`, the `lang` + two FTS indexes. The HNSW vector index on `claim_translations.embedding` was intentionally skipped (build later with `ORACLE_RUN_VECTOR_INDEXES=1` once there is translation data). The additive migration being ahead of the merged code is safe.
+- `0007` was hand-trimmed to only the new objects because `drizzle-kit generate` re-emits pre-existing hand-SQL tables (snapshot drift) — see AGENTS.md §10 "The Drizzle snapshot was baselined at migration 0007".
+
+What is done: schema + migration; `SUPPORTED_LOCALES` in `@oracle/shared`; locale-aware `searchWithRetrievalPlan`/`buildPlanMetadataFilters` (+ extended parity guard); `source_lang` stamping at promotion; `claim-translation` worker + `translation` auxiliary model (`default_translation_route`, "copy job brief" in settings); opt-in translate + multi-target "ask to verify" (`claim-recertification` worker reusing the `gaps` table) with per-recipient-language drafting; admin claims UI (checkboxes, two bulk actions, ✓/🔁 persisted badges). All packages typecheck; `verify:retrieval-filter-parity` and `verify:auxiliary-defaults` pass.
+
+Exact next actions:
+1. Review/merge PR #1 to `main` (Albert's call — single-branch policy; push to `main` only when he says). Vercel auto-deploys web on merge.
+2. Deploy workers: `pnpm --filter @oracle/workers run deploy` (ships `claim-translation` + `claim-recertification`; record the new Trigger.dev worker version here).
+3. Set a China employee's `employees.locale='zh-CN'`; choose a translation model at Admin → Settings → "Translation model" (Qwen recommended — run a small A/B vs DeepSeek per the copied brief).
+4. Optionally build the discussed-but-not-built follow-ups (see AGENTS.md §15): admin side-by-side translation review; a free-form "compose a gap and send to targets" surface.
+
+Decisions made (and why): Brain synthesis stays English-only; evidence quotes are never translated (verbatim provenance); translation is opt-in per claim (cost proportional to what's directed to China); recertification questions are drafted per recipient so only China recipients get Chinese. Department targeting resolves via the `employee_departments` junction (exact), avoiding the free-text `employees.departments` matching pitfall.
 
 ---
 

@@ -439,6 +439,15 @@ See spec Part 5.1, `DECISIONS.md` D10 + D11, and `docs/oracle/05-ai-retrofit-pha
 
 `POST /auth/signout` clears the Supabase session cookies server-side (via the same `@supabase/ssr` cookie adapter the callback uses) and redirects to `/`. The button is a `<form action="/auth/signout" method="post">` — POST avoids accidental sign-outs from URL prefetchers, and clearing cookies server-side avoids the "client says signed out but SSR pages still think they're signed in" gap.
 
+### 8. Bilingual claim layer (China team)
+
+One unified knowledge graph, rendered per reader language. Design + resolved decisions live in `china_imp.md`; the code is the source of truth.
+
+- **Storage.** A claim stays canonical in its source language (`claims.source_lang`, default `'en'`, stamped at promotion from the authoring employee's `employees.locale`). `claim_translations` `(claim_id, lang)` holds display-only summary renderings, each with its own `embedding` (same `text-embedding-3-small`/1536 model) and a `source_hash` for staleness. Evidence quotes and the synthesized Brain are **never** translated.
+- **Retrieval.** `searchWithRetrievalPlan(db, plan, locale)` renders `COALESCE(claim_translations.summary, claims.summary)` and `COALESCE(ct.embedding, c.embedding)` for the reader's locale, and switches the tsvector config to `'simple'` for `zh-CN` (Postgres can't tokenize spaceless Chinese; the vector half of the RRF carries ranking). The locale fragments live in `buildPlanMetadataFilters()` so the parity guard forces both retrieval branches to match. `getBrainSectionSnippets` has no locale path (Brain is English-only).
+- **Translation is opt-in.** Admins select claims in Admin → Claims and "Translate selected for China team" (`translateClaimsForChina`) → the `claim-translation` worker drafts via the `translation` auxiliary model (`default_translation_route`), embeds, and upserts `claim_translations`. Untranslated claims are still visible to China readers, in English.
+- **"Ask to verify" (recertification).** `requestClaimVerification` → the `claim-recertification` worker fans targets (the `zh-CN` locale group, departments via `employee_departments`, and/or individual employees) out to recipient employees and creates one `gaps` row per recipient (`gap_type='claim_recertification'`, reusing the existing gap→chat surfacing), each question drafted in that recipient's language — so a question is translated to Chinese only for China-team recipients.
+
 ## Major constraints
 
 - **Postgres is the only source of truth.** No Redis, no file-based memory, no in-process AI memory. Every durable bit of state lives in a row.
