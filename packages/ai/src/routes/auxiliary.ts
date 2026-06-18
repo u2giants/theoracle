@@ -23,6 +23,8 @@ import {
   VISION_ROUTE_SETTING_KEY,
   VISION_REASONING_EFFORT_SETTING_KEY,
   DEFAULT_VISION_ROUTE_ID,
+  TRANSLATION_ROUTE_SETTING_KEY,
+  DEFAULT_TRANSLATION_ROUTE_ID,
 } from './defaults';
 
 /**
@@ -85,10 +87,21 @@ export const GENERAL_PURPOSE_AUXILIARY_MODEL: AuxiliaryModelDef = {
   label: 'General-purpose model',
 };
 
+export const TRANSLATION_AUXILIARY_MODEL: AuxiliaryModelDef = {
+  id: 'translation',
+  routeSettingKey: TRANSLATION_ROUTE_SETTING_KEY,
+  // No capability filter — any chat model can translate; this lets an admin pick
+  // a Chinese-native model (e.g. Qwen) from the full catalog. Shipped default is
+  // the multilingual Sonnet synthesis route (china_imp.md §8).
+  defaultRouteId: DEFAULT_TRANSLATION_ROUTE_ID,
+  label: 'Translation model',
+};
+
 /** Order here is the order the auxiliary cards render in the admin settings page. */
 export const AUXILIARY_MODELS: AuxiliaryModelDef[] = [
   VISION_AUXILIARY_MODEL,
   GENERAL_PURPOSE_AUXILIARY_MODEL,
+  TRANSLATION_AUXILIARY_MODEL,
 ];
 
 export function getAuxiliaryModelDef(id: string): AuxiliaryModelDef | undefined {

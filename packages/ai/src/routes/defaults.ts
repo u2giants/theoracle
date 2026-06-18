@@ -60,6 +60,22 @@ export const VISION_MODEL_POOL_SETTING_KEY = 'model_pool_vision';
 export const DEFAULT_VISION_ROUTE_ID = vertex_gemini_2_5_flash_extraction_primary.routeId;
 
 /**
+ * Translation model — used by the claim-translation worker to render an approved
+ * claim's summary into the other supported language(s) for the bilingual claim
+ * layer (china_imp.md). Like vision/general-purpose, it is NOT one of the three
+ * strict pipeline roles, so it lives as a standalone auxiliary setting. The
+ * picker draws from the full discovered catalog (no capability filter) so an
+ * admin can choose a Chinese-native model (e.g. Qwen) for best Mandarin quality.
+ *
+ * DEFAULT_TRANSLATION_ROUTE_ID is the shipped fallback used only when the setting
+ * is unset/unparseable — it points at the Sonnet synthesis route, which is
+ * multilingual and already credentialed in production.
+ */
+export const TRANSLATION_ROUTE_SETTING_KEY = 'default_translation_route';
+export const DEFAULT_TRANSLATION_ROUTE_ID =
+  anthropic_claude_3_5_sonnet_synthesis_primary.routeId;
+
+/**
  * Reasoning effort settings keys, one per stage. Values are 'off' | 'low' |
  * 'medium' | 'high' (unified across providers; adapters translate).
  *

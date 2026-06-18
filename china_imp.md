@@ -351,7 +351,11 @@ not new architecture. Recommended starting routes for the China locale:
   conversational steerability and faithful adherence to the interview system
   prompt, with **Qwen-Max** as an A/B challenger (strong native Mandarin register,
   single-vendor with extraction). Do **not** default DeepSeek for interviewing.
-- **Translation route:** reuse Qwen or a `general` auxiliary model.
+- **Translation route:** implemented as the `translation` auxiliary model
+  (Admin → Settings → "Translation model", setting key `default_translation_route`).
+  No capability filter, so an admin can pick a Chinese-native model (e.g. Qwen)
+  from the full catalog. Shipped default when unset: the multilingual Sonnet
+  synthesis route.
 
 Confirm the exact Qwen model id resolves in the catalog
 (`packages/ai/src/model-capabilities/sources/qwen.ts`) — a wrong id 404s the

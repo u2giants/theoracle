@@ -26,9 +26,10 @@ import {
   OracleAIClient,
   buildStandardAdapters,
   getOracleRoute,
-  resolveRouteFromSettings,
+  resolveAuxiliaryRouteFromSettings,
   makeBlock,
   embedText,
+  DEFAULT_TRANSLATION_ROUTE_ID,
   type OracleModelRoute,
 } from '@oracle/ai';
 import {
@@ -38,11 +39,6 @@ import {
 } from '@oracle/shared';
 
 const TRANSLATION_PROMPT_VERSION = 'claim-translation-v1';
-
-// Reuse the curated synthesis route for translation until a dedicated
-// translation route setting exists. Admins can later add a `default_translation_route`
-// setting key and resolve it here (china_imp.md §8).
-const FALLBACK_ROUTE_ID = 'anthropic_claude_3_5_sonnet_synthesis_primary';
 
 const LANGUAGE_LABELS: Record<SupportedLocale, string> = {
   en: 'English',
@@ -67,12 +63,14 @@ function buildOracleClient(): OracleAIClient {
 async function resolveTranslationRoute(
   db: ReturnType<typeof getDirectDb>,
 ): Promise<OracleModelRoute> {
-  const resolved = await resolveRouteFromSettings(db, 'synthesis');
+  // Admin-selected translation model (Admin → Settings → "Translation model").
+  // Falls back to the shipped default (multilingual Sonnet) when unset.
+  const resolved = await resolveAuxiliaryRouteFromSettings(db, 'translation');
   if (resolved) return resolved;
-  const fb = getOracleRoute(FALLBACK_ROUTE_ID);
+  const fb = getOracleRoute(DEFAULT_TRANSLATION_ROUTE_ID);
   if (!fb) {
     throw new Error(
-      `[claim-translation] synthesis route unresolvable and fallback "${FALLBACK_ROUTE_ID}" missing.`,
+      `[claim-translation] translation route unset and default "${DEFAULT_TRANSLATION_ROUTE_ID}" missing from catalog.`,
     );
   }
   return fb;

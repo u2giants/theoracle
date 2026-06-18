@@ -119,6 +119,21 @@ const AUX_PRESENTATION: Record<
     ),
     settingDescription: 'General-purpose / utility model. Admin updates this when a newer model is available.',
   },
+  translation: {
+    subtitle: 'Translates approved claims into employees’ languages',
+    description: (
+      <>
+        When a claim is approved, this model translates its summary into the
+        other supported language(s) so China-group employees read claims in
+        Simplified Chinese while everyone else reads English (one unified
+        knowledge graph). Evidence quotes and the synthesized Brain stay in their
+        original language. The picker draws from the full discovered catalog — pick
+        a strong <strong>Chinese-native</strong> model (e.g. Qwen) for best
+        Mandarin quality. The shipped default is the multilingual Sonnet route.
+      </>
+    ),
+    settingDescription: 'Model used to translate approved claim summaries for the bilingual claim layer.',
+  },
 };
 
 const VISION_MODEL_BRIEF = `THE ORACLE — "Image Vision Model" role brief
