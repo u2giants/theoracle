@@ -273,7 +273,15 @@ inherits it. Default `'en'` when unknown.
 
 ### 5.2 New worker: `claim-translation.ts` (`apps/workers/src/trigger/`)
 
-Triggered when a claim is **approved** or its summary **changes**.
+**Translation is opt-in per claim** — not every approved claim is shared with the
+China team. An admin selects claims in the Admin → Claims list (checkboxes) and
+clicks "Translate selected for China team" (`translateClaimsForChina` action),
+which triggers this worker for each selected claim. There is **no** automatic
+on-approval translation, and existing/production claims are never auto-translated.
+A claim is "directed to the China team" precisely when it has a `claim_translations`
+row; retrieval's `COALESCE(translation, canonical)` then shows it in Chinese to the
+China group and in English to everyone else (untranslated claims stay English for
+all readers). The worker is idempotent and skips non-approved claims.
 
 Per run:
 
@@ -412,6 +420,8 @@ route.
 | Locale assignment | **Manual** — Albert routes employees into the China group (set `employees.locale = 'zh-CN'`). |
 | Separate Chinese knowledge segment? | **No** — one brain, bilingual claim rendering. |
 | Translate the synthesized Brain? | **No** — Brain synthesis is English-only; only **claims** are bilingual. |
+| Which claims get translated? | **Opt-in per claim** — admin selects claims (checkbox + bulk action) to direct to the China team. No auto-on-approval; existing claims untouched. |
+| Translation model | Admin-selectable (`default_translation_route`); pick a Chinese-native model (Qwen) via A/B. Default fallback: multilingual Sonnet. |
 
 ## 13. File-by-file touch list
 

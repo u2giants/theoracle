@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { updateClaimStatus } from './_actions';
+import { updateClaimStatus, translateClaimsForChina } from './_actions';
 
 type ClaimRow = {
   id: string;
@@ -105,6 +105,26 @@ export default async function AdminClaimsPage({
         })}
       </div>
 
+      {/* Bilingual claim layer (china_imp.md): the bulk-translate form lives
+          outside the table so per-row Approve/Reject forms aren't nested inside
+          it. Row checkboxes associate with it via the HTML form="..." attribute. */}
+      <form
+        id="translate-china"
+        action={translateClaimsForChina}
+        className="flex items-center gap-3 rounded border border-dashed p-3 text-sm"
+      >
+        <button
+          type="submit"
+          className="rounded bg-foreground px-3 py-1 text-xs text-background hover:opacity-90"
+        >
+          Translate selected for China team
+        </button>
+        <span className="text-xs text-muted-foreground">
+          Tick approved claims below, then submit. Only directed claims are
+          translated; the China group sees untranslated claims in English.
+        </span>
+      </form>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{rows.length} claims</CardTitle>
@@ -120,6 +140,9 @@ export default async function AdminClaimsPage({
               <table className="w-full text-sm">
                 <thead className="border-b text-left text-xs uppercase text-muted-foreground">
                   <tr>
+                    <th className="py-2 pr-4" title="Select approved claims to translate for the China team">
+                      🇨🇳
+                    </th>
                     <th className="py-2 pr-4">Summary</th>
                     <th className="py-2 pr-4">Type</th>
                     <th className="py-2 pr-4">Status</th>
@@ -134,6 +157,19 @@ export default async function AdminClaimsPage({
                 <tbody>
                   {rows.map((row) => (
                     <tr key={row.id} className="border-b last:border-0">
+                      <td className="py-3 pr-4 text-center">
+                        {row.status === 'approved' ? (
+                          <input
+                            type="checkbox"
+                            name="claimId"
+                            value={row.id}
+                            form="translate-china"
+                            aria-label="Translate this claim for the China team"
+                          />
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
                       <td className="py-3 pr-4 max-w-xs">
                         <span className="line-clamp-2">{row.summary}</span>
                       </td>
