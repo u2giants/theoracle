@@ -11,12 +11,22 @@ type ClaimRow = {
   summary: string;
   claim_type: string;
   status: string;
+  source_lang: string;
   impact_score: number;
   confidence_score: number;
   created_at: string;
   exact_quote: string | null;
   source_type: string | null;
   employee_name: string | null;
+  // Languages this claim has already been translated into (china_imp.md). null
+  // when none — the persisted "which claims did I route, and to whom" signal.
+  translated_langs: string[] | null;
+};
+
+// Locale → short team-facing label for the "Routed" badge.
+const LOCALE_LABEL: Record<string, string> = {
+  'zh-CN': 'China team (中文)',
+  en: 'English',
 };
 
 const STATUS_TABS = [
@@ -55,12 +65,18 @@ export default async function AdminClaimsPage({
       c.summary,
       c.claim_type,
       c.status,
+      c.source_lang,
       c.impact_score,
       c.confidence_score,
       c.created_at,
       ce.exact_quote,
       ce.source_type,
-      e.name AS employee_name
+      e.name AS employee_name,
+      (
+        SELECT jsonb_agg(ct.lang ORDER BY ct.lang)
+        FROM claim_translations ct
+        WHERE ct.claim_id = c.id
+      ) AS translated_langs
     FROM claims c
     LEFT JOIN LATERAL (
       SELECT exact_quote, source_type, asserted_by_employee_id
@@ -120,8 +136,10 @@ export default async function AdminClaimsPage({
           Translate selected for China team
         </button>
         <span className="text-xs text-muted-foreground">
-          Tick approved claims below, then submit. Only directed claims are
-          translated; the China group sees untranslated claims in English.
+          Tick approved claims below, then submit. A green ✓ badge marks claims
+          already routed (and to which group) — that status persists across
+          refreshes. Untranslated claims are still visible to the China group, in
+          English.
         </span>
       </form>
 
@@ -157,18 +175,34 @@ export default async function AdminClaimsPage({
                 <tbody>
                   {rows.map((row) => (
                     <tr key={row.id} className="border-b last:border-0">
-                      <td className="py-3 pr-4 text-center">
-                        {row.status === 'approved' ? (
-                          <input
-                            type="checkbox"
-                            name="claimId"
-                            value={row.id}
-                            form="translate-china"
-                            aria-label="Translate this claim for the China team"
-                          />
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
+                      <td className="py-3 pr-4">
+                        <div className="flex flex-col items-center gap-1">
+                          {row.status === 'approved' ? (
+                            <input
+                              type="checkbox"
+                              name="claimId"
+                              value={row.id}
+                              form="translate-china"
+                              aria-label="Translate this claim for the China team"
+                            />
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                          {/* Persisted "routed to whom" — survives refresh. */}
+                          {row.translated_langs && row.translated_langs.length > 0 && (
+                            <div className="flex flex-wrap justify-center gap-0.5">
+                              {row.translated_langs.map((lang) => (
+                                <span
+                                  key={lang}
+                                  title={`Translated — visible to ${LOCALE_LABEL[lang] ?? lang} in their language`}
+                                  className="rounded bg-green-100 px-1 py-0.5 text-[10px] font-medium text-green-800"
+                                >
+                                  ✓ {lang}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 pr-4 max-w-xs">
                         <span className="line-clamp-2">{row.summary}</span>
