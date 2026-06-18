@@ -5,7 +5,12 @@ import { eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { employees, employeeDepartments, departments } from '@oracle/db';
 import { getDirectDb } from '@oracle/db/client';
-import { DEPARTMENTS, type Department } from '@oracle/shared';
+import {
+  DEPARTMENTS,
+  type Department,
+  SUPPORTED_LOCALES,
+  type SupportedLocale,
+} from '@oracle/shared';
 import { requireAdmin } from '@/lib/auth-guard';
 import { getServiceRoleSupabase } from '@/lib/supabase/server';
 
@@ -229,6 +234,57 @@ export async function updateEmployeeAccess(
       .update(employees)
       .set({ disabledAt: action === 'disable' ? new Date() : null })
       .where(eq(employees.id, employeeId));
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  revalidatePath('/admin/employees');
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Set an employee's content/reader language (employees.locale).
+//
+// Drives the bilingual claim layer (china_imp.md): a 'zh-CN' employee is the
+// "China group" — they read the Oracle in Chinese, their authored content is
+// treated as canonical Chinese, and claim-review questions routed to them are
+// auto-translated to Chinese. Everyone else stays 'en'. Changing this is
+// forward-looking only — it does not retroactively translate existing approved
+// claims (that happens as claims are routed/translated going forward).
+// ---------------------------------------------------------------------------
+
+const localeEnum = z.enum(
+  SUPPORTED_LOCALES as unknown as [SupportedLocale, ...SupportedLocale[]],
+);
+
+const UpdateEmployeeLocaleSchema = z.object({
+  employeeId: z.string().uuid(),
+  locale: localeEnum,
+});
+
+export type UpdateEmployeeLocaleState = {
+  ok: boolean;
+  error?: string;
+};
+
+export async function updateEmployeeLocale(
+  _prev: UpdateEmployeeLocaleState,
+  formData: FormData,
+): Promise<UpdateEmployeeLocaleState> {
+  await requireAdmin();
+  const db = getDirectDb();
+
+  const parsed = UpdateEmployeeLocaleSchema.safeParse({
+    employeeId: formData.get('employeeId'),
+    locale: formData.get('locale'),
+  });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues.map((i) => i.message).join('; ') };
+  }
+
+  const { employeeId, locale } = parsed.data;
+  try {
+    await db.update(employees).set({ locale }).where(eq(employees.id, employeeId));
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

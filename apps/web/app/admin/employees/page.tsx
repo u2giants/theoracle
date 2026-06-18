@@ -10,6 +10,7 @@ import {
   employeeDepartments,
   employeeIdentities,
 } from '@oracle/db/schema';
+import { coerceLocale } from '@oracle/shared';
 import { requireAdmin } from '@/lib/auth-guard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -21,6 +22,7 @@ import { formatNYDateTime } from '@/lib/time';
 import { AddEmployeeForm } from './_components/add-employee-form';
 import { EmployeeAccessForm } from './_components/employee-access-form';
 import { EditEmployeeDepartments } from './_components/edit-employee-departments';
+import { EmployeeLocaleForm } from './_components/employee-locale-form';
 import { M365InviteRow } from './_components/m365-invite-row';
 
 export default async function AdminEmployeesPage() {
@@ -42,6 +44,7 @@ export default async function AdminEmployeesPage() {
         name: employees.name,
         email: employees.email,
         role: employees.role,
+        locale: employees.locale,
         isAdmin: employees.isAdmin,
         disabledAt: employees.disabledAt,
         lastLoginAt: employees.lastLoginAt,
@@ -131,6 +134,7 @@ export default async function AdminEmployeesPage() {
                   <th className="py-2 pr-4">Name</th>
                   <th className="py-2 pr-4">Email</th>
                   <th className="py-2 pr-4">Role</th>
+                  <th className="py-2 pr-4" title="Reader language. 中文 puts the employee in the China group (Chinese UI + auto-translated review questions).">Language</th>
                   <th className="py-2 pr-4 w-80">Department(s)</th>
                   <th className="py-2 pr-4">Access</th>
                   <th className="py-2 pr-4">Admin</th>
@@ -155,6 +159,12 @@ export default async function AdminEmployeesPage() {
                       <td className="py-2 pr-4 font-medium">{e.name}</td>
                       <td className="py-2 pr-4">{e.email}</td>
                       <td className="py-2 pr-4">{e.role}</td>
+                      <td className="py-2 pr-4">
+                        <EmployeeLocaleForm
+                          employeeId={e.id}
+                          currentLocale={coerceLocale(e.locale)}
+                        />
+                      </td>
                       <td className="py-2 pr-4">
                         <EditEmployeeDepartments
                           employeeId={e.id}
