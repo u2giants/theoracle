@@ -39,7 +39,7 @@ const DEFAULT_SETTINGS: Array<{
   // Source of truth: packages/ai/src/routes/defaults.ts (DEFAULT_ORACLE_ROUTES).
   { key: 'default_interview_route', value: 'anthropic_claude_haiku_4_5_interview_primary', description: 'Curated OracleModelRoute.routeId for the interview role.' },
   { key: 'default_extraction_route', value: 'vertex_gemini_2_5_flash_extraction_primary', description: 'Curated OracleModelRoute.routeId for the extraction role.' },
-  { key: 'default_synthesis_route', value: 'anthropic/claude-sonnet-4-6', description: 'Direct-provider model id for the synthesis role.' },
+  { key: 'default_synthesis_route', value: 'anthropic_claude_3_5_sonnet_synthesis_primary', description: 'Curated OracleModelRoute.routeId for the synthesis role. (Resolves to anthropic/claude-sonnet-4-6; routeId name is legacy.)' },
   { key: 'enable_live_contradiction_interjections', value: false, description: 'When false, possible contradictions queue silently (spec 5.1 Rule 1).' },
   { key: 'enable_group_chat_lull_questions', value: true, description: 'When true, Oracle may ask a high-priority gap question during a lull (spec 5.1 Rule 2).' },
   // D14 — provider Batch API dispatch mode for claim extraction.

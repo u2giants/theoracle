@@ -188,7 +188,7 @@ Specific boundaries:
 | Supabase Storage bucket | `company_documents` | schema + worker code + docs | Private document bucket |
 | Interview default route | `anthropic_claude_haiku_4_5_interview_primary` | `packages/ai/src/routes/catalog.ts`, settings row | Employee chat default |
 | Extraction default route | `vertex_gemini_2_5_flash_extraction_primary` | same | Extraction default |
-| Synthesis default route | `anthropic_claude_3_5_sonnet_synthesis_primary` | same | Synthesis default |
+| Synthesis default route | `anthropic_claude_3_5_sonnet_synthesis_primary` | same | Synthesis default. **Name is legacy** — resolves at runtime to `anthropic/claude-sonnet-4-6`. Do NOT rename the route to match; live `settings` rows reference this exact string. Route IDs are the canonical shape for `default_*_route` (a bare `provider/modelId` resolves to the same route); the `/admin/settings` picker resolves route IDs to their concrete model rather than warning. See `docs/configuration.md`. |
 | Embedding model | `text-embedding-3-small` | `packages/ai/src/embeddings.ts` | Locked to `vector(1536)` |
 | Employee identity table | `employee_identities` | `packages/db/src/schema.ts` | Canonical auth-link table |
 | Prompt/context audit table | `oracle_context_packs` | `packages/db/src/schema.ts` | One row per AI call plan |

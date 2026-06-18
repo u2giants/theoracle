@@ -159,7 +159,7 @@ Operational settings the Oracle reads at runtime live in the `settings` Postgres
 | `teams_live_recall_disable_posting_limits` | `false` | Test-only override that bypasses live Recall cooldown and hourly caps. Keep false outside controlled debugging. |
 | `default_interview_route` | `anthropic_claude_haiku_4_5_interview_primary` | Read by `apps/web/app/api/chat/route.ts` (R8) to resolve a curated `OracleModelRoute` from the catalog in `packages/ai/src/routes/`. |
 | `default_extraction_route` | `vertex_gemini_2_5_flash_extraction_primary` | Read by `apps/workers/src/trigger/claim-extraction.ts` (R6), `apps/workers/src/trigger/document-ingestion.ts` (R7), and `apps/workers/src/trigger/contradiction-watcher.ts` (R11.0). |
-| `default_synthesis_route` | `anthropic_claude_3_5_sonnet_synthesis_primary` | Read by `apps/workers/src/trigger/brain-synthesis.ts` (R9). |
+| `default_synthesis_route` | `anthropic_claude_3_5_sonnet_synthesis_primary` | Read by `apps/workers/src/trigger/brain-synthesis.ts` (R9). The route-ID name is **legacy** — it resolves at runtime to `anthropic/claude-sonnet-4-6` (see catalog `modelId`). Do not rename the route to "fix" the name; saved DB rows reference this exact string. |
 | `enable_live_contradiction_interjections` | `true` (post-R11) / `false` (pre-R11) | If false, contradictions are queued silently. R11 flips this to true on install per the live-interjection decision. |
 | `enable_group_chat_lull_questions` | `true` | If false, the Oracle never speaks proactively in group chats. |
 | `model_pool` | `[]` (empty array) | **Deprecated 2026-05-27** — replaced by the three per-stage keys below. Left in the DB if it exists; no code path reads it. |
@@ -175,6 +175,15 @@ Operational settings the Oracle reads at runtime live in the `settings` Postgres
 | `extraction_dispatch_mode` | `'sync'` | `'sync'` \| `'batch'`. When `'batch'`, the `claim-extraction-batch-submit` cron task gathers pending messages and submits them through the provider Batch API (OpenAI, Vertex, or Anthropic; D14) at ~50% off pricing with a 24-hour SLA; the always-on `claim-extraction-batch-drain` cron (every 10 minutes) polls in-flight `provider_batch_jobs` rows and runs the existing validation + promotion pipeline (`processSegmentOutput`) on completed batches. The legacy sync `claim-extraction` task bails early when this flag is `'batch'`. **Flip via the UI**: `/admin/settings` → "Extraction dispatch mode" card (DispatchModeToggle component). Or by SQL: `UPDATE settings SET value = '"batch"'::jsonb WHERE key = 'extraction_dispatch_mode';`. Read every cron tick, no redeploy needed. Vertex routes additionally need `GOOGLE_VERTEX_BATCH_GCS_BUCKET` provisioned; OpenAI and Anthropic batch routes need no extra infrastructure. |
 
 Legacy `default_*_model` keys (`default_interview_model` / `default_extraction_model` / `default_synthesis_model`) have been removed from the seed. They were the pre-retrofit OpenRouter model identifiers and are no longer read by any code path. If they appear in your live DB from an older deploy, they're inert and can be deleted in a follow-up `DELETE FROM settings` migration.
+
+### Route-ID values vs. model-ID values in `default_*_route` (2026-06-18)
+
+The canonical shape for all three `default_*_route` settings is a **curated route ID** (e.g. `anthropic_claude_3_5_sonnet_synthesis_primary`), sourced from `DEFAULT_ORACLE_ROUTES` in `packages/ai/src/routes/defaults.ts`. A bare `provider/modelId` (e.g. `anthropic/claude-sonnet-4-6`) is also accepted — `resolveModelRoute()` (`packages/ai/src/routes/resolve.ts`) looks up the catalog by provider+modelId+role and lands on the **same** `OracleModelRoute`, so the two shapes are functionally identical at runtime.
+
+Two things future sessions should know:
+
+- **Seed reconcile.** `packages/db/src/seed.ts` previously seeded `default_synthesis_route` with the model-ID `anthropic/claude-sonnet-4-6` while the interview/extraction rows (and `defaults.ts`) used route IDs. That drift is fixed — synthesis now seeds the route ID to match. The seed is idempotent and won't rewrite an existing row, so live DBs are unchanged.
+- **Admin picker resolves route IDs.** The `/admin/settings` model picker (`apps/web/app/admin/settings/_components/model-picker.tsx`) lists concrete pool model IDs, so a saved route ID never matched directly and used to raise a (harmless) amber "not in the approved model pool" warning. The picker now resolves the route ID to its concrete model via the parent-computed `currentResolvedModel`, selects that model in the dropdown, and shows a calm note instead. Saving **without changing the model preserves the route ID** rather than flattening it to a bare model ID; explicitly picking a different model writes that model ID.
 
 Change a setting:
 

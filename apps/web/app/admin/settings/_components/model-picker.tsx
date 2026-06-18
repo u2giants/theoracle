@@ -202,8 +202,17 @@ export function ModelPicker({
         const data = (await res.json()) as { models: Model[] };
         if (!cancelled) {
           setModels(data.models);
+          // Prefer the saved value when it's directly a pool model. Otherwise, if
+          // it's a curated route ID that resolves to a pool model, select that
+          // resolved model so the dropdown shows the concrete model (with its
+          // capabilities + price) rather than an unmatched route string.
           if (currentModel && data.models.some((m) => m.id === currentModel)) {
             setSelected(currentModel);
+          } else if (
+            currentResolvedModel &&
+            data.models.some((m) => m.id === currentResolvedModel)
+          ) {
+            setSelected(currentResolvedModel);
           }
         }
       } catch (err) {
@@ -216,7 +225,7 @@ export function ModelPicker({
     }
     void loadModels();
     return () => { cancelled = true; };
-  }, [currentModel, modelListParam]);
+  }, [currentModel, currentResolvedModel, modelListParam]);
 
   // Close on outside click.
   useEffect(() => {
@@ -241,13 +250,23 @@ export function ModelPicker({
     setStatus('saving');
     setSaveError(null);
     try {
+      // Preserve the canonical curated-route value when the admin hasn't actually
+      // changed the model: if the saved value is a route ID (not itself a pool
+      // model) and the current selection still equals the model it resolves to,
+      // write the original route ID back rather than silently flattening it to a
+      // bare model ID. Explicitly picking a different model writes that model ID.
+      const valueToSave =
+        currentModel && !savedModel && selected === currentResolvedModel
+          ? currentModel
+          : selected;
+
       // Save model selection.
       const res = await fetch('/api/admin/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           key: settingKey,
-          value: selected,
+          value: valueToSave,
           description: settingDescription,
         }),
       });
@@ -277,6 +296,15 @@ export function ModelPicker({
 
   const selectedModel = models.find((m) => m.id === selected);
   const savedModel = currentModel ? models.find((m) => m.id === currentModel) : undefined;
+  // When the saved value is a curated route ID (not itself a pool model), it
+  // resolves at runtime to a concrete model. If that resolved model IS in the
+  // pool, the setting is healthy — we surface a calm note rather than the amber
+  // "outside the approved pool" warning, which is reserved for values that
+  // resolve to nothing selectable (synthetic routes, models pulled from the pool).
+  const resolvedModel =
+    currentResolvedModel && currentResolvedModel !== currentModel
+      ? models.find((m) => m.id === currentResolvedModel)
+      : undefined;
 
   // Pipeline pickers use the same stage predicates as the model-pool page.
   // Auxiliary pickers filter by a single capability flag (or show all models
@@ -310,7 +338,8 @@ export function ModelPicker({
   // somehow has a non-compliant model saved (e.g., from before stage reqs changed).
   const selectedMissing =
     selectedModel && !auxiliary ? missingReqs(selectedModel, stage as Stage) : [];
-  const savedValueOutsidePicker = Boolean(currentModel && !savedModel);
+  const savedValueOutsidePicker = Boolean(currentModel && !savedModel && !resolvedModel);
+  const savedValueIsCuratedRoute = Boolean(currentModel && !savedModel && resolvedModel);
 
   const effortApplicable = effortSettingKey && selectedModel?.thinking === true;
 
@@ -476,6 +505,13 @@ export function ModelPicker({
             </p>
           </div>
         )}
+        {savedValueIsCuratedRoute && (
+          <p className="text-xs text-muted-foreground">
+            Saved as curated route <code className="font-mono">{currentModel}</code> — resolves to{' '}
+            <code className="font-mono">{currentResolvedModel}</code>, shown selected above. Saving
+            without changing the model keeps the curated route.
+          </p>
+        )}
       </div>
 
       {/* ── Selected model detail card ────────────────────────────────────── */}
@@ -528,7 +564,7 @@ export function ModelPicker({
         )}
       </div>
 
-      {currentModel && currentModel !== selected && status === 'idle' && (
+      {currentModel && currentModel !== selected && selected !== currentResolvedModel && status === 'idle' && (
         <p className="text-xs text-muted-foreground">
           Active model: <code className="font-mono">{currentModel}</code>
         </p>
