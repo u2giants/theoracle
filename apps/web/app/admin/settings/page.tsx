@@ -363,11 +363,67 @@ CAPABILITIES IT DOES NOT NEED MOST
 BOTTOM LINE
 Pick the highest-quality long-context reasoning model that reliably emits structured JSON and can produce grounded Markdown with claim-level provenance. This is the place to spend more for careful reasoning, because a bad synthesis can make the official Brain misleading even when the underlying claims are correct.`;
 
+const TRANSLATION_MODEL_BRIEF = `THE ORACLE — "Translation Model" role brief
+(Paste this into a model-evaluation assistant or vendor comparison to judge whether a given model is the right pick for this setting.)
+
+PURPOSE
+This model translates an approved business "claim" — a single short, factual operational statement — from its source language into another language, so employees can read the company's knowledge in their own language. The Oracle keeps ONE unified knowledge graph: a claim is authored once (its canonical text + supporting evidence stay in the original language) and this model produces a faithful rendering in the other language for display only. It does NOT create, interpret, summarize, or expand knowledge — it only re-expresses an existing claim in another language with zero drift.
+
+WHERE IT SITS IN THE PIPELINE
+A claim is extracted and approved -> an admin selects specific claims to direct to a language group (today: the China team, Simplified Chinese) -> the claim-translation background worker calls this model once per claim per target language -> the translated text is embedded (same embedding model as the canonical claim) and stored in claim_translations -> at chat time, retrieval shows each reader the rendering in their locale (COALESCE: translation if present, else the canonical text). The evidence quote and the synthesized "Brain" are NEVER translated — only the claim summary. So this model sits strictly on the read-side display path; nothing downstream re-derives meaning from its output except a human reading it and a semantic embedding for retrieval.
+
+WHAT IT IS FED (input)
+- Exactly ONE claim summary per call — typically one to three sentences of concise operational business prose (a rule, a routing decision, an ownership fact, a deadline, a status, an exception).
+- A fixed system instruction telling it to translate faithfully into a named target language and output only the translation.
+- The target language name.
+- No conversation history, no other claims, no documents, no images, no tools.
+Typical content: product-development steps, licensing/approval rules, shipment routing, customer-ops exceptions, designer file practices, ERP/PLM workflows. Expect proper nouns (people, products, systems, customers), internal codes, numbers, dates, and units.
+
+WHAT IS EXPECTED (output)
+- ONLY the translated text — no preamble, no quotes, no notes, no transliteration of the source.
+- Exact preservation of meaning. No additions, omissions, softening, hedging, or editorializing — a mistranslated operational rule silently misleads the people who act on it.
+- Natural, idiomatic register in the TARGET language — read like a native operations writer wrote it, not a literal word-for-word gloss. This matters most: employees read these to do their jobs.
+- Faithful handling of proper nouns, product/system names, and codes — kept as-is unless a well-established target-language form exists; never invented.
+- Numbers, dates, units, and quantities preserved exactly.
+- Honest, conservative behavior on ambiguity — do not "improve" or guess; translate what is there.
+
+PROCESS IT USES
+A single, stateless, one-shot text-generation call per claim per language. Fully asynchronous — a background worker runs it; no human is waiting. Volume is LOW and bounded (only the specific claims an admin directs to a language group, not the whole corpus), and it is idempotent (re-run only when the source claim changes). There is no caching benefit (each claim is unique), no multi-turn, no tool use, and no structured/JSON output — the output is plain prose.
+
+WHAT MAKES A MODEL PERFECTLY SUITED
+- Best-in-class translation QUALITY for the specific language pair in use (here: English <-> Simplified Chinese), with idiomatic, natural target-language phrasing — not stilted literalism.
+- For Chinese specifically, a Chinese-native model family (e.g. Qwen) typically has the strongest Mandarin register and handling of business idiom; weigh that heavily.
+- High instruction-following discipline: outputs ONLY the translation, preserves proper nouns/numbers, never adds commentary.
+- Faithfulness over fluency-at-any-cost: never drops or invents operational detail.
+- Good terminology consistency on domain jargon and named entities.
+- Because the job is async, low-volume, and not user-facing, COST and LATENCY barely matter — do not trade translation fidelity to save either. Prefer the higher-quality tier (e.g. a "max"/flagship tier) over a "flash"/cheap tier.
+- High reliability/availability is nice but not critical (the worker is idempotent and retryable).
+
+CAPABILITIES IT NEEDS (hard requirements)
+- Excellent bilingual generation for the exact language pair in use.
+- Strong instruction adherence for "translate only, output nothing else."
+- Enough max output to cover a few sentences (tiny — never an issue).
+- Modest context window — input is one short claim plus a short prompt; long-context is irrelevant.
+
+CAPABILITIES IT DOES NOT NEED (do not pay for these; some actively hurt)
+- Vision / image input — text only.
+- Tool / function calling — unused.
+- Structured outputs / JSON schema / response_format — output is plain prose.
+- Extended "thinking" / reasoning budget — translation of a short statement is not deliberation; reasoning mostly adds latency and cost and can encourage over-editing. Keep reasoning effort Off or Low.
+- Long context window — one short claim per call.
+- Streaming — consumed by a background worker, not rendered live.
+- Batch API discount — volume is low and selective; not worth the added plumbing.
+- PDF / audio / video — out of scope.
+
+BOTTOM LINE
+Pick the model with the best, most natural translation quality for your exact language pair and the strictest "output only the translation" discipline — a Chinese-native flagship (e.g. Qwen-Max-tier) is a strong default for English<->Chinese. Ignore reasoning, tools, structured output, vision, and long context; keep reasoning effort low. Since it runs async on only the claims you direct to a language group, spend for fidelity, not speed or cost. Validate the final choice with a small A/B (this model vs one alternative) on ~15 real claims judged by a bilingual reviewer.`;
+
 // Clipboard "job brief" text by auxiliary-model id. Declared after the brief
 // literals (which are large) so the earlier AUX_PRESENTATION map stays free of
 // forward references. Aux models without a brief simply omit an entry.
 const AUX_CLIPBOARD_BRIEFS: Record<string, string> = {
   vision: VISION_MODEL_BRIEF,
+  translation: TRANSLATION_MODEL_BRIEF,
 };
 
 const STAGE_MODEL_ROLES: RoleDef[] = [
