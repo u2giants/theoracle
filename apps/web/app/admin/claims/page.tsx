@@ -6,6 +6,7 @@ import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatNYDate } from '@/lib/time';
 import { AssignQuestionForm } from './_components/assign-question-form';
+import { BulkEvaluateBar } from './_components/bulk-evaluate-bar';
 import { reviseClaim, updateClaimStatus, translateClaimsForChina } from './_actions';
 
 type ClaimRow = {
@@ -172,6 +173,13 @@ export default async function AdminClaimsPage({
         })}
       </div>
 
+      {/* Bulk "ask selected to evaluate": tick pending claims, choose recipients,
+          and route each claim to them for evaluation (the China translation, if
+          any recipient is zh-CN, happens automatically server-side). Lives
+          outside the table so per-row forms aren't nested; pending-row checkboxes
+          associate via form="bulk-evaluate". */}
+      <BulkEvaluateBar employees={employeeOptions} groups={groupOptions} />
+
       {/* China bilingual layer (china_imp.md): bulk-translate the ticked approved
           claims for the China team. Lives outside the table so per-row forms
           aren't nested; row checkboxes associate via form="translate-claims". */}
@@ -209,8 +217,8 @@ export default async function AdminClaimsPage({
               <table className="w-full text-sm">
                 <thead className="border-b text-left text-xs uppercase text-muted-foreground">
                   <tr>
-                    <th className="py-2 pr-4" title="Tick approved claims to translate for the China team">
-                      🌐
+                    <th className="py-2 pr-4" title="Tick pending claims to ask someone to evaluate, or approved claims to translate for the China team">
+                      ☑
                     </th>
                     <th className="py-2 pr-4">Summary</th>
                     <th className="py-2 pr-4">Type</th>
@@ -243,6 +251,14 @@ export default async function AdminClaimsPage({
                               value={row.id}
                               form="translate-claims"
                               aria-label="Select this claim to translate for the China team"
+                            />
+                          ) : row.status === 'pending_review' ? (
+                            <input
+                              type="checkbox"
+                              name="claimId"
+                              value={row.id}
+                              form="bulk-evaluate"
+                              aria-label="Select this pending claim to ask someone to evaluate"
                             />
                           ) : (
                             <span className="text-muted-foreground">—</span>

@@ -342,6 +342,28 @@ async function assignClaimQuestionImpl(formData: FormData): Promise<{ targetName
     .map((value) => String(value).trim())
     .filter(Boolean);
   const questionInput = String(formData.get('question') ?? '').trim();
+  return assignClaimQuestionCore({ claimId, targetEmployeeIds, targetGroupIds, questionInput });
+}
+
+/**
+ * Core "ask someone to verify/evaluate this claim" logic, keyed to a single
+ * claim. Extracted so the per-row form (assignClaimQuestionImpl) and the bulk
+ * action (assignClaimQuestionBulkWithState) share the exact same recipient
+ * resolution, dedup-against-existing-assignments, per-recipient zh-CN auto
+ * translation, gap insertion, and audit trail. `questionInput` empty → each
+ * claim falls back to its own summary-based default question.
+ */
+async function assignClaimQuestionCore({
+  claimId,
+  targetEmployeeIds,
+  targetGroupIds,
+  questionInput,
+}: {
+  claimId: string;
+  targetEmployeeIds: string[];
+  targetGroupIds: string[];
+  questionInput: string;
+}): Promise<{ targetName: string }> {
   if (!claimId) throw new Error('Missing claim.');
   if (targetEmployeeIds.length === 0 && targetGroupIds.length === 0) {
     throw new Error('Choose at least one person or group before assigning the question.');
@@ -523,6 +545,73 @@ export async function assignClaimQuestionWithState(
       message: error instanceof Error ? error.message : 'The question could not be assigned.',
     };
   }
+}
+
+/**
+ * Bulk "ask selected to evaluate" — the reviewer ticks several (typically
+ * pending_review) claims, picks one shared set of people/groups, and each claim
+ * is routed to those recipients for evaluation. Each claim reuses
+ * assignClaimQuestionCore with an empty question so it gets its own
+ * summary-based default; zh-CN recipients are asked in Chinese automatically.
+ *
+ * Per-claim failures (e.g. every chosen recipient already has an open
+ * assignment for that claim) are non-fatal and reported as a skipped count, so
+ * one already-assigned claim doesn't abort the whole batch.
+ */
+export async function assignClaimQuestionBulkWithState(
+  _previousState: AssignClaimQuestionState,
+  formData: FormData,
+): Promise<AssignClaimQuestionState> {
+  const claimIds = [
+    ...new Set(
+      formData.getAll('claimId').map((value) => String(value).trim()).filter(Boolean),
+    ),
+  ];
+  const targetEmployeeIds = formData
+    .getAll('targetEmployeeIds')
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+  const targetGroupIds = formData
+    .getAll('targetGroupIds')
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+
+  if (claimIds.length === 0) {
+    return { status: 'error', message: 'Tick at least one claim first.' };
+  }
+  if (targetEmployeeIds.length === 0 && targetGroupIds.length === 0) {
+    return { status: 'error', message: 'Choose at least one person or group.' };
+  }
+
+  let sent = 0;
+  const failures: string[] = [];
+  for (const claimId of claimIds) {
+    try {
+      await assignClaimQuestionCore({
+        claimId,
+        targetEmployeeIds,
+        targetGroupIds,
+        questionInput: '',
+      });
+      sent += 1;
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  if (sent === 0) {
+    return {
+      status: 'error',
+      message: failures[0] ?? 'Nothing was sent.',
+    };
+  }
+  const skipped = failures.length;
+  return {
+    status: 'success',
+    message: `Sent ${sent} claim${sent === 1 ? '' : 's'} for evaluation${
+      skipped > 0 ? ` (${skipped} skipped — already assigned or ineligible)` : ''
+    }.`,
+  };
 }
 
 // ---------------------------------------------------------------------------
