@@ -4,7 +4,11 @@ import Link from 'next/link';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { updateClaimStatus, translateClaimsForChina } from './_actions';
+import {
+  updateClaimStatus,
+  translateClaimsForChina,
+  requestClaimVerification,
+} from './_actions';
 
 type ClaimRow = {
   id: string;
@@ -21,7 +25,12 @@ type ClaimRow = {
   // Languages this claim has already been translated into (china_imp.md). null
   // when none — the persisted "which claims did I route, and to whom" signal.
   translated_langs: string[] | null;
+  // True when an open recertification gap references this claim — the persisted
+  // "I already asked someone to verify this" signal.
+  recert_pending: boolean;
 };
+
+type TargetEmployee = { id: string; name: string };
 
 // Locale → short team-facing label for the "Routed" badge.
 const LOCALE_LABEL: Record<string, string> = {
@@ -76,7 +85,13 @@ export default async function AdminClaimsPage({
         SELECT jsonb_agg(ct.lang ORDER BY ct.lang)
         FROM claim_translations ct
         WHERE ct.claim_id = c.id
-      ) AS translated_langs
+      ) AS translated_langs,
+      EXISTS (
+        SELECT 1 FROM gaps g
+        WHERE g.gap_type = 'claim_recertification'
+          AND g.status IN ('open', 'queued', 'asked')
+          AND g.related_claim_ids @> to_jsonb(c.id::text)
+      ) AS recert_pending
     FROM claims c
     LEFT JOIN LATERAL (
       SELECT exact_quote, source_type, asserted_by_employee_id
@@ -91,6 +106,15 @@ export default async function AdminClaimsPage({
   `);
 
   const rows = [...result] as unknown as ClaimRow[];
+
+  // Target options for the "ask to verify" picker: the China-team locale group
+  // plus individual active employees. (Department targeting is omitted for now —
+  // gaps.target_department is matched against employees' free-text departments,
+  // which don't reliably equal the departments-table ids; revisit if needed.)
+  const employeesResult = await db.execute(sql`
+    SELECT id, name FROM employees WHERE disabled_at IS NULL ORDER BY name
+  `);
+  const targetEmployees = [...employeesResult] as unknown as TargetEmployee[];
 
   return (
     <div className="space-y-6">
@@ -121,25 +145,57 @@ export default async function AdminClaimsPage({
         })}
       </div>
 
-      {/* Bilingual claim layer (china_imp.md): the bulk-translate form lives
+      {/* Bulk actions for the ticked claims (china_imp.md). The form lives
           outside the table so per-row Approve/Reject forms aren't nested inside
-          it. Row checkboxes associate with it via the HTML form="..." attribute. */}
+          it; row checkboxes associate via the HTML form="bulk-claims" attribute.
+          Two submit buttons drive two actions via formAction — translate, or ask
+          someone to verify. */}
       <form
-        id="translate-china"
-        action={translateClaimsForChina}
-        className="flex items-center gap-3 rounded border border-dashed p-3 text-sm"
+        id="bulk-claims"
+        className="flex flex-wrap items-center gap-3 rounded border border-dashed p-3 text-sm"
       >
         <button
           type="submit"
+          formAction={translateClaimsForChina}
           className="rounded bg-foreground px-3 py-1 text-xs text-background hover:opacity-90"
         >
           Translate selected for China team
         </button>
-        <span className="text-xs text-muted-foreground">
-          Tick approved claims below, then submit. A green ✓ badge marks claims
-          already routed (and to which group) — that status persists across
-          refreshes. Untranslated claims are still visible to the China group, in
-          English.
+
+        <span className="text-muted-foreground">·</span>
+
+        <label className="flex items-center gap-1">
+          Ask
+          <select
+            name="target"
+            defaultValue="locale:zh-CN"
+            className="rounded border bg-background px-1 py-0.5 text-xs"
+          >
+            <optgroup label="Groups">
+              <option value="locale:zh-CN">China team (zh-CN)</option>
+            </optgroup>
+            <optgroup label="People">
+              {targetEmployees.map((e) => (
+                <option key={e.id} value={`employee:${e.id}`}>
+                  {e.name}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+          to verify
+        </label>
+        <button
+          type="submit"
+          formAction={requestClaimVerification}
+          className="rounded border border-foreground px-3 py-1 text-xs hover:bg-muted"
+        >
+          Ask selected to verify
+        </button>
+
+        <span className="w-full text-xs text-muted-foreground">
+          Tick approved claims below, then choose an action. A green ✓ badge marks
+          claims translated (and for which group); a 🔁 badge marks claims with a
+          pending verification ask. Both statuses persist across refreshes.
         </span>
       </form>
 
@@ -158,8 +214,8 @@ export default async function AdminClaimsPage({
               <table className="w-full text-sm">
                 <thead className="border-b text-left text-xs uppercase text-muted-foreground">
                   <tr>
-                    <th className="py-2 pr-4" title="Select approved claims to translate for the China team">
-                      🇨🇳
+                    <th className="py-2 pr-4" title="Select approved claims for a bulk action (translate / ask to verify)">
+                      Select
                     </th>
                     <th className="py-2 pr-4">Summary</th>
                     <th className="py-2 pr-4">Type</th>
@@ -182,13 +238,13 @@ export default async function AdminClaimsPage({
                               type="checkbox"
                               name="claimId"
                               value={row.id}
-                              form="translate-china"
-                              aria-label="Translate this claim for the China team"
+                              form="bulk-claims"
+                              aria-label="Select this claim for a bulk action"
                             />
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
-                          {/* Persisted "routed to whom" — survives refresh. */}
+                          {/* Persisted "translated for whom" — survives refresh. */}
                           {row.translated_langs && row.translated_langs.length > 0 && (
                             <div className="flex flex-wrap justify-center gap-0.5">
                               {row.translated_langs.map((lang) => (
@@ -201,6 +257,15 @@ export default async function AdminClaimsPage({
                                 </span>
                               ))}
                             </div>
+                          )}
+                          {/* Persisted "asked to verify" — survives refresh. */}
+                          {row.recert_pending && (
+                            <span
+                              title="A verification (recertification) request is pending for this claim"
+                              className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-800"
+                            >
+                              🔁 verify
+                            </span>
                           )}
                         </div>
                       </td>

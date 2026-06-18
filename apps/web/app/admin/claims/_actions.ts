@@ -49,3 +49,49 @@ export async function translateClaimsForChina(formData: FormData) {
 
   revalidatePath('/admin/claims');
 }
+
+/**
+ * Verify-selected-claims: ask a person/group to recertify ("is this still
+ * accurate?") each selected claim. Creates recertification gaps via the
+ * claim-recertification worker; the question reaches the target through the
+ * existing gap surfacing. The `target` field is encoded as
+ * "employee:<id>" | "department:<name>" | "locale:<code>".
+ */
+function parseTarget(
+  raw: string,
+):
+  | { kind: 'employee'; employeeId: string }
+  | { kind: 'department'; department: string }
+  | { kind: 'locale'; locale: string }
+  | null {
+  const sep = raw.indexOf(':');
+  if (sep === -1) return null;
+  const kind = raw.slice(0, sep);
+  const value = raw.slice(sep + 1);
+  if (!value) return null;
+  if (kind === 'employee') return { kind, employeeId: value };
+  if (kind === 'department') return { kind, department: value };
+  if (kind === 'locale') return { kind, locale: value };
+  return null;
+}
+
+export async function requestClaimVerification(formData: FormData) {
+  await requireAdmin();
+
+  const ids = Array.from(
+    new Set(
+      formData
+        .getAll('claimId')
+        .filter((v): v is string => typeof v === 'string' && v.length > 0),
+    ),
+  );
+  const targetRaw = formData.get('target');
+  const target = typeof targetRaw === 'string' ? parseTarget(targetRaw) : null;
+  if (ids.length === 0 || !target) return;
+
+  for (const id of ids) {
+    await triggerTask('claim-recertification', { claimId: id, target });
+  }
+
+  revalidatePath('/admin/claims');
+}

@@ -21,7 +21,10 @@ export type OracleTaskType =
   | 'model_capability_discovery'
   // Bilingual claim/Brain layer (china_imp.md): translate an approved claim
   // summary or Brain section markdown into another supported language.
-  | 'claim_translation';
+  | 'claim_translation'
+  // Recertification: draft a short "is this still accurate?" question asking a
+  // person/group to verify an existing approved claim.
+  | 'claim_recertification';
 
 /**
  * The kind tag controls block ordering for provider-native cache friendliness.
