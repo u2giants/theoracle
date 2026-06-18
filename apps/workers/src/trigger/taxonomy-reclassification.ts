@@ -378,46 +378,56 @@ async function applyProposal(
     };
   }
 
-  let result: HandlerResult;
+  // Run the structural mutation AND the taxonomy_change_log row inside a single
+  // transaction so a partial failure mid-handler can't leave the taxonomy moved
+  // without an 'applied' log row (or vice versa) — the whole thing rolls back.
+  const result = await db.transaction<HandlerResult>(async (tx) => {
+    let r: HandlerResult;
+    switch (proposal.proposalType) {
+      case 'create_sub_topic':
+        r = await handleCreateSubTopic(tx, proposal.payload);
+        break;
+      case 'reassign_claims':
+        r = await handleReassignClaims(tx, proposal.payload);
+        break;
+      case 'merge_sub_topics':
+        r = await handleMergeSubTopics(tx, proposal.payload);
+        break;
+      case 'retire_sub_topic':
+        r = await handleRetireSubTopic(tx, proposal.payload);
+        break;
+      case 'merge_top_domains':
+        r = await handleMergeTopDomains(tx, proposal.payload);
+        break;
+      case 'split_top_domain':
+      case 'split_sub_topic':
+        r = {
+          applied: false,
+          reason: `${proposal.proposalType} requires manual admin intervention — claim-level split cannot be automated safely.`,
+        };
+        break;
+      default:
+        r = { applied: false, reason: `unknown proposal type: ${proposal.proposalType}` };
+    }
 
-  switch (proposal.proposalType) {
-    case 'create_sub_topic':
-      result = await handleCreateSubTopic(db, proposal.payload);
-      break;
-    case 'reassign_claims':
-      result = await handleReassignClaims(db, proposal.payload);
-      break;
-    case 'merge_sub_topics':
-      result = await handleMergeSubTopics(db, proposal.payload);
-      break;
-    case 'retire_sub_topic':
-      result = await handleRetireSubTopic(db, proposal.payload);
-      break;
-    case 'merge_top_domains':
-      result = await handleMergeTopDomains(db, proposal.payload);
-      break;
-    case 'split_top_domain':
-    case 'split_sub_topic':
-      result = {
-        applied: false,
-        reason: `${proposal.proposalType} requires manual admin intervention — claim-level split cannot be automated safely.`,
-      };
-      break;
-    default:
-      result = { applied: false, reason: `unknown proposal type: ${proposal.proposalType}` };
-  }
+    const ct = r.applied
+      ? `reclassification_applied_${proposal.proposalType}`
+      : `reclassification_skipped_${proposal.proposalType}`;
+
+    await tx.insert(taxonomyChangeLog).values({
+      changeType: ct,
+      beforeState: { proposalId: proposal.id, proposalType: proposal.proposalType },
+      afterState: r.applied ? r.afterState : { reason: r.reason },
+      reason: r.applied ? 'Applied by taxonomy-reclassification worker' : r.reason,
+      proposalId: proposal.id,
+    });
+
+    return r;
+  });
 
   const changeType = result.applied
     ? `reclassification_applied_${proposal.proposalType}`
     : `reclassification_skipped_${proposal.proposalType}`;
-
-  await db.insert(taxonomyChangeLog).values({
-    changeType,
-    beforeState: { proposalId: proposal.id, proposalType: proposal.proposalType },
-    afterState: result.applied ? result.afterState : { reason: result.reason },
-    reason: result.applied ? 'Applied by taxonomy-reclassification worker' : result.reason,
-    proposalId: proposal.id,
-  });
 
   return {
     proposalId: proposal.id,

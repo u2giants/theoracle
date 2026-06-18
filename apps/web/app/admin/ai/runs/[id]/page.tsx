@@ -17,6 +17,7 @@ import { notFound } from 'next/navigation';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 import { formatMs, formatPct, formatTokens } from '../../_components/metric-card';
 
 type RunDetail = {
@@ -216,7 +217,7 @@ export default async function AdminAIRunDetailPage({
             />
             <Field
               label="Created"
-              value={new Date(run.run_created_at).toLocaleString()}
+              value={formatNYDateTime(run.run_created_at)}
             />
             {run.fell_back_from_route_id && (
               <Field

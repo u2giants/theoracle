@@ -13,7 +13,7 @@
 
 export type OracleModelRole = 'interview' | 'extraction' | 'synthesis';
 
-export type OracleProvider = 'anthropic' | 'vertex' | 'openai' | 'deepseek' | 'qwen';
+export type OracleProvider = 'anthropic' | 'vertex' | 'google' | 'openai' | 'deepseek' | 'qwen';
 
 export type RouteTier =
   | 'primary'

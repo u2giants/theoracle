@@ -37,6 +37,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { getDirectDb } from '@oracle/db/client';
 import {
+  claims,
   documentChunks,
   documents,
   documentTopDomains,
@@ -65,6 +66,7 @@ import {
   EXTRACTION_SYSTEM_PROMPT,
   EXTRACTION_PROMPT_VERSION,
   ExtractionOutputSchema,
+  loadClaimCorrectionLessonPack,
   type ExtractionOutput,
   type OracleModelRoute,
   type OraclePromptPlan,
@@ -79,6 +81,7 @@ import {
   validateSourcePointer,
   validateTaxonomy,
   AdvisoryLockBusyError,
+  type ExecutePromotionResult,
   type RegistryEntity,
 } from '@oracle/engines';
 import { createServiceRoleClient } from '@oracle/auth/server';
@@ -86,9 +89,17 @@ import type { EntityType, KnowledgeDomain, TopLevelDomainId } from '@oracle/shar
 
 const CHUNK_SIZE = 4000;
 const CHUNK_OVERLAP = 400;
-const MAX_DOCUMENT_TEXT_CHARS = 15_000;
+const MAX_DOCUMENT_TEXT_CHARS = 6_000;
 const VERTEX_FILE_CACHE_MIN_BYTES = 10 * 1024 * 1024;
 const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
+const AUTO_APPROVE_MIN_CONFIDENCE = 9;
+const AUTO_APPROVE_MAX_IMPACT = 6;
+const AUTO_APPROVE_CLAIM_TYPES = new Set([
+  'process_rule',
+  'dependency',
+  'workaround',
+  'system_limitation',
+]);
 
 // ─────────────────────────────────────────────────────────────────────────
 // Payload schema for the single-document task
@@ -111,34 +122,61 @@ function buildOracleClient(): OracleAIClient {
 // Text helpers
 // ─────────────────────────────────────────────────────────────────────────
 
-function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP): string[] {
-  if (text.length <= chunkSize) return [text];
+interface TextChunk {
+  text: string;
+  /** Inclusive start offset into the source rawText. */
+  start: number;
+  /** Exclusive end offset into the source rawText. */
+  end: number;
+}
+
+type InsertedDocumentChunk = TextChunk & { id: string };
+
+function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP): TextChunk[] {
+  if (text.length <= chunkSize) return [{ text, start: 0, end: text.length }];
   const paragraphs = text.split(/\n{2,}/);
   if (paragraphs.length > 1) {
-    const chunks: string[] = [];
+    const chunks: TextChunk[] = [];
     let current = '';
+    let currentStart = 0;
+    let searchOffset = 0;
     for (const paragraph of paragraphs) {
-      const next = current ? `${current}\n\n${paragraph}` : paragraph;
+      const paragraphStart = text.indexOf(paragraph, searchOffset);
+      const safeParagraphStart = paragraphStart >= 0 ? paragraphStart : searchOffset;
+      searchOffset = safeParagraphStart + paragraph.length;
+      const next = current ? text.slice(currentStart, safeParagraphStart + paragraph.length) : paragraph;
       if (next.length <= chunkSize) {
         current = next;
+        currentStart = current ? currentStart : safeParagraphStart;
         continue;
       }
-      if (current.trim()) chunks.push(current);
+      if (current.trim()) {
+        chunks.push({ text: current, start: currentStart, end: currentStart + current.length });
+      }
       if (paragraph.length > chunkSize) {
-        chunks.push(...chunkText(paragraph, chunkSize, overlap));
+        chunks.push(
+          ...chunkText(paragraph, chunkSize, overlap).map((chunk) => ({
+            text: chunk.text,
+            start: safeParagraphStart + chunk.start,
+            end: safeParagraphStart + chunk.end,
+          })),
+        );
         current = '';
       } else {
         current = paragraph;
+        currentStart = safeParagraphStart;
       }
     }
-    if (current.trim()) chunks.push(current);
+    if (current.trim()) {
+      chunks.push({ text: current, start: currentStart, end: currentStart + current.length });
+    }
     return chunks;
   }
-  const chunks: string[] = [];
+  const chunks: TextChunk[] = [];
   let start = 0;
   while (start < text.length) {
     const end = Math.min(start + chunkSize, text.length);
-    chunks.push(text.slice(start, end));
+    chunks.push({ text: text.slice(start, end), start, end });
     start += chunkSize - overlap;
     if (start >= text.length) break;
   }
@@ -155,12 +193,12 @@ function formatDocumentChunksForExtraction(chunks: Array<{ id: string; text: str
   return parts.join('\n');
 }
 
-function buildDocumentChunkWindows(
-  chunks: Array<{ id: string; text: string }>,
+function buildDocumentChunkWindows<TChunk extends { id: string; text: string }>(
+  chunks: TChunk[],
   maxChars = MAX_DOCUMENT_TEXT_CHARS,
-): Array<{ chunks: Array<{ id: string; text: string }>; content: string }> {
-  const windows: Array<{ chunks: Array<{ id: string; text: string }>; content: string }> = [];
-  let current: Array<{ id: string; text: string }> = [];
+): Array<{ chunks: TChunk[]; content: string }> {
+  const windows: Array<{ chunks: TChunk[]; content: string }> = [];
+  let current: TChunk[] = [];
 
   for (const chunk of chunks) {
     const next = [...current, chunk];
@@ -424,8 +462,159 @@ interface ProcessDocumentResult {
   chunksInserted: number;
   candidatesStaged: number;
   claimsPromoted: number;
+  claimsAutoApproved: number;
   duplicatesAppended: number;
   rejections: number;
+}
+
+type ExtractedClaim = ExtractionOutput['claims'][number];
+
+type AutoApprovalDecision =
+  | { approve: true; reason: string }
+  | { approve: false; reason: string };
+
+function hasSensitivityFlags(claim: ExtractedClaim): boolean {
+  return (
+    claim.sensitivityFlags?.containsSensitiveHRData === true ||
+    claim.sensitivityFlags?.containsSensitivePersonalData === true ||
+    claim.sensitivityFlags?.isPersonalConflict === true
+  );
+}
+
+function decideDocumentClaimAutoApproval(input: {
+  extracted: ExtractedClaim;
+  result: ExecutePromotionResult;
+  quoteVerdict: string;
+  validTopDomainIds: string[];
+}): AutoApprovalDecision {
+  const { extracted, result, quoteVerdict, validTopDomainIds } = input;
+
+  if (result.outcome === 'recorded_rejection') {
+    return { approve: false, reason: 'promotion executor recorded a rejection' };
+  }
+  if (!result.claimId) {
+    return { approve: false, reason: 'promotion executor did not return a claim id' };
+  }
+  if (result.stagedEntityProposalIds.length > 0) {
+    return { approve: false, reason: 'claim staged new entity proposals for human review' };
+  }
+  if (!AUTO_APPROVE_CLAIM_TYPES.has(extracted.claimType)) {
+    return { approve: false, reason: `claim type ${extracted.claimType} requires human review` };
+  }
+  if (extracted.requiresReview) {
+    return { approve: false, reason: 'extractor marked the claim as requiring review' };
+  }
+  if (hasSensitivityFlags(extracted)) {
+    return { approve: false, reason: 'claim has sensitivity flags' };
+  }
+  if (extracted.confidenceScore < AUTO_APPROVE_MIN_CONFIDENCE) {
+    return {
+      approve: false,
+      reason: `confidence ${extracted.confidenceScore} is below ${AUTO_APPROVE_MIN_CONFIDENCE}`,
+    };
+  }
+  if (extracted.impactScore > AUTO_APPROVE_MAX_IMPACT) {
+    return {
+      approve: false,
+      reason: `impact ${extracted.impactScore} is above ${AUTO_APPROVE_MAX_IMPACT}`,
+    };
+  }
+  if (!['exact_match', 'normalized_match'].includes(quoteVerdict)) {
+    return { approve: false, reason: `quote verdict ${quoteVerdict} is not auto-approvable` };
+  }
+  if (validTopDomainIds.length === 0) {
+    return { approve: false, reason: 'no valid top-domain assignments' };
+  }
+
+  return {
+    approve: true,
+    reason:
+      'validated document claim met conservative auto-approval policy: high confidence, low/medium impact, supported quote, valid taxonomy, no sensitivity flags, no entity proposals',
+  };
+}
+
+async function autoApproveDocumentClaimIfEligible(input: {
+  db: OracleDb;
+  candidateId: string;
+  extracted: ExtractedClaim;
+  result: ExecutePromotionResult;
+  quoteVerdict: string;
+  validTopDomainIds: string[];
+}): Promise<boolean> {
+  const { db, candidateId, extracted, result, quoteVerdict, validTopDomainIds } = input;
+  const decision = decideDocumentClaimAutoApproval({
+    extracted,
+    result,
+    quoteVerdict,
+    validTopDomainIds,
+  });
+  const metadataJson = {
+    policy: 'document_claim_auto_approval_v1',
+    decision: decision.approve ? 'approve' : 'skip',
+    reason: decision.reason,
+    outcome: result.outcome,
+    claimId: result.claimId ?? null,
+    claimType: extracted.claimType,
+    confidenceScore: extracted.confidenceScore,
+    impactScore: extracted.impactScore,
+    requiresReview: extracted.requiresReview,
+    quoteVerdict,
+    validTopDomainIds,
+    stagedEntityProposalIds: result.stagedEntityProposalIds,
+  };
+
+  if (!decision.approve || !result.claimId) {
+    await db.insert(extractionValidationResults).values({
+      candidateId,
+      checkName: 'promotion_transaction',
+      status: 'skipped',
+      detail: `Auto-approval skipped: ${decision.reason}.`,
+      metadataJson,
+    });
+    return false;
+  }
+
+  const [currentClaim] = await db
+    .select({ id: claims.id, status: claims.status })
+    .from(claims)
+    .where(eq(claims.id, result.claimId))
+    .limit(1);
+
+  if (!currentClaim) {
+    await db.insert(extractionValidationResults).values({
+      candidateId,
+      checkName: 'promotion_transaction',
+      status: 'skipped',
+      detail: `Auto-approval skipped: claim ${result.claimId} was not found after promotion.`,
+      metadataJson,
+    });
+    return false;
+  }
+
+  if (currentClaim.status !== 'pending_review') {
+    await db.insert(extractionValidationResults).values({
+      candidateId,
+      checkName: 'promotion_transaction',
+      status: 'skipped',
+      detail: `Auto-approval skipped: claim ${result.claimId} is already ${currentClaim.status}.`,
+      metadataJson,
+    });
+    return false;
+  }
+
+  await db
+    .update(claims)
+    .set({ status: 'approved' })
+    .where(and(eq(claims.id, result.claimId), eq(claims.status, 'pending_review')));
+  await db.insert(extractionValidationResults).values({
+    candidateId,
+    checkName: 'promotion_transaction',
+    status: 'pass',
+    detail: `Auto-approved claim ${result.claimId}: ${decision.reason}.`,
+    metadataJson,
+  });
+
+  return true;
 }
 
 async function processDocument(
@@ -439,6 +628,7 @@ async function processDocument(
     chunksInserted: 0,
     candidatesStaged: 0,
     claimsPromoted: 0,
+    claimsAutoApproved: 0,
     duplicatesAppended: 0,
     rejections: 0,
   };
@@ -460,6 +650,7 @@ async function processDocument(
   const activeTopDomainIds = await loadActiveTopDomainIds(db);
   const topDomainNameMap = await loadTopDomainNameMap(db);
   const entityRegistry = await loadEntityRegistry(db);
+  const correctionLessons = await loadClaimCorrectionLessonPack(db);
 
   // 2. Download.
   const { data: blob, error: downloadError } = await serviceSupabase.storage
@@ -511,9 +702,15 @@ async function processDocument(
           processingError: `Unsupported file type: ${doc.fileType}`,
         })
         .where(eq(documents.id, documentId));
+      if (fileBackedCachePath) {
+        await unlink(fileBackedCachePath).catch(() => undefined);
+      }
       return outcome;
     }
   } catch (parseErr) {
+    if (fileBackedCachePath) {
+      await unlink(fileBackedCachePath).catch(() => undefined);
+    }
     throw new Error(
       `File parse failed for ${doc.fileName}: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
     );
@@ -524,6 +721,9 @@ async function processDocument(
       .update(documents)
       .set({ status: 'complete', processedAt: new Date(), processingError: 'No text extracted' })
       .where(eq(documents.id, documentId));
+    if (fileBackedCachePath) {
+      await unlink(fileBackedCachePath).catch(() => undefined);
+    }
     return outcome;
   }
 
@@ -531,25 +731,25 @@ async function processDocument(
   const textChunks = chunkText(rawText);
   let chunkVectors: (number[] | null)[] = [];
   try {
-    const { vectors } = await embedMany(textChunks);
+    const { vectors } = await embedMany(textChunks.map((c) => c.text));
     chunkVectors = vectors;
   } catch (embedErr) {
     console.warn('[document-ingestion] embed failed; inserting chunks without vectors', embedErr);
     chunkVectors = textChunks.map(() => null);
   }
 
-  const insertedChunkIds: Array<{ id: string; text: string }> = [];
+  const insertedChunkIds: InsertedDocumentChunk[] = [];
   for (let i = 0; i < textChunks.length; i++) {
-    const text = textChunks[i]!;
-    const contentHash = createHash('sha256').update(text).digest('hex');
+    const chunkTextWindow = textChunks[i]!;
+    const contentHash = createHash('sha256').update(chunkTextWindow.text).digest('hex');
     try {
       const [chunk] = await db
         .insert(documentChunks)
         .values({
           documentId,
           chunkIndex: i,
-          rawText: text,
-          tokenCount: Math.ceil(text.length / 4),
+          rawText: chunkTextWindow.text,
+          tokenCount: Math.ceil(chunkTextWindow.text.length / 4),
           contentHash,
           embedding: chunkVectors[i] ?? null,
           metadataJson: { fileType: doc.fileType, fileName: doc.fileName },
@@ -558,7 +758,7 @@ async function processDocument(
         .returning({ id: documentChunks.id });
       if (chunk) {
         outcome.chunksInserted += 1;
-        insertedChunkIds.push({ id: chunk.id, text });
+        insertedChunkIds.push({ id: chunk.id, ...chunkTextWindow });
       } else {
         const [existingChunk] = await db
           .select({ id: documentChunks.id })
@@ -571,7 +771,7 @@ async function processDocument(
           )
           .limit(1);
         if (existingChunk) {
-          insertedChunkIds.push({ id: existingChunk.id, text });
+          insertedChunkIds.push({ id: existingChunk.id, ...chunkTextWindow });
         }
       }
     } catch (chunkErr) {
@@ -584,6 +784,9 @@ async function processDocument(
       .update(documents)
       .set({ status: 'complete', processedAt: new Date() })
       .where(eq(documents.id, documentId));
+    if (fileBackedCachePath) {
+      await unlink(fileBackedCachePath).catch(() => undefined);
+    }
     return outcome;
   }
 
@@ -615,7 +818,7 @@ async function processDocument(
     const baseDocumentNote =
       parseKind === 'image'
         ? `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded image (not a conversation, not a native text document). Extract claims about operational processes, rules, systems, and dependencies that are explicitly supported by this transcription.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}`
-        : `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}`;
+        : `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}\n\nDOCUMENT EXTRACTION DENSITY:\n- If the document is an SOP, checklist, responsibility list, training guide, or numbered/bulleted workflow, treat each actionable responsibility, required input, required output, system update, file-save rule, approval step, exception, handoff, or escalation as its own candidate claim when it has distinct evidence.\n- Do not summarize an entire section into one broad claim when the section contains multiple concrete steps.\n- It is acceptable and expected for a dense responsibilities document to produce many small claims from one chunk.`;
     const documentNote = baseDocumentNote + buildUploaderContextNote(doc, topDomainNameMap);
     const blocks = [
       makeBlock({
@@ -625,6 +828,17 @@ async function processDocument(
         content: EXTRACTION_SYSTEM_PROMPT + documentNote,
         reasonIncluded: 'extraction prompt v' + EXTRACTION_PROMPT_VERSION + ' (document mode)',
       }),
+      ...(correctionLessons.promptBlock
+        ? [
+            makeBlock({
+              id: 'reviewer-correction-lessons',
+              label: 'Approved reviewer correction lessons',
+              kind: 'semi_stable_domain_context' as const,
+              content: correctionLessons.promptBlock,
+              reasonIncluded: 'approved claim revisions teach extraction corrections',
+            }),
+          ]
+        : []),
       makeBlock({
         id: 'document-text',
         label: 'Document chunks',
@@ -637,7 +851,7 @@ async function processDocument(
         label: 'Document extraction request',
         kind: 'dynamic_input',
         content:
-          'Read the document chunks as a whole, infer the operational process flow they describe, and extract evidence-backed operational claims. Classify by meaning and handoff structure, not by literal keywords. Every exactQuote must be copied verbatim from within ONE provided document chunk, and sourceMessageId must be that exact Document Chunk ID. Return only claims that are explicitly supported by the document text.',
+          'Read the document chunks as a whole, infer the operational process flow they describe, and extract dense, evidence-backed operational claims. For SOP/checklist/responsibility-list text, extract each concrete actionable step or handoff as a separate claim; do not collapse a numbered list or section into one broad summary. Classify by meaning and handoff structure, not by literal keywords. Every exactQuote must be copied verbatim from within ONE provided document chunk, and sourceMessageId must be that exact Document Chunk ID. Return only claims that are explicitly supported by the document text.',
         reasonIncluded:
           'small dynamic request so the document corpus can be cached as reusable prefix',
       }),
@@ -794,13 +1008,13 @@ async function processDocument(
     //    against the chunk independently.
     if (modelOutput) {
       for (const extracted of modelOutput.claims) {
-        // Pick the chunk whose text contains the quote. If none does, the
-        // quote validator will reject it as 'failed' anyway.
-        const matchingChunk = windowChunks.find((c) =>
-          c.text.includes(extracted.evidence.exactQuote),
-        );
         const sourceIdChunk = windowChunks.find((c) => c.id === extracted.evidence.sourceMessageId);
-        const chunkForEvidence = matchingChunk ?? sourceIdChunk ?? windowChunks[0]!;
+        const chunkForEvidence = pickEvidenceChunk(
+          rawText,
+          extracted.evidence.exactQuote,
+          windowChunks,
+          sourceIdChunk,
+        );
 
         const proposedTopDomainIds = mapLegacyDomainsToTopDomains(
           extracted.domains as KnowledgeDomain[],
@@ -1039,6 +1253,16 @@ async function processDocument(
 
           // Write document-level + chunk-level top-domain tags for retrieval.
           if (result.outcome !== 'recorded_rejection') {
+            const autoApproved = await autoApproveDocumentClaimIfEligible({
+              db,
+              candidateId: candidate.id,
+              extracted,
+              result,
+              quoteVerdict: quoteRes.verdict,
+              validTopDomainIds: taxRes.validTopDomainIds,
+            });
+            if (autoApproved) outcome.claimsAutoApproved += 1;
+
             for (const topDomainId of taxRes.validTopDomainIds) {
               await db
                 .insert(documentTopDomains)
@@ -1215,6 +1439,47 @@ function buildContextPackInsert(plan: OraclePromptPlan) {
     includedGapIds: plan.metadata.includedGapIds ?? null,
     includedContradictionIds: plan.metadata.includedContradictionIds ?? null,
   };
+}
+
+/**
+ * Choose the document chunk to attach as the evidence pointer for a quote.
+ *
+ * Searches the full rawText first, then maps the match offset into the current
+ * extraction window. This catches quotes that straddle chunk-overlap boundaries
+ * better than checking each chunk's text independently.
+ */
+function pickEvidenceChunk<TChunk extends InsertedDocumentChunk>(
+  rawText: string,
+  exactQuote: string,
+  chunks: TChunk[],
+  sourceIdFallback?: TChunk,
+): TChunk {
+  const fallback = sourceIdFallback ?? chunks[0]!;
+  if (!exactQuote) return fallback;
+
+  let matchOffset = rawText.indexOf(exactQuote);
+  if (matchOffset < 0) {
+    const collapsedRaw = rawText.replace(/\s+/g, ' ');
+    const collapsedQuote = exactQuote.replace(/\s+/g, ' ').trim();
+    const collapsedIdx = collapsedQuote ? collapsedRaw.indexOf(collapsedQuote) : -1;
+    if (collapsedIdx < 0) return fallback;
+    let consumed = 0;
+    for (let i = 0; i < rawText.length; i++) {
+      if (consumed >= collapsedIdx) {
+        matchOffset = i;
+        break;
+      }
+      if (/\s/.test(rawText[i]!)) {
+        if (i === 0 || !/\s/.test(rawText[i - 1]!)) consumed += 1;
+      } else {
+        consumed += 1;
+      }
+    }
+    if (matchOffset < 0) return fallback;
+  }
+
+  const covering = chunks.find((c) => matchOffset >= c.start && matchOffset < c.end);
+  return covering ?? fallback;
 }
 
 async function materializeVertexCacheTempFile(buffer: Buffer, fileName: string): Promise<string> {

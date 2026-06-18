@@ -40,9 +40,9 @@ function normalizeSmartQuotes(s: string): string {
     .replace(/[–—]/g, '-');
 }
 
-/** Collapse runs of internal whitespace to a single space. */
+/** Collapse runs of internal whitespace, including line breaks, to a single space. */
 function normalizeInternalWhitespace(s: string): string {
-  return s.replace(/[ \t\f\v]+/g, ' ').replace(/[ \t\f\v]*\n[ \t\f\v]*/g, '\n');
+  return s.replace(/\s+/g, ' ');
 }
 
 /** Strip leading/trailing whitespace. */

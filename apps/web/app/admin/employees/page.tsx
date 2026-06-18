@@ -10,17 +10,21 @@ import {
   employeeDepartments,
   employeeIdentities,
 } from '@oracle/db/schema';
+import { requireAdmin } from '@/lib/auth-guard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   getGraphConfigOrNull,
   listTenantUsers,
   type GraphTenantUser,
 } from '@/lib/microsoft-graph';
+import { formatNYDateTime } from '@/lib/time';
 import { AddEmployeeForm } from './_components/add-employee-form';
+import { EmployeeAccessForm } from './_components/employee-access-form';
 import { EditEmployeeDepartments } from './_components/edit-employee-departments';
 import { M365InviteRow } from './_components/m365-invite-row';
 
 export default async function AdminEmployeesPage() {
+  const me = await requireAdmin();
   const db = getDirectDb();
 
   const graphConfigured = getGraphConfigOrNull() !== null;
@@ -39,6 +43,7 @@ export default async function AdminEmployeesPage() {
         email: employees.email,
         role: employees.role,
         isAdmin: employees.isAdmin,
+        disabledAt: employees.disabledAt,
         lastLoginAt: employees.lastLoginAt,
         identityProviders: sql<string | null>`
           string_agg(DISTINCT ${employeeIdentities.authProvider}::text, ', ')
@@ -73,6 +78,8 @@ export default async function AdminEmployeesPage() {
   // Diff the tenant directory against existing employees by email (case-
   // insensitive). Already-onboarded users drop off this list.
   const existingEmails = new Set(rows.map((r) => r.email.toLowerCase()));
+  const activeCount = rows.filter((r) => !r.disabledAt).length;
+  const disabledCount = rows.length - activeCount;
   const m365Error =
     Array.isArray(m365Result) ? null : 'error' in m365Result ? m365Result.error : null;
   const m365UsersToInvite = Array.isArray(m365Result)
@@ -107,7 +114,14 @@ export default async function AdminEmployeesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{rows.length} employees</CardTitle>
+          <CardTitle className="text-base">
+            {activeCount} active employees
+            {disabledCount > 0 && (
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {disabledCount} disabled
+              </span>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -118,6 +132,7 @@ export default async function AdminEmployeesPage() {
                   <th className="py-2 pr-4">Email</th>
                   <th className="py-2 pr-4">Role</th>
                   <th className="py-2 pr-4 w-80">Department(s)</th>
+                  <th className="py-2 pr-4">Access</th>
                   <th className="py-2 pr-4">Admin</th>
                   <th className="py-2 pr-4">Identities</th>
                   <th className="py-2 pr-4">Last login</th>
@@ -133,7 +148,10 @@ export default async function AdminEmployeesPage() {
                       ? `${e.legacyDepartments.join(', ')} (unmapped)`
                       : '');
                   return (
-                    <tr key={e.id} className="border-b last:border-0 align-top">
+                    <tr
+                      key={e.id}
+                      className={`border-b last:border-0 align-top ${e.disabledAt ? 'opacity-60' : ''}`}
+                    >
                       <td className="py-2 pr-4 font-medium">{e.name}</td>
                       <td className="py-2 pr-4">{e.email}</td>
                       <td className="py-2 pr-4">{e.role}</td>
@@ -145,11 +163,19 @@ export default async function AdminEmployeesPage() {
                           currentSummary={summary}
                         />
                       </td>
+                      <td className="py-2 pr-4">
+                        <EmployeeAccessForm
+                          employeeId={e.id}
+                          disabled={!!e.disabledAt}
+                          disabledAt={e.disabledAt?.toISOString() ?? null}
+                          isCurrentUser={e.id === me.id}
+                        />
+                      </td>
                       <td className="py-2 pr-4">{e.isAdmin ? 'yes' : 'no'}</td>
                       <td className="py-2 pr-4">{e.identityProviders ?? '—'}</td>
                       <td className="py-2 pr-4">
                         {e.lastLoginAt
-                          ? new Date(e.lastLoginAt).toLocaleString()
+                          ? formatNYDateTime(e.lastLoginAt)
                           : '—'}
                       </td>
                     </tr>

@@ -52,6 +52,7 @@ import {
   EXTRACTION_PROMPT_VERSION,
   ExtractionOutputSchema,
   formatConversationSegment,
+  loadClaimCorrectionLessonPack,
   type FormattedMessage,
   type ExtractionOutput,
 } from '@oracle/ai';
@@ -161,10 +162,34 @@ export async function runClaimExtractionOnce(
         return { ok: true, ...totals };
       }
 
+      // 0.5. Reaper — reset messages stuck in 'processing'. A worker crash
+      //      between the 'processing' flip (step 3) and the terminal status
+      //      update leaves messages stranded: only 'pending' is ever
+      //      re-selected, so a stuck 'processing' row would never be retried.
+      //      Reset any 'processing' row older than 2 hours back to 'pending'
+      //      so the next pass picks it up. Idempotent (no-op when nothing is
+      //      stuck) and uses created_at since 'processing' has no own timestamp.
+      const reaped = await db
+        .update(messages)
+        .set({ extractionStatus: 'pending' })
+        .where(
+          and(
+            eq(messages.extractionStatus, 'processing'),
+            sql`${messages.createdAt} < now() - interval '2 hours'`,
+          ),
+        )
+        .returning({ id: messages.id });
+      if (reaped.length > 0) {
+        console.warn(
+          `[claim-extraction] reaper reset ${reaped.length} message(s) stuck in 'processing' (>2h) back to 'pending'.`,
+        );
+      }
+
       // 1. Resolve the curated extraction route.
       const route = await resolveExtractionRoute(db);
       const activeTopDomainIds = await loadActiveTopDomainIds(db);
       const entityRegistry = await loadEntityRegistry(db);
+      const correctionLessons = await loadClaimCorrectionLessonPack(db);
 
       // 2. Pull pending user messages.
       const pendingMessages = await db
@@ -210,6 +235,7 @@ export async function runClaimExtractionOnce(
             route,
             activeTopDomainIds,
             entityRegistry,
+            correctionLessonsPromptBlock: correctionLessons.promptBlock,
             jobRunId: jobRun.id,
             segment,
           });
@@ -278,12 +304,22 @@ interface ProcessSegmentArgs {
   route: OracleModelRoute;
   activeTopDomainIds: string[];
   entityRegistry: RegistryEntity[];
+  correctionLessonsPromptBlock: string;
   jobRunId: string;
   segment: FormattedMessage[];
 }
 
 async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome> {
-  const { db, client, route, activeTopDomainIds, entityRegistry, jobRunId, segment } = args;
+  const {
+    db,
+    client,
+    route,
+    activeTopDomainIds,
+    entityRegistry,
+    correctionLessonsPromptBlock,
+    jobRunId,
+    segment,
+  } = args;
   const segmentIds = segment.map((m) => m.id);
   const userMessages = segment.filter((m) => m.role === 'user');
 
@@ -315,6 +351,17 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
       content: EXTRACTION_SYSTEM_PROMPT,
       reasonIncluded: 'extraction prompt v' + EXTRACTION_PROMPT_VERSION,
     }),
+    ...(correctionLessonsPromptBlock
+      ? [
+          makeBlock({
+            id: 'reviewer-correction-lessons',
+            label: 'Approved reviewer correction lessons',
+            kind: 'semi_stable_domain_context' as const,
+            content: correctionLessonsPromptBlock,
+            reasonIncluded: 'approved claim revisions teach extraction corrections',
+          }),
+        ]
+      : []),
     makeBlock({
       id: 'segment',
       label: 'Conversation segment to extract from',

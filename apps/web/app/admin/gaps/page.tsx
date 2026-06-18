@@ -5,6 +5,7 @@ import { desc, eq } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { gaps, employees } from '@oracle/db/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDate } from '@/lib/time';
 import { updateGapStatus } from './_actions';
 
 const STATUS_TABS = [
@@ -148,7 +149,7 @@ export default async function AdminGapsPage({
                         {row.employeeName ?? row.targetDepartment ?? '—'}
                       </td>
                       <td className="py-3 pr-4 whitespace-nowrap text-xs text-muted-foreground">
-                        {new Date(row.createdAt).toLocaleDateString()}
+                        {formatNYDate(row.createdAt)}
                       </td>
                       <td className="py-3">
                         {['open', 'queued', 'asked'].includes(row.status) && (

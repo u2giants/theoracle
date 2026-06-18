@@ -437,15 +437,23 @@ export async function POST(req: NextRequest) {
   let fallbackReason: string | undefined;
 
   try {
-    const messagesWithContext = [
-      {
-        role: 'user' as const,
-        content:
-          '[Oracle runtime context - not part of the employee chat transcript]\n' +
-          dynamicContext,
-      },
-      ...safeMessages,
-    ];
+    // Cache-friendly ordering: fold the volatile per-turn runtime context
+    // (gaps + freshly-retrieved claims, which change every turn) into the LAST
+    // user turn so the system prompt + prior conversation history stay a stable,
+    // cacheable prefix. Prepending it (the old behavior) changed message index 1
+    // on every turn and busted provider prefix caching for the whole thread.
+    const runtimeBlock =
+      '[Oracle runtime context - not part of the employee chat transcript]\n' +
+      dynamicContext;
+    const messagesWithContext: ConversationMessage[] = safeMessages.map((m) => ({ ...m }));
+    const lastTurn = messagesWithContext[messagesWithContext.length - 1];
+    if (!lastTurn || lastTurn.role !== 'user') {
+      messagesWithContext.push({ role: 'user', content: runtimeBlock });
+    } else if (typeof lastTurn.content === 'string') {
+      lastTurn.content = `${lastTurn.content}\n\n${runtimeBlock}`;
+    } else {
+      lastTurn.content = [...lastTurn.content, { type: 'text', text: runtimeBlock }];
+    }
     const result = await getOracleClient().runText({
       taskType: 'interview_chat',
       routeId: route.routeId,

@@ -19,6 +19,7 @@ import {
   type CapKey,
   type Stage,
 } from '@/lib/stage-requirements';
+import { formatNYDateTime } from '@/lib/time';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -290,7 +291,7 @@ export function ModelPoolEditor({
         <span className="text-muted-foreground">
           Catalog last refreshed:{' '}
           <strong className="text-foreground">
-            {refreshedAt ? new Date(refreshedAt).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : 'never'}
+            {refreshedAt ? formatNYDateTime(refreshedAt) : 'never'}
           </strong>
           {' '}({enrichedCatalog.length} models shown
           {hiddenCount > 0 && (

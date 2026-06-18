@@ -300,6 +300,42 @@ async function loadChannelContext(
   };
 }
 
+// ─── Rate-state re-read (used inside the advisory lock) ─────────────────────
+// Re-reads ONLY the cooldown + hourly-count inputs to decideLullInterjection
+// so the post decision can be re-validated under the per-channel lock. Accepts
+// a db or tx handle.
+async function reloadInterjectionRateState(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  dbOrTx: any,
+  channelId: string,
+  now: Date,
+): Promise<{ minutesSinceLastOracleInterjection: number | null; interjectionsInLastHour: number }> {
+  const lastInterventionRows = await dbOrTx
+    .select({ createdAt: oracleInterventions.createdAt })
+    .from(oracleInterventions)
+    .where(eq(oracleInterventions.channelId, channelId))
+    .orderBy(desc(oracleInterventions.createdAt))
+    .limit(1);
+  const minutesSinceLastOracleInterjection =
+    lastInterventionRows.length > 0 && lastInterventionRows[0]
+      ? Math.floor((now.getTime() - lastInterventionRows[0].createdAt.getTime()) / 60_000)
+      : null;
+  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+  const countRows = await dbOrTx
+    .select({ c: sql<number>`count(*)::int` })
+    .from(oracleInterventions)
+    .where(
+      and(
+        eq(oracleInterventions.channelId, channelId),
+        gte(oracleInterventions.createdAt, oneHourAgo),
+      ),
+    );
+  return {
+    minutesSinceLastOracleInterjection,
+    interjectionsInLastHour: countRows[0]?.c ?? 0,
+  };
+}
+
 // ─── Drafting via OracleAIClient.runText (interview route) ──────────────────
 async function draftLullQuestion(
   db: ReturnType<typeof getDirectDb>,
@@ -496,57 +532,93 @@ async function processChannel(
       // The decider already enforces this, but TS doesn't know.
       return { channelId: channel.id, decision: 'skip', reasonCode: 'no_relevant_gap' };
     }
-    const drafted = await draftLullQuestion(db, client, route, ctx.topRelevantOpenGap, ctx.recentMessageExcerpts);
+    const gap = ctx.topRelevantOpenGap;
 
-    // Insert the assistant message (no employeeId — Oracle messages are
-    // employeeId=null per the schema; role='assistant').
-    const [interjectionMessage] = await db
-      .insert(messages)
-      .values({
+    // Draft OUTSIDE the lock (don't hold the advisory lock across the LLM call).
+    const drafted = await draftLullQuestion(db, client, route, gap, ctx.recentMessageExcerpts);
+
+    // Commit inside a transaction guarded by a per-channel advisory lock so two
+    // concurrent runs can't both blow past the per-hour interjection cap on the
+    // same channel. Re-read the rate/cooldown state inside the lock and re-run
+    // the decider; also claim the gap atomically so two workers can't ask the
+    // same gap. If the lock is contended or the re-check/gap-claim fails, skip.
+    return await db.transaction(async (tx) => {
+      const lockRes = await tx.execute<{ locked: boolean }>(
+        sql`SELECT pg_try_advisory_xact_lock(hashtext(${channel.id})) AS locked`,
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const lockRows: Array<{ locked: boolean }> = (lockRes as any).rows ?? (lockRes as any);
+      if (lockRows[0]?.locked !== true) {
+        return { channelId: channel.id, decision: 'skip' as const, reasonCode: 'skipped: lock_contended' };
+      }
+
+      // Re-read cooldown + rate-cap state inside the lock and re-decide.
+      const recheck = await reloadInterjectionRateState(tx, channel.id, new Date());
+      const recheckDecision = decideLullInterjection({
+        ...decisionInput,
+        minutesSinceLastOracleInterjection: recheck.minutesSinceLastOracleInterjection,
+        interjectionsInLastHour: recheck.interjectionsInLastHour,
+      });
+      if (recheckDecision.decision === 'skip') {
+        return { channelId: channel.id, decision: 'skip' as const, reasonCode: recheckDecision.reasonCode };
+      }
+
+      // Claim the gap atomically — only if it is still open.
+      const claimed = await tx
+        .update(gaps)
+        .set({ status: 'asked', updatedAt: new Date() })
+        .where(and(eq(gaps.id, gap.id), eq(gaps.status, 'open')))
+        .returning({ id: gaps.id });
+      if (claimed.length === 0) {
+        return { channelId: channel.id, decision: 'skip' as const, reasonCode: 'gap_already_claimed' };
+      }
+
+      // Insert the assistant message (no employeeId — Oracle messages are
+      // employeeId=null per the schema; role='assistant').
+      const [interjectionMessage] = await tx
+        .insert(messages)
+        .values({
+          channelId: channel.id,
+          employeeId: null,
+          role: 'assistant',
+          content: drafted.text,
+          // extractionStatus stays 'pending' default per schema; the extraction
+          // worker queries role='user' so it'll naturally skip Oracle messages.
+          metadataJson: {
+            source: 'lull-interjection',
+            gapId: gap.id,
+            modelRunId: drafted.modelRunId,
+            decisionReason: decision.reason,
+          },
+        })
+        .returning({ id: messages.id });
+      if (!interjectionMessage) throw new Error('failed to insert assistant message');
+
+      // Record the intervention.
+      await tx.insert(oracleInterventions).values({
         channelId: channel.id,
-        employeeId: null,
-        role: 'assistant',
-        content: drafted.text,
-        // extractionStatus stays 'pending' default per schema; the extraction
-        // worker queries role='user' so it'll naturally skip Oracle messages.
-        metadataJson: {
-          source: 'lull-interjection',
-          gapId: ctx.topRelevantOpenGap.id,
-          modelRunId: drafted.modelRunId,
-          decisionReason: decision.reason,
-        },
-      })
-      .returning({ id: messages.id });
-    if (!interjectionMessage) throw new Error('failed to insert assistant message');
+        triggerType: 'lull_gap',
+        relatedGapId: gap.id,
+        interjectionMessageId: interjectionMessage.id,
+        confidence: null,
+        impactScore: null,
+        wasLiveInterjection: true,
+        reason: decision.reason,
+      });
 
-    // Record the intervention.
-    await db.insert(oracleInterventions).values({
-      channelId: channel.id,
-      triggerType: 'lull_gap',
-      relatedGapId: ctx.topRelevantOpenGap.id,
-      interjectionMessageId: interjectionMessage.id,
-      confidence: null,
-      impactScore: null,
-      wasLiveInterjection: true,
-      reason: decision.reason,
+      // Back-fill askedInMessageId now that the message exists.
+      await tx
+        .update(gaps)
+        .set({ askedInMessageId: interjectionMessage.id })
+        .where(eq(gaps.id, gap.id));
+
+      return {
+        channelId: channel.id,
+        decision: 'ask' as const,
+        interjectionMessageId: interjectionMessage.id,
+        gapId: gap.id,
+      };
     });
-
-    // Mark the gap as asked.
-    await db
-      .update(gaps)
-      .set({
-        status: 'asked',
-        askedInMessageId: interjectionMessage.id,
-        updatedAt: new Date(),
-      })
-      .where(eq(gaps.id, ctx.topRelevantOpenGap.id));
-
-    return {
-      channelId: channel.id,
-      decision: 'ask',
-      interjectionMessageId: interjectionMessage.id,
-      gapId: ctx.topRelevantOpenGap.id,
-    };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     console.error(`[lull-interjection] channel ${channel.id} drafting/posting failed:`, errorMessage);
@@ -567,6 +639,10 @@ export const lullInterjectionTask = schedules.task({
   // often enough that a 60s lull window can fire promptly.
   cron: '* * * * *',
   maxDuration: 60 * 2,
+  // Retries disabled: this runs every minute and posts live interjections. A
+  // retry would re-evaluate stale channels and risk a duplicate post; the next
+  // tick is the natural retry. (Per-task override of the global default=3.)
+  retry: { maxAttempts: 1 },
   run: async (_payload, { ctx }) => {
     const db = getDirectDb();
     const client = buildOracleClient();

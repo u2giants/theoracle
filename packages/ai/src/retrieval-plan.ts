@@ -235,6 +235,41 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
     ],
   },
   {
+    domainId: 'creative_design',
+    keywords: [
+      // Art and design concept work — distinct from product_development's
+      // physical-product framing and design_file_operations' file hygiene.
+      // Matching is substring-based (`query.includes`), so broad single tokens
+      // ('art', 'comp', 'illustrator', 'color') are intentionally avoided: they
+      // bleed into design_file_operations (e.g. "Illustrator files") and match
+      // unrelated words ("company", "part"). Keep keywords distinctive.
+      'art direction', 'design concept', 'creative concept',
+      'illustration', 'graphic design', 'visual design',
+      'mockup', 'moodboard', 'mood board',
+      // Visual / print / packaging design
+      'color palette', 'palette', 'typography', 'logo design',
+      'print design', 'packaging art', 'packaging design', 'label design',
+      'pattern design', 'character design', 'key art', 'hero image',
+      // Creative process
+      'creative brief', 'design brief', 'render concept', 'rendering',
+    ],
+  },
+  {
+    domainId: 'vendor_management',
+    keywords: [
+      // Disambiguated from supply_chain (sourcing/procurement/production).
+      // These terms are about managing the vendor relationship itself.
+      'vendor management', 'vendor onboarding', 'onboard vendor', 'vendor setup',
+      'vendor scorecard', 'vendor scorecards', 'vendor audit', 'vendor audits',
+      'vendor compliance', 'vendor approval', 'approved vendor list',
+      'vendor evaluation', 'supplier evaluation', 'supplier onboarding',
+      'supplier scorecard', 'supplier audit', 'supplier management',
+      'vendor performance review', 'vendor rating', 'vendor qualification',
+      'supplier qualification', 'vendor agreement', 'vendor contract',
+      'vendor offboarding', 'preferred vendor', 'vendor relationship',
+    ],
+  },
+  {
     domainId: 'logistics_shipping',
     keywords: [
       // General shipping
@@ -350,24 +385,34 @@ const DOMAIN_KEYWORDS: Array<{ domainId: string; keywords: string[] }> = [
   {
     domainId: 'finance_pricing',
     keywords: [
-      // Costs
-      'cost', 'costing', 'fob cost', 'landed cost', 'unit cost',
-      'duty cost', 'freight cost', 'all-in cost',
-      // Pricing
-      'price', 'pricing', 'wholesale', 'retail price', 'msrp',
-      'markup', 'margin', 'gross margin', 'contribution margin',
-      // Quotes and proformas
-      'quote', 'quotation', 'proforma', 'proforma invoice', 'pi',
+      // Product costing and customer product pricing. Company finance/accounting
+      // is intentionally out of scope for this domain.
+      'costing sheet', 'sku costing', 'product costing', 'cost sheet',
+      'fob cost', 'landed cost', 'unit cost', 'duty cost', 'freight cost',
+      'all-in cost', 'factory quote', 'factory quotation', 'quote sheet',
       'price list', 'price sheet',
-      // Terms and payments
-      'vendor terms', 'finance', 'payment', 'invoice', 'budget',
-      'credit', 'payment terms', 'net 30', 'net 60', 'net 45',
-      'wire transfer', 'bank transfer', 'wire', 'tt payment',
-      'letter of credit', 'lc ', 'deposit', 'balance payment',
-      'accounts payable', 'accounts receivable',
+      'customer pricing', 'product pricing', 'wholesale price', 'retail price',
+      'msrp', 'markup', 'margin', 'gross margin', 'contribution margin',
       // IP fees
       'royalty', 'royalties', 'licensing fee', 'advance', 'guarantee',
       'minimum guarantee', 'mg ',
+    ],
+  },
+  {
+    domainId: 'training_enablement',
+    keywords: [
+      // Learning how to perform a job or workflow, distinct from people_org's
+      // ownership/escalation map and from sensitive HR performance records.
+      'training', 'train people', 'train employees', 'trained on',
+      'how to train', 'training plan', 'training guide', 'training material',
+      'training materials', 'training checklist', 'training video',
+      'onboarding checklist', 'new hire training', 'new employee training',
+      'job training', 'role training', 'sop training', 'standard operating procedure',
+      'work instruction', 'work instructions', 'shadowing', 'job shadow',
+      'cross train', 'cross-training', 'cross training', 'refresher training',
+      'certification', 'skill check', 'skills check', 'competency',
+      'learn to do', 'learn how to', 'teach someone', 'teach the team',
+      'how do i learn', 'how should i learn',
     ],
   },
   {
@@ -670,7 +715,31 @@ function inferTopDomainExclusions(query: string, topDomainHints: string[]): stri
       // Data-flow questions about business systems should not be pulled into
       // generic customer orders, licensor approvals, or design-art workflow
       // just because the source sheet or PLM name contains overlapping words.
+      // NOTE: creative_design is now an inferable domain (it has its own
+      // DOMAIN_KEYWORDS group). This exclusion is intentional — when the query
+      // is clearly a Designflow/PLM data-flow question, art-concept claims are
+      // off-topic noise and must be suppressed even though the domain matched.
       return ['customer_ops', 'licensing_approvals', 'creative_design'];
+    }
+  }
+
+  if (topDomainHints.includes('training_enablement')) {
+    const looksLikeTraining =
+      [
+        'training', 'trained on', 'training plan', 'training guide',
+        'training material', 'training materials', 'training checklist',
+        'onboarding checklist', 'new hire training', 'job training',
+        'role training', 'sop training', 'work instruction', 'shadowing',
+        'cross train', 'cross-training', 'cross training', 'refresher training',
+        'certification', 'skill check', 'skills check', 'competency',
+        'learn to do', 'learn how to', 'teach someone', 'teach the team',
+      ].some((k) => query.includes(k));
+
+    if (looksLikeTraining) {
+      // Training questions need procedural learning material. They should not
+      // drift into org ownership or sensitive HR/performance context unless the
+      // user explicitly asks who owns the training or about personnel records.
+      return ['people_org'];
     }
   }
 

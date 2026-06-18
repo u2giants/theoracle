@@ -111,9 +111,12 @@ export class OpenAIAdapter implements OracleProviderAdapter {
     const promptCacheRetention = pickOpenAICacheRetention(plan.taskType, providerOptions);
     const completion = await this.client.chat.completions.create({
       model: route.modelId,
-      messages: this.buildMessages(systemPrompt, userMessage),
+      messages: this.buildMessages(systemPrompt, userMessage, providerOptions),
       prompt_cache_retention: promptCacheRetention,
-      temperature: 0.1,
+      temperature:
+        typeof providerOptions?.temperature === 'number'
+          ? providerOptions.temperature
+          : 0.1,
       response_format: {
         type: 'json_schema',
         json_schema: {
@@ -361,8 +364,8 @@ export class OpenAIAdapter implements OracleProviderAdapter {
 /**
  * OpenAI's strict JSON-schema mode rejects certain keywords that Zod's
  * converter emits but the OpenAPI subset doesn't support — most commonly
- * `$schema`, `format` on unrecognised types, and `default` on optional
- * properties. Strip them defensively so the schema validates server-side.
+ * `$schema` and `default` on optional properties. `walk` strips those two
+ * keys defensively so the schema validates server-side.
  */
 function stripIncompatibleFields(
   schema: Record<string, unknown>,

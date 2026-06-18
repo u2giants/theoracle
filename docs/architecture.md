@@ -59,11 +59,13 @@ System design for The Oracle. For business context and the operating philosophy,
          │           LLM providers              │
          │  Every model call goes through       │
          │  OracleAIClient → ModelRouter →      │
-         │  one of five direct adapters         │
+         │  one of six direct adapters          │
          │  (registered via buildStandardAdapters):
          │    AnthropicAdapter                  │
          │      (@anthropic-ai/sdk)             │
          │    VertexGeminiAdapter               │
+         │      (@google/genai)                 │
+         │    GoogleGeminiAdapter               │
          │      (@google/genai)                 │
          │    OpenAIAdapter                     │
          │      (openai)                        │
@@ -84,7 +86,7 @@ System design for The Oracle. For business context and the operating philosophy,
                    context/context-compiler.ts,
                    routing/model-router.ts,
                    providers/{anthropic,vertex-gemini,
-                   openai,mock}-adapter.ts,
+                   google-gemini,openai,mock}-adapter.ts,
                    routes/catalog.ts (curated routes),
                    embeddings.ts, retrieval.ts,
                    prompts/{oracle-system,extraction-system}.ts.
@@ -94,7 +96,7 @@ Every production model call goes through this pipeline. The Vercel AI SDK is exp
 
 ## AI model adapters
 
-The adapters are the "translation layer" between Oracle's provider-agnostic call shape and each LLM provider's specific API. There are 5 production adapters today.
+The adapters are the "translation layer" between Oracle's provider-agnostic call shape and each LLM provider's specific API. There are 6 production adapters today.
 
 ### The adapter contract
 
@@ -102,7 +104,7 @@ All adapters implement `OracleProviderAdapter` (`packages/ai/src/providers/types
 
 ```typescript
 interface OracleProviderAdapter {
-  readonly provider: OracleProvider;     // 'anthropic' | 'vertex' | 'openai' | 'deepseek' | 'qwen'
+  readonly provider: OracleProvider;     // 'anthropic' | 'vertex' | 'google' | 'openai' | 'deepseek' | 'qwen'
   generateText(args: GenerateTextArgs): Promise<OracleTextResult>;
   generateObject<TSchema, TOutput>(args: GenerateObjectArgs<TSchema>): Promise<OracleObjectResult<TOutput>>;
   streamText?(args: GenerateTextArgs): AsyncIterable<{ delta: string; usage?: OracleUsage }>;
@@ -117,17 +119,17 @@ Callers don't pick an adapter directly. They:
 4. `ModelRouter` looks up the adapter by `route.provider` and dispatches `generateText` or `generateObject` against it.
 5. The adapter calls the provider SDK, normalizes the response into `OracleTextResult` / `OracleObjectResult`, and normalizes usage into `OracleUsage`.
 
-`buildStandardAdapters()` in `packages/ai/src/client/standard-adapters.ts` returns the production adapter map (`{ anthropic, vertex, openai, deepseek, qwen }`). It's tolerant of missing env keys — an adapter whose constructor throws is silently omitted, so a missing `DEEPSEEK_API_KEY` only fails requests routed to DeepSeek, not the whole map. Every worker and the chat route import this helper rather than instantiating adapters individually.
+`buildStandardAdapters()` in `packages/ai/src/client/standard-adapters.ts` returns the production adapter map (`{ anthropic, vertex, google, openai, deepseek, qwen }`). It's tolerant of missing env keys — an adapter whose constructor throws is silently omitted, so a missing `DEEPSEEK_API_KEY` only fails requests routed to DeepSeek, not the whole map. Every worker and the chat route import this helper rather than instantiating adapters individually.
 
 ### Per-adapter behavior
 
-| Concern | AnthropicAdapter | OpenAIAdapter | VertexGeminiAdapter | DeepSeekAdapter | QwenAdapter |
-|---|---|---|---|---|---|
-| SDK | `@anthropic-ai/sdk` | `openai` | `@google/genai` | `openai` (custom baseURL) | `openai` (custom baseURL) |
-| Base URL | `api.anthropic.com` (SDK default) | `api.openai.com` (SDK default) | `<region>-aiplatform.googleapis.com` | `https://api.deepseek.com` | `https://dashscope-us.aliyuncs.com/compatible-mode/v1` |
-| Auth env var | `ANTHROPIC_API_KEY` | `OPENAI_API_KEY` (+ optional `OPENAI_ORG_ID`) | Application Default Credentials + `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` | `DEEPSEEK_API_KEY` | `DASHSCOPE_API_KEY` |
-| `generateText` call | `client.messages.create({ model, max_tokens, system, messages, [thinking] })` | `client.chat.completions.create({ model, messages, [temperature], [reasoning_effort] })` | `client.models.generateContent({ model, contents, config: { systemInstruction, [thinkingConfig] } })` | `client.chat.completions.create({ model, messages, [temperature] })` | `client.chat.completions.create({ model, messages, [temperature], [enable_thinking, thinking_budget] })` |
-| `generateObject` strategy | Tool-call enforcement: a single tool named `output_structured` whose `input_schema` is the JSON Schema; `tool_choice: { type: 'tool', name: TOOL_NAME }` forces invocation. | Native `response_format: { type: 'json_schema', json_schema: { name, strict: true, schema } }` — provider enforces the schema. Refusals come back as a `refusal` field. | Native `responseMimeType: 'application/json'` + `responseJsonSchema` — accepts standard JSON Schema since `@google/genai` 2.6. | `response_format: { type: 'json_object' }` + Zod validation pass. DeepSeek does NOT support strict json_schema mode; we embed the schema in the system prompt and validate after. | Same as DeepSeek (json_object + Zod). DashScope's OpenAI-compat exposes `json_object` but not strict json_schema. |
+| Concern | AnthropicAdapter | OpenAIAdapter | VertexGeminiAdapter | GoogleGeminiAdapter | DeepSeekAdapter | QwenAdapter |
+|---|---|---|---|---|---|---|
+| SDK | `@anthropic-ai/sdk` | `openai` | `@google/genai` | `@google/genai` | `openai` (custom baseURL) | `openai` (custom baseURL) |
+| Base URL | `api.anthropic.com` (SDK default) | `api.openai.com` (SDK default) | `<region>-aiplatform.googleapis.com` | `generativelanguage.googleapis.com` | `https://api.deepseek.com` | `https://dashscope-us.aliyuncs.com/compatible-mode/v1` |
+| Auth env var | `ANTHROPIC_API_KEY` | `OPENAI_API_KEY` (+ optional `OPENAI_ORG_ID`) | Application Default Credentials + `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` | `GEMINI_API_KEY` or service-account OAuth from `GOOGLE_APPLICATION_CREDENTIALS_JSON` | `DEEPSEEK_API_KEY` | `DASHSCOPE_API_KEY` |
+| `generateText` call | `client.messages.create({ model, max_tokens, system, messages, [thinking] })` | `client.chat.completions.create({ model, messages, [temperature], [reasoning_effort] })` | `client.models.generateContent({ model, contents, config: { systemInstruction, [thinkingConfig] } })` | `client.models.generateContent({ model, contents, config: { systemInstruction, [thinkingConfig.thinkingLevel] } })` | `client.chat.completions.create({ model, messages, [temperature] })` | `client.chat.completions.create({ model, messages, [temperature], [enable_thinking, thinking_budget] })` |
+| `generateObject` strategy | Tool-call enforcement: a single tool named `output_structured` whose `input_schema` is the JSON Schema; `tool_choice: { type: 'tool', name: TOOL_NAME }` forces invocation. | Native `response_format: { type: 'json_schema', json_schema: { name, strict: true, schema } }` — provider enforces the schema. Refusals come back as a `refusal` field. | Native `responseMimeType: 'application/json'` + `responseJsonSchema` — accepts standard JSON Schema since `@google/genai` 2.6. | Same native Gemini JSON mode as Vertex, but through the Gemini API and API key auth. | `response_format: { type: 'json_object' }` + Zod validation pass. DeepSeek does NOT support strict json_schema mode; we embed the schema in the system prompt and validate after. | Same as DeepSeek (json_object + Zod). DashScope's OpenAI-compat exposes `json_object` but not strict json_schema. |
 | Cache strategy | Explicit per-block `cache_control: { type: 'ephemeral', ttl }` markers on the stable system prompt and, for multi-turn chat, on the reusable conversation prefix immediately before the latest dynamic turn. | Automatic prefix caching plus per-request `prompt_cache_retention` selection (`in_memory` for active chat, `24h` for long-lived extraction/synthesis/admin workloads). Reads `usage.prompt_tokens_details.cached_tokens`. | Implicit caching remains on by default, and the adapter now also creates explicit `cachedContent` resources, persists them through `provider_cached_content`, reuses them across processes by `source_hash`, and can switch to file-backed cache inputs via temporary `gs://...` objects for oversized artifacts. The file-backed path serves both extraction (single-turn document corpus) and **interview chat** (a large attached PDF cached once as a `systemInstruction + fileData` prefix, with the multi-turn conversation sent as live contents on top — gated on `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` + a Vertex interview route). | DeepSeek auto-prefix caching. Hits in `usage.prompt_cache_hit_tokens`; the adapter relies on deterministic prefix shaping because the provider does not expose user-managed explicit cache handles. | Explicit prompt caching on DashScope Chat Completions via `cache_control` markers on the reusable prefix plus Responses-API session cache on the text path when a stable session key is supplied; `previous_response_id` is persisted per channel in `provider_response_sessions`. |
 | Reasoning effort param | `thinking: { type: 'enabled', budget_tokens: N }` (N: low=2048, medium=8192, high=24000; clamped to `max_tokens - 512`). **Forces `temperature: 1`** because Anthropic rejects any other temp when thinking is on. | `reasoning_effort: 'low' \| 'medium' \| 'high'` (off omits the param). Silently ignored by non-reasoning models. | `thinkingConfig: { thinkingBudget: N }` (off=0, low=1024, medium=8192, high=24576). Ignored by Gemini 1.x. | None passed. R1 reasoning is automatic and not client-controlled; the adapter logs the requested effort for observability. | `enable_thinking` boolean + optional `thinking_budget`. off → `enable_thinking: false`. low/med/high → `enable_thinking: true` with budget 2048/8192/24576. Passed as top-level params (DashScope's OpenAI-compat forwards unknown keys). |
 | Usage normalization (into `OracleUsage`) | `inputTokens` ← `usage.input_tokens`. `outputTokens` ← `usage.output_tokens`. `cachedInputTokens` ← `usage.cache_read_input_tokens`. `cacheWriteTokens` ← `usage.cache_creation_input_tokens`. | `inputTokens` ← `usage.prompt_tokens`. `outputTokens` ← `usage.completion_tokens`. `cachedInputTokens` ← `usage.prompt_tokens_details.cached_tokens`. `reasoningTokens` ← `usage.completion_tokens_details.reasoning_tokens`. | `inputTokens` ← `usageMetadata.promptTokenCount`. `outputTokens` ← `usageMetadata.candidatesTokenCount`. `cachedInputTokens` ← `usageMetadata.cachedContentTokenCount`. `reasoningTokens` ← `usageMetadata.thoughtsTokenCount`. | `inputTokens` ← `usage.prompt_tokens`. `outputTokens` ← `usage.completion_tokens`. `cachedInputTokens` ← `usage.prompt_cache_hit_tokens` (DeepSeek-specific, not the OpenAI shape). `reasoningTokens` ← `usage.completion_tokens_details.reasoning_tokens`. | Same shape as OpenAI normalization (DashScope OpenAI-compat returns the OpenAI usage shape). |
@@ -340,6 +342,7 @@ One human → one `employees` row → many `employee_identities` rows.
 - The RLS helper `current_employee_id()` joins `employees` with `employee_identities` on `auth.uid()` — RLS does not read `employees.auth_user_id` directly.
 - Deprecated columns `employees.auth_user_id`, `employees.auth_provider`, `employees.auth_provider_subject` remain on the schema as NULL placeholders during the multi-identity transition. They will be dropped in a follow-up migration. See `DECISIONS.md` D2.multi-identity.
 - `employees.departments text[]` (multi-value, authoritative) replaces `employees.department varchar` (single-value, nullable, deprecated). All new code reads `departments`; legacy code falls back to `department`. The retrieval layer uses `departments` as `departmentHints` — a soft RRF signal, never a hard filter.
+- Employee removal is a soft-disable: Admin -> Employees writes `employees.disabled_at` through `updateEmployeeAccess()`. Disabled employees cannot link or continue sessions (`packages/auth/src/link.ts`, `apps/web/lib/auth-guard.ts`, and RLS helpers check `disabled_at IS NULL`), but historical references remain intact. Do not hard-delete employees from the GUI without a separate archival/reference-cleanup design.
 
 ## Data flow — the load-bearing paths
 
@@ -404,7 +407,9 @@ Cron: weekly (Mondays 06:00). Also admin-triggerable.
 
 Four server-component dashboards under `/admin/`:
 
-- `/admin/claims` — pending-review queue with lateral join to primary evidence and asserting employee. Status-filter tabs. Approve/Reject server actions (`_actions.ts`) update `claims.status` and `revalidatePath`.
+- `/admin/claims` — claim review queue with lateral join to primary evidence, asserting employee, and `claim_top_domains` domain chips. Approve/Reject/Revise/Assign server actions (`_actions.ts`) are audited in `claim_review_events`. Revise creates a replacement claim, copies evidence/domain/entity metadata, marks the original `superseded`, and links `claim_metadata.superseded_by_claim_id`. Admins can also edit an already approved claim; this uses the same supersede-and-replace path and creates a replacement in `pending_review`.
+- `/admin/claim-groups` — admin-managed reusable recipient lists for claim-review questions. Assigning a claim to several people or a group expands into one `claim_review_question` gap per active employee, so each recipient sees an individual assignment.
+- `/claims` — non-admin direct-assignment queue. A user can review a claim only when it was directly assigned to them through an open/queued/asked `claim_review_question` gap; broad domain-review queues are disabled for now.
 - `/admin/gaps` — Drizzle query joined with employees. Priority + status badges. Resolve/Stale server actions.
 - `/admin/contradictions` — raw SQL via the `contradictions` table joined with both claim summaries (mirrors `contradictions_with_claim_summaries` view). Card-per-row layout. Confirm (possible→open) / Dismiss server actions.
 - `/admin/brain` — `brain_sections` LEFT JOIN `brain_section_versions` on `current_version_id`. Scrollable markdown preview, review-status badge. Read-only; re-synthesis trigger is post-retrofit.
@@ -446,7 +451,7 @@ One unified knowledge graph, rendered per reader language. Design + resolved dec
 - **Storage.** A claim stays canonical in its source language (`claims.source_lang`, default `'en'`, stamped at promotion from the authoring employee's `employees.locale`). `claim_translations` `(claim_id, lang)` holds display-only summary renderings, each with its own `embedding` (same `text-embedding-3-small`/1536 model) and a `source_hash` for staleness. Evidence quotes and the synthesized Brain are **never** translated.
 - **Retrieval.** `searchWithRetrievalPlan(db, plan, locale)` renders `COALESCE(claim_translations.summary, claims.summary)` and `COALESCE(ct.embedding, c.embedding)` for the reader's locale, and switches the tsvector config to `'simple'` for `zh-CN` (Postgres can't tokenize spaceless Chinese; the vector half of the RRF carries ranking). The locale fragments live in `buildPlanMetadataFilters()` so the parity guard forces both retrieval branches to match. `getBrainSectionSnippets` has no locale path (Brain is English-only).
 - **Translation is opt-in.** Admins select claims in Admin → Claims and "Translate selected for China team" (`translateClaimsForChina`) → the `claim-translation` worker drafts via the `translation` auxiliary model (`default_translation_route`), embeds, and upserts `claim_translations`. Untranslated claims are still visible to China readers, in English.
-- **"Ask to verify" (recertification).** `requestClaimVerification` → the `claim-recertification` worker fans targets (the `zh-CN` locale group, departments via `employee_departments`, and/or individual employees) out to recipient employees and creates one `gaps` row per recipient (`gap_type='claim_recertification'`, reusing the existing gap→chat surfacing), each question drafted in that recipient's language — so a question is translated to Chinese only for China-team recipients.
+- **Asking China-team members to verify a claim.** This reuses the existing claim-review-question mechanism (`assignClaimQuestion` → `gap_type='claim_review_question'`, with review groups + individual targets). The China addition: `assignClaimQuestionImpl` translates the question per recipient — a recipient whose `locale` is `zh-CN` (direct or via a group containing them) gets the question in Chinese (`translateReviewQuestionToChinese`, via the `translation` route), everyone else gets the original English. So a review question is translated only for China-team recipients. There is no separate recertification worker.
 
 ## Major constraints
 
@@ -522,7 +527,7 @@ Workers must not import from `apps/web`, and vice versa.
 
 ## AI architecture retrofit — COMPLETE (landed 2026-05-26)
 
-R0 → R11.4 are all done. Every production AI call goes through `OracleAIClient` with one of five direct adapters (`AnthropicAdapter` / `VertexGeminiAdapter` / `OpenAIAdapter` / `DeepSeekAdapter` / `QwenAdapter`) using the providers' raw SDKs or their official OpenAI-compatible surfaces. OpenRouter has been removed entirely from the inference path. The wet-test passed end-to-end against the live Supabase project (first real `claims` rows landed 2026-05-26 17:35 UTC). Both proactive interjection paths (R11.2 lull + R11.3 live contradiction) post live chat messages by default, gated by the pure decision functions in `packages/oracle-engines/src/interjection.ts`.
+R0 → R11.4 are all done. Every production AI call goes through `OracleAIClient` with one of six direct adapters (`AnthropicAdapter` / `VertexGeminiAdapter` / `GoogleGeminiAdapter` / `OpenAIAdapter` / `DeepSeekAdapter` / `QwenAdapter`) using the providers' raw SDKs or their official OpenAI-compatible surfaces. OpenRouter has been removed entirely from the inference path. The wet-test passed end-to-end against the live Supabase project (first real `claims` rows landed 2026-05-26 17:35 UTC). Both proactive interjection paths (R11.2 lull + R11.3 live contradiction) post live chat messages by default, gated by the pure decision functions in `packages/oracle-engines/src/interjection.ts`.
 
 The work that remains is operational, not architectural. See `AGENTS.md` § 15 "Pending work" for the open task list (general-purpose route wiring, vision-detection regex replacement, periodic catalog-refresh cron, key rotation, deferred round-2 items). `DECISIONS.md` D6 + D9 record why the Vercel AI SDK and OpenRouter were ruled out; D10 + D11 record the live-interjection switch and the lull-interjection round-1 simplifications; D12 records the DeepSeek + Qwen addition and the chosen API surfaces.
 
@@ -598,7 +603,7 @@ The `model_runs_with_usage` view (`migrations/sql/31_observability_views.sql`) j
 15 tables installing the segmentation from `docs/oracle/07-knowledge-segmentation.md`:
 
 ```
-Layer 1   knowledge_top_domains            14 domains seeded; admin-curated
+Layer 1   knowledge_top_domains            15 domains seeded; admin-curated
             ↑                                each carries boundary rules:
             │                                belongs_here, does_not_belong_here,
             │                                common_entity_hints,
@@ -640,7 +645,34 @@ The legacy `claim_domains` table and `knowledge_domain` Postgres enum are intent
 
 `business_process` is the cross-functional domain for end-to-end company workflows, operating-model overviews, and handoffs that span multiple departments. It is not a generic dumping ground: specific claims should still carry narrower domains such as `licensing_approvals`, `product_development`, `production_lifecycle`, `customer_ops`, `logistics_shipping`, or `finance_pricing` when those domains are materially involved. Broad process queries expand across `business_process` and neighboring process domains so a question about the overall company workflow can retrieve both overview claims and department-specific process facts.
 
+`finance_pricing` means product costing/pricing, not company finance/accounting. It is for costing sheets, SKU cost build-up, customer product pricing, margin assumptions, factory quote inputs, and costing handoffs. A costing sheet created by Design and sent to factories should usually also carry narrower workflow domains such as `creative_design`, `product_development`, `supply_chain`, or `production_lifecycle` when those parts of the handoff are materially involved.
+
+Claim revision recalculates top-domain tags from the revised claim text. Reviewers do not manually select domains during revision; the server action runs the retrieval-plan domain classifier over the revised claim and writes the recalculated `claim_top_domains` rows to the replacement claim. If the classifier cannot infer any domain, it falls back to the original claim domains and records that method in `claim_review_events.ai_comparison_json`. Reviewer notes are audit/commentary in `claim_review_events`, not claim evidence; they should not be fed to Brain synthesis as source support unless a separate explicit evidence action is added. Editing an approved claim follows the same path: the original approved row is superseded, and the replacement starts as `pending_review` until approved.
+
+Approved revisions now feed a correction-lesson loop for future extraction. `packages/ai/src/prompts/claim-correction-lessons.ts` reads `claim_review_events` where `action='revise'` and the replacement claim is `approved`, formats a compact semi-stable prompt block, and the message extraction, batch submit, and document ingestion workers include that block after the stable extraction system prompt. This is not fine-tuning; it is retrieval-like prompt guidance derived from reviewed claim pairs. Admins can inspect the exact lesson block at `/admin/ai/claim-lessons`.
+
+`/admin/ai/extraction-ab` is a non-promoting A/B/C review surface for those same approved revisions. It compares the existing Gemini 2.5-era claim, a fresh `google/gemini-3.1-flash-lite` extraction, a fresh `qwen/qwen3.7-max` extraction, and the human revision. Reviewers score only the AI outputs; the human revision is the reference answer, not a scoreable variant. These eval outputs are never inserted into `claims`; they are only for choosing better extraction models/prompts.
+
+The A/B/C source excerpt must stay anchored to the reviewed evidence quote. The page prefers evidence from the human replacement claim, falls back to the original claim evidence, and uses `claim_evidence.exact_quote` directly when the full message/document chunk does not contain that quote. Do not fall back to the leading text of a large document chunk on quote mismatch; that creates rows where model outputs are about completely different subjects than the original/revised claim.
+
+Model reruns on this page are queued through `run_status` fields in `claim_extraction_ab_tests` and processed by the Trigger.dev `extraction-ab-eval` task. Do not move Gemini/Qwen calls back into the page server action; several simultaneous rows can exceed Vercel request time and leave the UI stuck on "Running models". Trigger.dev is currently at its schedule limit, so this path uses immediate task dispatch rather than adding a cron sweep.
+
+### Gemini 3.1 eval route uses Google API, not Vertex
+
+What changed:
+`google_gemini_3_1_flash_lite_extraction_eval` dispatches through `GoogleGeminiAdapter` (`provider: 'google'`) even though other Gemini production routes still use `VertexGeminiAdapter`.
+
+Why:
+The production Vertex project/region returned `NOT_FOUND` for `gemini-3.1-flash-lite`, while the same deployed service-account credentials can call `gemini-3.1-flash-lite` through the Gemini API OAuth path. A live smoke test on 2026-06-15 returned valid structured JSON from `gemini-3.1-flash-lite`.
+
+Future sessions should:
+Do not remap `google/*` settings back to `vertex` unless Vertex access for the exact model and region has been verified. Keep `GEMINI_API_KEY` optional; `GoogleGeminiAdapter` can use `GOOGLE_APPLICATION_CREDENTIALS_JSON` to mint Gemini API OAuth tokens.
+
 `operations_systems` is the dedicated domain for operational business-system workflows: ERP, CRM, PLM, spreadsheet-to-system migration, source-of-truth rules, field mapping, validation, and integration handoffs. The initial anchor workflow is moving OrderList, MasterData, and TaskList data from Google Sheets into Designflow PLM. It neighbors `it_systems`, `product_development`, `production_lifecycle`, `customer_ops`, and `finance_pricing`, but should not be used for generic account troubleshooting or broad IT administration unless the query is about business data flow.
+
+`training_enablement` is the domain for teaching employees how to do their jobs: onboarding plans, role-specific training checklists, SOP learning paths, shadowing, cross-training, skill checks, and refresher training after workflow changes. It neighbors `people_org`, `it_systems`, `operations_systems`, `product_development`, `production_lifecycle`, and `customer_ops`, but is not an HR/personnel-record domain. Questions about who owns a workflow or who reports to whom stay in `people_org`; questions about compensation, discipline, performance evaluation, and personal conflicts should not route here.
+
+Knowledge domains are associated with departments for possible claim review through `knowledge_domain_review_departments`. This is an authorization/routing map, not a retrieval signal: retrieval still uses `claim_top_domains`, entity tags, metadata, and employee department hints. The domain-review UI is currently disabled, and non-admin claim review is direct-assignment only through `claim_review_question` gaps. If domain review is restored later, the `/claims` page and `canReviewClaim()` action boundary must be updated together.
 
 ### Candidate-before-claim staging (R4, landed)
 
@@ -758,7 +790,7 @@ Cache lifecycle (`packages/oracle-engines/src/extraction/cache-lifecycle.ts`):
 
 ### Worker and chat-route integration (R6 + R7 + R8 + R9 + R11.0, all landed)
 
-Every production AI caller now dispatches through `OracleAIClient` with the five direct provider adapters:
+Every production AI caller now dispatches through `OracleAIClient` with the six direct provider adapters:
 
 | Caller | Phase | Status |
 |---|---|---|
@@ -770,7 +802,7 @@ Every production AI caller now dispatches through `OracleAIClient` with the five
 | `apps/workers/src/trigger/taxonomy-reevaluation.ts` | R10.5 | ✅ k-means clustering + LLM cluster naming + `taxonomy_proposals` writing; domains below the 30-claim activation threshold are skipped |
 
 Each caller follows the same pattern:
-1. Build `OracleAIClient` with `buildStandardAdapters()` so every configured provider tag (`anthropic`, `vertex`, `openai`, `deepseek`, `qwen`) is registered through one source of truth.
+1. Build `OracleAIClient` with `buildStandardAdapters()` so every configured provider tag (`anthropic`, `vertex`, `google`, `openai`, `deepseek`, `qwen`) is registered through one source of truth.
 2. Resolve the curated route from `settings.default_*_route` (R1 keys).
 3. Compile a prompt plan with `ContextCompiler` (stable_system + dynamic content).
 4. Insert `oracle_context_packs` row BEFORE the model call so its ID can thread through.
@@ -780,12 +812,13 @@ Each caller follows the same pattern:
 
 ### Direct adapters (R-providers, landed)
 
-Five production adapters in `packages/ai/src/providers/`:
+Six production adapters in `packages/ai/src/providers/`:
 
 | Adapter | SDK | Native features used |
 |---|---|---|
 | `AnthropicAdapter` | `@anthropic-ai/sdk` (v0.98+) | Per-block `cache_control: { type: 'ephemeral', ttl }` markers on stable system blocks and reusable multi-turn prefixes; forced tool-call structured output via `tools` + `tool_choice: { type: 'tool', name }`; `cache_read_input_tokens` + `cache_creation_input_tokens` normalized into `OracleUsage` |
 | `VertexGeminiAdapter` | `@google/genai` (v2.6+) | `responseMimeType: 'application/json'` + `responseJsonSchema` for strict native JSON-schema output; implicit prefix caching plus explicit `client.caches.create(...)` / `cachedContent` reuse persisted through `provider_cached_content`; structured-output calls can cache stable + semi-stable + retrieved context while sending only dynamic input live; `usageMetadata.cachedContentTokenCount` + `thoughtsTokenCount` normalized into `OracleUsage` |
+| `GoogleGeminiAdapter` | `@google/genai` (v2.6+) | Gemini Developer API path for `google/*` routes; `responseMimeType: 'application/json'` + `responseJsonSchema`; Gemini 3 `thinkingConfig.thinkingLevel`; useful when cataloged Gemini API models are not available to the configured Vertex project/region |
 | `OpenAIAdapter` | `openai` (v6.39+) | `response_format: { type: 'json_schema', strict: true }`; auto-cache via `prompt_tokens_details.cached_tokens`; per-request `prompt_cache_retention`; reasoning tokens via `completion_tokens_details.reasoning_tokens` |
 | `DeepSeekAdapter` | `openai` (custom baseURL to `api.deepseek.com`) | Automatic disk-backed prefix caching only; `prompt_cache_hit_tokens` normalized into `OracleUsage.cachedInputTokens`; no user-managed explicit cache resource exists today |
 | `QwenAdapter` | `openai` (custom baseURL to DashScope OpenAI-compat) | Explicit prompt caching on Chat Completions via `cache_control` markers on reusable prefixes plus Responses-API session cache for text calls; `prompt_tokens_details.cached_tokens` / `cache_creation_input_tokens` and Responses cached-token usage normalized into `OracleUsage` |

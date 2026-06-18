@@ -171,6 +171,7 @@ export const TOP_LEVEL_DOMAINS = [
   'production_lifecycle',
   'finance_pricing',
   'people_org',
+  'training_enablement',
   'vendor_management',
   'logistics_shipping',
   'import_compliance',

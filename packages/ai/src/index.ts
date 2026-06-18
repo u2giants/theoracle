@@ -15,6 +15,12 @@ export {
   type ExtractionClaim,
   type FormattedMessage,
 } from './prompts/extraction-system';
+export {
+  buildClaimCorrectionLessonPromptBlock,
+  loadClaimCorrectionLessonPack,
+  type ClaimCorrectionLessonPack,
+  type ClaimCorrectionLessonRow,
+} from './prompts/claim-correction-lessons';
 // OpenRouter has been removed from the codebase per R-providers / R11.0.
 // Every production model call goes through OracleAIClient with direct
 // Anthropic / Vertex / OpenAI adapters. See DECISIONS.md D6, D9.
@@ -82,6 +88,7 @@ export { zodToJsonSchema } from './providers/vertex-gemini-adapter';
 export { MockProviderAdapter, type MockAdapterOptions } from './providers/mock-adapter';
 export { AnthropicAdapter } from './providers/anthropic-adapter';
 export { VertexGeminiAdapter } from './providers/vertex-gemini-adapter';
+export { GoogleGeminiAdapter } from './providers/google-gemini-adapter';
 export { OpenAIAdapter } from './providers/openai-adapter';
 export { DeepSeekAdapter } from './providers/deepseek-adapter';
 export { QwenAdapter } from './providers/qwen-adapter';

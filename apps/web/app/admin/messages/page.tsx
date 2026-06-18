@@ -2,6 +2,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { channels, employees, messages } from '@oracle/db/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,7 +61,7 @@ export default async function AdminMessagesPage({
                 <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
                   <span className="font-medium">{m.authorName ?? m.role}</span>
                   <span>·</span>
-                  <span>{new Date(m.createdAt).toLocaleString()}</span>
+                  <span>{formatNYDateTime(m.createdAt)}</span>
                   <span>·</span>
                   <span>{m.role}</span>
                   <span>·</span>

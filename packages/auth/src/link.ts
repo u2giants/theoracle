@@ -9,11 +9,12 @@
 //      identity for this provider, create the identity, return the employee.
 //   3. Else, deny — the email is not on the allowlist.
 //
-// IMPORTANT: This module talks to the DB via the SERVICE ROLE Drizzle client
-// (bypasses RLS). It must NEVER be imported into browser code.
+// IMPORTANT: This module talks to the DB via a server-side Drizzle client
+// (bypasses RLS through the configured Postgres role). It must NEVER be
+// imported into browser code.
 
 import { and, eq } from 'drizzle-orm';
-import { getDirectDb } from '@oracle/db/client';
+import { getPooledDb } from '@oracle/db/client';
 import { employees, employeeIdentities, type Employee } from '@oracle/db/schema';
 import type { AuthProvider } from '@oracle/shared';
 
@@ -43,7 +44,7 @@ export type LinkResult =
  *    employee than the email match would suggest, we refuse.
  */
 export async function linkOrRejectEmployee(input: LinkInput): Promise<LinkResult> {
-  const db = getDirectDb();
+  const db = getPooledDb();
   const normalizedEmail = input.email.trim().toLowerCase();
   const now = new Date();
 

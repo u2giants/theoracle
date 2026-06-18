@@ -524,70 +524,83 @@ async function synthesizeSection(
     };
   }
 
-  // Validation passed. Insert version + update currentVersionId.
-  const [newVersion] = await db
-    .insert(brainSectionVersions)
-    .values({
-      sectionId,
-      versionNumber: nextVersionNumber,
-      markdown: modelOutput.updatedMarkdown,
-      structuredContent: {
-        paragraphs: modelOutput.paragraphs,
-        materialChanges: modelOutput.materialChanges,
-        claimsAdded: modelOutput.claimsAdded,
-        claimsRemoved: modelOutput.claimsRemoved,
-        claimsStrengthened: modelOutput.claimsStrengthened,
-        claimsWeakened: modelOutput.claimsWeakened,
-        confidenceChange: modelOutput.confidenceChange,
-      },
-      changeSummary: modelOutput.changeSummary,
-      createdByModelRunId: modelRunId,
-      reviewStatus: modelOutput.requiresHumanReview ? 'needs_review' : 'draft',
-    })
-    .returning({ id: brainSectionVersions.id });
-  if (!newVersion) throw new Error('[brain-synthesis] version insert returned no row');
+  // Validation passed. Insert version + update currentVersionId + membership +
+  // gaps as ONE atomic unit. Previously these ran as separate un-transactioned
+  // statements: a mid-sequence crash could leave currentVersionId pointing at a
+  // version with no sectionClaims membership, or gaps half-resolved.
+  const newVersionId = await db.transaction(async (tx) => {
+    const [newVersion] = await tx
+      .insert(brainSectionVersions)
+      .values({
+        sectionId,
+        versionNumber: nextVersionNumber,
+        markdown: modelOutput.updatedMarkdown,
+        structuredContent: {
+          paragraphs: modelOutput.paragraphs,
+          materialChanges: modelOutput.materialChanges,
+          claimsAdded: modelOutput.claimsAdded,
+          claimsRemoved: modelOutput.claimsRemoved,
+          claimsStrengthened: modelOutput.claimsStrengthened,
+          claimsWeakened: modelOutput.claimsWeakened,
+          confidenceChange: modelOutput.confidenceChange,
+        },
+        changeSummary: modelOutput.changeSummary,
+        createdByModelRunId: modelRunId,
+        reviewStatus: modelOutput.requiresHumanReview ? 'needs_review' : 'draft',
+      })
+      .returning({ id: brainSectionVersions.id });
+    if (!newVersion) throw new Error('[brain-synthesis] version insert returned no row');
 
-  await db
-    .update(brainSections)
-    .set({ currentVersionId: newVersion.id, updatedAt: new Date() })
-    .where(eq(brainSections.id, sectionId));
+    await tx
+      .update(brainSections)
+      .set({ currentVersionId: newVersion.id, updatedAt: new Date() })
+      .where(eq(brainSections.id, sectionId));
 
-  // sectionClaims membership for newly-added claims.
-  for (const claimId of modelOutput.claimsAdded) {
-    if (approvedClaimIds.has(claimId)) {
-      await db
-        .insert(sectionClaims)
-        .values({ sectionId, claimId })
-        .onConflictDoNothing();
+    // sectionClaims membership for newly-added claims — single multi-row insert.
+    const claimRowsToAdd = modelOutput.claimsAdded
+      .filter((claimId) => approvedClaimIds.has(claimId))
+      .map((claimId) => ({ sectionId, claimId }));
+    if (claimRowsToAdd.length > 0) {
+      await tx.insert(sectionClaims).values(claimRowsToAdd).onConflictDoNothing();
     }
-  }
 
-  // New gaps.
-  for (const gap of modelOutput.newGaps) {
-    await db.insert(gaps).values({
-      gapType: 'synthesis_gap',
-      sectionId,
-      relatedClaimIds: modelOutput.claimsAdded,
-      questionToAsk: gap.questionToAsk,
-      whyItMatters: gap.whyItMatters,
-      priority: gap.priority,
-      targetDepartment: gap.targetDepartment ?? null,
-      status: 'open',
-      createdByModelRunId: modelRunId,
-    });
-  }
+    // New gaps.
+    for (const gap of modelOutput.newGaps) {
+      await tx.insert(gaps).values({
+        gapType: 'synthesis_gap',
+        sectionId,
+        relatedClaimIds: modelOutput.claimsAdded,
+        questionToAsk: gap.questionToAsk,
+        whyItMatters: gap.whyItMatters,
+        priority: gap.priority,
+        targetDepartment: gap.targetDepartment ?? null,
+        status: 'open',
+        createdByModelRunId: modelRunId,
+      });
+    }
 
-  // Resolved gaps.
-  for (const gapId of modelOutput.resolvedGaps) {
-    await db
-      .update(gaps)
-      .set({ status: 'resolved', resolvedAt: new Date() })
-      .where(eq(gaps.id, gapId));
-  }
+    // Resolved gaps — single inArray update, constrained to THIS section + open
+    // status so a hallucinated gap UUID can't resolve an arbitrary open gap
+    // belonging to another section.
+    if (modelOutput.resolvedGaps.length > 0) {
+      await tx
+        .update(gaps)
+        .set({ status: 'resolved', resolvedAt: new Date() })
+        .where(
+          and(
+            inArray(gaps.id, modelOutput.resolvedGaps),
+            eq(gaps.sectionId, sectionId),
+            eq(gaps.status, 'open'),
+          ),
+        );
+    }
+
+    return newVersion.id;
+  });
 
   return {
     ok: true,
-    versionId: newVersion.id,
+    versionId: newVersionId,
     versionStatus: modelOutput.requiresHumanReview ? 'needs_review' : 'draft',
     requiresReview: modelOutput.requiresHumanReview,
   };
@@ -641,6 +654,9 @@ export const brainSynthesisScheduledTask = schedules.task({
   id: 'brain-synthesis-scheduled',
   cron: '0 6 * * 1',
   maxDuration: 60 * 30,
+  // Retries disabled: scheduled cron; a retry would re-synthesize sections and
+  // create duplicate versions. The next weekly run is the natural retry.
+  retry: { maxAttempts: 1 },
   run: async (_payload, { ctx }) => {
     const db = getDirectDb();
     const sectionsToRefresh = await db

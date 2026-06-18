@@ -1,35 +1,87 @@
 # HANDOFF — Recall.ai wiring + extraction tuning + China bilingual layer
 
-Last updated: 2026-06-18. Delete this file once the remaining items below are closed (China bilingual merge/deploy, synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+Last updated: 2026-06-18. Delete this file once the remaining items below are closed (China bilingual deploy, synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
 
 ---
 
-## China bilingual claim layer — implemented on a branch, migration applied, NOT merged/deployed (2026-06-18)
+## China bilingual claim layer — merged to main, migration applied; worker deploy pending (2026-06-18)
 
 What it is: serve the knowledge graph to a China team in Mandarin while keeping one unified brain. Full design + resolved decisions are in `china_imp.md`; AGENTS.md §7–§10 document the code surfaces.
 
 Exact current state:
-- All code is on branch **`docs/china-bilingual-plan`** (GitHub **PR #1**, `u2giants/theoracle`). It is **NOT merged to `main`**, so Vercel production (which deploys from `main`) does not run it yet, and the new workers are **NOT deployed** to Trigger.dev prod.
-- DB migration **`0007_tricky_charles_xavier.sql`** WAS applied to the prod DB (`vokucjpanhvqunimlvsp`) via `pnpm db:migrate` on 2026-06-18. Verified live: `claim_translations` table, `claims.source_lang`, `employees.locale`, the `lang` + two FTS indexes. The HNSW vector index on `claim_translations.embedding` was intentionally skipped (build later with `ORACLE_RUN_VECTOR_INDEXES=1` once there is translation data). The additive migration being ahead of the merged code is safe.
-- `0007` was hand-trimmed to only the new objects because `drizzle-kit generate` re-emits pre-existing hand-SQL tables (snapshot drift) — see AGENTS.md §10 "The Drizzle snapshot was baselined at migration 0007".
+- Code is **merged into `main`** (the `docs/china-bilingual-plan` branch was integrated with `origin/main` — which had since shipped the claim-review-groups feature — resolving 12 overlapping files; typecheck + `verify:retrieval-filter-parity`/`verify:auxiliary-defaults`/`verify:mcp`/`verify:vertex-file-cache` + web build + `db:check-drift` all green before push). Vercel auto-deploys web from `main`.
+- DB migration **`0007_tricky_charles_xavier.sql`** is applied to the prod DB (`vokucjpanhvqunimlvsp`). Verified live: `claim_translations` table, `claims.source_lang`, `employees.locale`, the `lang` + two FTS indexes. HNSW vector index on `claim_translations.embedding` intentionally skipped (build later with `ORACLE_RUN_VECTOR_INDEXES=1`). `0007` was hand-trimmed to only the new objects — see AGENTS.md §10 "The Drizzle snapshot was baselined at migration 0007".
+- The **`claim-translation` Trigger.dev worker is NOT yet deployed to prod.** Until it is deployed, clicking "Translate selected for China team" enqueues a task that won't run (`triggerTask` is fire-and-forget and logs a warning when unconfigured/undeployed).
 
-What is done: schema + migration; `SUPPORTED_LOCALES` in `@oracle/shared`; locale-aware `searchWithRetrievalPlan`/`buildPlanMetadataFilters` (+ extended parity guard); `source_lang` stamping at promotion; `claim-translation` worker + `translation` auxiliary model (`default_translation_route`, "copy job brief" in settings); opt-in translate + multi-target "ask to verify" (`claim-recertification` worker reusing the `gaps` table) with per-recipient-language drafting; admin claims UI (checkboxes, two bulk actions, ✓/🔁 persisted badges). All packages typecheck; `verify:retrieval-filter-parity` and `verify:auxiliary-defaults` pass.
+What is done: schema + migration; `SUPPORTED_LOCALES` in `@oracle/shared`; locale-aware `searchWithRetrievalPlan`/`buildPlanMetadataFilters` (+ extended parity guard); `source_lang` stamping at promotion; `claim-translation` worker + `translation` auxiliary model (`default_translation_route`, "copy job brief" in settings); opt-in "Translate selected for China team" bulk action + ✓ persisted badges on `/admin/claims`. **Verify ("ask someone to confirm a claim") was folded into `main`'s existing claim-review-question + review-groups feature** (`assignClaimQuestion`): the separate `claim-recertification` worker and `claim_recertification` gap type were dropped; instead `assignClaimQuestionImpl` now translates the question per recipient so a `zh-CN` recipient is asked in Chinese.
 
 Exact next actions:
-1. Review/merge PR #1 to `main` (Albert's call — single-branch policy; push to `main` only when he says). Vercel auto-deploys web on merge.
-2. Deploy workers: `pnpm --filter @oracle/workers run deploy` (ships `claim-translation` + `claim-recertification`; record the new Trigger.dev worker version here).
-3. Set a China employee's `employees.locale='zh-CN'`; choose a translation model at Admin → Settings → "Translation model" (Qwen recommended — run a small A/B vs DeepSeek per the copied brief).
-4. Optionally build the discussed-but-not-built follow-ups (see AGENTS.md §15): admin side-by-side translation review; a free-form "compose a gap and send to targets" surface.
+1. Deploy workers: `pnpm --filter @oracle/workers run deploy` (ships `claim-translation`; record the new Trigger.dev worker version here).
+2. Set a China employee's `employees.locale='zh-CN'`; choose a translation model at Admin → Settings → "Translation model" (Qwen recommended — run a small A/B vs DeepSeek per the copied brief).
+3. Optionally build the discussed-but-not-built follow-ups (see AGENTS.md §15): admin side-by-side translation review.
 
-Decisions made (and why): Brain synthesis stays English-only; evidence quotes are never translated (verbatim provenance); translation is opt-in per claim (cost proportional to what's directed to China); recertification questions are drafted per recipient so only China recipients get Chinese. Department targeting resolves via the `employee_departments` junction (exact), avoiding the free-text `employees.departments` matching pitfall.
+Decisions made (and why): Brain synthesis stays English-only; evidence quotes are never translated (verbatim provenance); translation is opt-in per claim (cost proportional to what's directed to China); the verify/"ask to confirm" path reuses main's review-question/review-groups mechanism (no duplicate system) with the question translated per-recipient so only China recipients get Chinese.
+---
+
+## 2026-06-16 extraction A/B + employee-access update
+
+Status:
+Done. Code was committed, pushed, DB changes were applied where needed, and production web/workers were deployed.
+
+Done:
+- Fixed `/admin/ai/extraction-ab` source alignment: A/B/C model reruns now anchor to reviewed evidence quotes and do not fall back to unrelated leading document-chunk text when the quote is missing from the chunk.
+- Moved extraction A/B/C reruns out of the page server action. `/admin/ai/extraction-ab` now queues rows through `claim_extraction_ab_tests.run_status`; Trigger.dev task `extraction-ab-eval` runs Gemini/Qwen and writes outputs/errors back. Migration `72_claim_extraction_ab_run_status.sql` was applied to production through linked Supabase CLI because this checkout did not have `DIRECT_URL` / `DATABASE_URL` for `pnpm db:migrate`.
+- Trigger.dev worker deploy `20260616.2` succeeded after removing the attempted cron sweep. Trigger.dev was at 10/10 schedule slots, so `extraction-ab-eval` uses immediate dispatch only.
+- Added Admin -> Employees Disable/Re-enable controls. They write `employees.disabled_at`; disabled employees cannot log in/link, but historical employee references remain intact.
+- Production Vercel deployments were completed through commit `39c58fd Add employee access controls` before this documentation pass.
+
+Next action:
+Use Admin -> Employees for roster cleanup. For A/B/C evals, click rerun rows and let the queued worker populate results; if rows remain queued indefinitely, verify Vercel production `TRIGGER_SECRET_KEY` is a prod Trigger key and inspect Trigger.dev task runs for `extraction-ab-eval`.
+
+Risks / watchouts:
+- Do not hard-delete employees unless a separate archival/reference cleanup is designed.
+- Do not move Gemini/Qwen A/B/C calls back into the page server action; multiple simultaneous rows previously hung the UI.
+- Do not add another Trigger.dev schedule until the schedule limit is increased or existing schedules are consolidated.
 
 ---
 
 ## What is open and needs finishing
 
+### 0b. 2026-06-17 dynamic model route dispatch fix
+
+Status:
+Done. Commit `fe22f19 Support dynamic model routes in router` was pushed to `main`, and Trigger.dev production worker version `20260617.1` deployed successfully with 19 detected tasks.
+
+Done:
+- Fixed `ModelRouter` so admin-selected provider/model route IDs such as `qwen/qwen3.7-plus` resolve dynamically at dispatch time instead of failing static catalog lookup with `No OracleModelRoute found`.
+- Added a smoke assertion covering `qwen/qwen3.7-plus` for a `document_claim_extraction` plan.
+- Verified: `corepack pnpm --filter @oracle/ai typecheck`, `corepack pnpm --filter @oracle/ai exec tsx src/__verify__/oracle-ai-client-smoke.ts`, and `corepack pnpm --filter @oracle/workers typecheck`.
+
+Watchout:
+- The failed document upload that hit the old worker may need to be retried/reprocessed; new document-ingestion runs should use worker `20260617.1`.
+
+### 0a. 2026-06-15 local/pushed commits and review workflow
+
+Status:
+Superseded by later claim-review updates. The `training_enablement` top-domain work was committed locally as `018c2d3 Add training enablement knowledge domain`. Claim-review/revise work landed, and the review surface has since been narrowed to direct assignments plus admin-managed review groups.
+
+Done:
+- Added `training_enablement` domain, retrieval hints, boundary docs, and migration `packages/db/migrations/sql/67_training_enablement_domain.sql`.
+- Implemented claim-review workflow: `/admin/claims` shows top-domain chips and supports approve/reject/revise/assign; approved-claim edits supersede the original and create a replacement in `pending_review`; `/claims` is now direct-assignment only for non-admin reviewers; `packages/db/migrations/sql/68_claim_review_workflow.sql` adds `claim_review_events` and `knowledge_domain_review_departments`.
+- Added claim review groups (`/admin/claim-groups`, migration `73_claim_review_groups.sql`) so a claim-review question can be sent to multiple people or reusable groups. Group sends materialize as one `claim_review_question` gap per active employee.
+- Verified locally on 2026-06-15: `corepack pnpm --filter @oracle/ai verify:retrieval-plan-domain-boundaries`, `corepack pnpm --filter @oracle/web typecheck`, `corepack pnpm --filter @oracle/db typecheck`. Browser smoke reached `/claims`, compiled the route, and redirected to login; authenticated UI was not exercised because the in-app browser had no session.
+
+Next action:
+Redeploy Vercel after claim-review UI/action changes so the new route/actions are live.
+
+Risks / watchouts:
+- The claim-review feature depends on the tables from `68_claim_review_workflow.sql`; group assignment depends on `73_claim_review_groups.sql`.
+- The seeded domain-review map is retained but not currently exposed through `/claims`. Non-admin review is direct-assignment only until domain queues are intentionally restored.
+- Revision intentionally supersedes the original AI claim and creates a replacement claim; do not change it into in-place edits unless the audit/provenance model is redesigned.
+
 ### 0. Current repo/deploy state (2026-06-10/11)
 
-The working tree has two categories of uncommitted changes:
+The working tree has two categories of uncommitted changes from before the 2026-06-15 claim-review commit:
 
 1. Changes that were already deployed to Trigger.dev production as worker version `20260610.4` during the 2026-06-10 retrieval-backed live context session:
 
@@ -50,6 +102,11 @@ Deploy timeline this session: `20260610.1` (retrieval-backed worker), `20260610.
 - The previously masked lint violations in taxonomy proposal card, channel chat, document upload, chat route stale disables, and PostCSS config were fixed.
 
 Verification from 2026-06-11: `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm --filter @oracle/ai verify:r2`, `verify:retrieval-filter-parity`, `verify:retrieval-plan-domain-boundaries`, `verify:vertex-file-cache`, and engine verifies `r5`, `r5.5`, `r6`, `r7`, `r9`, `r11.1` all passed.
+
+Additional 2026-06-15 assessment of the older AI/worker diffs:
+- They appear to be correctness/hardening improvements: structured provider fallback on HTTP status, stricter evidence offsets, safer embedding batching, Qwen usage normalization, worker retry/idempotency hardening, taxonomy duplicate-proposal reduction, and live interjection locking/rate re-checks.
+- Package checks passed: `corepack pnpm --filter @oracle/ai typecheck`, `corepack pnpm --filter @oracle/workers typecheck`, `corepack pnpm --filter @oracle/engines typecheck`, and `corepack pnpm --filter @oracle/ai verify:retrieval-plan-domain-boundaries`.
+- They are **not proven non-breaking**. Several changes affect live worker retry semantics, Recall send handling, contradiction/lull interjection transaction ordering, and synthesis/taxonomy transaction boundaries. Treat them as promising but still requiring runtime review and intentional deploy sign-off.
 
 Do **not** assume the deployed worker, git history, and local working tree are aligned until these changes are committed/pushed and any needed Vercel/Trigger deployments are performed (commit/deploy only when Albert asks).
 

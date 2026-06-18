@@ -85,6 +85,34 @@ function assertDomains(query: string, expected: string[]) {
 
 {
   const plan = assertDomains(
+    'What training checklist should a new hire follow to learn proof setup?',
+    ['training_enablement'],
+  );
+  assert.deepEqual(
+    plan.excludedTopDomains,
+    ['people_org'],
+    'Training questions should not retrieve org-ownership records by default.',
+  );
+}
+
+{
+  const query = 'Who owns onboarding for the design team?';
+  const plan = buildRetrievalPlanFromQuery(query);
+  assert.equal(plan.searchScope, 'domain_filtered', `Expected domain-filtered plan for: ${query}`);
+  assert.equal(
+    plan.topDomainHints.includes('people_org'),
+    true,
+    'Ownership questions about onboarding should still include people_org.',
+  );
+  assert.equal(
+    plan.topDomainHints.includes('training_enablement'),
+    false,
+    'Ownership questions should not route to training_enablement without learning/training intent.',
+  );
+}
+
+{
+  const plan = assertDomains(
     'Where is this product in the design approval workflow before production?',
     ['licensing_approvals', 'product_development', 'production_lifecycle'],
   );

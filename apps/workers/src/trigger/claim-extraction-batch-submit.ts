@@ -43,6 +43,7 @@ import {
   EXTRACTION_PROMPT_VERSION,
   ExtractionOutputSchema,
   formatConversationSegment,
+  loadClaimCorrectionLessonPack,
   type BatchRequest,
   type FormattedMessage,
 } from '@oracle/ai';
@@ -117,6 +118,7 @@ export async function runClaimExtractionBatchSubmitOnce(
 
     // 2. Resolve route + check adapter capability.
     const route = await resolveExtractionRoute(db);
+    const correctionLessons = await loadClaimCorrectionLessonPack(db);
     const adapters = buildStandardAdapters();
     const adapter = adapters[route.provider];
     if (!adapter) {
@@ -186,6 +188,17 @@ export async function runClaimExtractionBatchSubmitOnce(
           content: EXTRACTION_SYSTEM_PROMPT,
           reasonIncluded: 'extraction prompt v' + EXTRACTION_PROMPT_VERSION,
         }),
+        ...(correctionLessons.promptBlock
+          ? [
+              makeBlock({
+                id: 'reviewer-correction-lessons',
+                label: 'Approved reviewer correction lessons',
+                kind: 'semi_stable_domain_context' as const,
+                content: correctionLessons.promptBlock,
+                reasonIncluded: 'approved claim revisions teach extraction corrections',
+              }),
+            ]
+          : []),
         makeBlock({
           id: 'segment',
           label: 'Conversation segment to extract from',

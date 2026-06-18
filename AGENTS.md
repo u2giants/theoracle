@@ -38,7 +38,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 | Continue unfinished work | `AGENTS.md`, `HANDOFF.md`, docs named inside `HANDOFF.md` | Docs unrelated to the handoff scope |
 | Work in a subfolder with its own README | `AGENTS.md`, that folder-level `README.md`, and only broader docs referenced there | Other folder-level READMEs |
 | Change the remote MCP knowledge endpoint (tools agents query) | `AGENTS.md` §10 MCP quirk, `apps/web/lib/mcp/README.md`, `apps/web/lib/mcp/*`, `apps/web/app/api/mcp/[transport]/route.ts` | Unrelated chat/worker code |
-| China bilingual claim layer / claim translation / "ask to verify" (recertification gaps) | `AGENTS.md` §7–§10, `china_imp.md` (design + resolved decisions), `packages/ai/src/retrieval.ts`, `apps/workers/src/trigger/claim-translation.ts`, `apps/workers/src/trigger/claim-recertification.ts`, `apps/web/app/admin/claims/*` | Teams/Recall docs; provider-adapter internals |
+| China bilingual claim layer / claim translation / asking China-team members to verify a claim | `AGENTS.md` §7–§10, `china_imp.md` (design + resolved decisions), `packages/ai/src/retrieval.ts`, `apps/workers/src/trigger/claim-translation.ts`, `apps/web/app/admin/claims/*` (verification reuses main's `claim_review_question` + review-groups) | Teams/Recall docs; provider-adapter internals |
 | Claude Code session | `CLAUDE.md`, then `AGENTS.md` | Other docs unless task requires them |
 | Documentation-only cleanup | `AGENTS.md`, `README.md`, affected docs under `docs/`, folder-level READMEs only where relevant, `HANDOFF.md` if present | Source files except as needed to verify accuracy |
 | Product/spec contract or AI-retrofit provenance | `AGENTS.md`, `oracle_master_spec.md`, relevant `docs/oracle/*` file, `oracle_ai_architecture_prompt caching.md` only if prompt-cache retrofit history is directly relevant | Current deployment/config docs unless operations are affected |
@@ -177,7 +177,7 @@ Specific boundaries:
 | Change document ingestion (formats / image vision / prompts) | `apps/workers/src/trigger/document-ingestion.ts` (`resolveParseKind`, `extractTextFrom*`, `transcribeImageToText`, `IMAGE_TRANSCRIPTION_SYSTEM`, `buildUploaderContextNote`); image inline support in `packages/ai/src/providers/vertex-gemini-adapter.ts` (`toVertexParts`); admin upload UI `apps/web/app/admin/documents/**` + `apps/web/app/api/admin/documents/route.ts`. Redeploy the worker for parse/prompt changes. | the candidate-before-claim pipeline; the channel-based `POST /api/documents` (separate, chat path) |
 | Add/change an auxiliary model (vision, general-purpose, translation, …) | `packages/ai/src/routes/auxiliary.ts` (registry entry), `apps/web/app/admin/settings/page.tsx` (`AUX_PRESENTATION` entry + optional `AUX_CLIPBOARD_BRIEFS` brief). Resolver, picker, and `/api/admin/models` already iterate the registry — no new branches needed. | `OracleModelRole` (stays the 3 pipeline roles); the pipeline route catalog |
 | Change China bilingual claim rendering / locale-aware retrieval | `packages/db/src/schema.ts` (`claims.source_lang`, `claim_translations`), `packages/ai/src/retrieval.ts` (`buildPlanMetadataFilters` localization fragments — interpolate into BOTH branches; parity guard enforces), `packages/shared/src/domains.ts` (`SUPPORTED_LOCALES`), `apps/workers/src/trigger/claim-translation.ts`, `apps/web/app/api/chat/route.ts` | `getBrainSectionSnippets` (Brain is English-only by decision); the candidate-before-claim pipeline |
-| Change claim translation / "ask to verify" admin flow | `apps/web/app/admin/claims/page.tsx` + `apps/web/app/admin/claims/_actions.ts` (`translateClaimsForChina`, `requestClaimVerification`), `apps/workers/src/trigger/claim-translation.ts`, `apps/workers/src/trigger/claim-recertification.ts` (reuses the `gaps` table — `gap_type='claim_recertification'`) | `gaps` schema (no change needed); the auto gap-generation path |
+| Change claim translation / China review-question flow | `apps/web/app/admin/claims/page.tsx` + `apps/web/app/admin/claims/_actions.ts` (`translateClaimsForChina`; `assignClaimQuestion` translates the question per `zh-CN` recipient via `translateReviewQuestionToChinese`), `apps/workers/src/trigger/claim-translation.ts` | the auto gap-generation path; `gaps` schema (no change needed) |
 
 ## 7. Data model and external identifiers
 
@@ -203,7 +203,11 @@ Specific boundaries:
 | Design file operations domain | `design_file_operations` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from product/design workflow. Covers designer file naming, invalid characters, server folders, file-size reduction, linked assets, packaging, versioning, archive, and handoff file hygiene. |
 | Operations systems domain | `operations_systems` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from generic IT support. Covers ERP/CRM/PLM workflows, Google Sheets to Designflow PLM integration, OrderList, MasterData, TaskList, field mapping, validation, and source-of-truth rules. |
 | Business process domain | `business_process` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts`, `packages/oracle-engines/src/extraction/domain-mapping.ts` | Cross-functional company workflows and operating-model overviews. Use with narrower department/process domains for end-to-end flows; do not use as a generic dumping ground. |
+| Training enablement domain | `training_enablement` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from `people_org` and sensitive HR records. Covers onboarding, role training, SOP learning paths, shadowing, cross-training, skill checks, and refresher guidance. |
 | Provider Batch jobs table | `provider_batch_jobs` | `packages/db/src/schema.ts`, migration `60_batch_jobs.sql` | One row per submitted provider Batch API job (D14). `extraction_batches.provider_batch_job_id` links per-input rows to their batch. `model_runs.dispatch_mode` ∈ `'sync' \| 'batch' \| NULL`. |
+| Claim review events | `claim_review_events` | `packages/db/src/schema.ts`, migration `68_claim_review_workflow.sql` | Append-only audit for approve/reject/revise/assign decisions. Revise creates a replacement claim and supersedes the original; do not overwrite original AI output in place. |
+| Claim review groups | `claim_review_groups`, `claim_review_group_members` | `packages/db/src/schema.ts`, migration `73_claim_review_groups.sql` | Admin-managed recipient lists for sending a claim-review question to multiple employees. Sending to a group expands into one `gaps` assignment per active employee. |
+| Domain review permissions | `knowledge_domain_review_departments` | same | Department-to-domain authorization map retained for future claim-review routing. It is currently not exposed in `/claims`; non-admin claim review is direct-assignment only. |
 | Entra app (Graph backend) | `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Entra `TheOracle` app | App-only Graph: directory pull + Teams transcripts. Tenant `1caeb1c0-a087-4cb9-b046-a5e22404f971`. |
 | Azure Bot resource | `theoracle-popcre-teams-bot` | Azure subscription `37077c95-ea53-4a19-8380-f3f48f0cc75d`, resource group `rg-oracle-teams-bot` | Free `F0` Bot Service resource. Display name `The Oracle`, endpoint `https://oracle.designflow.app/api/teams/bot/messages`, `msaAppType=SingleTenant`, Teams channel enabled. |
 | Teams org app | Teams app id `17ccd7a1-b90b-428c-9966-33e7fb832923`; external id `850b2963-3583-4af9-bf18-84985ecbcf03` | Teams tenant app store, package generated from `apps/web/teams-app/oracle/manifest.template.json` | Organization/private-catalog app named `The Oracle`. Available to everyone; installed for Albert on 2026-06-09. |
@@ -216,11 +220,11 @@ Specific boundaries:
 
 | Bilingual claim translations table | `claim_translations` | `packages/db/src/schema.ts`, migration `0007_tricky_charles_xavier.sql` | Display-only per-language renderings of a claim summary (`(claim_id, lang)` PK, own `embedding`, `source_hash`). Canonical claim stays in `claims.source_lang`. NEVER used for quote validation/hashing/promotion. Retrieval `COALESCE`s it in by reader locale. China bilingual layer (`china_imp.md`). |
 | Claim source language | `claims.source_lang` | `packages/db/src/schema.ts` | Language the claim was authored in (`varchar(12)`, default `'en'`). Stamped at promotion from the authoring employee's `locale`. |
-| Employee locale | `employees.locale` | `packages/db/src/schema.ts` | Reader/content language (`varchar(12)`, default `'en'`). Admin sets `'zh-CN'` to put an employee on the "China team". Drives retrieval rendering, answer language, and recertification-question language. |
+| Employee locale | `employees.locale` | `packages/db/src/schema.ts` | Reader/content language (`varchar(12)`, default `'en'`). Admin sets `'zh-CN'` to put an employee on the "China team". Drives retrieval rendering, answer language, and the language a `claim_review_question` is asked in. |
 | Supported locales | `SUPPORTED_LOCALES` (`['en','zh-CN']`) | `packages/shared/src/domains.ts` | Source of truth for the bilingual layer; add variants here (varchar(12) columns, no migration). |
 | Translation route setting | `default_translation_route` | `settings` row + `auxiliary.ts` (`TRANSLATION_AUXILIARY_MODEL`) | Admin-selectable model for claim translation (Admin → Settings → "Translation model"). No capability filter (any catalog model, e.g. Qwen). Shipped fallback `DEFAULT_TRANSLATION_ROUTE_ID` = the Sonnet synthesis route. Not seeded — resolver falls back to the default when unset. |
 | Claim translation worker | task `claim-translation` | `apps/workers/src/trigger/claim-translation.ts` | Translates an approved claim summary into other supported langs, embeds each, upserts `claim_translations` (idempotent on `source_hash`). Triggered by `translateClaimsForChina`. |
-| Claim recertification worker | task `claim-recertification` | `apps/workers/src/trigger/claim-recertification.ts` | "Ask to verify": fans targets (locale group / employees / departments) out to recipient employees and creates one `gaps` row per recipient (`gap_type='claim_recertification'`), drafted in each recipient's language. Triggered by `requestClaimVerification`. |
+| China review-question translation | `gap_type='claim_review_question'` | `apps/web/app/admin/claims/_actions.ts` (`assignClaimQuestion` → `translateReviewQuestionToChinese`) | "Ask to verify" reuses main's claim-review-question + review-groups mechanism. A question sent to a `zh-CN` recipient (direct or via a group containing them) is translated to Chinese per-recipient via the `translation` route; English recipients get English. (There is no separate recertification worker — folded into review questions.) |
 
 Do not casually rename or regenerate these identifiers. They are wired across code, DB, and deployment surfaces.
 
@@ -288,6 +292,17 @@ One person may log in through Google and Microsoft 365 and still be the same emp
 Do not change because:
 Collapsing back to one auth identity per employee breaks real user linkage and RLS helpers.
 
+### Employee removal is soft-disable, not hard delete
+
+What changed:
+Admin -> Employees exposes Disable/Re-enable controls backed by `employees.disabled_at`.
+
+Why:
+Employee rows are referenced by identities, messages, claims/evidence, documents, assignments, review events, and audit history. Hard-deleting a person can break provenance and historical records, while `disabled_at` already blocks login/linking and active RLS helpers.
+
+Future sessions should:
+Use `apps/web/app/admin/employees/_components/employee-access-form.tsx` and `updateEmployeeAccess()` for GUI access changes. Do not add hard-delete employee buttons unless you first design archival/reference cleanup across all employee FKs.
+
 ### All inference must go through `OracleAIClient`
 
 Looks like:
@@ -343,6 +358,28 @@ Inference requires native provider features and exact usage fields; catalog enri
 
 Do not change because:
 Reintroducing OpenRouter into the inference path would erase provider-native cache and usage behavior that the rest of the system expects.
+
+### `google/*` model settings are real Gemini API routes, not Vertex aliases
+
+What changed:
+`google/*` model IDs now resolve to the `GoogleGeminiAdapter`, while curated `vertex_*` routes continue to use `VertexGeminiAdapter`.
+
+Why:
+Gemini 3.1 Flash-Lite (`gemini-3.1-flash-lite`) returned `NOT_FOUND` through the configured Vertex project/region, but worked through the Gemini API using the deployed service-account OAuth path. The extraction A/B/C eval route `google_gemini_3_1_flash_lite_extraction_eval` depends on this split.
+
+Future sessions should:
+Do not map `google/*` back to `vertex` in `packages/ai/src/routes/resolve.ts` unless the exact model has been verified in the configured Vertex region. `GEMINI_API_KEY` is optional; `GoogleGeminiAdapter` can also mint Gemini API OAuth tokens from `GOOGLE_APPLICATION_CREDENTIALS_JSON`.
+
+### Trigger.dev schedule slots are currently full
+
+What changed:
+The `extraction-ab-eval` worker is an immediate Trigger.dev task with no cron sweep. A cron fallback was attempted on 2026-06-16, but Trigger.dev deploy failed because the project already had 10/10 schedules.
+
+Why:
+Adding another `schedules.task()` currently blocks worker deployment. The A/B eval page queues rows and dispatches `extraction-ab-eval` immediately from Vercel through `TRIGGER_SECRET_KEY`.
+
+Future sessions should:
+Do not add new Trigger schedules casually. Reuse/consolidate an existing schedule or increase the Trigger.dev schedule limit before adding another `schedules.task()`. Deploy workers with `corepack pnpm --filter @oracle/workers run deploy`.
 
 ### Explicit Vertex caches are tracked in Postgres
 
@@ -457,6 +494,62 @@ Broad questions such as "how does the overall company process work?" need to ret
 
 Do not change because:
 Mapping cross-functional extraction output back to `customer_ops` buries companywide workflow knowledge under a single department and makes broad process queries unreliable.
+
+### Training enablement is not people/org ownership or HR records
+
+Looks like:
+Training people to do their jobs could live under `people_org` because it involves employees, departments, roles, and onboarding.
+
+Actually:
+Job-training knowledge lives in the dedicated top-level domain `training_enablement`. That domain covers onboarding plans, role-specific training checklists, SOP learning paths, work instructions, shadowing, cross-training, skill checks, and refresher training after workflow changes.
+
+Why:
+The retrieval intent is different. "Who owns onboarding for the design team?" is an ownership/org question. "What checklist should a new design hire follow to learn proof setup?" is training enablement.
+
+Do not change because:
+Collapsing `training_enablement` into `people_org` makes procedural learning material compete with org charts, escalation paths, and ownership facts. Keep sensitive HR/personnel records — compensation, discipline, performance evaluation, and personal conflicts — out of this domain.
+
+### Claim revision is supersede-and-replace, not overwrite
+
+Looks like:
+If a pending or approved claim is 80% correct, the admin/reviewer could simply edit `claims.summary` and approve it.
+
+Actually:
+Claim revision creates a replacement claim, copies the supporting evidence/domain/entity metadata, marks the original claim `superseded`, links `claim_metadata.superseded_by_claim_id`, and writes an append-only `claim_review_events` row with before/after state and reviewer note. Admins can edit approved claims from `/admin/claims`; that edit creates a replacement claim in `pending_review`, so the replacement must be approved before it becomes active Brain/retrieval knowledge.
+
+Why:
+The original row is the AI's first interpretation of the evidence. Keeping it makes review quality auditable and gives future AI comparison tools a clean before/after pair to analyze.
+
+Do not change because:
+Overwriting claims in place destroys the evidence of what the model got wrong and weakens the provenance chain that makes Oracle answers explainable.
+
+### Non-admin claim review is direct-assignment only for now
+
+Looks like:
+`knowledge_domain_review_departments` means department members should see every claim in their mapped domains.
+
+Actually:
+The table remains in the schema as a future routing/authorization map, but the current `/claims` page only shows claims that were directly assigned through a `claim_review_question` gap. The old "My review domains" queue is intentionally hidden, and the server action permission check only allows admins or the employee directly assigned to that claim.
+
+Why:
+The team wants explicit review sends, including multi-person and review-group assignment, before reopening broad domain queues.
+
+Do not change because:
+Re-enabling domain queues can expose large pending-review surfaces to non-admin employees. If domain review is restored later, update `/claims`, `canReviewClaim()`, and this guide together.
+
+### Claim corrections become prompt lessons, not training or evidence
+
+Looks like:
+Reviewer notes and revised claims should make the model "learn" automatically or become Brain evidence.
+
+Actually:
+Approved replacement claims feed a semi-stable extraction prompt block through `packages/ai/src/prompts/claim-correction-lessons.ts`. The sync extraction worker, batch-submit worker, and document-ingestion worker include that block in future extraction calls; `/admin/ai/claim-lessons` shows the exact block.
+
+Why:
+The project needs an immediate auditable feedback loop from human corrections without pretending to fine-tune the model or treating review commentary as source evidence.
+
+Do not change because:
+Reviewer notes are not evidence. Keep correction lessons as prompt guidance only; the candidate-before-claim validators still decide whether new model output can become a claim.
 
 ### Ineligible models are SELECTABLE (red checkbox), not disabled
 
@@ -730,7 +823,7 @@ Looks like:
 `claim_translations` plus locale-aware retrieval looks like it could fragment into a separate Chinese knowledge graph, or like the whole claim (including its evidence quote) gets translated for China readers.
 
 Actually:
-There is exactly ONE knowledge graph. A claim stays canonical in `claims.source_lang` with its verbatim `claim_evidence.exactQuote` intact; `claim_translations` holds display-only summary renderings per language. `searchWithRetrievalPlan(db, plan, locale)` renders `COALESCE(translation, canonical)` for the reader's locale (and `'simple'` tsvector config for `zh-CN`, since Postgres can't tokenize spaceless Chinese). Three deliberate boundaries: (1) **evidence quotes are never translated** — they must stay byte-for-byte for the quote validator; (2) **Brain synthesis is English-only** — `getBrainSectionSnippets` has no locale path; (3) **translation is opt-in per claim** (admin selects claims to send to the China team) and **recertification questions are drafted per-recipient** so a question is translated to Chinese only when a recipient is a `zh-CN` employee.
+There is exactly ONE knowledge graph. A claim stays canonical in `claims.source_lang` with its verbatim `claim_evidence.exactQuote` intact; `claim_translations` holds display-only summary renderings per language. `searchWithRetrievalPlan(db, plan, locale)` renders `COALESCE(translation, canonical)` for the reader's locale (and `'simple'` tsvector config for `zh-CN`, since Postgres can't tokenize spaceless Chinese). Three deliberate boundaries: (1) **evidence quotes are never translated** — they must stay byte-for-byte for the quote validator; (2) **Brain synthesis is English-only** — `getBrainSectionSnippets` has no locale path; (3) **translation is opt-in per claim** (admin selects claims to send to the China team) and **claim-review questions (`claim_review_question`) are translated per-recipient** so a question is translated to Chinese only when a recipient is a `zh-CN` employee (the verify path reuses main's review-question + review-groups mechanism, not a separate recertification worker).
 
 Why:
 Translating evidence would break verbatim provenance; auto-translating every claim or the Brain would burn tokens on knowledge no China employee needs. Per-recipient/opt-in keeps cost proportional to what's actually directed to China while keeping one shared brain. See `china_imp.md`.
@@ -754,6 +847,7 @@ Feeding a translated quote into validation, or adding a locale branch to `getBra
 | `GOOGLE_CLOUD_PROJECT` | Vertex adapter project | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `GOOGLE_CLOUD_LOCATION` | Vertex region | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` | service-account JSON content for Vertex ADC bootstrapping | Vercel/Trigger.dev secret, optional local | no | yes |
+| `GEMINI_API_KEY` | Optional direct Gemini API key for `google/*` routes; `GoogleGeminiAdapter` falls back to `GOOGLE_APPLICATION_CREDENTIALS_JSON` OAuth when unset | `.env.local`, Vercel/Trigger.dev secret if used | no | no |
 | `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` | temp GCS bucket for oversized file-backed Vertex caches | env/secret | optional | recommended |
 | `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_PREFIX` | temp GCS prefix for those uploads | env/secret | optional | optional |
 | `GOOGLE_VERTEX_BATCH_GCS_BUCKET` | GCS bucket for Vertex Batch Prediction JSONL I/O (D14) | env/secret | optional | required if batch mode + Vertex |
@@ -950,8 +1044,8 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 | open | `apps/web/app/admin/taxonomy/_actions.ts` approves some proposal types by queueing reclassification work rather than applying it inline. | Keep the actions as-is until the reclassification path is expanded further. |
 | open | Only `.github/workflows/pr-check.yml` exists (build + two verify guards + Drizzle drift check). There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers run deploy` (note: `run` keyword required — `pnpm` reserves the bare `deploy` form for its own subcommand) in the release process until workflows are added. |
 | resolved | `RetrievalPlan.requiredEntities` semantics: **disjunctive (any-of) — decided 2026-05-28, keep as-is.** A claim matches if it carries ANY of the listed entities. Conjunctive (all-of) was rejected because it would require a single claim to mention every listed entity, collapsing recall for multi-entity queries (claims are typically single-entity). Filter lives in `buildPlanMetadataFilters()` in `packages/ai/src/retrieval.ts`. | No action. If a future "facts connecting X and Y" feature is ever wanted, add it as a separate explicit mode — do not flip the default. |
-| blocked | China bilingual claim layer (schema, locale-aware retrieval, translation worker, recertification worker, admin UI) is implemented on branch `docs/china-bilingual-plan` (GitHub PR #1) and migration `0007` is **applied to the prod DB**, but the **code is not merged to `main`** and the new workers are **not deployed to Trigger.dev prod**. Additive migration is safe to have ahead of code. | Review/merge PR #1 to `main` → Vercel auto-deploys web; `pnpm --filter @oracle/workers run deploy` to ship `claim-translation` + `claim-recertification`. Then set a China employee's `locale='zh-CN'` and pick a translation model. See `HANDOFF.md`. |
-| open | China bilingual follow-ups discussed but not built: backfill of existing approved claims (moot — translation is opt-in), admin side-by-side translation review, and a free-form "compose a gap and send to targets" surface (only the claim-verify path exists). | Build on request; the recipient-resolution + per-language drafting primitive in `claim-recertification.ts` is reusable. |
+| open | China bilingual claim layer (schema, locale-aware retrieval, `claim-translation` worker, translate-for-China bulk action, per-`zh-CN`-recipient translation of `claim_review_question`s) is **merged to `main`** and migration `0007` is **applied to prod**, but the `claim-translation` worker is **not yet deployed to Trigger.dev prod**. | `pnpm --filter @oracle/workers run deploy` to ship `claim-translation`; then set a China employee's `locale='zh-CN'` and pick a translation model at Admin → Settings → "Translation model". |
+| open | China bilingual follow-ups discussed but not built: backfill of existing approved claims (moot — translation is opt-in), and admin side-by-side translation review. | Build on request. |
 | open | `RetrievalPlan.requiredEntities` is declared and enforced (any-of) but **no production code populates it**. `buildRetrievalPlanFromQuery()` is a keyword matcher that routes to broad domains; it does not do named-entity recognition + registry resolution to pin specific entities. This is a deferred feature, not a bug — the field is the socket a future model-backed plan builder (`buildRetrievalPlanWithModel`, noted in `retrieval-plan.ts` header) would fill. | Build entity recognition + resolution into plan construction when per-query latency budget allows the extra structured-output call. Until then the field stays empty and inert. |
 | open | Authentik is mentioned in schema/docs but no Authentik login flow is wired in the app. | Treat Authentik as not implemented. |
 | open | Oversized Vertex file-backed caches require `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` in the runtime env. Without it, the adapter falls back to text-prefix caching only. Used by both the extraction worker and (since the chat-attachment file-cache v1) the interview chat route for large attached PDFs. | Provision the bucket/env in environments that need large-document cache optimization. |

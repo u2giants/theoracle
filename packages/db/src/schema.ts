@@ -19,6 +19,7 @@ import {
   varchar,
   customType,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { DEPARTMENTS, KNOWLEDGE_DOMAINS, EMBEDDING_DIM } from '@oracle/shared';
 
 // ---------------------------------------------------------------------------
@@ -286,6 +287,51 @@ export const employeeDepartments = pgTable(
     addedAt: timestamp('added_at').defaultNow().notNull(),
   },
   (t) => [primaryKey({ columns: [t.employeeId, t.departmentId] })],
+);
+
+// Admin-managed reviewer groups for sending a claim-review question to several
+// people at once. These are intentionally separate from org departments:
+// departments drive permissions and routing, while groups are lightweight
+// assignment lists such as "Licensor reviewers" or "Walmart SOP owners".
+export const claimReviewGroups = pgTable(
+  'claim_review_groups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: varchar('name', { length: 120 }).notNull(),
+    description: text('description'),
+    createdByEmployeeId: uuid('created_by_employee_id').references(() => employees.id, {
+      onDelete: 'set null',
+    }),
+    archivedAt: timestamp('archived_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    activeNameUnique: uniqueIndex('claim_review_groups_active_name_unique')
+      .on(t.name)
+      .where(sql`archived_at IS NULL`),
+    archivedIdx: index('claim_review_groups_archived_idx').on(t.archivedAt),
+  }),
+);
+
+export const claimReviewGroupMembers = pgTable(
+  'claim_review_group_members',
+  {
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => claimReviewGroups.id, { onDelete: 'cascade' }),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id, { onDelete: 'cascade' }),
+    addedByEmployeeId: uuid('added_by_employee_id').references(() => employees.id, {
+      onDelete: 'set null',
+    }),
+    addedAt: timestamp('added_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.groupId, t.employeeId] }),
+    employeeIdx: index('claim_review_group_members_employee_idx').on(t.employeeId),
+  }),
 );
 
 // ---------------------------------------------------------------------------
@@ -659,6 +705,95 @@ export const claimTranslations = pgTable(
   (t) => ({
     pk: primaryKey({ columns: [t.claimId, t.lang] }),
     langIdx: index('claim_translations_lang_idx').on(t.lang),
+  }),
+);
+
+// Domain-scoped claim review permissions. Members of a department listed here
+// can review claims carrying the corresponding top-domain without full admin.
+export const knowledgeDomainReviewDepartments = pgTable(
+  'knowledge_domain_review_departments',
+  {
+    topDomainId: varchar('top_domain_id', { length: 100 })
+      .references(() => knowledgeTopDomains.id, { onDelete: 'cascade' })
+      .notNull(),
+    departmentId: departmentEnum('department_id')
+      .references(() => departments.id, { onDelete: 'cascade' })
+      .notNull(),
+    canReviewClaims: boolean('can_review_claims').default(true).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.topDomainId, t.departmentId] }),
+    departmentIdx: index('knowledge_domain_review_departments_department_idx').on(t.departmentId),
+  }),
+);
+
+// Append-only audit trail for claim review decisions and revisions.
+export const claimReviewEvents = pgTable(
+  'claim_review_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    claimId: uuid('claim_id')
+      .references(() => claims.id, { onDelete: 'cascade' })
+      .notNull(),
+    replacementClaimId: uuid('replacement_claim_id').references(() => claims.id, {
+      onDelete: 'set null',
+    }),
+    action: varchar('action', { length: 50 }).notNull(),
+    reviewedByEmployeeId: uuid('reviewed_by_employee_id')
+      .references(() => employees.id)
+      .notNull(),
+    reviewerNote: text('reviewer_note'),
+    beforeState: jsonb('before_state').notNull(),
+    afterState: jsonb('after_state'),
+    aiComparisonJson: jsonb('ai_comparison_json'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    claimIdx: index('claim_review_events_claim_idx').on(t.claimId, t.createdAt),
+    replacementClaimIdx: index('claim_review_events_replacement_claim_idx').on(t.replacementClaimId),
+  }),
+);
+
+export const claimExtractionAbTests = pgTable(
+  'claim_extraction_ab_tests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    claimReviewEventId: uuid('claim_review_event_id')
+      .references(() => claimReviewEvents.id, { onDelete: 'cascade' })
+      .notNull(),
+    sourceClaimId: uuid('source_claim_id')
+      .references(() => claims.id, { onDelete: 'cascade' })
+      .notNull(),
+    revisedClaimId: uuid('revised_claim_id')
+      .references(() => claims.id, { onDelete: 'cascade' })
+      .notNull(),
+    sourceType: varchar('source_type', { length: 50 }).notNull(),
+    sourceId: uuid('source_id'),
+    sourceExcerpt: text('source_excerpt').notNull(),
+    gemini31OutputJson: jsonb('gemini_3_1_output_json'),
+    qwen37OutputJson: jsonb('qwen_3_7_output_json'),
+    gemini31Error: text('gemini_3_1_error'),
+    qwen37Error: text('qwen_3_7_error'),
+    bestVariant: varchar('best_variant', { length: 50 }),
+    reviewerNote: text('reviewer_note'),
+    reviewedByEmployeeId: uuid('reviewed_by_employee_id').references(() => employees.id),
+    reviewedAt: timestamp('reviewed_at'),
+    runStatus: varchar('run_status', { length: 20 }).default('idle').notNull(),
+    runRequestedAt: timestamp('run_requested_at'),
+    runStartedAt: timestamp('run_started_at'),
+    runCompletedAt: timestamp('run_completed_at'),
+    lastRunError: text('last_run_error'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    eventUnique: uniqueIndex('claim_extraction_ab_tests_event_unique').on(t.claimReviewEventId),
+    reviewedIdx: index('claim_extraction_ab_tests_reviewed_idx').on(t.reviewedAt, t.createdAt),
+    runStatusIdx: index('claim_extraction_ab_tests_run_status_idx').on(
+      t.runStatus,
+      t.runRequestedAt,
+    ),
   }),
 );
 
@@ -1588,6 +1723,10 @@ export const extractionValidationResults = pgTable(
 
 export type Employee = typeof employees.$inferSelect;
 export type NewEmployee = typeof employees.$inferInsert;
+export type ClaimReviewGroup = typeof claimReviewGroups.$inferSelect;
+export type NewClaimReviewGroup = typeof claimReviewGroups.$inferInsert;
+export type ClaimReviewGroupMember = typeof claimReviewGroupMembers.$inferSelect;
+export type NewClaimReviewGroupMember = typeof claimReviewGroupMembers.$inferInsert;
 export type Channel = typeof channels.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
@@ -1633,6 +1772,10 @@ export type MessageEntity = typeof messageEntities.$inferSelect;
 export type NewMessageEntity = typeof messageEntities.$inferInsert;
 export type ClaimMetadata = typeof claimMetadata.$inferSelect;
 export type NewClaimMetadata = typeof claimMetadata.$inferInsert;
+export type KnowledgeDomainReviewDepartment = typeof knowledgeDomainReviewDepartments.$inferSelect;
+export type NewKnowledgeDomainReviewDepartment = typeof knowledgeDomainReviewDepartments.$inferInsert;
+export type ClaimReviewEvent = typeof claimReviewEvents.$inferSelect;
+export type NewClaimReviewEvent = typeof claimReviewEvents.$inferInsert;
 export type TaxonomyProposal = typeof taxonomyProposals.$inferSelect;
 export type NewTaxonomyProposal = typeof taxonomyProposals.$inferInsert;
 export type TaxonomyChangeLog = typeof taxonomyChangeLog.$inferSelect;

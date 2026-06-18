@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDate } from '@/lib/time';
 import { updateContradictionStatus } from './_actions';
 
 type ContradictionRow = {
@@ -148,7 +149,7 @@ export default async function AdminContradictionsPage({
                       )}
                     </div>
                     <span className="shrink-0 text-xs text-muted-foreground">
-                      {new Date(row.created_at).toLocaleDateString()}
+                      {formatNYDate(row.created_at)}
                     </span>
                   </div>
                 </CardHeader>

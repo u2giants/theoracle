@@ -177,9 +177,18 @@ export async function POST(req: NextRequest) {
     console.error('[documents] message/attachment insert failed', err);
   }
 
-  // Kick off async document ingestion. Fails silently if Trigger.dev is not
-  // yet deployed — the document-ingestion-sweep cron will pick it up within 4h.
-  void triggerTask('document-ingestion', { documentId: docId });
+  // Kick off ingestion before returning. Serverless functions may stop
+  // fire-and-forget work as soon as the response is sent.
+  const dispatched = await triggerTask('document-ingestion', { documentId: docId });
+  if (!dispatched) {
+    await db
+      .update(documents)
+      .set({
+        processingError:
+          'Immediate ingestion dispatch failed. The scheduled sweep will retry this document automatically.',
+      })
+      .where(eq(documents.id, docId));
+  }
 
   return NextResponse.json(
     {

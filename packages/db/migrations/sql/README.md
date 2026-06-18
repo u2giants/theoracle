@@ -67,7 +67,15 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `50_enable_live_contradiction_interjections.sql` | R11.3 — flips `settings.enable_live_contradiction_interjections` to `true`. Live posting is gated by the full `decideContradictionInterjection` stack (severity=high + confidence≥80 + cooldown + rate cap + suggested question). Idempotent. |
 | `63_design_file_operations_domain.sql` | Adds the `design_file_operations` top domain, narrows neighboring Creative/Product/IT bootstrap boundaries when they still match the original seed, and re-tags legacy `artwork_files` claims into the new domain. |
 | `64_operations_systems_domain.sql` | Adds the `operations_systems` top domain for ERP/CRM/PLM data-flow knowledge, including Google Sheets to Designflow PLM integration, and seeds Designflow, Google Sheets, OrderList, MasterData, and TaskList entities. |
+| `65_document_context_and_domain_hints.sql` | Adds optional uploader-provided document context and suggested domain hints for admin document ingestion. |
 | `66_business_process_domain.sql` | Adds the `business_process` top domain for end-to-end company workflows, cross-functional handoffs, operating model overviews, and broad "how things work" process explanations. |
+| `67_training_enablement_domain.sql` | Adds the `training_enablement` top domain for role training, onboarding, SOP learning paths, shadowing, cross-training, skill checks, and refresher guidance. |
+| `68_claim_review_workflow.sql` | Adds domain-to-department claim-review permissions and append-only `claim_review_events` audit rows for approve/reject/revise decisions. |
+| `69_claim_review_assignment_and_costing_domain.sql` | Allows claim-review assignment events and renames/rebounds `finance_pricing` as product costing/pricing rather than company finance. |
+| `70_claim_extraction_ab_tests.sql` | Stores non-promoting A/B/C claim-extraction comparison outputs and reviewer winner selections. |
+| `71_claim_extraction_ab_ai_only_scoring.sql` | Narrows A/B/C winner choices to AI outputs only; the human revision remains a reference column, not a scoreable variant. |
+| `72_claim_extraction_ab_run_status.sql` | Adds queued/running/complete/failed status fields so A/B/C model reruns can be processed by Trigger.dev workers instead of long page requests. |
+| `73_claim_review_groups.sql` | Adds admin-managed claim-review groups and group members so a claim-review question can be sent to reusable people lists while still materializing as one assignment gap per employee. |
 | `99_vector_indexes.sql` | HNSW indexes on `claims.embedding` and `document_chunks.embedding`. Opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`. |
 
 ## Anti-patterns

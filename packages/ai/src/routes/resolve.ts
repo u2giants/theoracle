@@ -16,6 +16,7 @@
 import type { OracleModelRole, OracleModelRoute, OracleProvider, ReasoningEffort } from './types';
 import { ORACLE_MODEL_ROUTES } from './catalog';
 import { getOracleRoute } from './catalog';
+import { DEFAULT_ORACLE_ROUTES } from './defaults';
 
 // ---------------------------------------------------------------------------
 // Provider-prefix mapping (OpenRouter prefix → Oracle provider name).
@@ -24,7 +25,7 @@ import { getOracleRoute } from './catalog';
 const OR_PROVIDER_MAP: Record<string, OracleProvider> = {
   anthropic: 'anthropic',
   openai: 'openai',
-  google: 'vertex',   // OpenRouter uses google/ for Gemini models
+  google: 'google',
   deepseek: 'deepseek',
   qwen: 'qwen',
   // others (meta-llama, mistralai, etc.) are not supported — return null
@@ -47,8 +48,6 @@ const SYNTHETIC_CAPS: Pick<
   | 'supportsStructuredOutput'
   | 'supportsReasoningControls'
   | 'costTier'
-  | 'fallbackRouteId'
-  | 'fallbackCondition'
   | 'enabled'
 > = {
   supportsVision: true,
@@ -57,8 +56,6 @@ const SYNTHETIC_CAPS: Pick<
   supportsStructuredOutput: true,
   supportsReasoningControls: false,
   costTier: 'balanced_default',
-  fallbackRouteId: null,
-  fallbackCondition: 'not_applicable',
   enabled: true,
 };
 
@@ -74,6 +71,8 @@ function makeSyntheticRoute(
       ? 'anthropic_auto_plus_explicit'
       : provider === 'vertex'
       ? 'vertex_implicit_or_explicit_by_context_size'
+      : provider === 'google'
+      ? 'none'
       : provider === 'deepseek'
       ? 'deepseek_automatic_prefix'
       : provider === 'qwen'
@@ -81,9 +80,9 @@ function makeSyntheticRoute(
       : 'openai_automatic_with_cache_key';
 
   // DeepSeek and Qwen via OpenAI-compat don't expose strict json_schema mode.
-  // OpenAI does. Vertex Gemini supports native json schema. Anthropic uses tool_call.
+  // OpenAI does. Vertex/Gemini API support native json schema. Anthropic uses tool_call.
   const structuredOutputStrategy =
-    provider === 'vertex' ? 'native_json_schema'
+    provider === 'vertex' || provider === 'google' ? 'native_json_schema'
       : provider === 'openai' ? 'native_json_schema'
       : 'tool_call';
 
@@ -98,6 +97,8 @@ function makeSyntheticRoute(
     recommendedUse: `Dynamically resolved from model pool (${openRouterId}).`,
     cacheStrategy,
     structuredOutputStrategy,
+    fallbackRouteId: DEFAULT_ORACLE_ROUTES[role],
+    fallbackCondition: 'provider_outage',
     ...SYNTHETIC_CAPS,
   };
 }

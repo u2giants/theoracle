@@ -21,6 +21,7 @@ import { getContextCompiler, type CompileArgs } from '../context/context-compile
 import { ModelRouter, type ProviderAdapterMap } from '../routing/model-router';
 import { AnthropicAdapter } from '../providers/anthropic-adapter';
 import { VertexGeminiAdapter } from '../providers/vertex-gemini-adapter';
+import { GoogleGeminiAdapter } from '../providers/google-gemini-adapter';
 import { OpenAIAdapter } from '../providers/openai-adapter';
 import { MockProviderAdapter } from '../providers/mock-adapter';
 import {
@@ -85,11 +86,13 @@ export class OracleAIClient {
         ? {
             anthropic: new MockProviderAdapter({ provider: 'anthropic' }),
             vertex: new MockProviderAdapter({ provider: 'vertex' }),
+            google: new MockProviderAdapter({ provider: 'google' }),
             openai: new MockProviderAdapter({ provider: 'openai' }),
           }
         : {
             anthropic: new AnthropicAdapter(),
             vertex: new VertexGeminiAdapter(),
+            google: new GoogleGeminiAdapter(),
             openai: new OpenAIAdapter(),
           });
     this.router = new ModelRouter({ adapters, fallbackOnError: opts.fallbackOnError });

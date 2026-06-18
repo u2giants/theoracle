@@ -110,15 +110,18 @@ export class DeepSeekAdapter implements OracleProviderAdapter {
   async generateObject<TSchema, TOutput>(
     args: GenerateObjectArgs<TSchema>,
   ): Promise<OracleObjectResult<TOutput>> {
-    const { plan, route, schema } = args;
+    const { plan, route, schema, providerOptions } = args;
     const { systemPrompt, userMessage } = flattenPlan(plan);
     // DeepSeek supports json_object (free-form JSON), not strict json_schema.
     // We embed schema guidance in the system prompt and validate with Zod after.
     const callStartedAt = Date.now();
     const completion = await this.client.chat.completions.create({
       model: route.modelId,
-      messages: this.buildMessages(systemPrompt, userMessage),
-      temperature: 0.1,
+      messages: this.buildMessages(systemPrompt, userMessage, providerOptions),
+      temperature:
+        typeof providerOptions?.temperature === 'number'
+          ? providerOptions.temperature
+          : 0.1,
       response_format: { type: 'json_object' },
     });
     const latencyMs = Date.now() - callStartedAt;

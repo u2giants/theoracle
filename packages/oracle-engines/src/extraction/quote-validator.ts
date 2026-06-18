@@ -283,5 +283,12 @@ export function validateSourcePointer(
         };
       }
       return { ok: true, detail: 'manual_admin source pointer present.' };
+
+    default:
+      return {
+        ok: false,
+        failedCheckName: 'source_type_valid',
+        detail: `unknown source type: ${sourceType}`,
+      };
   }
 }

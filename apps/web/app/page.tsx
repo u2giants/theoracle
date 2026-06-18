@@ -4,10 +4,8 @@
 // For everyone else, render the login form.
 
 import { redirect } from 'next/navigation';
-import { eq } from 'drizzle-orm';
 import { getServerSupabase } from '@/lib/supabase/server';
-import { getDirectDb } from '@oracle/db/client';
-import { employees, employeeIdentities } from '@oracle/db/schema';
+import { getEmployeeForAuthUser } from '@/lib/auth-guard';
 import { LoginForm } from './_components/login-form';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -24,28 +22,9 @@ export default async function HomePage() {
   }
 
   if (userId) {
-    // Look up the employee row WITHOUT wrapping redirect() in the try/catch.
-    // Next.js implements redirect() by throwing a NEXT_REDIRECT exception that the
-    // framework catches at the request boundary. Swallowing it here prevents the
-    // redirect and surfaces the throw to the dev overlay.
-    let target: '/admin' | '/channels' | '/denied' = '/denied';
-    try {
-      const db = getDirectDb();
-      // Resolve employee through identities (post D2.multi-identity).
-      const rows = await db
-        .select({ employee: employees })
-        .from(employees)
-        .innerJoin(employeeIdentities, eq(employeeIdentities.employeeId, employees.id))
-        .where(eq(employeeIdentities.authUserId, userId))
-        .limit(1);
-      const me = rows[0]?.employee;
-      if (me && !me.disabledAt) {
-        target = me.isAdmin ? '/admin' : '/channels';
-      }
-    } catch (err) {
-      console.error('[home] DB lookup failed:', err);
-      // Fall through to /denied — safer to deny than to leak an unverified session.
-    }
+    const me = await getEmployeeForAuthUser(userId);
+    const target: '/admin' | '/channels' | '/denied' =
+      me && !me.disabledAt ? (me.isAdmin ? '/admin' : '/channels') : '/denied';
     redirect(target);
   }
 

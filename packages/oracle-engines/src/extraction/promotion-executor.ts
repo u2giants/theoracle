@@ -551,7 +551,6 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
           .set({
             status: 'duplicate',
             duplicateOfClaimId: claimId,
-            promotedAt: new Date(),
             validatedAt: new Date(),
           })
           .where(eq(extractionCandidates.id, candidateId));

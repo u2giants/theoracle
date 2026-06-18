@@ -10,6 +10,7 @@
 // Requires admin.
 
 import { NextResponse, type NextRequest } from 'next/server';
+import { eq } from 'drizzle-orm';
 import { requireAdmin } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
 import { createServiceRoleClient } from '@oracle/auth/server';
@@ -118,9 +119,18 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
-    // Kick off ingestion. Fails silently if Trigger.dev is unreachable — the
-    // document-ingestion-sweep cron retries pending documents within 4h.
-    void triggerTask('document-ingestion', { documentId: docId });
+    // Kick off ingestion before returning. Serverless functions may stop
+    // fire-and-forget work as soon as the response is sent.
+    const dispatched = await triggerTask('document-ingestion', { documentId: docId });
+    if (!dispatched) {
+      await db
+        .update(documents)
+        .set({
+          processingError:
+            'Immediate ingestion dispatch failed. The scheduled sweep will retry this document automatically.',
+        })
+        .where(eq(documents.id, docId));
+    }
     results.push({ fileName: file.name, ok: true, documentId: docId });
   }
 

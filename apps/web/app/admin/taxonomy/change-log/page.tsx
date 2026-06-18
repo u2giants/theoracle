@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 
 type LogRow = {
   id: string;
@@ -63,7 +64,7 @@ export default async function AdminTaxonomyChangeLogPage() {
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-foreground">{r.change_type}</span>
                   <span className="text-muted-foreground">
-                    {new Date(r.created_at).toLocaleString()}
+                    {formatNYDateTime(r.created_at)}
                     {r.approver_name && <> · {r.approver_name}</>}
                   </span>
                 </div>

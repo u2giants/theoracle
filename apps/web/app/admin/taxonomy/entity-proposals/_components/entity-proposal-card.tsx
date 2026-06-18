@@ -6,6 +6,7 @@ import { useState, useTransition } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatNYDateTime } from '@/lib/time';
 import {
   approveEntityProposal,
   rejectEntityProposal,
@@ -123,7 +124,7 @@ export function EntityProposalCard({ proposal }: EntityProposalCardProps) {
           />
           <Field
             label="Created"
-            value={new Date(proposal.created_at).toLocaleString()}
+            value={formatNYDateTime(proposal.created_at)}
           />
           {proposal.reviewer_name && proposal.reviewed_at && (
             <Field
@@ -132,7 +133,7 @@ export function EntityProposalCard({ proposal }: EntityProposalCardProps) {
                 <>
                   {proposal.reviewer_name}{' '}
                   <span className="text-muted-foreground">
-                    {new Date(proposal.reviewed_at).toLocaleString()}
+                    {formatNYDateTime(proposal.reviewed_at)}
                   </span>
                 </>
               }

@@ -130,8 +130,8 @@ export const anthropic_claude_3_5_sonnet_synthesis_primary: OracleModelRoute = {
   tier: 'primary',
   internalPurpose: null,
   provider: 'anthropic',
-  modelId: 'claude-3-5-sonnet-latest',
-  displayName: 'Claude 3.5 Sonnet (Synthesis)',
+  modelId: 'claude-sonnet-4-6',
+  displayName: 'Claude Sonnet 4.6 (Synthesis)',
   recommendedUse:
     'Brain section synthesis. Evidence fidelity, structured diffs, contradiction reasoning. Uses Anthropic explicit cache breakpoints on stable synthesis prompt/schema.',
   costTier: 'expensive_escalation',
@@ -244,6 +244,58 @@ export const openai_gpt4o_mini_schema_repair: OracleModelRoute = {
 };
 
 // ============================================================================
+// MANUAL EVAL ROUTES — admin-triggered comparisons, not production defaults
+// ============================================================================
+
+export const google_gemini_3_1_flash_lite_extraction_eval: OracleModelRoute = {
+  routeId: 'google_gemini_3_1_flash_lite_extraction_eval',
+  role: 'extraction',
+  tier: 'manual_only_frontier',
+  internalPurpose: null,
+  provider: 'google',
+  modelId: 'gemini-3.1-flash-lite',
+  displayName: 'Gemini 3.1 Flash Lite (Extraction Eval)',
+  recommendedUse:
+    'Manual A/B/C extraction comparison against approved human claim revisions. Not a production default route.',
+  costTier: 'cheap_default',
+  cacheStrategy: 'none',
+  structuredOutputStrategy: 'native_json_schema',
+  supportsVision: true,
+  supportsStreaming: false,
+  supportsToolCalling: true,
+  supportsStructuredOutput: true,
+  supportsReasoningControls: true,
+  reasoningEffort: 'low',
+  fallbackRouteId: null,
+  fallbackCondition: 'not_applicable',
+  enabled: true,
+};
+
+export const qwen_3_7_max_extraction_eval: OracleModelRoute = {
+  routeId: 'qwen_3_7_max_extraction_eval',
+  role: 'extraction',
+  tier: 'manual_only_frontier',
+  internalPurpose: null,
+  provider: 'qwen',
+  modelId: 'qwen3.7-max',
+  displayName: 'Qwen 3.7 Max (Extraction Eval)',
+  recommendedUse:
+    'Manual A/B/C extraction comparison against approved human claim revisions. Not a production default route.',
+  costTier: 'balanced_default',
+  cacheStrategy: 'qwen_explicit_context_cache',
+  structuredOutputStrategy: 'tool_call',
+  supportsVision: true,
+  supportsStreaming: false,
+  supportsToolCalling: true,
+  supportsStructuredOutput: true,
+  supportsReasoningControls: true,
+  reasoningEffort: 'low',
+  fallbackRouteId: null,
+  fallbackCondition: 'not_applicable',
+  enabled: true,
+};
+
+// ============================================================================
 // CATALOG
 // ============================================================================
 
@@ -264,6 +316,10 @@ export const ORACLE_MODEL_ROUTES: Record<string, OracleModelRoute> = {
   [vertex_gemini_2_5_flash_lite_message_triage.routeId]: vertex_gemini_2_5_flash_lite_message_triage,
   [anthropic_claude_haiku_warmth_escalation.routeId]: anthropic_claude_haiku_warmth_escalation,
   [openai_gpt4o_mini_schema_repair.routeId]: openai_gpt4o_mini_schema_repair,
+
+  // Manual eval routes
+  [google_gemini_3_1_flash_lite_extraction_eval.routeId]: google_gemini_3_1_flash_lite_extraction_eval,
+  [qwen_3_7_max_extraction_eval.routeId]: qwen_3_7_max_extraction_eval,
 };
 
 /** Production routes (admin-selectable). */

@@ -50,7 +50,26 @@ export class EvidenceValidator {
     }
 
     // If offsets were given, prefer them. They must match exactly.
-    if (typeof charStartProvided === 'number' && typeof charEndProvided === 'number') {
+    // Require BOTH offsets together (reject if exactly one is provided), and
+    // validate offset sanity before slicing — mirrors the stricter checks in
+    // packages/oracle-engines/src/extraction/quote-validator.ts.
+    const hasStart = typeof charStartProvided === 'number';
+    const hasEnd = typeof charEndProvided === 'number';
+    if (hasStart !== hasEnd) {
+      return {
+        verdict: 'failed',
+        validationMethod: 'none',
+        detail: 'charStartProvided and charEndProvided must be supplied together or not at all.',
+      };
+    }
+    if (hasStart && hasEnd) {
+      if (charStartProvided! < 0 || charStartProvided! > charEndProvided! || charEndProvided! > sourceText.length) {
+        return {
+          verdict: 'failed',
+          validationMethod: 'verbatim_offset_match',
+          detail: `Provided offsets [${charStartProvided}, ${charEndProvided}] are out of range for sourceText (length ${sourceText.length}).`,
+        };
+      }
       const slice = sourceText.slice(charStartProvided, charEndProvided);
       if (slice === exactQuoteProvided) {
         return {

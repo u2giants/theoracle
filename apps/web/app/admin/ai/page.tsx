@@ -17,6 +17,7 @@ import Link from 'next/link';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatNYDateTime } from '@/lib/time';
 import { MetricCard, formatPct, formatTokens, formatMs } from './_components/metric-card';
 
 type SummaryRow = {
@@ -221,7 +222,7 @@ export default async function AdminAIPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-4 text-xs">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-6 text-xs">
         <Link href="/admin/ai/runs" className="rounded border bg-card p-3 hover:bg-muted">
           <div className="font-semibold">Model runs →</div>
           <div className="text-muted-foreground">Paginated view of every AI call.</div>
@@ -237,6 +238,14 @@ export default async function AdminAIPage() {
         <Link href="/admin/ai/evals" className="rounded border bg-card p-3 hover:bg-muted">
           <div className="font-semibold">Evals (placeholder) →</div>
           <div className="text-muted-foreground">Eval results will land here.</div>
+        </Link>
+        <Link href="/admin/ai/claim-lessons" className="rounded border bg-card p-3 hover:bg-muted">
+          <div className="font-semibold">Claim lessons →</div>
+          <div className="text-muted-foreground">Approved revisions that steer future extraction.</div>
+        </Link>
+        <Link href="/admin/ai/extraction-ab" className="rounded border bg-card p-3 hover:bg-muted">
+          <div className="font-semibold">Extraction A/B/C →</div>
+          <div className="text-muted-foreground">Score Gemini 2.5 vs 3.1, Qwen, and your revision.</div>
         </Link>
       </div>
 
@@ -303,7 +312,7 @@ export default async function AdminAIPage() {
                 {recentRuns.map((r) => (
                   <tr key={r.model_run_id} className="border-b">
                     <td className="py-2 font-mono text-muted-foreground">
-                      {new Date(r.run_created_at).toLocaleString()}
+                      {formatNYDateTime(r.run_created_at)}
                     </td>
                     <td>{r.task_type}</td>
                     <td className="font-mono">

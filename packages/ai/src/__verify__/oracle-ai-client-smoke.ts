@@ -131,6 +131,45 @@ async function main() {
     'fallback result records the original route',
   );
 
+  // ── 4b. Dynamic provider/model route IDs ─────────────────────────────────
+  const dynamicRouter = new ModelRouter({
+    adapters: {
+      qwen: new MockProviderAdapter({ provider: 'qwen', cannedText: 'dynamic-OK' }),
+    },
+    fallbackOnError: true,
+  });
+  const dynamicPlan: OraclePromptPlan = client.compile({
+    taskType: 'document_claim_extraction',
+    routeId: 'qwen/qwen3.7-plus',
+    promptVersion: 'r2-smoke',
+    blocks: baseBlocks,
+  });
+  const dynamicResult = await dynamicRouter.generateText(dynamicPlan);
+  assert(dynamicResult.text === 'dynamic-OK', 'ModelRouter dispatches dynamic provider/model route IDs');
+  assert(dynamicResult.routeId === 'qwen/qwen3.7-plus', 'dynamic route metadata preserves provider/model routeId');
+  assert(dynamicResult.provider === 'qwen', 'dynamic route metadata records provider');
+  assert(dynamicResult.modelId === 'qwen3.7-plus', 'dynamic route metadata records model id');
+
+  const dynamicFallbackRouter = new ModelRouter({
+    adapters: {
+      vertex: new MockProviderAdapter({ provider: 'vertex', cannedText: 'dynamic-fallback-OK' }),
+    },
+    fallbackOnError: true,
+  });
+  const dynamicFallbackResult = await dynamicFallbackRouter.generateText(dynamicPlan);
+  assert(
+    dynamicFallbackResult.text === 'dynamic-fallback-OK',
+    'ModelRouter falls back when a dynamic route provider adapter is unavailable',
+  );
+  assert(
+    dynamicFallbackResult.routeId === 'vertex_gemini_2_5_flash_extraction_primary',
+    'dynamic fallback result records the actual fallback route',
+  );
+  assert(
+    dynamicFallbackResult.fellBackFromRouteId === 'qwen/qwen3.7-plus',
+    'dynamic fallback result records the original provider/model route',
+  );
+
   // ── 5. ModelRouter surfaces non-transient errors (no fallback) ──────────
   const strictRouter = new ModelRouter({
     adapters: { anthropic: unavailableAnthropicAdapter },

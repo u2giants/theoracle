@@ -547,3 +547,10 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Entity policy**: Unknown-only entity taxonomy results are allowed to promote while staging entity proposals. Invalid domains, ambiguous domains, and entity type mismatches still block promotion.
 - **Verified production run**: Trigger worker `20260615.4` reprocessed document `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea` (`business-process.md`) in run `run_cmqehatni237e0un5ioyywuez`: 12 chunks, 155 extraction candidates, 139 promoted pending-review claims, 16 rejections, document status `complete`.
 - **Future sessions should**: Keep document windows aligned to whole `document_chunks.id` values, avoid reintroducing a document-level cap, and remember that newly promoted document claims are not retrievable by chat/synthesis until reviewed and approved.
+
+## D16.claim-correction-lessons — approved revisions steer future extraction (2026-06-15)
+
+- **Decision**: Extraction prompt version `2.1.0` includes a semi-stable "reviewer correction lessons" block built from approved claim revisions. `packages/ai/src/prompts/claim-correction-lessons.ts` reads `claim_review_events` where `action='revise'` and the replacement claim is `approved`, formats compact before/after examples plus recurring correction rules, and the sync message worker, batch-submit worker, and document-ingestion worker include it in their `OraclePromptPlan`.
+- **Why**: Reviewer notes and revised claims do not magically train the model. The immediate, auditable feedback loop is to feed approved correction patterns back into the next extraction calls while preserving the original AI output and the human-approved replacement.
+- **Boundary**: The lesson block is guidance only. It is not claim evidence, not Brain source material, and not fine-tuning. The candidate-before-claim validators still enforce quote provenance, taxonomy validity, sensitivity gates, and promotion rules.
+- **Admin surface**: `/admin/ai/claim-lessons` shows counts, recent approved correction pairs, and the exact prompt block extraction will see.

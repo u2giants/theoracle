@@ -23,6 +23,7 @@ import {
   decidePromotion,
   mapCandidateRowToSnapshotCandidate,
   mapEvidenceRowToValidatedEvidence,
+  MARKDOWN_DOCUMENT_NORMALIZATION_POLICY,
   PDF_OCR_NORMALIZATION_POLICY,
   type CandidateSnapshot,
   type ExtractionCandidateRow,
@@ -260,6 +261,25 @@ function main() {
     assert(
       lenient.verdict === 'normalized_match',
       'Extra: Markdown formatting matches under allowMarkdownFormatting',
+    );
+  }
+
+  // ── Markdown/plain-text line wraps normalize to visible prose ───────
+  {
+    const source =
+      'Licensed Team assists Design Team in Downloading Style Guides from the\nLicensor’s Website to the Style Guide Server';
+    const quote =
+      "Licensed Team assists Design Team in Downloading Style Guides from the Licensor's Website to the Style Guide Server";
+    const strict = validateQuote({ sourceText: source, exactQuoteProvided: quote });
+    assert(strict.verdict === 'failed', 'Extra: wrapped smart-quote text fails strict verbatim');
+    const lenient = validateQuote({
+      sourceText: source,
+      exactQuoteProvided: quote,
+      normalizationPolicy: MARKDOWN_DOCUMENT_NORMALIZATION_POLICY,
+    });
+    assert(
+      lenient.verdict === 'normalized_match',
+      'Extra: markdown/plain-text policy matches line-wrapped smart-quote prose',
     );
   }
 
