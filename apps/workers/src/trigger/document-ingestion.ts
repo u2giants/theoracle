@@ -37,6 +37,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { getDirectDb } from '@oracle/db/client';
 import {
+  claims,
   documentChunks,
   documents,
   documentTopDomains,
@@ -80,6 +81,7 @@ import {
   validateSourcePointer,
   validateTaxonomy,
   AdvisoryLockBusyError,
+  type ExecutePromotionResult,
   type RegistryEntity,
 } from '@oracle/engines';
 import { createServiceRoleClient } from '@oracle/auth/server';
@@ -90,6 +92,14 @@ const CHUNK_OVERLAP = 400;
 const MAX_DOCUMENT_TEXT_CHARS = 6_000;
 const VERTEX_FILE_CACHE_MIN_BYTES = 10 * 1024 * 1024;
 const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
+const AUTO_APPROVE_MIN_CONFIDENCE = 9;
+const AUTO_APPROVE_MAX_IMPACT = 6;
+const AUTO_APPROVE_CLAIM_TYPES = new Set([
+  'process_rule',
+  'dependency',
+  'workaround',
+  'system_limitation',
+]);
 
 // ─────────────────────────────────────────────────────────────────────────
 // Payload schema for the single-document task
@@ -452,8 +462,159 @@ interface ProcessDocumentResult {
   chunksInserted: number;
   candidatesStaged: number;
   claimsPromoted: number;
+  claimsAutoApproved: number;
   duplicatesAppended: number;
   rejections: number;
+}
+
+type ExtractedClaim = ExtractionOutput['claims'][number];
+
+type AutoApprovalDecision =
+  | { approve: true; reason: string }
+  | { approve: false; reason: string };
+
+function hasSensitivityFlags(claim: ExtractedClaim): boolean {
+  return (
+    claim.sensitivityFlags?.containsSensitiveHRData === true ||
+    claim.sensitivityFlags?.containsSensitivePersonalData === true ||
+    claim.sensitivityFlags?.isPersonalConflict === true
+  );
+}
+
+function decideDocumentClaimAutoApproval(input: {
+  extracted: ExtractedClaim;
+  result: ExecutePromotionResult;
+  quoteVerdict: string;
+  validTopDomainIds: string[];
+}): AutoApprovalDecision {
+  const { extracted, result, quoteVerdict, validTopDomainIds } = input;
+
+  if (result.outcome === 'recorded_rejection') {
+    return { approve: false, reason: 'promotion executor recorded a rejection' };
+  }
+  if (!result.claimId) {
+    return { approve: false, reason: 'promotion executor did not return a claim id' };
+  }
+  if (result.stagedEntityProposalIds.length > 0) {
+    return { approve: false, reason: 'claim staged new entity proposals for human review' };
+  }
+  if (!AUTO_APPROVE_CLAIM_TYPES.has(extracted.claimType)) {
+    return { approve: false, reason: `claim type ${extracted.claimType} requires human review` };
+  }
+  if (extracted.requiresReview) {
+    return { approve: false, reason: 'extractor marked the claim as requiring review' };
+  }
+  if (hasSensitivityFlags(extracted)) {
+    return { approve: false, reason: 'claim has sensitivity flags' };
+  }
+  if (extracted.confidenceScore < AUTO_APPROVE_MIN_CONFIDENCE) {
+    return {
+      approve: false,
+      reason: `confidence ${extracted.confidenceScore} is below ${AUTO_APPROVE_MIN_CONFIDENCE}`,
+    };
+  }
+  if (extracted.impactScore > AUTO_APPROVE_MAX_IMPACT) {
+    return {
+      approve: false,
+      reason: `impact ${extracted.impactScore} is above ${AUTO_APPROVE_MAX_IMPACT}`,
+    };
+  }
+  if (!['exact_match', 'normalized_match'].includes(quoteVerdict)) {
+    return { approve: false, reason: `quote verdict ${quoteVerdict} is not auto-approvable` };
+  }
+  if (validTopDomainIds.length === 0) {
+    return { approve: false, reason: 'no valid top-domain assignments' };
+  }
+
+  return {
+    approve: true,
+    reason:
+      'validated document claim met conservative auto-approval policy: high confidence, low/medium impact, supported quote, valid taxonomy, no sensitivity flags, no entity proposals',
+  };
+}
+
+async function autoApproveDocumentClaimIfEligible(input: {
+  db: OracleDb;
+  candidateId: string;
+  extracted: ExtractedClaim;
+  result: ExecutePromotionResult;
+  quoteVerdict: string;
+  validTopDomainIds: string[];
+}): Promise<boolean> {
+  const { db, candidateId, extracted, result, quoteVerdict, validTopDomainIds } = input;
+  const decision = decideDocumentClaimAutoApproval({
+    extracted,
+    result,
+    quoteVerdict,
+    validTopDomainIds,
+  });
+  const metadataJson = {
+    policy: 'document_claim_auto_approval_v1',
+    decision: decision.approve ? 'approve' : 'skip',
+    reason: decision.reason,
+    outcome: result.outcome,
+    claimId: result.claimId ?? null,
+    claimType: extracted.claimType,
+    confidenceScore: extracted.confidenceScore,
+    impactScore: extracted.impactScore,
+    requiresReview: extracted.requiresReview,
+    quoteVerdict,
+    validTopDomainIds,
+    stagedEntityProposalIds: result.stagedEntityProposalIds,
+  };
+
+  if (!decision.approve || !result.claimId) {
+    await db.insert(extractionValidationResults).values({
+      candidateId,
+      checkName: 'promotion_transaction',
+      status: 'skipped',
+      detail: `Auto-approval skipped: ${decision.reason}.`,
+      metadataJson,
+    });
+    return false;
+  }
+
+  const [currentClaim] = await db
+    .select({ id: claims.id, status: claims.status })
+    .from(claims)
+    .where(eq(claims.id, result.claimId))
+    .limit(1);
+
+  if (!currentClaim) {
+    await db.insert(extractionValidationResults).values({
+      candidateId,
+      checkName: 'promotion_transaction',
+      status: 'skipped',
+      detail: `Auto-approval skipped: claim ${result.claimId} was not found after promotion.`,
+      metadataJson,
+    });
+    return false;
+  }
+
+  if (currentClaim.status !== 'pending_review') {
+    await db.insert(extractionValidationResults).values({
+      candidateId,
+      checkName: 'promotion_transaction',
+      status: 'skipped',
+      detail: `Auto-approval skipped: claim ${result.claimId} is already ${currentClaim.status}.`,
+      metadataJson,
+    });
+    return false;
+  }
+
+  await db
+    .update(claims)
+    .set({ status: 'approved' })
+    .where(and(eq(claims.id, result.claimId), eq(claims.status, 'pending_review')));
+  await db.insert(extractionValidationResults).values({
+    candidateId,
+    checkName: 'promotion_transaction',
+    status: 'pass',
+    detail: `Auto-approved claim ${result.claimId}: ${decision.reason}.`,
+    metadataJson,
+  });
+
+  return true;
 }
 
 async function processDocument(
@@ -467,6 +628,7 @@ async function processDocument(
     chunksInserted: 0,
     candidatesStaged: 0,
     claimsPromoted: 0,
+    claimsAutoApproved: 0,
     duplicatesAppended: 0,
     rejections: 0,
   };
@@ -1091,6 +1253,16 @@ async function processDocument(
 
           // Write document-level + chunk-level top-domain tags for retrieval.
           if (result.outcome !== 'recorded_rejection') {
+            const autoApproved = await autoApproveDocumentClaimIfEligible({
+              db,
+              candidateId: candidate.id,
+              extracted,
+              result,
+              quoteVerdict: quoteRes.verdict,
+              validTopDomainIds: taxRes.validTopDomainIds,
+            });
+            if (autoApproved) outcome.claimsAutoApproved += 1;
+
             for (const topDomainId of taxRes.validTopDomainIds) {
               await db
                 .insert(documentTopDomains)
