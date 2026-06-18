@@ -1,17 +1,20 @@
 // Claim recertification worker (china_imp.md / verify-selected-claims feature).
 //
-// Given an approved claim and a target (a specific employee, a department, or a
-// locale group like the China team), drafts a short "is this still accurate?"
-// question and records it as a GAP (gap_type='claim_recertification') so it
-// surfaces to the target through the existing gap machinery (getRelevantOpenGaps
-// injects it into the target's next Oracle chat; lull-interjection can post it).
+// Given an approved claim and one or more targets (the China-team locale group,
+// individual employees, and/or department "groups"), asks each recipient whether
+// the claim is still accurate. Every target is fanned out to concrete employees
+// and ONE gap is created per recipient (gap_type='claim_recertification',
+// target_employee_id set), with the question drafted IN THAT RECIPIENT'S
+// LANGUAGE. So the China-translation rule falls out for free: only zh-CN
+// recipients get a Chinese question; English recipients get English; a mixed
+// department gets each member's language. Nothing is translated for an all-English
+// target.
 //
-// Reuses the gaps table — no schema change. The employee's reply flows through
-// the normal extraction pipeline (evidence / a new or contradicting claim), and
-// an admin resolves the gap via /admin/gaps.
-//
-// Idempotent: skips creating a duplicate when an OPEN recertification gap for the
-// same (claim, target) already exists. All drafting goes through OracleAIClient.
+// Reuses the gaps table — no schema change. Surfaced through the existing gap
+// machinery (getRelevantOpenGaps injects it into the recipient's next Oracle
+// chat). Replies flow through normal extraction; an admin resolves via /admin/gaps.
+// Idempotent: skips when an OPEN recertification gap for the same (claim,
+// employee) already exists. All drafting goes through OracleAIClient.
 
 import { task } from '@trigger.dev/sdk/v3';
 import { and, eq, isNull, sql } from 'drizzle-orm';
@@ -42,21 +45,19 @@ const WHY_IT_MATTERS: Record<SupportedLocale, string> = {
   'zh-CN': '复核确认——确认该信息仍然准确，有助于保持知识库的可信度。',
 };
 
+const targetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('employee'), employeeId: z.string().uuid() }),
+  z.object({ kind: z.literal('department'), department: z.string().min(1) }),
+  z.object({ kind: z.literal('locale'), locale: z.string().min(1) }),
+]);
+
 const payloadSchema = z.object({
   claimId: z.string().uuid(),
-  target: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('employee'), employeeId: z.string().uuid() }),
-    z.object({ kind: z.literal('department'), department: z.string().min(1) }),
-    z.object({ kind: z.literal('locale'), locale: z.string().min(1) }),
-  ]),
+  targets: z.array(targetSchema).min(1),
 });
 type RecertPayload = z.infer<typeof payloadSchema>;
 
-type ResolvedTarget = {
-  targetEmployeeId: string | null;
-  targetDepartment: string | null;
-  lang: SupportedLocale;
-};
+type Recipient = { employeeId: string; lang: SupportedLocale };
 
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({ adapters: buildStandardAdapters(), fallbackOnError: true });
@@ -76,38 +77,47 @@ async function resolveDraftingRoute(
   return fb;
 }
 
-/** Expand a target spec into the concrete gap-target rows it should produce. */
-async function resolveTargets(
+/**
+ * Expand a set of target specs (locale group / individual employee / department)
+ * into a deduped list of recipient employees, each carrying their own locale.
+ * Disabled employees are excluded.
+ */
+async function resolveRecipients(
   db: ReturnType<typeof getDirectDb>,
-  target: RecertPayload['target'],
-): Promise<ResolvedTarget[]> {
-  if (target.kind === 'employee') {
-    const [emp] = await db
-      .select({ locale: employees.locale })
-      .from(employees)
-      .where(eq(employees.id, target.employeeId))
-      .limit(1);
-    return [
-      {
-        targetEmployeeId: target.employeeId,
-        targetDepartment: null,
-        lang: coerceLocale(emp?.locale),
-      },
-    ];
+  targets: RecertPayload['targets'],
+): Promise<Recipient[]> {
+  const byEmployee = new Map<string, SupportedLocale>();
+
+  for (const t of targets) {
+    if (t.kind === 'employee') {
+      const [emp] = await db
+        .select({ id: employees.id, locale: employees.locale, disabledAt: employees.disabledAt })
+        .from(employees)
+        .where(eq(employees.id, t.employeeId))
+        .limit(1);
+      if (emp && !emp.disabledAt) byEmployee.set(emp.id, coerceLocale(emp.locale));
+    } else if (t.kind === 'locale') {
+      const members = await db
+        .select({ id: employees.id, locale: employees.locale })
+        .from(employees)
+        .where(and(eq(employees.locale, t.locale), isNull(employees.disabledAt)));
+      for (const m of members) byEmployee.set(m.id, coerceLocale(m.locale));
+    } else {
+      // department "group" — resolve membership via the employee_departments
+      // junction (enum-keyed, exact) rather than free-text matching. Raw SQL
+      // avoids enum-typing friction on the department_id bind.
+      const members = await db.execute<{ id: string; locale: string }>(sql`
+        SELECT e.id, e.locale
+        FROM employee_departments ed
+        JOIN employees e ON e.id = ed.employee_id
+        WHERE ed.department_id = ${t.department}
+          AND e.disabled_at IS NULL
+      `);
+      for (const m of members) byEmployee.set(m.id, coerceLocale(m.locale));
+    }
   }
-  if (target.kind === 'department') {
-    // One department-targeted gap; surfaces to everyone in that department.
-    // Department membership is language-mixed, so draft in English.
-    return [{ targetEmployeeId: null, targetDepartment: target.department, lang: 'en' }];
-  }
-  // locale group (e.g. the China team): fan out to one gap per active employee
-  // in that locale, drafted in that language.
-  const lang = coerceLocale(target.locale);
-  const members = await db
-    .select({ id: employees.id })
-    .from(employees)
-    .where(and(eq(employees.locale, target.locale), isNull(employees.disabledAt)));
-  return members.map((m) => ({ targetEmployeeId: m.id, targetDepartment: null, lang }));
+
+  return [...byEmployee].map(([employeeId, lang]) => ({ employeeId, lang }));
 }
 
 function buildSystemPrompt(targetLabel: string): string {
@@ -156,7 +166,7 @@ async function draftQuestion(
 
 async function recertifyClaim(payload: RecertPayload): Promise<{
   claimId: string;
-  status: 'asked' | 'skipped_not_found' | 'skipped_not_approved' | 'skipped_no_targets';
+  status: 'asked' | 'skipped_not_found' | 'skipped_not_approved' | 'skipped_no_recipients';
   gapsCreated: number;
 }> {
   const db = getDirectDb();
@@ -171,46 +181,44 @@ async function recertifyClaim(payload: RecertPayload): Promise<{
     return { claimId: payload.claimId, status: 'skipped_not_approved', gapsCreated: 0 };
   }
 
-  const targets = await resolveTargets(db, payload.target);
-  if (targets.length === 0) {
-    return { claimId: payload.claimId, status: 'skipped_no_targets', gapsCreated: 0 };
+  const recipients = await resolveRecipients(db, payload.targets);
+  if (recipients.length === 0) {
+    return { claimId: payload.claimId, status: 'skipped_no_recipients', gapsCreated: 0 };
   }
 
   const client = buildOracleClient();
   const route = await resolveDraftingRoute(db);
-  // Draft once per distinct language (most batches are a single language).
+  // Draft once per distinct language — only zh-CN recipients trigger a Chinese
+  // draft, so an all-English target never pays for a translation.
   const draftByLang = new Map<SupportedLocale, string>();
   let created = 0;
 
-  for (const t of targets) {
+  for (const r of recipients) {
     // Idempotency: skip if an open recertification gap already exists for this
-    // (claim, target).
-    const targetClause = t.targetEmployeeId
-      ? sql`target_employee_id = ${t.targetEmployeeId}`
-      : sql`target_department = ${t.targetDepartment}`;
+    // (claim, employee).
     const existing = await db.execute(sql`
       SELECT 1 FROM gaps
       WHERE gap_type = 'claim_recertification'
         AND status IN ('open', 'queued', 'asked')
         AND related_claim_ids @> ${JSON.stringify([payload.claimId])}::jsonb
-        AND ${targetClause}
+        AND target_employee_id = ${r.employeeId}
       LIMIT 1
     `);
     if (existing.length > 0) continue;
 
-    let question = draftByLang.get(t.lang);
+    let question = draftByLang.get(r.lang);
     if (!question) {
-      question = await draftQuestion(client, route, claim.summary, t.lang);
-      draftByLang.set(t.lang, question);
+      question = await draftQuestion(client, route, claim.summary, r.lang);
+      draftByLang.set(r.lang, question);
     }
 
     await db.insert(gaps).values({
       gapType: 'claim_recertification',
       relatedClaimIds: [payload.claimId],
       questionToAsk: question,
-      whyItMatters: WHY_IT_MATTERS[t.lang],
-      targetEmployeeId: t.targetEmployeeId,
-      targetDepartment: t.targetDepartment,
+      whyItMatters: WHY_IT_MATTERS[r.lang],
+      targetEmployeeId: r.employeeId,
+      targetDepartment: null,
       priority: 'medium',
       status: 'queued',
     });

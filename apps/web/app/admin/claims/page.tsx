@@ -31,6 +31,7 @@ type ClaimRow = {
 };
 
 type TargetEmployee = { id: string; name: string };
+type TargetDepartment = { id: string; display_label: string };
 
 // Locale → short team-facing label for the "Routed" badge.
 const LOCALE_LABEL: Record<string, string> = {
@@ -107,14 +108,18 @@ export default async function AdminClaimsPage({
 
   const rows = [...result] as unknown as ClaimRow[];
 
-  // Target options for the "ask to verify" picker: the China-team locale group
-  // plus individual active employees. (Department targeting is omitted for now —
-  // gaps.target_department is matched against employees' free-text departments,
-  // which don't reliably equal the departments-table ids; revisit if needed.)
+  // Target options for the "ask to verify" picker: the China-team locale group,
+  // department "groups", and individual active employees. All are resolved to
+  // concrete recipient employees by the worker, so department targeting is safe
+  // here (membership comes from the employee_departments junction, not free-text).
   const employeesResult = await db.execute(sql`
     SELECT id, name FROM employees WHERE disabled_at IS NULL ORDER BY name
   `);
   const targetEmployees = [...employeesResult] as unknown as TargetEmployee[];
+  const departmentsResult = await db.execute(sql`
+    SELECT id, display_label FROM departments ORDER BY display_label
+  `);
+  const targetDepartments = [...departmentsResult] as unknown as TargetDepartment[];
 
   return (
     <div className="space-y-6">
@@ -164,15 +169,21 @@ export default async function AdminClaimsPage({
 
         <span className="text-muted-foreground">·</span>
 
-        <label className="flex items-center gap-1">
+        <label className="flex items-start gap-1">
           Ask
           <select
             name="target"
-            defaultValue="locale:zh-CN"
-            className="rounded border bg-background px-1 py-0.5 text-xs"
+            multiple
+            size={5}
+            className="min-w-48 rounded border bg-background px-1 py-0.5 text-xs"
           >
             <optgroup label="Groups">
               <option value="locale:zh-CN">China team (zh-CN)</option>
+              {targetDepartments.map((d) => (
+                <option key={d.id} value={`department:${d.id}`}>
+                  {d.display_label}
+                </option>
+              ))}
             </optgroup>
             <optgroup label="People">
               {targetEmployees.map((e) => (
@@ -193,9 +204,12 @@ export default async function AdminClaimsPage({
         </button>
 
         <span className="w-full text-xs text-muted-foreground">
-          Tick approved claims below, then choose an action. A green ✓ badge marks
-          claims translated (and for which group); a 🔁 badge marks claims with a
-          pending verification ask. Both statuses persist across refreshes.
+          Tick approved claims, then choose an action. For verify, pick one or more
+          targets (Ctrl/Cmd-click for multiple) — the China team, departments, or
+          individuals. Each recipient is asked in their own language, so the
+          question is translated to Chinese only for China-team members. A green ✓
+          badge marks translated claims; a 🔁 badge marks pending verification asks.
+          Both persist across refreshes.
         </span>
       </form>
 

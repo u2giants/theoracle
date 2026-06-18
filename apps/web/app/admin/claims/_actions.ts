@@ -85,12 +85,19 @@ export async function requestClaimVerification(formData: FormData) {
         .filter((v): v is string => typeof v === 'string' && v.length > 0),
     ),
   );
-  const targetRaw = formData.get('target');
-  const target = typeof targetRaw === 'string' ? parseTarget(targetRaw) : null;
-  if (ids.length === 0 || !target) return;
+  // The target picker is multi-select: any combination of the China-team locale
+  // group, individual employees, and department groups.
+  const targets = Array.from(
+    new Set(
+      formData.getAll('target').filter((v): v is string => typeof v === 'string' && v.length > 0),
+    ),
+  )
+    .map(parseTarget)
+    .filter((t): t is NonNullable<ReturnType<typeof parseTarget>> => t !== null);
+  if (ids.length === 0 || targets.length === 0) return;
 
   for (const id of ids) {
-    await triggerTask('claim-recertification', { claimId: id, target });
+    await triggerTask('claim-recertification', { claimId: id, targets });
   }
 
   revalidatePath('/admin/claims');

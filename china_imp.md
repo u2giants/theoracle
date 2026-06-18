@@ -422,7 +422,8 @@ route.
 | Translate the synthesized Brain? | **No** — Brain synthesis is English-only; only **claims** are bilingual. |
 | Which claims get translated? | **Opt-in per claim** — admin selects claims (checkbox + bulk action) to direct to the China team. No auto-on-approval; existing claims untouched. |
 | Translation model | Admin-selectable (`default_translation_route`); pick a Chinese-native model (Qwen) via A/B. Default fallback: multilingual Sonnet. |
-| Bulk "ask to verify" (recertification) | Admin selects claims + a target (China-team locale group OR an individual employee) and asks them to confirm/correct each ("is this still accurate?"). Reuses the `gaps` table (`gap_type='claim_recertification'`) — no schema change; surfaced via the existing gap→chat path. Question drafted in the target's language. A 🔁 badge shows pending asks (persists across refresh). |
+| Bulk "ask to verify" (recertification) | Admin selects claims + one or more targets (China-team locale group, departments, and/or individual employees) and asks them to confirm/correct each ("is this still accurate?"). Reuses the `gaps` table (`gap_type='claim_recertification'`) — no schema change; surfaced via the existing gap→chat path. A 🔁 badge shows pending asks (persists across refresh). |
+| Gap-question translation rule | Every target is fanned out to concrete recipient employees; one gap per recipient, drafted in **that recipient's** language. So a question is translated to Chinese **only** when a recipient is a China-team (`zh-CN`) employee — directly or as a member of a targeted group. All-English targets never trigger a translation. |
 
 ## 13. File-by-file touch list
 
