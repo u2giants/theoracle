@@ -314,10 +314,22 @@ each non-source language. Same pattern as claim translation.
   reader's language**. This is where the per-locale interview model selection
   (Claude vs Qwen) takes effect.
 
-### 5.5 Admin display (optional, low priority)
+### 5.5 Admin display
 
-In the admin claims views (`apps/web/app/admin/...`), show canonical summary +
-each translation side by side so reviewers can spot a bad translation. Evidence
+Built (2026-06-18):
+- **Employee language selector** — `/admin/employees` "Language" column sets
+  `employees.locale` (`en`/`zh-CN`). This is how a person is put in the China
+  group; it was SQL-only before. (`updateEmployeeLocale`.)
+- **Bulk "Ask selected to evaluate"** — `/admin/claims` checkboxes on
+  `pending_review` rows + a shared people/groups picker route many claims at
+  once for review; zh-CN recipients are asked in Chinese automatically.
+  (`assignClaimQuestionBulkWithState` → `assignClaimQuestionCore`.)
+- **"Sent to review" indicator** — each claim shows a 🔁 badge + the names of
+  everyone it's been routed to, derived from open `claim_review_question` gaps.
+  (Implemented; see HANDOFF.md — commit was paused by the owner.)
+
+Still NOT built (optional, low priority): show canonical summary + each
+translation side by side so reviewers can spot a bad translation. Evidence
 quotes remain shown in their original language only.
 
 ## 6. Migration mechanics

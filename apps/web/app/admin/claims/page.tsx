@@ -27,6 +27,10 @@ type ClaimRow = {
   // China bilingual layer (china_imp.md): languages this claim is translated into
   // — the persisted "routed to which group" signal; null when none.
   translated_langs: string[] | null;
+  // Names of employees this claim has been sent to for review (open/queued/asked
+  // claim_review_question gaps). Persisted signal of "who is evaluating this";
+  // null when the claim hasn't been sent to anyone.
+  review_assignees: string[] | null;
 };
 
 type EmployeeOption = {
@@ -91,7 +95,15 @@ export default async function AdminClaimsPage({
         SELECT jsonb_agg(ct.lang ORDER BY ct.lang)
         FROM claim_translations ct
         WHERE ct.claim_id = c.id
-      ) AS translated_langs
+      ) AS translated_langs,
+      (
+        SELECT jsonb_agg(DISTINCT te.name)
+        FROM gaps g
+        JOIN employees te ON te.id = g.target_employee_id
+        WHERE g.gap_type = 'claim_review_question'
+          AND g.status IN ('open', 'queued', 'asked')
+          AND g.related_claim_ids ? c.id::text
+      ) AS review_assignees
     FROM claims c
     LEFT JOIN LATERAL (
       SELECT exact_quote, source_type, asserted_by_employee_id
@@ -284,6 +296,24 @@ export default async function AdminClaimsPage({
                             <span className="rounded bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800">
                               Corrected by {row.revision_reviewer_name ?? 'reviewer'}
                             </span>
+                          </div>
+                        )}
+                        {row.review_assignees && row.review_assignees.length > 0 && (
+                          <div className="mb-2 flex flex-wrap items-center gap-1">
+                            <span
+                              className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+                              title={`Out for review — awaiting input from ${row.review_assignees.join(', ')}`}
+                            >
+                              🔁 Sent to review
+                            </span>
+                            {[...row.review_assignees].sort((a, b) => a.localeCompare(b)).map((name) => (
+                              <span
+                                key={`${row.id}-rev-${name}`}
+                                className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
+                              >
+                                {name}
+                              </span>
+                            ))}
                           </div>
                         )}
                         {row.summary}
