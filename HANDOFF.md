@@ -24,15 +24,13 @@ Exact next actions:
 2. Set a China employee to 中文 at Admin → Employees → "Language" column (no longer SQL); choose a translation model at Admin → Settings → "Translation model" (Qwen recommended — run a small A/B vs DeepSeek per the copied brief).
 3. Optionally build the discussed-but-not-built follow-ups (see AGENTS.md §15): admin side-by-side translation review.
 
-### Uncommitted local change — "Sent to review" indicator on /admin/claims (2026-06-18)
+### "Sent to review" indicator on /admin/claims — DONE (2026-06-18)
 
-Status: **done in the working tree, NOT committed/pushed** — owner paused the push pending an (unspecified) API. Do not re-implement; commit it when cleared.
+Status: **committed + pushed to `main` (commit `e5179c0`)**; deploys via Vercel.
 
-Done (single file, `apps/web/app/admin/claims/page.tsx`): added a `review_assignees` subselect to the claims query and a 🔁 "Sent to review" badge + assignee-name chips in the Summary cell. Source of truth is open `claim_review_question` gaps (`gaps.related_claim_ids ? claim.id`, status in `open/queued/asked`) joined to `employees.name` — NOT a column on `claims`. Renders on every status tab, so a claim sent while pending still shows reviewers after it's approved.
+What shipped (single file, `apps/web/app/admin/claims/page.tsx`): a `review_assignees` subselect on the claims query and a 🔁 "Sent to review" badge + assignee-name chips in the Summary cell. Source of truth is open `claim_review_question` gaps (`gaps.related_claim_ids ? claim.id`, status in `open/queued/asked`) joined to `employees.name` — NOT a column on `claims`. Renders on every status tab, so a claim sent while pending still shows reviewers after it's approved.
 
 Verified: typecheck green; the subquery was run read-only against prod (`vokucjpanhvqunimlvsp`) and returned real names (72 open review gaps, 7 distinct targets) — column names, the `?` jsonb-membership operator, and the gap statuses all match live data.
-
-Next action: `git add apps/web/app/admin/claims/page.tsx` and commit (suggested: `feat(claims): show "sent to review" + assignee names per claim`), then push to `main`.
 
 Decisions made (and why): Brain synthesis stays English-only; evidence quotes are never translated (verbatim provenance); translation is opt-in per claim (cost proportional to what's directed to China); the verify/"ask to confirm" path reuses main's review-question/review-groups mechanism (no duplicate system) with the question translated per-recipient so only China recipients get Chinese.
 ---

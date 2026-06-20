@@ -326,7 +326,7 @@ Built (2026-06-18):
   (`assignClaimQuestionBulkWithState` → `assignClaimQuestionCore`.)
 - **"Sent to review" indicator** — each claim shows a 🔁 badge + the names of
   everyone it's been routed to, derived from open `claim_review_question` gaps.
-  (Implemented; see HANDOFF.md — commit was paused by the owner.)
+  (Shipped — commit `e5179c0`.)
 
 Still NOT built (optional, low priority): show canonical summary + each
 translation side by side so reviewers can spot a bad translation. Evidence
