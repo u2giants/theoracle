@@ -112,10 +112,10 @@ Supabase exposes three connection modes:
 | Mode | Host | Port | Use for | Notes |
 |---|---|---|---|---|
 | Direct connection | `db.<ref>.supabase.co` | 5432 | Nothing in this project | **IPv6-only on new projects.** Avoid. |
-| Transaction pooler (shared, IPv4) | `aws-0-<region>.pooler.supabase.com` | 6543 | Application queries (`DATABASE_URL`) | Best for short-lived Vercel Function invocations. Prepared statements off. |
-| Session pooler (shared, IPv4) | `aws-0-<region>.pooler.supabase.com` | 5432 | Migrations + admin SQL (`DIRECT_URL`) | Holds the session for the duration of the connection — required for Drizzle migrations. |
+| Transaction pooler (shared, IPv4) | Copy exact host from Supabase, e.g. `aws-1-us-east-1.pooler.supabase.com` | 6543 | Application queries (`DATABASE_URL`) | Best for short-lived Vercel Function invocations. Prepared statements off. Do not assume the host prefix is always `aws-0`. |
+| Session pooler (shared, IPv4) | Copy exact host from Supabase, e.g. `aws-1-us-east-1.pooler.supabase.com` | 5432 | Migrations + admin SQL (`DIRECT_URL`) | Holds the session for the duration of the connection — required for Drizzle migrations. Do not assume the host prefix is always `aws-0`. |
 
-When copying URLs from Supabase, **toggle "Use IPv4 connection (Shared Pooler)" ON** on the connection page.
+When copying URLs from Supabase, **toggle "Use IPv4 connection (Shared Pooler)" ON** on the connection page and use the host Supabase shows for that project. The current production project is in N. Virginia and uses `aws-1-us-east-1.pooler.supabase.com`.
 
 ## Supabase Auth providers
 

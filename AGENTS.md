@@ -187,6 +187,7 @@ Specific boundaries:
 |---|---|---|---|
 | Vercel project | `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | `AGENTS.md`, deployment/config docs | Web app target |
 | Trigger.dev project | `proj_wgpzsvhmsopqhvwqaycn` | `apps/workers/trigger.config.ts` | Worker target; env can override |
+| Current Supabase project | `eqccjfbyrywsqkxxpjvg` (`theoracle`, N. Virginia / `us-east-1`) | Supabase dashboard + runtime env | Primary DB/Auth/Storage/Realtime after 2026-06-20 cutover. Previous Ohio project `vokucjpanhvqunimlvsp` is `oracle.old`. |
 | Supabase Storage bucket | `company_documents` | schema + worker code + docs | Private document bucket |
 | Interview default route | `anthropic_claude_haiku_4_5_interview_primary` | `packages/ai/src/routes/catalog.ts`, settings row | Employee chat default |
 | Extraction default route | `vertex_gemini_2_5_flash_extraction_primary` | same | Extraction default |
@@ -382,6 +383,17 @@ Adding another `schedules.task()` currently blocks worker deployment. The A/B ev
 
 Future sessions should:
 Do not add new Trigger schedules casually. Reuse/consolidate an existing schedule or increase the Trigger.dev schedule limit before adding another `schedules.task()`. Deploy workers with `corepack pnpm --filter @oracle/workers run deploy`.
+
+### Supabase project cutovers have platform integration surfaces
+
+What changed:
+The production Supabase project moved from Ohio (`vokucjpanhvqunimlvsp`, now `oracle.old`) to N. Virginia (`eqccjfbyrywsqkxxpjvg`, `theoracle`) on 2026-06-20.
+
+Why:
+A Supabase project cutover is not just `DATABASE_URL` / `DIRECT_URL` / browser key rotation. Vercel, GitHub, Trigger.dev, Supabase Auth providers, Microsoft Entra redirect URIs/client secrets, Supabase.com project integrations, and Recall live-bot envs can all hold project-specific URLs or secrets.
+
+Future sessions should:
+Use `docs/deployment.md` "Supabase project cutover checklist" before declaring a cutover done. Vercel's Supabase integration may inject `SUPABASE_*` / `POSTGRES_*` env vars that this app does not read; the runtime still depends on `NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, and `DIRECT_URL`.
 
 ### Explicit Vertex caches are tracked in Postgres
 
@@ -1046,7 +1058,7 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 | open | `apps/web/app/admin/taxonomy/_actions.ts` approves some proposal types by queueing reclassification work rather than applying it inline. | Keep the actions as-is until the reclassification path is expanded further. |
 | open | Only `.github/workflows/pr-check.yml` exists (build + two verify guards + Drizzle drift check). There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers run deploy` (note: `run` keyword required — `pnpm` reserves the bare `deploy` form for its own subcommand) in the release process until workflows are added. |
 | resolved | `RetrievalPlan.requiredEntities` semantics: **disjunctive (any-of) — decided 2026-05-28, keep as-is.** A claim matches if it carries ANY of the listed entities. Conjunctive (all-of) was rejected because it would require a single claim to mention every listed entity, collapsing recall for multi-entity queries (claims are typically single-entity). Filter lives in `buildPlanMetadataFilters()` in `packages/ai/src/retrieval.ts`. | No action. If a future "facts connecting X and Y" feature is ever wanted, add it as a separate explicit mode — do not flip the default. |
-| open | China bilingual claim layer (schema, locale-aware retrieval, `claim-translation` worker, translate-for-China bulk action, per-`zh-CN`-recipient translation of `claim_review_question`s) is **merged to `main`** and migration `0007` is **applied to prod**, but the `claim-translation` worker is **not yet deployed to Trigger.dev prod**. | `pnpm --filter @oracle/workers run deploy` to ship `claim-translation`; then set a China employee's `locale='zh-CN'` and pick a translation model at Admin → Settings → "Translation model". |
+| done | China bilingual claim layer (schema, locale-aware retrieval, `claim-translation` worker, translate-for-China bulk action, per-`zh-CN`-recipient translation of `claim_review_question`s) is **merged to `main`**, migration `0007` is **applied to prod**, and `claim-translation` is deployed in Trigger.dev worker `20260620.1`. | Set a China employee's `locale='zh-CN'` and pick a translation model at Admin → Settings → "Translation model" when the owner wants to use it. |
 | open | China bilingual follow-ups discussed but not built: backfill of existing approved claims (moot — translation is opt-in), and admin side-by-side translation review. | Build on request. |
 | open | `RetrievalPlan.requiredEntities` is declared and enforced (any-of) but **no production code populates it**. `buildRetrievalPlanFromQuery()` is a keyword matcher that routes to broad domains; it does not do named-entity recognition + registry resolution to pin specific entities. This is a deferred feature, not a bug — the field is the socket a future model-backed plan builder (`buildRetrievalPlanWithModel`, noted in `retrieval-plan.ts` header) would fill. | Build entity recognition + resolution into plan construction when per-query latency budget allows the extra structured-output call. Until then the field stays empty and inert. |
 | open | Authentik is mentioned in schema/docs but no Authentik login flow is wired in the app. | Treat Authentik as not implemented. |

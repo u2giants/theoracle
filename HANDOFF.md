@@ -1,17 +1,17 @@
 # HANDOFF — Recall.ai wiring + extraction tuning + China bilingual layer
 
-Last updated: 2026-06-18. Delete this file once the remaining items below are closed (China bilingual deploy, synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+Last updated: 2026-06-20. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
 
 ---
 
-## China bilingual claim layer — merged to main, migration applied; worker deploy pending (2026-06-18)
+## China bilingual claim layer — merged to main, migration applied; worker deployed (2026-06-20)
 
 What it is: serve the knowledge graph to a China team in Mandarin while keeping one unified brain. Full design + resolved decisions are in `china_imp.md`; AGENTS.md §7–§10 document the code surfaces.
 
 Exact current state:
 - Code is **merged into `main`** (the `docs/china-bilingual-plan` branch was integrated with `origin/main` — which had since shipped the claim-review-groups feature — resolving 12 overlapping files; typecheck + `verify:retrieval-filter-parity`/`verify:auxiliary-defaults`/`verify:mcp`/`verify:vertex-file-cache` + web build + `db:check-drift` all green before push). Vercel auto-deploys web from `main`.
-- DB migration **`0007_tricky_charles_xavier.sql`** is applied to the prod DB (`vokucjpanhvqunimlvsp`). Verified live: `claim_translations` table, `claims.source_lang`, `employees.locale`, the `lang` + two FTS indexes. HNSW vector index on `claim_translations.embedding` intentionally skipped (build later with `ORACLE_RUN_VECTOR_INDEXES=1`). `0007` was hand-trimmed to only the new objects — see AGENTS.md §10 "The Drizzle snapshot was baselined at migration 0007".
-- The **`claim-translation` Trigger.dev worker is NOT yet deployed to prod.** Until it is deployed, clicking "Translate selected for China team" enqueues a task that won't run (`triggerTask` is fire-and-forget and logs a warning when unconfigured/undeployed).
+- DB migration **`0007_tricky_charles_xavier.sql`** is applied to the current prod DB (`eqccjfbyrywsqkxxpjvg`). Verified after the Virginia cutover: `claim_translations` table, `claims.source_lang`, `employees.locale`, and the Drizzle journal hash now match the on-disk migration. HNSW vector index on `claim_translations.embedding` intentionally skipped (build later with `ORACLE_RUN_VECTOR_INDEXES=1`). `0007` was hand-trimmed to only the new objects — see AGENTS.md §10 "The Drizzle snapshot was baselined at migration 0007".
+- The **`claim-translation` Trigger.dev worker is deployed to prod** in worker version `20260620.1`.
 
 What is done: schema + migration; `SUPPORTED_LOCALES` in `@oracle/shared`; locale-aware `searchWithRetrievalPlan`/`buildPlanMetadataFilters` (+ extended parity guard); `source_lang` stamping at promotion; `claim-translation` worker + `translation` auxiliary model (`default_translation_route`, "copy job brief" in settings); opt-in "Translate selected for China team" bulk action + ✓ persisted badges on `/admin/claims`. **Verify ("ask someone to confirm a claim") was folded into `main`'s existing claim-review-question + review-groups feature** (`assignClaimQuestion`): the separate `claim-recertification` worker and `claim_recertification` gap type were dropped; instead `assignClaimQuestionImpl` now translates the question per recipient so a `zh-CN` recipient is asked in Chinese.
 
@@ -20,9 +20,8 @@ Added 2026-06-18 (committed + pushed to `main`, deploys via Vercel):
 - **Bulk "Ask selected to evaluate"** on `/admin/claims` — tick several `pending_review` claims, pick people/groups, route them all at once (commit `cc25775`). Extracted `assignClaimQuestionCore` so the per-row form and the bulk loop share one path (recipient resolution, dedup-against-existing-assignments, per-recipient zh-CN auto translation). Per-claim failures are non-fatal (reported as skipped).
 
 Exact next actions:
-1. Deploy workers: `pnpm --filter @oracle/workers run deploy` (ships `claim-translation`; record the new Trigger.dev worker version here).
-2. Set a China employee to 中文 at Admin → Employees → "Language" column (no longer SQL); choose a translation model at Admin → Settings → "Translation model" (Qwen recommended — run a small A/B vs DeepSeek per the copied brief).
-3. Optionally build the discussed-but-not-built follow-ups (see AGENTS.md §15): admin side-by-side translation review.
+1. Set a China employee to 中文 at Admin → Employees → "Language" column (no longer SQL); choose a translation model at Admin → Settings → "Translation model" (Qwen recommended — run a small A/B vs DeepSeek per the copied brief).
+2. Optionally build the discussed-but-not-built follow-ups (see AGENTS.md §15): admin side-by-side translation review.
 
 ### "Sent to review" indicator on /admin/claims — DONE (2026-06-18)
 
@@ -30,7 +29,7 @@ Status: **committed + pushed to `main` (commit `e5179c0`)**; deploys via Vercel.
 
 What shipped (single file, `apps/web/app/admin/claims/page.tsx`): a `review_assignees` subselect on the claims query and a 🔁 "Sent to review" badge + assignee-name chips in the Summary cell. Source of truth is open `claim_review_question` gaps (`gaps.related_claim_ids ? claim.id`, status in `open/queued/asked`) joined to `employees.name` — NOT a column on `claims`. Renders on every status tab, so a claim sent while pending still shows reviewers after it's approved.
 
-Verified: typecheck green; the subquery was run read-only against prod (`vokucjpanhvqunimlvsp`) and returned real names (72 open review gaps, 7 distinct targets) — column names, the `?` jsonb-membership operator, and the gap statuses all match live data.
+Verified originally against the previous Ohio prod DB; the data was migrated to current prod (`eqccjfbyrywsqkxxpjvg`) during the 2026-06-20 Virginia cutover. The subquery returned real names (72 open review gaps, 7 distinct targets) — column names, the `?` jsonb-membership operator, and the gap statuses all match live data.
 
 Decisions made (and why): Brain synthesis stays English-only; evidence quotes are never translated (verbatim provenance); translation is opt-in per claim (cost proportional to what's directed to China); the verify/"ask to confirm" path reuses main's review-question/review-groups mechanism (no duplicate system) with the question translated per-recipient so only China recipients get Chinese.
 ---
@@ -296,7 +295,7 @@ The code (`bfd6612`) was committed by a prior session but was untested. This ses
 
 Commit `616cf95` added the `design_file_operations` top-level domain, retrieval-boundary guard, seed updates, entity hints, and hand-written migration `packages/db/migrations/sql/63_design_file_operations_domain.sql`.
 
-The local shell still could not run the normal Drizzle runner because `DIRECT_URL` / `DATABASE_URL` were unavailable, but the repo was linked to Supabase project `vokucjpanhvqunimlvsp` and the hand-written SQL was applied through:
+The local shell still could not run the normal Drizzle runner because `DIRECT_URL` / `DATABASE_URL` were unavailable. At the time, the repo was linked to the previous Ohio Supabase project and the hand-written SQL was applied through:
 
 ```
 supabase.exe db query --linked --file packages\db\migrations\sql\63_design_file_operations_domain.sql --output table
@@ -505,7 +504,7 @@ WHERE key = 'teams_live_recall_min_confidence_to_post';
 
 ## Tooling and identifiers
 
-- **Supabase project ref**: `vokucjpanhvqunimlvsp`. DB access: `POST https://api.supabase.com/v1/projects/vokucjpanhvqunimlvsp/database/query` with the `sbp_…` token from Windows Credential Manager (`Supabase CLI:supabase`).
+- **Supabase project ref**: `eqccjfbyrywsqkxxpjvg` (`theoracle`, N. Virginia). Previous Ohio project `vokucjpanhvqunimlvsp` is now `oracle.old`. Use the linked Supabase CLI or `POST https://api.supabase.com/v1/projects/eqccjfbyrywsqkxxpjvg/database/query` with the `sbp_...` token from Windows Credential Manager (`Supabase CLI:supabase`).
 - **Trigger.dev project**: `proj_wgpzsvhmsopqhvwqaycn`, prod environment. Trigger MCP (`mcp__trigger__*`) is connected.
 - **Recall.ai workspace**: `f2f8cedc-6d28-4fd2-8d06-402b74d65bcc` (POP Creations), US East. Recall MCP (`mcp__recall-ai__*`) is read-only.
 - **Vercel project**: `prj_rP6Jlima7iK1paffEPhLqxlswGsC`. Vercel MCP (`mcp__vercel__*`) is read-only — env-var writes go via REST API or the Vercel dashboard.

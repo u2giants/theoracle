@@ -8,7 +8,7 @@ This file describes the current deploy and release path that exists in the repo 
 |---|---|---|
 | Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | `apps/web` | `vercel.json`, GitHub integration |
 | Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn` | `apps/workers` | `apps/workers/trigger.config.ts` |
-| Supabase project from env | Postgres, Auth, Storage, Realtime | `.env.local` / runtime env |
+| Supabase project `eqccjfbyrywsqkxxpjvg` (`theoracle`, N. Virginia) | Postgres, Auth, Storage, Realtime | `.env.local` / runtime env + Supabase dashboard |
 
 ## Current release flow
 
@@ -89,6 +89,20 @@ Runtime env vars currently live in:
 - local `.env.local`
 
 Use `docs/configuration.md` for the exact variable list.
+
+### Supabase project cutover checklist
+
+The production Supabase project moved on 2026-06-20 from Ohio project `vokucjpanhvqunimlvsp` (`oracle.old`) to N. Virginia project `eqccjfbyrywsqkxxpjvg` (`theoracle`). For any future Supabase project move, verify all of these surfaces before declaring the cutover complete:
+
+1. Runtime envs: `.env.local`, Vercel Production/Preview/Development, Trigger.dev prod, and GitHub Actions secret `PROD_DIRECT_URL` all point at the new Supabase ref/pooler and use new anon/service-role keys.
+2. Supabase Auth: site URL, redirect allow list, Google provider, Azure provider, and SMTP config are present on the new project. For Microsoft SSO, add the new `https://<ref>.supabase.co/auth/v1/callback` redirect URI in Entra and create/update only the Supabase-specific client secret with `az ad app credential reset --append`.
+3. Supabase Storage: copy both Storage metadata rows and object bytes for `company_documents`, then verify downloads from the new project.
+4. Platform integrations: move the Supabase.com Vercel integration and Supabase.com GitHub integration to the new Supabase project in the Supabase dashboard. The Vercel Marketplace integration may inject `SUPABASE_*` and `POSTGRES_*` variables, but this app still reads `NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, and `DIRECT_URL`.
+5. Trigger.dev: confirm the deployed prod worker and prod env values reference the new project. There are no staging/preview Trigger environments unless explicitly created.
+6. Recall.ai: dashboard webhooks are not expected for live transcripts; realtime endpoints are configured per bot at create time. Still verify Vercel has `RECALL_API_KEY`, `RECALL_WEBHOOK_SECRET`, `RECALL_BASE_URL=https://us-east-1.recall.ai`, and `RECALL_REALTIME_WEBHOOK_URL=https://oracle.designflow.app/api/teams/live/recall`, and Trigger has `RECALL_API_KEY` + `RECALL_BASE_URL`.
+7. Deploy/redeploy: Vercel env changes require a new production deployment. Trigger env changes require worker redeploy only when code changed, but confirm current worker version and env values.
+
+Unknowns to verify through dashboards when CLI/API cannot expose them: the Supabase.com Vercel integration attachment, Supabase.com GitHub integration settings, and GitHub App installation state.
 
 ## Rollback
 
