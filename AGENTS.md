@@ -28,6 +28,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 | Modify app behavior or project-owned code | `AGENTS.md`, relevant folder-level `README.md` if present, `docs/architecture.md` if system design is affected | `docs/deployment.md` unless deploy behavior changes |
 | Add or change AI provider adapter or model catalog | `AGENTS.md`, `docs/architecture.md` (adapter table + data flow), provider files under `packages/ai/src/providers/`, `DECISIONS.md` | Worker or webhook code |
 | Add or change configuration, env vars, feature flags, secrets | `AGENTS.md` §11, `docs/configuration.md`, `docs/deployment.md` if prod/runtime env is affected | Unrelated architecture docs |
+| Pull secrets from 1Password via the MCP server or `op` CLI | `AGENTS.md`, `docs/1password.md` | Unrelated architecture docs |
 | Change local setup, dev scripts, test/lint/debug workflow, package scripts, or tooling | `AGENTS.md`, `docs/development.md`, relevant package/config files | `docs/deployment.md` unless CI/CD changes |
 | Change deployment, Docker, CI/CD, hosting, release flow, rollback, or runtime environment | `AGENTS.md` §12, `docs/deployment.md`, `docs/configuration.md`, relevant workflow/deployment files | Local-only development docs unless needed |
 | Change database schema, migrations, models, external IDs, or data flow | `AGENTS.md`, `docs/architecture.md`, `docs/configuration.md` if env/config is affected, `packages/db/src/schema.ts`, relevant migration/model docs | Deployment docs unless rollout/deploy behavior changes |
