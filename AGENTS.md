@@ -1084,3 +1084,15 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 | open | **Per-document `context` / `domain_hints` added via hand-written SQL only (2026-06-14, migration `65`).** Columns are in `schema.ts` + applied to prod, but there is no Drizzle-generated migration, so `pnpm db:check-drift` may flag them and a fresh-DB `pnpm db:migrate` won't recreate them. | If drift matters, fold the two nullable columns into a generated Drizzle migration; otherwise keep the hand-written `sql/65` as authoritative (consistent with the `raw_transcripts` precedent). |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.
+<!-- ansible-host-policy: managed rollout from u2giants/ansible -->
+## Host / server changes — do NOT make them here
+
+The `hetz` server's host/OS layer is managed by **Ansible** in **[`u2giants/ansible`](https://github.com/u2giants/ansible)**.
+To change the server (packages, users, firewall, DNS, Docker *engine* config, system cron,
+systemd units, Cloudflare Tunnel 1, the backup watchdog), **open a PR there** and let CI apply
+it — **never** SSH into the box and hand-edit it. Manual changes are drift and get reverted by
+the next apply. See [`u2giants/ansible/AGENTS.md`](https://github.com/u2giants/ansible/blob/main/AGENTS.md).
+
+This repo is **not** the host layer. Its own changes belong here and deploy through their normal
+pipeline (e.g. Coolify). Don't put host-level changes here, and don't manage this service's
+container with Ansible. Scope boundary: **Ansible owns the host; Coolify owns the apps.**
