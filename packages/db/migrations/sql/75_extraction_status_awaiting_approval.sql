@@ -1,0 +1,19 @@
+-- Add the 'awaiting_approval' value to the extraction_status enum.
+--
+-- Teams meeting transcripts are now held for human approval before claim
+-- extraction. The ingestion worker (apps/workers/src/trigger/
+-- teams-transcript-ingestion.ts) writes utterances with
+-- extraction_status='awaiting_approval'; the claim-extraction cron only ever
+-- selects 'pending', so held transcripts are skipped until an admin approves
+-- them on /admin/transcripts (which flips them to 'pending'; rejection flips
+-- them to 'skipped').
+--
+-- Kept as hand-written idempotent SQL rather than a Drizzle-generated migration:
+-- the generated-migration snapshot in this repo is a partial baseline (many
+-- tables — claim_review_*, knowledge_domain_review_departments, etc. — exist
+-- only via hand-written SQL), so `drizzle-kit generate` tries to re-CREATE
+-- existing tables. `ADD VALUE IF NOT EXISTS` makes this safe to re-apply on
+-- every boot. Kept as the ONLY statement in this file so it never shares a
+-- transaction with statements that reference the new value. The matching TS
+-- enum lives in packages/db/src/schema.ts (extractionStatusEnum).
+ALTER TYPE "extraction_status" ADD VALUE IF NOT EXISTS 'awaiting_approval';

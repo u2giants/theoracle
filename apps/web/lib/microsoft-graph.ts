@@ -157,12 +157,18 @@ export async function listTenantUsers(): Promise<GraphTenantUser[]> {
   return all;
 }
 
-// ─── Teams ad-hoc transcript subscriptions ──────────────────────────────────
+// ─── Teams transcript subscriptions ─────────────────────────────────────────
 //
+// We keep TWO standing change-notification subscriptions, one per resource:
+//   - communications/adhocCalls/getAllTranscripts     → ad-hoc "Meet Now" calls
+//   - communications/onlineMeetings/getAllTranscripts → scheduled meetings
 // Ad-hoc "Meet Now" calls are NOT enumerable after the fact via
 // getAllTranscripts(meetingOrganizerUserId=...) — that only covers *scheduled*
-// meetings. The only way to capture ad-hoc-call transcripts is a standing
-// change-notification subscription to `communications/adhocCalls/getAllTranscripts`.
+// meetings (which is also how the backfill worker recovers missed ones). Live
+// capture for either kind requires its standing subscription. NOTE: the
+// production renewal/repair lives in the WORKER copy
+// (apps/workers/src/lib/graph-transcripts.ts, ensureAllSubscriptions); this web
+// module is the reference and is kept in sync with it.
 //
 // IMPORTANT operational facts (see DECISIONS / memory):
 //   - "Listen going forward" only: a notification fires solely if the
@@ -178,6 +184,8 @@ const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 const GRAPH_BETA_BASE = 'https://graph.microsoft.com/beta';
 export const ADHOC_TRANSCRIPTS_RESOURCE =
   'communications/adhocCalls/getAllTranscripts';
+export const ONLINE_MEETINGS_TRANSCRIPTS_RESOURCE =
+  'communications/onlineMeetings/getAllTranscripts';
 
 export interface CreateSubscriptionArgs {
   /** Public HTTPS endpoint that receives change notifications. */
@@ -194,6 +202,8 @@ export interface CreateSubscriptionArgs {
   expirationMinutes?: number;
   /** Force the beta endpoint (preview resource may require it in some tenants). */
   useBeta?: boolean;
+  /** Transcript resource to subscribe to. Defaults to the ad-hoc resource. */
+  resource?: string;
 }
 
 export interface GraphSubscription {
@@ -225,8 +235,9 @@ async function graphFetch(
 }
 
 /**
- * Create the standing subscription for ad-hoc call transcripts. Returns the
- * subscription id + expiry so the manager can persist and renew it.
+ * Create a standing transcript subscription. Defaults to the ad-hoc resource;
+ * pass `args.resource` (e.g. ONLINE_MEETINGS_TRANSCRIPTS_RESOURCE) for scheduled
+ * meetings. Returns the subscription id + expiry so the manager can renew it.
  */
 export async function createAdhocTranscriptSubscription(
   args: CreateSubscriptionArgs,
@@ -244,7 +255,7 @@ export async function createAdhocTranscriptSubscription(
       method: 'POST',
       body: JSON.stringify({
         changeType: 'created',
-        resource: ADHOC_TRANSCRIPTS_RESOURCE,
+        resource: args.resource ?? ADHOC_TRANSCRIPTS_RESOURCE,
         notificationUrl: args.notificationUrl,
         lifecycleNotificationUrl: args.lifecycleNotificationUrl,
         includeResourceData: true,

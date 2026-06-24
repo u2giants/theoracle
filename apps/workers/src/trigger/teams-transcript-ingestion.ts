@@ -3,8 +3,11 @@
 // Triggered by the webhook (apps/web/app/api/teams/notifications) when Graph
 // pushes a transcript notification. Fetches the WebVTT, turns each speaker turn
 // into a `messages` row inside a channel that represents the call, and leaves
-// them as extraction_status='pending' so the existing claim-extraction cron
-// picks them up — NOTHING here writes to claims directly (candidate-before-claim).
+// them as extraction_status='awaiting_approval' — HELD for human approval. The
+// claim-extraction cron only selects 'pending', so these are skipped until an
+// admin approves the transcript on /admin/transcripts (raw_transcripts row
+// lands with approval_status='pending_approval'). NOTHING here writes to claims
+// directly (candidate-before-claim).
 //
 // Design notes:
 //   - Each utterance = one message with role='user', employeeId = the resolved
@@ -105,7 +108,14 @@ function mergeBySpeaker(cues: Cue[]): Cue[] {
 function deriveTranscriptId(p: IngestionPayload): string {
   const src = p.transcriptContentUrl || p.resourcePath || '';
   const m = src.match(/transcripts[('/]+([^')/]+)/i);
-  if (m && m[1]) return m[1];
+  if (m && m[1]) {
+    // Scheduled online-meeting transcript ids are long base64 blobs (~230
+    // chars). clientMessageId = `teams:<id>:<n>` must fit messages.client_message_id
+    // (varchar(255)), so hash anything long to a stable 32-char digest. Short
+    // ad-hoc ids pass through unchanged (preserves existing dedup keys). The
+    // full id is still kept verbatim in messages.metadata_json.transcriptId.
+    return m[1].length > 64 ? createHash('sha256').update(m[1]).digest('hex').slice(0, 32) : m[1];
+  }
   return createHash('sha256')
     .update(src + (p.meetingId ?? '') + (p.callId ?? ''))
     .digest('hex')
@@ -266,7 +276,13 @@ export const teamsTranscriptIngestionTask = task({
           role: 'user' as const,
           content: c.text,
           clientMessageId: `teams:${transcriptId}:${i}`,
-          extractionStatus: 'pending' as const,
+          // Held for human approval — NOT 'pending'. The claim-extraction cron
+          // only selects 'pending', so these utterances are skipped until an
+          // admin approves this transcript on /admin/transcripts (which flips
+          // the channel's messages to 'pending'; rejection flips to 'skipped').
+          // The raw_transcripts row lands with approval_status='pending_approval'
+          // by column default (migration 76_transcript_approval.sql).
+          extractionStatus: 'awaiting_approval' as const,
           createdAt: new Date(base + c.offsetMs),
           metadataJson: {
             source: 'teams_transcript',

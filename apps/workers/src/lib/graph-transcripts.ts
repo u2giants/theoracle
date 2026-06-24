@@ -18,6 +18,13 @@ const GRAPH_V1 = 'https://graph.microsoft.com/v1.0';
 // Ad-hoc ("Meet Now") transcripts are only reachable via this subscription, and
 // only on the beta endpoint (v1.0 rejects it).
 const ADHOC_RESOURCE = 'communications/adhocCalls/getAllTranscripts';
+// Scheduled-meeting transcripts come through a SEPARATE tenant-wide subscription.
+// Ad-hoc and scheduled are distinct Graph resources, so each needs its own
+// subscription (the "limit of 1" is per resource, so both can coexist).
+const ONLINE_MEETINGS_RESOURCE = 'communications/onlineMeetings/getAllTranscripts';
+
+// Every transcript resource we keep a standing subscription for.
+export const TRANSCRIPT_RESOURCES = [ADHOC_RESOURCE, ONLINE_MEETINGS_RESOURCE] as const;
 
 interface GraphConfig {
   tenantId: string;
@@ -90,6 +97,7 @@ interface GraphSub {
 
 export type EnsureResult = {
   action: 'created' | 'renewed' | 'ok' | 'skipped_no_config';
+  resource?: string;
   subscriptionId?: string;
   expirationDateTime?: string;
   detail?: string;
@@ -100,23 +108,14 @@ export type EnsureResult = {
 const RENEW_MINUTES = 50;
 const RENEW_IF_WITHIN_MS = 20 * 60 * 1000;
 
-/**
- * Ensure exactly one live ad-hoc transcript subscription exists pointing at our
- * webhook: renew it if it's near expiry, create it if it's missing. Safe to
- * call repeatedly (the renewal cron + webhook lifecycle events both call it).
- */
-export async function ensureAdhocSubscription(): Promise<EnsureResult> {
-  const cfg = getConfigOrNull();
-  const subCfg = getSubscriptionConfigOrNull();
-  if (!cfg || !subCfg) {
-    return {
-      action: 'skipped_no_config',
-      detail: 'Azure creds or TEAMS_* subscription env not set in the worker environment',
-    };
-  }
-  const token = await getToken(cfg);
-  const authJson = { Authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+const nextExpiry = () => new Date(Date.now() + RENEW_MINUTES * 60_000).toISOString();
 
+/** List our subscriptions and find the one for `resource` on our webhook. */
+async function findSub(
+  token: string,
+  resource: string,
+  notificationUrl: string,
+): Promise<GraphSub | undefined> {
   const listRes = await fetch(`${GRAPH_BETA}/subscriptions`, {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(20_000),
@@ -125,27 +124,50 @@ export async function ensureAdhocSubscription(): Promise<EnsureResult> {
     throw new Error(`list subscriptions failed (${listRes.status}): ${(await listRes.text()).slice(0, 300)}`);
   }
   const subs = ((await listRes.json()) as { value?: GraphSub[] }).value ?? [];
-  const mine = subs.find(
-    (s) => s.resource === ADHOC_RESOURCE && s.notificationUrl === subCfg.notificationUrl,
-  );
+  return subs.find((s) => s.resource === resource && s.notificationUrl === notificationUrl);
+}
 
-  const nextExpiry = () => new Date(Date.now() + RENEW_MINUTES * 60_000).toISOString();
+async function renewSub(token: string, sub: GraphSub): Promise<EnsureResult> {
+  const res = await fetch(`${GRAPH_BETA}/subscriptions/${sub.id}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ expirationDateTime: nextExpiry() }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) {
+    throw new Error(`renew failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  }
+  const r = (await res.json()) as GraphSub;
+  return { action: 'renewed', resource: sub.resource, subscriptionId: r.id, expirationDateTime: r.expirationDateTime };
+}
 
+/**
+ * Ensure exactly one live transcript subscription for `resource` points at our
+ * webhook: renew it if near expiry, create it if missing. Safe to call
+ * repeatedly (the renewal cron + webhook lifecycle events both call it).
+ *
+ * Resource-agnostic so the same logic serves both the ad-hoc and scheduled
+ * online-meeting transcript subscriptions.
+ */
+export async function ensureSubscription(resource: string): Promise<EnsureResult> {
+  const cfg = getConfigOrNull();
+  const subCfg = getSubscriptionConfigOrNull();
+  if (!cfg || !subCfg) {
+    return {
+      action: 'skipped_no_config',
+      resource,
+      detail: 'Azure creds or TEAMS_* subscription env not set in the worker environment',
+    };
+  }
+  const token = await getToken(cfg);
+  const authJson = { Authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+
+  const mine = await findSub(token, resource, subCfg.notificationUrl);
   if (mine) {
     if (Date.parse(mine.expirationDateTime) - Date.now() > RENEW_IF_WITHIN_MS) {
-      return { action: 'ok', subscriptionId: mine.id, expirationDateTime: mine.expirationDateTime };
+      return { action: 'ok', resource, subscriptionId: mine.id, expirationDateTime: mine.expirationDateTime };
     }
-    const res = await fetch(`${GRAPH_BETA}/subscriptions/${mine.id}`, {
-      method: 'PATCH',
-      headers: authJson,
-      body: JSON.stringify({ expirationDateTime: nextExpiry() }),
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!res.ok) {
-      throw new Error(`renew failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
-    }
-    const r = (await res.json()) as GraphSub;
-    return { action: 'renewed', subscriptionId: r.id, expirationDateTime: r.expirationDateTime };
+    return renewSub(token, mine);
   }
 
   const res = await fetch(`${GRAPH_BETA}/subscriptions`, {
@@ -153,7 +175,7 @@ export async function ensureAdhocSubscription(): Promise<EnsureResult> {
     headers: authJson,
     body: JSON.stringify({
       changeType: 'created',
-      resource: ADHOC_RESOURCE,
+      resource,
       notificationUrl: subCfg.notificationUrl,
       lifecycleNotificationUrl: subCfg.notificationUrl,
       includeResourceData: true,
@@ -165,10 +187,37 @@ export async function ensureAdhocSubscription(): Promise<EnsureResult> {
     signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) {
-    throw new Error(`create failed (${res.status}): ${(await res.text()).slice(0, 400)}`);
+    const errText = (await res.text()).slice(0, 400);
+    // Benign race: the cron and a lifecycle event both tried to create at once,
+    // or a previous create already succeeded ("limit of 1" per resource). Don't
+    // fail — re-find the existing one and renew it.
+    if (res.status === 403 && /reached its limit/i.test(errText)) {
+      const existing = await findSub(token, resource, subCfg.notificationUrl);
+      if (existing) return renewSub(token, existing);
+    }
+    throw new Error(`create failed (${res.status}): ${errText}`);
   }
   const r = (await res.json()) as GraphSub;
-  return { action: 'created', subscriptionId: r.id, expirationDateTime: r.expirationDateTime };
+  return { action: 'created', resource, subscriptionId: r.id, expirationDateTime: r.expirationDateTime };
+}
+
+/** Back-compat wrapper: the ad-hoc ("Meet Now") transcript subscription. */
+export function ensureAdhocSubscription(): Promise<EnsureResult> {
+  return ensureSubscription(ADHOC_RESOURCE);
+}
+
+/** The scheduled online-meeting transcript subscription. */
+export function ensureOnlineMeetingsSubscription(): Promise<EnsureResult> {
+  return ensureSubscription(ONLINE_MEETINGS_RESOURCE);
+}
+
+/**
+ * Ensure every standing transcript subscription (ad-hoc + scheduled). Each is
+ * ensured independently so one failing (e.g. a tenant policy gap on scheduled
+ * meetings) doesn't stop the other from being kept alive.
+ */
+export async function ensureAllSubscriptions(): Promise<EnsureResult[]> {
+  return Promise.all(TRANSCRIPT_RESOURCES.map((r) => ensureSubscription(r)));
 }
 
 /**
@@ -238,4 +287,100 @@ export async function listDisplayNameToEmail(): Promise<Map<string, string>> {
     url = page['@odata.nextLink'];
   }
   return map;
+}
+
+// ─── Backfill: pull already-completed scheduled-meeting transcripts ──────────
+//
+// Subscriptions only "listen going forward", so to recover transcripts from
+// meetings that already happened we enumerate organizers and ask Graph for
+// their meeting transcripts in a time window. Idempotency is handled downstream
+// by teams-transcript-ingestion (dedupes on transcriptId), so re-running is safe.
+
+/** All M365 user ids — the candidate meeting organizers for backfill. */
+export async function listUserIds(): Promise<string[]> {
+  const cfg = getConfigOrNull();
+  if (!cfg) return [];
+  const token = await getToken(cfg);
+  const ids: string[] = [];
+  let url: string | undefined =
+    'https://graph.microsoft.com/v1.0/users?$select=id&$top=100';
+  while (url) {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      throw new Error(`list users failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+    }
+    const page = (await res.json()) as {
+      value?: Array<{ id: string }>;
+      '@odata.nextLink'?: string;
+    };
+    for (const u of page.value ?? []) if (u.id) ids.push(u.id);
+    url = page['@odata.nextLink'];
+  }
+  return ids;
+}
+
+export interface BackfillTranscript {
+  transcriptContentUrl: string | null;
+  resourcePath: string | null;
+  meetingId: string | null;
+  callId: string | null;
+  createdDateTime: string | null;
+}
+
+/**
+ * Scheduled-meeting transcripts for one organizer created at/after `sinceIso`.
+ * Mirrors the change-notification payload shape so each result can be handed to
+ * teams-transcript-ingestion exactly like a live notification. Best-effort per
+ * organizer: a 403/404 (no meetings, or policy gap for that user) yields [].
+ */
+export async function getOnlineMeetingTranscripts(
+  organizerId: string,
+  sinceIso: string,
+): Promise<BackfillTranscript[]> {
+  const cfg = getConfigOrNull();
+  if (!cfg) return [];
+  const token = await getToken(cfg);
+  const out: BackfillTranscript[] = [];
+  // The PULL endpoint is per-user: users/{id}/onlineMeetings/getAllTranscripts.
+  // (Distinct from the tenant-wide SUBSCRIPTION resource
+  // communications/onlineMeetings/getAllTranscripts.) See diagnose-transcripts.ps1.
+  const endIso = new Date().toISOString();
+  let url: string | undefined =
+    `${GRAPH_BETA}/users/${organizerId}/onlineMeetings/getAllTranscripts(meetingOrganizerUserId='${organizerId}',startDateTime=${sinceIso},endDateTime=${endIso})`;
+  while (url) {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      // 404 = this organizer simply has no transcripts in the window (expected
+      // for most users). Anything else (esp. 403 = app-access-policy gap) is a
+      // real signal — surface it as an error rather than masking it as "empty".
+      if (res.status === 404) return out;
+      throw new Error(`getAllTranscripts failed (${res.status}) for organizer ${organizerId}: ${(await res.text()).slice(0, 300)}`);
+    }
+    const page = (await res.json()) as {
+      value?: Array<{
+        transcriptContentUrl?: string | null;
+        meetingId?: string | null;
+        callId?: string | null;
+        createdDateTime?: string | null;
+      }>;
+      '@odata.nextLink'?: string;
+    };
+    for (const t of page.value ?? []) {
+      out.push({
+        transcriptContentUrl: t.transcriptContentUrl ?? null,
+        resourcePath: null,
+        meetingId: t.meetingId ?? null,
+        callId: t.callId ?? null,
+        createdDateTime: t.createdDateTime ?? null,
+      });
+    }
+    url = page['@odata.nextLink'];
+  }
+  return out;
 }

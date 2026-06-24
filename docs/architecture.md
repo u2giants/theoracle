@@ -231,13 +231,14 @@ The DeepSeek+Qwen rollout (commit `c5cea1d`) added ~600 lines across ~17 files u
 
 ## Teams transcript ingestion (Microsoft Graph)
 
-Pulls Microsoft Teams **call transcripts** into the same evidence pipeline as chat and documents. POP's meetings are all ad-hoc "Meet Now" calls, never scheduled — which constrains the design (see below). Status: **LIVE + validated end-to-end** for post-call transcript ingestion (2026-06-04/05).
+Pulls Microsoft Teams **call transcripts** into the same evidence pipeline as chat and documents. Both **ad-hoc "Meet Now" calls and scheduled meetings** are captured, each via its own standing subscription (2026-06-24 — an earlier design assumed ad-hoc only, which silently dropped every scheduled meeting). Ingested utterances are **held for admin approval** before extraction (see the approval gate below). Status: **LIVE + validated end-to-end** for post-call transcript ingestion (2026-06-04/05).
 
 ```
 Teams call (transcription ON)
   ↓  Microsoft publishes a transcript after the call ends
-Microsoft Graph change-notification subscription
-  resource: communications/adhocCalls/getAllTranscripts  (BETA only; v1.0 rejects it)
+Microsoft Graph change-notification subscriptions (one per resource, BETA only)
+  communications/adhocCalls/getAllTranscripts       (ad-hoc "Meet Now")
+  communications/onlineMeetings/getAllTranscripts   (scheduled meetings)
   ↓  POST (encrypted) to notificationUrl
 apps/web/app/api/teams/notifications/route.ts   (the "always-on listener", on Vercel)
   • validation handshake (echo ?validationToken — Graph checks this at create time)
@@ -250,17 +251,21 @@ apps/workers/src/trigger/teams-transcript-ingestion.ts
   • parseVtt → mergeBySpeaker → one utterance per turn
   • resolve speaker → employee by display-name (null when unmatched)
   • INSERT a channel (per call) + channel_participants + messages
-    (role='user', extraction_status='pending', clientMessageId='teams:<transcriptId>:<n>')
+    (role='user', extraction_status='awaiting_approval', clientMessageId='teams:<transcriptId>:<n>')
+  ↓
+admin reviews at /admin/transcripts → Approve flips the channel's messages to 'pending'
   ↓
 existing claim-extraction cron picks up the pending messages  →  candidate-before-claim
 ```
 
+**Approval gate (2026-06-24):** ingested utterances land `extraction_status='awaiting_approval'`, which the claim-extraction cron never selects, so a transcript produces no claims until an admin approves it at `/admin/transcripts` (approve → `pending`; reject → `skipped`). `raw_transcripts.approval_status` records the decision. See DECISIONS.md `D-transcript-approval-gate`.
+
 Each utterance becomes a `messages` row (not a `document_chunk`) precisely so it carries speaker attribution (`employeeId`) and verbatim quotes — the same evidence shape as chat. Idempotent: re-running for the same transcript is a no-op (the `clientMessageId` dedupe key). Nothing here writes to `claims` — the normal R5/R6 validators run downstream.
 
-Subscription lifecycle is owned by `teams-subscription-manager.ts`: the `teams-subscription-renew` cron (`*/30`) and a webhook-lifecycle-triggered task both call the idempotent `ensureAdhocSubscription()` (renew if <20 min left, else create). The resource max-lifetime is ~1h, so a machine must keep re-upping it — no human re-authenticates anything.
+Subscription lifecycle is owned by `teams-subscription-manager.ts`: the `teams-subscription-renew` cron (`*/30`) and a webhook-lifecycle-triggered task both call the idempotent `ensureAllSubscriptions()`, which keeps BOTH transcript subscriptions alive (renew if <20 min left, else create; a benign "limit of 1" 403 on create is treated as already-exists → renew). The resource max-lifetime is ~1h, so a machine must keep re-upping it — no human re-authenticates anything. Reuses the single existing 30-min schedule for both resources (Trigger.dev is at its 10/10 schedule limit — AGENTS.md §10).
 
 **Hard constraints (derived from Microsoft Graph, not choices):**
-- **Ad-hoc calls are only reachable via a subscription, and only on beta.** `getAllTranscripts(meetingOrganizerUserId=...)` (used by `diagnose-transcripts.ps1`) enumerates *scheduled* meetings only; ad-hoc "Meet Now" calls never appear there. The subscription is "listen going forward" — a transcript only notifies if the subscription existed *before* transcription started; past calls are unrecoverable.
+- **Live capture is "listen going forward."** A subscription only notifies for transcripts produced *after* it existed; calls during a subscription gap aren't pushed. To recover already-completed *scheduled* transcripts, the on-demand `teams-transcript-backfill` task enumerates organizers and pulls `getAllTranscripts(meetingOrganizerUserId=...,startDateTime=...)` (the same enumeration `diagnose-transcripts.ps1` probes), then triggers ingestion per transcript (idempotent). Ad-hoc "Meet Now" calls are NOT enumerable that way — they are recoverable only via their live subscription.
 - **No Graph live transcript / no Graph live spoken awareness.** Graph exposes no API to read a meeting's live caption/transcript stream, and Teams does not pipe spoken words into the meeting text chat. The Graph path therefore ingests calls *after* they end. Live spoken participation is a separate Recall.ai meeting-bot path, not a Graph capability.
 - **The webhook must be deployed before the subscription can be created** — Graph validates `notificationUrl` synchronously at create time.
 

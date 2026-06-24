@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 
+import { Fragment } from 'react';
 import Link from 'next/link';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
@@ -7,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatNYDate } from '@/lib/time';
 import { AssignQuestionForm } from './_components/assign-question-form';
 import { BulkEvaluateBar } from './_components/bulk-evaluate-bar';
+import { ShiftSelect } from './_components/shift-select';
 import { reviseClaim, updateClaimStatus, translateClaimsForChina } from './_actions';
 
 type ClaimRow = {
@@ -31,6 +33,20 @@ type ClaimRow = {
   // claim_review_question gaps). Persisted signal of "who is evaluating this";
   // null when the claim hasn't been sent to anyone.
   review_assignees: string[] | null;
+  // Specific-source grouping (derived from the highest-confidence evidence row):
+  // key is stable per origin (channel / document / external record / manual),
+  // label is the human name, kind drives the group-header icon.
+  source_group_key: string;
+  source_group_label: string;
+  source_kind: 'meeting' | 'chat' | 'document' | 'external' | 'manual';
+};
+
+const SOURCE_KIND_ICON: Record<ClaimRow['source_kind'], string> = {
+  meeting: '🎙',
+  chat: '💬',
+  document: '📄',
+  external: '🔗',
+  manual: '✍️',
 };
 
 type EmployeeOption = {
@@ -86,6 +102,32 @@ export default async function AdminClaimsPage({
       c.created_at,
       ce.exact_quote,
       ce.source_type,
+      CASE
+        WHEN ce.source_message_id IS NOT NULL
+          THEN 'chan:' || COALESCE(src_chan.id::text, 'unknown')
+        WHEN ce.source_document_chunk_id IS NOT NULL
+          THEN 'doc:' || COALESCE(src_doc.id::text, 'unknown')
+        WHEN ce.source_external_record_id IS NOT NULL
+          THEN 'ext:' || ce.source_external_record_id
+        ELSE 'manual'
+      END AS source_group_key,
+      CASE
+        WHEN ce.source_message_id IS NOT NULL
+          THEN COALESCE(src_chan.name, '(unnamed channel)')
+        WHEN ce.source_document_chunk_id IS NOT NULL
+          THEN COALESCE(src_doc.file_name, '(unknown document)')
+        WHEN ce.source_external_record_id IS NOT NULL
+          THEN 'External: ' || ce.source_external_record_id
+        ELSE 'Manual / no source'
+      END AS source_group_label,
+      CASE
+        WHEN ce.source_message_id IS NOT NULL
+          AND src_msg.metadata_json->>'source' = 'teams_transcript' THEN 'meeting'
+        WHEN ce.source_message_id IS NOT NULL THEN 'chat'
+        WHEN ce.source_document_chunk_id IS NOT NULL THEN 'document'
+        WHEN ce.source_external_record_id IS NOT NULL THEN 'external'
+        ELSE 'manual'
+      END AS source_kind,
       e.name AS employee_name,
       COALESCE(d.domain_ids, ARRAY[]::text[]) AS domain_ids,
       COALESCE(d.domain_names, ARRAY[]::text[]) AS domain_names,
@@ -106,13 +148,25 @@ export default async function AdminClaimsPage({
       ) AS review_assignees
     FROM claims c
     LEFT JOIN LATERAL (
-      SELECT exact_quote, source_type, asserted_by_employee_id
+      SELECT
+        exact_quote,
+        source_type,
+        asserted_by_employee_id,
+        source_message_id,
+        source_document_chunk_id,
+        source_external_record_id
       FROM claim_evidence
       WHERE claim_id = c.id
       ORDER BY confidence DESC NULLS LAST, created_at ASC
       LIMIT 1
     ) ce ON true
     LEFT JOIN employees e ON e.id = ce.asserted_by_employee_id
+    -- Resolve the evidence's specific source for grouping: message → channel
+    -- (the meeting/chat), document chunk → document.
+    LEFT JOIN messages src_msg ON src_msg.id = ce.source_message_id
+    LEFT JOIN channels src_chan ON src_chan.id = src_msg.channel_id
+    LEFT JOIN document_chunks src_chunk ON src_chunk.id = ce.source_document_chunk_id
+    LEFT JOIN documents src_doc ON src_doc.id = src_chunk.document_id
     LEFT JOIN LATERAL (
       SELECT
         array_agg(ktd.id ORDER BY ktd.display_order, ktd.name) AS domain_ids,
@@ -155,6 +209,50 @@ export default async function AdminClaimsPage({
   const rows = [...result] as unknown as ClaimRow[];
   const employeeOptions = [...employeesResult] as unknown as EmployeeOption[];
   const groupOptions = [...groupsResult] as unknown as GroupOption[];
+
+  // Group claims by their specific source (one group per meeting/channel,
+  // document, external record, or "manual"). Rows arrive newest-first, so the
+  // first time a key is seen is that group's newest claim — which also gives a
+  // natural newest-group-first ordering.
+  const sourceGroups: Array<{
+    key: string;
+    label: string;
+    kind: ClaimRow['source_kind'];
+    rows: ClaimRow[];
+  }> = [];
+  const groupIndexByKey = new Map<string, number>();
+  for (const row of rows) {
+    const key = row.source_group_key ?? 'manual';
+    let idx = groupIndexByKey.get(key);
+    if (idx === undefined) {
+      idx = sourceGroups.length;
+      groupIndexByKey.set(key, idx);
+      sourceGroups.push({
+        key,
+        label: row.source_group_label ?? 'Manual / no source',
+        kind: row.source_kind ?? 'manual',
+        rows: [],
+      });
+    }
+    sourceGroups[idx]!.rows.push(row);
+  }
+
+  // Per-form running index (in DOM render order) used by the shift-click range
+  // enhancer. Approved rows submit via the "translate-claims" form, pending rows
+  // via "bulk-evaluate"; ranges are scoped per form so they never cross that
+  // boundary.
+  const selectIndexById = new Map<string, number>();
+  let translateSelectIdx = 0;
+  let bulkSelectIdx = 0;
+  for (const group of sourceGroups) {
+    for (const row of group.rows) {
+      if (row.status === 'approved') {
+        selectIndexById.set(row.id, translateSelectIdx++);
+      } else if (row.status === 'pending_review') {
+        selectIndexById.set(row.id, bulkSelectIdx++);
+      }
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -226,6 +324,8 @@ export default async function AdminClaimsPage({
             </p>
           ) : (
             <div className="overflow-x-auto">
+              {/* Enables shift-click range selection across the checkboxes. */}
+              <ShiftSelect />
               <table className="w-full text-sm">
                 <thead className="border-b text-left text-xs uppercase text-muted-foreground">
                   <tr>
@@ -245,9 +345,25 @@ export default async function AdminClaimsPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => {
-                    const wasCorrected = row.revision_reviewer_id !== null;
-                    return (
+                  {sourceGroups.map((group) => (
+                    <Fragment key={group.key}>
+                      <tr className="bg-muted/40">
+                        <td colSpan={11} className="py-2 pr-4">
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <span aria-hidden>{SOURCE_KIND_ICON[group.kind]}</span>
+                            <span className="font-semibold text-foreground">
+                              {group.label}
+                            </span>
+                            <span className="text-muted-foreground">
+                              · {group.rows.length} claim
+                              {group.rows.length === 1 ? '' : 's'}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                      {group.rows.map((row) => {
+                        const wasCorrected = row.revision_reviewer_id !== null;
+                        return (
                     <tr
                       key={row.id}
                       className={`border-b last:border-0 ${
@@ -262,6 +378,9 @@ export default async function AdminClaimsPage({
                               name="claimId"
                               value={row.id}
                               form="translate-claims"
+                              data-claim-select
+                              data-select-form="translate-claims"
+                              data-select-index={selectIndexById.get(row.id)}
                               aria-label="Select this claim to translate for the China team"
                             />
                           ) : row.status === 'pending_review' ? (
@@ -270,6 +389,9 @@ export default async function AdminClaimsPage({
                               name="claimId"
                               value={row.id}
                               form="bulk-evaluate"
+                              data-claim-select
+                              data-select-form="bulk-evaluate"
+                              data-select-index={selectIndexById.get(row.id)}
                               aria-label="Select this pending claim to ask someone to evaluate"
                             />
                           ) : (
@@ -476,8 +598,10 @@ export default async function AdminClaimsPage({
                         )}
                       </td>
                     </tr>
-                  );
-                  })}
+                        );
+                      })}
+                    </Fragment>
+                  ))}
                 </tbody>
               </table>
             </div>

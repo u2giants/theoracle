@@ -1,8 +1,11 @@
 // POST/GET /api/teams/notifications
 //
 // The "always-on listener" for Microsoft Graph change notifications about
-// Teams ad-hoc call transcripts (subscription resource:
-// communications/adhocCalls/getAllTranscripts).
+// Teams transcripts. Two standing subscriptions point here — ad-hoc calls
+// (communications/adhocCalls/getAllTranscripts) and scheduled meetings
+// (communications/onlineMeetings/getAllTranscripts). This handler is
+// resource-agnostic: it decrypts whichever transcript fired and hands off to
+// `teams-transcript-ingestion`, so no per-resource branching is needed.
 //
 // This endpoint MUST be deployed and publicly reachable BEFORE the subscription
 // can be created — Graph validates it synchronously at subscription-create time

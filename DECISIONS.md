@@ -508,6 +508,16 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Decision**: Persist each call's raw WebVTT in `raw_transcripts` at ingestion (idempotent on transcript_id). Hand-written `migrations/sql/62_raw_transcripts.sql`; worker uses raw `sql`, not in schema.ts.
 - **Why**: `messages` are a lossy transform (merged turns, resolved speakers, dropped timing) and Microsoft expires ad-hoc transcripts. Raw VTT keeps the whole pipeline re-runnable from true source for iterative fine-tuning.
 
+## D-transcript-approval-gate — human approval before transcript extraction (2026-06-24)
+
+- **Decision**: Teams transcripts are ingested as `extraction_status='awaiting_approval'` (new enum value; `migrations/sql/75`) and held until an admin approves them at `/admin/transcripts`. `raw_transcripts.approval_status` (`migrations/sql/76`) tracks the decision; approve flips the channel's messages → `pending`, reject → `skipped`. The extraction cron is unchanged (it only ever selects `pending`).
+- **Why**: Albert wanted to review meeting transcripts before they produce claims, rather than the prior auto-ingest-then-review-at-claim-level flow. Lowest-blast-radius gate — no extraction-worker change.
+
+## D-scheduled-meeting-transcripts — capture scheduled meetings, not just ad-hoc (2026-06-24)
+
+- **Decision**: Add a second standing subscription on `communications/onlineMeetings/getAllTranscripts` alongside the ad-hoc one (`ensureAllSubscriptions` keeps both alive via the existing `teams-subscription-renew` cron — no new schedule, respecting the 10/10 limit). Add an on-demand `teams-transcript-backfill` task to recover already-completed scheduled transcripts (subscriptions only listen going forward).
+- **Why**: Only ad-hoc "Meet Now" calls were being captured; normal scheduled meetings (the common case) produced nothing — last real transcript was 2026-06-04. The webhook is resource-agnostic, so this is a subscription + backfill change with no webhook/ingestion rework.
+
 # Document ingestion: Word, image vision, auxiliary models, context (2026-06-14)
 
 ## D-image-vision-two-pass — transcribe images to text before extraction

@@ -82,6 +82,12 @@ export const extractionStatusEnum = pgEnum('extraction_status', [
   'complete',
   'failed',
   'skipped',
+  // Held until a human approves the source (Teams meeting transcripts: the
+  // ingestion worker writes utterances in this state so the claim-extraction
+  // cron — which only ever selects 'pending' — skips them. Approving the
+  // transcript on /admin/transcripts flips them to 'pending'; rejecting flips
+  // them to 'skipped'. See teams-transcript-ingestion.ts + admin/transcripts.)
+  'awaiting_approval',
 ]);
 
 export const claimStatusEnum = pgEnum('claim_status', [
