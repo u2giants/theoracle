@@ -333,8 +333,14 @@ export interface BackfillTranscript {
 /**
  * Scheduled-meeting transcripts for one organizer created at/after `sinceIso`.
  * Mirrors the change-notification payload shape so each result can be handed to
- * teams-transcript-ingestion exactly like a live notification. Best-effort per
- * organizer: a 403/404 (no meetings, or policy gap for that user) yields [].
+ * teams-transcript-ingestion exactly like a live notification.
+ *
+ * Resilient per organizer: only a first-page **403** (genuine app-access-policy
+ * gap) throws — everything else keeps whatever was collected and stops. This
+ * tolerates (a) Graph's beta pagination quirk where an `@odata.nextLink` comes
+ * back with `startIndex=-1` (a 400 on page 2+), and (b) slow organizers that hit
+ * the request timeout — neither should make one user abort the whole scan or
+ * discard the page(s) we already have.
  */
 export async function getOnlineMeetingTranscripts(
   organizerId: string,
@@ -350,17 +356,31 @@ export async function getOnlineMeetingTranscripts(
   const endIso = new Date().toISOString();
   let url: string | undefined =
     `${GRAPH_BETA}/users/${organizerId}/onlineMeetings/getAllTranscripts(meetingOrganizerUserId='${organizerId}',startDateTime=${sinceIso},endDateTime=${endIso})`;
+  let firstPage = true;
   while (url) {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(20_000),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (err) {
+      // Network error / timeout — keep what we have, don't abort the scan.
+      console.warn(`[graph-transcripts] getAllTranscripts fetch error for ${organizerId}`, err);
+      return out;
+    }
     if (!res.ok) {
-      // 404 = this organizer simply has no transcripts in the window (expected
-      // for most users). Anything else (esp. 403 = app-access-policy gap) is a
-      // real signal — surface it as an error rather than masking it as "empty".
-      if (res.status === 404) return out;
-      throw new Error(`getAllTranscripts failed (${res.status}) for organizer ${organizerId}: ${(await res.text()).slice(0, 300)}`);
+      const body = (await res.text().catch(() => '')).slice(0, 200);
+      // A first-page 403 is a genuine access/policy gap worth surfacing.
+      if (firstPage && res.status === 403) {
+        throw new Error(`getAllTranscripts forbidden (403) for organizer ${organizerId}: ${body}`);
+      }
+      // 404 = no transcripts (expected for most users); a 400 on a nextLink is
+      // Graph's startIndex=-1 pagination quirk. Either way, keep what we have.
+      if (res.status !== 404) {
+        console.warn(`[graph-transcripts] getAllTranscripts ${res.status} for ${organizerId}: ${body}`);
+      }
+      return out;
     }
     const page = (await res.json()) as {
       value?: Array<{
@@ -381,6 +401,7 @@ export async function getOnlineMeetingTranscripts(
       });
     }
     url = page['@odata.nextLink'];
+    firstPage = false;
   }
   return out;
 }
