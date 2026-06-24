@@ -1,6 +1,26 @@
-# HANDOFF — Recall.ai wiring + extraction tuning + China bilingual layer
+# HANDOFF — Recall.ai wiring + extraction tuning + China bilingual layer + meeting picker
 
-Last updated: 2026-06-20. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+Last updated: 2026-06-24. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+
+---
+
+## Meeting transcript picker (2026-06-24)
+
+Status:
+done + deployed (core). Optional follow-ups remain.
+
+Done (live in prod, `main` == deployed):
+- The Oracle no longer auto-ingests meetings. Discovery (webhook + `teams-transcript-discovery-scan`) records available meetings into `meeting_transcripts` (migration `77`, prod-applied); `/admin/transcripts` is a picker where an admin chooses which to ingest. Ingesting → `teams-transcript-ingestion` writes `messages` as `pending`, anchored to real meeting time, and flips the row to `ingested`. See DECISIONS.md `D-meeting-picker` + architecture.md. Worker `v20260624.5`; commits through `38ea974`.
+- Also shipped this session: claims grouped by source + shift-click range select on `/admin/claims`.
+
+Next action (optional, not blocking):
+- Populate `meeting_transcripts.subject` (and ideally participant names) — the picker has the columns but only organizer + meeting time are filled today. Subject needs an extra Graph call (`onlineMeeting` details by join id) the discovery path doesn't make yet.
+- Drop the now-unused `awaiting_approval` enum value + `raw_transcripts.approval_status` columns (migrations 75/76) in a future cleanup migration — left in place because removing a PG enum value is disruptive (see `D-meeting-picker`).
+- Discovery scan is on-demand only (Trigger is at the 10/10 schedule limit). If a schedule slot frees up, consider a periodic scan so the picker stays fresh without a manual "Scan for recent meetings" click.
+
+Risks / watchouts:
+- Do NOT re-introduce auto-ingest in the webhook (it must stay discovery-only). See the AGENTS.md §10 quirk on transcript ids / pull endpoint for two bugs not to reintroduce.
+- `.env.local` points at `oracle.old` (`vokucjpanhvqunimlvsp`), NOT current prod (`eqccjfbyrywsqkxxpjvg`). Local `pnpm db:migrate` hits the old DB unless `DIRECT_URL` is overridden (prod connection string is in 1Password → "Supabase DB Direct URL - The Oracle (CURRENT PROD …)").
 
 ---
 

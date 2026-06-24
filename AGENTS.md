@@ -387,6 +387,19 @@ Adding another `schedules.task()` currently blocks worker deployment. The A/B ev
 Future sessions should:
 Do not add new Trigger schedules casually. Reuse/consolidate an existing schedule or increase the Trigger.dev schedule limit before adding another `schedules.task()`. Deploy workers with `corepack pnpm --filter @oracle/workers run deploy`.
 
+### Teams transcript ids + the getAllTranscripts PULL endpoint (don't reintroduce these bugs)
+
+What changed:
+Two non-obvious things in the scheduled-meeting transcript path (2026-06-24), both found by hitting them in prod:
+1. `teams-transcript-ingestion` hashes a long derived transcript id to 32 chars for `client_message_id` (`deriveTranscriptId`). Scheduled online-meeting transcript ids are ~230-char base64 blobs; `teams:<id>:<n>` overflows `messages.client_message_id varchar(255)` and every insert fails. The full id is still kept in `metadata_json.transcriptId`.
+2. The PULL endpoint for listing a user's transcripts is `users/{id}/onlineMeetings/getAllTranscripts(...)` — NOT `communications/onlineMeetings/getAllTranscripts(...)`. The `communications/...` form is the tenant-wide **subscription** resource only; using it for a GET silently 404s (and a swallowed 404 looks like "no transcripts", so the scan returns 0 with no error).
+
+Why:
+Both look like harmless simplifications but break ingestion/discovery for scheduled meetings specifically (ad-hoc "Meet Now" ids are short, so neither bug showed before).
+
+Future sessions should:
+Keep the id hashing (don't revert to the raw id) and keep the two endpoints distinct (subscription resource vs per-user pull). `getOnlineMeetingTranscripts` is also deliberately resilient — a first-page 403 throws (real access gap), but a request timeout or Graph's `startIndex=-1` nextLink 400 keeps partial results; don't make it throw on every non-404.
+
 ### Supabase project cutovers have platform integration surfaces
 
 What changed:
