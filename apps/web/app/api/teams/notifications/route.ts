@@ -17,14 +17,17 @@
 //   1. Answer the validation handshake (echo validationToken as text/plain).
 //   2. Verify the shared `clientState` secret on every real notification.
 //   3. Decrypt the rich-notification payload to learn which transcript fired.
-//   4. Hand off to the `teams-transcript-ingestion` worker — never fetch the
-//      transcript or run extraction inline here.
+//   4. RECORD the meeting as available in `meeting_transcripts` (discovery only)
+//      — it does NOT ingest. An admin picks meetings to ingest on
+//      /admin/transcripts, which is what triggers teams-transcript-ingestion.
 //   5. Handle lifecycle events by asking the subscription manager to reauthorize.
 //
 // Both notificationUrl and lifecycleNotificationUrl on the subscription point
 // here; we branch on the payload shape.
 
 import { NextResponse, type NextRequest } from 'next/server';
+import { sql } from 'drizzle-orm';
+import { getDirectDb } from '@oracle/db/client';
 import { triggerTask } from '@/lib/trigger';
 import {
   decryptResourceData,
@@ -53,8 +56,18 @@ interface DecryptedTranscript {
   transcriptContentUrl?: string;
   meetingId?: string;
   callId?: string;
-  meetingOrganizer?: unknown;
+  meetingOrganizer?: { user?: { id?: string; displayName?: string } } | null;
   createdDateTime?: string;
+}
+
+/** Full Graph transcript id from the content URL (else the resource path). */
+function deriveDiscoveryTranscriptId(
+  contentUrl: string | null,
+  resource: string | null,
+): string | null {
+  const src = contentUrl || resource || '';
+  const m = src.match(/transcripts[('/]+([^')/]+)/i);
+  return m && m[1] ? m[1] : null;
 }
 
 /**
@@ -108,12 +121,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       continue;
     }
 
-    // Decrypt to learn which transcript to fetch. We keep the unencrypted
-    // `resource` path as a fallback so the worker can still locate it even if
+    // Decrypt to learn which transcript this is. We keep the unencrypted
+    // `resource` path as a fallback so we can still identify it even if
     // decryption is unavailable (e.g. private key not yet configured).
     let transcriptContentUrl: string | null = null;
     let meetingId: string | null = null;
     let callId: string | null = null;
+    let meetingTime: string | null = null;
+    let organizerId: string | null = null;
+    let organizerName: string | null = null;
     if (n.encryptedContent && privateKeyPem) {
       try {
         const resource = decryptResourceData(
@@ -123,19 +139,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         transcriptContentUrl = resource.transcriptContentUrl ?? null;
         meetingId = resource.meetingId ?? null;
         callId = resource.callId ?? null;
+        meetingTime = resource.createdDateTime ?? null;
+        organizerId = resource.meetingOrganizer?.user?.id ?? null;
+        organizerName = resource.meetingOrganizer?.user?.displayName ?? null;
       } catch (err) {
         console.error('[teams/notifications] decrypt failed', err);
       }
     }
 
-    // Hand off. Fire-and-forget; the worker does the slow fetch + ingestion.
-    void triggerTask('teams-transcript-ingestion', {
-      resourcePath: n.resource ?? null,
-      transcriptContentUrl,
-      meetingId,
-      callId,
-      subscriptionId: n.subscriptionId ?? null,
-    });
+    // DISCOVERY ONLY — record that this meeting's transcript is available; do
+    // NOT ingest it. An admin chooses which meetings to ingest on
+    // /admin/transcripts (which triggers teams-transcript-ingestion then).
+    const transcriptId = deriveDiscoveryTranscriptId(transcriptContentUrl, n.resource ?? null);
+    if (transcriptId) {
+      try {
+        await getDirectDb().execute(sql`
+          INSERT INTO meeting_transcripts
+            (transcript_id, meeting_id, call_id, organizer_id, organizer_name,
+             transcript_content_url, meeting_time, status, discovered_via)
+          VALUES
+            (${transcriptId}, ${meetingId}, ${callId}, ${organizerId}, ${organizerName},
+             ${transcriptContentUrl}, ${meetingTime}, 'available', 'subscription')
+          ON CONFLICT (transcript_id) DO UPDATE SET
+            meeting_id = COALESCE(EXCLUDED.meeting_id, meeting_transcripts.meeting_id),
+            call_id = COALESCE(EXCLUDED.call_id, meeting_transcripts.call_id),
+            organizer_id = COALESCE(EXCLUDED.organizer_id, meeting_transcripts.organizer_id),
+            organizer_name = COALESCE(EXCLUDED.organizer_name, meeting_transcripts.organizer_name),
+            transcript_content_url = COALESCE(EXCLUDED.transcript_content_url, meeting_transcripts.transcript_content_url),
+            meeting_time = COALESCE(EXCLUDED.meeting_time, meeting_transcripts.meeting_time)
+        `);
+      } catch (err) {
+        console.error('[teams/notifications] discovery upsert failed', err);
+      }
+    }
   }
 
   // Always acknowledge quickly so Graph doesn't retry or disable the sub.

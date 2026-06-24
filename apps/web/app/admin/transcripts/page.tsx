@@ -5,51 +5,40 @@ import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatNYDateTime } from '@/lib/time';
-import { approveTranscript, rejectTranscript } from './_actions';
+import { ShiftSelect } from '../claims/_components/shift-select';
+import { ingestMeetings, dismissMeeting, runDiscoveryScan } from './_actions';
 
-// Meeting-transcript approval queue.
+// Meeting picker.
 //
-// When the Oracle is brought into a Teams meeting, the transcript-ingestion
-// worker holds each meeting's utterances (extraction_status='awaiting_approval')
-// instead of letting the extraction cron consume them. This page lets an admin
-// review the transcript and approve it (release the utterances into extraction)
-// or reject it (mark them skipped — kept but never extracted). See
-// teams-transcript-ingestion.ts and ./_actions.ts.
+// The Oracle does NOT auto-ingest meetings. This lists meetings whose transcripts
+// are available (discovered as metadata by the webhook + the on-demand scan), and
+// lets an admin choose which to ingest. Ingesting pulls the transcript and sends
+// it to normal claim extraction. See ./_actions.ts and
+// apps/workers/src/trigger/teams-transcript-{discovery-scan,ingestion}.ts.
 
-type TranscriptRow = {
-  channel_id: string | null;
-  transcript_id: string;
-  created_at: string;
-  approval_status: string;
-  reviewed_at: string | null;
-  review_note: string | null;
-  reviewer_name: string | null;
-  channel_name: string | null;
-  message_count: number;
-  held_count: number;
-  speaker_names: string[] | null;
-};
-
-type UtteranceRow = {
-  channel_id: string;
+type MeetingRow = {
   id: string;
-  content: string;
-  created_at: string;
-  speaker: string | null;
+  organizer_name: string | null;
+  organizer_id: string | null;
+  subject: string | null;
+  meeting_time: string | null;
+  status: string;
+  discovered_via: string | null;
+  discovered_at: string;
 };
 
 const STATUS_TABS = [
-  { label: 'Pending approval', value: 'pending_approval' },
-  { label: 'Approved', value: 'approved' },
-  { label: 'Rejected', value: 'rejected' },
+  { label: 'Available', value: 'available' },
+  { label: 'Ingested', value: 'ingested' },
+  { label: 'Dismissed', value: 'dismissed' },
   { label: 'All', value: 'all' },
 ] as const;
 
 function statusBadge(status: string) {
   const map: Record<string, string> = {
-    pending_approval: 'bg-yellow-100 text-yellow-800',
-    approved: 'bg-green-100 text-green-800',
-    rejected: 'bg-red-100 text-red-800',
+    available: 'bg-blue-100 text-blue-800',
+    ingested: 'bg-green-100 text-green-800',
+    dismissed: 'bg-gray-100 text-gray-600',
   };
   return map[status] ?? 'bg-gray-100 text-gray-600';
 }
@@ -60,248 +49,181 @@ export default async function AdminTranscriptsPage({
   searchParams: Promise<{ status?: string }>;
 }) {
   const { status } = await searchParams;
-  const activeStatus = status ?? 'pending_approval';
+  const activeStatus = status ?? 'available';
 
   const db = getDirectDb();
-
   const whereClause =
-    activeStatus !== 'all'
-      ? sql`WHERE rt.approval_status = ${activeStatus}`
-      : sql``;
-
+    activeStatus !== 'all' ? sql`WHERE status = ${activeStatus}` : sql``;
   const result = await db.execute(sql`
-    SELECT
-      rt.channel_id,
-      rt.transcript_id,
-      rt.created_at,
-      rt.approval_status,
-      rt.reviewed_at,
-      rt.review_note,
-      reviewer.name AS reviewer_name,
-      ch.name AS channel_name,
-      (SELECT count(*) FROM messages m WHERE m.channel_id = rt.channel_id)::int AS message_count,
-      (
-        SELECT count(*) FROM messages m
-        WHERE m.channel_id = rt.channel_id
-          AND m.extraction_status = 'awaiting_approval'
-      )::int AS held_count,
-      (
-        SELECT jsonb_agg(DISTINCT e.name)
-        FROM messages m
-        JOIN employees e ON e.id = m.employee_id
-        WHERE m.channel_id = rt.channel_id
-      ) AS speaker_names
-    FROM raw_transcripts rt
-    LEFT JOIN channels ch ON ch.id = rt.channel_id
-    LEFT JOIN employees reviewer ON reviewer.id = rt.reviewed_by_employee_id
+    SELECT id, organizer_name, organizer_id, subject, meeting_time, status,
+           discovered_via, discovered_at
+    FROM meeting_transcripts
     ${whereClause}
-    ORDER BY rt.created_at DESC
+    ORDER BY meeting_time DESC NULLS LAST, discovered_at DESC
   `);
-  const rows = [...result] as unknown as TranscriptRow[];
+  const rows = [...result] as unknown as MeetingRow[];
 
-  // Pull the utterances for the transcripts on screen in one query, then group
-  // in JS for the per-transcript preview (admin volume is modest).
-  const channelIds = rows
-    .map((r) => r.channel_id)
-    .filter((id): id is string => Boolean(id));
-  const utterancesByChannel = new Map<string, UtteranceRow[]>();
-  if (channelIds.length > 0) {
-    const uttResult = await db.execute(sql`
-      SELECT
-        m.channel_id,
-        m.id,
-        m.content,
-        m.created_at,
-        COALESCE(e.name, m.metadata_json->>'speaker', 'Unknown speaker') AS speaker
-      FROM messages m
-      LEFT JOIN employees e ON e.id = m.employee_id
-      WHERE m.channel_id IN (
-        SELECT value::uuid
-        FROM jsonb_array_elements_text(${JSON.stringify(channelIds)}::jsonb)
-      )
-      ORDER BY m.created_at ASC
-    `);
-    for (const u of [...uttResult] as unknown as UtteranceRow[]) {
-      const list = utterancesByChannel.get(u.channel_id) ?? [];
-      list.push(u);
-      utterancesByChannel.set(u.channel_id, list);
-    }
-  }
+  let selectIdx = 0;
 
   return (
     <div className="space-y-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Meeting transcripts</h1>
         <p className="text-sm text-muted-foreground">
-          Transcripts from meetings the Oracle was brought into are held here. Approve
-          a transcript to release its utterances for claim extraction, or reject it to
-          keep the record but extract nothing. The live (Recall) meeting path is not
-          gated.
+          Meetings the Oracle could ingest. Nothing is ingested automatically — tick
+          the meetings you want and click “Ingest selected”. Ingesting pulls the
+          transcript and sends it to claim extraction. New meetings appear here
+          automatically; use “Scan for recent meetings” to pull in older ones.
         </p>
       </header>
 
-      <div className="flex gap-2 text-sm">
-        {STATUS_TABS.map((tab) => {
-          const isActive = tab.value === activeStatus;
-          return (
-            <Link
-              key={tab.value}
-              href={`/admin/transcripts?status=${tab.value}`}
-              className={`rounded px-3 py-1 ${
-                isActive
-                  ? 'bg-foreground text-background'
-                  : 'bg-muted text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {tab.label}
-            </Link>
-          );
-        })}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-2 text-sm">
+          {STATUS_TABS.map((tab) => {
+            const isActive = tab.value === activeStatus;
+            return (
+              <Link
+                key={tab.value}
+                href={`/admin/transcripts?status=${tab.value}`}
+                className={`rounded px-3 py-1 ${
+                  isActive
+                    ? 'bg-foreground text-background'
+                    : 'bg-muted text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {tab.label}
+              </Link>
+            );
+          })}
+        </div>
+        <form action={runDiscoveryScan}>
+          <input type="hidden" name="sinceDays" value="14" />
+          <button
+            type="submit"
+            className="rounded border px-3 py-1 text-xs font-medium hover:bg-muted"
+            title="Query Microsoft for meeting transcripts from the last 14 days and add them to the list (metadata only — does not ingest)"
+          >
+            Scan for recent meetings
+          </button>
+        </form>
       </div>
+
+      {/* Bulk ingest — tick available meetings, then submit. Lives outside the
+          table so per-row dismiss forms aren't nested; checkboxes associate via
+          form="ingest-meetings". */}
+      <form
+        id="ingest-meetings"
+        action={ingestMeetings}
+        className="flex flex-wrap items-center gap-3 rounded border border-dashed p-3 text-sm"
+      >
+        <button
+          type="submit"
+          className="rounded bg-foreground px-3 py-1 text-xs text-background hover:opacity-90"
+        >
+          Ingest selected
+        </button>
+        <span className="text-xs text-muted-foreground">
+          Tick available meetings (shift-click for a range), then submit to pull their
+          transcripts in for extraction.
+        </span>
+      </form>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{rows.length} transcripts</CardTitle>
+          <CardTitle className="text-base">{rows.length} meetings</CardTitle>
         </CardHeader>
         <CardContent>
           {rows.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
-              No transcripts in this view. Transcripts appear here after the Oracle is
-              brought into a Teams meeting and the ingestion worker runs.
+              No meetings in this view. New meetings appear automatically as their
+              transcripts become available; “Scan for recent meetings” pulls in older
+              ones.
             </p>
           ) : (
-            <div className="space-y-4">
-              {rows.map((row) => {
-                const utterances = row.channel_id
-                  ? utterancesByChannel.get(row.channel_id) ?? []
-                  : [];
-                const speakers = (row.speaker_names ?? []).filter(Boolean);
-                return (
-                  <div
-                    key={row.transcript_id}
-                    className="rounded-md border bg-card p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">
-                            {row.channel_name ?? '(unnamed meeting)'}
-                          </span>
+            <div className="overflow-x-auto">
+              <ShiftSelect />
+              <table className="w-full text-sm">
+                <thead className="border-b text-left text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="py-2 pr-4">☑</th>
+                    <th className="py-2 pr-4">Organizer</th>
+                    <th className="py-2 pr-4">Meeting time</th>
+                    <th className="py-2 pr-4">Subject</th>
+                    <th className="py-2 pr-4">Source</th>
+                    <th className="py-2 pr-4">Status</th>
+                    <th className="py-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => {
+                    const isAvailable = row.status === 'available';
+                    const idx = isAvailable ? selectIdx++ : -1;
+                    return (
+                      <tr key={row.id} className="border-b last:border-0">
+                        <td className="py-3 pr-4 align-top">
+                          {isAvailable ? (
+                            <input
+                              type="checkbox"
+                              name="meetingId"
+                              value={row.id}
+                              form="ingest-meetings"
+                              data-claim-select
+                              data-select-form="ingest-meetings"
+                              data-select-index={idx}
+                              aria-label="Select this meeting to ingest"
+                            />
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 pr-4 whitespace-nowrap">
+                          {row.organizer_name ?? (row.organizer_id ? 'Unknown' : '—')}
+                        </td>
+                        <td className="py-3 pr-4 whitespace-nowrap text-xs text-muted-foreground">
+                          {row.meeting_time ? formatNYDateTime(row.meeting_time) : '—'}
+                        </td>
+                        <td className="max-w-[24rem] py-3 pr-4">
+                          {row.subject ?? <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="py-3 pr-4 text-xs text-muted-foreground">
+                          {row.discovered_via ?? '—'}
+                        </td>
+                        <td className="py-3 pr-4">
                           <span
-                            className={`rounded px-2 py-0.5 text-xs font-medium ${statusBadge(row.approval_status)}`}
+                            className={`rounded px-2 py-0.5 text-xs font-medium ${statusBadge(row.status)}`}
                           >
-                            {row.approval_status.replace(/_/g, ' ')}
+                            {row.status}
                           </span>
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Ingested {formatNYDateTime(row.created_at)} ·{' '}
-                          {row.message_count} utterance
-                          {row.message_count === 1 ? '' : 's'}
-                          {row.approval_status === 'pending_approval' &&
-                            ` · ${row.held_count} held`}
-                        </div>
-                        {speakers.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-1">
-                            {speakers.map((name) => (
-                              <span
-                                key={`${row.transcript_id}-${name}`}
-                                className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                              >
-                                {name}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        {row.reviewed_at && (
-                          <div className="pt-1 text-xs text-muted-foreground">
-                            {row.approval_status === 'approved' ? 'Approved' : 'Reviewed'} by{' '}
-                            {row.reviewer_name ?? 'an admin'} on{' '}
-                            {formatNYDateTime(row.reviewed_at)}
-                            {row.review_note ? ` — “${row.review_note}”` : ''}
-                          </div>
-                        )}
-                      </div>
-
-                      {row.approval_status !== 'approved' && row.channel_id && (
-                        <div className="flex flex-col items-stretch gap-2">
-                          <form action={approveTranscript}>
-                            <input type="hidden" name="channelId" value={row.channel_id} />
-                            <button
-                              type="submit"
-                              className="w-full rounded bg-green-600 px-3 py-1 text-xs text-white hover:bg-green-700"
-                            >
-                              Approve &amp; ingest
-                            </button>
-                          </form>
-                          {row.approval_status !== 'rejected' && (
-                            <details className="rounded border bg-background p-2">
-                              <summary className="cursor-pointer text-xs font-medium text-red-700">
-                                Reject
-                              </summary>
-                              <form action={rejectTranscript} className="mt-2 space-y-2">
-                                <input
-                                  type="hidden"
-                                  name="channelId"
-                                  value={row.channel_id}
-                                />
-                                <textarea
-                                  name="note"
-                                  rows={2}
-                                  placeholder="Optional reason"
-                                  className="w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
-                                />
+                        </td>
+                        <td className="py-3">
+                          {isAvailable && (
+                            <div className="flex gap-2">
+                              <form action={ingestMeetings}>
+                                <input type="hidden" name="meetingId" value={row.id} />
                                 <button
                                   type="submit"
-                                  className="w-full rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700"
+                                  className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
                                 >
-                                  Reject transcript
+                                  Ingest
                                 </button>
                               </form>
-                            </details>
-                          )}
-                        </div>
-                      )}
-                      {row.approval_status === 'approved' && row.channel_id && (
-                        <form action={rejectTranscript}>
-                          <input type="hidden" name="channelId" value={row.channel_id} />
-                          <button
-                            type="submit"
-                            className="rounded border border-red-300 px-3 py-1 text-xs text-red-700 hover:bg-red-50"
-                            title="Mark utterances skipped. Claims already extracted are not removed."
-                          >
-                            Reject
-                          </button>
-                        </form>
-                      )}
-                    </div>
-
-                    <details className="mt-3">
-                      <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                        Preview transcript ({utterances.length} utterance
-                        {utterances.length === 1 ? '' : 's'})
-                      </summary>
-                      <div className="mt-2 max-h-96 space-y-2 overflow-y-auto rounded border bg-background p-3">
-                        {utterances.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">
-                            No utterances recorded for this transcript.
-                          </p>
-                        ) : (
-                          utterances.map((u) => (
-                            <div key={u.id} className="text-sm">
-                              <span className="font-medium text-foreground">
-                                {u.speaker}:
-                              </span>{' '}
-                              <span className="whitespace-pre-wrap text-muted-foreground">
-                                {u.content}
-                              </span>
+                              <form action={dismissMeeting}>
+                                <input type="hidden" name="meetingId" value={row.id} />
+                                <button
+                                  type="submit"
+                                  className="rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+                                >
+                                  Dismiss
+                                </button>
+                              </form>
                             </div>
-                          ))
-                        )}
-                      </div>
-                    </details>
-                  </div>
-                );
-              })}
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>

@@ -1,99 +1,79 @@
 'use server';
 
-import { and, eq, inArray } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { requireAdmin } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
-import { messages } from '@oracle/db/schema';
+import { triggerTask } from '@/lib/trigger';
 
-// Approval gate for ingested Teams meeting transcripts.
+// Meeting picker actions.
 //
-// The transcript-ingestion worker writes each meeting's utterances as
-// extraction_status='awaiting_approval' (held) and the raw_transcripts row as
-// approval_status='pending_approval'. The claim-extraction cron only ever
-// selects 'pending', so a held transcript produces no claims until an admin
-// acts here.
-//
-//   approve → raw_transcripts.approval_status='approved'; the channel's held
-//             (and any previously-rejected) messages flip to 'pending' so the
-//             existing extraction cron picks them up.
-//   reject  → approval_status='rejected'; the channel's held/pending messages
-//             flip to 'skipped' so no claims are extracted. The raw VTT is
-//             always retained in raw_transcripts, and re-approving flips the
-//             messages back to 'pending'.
-//
-// raw_transcripts is not in the Drizzle schema (the worker uses raw `sql`), so
-// it is updated via raw `sql` here too.
+// The Oracle does NOT auto-ingest meetings. `meeting_transcripts` holds the
+// discovered meetings (status 'available'); an admin chooses which to ingest.
+// Ingesting triggers teams-transcript-ingestion (which pulls the VTT, writes
+// messages as 'pending' for normal extraction, and flips the row to 'ingested').
 
-function refreshTranscriptPages() {
+function refresh() {
   revalidatePath('/admin/transcripts');
-  revalidatePath('/admin/messages');
-  revalidatePath('/admin/channels');
 }
 
-export async function approveTranscript(formData: FormData) {
-  const me = await requireAdmin();
-  const channelId = String(formData.get('channelId') ?? '').trim();
-  if (!channelId) return;
-
-  const db = getDirectDb();
-  await db.transaction(async (tx) => {
-    await tx.execute(sql`
-      UPDATE raw_transcripts
-      SET approval_status = 'approved',
-          reviewed_by_employee_id = ${me.id}::uuid,
-          reviewed_at = now(),
-          review_note = NULL
-      WHERE channel_id = ${channelId}::uuid
-    `);
-    // Release held (and any previously-rejected) utterances into the extraction
-    // queue. For a transcript channel these are the only ways a message reaches
-    // 'awaiting_approval'/'skipped', so this never resurrects an extraction-side skip.
-    await tx
-      .update(messages)
-      .set({ extractionStatus: 'pending' })
-      .where(
-        and(
-          eq(messages.channelId, channelId),
-          inArray(messages.extractionStatus, ['awaiting_approval', 'skipped']),
-        ),
-      );
+/** Pull the discovery scan (past meetings) on demand. */
+export async function runDiscoveryScan(formData: FormData) {
+  await requireAdmin();
+  const sinceDays = Number.parseInt(String(formData.get('sinceDays') ?? '14'), 10);
+  await triggerTask('teams-transcript-discovery-scan', {
+    sinceDays: Number.isFinite(sinceDays) ? sinceDays : 14,
   });
-
-  refreshTranscriptPages();
+  refresh();
 }
 
-export async function rejectTranscript(formData: FormData) {
-  const me = await requireAdmin();
-  const channelId = String(formData.get('channelId') ?? '').trim();
-  if (!channelId) return;
-  const note = String(formData.get('note') ?? '').trim() || null;
+/** Ingest the selected available meetings — the explicit "pull this in" action. */
+export async function ingestMeetings(formData: FormData) {
+  await requireAdmin();
+  const ids = [
+    ...new Set(formData.getAll('meetingId').map((v) => String(v).trim()).filter(Boolean)),
+  ];
+  if (ids.length === 0) return;
 
   const db = getDirectDb();
-  await db.transaction(async (tx) => {
-    await tx.execute(sql`
-      UPDATE raw_transcripts
-      SET approval_status = 'rejected',
-          reviewed_by_employee_id = ${me.id}::uuid,
-          reviewed_at = now(),
-          review_note = ${note}
-      WHERE channel_id = ${channelId}::uuid
-    `);
-    // Keep the messages (still viewable under Channels/Messages) but mark them
-    // skipped so no claims are extracted. Covers a just-approved-not-yet-extracted
-    // transcript too (pending → skipped). Already-extracted ('complete') claims
-    // are not torn down here — reject before approving to avoid that.
-    await tx
-      .update(messages)
-      .set({ extractionStatus: 'skipped' })
-      .where(
-        and(
-          eq(messages.channelId, channelId),
-          inArray(messages.extractionStatus, ['awaiting_approval', 'pending']),
-        ),
-      );
-  });
+  const result = await db.execute(sql`
+    SELECT transcript_id, transcript_content_url, meeting_id, call_id, meeting_time
+    FROM meeting_transcripts
+    WHERE status = 'available'
+      AND id IN (
+        SELECT value::uuid FROM jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)
+      )
+  `);
+  const rows = [...result] as unknown as Array<{
+    transcript_id: string;
+    transcript_content_url: string | null;
+    meeting_id: string | null;
+    call_id: string | null;
+    meeting_time: string | null;
+  }>;
 
-  refreshTranscriptPages();
+  for (const row of rows) {
+    await triggerTask('teams-transcript-ingestion', {
+      resourcePath: null,
+      transcriptContentUrl: row.transcript_content_url,
+      meetingId: row.meeting_id,
+      callId: row.call_id,
+      meetingTime: row.meeting_time,
+      discoveryTranscriptId: row.transcript_id,
+    });
+  }
+  refresh();
+}
+
+/** Hide a meeting you don't want to ingest. */
+export async function dismissMeeting(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get('meetingId') ?? '').trim();
+  if (!id) return;
+  const db = getDirectDb();
+  await db.execute(sql`
+    UPDATE meeting_transcripts SET status = 'dismissed'
+    WHERE id = ${id}::uuid AND status = 'available'
+  `);
+  refresh();
 }

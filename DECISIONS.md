@@ -515,8 +515,14 @@ This file is the running log of every assumption, stub, and resolution made by t
 
 ## D-scheduled-meeting-transcripts — capture scheduled meetings, not just ad-hoc (2026-06-24)
 
-- **Decision**: Add a second standing subscription on `communications/onlineMeetings/getAllTranscripts` alongside the ad-hoc one (`ensureAllSubscriptions` keeps both alive via the existing `teams-subscription-renew` cron — no new schedule, respecting the 10/10 limit). Add an on-demand `teams-transcript-backfill` task to recover already-completed scheduled transcripts (subscriptions only listen going forward).
-- **Why**: Only ad-hoc "Meet Now" calls were being captured; normal scheduled meetings (the common case) produced nothing — last real transcript was 2026-06-04. The webhook is resource-agnostic, so this is a subscription + backfill change with no webhook/ingestion rework.
+- **Decision**: Add a second standing subscription on `communications/onlineMeetings/getAllTranscripts` alongside the ad-hoc one (`ensureAllSubscriptions` keeps both alive via the existing `teams-subscription-renew` cron — no new schedule, respecting the 10/10 limit).
+- **Why**: Only ad-hoc "Meet Now" calls were being captured; normal scheduled meetings (the common case) produced nothing — last real transcript was 2026-06-04.
+
+## D-meeting-picker — discover meetings, choose which to ingest (2026-06-24, supersedes D-transcript-approval-gate)
+
+- **Decision**: The Oracle does NOT auto-ingest meetings. Available meetings are discovered as metadata only — by the webhook (real-time, `discovered_via='subscription'`) and the on-demand `teams-transcript-discovery-scan` task (past meetings, `'scan'`) — into a new `meeting_transcripts` table (migration `77`). An admin picks meetings on `/admin/transcripts`; picking triggers `teams-transcript-ingestion`, which pulls the VTT, writes `messages` as `extraction_status='pending'` (auto-extract), anchors timestamps to the real meeting time, and flips the row to `ingested`.
+- **Why**: The gate was at the wrong stage — it auto-ingested every transcript then gated *extraction*. The product need is to choose, from a list, which meetings get pulled in *at all*. Anchoring to real meeting time also stops `lull-interjection` from treating an ingested past meeting as a live conversation (it was spawning spurious gaps/interventions).
+- **Deprecated by this**: the `awaiting_approval` enum value (migration 75) and `raw_transcripts.approval_status` columns (migration 76) are now unused. Left in place (removing a PG enum value is disruptive; the columns are harmless); do not build on them.
 
 # Document ingestion: Word, image vision, auxiliary models, context (2026-06-14)
 

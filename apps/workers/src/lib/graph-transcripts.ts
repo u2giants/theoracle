@@ -296,14 +296,14 @@ export async function listDisplayNameToEmail(): Promise<Map<string, string>> {
 // their meeting transcripts in a time window. Idempotency is handled downstream
 // by teams-transcript-ingestion (dedupes on transcriptId), so re-running is safe.
 
-/** All M365 user ids — the candidate meeting organizers for backfill. */
-export async function listUserIds(): Promise<string[]> {
+/** All M365 users (id + display name) — the candidate meeting organizers. */
+export async function listUsers(): Promise<Array<{ id: string; name: string | null }>> {
   const cfg = getConfigOrNull();
   if (!cfg) return [];
   const token = await getToken(cfg);
-  const ids: string[] = [];
+  const users: Array<{ id: string; name: string | null }> = [];
   let url: string | undefined =
-    'https://graph.microsoft.com/v1.0/users?$select=id&$top=100';
+    'https://graph.microsoft.com/v1.0/users?$select=id,displayName&$top=100';
   while (url) {
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
@@ -313,13 +313,13 @@ export async function listUserIds(): Promise<string[]> {
       throw new Error(`list users failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
     }
     const page = (await res.json()) as {
-      value?: Array<{ id: string }>;
+      value?: Array<{ id: string; displayName: string | null }>;
       '@odata.nextLink'?: string;
     };
-    for (const u of page.value ?? []) if (u.id) ids.push(u.id);
+    for (const u of page.value ?? []) if (u.id) users.push({ id: u.id, name: u.displayName ?? null });
     url = page['@odata.nextLink'];
   }
-  return ids;
+  return users;
 }
 
 export interface BackfillTranscript {

@@ -2,12 +2,13 @@
 //
 // Triggered by the webhook (apps/web/app/api/teams/notifications) when Graph
 // pushes a transcript notification. Fetches the WebVTT, turns each speaker turn
-// into a `messages` row inside a channel that represents the call, and leaves
-// them as extraction_status='awaiting_approval' — HELD for human approval. The
-// claim-extraction cron only selects 'pending', so these are skipped until an
-// admin approves the transcript on /admin/transcripts (raw_transcripts row
-// lands with approval_status='pending_approval'). NOTHING here writes to claims
-// directly (candidate-before-claim).
+// into a `messages` row inside a channel that represents the call, as
+// extraction_status='pending' so the existing claim-extraction cron picks them
+// up. This runs ONLY when an admin picks a meeting to ingest on
+// /admin/transcripts (the webhook just records availability — it does not
+// trigger this). Message timestamps are anchored to the real meeting time so an
+// ingested past meeting isn't mistaken for a live conversation. NOTHING here
+// writes to claims directly (candidate-before-claim).
 //
 // Design notes:
 //   - Each utterance = one message with role='user', employeeId = the resolved
@@ -45,6 +46,13 @@ interface IngestionPayload {
   meetingId?: string | null;
   callId?: string | null;
   subscriptionId?: string | null;
+  // Real meeting/transcript time (Graph createdDateTime). Anchors message
+  // timestamps so an ingested past meeting isn't mistaken for a live one.
+  meetingTime?: string | null;
+  // The meeting_transcripts.transcript_id (full Graph id) of the discovery row
+  // this ingestion was chosen from — set when triggered by the picker, so the
+  // worker can flip that row to 'ingested'. Null for any non-picker trigger.
+  discoveryTranscriptId?: string | null;
 }
 
 interface Cue {
@@ -245,7 +253,11 @@ export const teamsTranscriptIngestionTask = task({
         resolvedBySpeaker.set(speaker, empId);
       }
 
-      const base = Date.now(); // TODO: anchor to real meeting start when available
+      // Anchor to the real meeting time when known (picker passes it); fall back
+      // to now. This keeps ingested past meetings from looking "live" to
+      // lull-interjection (which keys off recent message timestamps).
+      const parsedMeetingTime = payload.meetingTime ? Date.parse(payload.meetingTime) : NaN;
+      const base = Number.isFinite(parsedMeetingTime) ? parsedMeetingTime : Date.now();
       const [channel] = await db
         .insert(channels)
         .values({
@@ -276,13 +288,10 @@ export const teamsTranscriptIngestionTask = task({
           role: 'user' as const,
           content: c.text,
           clientMessageId: `teams:${transcriptId}:${i}`,
-          // Held for human approval — NOT 'pending'. The claim-extraction cron
-          // only selects 'pending', so these utterances are skipped until an
-          // admin approves this transcript on /admin/transcripts (which flips
-          // the channel's messages to 'pending'; rejection flips to 'skipped').
-          // The raw_transcripts row lands with approval_status='pending_approval'
-          // by column default (migration 76_transcript_approval.sql).
-          extractionStatus: 'awaiting_approval' as const,
+          // 'pending' → the claim-extraction cron picks it up. Ingestion only
+          // happens because an admin chose this meeting in the picker, so the
+          // choice IS the go-ahead (no separate extraction gate).
+          extractionStatus: 'pending' as const,
           createdAt: new Date(base + c.offsetMs),
           metadataJson: {
             source: 'teams_transcript',
@@ -302,6 +311,17 @@ export const teamsTranscriptIngestionTask = task({
           .insert(channelParticipants)
           .values({ channelId: channel.id, employeeId })
           .onConflictDoNothing();
+      }
+
+      // Flip the discovery row to 'ingested' so the picker reflects it and the
+      // same meeting isn't offered again. Keyed by the full Graph transcript id
+      // (meeting_transcripts.transcript_id), which the picker passes verbatim.
+      if (payload.discoveryTranscriptId) {
+        await db.execute(sql`
+          update meeting_transcripts
+          set status = 'ingested', ingested_channel_id = ${channel.id}::uuid, ingested_at = now()
+          where transcript_id = ${payload.discoveryTranscriptId}
+        `);
       }
 
       const out = {
