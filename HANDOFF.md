@@ -1,6 +1,20 @@
 # HANDOFF — Recall.ai wiring + extraction tuning + China bilingual layer + meeting picker
 
-Last updated: 2026-06-25. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, diagram-ingestion tuning, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+Last updated: 2026-06-25 (evening). Delete this file once the remaining items below are closed.
+
+HOW TO TRUST THIS DOC: the two blocks immediately below — "CARRIED-OVER ITEMS (re-verified)" and the diagram section's "SESSION-END STATE" — were verified against PROD on 2026-06-25 evening and are authoritative. Everything in the dated sections FURTHER DOWN is last-known from its own session and may be stale (this session caught several stale lines); re-verify against prod before acting on anything below those two blocks.
+
+---
+
+## CARRIED-OVER ITEMS — re-verified against prod 2026-06-25 (evening)
+
+These supersede the older dated sections below where they conflict.
+
+- **Synthesis demo: still NOT run, but now UNBLOCKED.** `brain_section_versions` = 0 (never run). BUT the old blocker "no approved claims to synthesize" is RESOLVED: prod now has **189 approved claims** (94 pending_review, 82 superseded, 4 rejected). So `brain-synthesis` can actually be exercised now. (Ignore older lines claiming "only one approved claim" / "no approved corpus.")
+- **Entity registry: SEEDED (63 entities), 16 active top-domains.** The older "entity registry is empty -> every claim is held" note is STALE — don't repeat it.
+- **China bilingual next-actions: DONE.** 6 employees set to `zh-CN`; `default_translation_route` = `qwen/qwen-mt-plus`. (Older "set an employee to 中文 / choose a translation model" actions are complete.) NOTE: the translation model is a Qwen route, so it depends on `DASHSCOPE_API_KEY` (now set) — same provider as the extraction issue.
+- **Meeting-picker subject: still pending** (2 `meeting_transcripts`, 0 with `subject`). Accurate as written below.
+- **Live Recall interjections: effectively OFF, but the rate cap drifted.** `teams_live_recall_min_confidence_to_post` = 101 (impossible threshold -> nothing posts), force flags all false. BUT `max_oracle_interjections_per_hour` = **3**, not the guardrail's 0. Posting is still blocked by the 101 gate, but re-clamp the rate cap to 0 if you want belt-and-suspenders (do it deliberately — a prior note says someone set it to 3).
 
 ---
 
