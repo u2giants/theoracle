@@ -57,6 +57,10 @@ export class GoogleGeminiAdapter implements OracleProviderAdapter {
         typeof providerOptions?.temperature === 'number'
           ? providerOptions.temperature
           : undefined,
+      maxOutputTokens:
+        typeof providerOptions?.maxOutputTokens === 'number'
+          ? providerOptions.maxOutputTokens
+          : undefined,
       ...geminiThinkingConfig(route.reasoningEffort),
     };
     const response = this.client

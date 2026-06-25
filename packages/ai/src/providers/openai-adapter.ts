@@ -41,7 +41,7 @@ import type {
   SubmitBatchArgs,
   SubmitBatchResult,
 } from './types';
-import { pickOpenAICacheRetention } from './cache-utils';
+import { pickOpenAICacheRetention, toOpenAIImageContent } from './cache-utils';
 import { flattenPlan, parseJsonOrRaw, tryZodParse, zodToJsonSchema } from './vertex-gemini-adapter';
 
 export interface OpenAIAdapterOptions {
@@ -84,6 +84,10 @@ export class OpenAIAdapter implements OracleProviderAdapter {
         typeof providerOptions?.temperature === 'number'
           ? providerOptions.temperature
           : undefined,
+      // Modern OpenAI models use max_completion_tokens (o-series rejects max_tokens).
+      ...(typeof providerOptions?.maxOutputTokens === 'number'
+        ? { max_completion_tokens: providerOptions.maxOutputTokens }
+        : {}),
       ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     });
     const latencyMs = Date.now() - callStartedAt;
@@ -264,8 +268,12 @@ export class OpenAIAdapter implements OracleProviderAdapter {
       try {
         parsed = JSON.parse(rawLine);
       } catch {
-        // Malformed line — skip. The customId is lost; downstream will see
-        // a missing result for one of its requests and mark it failed.
+        // Malformed line — the customId is unrecoverable. Downstream marks the
+        // missing request failed, but don't drop it silently: log the bad line
+        // (truncated) so a corrupted batch output is visible, not invisible.
+        console.error(
+          `[OpenAIAdapter] unparseable batch result line (request result LOST): ${rawLine.slice(0, 200)}`,
+        );
         continue;
       }
 
@@ -328,10 +336,14 @@ export class OpenAIAdapter implements OracleProviderAdapter {
       | ChatCompletionMessageParam[]
       | undefined;
     if (Array.isArray(override) && override.length > 0) {
-      if (systemPrompt && !override.some((m) => m.role === 'system')) {
-        return [{ role: 'system', content: systemPrompt }, ...override];
+      // Translate provider-neutral image parts → OpenAI `image_url` at dispatch.
+      const translated = override.map(
+        (m) => ({ ...m, content: toOpenAIImageContent(m.content) }) as ChatCompletionMessageParam,
+      );
+      if (systemPrompt && !translated.some((m) => m.role === 'system')) {
+        return [{ role: 'system', content: systemPrompt }, ...translated];
       }
-      return override;
+      return translated;
     }
     const msgs: ChatCompletionMessageParam[] = [];
     if (systemPrompt) msgs.push({ role: 'system', content: systemPrompt });

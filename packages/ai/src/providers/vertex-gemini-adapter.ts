@@ -156,6 +156,9 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
           typeof providerOptions?.temperature === 'number'
             ? providerOptions.temperature
             : undefined,
+        ...(typeof providerOptions?.maxOutputTokens === 'number'
+          ? { maxOutputTokens: providerOptions.maxOutputTokens }
+          : {}),
         ...(explicitCache?.cacheName ? { cachedContent: explicitCache.cacheName } : {}),
         ...vertexThinkingConfig(route.reasoningEffort),
       },
@@ -721,8 +724,13 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
     if (!objectName || !bucketName) return;
     try {
       await this.getStorageClient().bucket(bucketName).file(objectName).delete({ ignoreNotFound: true });
-    } catch {
-      // Best-effort cleanup. Cache lifecycle status still reflects the cache resource teardown result.
+    } catch (err) {
+      // Best-effort cleanup, but not silent: a failed delete leaves an orphaned
+      // (billable) GCS object, so log it for observability.
+      console.warn(
+        `[VertexGeminiAdapter] GCS cache object cleanup failed for "${objectName}" in "${bucketName}" ` +
+          `(orphaned object may incur cost): ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

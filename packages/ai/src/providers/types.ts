@@ -37,6 +37,15 @@ export interface GenerateTextArgs {
    *   - `tools` (Vercel AI SDK ToolSet)
    *   - `stopWhen` (stepCountIs(N) for multi-turn tool calls)
    *   - `temperature`
+   *   - `maxOutputTokens` — output-token cap. Mapped per provider
+   *     (`max_tokens` for Qwen/DeepSeek, `max_completion_tokens` for OpenAI,
+   *     `maxOutputTokens` in generationConfig for Gemini/Vertex). Omitted →
+   *     provider default. Used by the image-vision pass so a dense diagram +
+   *     thinking trace doesn't truncate.
+   *   - `highResolutionVision` — when true, ask the provider not to downscale
+   *     an input image (Qwen/DashScope → `vl_high_resolution_images: true`).
+   *     Providers without a knob ignore it. Set by the image-vision pass so a
+   *     dense diagram's small text stays legible.
    *   - `messages` — multi-turn conversation history that overrides the
    *     single (system, user-message) shape flattened from the plan
    *

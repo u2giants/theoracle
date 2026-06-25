@@ -98,6 +98,14 @@ const MAX_DOCUMENT_TEXT_CHARS = 24_000;
 // Image transcriptions (especially diagrams/flowcharts) are one connected graph;
 // give them an even wider window so the whole flow is reasoned over in one call.
 const MAX_IMAGE_TEXT_CHARS = 32_000;
+// Vision (Pass 1) sampling. A *thinking* VL model (e.g. qwen3-vl-*-thinking)
+// spends a reasoning trace BEFORE the transcription text, so the output cap must
+// be high or it truncates mid-thought (a dense diagram transcription alone is
+// ~3-4k tokens). Temperature is non-zero on purpose: Qwen recommends AGAINST
+// greedy decoding for thinking models (temp 0 → repetition loops); 0.6 is their
+// guidance. Format consistency is enforced by the prompt, not by temperature.
+const VISION_MAX_OUTPUT_TOKENS = 32_000;
+const VISION_TEMPERATURE = 0.6;
 const VERTEX_FILE_CACHE_MIN_BYTES = 10 * 1024 * 1024;
 const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
 const AUTO_APPROVE_MIN_CONFIDENCE = 9;
@@ -279,11 +287,12 @@ Reproduce every piece of visible text exactly as written — labels, headings, e
 2. RENDER STRUCTURE AS A TEXT TOPOLOGY (not free-form prose)
 When the image contains a diagram, flowchart, org chart, decision tree, map, or schematic, encode its topology so relationships are unambiguous:
 - Nodes:  [Shape/Color: "verbatim label"]   e.g.  [Blue Diamond: "Credit Check"]
-- Edges:  arrows showing direction, annotated with the connector's label/color/style, e.g.
+- Edges:  CRITICAL — write EACH connection as ONE self-contained line that contains the FULL source node, the arrow (with its label/color/style if any), AND the full target node, e.g.
           [Blue Diamond: "Credit Check"] --(Red Arrow: "If Score < 600")--> [Gray Box: "Trigger Manual Deny Email"]
-- List each outgoing branch of a node on its own line.
+  NEVER split a connection across multiple lines, and NEVER put a node on one line and its outgoing arrow/target on the next line. A connection that spans two lines is wrong.
+- If one node has several outgoing connections, write ONE complete edge line per connection and REPEAT the full source node on each line.
 - Group swimlanes / columns / sections under headers, e.g.  ### Swimlane: Finance Department
-Keep the verbatim label text INSIDE the node brackets so it stays exactly quotable.
+Keep the verbatim label text INSIDE the node brackets so it stays exactly quotable. Downstream extraction quotes a WHOLE edge line verbatim to record a handoff, so a complete single-line edge is what lets a relationship become a validated claim — a split edge cannot be quoted and is lost.
 
 3. TABLES
 Render as text preserving rows and columns — one row per line, columns separated consistently, including the header row.
@@ -299,33 +308,23 @@ Rules:
 - Output plain text only. You MAY use the simple structural markers above (### headers, the [Node] --(edge)--> [Node] notation, table rows). Do NOT use code fences, and do NOT add commentary or preamble such as "Here is".`;
 
 /**
- * Format the inline image part for whichever provider the admin-selected vision
- * model uses. Each adapter forwards `providerOptions.messages` content to its
- * provider natively, so we emit the provider's own image-part shape:
- *   - vertex (Gemini): a generic { type:'image', mimeType, data } that the
- *     Vertex adapter translates to an inlineData part.
- *   - anthropic:       a native Anthropic image block (base64 source).
- *   - openai:          a native OpenAI image_url block (data: URL).
+ * Build the vision-pass user content with a PROVIDER-NEUTRAL inline image part:
+ * `{ type:'image', mimeType, data }`. Each adapter translates this to its own
+ * native shape AT DISPATCH (OpenAI/Qwen/DeepSeek → `image_url`, Anthropic →
+ * base64 source block, Gemini/Vertex → inlineData).
+ *
+ * Why neutral and not provider-shaped here: the route can change between this
+ * call and actual dispatch (ModelRouter falls back on error). Shaping the image
+ * for the pre-dispatch provider meant a fallback to a different provider got a
+ * payload its adapter couldn't read, so the image was silently dropped and the
+ * model confabulated. Letting the dispatching adapter own the translation makes
+ * fallback safe.
  */
 function buildVisionMessageContent(
-  provider: OracleModelRoute['provider'],
   mimeType: string,
   base64: string,
   requestText: string,
 ): Array<Record<string, unknown>> {
-  if (provider === 'anthropic') {
-    return [
-      { type: 'text', text: requestText },
-      { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
-    ];
-  }
-  if (provider === 'openai') {
-    return [
-      { type: 'text', text: requestText },
-      { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } },
-    ];
-  }
-  // vertex / default — our Vertex adapter turns this into a Gemini inlineData part.
   return [
     { type: 'text', text: requestText },
     { type: 'image', mimeType, data: base64 },
@@ -383,6 +382,7 @@ async function transcribeImageToText(
     }),
   ];
 
+  const callStartedAt = Date.now();
   const result = await client.runText({
     taskType: 'document_claim_extraction',
     routeId: route.routeId,
@@ -391,19 +391,56 @@ async function transcribeImageToText(
     providerOptions: {
       // One-shot vision call — nothing reusable to cache.
       cache: { disableCache: true },
+      temperature: VISION_TEMPERATURE,
+      maxOutputTokens: VISION_MAX_OUTPUT_TOKENS,
+      // Keep full image resolution so dense-diagram text stays legible. Qwen-VL
+      // on DashScope otherwise downscales and the model confabulates; other
+      // providers ignore this flag (they handle resolution themselves).
+      highResolutionVision: true,
       messages: [
         {
           role: 'user',
-          content: buildVisionMessageContent(
-            route.provider,
-            mimeType,
-            buffer.toString('base64'),
-            requestText,
-          ),
+          content: buildVisionMessageContent(mimeType, buffer.toString('base64'), requestText),
         },
       ],
     },
   });
+
+  // The vision pass used to be invisible: nothing recorded WHICH model ran or
+  // whether the chosen route failed and silently fell back to a different
+  // provider. That masking is exactly how a broken vision route (e.g. a Qwen
+  // region/key misconfig) produced a Gemini-fallback transcription that looked
+  // fine. Record the actual model in `model_runs` and SHOUT on fallback.
+  const actualProvider = result.provider ?? route.provider;
+  const actualModel = result.modelId ?? route.modelId;
+  const fellBack = Boolean(result.fellBackFromRouteId);
+  if (fellBack) {
+    console.error(
+      `[document-ingestion] VISION FALLBACK — the selected vision route "${route.routeId}" ` +
+        `(${route.provider}/${route.modelId}) FAILED and the call fell back to ` +
+        `"${result.routeId}" (${actualProvider}/${actualModel}). Reason: ` +
+        `${result.fallbackReason ?? 'unknown'}. The transcription below was produced by the ` +
+        `FALLBACK model, NOT the model you selected. Fix the selected route (region/key/model) ` +
+        `rather than relying on this fallback.`,
+    );
+  }
+  await db
+    .insert(modelRuns)
+    .values({
+      taskType: 'document-ingestion-vision',
+      model: actualModel,
+      provider: actualProvider,
+      promptVersion: EXTRACTION_PROMPT_VERSION,
+      inputTokens: result.usage?.inputTokens ?? null,
+      outputTokens: result.usage?.outputTokens ?? null,
+      latencyMs: Date.now() - callStartedAt,
+      success: true,
+      error: fellBack
+        ? `vision fell back from ${route.routeId} to ${result.routeId}: ${result.fallbackReason ?? 'unknown'}`
+        : null,
+    })
+    .catch((e) => console.error('[document-ingestion] failed to record vision model_run', e));
+
   return result.text ?? '';
 }
 
@@ -757,11 +794,21 @@ async function processDocument(
   //    flowchart arrow line or a sentence is never severed across chunks.
   const textChunks = chunkTextStructured(rawText);
   let chunkVectors: (number[] | null)[] = [];
+  // Track degraded outcomes so they are SURFACED on the document, not hidden:
+  // chunks stored without embeddings are invisible to semantic retrieval, and a
+  // failed chunk insert means lost text — both previously only console.warn'd.
+  let embeddingDegraded = false;
+  let chunkInsertFailures = 0;
   try {
     const { vectors } = await embedMany(textChunks.map((c) => c.text));
     chunkVectors = vectors;
   } catch (embedErr) {
-    console.warn('[document-ingestion] embed failed; inserting chunks without vectors', embedErr);
+    embeddingDegraded = true;
+    console.error(
+      '[document-ingestion] EMBED FAILED — chunks will be stored WITHOUT vectors and will not be ' +
+        'retrievable by semantic search until re-embedded:',
+      embedErr,
+    );
     chunkVectors = textChunks.map(() => null);
   }
 
@@ -802,7 +849,8 @@ async function processDocument(
         }
       }
     } catch (chunkErr) {
-      console.error(`[document-ingestion] chunk ${i} insert failed:`, chunkErr);
+      chunkInsertFailures += 1;
+      console.error(`[document-ingestion] chunk ${i} insert failed (text will be lost):`, chunkErr);
     }
   }
 
@@ -1020,11 +1068,14 @@ async function processDocument(
           finishedAt: new Date(),
         })
         .where(eq(extractionBatches.id, batch.id));
-      // Document still has chunks — mark complete with the error noted.
+      // Extraction FAILED — mark the document failed, not complete. Chunks were
+      // still inserted (retrieval works at the chunk level), but reporting a
+      // failed extraction as "complete" hides the failure from admins and makes
+      // a broken model/route look like a successful ingest.
       await db
         .update(documents)
         .set({
-          status: 'complete',
+          status: 'failed',
           processedAt: new Date(),
           processingError: err instanceof Error ? err.message : String(err),
         })
@@ -1343,9 +1394,23 @@ async function processDocument(
       .where(eq(extractionBatches.id, batch.id));
   }
 
+  // Surface any degraded outcome on the document rather than reporting a clean
+  // "complete". The doc is still usable (chunks/claims exist), but a reader must
+  // know retrieval is degraded or some text was lost.
+  const degradedNotes: string[] = [];
+  if (embeddingDegraded)
+    degradedNotes.push(
+      'embeddings failed: chunks stored without vectors and are NOT retrievable by semantic search until re-embedded',
+    );
+  if (chunkInsertFailures > 0)
+    degradedNotes.push(`${chunkInsertFailures} chunk insert(s) failed: that text was lost`);
   await db
     .update(documents)
-    .set({ status: 'complete', processingError: null, processedAt: new Date() })
+    .set({
+      status: 'complete',
+      processingError: degradedNotes.length > 0 ? `DEGRADED — ${degradedNotes.join('; ')}` : null,
+      processedAt: new Date(),
+    })
     .where(eq(documents.id, documentId));
 
   if (fileBackedCachePath) {

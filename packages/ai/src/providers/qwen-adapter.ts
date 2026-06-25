@@ -55,6 +55,7 @@ import {
   pickAnthropicCacheTtl,
   pickOpenAICacheRetention,
   shouldDisableCache,
+  toOpenAIImageContent,
 } from './cache-utils';
 import { flattenPlan, parseJsonOrRaw, tryZodParse } from './vertex-gemini-adapter';
 
@@ -93,7 +94,10 @@ export class QwenAdapter implements OracleProviderAdapter {
     }
     this.client = new OpenAI({
       apiKey,
-      baseURL: opts.baseURL ?? DASHSCOPE_BASE_URL,
+      // Region-configurable: some models (e.g. qwen3-vl-*) are only served on the
+      // intl endpoint. Override with DASHSCOPE_BASE_URL (e.g.
+      // https://dashscope-intl.aliyuncs.com/compatible-mode/v1).
+      baseURL: opts.baseURL ?? process.env.DASHSCOPE_BASE_URL ?? DASHSCOPE_BASE_URL,
     });
   }
 
@@ -119,6 +123,17 @@ export class QwenAdapter implements OracleProviderAdapter {
         typeof providerOptions?.temperature === 'number'
           ? providerOptions.temperature
           : undefined,
+      // Output-token budget (vision transcription of dense diagrams + the
+      // thinking trace need a high cap or DashScope truncates mid-reasoning).
+      ...(typeof providerOptions?.maxOutputTokens === 'number'
+        ? { max_tokens: providerOptions.maxOutputTokens }
+        : {}),
+      // For qwen-vl, DashScope downscales images to a default pixel budget,
+      // which makes a dense diagram's small text unreadable (the model then
+      // confabulates). `vl_high_resolution_images: true` keeps full resolution.
+      ...(providerOptions?.highResolutionVision === true
+        ? { vl_high_resolution_images: true }
+        : {}),
       // Qwen-specific reasoning controls pass through via `extra_body`.
       // DashScope's OpenAI-compat layer forwards unknown root-level params.
       ...qwenThinkingExtras(route.reasoningEffort),
@@ -211,7 +226,9 @@ export class QwenAdapter implements OracleProviderAdapter {
     if (Array.isArray(override) && override.length > 0) {
       const normalized = override.map((m) => ({
         role: m.role,
-        content: m.content,
+        // Translate provider-neutral image parts → OpenAI `image_url` at dispatch,
+        // so a fallback into this adapter still sends a readable image.
+        content: toOpenAIImageContent(m.content),
       })) as unknown as ChatCompletionMessageParam[];
       if (systemPrompt && !normalized.some((m) => m.role === 'system')) {
         normalized.unshift({ role: 'system', content: systemPrompt });

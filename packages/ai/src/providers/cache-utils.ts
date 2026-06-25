@@ -106,6 +106,51 @@ export function normalizeMessageContentArray(
   return [{ type: 'text', text: String(content ?? '') }];
 }
 
+/**
+ * Provider-neutral inline image part that callers emit in
+ * `providerOptions.messages` content: `{ type:'image', mimeType, data(base64) }`.
+ * This is the SAME shape the Gemini adapters already consume (→ inlineData), so
+ * each adapter translates it to its own native shape AT DISPATCH. Keeping the
+ * shape neutral at the call site means a provider fallback can never leave a
+ * mis-shaped image part (the bug where a Qwen-shaped `image_url` reached a Gemini
+ * adapter and the image was silently dropped).
+ */
+export function isNeutralImagePart(
+  p: unknown,
+): p is { type: 'image'; mimeType: string; data: string } {
+  return (
+    !!p &&
+    typeof p === 'object' &&
+    (p as Record<string, unknown>).type === 'image' &&
+    typeof (p as Record<string, unknown>).mimeType === 'string' &&
+    typeof (p as Record<string, unknown>).data === 'string' &&
+    !('source' in (p as object)) &&
+    !('image_url' in (p as object)) &&
+    !('inlineData' in (p as object))
+  );
+}
+
+/** Translate neutral image parts to the OpenAI-compatible `image_url` data-URL
+ * shape (OpenAI, Qwen/DashScope, DeepSeek). Non-image parts pass through. */
+export function toOpenAIImageContent(content: unknown): unknown {
+  if (!Array.isArray(content)) return content;
+  return content.map((p) =>
+    isNeutralImagePart(p)
+      ? { type: 'image_url', image_url: { url: `data:${p.mimeType};base64,${p.data}` } }
+      : p,
+  );
+}
+
+/** Translate neutral image parts to Anthropic's native base64 image block. */
+export function toAnthropicImageContent(content: unknown): unknown {
+  if (!Array.isArray(content)) return content;
+  return content.map((p) =>
+    isNeutralImagePart(p)
+      ? { type: 'image', source: { type: 'base64', media_type: p.mimeType, data: p.data } }
+      : p,
+  );
+}
+
 export function markLastTextPartCacheable(
   content: Array<Record<string, unknown>>,
   ttl?: '5m' | '1h',

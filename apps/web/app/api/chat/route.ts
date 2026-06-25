@@ -344,9 +344,14 @@ export async function POST(req: NextRequest) {
   // will carry the document; otherwise keep the existing inline behavior.
   const excludeInlineAttachments = !!vertexFileCacheSource;
 
+  // Image parts use the PROVIDER-NEUTRAL shape `{ type:'image', mimeType, data }`
+  // — the ONLY shape every hardened adapter translates (Gemini→inlineData,
+  // OpenAI/Qwen→image_url, Anthropic→base64 block). The old `{ image: dataUrl }`
+  // shape was unrecognized: Gemini stringified it to garbage and OpenAI/Anthropic
+  // got an invalid part, so chat image attachments were silently broken.
   type ChatContentPart =
     | { type: 'text'; text: string }
-    | { type: 'image'; image: string }
+    | { type: 'image'; mimeType: string; data: string }
     | { type: 'file'; data: string; mimeType: string };
   type ConversationMessage = {
     role: 'user' | 'assistant';
@@ -376,8 +381,12 @@ export async function POST(req: NextRequest) {
             const buf = Buffer.from(await blob.arrayBuffer());
             const b64 = buf.toString('base64');
             if (att.fileType.startsWith('image/')) {
-              parts.push({ type: 'image', image: `data:${att.fileType};base64,${b64}` });
+              parts.push({ type: 'image', mimeType: att.fileType, data: b64 });
             } else if (att.fileType === 'application/pdf') {
+              // NOTE: the adapters have no neutral FILE-part translator yet, so a
+              // `{type:'file'}` part is NOT correctly carried to most providers
+              // (large PDFs go through the Vertex file-cache path above instead).
+              // Tracked as a known gap — see the session notes.
               parts.push({ type: 'file', data: b64, mimeType: 'application/pdf' });
             } else if (att.fileType.startsWith('text/')) {
               const text = buf.toString('utf8');

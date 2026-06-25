@@ -21,10 +21,17 @@ function refresh() {
 export async function runDiscoveryScan(formData: FormData) {
   await requireAdmin();
   const sinceDays = Number.parseInt(String(formData.get('sinceDays') ?? '14'), 10);
-  await triggerTask('teams-transcript-discovery-scan', {
+  const dispatched = await triggerTask('teams-transcript-discovery-scan', {
     sinceDays: Number.isFinite(sinceDays) ? sinceDays : 14,
   });
   refresh();
+  // On-demand task with NO sweep — if dispatch fails the scan never runs and the
+  // admin would just see nothing change. Surface it.
+  if (!dispatched) {
+    throw new Error(
+      'Discovery scan was not dispatched (no cron sweep will retry). Check TRIGGER_SECRET_KEY, then re-run.',
+    );
+  }
 }
 
 /** Ingest the selected available meetings — the explicit "pull this in" action. */
@@ -52,8 +59,9 @@ export async function ingestMeetings(formData: FormData) {
     meeting_time: string | null;
   }>;
 
+  let failed = 0;
   for (const row of rows) {
-    await triggerTask('teams-transcript-ingestion', {
+    const dispatched = await triggerTask('teams-transcript-ingestion', {
       resourcePath: null,
       transcriptContentUrl: row.transcript_content_url,
       meetingId: row.meeting_id,
@@ -61,8 +69,18 @@ export async function ingestMeetings(formData: FormData) {
       meetingTime: row.meeting_time,
       discoveryTranscriptId: row.transcript_id,
     });
+    if (!dispatched) failed += 1;
   }
   refresh();
+  // teams-transcript-ingestion has NO sweep — a failed dispatch means that
+  // meeting is never ingested. Surface it rather than silently leaving it
+  // 'available' as if nothing happened.
+  if (failed > 0) {
+    throw new Error(
+      `${failed}/${rows.length} meeting ingestion dispatch(es) failed — those meetings were NOT ingested ` +
+        `and no sweep will retry them. Check TRIGGER_SECRET_KEY, then re-select and re-run.`,
+    );
+  }
 }
 
 /** Hide a meeting you don't want to ingest. */

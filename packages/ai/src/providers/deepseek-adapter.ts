@@ -36,7 +36,7 @@ import type {
   GenerateTextArgs,
   OracleProviderAdapter,
 } from './types';
-import { normalizeMessageContentArray } from './cache-utils';
+import { normalizeMessageContentArray, toOpenAIImageContent } from './cache-utils';
 import { flattenPlan, parseJsonOrRaw, tryZodParse } from './vertex-gemini-adapter';
 
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
@@ -97,6 +97,9 @@ export class DeepSeekAdapter implements OracleProviderAdapter {
         typeof providerOptions?.temperature === 'number'
           ? providerOptions.temperature
           : undefined,
+      ...(typeof providerOptions?.maxOutputTokens === 'number'
+        ? { max_tokens: providerOptions.maxOutputTokens }
+        : {}),
     });
     const latencyMs = Date.now() - callStartedAt;
     const choice = completion.choices[0];
@@ -152,9 +155,9 @@ export class DeepSeekAdapter implements OracleProviderAdapter {
     if (Array.isArray(override) && override.length > 0) {
       const normalized = override.map((m) => ({
         role: m.role,
-        content: Array.isArray(m.content)
-          ? normalizeMessageContentArray(m.content)
-          : m.content,
+        content: toOpenAIImageContent(
+          Array.isArray(m.content) ? normalizeMessageContentArray(m.content) : m.content,
+        ),
       })) as unknown as ChatCompletionMessageParam[];
       if (systemPrompt && !normalized.some((m) => m.role === 'system')) {
         return [{ role: 'system', content: systemPrompt }, ...normalized];

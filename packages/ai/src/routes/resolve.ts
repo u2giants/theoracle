@@ -86,6 +86,18 @@ function makeSyntheticRoute(
       : provider === 'openai' ? 'native_json_schema'
       : 'tool_call';
 
+  // The capability flags below are ASSUMED, not verified — this model isn't in
+  // the curated catalog, so we cannot confirm it actually supports vision /
+  // structured output / tools. Claiming `supportsVision: true` for an arbitrary
+  // model is how a wrong-tool model slips past the "right tool for the job"
+  // invariant (cf. the flowchart incident: an image-GENERATION model used for
+  // vision). Surface it so an uncatalogued model in a capability-sensitive role
+  // is visible rather than silently trusted.
+  console.warn(
+    `[resolve] using SYNTHETIC route for uncatalogued model "${openRouterId}" (role=${role}). ` +
+      `Capability flags (vision/structured-output/tools) are ASSUMED true and NOT verified — ` +
+      `prefer a curated catalog model for capability-sensitive roles.`,
+  );
   return {
     routeId: openRouterId,  // use the OpenRouter ID as the routeId
     role,

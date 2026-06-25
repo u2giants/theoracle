@@ -7,7 +7,18 @@ Last updated: 2026-06-25. Delete this file once the remaining items below are cl
 ## Diagram / flowchart image ingestion tuning (2026-06-25)
 
 Status:
-**partial / blocked.** Worker code is deployed; a re-evaluation of the test flowchart produced **0 promoted claims** and needs a follow-up fix before this is usable.
+**Pipeline FIXED + deployed (worker `20260625.4`): faithful transcription + 81 claims (68 dependency / 13 process_rule), 0 validation failures. All code UNCOMMITTED. The "Done/blocking/Next action/Risks" bullets further down this section are now HISTORICAL — the authoritative current state is the STILL OPEN list immediately below.**
+
+What got fixed (deployed `.2`->`.4`): wider extraction windows (24k doc / 32k image); structure-aware chunking (`chunkTextStructured`); diagram-aware + one-line-per-edge prompts; `maxOutputTokens` plumbed through all adapters; vision call sets temperature 0.6 + maxOutputTokens 32k + `highResolutionVision`; and the key fix -- PROVIDER-NEUTRAL image part at the call site with each adapter translating at dispatch (`toOpenAIImageContent`/`toAnthropicImageContent` in `cache-utils.ts`), so cross-provider fallback no longer drops the image. Qwen base URL now reads `DASHSCOPE_BASE_URL`.
+
+STILL OPEN:
+1. **Qwen3-VL is not actually running -- it falls back to Gemini.** Vision route resolves as a dynamic `qwen/qwen3-vl-*` route under the 'extraction' role, so `fallbackRouteId` = extraction default = `vertex_gemini_2_5_flash_extraction_primary`. The Qwen call fails on `dashscope-us` (key 401s on US, 200s on `dashscope-intl`; model is intl-only) -> `fallbackOnError` runs Gemini, which now reads the image. To run qwen3-vl for real: set prod Trigger `DASHSCOPE_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1` + an intl-valid `DASHSCOPE_API_KEY`. DECISION NEEDED on key/account (affects all prod Qwen). Not set.
+2. **Swimlane / role attribution is frequently WRONG.** Box TEXT is ~complete (~61/63 labels) but lanes are mis-assigned -- systematic right-shift in the back half (Sourcing boxes labelled "Production"; Carlos's "Review Audit" moved to Production, Carlos shown empty; Licensing-Team boxes split into "Licensor"; Licensor boxes pushed to "Factories"), front-half scatter (Creative-direction boxes into Junior/Technical-designer lanes), and edge labels ("Before an Order", "New Product Type", "With an Order") captured AS boxes. **The 81 dependency claims inherit this -- they mis-state WHO does WHAT.** Next quality problem. Mitigations: a stronger / actually-running vision model, crop/split the wide canvas per lane-band, or an image-fidelity verification pass.
+3. **Quote-validation checks fidelity to the transcription, not the image** -- so lane errors (#2) pass as "validated." No guard catches a faithful-text-but-spatially-wrong transcription.
+4. **Vision pass isn't logged** (`transcribeImageToText` writes no `model_runs`/context-pack row) -> can't tell from the DB which provider ran or whether it fell back. Worth adding.
+5. **All this code is UNCOMMITTED** (worker `document-ingestion.ts`, 6 adapters, `cache-utils.ts`, `scripts/reevaluate-document.mjs`) despite being deployed as `20260625.4`. Commit or discard. `default_vision_reasoning_effort`=`medium`; vision temperature/max_tokens are code constants, not admin UI.
+6. **Meeting path has the same fragmentation** (`claim-extraction.ts` segments by `BATCH_SIZE`, can split a debate mid-argument). Untouched.
+7. The test flowchart `9d09fa89-3a46-465e-a98b-837287c9e22a` currently holds the 81 (text-grounded but role-inaccurate) claims in `pending_review`.
 
 Done (deployed):
 - `apps/workers/src/trigger/document-ingestion.ts` changes, deployed as Trigger prod worker **`20260625.1`** (21 tasks) via the Trigger MCP `deploy` (the CLI `npx trigger.dev deploy` needs a PAT we don't have locally; the MCP is authenticated):

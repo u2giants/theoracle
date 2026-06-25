@@ -243,7 +243,10 @@ async function processBatchResultItem(
     .where(eq(extractionBatches.id, extractionBatchId))
     .limit(1);
   if (!batchRow) {
-    console.warn('[claim-extraction-batch-drain] no extraction_batches row for customId', extractionBatchId);
+    console.error(
+      '[claim-extraction-batch-drain] no extraction_batches row for customId — batch result DROPPED (its claims will never be processed):',
+      extractionBatchId,
+    );
     totals.errors += 1;
     return;
   }

@@ -50,10 +50,26 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  await triggerTask('brain-synthesis', {
+  const dispatched = await triggerTask('brain-synthesis', {
     sectionId: body.sectionId,
     trigger: body.trigger,
   });
+
+  if (!dispatched) {
+    // Don't report `triggered: true` when dispatch failed. brain-synthesis only
+    // has a weekly sweep, so silently claiming success could leave the section
+    // stale for days with no signal.
+    return NextResponse.json(
+      {
+        error: 'dispatch_failed',
+        sectionId: body.sectionId,
+        title: section.title,
+        detail:
+          'Synthesis task could not be dispatched (check TRIGGER_SECRET_KEY). It will only be retried by the weekly sweep.',
+      },
+      { status: 502 },
+    );
+  }
 
   return NextResponse.json({
     ok: true,

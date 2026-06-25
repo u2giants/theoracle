@@ -678,9 +678,20 @@ export async function translateClaimsForChina(formData: FormData) {
   );
   if (ids.length === 0) return;
 
+  let failed = 0;
   for (const id of ids) {
-    await triggerTask('claim-translation', { claimId: id });
+    const dispatched = await triggerTask('claim-translation', { claimId: id });
+    if (!dispatched) failed += 1;
   }
 
   refreshClaimPages();
+
+  // claim-translation has NO cron sweep — a failed dispatch never runs. Surface
+  // it instead of silently claiming the translations were queued.
+  if (failed > 0) {
+    throw new Error(
+      `${failed}/${ids.length} claim-translation dispatch(es) failed — those claims were NOT queued ` +
+        `and no sweep will retry them. Check TRIGGER_SECRET_KEY, then re-run.`,
+    );
+  }
 }

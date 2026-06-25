@@ -152,7 +152,24 @@ export async function runExtractionAbTest(
             updated_at = now()
     `);
 
-    await triggerTask('extraction-ab-eval', { reviewEventId });
+    const dispatched = await triggerTask('extraction-ab-eval', { reviewEventId });
+    if (!dispatched) {
+      // No cron sweep drains 'queued' rows — a failed dispatch would hang the row
+      // forever showing "Queued". Flip it to an error state and tell the admin.
+      await db.execute(sql`
+        UPDATE claim_extraction_ab_tests
+        SET run_status = 'error',
+            last_run_error = 'dispatch failed — worker not triggered (check TRIGGER_SECRET_KEY)',
+            updated_at = now()
+        WHERE claim_review_event_id = ${reviewEventId}::uuid
+      `);
+      revalidatePath('/admin/ai/extraction-ab');
+      return {
+        status: 'error',
+        message:
+          'Failed to dispatch the eval worker — no cron sweep will retry this. Check TRIGGER_SECRET_KEY, then re-run.',
+      };
+    }
     revalidatePath('/admin/ai/extraction-ab');
     return { status: 'success', message: 'Queued. Results will appear here when the worker finishes.' };
   } catch (error) {

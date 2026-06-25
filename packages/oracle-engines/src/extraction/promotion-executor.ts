@@ -120,6 +120,17 @@ export interface ExtractionCandidateEvidenceRow {
  *
  * Pure — no DB access. The caller does the SELECT; this just maps shape.
  */
+function mapCandidateDomains(domains: unknown, candidateId: string): string[] {
+  if (Array.isArray(domains)) return domains as string[];
+  if (domains != null) {
+    console.error(
+      `[promotion-executor] candidate ${candidateId} has non-array \`domains\` jsonb (${typeof domains}); ` +
+        `treating as no domains — this is corrupt candidate data, not an empty result.`,
+    );
+  }
+  return [];
+}
+
 export function mapCandidateRowToSnapshotCandidate(
   row: ExtractionCandidateRow | undefined | null,
 ): CandidateSnapshot['candidate'] | null {
@@ -132,8 +143,10 @@ export function mapCandidateRowToSnapshotCandidate(
     impactScore: row.impact_score,
     // NULL must become undefined, not 0. R5 smoke covers this distinction.
     confidenceScore: row.confidence_score == null ? undefined : row.confidence_score,
-    // jsonb null defends as []; non-array jsonb (defensive) also defaults to [].
-    domains: Array.isArray(row.domains) ? (row.domains as string[]) : [],
+    // jsonb null defends as []; a non-null, non-array value is corrupt candidate
+    // data — still default to [], but LOUDLY (otherwise a claim could be promoted
+    // with zero domains and no one would know why).
+    domains: mapCandidateDomains(row.domains, row.id),
     promotedToClaimId: row.promoted_to_claim_id,
   };
 }

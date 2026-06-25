@@ -5,9 +5,15 @@
 //   - The Trigger.dev API is unreachable
 //   - Tasks are not yet deployed
 //
-// All failures are logged as warnings and swallowed — the underlying business
-// operation (upload, message insert, etc.) must NOT fail because Trigger.dev
-// is unavailable. The cron-based sweeps will pick up un-triggered work.
+// Returns true on successful dispatch, false otherwise. The failure is logged
+// but not thrown, so the underlying business write (upload, message insert) is
+// not lost just because Trigger.dev is unavailable.
+//
+// IMPORTANT: callers MUST check the boolean. Only a FEW tasks have a cron sweep
+// that recovers un-dispatched work (e.g. `document-ingestion-sweep`). For tasks
+// with NO sweep — claim-translation, extraction-ab-eval, teams-transcript-
+// ingestion / discovery-scan, brain-synthesis (weekly only) — a swallowed
+// `false` means the work NEVER runs. Surface it to the user; don't assume a sweep.
 
 export async function triggerTask(
   taskId: string,

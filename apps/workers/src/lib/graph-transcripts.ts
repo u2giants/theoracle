@@ -375,9 +375,19 @@ export async function getOnlineMeetingTranscripts(
       if (firstPage && res.status === 403) {
         throw new Error(`getAllTranscripts forbidden (403) for organizer ${organizerId}: ${body}`);
       }
-      // 404 = no transcripts (expected for most users); a 400 on a nextLink is
-      // Graph's startIndex=-1 pagination quirk. Either way, keep what we have.
-      if (res.status !== 404) {
+      // A FIRST-PAGE 404 is no longer swallowed silently as "no transcripts". It
+      // usually does mean the organizer has none, but it is ALSO what a wrong
+      // request shape returns (the documented communications/... vs
+      // users/{id}/onlineMeetings/... endpoint regression silently 404s). A
+      // silent 404-as-empty is exactly how that bug would hide, so log it. A 400
+      // on a nextLink is Graph's startIndex=-1 pagination quirk (end of pages).
+      if (res.status === 404 && firstPage) {
+        console.warn(
+          `[graph-transcripts] getAllTranscripts 404 (first page) for ${organizerId} — treating as ` +
+            `"no transcripts", but if you expected some, verify the endpoint shape ` +
+            `(must be users/{id}/onlineMeetings/getAllTranscripts): ${body}`,
+        );
+      } else if (res.status !== 404) {
         console.warn(`[graph-transcripts] getAllTranscripts ${res.status} for ${organizerId}: ${body}`);
       }
       return out;

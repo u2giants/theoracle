@@ -20,8 +20,6 @@ import type { ProviderAdapterMap } from '../routing/model-router';
 import type { OracleProvider } from '../routes';
 import type { OracleProviderAdapter } from '../providers/types';
 
-const IS_PROD = process.env.NODE_ENV === 'production';
-
 function tryAdd(
   map: ProviderAdapterMap,
   key: OracleProvider,
@@ -30,12 +28,17 @@ function tryAdd(
   try {
     map[key] = factory();
   } catch (err) {
-    if (!IS_PROD) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[buildStandardAdapters] skipped ${key}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    // Boot stays resilient — an optional provider missing its key shouldn't crash
+    // the worker. But NEVER silently: a skipped provider means every route that
+    // targets it will fail "No adapter registered for provider" and fall back to
+    // another model with no obvious cause. This was previously suppressed in prod
+    // (`if (!IS_PROD)`), which hid that Qwen never ran in production for weeks.
+    // eslint-disable-next-line no-console
+    console.error(
+      `[buildStandardAdapters] PROVIDER UNAVAILABLE: "${key}" was NOT registered ` +
+        `(${err instanceof Error ? err.message : String(err)}). Any route targeting ` +
+        `${key} will fail to dispatch and fall back. Set the provider's credentials to enable it.`,
+    );
   }
 }
 

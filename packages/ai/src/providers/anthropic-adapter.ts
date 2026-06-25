@@ -51,6 +51,7 @@ import {
   normalizeMessageContentArray,
   pickAnthropicCacheTtl,
   shouldDisableCache,
+  toAnthropicImageContent,
 } from './cache-utils';
 import { flattenPlan, tryZodParse, zodToJsonSchema } from './vertex-gemini-adapter';
 
@@ -93,10 +94,16 @@ export class AnthropicAdapter implements OracleProviderAdapter {
 
     const ttl = pickAnthropicCacheTtl(plan.taskType, providerOptions);
     const messages = this.buildMessages(plan, userMessage, providerOptions, ttl);
-    const thinking = thinkingParam(route.reasoningEffort, this.defaultMaxTokens);
+    // Caller may raise the output cap (e.g. the image-vision pass); thinking
+    // budget is carved from the effective max, so compute it first.
+    const effectiveMaxTokens =
+      typeof providerOptions?.maxOutputTokens === 'number'
+        ? providerOptions.maxOutputTokens
+        : this.defaultMaxTokens;
+    const thinking = thinkingParam(route.reasoningEffort, effectiveMaxTokens);
     const response = await this.client.messages.create({
       model: route.modelId,
-      max_tokens: this.defaultMaxTokens,
+      max_tokens: effectiveMaxTokens,
       // Anthropic requires temperature=1 when thinking is enabled.
       temperature: thinking
         ? 1
@@ -341,7 +348,10 @@ export class AnthropicAdapter implements OracleProviderAdapter {
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({
           role: m.role as 'user' | 'assistant',
-          content: normalizeMessageContentArray(m.content) as unknown as Anthropic.MessageParam['content'],
+          // Translate provider-neutral image parts → Anthropic base64 image block.
+          content: toAnthropicImageContent(
+            normalizeMessageContentArray(m.content),
+          ) as unknown as Anthropic.MessageParam['content'],
         }));
       if (shouldDisableCache(providerOptions)) return filtered;
 

@@ -408,8 +408,14 @@ async function checkClaimForContradictions(
       claimEmbedding = vector;
       await db.update(claims).set({ embedding: vector }).where(eq(claims.id, claimId));
     } catch (embedErr) {
-      console.warn('[contradiction-watcher] embedding failed — skipping ANN search', embedErr);
-      return { contradictionsFound: 0 };
+      // Do NOT return "0 contradictions" — the check never ran. Reporting 0 here
+      // is a false negative that hides a real failure (the claim looks conflict-
+      // free when it was simply never compared). Fail loudly so the run is marked
+      // failed (and retried) instead of silently passing.
+      console.error('[contradiction-watcher] embedding failed — cannot run ANN search', embedErr);
+      throw new Error(
+        `contradiction-watcher: embedding failed for claim ${claimId}; aborting rather than reporting 0 contradictions`,
+      );
     }
   }
 
@@ -733,16 +739,18 @@ export const contradictionWatcherSweepTask = schedules.task({
     }
 
     let triggered = 0;
+    let failedToTrigger = 0;
     for (const row of unchecked) {
       try {
         await tasks.trigger('contradiction-watcher', { claimId: row.id });
         triggered++;
       } catch (err) {
+        failedToTrigger++;
         console.error(`[contradiction-watcher-sweep] failed to trigger for claim ${row.id}:`, err);
       }
     }
 
-    return { ok: true, triggered, total: unchecked.length };
+    return { ok: failedToTrigger === 0, triggered, failedToTrigger, total: unchecked.length };
   },
 });
 
