@@ -106,6 +106,10 @@ const MAX_IMAGE_TEXT_CHARS = 32_000;
 // guidance. Format consistency is enforced by the prompt, not by temperature.
 const VISION_MAX_OUTPUT_TOKENS = 32_000;
 const VISION_TEMPERATURE = 0.6;
+// Extraction output budget. A dense window (a diagram with many handoffs) can
+// produce dozens of claims; without a generous cap the JSON truncates mid-array,
+// parses as a raw string, and fails the schema ("expected object").
+const EXTRACTION_MAX_OUTPUT_TOKENS = 32_000;
 const VERTEX_FILE_CACHE_MIN_BYTES = 10 * 1024 * 1024;
 const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
 const AUTO_APPROVE_MIN_CONFIDENCE = 9;
@@ -970,6 +974,7 @@ async function processDocument(
         schema: ExtractionOutputSchema,
         observability: { includedDocumentChunkIds: windowChunks.map((c) => c.id) },
         providerOptions: {
+          maxOutputTokens: EXTRACTION_MAX_OUTPUT_TOKENS,
           cache: {
             preferLongLivedCache: true,
             preferExplicitCache: route.provider === 'vertex',

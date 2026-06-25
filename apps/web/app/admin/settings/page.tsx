@@ -285,25 +285,27 @@ WHAT MAKES A MODEL PERFECTLY SUITED
 - Reasoning can help impact/confidence/domain decisions, but only if it does not reduce quote fidelity or throughput.
 
 CAPABILITIES IT NEEDS (hard requirements in the picker)
-- Structured output or response-format support.
+- Structured output or response-format support — PREFERABLY NATIVE strict JSON-schema (see the KNOWN PITFALL below: a looser tool-call mode is a real risk here, not an equivalent).
 - Context window greater than 100K tokens.
+- Enough max-output-token budget to emit EVERY claim for a dense batch. If the JSON truncates mid-array it parses as a bare string and the ENTIRE batch is discarded — a dense diagram or long transcript can produce dozens of claims, so do not pick a model with a small output cap.
 
 CAPABILITIES THAT ARE NICE TO HAVE
 - Prompt caching for stable extraction prompts and schemas.
 - Reasoning controls at low/medium effort for nuanced domain and impact scoring.
 - Batch API support in the adapter/provider for cheaper high-volume runs.
-- Large max output tokens for dense batches with many candidate claims.
 
 CAPABILITIES IT DOES NOT NEED MOST
 - Chatty conversational style.
 - Streaming — workers consume the final JSON only.
-- Tool calling unless the provider uses tool-call mode for structured output.
 - Very expensive frontier reasoning if a cheaper model preserves quotes and schema better.
 - Native PDF input for this stage specifically; documents are usually parsed/chunked before extraction.
 - Vision/image input for this stage specifically; images are transcribed by the separate Image Vision model before extraction receives text.
 
+KNOWN PITFALL — strict JSON vs. loose "tool-call" structured output (found in production, 2026-06)
+Not every "structured output" is equal. Providers WITHOUT a native strict JSON-schema mode (Qwen and DeepSeek, accessed through the OpenAI-compatible API) fall back to a looser TOOL-CALL mechanism that does not strictly enforce the schema. In production, qwen3.7-plus selected for this stage repeatedly MALFORMED FIELDS — scores returned as strings/null, domain values outside the enum, and evidence returned as a non-object — and because one malformed claim currently fails the whole extraction window, the run produced ZERO claims even though the upstream image transcription was perfect. The Gemini family (Vertex / Google) and OpenAI use native JSON-schema and conform far more reliably. Until per-claim salvage ships, STRONGLY prefer a native-strict-JSON model here. A "smarter" loose-JSON model is worse for this stage than a cheaper strict-JSON one.
+
 BOTTOM LINE
-Pick the model with the best combination of strict JSON reliability, exact quote copying, high operational-claim recall, and low high-volume cost. For extraction, a cheaper model that never breaks schema and never fabricates quotes is usually better than a smarter model that is loose with evidence.`;
+Pick the model with the best combination of STRICT (native-JSON) reliability, exact quote copying, high operational-claim recall, and low high-volume cost. For extraction, a cheaper model that never breaks schema and never fabricates quotes is usually better than a smarter model that is loose with evidence — and a loose tool-call-only model (Qwen/DeepSeek) is a known liability for this stage specifically.`;
 
 const SYNTHESIS_MODEL_BRIEF = `THE ORACLE — "Synthesis Model" role brief
 (Paste this into a model-evaluation assistant or vendor comparison to judge whether a given model is the right pick for this setting.)

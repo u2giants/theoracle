@@ -204,6 +204,12 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
         responseMimeType: 'application/json',
         // responseJsonSchema accepts standard JSON Schema as of @google/genai 2.6.
         responseJsonSchema: jsonSchema as unknown,
+        // Honor an output-token budget: a dense extraction (many claims) can
+        // otherwise truncate the JSON mid-array, which parses as a raw string and
+        // fails the schema ("expected object"). Caller passes a generous cap.
+        ...(typeof providerOptions?.maxOutputTokens === 'number'
+          ? { maxOutputTokens: providerOptions.maxOutputTokens }
+          : {}),
         ...(explicitCache?.cacheName ? { cachedContent: explicitCache.cacheName } : {}),
         ...vertexThinkingConfig(route.reasoningEffort),
       },

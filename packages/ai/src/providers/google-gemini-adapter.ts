@@ -97,6 +97,11 @@ export class GoogleGeminiAdapter implements OracleProviderAdapter {
     const jsonSchema = zodToJsonSchema(schema);
     const commonConfig = {
       temperature: 0.1,
+      // Output-token budget so a dense extraction doesn't truncate the JSON
+      // (truncated JSON parses as a raw string and fails the schema).
+      ...(typeof providerOptions?.maxOutputTokens === 'number'
+        ? { maxOutputTokens: providerOptions.maxOutputTokens }
+        : {}),
       ...geminiThinkingConfig(route.reasoningEffort),
     };
     const sdkConfig = {
