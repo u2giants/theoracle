@@ -37,6 +37,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 | Change Recall.ai live bot path | `AGENTS.md` §6 + §10 quirks, `docs/architecture.md` §"Teams live participation (Recall.ai)" | Microsoft Graph Teams ingestion docs |
 | Investigate a bug or incident | `AGENTS.md` §13 (critical incidents), docs for the affected area, `HANDOFF.md` if present | Unrelated folder-level READMEs |
 | Continue unfinished work | `AGENTS.md`, `HANDOFF.md`, docs named inside `HANDOFF.md` | Docs unrelated to the handoff scope |
+| Implement the no-fallback / model-capability / message-batching refactor | `AGENTS.md`, `HANDOFF.md`, and the matching spec: `fix_remove_fallbacks.md` (remove silent fallbacks + hard-coded models), `fix_resolve_ts.md` (runtime capability enforcement), `fix_claim_extr.md` (conversation-aware batching) | the other two `fix_*.md` unless the work overlaps |
 | Work in a subfolder with its own README | `AGENTS.md`, that folder-level `README.md`, and only broader docs referenced there | Other folder-level READMEs |
 | Change the remote MCP knowledge endpoint (tools agents query) | `AGENTS.md` §10 MCP quirk, `apps/web/lib/mcp/README.md`, `apps/web/lib/mcp/*`, `apps/web/app/api/mcp/[transport]/route.ts` | Unrelated chat/worker code |
 | China bilingual claim layer / claim translation / asking China-team members to verify a claim | `AGENTS.md` §7–§10, `china_imp.md` (design + resolved decisions), `packages/ai/src/retrieval.ts`, `apps/workers/src/trigger/claim-translation.ts`, `apps/web/app/admin/claims/*` (verification reuses main's `claim_review_question` + review-groups) | Teams/Recall docs; provider-adapter internals |
@@ -77,7 +78,7 @@ Code we own:
 - `packages/oracle-engines/` — deterministic extraction and synthesis logic
 - `packages/shared/` — shared types/constants
 - `docs/` — project documentation
-- root markdown files — `README.md`, `AGENTS.md`, `CLAUDE.md`, `DECISIONS.md`, `china_imp.md`
+- root markdown files — `README.md`, `AGENTS.md`, `CLAUDE.md`, `DECISIONS.md`, `china_imp.md`, and the planning docs `fix_remove_fallbacks.md` / `fix_resolve_ts.md` / `fix_claim_extr.md` (self-contained specs for three NOT-STARTED refactors — load only when doing that specific work)
 
 Generated code:
 
@@ -119,6 +120,7 @@ Scripts:
 - `scripts/test-teams-transcript-access.ps1` — no-dep PowerShell probe: does the tenant grant the app Teams transcript access?
 - `scripts/diagnose-transcripts.ps1` — tries `getAllTranscripts` variants for an organizer (scheduled meetings only)
 - `scripts/create-adhoc-subscription.ps1` — one-off `adhocCalls/getAllTranscripts` subscription creation (webhook must be live first; the `teams-subscription-manager` worker is the production path)
+- `scripts/reevaluate-document.mjs` — guarded single-document re-evaluation: deletes a document's prior claims/chunks/candidates/batches/tags and resets it to `pending_processing` (DRY-RUN by default; `APPLY=1` to act; aborts if any target claim is in the Brain/a contradiction/a gap/multi-source). Run with the prod session-pooler URL: `PROD_URL=<pooler> DOCUMENT_ID=<id> APPLY=1 node scripts/reevaluate-document.mjs`, then trigger `document-ingestion`.
 
 Migrations:
 
@@ -278,6 +280,7 @@ Do not load these into AI context unless a task explicitly requires them:
 - `oracle_master_spec.md` unless product/spec alignment is the task
 - `oracle_ai_architecture_prompt caching.md` unless AI architecture or prompt-cache retrofit history is the task
 - `china_imp.md` unless the task is the China bilingual claim layer / claim translation / recertification
+- `fix_remove_fallbacks.md` / `fix_resolve_ts.md` / `fix_claim_extr.md` unless you are implementing that specific refactor (they are large self-contained specs)
 - `docs/oracle/` unless the task touches the AI-retrofit spec directly
 
 For orientation, follow the documentation map near the top of this file. Do not load broad source files such as `packages/db/src/schema.ts` or `packages/ai/src/providers/*.ts` unless the task needs that subsystem.
@@ -434,7 +437,21 @@ Why this is fragile:
 The vision model is non-deterministic and prod's `default_vision_route` was set to `google/gemini-3.1-flash-image-preview` — an image-**generation** model, wrong for dense reading. One run produced a clean 13k-char single-line-edge transcription (claims validated); the next produced a truncated 2.5k-char split-line transcription (all claims rejected).
 
 Future sessions should:
-For diagram uploads, prefer a real vision model (`vertex_gemini_2_5_flash_extraction_primary`, Gemini 2.5 Flash) at Admin → Settings → "Image vision model"; if changing transcription/extraction prompts, force one-line-per-edge in `IMAGE_TRANSCRIPTION_SYSTEM` and quote the whole edge line. See HANDOFF "Diagram / flowchart image ingestion tuning" for the open fix and the `scripts/reevaluate-document.mjs` re-evaluation tool.
+UPDATE 2026-06-25: prod vision is now `qwen/qwen3-vl-235b-a22b-thinking` and reads diagrams well (the earlier failure was an image-GENERATION model wrongly selected for reading + a silent fallback masking it). Use any real *vision* model (never an image-generation model). The current blocker has moved DOWNSTREAM to the extraction model (see the §14 row "EXTRACTION currently yields 0 claims"). If changing transcription/extraction prompts, keep one-line-per-edge in `IMAGE_TRANSCRIPTION_SYSTEM`. See HANDOFF "SESSION-END STATE" and the `scripts/reevaluate-document.mjs` re-evaluation tool.
+
+### Silent model fallback to hard-coded routes (being removed — see `fix_remove_fallbacks.md`)
+
+Looks like:
+The admin-selected model in Admin → Settings is the one that runs. The `model_runs` row showing a different provider/model looks like the configured choice.
+
+Actually:
+When a selected route can't dispatch (e.g. `No adapter registered for provider qwen` because a provider key was missing), `ModelRouter` (`fallbackOnError`) silently switches to the route's `fallbackRouteId`, which for dynamic routes is the HARD-CODED `DEFAULT_ORACLE_ROUTES[role]` (`routes/defaults.ts`) — and workers have hard-coded `FALLBACK_ROUTE_ID` constants for the unset-setting case. This session, both the Qwen vision and Qwen extraction routes silently fell back to `vertex_gemini_2_5_flash_extraction_primary` — an UNAPPROVED model — and reported success.
+
+Why:
+Boot-time resilience (a missing provider key shouldn't crash the worker) was implemented as a hidden hard-coded fallback rather than a verbose, pool-bounded one.
+
+Do not change because:
+Until the `fix_remove_fallbacks.md` refactor lands (no `fallbackRouteId`; the approved pool becomes the fallback chain; every failure verbose + alerted), the hard-coded fallbacks are load-bearing — deleting them without the replacement breaks every worker's unset-setting path. When debugging "wrong model ran," check `model_run_usage_details.fell_back_from_route_id` + the new vision `model_runs` row, and confirm the provider's key/adapter is registered (`buildStandardAdapters` now logs `PROVIDER UNAVAILABLE` loudly in prod).
 
 ### Explicit Vertex caches are tracked in Postgres
 
@@ -908,7 +925,8 @@ Feeding a translated quote into validation, or adding a locale branch to `getBra
 | `GOOGLE_VERTEX_BATCH_GCS_BUCKET` | GCS bucket for Vertex Batch Prediction JSONL I/O (D14) | env/secret | optional | required if batch mode + Vertex |
 | `GOOGLE_VERTEX_BATCH_GCS_PREFIX` | Object prefix inside the batch bucket | env/secret | optional | optional |
 | `DEEPSEEK_API_KEY` | DeepSeek adapter | `.env.local`, Vercel, Trigger.dev | optional | optional |
-| `DASHSCOPE_API_KEY` | Qwen adapter | `.env.local`, Vercel, Trigger.dev | optional | optional |
+| `DASHSCOPE_API_KEY` | Qwen adapter | `.env.local`, Vercel, Trigger.dev | optional | optional (set in prod 2026-06-25 for the Qwen vision model) |
+| `DASHSCOPE_BASE_URL` | Qwen adapter region override (default `dashscope-us`; set to the `dashscope-intl` compat endpoint in prod) | `.env.local`, Trigger.dev | optional | recommended when using `qwen/*` models served only on intl |
 | `OPENROUTER_API_KEY` | model catalog enrichment only | `.env.local`, Vercel if desired | optional | optional |
 | `ORACLE_MCP_TOKEN` | Static bearer token for the remote MCP knowledge endpoint (`/api/mcp/mcp`). External AI agents present it to query approved business knowledge. If unset, the endpoint rejects all requests. | `.env.local`, Vercel | optional | yes for MCP access |
 | `TRIGGER_SECRET_KEY` | Trigger.dev auth | `.env.local`, Vercel, Trigger.dev | yes | yes |
@@ -1109,8 +1127,8 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 | open | Vertex Batch Prediction requires `GOOGLE_VERTEX_BATCH_GCS_BUCKET` to be provisioned + the worker SA granted `roles/storage.objectAdmin` on it. | One-time admin task before batch mode can be enabled for Vertex routes. OpenAI batch needs no infrastructure setup. Flip extraction to batch via `/admin/settings` → "Extraction dispatch mode" card. |
 | done | **Teams transcript ingestion — LIVE + validated end-to-end (2026-06-04/05).** Real Meet-Now call → subscription → webhook → ingestion → 95 messages, `speakersResolved 2/2`. Workers `20260605.1`. Speaker resolution now email-based (`fbb82cd`) + bootstrap-by-email for `@popcre.com` (`e73868b`); 38 employees seeded. | No action — feature works. Fuzzy quote matching (`89d2fd9`) + raw_transcripts persistence added. |
 | done | **Teams-native Oracle app wrapper is wired (2026-06-09).** Azure Bot resource `theoracle-popcre-teams-bot` (`F0`) points at `/api/teams/bot/messages`, Teams channel is enabled, the organization Teams app `The Oracle` is uploaded, and Albert's user has the app installed. | No repo action. If users cannot see the app, check Teams app propagation/policies and `Get-M365TeamsApp -Id 17ccd7a1-b90b-428c-9966-33e7fb832923`. |
-| open | **Extraction gates hold most claims on a fresh system** (not a bug): entity registry is empty → new entities (people, systems, RFQ…) are unresolved → claim **held** + entity queued as `entity_proposals`; `domain_valid` fails when proposed domains don't map to active top-domains; impact≥7 claims → `pending_review`. | Seed the entity registry + active `knowledge_top_domains` to let claims flow. Touches the review/safety model — get owner sign-off before loosening. See HANDOFF.md. |
-| open | **Synthesis never demonstrated** — needs ≥1 approved claim; 4 sit in `pending_review`. | Approve a claim (SQL or admin) → trigger `brain-synthesis` → confirm Brain narrative. |
+| open | **Extraction gates hold most claims on a fresh system** (not a bug): entity registry is empty → new entities (people, systems, RFQ…) are unresolved → claim **held** + entity queued as `entity_proposals`; `domain_valid` fails when proposed domains don't map to active top-domains; impact≥7 claims → `pending_review`. | STALE PREMISE (corrected 2026-06-25): the entity registry + active top-domains are now SEEDED (63 entities / 16 active domains, verified against prod). The held-claim gate mechanism itself is unchanged and correct. Touches the review/safety model — get owner sign-off before loosening. See HANDOFF.md. |
+| open | **Synthesis never demonstrated** — needs ≥1 approved claim. CORRECTED 2026-06-25: prod now has **189 approved** claims (94 `pending_review`), so synthesis is UNBLOCKED — it just hasn't been run (`brain_section_versions` = 0). | Trigger `brain-synthesis` → trigger `brain-synthesis` → confirm Brain narrative. |
 | done | **Recall.ai live Teams bot path — LIVE + validated end-to-end (2026-06-08/09).** Admin start path, Recall bot join, ElevenLabs/AssemblyAI streaming, signed `/api/teams/live/recall` webhook, Trigger worker, message persistence, Recall `send_chat_message`, and visible Teams chat post were all verified. Current deployed worker version after cleanup: `20260609.6` with 17 tasks. | No action for mechanical live path. Safety/test settings are clamped off after testing (`max_oracle_interjections_per_hour=0`, `teams_live_recall_min_confidence_to_post=101`, force flags false). See `HANDOFF.md` for bot IDs, verification evidence, and the next open item: retrieval-backed live context. |
 | deferred | **Secret rotation.** Earlier sessions exposed several credentials in chat. The user explicitly deferred rotation until the system is up and running. | Do not treat rotation as the first blocker for current live testing. When the owner is ready, rotate Recall API/webhook secrets, any exposed Vercel token, and any Google service-account JSON that appeared in tool output. Azure Graph/Bot/Supabase Entra client secrets were refreshed on 2026-06-09; keep them distinct by display name and use `--append` for future rotations. Never write secret values into docs. |
 | done | **Live Oracle has retrieval-backed context.** The Recall path now retrieves approved claims plus linked Brain snippets with `searchWithRetrievalPlan()` before the live decision, stores the context pack/model run linkage, and records `retrievedClaimIds` / validated `evidenceClaimIds` in job/interjection metadata. | Keep the bot as a clarification asker, not a meeting-answering assistant. Retrieval failures must degrade to the no-context prompt and must not block utterance persistence. See `HANDOFF.md`. |
@@ -1122,6 +1140,14 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 | done | **GUI-configurable vision model via the auxiliary-model registry (2026-06-14).** `default_vision_route` chosen at Admin → Settings → "Image vision model"; `OracleModelRole` stays at 3. Seeded to the Gemini route in prod. | No action. To add another auxiliary model: one `AUXILIARY_MODELS` entry + one `AUX_PRESENTATION` entry. |
 | done | **Admin company-document uploader, no channel (2026-06-14).** `POST /api/admin/documents` on Admin → Documents. Decouples company-doc upload from chat (no create-channel UI exists). | No action. |
 | open | **Per-document `context` / `domain_hints` added via hand-written SQL only (2026-06-14, migration `65`).** Columns are in `schema.ts` + applied to prod, but there is no Drizzle-generated migration, so `pnpm db:check-drift` may flag them and a fresh-DB `pnpm db:migrate` won't recreate them. | If drift matters, fold the two nullable columns into a generated Drizzle migration; otherwise keep the hand-written `sql/65` as authoritative (consistent with the `raw_transcripts` precedent). |
+| done | **Qwen image-vision LIVE (2026-06-25).** `default_vision_route` = `qwen/qwen3-vl-235b-a22b-thinking`; `DASHSCOPE_API_KEY` set in prod Trigger + `DASHSCOPE_BASE_URL` = the intl endpoint (the model is intl-only). Confirmed via the new vision `model_runs` row (`task_type='document-ingestion-vision'`, `provider=qwen`, no fallback). The image payload is now PROVIDER-NEUTRAL (`{type:'image',mimeType,data}`) and each adapter translates at dispatch (`toOpenAIImageContent`/`toAnthropicImageContent`, `cache-utils.ts`), so a provider fallback can't drop the image. | No action for vision. |
+| open | **EXTRACTION currently yields 0 claims on dense diagrams.** Selected extraction model `qwen/qwen3.7-plus` uses a LOOSE tool-call structured-output mode (no native strict JSON-schema) and malforms fields; the strict schema rejects the window. FAST FIX (no code): switch extraction to `google/gemini-3.1-flash-lite` (approved pool member, native strict JSON). The settings "copy job brief" for Extraction now documents this. | Flip extraction to a strict-JSON model in Admin → Settings; doc `9d09fa89-3a46-465e-a98b-837287c9e22a` is `failed`/0 claims until then. |
+| open | **Remove ALL silent fallbacks + hard-coded model routes — core-inference refactor, NOT started.** Selected Qwen routes silently fell back to the hard-coded `vertex_gemini_2_5_flash_extraction_primary` (`DEFAULT_ORACLE_ROUTES` + worker `FALLBACK_ROUTE_ID` constants); the fallback target isn't even an approved pool model, and nothing alerts on it. Full spec (pool-as-chain + fail-verbose + admin alert + deletion inventory) in **`fix_remove_fallbacks.md`**. | Implement `fix_remove_fallbacks.md` as one verified pass (every worker + chat dispatch through this path). |
+| open | **Runtime model-capability enforcement — NOT started.** `makeSyntheticRoute()` in `resolve.ts` fabricates `supportsVision/StructuredOutput=true` for any model id, so a wrong-tool model passes the runtime boundary (root of the image-generation-model-as-vision incident). Spec in **`fix_resolve_ts.md`** (shares the capability invariant with the fallback refactor). | Implement `fix_resolve_ts.md`; coordinate with `fix_remove_fallbacks.md`. |
+| open | **Conversation-aware message batching — NOT started.** `claim-extraction.ts` selects the first 100 pending messages globally then segments, so a long same-channel discussion can split mid-thread. Spec in **`fix_claim_extr.md`**. | Implement `fix_claim_extr.md` (mirror the document path's structure-aware approach). |
+| open | **Dead-end "General-purpose / utility" picker.** `default_general_purpose_route` (Admin → Settings) is consumed by NOTHING; taxonomy cluster-naming uses a hard-coded route instead. | Wire it to the internal jobs that should use it (delete `CLUSTER_NAMING_ROUTE_ID`) or remove the picker. Covered in `fix_remove_fallbacks.md`. |
+| open | **Deploy discrepancy.** Prod worker `v20260625.11` still contains the reverted per-claim salvage + `.catch` schema edits (deployed during debugging, then reverted in source). Redeploy `@oracle/workers` from the committed source to align (keeps the `maxOutputTokens` truncation fix, drops the experiments). Harmless functionally. | `corepack pnpm --filter @oracle/workers run deploy`. |
+| done | **Repository documentation audit from pasted charter (2026-06-25).** Second run of the same Markdown-maintenance spec. | Brought §14 current (entity registry seeded, synthesis unblocked, extraction/fallback workstreams added), updated the diagram quirk + added a silent-fallback quirk, listed the `fix_*.md` plan docs + `scripts/reevaluate-document.mjs`, added `DASHSCOPE_BASE_URL`. |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.
 <!-- ansible-host-policy: managed rollout from u2giants/ansible -->
