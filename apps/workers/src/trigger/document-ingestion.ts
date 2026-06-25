@@ -88,8 +88,16 @@ import { createServiceRoleClient } from '@oracle/auth/server';
 import type { EntityType, KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
 
 const CHUNK_SIZE = 4000;
-const CHUNK_OVERLAP = 400;
-const MAX_DOCUMENT_TEXT_CHARS = 6_000;
+// Extraction-window budget: how much chunk text a single extraction call sees.
+// Meaning lives in CONTEXT that spans chunk boundaries — a multi-paragraph SOP
+// rule, a debated decision, and (worst case) a diagram whose meaning is entirely
+// in cross-node arrows. Narrow windows extracted independently fragment that
+// context, so we keep windows wide. Quote validation is unaffected —
+// pickEvidenceChunk maps each verbatim quote back to its covering chunk.
+const MAX_DOCUMENT_TEXT_CHARS = 24_000;
+// Image transcriptions (especially diagrams/flowcharts) are one connected graph;
+// give them an even wider window so the whole flow is reasoned over in one call.
+const MAX_IMAGE_TEXT_CHARS = 32_000;
 const VERTEX_FILE_CACHE_MIN_BYTES = 10 * 1024 * 1024;
 const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
 const AUTO_APPROVE_MIN_CONFIDENCE = 9;
@@ -132,53 +140,59 @@ interface TextChunk {
 
 type InsertedDocumentChunk = TextChunk & { id: string };
 
-function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP): TextChunk[] {
-  if (text.length <= chunkSize) return [{ text, start: 0, end: text.length }];
-  const paragraphs = text.split(/\n{2,}/);
-  if (paragraphs.length > 1) {
-    const chunks: TextChunk[] = [];
-    let current = '';
-    let currentStart = 0;
-    let searchOffset = 0;
-    for (const paragraph of paragraphs) {
-      const paragraphStart = text.indexOf(paragraph, searchOffset);
-      const safeParagraphStart = paragraphStart >= 0 ? paragraphStart : searchOffset;
-      searchOffset = safeParagraphStart + paragraph.length;
-      const next = current ? text.slice(currentStart, safeParagraphStart + paragraph.length) : paragraph;
-      if (next.length <= chunkSize) {
-        current = next;
-        currentStart = current ? currentStart : safeParagraphStart;
-        continue;
-      }
-      if (current.trim()) {
-        chunks.push({ text: current, start: currentStart, end: currentStart + current.length });
-      }
-      if (paragraph.length > chunkSize) {
-        chunks.push(
-          ...chunkText(paragraph, chunkSize, overlap).map((chunk) => ({
-            text: chunk.text,
-            start: safeParagraphStart + chunk.start,
-            end: safeParagraphStart + chunk.end,
-          })),
-        );
-        current = '';
-      } else {
-        current = paragraph;
-        currentStart = safeParagraphStart;
-      }
-    }
-    if (current.trim()) {
-      chunks.push({ text: current, start: currentStart, end: currentStart + current.length });
-    }
-    return chunks;
+/**
+ * Offsets where a new chunk is ALLOWED to start, in increasing order (always
+ * includes 0). Boundaries are semantic seams: the start of the line after a
+ * blank-line gap, and the start of any heading line (`### …`, `#### …`, or a
+ * numbered section like `2. ### …`). Splitting on these keeps a paragraph, a
+ * numbered process section, or a swimlane block intact instead of severing it.
+ */
+function computeStructuralBoundaries(text: string): number[] {
+  const set = new Set<number>([0]);
+  // Alt 1: a blank-line gap → boundary is the start of the following line.
+  // Alt 2: a newline immediately before a heading line → boundary at the heading.
+  const re = /\n[ \t]*\n|\n(?=[ \t]*(?:\d+\.\s+)?#{1,6}\s)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    set.add(m.index + m[0].length);
   }
+  return [...set].sort((a, b) => a - b);
+}
+
+/**
+ * Structure-aware chunker. Packs text up to `chunkSize`, but cuts only at
+ * semantic boundaries (headings / paragraph breaks; then line breaks; only a
+ * single over-long line forces a hard char cut). Chunks stay contiguous and
+ * non-overlapping with exact offsets into the source text, so the persisted
+ * `document_chunks` and `pickEvidenceChunk`'s offset math keep working. This
+ * replaces the byte-slice fallback that could sever a flowchart arrow line or a
+ * sentence mid-word.
+ */
+function chunkTextStructured(text: string, chunkSize = CHUNK_SIZE): TextChunk[] {
+  if (text.length <= chunkSize) return [{ text, start: 0, end: text.length }];
+  const boundaries = computeStructuralBoundaries(text);
   const chunks: TextChunk[] = [];
-  let start = 0;
-  while (start < text.length) {
-    const end = Math.min(start + chunkSize, text.length);
-    chunks.push({ text: text.slice(start, end), start, end });
-    start += chunkSize - overlap;
-    if (start >= text.length) break;
+  let cursor = 0;
+  while (cursor < text.length) {
+    const hardEnd = Math.min(cursor + chunkSize, text.length);
+    if (hardEnd >= text.length) {
+      chunks.push({ text: text.slice(cursor, text.length), start: cursor, end: text.length });
+      break;
+    }
+    // Latest structural boundary that fits in (cursor, hardEnd].
+    let cut = -1;
+    for (const b of boundaries) {
+      if (b > cursor && b <= hardEnd) cut = b;
+      else if (b > hardEnd) break;
+    }
+    if (cut === -1) {
+      // No structural seam fits — fall back to the latest line break, then a
+      // hard char cut for a single line longer than chunkSize.
+      const nl = text.slice(cursor, hardEnd).lastIndexOf('\n');
+      cut = nl > 0 ? cursor + nl + 1 : hardEnd;
+    }
+    chunks.push({ text: text.slice(cursor, cut), start: cursor, end: cut });
+    cursor = cut;
   }
   return chunks;
 }
@@ -433,6 +447,17 @@ function resolveParseKind(
     return 'text';
   }
   return 'unsupported';
+}
+
+/**
+ * Heuristic: does an image transcription look like a diagram (flowchart, swimlane
+ * map, decision tree) rather than a plain screenshot of prose? The vision prompt
+ * renders diagrams with `[Lane: "label"]` nodes, `--(Arrow: "…")-->` edges, and
+ * `### Swimlane` headers, so their presence is a strong signal. Drives a
+ * relationship-first extraction addendum instead of the box-by-box default.
+ */
+function looksLikeDiagramTranscription(text: string): boolean {
+  return /-->/.test(text) || /--\(Arrow/i.test(text) || /###\s*Swimlane/i.test(text);
 }
 
 /** Map a stored file type / name to a Gemini-accepted image MIME type. */
@@ -728,7 +753,9 @@ async function processDocument(
   }
 
   // 4. Chunk + embed + insert chunks (idempotent dedup by content hash).
-  const textChunks = chunkText(rawText);
+  //    Structure-aware: cut on headings/paragraphs/lines, never mid-line, so a
+  //    flowchart arrow line or a sentence is never severed across chunks.
+  const textChunks = chunkTextStructured(rawText);
   let chunkVectors: (number[] | null)[] = [];
   try {
     const { vectors } = await embedMany(textChunks.map((c) => c.text));
@@ -792,7 +819,10 @@ async function processDocument(
 
   // 5. Process every chunk window. Each model call is bounded, but the
   // document itself is not silently truncated.
-  const extractionWindows = buildDocumentChunkWindows(insertedChunkIds);
+  const extractionWindows = buildDocumentChunkWindows(
+    insertedChunkIds,
+    parseKind === 'image' ? MAX_IMAGE_TEXT_CHARS : MAX_DOCUMENT_TEXT_CHARS,
+  );
   for (let windowIndex = 0; windowIndex < extractionWindows.length; windowIndex++) {
     const extractionWindow = extractionWindows[windowIndex]!;
     const windowChunks = extractionWindow.chunks;
@@ -815,9 +845,12 @@ async function processDocument(
     // 6. Compile prompt + context pack. The document text becomes the dynamic
     //    block; the extraction system prompt + the document-specific addendum
     //    are stable.
+    const isDiagram = parseKind === 'image' && looksLikeDiagramTranscription(rawText);
     const baseDocumentNote =
       parseKind === 'image'
-        ? `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded image (not a conversation, not a native text document). Extract claims about operational processes, rules, systems, and dependencies that are explicitly supported by this transcription.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}`
+        ? isDiagram
+          ? `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded DIAGRAM (flowchart / swimlane / process map). Nodes are written as [Lane/Color: "label"] and connections as [A] --(Arrow: "condition")--> [B]. The MEANING of this document is the FLOW — who hands off to whom, in what sequence, and under which conditions — NOT the existence of individual boxes.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}\n\nDIAGRAM EXTRACTION GUIDANCE:\n- Prefer claims that capture HANDOFFS and SEQUENCE. Represent each arrow as a dependency claim — "After/from X, Y happens" or "X is handed off to <role/lane> who does Y" — and include the arrow's condition label when one is present.\n- Capture DECISION/BRANCH rules (e.g. "If Audit: Fail", "Existing Product" vs "New Product Type", "Before an Order") as exception or process rules that state the condition AND the resulting path.\n- Record OWNERSHIP only when it adds information (which lane/role performs a step). Do NOT emit a separate claim for every box: a bare node label with no relationship is low-value — fold it into the handoff claim it participates in.\n- Aim for fewer, higher-altitude, CONNECTED claims rather than many disconnected "box X exists" statements.\n- Every exactQuote must still be copied verbatim from within ONE provided document chunk. For a handoff, quote the full \`[A] --(Arrow: "…")--> [B]\` line; for a branch, quote the line that contains the condition.`
+          : `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded image (not a conversation, not a native text document). Extract claims about operational processes, rules, systems, and dependencies that are explicitly supported by this transcription.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}`
         : `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}\n\nDOCUMENT EXTRACTION DENSITY:\n- If the document is an SOP, checklist, responsibility list, training guide, or numbered/bulleted workflow, treat each actionable responsibility, required input, required output, system update, file-save rule, approval step, exception, handoff, or escalation as its own candidate claim when it has distinct evidence.\n- Do not summarize an entire section into one broad claim when the section contains multiple concrete steps.\n- It is acceptable and expected for a dense responsibilities document to produce many small claims from one chunk.`;
     const documentNote = baseDocumentNote + buildUploaderContextNote(doc, topDomainNameMap);
     const blocks = [

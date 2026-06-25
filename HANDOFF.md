@@ -1,6 +1,35 @@
 # HANDOFF — Recall.ai wiring + extraction tuning + China bilingual layer + meeting picker
 
-Last updated: 2026-06-24. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+Last updated: 2026-06-25. Delete this file once the remaining items below are closed (synthesis demo, entity-registry seeding, diagram-ingestion tuning, and any intentional uncommitted local changes are committed/deployed or discarded by the owner).
+
+---
+
+## Diagram / flowchart image ingestion tuning (2026-06-25)
+
+Status:
+**partial / blocked.** Worker code is deployed; a re-evaluation of the test flowchart produced **0 promoted claims** and needs a follow-up fix before this is usable.
+
+Done (deployed):
+- `apps/workers/src/trigger/document-ingestion.ts` changes, deployed as Trigger prod worker **`20260625.1`** (21 tasks) via the Trigger MCP `deploy` (the CLI `npx trigger.dev deploy` needs a PAT we don't have locally; the MCP is authenticated):
+  - **Wider extraction windows** so a connected graph is reasoned over in one call instead of being sliced into independent ~6k windows: `MAX_DOCUMENT_TEXT_CHARS` 6k→**24k**, new `MAX_IMAGE_TEXT_CHARS` **32k** (used when `parseKind==='image'`).
+  - **Structure-aware chunking** (`chunkTextStructured` + `computeStructuralBoundaries`) replaces the old byte-slice `chunkText` (deleted, with `CHUNK_OVERLAP`). Cuts only at heading/paragraph→line boundaries, never mid-line, so a flowchart arrow line is never severed. Validated invariants (contiguous, exact offsets, no severed `--(Arrow` line) with a throwaway test.
+  - **Diagram-aware extraction prompt**: `looksLikeDiagramTranscription()` (detects `-->`/`--(Arrow`/`### Swimlane`) switches the image addendum to ask for handoff/branch `dependency`/`exception` claims and to quote the full `[A] --(Arrow)--> [B]` line, instead of one shallow `process_rule` per box.
+- New ops tool **`scripts/reevaluate-document.mjs`** (UNCOMMITTED): guarded re-evaluation of one document — deletes its prior claims/chunks/candidates/batches/tags and resets `documents.status='pending_processing'`. DRY-RUN by default; only acts on `APPLY=1`; **aborts** if any target claim is in the Brain (`section_claims`), a contradiction, a gap, or is multi-source. Runs in one transaction. Two ordering lessons baked in: `employee_claims` is a VIEW (don't delete from it); delete `extraction_candidates` BEFORE claims (nulling `promoted_to_claim_id` in place violates `extraction_candidates_promoted_consistency_check`).
+
+The blocking finding (the durable lesson):
+- The new pipeline DID produce the right SHAPE of claims — re-ingest run `run_cmqsufh7644370uohnjafaayf` staged 15 `dependency` handoff claims (vs the old 79 one-box `process_rule`). **But all 15 failed `quote_exact_match`** → 0 promoted, so the doc went from 102 claims to **0**.
+- Two causes: (1) the **vision pass is non-deterministic and was worse this run** — the transcription was 2,513 chars / 1 chunk and truncated mid-sentence (vs 12,928 chars / 4 chunks the first time), and used a format that splits each edge across two lines (node on one line, `--(Arrow)--> [target]` on the next), so no single verbatim line captures a handoff and the extractor paraphrased. (2) The first (good) run used **one self-contained line per edge**, which is exactly why its 16 dependency claims passed validation.
+- **Likely root cause:** `settings.default_vision_route` in prod is `google/gemini-3.1-flash-image-preview` — an image-**generation** preview model, the wrong tool for dense visual *reading*. The shipped fallback `vertex_gemini_2_5_flash_extraction_primary` (Gemini 2.5 Flash) is a real vision model and should be more consistent.
+
+Next action (recommended: do all three, then re-run):
+1. **No-code:** change Admin → Settings → "Image vision model" off the image-generation preview to a real vision model (Gemini 2.5 Flash). Biggest reliability lever, no deploy.
+2. **Code:** harden `IMAGE_TRANSCRIPTION_SYSTEM` to force **one self-contained line per edge** (never split a connection across lines) and tell extraction to set `exactQuote` to that whole edge line; optionally apply a whitespace-normalization policy to image transcriptions in the quote validator so near-verbatim edge quotes pass.
+3. Re-run with `scripts/reevaluate-document.mjs APPLY=1` (doc id `9d09fa89-3a46-465e-a98b-837287c9e22a`) then trigger `document-ingestion`, and compare claim-type mix vs the baseline (79 `process_rule` / 16 `dependency` / 7 `exception_rule`).
+
+Risks / watchouts:
+- **The test flowchart `9d09fa89-3a46-465e-a98b-837287c9e22a` is currently at 0 claims** (its prior 102 were deleted). Re-running the SAME code is a coin-flip (vision non-determinism). Fix the vision model first.
+- The same window/segment-splitting weakness exists in the MEETING path (`claim-extraction.ts` segments messages by `BATCH_SIZE`), which can split a multi-message debate mid-argument. Not addressed here; would need context-aware segmentation + carry-in context.
+- `scripts/reevaluate-document.mjs` is uncommitted — commit or discard per owner.
 
 ---
 
@@ -525,6 +554,7 @@ WHERE key = 'teams_live_recall_min_confidence_to_post';
 ## Tooling and identifiers
 
 - **Supabase project ref**: `eqccjfbyrywsqkxxpjvg` (`theoracle`, N. Virginia). Previous Ohio project `vokucjpanhvqunimlvsp` is now `oracle.old`. Use the linked Supabase CLI or `POST https://api.supabase.com/v1/projects/eqccjfbyrywsqkxxpjvg/database/query` with the `sbp_...` token from Windows Credential Manager (`Supabase CLI:supabase`).
+  - **Direct vs pooler from a local script (2026-06-25):** the prod **direct** host `db.eqccjfbyrywsqkxxpjvg.supabase.co` now resolves to an **IPv6-only** address — a v4-only Windows box gets `ENOENT`/`getaddrinfo` and cannot connect. Use the **session pooler** instead: `postgresql://postgres.eqccjfbyrywsqkxxpjvg:<db-pw>@aws-1-us-east-1.pooler.supabase.com:5432/postgres`. Username MUST be `postgres.<ref>` (plain `postgres` → `tenant not found`), pool host prefix is `aws-1` not `aws-0` (Ohio was `aws-1-us-east-2`), and the host is region-wide (the username ref does the routing). The ready-made string is in 1Password item *"Supabase DB Direct URL - The Oracle (CURRENT PROD …)"* → field **`oracle_session_pooler`**.
 - **Trigger.dev project**: `proj_wgpzsvhmsopqhvwqaycn`, prod environment. Trigger MCP (`mcp__trigger__*`) is connected.
 - **Recall.ai workspace**: `f2f8cedc-6d28-4fd2-8d06-402b74d65bcc` (POP Creations), US East. Recall MCP (`mcp__recall-ai__*`) is read-only.
 - **Vercel project**: `prj_rP6Jlima7iK1paffEPhLqxlswGsC`. Vercel MCP (`mcp__vercel__*`) is read-only — env-var writes go via REST API or the Vercel dashboard.
