@@ -1,26 +1,17 @@
 /**
- * Dynamic model route resolver — P1 #1 (Settings overhaul).
+ * Dynamic model route resolver.
  *
  * Handles two ID formats:
- *   1. Catalog routeId  — e.g. "anthropic_claude_haiku_4_5_interview_primary"
- *      → direct lookup in the curated catalog.
- *   2. OpenRouter model ID — e.g. "anthropic/claude-haiku-4-5"
- *      → find the best-matching catalog route for the requested role,
- *        or synthesise a minimal route so the OracleAIClient can dispatch.
+ *   1. Catalog routeId, e.g. "anthropic_claude_haiku_4_5_interview_primary"
+ *   2. Provider/model id, e.g. "anthropic/claude-haiku-4-5"
  *
- * Workers and routes that previously called getOracleRoute() should call
- * resolveModelRoute() instead so that settings saved via the model-pool
- * picker continue to work even when the saved value is an OpenRouter model ID.
+ * This resolver is synchronous and cannot read model_capabilities. Production
+ * settings should use the DB-aware candidate resolver, which passes verified
+ * capability flags into synthetic routes and enforces slot requirements.
  */
 
 import type { OracleModelRole, OracleModelRoute, OracleProvider, ReasoningEffort } from './types';
-import { ORACLE_MODEL_ROUTES } from './catalog';
-import { getOracleRoute } from './catalog';
-import { DEFAULT_ORACLE_ROUTES } from './defaults';
-
-// ---------------------------------------------------------------------------
-// Provider-prefix mapping (OpenRouter prefix → Oracle provider name).
-// ---------------------------------------------------------------------------
+import { ORACLE_MODEL_ROUTES, getOracleRoute } from './catalog';
 
 const OR_PROVIDER_MAP: Record<string, OracleProvider> = {
   anthropic: 'anthropic',
@@ -28,17 +19,11 @@ const OR_PROVIDER_MAP: Record<string, OracleProvider> = {
   google: 'google',
   deepseek: 'deepseek',
   qwen: 'qwen',
-  // others (meta-llama, mistralai, etc.) are not supported — return null
 };
 
-/** Map an OpenRouter provider prefix to the internal OracleProvider enum value. */
 function mapPrefix(prefix: string): OracleProvider | null {
   return (OR_PROVIDER_MAP[prefix] ?? null) as OracleProvider | null;
 }
-
-// ---------------------------------------------------------------------------
-// Default capabilities for synthetic routes — conservative but broad.
-// ---------------------------------------------------------------------------
 
 const SYNTHETIC_CAPS: Pick<
   OracleModelRoute,
@@ -59,112 +44,87 @@ const SYNTHETIC_CAPS: Pick<
   enabled: true,
 };
 
-/** Build a synthetic OracleModelRoute for a model not in the curated catalog. */
+export type SyntheticRouteCaps = Partial<typeof SYNTHETIC_CAPS>;
+
 function makeSyntheticRoute(
-  openRouterId: string,    // e.g. "anthropic/claude-haiku-4-5"
+  providerModelId: string,
   provider: OracleProvider,
-  modelId: string,         // e.g. "claude-haiku-4-5"
+  modelId: string,
   role: OracleModelRole,
+  caps?: SyntheticRouteCaps,
 ): OracleModelRoute {
   const cacheStrategy =
     provider === 'anthropic'
       ? 'anthropic_auto_plus_explicit'
       : provider === 'vertex'
-      ? 'vertex_implicit_or_explicit_by_context_size'
-      : provider === 'google'
-      ? 'none'
-      : provider === 'deepseek'
-      ? 'deepseek_automatic_prefix'
-      : provider === 'qwen'
-      ? 'qwen_explicit_context_cache'
-      : 'openai_automatic_with_cache_key';
+        ? 'vertex_implicit_or_explicit_by_context_size'
+        : provider === 'google'
+          ? 'none'
+          : provider === 'deepseek'
+            ? 'deepseek_automatic_prefix'
+            : provider === 'qwen'
+              ? 'qwen_explicit_context_cache'
+              : 'openai_automatic_with_cache_key';
 
-  // DeepSeek and Qwen via OpenAI-compat don't expose strict json_schema mode.
-  // OpenAI does. Vertex/Gemini API support native json schema. Anthropic uses tool_call.
   const structuredOutputStrategy =
-    provider === 'vertex' || provider === 'google' ? 'native_json_schema'
-      : provider === 'openai' ? 'native_json_schema'
-      : 'tool_call';
+    provider === 'vertex' || provider === 'google'
+      ? 'native_json_schema'
+      : provider === 'openai'
+        ? 'native_json_schema'
+        : 'tool_call';
 
-  // The capability flags below are ASSUMED, not verified — this model isn't in
-  // the curated catalog, so we cannot confirm it actually supports vision /
-  // structured output / tools. Claiming `supportsVision: true` for an arbitrary
-  // model is how a wrong-tool model slips past the "right tool for the job"
-  // invariant (cf. the flowchart incident: an image-GENERATION model used for
-  // vision). Surface it so an uncatalogued model in a capability-sensitive role
-  // is visible rather than silently trusted.
-  console.warn(
-    `[resolve] using SYNTHETIC route for uncatalogued model "${openRouterId}" (role=${role}). ` +
-      `Capability flags (vision/structured-output/tools) are ASSUMED true and NOT verified — ` +
-      `prefer a curated catalog model for capability-sensitive roles.`,
-  );
+  if (!caps) {
+    console.warn(
+      `[resolve] using synthetic route for "${providerModelId}" (role=${role}) without DB-verified capabilities. ` +
+        `Production settings should use resolveRouteCandidates().`,
+    );
+  }
+
   return {
-    routeId: openRouterId,  // use the OpenRouter ID as the routeId
+    routeId: providerModelId,
     role,
     tier: 'primary',
     internalPurpose: null,
     provider,
     modelId,
-    displayName: openRouterId,
-    recommendedUse: `Dynamically resolved from model pool (${openRouterId}).`,
+    displayName: providerModelId,
+    recommendedUse: `Dynamically resolved from model pool (${providerModelId}).`,
     cacheStrategy,
     structuredOutputStrategy,
-    fallbackRouteId: DEFAULT_ORACLE_ROUTES[role],
-    fallbackCondition: 'provider_outage',
     ...SYNTHETIC_CAPS,
+    ...(caps ?? {}),
   };
 }
 
-// ---------------------------------------------------------------------------
-// Public resolver
-// ---------------------------------------------------------------------------
+export function providerModelIdForRoute(route: OracleModelRoute): string {
+  return `${route.provider}/${route.modelId}`;
+}
 
-/**
- * Resolve a model setting value to an OracleModelRoute.
- *
- * Accepts either:
- *   - A catalog routeId      ("anthropic_claude_haiku_4_5_interview_primary")
- *   - An OpenRouter model ID ("anthropic/claude-haiku-4-5")
- *
- * Returns null when the value cannot be resolved to a supported provider.
- * Callers should log a warning and fall back to the default route for the role.
- *
- * @param modelIdOrRouteId  The value stored in the settings table.
- * @param role              The model role being resolved (used when creating
- *                          synthetic routes and for catalog matching).
- */
 export function resolveModelRoute(
   modelIdOrRouteId: string,
   role: OracleModelRole,
   reasoningEffort?: ReasoningEffort,
+  caps?: SyntheticRouteCaps,
 ): OracleModelRoute | null {
   let base: OracleModelRoute | null = null;
 
-  // ── 1. Try direct catalog routeId lookup ─────────────────────────────────
   const byRouteId = getOracleRoute(modelIdOrRouteId);
   if (byRouteId) {
     base = byRouteId;
   } else {
-    // ── 2. Parse as OpenRouter-style "provider/model" ────────────────────────
     const slashIdx = modelIdOrRouteId.indexOf('/');
-    if (slashIdx === -1) return null; // unknown format
+    if (slashIdx === -1) return null;
 
     const prefix = modelIdOrRouteId.slice(0, slashIdx);
     const modelId = modelIdOrRouteId.slice(slashIdx + 1);
     const provider = mapPrefix(prefix);
-    if (!provider) return null; // unsupported provider prefix
+    if (!provider) return null;
 
-    // ── 3. Try catalog lookup by provider + modelId + role ─────────────────
     const catalogMatch = Object.values(ORACLE_MODEL_ROUTES).find(
       (r) => r.provider === provider && r.modelId === modelId && r.role === role,
     );
-    base = catalogMatch ?? makeSyntheticRoute(modelIdOrRouteId, provider, modelId, role);
+    base = catalogMatch ?? makeSyntheticRoute(modelIdOrRouteId, provider, modelId, role, caps);
   }
 
-  // Attach the effort (immutable copy) when provided. Adapters read this off
-  // the route at inference time and translate to provider-native format.
-  if (reasoningEffort) {
-    return { ...base, reasoningEffort };
-  }
-  return base;
+  return reasoningEffort ? { ...base, reasoningEffort } : base;
 }

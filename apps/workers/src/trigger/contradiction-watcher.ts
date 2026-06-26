@@ -43,13 +43,15 @@ import {
   OracleAIClient,
   buildStandardAdapters,
   embedText,
-  getOracleRoute,
-  resolveRouteFromSettings,
+  logAllCandidatesFailedAttempts,
+  logModelRunAttempts,
   makeBlock,
+  resolveRouteCandidates,
   searchWithRetrievalPlan,
   buildDomainScopedPlan,
   buildGlobalRetrievalPlan,
   type OracleModelRoute,
+  type RouteCandidate,
 } from '@oracle/ai';
 // EMBEDDING_DIM removed: ANN search now goes through searchWithRetrievalPlan
 // which handles embedding dimensions internally.
@@ -57,12 +59,6 @@ import {
   decideContradictionInterjection,
   CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD,
 } from '@oracle/engines';
-
-// Extraction route is the right home for adjudication too — it's a cheap
-// structured-output call. Different from R11's live-interjection drafting,
-// which uses the interview route for human-facing warmth.
-const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
-const FALLBACK_INTERVIEW_ROUTE_ID = 'anthropic_claude_haiku_4_5_interview_primary';
 
 // Default settings if the rows are missing — match seed defaults.
 const DEFAULT_ORACLE_COOLDOWN_MINUTES = 10;
@@ -95,7 +91,6 @@ const CONTRADICTION_PROMPT_VERSION = 'contradiction-1.0.0';
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
     adapters: buildStandardAdapters(),
-    fallbackOnError: true,
   });
 }
 
@@ -154,24 +149,6 @@ const ClaimCheckPayloadSchema = z.object({
   claimId: z.string().uuid(),
 });
 
-// ─── Curated route resolver (mirrors claim-extraction.ts) ───────────────────
-async function resolveContradictionRoute(
-  db: ReturnType<typeof getDirectDb>,
-): Promise<OracleModelRoute> {
-  const resolved = await resolveRouteFromSettings(db, 'extraction');
-  if (resolved) return resolved;
-  const fallback = getOracleRoute(FALLBACK_ROUTE_ID);
-  if (!fallback) {
-    throw new Error(
-      `[contradiction-watcher] default_extraction_route unset/unresolvable, and fallback "${FALLBACK_ROUTE_ID}" also missing.`,
-    );
-  }
-  console.warn(
-    `[contradiction-watcher] default_extraction_route unset/unresolvable; using fallback "${FALLBACK_ROUTE_ID}".`,
-  );
-  return fallback;
-}
-
 // ─── Single adjudication call: one (claimA, claimB) pair via OracleAIClient.
 //     Writes all three observability rows on success or failure.
 // ─────────────────────────────────────────────────────────────────────────
@@ -179,6 +156,7 @@ async function adjudicateOnePair(
   db: ReturnType<typeof getDirectDb>,
   client: OracleAIClient,
   route: OracleModelRoute,
+  routeCandidates: RouteCandidate[],
   claimASummary: string,
   claimBSummary: string,
 ): Promise<{ object: ContradictionCheck | null; modelRunId: string | null; error: string | null }> {
@@ -212,6 +190,7 @@ async function adjudicateOnePair(
       promptVersion: CONTRADICTION_PROMPT_VERSION,
       blocks,
       schema: ContradictionCheckSchema,
+      routeCandidates,
     });
     const latencyMs = Date.now() - callStartedAt;
     const actualRouteId = result.routeId ?? route.routeId;
@@ -265,8 +244,15 @@ async function adjudicateOnePair(
       reasoningTokens: result.usage.reasoningTokens ?? null,
       providerRequestId: result.usage.providerRequestId ?? null,
       rawUsageJson: (result.usage.rawUsageJson ?? null) as Record<string, unknown> | null,
-      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
-      fallbackReason: result.fallbackReason ?? null,
+    });
+
+    await logModelRunAttempts({
+      db,
+      metadata: result,
+      taskType: 'contradiction-check',
+      slot: 'extraction',
+      contextPackId: contextPack.id,
+      modelRunId: modelRun.id,
     });
 
     await db
@@ -281,6 +267,12 @@ async function adjudicateOnePair(
   } catch (err) {
     const latencyMs = Date.now() - callStartedAt;
     const message = err instanceof Error ? err.message : String(err);
+    await logAllCandidatesFailedAttempts({
+      db,
+      error: err,
+      taskType: 'contradiction-check',
+      slot: 'extraction',
+    });
     // Best-effort failure row so admin dashboards see the attempt.
     try {
       const [modelRun] = await db
@@ -366,8 +358,8 @@ async function checkClaimForContradictions(
     enableLiveSetting,
     cooldownSetting,
     rateCapSetting,
-    extractionRoute,
-    interviewRoute,
+    extractionCandidates,
+    interviewCandidates,
   ] = await Promise.all([
     db
       .select({ value: settings.value })
@@ -384,8 +376,8 @@ async function checkClaimForContradictions(
       .from(settings)
       .where(eq(settings.key, 'max_oracle_interjections_per_hour'))
       .limit(1),
-    resolveContradictionRoute(db),
-    resolveInterviewRoute(db),
+    resolveContradictionCandidates(db),
+    resolveInterviewCandidates(db),
   ]);
 
   const enableLiveInterjection = enableLiveSetting[0]?.value === true;
@@ -397,8 +389,9 @@ async function checkClaimForContradictions(
     typeof rateCapSetting[0]?.value === 'number'
       ? (rateCapSetting[0]!.value as number)
       : DEFAULT_MAX_ORACLE_INTERJECTIONS_PER_HOUR;
-  // Use extractionRoute for adjudication; interviewRoute for live drafting.
-  const route = extractionRoute;
+  // Use extraction candidates for adjudication; interview candidates for live drafting.
+  const route = extractionCandidates[0]!.route;
+  const interviewRoute = interviewCandidates[0]!.route;
 
   // Ensure the claim has an embedding; compute one if absent.
   let claimEmbedding = claim.embedding;
@@ -482,6 +475,7 @@ async function checkClaimForContradictions(
       db,
       client,
       route,
+      extractionCandidates,
       claim.summary,
       candidate.summary,
     );
@@ -531,12 +525,18 @@ async function checkClaimForContradictions(
     let draftedModelRunId: string | null = null;
     if (mightLive && channelCtx && object.suggestedQuestion) {
       try {
-        const drafted = await draftContradictionInterjection(db, client, interviewRoute, {
-          suggestedQuestion: object.suggestedQuestion,
-          claimASummary: claim.summary,
-          claimBSummary: candidate.summary,
-          explanation: object.explanation,
-        });
+        const drafted = await draftContradictionInterjection(
+          db,
+          client,
+          interviewRoute,
+          interviewCandidates,
+          {
+            suggestedQuestion: object.suggestedQuestion,
+            claimASummary: claim.summary,
+            claimBSummary: candidate.summary,
+            explanation: object.explanation,
+          },
+        );
         draftedText = drafted.text;
         draftedModelRunId = drafted.modelRunId;
       } catch (drafterr) {
@@ -756,25 +756,24 @@ export const contradictionWatcherSweepTask = schedules.task({
 
 // ─── R11.3 helpers ──────────────────────────────────────────────────────────
 
-/**
- * Resolve the curated INTERVIEW route (Anthropic Claude Haiku 4.5 by default).
- * Used for human-facing contradiction interjection drafting.
- */
-async function resolveInterviewRoute(
+async function resolveContradictionCandidates(
   db: ReturnType<typeof getDirectDb>,
-): Promise<OracleModelRoute> {
-  const resolved = await resolveRouteFromSettings(db, 'interview');
-  if (resolved) return resolved;
-  const fallback = getOracleRoute(FALLBACK_INTERVIEW_ROUTE_ID);
-  if (!fallback) {
-    throw new Error(
-      `[contradiction-watcher] default_interview_route unset/unresolvable, and fallback "${FALLBACK_INTERVIEW_ROUTE_ID}" also missing.`,
-    );
+): Promise<RouteCandidate[]> {
+  const resolved = await resolveRouteCandidates(db, 'extraction');
+  for (const skipped of resolved.skipped) {
+    console.warn('[contradiction-watcher] skipped extraction route candidate', skipped);
   }
-  console.warn(
-    `[contradiction-watcher] default_interview_route unset/unresolvable; using fallback "${FALLBACK_INTERVIEW_ROUTE_ID}".`,
-  );
-  return fallback;
+  return resolved.candidates;
+}
+
+async function resolveInterviewCandidates(
+  db: ReturnType<typeof getDirectDb>,
+): Promise<RouteCandidate[]> {
+  const resolved = await resolveRouteCandidates(db, 'interview');
+  for (const skipped of resolved.skipped) {
+    console.warn('[contradiction-watcher] skipped interview route candidate', skipped);
+  }
+  return resolved.candidates;
 }
 
 /**
@@ -810,6 +809,7 @@ async function draftContradictionInterjection(
   db: ReturnType<typeof getDirectDb>,
   client: OracleAIClient,
   route: OracleModelRoute,
+  routeCandidates: RouteCandidate[],
   input: {
     suggestedQuestion: string;
     claimASummary: string;
@@ -853,6 +853,7 @@ Explanation: ${input.explanation}`;
       promptVersion: LIVE_INTERJECTION_PROMPT_VERSION,
       blocks,
       providerOptions: { temperature: 0.4 },
+      routeCandidates,
     });
     const latencyMs = Date.now() - callStartedAt;
     const actualRouteId = result.routeId ?? route.routeId;
@@ -905,8 +906,15 @@ Explanation: ${input.explanation}`;
       reasoningTokens: result.usage.reasoningTokens ?? null,
       providerRequestId: result.usage.providerRequestId ?? null,
       rawUsageJson: (result.usage.rawUsageJson ?? null) as Record<string, unknown> | null,
-      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
-      fallbackReason: result.fallbackReason ?? null,
+    });
+
+    await logModelRunAttempts({
+      db,
+      metadata: result,
+      taskType: 'contradiction-live-interjection',
+      slot: 'interview',
+      contextPackId: contextPack.id,
+      modelRunId: modelRun.id,
     });
 
     await db
@@ -922,6 +930,12 @@ Explanation: ${input.explanation}`;
   } catch (err) {
     const latencyMs = Date.now() - callStartedAt;
     const message = err instanceof Error ? err.message : String(err);
+    await logAllCandidatesFailedAttempts({
+      db,
+      error: err,
+      taskType: 'contradiction-live-interjection',
+      slot: 'interview',
+    });
     try {
       const [modelRun] = await db
         .insert(modelRuns)

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { requireAdmin } from '@/lib/auth-guard';
 import { LogoutButton } from '@/app/_components/logout-button';
 import { AdminNav } from './_components/admin-nav';
+import { ModelAttemptAlertBanner } from './_components/model-attempt-alert-banner';
 import { formatNYDateTime } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
@@ -41,7 +42,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </div>
         </div>
       </header>
-      <main className="container py-8">{children}</main>
+      <main className="container py-8">
+        <ModelAttemptAlertBanner />
+        {children}
+      </main>
     </div>
   );
 }

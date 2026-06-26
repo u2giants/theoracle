@@ -37,14 +37,16 @@ import {
   ORACLE_SYSTEM_PROMPT_VERSION,
   OracleAIClient,
   buildStandardAdapters,
-  getOracleRoute,
-  resolveRouteFromSettings,
+  resolveRouteCandidates,
+  logAllCandidatesFailedAttempts,
+  logModelRunAttempts,
   getRecentMessages,
   getRelevantOpenGaps,
   makeBlock,
   searchWithRetrievalPlan,
   buildRetrievalPlanFromQuery,
   type OracleModelRoute,
+  type RouteCandidate,
   type OraclePromptPlan,
   type RetrievalPlanSearchScope,
 } from '@oracle/ai';
@@ -71,8 +73,6 @@ const BodySchema = z.object({
   force: z.boolean().optional(),
 });
 
-const FALLBACK_ROUTE_ID = 'anthropic_claude_haiku_4_5_interview_primary';
-
 // Minimum size for routing a chat-attached PDF through the Vertex GCS
 // file-backed cache. Below this, Gemini's explicit-cache minimum-token floor
 // makes caching unprofitable (and risky — see route logic), so we leave small
@@ -92,7 +92,6 @@ function getOracleClient(): OracleAIClient {
   if (!_oracleClient) {
     _oracleClient = new OracleAIClient({
       adapters: buildStandardAdapters(),
-      fallbackOnError: true,
     });
   }
   return _oracleClient;
@@ -191,7 +190,8 @@ export async function POST(req: NextRequest) {
     : [];
 
   // ── 4. Resolve curated interview route ───────────────────────────────
-  const route = await resolveInterviewRoute(db);
+  const routeCandidates = await resolveInterviewCandidates(db);
+  const route = routeCandidates[0]!.route;
   const visionCapable = isVisionCapableRoute(route);
 
   // ── 5. Compile prompt blocks (stable system + dynamic context) ───────
@@ -442,8 +442,7 @@ export async function POST(req: NextRequest) {
   let actualRouteId = route.routeId;
   let actualProvider = route.provider;
   let actualModelId = route.modelId;
-  let fellBackFromRouteId: string | undefined;
-  let fallbackReason: string | undefined;
+  let runMetadata: Awaited<ReturnType<OracleAIClient['runText']>> | null = null;
 
   try {
     // Cache-friendly ordering: fold the volatile per-turn runtime context
@@ -499,7 +498,9 @@ export async function POST(req: NextRequest) {
               : undefined,
         },
       },
+      routeCandidates,
     });
+    runMetadata = result;
     oracleText = result.text;
     inputTokens = result.usage.inputTokens;
     outputTokens = result.usage.outputTokens;
@@ -509,12 +510,17 @@ export async function POST(req: NextRequest) {
     actualRouteId = result.routeId ?? route.routeId;
     actualProvider = (result.provider as typeof route.provider | undefined) ?? route.provider;
     actualModelId = result.modelId ?? route.modelId;
-    fellBackFromRouteId = result.fellBackFromRouteId;
-    fallbackReason = result.fallbackReason;
     success = true;
   } catch (err) {
     modelError = err instanceof Error ? err.message : String(err);
     console.error('[chat] model error', err);
+    await logAllCandidatesFailedAttempts({
+      db,
+      error: err,
+      taskType: 'interview_chat',
+      slot: 'interview',
+      contextPackId: contextPack.id,
+    }).catch((logErr) => console.error('[chat] failed to record model attempts', logErr));
   } finally {
     // The GCS object is reaped by the adapter's cache-TTL sweeper; we only own
     // the local temp file. Best-effort cleanup.
@@ -550,9 +556,17 @@ export async function POST(req: NextRequest) {
       outputTokens: outputTokens ?? null,
       providerRequestId: providerRequestId ?? null,
       rawUsageJson: usageRaw ?? null,
-      fellBackFromRouteId: fellBackFromRouteId ?? null,
-      fallbackReason: fallbackReason ?? null,
     });
+    if (runMetadata) {
+      await logModelRunAttempts({
+        db,
+        metadata: runMetadata,
+        taskType: 'interview_chat',
+        slot: 'interview',
+        contextPackId: contextPack.id,
+        modelRunId: modelRun.id,
+      });
+    }
     await db
       .update(oracleContextPacks)
       .set({ modelRunId: modelRun.id })
@@ -639,19 +653,12 @@ function scopeTag(topDomainHints: string[], scope: RetrievalPlanSearchScope): st
   return [`_${scope}`]; // '_global_fallback' or '_global_explicit'
 }
 
-async function resolveInterviewRoute(db: OracleDb): Promise<OracleModelRoute> {
-  // resolveRouteFromSettings handles catalog routeIds, OpenRouter "provider/model"
-  // IDs from the pool picker, AND attaches the admin's saved reasoning effort.
-  const resolved = await resolveRouteFromSettings(db, 'interview');
-  if (resolved) return resolved;
-  const fb = getOracleRoute(FALLBACK_ROUTE_ID);
-  if (!fb) {
-    throw new Error(
-      `[chat] default_interview_route unset/unresolvable and fallback "${FALLBACK_ROUTE_ID}" missing.`,
-    );
+async function resolveInterviewCandidates(db: OracleDb): Promise<RouteCandidate[]> {
+  const resolved = await resolveRouteCandidates(db, 'interview');
+  for (const skipped of resolved.skipped) {
+    console.error(`[chat] skipped configured interview candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`);
   }
-  console.warn(`[chat] default_interview_route unset/unresolvable; using fallback "${FALLBACK_ROUTE_ID}".`);
-  return fb;
+  return resolved.candidates;
 }
 
 /**

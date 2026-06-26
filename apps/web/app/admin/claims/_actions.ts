@@ -9,10 +9,8 @@ import {
   buildRetrievalPlanFromQuery,
   OracleAIClient,
   buildStandardAdapters,
-  getOracleRoute,
-  resolveAuxiliaryRouteFromSettings,
   makeBlock,
-  DEFAULT_TRANSLATION_ROUTE_ID,
+  resolveRouteCandidates,
 } from '@oracle/ai';
 import {
   claimEntities,
@@ -620,8 +618,7 @@ export async function assignClaimQuestionBulkWithState(
 
 /**
  * Translate a claim-review question into Simplified Chinese via the admin-chosen
- * translation model (`default_translation_route`), falling back to the shipped
- * default route when unset. Used so a `claim_review_question` directed at a
+ * translation model (`default_translation_route`). Used so a `claim_review_question` directed at a
  * China-team (`zh-CN`) recipient is asked in Chinese. All inference goes through
  * OracleAIClient.
  */
@@ -629,12 +626,14 @@ async function translateReviewQuestionToChinese(
   db: ReturnType<typeof getDirectDb>,
   question: string,
 ): Promise<string> {
-  const route =
-    (await resolveAuxiliaryRouteFromSettings(db, 'translation')) ??
-    getOracleRoute(DEFAULT_TRANSLATION_ROUTE_ID);
-  if (!route) return question;
+  const routeResolution = await resolveRouteCandidates(db, 'translation');
+  for (const skipped of routeResolution.skipped) {
+    console.warn('[claims-admin] skipped translation route candidate', skipped);
+  }
+  const routeCandidates = routeResolution.candidates;
+  const route = routeCandidates[0]!.route;
 
-  const client = new OracleAIClient({ adapters: buildStandardAdapters(), fallbackOnError: true });
+  const client = new OracleAIClient({ adapters: buildStandardAdapters() });
   const result = await client.runText({
     taskType: 'claim_translation',
     routeId: route.routeId,
@@ -656,8 +655,13 @@ async function translateReviewQuestionToChinese(
         reasonIncluded: 'The English question to translate',
       }),
     ],
+    routeCandidates,
   });
-  return result.text.trim() || question;
+  const translated = result.text.trim();
+  if (!translated) {
+    throw new Error('Translation model returned an empty review question.');
+  }
+  return translated;
 }
 
 /**

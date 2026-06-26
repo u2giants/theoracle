@@ -49,10 +49,12 @@ import {
 import {
   OracleAIClient,
   buildStandardAdapters,
-  getOracleRoute,
-  resolveRouteFromSettings,
+  resolveRouteCandidates,
+  logAllCandidatesFailedAttempts,
+  logModelRunAttempts,
   makeBlock,
   type OracleModelRoute,
+  type RouteCandidate,
   type OraclePromptPlan,
 } from '@oracle/ai';
 import {
@@ -77,7 +79,6 @@ function parseRelatedDomains(value: unknown): KnowledgeDomain[] {
   return value.filter((v): v is KnowledgeDomain => typeof v === 'string' && allowed.has(v));
 }
 
-const FALLBACK_ROUTE_ID = 'anthropic_claude_3_5_sonnet_synthesis_primary';
 const SYNTHESIS_PROMPT_VERSION = '1.0.0';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -148,7 +149,6 @@ const PayloadSchema = z.object({
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
     adapters: buildStandardAdapters(),
-    fallbackOnError: true,
   });
 }
 
@@ -221,7 +221,8 @@ async function synthesizeSection(
   const client = buildOracleClient();
 
   // ── 1. Resolve curated synthesis route + load section + claims ───────
-  const route = await resolveSynthesisRoute(db);
+  const routeCandidates = await resolveSynthesisCandidates(db);
+  const route = routeCandidates[0]!.route;
 
   const [section] = await db
     .select()
@@ -401,6 +402,7 @@ async function synthesizeSection(
           latestPlannedReuseStep: 'brain_synthesis',
         },
       },
+      routeCandidates,
     });
     const latencyMs = Date.now() - callStartedAt;
     inputTokens = result.usage.inputTokens;
@@ -438,8 +440,14 @@ async function synthesizeSection(
       outputTokens: outputTokens ?? null,
       providerRequestId: providerRequestId ?? null,
       rawUsageJson: usageRaw ?? null,
-      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
-      fallbackReason: result.fallbackReason ?? null,
+    });
+    await logModelRunAttempts({
+      db,
+      metadata: result,
+      taskType: 'brain-synthesis',
+      slot: 'synthesis',
+      contextPackId: contextPack.id,
+      modelRunId: modelRun.id,
     });
     await db
       .update(oracleContextPacks)
@@ -455,6 +463,15 @@ async function synthesizeSection(
     modelOutput = result.object;
   } catch (err) {
     if (!modelRunId) {
+      await logAllCandidatesFailedAttempts({
+        db,
+        error: err,
+        taskType: 'brain-synthesis',
+        slot: 'synthesis',
+        contextPackId: contextPack.id,
+      }).catch((logErr) =>
+        console.error('[brain-synthesis] failed to record model attempts', logErr),
+      );
       await db.insert(modelRuns).values({
         taskType: 'brain-synthesis',
         model: route.modelId,
@@ -605,14 +622,13 @@ async function synthesizeSection(
     requiresReview: modelOutput.requiresHumanReview,
   };
 }
-
 // ─────────────────────────────────────────────────────────────────────────
 // Tasks
 // ─────────────────────────────────────────────────────────────────────────
 
 export const brainSynthesisTask = task({
   id: 'brain-synthesis',
-  maxDuration: 60 * 10,
+  maxDuration: 60 * 30,
   run: async (payload: z.infer<typeof PayloadSchema>, { ctx }) => {
     PayloadSchema.parse(payload);
     const db = getDirectDb();
@@ -685,21 +701,12 @@ export const brainSynthesisScheduledTask = schedules.task({
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
 
-async function resolveSynthesisRoute(db: OracleDb): Promise<OracleModelRoute> {
-  // Reads BOTH default_synthesis_route AND default_synthesis_reasoning_effort
-  // in one query; effort is attached to the returned route for the adapter.
-  const resolved = await resolveRouteFromSettings(db, 'synthesis');
-  if (resolved) return resolved;
-  const fb = getOracleRoute(FALLBACK_ROUTE_ID);
-  if (!fb) {
-    throw new Error(
-      `[brain-synthesis] default_synthesis_route unset / unresolvable and fallback "${FALLBACK_ROUTE_ID}" missing.`,
-    );
+async function resolveSynthesisCandidates(db: OracleDb): Promise<RouteCandidate[]> {
+  const resolved = await resolveRouteCandidates(db, 'synthesis');
+  for (const skipped of resolved.skipped) {
+    console.error(`[brain-synthesis] skipped configured synthesis candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`);
   }
-  console.warn(
-    `[brain-synthesis] default_synthesis_route unset / unresolvable; using fallback "${FALLBACK_ROUTE_ID}".`,
-  );
-  return fb;
+  return resolved.candidates;
 }
 
 function buildContextPackInsert(plan: OraclePromptPlan) {

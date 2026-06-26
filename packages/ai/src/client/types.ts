@@ -117,8 +117,15 @@ export interface OracleRunRouteMetadata {
   routeId?: string;
   provider?: string;
   modelId?: string;
-  fellBackFromRouteId?: string;
-  fallbackReason?: string;
+  actualRouteId?: string;
+  attemptedRoutes?: Array<{
+    routeId: string;
+    provider: string;
+    modelId: string;
+    success: boolean;
+    error?: string;
+  }>;
+  usedNonPrimary?: boolean;
 }
 
 /** Result of a generateText call. */

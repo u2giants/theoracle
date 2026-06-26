@@ -237,7 +237,6 @@ export async function processExtractionAbEval(reviewEventId: string) {
     const lessonPack = await loadClaimCorrectionLessonPack(db, { limit: 14 });
     const client = new OracleAIClient({
       adapters: buildStandardAdapters(),
-      fallbackOnError: false,
     });
 
     const variantResults = await Promise.all(

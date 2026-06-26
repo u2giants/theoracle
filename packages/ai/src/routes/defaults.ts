@@ -1,29 +1,11 @@
 /**
- * Default Oracle Model Routes
+ * Oracle model setting keys.
  *
- * Strictly one Primary route per role. There are NO "balanced alternates" or
- * multiple competing defaults. Per docs/oracle/05-ai-retrofit-phase-packet.md
- * Phase R1: "Remove any existing code referencing 'balanced alternate routes'
- * or multiple defaults."
- *
- * The admin selects a route by routeId via Admin → Settings. The settings rows
- * keyed `default_interview_route`, `default_extraction_route`, and
- * `default_synthesis_route` hold the current production selections. The values
- * below are the seeded defaults shipped with the codebase.
+ * Runtime model selection comes from settings rows and approved model pools.
+ * This file intentionally does not export hard-coded model defaults.
  */
 
-import {
-  anthropic_claude_haiku_4_5_interview_primary,
-  vertex_gemini_2_5_flash_extraction_primary,
-  anthropic_claude_3_5_sonnet_synthesis_primary,
-} from './catalog';
 import type { OracleModelRole } from './types';
-
-export const DEFAULT_ORACLE_ROUTES: Record<OracleModelRole, string> = {
-  interview: anthropic_claude_haiku_4_5_interview_primary.routeId,
-  extraction: vertex_gemini_2_5_flash_extraction_primary.routeId,
-  synthesis: anthropic_claude_3_5_sonnet_synthesis_primary.routeId,
-};
 
 /** Settings row keys for the three production route selections. */
 export const ROUTE_SETTING_KEYS = {
@@ -33,56 +15,21 @@ export const ROUTE_SETTING_KEYS = {
 } as const satisfies Record<OracleModelRole, string>;
 
 /**
- * Settings key for the general-purpose / utility model — used for internal
- * one-off jobs that don't fit one of the three primary stages (e.g. taxonomy
- * cluster naming, future classifier fallbacks). Admin chooses any model from
- * the discovered catalog.
+ * Settings key for the general-purpose / utility model used for internal
+ * one-off jobs that do not fit one of the three primary stages.
  */
 export const GENERAL_PURPOSE_ROUTE_SETTING_KEY = 'default_general_purpose_route';
 
-/**
- * Image-vision model — used by the document-ingestion worker to transcribe an
- * uploaded image to text before claim extraction runs over that text.
- *
- * Like the general-purpose key, this is NOT one of the three strict pipeline
- * roles (interview / extraction / synthesis), so it lives as a standalone
- * setting rather than extending OracleModelRole. The admin picker filters it to
- * vision-capable models from any provider; whatever model is saved is read at
- * runtime via resolveVisionRouteFromSettings() with no redeploy.
- *
- * DEFAULT_VISION_ROUTE_ID is the shipped fallback used only when the setting is
- * unset/unparseable — it points at the Gemini extraction route, which is
- * vision-capable and already credentialed in production.
- */
+/** Image-vision model used by document ingestion to transcribe image uploads. */
 export const VISION_ROUTE_SETTING_KEY = 'default_vision_route';
 export const VISION_REASONING_EFFORT_SETTING_KEY = 'default_vision_reasoning_effort';
-export const VISION_MODEL_POOL_SETTING_KEY = 'model_pool_vision';
-export const DEFAULT_VISION_ROUTE_ID = vertex_gemini_2_5_flash_extraction_primary.routeId;
 
-/**
- * Translation model — used by the claim-translation worker to render an approved
- * claim's summary into the other supported language(s) for the bilingual claim
- * layer (china_imp.md). Like vision/general-purpose, it is NOT one of the three
- * strict pipeline roles, so it lives as a standalone auxiliary setting. The
- * picker draws from the full discovered catalog (no capability filter) so an
- * admin can choose a Chinese-native model (e.g. Qwen) for best Mandarin quality.
- *
- * DEFAULT_TRANSLATION_ROUTE_ID is the shipped fallback used only when the setting
- * is unset/unparseable — it points at the Sonnet synthesis route, which is
- * multilingual and already credentialed in production.
- */
+/** Translation model used by the bilingual claim layer. */
 export const TRANSLATION_ROUTE_SETTING_KEY = 'default_translation_route';
-export const DEFAULT_TRANSLATION_ROUTE_ID =
-  anthropic_claude_3_5_sonnet_synthesis_primary.routeId;
 
 /**
  * Reasoning effort settings keys, one per stage. Values are 'off' | 'low' |
  * 'medium' | 'high' (unified across providers; adapters translate).
- *
- * Each stage's effort setting is independent of the model setting — choosing
- * a non-reasoning model just means the saved effort is ignored at inference
- * time. The picker UI hides the dropdown when the selected model lacks
- * reasoning capability.
  */
 export const REASONING_EFFORT_SETTING_KEYS = {
   interview: 'default_interview_reasoning_effort',
@@ -99,11 +46,14 @@ export const LEGACY_OPENROUTER_SETTING_KEYS = {
 
 /**
  * Per-stage admin model pools. Each row is a JSON string[] of "provider/modelId"
- * IDs that should appear in that stage's dropdown on /admin/settings. Empty
- * array means "fall back to the 6 curated Oracle catalog routes".
+ * IDs that are approved candidates for that stage. Empty is now a configuration
+ * error at runtime.
  */
 export const MODEL_POOL_SETTING_KEYS = {
   interview: 'model_pool_interview',
   extraction: 'model_pool_extraction',
   synthesis: 'model_pool_synthesis',
 } as const satisfies Record<OracleModelRole, string>;
+
+/** Emergency capability-enforcement override. Defaults to true when unset. */
+export const ENFORCE_MODEL_CAPABILITIES_SETTING_KEY = 'enforce_model_capabilities';

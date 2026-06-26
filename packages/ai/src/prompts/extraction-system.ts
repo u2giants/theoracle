@@ -1,7 +1,10 @@
 // Claim extraction system prompt — spec Part 9.4, 9.5 + R5.5 + R12-prompt.
 // Used by the Trigger.dev claim-extraction worker and the document-ingestion worker.
 //
-// Version 2.1.0 (this revision) adds:
+// Version 2.2.0 adds:
+//   - non-quotable carry-in conversation context for message extraction.
+//
+// Version 2.1.0 added:
 //   - semi-stable reviewer correction lesson blocks, derived from approved
 //     claim revisions, to steer future extraction toward human-approved style,
 //     scope, terminology, and domain decisions.
@@ -28,7 +31,7 @@
 import { z } from 'zod';
 import { KNOWLEDGE_DOMAINS, ENTITY_TYPES } from '@oracle/shared';
 
-export const EXTRACTION_PROMPT_VERSION = '2.1.0';
+export const EXTRACTION_PROMPT_VERSION = '2.2.0';
 
 // ---------------------------------------------------------------------------
 // Claim type taxonomy (spec 9.4 + Part 6).
@@ -305,16 +308,15 @@ export type FormattedMessage = {
   createdAt: Date;
 };
 
-/**
- * Format a list of messages into a labeled conversation string for the extraction model.
- * Each message gets its ID, speaker, timestamp, and content clearly marked.
- */
-export function formatConversationSegment(msgs: FormattedMessage[]): string {
-  const lines: string[] = ['CONVERSATION SEGMENT:', '---'];
+export interface FormatConversationSegmentOptions {
+  carryIn?: FormattedMessage[];
+}
+
+function appendFormattedMessages(lines: string[], msgs: FormattedMessage[]): void {
   for (const m of msgs) {
     if (m.role === 'system') continue;
     const speaker =
-      m.role === 'assistant' ? '[Oracle — do not extract claims from this]' : `[${m.authorName ?? 'Unknown Employee'}]`;
+      m.role === 'assistant' ? '[Oracle - do not extract claims from this]' : `[${m.authorName ?? 'Unknown Employee'}]`;
     const timestamp = new Date(m.createdAt).toISOString().slice(0, 16).replace('T', ' ');
     lines.push(`Message ID: ${m.id}`);
     lines.push(`Speaker: ${speaker}`);
@@ -322,5 +324,28 @@ export function formatConversationSegment(msgs: FormattedMessage[]): string {
     lines.push(`Content: ${m.content}`);
     lines.push('---');
   }
+}
+
+/**
+ * Format a list of messages into a labeled conversation string for the extraction model.
+ * Each message gets its ID, speaker, timestamp, and content clearly marked.
+ */
+export function formatConversationSegment(
+  msgs: FormattedMessage[],
+  options: FormatConversationSegmentOptions = {},
+): string {
+  const lines: string[] = [];
+  const carryIn = options.carryIn?.filter((m) => m.role !== 'system') ?? [];
+  if (carryIn.length > 0) {
+    lines.push('CONTEXT ONLY - EARLIER MESSAGES:');
+    lines.push('Use these messages only to interpret the active segment below.');
+    lines.push('Do NOT extract claims from this context and do NOT quote these message IDs.');
+    lines.push('---');
+    appendFormattedMessages(lines, carryIn);
+  }
+  lines.push('CONVERSATION SEGMENT TO EXTRACT FROM:');
+  lines.push('Extract claims only from the messages in this segment. Evidence quotes must use these message IDs only.');
+  lines.push('---');
+  appendFormattedMessages(lines, msgs);
   return lines.join('\n');
 }

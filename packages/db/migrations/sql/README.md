@@ -55,6 +55,7 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `15_employee_identities.sql` | DDL for the `employee_identities` table (multi-identity support — DECISIONS.md D2). |
 | `16_knowledge_top_domains_seed.sql` | R3.5 — idempotent bootstrap seed of the original top-level domains with boundary rules (belongs-here / does-not-belong-here / common entities / default exclusions / neighboring domains). ON CONFLICT DO NOTHING so admin edits aren't clobbered. |
 | `17_entities_seed.sql` | R3.5 — idempotent seed of the canonical entity registry: 5 customers, 5 licensors, 12 systems, 8 departments, 4 geographies, 14 process stages, 10 document classes. |
+| `18_model_run_attempts.sql` | R18 — append-only per-candidate model attempt log for approved model-chain dispatch. Records failed primary attempts, successful non-primary attempts, route metadata, and provider request ids when available. |
 | `20_rls_helpers.sql` | `current_employee_id()`, `current_employee_is_admin()` — both join through `employee_identities`. |
 | `21_rls_policies.sql` | All RLS policies — employees, channels, messages, documents, intelligence tables, settings, employee_identities. |
 | `30_admin_views.sql` | The seven admin views from spec Part 8 (`claims_with_primary_evidence`, etc.). |
@@ -76,6 +77,11 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `71_claim_extraction_ab_ai_only_scoring.sql` | Narrows A/B/C winner choices to AI outputs only; the human revision remains a reference column, not a scoreable variant. |
 | `72_claim_extraction_ab_run_status.sql` | Adds queued/running/complete/failed status fields so A/B/C model reruns can be processed by Trigger.dev workers instead of long page requests. |
 | `73_claim_review_groups.sql` | Adds admin-managed claim-review groups and group members so a claim-review question can be sent to reusable people lists while still materializing as one assignment gap per employee. |
+| `74_claim_translations_fts.sql` | Adds search support for translated claim summaries. |
+| `75_extraction_status_awaiting_approval.sql` | Adds the deprecated `awaiting_approval` extraction status used by the earlier transcript-approval experiment. |
+| `76_transcript_approval.sql` | Adds raw transcript approval metadata for the earlier transcript-approval experiment. Deprecated by the meeting picker flow. |
+| `77_meeting_transcripts.sql` | Adds the meeting picker discovery table for Teams transcript metadata before admin-triggered ingestion. |
+| `78_fail_loud_model_routing_settings.sql` | Seeds explicit model pools, capability enforcement, auxiliary model slots, and message-extraction conversation selection settings for environments created before hard-coded route fallbacks were removed. |
 | `99_vector_indexes.sql` | HNSW indexes on `claims.embedding` and `document_chunks.embedding`. Opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`. |
 
 ## Anti-patterns

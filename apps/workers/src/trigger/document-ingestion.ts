@@ -58,10 +58,9 @@ import {
   OracleAIClient,
   buildStandardAdapters,
   embedMany,
-  getOracleRoute,
-  resolveRouteFromSettings,
-  resolveAuxiliaryRouteFromSettings,
-  VISION_AUXILIARY_MODEL,
+  resolveRouteCandidates,
+  logAllCandidatesFailedAttempts,
+  logModelRunAttempts,
   makeBlock,
   EXTRACTION_SYSTEM_PROMPT,
   EXTRACTION_PROMPT_VERSION,
@@ -69,6 +68,7 @@ import {
   loadClaimCorrectionLessonPack,
   type ExtractionOutput,
   type OracleModelRoute,
+  type RouteCandidate,
   type OraclePromptPlan,
 } from '@oracle/ai';
 import {
@@ -111,7 +111,6 @@ const VISION_TEMPERATURE = 0.6;
 // parses as a raw string, and fails the schema ("expected object").
 const EXTRACTION_MAX_OUTPUT_TOKENS = 32_000;
 const VERTEX_FILE_CACHE_MIN_BYTES = 10 * 1024 * 1024;
-const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
 const AUTO_APPROVE_MIN_CONFIDENCE = 9;
 const AUTO_APPROVE_MAX_IMPACT = 6;
 const AUTO_APPROVE_CLAIM_TYPES = new Set([
@@ -134,7 +133,6 @@ const SingleDocumentPayloadSchema = z.object({
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
     adapters: buildStandardAdapters(),
-    fallbackOnError: true,
   });
 }
 
@@ -353,19 +351,16 @@ async function transcribeImageToText(
   buffer: Buffer,
   doc: { fileName: string; fileType: string; context?: string | null },
 ): Promise<string> {
-  const fallbackRouteId = VISION_AUXILIARY_MODEL.defaultRouteId;
-  const route =
-    (await resolveAuxiliaryRouteFromSettings(db, VISION_AUXILIARY_MODEL.id)) ??
-    (fallbackRouteId ? getOracleRoute(fallbackRouteId) : null);
-  if (!route) {
-    throw new Error(
-      `vision route unresolvable and default "${fallbackRouteId ?? '(none)'}" is not registered`,
-    );
+  const resolution = await resolveRouteCandidates(db, 'vision');
+  for (const skipped of resolution.skipped) {
+    console.error(`[document-ingestion] skipped configured vision candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`);
   }
+  const routeCandidates = resolution.candidates;
+  const route = routeCandidates[0]!.route;
   const mimeType = imageMimeFor(doc.fileType, doc.fileName);
   const contextLine =
     doc.context && doc.context.trim()
-      ? ` Context from the uploader about this image: "${doc.context.trim()}". Use it to interpret ambiguous labels, but transcribe only what is actually visible — do not add details that are not in the image.`
+      ? ` Context from the uploader about this image: "${doc.context.trim()}". Use it to interpret ambiguous labels, but transcribe only what is actually visible - do not add details that are not in the image.`
       : '';
   const requestText = `Render the attached image "${doc.fileName}" as faithful, complete text.${contextLine}`;
 
@@ -393,13 +388,9 @@ async function transcribeImageToText(
     promptVersion: EXTRACTION_PROMPT_VERSION,
     blocks,
     providerOptions: {
-      // One-shot vision call — nothing reusable to cache.
       cache: { disableCache: true },
       temperature: VISION_TEMPERATURE,
       maxOutputTokens: VISION_MAX_OUTPUT_TOKENS,
-      // Keep full image resolution so dense-diagram text stays legible. Qwen-VL
-      // on DashScope otherwise downscales and the model confabulates; other
-      // providers ignore this flag (they handle resolution themselves).
       highResolutionVision: true,
       messages: [
         {
@@ -408,27 +399,12 @@ async function transcribeImageToText(
         },
       ],
     },
+    routeCandidates,
   });
 
-  // The vision pass used to be invisible: nothing recorded WHICH model ran or
-  // whether the chosen route failed and silently fell back to a different
-  // provider. That masking is exactly how a broken vision route (e.g. a Qwen
-  // region/key misconfig) produced a Gemini-fallback transcription that looked
-  // fine. Record the actual model in `model_runs` and SHOUT on fallback.
   const actualProvider = result.provider ?? route.provider;
   const actualModel = result.modelId ?? route.modelId;
-  const fellBack = Boolean(result.fellBackFromRouteId);
-  if (fellBack) {
-    console.error(
-      `[document-ingestion] VISION FALLBACK — the selected vision route "${route.routeId}" ` +
-        `(${route.provider}/${route.modelId}) FAILED and the call fell back to ` +
-        `"${result.routeId}" (${actualProvider}/${actualModel}). Reason: ` +
-        `${result.fallbackReason ?? 'unknown'}. The transcription below was produced by the ` +
-        `FALLBACK model, NOT the model you selected. Fix the selected route (region/key/model) ` +
-        `rather than relying on this fallback.`,
-    );
-  }
-  await db
+  const [modelRun] = await db
     .insert(modelRuns)
     .values({
       taskType: 'document-ingestion-vision',
@@ -439,15 +415,25 @@ async function transcribeImageToText(
       outputTokens: result.usage?.outputTokens ?? null,
       latencyMs: Date.now() - callStartedAt,
       success: true,
-      error: fellBack
-        ? `vision fell back from ${route.routeId} to ${result.routeId}: ${result.fallbackReason ?? 'unknown'}`
-        : null,
     })
-    .catch((e) => console.error('[document-ingestion] failed to record vision model_run', e));
+    .returning({ id: modelRuns.id })
+    .catch((e) => {
+      console.error('[document-ingestion] failed to record vision model_run', e);
+      return [];
+    });
+
+  if (modelRun?.id) {
+    await logModelRunAttempts({
+      db,
+      metadata: result,
+      taskType: 'document-ingestion-vision',
+      slot: 'vision',
+      modelRunId: modelRun.id,
+    }).catch((e) => console.error('[document-ingestion] failed to record vision model attempts', e));
+  }
 
   return result.text ?? '';
 }
-
 /**
  * Decide how to parse a document from its declared MIME type, falling back to
  * the filename extension when the browser/OS sends a generic
@@ -712,7 +698,8 @@ async function processDocument(
     .where(eq(documents.id, documentId));
 
   const parseKind = resolveParseKind(doc.fileType, doc.fileName);
-  const route = await resolveExtractionRoute(db);
+  const routeCandidates = await resolveExtractionCandidates(db);
+  const route = routeCandidates[0]!.route;
   const activeTopDomainIds = await loadActiveTopDomainIds(db);
   const topDomainNameMap = await loadTopDomainNameMap(db);
   const entityRegistry = await loadEntityRegistry(db);
@@ -995,6 +982,7 @@ async function processDocument(
               : undefined,
           },
         },
+        routeCandidates,
       });
       const latencyMs = Date.now() - callStartedAt;
       const actualRouteId = result.routeId ?? route.routeId;
@@ -1029,8 +1017,14 @@ async function processDocument(
         reasoningTokens: result.usage.reasoningTokens ?? null,
         providerRequestId: result.usage.providerRequestId ?? null,
         rawUsageJson: result.usage.rawUsageJson ?? null,
-        fellBackFromRouteId: result.fellBackFromRouteId ?? null,
-        fallbackReason: result.fallbackReason ?? null,
+      });
+      await logModelRunAttempts({
+        db,
+        metadata: result,
+        taskType: 'document-ingestion',
+        slot: 'extraction',
+        contextPackId: contextPack.id,
+        modelRunId: modelRun.id,
       });
       await db
         .update(oracleContextPacks)
@@ -1055,6 +1049,15 @@ async function processDocument(
       modelOutput = result.object;
     } catch (err) {
       if (!modelRunId) {
+        await logAllCandidatesFailedAttempts({
+          db,
+          error: err,
+          taskType: 'document-ingestion',
+          slot: 'extraction',
+          contextPackId: contextPack.id,
+        }).catch((logErr) =>
+          console.error('[document-ingestion] failed to record extraction model attempts', logErr),
+        );
         await db.insert(modelRuns).values({
           taskType: 'document-ingestion',
           model: route.modelId,
@@ -1429,19 +1432,12 @@ async function processDocument(
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
 
-async function resolveExtractionRoute(db: OracleDb): Promise<OracleModelRoute> {
-  const resolved = await resolveRouteFromSettings(db, 'extraction');
-  if (resolved) return resolved;
-  const fb = getOracleRoute(FALLBACK_ROUTE_ID);
-  if (!fb) {
-    throw new Error(
-      `[document-ingestion] default_extraction_route unset/unresolvable and fallback "${FALLBACK_ROUTE_ID}" missing.`,
-    );
+async function resolveExtractionCandidates(db: OracleDb): Promise<RouteCandidate[]> {
+  const resolved = await resolveRouteCandidates(db, 'extraction');
+  for (const skipped of resolved.skipped) {
+    console.error(`[document-ingestion] skipped configured extraction candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`);
   }
-  console.warn(
-    `[document-ingestion] default_extraction_route unset/unresolvable; using fallback "${FALLBACK_ROUTE_ID}".`,
-  );
-  return fb;
+  return resolved.candidates;
 }
 
 async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
@@ -1636,7 +1632,6 @@ export const documentIngestionTask = task({
     }
   },
 });
-
 export const documentIngestionSweepTask = schedules.task({
   id: 'document-ingestion-sweep',
   cron: '30 */4 * * *',

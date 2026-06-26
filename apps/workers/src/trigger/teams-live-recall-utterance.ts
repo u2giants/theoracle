@@ -29,17 +29,18 @@ import {
   buildRetrievalPlanFromQuery,
   buildStandardAdapters,
   getBrainSectionSnippets,
-  getOracleRoute,
+  logAllCandidatesFailedAttempts,
+  logModelRunAttempts,
   makeBlock,
-  resolveRouteFromSettings,
+  resolveRouteCandidates,
   searchWithRetrievalPlan,
   type RetrievalPlan,
   type OracleModelRoute,
   type RelevantClaim,
+  type RouteCandidate,
 } from '@oracle/ai';
 import { sendRecallChatMessage, RecallTransientSendError } from '../lib/recall';
 
-const FALLBACK_INTERVIEW_ROUTE_ID = 'anthropic_claude_haiku_4_5_interview_primary';
 const LIVE_PROMPT_VERSION = 'teams-live-recall-1.1.0';
 const DEFAULT_COOLDOWN_MINUTES = 10;
 const DEFAULT_MAX_INTERJECTIONS_PER_HOUR = 3;
@@ -139,7 +140,6 @@ Keep the question under 220 characters, warm, plain text, and psychologically sa
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
     adapters: buildStandardAdapters(),
-    fallbackOnError: true,
   });
 }
 
@@ -172,12 +172,12 @@ function clientMessageId(args: {
   return `recall-live:${args.botId}:${args.transcriptId}:${args.participantId}:${args.offsetMs}:${digest}`;
 }
 
-async function resolveInterviewRoute(db: ReturnType<typeof getDirectDb>): Promise<OracleModelRoute> {
-  const resolved = await resolveRouteFromSettings(db, 'interview');
-  if (resolved) return resolved;
-  const fallback = getOracleRoute(FALLBACK_INTERVIEW_ROUTE_ID);
-  if (!fallback) throw new Error(`Fallback interview route ${FALLBACK_INTERVIEW_ROUTE_ID} missing`);
-  return fallback;
+async function resolveInterviewCandidates(db: ReturnType<typeof getDirectDb>): Promise<RouteCandidate[]> {
+  const resolved = await resolveRouteCandidates(db, 'interview');
+  for (const skipped of resolved.skipped) {
+    console.warn('[teams-live-recall] skipped interview route candidate', skipped);
+  }
+  return resolved.candidates;
 }
 
 async function findOrCreateLiveChannel(db: ReturnType<typeof getDirectDb>, botId: string): Promise<string> {
@@ -451,6 +451,7 @@ async function decideLiveQuestion(args: {
   db: ReturnType<typeof getDirectDb>;
   client: OracleAIClient;
   route: OracleModelRoute;
+  routeCandidates: RouteCandidate[];
   channelId: string;
   currentUtterance: string;
   speakerName: string | null;
@@ -560,6 +561,7 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
       promptVersion: LIVE_PROMPT_VERSION,
       blocks,
       schema: LiveQuestionDecisionSchema,
+      routeCandidates: args.routeCandidates,
     });
     const latencyMs = Date.now() - callStartedAt;
     const actualRouteId = result.routeId ?? args.route.routeId;
@@ -595,8 +597,14 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
       reasoningTokens: result.usage.reasoningTokens ?? null,
       providerRequestId: result.usage.providerRequestId ?? null,
       rawUsageJson: (result.usage.rawUsageJson ?? null) as Record<string, unknown> | null,
-      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
-      fallbackReason: result.fallbackReason ?? null,
+    });
+    await logModelRunAttempts({
+      db: args.db,
+      metadata: result,
+      taskType: 'teams-live-interjection',
+      slot: 'interview',
+      contextPackId: contextPack.id,
+      modelRunId: modelRun.id,
     });
     await args.db.update(oracleContextPacks).set({ modelRunId: modelRun.id }).where(eq(oracleContextPacks.id, contextPack.id));
 
@@ -611,6 +619,13 @@ ${args.speakerName ? `${args.speakerName}: ` : ''}${args.currentUtterance}`;
   } catch (err) {
     const latencyMs = Date.now() - callStartedAt;
     const message = err instanceof Error ? err.message : String(err);
+    await logAllCandidatesFailedAttempts({
+      db: args.db,
+      error: err,
+      taskType: 'teams-live-interjection',
+      slot: 'interview',
+      contextPackId: contextPack.id,
+    });
     try {
       const [modelRun] = await args.db
         .insert(modelRuns)
@@ -750,11 +765,13 @@ export const teamsLiveRecallUtteranceTask = task({
           liveSettings.disablePostingLimits || rateState.inLastHour < liveSettings.maxInterjectionsPerHour;
         if (cooldownClear && rateCapClear) {
           const client = buildOracleClient();
-          const route = await resolveInterviewRoute(db);
+          const routeCandidates = await resolveInterviewCandidates(db);
+          const route = routeCandidates[0]!.route;
           const decisionResult = await decideLiveQuestion({
             db,
             client,
             route,
+            routeCandidates,
             channelId,
             currentUtterance: text,
             speakerName,

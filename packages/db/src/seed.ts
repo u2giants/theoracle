@@ -14,7 +14,8 @@ import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
 import * as schema from './schema';
-import { settings, employees } from './schema';
+import { KNOWLEDGE_DOMAINS, type KnowledgeDomain } from '@oracle/shared';
+import { brainSections, settings, employees } from './schema';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..', '..', '..');
@@ -36,10 +37,19 @@ const DEFAULT_SETTINGS: Array<{
   { key: 'default_extraction_model', value: 'google/gemini-2.5-flash', description: 'DEPRECATED — Legacy OpenRouter model id. Superseded by default_extraction_route.' },
   { key: 'default_synthesis_model', value: 'anthropic/claude-sonnet-4.6', description: 'DEPRECATED — Legacy OpenRouter model id. Superseded by default_synthesis_route.' },
   // R1 — Curated Oracle route IDs (Big 3 provider-native). 1 Primary per role.
-  // Source of truth: packages/ai/src/routes/defaults.ts (DEFAULT_ORACLE_ROUTES).
-  { key: 'default_interview_route', value: 'anthropic_claude_haiku_4_5_interview_primary', description: 'Curated OracleModelRoute.routeId for the interview role.' },
-  { key: 'default_extraction_route', value: 'vertex_gemini_2_5_flash_extraction_primary', description: 'Curated OracleModelRoute.routeId for the extraction role.' },
+  // The approved model pools below are the explicit fallback chain.
+  { key: 'default_interview_route', value: 'anthropic/claude-haiku-4-5-20251001', description: 'Approved provider/model id for the interview role.' },
+  { key: 'default_extraction_route', value: 'google/gemini-3.1-flash-lite', description: 'Approved provider/model id for the extraction role.' },
   { key: 'default_synthesis_route', value: 'anthropic_claude_3_5_sonnet_synthesis_primary', description: 'Curated OracleModelRoute.routeId for the synthesis role. (Resolves to anthropic/claude-sonnet-4-6; routeId name is legacy.)' },
+  { key: 'model_pool_interview', value: ['anthropic/claude-haiku-4-5-20251001', 'openai/gpt-5.4-mini', 'google/gemini-3-flash-preview'], description: 'Approved interview model chain, tried in order after the selected primary.' },
+  { key: 'model_pool_extraction', value: ['google/gemini-3.1-flash-lite', 'qwen/qwen3.7-plus', 'qwen/qwen3.7-max'], description: 'Approved extraction model chain, tried in order after the selected primary.' },
+  { key: 'model_pool_synthesis', value: ['google/gemini-3.5-flash', 'qwen/qwen3.7-max', 'google/gemini-2.5-pro', 'openai/gpt-5.4', 'anthropic/claude-sonnet-4-6'], description: 'Approved synthesis model chain, tried in order after the selected primary.' },
+  { key: 'enforce_model_capabilities', value: true, description: 'When true, model routing rejects configured models that do not meet slot capability requirements.' },
+  { key: 'default_vision_route', value: 'qwen/qwen3-vl-235b-a22b-thinking', description: 'Auxiliary image-vision model route for document image transcription.' },
+  { key: 'default_general_purpose_route', value: 'qwen/qwen3.7-max', description: 'Auxiliary general-purpose model route for internal utility jobs.' },
+  { key: 'default_translation_route', value: 'qwen/qwen-mt-plus', description: 'Auxiliary translation model route for bilingual claim rendering and review questions.' },
+  { key: 'extraction_char_budget', value: 24000, description: 'Approximate max characters of active conversation text selected per extraction run before stopping at a conversation boundary.' },
+  { key: 'extraction_carry_in_count', value: 12, description: 'Prior complete/skipped same-channel messages included as non-quotable context for message extraction.' },
   { key: 'enable_live_contradiction_interjections', value: false, description: 'When false, possible contradictions queue silently (spec 5.1 Rule 1).' },
   { key: 'enable_group_chat_lull_questions', value: true, description: 'When true, Oracle may ask a high-priority gap question during a lull (spec 5.1 Rule 2).' },
   // D14 — provider Batch API dispatch mode for claim extraction.
@@ -71,6 +81,20 @@ const TEST_EMPLOYEE = {
   isAdmin: false,
 };
 
+function titleCaseDomain(domain: string): string {
+  return domain
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+const DEFAULT_BRAIN_SECTIONS = KNOWLEDGE_DOMAINS.map((domain) => ({
+  id: `domain-${domain}`,
+  knowledgeDomain: domain as KnowledgeDomain,
+  title: `${titleCaseDomain(domain)} Brain`,
+  category: 'domain',
+}));
+
 export async function runSeed(existingClient?: ReturnType<typeof postgres>): Promise<void> {
   const ownsClient = !existingClient;
   const client =
@@ -83,14 +107,16 @@ export async function runSeed(existingClient?: ReturnType<typeof postgres>): Pro
   try {
     const db = drizzle(client, { schema });
 
-    // Settings — upsert each row by key.
+    // Settings — fill missing defaults, but never reset runtime/admin choices.
+    // Migrations call seed inline; overwriting values here caused prod model
+    // routes to drift back to legacy defaults during a test-plan migration run.
     for (const s of DEFAULT_SETTINGS) {
       await db
         .insert(settings)
         .values({ key: s.key, value: s.value as never, description: s.description })
         .onConflictDoUpdate({
           target: settings.key,
-          set: { value: s.value as never, description: s.description, updatedAt: new Date() },
+          set: { description: s.description },
         });
     }
 
@@ -128,6 +154,13 @@ export async function runSeed(existingClient?: ReturnType<typeof postgres>): Pro
         isAdmin: TEST_EMPLOYEE.isAdmin,
       })
       .onConflictDoNothing({ target: employees.email });
+
+    // Brain sections — synthesis needs at least one target section. Seed one
+    // stable section per legacy knowledge domain; versions remain model-owned.
+    await db
+      .insert(brainSections)
+      .values(DEFAULT_BRAIN_SECTIONS)
+      .onConflictDoNothing({ target: brainSections.id });
 
     // Sanity assertion — make sure RLS got enabled on critical tables.
     const rlsCheck = await db.execute(sql`

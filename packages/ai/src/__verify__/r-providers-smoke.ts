@@ -104,8 +104,6 @@ function smokeRoute(
     supportsToolCalling: true,
     supportsStructuredOutput: true,
     supportsReasoningControls: false,
-    fallbackRouteId: null,
-    fallbackCondition: 'not_applicable',
     enabled: true,
   };
 }

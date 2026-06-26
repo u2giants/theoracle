@@ -4,7 +4,8 @@
 // (OpenRouter indexes Qwen models under the "qwen/" slug, which matches).
 //
 // Auth: DASHSCOPE_API_KEY from DashScope International console.
-// Base URL: https://dashscope-us.aliyuncs.com/compatible-mode/v1
+// Base URL: defaults to the US endpoint, override with DASHSCOPE_BASE_URL
+// (the POP Creations Qwen models currently use the intl endpoint).
 
 import OpenAI from 'openai';
 import type { RawProviderModel } from './types';
@@ -30,7 +31,10 @@ export async function fetchQwenModels(): Promise<RawProviderModel[]> {
   const apiKey = process.env.DASHSCOPE_API_KEY;
   if (!apiKey) throw new Error('DASHSCOPE_API_KEY not set');
 
-  const client = new OpenAI({ apiKey, baseURL: DASHSCOPE_BASE_URL });
+  const client = new OpenAI({
+    apiKey,
+    baseURL: process.env.DASHSCOPE_BASE_URL ?? DASHSCOPE_BASE_URL,
+  });
   const page = await client.models.list();
 
   return page.data

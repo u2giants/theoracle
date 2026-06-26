@@ -33,6 +33,7 @@ import type {
   OraclePromptPlan,
   OracleTextResult,
 } from './types';
+import type { RouteCandidate } from '../routes';
 
 export type OracleAIClientMode = 'production' | 'test';
 
@@ -43,8 +44,6 @@ export interface OracleAIClientOptions {
    * mock adapters are registered for every provider.
    */
   adapters?: ProviderAdapterMap;
-  /** When true, the router auto-dispatches to the route's Fallback on transient errors. Default true. */
-  fallbackOnError?: boolean;
 }
 
 export interface RunTextArgs extends CompileArgs {
@@ -55,6 +54,7 @@ export interface RunTextArgs extends CompileArgs {
    * support a given option ignore it silently.
    */
   providerOptions?: Record<string, unknown>;
+  routeCandidates?: RouteCandidate[];
 }
 
 export interface RunObjectArgs<TSchema> extends CompileArgs {
@@ -65,6 +65,7 @@ export interface RunObjectArgs<TSchema> extends CompileArgs {
    * provider-specific knobs that don't belong on OraclePromptPlan itself.
    */
   providerOptions?: Record<string, unknown>;
+  routeCandidates?: RouteCandidate[];
 }
 
 export interface RunObjectResult<TSchema> extends OracleObjectResult<TSchema> {
@@ -95,7 +96,7 @@ export class OracleAIClient {
             google: new GoogleGeminiAdapter(),
             openai: new OpenAIAdapter(),
           });
-    this.router = new ModelRouter({ adapters, fallbackOnError: opts.fallbackOnError });
+    this.router = new ModelRouter({ adapters });
   }
 
   /** Compile a plan without running it. Useful for tests and for previewing the request. */
@@ -106,7 +107,7 @@ export class OracleAIClient {
   /** Compile + dispatch a freeform text call (e.g. interview chat). */
   async runText(args: RunTextArgs): Promise<OracleTextResult> {
     const plan = this.compile(args);
-    return this.router.generateText(plan, args.providerOptions);
+    return this.router.generateText(plan, args.providerOptions, args.routeCandidates);
   }
 
   /** Compile + dispatch a structured-output call. Output is validated against the supplied Zod schema. */
@@ -116,6 +117,7 @@ export class OracleAIClient {
       plan,
       args.schema,
       args.providerOptions,
+      args.routeCandidates,
     );
     const validation = this.validator.validate(args.schema, result.object);
     return { ...result, validation };

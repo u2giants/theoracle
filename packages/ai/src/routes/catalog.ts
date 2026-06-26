@@ -3,10 +3,8 @@
  *
  * The complete curated list of production and internal routes.
  *
- * Production routes (admin-selectable):
- *   - Interview:  Primary + Fallback
- *   - Extraction: Primary + Fallback
- *   - Synthesis:  Primary + Fallback
+ * Production routes (admin-selectable historical catalog entries). Runtime
+ * model advancement is driven by approved pools, not route-level fallback ids.
  *
  * Internal subroutes (NOT admin-selectable; dispatched by OracleAIClient):
  *   - message_triage     — cheap pre-filter scout
@@ -21,7 +19,7 @@
 import type { OracleModelRoute } from './types';
 
 // ============================================================================
-// INTERVIEW ROLE — 1 Primary + 1 Fallback
+// INTERVIEW ROLE
 // ============================================================================
 
 export const anthropic_claude_haiku_4_5_interview_primary: OracleModelRoute = {
@@ -42,8 +40,6 @@ export const anthropic_claude_haiku_4_5_interview_primary: OracleModelRoute = {
   supportsToolCalling: true,
   supportsStructuredOutput: true,
   supportsReasoningControls: true,
-  fallbackRouteId: 'openai_gpt4o_interview_fallback',
-  fallbackCondition: 'provider_outage',
   enabled: true,
 };
 
@@ -65,13 +61,11 @@ export const openai_gpt4o_interview_fallback: OracleModelRoute = {
   supportsToolCalling: true,
   supportsStructuredOutput: true,
   supportsReasoningControls: false,
-  fallbackRouteId: null,
-  fallbackCondition: 'not_applicable',
   enabled: true,
 };
 
 // ============================================================================
-// EXTRACTION ROLE — 1 Primary + 1 Fallback
+// EXTRACTION ROLE
 // ============================================================================
 
 export const vertex_gemini_2_5_flash_extraction_primary: OracleModelRoute = {
@@ -92,8 +86,6 @@ export const vertex_gemini_2_5_flash_extraction_primary: OracleModelRoute = {
   supportsToolCalling: true,
   supportsStructuredOutput: true,
   supportsReasoningControls: true,
-  fallbackRouteId: 'openai_gpt4o_mini_extraction_fallback',
-  fallbackCondition: 'schema_validation_failure',
   enabled: true,
 };
 
@@ -115,13 +107,11 @@ export const openai_gpt4o_mini_extraction_fallback: OracleModelRoute = {
   supportsToolCalling: true,
   supportsStructuredOutput: true,
   supportsReasoningControls: false,
-  fallbackRouteId: null,
-  fallbackCondition: 'not_applicable',
   enabled: true,
 };
 
 // ============================================================================
-// SYNTHESIS ROLE — 1 Primary + 1 Fallback
+// SYNTHESIS ROLE
 // ============================================================================
 
 export const anthropic_claude_3_5_sonnet_synthesis_primary: OracleModelRoute = {
@@ -142,8 +132,6 @@ export const anthropic_claude_3_5_sonnet_synthesis_primary: OracleModelRoute = {
   supportsToolCalling: true,
   supportsStructuredOutput: true,
   supportsReasoningControls: false,
-  fallbackRouteId: 'vertex_gemini_2_5_flash_synthesis_fallback',
-  fallbackCondition: 'schema_validation_failure',
   enabled: true,
 };
 
@@ -165,8 +153,6 @@ export const vertex_gemini_2_5_flash_synthesis_fallback: OracleModelRoute = {
   supportsToolCalling: true,
   supportsStructuredOutput: true,
   supportsReasoningControls: true,
-  fallbackRouteId: null,
-  fallbackCondition: 'not_applicable',
   enabled: true,
 };
 
@@ -192,8 +178,6 @@ export const vertex_gemini_2_5_flash_lite_message_triage: OracleModelRoute = {
   supportsToolCalling: true,
   supportsStructuredOutput: true,
   supportsReasoningControls: true,
-  fallbackRouteId: null,
-  fallbackCondition: 'not_applicable',
   enabled: true,
 };
 
@@ -215,8 +199,6 @@ export const anthropic_claude_haiku_warmth_escalation: OracleModelRoute = {
   supportsToolCalling: true,
   supportsStructuredOutput: true,
   supportsReasoningControls: true,
-  fallbackRouteId: null,
-  fallbackCondition: 'not_applicable',
   enabled: true,
 };
 
@@ -238,8 +220,6 @@ export const openai_gpt4o_mini_schema_repair: OracleModelRoute = {
   supportsToolCalling: true,
   supportsStructuredOutput: true,
   supportsReasoningControls: false,
-  fallbackRouteId: null,
-  fallbackCondition: 'not_applicable',
   enabled: true,
 };
 
@@ -266,8 +246,6 @@ export const google_gemini_3_1_flash_lite_extraction_eval: OracleModelRoute = {
   supportsStructuredOutput: true,
   supportsReasoningControls: true,
   reasoningEffort: 'low',
-  fallbackRouteId: null,
-  fallbackCondition: 'not_applicable',
   enabled: true,
 };
 
@@ -290,8 +268,6 @@ export const qwen_3_7_max_extraction_eval: OracleModelRoute = {
   supportsStructuredOutput: true,
   supportsReasoningControls: true,
   reasoningEffort: 'low',
-  fallbackRouteId: null,
-  fallbackCondition: 'not_applicable',
   enabled: true,
 };
 
@@ -347,18 +323,7 @@ export function getOracleRoute(routeId: string): OracleModelRoute | null {
   return ORACLE_MODEL_ROUTES[routeId] ?? null;
 }
 
-/** All production routes for a given role, in [Primary, Fallback] order. */
-export function getRoutesForRole(role: 'interview' | 'extraction' | 'synthesis'): {
-  primary: OracleModelRoute;
-  fallback: OracleModelRoute;
-} {
-  const routes = Object.values(ORACLE_MODEL_ROUTES).filter((r) => r.role === role);
-  const primary = routes.find((r) => r.tier === 'primary');
-  const fallback = routes.find((r) => r.tier === 'fallback');
-  if (!primary || !fallback) {
-    throw new Error(
-      `Oracle route catalog is missing Primary or Fallback for role "${role}". Production routes must define exactly 1 Primary + 1 Fallback per role.`,
-    );
-  }
-  return { primary, fallback };
+/** All production routes for a given role. */
+export function getRoutesForRole(role: 'interview' | 'extraction' | 'synthesis'): OracleModelRoute[] {
+  return Object.values(ORACLE_MODEL_ROUTES).filter((r) => r.role === role);
 }

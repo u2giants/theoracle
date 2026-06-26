@@ -49,10 +49,12 @@ import {
 import {
   OracleAIClient,
   buildStandardAdapters,
-  getOracleRoute,
-  resolveRouteFromSettings,
+  logAllCandidatesFailedAttempts,
+  logModelRunAttempts,
   makeBlock,
+  resolveRouteCandidates,
   type OracleModelRoute,
+  type RouteCandidate,
 } from '@oracle/ai';
 import {
   decideLullInterjection,
@@ -60,7 +62,6 @@ import {
   type RelevantOpenGap,
 } from '@oracle/engines';
 
-const FALLBACK_INTERVIEW_ROUTE_ID = 'anthropic_claude_haiku_4_5_interview_primary';
 const LULL_INTERJECTION_PROMPT_VERSION = 'lull-interjection-1.0.0';
 
 // Recent user messages to thread into the drafting prompt for tone/topical context.
@@ -89,7 +90,6 @@ Hard rules:
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
     adapters: buildStandardAdapters(),
-    fallbackOnError: true,
   });
 }
 
@@ -97,22 +97,14 @@ function hashString(s: string): string {
   return createHash('sha256').update(s).digest('hex');
 }
 
-// ─── Curated route resolver — INTERVIEW route (human-facing drafting) ───────
-async function resolveInterviewRoute(
+async function resolveInterviewCandidates(
   db: ReturnType<typeof getDirectDb>,
-): Promise<OracleModelRoute> {
-  const resolved = await resolveRouteFromSettings(db, 'interview');
-  if (resolved) return resolved;
-  const fallback = getOracleRoute(FALLBACK_INTERVIEW_ROUTE_ID);
-  if (!fallback) {
-    throw new Error(
-      `[lull-interjection] default_interview_route unset/unresolvable, and fallback "${FALLBACK_INTERVIEW_ROUTE_ID}" also missing.`,
-    );
+): Promise<RouteCandidate[]> {
+  const resolved = await resolveRouteCandidates(db, 'interview');
+  for (const skipped of resolved.skipped) {
+    console.warn('[lull-interjection] skipped interview route candidate', skipped);
   }
-  console.warn(
-    `[lull-interjection] default_interview_route unset/unresolvable; using fallback "${FALLBACK_INTERVIEW_ROUTE_ID}".`,
-  );
-  return fallback;
+  return resolved.candidates;
 }
 
 // ─── Settings loader ────────────────────────────────────────────────────────
@@ -341,6 +333,7 @@ async function draftLullQuestion(
   db: ReturnType<typeof getDirectDb>,
   client: OracleAIClient,
   route: OracleModelRoute,
+  routeCandidates: RouteCandidate[],
   gap: RelevantOpenGap,
   recentMessageExcerpts: string[],
 ): Promise<{ text: string; modelRunId: string | null }> {
@@ -382,6 +375,7 @@ ${recentContext}`;
       promptVersion: LULL_INTERJECTION_PROMPT_VERSION,
       blocks,
       providerOptions: { temperature: 0.4 },
+      routeCandidates,
     });
     const latencyMs = Date.now() - callStartedAt;
     const actualRouteId = result.routeId ?? route.routeId;
@@ -435,8 +429,15 @@ ${recentContext}`;
       reasoningTokens: result.usage.reasoningTokens ?? null,
       providerRequestId: result.usage.providerRequestId ?? null,
       rawUsageJson: (result.usage.rawUsageJson ?? null) as Record<string, unknown> | null,
-      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
-      fallbackReason: result.fallbackReason ?? null,
+    });
+
+    await logModelRunAttempts({
+      db,
+      metadata: result,
+      taskType: 'lull-interjection',
+      slot: 'interview',
+      contextPackId: contextPack.id,
+      modelRunId: modelRun.id,
     });
 
     await db
@@ -452,6 +453,12 @@ ${recentContext}`;
   } catch (err) {
     const latencyMs = Date.now() - callStartedAt;
     const message = err instanceof Error ? err.message : String(err);
+    await logAllCandidatesFailedAttempts({
+      db,
+      error: err,
+      taskType: 'lull-interjection',
+      slot: 'interview',
+    });
     try {
       const [modelRun] = await db
         .insert(modelRuns)
@@ -487,6 +494,7 @@ async function processChannel(
   db: ReturnType<typeof getDirectDb>,
   client: OracleAIClient,
   route: OracleModelRoute,
+  routeCandidates: RouteCandidate[],
   channel: { id: string; isGroupChat: boolean },
   settings: LullSettings,
   now: Date,
@@ -535,7 +543,14 @@ async function processChannel(
     const gap = ctx.topRelevantOpenGap;
 
     // Draft OUTSIDE the lock (don't hold the advisory lock across the LLM call).
-    const drafted = await draftLullQuestion(db, client, route, gap, ctx.recentMessageExcerpts);
+    const drafted = await draftLullQuestion(
+      db,
+      client,
+      route,
+      routeCandidates,
+      gap,
+      ctx.recentMessageExcerpts,
+    );
 
     // Commit inside a transaction guarded by a per-channel advisory lock so two
     // concurrent runs can't both blow past the per-hour interjection cap on the
@@ -668,7 +683,8 @@ export const lullInterjectionTask = schedules.task({
 
     try {
       const lullSettings = await loadLullSettings(db);
-      const route = await resolveInterviewRoute(db);
+      const routeCandidates = await resolveInterviewCandidates(db);
+      const route = routeCandidates[0]!.route;
 
       const activeChannels = await db
         .select({ id: channels.id, isGroupChat: channels.isGroupChat })
@@ -678,7 +694,15 @@ export const lullInterjectionTask = schedules.task({
       for (const channel of activeChannels) {
         totals.channelsConsidered += 1;
         try {
-          const outcome = await processChannel(db, client, route, channel, lullSettings, new Date());
+          const outcome = await processChannel(
+            db,
+            client,
+            route,
+            routeCandidates,
+            channel,
+            lullSettings,
+            new Date(),
+          );
           if (outcome.decision === 'ask') {
             totals.interjectionsAsked += 1;
           } else {

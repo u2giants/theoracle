@@ -25,12 +25,12 @@ import { claims, claimTranslations } from '@oracle/db';
 import {
   OracleAIClient,
   buildStandardAdapters,
-  getOracleRoute,
-  resolveAuxiliaryRouteFromSettings,
-  makeBlock,
   embedText,
-  DEFAULT_TRANSLATION_ROUTE_ID,
-  type OracleModelRoute,
+  logAllCandidatesFailedAttempts,
+  logModelRunAttempts,
+  makeBlock,
+  resolveRouteCandidates,
+  type RouteCandidate,
 } from '@oracle/ai';
 import {
   SUPPORTED_LOCALES,
@@ -56,24 +56,18 @@ function sha256(text: string): string {
 function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
     adapters: buildStandardAdapters(),
-    fallbackOnError: true,
   });
 }
 
-async function resolveTranslationRoute(
+async function resolveTranslationCandidates(
   db: ReturnType<typeof getDirectDb>,
-): Promise<OracleModelRoute> {
+): Promise<RouteCandidate[]> {
   // Admin-selected translation model (Admin → Settings → "Translation model").
-  // Falls back to the shipped default (multilingual Sonnet) when unset.
-  const resolved = await resolveAuxiliaryRouteFromSettings(db, 'translation');
-  if (resolved) return resolved;
-  const fb = getOracleRoute(DEFAULT_TRANSLATION_ROUTE_ID);
-  if (!fb) {
-    throw new Error(
-      `[claim-translation] translation route unset and default "${DEFAULT_TRANSLATION_ROUTE_ID}" missing from catalog.`,
-    );
+  const resolved = await resolveRouteCandidates(db, 'translation');
+  for (const skipped of resolved.skipped) {
+    console.warn('[claim-translation] skipped translation route candidate', skipped);
   }
-  return fb;
+  return resolved.candidates;
 }
 
 function buildSystemPrompt(targetLabel: string): string {
@@ -122,7 +116,8 @@ async function translateClaim(claimId: string): Promise<{
   const targets = SUPPORTED_LOCALES.filter((l) => l !== sourceLang);
 
   const client = buildOracleClient();
-  const route = await resolveTranslationRoute(db);
+  const routeCandidates = await resolveTranslationCandidates(db);
+  const route = routeCandidates[0]!.route;
   const translatedLangs: string[] = [];
 
   for (const lang of targets) {
@@ -136,27 +131,50 @@ async function translateClaim(claimId: string): Promise<{
     }
 
     const targetLabel = LANGUAGE_LABELS[lang];
-    const result = await client.runText({
-      taskType: 'claim_translation',
-      routeId: route.routeId,
-      promptVersion: TRANSLATION_PROMPT_VERSION,
-      blocks: [
-        makeBlock({
-          id: 'translation-system',
-          label: 'Translation system prompt',
-          kind: 'stable_system',
-          content: buildSystemPrompt(targetLabel),
-          reasonIncluded: 'Translation instructions',
-        }),
-        makeBlock({
-          id: 'translation-input',
-          label: 'Source claim',
-          kind: 'dynamic_input',
-          content: `Translate this claim into ${targetLabel}:\n\n${claim.summary}`,
-          reasonIncluded: 'Source text to translate',
-        }),
-      ],
-    });
+    const blocks = [
+      makeBlock({
+        id: 'translation-system',
+        label: 'Translation system prompt',
+        kind: 'stable_system',
+        content: buildSystemPrompt(targetLabel),
+        reasonIncluded: 'Translation instructions',
+      }),
+      makeBlock({
+        id: 'translation-input',
+        label: 'Source claim',
+        kind: 'dynamic_input',
+        content: `Translate this claim into ${targetLabel}:\n\n${claim.summary}`,
+        reasonIncluded: 'Source text to translate',
+      }),
+    ];
+
+    const result = await client
+      .runText({
+        taskType: 'claim_translation',
+        routeId: route.routeId,
+        promptVersion: TRANSLATION_PROMPT_VERSION,
+        blocks,
+        routeCandidates,
+      })
+      .catch(async (err) => {
+        await logAllCandidatesFailedAttempts({
+          db,
+          error: err,
+          taskType: 'claim-translation',
+          slot: 'translation',
+        }).catch((logErr) =>
+          console.error('[claim-translation] failed to record failed model attempts', logErr),
+        );
+        throw err;
+      });
+    await logModelRunAttempts({
+      db,
+      metadata: result,
+      taskType: 'claim-translation',
+      slot: 'translation',
+    }).catch((logErr) =>
+      console.error('[claim-translation] failed to record model attempts', logErr),
+    );
 
     const translated = result.text.trim();
     if (!translated) {

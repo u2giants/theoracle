@@ -524,6 +524,20 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Why**: The gate was at the wrong stage — it auto-ingested every transcript then gated *extraction*. The product need is to choose, from a list, which meetings get pulled in *at all*. Anchoring to real meeting time also stops `lull-interjection` from treating an ingested past meeting as a live conversation (it was spawning spurious gaps/interventions).
 - **Deprecated by this**: the `awaiting_approval` enum value (migration 75) and `raw_transcripts.approval_status` columns (migration 76) are now unused. Left in place (removing a PG enum value is disruptive; the columns are harmless); do not build on them.
 
+## D-fail-loud-model-routing — approved pools replace hidden fallbacks (2026-06-25)
+
+- **Decision**: Remove route-level fallback targets and hard-coded worker fallback routes. Pipeline stages resolve an ordered candidate chain from the selected primary plus the DB-approved pool; auxiliary slots (`vision`, `general`, `translation`) are explicit single-pick settings. When all candidates fail or a slot is unset, the call fails loud.
+- **Why**: A selected provider/model could silently run an unapproved fallback model when an adapter was missing or misconfigured, making cost, provenance, and capability debugging misleading. The approved pool is the only acceptable fallback chain because admins can inspect and edit it.
+- **Observability**: `model_run_attempts` records each attempted route, including failed primary attempts and successful non-primary attempts. Admin pages show a banner when recent failed or non-primary attempts exist.
+- **Capability guard**: Runtime resolution checks `model_capabilities` against slot requirements while `settings.enforce_model_capabilities=true`. Set it false only for controlled debugging.
+
+## D-conversation-aware-message-extraction — whole conversations, non-quotable carry-in (2026-06-26)
+
+- **Decision**: Message extraction no longer pulls a global `LIMIT(100)` and then segments the truncated set. Sync and batch extraction share `selectPendingConversations`, which selects whole same-channel conversation segments bounded by the 60-minute gap heuristic and stops at `extraction_char_budget` / `BATCH_SIZE` only between conversations.
+- **Why**: Operational claims often emerge from a multi-message discussion. Cutting at an arbitrary global count can split the connected context and cause missed or distorted claims.
+- **Provenance rule**: Prior same-channel messages are included only as non-quotable carry-in context (`extraction_carry_in_count`). The active segment's message IDs remain the only valid evidence sources, so quote validation still rejects claims that cite carry-in context.
+- **Oversized conversations**: If one conversation exceeds the configured budget, process it whole and log the oversized condition rather than silently truncating it. Future work can add a more sophisticated sliding-window strategy if real conversations exceed model limits.
+
 # Document ingestion: Word, image vision, auxiliary models, context (2026-06-14)
 
 ## D-image-vision-two-pass — transcribe images to text before extraction
@@ -534,9 +548,9 @@ This file is the running log of every assumption, stub, and resolution made by t
 
 ## D-auxiliary-models — single-pick models outside OracleModelRole
 
-- **Decision**: Admin-selectable models that are not one of the 3 strict pipeline roles (vision, general-purpose) are "auxiliary models" defined in a registry (`packages/ai/src/routes/auxiliary.ts`, `AUXILIARY_MODELS`) and resolved by `resolveAuxiliaryRouteFromSettings(db, id)`. `OracleModelRole` stays frozen at `interview | extraction | synthesis`. The settings page, picker, and `/api/admin/models` iterate the registry; none special-case `'vision'`/`'general'`.
-- **Why**: Pipeline roles carry structure auxiliary models don't (strict primary+fallback catalog pair, stage requirements, model pools, batch dispatch). Folding vision into `OracleModelRole` would ripple through every `Record<OracleModelRole, …>` map and the 1-primary/1-fallback invariant. The registry adds the next utility model with one entry and no new branches.
-- **Setting**: `default_vision_route` (+ `default_vision_reasoning_effort`), shipped fallback `vertex_gemini_2_5_flash_extraction_primary`, seeded with `ON CONFLICT DO NOTHING`.
+- **Decision**: Admin-selectable models that are not one of the 3 strict pipeline roles (vision, general-purpose, translation) are "auxiliary models" defined in a registry (`packages/ai/src/routes/auxiliary.ts`, `AUXILIARY_MODELS`) and resolved by `resolveRouteCandidates(db, id)` as explicit single-pick slots. `OracleModelRole` stays frozen at `interview | extraction | synthesis`. The settings page, picker, and `/api/admin/models` iterate the registry; none special-case auxiliary ids.
+- **Why**: Pipeline roles carry structure auxiliary models don't (stage requirements, approved model pools, batch dispatch). Folding vision into `OracleModelRole` would ripple through every `Record<OracleModelRole, …>` map. The registry adds the next utility model with one entry and no new branches.
+- **Setting**: `default_vision_route` (+ `default_vision_reasoning_effort`), `default_general_purpose_route`, and `default_translation_route` are seeded with `ON CONFLICT DO NOTHING`. Unset means configuration error, not fallback.
 
 ## D-admin-document-upload — company docs decouple from chat channels
 

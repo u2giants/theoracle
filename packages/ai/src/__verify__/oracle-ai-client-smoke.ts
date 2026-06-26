@@ -9,8 +9,8 @@
  *   - OracleAIClient can dispatch a generateObject call and the resulting
  *     output passes through the structured-output validator.
  *   - The ContextCompiler enforces stable-before-dynamic block ordering.
- *   - The ModelRouter falls back from a not-yet-implemented production
- *     adapter to its configured Fallback route when fallbackOnError=true.
+ *   - The ModelRouter tries an explicit ordered candidate chain and fails loud
+ *     when every approved candidate fails.
  *   - The EvidenceValidator passes a perfect quote and rejects a paraphrase.
  *
  * This file is in __verify__ so it is never picked up as a production export.
@@ -20,12 +20,15 @@ import { z } from 'zod';
 import {
   OracleAIClient,
   makeBlock,
+  getOracleRoute,
   getEvidenceValidator,
+  AllCandidatesFailedError,
   ProviderAdapterNotImplementedError,
   MockProviderAdapter,
   ModelRouter,
   type OracleProviderAdapter,
   type OraclePromptPlan,
+  type RouteCandidate,
 } from '../index';
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -96,7 +99,7 @@ async function main() {
   assert(objResult.validation.ok === true, 'mock object passes Zod validation');
   assert(objResult.object.provider === 'vertex', 'mock object carries provider tag');
 
-  // ── 4. ModelRouter fallback path ────────────────────────────────────────
+  // ── 4. ModelRouter approved candidate chain ─────────────────────────────
   const unavailableAnthropicAdapter: OracleProviderAdapter = {
     provider: 'anthropic',
     async generateText() {
@@ -107,36 +110,47 @@ async function main() {
     },
   };
 
-  // Build a router with an unavailable Anthropic adapter and a mock for openai.
-  // ProviderAdapterNotImplementedError is in our fallback whitelist, so the
-  // router should dispatch to the configured fallback route.
-  const fallbackRouter = new ModelRouter({
+  const candidateRouter = new ModelRouter({
     adapters: {
       anthropic: unavailableAnthropicAdapter,
       openai: new MockProviderAdapter({ provider: 'openai', cannedText: 'fallback-OK' }),
     },
-    fallbackOnError: true,
   });
   const fallbackPlan: OraclePromptPlan = client.compile({
     taskType: 'interview_chat',
-    routeId: 'anthropic_claude_haiku_4_5_interview_primary', // primary → throws → fallback to openai_gpt4o_interview_fallback
+    routeId: 'anthropic_claude_haiku_4_5_interview_primary',
     promptVersion: 'r2-smoke',
     blocks: baseBlocks,
   });
-  const fbResult = await fallbackRouter.generateText(fallbackPlan);
-  assert(fbResult.text === 'fallback-OK', 'ModelRouter dispatched to Fallback route when primary stub threw NotImplemented');
-  assert(fbResult.routeId === 'openai_gpt4o_interview_fallback', 'fallback result records the actual fallback route');
-  assert(
-    fbResult.fellBackFromRouteId === 'anthropic_claude_haiku_4_5_interview_primary',
-    'fallback result records the original route',
-  );
+  const anthropicRoute = getOracleRoute('anthropic_claude_haiku_4_5_interview_primary');
+  const openAiRoute = getOracleRoute('openai_gpt4o_interview_fallback');
+  assert(anthropicRoute !== null, 'anthropic smoke route resolves');
+  assert(openAiRoute !== null, 'openai smoke route resolves');
+  const candidates: RouteCandidate[] = [
+    {
+      route: anthropicRoute,
+      slot: 'interview',
+      isPrimary: true,
+      approvedModelId: 'anthropic/claude-haiku-4-5',
+    },
+    {
+      route: openAiRoute,
+      slot: 'interview',
+      isPrimary: false,
+      approvedModelId: 'openai/gpt-4o',
+    },
+  ];
+  const fbResult = await candidateRouter.generateText(fallbackPlan, undefined, candidates);
+  assert(fbResult.text === 'fallback-OK', 'ModelRouter dispatches to the next approved candidate when the primary fails');
+  assert(fbResult.routeId === 'openai_gpt4o_interview_fallback', 'candidate-chain result records the actual route');
+  assert(fbResult.usedNonPrimary === true, 'candidate-chain result records non-primary usage');
+  assert(fbResult.attemptedRoutes?.length === 2, 'candidate-chain result records both attempts');
 
   // ── 4b. Dynamic provider/model route IDs ─────────────────────────────────
   const dynamicRouter = new ModelRouter({
     adapters: {
       qwen: new MockProviderAdapter({ provider: 'qwen', cannedText: 'dynamic-OK' }),
     },
-    fallbackOnError: true,
   });
   const dynamicPlan: OraclePromptPlan = client.compile({
     taskType: 'document_claim_extraction',
@@ -150,38 +164,17 @@ async function main() {
   assert(dynamicResult.provider === 'qwen', 'dynamic route metadata records provider');
   assert(dynamicResult.modelId === 'qwen3.7-plus', 'dynamic route metadata records model id');
 
-  const dynamicFallbackRouter = new ModelRouter({
-    adapters: {
-      vertex: new MockProviderAdapter({ provider: 'vertex', cannedText: 'dynamic-fallback-OK' }),
-    },
-    fallbackOnError: true,
-  });
-  const dynamicFallbackResult = await dynamicFallbackRouter.generateText(dynamicPlan);
-  assert(
-    dynamicFallbackResult.text === 'dynamic-fallback-OK',
-    'ModelRouter falls back when a dynamic route provider adapter is unavailable',
-  );
-  assert(
-    dynamicFallbackResult.routeId === 'vertex_gemini_2_5_flash_extraction_primary',
-    'dynamic fallback result records the actual fallback route',
-  );
-  assert(
-    dynamicFallbackResult.fellBackFromRouteId === 'qwen/qwen3.7-plus',
-    'dynamic fallback result records the original provider/model route',
-  );
-
-  // ── 5. ModelRouter surfaces non-transient errors (no fallback) ──────────
+  // ── 5. ModelRouter fails loud when all candidates fail ──────────────────
   const strictRouter = new ModelRouter({
     adapters: { anthropic: unavailableAnthropicAdapter },
-    fallbackOnError: false,
   });
   let threw = false;
   try {
-    await strictRouter.generateText(fallbackPlan);
+    await strictRouter.generateText(fallbackPlan, undefined, [candidates[0]!]);
   } catch (err) {
-    threw = err instanceof ProviderAdapterNotImplementedError;
+    threw = err instanceof AllCandidatesFailedError;
   }
-  assert(threw, 'ModelRouter with fallbackOnError=false surfaces NotImplemented error');
+  assert(threw, 'ModelRouter throws AllCandidatesFailedError when every approved candidate fails');
 
   // ── 6. EvidenceValidator: perfect quote passes, paraphrase fails ────────
   const ev = getEvidenceValidator();

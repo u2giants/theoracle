@@ -22,7 +22,7 @@
 //     rows are written for every model call so cost/cache dashboards work.
 
 import { schedules } from '@trigger.dev/sdk/v3';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
 import {
@@ -43,10 +43,12 @@ import {
 import {
   OracleAIClient,
   buildStandardAdapters,
-  getOracleRoute,
-  resolveRouteFromSettings,
+  resolveRouteCandidates,
+  logAllCandidatesFailedAttempts,
+  logModelRunAttempts,
   makeBlock,
   type OracleModelRoute,
+  type RouteCandidate,
   type OraclePromptPlan,
   EXTRACTION_SYSTEM_PROMPT,
   EXTRACTION_PROMPT_VERSION,
@@ -72,10 +74,22 @@ import type { EntityType, KnowledgeDomain, TopLevelDomainId } from '@oracle/shar
 
 export const BATCH_SIZE = 100;
 export const SEGMENT_GAP_MS = 60 * 60 * 1000;
+export const DEFAULT_EXTRACTION_CHAR_BUDGET = 24_000;
+export const DEFAULT_EXTRACTION_CARRY_IN_COUNT = 12;
 
-// Fallback route — used if the settings row is missing or points at a route
-// not in the catalog. Matches the R1 default.
-const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
+export interface ExtractionSelectionSettings {
+  charBudget: number;
+  carryInCount: number;
+}
+
+export interface PendingConversationSegment {
+  channelId: string;
+  segment: FormattedMessage[];
+  carryIn: FormattedMessage[];
+  charCount: number;
+  isOversized: boolean;
+}
+
 
 // ── Module-singletons ─────────────────────────────────────────────────────
 // The OracleAIClient is constructed once per worker process with the three
@@ -85,7 +99,6 @@ const FALLBACK_ROUTE_ID = 'vertex_gemini_2_5_flash_extraction_primary';
 export function buildOracleClient(): OracleAIClient {
   return new OracleAIClient({
     adapters: buildStandardAdapters(),
-    fallbackOnError: true,
   });
 }
 
@@ -185,30 +198,23 @@ export async function runClaimExtractionOnce(
         );
       }
 
-      // 1. Resolve the curated extraction route.
-      const route = await resolveExtractionRoute(db);
+      // 1. Resolve the approved extraction candidate chain.
+      const routeCandidates = await resolveExtractionCandidates(db);
+      const route = routeCandidates[0]!.route;
       const activeTopDomainIds = await loadActiveTopDomainIds(db);
       const entityRegistry = await loadEntityRegistry(db);
       const correctionLessons = await loadClaimCorrectionLessonPack(db);
+      const selectionSettings = await loadExtractionSelectionSettings(db);
 
-      // 2. Pull pending user messages.
-      const pendingMessages = await db
-        .select({
-          id: messages.id,
-          channelId: messages.channelId,
-          employeeId: messages.employeeId,
-          role: messages.role,
-          content: messages.content,
-          createdAt: messages.createdAt,
-          authorName: employees.name,
-        })
-        .from(messages)
-        .leftJoin(employees, eq(employees.id, messages.employeeId))
-        .where(and(eq(messages.extractionStatus, 'pending'), eq(messages.role, 'user')))
-        .orderBy(messages.createdAt)
-        .limit(BATCH_SIZE);
+      // 2. Pull whole pending conversations. The selector may stop at the
+      // per-tick budget, but it never cuts a conversation mid-segment.
+      const conversations = await selectPendingConversations(db, {
+        charBudget: selectionSettings.charBudget,
+        maxMessages: BATCH_SIZE,
+        carryInCount: selectionSettings.carryInCount,
+      });
 
-      if (pendingMessages.length === 0) {
+      if (conversations.length === 0) {
         await db
           .update(jobRuns)
           .set({ status: 'complete', finishedAt: new Date(), outputJson: totals })
@@ -216,28 +222,38 @@ export async function runClaimExtractionOnce(
         return { ok: true, ...totals };
       }
 
-      // 3. Mark all fetched messages as 'processing' (idempotency guard).
-      const messageIds = pendingMessages.map((m) => m.id);
+      // 3. Mark selected segment messages as 'processing' (idempotency guard).
+      // Carry-in context is intentionally not claimed or re-extracted.
+      const messageIds = conversations.flatMap((conversation) =>
+        conversation.segment.map((m) => m.id),
+      );
       await db
         .update(messages)
         .set({ extractionStatus: 'processing' })
         .where(inArray(messages.id, messageIds));
 
-      // 4. Group by channel → 60-min conversation segments.
-      const segments = groupIntoSegments(pendingMessages);
-
-      // 5. Process each segment as an extraction_batches row.
-      for (const segment of segments) {
+      // 4. Process each whole conversation segment as an extraction_batches row.
+      for (const conversation of conversations) {
+        if (conversation.isOversized) {
+          console.warn('[claim-extraction] processing oversized conversation without truncation', {
+            channelId: conversation.channelId,
+            messages: conversation.segment.length,
+            charCount: conversation.charCount,
+            charBudget: selectionSettings.charBudget,
+          });
+        }
         try {
           const outcome = await processSegment({
             db,
             client,
             route,
+            routeCandidates,
             activeTopDomainIds,
             entityRegistry,
             correctionLessonsPromptBlock: correctionLessons.promptBlock,
             jobRunId: jobRun.id,
-            segment,
+            segment: conversation.segment,
+            carryIn: conversation.carryIn,
           });
           totals.batchesProcessed += 1;
           totals.candidatesStaged += outcome.candidatesStaged;
@@ -302,11 +318,13 @@ interface ProcessSegmentArgs {
   db: OracleDb;
   client: OracleAIClient;
   route: OracleModelRoute;
+  routeCandidates: RouteCandidate[];
   activeTopDomainIds: string[];
   entityRegistry: RegistryEntity[];
   correctionLessonsPromptBlock: string;
   jobRunId: string;
   segment: FormattedMessage[];
+  carryIn?: FormattedMessage[];
 }
 
 async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome> {
@@ -314,11 +332,13 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
     db,
     client,
     route,
+    routeCandidates,
     activeTopDomainIds,
     entityRegistry,
     correctionLessonsPromptBlock,
     jobRunId,
     segment,
+    carryIn = [],
   } = args;
   const segmentIds = segment.map((m) => m.id);
   const userMessages = segment.filter((m) => m.role === 'user');
@@ -342,7 +362,7 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
   }
 
   // Compile the prompt plan.
-  const formatted = formatConversationSegment(segment);
+  const formatted = formatConversationSegment(segment, { carryIn });
   const blocks = [
     makeBlock({
       id: 'extraction-system',
@@ -367,7 +387,7 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
       label: 'Conversation segment to extract from',
       kind: 'dynamic_input',
       content: formatted,
-      reasonIncluded: `segment of ${segment.length} message(s) in this batch`,
+      reasonIncluded: `segment of ${segment.length} message(s) with ${carryIn.length} non-quotable carry-in context message(s)`,
     }),
   ];
   const plan = client.compile({
@@ -433,6 +453,7 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
           latestPlannedReuseStep: 'message_claim_extraction',
         },
       },
+      routeCandidates,
     });
     const latencyMs = Date.now() - callStartedAt;
     const actualRouteId = result.routeId ?? route.routeId;
@@ -469,8 +490,14 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
       reasoningTokens: result.usage.reasoningTokens ?? null,
       providerRequestId: result.usage.providerRequestId ?? null,
       rawUsageJson: result.usage.rawUsageJson ?? null,
-      fellBackFromRouteId: result.fellBackFromRouteId ?? null,
-      fallbackReason: result.fallbackReason ?? null,
+    });
+    await logModelRunAttempts({
+      db,
+      metadata: result,
+      taskType: 'claim-extraction',
+      slot: 'extraction',
+      contextPackId: contextPack.id,
+      modelRunId: modelRun.id,
     });
     await db
       .update(oracleContextPacks)
@@ -496,6 +523,15 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
   } catch (err) {
     modelError = err;
     if (!modelRunId) {
+      await logAllCandidatesFailedAttempts({
+        db,
+        error: err,
+        taskType: 'claim-extraction',
+        slot: 'extraction',
+        contextPackId: contextPack.id,
+      }).catch((logErr) =>
+        console.error('[claim-extraction] failed to record model attempts', logErr),
+      );
       // The model_runs row was never inserted. Insert a failed one now so
       // the batch has provenance.
       await db.insert(modelRuns).values({
@@ -957,20 +993,40 @@ export async function processSegmentOutput(
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
 
-export async function resolveExtractionRoute(db: OracleDb): Promise<OracleModelRoute> {
-  // Reads both default_extraction_route + default_extraction_reasoning_effort.
-  const resolved = await resolveRouteFromSettings(db, 'extraction');
-  if (resolved) return resolved;
-  const fallback = getOracleRoute(FALLBACK_ROUTE_ID);
-  if (!fallback) {
-    throw new Error(
-      `[claim-extraction] default_extraction_route unset/unresolvable and fallback "${FALLBACK_ROUTE_ID}" missing.`,
-    );
+export async function resolveExtractionCandidates(db: OracleDb): Promise<RouteCandidate[]> {
+  const resolved = await resolveRouteCandidates(db, 'extraction');
+  for (const skipped of resolved.skipped) {
+    console.error(`[claim-extraction] skipped configured extraction candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`);
   }
-  console.warn(
-    `[claim-extraction] default_extraction_route unset/unresolvable; using fallback "${FALLBACK_ROUTE_ID}".`,
-  );
-  return fallback;
+  return resolved.candidates;
+}
+
+function numberSetting(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
+export async function loadExtractionSelectionSettings(db: OracleDb): Promise<ExtractionSelectionSettings> {
+  const rows = await db
+    .select({ key: settings.key, value: settings.value })
+    .from(settings)
+    .where(inArray(settings.key, ['extraction_char_budget', 'extraction_carry_in_count']));
+  const map = new Map(rows.map((row) => [row.key, row.value]));
+  return {
+    charBudget: numberSetting(
+      map.get('extraction_char_budget'),
+      DEFAULT_EXTRACTION_CHAR_BUDGET,
+      4_000,
+      200_000,
+    ),
+    carryInCount: numberSetting(
+      map.get('extraction_carry_in_count'),
+      DEFAULT_EXTRACTION_CARRY_IN_COUNT,
+      0,
+      50,
+    ),
+  };
 }
 
 export async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
@@ -1003,6 +1059,141 @@ export async function loadEntityRegistry(db: OracleDb): Promise<RegistryEntity[]
     canonicalValue: r.canonicalValue,
     aliases: (r.aliases as string[] | null) ?? null,
   }));
+}
+
+type PendingMessageRow = {
+  id: string;
+  channelId: string;
+  employeeId: string | null;
+  role: 'user' | 'assistant' | 'system' | string;
+  content: string;
+  createdAt: Date;
+  authorName: string | null;
+};
+
+function toFormattedMessage(row: PendingMessageRow): FormattedMessage {
+  return {
+    id: row.id,
+    role: row.role as 'user' | 'assistant' | 'system',
+    content: row.content,
+    authorName: row.authorName ?? null,
+    createdAt: new Date(row.createdAt),
+  };
+}
+
+function estimateConversationChars(segment: FormattedMessage[]): number {
+  return segment.reduce((total, message) => {
+    const author = message.authorName?.length ?? 16;
+    return total + message.id.length + message.content.length + author + 96;
+  }, 0);
+}
+
+async function loadCarryInMessages(
+  db: OracleDb,
+  channelId: string,
+  before: Date,
+  carryInCount: number,
+): Promise<FormattedMessage[]> {
+  if (carryInCount <= 0) return [];
+  const rows = await db
+    .select({
+      id: messages.id,
+      channelId: messages.channelId,
+      employeeId: messages.employeeId,
+      role: messages.role,
+      content: messages.content,
+      createdAt: messages.createdAt,
+      authorName: employees.name,
+    })
+    .from(messages)
+    .leftJoin(employees, eq(employees.id, messages.employeeId))
+    .where(
+      and(
+        eq(messages.channelId, channelId),
+        inArray(messages.extractionStatus, ['complete', 'skipped']),
+        sql`${messages.role} <> 'system'`,
+        sql`${messages.createdAt} < ${before}`,
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(carryInCount);
+  return rows.reverse().map(toFormattedMessage);
+}
+
+export async function selectPendingConversations(
+  db: OracleDb,
+  opts: {
+    charBudget: number;
+    maxMessages: number;
+    carryInCount: number;
+  },
+): Promise<PendingConversationSegment[]> {
+  const channelRows = await db
+    .select({
+      channelId: messages.channelId,
+      oldestPendingAt: sql<Date>`min(${messages.createdAt})`,
+    })
+    .from(messages)
+    .where(and(eq(messages.extractionStatus, 'pending'), eq(messages.role, 'user')))
+    .groupBy(messages.channelId)
+    .orderBy(sql`min(${messages.createdAt})`);
+
+  const selected: PendingConversationSegment[] = [];
+  let selectedMessages = 0;
+  let selectedChars = 0;
+
+  for (const channelRow of channelRows) {
+    const pendingRows = await db
+      .select({
+        id: messages.id,
+        channelId: messages.channelId,
+        employeeId: messages.employeeId,
+        role: messages.role,
+        content: messages.content,
+        createdAt: messages.createdAt,
+        authorName: employees.name,
+      })
+      .from(messages)
+      .leftJoin(employees, eq(employees.id, messages.employeeId))
+      .where(
+        and(
+          eq(messages.channelId, channelRow.channelId),
+          eq(messages.extractionStatus, 'pending'),
+          eq(messages.role, 'user'),
+        ),
+      )
+      .orderBy(messages.createdAt);
+
+    for (const segment of groupIntoSegments(pendingRows)) {
+      const charCount = estimateConversationChars(segment);
+      const wouldExceedBudget =
+        selected.length > 0 &&
+        (selectedMessages + segment.length > opts.maxMessages ||
+          selectedChars + charCount > opts.charBudget);
+      if (wouldExceedBudget) return selected;
+
+      const isOversized = segment.length > opts.maxMessages || charCount > opts.charBudget;
+      const firstMessage = segment[0];
+      const carryIn = firstMessage
+        ? await loadCarryInMessages(db, channelRow.channelId, firstMessage.createdAt, opts.carryInCount)
+        : [];
+      selected.push({
+        channelId: channelRow.channelId,
+        segment,
+        carryIn,
+        charCount,
+        isOversized,
+      });
+      selectedMessages += segment.length;
+      selectedChars += charCount;
+
+      if (isOversized) {
+        return selected;
+      }
+    }
+  }
+
+  return selected;
 }
 
 export function groupIntoSegments(

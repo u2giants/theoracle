@@ -1,6 +1,6 @@
 # Fix Plan: Message-extraction batch boundary splits conversations
 
-Status: **NOT STARTED.** Self-contained brief for a developer with zero prior context. Written 2026-06-25.
+Status: **IMPLEMENTED IN SOURCE 2026-06-26.** Sync and batch extraction now use `selectPendingConversations()` in `apps/workers/src/trigger/claim-extraction.ts`; carry-in context is formatted by `formatConversationSegment(..., { carryIn })`; settings are `extraction_char_budget` and `extraction_carry_in_count`. Deploy workers and apply `78_fail_loud_model_routing_settings.sql` before treating production as fixed. Original brief retained below for context.
 
 ---
 

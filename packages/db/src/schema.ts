@@ -1058,6 +1058,34 @@ export const modelRunUsageDetails = pgTable(
   }),
 );
 
+export const modelRunAttempts = pgTable(
+  'model_run_attempts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    modelRunId: uuid('model_run_id').references(() => modelRuns.id),
+    contextPackId: uuid('context_pack_id').references(() => oracleContextPacks.id),
+    taskType: varchar('task_type', { length: 100 }).notNull(),
+    slot: varchar('slot', { length: 50 }).notNull(),
+    attemptIndex: integer('attempt_index').notNull(),
+    routeId: varchar('route_id', { length: 100 }).notNull(),
+    provider: varchar('provider', { length: 100 }).notNull(),
+    modelId: varchar('model_id', { length: 100 }).notNull(),
+    isPrimary: boolean('is_primary').notNull(),
+    status: varchar('status', { length: 50 }).notNull(),
+    error: text('error'),
+    latencyMs: integer('latency_ms'),
+    providerRequestId: varchar('provider_request_id', { length: 255 }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    taskCreatedIdx: index('model_run_attempts_task_created_idx').on(t.taskType, t.createdAt),
+    slotCreatedIdx: index('model_run_attempts_slot_created_idx').on(t.slot, t.createdAt),
+    routeCreatedIdx: index('model_run_attempts_route_created_idx').on(t.routeId, t.createdAt),
+    modelRunIdx: index('model_run_attempts_model_run_idx').on(t.modelRunId),
+    contextPackIdx: index('model_run_attempts_context_pack_idx').on(t.contextPackId),
+  }),
+);
+
 export const providerCachedContent = pgTable(
   'provider_cached_content',
   {
@@ -1751,6 +1779,8 @@ export type OracleContextPack = typeof oracleContextPacks.$inferSelect;
 export type NewOracleContextPack = typeof oracleContextPacks.$inferInsert;
 export type ModelRunUsageDetail = typeof modelRunUsageDetails.$inferSelect;
 export type NewModelRunUsageDetail = typeof modelRunUsageDetails.$inferInsert;
+export type ModelRunAttempt = typeof modelRunAttempts.$inferSelect;
+export type NewModelRunAttempt = typeof modelRunAttempts.$inferInsert;
 export type ProviderCachedContent = typeof providerCachedContent.$inferSelect;
 export type NewProviderCachedContent = typeof providerCachedContent.$inferInsert;
 // R3.5 knowledge taxonomy

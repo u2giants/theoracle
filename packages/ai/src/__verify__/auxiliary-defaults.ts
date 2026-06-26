@@ -1,26 +1,20 @@
 /**
- * Auxiliary-model default-route invariant gate.
+ * Auxiliary-model routing invariant gate.
  *
  * Run with:
  *   pnpm --filter @oracle/ai exec tsx src/__verify__/auxiliary-defaults.ts
  *
- * Guarantees the fallback used by workers when an admin clears (or never set)
- * an auxiliary-model setting is always resolvable:
- *   - Every AUXILIARY_MODELS entry that declares a `defaultRouteId` must
- *     resolve via getOracleRoute() — i.e. it points at a LIVE catalog route,
- *     not a dangling id. Otherwise the worker fallback (e.g. the image-vision
- *     transcription pass) throws "vision route unresolvable" exactly when the
- *     setting is empty.
- *   - The image-vision model MUST declare a defaultRouteId (it has no other
- *     safety net), and that route must support vision.
+ * Auxiliary models are explicit single-pick slots. They must not declare
+ * baked-in default routes; an unset setting is a configuration error.
  *
- * No network / DB — pure registry + catalog assertions.
+ * No network / DB — pure registry assertions.
  */
 
 import {
   AUXILIARY_MODELS,
+  GENERAL_PURPOSE_AUXILIARY_MODEL,
+  TRANSLATION_AUXILIARY_MODEL,
   VISION_AUXILIARY_MODEL,
-  getOracleRoute,
 } from '../index';
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -32,36 +26,29 @@ function assert(cond: unknown, msg: string): asserts cond {
 }
 
 function main() {
-  console.log('Auxiliary-model default-route gate\n');
+  console.log('Auxiliary-model routing gate\n');
 
   assert(AUXILIARY_MODELS.length > 0, 'registry is non-empty');
 
+  const ids = new Set<string>();
   for (const def of AUXILIARY_MODELS) {
-    if (def.defaultRouteId === undefined) {
-      console.log(`• ${def.id}: no defaultRouteId (allowed) — skipping`);
-      continue;
-    }
-    const route = getOracleRoute(def.defaultRouteId);
+    assert(!ids.has(def.id), `${def.id}: registry id is unique`);
+    ids.add(def.id);
     assert(
-      route !== null,
-      `${def.id}: defaultRouteId "${def.defaultRouteId}" resolves to a live catalog route`,
+      !('defaultRouteId' in def),
+      `${def.id}: no defaultRouteId is declared`,
+    );
+    assert(
+      typeof def.routeSettingKey === 'string' && def.routeSettingKey.length > 0,
+      `${def.id}: route setting key is configured`,
     );
   }
 
-  // The image-vision pass has no other fallback, so its default is mandatory.
-  assert(
-    typeof VISION_AUXILIARY_MODEL.defaultRouteId === 'string' &&
-      VISION_AUXILIARY_MODEL.defaultRouteId.length > 0,
-    'vision model declares a defaultRouteId (mandatory — it is the only fallback)',
-  );
-  const visionRoute = getOracleRoute(VISION_AUXILIARY_MODEL.defaultRouteId!);
-  assert(visionRoute !== null, 'vision defaultRouteId resolves in the catalog');
-  assert(
-    visionRoute!.supportsVision === true,
-    `vision default route "${visionRoute!.routeId}" supportsVision === true`,
-  );
+  assert(VISION_AUXILIARY_MODEL.id === 'vision', 'vision auxiliary id is stable');
+  assert(GENERAL_PURPOSE_AUXILIARY_MODEL.id === 'general', 'general auxiliary id is stable');
+  assert(TRANSLATION_AUXILIARY_MODEL.id === 'translation', 'translation auxiliary id is stable');
 
-  console.log('\nAuxiliary-model default-route gate: PASS');
+  console.log('\nAuxiliary-model routing gate: PASS');
 }
 
 main();

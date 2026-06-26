@@ -25,7 +25,6 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
 import {
-  employees,
   extractionBatches,
   jobRuns,
   messages,
@@ -50,8 +49,9 @@ import {
 import {
   BATCH_SIZE,
   buildContextPackInsert,
-  groupIntoSegments,
-  resolveExtractionRoute,
+  loadExtractionSelectionSettings,
+  resolveExtractionCandidates,
+  selectPendingConversations,
 } from './claim-extraction';
 
 export interface BatchSubmitTotals {
@@ -117,7 +117,8 @@ export async function runClaimExtractionBatchSubmitOnce(
     }
 
     // 2. Resolve route + check adapter capability.
-    const route = await resolveExtractionRoute(db);
+    const routeCandidates = await resolveExtractionCandidates(db);
+    const route = routeCandidates[0]!.route;
     const correctionLessons = await loadClaimCorrectionLessonPack(db);
     const adapters = buildStandardAdapters();
     const adapter = adapters[route.provider];
@@ -130,45 +131,48 @@ export async function runClaimExtractionBatchSubmitOnce(
       return { ok: true, skipped: true, reason: `adapter ${route.provider} does not support batch`, segmentsSubmitted: 0 };
     }
 
-    // 3. Pull pending messages.
-    const pendingMessages = await db
-      .select({
-        id: messages.id,
-        channelId: messages.channelId,
-        employeeId: messages.employeeId,
-        role: messages.role,
-        content: messages.content,
-        createdAt: messages.createdAt,
-        authorName: employees.name,
-      })
-      .from(messages)
-      .leftJoin(employees, eq(employees.id, messages.employeeId))
-      .where(and(eq(messages.extractionStatus, 'pending'), eq(messages.role, 'user')))
-      .orderBy(messages.createdAt)
-      .limit(BATCH_SIZE);
+    // 3. Pull whole pending conversations. Never split a conversation just
+    // because the per-tick budget is reached.
+    const selectionSettings = await loadExtractionSelectionSettings(db);
+    const conversations = await selectPendingConversations(db, {
+      charBudget: selectionSettings.charBudget,
+      maxMessages: BATCH_SIZE,
+      carryInCount: selectionSettings.carryInCount,
+    });
 
-    if (pendingMessages.length === 0) {
+    if (conversations.length === 0) {
       await finish({ segmentsSubmitted: 0, reason: 'no pending messages' });
       return { ok: true, skipped: false, segmentsSubmitted: 0 };
     }
 
-    // 4. Mark as 'processing' for idempotency.
-    const messageIds = pendingMessages.map((m) => m.id);
+    // 4. Mark selected segment messages as 'processing' for idempotency.
+    // Carry-in context is not claimed or re-extracted.
+    const messageIds = conversations.flatMap((conversation) =>
+      conversation.segment.map((m) => m.id),
+    );
     claimedMessageIds = messageIds;
     await db
       .update(messages)
       .set({ extractionStatus: 'processing' })
       .where(inArray(messages.id, messageIds));
 
-    // 5. Group into segments + 6. Build extraction_batches + context_packs + BatchRequest list.
-    const segments = groupIntoSegments(pendingMessages);
-    const client = new OracleAIClient({ adapters, fallbackOnError: false });
+    // 5. Build extraction_batches + context_packs + BatchRequest list.
+    const client = new OracleAIClient({ adapters });
     const requests: BatchRequest[] = [];
     const allMessageIdsForFailure: string[] = [];
 
-    for (const segment of segments) {
+    for (const conversation of conversations) {
+      const segment = conversation.segment;
       const segmentIds = segment.map((m) => m.id);
       allMessageIdsForFailure.push(...segmentIds);
+      if (conversation.isOversized) {
+        console.warn('[claim-extraction-batch-submit] submitting oversized conversation without truncation', {
+          channelId: conversation.channelId,
+          messages: segment.length,
+          charCount: conversation.charCount,
+          charBudget: selectionSettings.charBudget,
+        });
+      }
       const userMessages = segment.filter((m) => m.role === 'user');
       if (userMessages.length === 0) {
         // Skip empty segments at submit time — mark messages as 'skipped'.
@@ -179,7 +183,7 @@ export async function runClaimExtractionBatchSubmitOnce(
         continue;
       }
 
-      const formatted = formatConversationSegment(segment);
+      const formatted = formatConversationSegment(segment, { carryIn: conversation.carryIn });
       const blocks = [
         makeBlock({
           id: 'extraction-system',
@@ -204,7 +208,7 @@ export async function runClaimExtractionBatchSubmitOnce(
           label: 'Conversation segment to extract from',
           kind: 'dynamic_input',
           content: formatted,
-          reasonIncluded: `segment of ${segment.length} message(s) in this batch`,
+          reasonIncluded: `segment of ${segment.length} message(s) with ${conversation.carryIn.length} non-quotable carry-in context message(s)`,
         }),
       ];
       const plan = client.compile({

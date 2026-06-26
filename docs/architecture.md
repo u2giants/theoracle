@@ -113,11 +113,11 @@ interface OracleProviderAdapter {
 
 Callers don't pick an adapter directly. They:
 
-1. Read the per-stage setting (`default_${role}_route` + `default_${role}_reasoning_effort`) via `resolveRouteFromSettings(db, role)`.
-2. Get back an `OracleModelRoute` with `provider`, `modelId`, `reasoningEffort`, and cache strategy attached.
-3. Pass the route to `OracleAIClient.runText()` or `runObject()`.
-4. `ModelRouter` looks up the adapter by `route.provider` and dispatches `generateText` or `generateObject` against it.
-5. The adapter calls the provider SDK, normalizes the response into `OracleTextResult` / `OracleObjectResult`, and normalizes usage into `OracleUsage`.
+1. Resolve a slot through `resolveRouteCandidates(db, slot)`, which reads the primary route setting, the approved pool for pipeline stages, optional reasoning effort, and capability metadata.
+2. Get back an ordered candidate chain. Pipeline stages (`interview`, `extraction`, `synthesis`) try the configured primary first, then the remaining approved pool models. Auxiliary slots (`vision`, `general`, `translation`) are explicit single-pick settings.
+3. Pass the primary route id and candidate chain to `OracleAIClient.runText()` or `runObject()`.
+4. `ModelRouter` tries candidates in order, looks up the adapter by `route.provider`, and dispatches `generateText` or `generateObject` against it.
+5. The adapter calls the provider SDK, normalizes the response into `OracleTextResult` / `OracleObjectResult`, and normalizes usage into `OracleUsage`. Attempt metadata is persisted to `model_run_attempts`.
 
 `buildStandardAdapters()` in `packages/ai/src/client/standard-adapters.ts` returns the production adapter map (`{ anthropic, vertex, google, openai, deepseek, qwen }`). It's tolerant of missing env keys — an adapter whose constructor throws is silently omitted, so a missing `DEEPSEEK_API_KEY` only fails requests routed to DeepSeek, not the whole map. Every worker and the chat route import this helper rather than instantiating adapters individually.
 
@@ -144,16 +144,17 @@ Take a chat-route call. The flow:
 POST /api/chat
   ↓
 apps/web/app/api/chat/route.ts
-  • resolveRouteFromSettings(db, 'interview')
+  • resolveRouteCandidates(db, 'interview')
     → reads settings.default_interview_route ('anthropic_claude_haiku_4_5_interview_primary')
+    → reads settings.model_pool_interview (approved chain)
     → reads settings.default_interview_reasoning_effort ('medium')
-    → returns OracleModelRoute { provider: 'anthropic', modelId: 'claude-haiku-4-5', reasoningEffort: 'medium', ... }
+    → returns RouteCandidate[] headed by OracleModelRoute { provider: 'anthropic', modelId: 'claude-haiku-4-5', reasoningEffort: 'medium', ... }
   • client = getOracleClient()   // lazy-init OracleAIClient with buildStandardAdapters()
-  • result = await client.runText({ plan, route, providerOptions: { messages, temperature, cache } })
+  • result = await client.runText({ plan, routeId, routeCandidates, providerOptions: { messages, temperature, cache } })
   ↓
 OracleAIClient.runText()
   • compile()  → OraclePromptPlan { stableBlocks, dynamicBlocks, outputContract }
-  • ModelRouter.resolve(route.routeId) → { route, adapter }   // adapter = AnthropicAdapter instance
+  • ModelRouter dispatches the first candidate; if it fails, it records the failure and tries the next approved candidate
   • adapter.generateText({ plan, route, providerOptions })
   ↓
 AnthropicAdapter.generateText()
@@ -171,12 +172,12 @@ AnthropicAdapter.generateText()
   • normalizeUsage(response, latencyMs) → OracleUsage with input/output/cached/cacheWrite/reasoning tokens
   • return { text, usage, rawResponse }
   ↓
-OracleAIClient.runText() returns { text, usage, plan, contextPackId }
+OracleAIClient.runText() returns { text, usage, plan, routeId, provider, modelId, attemptedRoutes }
   ↓
-apps/web/app/api/chat/route.ts persists to oracle_context_packs + model_runs + model_run_usage_details
+apps/web/app/api/chat/route.ts persists to oracle_context_packs + model_runs + model_run_usage_details + model_run_attempts
 ```
 
-Failure modes are handled at the routing layer (auto-fallback if `route.fallbackRouteId` is set and the primary call throws a transient error), at the adapter layer (refusals / parse failures throw typed errors), and at the worker layer (the candidate-before-claim pipeline catches output-validation failures and triggers schema_repair).
+Failure modes are handled at the routing layer (ordered approved candidates, then `AllCandidatesFailedError` when exhausted), at the adapter layer (refusals / parse failures throw typed errors), and at the worker layer (the candidate-before-claim pipeline catches output-validation failures and triggers schema_repair). There are no hidden route-level fallback targets in code.
 
 ### Batch API support (foundation landed 2026-05-28)
 
@@ -287,7 +288,7 @@ Adds live Teams meeting awareness without changing the Vercel/Supabase/Trigger.d
 
 Status: **LIVE + validated end-to-end (2026-06-08/09).** The tested path is: admin start route -> Recall Teams bot join -> ElevenLabs/AssemblyAI live STT -> signed `/api/teams/live/recall` webhook -> Trigger.dev `teams-live-recall-utterance` -> `messages` persistence -> Recall `send_chat_message` -> visible Teams chat post. The latest tested worker deployment is `20260609.6` after removing the temporary test-only bot-create task.
 
-After the live test, posting was deliberately clamped off in `settings` (`max_oracle_interjections_per_hour=0`, `teams_live_recall_min_confidence_to_post=101`, force flags false). The live decision is retrieval-backed (prompt version `teams-live-recall-1.1.0`): before the interjection decision, the worker runs the one endorsed claim-retrieval path (`buildRetrievalPlanFromQuery` → `searchWithRetrievalPlan`, top 5) over the current utterance plus recent meeting context, enriches the results with evidence and linked Brain snippets, and injects that approved knowledge as a `retrieved_context` prompt block. The worker writes an `oracle_context_packs` row before the model call, links it to `model_runs` / `model_run_usage_details`, and records actual fallback metadata from the AI result. The model reports which claim IDs influenced its decision; the worker validates them against the retrieved set and stores `retrievedClaimIds` + `evidenceClaimIds` in the interjection assistant-message `metadata_json` and the job output. Retrieval failures degrade to the no-context prompt — they never block the utterance path. The live Oracle still only asks clarification questions; it never answers the meeting, and claim IDs never appear in the Teams chat text.
+After the live test, posting was deliberately clamped off in `settings` (`max_oracle_interjections_per_hour=0`, `teams_live_recall_min_confidence_to_post=101`, force flags false). The live decision is retrieval-backed (prompt version `teams-live-recall-1.1.0`): before the interjection decision, the worker runs the one endorsed claim-retrieval path (`buildRetrievalPlanFromQuery` → `searchWithRetrievalPlan`, top 5) over the current utterance plus recent meeting context, enriches the results with evidence and linked Brain snippets, and injects that approved knowledge as a `retrieved_context` prompt block. The worker writes an `oracle_context_packs` row before the model call, links it to `model_runs` / `model_run_usage_details`, and records per-candidate dispatch attempts. The model reports which claim IDs influenced its decision; the worker validates them against the retrieved set and stores `retrievedClaimIds` + `evidenceClaimIds` in the interjection assistant-message `metadata_json` and the job output. Retrieval failures degrade to the no-context prompt — they never block the utterance path. The live Oracle still only asks clarification questions; it never answers the meeting, and claim IDs never appear in the Teams chat text.
 
 ```
 Admin POST /api/teams/live/start { meetingUrl, provider }
@@ -365,8 +366,8 @@ One human → one `employees` row → many `employee_identities` rows.
 2. The route resolves the requester's `employees` row through `employee_identities` (matches `auth.uid()` from the Supabase session). Verifies the requester is a participant of `channelId`.
 3. Classifies the query via `buildRetrievalPlanFromQuery` (heuristic keyword → `topDomainHints`, `requiredEntities`, `excludedDocumentClasses`, `searchScope`). Passes the employee's `departments` array as `departmentHints` — a soft signal added to the RRF score (+0.002 per claim whose `claim_metadata.department` matches). Runs hybrid pgvector + tsvector RRF via `searchWithRetrievalPlan` with metadata pre-filter. Also fetches recent N messages, employee profile, and top open gaps for this employee/department.
 4. Builds prompt blocks with the spec Part 10 system prompt plus the deterministic retrieval bundle. Multi-turn `messages`, `temperature`, provider cache hints, and optional Qwen session handles are passed through `providerOptions`; Vercel AI SDK tool definitions are not used by the direct adapters.
-5. Calls `OracleAIClient.runText`. Route is `settings.default_interview_route` (default `anthropic_claude_haiku_4_5_interview_primary`) and may fall back through `ModelRouter`.
-6. On completion: inserts the assistant message into `messages`, writes `model_runs` + `model_run_usage_details`, and uses the AI result metadata to record the actual dispatched route plus any fallback origin/reason.
+5. Calls `OracleAIClient.runText`. Route candidates come from `settings.default_interview_route` plus the approved `model_pool_interview` chain.
+6. On completion: inserts the assistant message into `messages`, writes `model_runs` + `model_run_usage_details` + `model_run_attempts`, and uses the AI result metadata to record the actual dispatched route.
 
 ### 3. Document upload
 
@@ -391,13 +392,13 @@ Unknown-only entity taxonomy results are allowed to promote while staging entity
 
 Cron: every 4 hours (`0 */4 * * *`). Also triggered by document ingestion.
 
-1. Queries `messages WHERE extraction_status='pending' AND role='user'`. Batches up to 100 messages per run.
-2. Groups by channel, then splits into 60-minute conversation segments.
-3. Calls `OracleAIClient.runObject` with the curated extraction route (`settings.default_extraction_route`, default `vertex_gemini_2_5_flash_extraction_primary`), dispatched through the direct `VertexGeminiAdapter` (`@google/genai`) with native `responseJsonSchema` structured-output mode.
-4. Validates exact quotes against the source text verbatim — invalid quotes are rejected without inserting.
+1. Queries channels with `messages WHERE extraction_status='pending' AND role='user'`, then selects whole same-channel conversation segments bounded by `SEGMENT_GAP_MS` (60 minutes). It stops at `extraction_char_budget` / `BATCH_SIZE` only between conversations; it never cuts a conversation at message 100.
+2. Adds up to `extraction_carry_in_count` prior complete/skipped same-channel messages as explicitly non-quotable context. Carry-in helps interpret continued conversations but is not claimed, not re-extracted, and cannot be cited as evidence.
+3. Calls `OracleAIClient.runObject` with the approved extraction candidate chain from `settings.default_extraction_route` + `model_pool_extraction`.
+4. Validates exact quotes against the active segment messages verbatim — invalid quotes are rejected without inserting. A model that quotes carry-in context fails validation because carry-in message IDs are not in `sourceMessageIds`.
 5. Inserts `claims` + `claim_top_domains` + `claim_evidence` rows via the R5 candidate-before-claim promotion executor. Auto-approves low-risk claim types with impact ≤ 6; others go to `pending_review`. (Legacy `claim_domains` is no longer written; backfilled rows remain in the table for historical reads only.)
 6. Suggests `gaps` rows for unanswered questions.
-7. Marks source messages `extraction_status = 'complete'`, `'failed'`, or `'skipped'`. Writes `job_runs` + `model_runs` rows.
+7. Marks active source messages `extraction_status = 'complete'`, `'failed'`, or `'skipped'`. Writes `job_runs` + `model_runs` + `model_run_usage_details` + `model_run_attempts` rows.
 
 ### 5. Synthesis (worker — deployed, Phase 4)
 
@@ -554,9 +555,9 @@ The work that remains is operational, not architectural. See `AGENTS.md` § 15 "
         │ packages/ai/src/ │            │                    │
         │ context/         │            │  - resolve routeId │
         │                  │            │  - dispatch        │
-        │ stable → semi    │            │  - fallback on     │
-        │  → retrieved →   │            │    429 / timeout / │
-        │  dynamic         │            │    NotImplemented  │
+        │ stable → semi    │            │  - try approved    │
+        │  → retrieved →   │            │    candidates in   │
+        │  dynamic         │            │    order           │
         │                  │            │  - attach actual   │
         │                  │            │    route metadata  │
         │                  │            └──────────┬─────────┘
@@ -572,7 +573,7 @@ The work that remains is operational, not architectural. See `AGENTS.md` § 15 "
                                                                  model_run_usage_details
 ```
 
-**Test mode** auto-registers `MockProviderAdapter` instances for all three providers, so the full pipeline runs without API keys. The smoke gate (`pnpm --filter @oracle/ai verify:r2`) covers 16 assertions including stable-before-dynamic ordering, generateText across all 3 provider shapes, Zod-validated `generateObject`, ModelRouter fallback dispatch, and `EvidenceValidator` accept/reject behavior.
+**Test mode** auto-registers `MockProviderAdapter` instances for all three providers, so the full pipeline runs without API keys. The smoke gate (`pnpm --filter @oracle/ai verify:r2`) covers stable-before-dynamic ordering, generateText across provider shapes, Zod-validated `generateObject`, ordered candidate dispatch, fail-loud exhaustion, and `EvidenceValidator` accept/reject behavior.
 
 **Validation layer:**
 
@@ -581,13 +582,13 @@ The work that remains is operational, not architectural. See `AGENTS.md` § 15 "
 
 ### Curated route catalog (R1, landed)
 
-`packages/ai/src/routes/` defines `OracleModelRoute` and the 9 curated routes. Each of the 3 production roles has **exactly 1 Primary + 1 Fallback** — no balanced alternates or competing defaults.
+`packages/ai/src/routes/` defines `OracleModelRoute` and the curated route catalog. Route entries do not point at fallback targets. Pipeline callers resolve the selected primary plus the ordered DB-approved model pool (`model_pool_interview`, `model_pool_extraction`, `model_pool_synthesis`) and then fail loud if every candidate fails.
 
-| Role | Primary | Fallback |
+| Role | Seeded primary | Seeded approved pool |
 |---|---|---|
-| Interview | `anthropic_claude_haiku_4_5_interview_primary` | `openai_gpt4o_interview_fallback` |
-| Extraction | `vertex_gemini_2_5_flash_extraction_primary` | `openai_gpt4o_mini_extraction_fallback` |
-| Synthesis | `anthropic_claude_3_5_sonnet_synthesis_primary` | `vertex_gemini_2_5_flash_synthesis_fallback` |
+| Interview | `anthropic_claude_haiku_4_5_interview_primary` | `anthropic/claude-haiku-4-5` |
+| Extraction | `vertex_gemini_2_5_flash_extraction_primary` | `google/gemini-2.5-flash` |
+| Synthesis | `anthropic_claude_3_5_sonnet_synthesis_primary` | `anthropic/claude-sonnet-4-6` |
 
 Internal escalation subroutes (Flash-Lite triage, Haiku warmth escalation, GPT-4o-mini schema repair) live inside `OracleAIClient` and are not exposed in admin settings.
 
@@ -598,7 +599,8 @@ Three Drizzle tables (created by migration `0001_hot_johnny_blaze.sql`) feed the
 | Table | Purpose |
 |---|---|
 | `oracle_context_packs` | Full `OraclePromptPlan` per AI call. Block list, prompt/schema versions, cache-key hashes (`stable_prefix_hash`, `dynamic_input_hash`, etc.), retrieval plan, included record IDs. `model_run_id` is nullable so the pack can be created BEFORE the model run. |
-| `model_run_usage_details` | 1:1 child of `model_runs` (UNIQUE on `model_run_id`). Adds the OracleUsage shape: `cached_input_tokens`, `cache_write_tokens`, `reasoning_tokens`, `provider_request_id`, raw provider usage JSON, plus fallback dispatch tracking (`fell_back_from_route_id`, `fallback_reason`). |
+| `model_run_usage_details` | 1:1 child of `model_runs` (UNIQUE on `model_run_id`). Adds the OracleUsage shape: `cached_input_tokens`, `cache_write_tokens`, `reasoning_tokens`, `provider_request_id`, and raw provider usage JSON. Legacy fallback columns may exist in older databases but new code does not write them. |
+| `model_run_attempts` | Append-only per-candidate dispatch log. Records failed primary attempts, successful non-primary attempts, route/provider/model, latency, provider request id, and error text when available. |
 | `provider_cached_content` | Explicit Vertex cache tracking. Required reuse policy fields: `expected_reuse_count`, `latest_planned_reuse_step`, `hard_expiration_at`, `cleanup_owner`. `provider_metadata_json` stores provider-specific cleanup state such as temporary uploaded GCS object names. `status` ∈ `(active, deleted, expired, failed, orphaned)`; CHECK constraint enforces `deleted_at IS NULL iff status='active'`. |
 | `provider_response_sessions` | Provider-native conversation/session state such as Qwen Responses `previous_response_id`, persisted by `(provider, session_key)` so session cache survives across requests and processes. |
 
@@ -800,7 +802,7 @@ Every production AI caller now dispatches through `OracleAIClient` with the six 
 
 | Caller | Phase | Status |
 |---|---|---|
-| `apps/workers/src/trigger/claim-extraction.ts` | R6 + R-providers | ✅ direct Vertex (extraction) / Anthropic (interview) / OpenAI (fallback) |
+| `apps/workers/src/trigger/claim-extraction.ts` | R6 + R-providers | ✅ direct adapters + approved extraction candidate chain |
 | `apps/workers/src/trigger/document-ingestion.ts` | R7 + R-providers | ✅ direct adapters |
 | `apps/web/app/api/chat/route.ts` | R8 + R-providers | ✅ direct adapters + deterministic retrieval before the model call + `providerOptions` escape hatch for multi-turn/temperature |
 | `apps/workers/src/trigger/brain-synthesis.ts` | R9 + R-providers | ✅ direct adapters + `validateSynthesisDiff` |
@@ -809,11 +811,11 @@ Every production AI caller now dispatches through `OracleAIClient` with the six 
 
 Each caller follows the same pattern:
 1. Build `OracleAIClient` with `buildStandardAdapters()` so every configured provider tag (`anthropic`, `vertex`, `google`, `openai`, `deepseek`, `qwen`) is registered through one source of truth.
-2. Resolve the curated route from `settings.default_*_route` (R1 keys).
+2. Resolve route candidates from `settings.default_*_route` plus the approved model pool for the slot.
 3. Compile a prompt plan with `ContextCompiler` (stable_system + dynamic content).
 4. Insert `oracle_context_packs` row BEFORE the model call so its ID can thread through.
-5. Call `OracleAIClient.runText` (chat) or `runObject` (workers). The result may carry `routeId`, `provider`, `modelId`, `fellBackFromRouteId`, and `fallbackReason` from `ModelRouter`.
-6. Insert `model_runs` + `model_run_usage_details` + back-link the context pack. Use the result route/provider/model metadata for the actual dispatched route; use the pre-resolved route only as a fallback when metadata is absent.
+5. Call `OracleAIClient.runText` (chat) or `runObject` (workers). The result carries `routeId`, `provider`, `modelId`, `attemptedRoutes`, and `usedNonPrimary` from `ModelRouter`.
+6. Insert `model_runs` + `model_run_usage_details` + `model_run_attempts` + back-link the context pack. Use the result route/provider/model metadata for the actual dispatched route.
 7. Workers: stage `extraction_batches` + `extraction_candidates` + `extraction_candidate_evidence`, run validators, call `executePromotion`. Chat: persist the assistant message.
 
 ### Direct adapters (R-providers, landed)

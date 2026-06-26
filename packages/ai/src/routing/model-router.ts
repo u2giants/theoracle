@@ -1,17 +1,9 @@
 /**
- * ModelRouter — given a routeId, picks the correct provider adapter and
- * dispatches the call. Handles fallback dispatch when a primary route
- * fails with a known transient or schema-validation error.
+ * ModelRouter dispatches compiled prompt plans to provider adapters.
  *
- * The router does NOT pick which route to use for a given task — that
- * decision belongs to whoever calls OracleAIClient (chat route, extraction
- * worker, etc.). The router only:
- *
- *   - resolves a routeId → adapter
- *   - executes the call
- *   - on failure, optionally dispatches the configured Fallback route
- *
- * Per docs/oracle/01-model-roles-and-routes.md "Model routing rules".
+ * It does not read settings or choose models from the database. Production
+ * callers pass an ordered candidate list that has already been approved and
+ * capability-checked by the DB-aware resolver.
  */
 
 import type {
@@ -26,21 +18,15 @@ import {
   type OracleModelRole,
   type OracleModelRoute,
   type OracleProvider,
+  type RouteCandidate,
 } from '../routes';
-import {
-  ProviderAdapterNotImplementedError,
-  type OracleProviderAdapter,
-} from '../providers/types';
+import type { OracleProviderAdapter } from '../providers/types';
+import { AllCandidatesFailedError, type CandidateFailure } from '../routes/errors';
 
 export type ProviderAdapterMap = Partial<Record<OracleProvider, OracleProviderAdapter>>;
 
 export interface ModelRouterOptions {
   adapters: ProviderAdapterMap;
-  /**
-   * If true, when the primary adapter throws a transient or schema error,
-   * the router will dispatch to the route's fallbackRouteId. Default true.
-   */
-  fallbackOnError?: boolean;
 }
 
 export class UnknownRouteError extends Error {
@@ -61,22 +47,21 @@ export class NoAdapterRegisteredError extends Error {
   }
 }
 
+export interface DispatchAttemptMetadata {
+  routeId: string;
+  provider: string;
+  modelId: string;
+  success: boolean;
+  error?: string;
+}
+
 export class ModelRouter {
   private readonly adapters: ProviderAdapterMap;
-  private readonly fallbackOnError: boolean;
 
   constructor(opts: ModelRouterOptions) {
     this.adapters = opts.adapters;
-    this.fallbackOnError = opts.fallbackOnError ?? true;
   }
 
-  /**
-   * Resolve a route + adapter pair, or throw with a descriptive error.
-   *
-   * Static catalog routes are preferred. If the routeId is an admin-selected
-   * provider/model id such as "qwen/qwen3.7-plus", synthesize the same dynamic
-   * route shape produced by resolveRouteFromSettings().
-   */
   resolve(routeId: string, taskType?: OracleTaskType): { route: OracleModelRoute; adapter: OracleProviderAdapter } {
     const route = this.resolveRoute(routeId, taskType);
     const adapter = this.adapters[route.provider];
@@ -87,9 +72,10 @@ export class ModelRouter {
   async generateText(
     plan: OraclePromptPlan,
     providerOptions?: Record<string, unknown>,
+    candidates?: RouteCandidate[],
   ): Promise<OracleTextResult> {
-    return this.dispatch(plan, (adapter, route) =>
-      adapter.generateText({ plan, route, providerOptions }),
+    return this.dispatch(plan, candidates, (candidatePlan, adapter, route) =>
+      adapter.generateText({ plan: candidatePlan, route, providerOptions }),
     );
   }
 
@@ -97,34 +83,61 @@ export class ModelRouter {
     plan: OraclePromptPlan,
     schema: TSchema,
     providerOptions?: Record<string, unknown>,
+    candidates?: RouteCandidate[],
   ): Promise<OracleObjectResult<TOutput>> {
-    return this.dispatch(plan, (adapter, route) =>
-      adapter.generateObject<TSchema, TOutput>({ plan, route, schema, providerOptions }),
+    return this.dispatch(plan, candidates, (candidatePlan, adapter, route) =>
+      adapter.generateObject<TSchema, TOutput>({
+        plan: candidatePlan,
+        route,
+        schema,
+        providerOptions,
+      }),
     );
   }
 
   private async dispatch<T>(
     plan: OraclePromptPlan,
-    call: (adapter: OracleProviderAdapter, route: OracleModelRoute) => Promise<T>,
+    candidates: RouteCandidate[] | undefined,
+    call: (
+      candidatePlan: OraclePromptPlan,
+      adapter: OracleProviderAdapter,
+      route: OracleModelRoute,
+    ) => Promise<T>,
   ): Promise<T> {
-    const route = this.resolveRoute(plan.routeId, plan.taskType);
-    const adapter = this.adapters[route.provider];
-    try {
-      if (!adapter) throw new NoAdapterRegisteredError(route.provider);
-      return this.withRouteMetadata(await call(adapter, route), route);
-    } catch (err) {
-      if (!this.fallbackOnError) throw err;
-      if (!route.fallbackRouteId) throw err;
-      if (!this.shouldFallback(err)) throw err;
-      // Dispatch to fallback. Rebuild the plan with the fallback routeId so
-      // observability records reflect which route actually ran.
-      const fallbackPlan = { ...plan, routeId: route.fallbackRouteId };
-      const { route: fbRoute, adapter: fbAdapter } = this.resolve(
-        fallbackPlan.routeId,
-        fallbackPlan.taskType,
-      );
-      return this.withRouteMetadata(await call(fbAdapter, fbRoute), fbRoute, route.routeId, err);
+    const routeCandidates: RouteCandidate[] = candidates?.length
+      ? candidates
+      : [{ route: this.resolveRoute(plan.routeId, plan.taskType), slot: this.roleForTaskType(plan.taskType) ?? 'general', isPrimary: true, approvedModelId: plan.routeId }];
+
+    const attempts: DispatchAttemptMetadata[] = [];
+    const failures: CandidateFailure[] = [];
+
+    for (const candidate of routeCandidates) {
+      const route = candidate.route;
+      const candidatePlan = { ...plan, routeId: route.routeId };
+      const adapter = this.adapters[route.provider];
+      const attemptBase = {
+        routeId: route.routeId,
+        provider: route.provider,
+        modelId: route.modelId,
+      };
+
+      try {
+        if (!adapter) throw new NoAdapterRegisteredError(route.provider);
+        const result = await call(candidatePlan, adapter, route);
+        attempts.push({ ...attemptBase, success: true });
+        return this.withRouteMetadata(result, route, attempts, !candidate.isPrimary);
+      } catch (err) {
+        const error = this.errorMessage(err);
+        attempts.push({ ...attemptBase, success: false, error });
+        failures.push({ ...attemptBase, error });
+        console.error(
+          `[model-router] candidate failed route=${route.routeId} provider=${route.provider} ` +
+            `model=${route.modelId} primary=${candidate.isPrimary}: ${error}`,
+        );
+      }
     }
+
+    throw new AllCandidatesFailedError(routeCandidates[0]?.slot ?? 'general', failures);
   }
 
   private resolveRoute(routeId: string, taskType?: OracleTaskType): OracleModelRoute {
@@ -146,6 +159,7 @@ export class ModelRouter {
     switch (taskType) {
       case 'interview_chat':
       case 'gap_generation':
+      case 'claim_translation':
         return 'interview';
       case 'message_claim_extraction':
       case 'document_claim_extraction':
@@ -164,61 +178,25 @@ export class ModelRouter {
   private withRouteMetadata<T>(
     result: T,
     route: OracleModelRoute,
-    fellBackFromRouteId?: string,
-    fallbackError?: unknown,
+    attemptedRoutes: DispatchAttemptMetadata[],
+    usedNonPrimary: boolean,
   ): T {
     if (!result || typeof result !== 'object') return result;
     return {
       ...(result as Record<string, unknown>),
       routeId: route.routeId,
+      actualRouteId: route.routeId,
       provider: route.provider,
       modelId: route.modelId,
-      fellBackFromRouteId,
-      fallbackReason: fallbackError ? this.fallbackReason(fallbackError) : undefined,
+      attemptedRoutes,
+      usedNonPrimary,
     } as T;
   }
 
-  private fallbackReason(err: unknown): string {
+  private errorMessage(err: unknown): string {
     if (err instanceof Error) {
-      const msg = err.message || err.name;
-      return msg.length > 100 ? `${msg.slice(0, 97)}...` : msg;
+      return err.message || err.name;
     }
-    const msg = String(err);
-    return msg.length > 100 ? `${msg.slice(0, 97)}...` : msg;
-  }
-
-  /**
-   * Conservative fallback policy. Falls back on:
-   *   - provider adapter not yet implemented (R2 transitional state)
-   *   - network/timeout errors (well-known node fetch error names)
-   *   - explicit rate-limit / 429 markers
-   *
-   * Does NOT fall back on:
-   *   - validation failures (those have their own repair flow)
-   *   - assertion errors from ContextCompiler
-   */
-  private shouldFallback(err: unknown): boolean {
-    if (err instanceof NoAdapterRegisteredError) return true;
-    if (err instanceof ProviderAdapterNotImplementedError) return true;
-    // Prefer typed HTTP status when the error object carries one (e.g. provider
-    // SDK errors expose numeric `status` / `statusCode`). 429 or any 5xx is a
-    // transient/server condition worth falling back on. Substring checks below
-    // remain as a fallback for errors without a structured status.
-    if (err && typeof err === 'object') {
-      const status =
-        'status' in err && typeof (err as { status: unknown }).status === 'number'
-          ? (err as { status: number }).status
-          : 'statusCode' in err && typeof (err as { statusCode: unknown }).statusCode === 'number'
-            ? (err as { statusCode: number }).statusCode
-            : undefined;
-      if (status !== undefined && (status === 429 || status >= 500)) return true;
-    }
-    if (err instanceof Error) {
-      const msg = err.message.toLowerCase();
-      if (msg.includes('429') || msg.includes('rate limit')) return true;
-      if (msg.includes('timeout') || msg.includes('econnreset') || msg.includes('socket hang up')) return true;
-      if (err.name === 'FetchError' || err.name === 'AbortError') return true;
-    }
-    return false;
+    return String(err);
   }
 }

@@ -3,12 +3,9 @@
  *
  * Per docs/oracle/01-model-roles-and-routes.md and docs/oracle/05-ai-retrofit-phase-packet.md.
  *
- * The Oracle exposes exactly 3 production roles. Each role has exactly 1 Primary
- * Route and 1 Fallback Route. Internal subroutes (triage, warmth, schema repair)
- * live behind the OracleAIClient and are not exposed as admin-selectable defaults.
- *
- * Do not extend with "balanced alternates" or multiple competing defaults. The
- * strict 1-Primary / 1-Fallback rule is intentional.
+ * The Oracle exposes exactly 3 production roles. Runtime selection is driven by
+ * admin settings and approved model pools; routes do not carry hidden fallback
+ * targets.
  */
 
 export type OracleModelRole = 'interview' | 'extraction' | 'synthesis';
@@ -57,14 +54,6 @@ export type StructuredOutputStrategy =
  *   Qwen:      enable_thinking + optional budget (low/med/high enable; off disables)
  */
 export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high';
-
-export type FallbackCondition =
-  | 'provider_outage'
-  | 'provider_rate_limit'
-  | 'schema_validation_failure'
-  | 'quote_validation_failure'
-  | 'admin_manual_override'
-  | 'not_applicable';
 
 /**
  * Internal subroute purpose tags. These are NOT admin-selectable; they are
@@ -117,15 +106,6 @@ export interface OracleModelRoute {
    * has saved a per-stage effort preference.
    */
   reasoningEffort?: ReasoningEffort;
-
-  /**
-   * For a Primary route, the routeId of its Fallback. Always exactly one.
-   * For a Fallback or internal route, null.
-   */
-  fallbackRouteId: string | null;
-
-  /** Why this fallback may be triggered. Set on Primary routes only. */
-  fallbackCondition: FallbackCondition;
 
   enabled: boolean;
 }

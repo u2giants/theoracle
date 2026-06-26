@@ -114,7 +114,7 @@ export class QwenAdapter implements OracleProviderAdapter {
         providerOptions,
       );
     }
-    const messages = this.buildMessages(plan.taskType, systemPrompt, userMessage, providerOptions);
+    const messages = this.buildMessages(plan.taskType, route.modelId, systemPrompt, userMessage, providerOptions);
     const callStartedAt = Date.now();
     const completion = await this.client.chat.completions.create({
       model: route.modelId,
@@ -190,9 +190,12 @@ export class QwenAdapter implements OracleProviderAdapter {
     const { plan, route, schema, providerOptions } = args;
     const { systemPrompt, userMessage } = flattenPlan(plan);
     const callStartedAt = Date.now();
+    const messages = this.ensureJsonInstruction(
+      this.buildMessages(plan.taskType, route.modelId, systemPrompt, userMessage, providerOptions),
+    );
     const completion = await this.client.chat.completions.create({
       model: route.modelId,
-      messages: this.buildMessages(plan.taskType, systemPrompt, userMessage, providerOptions),
+      messages,
       temperature: 0.1,
       response_format: { type: 'json_object' },
       ...qwenThinkingExtras(route.reasoningEffort),
@@ -216,29 +219,107 @@ export class QwenAdapter implements OracleProviderAdapter {
 
   private buildMessages(
     taskType: GenerateTextArgs['plan']['taskType'],
+    modelId: string,
     systemPrompt: string,
     userMessage: string,
     providerOptions?: Record<string, unknown>,
   ): ChatCompletionMessageParam[] {
+    const systemRoleAllowed = this.supportsSystemRole(taskType, modelId);
     const override = providerOptions?.messages as
       | Array<{ role: string; content: unknown }>
       | undefined;
     if (Array.isArray(override) && override.length > 0) {
-      const normalized = override.map((m) => ({
+      let normalized = override.map((m) => ({
         role: m.role,
         // Translate provider-neutral image parts → OpenAI `image_url` at dispatch,
         // so a fallback into this adapter still sends a readable image.
         content: toOpenAIImageContent(m.content),
       })) as unknown as ChatCompletionMessageParam[];
-      if (systemPrompt && !normalized.some((m) => m.role === 'system')) {
+      if (systemPrompt && systemRoleAllowed && !normalized.some((m) => m.role === 'system')) {
         normalized.unshift({ role: 'system', content: systemPrompt });
+      }
+      if (!systemRoleAllowed) {
+        normalized = this.foldSystemMessagesIntoFirstUser(systemPrompt, normalized);
       }
       return this.applyExplicitCacheMarkers(taskType, normalized, providerOptions);
     }
     const msgs: ChatCompletionMessageParam[] = [];
-    if (systemPrompt) msgs.push({ role: 'system', content: systemPrompt });
-    msgs.push({ role: 'user', content: userMessage });
+    if (systemPrompt && systemRoleAllowed) msgs.push({ role: 'system', content: systemPrompt });
+    msgs.push({
+      role: 'user',
+      content: systemPrompt && !systemRoleAllowed
+        ? `${systemPrompt}\n\n${userMessage}`
+        : userMessage,
+    });
     return this.applyExplicitCacheMarkers(taskType, msgs, providerOptions);
+  }
+
+  /**
+   * Qwen MT models reject OpenAI's `system` role with
+   * "Role must be in [user, assistant]". Keep the same instructions, but fold
+   * them into the first user turn for translation calls.
+   */
+  private supportsSystemRole(
+    taskType: GenerateTextArgs['plan']['taskType'],
+    modelId: string,
+  ): boolean {
+    const lower = modelId.toLowerCase();
+    return !(taskType === 'claim_translation' || lower.includes('qwen-mt'));
+  }
+
+  private foldSystemMessagesIntoFirstUser(
+    systemPrompt: string,
+    messages: ChatCompletionMessageParam[],
+  ): ChatCompletionMessageParam[] {
+    const systemParts: string[] = [];
+    const nonSystem: ChatCompletionMessageParam[] = [];
+    for (const message of messages) {
+      if (message.role === 'system') {
+        systemParts.push(this.stringifyResponseContent(
+          (message as ChatCompletionMessageParam & { content?: unknown }).content,
+        ));
+      } else {
+        nonSystem.push(message);
+      }
+    }
+    if (systemPrompt) systemParts.unshift(systemPrompt);
+    const instructions = systemParts.filter(Boolean).join('\n\n');
+    if (!instructions) return nonSystem;
+
+    const firstUser = nonSystem.find(
+      (message) => message.role === 'user',
+    ) as (ChatCompletionMessageParam & { content?: unknown }) | undefined;
+    if (firstUser) {
+      firstUser.content = `${instructions}\n\n${this.stringifyResponseContent(firstUser.content)}`;
+      return nonSystem;
+    }
+    return [{ role: 'user', content: instructions }, ...nonSystem];
+  }
+
+  private ensureJsonInstruction(
+    messages: ChatCompletionMessageParam[],
+  ): ChatCompletionMessageParam[] {
+    const combined = messages
+      .map((message) =>
+        this.stringifyResponseContent(
+          (message as ChatCompletionMessageParam & { content?: unknown }).content,
+        ),
+      )
+      .join('\n')
+      .toLowerCase();
+    if (combined.includes('json')) return messages;
+
+    const next = messages.map((message) => ({ ...message }));
+    const target = [...next]
+      .reverse()
+      .find((message) => message.role === 'user') as
+      | (ChatCompletionMessageParam & { content?: unknown })
+      | undefined;
+    if (target) {
+      target.content = `${this.stringifyResponseContent(target.content)}\n\nReturn a valid JSON object.`;
+      return next;
+    }
+    return [{ role: 'user', content: 'Return a valid JSON object.' }, ...next];
   }
 
   private normalizeUsage(

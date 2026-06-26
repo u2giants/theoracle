@@ -6,6 +6,67 @@ HOW TO TRUST THIS DOC: the two blocks immediately below — "CARRIED-OVER ITEMS 
 
 ---
 
+## Test plan run — 2026-06-26
+
+Ran `fix_TESTPLAN.md` as far as current prod access/state allows.
+
+Static gates:
+- PASS: `corepack pnpm -r typecheck`
+- PASS: `corepack pnpm --filter @oracle/ai run verify:r2`
+- PASS: `corepack pnpm --filter @oracle/ai run verify:vertex-inline-image`
+- PASS: `corepack pnpm --filter @oracle/engines run verify:r5`
+- PASS: `corepack pnpm --filter @oracle/engines run verify:r7`
+- PASS: direct recursive lint via `corepack pnpm -r --if-present run lint`
+- PASS: direct recursive build via `corepack pnpm -r --if-present run build`
+- NOTE: root `pnpm lint` / `pnpm build` still fail in this local shell because Turbo cannot find a plain `pnpm` binary; `corepack pnpm` works, but `pnpm` is not on PATH and `corepack enable` cannot write to `C:\Program Files\nodejs`.
+
+Code fix made during testing:
+- Fixed React purity lint in `apps/web/app/admin/_components/model-attempt-alert-banner.tsx` by replacing render-time `Date.now()` with SQL `now() - interval '7 days'`.
+
+Prod prep:
+- Applied prod migrations through `corepack pnpm --filter @oracle/db migrate` using the current prod session pooler from 1Password.
+- Deployed Trigger worker from local source: prod worker version `20260626.1`, 21 tasks.
+- WARNING: the migration runner's seed step reset model settings to legacy defaults. Restored the pre-run Qwen-oriented pools/routes, then intentionally set `default_extraction_route='google/gemini-3.1-flash-lite'` for the image test and kept it there because the test succeeded. Also corrected `default_interview_route='anthropic/claude-haiku-4-5-20251001'` so it matches `model_pool_interview`.
+
+Live runtime results:
+- PASS: no live references to `fallbackRouteId`, `DEFAULT_ORACLE_ROUTES`, or `FALLBACK_ROUTE_ID` under `packages` / `apps`.
+- PASS: image document `9d09fa89-3a46-465e-a98b-837287c9e22a` re-evaluated and `document-ingestion` run `run_cmquevo9l5tc70un6px1u0xj8` completed: 3 chunks, 7 candidates, 7 promoted claims, 0 rejections. Document is `complete`, `processing_error=NULL`.
+- PASS: latest vision run used `provider=qwen`, `model=qwen3-vl-235b-a22b-thinking`, success, no error. Latest extraction run used `provider=google`, `model=gemini-3.1-flash-lite`, success, no error.
+- PARTIAL QUALITY: image claim mix was 4 `process_rule`, 1 `dependency`, 1 `exception_rule`, 1 `bottleneck`. This is not the dependency-dominated mix the plan hoped for, but it is no longer 0 claims and no longer ~80 shallow process-rule claims.
+- PASS: document vision/extraction success attempts were recorded in `model_run_attempts`.
+- PASS after config correction: `contradiction-watcher` run `run_cmquf1jks5yr80mn33f3kh7df` completed for claim `e2fa818d-c5aa-483a-afa8-43c305ad0367`.
+- PASS/Loud failure: before correcting interview config, `contradiction-watcher` failed with `NoConfiguredModelError` instead of silently falling back.
+- PASS/Loud failure: `claim-translation` run `run_cmquf0c885ycc0ulpsibvhupg` failed with `AllCandidatesFailedError` instead of silently falling back.
+
+Failures / blockers found:
+- FAIL: translation through `default_translation_route='qwen/qwen-mt-plus'` fails with `400 Role must be in [user, assistant]`. Likely adapter/message-shaping issue for Qwen MT, because the translation prompt uses a system block and Qwen MT rejects the resulting role shape.
+- FAIL: the all-failed translation path did not write `model_run_attempts` rows, so 5.6 is not satisfied for auxiliary all-failed calls. Document success attempts do log correctly.
+- FAIL/PARTIAL: capability probe temporarily set `default_vision_route='qwen/qwen3.7-plus'` and `resolveRouteCandidates(db, 'vision')` returned a candidate instead of skipping/refusing it. Either the catalog marks that model as vision-capable or auxiliary capability enforcement is too loose. The real setting was restored to `qwen/qwen3-vl-235b-a22b-thinking`.
+- BLOCKED: synthesis could not be exercised as written because prod has 0 `brain_sections` rows, despite approved claims existing.
+- BLOCKED/PARTIAL: taxonomy `general` picker is wired to `taxonomy-reevaluation-manual`, but prod approved claims mostly lack embeddings. Scoped run `run_cmquf23pr5voa0un6rrwvsl4t` completed without reaching cluster naming (`domainsReady=0`).
+- NOT VERIFIED: interview/chat UI, admin alert banner live UI, chat image/PDF attachments, batch extraction mode, missing-key boot logs, graph 404 logging, OpenAI malformed batch-line logging. These need authenticated web/browser interaction, deliberate env breakage, or a batch fixture.
+
+Final prod setting state after this run:
+- `default_extraction_route = google/gemini-3.1-flash-lite`
+- `default_vision_route = qwen/qwen3-vl-235b-a22b-thinking`
+- `default_translation_route = qwen/qwen-mt-plus` (currently failing; see above)
+- `default_interview_route = anthropic/claude-haiku-4-5-20251001`
+- `enforce_model_capabilities = true`
+
+Follow-up fix run (same day):
+- Fixed Qwen MT translation by folding system instructions into the first user message for `claim_translation` / `qwen-mt*` calls, because MT models reject the OpenAI `system` role. Verified `claim-translation` run `run_cmqufk37c61jk0ioh15c84xdd` completed and wrote a `zh-CN` `claim_translations` row.
+- Fixed auxiliary attempt logging for translation success and all-candidates-failed paths. Verified `model_run_attempts` records `task_type='claim-translation'`, `slot='translation'`, `provider=qwen`, `model=qwen-mt-plus`, `success=true`.
+- Tightened runtime capability enforcement for Qwen vision models: non-VL/non-omni Qwen catalog entries are normalized to `vision=false`. Verified `default_vision_route='qwen/qwen3.7-plus'` now raises `ModelCapabilityError` for missing `vision`; prod setting restored to `qwen/qwen3-vl-235b-a22b-thinking`.
+- Fixed the Qwen catalog source to honor `DASHSCOPE_BASE_URL`, matching inference.
+- Fixed seed safety: migrations still seed defaults, but existing `settings.value` is no longer overwritten on conflict. Default model settings were also updated to the current approved pools/routes.
+- Seeded stable `brain_sections` for every legacy knowledge domain so synthesis has targets. Verified prod now has 17 sections; `brain-synthesis` for `domain-costing` completed as run `run_cmqufzj4m63n40hojuh7ywtf4` and wrote draft version `3b6c7f6e-9dff-42bd-ad3c-4bbda0e95dba`.
+- Increased on-demand `brain-synthesis` max duration from 10 minutes to 30 minutes, matching scheduled synthesis. A larger `domain-licensing` run hit the old 10-minute cap before this change.
+- Fixed taxonomy reevaluation so historical approved claims without embeddings get embedded before clustering, instead of making the general-purpose picker path unreachable. Verified run `run_cmqug5j2m6e380on6lhxixis7` wrote one model-named proposal: `operations_systems` / `Design Workflow System Management`, with successful `taxonomy-cluster-naming` attempt rows through `default_general_purpose_route`.
+- Fixed Qwen JSON-object calls to include an explicit JSON instruction when DashScope requires it for `response_format=json_object`.
+- Applied prod migrate/seed after the seed fixes and deployed workers through prod version `20260626.4`.
+
+---
+
 ## CARRIED-OVER ITEMS — re-verified against prod 2026-06-25 (evening)
 
 These supersede the older dated sections below where they conflict.
@@ -21,7 +82,7 @@ These supersede the older dated sections below where they conflict.
 ## Diagram / flowchart image ingestion tuning (2026-06-25)
 
 Status:
-**END OF SESSION 2026-06-25 (evening). VISION is fixed and confirmed; EXTRACTION is blocked by a model-conformance issue; a big silent-fallback refactor is specced but NOT done. The authoritative state is the "SESSION-END STATE" block right below — the older bullets in this section are HISTORICAL and partly WRONG (they predate the Qwen-vision fix). The "Done/blocking/Next action/Risks" bullets further down this section are now HISTORICAL — the authoritative current state is the STILL OPEN list immediately below.**
+**END OF SESSION 2026-06-25 (evening). VISION is fixed and confirmed; EXTRACTION is blocked by a model-conformance issue; the silent-fallback refactor is now implemented in source but not yet deployed. The authoritative state is the "SESSION-END STATE" block right below — the older bullets in this section are HISTORICAL and partly WRONG (they predate the Qwen-vision fix). The "Done/blocking/Next action/Risks" bullets further down this section are now HISTORICAL — the authoritative current state is the STILL OPEN list immediately below.**
 
 What got fixed (deployed `.2`->`.4`): wider extraction windows (24k doc / 32k image); structure-aware chunking (`chunkTextStructured`); diagram-aware + one-line-per-edge prompts; `maxOutputTokens` plumbed through all adapters; vision call sets temperature 0.6 + maxOutputTokens 32k + `highResolutionVision`; and the key fix -- PROVIDER-NEUTRAL image part at the call site with each adapter translating at dispatch (`toOpenAIImageContent`/`toAnthropicImageContent` in `cache-utils.ts`), so cross-provider fallback no longer drops the image. Qwen base URL now reads `DASHSCOPE_BASE_URL`.
 
@@ -35,9 +96,10 @@ THE EXTRACTION BLOCKER (doc `9d09fa89-3a46-465e-a98b-837287c9e22a` is `failed`, 
 - The selected extraction model is **`qwen/qwen3.7-plus`** (an approved pool model; pool = `["google/gemini-3.1-flash-lite","qwen/qwen3.7-plus","qwen/qwen3.7-max"]`). Qwen via the OpenAI-compatible API can't do native strict JSON-schema, so it uses a **loose tool-call** structured-output mode and **malforms fields** (scores as strings/null, domain values outside the enum, `evidence` as a non-object). The strict Zod schema rejects it, and because one bad claim fails the whole window, the run yields **0 claims** even though the Qwen transcription is perfect.
 - **FAST FIX (recommended, no code):** switch extraction to **`google/gemini-3.1-flash-lite`** (already approved + native strict JSON). The Gemini fallback produced 56–81 valid claims earlier with the same schema, so a strict-JSON model should just work. The settings job brief for Extraction was updated this session to document this (strict-JSON requirement + the loose-tool-call pitfall).
 
-THE BIG ARCHITECTURAL FINDING -> `fix_remove_fallbacks.md` (NOT STARTED):
-- "gemini-2.5-flash" kept appearing as the extraction model because BOTH vision and extraction were **silently falling back** to a HARD-CODED route (`vertex_gemini_2_5_flash_extraction_primary`) with reason `"No adapter registered for provider qwen"` (pre-key). Same bug as vision. The hard-coded fallback target is an UNAPPROVED model.
-- Owner directive: remove ALL `fallbackRouteId` / hard-coded models; every failure must FAIL VERBOSELY; the approved POOL becomes the fallback chain (auto-advance to next approved+capable model, with an admin alert); fix the dead-end "general/utility" picker (`default_general_purpose_route` is consumed by NOTHING — the cluster-naming job uses a hard-coded route). Full spec + file-by-file deletion inventory + verbose-alert design is in **`fix_remove_fallbacks.md`**. This is a core-inference refactor (~20 files) — do it as one verified pass.
+THE BIG ARCHITECTURAL FINDING -> `fix_remove_fallbacks.md` (IMPLEMENTED IN SOURCE 2026-06-25; DEPLOY STILL NEEDED):
+- "gemini-2.5-flash" kept appearing as the extraction model because BOTH vision and extraction were **silently falling back** to a HARD-CODED route (`vertex_gemini_2_5_flash_extraction_primary`) with reason `"No adapter registered for provider qwen"` (pre-key). Same bug as vision. The hard-coded fallback target was an UNAPPROVED model.
+- Implemented source changes: no `fallbackRouteId` / hard-coded worker fallback routes; pipeline stages resolve `resolveRouteCandidates(db, slot)` and use the approved DB pool as the ordered chain; auxiliary slots (`vision`, `general`, `translation`) are explicit single-pick settings; runtime capability enforcement is gated by `settings.enforce_model_capabilities`; `model_run_attempts` records failed primary / non-primary-success attempts; Admin layout shows a recent-attempt alert; taxonomy cluster naming now consumes `default_general_purpose_route`.
+- Verification run in source: `corepack pnpm -r typecheck`, `corepack pnpm --filter @oracle/ai verify:r2`, `corepack pnpm --filter @oracle/ai exec tsx src/__verify__/auxiliary-defaults.ts`, and `git diff --check` passed. Next action is commit/push/deploy the app and worker changes, then apply the new SQL migrations (`18_model_run_attempts.sql`, `78_fail_loud_model_routing_settings.sql`) through the normal Oracle migration path.
 
 REVERTED EXPERIMENTS this session (do NOT just re-apply — investigate first):
 - I added `z.coerce.number().catch(5)` to impactScore/confidenceScore and `z.enum(...).catch('general')` to domains in `extraction-system.ts`, plus a **per-claim salvage** block in `document-ingestion.ts`. **All reverted** before the final commit. Why: (a) the salvage is **UNREACHABLE** — `client.runObject` THROWS on schema-invalid output (the adapter's `tryZodParse` throws before the client's validator/`receivedJson` path is reached), so the `if (!result.validation.ok)` salvage branch never runs; (b) the `.catch` edits add `default` annotations to the model-facing JSON schema with uncertain effect on conformance, and they were band-aiding a LOOSE model (qwen3.7-plus) instead of fixing the root cause (use a strict-JSON model).
@@ -50,7 +112,7 @@ KEPT + committed this session (improvements):
 - All the silent-failure swallow fixes + qwen vision plumbing landed earlier in commit `c50673a`.
 
 OTHER PENDING (smaller):
-- `fix_resolve_ts.md` (runtime model-capability enforcement) and `fix_claim_extr.md` (conversation-aware message batching) — both NOT STARTED, both detailed hand-off specs in the repo root.
+- `fix_claim_extr.md` is implemented in source: sync and batch extraction now select whole same-channel conversation segments and include prior messages only as non-quotable carry-in context. `fix_resolve_ts.md` is folded into the fail-loud routing implementation: runtime capability checks now happen in `resolveRouteCandidates` when `enforce_model_capabilities=true`.
 - **PDF/file chat attachments** still mis-shaped (the adapters have no neutral FILE-part translator; only image was fixed). The chat IMAGE attachment shape WAS fixed (`c50673a`).
 - `default_vision_reasoning_effort` = `medium`; recommend `Low` for transcription (perception, not deliberation). Vision/extraction temperature + max_tokens are CODE constants, not admin UI.
 - **Deploy discrepancy:** prod worker is `v20260625.11`, which still CONTAINS the reverted salvage/.catch (they were deployed during debugging). The committed clean source does NOT. Redeploy the worker from the committed source to align prod (keeps `maxOutputTokens`, drops salvage/.catch). Harmless functionally (salvage was unreachable, extraction is broken anyway until the model is switched), but do it for hygiene.
@@ -75,7 +137,7 @@ Next action (HISTORICAL / SUPERSEDED — see "SESSION-END STATE" above. The item
 
 Risks / watchouts:
 - **The test flowchart `9d09fa89-3a46-465e-a98b-837287c9e22a` is currently at 0 claims** (its prior 102 were deleted). Re-running the SAME code is a coin-flip (vision non-determinism). Fix the vision model first.
-- The same window/segment-splitting weakness exists in the MEETING path (`claim-extraction.ts` segments messages by `BATCH_SIZE`), which can split a multi-message debate mid-argument. Not addressed here; would need context-aware segmentation + carry-in context.
+- The same window/segment-splitting weakness in the MEETING/message path has been addressed in source. Deploy/apply migrations before treating prod as fixed.
 - `scripts/reevaluate-document.mjs` is uncommitted — commit or discard per owner.
 
 ---
