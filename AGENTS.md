@@ -78,7 +78,7 @@ Code we own:
 - `packages/oracle-engines/` — deterministic extraction and synthesis logic
 - `packages/shared/` — shared types/constants
 - `docs/` — project documentation
-- root markdown files — `README.md`, `AGENTS.md`, `CLAUDE.md`, `DECISIONS.md`, `china_imp.md`, and the planning docs `fix_remove_fallbacks.md` / `fix_resolve_ts.md` / `fix_claim_extr.md` (self-contained specs for three NOT-STARTED refactors — load only when doing that specific work)
+- root markdown files — `README.md`, `AGENTS.md`, `CLAUDE.md`, `DECISIONS.md`, `china_imp.md`, and the planning docs `fix_remove_fallbacks.md` / `fix_resolve_ts.md` / `fix_claim_extr.md` / `fix_TESTPLAN.md` (self-contained specs for three NOT-STARTED refactors — load only when doing that specific work)
 
 Generated code:
 
@@ -204,8 +204,8 @@ Specific boundaries:
 | Provider cache table | `provider_cached_content` | `packages/db/src/schema.ts` | Explicit Vertex cache lifecycle + provider metadata |
 | Provider response session table | `provider_response_sessions` | `packages/db/src/schema.ts` | Qwen Responses `previous_response_id` persistence |
 | Model catalog table | `model_capabilities` | schema + model-capability refresh code | Populated from direct providers + OpenRouter enrichment |
-| Auxiliary-model registry | `AUXILIARY_MODELS` | `packages/ai/src/routes/auxiliary.ts` | Admin-selectable models that are NOT one of the 3 strict `OracleModelRole`s (which stay frozen): currently `vision` and `general`. Each entry = `{ id, routeSettingKey, reasoningEffortSettingKey?, requiredCapability?, defaultRouteId? }`. Resolved at runtime by `resolveAuxiliaryRouteFromSettings(db, id)`. The picker, `/api/admin/models`, and the settings page all iterate it. |
-| Image-vision route setting | `default_vision_route` | `settings` row + `auxiliary.ts` (`VISION_AUXILIARY_MODEL`) | Vision model used by `document-ingestion` to transcribe uploaded images to text (Pass 1) before extraction. Shipped fallback `vertex_gemini_2_5_flash_extraction_primary`. Chosen at Admin → Settings → "Image vision model" (no redeploy). Seeded with `ON CONFLICT DO NOTHING`. |
+| Auxiliary-model registry | `AUXILIARY_MODELS` | `packages/ai/src/routes/auxiliary.ts` | Admin-selectable models that are NOT one of the 3 strict `OracleModelRole`s (which stay frozen): currently `vision`, `general`, and `translation`. Each entry = `{ id, routeSettingKey, reasoningEffortSettingKey?, requiredCapability? }`. Resolved through `resolveRouteCandidates(db, id)` as an explicit single-pick slot: unset means fail loud, not fallback. The picker, `/api/admin/models`, and the settings page all iterate it. |
+| Image-vision route setting | `default_vision_route` | `settings` row + `auxiliary.ts` (`VISION_AUXILIARY_MODEL`) | Vision model used by `document-ingestion` to transcribe uploaded images to text (Pass 1) before extraction. Required auxiliary single-pick route. Chosen at Admin → Settings → "Image vision model" (no redeploy). Seeded with `ON CONFLICT DO NOTHING`. |
 | Document context/hints | `documents.context`, `documents.domain_hints` | `packages/db/src/schema.ts`, migration `65_document_context_and_domain_hints.sql` | Optional uploader-provided free-text context (fed into extraction + image-vision prompts) and suggested top-domain ids (a non-binding prior). Per-claim `domain_valid` stays authoritative. |
 | Admin document upload | `POST /api/admin/documents` | `apps/web/app/api/admin/documents/route.ts` | Admin-only, multi-file, **no channel** — stores the file, inserts a `documents` row, triggers `document-ingestion`. The channel-based `POST /api/documents` still exists for chat attachments. There is no UI to create a channel, so this is the path for company/process docs. |
 | Design file operations domain | `design_file_operations` | `knowledge_top_domains`, `packages/ai/src/retrieval-plan.ts` | Separate from product/design workflow. Covers designer file naming, invalid characters, server folders, file-size reduction, linked assets, packaging, versioning, archive, and handoff file hygiene. |
@@ -230,7 +230,7 @@ Specific boundaries:
 | Claim source language | `claims.source_lang` | `packages/db/src/schema.ts` | Language the claim was authored in (`varchar(12)`, default `'en'`). Stamped at promotion from the authoring employee's `locale`. |
 | Employee locale | `employees.locale` | `packages/db/src/schema.ts` | Reader/content language (`varchar(12)`, default `'en'`). Admin sets `'zh-CN'` to put an employee on the "China team". Drives retrieval rendering, answer language, and the language a `claim_review_question` is asked in. |
 | Supported locales | `SUPPORTED_LOCALES` (`['en','zh-CN']`) | `packages/shared/src/domains.ts` | Source of truth for the bilingual layer; add variants here (varchar(12) columns, no migration). |
-| Translation route setting | `default_translation_route` | `settings` row + `auxiliary.ts` (`TRANSLATION_AUXILIARY_MODEL`) | Admin-selectable model for claim translation (Admin → Settings → "Translation model"). No capability filter (any catalog model, e.g. Qwen). Shipped fallback `DEFAULT_TRANSLATION_ROUTE_ID` = the Sonnet synthesis route. Not seeded — resolver falls back to the default when unset. |
+| Translation route setting | `default_translation_route` | `settings` row + `auxiliary.ts` (`TRANSLATION_AUXILIARY_MODEL`) | Admin-selectable model for claim translation (Admin → Settings → "Translation model"). No capability filter (any catalog model, e.g. Qwen). Required auxiliary single-pick route; unset means fail loud. Seeded with `ON CONFLICT DO NOTHING`. |
 | Claim translation worker | task `claim-translation` | `apps/workers/src/trigger/claim-translation.ts` | Translates an approved claim summary into other supported langs, embeds each, upserts `claim_translations` (idempotent on `source_hash`). Triggered by `translateClaimsForChina`. |
 | China review-question translation | `gap_type='claim_review_question'` | `apps/web/app/admin/claims/_actions.ts` (`assignClaimQuestion` → `translateReviewQuestionToChinese`) | "Ask to verify" reuses main's claim-review-question + review-groups mechanism. A question sent to a `zh-CN` recipient (direct or via a group containing them) is translated to Chinese per-recipient via the `translation` route; English recipients get English. (There is no separate recertification worker — folded into review questions.) |
 
@@ -280,7 +280,7 @@ Do not load these into AI context unless a task explicitly requires them:
 - `oracle_master_spec.md` unless product/spec alignment is the task
 - `oracle_ai_architecture_prompt caching.md` unless AI architecture or prompt-cache retrofit history is the task
 - `china_imp.md` unless the task is the China bilingual claim layer / claim translation / recertification
-- `fix_remove_fallbacks.md` / `fix_resolve_ts.md` / `fix_claim_extr.md` unless you are implementing that specific refactor (they are large self-contained specs)
+- `fix_remove_fallbacks.md` / `fix_resolve_ts.md` / `fix_claim_extr.md` / `fix_TESTPLAN.md` unless you are implementing or testing that specific work (they are large self-contained specs)
 - `docs/oracle/` unless the task touches the AI-retrofit spec directly
 
 For orientation, follow the documentation map near the top of this file. Do not load broad source files such as `packages/db/src/schema.ts` or `packages/ai/src/providers/*.ts` unless the task needs that subsystem.
@@ -332,13 +332,13 @@ Looks like:
 The caller already resolved a route before calling `OracleAIClient`, so it can log that route in `model_runs` and `model_run_usage_details`.
 
 Actually:
-`ModelRouter` may dispatch to a fallback route. `OracleTextResult` and `OracleObjectResult` carry `routeId`, `provider`, `modelId`, `fellBackFromRouteId`, and `fallbackReason` after dispatch.
+`ModelRouter` may dispatch to a non-primary approved candidate from the model pool. `OracleTextResult` and `OracleObjectResult` carry `routeId`, `provider`, `modelId`, `attemptedRoutes`, and `usedNonPrimary` after dispatch.
 
 Why:
-Cost/cache dashboards and fallback debugging need the route that actually ran, while still preserving the original route when fallback happened.
+Cost/cache dashboards and model-routing debugging need the route that actually ran, while `model_run_attempts` preserves each candidate tried.
 
 Do not change because:
-Logging the pre-dispatch route hides provider fallback and makes cache-hit/cost accounting wrong. New AI callers should use the result metadata when writing usage rows, with the pre-resolved route only as a fallback if metadata is absent.
+Logging the pre-dispatch route hides non-primary dispatch and makes cache-hit/cost accounting wrong. New AI callers should use the result metadata when writing usage rows and call `logModelRunAttempts` / `logAllCandidatesFailedAttempts` for candidate visibility.
 
 ### Chat retrieval is deterministic, not AI-SDK tool calling
 
@@ -439,19 +439,19 @@ The vision model is non-deterministic and prod's `default_vision_route` was set 
 Future sessions should:
 UPDATE 2026-06-25: prod vision is now `qwen/qwen3-vl-235b-a22b-thinking` and reads diagrams well (the earlier failure was an image-GENERATION model wrongly selected for reading + a silent fallback masking it). Use any real *vision* model (never an image-generation model). The current blocker has moved DOWNSTREAM to the extraction model (see the §14 row "EXTRACTION currently yields 0 claims"). If changing transcription/extraction prompts, keep one-line-per-edge in `IMAGE_TRANSCRIPTION_SYSTEM`. See HANDOFF "SESSION-END STATE" and the `scripts/reevaluate-document.mjs` re-evaluation tool.
 
-### Silent model fallback to hard-coded routes (being removed — see `fix_remove_fallbacks.md`)
+### Model routing is fail-loud and pool-bounded
 
 Looks like:
 The admin-selected model in Admin → Settings is the one that runs. The `model_runs` row showing a different provider/model looks like the configured choice.
 
 Actually:
-When a selected route can't dispatch (e.g. `No adapter registered for provider qwen` because a provider key was missing), `ModelRouter` (`fallbackOnError`) silently switches to the route's `fallbackRouteId`, which for dynamic routes is the HARD-CODED `DEFAULT_ORACLE_ROUTES[role]` (`routes/defaults.ts`) — and workers have hard-coded `FALLBACK_ROUTE_ID` constants for the unset-setting case. This session, both the Qwen vision and Qwen extraction routes silently fell back to `vertex_gemini_2_5_flash_extraction_primary` — an UNAPPROVED model — and reported success.
+Pipeline stages run through `resolveRouteCandidates(db, slot)`: the selected primary plus the approved DB pool, in order. Auxiliary slots (`vision`, `general`, `translation`) are explicit single-pick settings. If a model cannot dispatch, the router tries only the next approved candidate; if all candidates fail or a slot is unset, the call fails loud.
 
 Why:
-Boot-time resilience (a missing provider key shouldn't crash the worker) was implemented as a hidden hard-coded fallback rather than a verbose, pool-bounded one.
+The old hidden fallback path could run an unapproved model and still report success. The approved pool is the only acceptable fallback chain because admins can inspect and edit it.
 
 Do not change because:
-Until the `fix_remove_fallbacks.md` refactor lands (no `fallbackRouteId`; the approved pool becomes the fallback chain; every failure verbose + alerted), the hard-coded fallbacks are load-bearing — deleting them without the replacement breaks every worker's unset-setting path. When debugging "wrong model ran," check `model_run_usage_details.fell_back_from_route_id` + the new vision `model_runs` row, and confirm the provider's key/adapter is registered (`buildStandardAdapters` now logs `PROVIDER UNAVAILABLE` loudly in prod).
+Do not reintroduce route-level fallback IDs or worker hard-coded route constants. When debugging "wrong model ran," check `model_run_attempts` and the admin banner for failed primary or non-primary-success attempts, and confirm the provider's key/adapter is registered (`buildStandardAdapters` logs provider availability in prod).
 
 ### Explicit Vertex caches are tracked in Postgres
 
@@ -881,10 +881,10 @@ Looks like:
 The image-vision model selection looks like it should be a 4th `OracleModelRole` next to interview/extraction/synthesis.
 
 Actually:
-`OracleModelRole` is intentionally frozen at exactly 3 pipeline stages (each with a strict primary+fallback catalog pair, stage requirements, pools, batch dispatch). Vision and general-purpose are "auxiliary models" — single-pick selections with at most one capability filter and a default route — defined in `AUXILIARY_MODELS` (`packages/ai/src/routes/auxiliary.ts`) and resolved by `resolveAuxiliaryRouteFromSettings`. The settings page, picker, and `/api/admin/models` iterate the registry; none of them special-case `'vision'` or `'general'` by string.
+`OracleModelRole` is intentionally frozen at exactly 3 pipeline stages (each with stage requirements, approved pools, and batch dispatch). Vision, general-purpose, and translation are "auxiliary models" — explicit single-pick selections with at most one capability filter and no baked-in default route — defined in `AUXILIARY_MODELS` (`packages/ai/src/routes/auxiliary.ts`) and resolved by `resolveRouteCandidates`. The settings page, picker, and `/api/admin/models` iterate the registry; none of them special-case auxiliary ids by string.
 
 Why:
-Auxiliary models have none of a pipeline role's structure, and folding them into `OracleModelRole` would ripple through every `Record<OracleModelRole, …>` map and the strict 1-primary/1-fallback invariant. The registry adds new utility-model selections with zero new branches.
+Auxiliary models have none of a pipeline role's pool structure, and folding them into `OracleModelRole` would ripple through every `Record<OracleModelRole, …>` map. The registry adds new utility-model selections with zero new branches.
 
 Do not change because:
 Adding `'vision'` to `OracleModelRole` to "unify" things reintroduces exactly the ripple the registry avoids. Add a registry entry instead.
@@ -1142,10 +1142,10 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 | open | **Per-document `context` / `domain_hints` added via hand-written SQL only (2026-06-14, migration `65`).** Columns are in `schema.ts` + applied to prod, but there is no Drizzle-generated migration, so `pnpm db:check-drift` may flag them and a fresh-DB `pnpm db:migrate` won't recreate them. | If drift matters, fold the two nullable columns into a generated Drizzle migration; otherwise keep the hand-written `sql/65` as authoritative (consistent with the `raw_transcripts` precedent). |
 | done | **Qwen image-vision LIVE (2026-06-25).** `default_vision_route` = `qwen/qwen3-vl-235b-a22b-thinking`; `DASHSCOPE_API_KEY` set in prod Trigger + `DASHSCOPE_BASE_URL` = the intl endpoint (the model is intl-only). Confirmed via the new vision `model_runs` row (`task_type='document-ingestion-vision'`, `provider=qwen`, no fallback). The image payload is now PROVIDER-NEUTRAL (`{type:'image',mimeType,data}`) and each adapter translates at dispatch (`toOpenAIImageContent`/`toAnthropicImageContent`, `cache-utils.ts`), so a provider fallback can't drop the image. | No action for vision. |
 | open | **EXTRACTION currently yields 0 claims on dense diagrams.** Selected extraction model `qwen/qwen3.7-plus` uses a LOOSE tool-call structured-output mode (no native strict JSON-schema) and malforms fields; the strict schema rejects the window. FAST FIX (no code): switch extraction to `google/gemini-3.1-flash-lite` (approved pool member, native strict JSON). The settings "copy job brief" for Extraction now documents this. | Flip extraction to a strict-JSON model in Admin → Settings; doc `9d09fa89-3a46-465e-a98b-837287c9e22a` is `failed`/0 claims until then. |
-| open | **Remove ALL silent fallbacks + hard-coded model routes — core-inference refactor, NOT started.** Selected Qwen routes silently fell back to the hard-coded `vertex_gemini_2_5_flash_extraction_primary` (`DEFAULT_ORACLE_ROUTES` + worker `FALLBACK_ROUTE_ID` constants); the fallback target isn't even an approved pool model, and nothing alerts on it. Full spec (pool-as-chain + fail-verbose + admin alert + deletion inventory) in **`fix_remove_fallbacks.md`**. | Implement `fix_remove_fallbacks.md` as one verified pass (every worker + chat dispatch through this path). |
-| open | **Runtime model-capability enforcement — NOT started.** `makeSyntheticRoute()` in `resolve.ts` fabricates `supportsVision/StructuredOutput=true` for any model id, so a wrong-tool model passes the runtime boundary (root of the image-generation-model-as-vision incident). Spec in **`fix_resolve_ts.md`** (shares the capability invariant with the fallback refactor). | Implement `fix_resolve_ts.md`; coordinate with `fix_remove_fallbacks.md`. |
+| done | **Remove ALL silent fallbacks + hard-coded model routes (2026-06-25).** Pipeline callers now resolve `resolveRouteCandidates(db, slot)`, use the approved DB pool as the ordered chain, write `model_run_attempts`, and fail loud with `AllCandidatesFailedError` when exhausted. Auxiliary slots (`vision`, `general`, `translation`) are explicit single-pick settings. Admin layout surfaces failed/non-primary attempts. | No action. Legacy `model_run_usage_details` fallback columns may remain for historic rows but are no longer written. |
+| done | **Runtime model-capability enforcement (2026-06-25).** `resolveRouteCandidates` checks `model_capabilities` against slot requirements when `settings.enforce_model_capabilities` is true; synthetic provider/model routes no longer silently assume every capability. | No action. Set `enforce_model_capabilities=false` only for controlled debugging. |
 | open | **Conversation-aware message batching — NOT started.** `claim-extraction.ts` selects the first 100 pending messages globally then segments, so a long same-channel discussion can split mid-thread. Spec in **`fix_claim_extr.md`**. | Implement `fix_claim_extr.md` (mirror the document path's structure-aware approach). |
-| open | **Dead-end "General-purpose / utility" picker.** `default_general_purpose_route` (Admin → Settings) is consumed by NOTHING; taxonomy cluster-naming uses a hard-coded route instead. | Wire it to the internal jobs that should use it (delete `CLUSTER_NAMING_ROUTE_ID`) or remove the picker. Covered in `fix_remove_fallbacks.md`. |
+| done | **General-purpose / utility picker wired (2026-06-25).** `taxonomy-reevaluation` cluster naming now uses the `general` auxiliary slot instead of a hard-coded route. | No action. |
 | open | **Deploy discrepancy.** Prod worker `v20260625.11` still contains the reverted per-claim salvage + `.catch` schema edits (deployed during debugging, then reverted in source). Redeploy `@oracle/workers` from the committed source to align (keeps the `maxOutputTokens` truncation fix, drops the experiments). Harmless functionally. | `corepack pnpm --filter @oracle/workers run deploy`. |
 | done | **Repository documentation audit from pasted charter (2026-06-25).** Second run of the same Markdown-maintenance spec. | Brought §14 current (entity registry seeded, synthesis unblocked, extraction/fallback workstreams added), updated the diagram quirk + added a silent-fallback quirk, listed the `fix_*.md` plan docs + `scripts/reevaluate-document.mjs`, added `DASHSCOPE_BASE_URL`. |
 
