@@ -425,6 +425,21 @@ That direct host now resolves to an **IPv6-only** address. A v4-only machine fai
 Why:
 Username MUST be `postgres.<ref>` (plain `postgres` → `tenant/user not found`); the pool host prefix is `aws-1` not `aws-0` (Ohio was `aws-1-us-east-2`); the host is region-wide and the username's ref does the tenant routing. Don't guess the pool host — copy it from the Supabase dashboard **Connect → Session pooler**, or read the `oracle_session_pooler` field.
 
+### Local `.env.local` still points at `oracle.old`
+
+What changed / verified:
+As of 2026-06-26, local `C:\repos\oracle\.env.local` still points `DIRECT_URL`,
+`DATABASE_URL`, and browser Supabase URL at the previous Ohio Supabase project
+`vokucjpanhvqunimlvsp` (`oracle.old`), not current prod
+`eqccjfbyrywsqkxxpjvg`.
+
+Future sessions should:
+Never run production migrations from the local env by default. Override
+`DIRECT_URL`/`DATABASE_URL` with the current-prod 1Password item
+`Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle,
+eqccjfbyrywsqkxxpjvg)` field `oracle_session_pooler`, then run
+`corepack pnpm --filter @oracle/db migrate`.
+
 ### Diagram / flowchart image ingestion: the verbatim-quote vs relationship-claim tension
 
 What changed (2026-06-25, worker `20260625.1`):
@@ -1055,6 +1070,27 @@ Inserted the correct sha256 (`d273fe37e62858c4e0e0b7e76fb6baa794889e2ed6efbf5f26
 Rules added to prevent recurrence:
 1. Generated `packages/db/migrations/0NNN_*.sql` files ship ONLY through `pnpm db:migrate`. Hand-written `packages/db/migrations/sql/*.sql` files (idempotent views/constraints) MAY ship via Supabase MCP `apply_migration` — those aren't journaled. Documented in CLAUDE.md → "Drizzle journal hygiene".
 2. Added `pnpm db:check-drift` (`packages/db/src/check-migration-drift.ts`) that compares on-disk migration hashes against the journal. Wired into `.github/workflows/pr-check.yml` so every PR / push to main fails the build on drift. Requires repo secret `PROD_DIRECT_URL`. Commit `35439b2`.
+
+### 2026-06-26 Drizzle drift: generated migration 0007 hash mismatch
+
+What happened:
+GitHub Actions failed `pnpm db:check-drift` for
+`0007_tricky_charles_xavier.sql`. Production already had the generated schema
+objects from that migration (`claim_translations`, `claims.source_lang`,
+`employees.locale`), but the journal row hash did not match the checkout hash
+used by CI.
+
+Recovery:
+Verified the schema objects existed in current prod, then reconciled the journal
+row to CI's reported LF checkout hash
+`af12b253571b59ea7c214c978f11c21ef216bcca8e0dbe885ce61a011594cb5f`.
+Rerunning GitHub Actions for commit `8e0a45c` then passed.
+
+Future sessions should:
+If generated-migration drift recurs, verify live schema objects first and only
+then reconcile the journal. Do not replay generated migrations blindly, and be
+aware that Windows CRLF vs CI LF can change the file hash the drift checker
+computes.
 
 ### 2026-05-28 Batch-submit rollback left staging orphans
 

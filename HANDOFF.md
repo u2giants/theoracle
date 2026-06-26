@@ -1,8 +1,38 @@
 # HANDOFF — Recall.ai wiring + extraction tuning + China bilingual layer + meeting picker
 
-Last updated: 2026-06-25 (evening). Delete this file once the remaining items below are closed.
+Last updated: 2026-06-26. Delete this file once the remaining items below are closed.
 
 HOW TO TRUST THIS DOC: the two blocks immediately below — "CARRIED-OVER ITEMS (re-verified)" and the diagram section's "SESSION-END STATE" — were verified against PROD on 2026-06-25 evening and are authoritative. Everything in the dated sections FURTHER DOWN is last-known from its own session and may be stale (this session caught several stale lines); re-verify against prod before acting on anything below those two blocks.
+
+---
+
+## Fail-loud routing + conversation-aware extraction completion — 2026-06-26
+
+Status:
+done in source, pushed, migrated, and worker-deployed.
+
+Done:
+- Committed and pushed `8e0a45c` (`feat(ai): remove silent fallbacks and preserve extraction conversations`) to `main`.
+- Applied prod DB migrations/seeds against current prod Supabase `eqccjfbyrywsqkxxpjvg` using the 1Password current-prod session pooler.
+- Deployed Trigger.dev prod worker version `20260626.5`.
+- Reran GitHub Actions `PR check` for the pushed commit; final rerun passed.
+- Implemented `fix_claim_extr.md`: sync and batch claim extraction now claim whole same-channel conversation segments and include prior same-channel complete/skipped messages only as non-quotable carry-in context.
+- Verified prod settings after migration:
+  - `default_extraction_route = google/gemini-3.1-flash-lite`
+  - `default_general_purpose_route = qwen/qwen3.7-max`
+  - `default_translation_route = qwen/qwen-mt-plus`
+  - `default_vision_route = qwen/qwen3-vl-235b-a22b-thinking`
+  - `extraction_char_budget = 24000`
+  - `extraction_carry_in_count = 12`
+- Reconciled production Drizzle journal drift for generated migration `0007_tricky_charles_xavier.sql`: prod already had the `claim_translations` table plus `claims.source_lang` and `employees.locale`; CI expected the LF checkout hash `af12b253571b59ea7c214c978f11c21ef216bcca8e0dbe885ce61a011594cb5f`.
+- Added missing local/session secrets to 1Password `vibe_coding` as Secure Notes: `Supabase Runtime Keys - The Oracle (oracle.old local .env.local)`, `OpenRouter API Key - The Oracle (local .env.local)`, `Trigger.dev Secret Key - The Oracle (local .env.local)`, and `Vercel OIDC Token - The Oracle (local .env.local)`.
+
+Next action:
+- No continuation is required for this workstream. Web deployment was not directly confirmed through Vercel CLI/MCP because local Vercel metadata was absent and the CLI status check timed out; the pushed commit's Next.js build and CI passed, and the repo's Vercel Git integration remains the expected web deploy path.
+
+Risks / watchouts:
+- Local `.env.local` still points at `oracle.old` (`vokucjpanhvqunimlvsp`). Do not run prod migrations from local env without overriding `DIRECT_URL` to the current prod 1Password session pooler.
+- The migration runner hashes generated Drizzle files from the current checkout. Windows CRLF vs CI LF can surface as journal drift if a generated migration was previously recorded with a different line ending hash; reconcile only after verifying the schema objects already exist.
 
 ---
 

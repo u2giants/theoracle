@@ -91,3 +91,22 @@ Use `op://vibe_coding/...` references in committed templates (e.g. `.env.tpl`) a
 op://vibe_coding/<item>/<field>
 op://vibe_coding/<item>/<section>/<field>
 ```
+
+## 3. Oracle items created during the 2026-06-26 AI session
+
+These item titles are intentionally searchable. They contain notes about where the
+values came from, what they are for, and whether they are safe for current
+production use. Do not copy values into docs or commits.
+
+| Item title | What it is for | Important caution |
+|---|---|---|
+| `Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle, eqccjfbyrywsqkxxpjvg)` | Current production Postgres connection strings, including the `oracle_session_pooler` field used for migrations from local scripts. | Use this for prod migrations. The direct host may be IPv6-only from local Windows; prefer `oracle_session_pooler`. |
+| `Supabase DB Direct URL - The Oracle (oracle.old, vokucjpanhvqunimlvsp)` | Previous Ohio Supabase project DB URL. | Historical / old project. Do not use for current prod migrations. |
+| `Supabase Runtime Keys - The Oracle (oracle.old local .env.local)` | Supabase URL, anon/publishable key, and service-role key currently present in local `.env.local`. | These point at `oracle.old`, not current prod. Useful for reconstructing local env or understanding why local commands target the old project. |
+| `OpenRouter API Key - The Oracle (local .env.local)` | Local OpenRouter key for model catalog/capability and provider-routing work. | Verify whether it is intended for local only or production before relying on it operationally. |
+| `Trigger.dev Secret Key - The Oracle (local .env.local)` | Local Trigger.dev project/secret values for Oracle worker debugging. | Worker deploys normally use authenticated Trigger tooling; verify dashboard state before assuming this local value is the prod runtime secret. |
+| `Vercel OIDC Token - The Oracle (local .env.local)` | Vercel token found in local `.env.local`, useful for debugging local Vercel auth/status checks. | May be ephemeral. Prefer Git/Vercel integration for normal web deploys. |
+
+Future sessions should use MCP or `op` to read these items by title and should
+avoid creating duplicate secret notes unless a value is demonstrably missing or
+has a materially different scope.

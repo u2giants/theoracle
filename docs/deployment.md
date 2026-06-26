@@ -66,6 +66,31 @@ journal-vs-reality drift that makes the runner refuse to start. See
 if drift is ever suspected. One such drift was reconciled on 2026-05-28
 (migration `0006_magical_revanche` had been applied without a journal row).
 
+Another drift was reconciled on 2026-06-26 for
+`0007_tricky_charles_xavier.sql`. Production already had the generated schema
+objects (`claim_translations`, `claims.source_lang`, and `employees.locale`),
+but the journal hash did not match the checkout hash used by CI. The journal row
+was updated only after verifying those objects existed in current prod. If this
+recurs, verify schema reality first, then reconcile the journal to the hash
+reported by `pnpm db:check-drift`; do not blindly replay generated migrations
+against prod.
+
+Local `C:\repos\oracle\.env.local` was still confirmed on 2026-06-26 to point
+at `oracle.old` (`vokucjpanhvqunimlvsp`). For current prod migrations from a
+local shell, override `DIRECT_URL`/`DATABASE_URL` with the 1Password item
+`Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle,
+eqccjfbyrywsqkxxpjvg)` field `oracle_session_pooler` before running:
+
+```powershell
+$env:DIRECT_URL = op read "op://vibe_coding/ntr5ln6tnmsmzxzpyv4q6ohxgy/oracle_session_pooler"
+$env:DATABASE_URL = $env:DIRECT_URL
+corepack pnpm --filter @oracle/db migrate
+```
+
+Use `corepack pnpm --filter @oracle/db migrate` rather than root
+`corepack pnpm db:migrate` if the elevated/local environment lacks a plain
+`pnpm` binary on `PATH`; the root script delegates to bare `pnpm`.
+
 ## CI workflow that currently exists
 
 Only one workflow is present: `.github/workflows/pr-check.yml`
