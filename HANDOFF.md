@@ -6,6 +6,32 @@ HOW TO TRUST THIS DOC: the two blocks immediately below — "CARRIED-OVER ITEMS 
 
 ---
 
+## Four model-adapter bugs fixed + extraction bake-off — 2026-06-26 (DONE: fixed, proven, deployed, prod set)
+
+Status: complete. Code on `main` (`c9cc5d0`), prod worker deployed (`20260626.7`), prod settings updated to the bake-off winner. All four bugs were live-API proven, not just typechecked.
+
+The four bugs (all were silently masked by pool fail-over, so most candidate models looked "fine" while actually 400ing instantly):
+1. **OpenAI strict structured output** rejected the extraction schema — optional Zod fields were absent from the JSON-schema `required` array. Fix (`packages/ai/src/providers/openai-adapter.ts` `walk()`/`makeNullable()`): OpenAI-only transform makes formerly-optional properties nullable AND promotes `required` to all keys; `extraction-system.ts` optionals mapped to `.nullish()`. Gemini/Vertex still receive the original schema. PROVEN: `gpt-4o-mini` + `gpt-4.1-mini` return schema-valid claims live.
+2. **Gemini Google-API hard 60s timeout** aborted dense extraction at ~60.1s. Fix (`google-gemini-adapter.ts`): `DEFAULT_GEMINI_REQUEST_TIMEOUT_MS=180_000`, overridable via `GOOGLE_GEMINI_REQUEST_TIMEOUT_MS` env or constructor; applied on both the API-key SDK path and the OAuth/REST path. PROVEN: `google/gemini-2.5-flash` extraction completes at 59.8s where it previously aborted.
+3. **Gemini `thinkingLevel` broke gemini-2.5-flash vision** ("Thinking level not supported"). Fix is capability-driven, NO hard-coded model ids: new `geminiThinkingStyle` (`thinking_budget` for Gemini 2.x, `thinking_level` for 3.x, `none`) in `routes/types.ts` + `routes/resolve.ts`; the adapter emits the field shape each model generation supports. PROVEN on a real image: `google/gemini-2.5-flash` vision call succeeded.
+4. **Settings double-JSON-encoding.** Data was already repaired; the writer is now idempotent via `normalizeSettingValue()` (`packages/ai/src/routes/settings-encoding.ts`), applied in the admin settings POST (`apps/web/app/api/admin/settings/route.ts`). Regression guard: `packages/ai/src/__verify__/settings-encoding.ts`. Prod scan: 0 double-encoded of 29 settings.
+
+Extraction bake-off (test doc `9d09fa89-3a46-465e-a98b-837287c9e22a`, vision held at qwen3-vl, each model isolated into a one-element pool so fail-over could not mask failures):
+- `gpt-4o-mini` → 9 claims · `gpt-4.1-mini` → 12 · **`google/gemini-2.5-flash` → 54 (dep 47 / process_rule 5 / exception_rule 2 — captured conditional branches)** · `vertex/gemini-2.5-flash` → 52 (all flat dependency that run) · `gemini-3.1-flash-lite` → 5.
+- Winner: `google/gemini-2.5-flash` — most claims, best type variety, faithful verbatim edge quotes, faster than Vertex (59.8s vs 68.5s).
+
+FINAL PROD CONFIG (verified single-encoded):
+- `default_extraction_route = google/gemini-2.5-flash`
+- `model_pool_extraction = [google/gemini-2.5-flash, vertex_gemini_2_5_flash_extraction_primary, openai/gpt-4.1-mini]` (vendor + infra diverse; all three confirmed working)
+- `default_vision_route = qwen/qwen3-vl-235b-a22b-thinking` (kept — proven person-level lane attribution + cross-vendor diversity)
+- `enforce_model_capabilities = true`, `default_extraction_reasoning_effort = off`, `default_vision_reasoning_effort = medium`
+
+Vision side-finding (optional follow-up): `google/gemini-2.5-flash` vision works post-fix, is ~3× faster than qwen3-vl (33s vs ~90s) and yielded the single richest extraction (60 claims), and its transcript is faithful — BUT it labeled some person-lanes by department ("Carlos" absent where qwen3-vl names him). To switch vision to it, set `default_vision_route = "google/gemini-2.5-flash"` (no pool change needed; `model_pool_vision` does not exist — vision routes directly off `default_vision_route`).
+
+New env var documented: `GOOGLE_GEMINI_REQUEST_TIMEOUT_MS` (optional; default 180000).
+
+---
+
 ## Fail-loud routing + conversation-aware extraction completion — 2026-06-26
 
 Status:
