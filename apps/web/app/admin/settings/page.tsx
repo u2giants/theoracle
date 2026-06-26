@@ -248,64 +248,83 @@ BOTTOM LINE
 Pick the fastest reliable model that can follow strict grounding rules, handle vision and long context, speak naturally to employees, and keep cost sane at chat volume. Do not pick a brilliant but slow model as the default unless evals prove the cheaper real-time model is materially insufficient.`;
 
 const EXTRACTION_MODEL_BRIEF = `THE ORACLE — "Extraction Model" role brief
-(Paste this into a model-evaluation assistant or vendor comparison to judge whether a given model is the right pick for this setting.)
+(Paste this into a model-evaluation assistant or vendor comparison to judge whether a given model is the right pick for this setting. Read the "#1 CRITERION" and the "MEASURED BENCHMARK" sections before forming an opinion — they overturn the intuition that the cheapest schema-valid model wins.)
 
 PURPOSE
-This model turns raw operational text into structured claim candidates. It is the first intelligence pass after messages, Teams transcripts, documents, and image transcriptions enter the system. It does not directly approve knowledge; deterministic validators and admin review decide what can become an approved claim.
+This model turns raw operational text into structured claim candidates. It is the first intelligence pass after messages, Teams transcripts, documents, and image transcriptions enter the system. It does not directly approve knowledge; deterministic validators and admin review decide what can become an approved claim. Whatever this model fails to extract is lost forever — nothing downstream re-reads the source to recover a relationship this model skipped. The knowledge graph can only ever be as complete as this pass.
 
 WHERE IT SITS IN THE PIPELINE
-Messages and document chunks are grouped into extraction batches -> this model receives the source text plus extraction instructions -> it returns structured JSON candidates with exact supporting quotes -> deterministic validation checks quote presence, schema validity, domains, entities, confidence, impact, and promotion rules -> approved or reviewable claims move into the knowledge graph. If the model omits the exact quote or invents text, the candidate fails.
+Messages and document chunks are grouped into extraction batches -> this model receives the source text plus extraction instructions -> it returns structured JSON candidates with exact supporting quotes -> deterministic validation checks quote presence, schema validity, domains, entities, confidence, impact, and promotion rules -> approved or reviewable claims move into the knowledge graph. If the model omits the exact quote or invents text, that one candidate fails; if the model simply never emits a claim for a relationship that is plainly in the source, there is no error at all — the knowledge is just silently missing.
+
+#1 CRITERION — RECALL / COMPLETENESS (this is the criterion that actually separates good extractors from bad ones)
+The single most important property of an extraction model for The Oracle is how COMPLETELY it mines a dense source. Schema-validity, low cost, and low latency are table stakes — they do NOT distinguish a good model from a useless one, because the WORST models pass all three while extracting almost nothing. In a controlled production bake-off (2026-06, a 14-lane swimlane process diagram transcribed to ~65-75 directional edges), every candidate returned perfectly valid, schema-conforming JSON, yet recall varied by roughly 10x:
+  - google/gemini-2.5-flash    -> 54 claims  (dependencies + process rules + exception/conditional rules)  ~15.5k output tokens  ~60s
+  - vertex gemini-2.5-flash    -> 52 claims  ~16k output tokens  ~68s
+  - openai/gpt-4.1-mini        -> 12 claims  ~3.7k output tokens  ~45s
+  - openai/gpt-4o-mini         ->  9 claims  ~1.4k output tokens  ~14s
+  - google/gemini-3.1-flash-lite ->  5 claims  ~1.4k output tokens  ~5s
+The cheap, fast "mini"/"lite" models were fast and cheap PRECISELY BECAUSE they emitted little — they silently dropped 80-90% of the operational content and reported success. A model that finishes a dense diagram in a few seconds with ~1-2k output tokens is showing you a RED FLAG (severe under-extraction), not efficiency. Do not reward it for speed or price.
+
+A GREAT EXTRACTOR ALSO CAPTURES STRUCTURE, NOT JUST COUNT
+Beyond raw count, the best model captured claim-type VARIETY: it represented conditional/branch logic ("If Audit: Fail", "For existing products", dashed exception arrows) as exception_rule / conditional dependency claims, instead of flattening everything into generic "A then B" links. A model that returns many claims but all of one flat type has still lost the decision logic. Prefer models that preserve conditions, exceptions, and rules.
 
 WHAT IT IS FED (input)
 - One or more employee messages, transcript turns, or document chunks.
 - Source metadata such as speaker, channel, document context, upload hints, and known domains/entities.
 - A strict extraction schema and instructions for claim typing, evidence quotes, confidence, impact, domains, gaps, and entity proposals.
-- For images, this role usually receives the text produced by the separate image-vision pass, not the raw image itself.
-Typical material: meeting transcripts, process explanations, exception rules, customer-specific routing, operational decisions, file-handling rules, system workflows, and policy/practice discrepancies.
+- For images, this role receives the text produced by the separate image-vision pass (often a dense, edge-per-line transcription of a flowchart/diagram), not the raw image itself.
+Typical material: meeting transcripts, process explanations, exception rules, customer-specific routing, operational decisions, file-handling rules, system workflows, swimlane process diagrams, and policy/practice discrepancies. Diagram transcriptions are the densest and most demanding input — they are where weak models collapse.
 
 WHAT IS EXPECTED (output)
 - Strict structured JSON matching the extraction schema.
-- Candidate claims only when the source text actually supports them.
-- Exact quote strings copied from the input text, not paraphrases.
-- Accurate claim type, summary, confidence score, impact score, knowledge domains, entities, and suggested follow-up gaps.
-- Conservative handling of ambiguity: lower confidence, held candidates, or gaps instead of invented certainty.
+- A claim for EVERY operationally meaningful relationship, rule, dependency, exception, and handoff the source actually supports — exhaustive coverage, not a representative sample.
+- Exact quote strings copied verbatim from the input text, not paraphrases.
+- Accurate claim type (and faithful use of conditional/exception types where the source has branch logic), summary, confidence score, impact score, knowledge domains, entities, and suggested follow-up gaps.
+- Conservative handling of genuine ambiguity (lower confidence / gaps) — but NOT an excuse to skip content that is plainly stated.
 - No polished prose; this is machine-consumed extraction output.
 
 PROCESS IT USES
-An asynchronous structured-output call, either sync API or provider Batch API depending on extraction dispatch mode. Nobody is waiting in the UI. The system can tolerate slower calls, but bad schema adherence or bad quote fidelity damages the entire knowledge graph. The model result is always passed through deterministic validators before promotion.
+An asynchronous structured-output call (sync API or provider Batch API per extraction dispatch mode). Nobody is waiting in the UI, so LATENCY IS CHEAP HERE: a model that takes ~60s and extracts 54 claims is far better than one that takes 5s and extracts 5. Do not treat slower as worse for this role. The system tolerates minute-scale calls; the adapter timeout is 180s. The model result always passes through deterministic validators before promotion, so the failure mode to fear is not "too slow" — it is "schema-broken" or, far more insidiously, "schema-valid but shallow."
 
-WHAT MAKES A MODEL PERFECTLY SUITED
-- Excellent structured-output reliability with JSON schema or equivalent constrained output.
-- Strong quote fidelity: can copy exact spans from noisy transcripts and document text.
-- High recall without hallucination: finds operationally important claims while skipping chatter.
-- Good domain/entity reasoning, especially across messy business language.
-- Handles long batches and document chunks without losing local evidence.
-- Low enough cost for high-volume background processing.
-- Good batch support is valuable when extraction_dispatch_mode is set to batch.
-- Reasoning can help impact/confidence/domain decisions, but only if it does not reduce quote fidelity or throughput.
+WHAT MAKES A MODEL PERFECTLY SUITED (in priority order)
+1. HIGH RECALL on dense sources — extracts most/all of the relationships in a packed diagram or long transcript (see MEASURED BENCHMARK). This dominates every other factor.
+2. STRUCTURE FIDELITY — preserves conditions, exceptions, and rule types rather than flattening to generic links.
+3. NATIVE STRICT JSON-schema structured output (not a loose tool-call shim — see KNOWN PITFALLS).
+4. Exact quote fidelity — copies verbatim spans from noisy transcripts and document text.
+5. Large enough max-output-token budget to emit dozens of claims without truncating.
+6. Good domain/entity reasoning across messy business language.
+7. THEN, as a tiebreaker among models with comparable recall and fidelity: lower cost and Batch API support for high-volume runs. Cost is a tiebreaker, never a primary filter — choosing a cheaper model that under-extracts is a false economy that permanently shrinks the knowledge graph.
+
+MEASURED BENCHMARK — how to read a candidate's numbers
+On a single dense diagram (~65-75 edges): 50+ claims with mixed types = excellent; 30-50 = acceptable; under ~20 = under-extracting; under ~12 = disqualifying for this role no matter how cheap or fast or schema-clean it is. Output-token volume is a proxy: a dense diagram should pull well over ~8-10k output tokens from a strong extractor; ~1-2k output tokens on dense input means the model gave up early.
+
+HOW TO EVALUATE A CANDIDATE (do this, don't reason in the abstract)
+Feed the candidate a real dense diagram transcription (edge-per-line swimlane flowchart) under the production extraction schema, then check, in order: (a) did it return valid schema JSON; (b) HOW MANY claims vs. the number of edges/relationships in the source (recall is the headline); (c) claim-type variety — did it capture conditional/exception logic or flatten everything; (d) are the exact quotes verbatim substrings of the source; (e) only then, cost and latency. Test against the CURRENT adapters: earlier "returned 0 claims" results for some models were caused by now-fixed adapter bugs (OpenAI strict-schema required-fields, a Gemini 60s timeout, a Gemini thinking-config incompatibility), not by the models themselves — re-test rather than trusting stale failures.
 
 CAPABILITIES IT NEEDS (hard requirements in the picker)
-- Structured output or response-format support — PREFERABLY NATIVE strict JSON-schema (see the KNOWN PITFALL below: a looser tool-call mode is a real risk here, not an equivalent).
+- Structured output / response-format support — PREFERABLY NATIVE strict JSON-schema (see KNOWN PITFALLS: a looser tool-call mode is a real risk here, not an equivalent).
 - Context window greater than 100K tokens.
-- Enough max-output-token budget to emit EVERY claim for a dense batch. If the JSON truncates mid-array it parses as a bare string and the ENTIRE batch is discarded — a dense diagram or long transcript can produce dozens of claims, so do not pick a model with a small output cap.
+- Enough max-output-token budget to emit EVERY claim for a dense batch. If the JSON truncates mid-array it parses as a bare string and the ENTIRE batch is discarded — a dense diagram can produce 50+ claims, so do not pick a model with a small output cap, and verify the model actually USES that budget (under-extractors stop early even when the cap is generous).
+- Demonstrated high recall on a dense test input (per HOW TO EVALUATE) — treat this as a hard gate, not a nicety.
 
 CAPABILITIES THAT ARE NICE TO HAVE
 - Prompt caching for stable extraction prompts and schemas.
-- Reasoning controls at low/medium effort for nuanced domain and impact scoring.
+- Reasoning controls at low/medium effort for nuanced domain and impact scoring (the current winner runs with reasoning effort OFF and still extracts richly, so reasoning is not required for recall).
 - Batch API support in the adapter/provider for cheaper high-volume runs.
 
-CAPABILITIES IT DOES NOT NEED MOST
+CAPABILITIES IT DOES NOT NEED
 - Chatty conversational style.
 - Streaming — workers consume the final JSON only.
-- Very expensive frontier reasoning if a cheaper model preserves quotes and schema better.
+- Raw speed / lowest latency — explicitly NOT a priority; this is background work and shallow-but-fast is the trap.
 - Native PDF input for this stage specifically; documents are usually parsed/chunked before extraction.
 - Vision/image input for this stage specifically; images are transcribed by the separate Image Vision model before extraction receives text.
 
-KNOWN PITFALL — strict JSON vs. loose "tool-call" structured output (found in production, 2026-06)
-Not every "structured output" is equal. Providers WITHOUT a native strict JSON-schema mode (Qwen and DeepSeek, accessed through the OpenAI-compatible API) fall back to a looser TOOL-CALL mechanism that does not strictly enforce the schema. In production, qwen3.7-plus selected for this stage repeatedly MALFORMED FIELDS — scores returned as strings/null, domain values outside the enum, and evidence returned as a non-object — and because one malformed claim currently fails the whole extraction window, the run produced ZERO claims even though the upstream image transcription was perfect. The Gemini family (Vertex / Google) and OpenAI use native JSON-schema and conform far more reliably. Until per-claim salvage ships, STRONGLY prefer a native-strict-JSON model here. A "smarter" loose-JSON model is worse for this stage than a cheaper strict-JSON one.
+KNOWN PITFALLS
+1. UNDER-EXTRACTION HIDING BEHIND VALID JSON (the most common and most damaging mistake). The "mini"/"lite"/cheapest tier of most families returns clean, schema-valid JSON and looks great in a quick smoke test, but extracts a small fraction of a dense source. Because there is no error, the gap is invisible until someone notices the graph is missing most of a process. Never pick an extraction model on schema-validity + price alone; always measure recall on dense input first.
+2. STRICT JSON vs. LOOSE "TOOL-CALL" structured output. Providers WITHOUT a native strict JSON-schema mode (e.g. Qwen and DeepSeek via the OpenAI-compatible API) fall back to a looser TOOL-CALL mechanism that does not strictly enforce the schema. In production, qwen3.7-plus repeatedly MALFORMED FIELDS — scores as strings/null, domains outside the enum, evidence as a non-object — and because one malformed claim fails the whole extraction window, the run produced ZERO claims even though the upstream image transcription was perfect. The Gemini family (Google / Vertex) and OpenAI use native JSON-schema and conform far more reliably. Strongly prefer a native-strict-JSON model here.
 
 BOTTOM LINE
-Pick the model with the best combination of STRICT (native-JSON) reliability, exact quote copying, high operational-claim recall, and low high-volume cost. For extraction, a cheaper model that never breaks schema and never fabricates quotes is usually better than a smarter model that is loose with evidence — and a loose tool-call-only model (Qwen/DeepSeek) is a known liability for this stage specifically.`;
+Optimize for RECALL on dense operational sources, then structure fidelity, then native-strict-JSON reliability and exact quotes — and only then cost. The proven production pick is google/gemini-2.5-flash (rich, varied, faithful, native strict JSON, ~60s/batch with reasoning off), with the Vertex gemini-2.5-flash route and a strict-JSON OpenAI model as fallbacks. The classic failure is choosing a cheaper/faster "mini" or "lite" model because it returns valid JSON in a smoke test; in this role that is a model that silently throws away most of your knowledge. A model that extracts everything in 60 seconds beats one that extracts a tenth of it in 5 — every time.`;
 
 const SYNTHESIS_MODEL_BRIEF = `THE ORACLE — "Synthesis Model" role brief
 (Paste this into a model-evaluation assistant or vendor comparison to judge whether a given model is the right pick for this setting.)
