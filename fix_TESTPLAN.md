@@ -1,274 +1,303 @@
-# Test Plan: validate the model-routing refactor + the whole image→claims pipeline
+# Test Plan: extraction & vision MODEL BAKE-OFF + pipeline validation
 
-Status: **READY TO EXECUTE.** Self-contained — written for someone with ZERO prior knowledge of this project or what changed. Written 2026-06-25 (evening).
+Status: **READY TO EXECUTE.** Self-contained for someone with ZERO prior knowledge. Written 2026-06-26.
 
-If you read nothing else: the riskiest change here (the "no-fallback / pool-as-chain" routing refactor) sits **underneath every AI call in the system**. Test all four inference roles end-to-end (Section 6) before trusting anything else. A green typecheck does NOT prove inference still works.
-
----
-
-## 1. What this system is (5-minute orientation)
-
-**The Oracle** is an evidence-backed enterprise knowledge graph for a company (POP Creations / Spruce Line). Employees chat with it and upload documents; background jobs read messages/documents and extract **claims** (operational facts) with a verbatim **quote** as evidence; deterministic validators decide which claims get promoted into approved knowledge; a "Brain" synthesizes narratives from approved claims.
-
-It is a `pnpm` + `turbo` TypeScript monorepo:
-
-- `apps/web/` — Next.js web app + admin UI + API routes. Deployed to **Vercel** (auto-deploys on push to `main`).
-- `apps/workers/` — background jobs ("tasks") on **Trigger.dev**. Deployed manually.
-- `packages/ai/` — the AI client, the model **router**, provider **adapters**, the model catalog. **Every LLM call goes through here.**
-- `packages/db/` — Drizzle schema + migrations (Postgres on **Supabase**).
-- `packages/oracle-engines/` — deterministic extraction/validation/promotion logic.
-
-**How an AI call flows (memorize this — the refactor changed it):**
-
-```
-caller (worker or chat route)
-  -> OracleAIClient.runText() / runObject()      (packages/ai/src/client/oracle-ai-client.ts)
-    -> resolve which model(s) to try             (packages/ai/src/routes/...)
-      -> ModelRouter dispatches                   (packages/ai/src/routing/model-router.ts)
-        -> a provider adapter makes the real call (packages/ai/src/providers/*-adapter.ts)
-```
-
-There are **3 pipeline roles**: `interview` (employee chat), `extraction` (claims from text), `synthesis` (Brain). Plus **auxiliary models**: `vision` (transcribe an uploaded image to text), `translation`, `general`.
-
-The admin picks a model per role/aux at **Admin → Settings** (`/admin/settings`). Each pipeline stage also has an **approved pool** — a settings row like `model_pool_extraction = ["google/gemini-3.1-flash-lite","qwen/qwen3.7-plus","qwen/qwen3.7-max"]`.
-
-Key terms you'll see:
-- **route / routeId** — an identifier for "use this provider+model with these settings."
-- **provider adapter** — the code that talks to a specific vendor (Anthropic, OpenAI, Vertex/Google Gemini, DeepSeek, Qwen/DashScope).
-- **fallback** — what happens when the chosen model can't run. **This is the thing that was just rewritten.**
-- **claim / candidate** — an extracted fact; a candidate is a not-yet-validated claim.
-- **document_chunks** — the text an image/document was turned into; claims must quote a chunk verbatim.
+> ⚠️ READ THIS FIRST — INSTRUCTIONS TO THE TESTING AI SESSION ⚠️
+> This is not a checklist to skim. You MUST actually run every command, capture every number, and produce EVERY deliverable in Part E **in full**. A short summary is a FAILED test. The point is an evidence-backed, side-by-side comparison of real model outputs on real production data, with scores and a defensible recommendation. If a step is blocked, say exactly why and what you tried — do not skip silently. Budget for this taking a while: ~5 extraction runs + ~2 vision runs + analysis. Do not stop early.
 
 ---
 
-## 2. Why this test plan exists — the background (what went wrong, and what changed)
+## 0. Orientation (you have no prior context — read this)
 
-This session chased a bug — "uploaded flowchart produced ~100 useless claims" — that unravelled into a chain of deeper problems. Understanding them tells you WHAT to test and WHY.
+**The Oracle** is an evidence-backed enterprise knowledge graph (`pnpm`+`turbo` TypeScript monorepo). Employees upload documents/images; background jobs turn them into **claims** (operational facts) each backed by a verbatim **quote**.
 
-### The original symptom
-A user uploaded a swimlane flowchart image. The pipeline produced ~100 shallow, often wrong claims. Investigation found the image is processed in **two passes**: Pass 1 a *vision* model transcribes the image to text; Pass 2 an *extraction* model reads that text and emits claims. Both passes had problems.
+A flowchart **image** is processed in **two passes**:
+- **Pass 1 — VISION:** a vision model transcribes the image to faithful TEXT (persisted as `document_chunks`). Controlled by setting `default_vision_route`.
+- **Pass 2 — EXTRACTION:** an extraction model reads that text and emits structured **claims** (JSON validated against a strict Zod schema). Controlled by setting `default_extraction_route`.
 
-### The thing that wasted hours: SILENT FALLBACK to a hidden hard-coded model
-The admin had selected Qwen models for vision and extraction. But the Qwen **provider key wasn't set in production**, so the Qwen adapter wasn't even constructed. When a Qwen route tried to run, the old `ModelRouter` **silently switched** to a **hard-coded** fallback model (`vertex_gemini_2_5_flash_extraction_primary`, i.e. Gemini 2.5 Flash) — a model that **wasn't even in the approved pool** — and **reported success**. So:
-- The admin's selected model was NOT what ran.
-- Nobody was alerted.
-- Every debugging step was looking at the wrong model's output.
+Repo layout you need: `apps/workers/` = Trigger.dev background jobs (incl. `document-ingestion`); `packages/ai/` = the model router + provider adapters; `packages/db/` = Postgres schema (Supabase). Deploys: workers via Trigger.dev (manual), web via Vercel (push to `main`).
 
-This same hidden fallback existed in two layers: the router's per-route `fallbackRouteId`, and per-worker `FALLBACK_ROUTE_ID` constants for the "setting unset" case. **All of this hard-coded fallback was removed in the refactor under test.**
+**What is already confirmed working (as of 2026-06-26, do NOT re-litigate):**
+- Vision on `qwen/qwen3-vl-235b-a22b-thinking` works and produces a rich transcription (~11–13k chars, ~84 one-line edges) with **no silent fallback**.
+- The model-routing refactor is live: no `fallbackRouteId`, failures fail loud, the approved **pool** is the fallback chain, `enforce_model_capabilities=true`, and per-attempt records land in `model_run_attempts`.
+- The extraction BLOCKER (loose-JSON Qwen → 0 claims) is resolved by using a native-strict-JSON model.
 
-### What the refactor (now in code) changed
-The owner directive: **no silent fallback, ever; every failure fails loudly; the approved POOL becomes the fallback chain.** Concretely:
-- `fallbackRouteId`, `DEFAULT_ORACLE_ROUTES`, and all worker `FALLBACK_ROUTE_ID` constants are **deleted**.
-- New code (`packages/ai/src/routes/candidates.ts`, `errors.ts`, `capability-requirements.ts`, `attempt-logging.ts`) builds an **ordered candidate list** from the approved pool (primary = the selected model, then the rest of the pool), tries them **in order**, records **every attempt**, and:
-  - if a model fails → advance to the **next approved + capability-valid** model, loudly;
-  - if **all** fail → throw `AllCandidatesFailedError` (the job is marked `failed`);
-  - if **no** model is configured → throw `NoConfiguredModelError` (no hidden default runs).
-- **Capability enforcement** (`fix_resolve_ts.md`): a model is only used for a slot if it actually has the required capability (e.g. a non-vision model can't be used for the vision slot). This prevents the *other* root cause — an image-**generation** model had been wrongly selected as the vision model.
-- A new migration `78_fail_loud_model_routing_settings.sql` and (likely) a `model_run_attempts` record of each attempt.
+**The open question this plan answers:** *which* extraction model, and *which* vision model, give the best quality for the money. The current pick `google/gemini-3.1-flash-lite` is strict-JSON and unblocks extraction but **under-extracts badly** — it returned only **7 claims (1 dependency)** from a transcription containing **84 handoff edges**. We need a real comparison.
 
-### The other problems found (all relevant to testing)
-- **Vision model was wrong** (an image-*generation* preview model used for image *reading*) → fixed by selecting `qwen/qwen3-vl-235b-a22b-thinking` and by capability enforcement.
-- **Image was sent to the model in the wrong shape** on a provider fallback → fixed by making the image payload **provider-neutral** and translating it inside each adapter at dispatch.
-- **Extraction output truncated** (no output-token budget) → fixed by adding `maxOutputTokens` to the Gemini/Vertex `generateObject` calls.
-- **Extraction model conformance:** `qwen/qwen3.7-plus` produces **loose** (tool-call) structured output and malforms fields, so the strict schema rejects the whole batch → **0 claims**. **Not yet fixed by switching models** — the recommended fix is to select `google/gemini-3.1-flash-lite` (native strict JSON). See Section 7.
-- **A pile of silent-failure "swallows"** were made loud (see Section 9 of the issue inventory).
-- **`fix_claim_extr.md` (conversation-aware message batching) was NOT implemented** — still a known weakness.
-
-A complete issue inventory is in **Appendix A**.
+**The test artifact** is one document: the "Pop Creations Flow" swimlane flowchart, document id **`9d09fa89-3a46-465e-a98b-837287c9e22a`**. It has ~63 boxes across 14 swimlanes (columns = roles/departments: Albert, Buyer, Sales, Creative direction, Junior designer, Technical designers, Creative designers, Sourcing, Production, Carlos, Gina, Licensing Team, Licensor, Factories) and ~80+ directional arrows (handoffs, with conditional branch labels like "If Audit: Fail"). The IMAGE itself is the ground truth (see Appendix C).
 
 ---
 
-## 3. Before you test: prerequisites & access
+## 1. The models under test
 
-You CANNOT meaningfully test until all of these are true. Verify each.
+### Extraction bake-off (3 models — ALL native strict-JSON, which is required for this stage)
+| Label | Settings model id (CONFIRM exact id — see §3.2) | Provider family | Why it's in the test |
+|---|---|---|---|
+| **M1** | `openai/gpt-4o-mini` | OpenAI | cheap baseline |
+| **M2** | `google/gemini-2.5-flash` | Google Gemini | strict-JSON; earlier produced 56–81 claims on this doc as the old fallback |
+| **M3** | `openai/gpt-4.1-mini` | OpenAI | newer mini, strict-JSON |
 
-1. **Migration applied to prod.** `78_fail_loud_model_routing_settings.sql` must be applied. Run `corepack pnpm db:migrate` (ships journaled Drizzle migrations + hand-written SQL). If unsure, run `corepack pnpm db:check-drift`.
-2. **Worker redeployed.** `corepack pnpm --filter @oracle/workers run deploy` (the `run` keyword is required). Note the new worker version. (Reason: prod worker `v20260625.11` predates this refactor and also still carries some reverted experiments.)
-3. **Web deployed.** Vercel auto-deploys on push to `main`; confirm the latest `main` deployment is live.
-4. **Provider keys present in prod** (Trigger.dev prod env + Vercel): `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS_JSON`, and for Qwen: `DASHSCOPE_API_KEY` **plus** `DASHSCOPE_BASE_URL = https://dashscope-intl.aliyuncs.com/compatible-mode/v1` (the Qwen models are intl-only).
-5. **Prod DB read access (for verification queries).** Use the **session pooler** connection string from 1Password item *"Supabase DB Direct URL - The Oracle (CURRENT PROD …)"* → field **`oracle_session_pooler`**. The *direct* host is IPv6-only and won't resolve from a v4 machine. Example query runner (run from inside the repo so `postgres` resolves):
+(Do NOT test Qwen for extraction — it uses loose tool-call output and malforms the schema; that failure is already documented.)
+
+### Vision bake-off (2 models)
+| Label | Settings model id (CONFIRM) | Why |
+|---|---|---|
+| **V1** | `qwen/qwen3-vl-235b-a22b-thinking` | current prod vision; large thinking VL model |
+| **V2** | `google/gemini-2.5-flash` | the cost-appropriate Gemini *vision* (NOT image-generation) model. Rationale: diagram transcription is OCR + layout perception, not deep reasoning. Gemini **2.5 Flash** is strong at dense OCR/document understanding at low cost; **Gemini 2.5/3 Pro would be overpaying** for functionality we don't need, and **Flash-Lite/2.0-Flash risk dropping small swimlane text**. If you believe a different non-generation Gemini is a better cost/quality fit, you MAY add a third vision model V3 and justify it — but V2 must be `google/gemini-2.5-flash`. NEVER use any `*-image-*` / image-generation model for vision (that was a root-cause bug). |
+
+---
+
+## 2. Prerequisites & access (verify ALL before testing)
+
+1. **Code deployed:** the refactored worker must be live. Confirm the latest Trigger.dev deploy is newer than the routing refactor; if unsure, deploy: `corepack pnpm --filter @oracle/workers run deploy` (the `run` keyword is required). Web: confirm Vercel deployed latest `main`.
+2. **Migration applied:** `corepack pnpm db:migrate` (idempotent); `corepack pnpm db:check-drift` should be clean. `78_fail_loud_model_routing_settings.sql` must be applied (it adds `enforce_model_capabilities` etc.).
+3. **Provider keys in prod (Trigger.dev prod env + Vercel):** `OPENAI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS_JSON` (for `google/*`), and for V1 vision `DASHSCOPE_API_KEY` + `DASHSCOPE_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1`. If a key is missing, the model can't run — and with the new refactor it will FAIL LOUD (it will NOT silently use another model). Verify keys exist before blaming a model.
+4. **Prod DB (read + a few setting writes):** use the **session pooler** string from 1Password item *"Supabase DB Direct URL - The Oracle (CURRENT PROD …)"* → field **`oracle_session_pooler`** (the direct host is IPv6-only and won't resolve from a v4 box). Run query scripts from inside `C:\repos\oracle` so the `postgres` npm package resolves. You may also use the Supabase dashboard SQL editor / Supabase MCP for reads.
+5. **Trigger.dev** access to trigger `document-ingestion` and read runs (Trigger MCP for project `proj_wgpzsvhmsopqhvwqaycn`, prod env; or the dashboard).
+6. **Static gates (run first, must all pass):**
    ```bash
-   # in C:\repos\oracle
-   PROD_URL="<oracle_session_pooler value>" node packages/db/some_query.mjs
+   corepack pnpm -r typecheck
+   corepack pnpm --filter @oracle/ai run verify:r2
+   corepack pnpm --filter @oracle/ai run verify:vertex-inline-image
+   corepack pnpm --filter @oracle/engines run verify:r5
+   corepack pnpm lint && corepack pnpm build
    ```
-   (or use the Supabase dashboard SQL editor / Supabase MCP for read-only queries.)
-6. **Trigger.dev access** to trigger tasks and read runs (the Trigger MCP is connected for project `proj_wgpzsvhmsopqhvwqaycn`, prod env), or the Trigger dashboard.
-7. **An admin login** to the web app for the Admin → Settings / Documents / AI pages.
+   Record pass/fail. Passing here does NOT prove inference works — that's the runs below.
 
-**Static gates (run first; cheap):**
+---
+
+## 3. Core mechanics you MUST understand before running
+
+### 3.1 How to swap the model (no redeploy needed — settings are read at runtime)
+Two settings rows in the `settings` table drive the passes:
+- `default_extraction_route` — the extraction model (e.g. `"openai/gpt-4o-mini"`).
+- `default_vision_route` — the vision model.
+
+### 3.2 Capability enforcement is ON — the model must be in the approved POOL and capability-valid
+`enforce_model_capabilities=true`. The resolver only uses a model for a stage if it is (a) the configured route or a member of that stage's **approved pool**, AND (b) capability-valid. So **before** selecting a model you MUST add it to the pool:
+- Extraction pool: `model_pool_extraction` (currently `["google/gemini-3.1-flash-lite","qwen/qwen3.7-plus","qwen/qwen3.7-max"]`).
+- Vision pool: `model_pool_vision` (may or may not be enforced for aux — verify; if vision is single-pick, just set `default_vision_route`).
+
+**CONFIRM the exact catalog model ids first.** The picker stores `provider/modelId`. Do NOT guess. Get the real ids from the admin model picker (`/admin/settings`) OR query the catalog:
+```sql
+select model_id, provider, supports_structured_output, supports_vision, context_window_tokens,
+       input_price_per_million, output_price_per_million
+from model_capabilities
+where model_id ilike '%gpt-4o-mini%' or model_id ilike '%gpt-4.1-mini%'
+   or model_id ilike '%gemini-2.5-flash%'
+order by model_id;
+```
+Use the EXACT `provider/model_id` the catalog returns. If a target model is not in `model_capabilities`, it may not be selectable under capability enforcement — note that as a finding and pick the closest catalog id.
+
+### 3.3 The run sequence for ONE configuration (memorize — you repeat it per model)
+For a given `(vision model, extraction model)` config:
+```bash
+# 1. Set the pool + the selection (example SQL — adapt model ids):
+#    UPDATE settings SET value = '["openai/gpt-4o-mini","google/gemini-2.5-flash","openai/gpt-4.1-mini"]'::jsonb WHERE key='model_pool_extraction';
+#    UPDATE settings SET value = '"openai/gpt-4o-mini"'::jsonb WHERE key='default_extraction_route';
+#    (and default_vision_route as needed)
+
+# 2. Clean + reset the test document, then trigger ingestion:
+PROD_URL="<oracle_session_pooler>" DOCUMENT_ID="9d09fa89-3a46-465e-a98b-837287c9e22a" APPLY=1 \
+  node scripts/reevaluate-document.mjs
+#    then trigger the 'document-ingestion' task with payload {"documentId":"9d09fa89-3a46-465e-a98b-837287c9e22a"}
+#    (Trigger MCP trigger_task, env=prod, or the dashboard). Wait for the run to COMPLETE.
+```
+`reevaluate-document.mjs` deletes the doc's prior claims/chunks/candidates and resets it to `pending_processing`; it aborts safely if any claim is in the Brain/a contradiction/a gap. The trigger then re-runs BOTH passes.
+
+### 3.4 CRITICAL fairness caveat for the EXTRACTION bake-off
+Each full reprocess re-runs vision (Pass 1), and vision is mildly non-deterministic. To compare EXTRACTION models fairly, you MUST **hold vision constant** (`default_vision_route = qwen/qwen3-vl-235b-a22b-thinking` for all three extraction runs) AND **capture each run's transcription stats** (char count + edge count, query in §A). Before comparing extraction outputs, confirm the three transcriptions are comparable (within ~15% on chars and edge count). If one run's transcription is materially different, RE-RUN that extraction config until the input is comparable, or explicitly flag the input difference in your analysis. Do not compare extraction quality across materially different inputs.
+
+---
+
+## 4. PART A — confirm the pipeline is live (quick smoke, ~10 min)
+
+Run once before the bake-off. Record results.
+1. With current settings, do one reprocess of the test doc (§3.3). Confirm via SQL (§A) the run COMPLETED, vision shows `provider=qwen` with NO fallback, and a `model_run_attempts` row exists for the run. If vision silently ran a different provider, STOP — the refactor/deploy is wrong.
+2. Confirm the doc reached `complete` (not `failed`, not `complete`-masking-an-error: check `documents.processing_error IS NULL`).
+
+If Part A fails, fix deploy/keys before the bake-off — comparing models on a broken pipeline is meaningless.
+
+---
+
+## 5. PART B — EXTRACTION BAKE-OFF (M1 vs M2 vs M3)
+
+Vision is held at **V1 (`qwen/qwen3-vl`)** for all three. Run each extraction model in turn.
+
+**For EACH of M1, M2, M3, do this and FILL IN the per-run record (Part E.1):**
+1. Set `model_pool_extraction` to include all three test ids (once is enough), and set `default_extraction_route` to the model under test (§3.2/§3.3).
+2. Reprocess + trigger; wait for COMPLETE.
+3. Collect ALL of the following (SQL in §A):
+   - which model/provider actually ran extraction (confirm it's the one you selected — NOT a fallback); whether any `model_run_attempts` show an advance.
+   - the transcription stats for this run (chars, edge count) — for the §3.4 comparability check.
+   - **claims promoted** (count), **claims by `claim_type`** (esp. how many `dependency`), **candidatesStaged**, **rejections** (from `job_runs.output_json`), and **claims RETURNED by the model** (raw_model_output claim count — to separate under-extraction from rejection).
+   - input/output **tokens** + **latency** (from `model_runs`) → compute **approx cost** using the catalog pricing (§A) and **cost-per-claim**.
+   - the **full list of claim summaries + their `claim_type` + the exact `exactQuote`** for this run (you will compare these qualitatively — dump them; do not summarize them away).
+
+4. **Quality scoring (score each model 1–5 on each dimension; justify each score in 1–2 sentences with specific examples):**
+   - **D1 Recall / coverage:** how many of the ~80 real handoffs did it capture as claims? (A model returning 7 claims for 84 edges scores low.)
+   - **D2 Relationship richness:** fraction of claims that are `dependency`/`exception_rule` (handoffs/branches) vs flat `process_rule` ("box X exists"). Higher = better; the value of a flowchart is the arrows.
+   - **D3 Correctness of attribution:** spot-check 8 claims against the IMAGE (Appendix C) — do they put each step in the RIGHT swimlane/department and state the handoff direction correctly? Count correct/total.
+   - **D4 Quote fidelity:** are `exactQuote`s real verbatim spans (they must be — validation enforces it, but check they're meaningful, not trivial 2-word fragments)?
+   - **D5 Schema conformance & stability:** any rejections / `requiresReview` flags / malformed-field retries? (All three are native-strict-JSON so should be clean; note any surprises.)
+   - **D6 Cost & latency:** cost-per-run and cost-per-*useful*-claim, plus wall-clock.
+
+> Run M2 (Gemini 2.5 Flash) at least **twice** to gauge run-to-run variance (extraction has some nondeterminism). Note the spread.
+
+---
+
+## 6. PART C — VISION BAKE-OFF (V1 qwen3-vl vs V2 gemini-2.5-flash)
+
+Hold extraction constant at the **best extraction model from Part B** (or `google/gemini-2.5-flash` if Part B is inconclusive). Run each vision model in turn (set `default_vision_route`, reprocess, trigger).
+
+**For EACH of V1, V2 (and optional V3), collect (SQL §A) and FILL IN Part E.2:**
+- the FULL transcription text (dump `document_chunks.raw_text` joined) — you will read and compare it.
+- transcription **char count**, **# of swimlane headers** captured, **# of one-line edges** (`-->` count), **# of distinct box labels**.
+- vision **tokens** (input = image tokens; output) + **latency** + **approx cost** (§A).
+- whether vision ran on the selected provider with NO fallback.
+
+**Quality scoring (1–5 each, with specific evidence):**
+- **VD1 Box coverage:** of the ~63 real boxes (Appendix C), how many distinct box labels appear? (count present/missing; list the missing ones.)
+- **VD2 Lane/role accuracy:** pick 10 boxes; does the transcription place each in the CORRECT swimlane (judge against the IMAGE, column color + position — NOT against the other model's transcription)? Count correct/10. (Note: an earlier session WRONGLY graded Qwen here by comparing to a bad reference — Qwen's lanes were actually correct. Judge ONLY against the image.)
+- **VD3 Edge/arrow capture:** how many directional handoffs + conditional branch labels ("If Audit: Fail", "Before an Order", etc.) are captured as one-line edges?
+- **VD4 Fidelity / no hallucination:** any invented boxes/lanes not in the image? (A model that confabulates fails this hard.)
+- **VD5 Determinism:** run the WINNER twice; how stable is the output (char/edge count, format)?
+- **VD6 Cost & latency.**
+
+**Then run the DOWNSTREAM check:** for each vision model's transcription, note how many claims the (fixed) extraction model produced from it — a better transcription should yield more/better claims. Report vision quality AND its effect on final claims.
+
+---
+
+## 7. PART D — (optional, destructive) verbose-fail routing tests
+Only if you have a controlled window (these temporarily break a stage). Record original settings first; restore after.
+- Set an extraction primary to a model whose provider key is missing, keep a working model later in the pool → confirm it AUTO-ADVANCES to the next approved model and records both attempts in `model_run_attempts` (NOT a silent hidden model).
+- Make all pool models unusable → confirm `AllCandidatesFailedError` and the document is marked `failed` with that message.
+- Clear `default_extraction_route` → confirm `NoConfiguredModelError`.
+- Select a non-vision model for vision → confirm it's refused (capability enforcement), not used.
+- Confirm any admin fallback-ALERT UI fires (verify whether it was actually built).
+
+---
+
+## 8. PART E — REQUIRED DELIVERABLES (this IS the test report — produce ALL of it, in full)
+
+### E.1 Extraction comparison table (MANDATORY — fill every cell)
+| Metric | M1 gpt-4o-mini | M2 gemini-2.5-flash (run a / run b) | M3 gpt-4.1-mini |
+|---|---|---|---|
+| Transcription chars / edges (input comparability) | | | |
+| Claims RETURNED by model | | | |
+| Claims promoted | | | |
+| of which `dependency` / `exception_rule` | | | |
+| `process_rule` (flat) | | | |
+| Rejections | | | |
+| Input / output tokens | | | |
+| Latency (s) | | | |
+| Approx cost / run | | | |
+| Cost per *useful* (dependency) claim | | | |
+| D1 Recall (1–5) | | | |
+| D2 Relationship richness (1–5) | | | |
+| D3 Attribution correctness (correct/8) | | | |
+| D4 Quote fidelity (1–5) | | | |
+| D5 Conformance/stability (1–5) | | | |
+| D6 Cost/latency (1–5) | | | |
+| **Weighted total** | | | |
+
+Plus, for EACH model: a **2–4 paragraph written analysis** citing SPECIFIC claims it got right/wrong (quote the claim text), where it under/over-extracted, and any failure modes. Include the full claim dumps as an appendix to your report.
+
+### E.2 Vision comparison table (MANDATORY)
+| Metric | V1 qwen3-vl | V2 gemini-2.5-flash | (V3 optional) |
+|---|---|---|---|
+| Transcription chars | | | |
+| Distinct box labels (present/63) | | | |
+| Missing boxes (list) | | | |
+| One-line edges captured | | | |
+| Swimlane headers captured | | | |
+| VD1 Box coverage (1–5) | | | |
+| VD2 Lane accuracy (correct/10) | | | |
+| VD3 Edge capture (1–5) | | | |
+| VD4 Fidelity / no hallucination (1–5) | | | |
+| VD5 Determinism (1–5) | | | |
+| Input/output tokens, latency | | | |
+| Approx cost / run | | | |
+| Downstream claims produced (fixed extractor) | | | |
+| **Weighted total** | | | |
+
+Plus a **2–4 paragraph written comparison** with specific examples (e.g. "V2 placed 'Review Audit and send to factory' in Production, but the image shows it in Gina/white — WRONG"), and the two full transcriptions as an appendix.
+
+### E.3 Final recommendation (MANDATORY)
+- **Best extraction model** + 1 paragraph justification grounded in the table (quality vs cost; explicitly weigh "don't overpay").
+- **Best vision model** + 1 paragraph justification (quality vs cost; explicitly state why the chosen Gemini tier is the right cost/quality point and Pro would be overpaying).
+- The exact settings to apply the recommendation (`model_pool_extraction`, `default_extraction_route`, `default_vision_route` values).
+- Any caveats (input variance, run-to-run spread, models not in catalog, keys missing).
+- Restore prod settings to the recommended config (or to the original if inconclusive) and state what you left them as.
+
+### E.4 Pipeline & routing findings (MANDATORY)
+- Confirm vision/extraction ran the SELECTED models with no silent fallback (cite `model_runs` + `model_run_attempts`).
+- Any anti-masking signals observed (degraded-doc notes, loud logs, etc.).
+- Anything that looked wrong but you couldn't fully verify.
+
+---
+
+## Appendix A — SQL / query library (read-only unless noted)
+
+Run query scripts from inside `C:\repos\oracle` (so `postgres` resolves), e.g.:
+```js
+// save as packages/db/_q.mjs, run: PROD_URL="<pooler>" node packages/db/_q.mjs ; then delete it
+import postgres from 'postgres';
+const sql = postgres(process.env.PROD_URL, { max:1, prepare:false, connect_timeout:25 });
+const D = '9d09fa89-3a46-465e-a98b-837287c9e22a';
+// which models ran (most recent):
+console.log(await sql`select task_type,provider,model,success,error,input_tokens,output_tokens,latency_ms,created_at
+  from model_runs where task_type in ('document-ingestion','document-ingestion-vision') order by created_at desc limit 6`);
+// routing attempts (the new table):
+console.log(await sql`select * from model_run_attempts order by created_at desc limit 10`);
+// job outcome counts:
+console.log(await sql`select output_json from job_runs where input_json->>'documentId'=${D} and job_type='document-ingestion' order by started_at desc limit 1`);
+// claims for the doc, by type:
+console.log(await sql`select c.claim_type, count(distinct c.id)::int n from claims c
+  join claim_evidence ce on ce.claim_id=c.id join document_chunks dc on dc.id=ce.source_document_chunk_id
+  where dc.document_id=${D} group by c.claim_type order by n desc`);
+// full claim dump (summaries + quotes) for the doc:
+console.log(await sql`select c.claim_type, c.summary, ce.exact_quote from claims c
+  join claim_evidence ce on ce.claim_id=c.id join document_chunks dc on dc.id=ce.source_document_chunk_id
+  where dc.document_id=${D} order by c.created_at`);
+// transcription text + stats:
+const t = await sql`select string_agg(raw_text, e'\n') t, count(*)::int chunks, sum(length(raw_text))::int chars from document_chunks where document_id=${D}`;
+console.log('chunks',t[0].chunks,'chars',t[0].chars,'edges', (t[0].t.match(/-->/g)||[]).length);
+// claims the model RETURNED (vs promoted): jsonb_array_length(raw_model_output->'claims') per batch
+console.log(await sql`select eb.status, jsonb_array_length(coalesce(eb.raw_model_output->'claims','[]'::jsonb)) returned
+  from extraction_batches eb join job_runs jr on jr.id=eb.job_run_id where jr.input_json->>'documentId'=${D}`);
+// pricing for cost calc:
+console.log(await sql`select model_id, input_price_per_million, output_price_per_million from model_capabilities
+  where model_id ilike any(array['%gpt-4o-mini%','%gpt-4.1-mini%','%gemini-2.5-flash%'])`);
+await sql.end();
+```
+Setting writes (use sparingly, record originals first):
+```sql
+-- example: select the extraction model under test (ensure it's also in the pool)
+UPDATE settings SET value='"openai/gpt-4o-mini"'::jsonb WHERE key='default_extraction_route';
+UPDATE settings SET value='["openai/gpt-4o-mini","google/gemini-2.5-flash","openai/gpt-4.1-mini"]'::jsonb WHERE key='model_pool_extraction';
+UPDATE settings SET value='"qwen/qwen3-vl-235b-a22b-thinking"'::jsonb WHERE key='default_vision_route';
+```
+
+## Appendix B — command quick reference
 ```bash
 corepack pnpm -r typecheck
-corepack pnpm --filter @oracle/ai run verify:r2          # rewritten for the new routing behavior
-corepack pnpm --filter @oracle/ai run verify:vertex-inline-image
-corepack pnpm --filter @oracle/engines run verify:r5
-corepack pnpm --filter @oracle/engines run verify:r7
-corepack pnpm lint
-corepack pnpm build
+corepack pnpm --filter @oracle/ai run verify:r2
+corepack pnpm --filter @oracle/workers run deploy        # if you needed to redeploy ('run' required)
+PROD_URL="<oracle_session_pooler>" DOCUMENT_ID="9d09fa89-3a46-465e-a98b-837287c9e22a" APPLY=1 node scripts/reevaluate-document.mjs
+# then Trigger the 'document-ingestion' task (Trigger MCP / dashboard), env=prod, payload {"documentId":"9d09fa89-..."}, wait for COMPLETE
 ```
-All must pass. A failure here blocks everything below. **But passing here does NOT prove runtime inference works** — that's Sections 4–8.
-
----
-
-## 4. Test priority order (do them in this order)
-
-1. **Section 6 — Routing refactor regression** (highest risk; under everything).
-2. **Section 5 — Verbose-fail / capability behavior** (the point of the refactor).
-3. **Section 7 — Image → claims end-to-end** (the original goal).
-4. **Section 8 — Silent-failure fixes fire** (the anti-masking work).
-5. **Section 8.x — Chat attachments, dead-end picker, Qwen region.**
-
----
-
-## 5. Verbose-fail & capability behavior (the core of the refactor)
-
-Goal: prove there is **no silent fallback** and failures are loud, pool-bounded, and recorded.
-
-| # | Test | How | Expected (PASS) | Failure signature |
-|---|---|---|---|---|
-| 5.1 | Primary model fails → auto-advance to next APPROVED pool model | Temporarily set a stage's primary (`default_extraction_route`) to a model whose provider key is intentionally missing, keep a working model later in `model_pool_extraction`. Run an extraction. | The job succeeds using the **next approved pool model**; `model_run_attempts` (or attempt log) shows the first model **failed** and the second **ran**; logs are loud. | It silently "works" on a model NOT in the pool, or no attempt record exists. |
-| 5.2 | All candidates fail → loud aggregate error | Make every model in a stage's pool unusable (e.g. all keys missing). Run that stage. | `AllCandidatesFailedError` naming every model + reason; the job/document is marked `failed` with that message. | A hidden hard-coded model runs, or the job reports success/`complete`. |
-| 5.3 | No model configured → loud error | Clear `default_<stage>_route` (and pool) for a stage. Run it. | `NoConfiguredModelError("No model configured for <stage> …")`. | A hard-coded default runs. |
-| 5.4 | Capability enforcement | Select a **non-vision** model for the vision slot (`default_vision_route`). Upload an image. | The non-vision model is **refused/skipped** (capability error), not silently used; the failure is visible. | The non-vision model runs and produces garbage, OR an image-generation model is accepted as "vision." |
-| 5.5 | No `fallbackRouteId` anywhere | `rg "fallbackRouteId|DEFAULT_ORACLE_ROUTES|FALLBACK_ROUTE_ID" packages apps` | **No matches** (except possibly in tests/this doc). | Any live reference remains. |
-| 5.6 | Attempts are durably recorded | After 5.1/5.2, query the new attempts table (`model_run_attempts` or equivalent — see `packages/ai/src/routes/attempt-logging.ts`). | One row per attempt with route/model/provider/success/reason. | No durable record. |
-| 5.7 | Admin is ALERTED on fallback | After 5.1, open `/admin` and `/admin/settings`. | A visible banner/count that a stage ran on a non-primary model or exhausted its pool. ⚠️ **Verify this UI was actually built — it may be incomplete.** | No surfaced alert. |
-
-> Note: 5.1–5.3 are destructive to settings — do them in a controlled window and restore the settings afterward. Record the original values first.
-
----
-
-## 6. Routing refactor REGRESSION — every inference path still works
-
-The refactor is under **all** inference. Exercise each role once and confirm normal operation (this is the "did we break everything" check).
-
-| # | Path | How to exercise | Expected |
-|---|---|---|---|
-| 6.1 | Interview / chat | Log in, ask the Oracle a normal question in chat. | A grounded answer; retrieval ran; no error. |
-| 6.2 | Extraction (documents) | Upload a small text/PDF doc at Admin → Documents (or use the test image, Section 7). | Document reaches `complete`; candidates/claims appear. |
-| 6.3 | Synthesis | Trigger `brain-synthesis` (Trigger MCP or admin). Prod now has **189 approved claims**, so it's unblocked. | A `brain_section_versions` row is written; narrative looks coherent. |
-| 6.4 | Translation | Admin → Claims → "Translate selected for China team" on a claim (a `zh-CN` employee exists). | `claim-translation` runs; a `claim_translations` row appears. |
-| 6.5 | Vision | Section 7. | Vision `model_runs` row, no fallback. |
-| 6.6 | Workers | Trigger/observe at least one run each of `contradiction-watcher`, `lull-interjection`/live-recall (if testable), `taxonomy-reevaluation`. | They dispatch and complete without `No adapter`/routing errors. |
-| 6.7 | Batch extraction mode | If `extraction_dispatch_mode='batch'` is ever used: submit + drain. | Batch submits, drains, promotes — no routing errors. |
-
-**Verification queries (read-only):**
-- Which model actually ran extraction/vision:
-  ```sql
-  select task_type, model, provider, success, error, created_at
-  from model_runs
-  where task_type in ('document-ingestion','document-ingestion-vision')
-  order by created_at desc limit 10;
-  ```
-- Claim counts: `select status, count(*) from claims group by status;`
-
----
-
-## 7. Image → claims END-TO-END (the original goal)
-
-Test document: **`9d09fa89-3a46-465e-a98b-837287c9e22a`** (the "Pop Creations Flow" swimlane PNG). It is currently `failed`, 0 claims.
-
-**Step 0 — fix the extraction model first.** Extraction is currently set to `qwen/qwen3.7-plus`, which produces loose JSON and yields 0 claims. At **Admin → Settings → Extraction model**, select **`google/gemini-3.1-flash-lite`** (in the approved pool, native strict JSON). No code change/redeploy needed (settings are read at runtime).
-
-**Step 1 — clean + re-run the document.** From `C:\repos\oracle`:
-```bash
-PROD_URL="<oracle_session_pooler>" DOCUMENT_ID="9d09fa89-3a46-465e-a98b-837287c9e22a" APPLY=1 \
-  node scripts/reevaluate-document.mjs
-```
-(That deletes the doc's prior claims/chunks/candidates and resets it to `pending_processing`; it aborts safely if any claim is in the Brain/a contradiction/a gap.) Then trigger `document-ingestion` for that `documentId` (Trigger MCP or dashboard).
-
-**Step 2 — verify the result:**
-1. **Vision ran on Qwen, no fallback:**
-   ```sql
-   select provider, model, error from model_runs
-   where task_type='document-ingestion-vision' order by created_at desc limit 1;
-   ```
-   Expect `provider=qwen`, `model=qwen3-vl-235b-a22b-thinking`, `error` NULL.
-2. **Claims flowed:**
-   ```sql
-   select c.claim_type, count(*) from claims c
-   join claim_evidence ce on ce.claim_id=c.id
-   join document_chunks dc on dc.id=ce.source_document_chunk_id
-   where dc.document_id='9d09fa89-3a46-465e-a98b-837287c9e22a'
-   group by c.claim_type;
-   ```
-   Expect a healthy mix dominated by `dependency` (handoff) claims, NOT 0 and NOT ~80 shallow `process_rule`.
-3. **Document status is `complete`** (not `failed`, not `complete` masking an error):
-   `select status, processing_error from documents where id='9d09fa89-…';`
-4. **Lane/role accuracy (manual):** open the actual image; pick ~5 boxes and confirm the claims attribute them to the **correct swimlane/department**. IMPORTANT: judge against the **image** (column color + position), NOT against any model's transcription — an earlier "lane errors" finding this session was a *grading mistake* against a bad reference; Qwen's lanes were actually correct.
-
-**PASS** = Qwen vision, claims > 0 with correct handoffs and correct lanes, document `complete`.
-
----
-
-## 8. The anti-masking ("silent failure") fixes actually fire
-
-These were added so failures can't hide. Prove each surfaces.
-
-| # | Test | Expected |
-|---|---|---|
-| 8.1 | Missing provider key at boot | Worker logs `PROVIDER UNAVAILABLE: "<provider>" …` **in prod** (not suppressed). |
-| 8.2 | Embedding failure during ingestion | Document ends `complete` but `processing_error` = `DEGRADED — embeddings failed…` (chunks stored without vectors are flagged, not silent). |
-| 8.3 | Extraction model failure | Document marked **`failed`**, not `complete`. |
-| 8.4 | Vision fallback (if it ever happens) | A `document-ingestion-vision` `model_runs` row exists and its `error` names the fallback; a loud `VISION FALLBACK` log appears. |
-| 8.5 | `triggerTask` with no `TRIGGER_SECRET_KEY` (no-sweep tasks) | The admin action surfaces the failure: claim-translation throws, extraction-ab flips the row to `error`, transcripts discovery/ingest throws, brain-synthesize returns 502 (not `triggered:true`). |
-| 8.6 | `graph-transcripts` first-page 404 | Logged (not silently treated as "no transcripts"). |
-| 8.7 | Non-array `domains` from a model | `promotion-executor` logs the corrupt-candidate error (doesn't silently `[]`). |
-| 8.8 | OpenAI batch malformed line | Logged with the bad line. |
-
-### 8.9 Chat attachments
-- Attach an **image** in chat → it's read by the model (the neutral-shape fix). Run with a vision-capable interview model.
-- Attach a **PDF** in chat → KNOWN GAP: the adapters have no neutral file-part translator yet; confirm it **degrades cleanly** (no crash), but don't expect full PDF comprehension.
-
-### 8.10 Dead-end "general/utility" picker
-- Confirm `default_general_purpose_route` now drives a real internal job (e.g. taxonomy cluster-naming) — or was removed. (It was previously wired to nothing.)
-
-### 8.11 Qwen region
-- Confirm all Qwen usage (vision, extraction A/B evals, translation) authenticates via `DASHSCOPE_BASE_URL` (intl) + the prod key. A 401/`No adapter` for a Qwen route means the region/key is wrong.
-
----
-
-## 9. Known NOT fixed (do not expect these to pass)
-
-- **Message-extraction conversation batching** (`fix_claim_extr.md`): NOT implemented. `claim-extraction.ts` still selects the first 100 pending messages globally then segments, so a long same-channel discussion can split mid-thread. This is a known quality weakness, not a regression.
-- **PDF/file chat attachments**: only the image shape was fixed; a neutral file-part translator is still missing.
-- **Admin fallback-alert UI** (Test 5.7): verify whether it was actually built; the spec called for it but it may be partial.
-
----
-
-## 10. After testing
-- Restore any settings you changed for destructive tests (5.1–5.3, and the vision-slot test 5.4).
-- Record results (pass/fail + evidence) and update `HANDOFF.md`.
-- If extraction now works with `gemini-3.1-flash-lite`, decide whether to keep it or pursue per-claim salvage (which only becomes possible once structured-output validation is made non-throwing — see `HANDOFF.md` "REVERTED EXPERIMENTS").
-
----
-
-## Appendix A — complete issue inventory (context for every test)
-
-**Vision (Pass 1):** (1) diagrams sliced into independent extraction windows + byte-chunking severed arrow lines; (2) an image-GENERATION model used for image reading; (3) thinking-model vision output truncated (no token budget); (4) temperature 0 wrong for a thinking model; (5) DashScope downscales images.
-
-**Image transport / adapters:** (6) image shaped for the pre-dispatch provider and pushed through `providerOptions.messages`; (7) no Qwen/DeepSeek/Google image branch; (8) silent cross-provider fallback dropped the image → fresh confabulation each run.
-
-**Silent-failure swallows:** (9) `buildStandardAdapters` suppressed skip logs in prod; (10) vision pass unlogged + unchecked for fallback; (11) extraction failure marked `complete`; (12) embed failure → null vectors silently; (13) chunk-insert failure → text lost; (14) contradiction-watcher returned "0 contradictions" on embed failure; (15) Vertex GCS cleanup empty catch; (16) OpenAI batch dropped malformed lines; (17) promotion-executor silently `[]`'d non-array domains; (18) graph-transcripts swallowed 404; (19) chat attachments mis-shaped; (20) triggerTask callers ignored dispatch failure for no-sweep tasks; (21) resolve.ts fabricated capabilities for unknown models.
-
-**Routing / config (the architectural root):** (22) selected Qwen routes silently fell back to a hard-coded UNAPPROVED model with no alert (key was unset); (23) wrong DashScope region (intl vs us); (24) the "general/utility" UI picker wired to nothing; (25) hard-coded model references throughout.
-
-**Extraction conformance:** (26) extraction JSON truncated (no `maxOutputTokens`); (27) `qwen3.7-plus` loose tool-call JSON malforms fields → strict schema rejects whole window → 0 claims; (28) one bad claim nukes the whole window; the attempted salvage was unreachable because `runObject` throws on schema failure.
-
-**Process/docs:** (29) lane accuracy was mis-judged against a bad reference (Qwen was actually correct); (30) HANDOFF carried stale items (entity registry "empty," synthesis "blocked") now corrected.
-
-## Appendix B — quick command reference
-
-```bash
-# from C:\repos\oracle
-corepack pnpm -r typecheck                              # all packages
-corepack pnpm --filter @oracle/ai run verify:r2         # routing smoke (rewritten)
-corepack pnpm db:migrate                                # apply migrations (incl. 78)
-corepack pnpm db:check-drift                            # migration journal vs disk
-corepack pnpm --filter @oracle/workers run deploy       # deploy workers (note: 'run' required)
-
-# re-evaluate the test document (clean + reset), then trigger document-ingestion
-PROD_URL="<oracle_session_pooler>" DOCUMENT_ID="9d09fa89-3a46-465e-a98b-837287c9e22a" APPLY=1 \
-  node scripts/reevaluate-document.mjs
-```
-
 External IDs: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`; Supabase prod `eqccjfbyrywsqkxxpjvg`; test doc `9d09fa89-3a46-465e-a98b-837287c9e22a`.
+
+## Appendix C — establishing GROUND TRUTH (do this BEFORE scoring)
+The IMAGE is the only valid ground truth. Open the original file (it's in Supabase storage bucket `company_documents`; the uploaded image is the "Pop Creations Flow 12112025 (1).png"). Build a reference list ONCE:
+- Enumerate the 14 swimlane columns (left→right, by header + background color): Albert, Buyer, Sales, Creative direction, Junior designer, Technical designers, Creative designers, Sourcing, Production, Carlos, Gina, Licensing Team, Licensor, Factories.
+- Enumerate every box and WHICH column it sits in (use the column background color + horizontal position; the columns are color-coded). Known tricky ones a prior session got WRONG by trusting a transcription: "Review Audit and send to factory" is in **Gina** (white column), and "SKUs creation" is in **Carlos** (peach column, 10th) — NOT Sourcing. So verify against the pixels, not a transcription.
+- Enumerate the arrows (source box → target box, + any branch label).
+Use THIS list to score VD2 (lane accuracy), D3 (attribution), and box coverage. Do not score against any model's own transcription.
+
+## Appendix D — what is already known / out of scope
+- Qwen is NOT an extraction candidate (loose tool-call JSON malforms the schema → 0 claims). Confirmed; don't re-test it for extraction.
+- `gemini-3.1-flash-lite` under-extracts (7 claims/1 dependency from 84 edges) — you may include it as a 4th extraction data point for contrast, but the three named models are the focus.
+- Message-extraction conversation batching (`fix_claim_extr.md`) is implemented but NOT covered here (this plan is the document/image path).
+- PDF chat attachments are a known gap (no neutral file-part translator).
