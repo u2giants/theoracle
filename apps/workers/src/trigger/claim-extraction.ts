@@ -1282,7 +1282,7 @@ export function buildContextPackInsert(plan: OraclePromptPlan) {
 }
 
 function legacyStanceToCandidateStance(
-  role: string | undefined,
+  role: string | null | undefined,
 ): 'stated' | 'confirmed' | 'challenged' | 'refined' | 'exception_introduced' | 'ambiguity_revealed' | null {
   switch (role) {
     case 'claim_stated':

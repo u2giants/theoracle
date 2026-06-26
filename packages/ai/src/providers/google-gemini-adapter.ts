@@ -12,7 +12,7 @@ import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import type { Content, GenerateContentResponse, Part } from '@google/genai';
 import { createSign } from 'node:crypto';
 import type { OracleObjectResult, OracleTextResult, OracleUsage } from '../client/types';
-import type { ReasoningEffort } from '../routes';
+import type { OracleModelRoute } from '../routes';
 import type {
   GenerateObjectArgs,
   GenerateTextArgs,
@@ -25,15 +25,36 @@ import {
   zodToJsonSchema,
 } from './vertex-gemini-adapter';
 
+/**
+ * Default per-request timeout for Gemini generateContent calls. The old value
+ * was a hard-coded 60s, which aborted gemini-2.5-flash extraction on dense
+ * image-derived transcripts every time (~60.1s). Vision + extraction calls can
+ * legitimately run past 2.5 minutes, so the default is 3 minutes and it can be
+ * overridden via GOOGLE_GEMINI_REQUEST_TIMEOUT_MS or the constructor option.
+ */
+const DEFAULT_GEMINI_REQUEST_TIMEOUT_MS = 180_000;
+
+function parseTimeoutEnv(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 export interface GoogleGeminiAdapterOptions {
   /** Gemini API key. Defaults to GEMINI_API_KEY, then GOOGLE_API_KEY. */
   apiKey?: string;
+  /**
+   * Per-request timeout in ms for generateContent calls. Defaults to
+   * GOOGLE_GEMINI_REQUEST_TIMEOUT_MS, then DEFAULT_GEMINI_REQUEST_TIMEOUT_MS.
+   */
+  requestTimeoutMs?: number;
 }
 
 export class GoogleGeminiAdapter implements OracleProviderAdapter {
   readonly provider = 'google' as const;
   private readonly client: GoogleGenAI | null;
   private readonly serviceAccountJson: string | null;
+  private readonly requestTimeoutMs: number;
 
   constructor(opts: GoogleGeminiAdapterOptions = {}) {
     const apiKey = opts.apiKey ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
@@ -43,7 +64,13 @@ export class GoogleGeminiAdapter implements OracleProviderAdapter {
         'GoogleGeminiAdapter: GEMINI_API_KEY or GOOGLE_APPLICATION_CREDENTIALS_JSON is not set. Set one for google/* routes.',
       );
     }
-    this.client = apiKey ? new GoogleGenAI({ apiKey }) : null;
+    this.requestTimeoutMs =
+      opts.requestTimeoutMs ??
+      parseTimeoutEnv(process.env.GOOGLE_GEMINI_REQUEST_TIMEOUT_MS) ??
+      DEFAULT_GEMINI_REQUEST_TIMEOUT_MS;
+    this.client = apiKey
+      ? new GoogleGenAI({ apiKey, httpOptions: { timeout: this.requestTimeoutMs } })
+      : null;
   }
 
   async generateText(args: GenerateTextArgs): Promise<OracleTextResult> {
@@ -61,7 +88,7 @@ export class GoogleGeminiAdapter implements OracleProviderAdapter {
         typeof providerOptions?.maxOutputTokens === 'number'
           ? providerOptions.maxOutputTokens
           : undefined,
-      ...geminiThinkingConfig(route.reasoningEffort),
+      ...geminiThinkingConfig(route),
     };
     const response = this.client
       ? await this.client.models.generateContent({
@@ -102,7 +129,7 @@ export class GoogleGeminiAdapter implements OracleProviderAdapter {
       ...(typeof providerOptions?.maxOutputTokens === 'number'
         ? { maxOutputTokens: providerOptions.maxOutputTokens }
         : {}),
-      ...geminiThinkingConfig(route.reasoningEffort),
+      ...geminiThinkingConfig(route),
     };
     const sdkConfig = {
       ...commonConfig,
@@ -164,7 +191,7 @@ export class GoogleGeminiAdapter implements OracleProviderAdapter {
             : undefined,
           generationConfig: stripUndefined(input.generationConfig),
         }),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(this.requestTimeoutMs),
       },
     );
     if (!res.ok) {
@@ -217,16 +244,50 @@ function toGeminiParts(content: unknown): Part[] {
   return parts;
 }
 
-function geminiThinkingConfig(effort: ReasoningEffort | undefined):
+/**
+ * Build the Gemini `thinkingConfig` for a route.
+ *
+ * Two gates, then the right FIELD SHAPE per model generation:
+ *   1. `supportsReasoningControls` — the model supports client thinking control
+ *      at all (sourced from model_capabilities.thinking). If false, omit.
+ *   2. `reasoningEffort` — an effort was actually requested. If unset, omit.
+ *   3. `route.geminiThinkingStyle` — HOW this model generation expresses it,
+ *      derived in the resolve/catalog layer (never hard-coded here):
+ *        - 'thinking_budget' → Gemini 2.x: numeric `thinkingConfig.thinkingBudget`.
+ *          The 2.x generation 400s on the `thinkingLevel` enum — this was the
+ *          root cause of gemini-2.5-flash vision failing whenever an effort was
+ *          set. Budgets mirror the Vertex adapter (off=0, low=1024, med=8192,
+ *          high=24576 Flash cap).
+ *        - 'thinking_level' → Gemini 3.x+: `thinkingConfig.thinkingLevel` enum.
+ *        - 'none'/undefined → omit (treat as unsupported).
+ */
+function geminiThinkingConfig(route: OracleModelRoute):
   | { thinkingConfig: { thinkingLevel: ThinkingLevel } }
+  | { thinkingConfig: { thinkingBudget: number } }
   | Record<string, never> {
+  if (!route.supportsReasoningControls) return {};
+  const effort = route.reasoningEffort;
   if (!effort) return {};
-  const thinkingLevel =
-    effort === 'off' ? ThinkingLevel.MINIMAL
-      : effort === 'low' ? ThinkingLevel.LOW
-      : effort === 'medium' ? ThinkingLevel.MEDIUM
-      : ThinkingLevel.HIGH;
-  return { thinkingConfig: { thinkingLevel } };
+
+  const style = route.geminiThinkingStyle ?? 'thinking_budget';
+  if (style === 'none') return {};
+
+  if (style === 'thinking_level') {
+    const thinkingLevel =
+      effort === 'off' ? ThinkingLevel.MINIMAL
+        : effort === 'low' ? ThinkingLevel.LOW
+        : effort === 'medium' ? ThinkingLevel.MEDIUM
+        : ThinkingLevel.HIGH;
+    return { thinkingConfig: { thinkingLevel } };
+  }
+
+  // thinking_budget (Gemini 2.x)
+  const thinkingBudget =
+    effort === 'off' ? 0
+      : effort === 'low' ? 1024
+      : effort === 'medium' ? 8192
+      : 24576;
+  return { thinkingConfig: { thinkingBudget } };
 }
 
 function normalizeGeminiUsage(

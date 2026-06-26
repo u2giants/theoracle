@@ -45,6 +45,25 @@ export type StructuredOutputStrategy =
   | 'schema_prompt_plus_validator';
 
 /**
+ * How a Gemini-family model expresses reasoning control on the Google Developer
+ * API (`generativelanguage`). This is a model-generation fact, not an adapter
+ * decision, so it lives on the route (derived in the catalog/resolve layer):
+ *
+ *   - 'thinking_budget' — Gemini 2.x: `thinkingConfig.thinkingBudget` (integer
+ *     token budget). The 2.x generation REJECTS the `thinkingLevel` enum with a
+ *     400 "Thinking level is not supported for this model" (this 400 is what
+ *     broke gemini-2.5-flash vision when any reasoning effort was set).
+ *   - 'thinking_level' — Gemini 3.x+: `thinkingConfig.thinkingLevel` enum
+ *     (LOW/MEDIUM/HIGH). The 3.x generation does not accept a raw thinkingBudget.
+ *   - 'none' — model does not support client-controlled thinking; omit entirely.
+ *
+ * The Vertex adapter has always used thinkingBudget and is unaffected; this flag
+ * exists for the Google Developer-API adapter, which previously hard-coded the
+ * thinkingLevel enum for every model.
+ */
+export type GeminiThinkingStyle = 'thinking_budget' | 'thinking_level' | 'none';
+
+/**
  * Reasoning effort level — unified across providers. Each adapter translates
  * to its native form:
  *   Anthropic: thinking.budget_tokens (low=2048, medium=8192, high=24000; off omits the thinking param)
@@ -95,6 +114,16 @@ export interface OracleModelRoute {
   supportsToolCalling: boolean;
   supportsStructuredOutput: boolean;
   supportsReasoningControls: boolean;
+
+  /**
+   * For Gemini-family routes only: how this model's generation expresses
+   * thinking control on the Google Developer API. Derived in the catalog/resolve
+   * layer from the model id (a model-generation fact), consumed by
+   * GoogleGeminiAdapter so the adapter never hard-codes a model name. Undefined
+   * for non-Gemini providers (and harmless if present — only the Google adapter
+   * reads it).
+   */
+  geminiThinkingStyle?: GeminiThinkingStyle;
 
   maxInputTokens?: number;
   maxOutputTokens?: number;

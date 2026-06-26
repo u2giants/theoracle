@@ -29,6 +29,8 @@
     "verify:vertex-file-cache": "tsx src/__verify__/vertex-file-cache-multiturn.ts",
     "verify:vertex-inline-image": "tsx src/__verify__/vertex-inline-image.ts",
     "verify:auxiliary-defaults": "tsx src/__verify__/auxiliary-defaults.ts",
+    "verify:settings-encoding": "tsx src/__verify__/settings-encoding.ts",
+    "verify:adapter-bugs-live": "tsx src/__verify__/adapter-bugs-live.ts",
     "eval:extraction": "tsx evals/runners/eval-extraction.ts"
   },
   "dependencies": {

@@ -374,10 +374,27 @@ export class OpenAIAdapter implements OracleProviderAdapter {
 }
 
 /**
- * OpenAI's strict JSON-schema mode rejects certain keywords that Zod's
- * converter emits but the OpenAPI subset doesn't support — most commonly
- * `$schema` and `default` on optional properties. `walk` strips those two
- * keys defensively so the schema validates server-side.
+ * OpenAI's strict JSON-schema mode is pickier than the JSON Schema that Zod's
+ * converter emits. `walk` reconciles three gaps:
+ *   1. It rejects keywords the OpenAPI subset doesn't support — most commonly
+ *      `$schema` and `default` on optional properties — so we strip those.
+ *   2. It requires EVERY key in an object's `properties` to also appear in
+ *      `required`. Zod omits `.optional()` props from `required`, which makes
+ *      strict mode 400 ("Invalid schema ... Missing 'sensitivityReason'") and
+ *      hard-breaks every OpenAI extraction call.
+ *   3. Forcing a genuinely-optional field into `required` without making it
+ *      nullable would force the model to always emit a value, which is
+ *      semantically wrong for fields that are meant to be absent. The canonical
+ *      OpenAI-strict pattern is: every property is `required`, AND any
+ *      formerly-optional property becomes nullable (its type is unioned with
+ *      `null`). So for each property NOT already in the object's original
+ *      `required` set, we union its type with `null`, then recompute `required`
+ *      to cover all keys. The downstream Zod schema uses `.nullish()` for those
+ *      fields, so the `null` the model emits parses cleanly (no coercion, no
+ *      swallowed validation error).
+ *
+ * This transform is OpenAI-only. Gemini/Vertex keep the original schema —
+ * they do not require all-keys-required and reject some OpenAI-isms.
  */
 function stripIncompatibleFields(
   schema: Record<string, unknown>,
@@ -385,6 +402,41 @@ function stripIncompatibleFields(
   const cloned = JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
   walk(cloned);
   return cloned;
+}
+
+/**
+ * Union a single property schema node's type with `null` so OpenAI strict mode
+ * accepts an absent-meaning value while the key stays in `required`. Handles the
+ * shapes Zod's converter emits: `type` as a string, `type` as an array,
+ * `anyOf`/`oneOf` unions, `$ref`, and `enum`. Idempotent — never doubles `null`.
+ */
+function makeNullable(prop: Record<string, unknown>): void {
+  // anyOf / oneOf union → add a {type:'null'} branch if absent.
+  for (const unionKey of ['anyOf', 'oneOf'] as const) {
+    const union = prop[unionKey];
+    if (Array.isArray(union)) {
+      const hasNull = union.some(
+        (b) => b && typeof b === 'object' && (b as Record<string, unknown>).type === 'null',
+      );
+      if (!hasNull) union.push({ type: 'null' });
+      return;
+    }
+  }
+  const t = prop.type;
+  if (typeof t === 'string') {
+    if (t !== 'null') prop.type = [t, 'null'];
+    return;
+  }
+  if (Array.isArray(t)) {
+    if (!t.includes('null')) t.push('null');
+    return;
+  }
+  // No own `type` (e.g. a bare `$ref` or `enum`): wrap in anyOf with null so the
+  // value may be the referenced shape or null.
+  const { description, ...rest } = prop;
+  for (const k of Object.keys(prop)) delete prop[k];
+  prop.anyOf = [rest, { type: 'null' }];
+  if (description !== undefined) prop.description = description;
 }
 
 /**
@@ -408,6 +460,26 @@ function walk(node: unknown): void {
   const obj = node as Record<string, unknown>;
   delete obj.$schema;
   delete obj.default;
+  // Strict mode requires `required` to cover every property AND that any
+  // formerly-optional property be nullable. Zod only lists non-optional keys in
+  // `required`; the difference is exactly the optional set. Make each optional
+  // property nullable, THEN promote `required` to all keys.
+  const props = obj.properties;
+  if (props !== null && typeof props === 'object' && !Array.isArray(props)) {
+    const properties = props as Record<string, unknown>;
+    const allKeys = Object.keys(properties);
+    const originalRequired = new Set(
+      Array.isArray(obj.required) ? (obj.required as unknown[]).filter((k): k is string => typeof k === 'string') : [],
+    );
+    for (const key of allKeys) {
+      if (originalRequired.has(key)) continue;
+      const prop = properties[key];
+      if (prop !== null && typeof prop === 'object' && !Array.isArray(prop)) {
+        makeNullable(prop as Record<string, unknown>);
+      }
+    }
+    obj.required = allKeys;
+  }
   for (const value of Object.values(obj)) walk(value);
 }
 

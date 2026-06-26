@@ -149,7 +149,7 @@ export const ExtractionSensitivityFlagsSchema = z.object({
   sensitivityReason: z
     .string()
     .max(500)
-    .optional()
+    .nullish()
     .describe(
       'If any of the three flags is true, briefly explain which specific spans triggered the flag. Omit if all three are false.',
     ),
@@ -187,7 +187,7 @@ export const ExtractionClaimSchema = z.object({
   evidence: ExtractionEvidenceSchema,
   semanticRole: z
     .enum(SEMANTIC_ROLES)
-    .optional()
+    .nullish()
     .describe(
       'In group chats: how this claim was introduced. Omit for single-speaker segments.',
     ),
@@ -198,16 +198,16 @@ export const ExtractionClaimSchema = z.object({
     ),
   proposedEntities: z
     .array(ExtractionEntityProposalSchema)
-    .optional()
+    .nullish()
     .describe(
       'Distinct entities (customers, licensors, factories, systems, departments, geographies, etc.) referenced in this claim. Omit if no proper-noun entities are mentioned.',
     ),
-  sensitivityFlags: ExtractionSensitivityFlagsSchema.optional().describe(
+  sensitivityFlags: ExtractionSensitivityFlagsSchema.nullish().describe(
     'Set when any of the three flags is true. Omit when nothing is sensitive (the common case for operational claims).',
   ),
   suggestedGaps: z
     .array(ExtractionGapSchema)
-    .optional()
+    .nullish()
     .describe(
       'Follow-up questions that would resolve uncertainties or ambiguities revealed in this segment.',
     ),
@@ -220,7 +220,7 @@ export const ExtractionOutputSchema = z.object({
   segmentSummary: z
     .string()
     .max(2000)
-    .optional()
+    .nullish()
     .describe(
       'Brief (1–2 sentence) summary of what this conversation segment covered operationally. Keep it concise — well under 2000 characters. Omit if the segment was trivial or off-topic.',
     ),

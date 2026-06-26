@@ -10,8 +10,40 @@
  * capability flags into synthetic routes and enforces slot requirements.
  */
 
-import type { OracleModelRole, OracleModelRoute, OracleProvider, ReasoningEffort } from './types';
+import type {
+  GeminiThinkingStyle,
+  OracleModelRole,
+  OracleModelRoute,
+  OracleProvider,
+  ReasoningEffort,
+} from './types';
 import { ORACLE_MODEL_ROUTES, getOracleRoute } from './catalog';
+
+/**
+ * Derive how a Gemini-family model expresses thinking control, from its model id
+ * generation. This is a model-generation FACT, derived here in the catalog/
+ * resolve layer (alongside cacheStrategy/structuredOutputStrategy) so the
+ * adapter stays free of hard-coded model names.
+ *
+ *   Gemini 3.x and newer → 'thinking_level' (thinkingConfig.thinkingLevel enum).
+ *   Gemini 2.x           → 'thinking_budget' (thinkingConfig.thinkingBudget int);
+ *                          2.x REJECTS the thinkingLevel enum with a 400.
+ *   Non-Gemini / unknown → undefined (callers gate on supportsReasoningControls).
+ *
+ * Returns undefined for non-google/vertex providers so the field is only set
+ * where it is meaningful.
+ */
+export function geminiThinkingStyleFor(
+  provider: OracleProvider,
+  modelId: string,
+): GeminiThinkingStyle | undefined {
+  if (provider !== 'google' && provider !== 'vertex') return undefined;
+  // Extract the leading "gemini-<major>" generation number.
+  const match = /gemini-(\d+)\b/i.exec(modelId);
+  if (!match) return 'thinking_budget'; // safest default for unrecognized Gemini ids
+  const major = Number(match[1]);
+  return major >= 3 ? 'thinking_level' : 'thinking_budget';
+}
 
 const OR_PROVIDER_MAP: Record<string, OracleProvider> = {
   anthropic: 'anthropic',
@@ -91,6 +123,7 @@ function makeSyntheticRoute(
     recommendedUse: `Dynamically resolved from model pool (${providerModelId}).`,
     cacheStrategy,
     structuredOutputStrategy,
+    geminiThinkingStyle: geminiThinkingStyleFor(provider, modelId),
     ...SYNTHETIC_CAPS,
     ...(caps ?? {}),
   };
@@ -124,6 +157,14 @@ export function resolveModelRoute(
       (r) => r.provider === provider && r.modelId === modelId && r.role === role,
     );
     base = catalogMatch ?? makeSyntheticRoute(modelIdOrRouteId, provider, modelId, role, caps);
+  }
+
+  // Stamp the Gemini thinking-control style if this is a Gemini-family route and
+  // a curated catalog entry didn't already pin it. Model-generation fact, so it
+  // belongs here in the resolve layer, never in the adapter.
+  if (base.geminiThinkingStyle === undefined) {
+    const style = geminiThinkingStyleFor(base.provider, base.modelId);
+    if (style) base = { ...base, geminiThinkingStyle: style };
   }
 
   return reasoningEffort ? { ...base, reasoningEffort } : base;

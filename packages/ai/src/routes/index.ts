@@ -16,6 +16,7 @@ export { providerModelIdForRoute } from './resolve';
 export * from './errors';
 export * from './capability-requirements';
 export * from './attempt-logging';
+export { normalizeSettingValue, isDoubleEncodedSettingValue } from './settings-encoding';
 export {
   resolveRouteCandidates,
   resolvePrimaryRouteFromSettings,

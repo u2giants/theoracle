@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { requireAdmin } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
 import { settings } from '@oracle/db/schema';
+import { normalizeSettingValue } from '@oracle/ai';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,17 +49,20 @@ export async function POST(req: NextRequest) {
   }
 
   const db = getDirectDb();
+  // Idempotency / anti-double-encode guard (Bug 4): never persist an
+  // already-JSON-encoded value into the jsonb column.
+  const value = normalizeSettingValue(body.value);
   const [row] = await db
     .insert(settings)
     .values({
       key: body.key,
-      value: body.value,
+      value,
       ...(body.description !== undefined ? { description: body.description } : {}),
     })
     .onConflictDoUpdate({
       target: settings.key,
       set: {
-        value: body.value,
+        value,
         updatedAt: new Date(),
         ...(body.description !== undefined
           ? { description: body.description }

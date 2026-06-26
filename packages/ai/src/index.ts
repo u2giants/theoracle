@@ -183,6 +183,11 @@ export {
   // Dynamic resolver (handles both catalog routeIds and OpenRouter model IDs)
   resolveModelRoute,
 } from './routes';
+export {
+  // Settings jsonb encoding helpers (Bug 4 — keep values single-encoded)
+  normalizeSettingValue,
+  isDoubleEncodedSettingValue,
+} from './routes';
 export { embedText, embedMany } from './embeddings';
 export {
   getRecentMessages,
