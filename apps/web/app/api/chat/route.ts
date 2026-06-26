@@ -352,7 +352,7 @@ export async function POST(req: NextRequest) {
   type ChatContentPart =
     | { type: 'text'; text: string }
     | { type: 'image'; mimeType: string; data: string }
-    | { type: 'file'; data: string; mimeType: string };
+    | { type: 'file'; data: string; mimeType: string; fileName?: string };
   type ConversationMessage = {
     role: 'user' | 'assistant';
     content: string | ChatContentPart[];
@@ -383,11 +383,17 @@ export async function POST(req: NextRequest) {
             if (att.fileType.startsWith('image/')) {
               parts.push({ type: 'image', mimeType: att.fileType, data: b64 });
             } else if (att.fileType === 'application/pdf') {
-              // NOTE: the adapters have no neutral FILE-part translator yet, so a
-              // `{type:'file'}` part is NOT correctly carried to most providers
-              // (large PDFs go through the Vertex file-cache path above instead).
-              // Tracked as a known gap — see the session notes.
-              parts.push({ type: 'file', data: b64, mimeType: 'application/pdf' });
+              // Provider-neutral FILE part. Every hardened adapter now translates
+              // it at dispatch (Gemini → inlineData, OpenAI → file/file_data,
+              // Anthropic → document block); large PDFs may instead be served via
+              // the Vertex file-cache path above. fileName is carried because the
+              // OpenAI `file` part requires a filename.
+              parts.push({
+                type: 'file',
+                data: b64,
+                mimeType: 'application/pdf',
+                fileName: att.fileName,
+              });
             } else if (att.fileType.startsWith('text/')) {
               const text = buf.toString('utf8');
               parts.push({ type: 'text', text: `\n\n[File: ${att.fileName}]\n${text}\n[/File]` });

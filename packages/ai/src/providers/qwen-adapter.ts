@@ -55,7 +55,7 @@ import {
   pickAnthropicCacheTtl,
   pickOpenAICacheRetention,
   shouldDisableCache,
-  toOpenAIImageContent,
+  toOpenAIContent,
 } from './cache-utils';
 import { flattenPlan, parseJsonOrRaw, tryZodParse } from './vertex-gemini-adapter';
 
@@ -233,7 +233,7 @@ export class QwenAdapter implements OracleProviderAdapter {
         role: m.role,
         // Translate provider-neutral image parts → OpenAI `image_url` at dispatch,
         // so a fallback into this adapter still sends a readable image.
-        content: toOpenAIImageContent(m.content),
+        content: toOpenAIContent(m.content),
       })) as unknown as ChatCompletionMessageParam[];
       if (systemPrompt && systemRoleAllowed && !normalized.some((m) => m.role === 'system')) {
         normalized.unshift({ role: 'system', content: systemPrompt });

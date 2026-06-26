@@ -36,7 +36,7 @@ import type {
   GenerateTextArgs,
   OracleProviderAdapter,
 } from './types';
-import { normalizeMessageContentArray, toOpenAIImageContent } from './cache-utils';
+import { normalizeMessageContentArray, toOpenAIContent } from './cache-utils';
 import { flattenPlan, parseJsonOrRaw, tryZodParse } from './vertex-gemini-adapter';
 
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
@@ -155,7 +155,7 @@ export class DeepSeekAdapter implements OracleProviderAdapter {
     if (Array.isArray(override) && override.length > 0) {
       const normalized = override.map((m) => ({
         role: m.role,
-        content: toOpenAIImageContent(
+        content: toOpenAIContent(
           Array.isArray(m.content) ? normalizeMessageContentArray(m.content) : m.content,
         ),
       })) as unknown as ChatCompletionMessageParam[];

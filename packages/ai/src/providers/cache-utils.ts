@@ -130,25 +130,63 @@ export function isNeutralImagePart(
   );
 }
 
-/** Translate neutral image parts to the OpenAI-compatible `image_url` data-URL
- * shape (OpenAI, Qwen/DashScope, DeepSeek). Non-image parts pass through. */
-export function toOpenAIImageContent(content: unknown): unknown {
-  if (!Array.isArray(content)) return content;
-  return content.map((p) =>
-    isNeutralImagePart(p)
-      ? { type: 'image_url', image_url: { url: `data:${p.mimeType};base64,${p.data}` } }
-      : p,
+/**
+ * Provider-neutral inline FILE part (e.g. a PDF): `{ type:'file', mimeType,
+ * data(base64), fileName? }`. Same neutral-at-the-call-site rationale as
+ * isNeutralImagePart — each adapter translates it to its own native document
+ * shape AT DISPATCH (Gemini → inlineData, OpenAI → file/file_data, Anthropic →
+ * document block), so a provider fallback can never leave a mis-shaped file part.
+ */
+export function isNeutralFilePart(
+  p: unknown,
+): p is { type: 'file'; mimeType: string; data: string; fileName?: string } {
+  return (
+    !!p &&
+    typeof p === 'object' &&
+    (p as Record<string, unknown>).type === 'file' &&
+    typeof (p as Record<string, unknown>).mimeType === 'string' &&
+    typeof (p as Record<string, unknown>).data === 'string' &&
+    !('file' in (p as object)) &&
+    !('source' in (p as object)) &&
+    !('inlineData' in (p as object))
   );
 }
 
-/** Translate neutral image parts to Anthropic's native base64 image block. */
-export function toAnthropicImageContent(content: unknown): unknown {
+/** Translate neutral media parts to the OpenAI-compatible shapes (OpenAI,
+ * Qwen/DashScope, DeepSeek): images → `image_url` data-URL, files → the `file`
+ * part with a base64 `file_data` data-URL. Other parts pass through unchanged. */
+export function toOpenAIContent(content: unknown): unknown {
   if (!Array.isArray(content)) return content;
-  return content.map((p) =>
-    isNeutralImagePart(p)
-      ? { type: 'image', source: { type: 'base64', media_type: p.mimeType, data: p.data } }
-      : p,
-  );
+  return content.map((p) => {
+    if (isNeutralImagePart(p)) {
+      return { type: 'image_url', image_url: { url: `data:${p.mimeType};base64,${p.data}` } };
+    }
+    if (isNeutralFilePart(p)) {
+      return {
+        type: 'file',
+        file: {
+          filename: p.fileName ?? 'attachment.pdf',
+          file_data: `data:${p.mimeType};base64,${p.data}`,
+        },
+      };
+    }
+    return p;
+  });
+}
+
+/** Translate neutral media parts to Anthropic's native blocks: images → base64
+ * image block, files → base64 `document` block. Other parts pass through. */
+export function toAnthropicContent(content: unknown): unknown {
+  if (!Array.isArray(content)) return content;
+  return content.map((p) => {
+    if (isNeutralImagePart(p)) {
+      return { type: 'image', source: { type: 'base64', media_type: p.mimeType, data: p.data } };
+    }
+    if (isNeutralFilePart(p)) {
+      return { type: 'document', source: { type: 'base64', media_type: p.mimeType, data: p.data } };
+    }
+    return p;
+  });
 }
 
 export function markLastTextPartCacheable(

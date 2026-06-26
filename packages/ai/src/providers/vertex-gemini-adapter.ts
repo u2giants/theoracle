@@ -997,7 +997,7 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
  * - A plain string becomes a single text part.
  * - An array may interleave text parts and inline image parts:
  *     { type: 'text', text }                       -> { text }
- *     { type: 'image', mimeType, data: <base64> }  -> { inlineData: { mimeType, data } }
+ *     { type: 'image'|'file', mimeType, data: <base64> } -> { inlineData: { mimeType, data } }
  *   Inline base64 images are how the document-ingestion worker feeds an
  *   uploaded image to Gemini for its vision-transcription pass (a lone image is
  *   far below the explicit-cache token minimum, so the fileData/cache path
@@ -1013,10 +1013,12 @@ function toVertexParts(content: unknown): Part[] {
     if (raw && typeof raw === 'object') {
       const part = raw as Record<string, unknown>;
       if (
-        part.type === 'image' &&
+        (part.type === 'image' || part.type === 'file') &&
         typeof part.data === 'string' &&
         typeof part.mimeType === 'string'
       ) {
+        // Gemini ingests both images and documents (e.g. application/pdf) via
+        // inlineData with the source mime type.
         parts.push({ inlineData: { mimeType: part.mimeType, data: part.data } });
         continue;
       }

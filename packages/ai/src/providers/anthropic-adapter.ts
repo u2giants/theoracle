@@ -51,7 +51,7 @@ import {
   normalizeMessageContentArray,
   pickAnthropicCacheTtl,
   shouldDisableCache,
-  toAnthropicImageContent,
+  toAnthropicContent,
 } from './cache-utils';
 import { flattenPlan, tryZodParse, zodToJsonSchema } from './vertex-gemini-adapter';
 
@@ -349,7 +349,7 @@ export class AnthropicAdapter implements OracleProviderAdapter {
         .map((m) => ({
           role: m.role as 'user' | 'assistant',
           // Translate provider-neutral image parts → Anthropic base64 image block.
-          content: toAnthropicImageContent(
+          content: toAnthropicContent(
             normalizeMessageContentArray(m.content),
           ) as unknown as Anthropic.MessageParam['content'],
         }));

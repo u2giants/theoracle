@@ -227,10 +227,12 @@ function toGeminiParts(content: unknown): Part[] {
     if (raw && typeof raw === 'object') {
       const part = raw as Record<string, unknown>;
       if (
-        part.type === 'image' &&
+        (part.type === 'image' || part.type === 'file') &&
         typeof part.data === 'string' &&
         typeof part.mimeType === 'string'
       ) {
+        // Gemini ingests both images and documents (e.g. application/pdf) via
+        // inlineData with the source mime type.
         parts.push({ inlineData: { mimeType: part.mimeType, data: part.data } });
         continue;
       }

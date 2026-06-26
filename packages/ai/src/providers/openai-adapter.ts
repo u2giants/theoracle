@@ -41,7 +41,7 @@ import type {
   SubmitBatchArgs,
   SubmitBatchResult,
 } from './types';
-import { pickOpenAICacheRetention, toOpenAIImageContent } from './cache-utils';
+import { pickOpenAICacheRetention, toOpenAIContent } from './cache-utils';
 import { flattenPlan, parseJsonOrRaw, tryZodParse, zodToJsonSchema } from './vertex-gemini-adapter';
 
 export interface OpenAIAdapterOptions {
@@ -338,7 +338,7 @@ export class OpenAIAdapter implements OracleProviderAdapter {
     if (Array.isArray(override) && override.length > 0) {
       // Translate provider-neutral image parts → OpenAI `image_url` at dispatch.
       const translated = override.map(
-        (m) => ({ ...m, content: toOpenAIImageContent(m.content) }) as ChatCompletionMessageParam,
+        (m) => ({ ...m, content: toOpenAIContent(m.content) }) as ChatCompletionMessageParam,
       );
       if (systemPrompt && !translated.some((m) => m.role === 'system')) {
         return [{ role: 'system', content: systemPrompt }, ...translated];
