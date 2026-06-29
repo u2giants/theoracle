@@ -53,6 +53,7 @@ const APPROVED_SUMMARIES_LOWER = [
   'burlington seasonal items must go through the new routing guide before shipment.',
   'disney approvals must precede tooling for all licensed sku launches.',
   'coldlion is the system of record for sku metadata after sample sign-off.',
+  'the creative director must review licensing sheets before licensor submission.',
 ];
 const REGISTRY_ENTITY_CANONICALS_LOWER = new Set([
   'disney',
@@ -396,6 +397,21 @@ function main() {
       REGISTRY_ENTITY_CANONICALS_LOWER,
     );
     assert(unsup.length === 0, 'G5 empty markdown → no unsupported names');
+  }
+
+  {
+    // G6: discourse markers and possessives seen in real synthesis drafts.
+    const unsup = findUnsupportedNamedEntities(
+      "Furthermore, the Creative Director's review can affect timing. Additionally, Burlington routing applies.",
+      APPROVED_SUMMARIES_LOWER,
+      REGISTRY_ENTITY_CANONICALS_LOWER,
+    );
+    assert(
+      !unsup.includes('Furthermore') &&
+        !unsup.includes('Additionally') &&
+        !unsup.includes("Creative Director's"),
+      'G6 discourse markers + supported possessive phrases not flagged',
+    );
   }
 
   console.log('\nR9 smoke gate: PASS');

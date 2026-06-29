@@ -1,8 +1,8 @@
 # HANDOFF — Recall.ai wiring + extraction tuning + China bilingual layer + meeting picker
 
-Last updated: 2026-06-26. Delete this file once the remaining items below are closed.
+Last updated: 2026-06-29. Delete this file once the remaining items below are closed.
 
-HOW TO TRUST THIS DOC: the two blocks immediately below — "CARRIED-OVER ITEMS (re-verified)" and the diagram section's "SESSION-END STATE" — were verified against PROD on 2026-06-25 evening and are authoritative. Everything in the dated sections FURTHER DOWN is last-known from its own session and may be stale (this session caught several stale lines); re-verify against prod before acting on anything below those two blocks.
+HOW TO TRUST THIS DOC: the 2026-06-26 completion blocks at the top and the 2026-06-29 verification notes below are the current authority. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with the current status.
 
 ---
 
@@ -123,78 +123,15 @@ Follow-up fix run (same day):
 
 ---
 
-## CARRIED-OVER ITEMS — re-verified against prod 2026-06-25 (evening)
+## Current carried-over items — verified / cleaned up 2026-06-29
 
-These supersede the older dated sections below where they conflict.
-
-- **Synthesis demo: still NOT run, but now UNBLOCKED.** `brain_section_versions` = 0 (never run). BUT the old blocker "no approved claims to synthesize" is RESOLVED: prod now has **189 approved claims** (94 pending_review, 82 superseded, 4 rejected). So `brain-synthesis` can actually be exercised now. (Ignore older lines claiming "only one approved claim" / "no approved corpus.")
-- **Entity registry: SEEDED (63 entities), 16 active top-domains.** The older "entity registry is empty -> every claim is held" note is STALE — don't repeat it.
-- **China bilingual next-actions: DONE.** 6 employees set to `zh-CN`; `default_translation_route` = `qwen/qwen-mt-plus`. (Older "set an employee to 中文 / choose a translation model" actions are complete.) NOTE: the translation model is a Qwen route, so it depends on `DASHSCOPE_API_KEY` (now set) — same provider as the extraction issue.
-- **Meeting-picker subject: still pending** (2 `meeting_transcripts`, 0 with `subject`). Accurate as written below.
-- **Live Recall interjections: effectively OFF, but the rate cap drifted.** `teams_live_recall_min_confidence_to_post` = 101 (impossible threshold -> nothing posts), force flags all false. BUT `max_oracle_interjections_per_hour` = **3**, not the guardrail's 0. Posting is still blocked by the 101 gate, but re-clamp the rate cap to 0 if you want belt-and-suspenders (do it deliberately — a prior note says someone set it to 3).
-
----
-
-## Diagram / flowchart image ingestion tuning (2026-06-25)
-
-Status:
-**END OF SESSION 2026-06-25 (evening). VISION is fixed and confirmed; EXTRACTION is blocked by a model-conformance issue; the silent-fallback refactor is now implemented in source but not yet deployed. The authoritative state is the "SESSION-END STATE" block right below — the older bullets in this section are HISTORICAL and partly WRONG (they predate the Qwen-vision fix). The "Done/blocking/Next action/Risks" bullets further down this section are now HISTORICAL — the authoritative current state is the STILL OPEN list immediately below.**
-
-What got fixed (deployed `.2`->`.4`): wider extraction windows (24k doc / 32k image); structure-aware chunking (`chunkTextStructured`); diagram-aware + one-line-per-edge prompts; `maxOutputTokens` plumbed through all adapters; vision call sets temperature 0.6 + maxOutputTokens 32k + `highResolutionVision`; and the key fix -- PROVIDER-NEUTRAL image part at the call site with each adapter translating at dispatch (`toOpenAIImageContent`/`toAnthropicImageContent` in `cache-utils.ts`), so cross-provider fallback no longer drops the image. Qwen base URL now reads `DASHSCOPE_BASE_URL`.
-
-### SESSION-END STATE (authoritative)
-
-WHAT WORKS NOW:
-- **Vision (Pass 1) = qwen3-vl-235b-a22b-thinking, running for real, NO fallback.** Confirmed via the new vision `model_runs` row (`task_type='document-ingestion-vision'`, `provider=qwen`, no fallback, ~17k input tokens = full-res image). The owner set `DASHSCOPE_API_KEY` in prod Trigger (intl key from 1Password `ai-provider-api-keys` -> `dashscope`); `DASHSCOPE_BASE_URL` was set to `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`. Qwen base URL is env-configurable now.
-- **Lane accuracy is actually GOOD.** Earlier in the session I claimed Qwen mis-assigned swimlanes — that was WRONG; I graded against a bad reference (an earlier Gemini transcription + my own misread). The owner verified against the image that Qwen's lane assignments are correct (e.g. "Review Audit and send to factory" is in Gina's white column; "SKUs creation" is in Carlos's peach column). So the "lane accuracy" problem was largely an artifact of running the Gemini FALLBACK, not Qwen. Do NOT re-open it without re-reading the actual image (column color + position), not a transcription.
-
-THE EXTRACTION BLOCKER (doc `9d09fa89-3a46-465e-a98b-837287c9e22a` is `failed`, 0 claims):
-- The selected extraction model is **`qwen/qwen3.7-plus`** (an approved pool model; pool = `["google/gemini-3.1-flash-lite","qwen/qwen3.7-plus","qwen/qwen3.7-max"]`). Qwen via the OpenAI-compatible API can't do native strict JSON-schema, so it uses a **loose tool-call** structured-output mode and **malforms fields** (scores as strings/null, domain values outside the enum, `evidence` as a non-object). The strict Zod schema rejects it, and because one bad claim fails the whole window, the run yields **0 claims** even though the Qwen transcription is perfect.
-- **FAST FIX (recommended, no code):** switch extraction to **`google/gemini-3.1-flash-lite`** (already approved + native strict JSON). The Gemini fallback produced 56–81 valid claims earlier with the same schema, so a strict-JSON model should just work. The settings job brief for Extraction was updated this session to document this (strict-JSON requirement + the loose-tool-call pitfall).
-
-THE BIG ARCHITECTURAL FINDING -> `fix_remove_fallbacks.md` (IMPLEMENTED IN SOURCE 2026-06-25; DEPLOY STILL NEEDED):
-- "gemini-2.5-flash" kept appearing as the extraction model because BOTH vision and extraction were **silently falling back** to a HARD-CODED route (`vertex_gemini_2_5_flash_extraction_primary`) with reason `"No adapter registered for provider qwen"` (pre-key). Same bug as vision. The hard-coded fallback target was an UNAPPROVED model.
-- Implemented source changes: no `fallbackRouteId` / hard-coded worker fallback routes; pipeline stages resolve `resolveRouteCandidates(db, slot)` and use the approved DB pool as the ordered chain; auxiliary slots (`vision`, `general`, `translation`) are explicit single-pick settings; runtime capability enforcement is gated by `settings.enforce_model_capabilities`; `model_run_attempts` records failed primary / non-primary-success attempts; Admin layout shows a recent-attempt alert; taxonomy cluster naming now consumes `default_general_purpose_route`.
-- Verification run in source: `corepack pnpm -r typecheck`, `corepack pnpm --filter @oracle/ai verify:r2`, `corepack pnpm --filter @oracle/ai exec tsx src/__verify__/auxiliary-defaults.ts`, and `git diff --check` passed. Next action is commit/push/deploy the app and worker changes, then apply the new SQL migrations (`18_model_run_attempts.sql`, `78_fail_loud_model_routing_settings.sql`) through the normal Oracle migration path.
-
-REVERTED EXPERIMENTS this session (do NOT just re-apply — investigate first):
-- I added `z.coerce.number().catch(5)` to impactScore/confidenceScore and `z.enum(...).catch('general')` to domains in `extraction-system.ts`, plus a **per-claim salvage** block in `document-ingestion.ts`. **All reverted** before the final commit. Why: (a) the salvage is **UNREACHABLE** — `client.runObject` THROWS on schema-invalid output (the adapter's `tryZodParse` throws before the client's validator/`receivedJson` path is reached), so the `if (!result.validation.ok)` salvage branch never runs; (b) the `.catch` edits add `default` annotations to the model-facing JSON schema with uncertain effect on conformance, and they were band-aiding a LOOSE model (qwen3.7-plus) instead of fixing the root cause (use a strict-JSON model).
-- **Recommendation:** don't band-aid the schema. Switch extraction to a native-strict-JSON model (gemini-3.1-flash-lite) — claims should flow with the plain strict schema, no catches/salvage needed. If you still want per-claim resilience, it can ONLY work AFTER the structured-output validation is made **non-throwing** (return raw output + a failure result instead of throwing) — that rework lives in the same validation path that `fix_remove_fallbacks.md` touches, so do salvage as part of / after that refactor, not standalone.
-- **Investigate the environment BEFORE acting on salvage/catches next session:** (1) confirm `settings.default_extraction_route` + its `structuredOutputStrategy` (qwen=`tool_call`/loose, gemini/openai/vertex=`native_json_schema`/strict — in `resolve.ts`); (2) confirm `DASHSCOPE_API_KEY` region/account is the intended billing account; (3) trace the exact `runObject` -> `ModelRouter.generateObject` -> adapter `tryZodParse` throw-vs-return semantics (the client builds `result.validation` only if the adapter RETURNS; the adapter currently throws on a Zod failure) — this determines whether salvage is reachable at all and is the precondition for rebuilding it; (4) A/B whether the `.catch` `default` annotations actually degrade Gemini conformance before reintroducing them.
-
-KEPT + committed this session (improvements):
-- `maxOutputTokens` plumbed through the Gemini/Vertex `generateObject` paths + an `EXTRACTION_MAX_OUTPUT_TOKENS` (32k) on the extraction call — a real **truncation fix** (a dense window's claim JSON was being cut off mid-array, parsing as a bare string -> "expected object"). Independent of the reverted experiments.
-- Extraction "copy job brief" text updated (strict-JSON + max-output requirement + the loose-tool-call KNOWN PITFALL).
-- All the silent-failure swallow fixes + qwen vision plumbing landed earlier in commit `c50673a`.
-
-OTHER PENDING (smaller):
-- `fix_claim_extr.md` is implemented in source: sync and batch extraction now select whole same-channel conversation segments and include prior messages only as non-quotable carry-in context. `fix_resolve_ts.md` is folded into the fail-loud routing implementation: runtime capability checks now happen in `resolveRouteCandidates` when `enforce_model_capabilities=true`.
-- **PDF/file chat attachments** still mis-shaped (the adapters have no neutral FILE-part translator; only image was fixed). The chat IMAGE attachment shape WAS fixed (`c50673a`).
-- `default_vision_reasoning_effort` = `medium`; recommend `Low` for transcription (perception, not deliberation). Vision/extraction temperature + max_tokens are CODE constants, not admin UI.
-- **Deploy discrepancy:** prod worker is `v20260625.11`, which still CONTAINS the reverted salvage/.catch (they were deployed during debugging). The committed clean source does NOT. Redeploy the worker from the committed source to align prod (keeps `maxOutputTokens`, drops salvage/.catch). Harmless functionally (salvage was unreachable, extraction is broken anyway until the model is switched), but do it for hygiene.
-- `scripts/reevaluate-document.mjs` (committed) is the guarded single-doc clean+reset tool: `PROD_URL=<pooler> DOCUMENT_ID=<id> APPLY=1 node scripts/reevaluate-document.mjs`, then trigger `document-ingestion`.
-
-Done (deployed):
-- `apps/workers/src/trigger/document-ingestion.ts` changes, deployed as Trigger prod worker **`20260625.1`** (21 tasks) via the Trigger MCP `deploy` (the CLI `npx trigger.dev deploy` needs a PAT we don't have locally; the MCP is authenticated):
-  - **Wider extraction windows** so a connected graph is reasoned over in one call instead of being sliced into independent ~6k windows: `MAX_DOCUMENT_TEXT_CHARS` 6k→**24k**, new `MAX_IMAGE_TEXT_CHARS` **32k** (used when `parseKind==='image'`).
-  - **Structure-aware chunking** (`chunkTextStructured` + `computeStructuralBoundaries`) replaces the old byte-slice `chunkText` (deleted, with `CHUNK_OVERLAP`). Cuts only at heading/paragraph→line boundaries, never mid-line, so a flowchart arrow line is never severed. Validated invariants (contiguous, exact offsets, no severed `--(Arrow` line) with a throwaway test.
-  - **Diagram-aware extraction prompt**: `looksLikeDiagramTranscription()` (detects `-->`/`--(Arrow`/`### Swimlane`) switches the image addendum to ask for handoff/branch `dependency`/`exception` claims and to quote the full `[A] --(Arrow)--> [B]` line, instead of one shallow `process_rule` per box.
-- New ops tool **`scripts/reevaluate-document.mjs`** (UNCOMMITTED): guarded re-evaluation of one document — deletes its prior claims/chunks/candidates/batches/tags and resets `documents.status='pending_processing'`. DRY-RUN by default; only acts on `APPLY=1`; **aborts** if any target claim is in the Brain (`section_claims`), a contradiction, a gap, or is multi-source. Runs in one transaction. Two ordering lessons baked in: `employee_claims` is a VIEW (don't delete from it); delete `extraction_candidates` BEFORE claims (nulling `promoted_to_claim_id` in place violates `extraction_candidates_promoted_consistency_check`).
-
-The blocking finding (the durable lesson):
-- The new pipeline DID produce the right SHAPE of claims — re-ingest run `run_cmqsufh7644370uohnjafaayf` staged 15 `dependency` handoff claims (vs the old 79 one-box `process_rule`). **But all 15 failed `quote_exact_match`** → 0 promoted, so the doc went from 102 claims to **0**.
-- Two causes: (1) the **vision pass is non-deterministic and was worse this run** — the transcription was 2,513 chars / 1 chunk and truncated mid-sentence (vs 12,928 chars / 4 chunks the first time), and used a format that splits each edge across two lines (node on one line, `--(Arrow)--> [target]` on the next), so no single verbatim line captures a handoff and the extractor paraphrased. (2) The first (good) run used **one self-contained line per edge**, which is exactly why its 16 dependency claims passed validation.
-- **Likely root cause:** `settings.default_vision_route` in prod is `google/gemini-3.1-flash-image-preview` — an image-**generation** preview model, the wrong tool for dense visual *reading*. The shipped fallback `vertex_gemini_2_5_flash_extraction_primary` (Gemini 2.5 Flash) is a real vision model and should be more consistent.
-
-Next action (HISTORICAL / SUPERSEDED — see "SESSION-END STATE" above. The items below date from when vision was still on the image-generation model; they are NO LONGER the plan):
-1. **No-code:** change Admin → Settings → "Image vision model" off the image-generation preview to a real vision model (Gemini 2.5 Flash). Biggest reliability lever, no deploy.
-2. **Code:** harden `IMAGE_TRANSCRIPTION_SYSTEM` to force **one self-contained line per edge** (never split a connection across lines) and tell extraction to set `exactQuote` to that whole edge line; optionally apply a whitespace-normalization policy to image transcriptions in the quote validator so near-verbatim edge quotes pass.
-3. Re-run with `scripts/reevaluate-document.mjs APPLY=1` (doc id `9d09fa89-3a46-465e-a98b-837287c9e22a`) then trigger `document-ingestion`, and compare claim-type mix vs the baseline (79 `process_rule` / 16 `dependency` / 7 `exception_rule`).
-
-Risks / watchouts:
-- **The test flowchart `9d09fa89-3a46-465e-a98b-837287c9e22a` is currently at 0 claims** (its prior 102 were deleted). Re-running the SAME code is a coin-flip (vision non-determinism). Fix the vision model first.
-- The same window/segment-splitting weakness in the MEETING/message path has been addressed in source. Deploy/apply migrations before treating prod as fixed.
-- `scripts/reevaluate-document.mjs` is uncommitted — commit or discard per owner.
+- **Worker deploy state is verified.** Trigger.dev MCP reports current prod worker `20260629.1` with 21 tasks. This deploy includes the R9 synthesis validator false-positive fix.
+- **Fuller Brain synthesis has been exercised.** `brain-synthesis` for `domain-licensing` ran over 124 approved claims. The first run on worker `20260626.7` produced a valid-looking 5.5k-character draft but was rejected by false-positive named-entity validation (`Furthermore`, `Additionally`, possessive `Creative Director's`). The validator was fixed, verified with `@oracle/engines verify:r9`, deployed as worker `20260629.1`, and rerun. The successful run `run_cmqymg81k43rc0hke6yxu61gi` created current version `f3de1eff-52f5-4001-9cf5-a1521d7c082f`, `review_status='needs_review'`, linked 62 section claims, and updated `brain_sections.current_version_id`.
+- **Diagram/image ingestion is no longer blocked by the old extraction-model issue.** Current prod config from the 2026-06-26 bake-off is `default_vision_route=qwen/qwen3-vl-235b-a22b-thinking`, `default_extraction_route=google/gemini-2.5-flash`, pool `[google/gemini-2.5-flash, vertex_gemini_2_5_flash_extraction_primary, openai/gpt-4.1-mini]`. The useful durable lesson is still: keep diagram transcription one-line-per-edge so strict quote validation can match relationship claims to persisted chunks.
+- **Entity registry and active top-domains are seeded.** Do not repeat older notes claiming the registry is empty.
+- **China bilingual setup is mechanically done.** Employees can be set to `zh-CN` in the UI, translation uses `default_translation_route`, and Qwen MT was verified after the system-role shaping fix. Optional product follow-up: admin side-by-side translation review.
+- **Meeting-picker subject remains optional polish.** Discovery/ingest works, but `meeting_transcripts.subject` and participant names are not populated yet; see the meeting-picker section below.
+- **Live Recall interjections remain intentionally clamped by confidence threshold.** Older notes disagree on `max_oracle_interjections_per_hour`; verify live settings before reopening tests.
 
 ---
 
@@ -233,9 +170,8 @@ Added 2026-06-18 (committed + pushed to `main`, deploys via Vercel):
 - **Employee language is now editable in the UI** — `/admin/employees` has a "Language" column (English / 中文) writing `employees.locale` via `updateEmployeeLocale` (commit `8c7fb03`). This supersedes the old "set locale by SQL" step. `employees.locale` is the single switch the bilingual layer keys off.
 - **Bulk "Ask selected to evaluate"** on `/admin/claims` — tick several `pending_review` claims, pick people/groups, route them all at once (commit `cc25775`). Extracted `assignClaimQuestionCore` so the per-row form and the bulk loop share one path (recipient resolution, dedup-against-existing-assignments, per-recipient zh-CN auto translation). Per-claim failures are non-fatal (reported as skipped).
 
-Exact next actions:
-1. Set a China employee to 中文 at Admin → Employees → "Language" column (no longer SQL); choose a translation model at Admin → Settings → "Translation model" (Qwen recommended — run a small A/B vs DeepSeek per the copied brief).
-2. Optionally build the discussed-but-not-built follow-ups (see AGENTS.md §15): admin side-by-side translation review.
+Optional follow-up:
+- Build admin side-by-side translation review if the China bilingual workflow needs human translation QA. The mechanical setup is done; employees can be set to `zh-CN` in the UI and `default_translation_route` is configured.
 
 ### "Sent to review" indicator on /admin/claims — DONE (2026-06-18)
 
@@ -270,7 +206,7 @@ Risks / watchouts:
 
 ---
 
-## What is open and needs finishing
+## Historical completed work / superseded notes
 
 ### 0b. 2026-06-17 dynamic model route dispatch fix
 
@@ -283,7 +219,7 @@ Done:
 - Verified: `corepack pnpm --filter @oracle/ai typecheck`, `corepack pnpm --filter @oracle/ai exec tsx src/__verify__/oracle-ai-client-smoke.ts`, and `corepack pnpm --filter @oracle/workers typecheck`.
 
 Watchout:
-- The failed document upload that hit the old worker may need to be retried/reprocessed; new document-ingestion runs should use worker `20260617.1`.
+- This was a live issue for worker `20260617.1`; current prod worker is `20260626.7`. Reprocess old failed documents only if they still show a failed status in the admin UI.
 
 ### 0a. 2026-06-15 local/pushed commits and review workflow
 
@@ -297,64 +233,31 @@ Done:
 - Verified locally on 2026-06-15: `corepack pnpm --filter @oracle/ai verify:retrieval-plan-domain-boundaries`, `corepack pnpm --filter @oracle/web typecheck`, `corepack pnpm --filter @oracle/db typecheck`. Browser smoke reached `/claims`, compiled the route, and redirected to login; authenticated UI was not exercised because the in-app browser had no session.
 
 Next action:
-Redeploy Vercel after claim-review UI/action changes so the new route/actions are live.
+None for this historical block. Later Vercel deployments superseded this note.
 
 Risks / watchouts:
 - The claim-review feature depends on the tables from `68_claim_review_workflow.sql`; group assignment depends on `73_claim_review_groups.sql`.
 - The seeded domain-review map is retained but not currently exposed through `/claims`. Non-admin review is direct-assignment only until domain queues are intentionally restored.
 - Revision intentionally supersedes the original AI claim and creates a replacement claim; do not change it into in-place edits unless the audit/provenance model is redesigned.
 
-### 0. Current repo/deploy state (2026-06-10/11)
+### 0. Repo/deploy alignment note
 
-The working tree has two categories of uncommitted changes from before the 2026-06-15 claim-review commit:
-
-1. Changes that were already deployed to Trigger.dev production as worker version `20260610.4` during the 2026-06-10 retrieval-backed live context session:
-
-- `apps/workers/src/trigger/teams-live-recall-utterance.ts` — retrieval-backed live decision (prompt `teams-live-recall-1.1.0`).
-- `packages/ai/src/retrieval.ts` — three runtime SQL bugs fixed in `searchWithRetrievalPlan` (see below).
-- `AGENTS.md`, `docs/architecture.md`, `HANDOFF.md` — docs.
-
-Deploy timeline this session: `20260610.1` (retrieval-backed worker), `20260610.2` (first SQL fix attempt), `20260610.3` (jsonb param binding + cause logging), `20260610.4` (final `cm.claim_id` fix — verified good). All with the normal 17 tasks.
-
-2. Local-only fixes from the 2026-06-11 review session. These were verified locally but were **not** committed, pushed, or deployed during that session:
-
-- `ModelRouter` now attaches actual result route metadata (`routeId`, `provider`, `modelId`, `fellBackFromRouteId`, `fallbackReason`), and chat/workers log those actual values instead of blindly logging the pre-dispatch route.
-- Structured-output adapters parse invalid JSON defensively so schema problems flow through `validation.ok=false` rather than throwing before the validation result can be recorded.
-- Vertex structured-output calls can cache stable + semi-stable + retrieved context and send only dynamic input live.
-- Chat route no longer passes decorative Vercel AI SDK tools through `providerOptions`; retrieval runs deterministically before the model call.
-- Batch submit recovery distinguishes “provider accepted but no `provider_batch_jobs` row” and resets local state for a clean tracked retry.
-- Recall live utterance decisions now write `oracle_context_packs` before the model call and link usage/model-run rows even on failure.
-- The previously masked lint violations in taxonomy proposal card, channel chat, document upload, chat route stale disables, and PostCSS config were fixed.
-
-Verification from 2026-06-11: `pnpm install`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm --filter @oracle/ai verify:r2`, `verify:retrieval-filter-parity`, `verify:retrieval-plan-domain-boundaries`, `verify:vertex-file-cache`, and engine verifies `r5`, `r5.5`, `r6`, `r7`, `r9`, `r11.1` all passed.
-
-Additional 2026-06-15 assessment of the older AI/worker diffs:
-- They appear to be correctness/hardening improvements: structured provider fallback on HTTP status, stricter evidence offsets, safer embedding batching, Qwen usage normalization, worker retry/idempotency hardening, taxonomy duplicate-proposal reduction, and live interjection locking/rate re-checks.
-- Package checks passed: `corepack pnpm --filter @oracle/ai typecheck`, `corepack pnpm --filter @oracle/workers typecheck`, `corepack pnpm --filter @oracle/engines typecheck`, and `corepack pnpm --filter @oracle/ai verify:retrieval-plan-domain-boundaries`.
-- They are **not proven non-breaking**. Several changes affect live worker retry semantics, Recall send handling, contradiction/lull interjection transaction ordering, and synthesis/taxonomy transaction boundaries. Treat them as promising but still requiring runtime review and intentional deploy sign-off.
-
-Do **not** assume the deployed worker, git history, and local working tree are aligned until these changes are committed/pushed and any needed Vercel/Trigger deployments are performed (commit/deploy only when Albert asks).
+The older 2026-06-10/11 working-tree warning has been superseded. Verified 2026-06-29: Trigger.dev prod current worker is `20260629.1`. Re-check `git status --short --branch` and Trigger.dev `get_current_worker` before future work.
 
 ### 1. Demonstrate synthesis
 
-The old Mickey/Hobby Lobby placeholder claims were hard-deleted on 2026-06-15 because they were unrelated test data. The latest `business-process.md` reprocess produced 139 real document claims in `pending_review`, but they are not approved/retrievable until reviewed. Synthesis has never been run against a real approved business-process corpus.
+Done. Earlier sessions could not meaningfully exercise synthesis because the approved corpus was too small or `brain_sections` were missing. That blocker is gone. On 2026-06-29, `domain-licensing` synthesized over 124 approved claims and promoted current version `f3de1eff-52f5-4001-9cf5-a1521d7c082f` as `needs_review`.
 
-**You cannot meaningfully synthesize without approved real claims.** Synthesis composes a narrative across a body of related approved knowledge. Before running the synthesis demo, review/approve a coherent subset of the `business-process.md` claims and/or run real transcripts through extraction so there are several related, approved claims in the same knowledge domain. Only then is a `brain-synthesis` run a useful test.
+Evidence:
 
-To unblock:
-
-1. Build up an approved-claim corpus (multiple related real claims) — approve a coherent subset of the `business-process.md` pending-review claims and/or ingest more real transcripts.
-2. Trigger `brain-synthesis` via Trigger MCP or the admin UI.
-3. Confirm a `brain_section_versions` row appears + narrative looks right.
+1. Run `run_cmqymg81k43rc0hke6yxu61gi` completed on worker `20260629.1`.
+2. `brain_sections.current_version_id` for `domain-licensing` now points to `f3de1eff-52f5-4001-9cf5-a1521d7c082f`.
+3. The version links 62 section claims and should be reviewed in admin before treating it as polished narrative.
 
 ### 2. Seed entity registry + active knowledge domains
 
-On a fresh system, almost every extraction-derived claim is **held**:
-- **Entity registry is empty** → new entities ("Albert H.", "Newark warehouse", "RFQ") are unresolved → claim held, entity queued as `entity_proposals`.
-- **`domain_valid` fails** when the model's proposed knowledge-domains don't map to active `knowledge_top_domains`.
-- **High-impact claims (≥7)** always go to `pending_review` — by design.
+Done. Prod has seeded entities and active top-domains. The review/safety model still deliberately holds unresolved entities, invalid domains, and high-impact claims, so get owner sign-off before loosening gates.
 
-This is not a bug; it's the review/safety model working as intended. Get owner sign-off before loosening.
 
 ### 3. Retrieval-backed context for live Oracle — DONE (2026-06-10)
 
@@ -382,16 +285,16 @@ Three runtime SQL bugs were fixed in `searchWithRetrievalPlan` / `buildPlanMetad
 
 The static parity guard passes unchanged (it checks filter parity between branches, not SQL validity — none of these were catchable statically).
 
-### Fresh-developer restart packet (added 2026-06-09)
+### Fresh-developer restart packet (updated 2026-06-29)
 
 Use this subsection as the first stop for a brand-new developer. The rest of this file preserves the detailed history and evidence, but this is the current operating snapshot.
 
 Current git/deploy snapshot:
-- Latest pushed commit observed: `69cfa08 docs: add fresh developer handoff packet` on `main`.
-- As of 2026-06-10 the working tree has uncommitted (but deployed) changes — see section 0 above. Re-check `git status --short --branch` before starting work.
-- Trigger.dev production worker version is **`20260615.4`** (18 tasks) as of 2026-06-15 — includes the earlier Business Process domain extraction/routing work, fixes the Node 21 Supabase `ws` transport crash in document ingestion, clears stale document processing errors on successful retry, reuses existing chunk IDs on document reprocess, switches future document chunking to larger paragraph-aware chunks, and adds large-document extraction windowing plus Markdown quote normalization. Earlier `20260614.4` added nightly `model-catalog-refresh-nightly`; the one-time production run `run_cmqdsbbag23s70hoq9y3mxw4s` completed at `2026-06-14T12:52:53Z` and wrote 85 catalog rows, with partial-refresh errors for missing production `DEEPSEEK_API_KEY` and `DASHSCOPE_API_KEY`.
-- `business-process.md` document `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea` was reprocessed successfully in Trigger run `run_cmqehatni237e0un5ioyywuez`: 12 chunks, 155 extraction candidates, 139 claims promoted to `pending_review`, 16 rejected candidates, document status `complete`, `processing_error = NULL`. These claims are still not chat/synthesis knowledge until reviewed and approved.
-- Admin Settings stage pickers now have restored "Copy job brief" text for Interview, Extraction, and Synthesis. Extraction's hard picker requirements were corrected to structured output + context >100K only; it no longer requires vision because document-image ingestion routes raw images through the auxiliary Image Vision model first, then Extraction receives text chunks.
+- Verify `git status --short --branch` before editing. On 2026-06-29, local `main` was clean against `origin/main` before this docs cleanup.
+- Trigger.dev production worker is **`20260629.1`** with 21 tasks.
+- Current extraction config: `default_vision_route=qwen/qwen3-vl-235b-a22b-thinking`, `default_extraction_route=google/gemini-2.5-flash`, extraction pool `[google/gemini-2.5-flash, vertex_gemini_2_5_flash_extraction_primary, openai/gpt-4.1-mini]`.
+- The silent-fallback and hard-coded route work is complete. Debug wrong-model questions through `model_run_attempts`, provider availability, and Admin attempt alerts.
+- `business-process.md` and later document-ingestion history produced real `pending_review`/approved claims. Chat and synthesis still only use approved claims.
 
 What The Oracle can do now:
 - Post-call Teams transcript ingestion through Microsoft Graph is live and validated for ad-hoc Teams calls when the Graph subscription exists before transcription starts.
@@ -411,9 +314,10 @@ What is intentionally disabled right now:
 - 2026-06-10 settings timeline: `teams_live_recall_disable_posting_limits` was temporarily set `true` at ~18:27 UTC for the synthetic retrieval verification and clamped back `false` at 18:35:44 UTC. Separately, `max_oracle_interjections_per_hour` was found at `3` (changed 2026-06-10 00:01:38 UTC by an unknown actor — NOT this session) and was re-clamped to `0` at 18:36:11 UTC per the guardrail above. If Albert set it to 3 intentionally, restore it deliberately.
 
 Most important next work:
-1. Run a synthesis demo by triggering `brain-synthesis` (one claim is already approved) and confirming a `brain_section_versions` row.
-2. Seed/confirm entity registry and active knowledge domains so extraction does not hold ordinary claims forever.
-3. One real live-meeting test (user present) of the retrieval-backed interjection posting path, confirming `evidenceClaimIds` lands in the assistant-message `metadata_json`.
+1. Review the new Licensing Brain draft in admin and approve/edit it if it reads well enough for demo use.
+2. Populate meeting picker subject/participant metadata if the admin transcript picker needs friendlier rows.
+3. Optionally build China side-by-side translation review.
+4. One real live-meeting test (user present) of the retrieval-backed interjection posting path, confirming `evidenceClaimIds` lands in assistant-message `metadata_json`, if live interjections are intentionally reopened.
 
 Known-good live test utterance:
 - Spoken: `Oracle, should artwork always go to China after licensor approval, or is Walmart an exception?`

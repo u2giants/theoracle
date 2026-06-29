@@ -60,8 +60,10 @@ const SENTENCE_START_STOPWORDS = new Set<string>([
   'During',
   'Each',
   'Every',
+  'Additionally',
   'For',
   'From',
+  'Furthermore',
   'However',
   'If',
   'In',
@@ -330,6 +332,7 @@ export function findUnsupportedNamedEntities(
   const unsupported: string[] = [];
   for (const phrase of candidates) {
     const lower = phrase.toLowerCase();
+    const normalizedLower = lower.replace(/(?:'s|')$/u, '');
     // Registry match is substring-aware in BOTH directions, consistent with the
     // summary side below (which uses .includes). Exact-equality on the registry
     // caused spurious holds when the candidate phrase and the registry canonical
@@ -339,10 +342,16 @@ export function findUnsupportedNamedEntities(
     // Conservative: only matches an actual registered entity, so it cannot let
     // a wholly fabricated name through.
     const inRegistry = Array.from(registryEntityCanonicalsLower).some(
-      (canon) => canon.includes(lower) || lower.includes(canon),
+      (canon) =>
+        canon.includes(lower) ||
+        lower.includes(canon) ||
+        canon.includes(normalizedLower) ||
+        normalizedLower.includes(canon),
     );
     if (inRegistry) continue;
-    const inAnySummary = approvedClaimSummariesLower.some((s) => s.includes(lower));
+    const inAnySummary = approvedClaimSummariesLower.some(
+      (s) => s.includes(lower) || s.includes(normalizedLower),
+    );
     if (inAnySummary) continue;
     unsupported.push(phrase);
   }
