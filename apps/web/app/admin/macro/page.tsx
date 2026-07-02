@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from 'drizzle-orm';
+import { desc, eq, inArray, sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import {
   macroRelationshipClaims,
@@ -33,12 +33,34 @@ export default async function AdminMacroPage() {
       status: macroRelationships.status,
       confidenceScore: macroRelationships.confidenceScore,
       impactScore: macroRelationships.impactScore,
+      triageScore: macroRelationships.triageScore,
+      sourceDensity: sql<number>`(
+        SELECT COUNT(DISTINCT concat_ws(':', mrs.source_type, mrs.document_id::text, mrs.channel_id::text, mrs.meeting_transcript_id::text))
+        FROM macro_relationship_sources mrs
+        WHERE mrs.macro_relationship_id = ${macroRelationships.id}
+      )`,
       stalenessReason: macroRelationships.stalenessReason,
       sourceOutlineId: macroRelationships.sourceOutlineId,
       createdAt: macroRelationships.createdAt,
     })
     .from(macroRelationships)
-    .orderBy(desc(macroRelationships.createdAt))
+    .orderBy(
+      sql`CASE ${macroRelationships.status}
+        WHEN 'pending_review' THEN 0
+        WHEN 'needs_review' THEN 1
+        WHEN 'blocked_pending_support' THEN 2
+        WHEN 'stale_support' THEN 3
+        ELSE 4
+      END`,
+      sql`COALESCE(${macroRelationships.triageScore}, 0) DESC`,
+      desc(macroRelationships.impactScore),
+      sql`(
+        SELECT COUNT(DISTINCT concat_ws(':', mrs.source_type, mrs.document_id::text, mrs.channel_id::text, mrs.meeting_transcript_id::text))
+        FROM macro_relationship_sources mrs
+        WHERE mrs.macro_relationship_id = ${macroRelationships.id}
+      ) DESC`,
+      desc(macroRelationships.createdAt),
+    )
     .limit(100);
 
   const supportRows =
@@ -177,7 +199,7 @@ export default async function AdminMacroPage() {
                     <span className="rounded bg-muted px-2 py-0.5 text-xs">{relationship.relationshipType}</span>
                     <span className="rounded bg-muted px-2 py-0.5 text-xs">{relationship.status}</span>
                     <span className="text-xs text-muted-foreground">
-                      impact {relationship.impactScore} · confidence {relationship.confidenceScore}
+                      triage {relationship.triageScore ?? 'n/a'} · impact {relationship.impactScore} · confidence {relationship.confidenceScore} · sources {relationship.sourceDensity}
                     </span>
                   </div>
                   <p className="mt-2 whitespace-pre-wrap">{relationship.summary}</p>
