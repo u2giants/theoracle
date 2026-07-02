@@ -4,22 +4,12 @@ Status: planning document. No implementation has landed yet.
 
 ## Executive Summary
 
-The current Oracle extraction pipeline is evidence-safe but context-myopic. It
-promotes atomic claims only after deterministic quote validation, which is the
-right foundation for trust. The weakness is that the system often asks each
-model call to reason from a bounded local window:
-
-- Document ingestion parses a source, chunks it into `document_chunks`, then
-  runs extraction over one or more 24k-character document windows.
-- Message extraction groups pending same-channel messages into 60-minute
-  conversation segments, with prior messages passed only as non-quotable
-  carry-in.
-- Brain synthesis later sees approved claims, but only the claims that already
-  survived local extraction.
-
-This creates "contextual myopia": the system can prove local fragments while
-missing source-level purpose, process sequence, pronoun/acronym resolution,
-cross-chunk relationships, long-running chat threads, and coverage gaps.
+The Oracle's current extraction pipeline is evidence-safe but context-myopic. It
+does a strong job proving small facts with source quotes, but it often fails to
+understand the larger source: workflow shape, long-running incidents,
+cross-document policy-versus-practice tension, diagram structure, and coverage
+gaps. This plan adds a macro understanding layer without weakening the trust
+contract.
 
 The target architecture is macro-first and macro-throughout:
 
@@ -27,40 +17,96 @@ The target architecture is macro-first and macro-throughout:
 Source
   -> source outline / macro map
   -> meaning-based source groups
-  -> lens-guided atomic extraction using macro context
+  -> budgeted lens-guided atomic extraction using macro context
   -> deterministic validation and promotion
   -> relationship pass over validated claims
+  -> lifecycle watcher for stale support
   -> coverage and contradiction audit
-  -> synthesis over claims plus approved macro relationships
+  -> reviewer triage and measured evals
+  -> Brain synthesis over claims plus approved macro relationships
 ```
 
-The central rule is strict: first-pass macro output is guidance, not evidence.
-It can help local extraction interpret the source, but it must not become
-approved knowledge by itself. Durable macro knowledge must be created only after
-the system can cite either quote-validated atomic claims or explicitly validated
-source spans.
+The central rule:
+
+First-pass macro output is guidance, not evidence. It can help local extraction
+interpret the source, but it must not become approved knowledge by itself.
+Durable macro knowledge must cite approved atomic claims or other explicitly
+validated source spans. Round 1 macro relationships cite approved claim IDs, not
+raw model interpretation.
+
+## Why This Is Needed
+
+Current behavior:
+
+- Document ingestion chunks text and extracts from bounded windows.
+- Message extraction splits conversations into time-bounded segments with
+  limited carry-in context.
+- Brain synthesis runs after claims are approved, so it only sees patterns that
+  survived atomized extraction.
+
+Failure modes:
+
+- Page 1 defines "offshore team"; page 15 says "notify them"; local extraction
+  misses the referent.
+- A Teams incident starts in the morning and resolves in the afternoon; the
+  60-minute segment boundary treats the resolution as an orphan fact.
+- A diagram's edge or spatial layout is lost when the vision/text pass flattens
+  the source.
+- Lens fan-out can create many near-duplicate claims.
+- A macro relationship can become stale when a supporting claim is later
+  revised, superseded, or rejected.
+
+This plan addresses those directly.
 
 ## Goals
 
-1. Preserve The Oracle's trust contract: every important answer or Brain
-   artifact remains traceable to messages, document chunks, or approved claims.
-2. Give extraction windows source-level context before they extract atomic
-   claims.
-3. Add a bounded, auditable macro-claim class whose evidence is a set of
-   approved or pending-review atomic claims.
-4. Detect when local extraction missed important parts of the source.
-5. Improve Brain synthesis so it receives process-aware clusters and macro
-   relationships instead of a flat top-200 claim list.
-6. Make the new behavior observable and reviewable in admin screens.
+1. Preserve The Oracle's traceability contract.
+2. Give atomic extraction source-level context before it extracts claims.
+3. Create a bounded macro relationship layer whose evidence is validated claim
+   IDs.
+4. Track macro relationship lifecycle when support claims are pending, approved,
+   superseded, rejected, or revised.
+5. Support cross-source relationships such as "SOP says X; Teams shows Y."
+6. Add reviewer triage so the plan does not overwhelm the review queue.
+7. Add semantic deduplication for lens fan-out.
+8. Add hard model-call, token, and cost ceilings.
+9. Use measured A/B evaluation instead of manual vibes.
+10. Prepare Brain synthesis to consume approved macro relationships safely.
+
+## Non-Negotiable Trust Requirements
+
+These are not implementation preferences. They are the trust boundary for the
+macro layer.
+
+1. Macro relationship retrieval and Brain synthesis must verify support-claim
+   approval at read time. They must not trust `macro_relationships.status`
+   alone.
+2. A watcher and staleness sweep are still required for admin visibility, but
+   they are not the only guard against stale evidence.
+3. `claim_kind` must be validated or treated as uncertain. A model-generated
+   label cannot be used as high-trust policy/practice logic without confidence
+   and review semantics.
+4. Cross-source candidate selection must be ranked and bounded before the model
+   sees it. "Same entity/domain/process stage" is a signal, not a complete
+   retrieval plan.
+5. New scheduled Trigger.dev tasks must not be added while the project is at
+   the 10/10 schedule limit. New sweeps must run through an existing scheduled
+   maintenance task, on-demand admin actions, or consolidated cron.
+6. Any macro table exposed to browser or employee-facing paths must have an RLS
+   story. Server-only service-role access is acceptable only when documented.
+7. New vector indexes must follow the existing `ORACLE_RUN_VECTOR_INDEXES=1`
+   convention instead of being created in the primary schema migration.
 
 ## Non-Goals
 
-1. Do not bypass deterministic quote validation for ordinary atomic claims.
-2. Do not let an LLM-generated source outline directly write approved claims.
-3. Do not remove the existing candidate-before-claim staging pipeline.
-4. Do not create a second, competing claim retrieval path.
-5. Do not require a new infrastructure service. State stays in Postgres;
-   workers stay in Trigger.dev; web stays in Vercel.
+1. Do not bypass quote validation for atomic claims.
+2. Do not let source outlines write approved claims.
+3. Do not replace the candidate-before-claim pipeline.
+4. Do not create a second contradiction queue that competes with the existing
+   `contradictions` table.
+5. Do not require new infrastructure beyond Postgres, Trigger.dev, Vercel, and
+   existing providers.
+6. Do not run expensive macro passes unbounded across the whole corpus.
 
 ## Current-State Constraints
 
@@ -77,20 +123,34 @@ Relevant current surfaces:
   - passes carry-in context as non-quotable context
   - runs the candidate-before-claim pipeline
 - `packages/ai/src/prompts/extraction-system.ts`
-  - strongly favors small, reviewable operational claims
+  - favors small, reviewable operational claims
   - requires one source ID and one exact quote per extracted claim
 - `packages/oracle-engines/src/extraction/promote-candidate.ts`
   - rejects candidates with no validated evidence
   - inserts permanent `claims`, `claim_top_domains`, `claim_evidence`,
     `claim_entities`, and `claim_metadata`
+- `apps/workers/src/trigger/contradiction-watcher.ts`
+  - already writes semantic contradictions to the `contradictions` table
 - `apps/workers/src/trigger/brain-synthesis.ts`
   - reads approved claims by domain
   - hard-limits the main domain read to 200 claims
   - validates generated Brain text against approved claim IDs and the entity
     registry
 
-The first implementation should respect these boundaries rather than replacing
-them wholesale.
+Operational constraints from the repo:
+
+- Trigger.dev is already at the schedule limit. Do not add standalone cron
+  tasks for macro staleness, coverage, or cleanup unless a schedule slot is
+  explicitly freed or an existing schedule is consolidated.
+- RLS is a project principle. Tables that are read with the anon key need
+  policies; tables read only through service-role server code need that boundary
+  documented in `docs/architecture.md` and `AGENTS.md` if they become durable
+  surfaces.
+- Expensive vector indexes are gated elsewhere by `ORACLE_RUN_VECTOR_INDEXES`.
+  Macro vector columns can be added in the main migration, but HNSW/IVFFlat
+  index creation belongs in a gated vector-index migration.
+
+Round 1 should extend these surfaces, not replace them.
 
 ## Target Concepts
 
@@ -99,16 +159,16 @@ them wholesale.
 A source outline is a provisional macro reading of a source. It answers:
 
 - What is this source?
-- What business process or situation is it about?
+- What business process or incident is it about?
 - Which departments, roles, systems, customers, licensors, factories, and
   geographies appear?
 - Which acronyms, pronouns, aliases, or shorthand terms need resolution?
-- What stages, branches, handoffs, exceptions, or open issues are visible?
-- Which source chunks or messages seem to belong together conceptually?
-- Which extraction lenses should run against this source?
+- What stages, branches, handoffs, exceptions, observed practices, and open
+  issues are visible?
+- Which source chunks/messages belong together conceptually?
+- Which extraction lenses should run?
 
-It is guidance, not truth. It is allowed to be wrong. Downstream validators must
-not treat it as evidence.
+The outline is guidance only. It is not evidence and cannot be quoted.
 
 ### Source Group
 
@@ -116,61 +176,136 @@ A source group is a meaning-based subset of source material. Examples:
 
 - chunks that describe the same workflow stage
 - transcript messages that are part of the same incident even if hours apart
-- all chunks about a specific exception branch
-- all messages naming a particular customer, factory, or system
+- chunks about a specific exception branch
+- all source rows about one customer, factory, system, or licensor
 
-Source groups are used to build better extraction inputs than arbitrary windows.
+Source groups improve extraction inputs and reviewer organization.
+
+### Extraction Lens
+
+A lens is a targeted extraction pass. Examples:
+
+- handoffs
+- exceptions and workarounds
+- ownership and roles
+- dependencies and sequence
+- systems and data entry
+- definitions and acronyms
+- customer or licensor risk
+- contradictions and tensions
+
+The source outline recommends lenses, but a deterministic budget gate decides
+which lens tasks actually run.
 
 ### Atomic Claim
 
 An atomic claim is the existing claim shape: a concrete operational statement
-with one or more quote-validated evidence rows. Round 1 can keep one evidence
-row per candidate. Future rounds can allow multiple direct quote evidence rows
-per atomic claim when the summary explicitly combines multiple quoted facts.
+with direct quote-validated evidence. Round 1 keeps the current direct evidence
+rules unchanged.
+
+### Claim Kind
+
+`claim_kind` is distinct from `claim_type`.
+
+`claim_type` describes the shape of the fact:
+
+- process_rule
+- exception_rule
+- dependency
+- bottleneck
+- workaround
+- system_limitation
+- handoff_gap
+- contradiction
+- process_ambiguity
+
+`claim_kind` describes the source posture:
+
+- `policy` - official documented rule or SOP
+- `observed_practice` - what employees actually do or report doing
+- `workaround` - a non-standard method used because the official path is
+  insufficient
+- `exception` - sanctioned deviation from the standard path
+- `historical` - past behavior that may not be current
+- `uncertain` - unresolved or contested statement
+
+This vocabulary is essential for macro understanding. It lets the system
+distinguish:
+
+- policy versus observed practice
+- exception versus contradiction
+- workaround versus official process
+- old process versus current process
+
+Round 1 can store this in `claim_metadata.metadata_json` if available, but the
+recommended durable implementation is:
+
+- nullable `claims.claim_kind`
+- nullable `claims.claim_kind_confidence integer`
+- nullable `claims.claim_kind_review_status varchar(50)`
+  - `model_labeled`
+  - `reviewed`
+  - `uncertain`
+
+Rules:
+
+- If the model is unsure, it must emit `uncertain`.
+- Low-confidence `claim_kind` must not drive automatic policy-vs-practice
+  macro relationships.
+- Reviewer approve/revise flows must let reviewers correct `claim_kind`.
+- Synthesis should prefer reviewed or high-confidence `policy` claims over
+  conversational `observed_practice`, but must not treat an unreviewed
+  low-confidence `policy` label as authoritative.
 
 ### Macro Relationship
 
-A macro relationship is source-level knowledge inferred from already validated
-atomic claims. It should be represented as either:
-
-- a new `macro_relationships` table, or
-- a controlled claim subtype with claim-to-claim evidence.
-
-Recommended: use a dedicated table first, then optionally promote selected
-relationships into `claims` after the review flow is proven.
+A macro relationship is source-level or cross-source knowledge inferred from
+validated atomic claims.
 
 Examples:
 
 - "Licensor approval gates the handoff from Design to the China factory lane."
 - "The failed-QA branch loops back to sample revision before customer update."
-- "The morning delay discussion and afternoon resolution refer to the same
-  packaging-artwork blocker."
+- "The SOP says approvals should happen in Coldlion, but Teams discussions show
+  designers still route some approvals through spreadsheets."
 
-Evidence is a list of validated claim IDs, not a free-form quote.
+Evidence is a list of validated claim IDs, not a free-form quote. Round 1
+stores macro relationships in a dedicated table. Later, selected relationship
+types may become claim-like artifacts if review proves the lifecycle.
 
 ### Coverage Finding
 
-A coverage finding says the source outline expected something that the extracted
+A coverage finding says the source outline expected something that extracted
 claims did not cover. It should usually create a gap, not a claim.
 
 Examples:
 
 - "The outline identifies a QA-fail branch, but no claim captures who owns it."
-- "The source defines three approval stages; only stage 1 and stage 3 produced
+- "The source defines three approval stages; only stages 1 and 3 produced
   claims."
 - "Pronoun 'them' appears to refer to the offshore team, but no claim captured
   that definition."
+
+### Relationship Staleness
+
+Macro relationships are only as strong as their support claims. If any support
+claim changes status from `approved` to `rejected`, `superseded`, or otherwise
+non-current, an approved macro relationship must become stale and leave the
+trusted knowledge path until revalidated.
+
+This is a hard provenance rule, not a nice-to-have.
 
 ## Data Model Plan
 
 ### Phase 1 Tables
 
-Add hand-written SQL migrations and Drizzle schema for these tables.
+Add Drizzle schema entries and hand-written SQL migration:
+
+`packages/db/migrations/sql/79_macro_understanding.sql`
 
 #### `source_outlines`
 
-Purpose: durable, provisional macro context for a document or conversation
-episode.
+Purpose: durable, provisional macro context for a source.
 
 Suggested columns:
 
@@ -179,9 +314,7 @@ Suggested columns:
   - `document`
   - `channel_thread`
   - `meeting_transcript`
-- `document_id uuid references documents(id)`
-- `channel_id uuid references channels(id)`
-- `meeting_transcript_id uuid`
+  - `cross_source_set`
 - `status varchar(50) not null default 'provisional'`
   - `provisional`
   - `superseded`
@@ -192,15 +325,41 @@ Suggested columns:
 - `source_hash varchar(64) not null`
 - `outline_json jsonb not null`
 - `summary text`
+- `budget_json jsonb`
 - `created_at timestamptz default now() not null`
 - `updated_at timestamptz default now() not null`
 
+Do not put `document_id` or `channel_id` directly on this table as the only
+lineage. Use `source_outline_sources` so the same outline can represent one
+document, one channel thread, one meeting, or a cross-source set.
+
+#### `source_outline_sources`
+
+Purpose: source-level lineage for outlines.
+
+Suggested columns:
+
+- `id uuid primary key default gen_random_uuid()`
+- `source_outline_id uuid references source_outlines(id) on delete cascade`
+- `source_type varchar(50) not null`
+  - `document`
+  - `channel`
+  - `meeting_transcript`
+  - `message_range`
+  - `manual_collection`
+- `document_id uuid references documents(id)`
+- `channel_id uuid references channels(id)`
+- `meeting_transcript_id uuid`
+- `start_message_id uuid references messages(id)`
+- `end_message_id uuid references messages(id)`
+- `source_hash varchar(64)`
+- `metadata_json jsonb`
+
 Indexes:
 
-- `(source_type, document_id, created_at desc)`
-- `(source_type, channel_id, created_at desc)`
-- unique partial latest index is optional; simpler first version can query newest
-  non-failed row by `(source_type, source_id, created_at desc)`.
+- `(source_outline_id)`
+- `(document_id)`
+- `(channel_id)`
 
 #### `source_outline_source_refs`
 
@@ -210,6 +369,7 @@ Suggested columns:
 
 - `id uuid primary key default gen_random_uuid()`
 - `source_outline_id uuid references source_outlines(id) on delete cascade`
+- `outline_element_id varchar(100)`
 - `ref_type varchar(50) not null`
   - `document_chunk`
   - `message`
@@ -224,13 +384,6 @@ Suggested columns:
   - `exception_evidence`
   - `open_question_evidence`
 - `metadata_json jsonb`
-
-Indexes:
-
-- `(source_outline_id)`
-- `(document_chunk_id)`
-- `(message_id)`
-- `(claim_id)`
 
 #### `source_groups`
 
@@ -249,8 +402,12 @@ Suggested columns:
   - `open_question`
 - `title text not null`
 - `description text`
+- `embedding vector(1536)`
 - `sort_order integer`
 - `metadata_json jsonb`
+
+The optional embedding supports semantic deduplication and chat incident
+stitching.
 
 #### `source_group_items`
 
@@ -258,17 +415,19 @@ Purpose: ordered membership of chunks/messages in a source group.
 
 Suggested columns:
 
+- `id uuid primary key default gen_random_uuid()`
 - `source_group_id uuid references source_groups(id) on delete cascade`
 - `item_type varchar(50) not null`
+  - `document_chunk`
+  - `message`
 - `document_chunk_id uuid references document_chunks(id)`
 - `message_id uuid references messages(id)`
 - `sort_order integer not null default 0`
-- primary key can be `(source_group_id, item_type, document_chunk_id,
-  message_id)` if implemented carefully; a surrogate `id` is simpler.
+- `metadata_json jsonb`
 
 #### `macro_relationships`
 
-Purpose: durable source-level relationships inferred from validated claims.
+Purpose: durable relationships inferred from validated claims.
 
 Suggested columns:
 
@@ -278,32 +437,58 @@ Suggested columns:
   - `handoff`
   - `sequence`
   - `exception_path`
-  - `contradiction_or_tension`
+  - `policy_vs_practice_tension`
+  - `workaround_to_system_limitation`
   - `definition_resolution`
   - `coverage_gap`
 - `summary text not null`
 - `status varchar(50) not null default 'pending_review'`
   - `pending_review`
+  - `blocked_pending_support`
   - `approved`
+  - `needs_review`
+  - `stale_support`
   - `rejected`
   - `superseded`
+- `staleness_reason text`
+- `stale_since timestamptz`
 - `source_outline_id uuid references source_outlines(id)`
-- `document_id uuid references documents(id)`
-- `channel_id uuid references channels(id)`
 - `confidence_score integer not null`
 - `impact_score integer not null`
+- `triage_score numeric`
+- `embedding vector(1536)`
 - `metadata_json jsonb`
 - `model_run_id uuid references model_runs(id)`
 - `context_pack_id uuid references oracle_context_packs(id)`
 - `created_at timestamptz default now() not null`
 - `updated_at timestamptz default now() not null`
 
-Indexes:
+Do not make `document_id` or `channel_id` the primary lineage. Relationships can
+be single-source or cross-source. Source lineage comes from support claims and
+`macro_relationship_sources`.
 
-- `(status, created_at desc)`
-- `(document_id)`
-- `(channel_id)`
-- `(relationship_type)`
+Read-time trust note:
+
+`status='approved'` is an admin workflow state, not sufficient evidence for
+trusted serving. Any query that serves macro relationships to Brain, chat, MCP,
+or synthesis must also prove every support claim is currently approved.
+
+#### `macro_relationship_sources`
+
+Purpose: explicit cross-source lineage for macro relationships.
+
+Suggested columns:
+
+- `id uuid primary key default gen_random_uuid()`
+- `macro_relationship_id uuid references macro_relationships(id) on delete cascade`
+- `source_type varchar(50) not null`
+- `document_id uuid references documents(id)`
+- `channel_id uuid references channels(id)`
+- `meeting_transcript_id uuid`
+- `metadata_json jsonb`
+
+This table lets a relationship connect Document X and Channel Y without forcing
+array columns into `macro_relationships`.
 
 #### `macro_relationship_claims`
 
@@ -320,13 +505,37 @@ Suggested columns:
   - `contrasts`
   - `defines`
   - `resolves`
+  - `policy_anchor`
+  - `practice_anchor`
+  - `workaround_anchor`
+- `claim_status_at_link varchar(50) not null`
+- `claim_version_hash varchar(64)`
 - `sort_order integer not null default 0`
 - `created_at timestamptz default now() not null`
 - primary key `(macro_relationship_id, claim_id, support_role)`
 
-Validator rule: every linked claim must have `status in ('approved',
-'pending_review')` when the relationship is created, and only `approved` linked
-claims can support an `approved` macro relationship.
+Store `claim_status_at_link` so admin can see when a relationship was created
+over pending support versus approved support.
+
+#### `macro_relationship_review_events`
+
+Purpose: append-only audit similar to `claim_review_events`.
+
+Suggested columns:
+
+- `id uuid primary key default gen_random_uuid()`
+- `macro_relationship_id uuid references macro_relationships(id) on delete cascade`
+- `action varchar(50) not null`
+  - `approve`
+  - `reject`
+  - `revise`
+  - `mark_stale`
+  - `revalidate`
+- `reviewed_by_employee_id uuid references employees(id)`
+- `reviewer_note text`
+- `before_state jsonb not null`
+- `after_state jsonb`
+- `created_at timestamptz default now() not null`
 
 #### `source_coverage_findings`
 
@@ -336,8 +545,6 @@ Suggested columns:
 
 - `id uuid primary key default gen_random_uuid()`
 - `source_outline_id uuid references source_outlines(id)`
-- `document_id uuid references documents(id)`
-- `channel_id uuid references channels(id)`
 - `finding_type varchar(100) not null`
   - `missing_stage`
   - `missing_owner`
@@ -350,6 +557,8 @@ Suggested columns:
 - `suggested_question text`
 - `related_claim_ids jsonb not null default '[]'::jsonb`
 - `related_source_refs jsonb not null default '[]'::jsonb`
+- `severity integer not null default 5`
+- `triage_score numeric`
 - `status varchar(50) not null default 'open'`
   - `open`
   - `converted_to_gap`
@@ -358,38 +567,186 @@ Suggested columns:
 - `created_gap_id uuid references gaps(id)`
 - `created_at timestamptz default now() not null`
 
-### Phase 2 Schema Extensions
+### Existing Table Extensions
 
-After the separate macro table proves useful, decide whether to add
-claim-to-claim evidence to the permanent claim model:
+#### `claims.claim_kind`
 
-- add `sourceType='claim'` to the evidence source enum, or replace the enum with
-  a varchar plus CHECK
-- add nullable `source_claim_id` to `claim_evidence` and
-  `extraction_candidate_evidence`
-- allow a candidate evidence row to validate by checking referenced claim IDs,
-  not quote text
+Recommended durable extension:
 
-Do this only after documenting a new decision in `DECISIONS.md`.
+- `claim_kind varchar(50)`
+- `claim_kind_confidence integer`
+- `claim_kind_review_status varchar(50)`
 
-Recommended decision name:
+Allowed values:
 
-`D-macro-relationship-evidence`
+- `policy`
+- `observed_practice`
+- `workaround`
+- `exception`
+- `historical`
+- `uncertain`
 
-Decision boundary:
+Add a CHECK constraint in hand-written SQL. If a hard enum is preferred later,
+do it in a generated migration after the values settle.
 
-- Atomic claims still need direct source quotes.
-- Macro relationships may cite approved claim IDs as evidence.
-- A macro relationship is never evidence for another macro relationship in
-  round 1. This prevents unsupported inference chains.
+Validation/defaults:
+
+- default `claim_kind` to `uncertain` when absent
+- default `claim_kind_review_status` to `model_labeled` for model output
+- set `claim_kind_review_status='reviewed'` during human approve/revise when
+  the reviewer confirms or changes it
+- macro logic that depends on policy/practice distinction must require either
+  reviewed kind or confidence above a configured threshold
+
+#### `extraction_batches`
+
+No schema change required for new batch types because `batch_type` is already a
+varchar. New values:
+
+- `document_source_group`
+- `document_lens_group`
+- `source_outline`
+- `macro_relationship`
+- `coverage_audit`
+
+#### `provider_cached_content`
+
+No schema change required for round 1 if existing lifecycle fields are enough.
+If not enough, add:
+
+- `consumer_task_type varchar(100)`
+- `consumer_source_id uuid`
+- `expected_terminal_signal varchar(100)`
+
+The cleanup worker can still use existing `cleanup_owner`, `status`,
+`hard_expiration_at`, and provider metadata.
+
+## Lifecycle Rules
+
+### Macro Relationship State Machine
+
+```text
+pending_review
+  -> blocked_pending_support
+  -> pending_review
+  -> approved
+  -> needs_review
+  -> approved
+
+approved
+  -> stale_support
+  -> needs_review
+  -> approved
+
+pending_review / blocked_pending_support / needs_review
+  -> rejected
+
+approved / rejected
+  -> superseded
+```
+
+Rules:
+
+1. A macro relationship can be created from `pending_review` or `approved`
+   support claims.
+2. If any support claim is `pending_review`, the macro relationship status is
+   `blocked_pending_support` unless manually forced to `pending_review` for
+   review visibility.
+3. A macro relationship cannot become `approved` unless every support claim is
+   `approved`.
+4. If any support claim leaves `approved`, an approved macro relationship must
+   become `stale_support`.
+5. If a support claim is superseded by a replacement, the relationship may be
+   revalidated against the replacement only through a worker or reviewer action.
+6. Revalidation must write a `macro_relationship_review_events` row.
+
+### Staleness Watcher
+
+Implement a watcher, not just creation-time validation.
+
+Options:
+
+1. Application watcher in claim review actions.
+   - When `updateClaimStatus` or `reviseClaim` changes a claim status, call
+     `markMacroRelationshipsStaleForClaim(claimId)`.
+   - Low migration risk, easy to test.
+2. Scheduled worker.
+   - Periodically scans for approved macro relationships whose support claims
+     are no longer approved.
+   - Catches drift from scripts or future code paths.
+3. Database trigger.
+   - Strongest guard, but more migration complexity.
+
+Recommendation:
+
+- Round 1: implement application watcher plus a sweep that runs through an
+  existing scheduled worker or manual admin action. Do not add a new Trigger.dev
+  schedule while the project is at 10/10 schedules.
+- Round 2: add DB trigger only if drift still appears.
+
+Important:
+
+The watcher is not the read-time trust boundary. Brain/chat/MCP queries must
+still join support claims and verify approval at read time.
+
+Sweep query shape:
+
+```sql
+SELECT mr.id
+FROM macro_relationships mr
+JOIN macro_relationship_claims mrc ON mrc.macro_relationship_id = mr.id
+JOIN claims c ON c.id = mrc.claim_id
+WHERE mr.status = 'approved'
+  AND c.status <> 'approved';
+```
+
+Then set:
+
+- `status='stale_support'`
+- `staleness_reason='support claim left approved status'`
+- `stale_since=now()`
+
+Read-time serving query shape:
+
+```sql
+SELECT mr.*
+FROM macro_relationships mr
+WHERE mr.status = 'approved'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM macro_relationship_claims mrc
+    JOIN claims c ON c.id = mrc.claim_id
+    WHERE mrc.macro_relationship_id = mr.id
+      AND c.status <> 'approved'
+  );
+```
+
+Every retrieval/synthesis/MCP query must use this pattern or a shared helper
+that enforces it.
+
+### Approval-Driven Revalidation
+
+When a support claim is approved:
+
+1. Find macro relationships in `blocked_pending_support` or `needs_review` that
+   reference it.
+2. If all support claims are now approved, move to `pending_review`.
+3. Optionally enqueue a revalidation model call if the relationship was created
+   before one or more support claims were revised.
+4. Do not auto-approve in round 1.
+
+This avoids the lifecycle gap where macro relationships are generated right
+after extraction but never rechecked after human claim approval.
 
 ## Prompt and Output Schemas
 
-Create new prompt/schema files under `packages/ai/src/prompts/`:
+Create new prompt/schema files:
 
-- `source-outline.ts`
-- `macro-relationship.ts`
-- `coverage-audit.ts`
+- `packages/ai/src/prompts/source-outline.ts`
+- `packages/ai/src/prompts/macro-relationship.ts`
+- `packages/ai/src/prompts/coverage-audit.ts`
+- update `packages/ai/src/prompts/extraction-system.ts` to include
+  `claimKind` in extraction output once the schema supports it
 
 ### Source Outline Schema
 
@@ -418,12 +775,11 @@ Core fields:
   - `nextStageIds`
   - `sourceRefs`
 - `handoffs`
-  - `from`
-  - `to`
-  - `artifactOrDecision`
-  - `condition`
-  - `sourceRefs`
 - `exceptions`
+- `policyPracticeSignals`
+  - `policyRefs`
+  - `observedPracticeRefs`
+  - `workaroundRefs`
 - `openQuestions`
 - `recommendedExtractionLenses`
 - `sourceGroups`
@@ -432,32 +788,44 @@ Core fields:
   - `sourceRefs`
   - `whyGrouped`
 
-Important prompt rule:
+Prompt rules:
 
-The outline must say "unknown" when a source does not define a term or owner.
-It must not invent missing process steps.
+- Say "unknown" when the source does not define a term or owner.
+- Do not invent missing process steps.
+- Use source refs only from the supplied list.
+- Mark every outline element as provisional.
+- For visual sources, preserve spatial layout and directional edges when
+  available.
 
-### Lens Extraction
+### Multimodal Source Outline
 
-Keep the existing extraction output schema for atomic claims in round 1, but add
-a preface block that includes the source outline and the active lens.
+For images, PDFs with diagrams, spreadsheets, spec sheets, HTS/duty sheets,
+factory forms, or visual layouts, the source-outline worker should be
+multimodal:
 
-Suggested lenses:
+- provide raw image/PDF input where the selected provider supports it
+- provide parsed text chunks as a second view
+- ask the model to reconcile spatial structure with OCR/text extraction
 
-- `handoffs`
-- `exceptions_and_workarounds`
-- `ownership_and_roles`
-- `dependencies_and_sequence`
-- `systems_and_data_entry`
-- `contradictions_and_tensions`
-- `definitions_and_acronyms`
-- `customer_or_licensor_risk`
+Do not make multimodal outlining mandatory for plain text or markdown. Use a
+document-class heuristic:
 
-Implementation rule:
+- always multimodal for image uploads
+- multimodal for PDFs when parser metadata or file context indicates diagram,
+  table-heavy spec, schematic, form, or layout
+- text-only for normal markdown, txt, and docx unless uploader context requests
+  visual reasoning
 
-Each lens pass still emits ordinary atomic candidates with direct exact quotes.
-If the active window does not support a claim with one direct quote, the model
-should emit a gap or leave it to the relationship pass.
+### Lens Extraction Schema
+
+Keep existing atomic extraction output shape, with additions:
+
+- `claimKind`
+- `lens`
+- `sourceGroupId`
+
+Every lens output still requires direct evidence quote validation. The model may
+use source outline context to resolve meaning, but cannot cite outline text.
 
 ### Macro Relationship Schema
 
@@ -473,14 +841,16 @@ Core fields:
 - `confidenceScore`
 - `reviewReason`
 - `riskFlags`
+- `sourcesInvolved`
 
 Hard validation:
 
-- `supportingClaimIds.length >= 2` for most relationship types.
 - Every supporting claim ID must be from the supplied list.
 - Approved macro relationships require all support claims to be approved.
 - The summary may not introduce named entities absent from support claim
   summaries or the canonical entity registry.
+- The relationship must not duplicate an existing approved or pending macro
+  relationship above the near-duplicate threshold.
 
 ### Coverage Audit Schema
 
@@ -499,6 +869,8 @@ Core fields:
   - `manual_review`
   - `ignore`
 
+The finding must not assert a new operational fact as true.
+
 ## Worker Plan
 
 ### New Worker: `source-outline`
@@ -512,28 +884,31 @@ Inputs:
 - `{ documentId }`
 - later: `{ channelId, before?, after? }`
 - later: `{ meetingTranscriptId }`
+- later: `{ sourceSetId }`
 
 Document flow:
 
 1. Load `documents` row.
-2. Load all `document_chunks` for the document, ordered by `chunk_index`.
-3. Build a full-source prompt. If the source is too large, use the provider
-   cache/file-backed path where available; otherwise run a map-reduce outline:
-   per-window mini outlines followed by a merge outline.
-4. Compile through `OracleAIClient` using the `general` auxiliary route first.
-   Do not overload the extraction route with outline work.
-5. Insert `oracle_context_packs`, `model_runs`, `model_run_usage_details`, and
-   `model_run_attempts`.
-6. Insert `source_outlines`, `source_outline_source_refs`, `source_groups`, and
-   `source_group_items`.
-7. Mark stale prior outlines for the same source as `superseded` if their
-   `source_hash` differs.
+2. Load all `document_chunks`.
+3. Decide text-only versus multimodal outline.
+4. Build a full-source prompt.
+5. Use provider cache/file-backed path where available.
+6. If the source is too large or provider does not support the needed modality,
+   run map-reduce outlining:
+   - per-window mini outlines
+   - merge outline
+7. Compile through `OracleAIClient`.
+8. Write `oracle_context_packs`, `model_runs`, usage, and attempts.
+9. Insert `source_outlines`, `source_outline_sources`,
+   `source_outline_source_refs`, `source_groups`, and `source_group_items`.
+10. Embed `source_groups` for semantic thread stitching and dedup.
+11. Supersede older outlines when `source_hash` differs.
 
-Why use `general`:
+Route:
 
-The outline is reading and organizing, not enforcing extraction JSON. Keeping it
-as an auxiliary route allows admins to select a strong long-context model
-without changing extraction pools.
+- start with `default_general_purpose_route`
+- add `default_macro_route` only if macro workloads need different model
+  economics than taxonomy/general tasks
 
 ### Modify Worker: `document-ingestion`
 
@@ -555,40 +930,60 @@ parse
   -> embed
   -> source outline
   -> source groups
-  -> lens-guided extraction over groups/windows
+  -> budgeted lens-guided extraction over groups/windows
+  -> semantic dedup before promotion/review
   -> validate/promote
   -> macro relationship pass
   -> coverage audit
+  -> cache cleanup
 ```
 
 Implementation details:
 
-1. After chunk insertion, call an internal `ensureSourceOutlineForDocument()`.
-2. Include the latest non-failed outline as a `semi_stable_domain_context`
-   prompt block in each extraction plan.
+1. After chunk insertion, call `ensureSourceOutlineForDocument()`.
+2. Include latest non-failed outline as a `semi_stable_domain_context` block.
 3. Replace or augment `buildDocumentChunkWindows()` with
    `buildDocumentExtractionUnits()`:
-   - prefer `source_groups`
-   - preserve the max prompt budget
-   - include adjacent chunk context as non-evidentiary context when needed
-   - ensure the active evidence chunks are clearly labeled and citeable
-4. Add lens scheduling:
-   - round 1: one normal extraction pass plus targeted `handoffs` and
-     `exceptions_and_workarounds`
-   - round 2: add more lenses behind settings
-5. Keep quote validation unchanged for atomic claims.
-6. After all atomic candidates are processed, trigger
-   `macro-relationship-extraction` and `source-coverage-audit` for the
-   document.
+   - prefer source groups
+   - preserve max prompt budget
+   - include adjacent context as non-evidentiary context
+   - clearly label active evidence chunks
+4. Let source outline recommend lenses.
+5. Apply deterministic budget gate before triggering lens tasks:
+   - max lenses per document
+   - max source groups per document
+   - max model calls per document
+   - max estimated input tokens
+   - max estimated USD
+6. Run selected lens tasks through Trigger.dev child tasks.
+7. Keep quote validation unchanged for atomic claims.
+8. Run semantic dedup before sending near-duplicates to review.
+9. Trigger macro relationship extraction and coverage audit when atomic passes
+   complete or when enough support claims are approved.
+10. Release provider caches when all planned consumers finish or the budget is
+    exhausted.
 
-Idempotency:
+### New Worker: `document-lens-extraction`
 
-- Use `source_hash` over full normalized source text plus outline prompt version.
-- Use `extraction_batches.batchType` values such as:
-  - `document_source_group`
-  - `document_lens_group`
-- Do not reprocess groups whose `(source_group_id, lens, source_hash,
-  prompt_version)` already completed unless admin requests reevaluation.
+Location:
+
+`apps/workers/src/trigger/document-lens-extraction.ts`
+
+Inputs:
+
+- `{ documentId, sourceOutlineId, sourceGroupId, lens }`
+
+This makes lens passes independently retryable and budgetable.
+
+Flow:
+
+1. Load source group items.
+2. Load source outline summary and relevant outline elements.
+3. Build extraction prompt with active lens.
+4. Run existing extraction route candidate chain.
+5. Stage candidates through the same validation/promotion code.
+6. Record lens and source group metadata in `extraction_batches` and
+   `raw_candidate_json`.
 
 ### New Worker: `macro-relationship-extraction`
 
@@ -600,27 +995,159 @@ Inputs:
 
 - `{ documentId }`
 - `{ channelId, sourceOutlineId }`
-- optional `{ sourceOutlineId }`
+- `{ sourceOutlineId }`
+- `{ claimIds, relationshipScope: 'cross_source' }`
 
 Flow:
 
-1. Load the latest source outline.
-2. Load claims created from this source:
-   - document: `claim_evidence -> document_chunks -> documents`
-   - chat: `claim_evidence -> messages -> channel_id`
-3. Prefer `status in ('approved', 'pending_review')`.
-4. Group by source group, process stage, domain, entity, and claim type.
-5. Run `OracleAIClient.runObject` with the macro relationship schema.
-6. Validate:
-   - all support claim IDs exist
-   - support claims belong to the source or allowed adjacent thread context
-   - no support claim is rejected or superseded
-   - if relationship status is `approved`, all support claims must be approved
-   - summary named entities are backed by support claims or entity registry
-7. Insert `macro_relationships` as `pending_review`.
-8. Insert `macro_relationship_claims`.
-9. Optionally auto-approve low-risk relationships only after there is admin
-   review experience. Round 1 should not auto-approve.
+1. Load source outline when available.
+2. Load candidate support claims:
+   - same document
+   - same channel/thread
+   - explicit claim ID set for cross-source runs
+   - cross-source related claims selected by entity/domain/process-stage
+     overlap
+3. Include claim status and `claim_kind`.
+4. Group by:
+   - source group
+   - process stage
+   - domain
+   - entity
+   - claim kind
+   - source type
+5. Run macro relationship prompt.
+6. Validate relationship and support IDs.
+7. Run semantic near-duplicate check.
+8. Insert `macro_relationships`:
+   - `blocked_pending_support` if any support is pending
+   - `pending_review` if all support is approved but relationship is not
+     reviewed
+9. Insert `macro_relationship_claims`.
+10. Insert `macro_relationship_sources`.
+11. For contradiction/tension relationships, call or enqueue the existing
+    contradiction path instead of creating a parallel queue.
+
+### Cross-Source Candidate Selection
+
+Cross-source macro relationships are a retrieval problem. The worker must not
+hand the model an unbounded pile of all claims sharing a domain.
+
+Candidate selection should be staged:
+
+1. Pick a seed.
+   - changed claim
+   - source outline element
+   - coverage finding
+   - approved policy claim
+   - observed-practice/workaround claim
+2. Retrieve candidate pools with separate caps:
+   - top K by shared entities
+   - top K by same or neighboring top domains
+   - top K by process stage
+   - top K by embedding similarity
+   - top K by source recency or source authority
+   - top K opposite-kind claims, such as `policy` versus
+     `observed_practice`/`workaround`
+3. Rerank with a deterministic score:
+   - entity overlap
+   - domain proximity
+   - process-stage match
+   - semantic similarity
+   - source-type diversity
+   - claim kind confidence/review status
+   - impact and confidence
+4. Diversify:
+   - cap claims per source
+   - require at least two source types for policy/practice comparisons when
+     possible
+   - avoid sending many near-duplicates from the same document
+5. Hard cap the final model input:
+   - max support candidates per relationship run
+   - max claims per source
+   - max total tokens
+   - max estimated cost
+
+Defaults should be conservative, for example:
+
+- 20 to 40 total candidate claims per cross-source macro call
+- 8 claims per source maximum
+- no more than 3 source documents/channels unless manually requested
+
+If candidate selection cannot build a high-quality bounded set, create a
+coverage finding or gap instead of asking the model to infer a relationship from
+noise.
+
+### Contradiction Integration
+
+Do not create two contradiction systems.
+
+Rule:
+
+- Macro relationship type `policy_vs_practice_tension` and
+  `contradiction_or_tension` should feed the existing `contradictions` table or
+  a shared review surface.
+
+Implementation options:
+
+1. Macro worker writes to `contradictions` when it finds two conflicting support
+   claims.
+2. Macro worker creates a macro relationship with relationship type
+   `policy_vs_practice_tension`, then a bridge worker creates/updates a
+   `contradictions` row.
+3. Existing contradiction watcher reads macro candidates as additional signals.
+
+Recommendation:
+
+- Round 1: macro worker creates a macro relationship and, when the relationship
+  is a direct claim-vs-claim conflict, upserts a `contradictions` row with a
+  metadata pointer to the macro relationship.
+- Admin UI should link between the two instead of duplicating review decisions.
+
+### New Worker Logic: `macro-relationship-staleness-sweep`
+
+Location if implemented as a standalone task:
+
+`apps/workers/src/trigger/macro-relationship-staleness-sweep.ts`
+
+Deployment constraint:
+
+Do not add a new scheduled task for this while Trigger.dev is at the 10/10
+schedule limit. Prefer:
+
+- call the sweep from an existing scheduled worker
+- add a shared maintenance task if an existing schedule is consolidated
+- expose an admin on-demand action
+- call targeted stale-marking directly from claim review actions
+
+Flow:
+
+1. Find approved macro relationships with non-approved support claims.
+2. Mark them `stale_support`.
+3. Write review event.
+4. Optionally enqueue revalidation when superseded support has a replacement.
+
+Schedule:
+
+- daily or every few hours depending on volume, but only through an existing or
+  consolidated schedule
+- also callable from claim review actions
+
+### New Worker: `macro-relationship-revalidation`
+
+Inputs:
+
+- `{ macroRelationshipId }`
+- `{ claimId }`
+
+Flow:
+
+1. Load relationship and support claims.
+2. If support claims are pending, keep `blocked_pending_support`.
+3. If support claims are all approved, validate named entities and support
+   status.
+4. If support includes superseded claims with replacements, ask model/reviewer
+   whether replacement claims preserve the relationship.
+5. Move to `pending_review`, `needs_review`, or `stale_support`.
 
 ### New Worker: `source-coverage-audit`
 
@@ -628,24 +1155,14 @@ Location:
 
 `apps/workers/src/trigger/source-coverage-audit.ts`
 
-Inputs:
-
-- `{ documentId }`
-- `{ sourceOutlineId }`
-
 Flow:
 
 1. Load outline.
-2. Load extracted atomic claims and macro relationships for the source.
-3. Ask the model what outline elements are not represented.
-4. Validate output references:
-   - outline element IDs must exist
-   - claim IDs must exist
-   - source refs must belong to the source
+2. Load extracted atomic claims and macro relationships.
+3. Ask what outline elements are not represented.
+4. Validate references.
 5. Insert `source_coverage_findings`.
-6. For `recommendedAction='create_gap'`, create `gaps` rows with a new
-   `gap_type` such as `source_coverage_gap`, or reuse an existing operational
-   gap type if it fits.
+6. Optionally create gaps.
 
 ### Modify Worker: `claim-extraction`
 
@@ -653,58 +1170,204 @@ Round 1 for chat:
 
 1. Keep current 60-minute segments for atomic extraction.
 2. Add `thread_state_summary` as a source outline variant for channel threads.
-3. After each segment, update the latest channel outline with:
+3. After each segment, update latest channel outline with:
    - active entities
    - unresolved references
    - open operational problems
    - recent decisions
    - possible continuation markers
-4. Pass the latest outline into future segment extraction as
+4. Pass latest outline into future segment extraction as
    `semi_stable_domain_context`.
-5. Do not let prior outline content be quoted or claimed directly.
+5. Do not let prior outline content be quoted.
 
 Round 2 for chat:
 
-1. Build long-running incident threads by clustering messages across time using:
-   - same channel
+1. Build incident threads across time using:
+   - channel
    - shared entities
    - shared customer/licensor/system
-   - reply metadata if available
-   - semantic similarity over message embeddings if later added
+   - reply metadata
+   - vector similarity between new thread summary and active source groups
 2. Run macro relationship extraction over completed incident threads.
+
+### Semantic Thread Stitching
+
+When a new segment summary is generated:
+
+1. Embed the `thread_state_summary`.
+2. Search active `source_groups` for same channel or related channels.
+3. If cosine similarity is above threshold and entity overlap is sufficient,
+   attach new messages to the existing incident source group.
+4. Otherwise create a new source group.
+
+This prevents same-day incidents from splitting just because time passed.
 
 ### Modify Worker: `brain-synthesis`
 
 Round 1:
 
-1. Load approved macro relationships relevant to the section's top domains.
-2. Include them in the synthesis corpus after atomic claims:
-
-```text
-APPROVED MACRO RELATIONSHIPS:
-- ID: ...
-  Type: dependency
-  Relationship: ...
-  Supporting claims: ...
-```
-
-3. Extend synthesis validation so a paragraph may cite:
-   - approved claim IDs, and/or
+1. Load approved macro relationships relevant to section top domains.
+2. Include:
+   - relationship summary
+   - relationship type
+   - impact score
+   - confidence score
+   - support claim IDs
+   - claim kinds of support claims
+3. Prompt synthesis to prioritize:
+   - high confidence
+   - high impact
+   - approved policy relationships over low-confidence conversational
+     inferences
+   - policy-versus-practice tensions explicitly, without picking a winner
+4. Extend validator so paragraphs may cite:
+   - approved claim IDs
    - approved macro relationship IDs
-4. Require macro relationship IDs to resolve to approved rows.
-5. The validator should still inspect the underlying support claim summaries for
-   named-entity backing.
+5. Validator must expand macro citations to underlying support claims for named
+   entity backing.
 
 Round 2:
 
-1. Replace the flat top-200 read with staged subtopic/cluster batches:
+1. Replace flat top-200 input with staged cluster batches:
    - high-impact claims
    - recently changed claims
    - approved macro relationships
    - taxonomy subtopics
    - explicit section bindings
-2. Generate or refresh one subsection at a time.
-3. Preserve existing rejected-version behavior on validation failure.
+2. Generate one subsection at a time.
+3. Preserve rejected-version behavior on validation failure.
+
+## Cache Lifecycle Orchestration
+
+Macro passes may use large provider caches. At scale, leaving caches to TTL can
+waste money and clutter provider state.
+
+Use existing `provider_cached_content` as the source of truth.
+
+### Cache Lease Model
+
+When a source outline or lens pass creates a provider cache:
+
+- record expected consumer count
+- record planned consumer tasks
+- record hard expiration
+- record cleanup owner
+- record provider-specific delete handle
+
+When a consumer task completes:
+
+- decrement or record completion in `provider_metadata_json`
+- if all planned consumers complete, call explicit provider delete where
+  supported
+- mark cache row `deleted`
+
+Provider nuance:
+
+- Vertex explicit caches should be deleted when done.
+- DeepSeek automatic prefix cache may not expose delete handles; mark lifecycle
+  as not user-managed.
+- Qwen/OpenAI/Anthropic cache semantics differ by adapter; cleanup should be
+  provider-capability driven, not hard-coded to Vertex behavior.
+
+### Cleanup Hooks
+
+Add cleanup calls at:
+
+- successful completion of all lens tasks for a document
+- budget exhaustion
+- document ingestion failure
+- macro pass failure after no retry remains
+- scheduled orphan cleanup
+
+Do not depend only on `claim-extraction-batch-drain`; document lens extraction
+and macro passes may not flow through that worker.
+
+## Cost and Budget Plan
+
+Add hard settings:
+
+- `enable_source_outline_pass`
+- `enable_macro_relationship_pass`
+- `enable_source_coverage_audit`
+- `macro_outline_max_chars`
+- `macro_max_lenses_per_document`
+- `macro_max_source_groups_per_document`
+- `macro_max_model_calls_per_document`
+- `macro_max_input_tokens_per_document`
+- `macro_max_estimated_cost_usd_per_document`
+- `macro_relationship_max_support_claims`
+- `macro_lenses_enabled`
+
+Budget gate behavior:
+
+1. Estimate calls/tokens/cost before dispatch.
+2. Sort candidate lenses by outline recommendation confidence and expected
+   value.
+3. Dispatch until budget is exhausted.
+4. Record skipped lenses with reason.
+5. Show budget summary in Admin Documents.
+
+Default rollout:
+
+- outline pass enabled manually only
+- macro relationship pass manual only
+- no automatic coverage audit until reviewer queue impact is known
+
+## Semantic Deduplication Plan
+
+Candidate hash dedup is necessary but insufficient. Lens passes will produce
+near-duplicates with different wording or quote choices.
+
+Add a near-duplicate pass before review:
+
+1. Embed candidate summaries.
+2. Compare within same source and source group first.
+3. Compare against existing pending/approved claims for the same document or
+   channel.
+4. Flag near-duplicates above threshold.
+5. Either:
+   - mark lower-confidence candidate as duplicate
+   - merge evidence into existing candidate/claim
+   - show as duplicate cluster in review UI
+
+Round 1 can be conservative:
+
+- do not auto-delete near-duplicates
+- collapse them visually in admin review
+- let reviewer choose the best summary
+
+## Reviewer Triage Plan
+
+Reviewer load is the adoption risk. The system already has review bottlenecks;
+macro work will add more.
+
+Add `triage_score` to macro relationships and coverage findings.
+
+Suggested scoring:
+
+- impact score
+- confidence score
+- customer/licensor risk
+- number of support claims
+- number of distinct sources
+- policy-versus-practice tension
+- source importance
+- recency
+- coverage severity
+- whether supporting claims are all approved
+- whether relationship affects Brain sections or MCP-visible knowledge
+
+Admin UI must default-sort by triage score, not created time.
+
+Review queue categories:
+
+- Needs attention now
+- Blocked on claim approval
+- Possible duplicates
+- Low-risk backlog
+- Stale support
+
+Round 1 should not auto-approve macro relationships.
 
 ## Admin UI Plan
 
@@ -712,28 +1375,34 @@ Round 2:
 
 Enhance `apps/web/app/admin/documents`:
 
-- show source outline status
-- show model used for outline
-- show outline summary
-- show process stages and source groups
-- add actions:
-  - "Generate outline"
-  - "Regenerate outline"
-  - "Run macro relationship pass"
-  - "Run coverage audit"
-  - "Reevaluate document with macro context"
+- source outline status
+- model used for outline
+- outline summary
+- process stages and source groups
+- recommended lenses and skipped-budget reasons
+- macro budget summary
+- cache lifecycle status
+- coverage findings
+
+Actions:
+
+- Generate outline
+- Regenerate outline
+- Run selected lenses
+- Run macro relationship pass
+- Run coverage audit
+- Reevaluate document with macro context
 
 ### Admin Claims
 
-Round 1:
+Enhance claim rows:
 
-- show whether a claim was extracted with a source outline
-- show source group/lens metadata if available
-
-Round 2:
-
-- add filter by source group, lens, or process stage
-- show related macro relationships for each claim
+- claim kind
+- source outline used
+- source group
+- lens
+- near-duplicate cluster
+- related macro relationships
 
 ### New Admin Page: Macro Review
 
@@ -743,30 +1412,34 @@ Path:
 
 Features:
 
-- pending review queue
+- triage-sorted pending queue
+- blocked pending support queue
+- stale support queue
 - relationship summary
+- relationship type
+- impact/confidence
 - source outline summary
 - supporting claim cards with evidence quotes
+- support claim statuses
+- source lineage across documents/channels
 - approve/reject/revise
+- revalidate
 - convert to gap
-- links back to document/chunks/messages
+- link to contradiction row where applicable
 
-Actions:
+### Admin Contradictions
 
-- approve macro relationship
-- reject macro relationship
-- revise summary
-- create gap from relationship/finding
+Show macro relationship links for contradictions created or enriched by macro
+passes. Do not make reviewers resolve the same tension in two unrelated places.
 
-Audit:
+### Admin AI Eval
 
-- add `macro_relationship_review_events`, or use a generic review event table.
-  Prefer a dedicated table if the UI needs before/after snapshots similar to
-  `claim_review_events`.
+Extend `/admin/ai/extraction-ab` or add a sibling macro eval page:
 
-### Admin Gaps
-
-Show coverage findings that created gaps and link back to source outline.
+- compare outline-injected extraction versus baseline
+- compare lens selection strategies
+- score accept rate, revision rate, duplicate rate, quote failure rate, and
+  macro coverage
 
 ## Retrieval and Chat Plan
 
@@ -778,22 +1451,75 @@ Round 1:
 
 Round 2:
 
-- Add macro relationships to retrieval context as a separate retrieved block,
-  not mixed into atomic claim RRF at first.
-- Search macro relationships by:
-  - embedded summary
+- Add macro relationship retrieval as a separate retrieved block.
+- Include only approved macro relationships whose support claims are verified
+  approved at read time.
+- Search by:
+  - embedded relationship summary
   - linked support claim domains/entities
   - relationship type
-- Include only approved macro relationships.
-- In chat prompt, label them distinctly:
+  - claim kind mix
+- Label distinctly:
 
 ```text
 APPROVED PROCESS RELATIONSHIPS
 These are higher-level relationships supported by approved claim IDs.
 ```
 
-This avoids contaminating the single endorsed claim retrieval path while adding
-a second, explicitly typed retrieval stream.
+Do not hide macro relationships inside the atomic claim RRF path in round 1.
+
+### Read-Time Support Verification
+
+All macro relationship read helpers must enforce:
+
+- `macro_relationships.status = 'approved'`
+- no linked support claim has `claims.status <> 'approved'`
+- relationship is not `stale_support`, `needs_review`,
+  `blocked_pending_support`, `pending_review`, `rejected`, or `superseded`
+
+This must happen in SQL or a single shared server helper used by Brain, chat,
+MCP, and admin previews. Do not rely on denormalized status alone.
+
+Example helper location:
+
+- `packages/oracle-engines/src/macro/approved-relationships.ts`
+
+The helper should return relationship rows plus support claim summaries so
+callers can expand provenance without issuing ad hoc queries.
+
+## Security and RLS Plan
+
+Round 1 macro tables should be server-only:
+
+- `source_outlines`
+- `source_outline_sources`
+- `source_outline_source_refs`
+- `source_groups`
+- `source_group_items`
+- `macro_relationships`
+- `macro_relationship_sources`
+- `macro_relationship_claims`
+- `macro_relationship_review_events`
+- `source_coverage_findings`
+
+Server-only means:
+
+- all admin pages use server components/actions with `getDirectDb()`
+- employee chat route reads through server-side service-role code only
+- no client component queries these tables directly with the anon key
+
+If any browser path later reads these tables through Supabase anon client, add
+RLS policies before exposing it.
+
+Minimum future RLS posture:
+
+- employees may read only approved macro relationships that pass read-time
+  support verification and are allowed to appear in chat/MCP context
+- admins may read all rows
+- writes are service-role only
+- review events are append-only via server actions
+
+Document this boundary in `docs/architecture.md` when the implementation lands.
 
 ## Validation Plan
 
@@ -809,140 +1535,198 @@ No weakening:
 
 ### Source Outlines
 
-Validation should check structure only:
+Validate structure only:
 
 - JSON schema valid
 - source refs exist and belong to the source
 - no invented chunk/message IDs
 - maximum sizes respected
+- multimodal outline records which raw assets and text chunks were visible
 
-Outlines are allowed to contain uncertain language.
+Outlines are allowed to contain uncertainty.
 
 ### Macro Relationships
 
-Validation should check:
+Validate:
 
-- all supporting claim IDs exist
-- support claims are not rejected or superseded
+- support claim IDs exist
+- support claims are not rejected or superseded at creation
+- approved relationship support claims are all approved
 - source scoping is correct
-- relationship summary does not introduce unsupported named entities
-- if status is `approved`, every support claim is approved
+- summary does not introduce unsupported named entities
+- relationship is not a near-duplicate above threshold
 - no recursive support from another macro relationship in round 1
-- no relationship with fewer than two support claims unless type is
-  `definition_resolution` and it has a clear source outline ref
+- cross-source relationships have explicit source lineage
+- `claim_kind`-dependent relationship types require reviewed or high-confidence
+  claim kinds, otherwise they become `needs_review` or a coverage finding
+
+### Staleness
+
+Validate continuously:
+
+- claim review actions mark affected macro relationships stale or blocked
+- sweep through an existing/consolidated schedule catches drift
+- retrieval and synthesis verify support approval at read time
+- Brain and chat retrieval exclude `stale_support`, `needs_review`,
+  `blocked_pending_support`, `pending_review`, and `rejected`
+
+### Claim Kind
+
+Validate:
+
+- absent kind defaults to `uncertain`
+- low-confidence kind cannot be treated as policy/practice truth
+- reviewer approve/revise can correct kind
+- policy-vs-practice macro relationships include kind confidence/review status
+  in the prompt and validator
+- synthesis treats unreviewed low-confidence `policy` as weaker than reviewed
+  policy
 
 ### Coverage Findings
 
-Validation should check:
+Validate:
 
 - referenced outline element exists
 - source refs belong to the source
 - suggested gap text is actionable
-- finding does not assert a new operational fact as true
+- finding does not assert new operational truth
 
-## Settings Plan
+## Evaluation Plan
 
-Add settings:
+Use the existing extraction A/B machinery instead of manual comparison.
 
-- `enable_source_outline_pass`
-- `enable_macro_relationship_pass`
-- `enable_source_coverage_audit`
-- `macro_outline_max_chars`
-- `macro_relationship_max_support_claims`
-- `macro_lenses_enabled`
-- `default_macro_route`
+### Extend Existing A/B Harness
 
-`default_macro_route` should be implemented as a new auxiliary model:
+Current surfaces:
 
-- add to `packages/ai/src/routes/auxiliary.ts`
-- expose in Admin Settings
-- seed with `ON CONFLICT DO NOTHING`
+- `apps/workers/src/trigger/extraction-ab-eval.ts`
+- `/admin/ai/extraction-ab`
 
-Alternative:
+Add variants:
 
-- reuse `default_general_purpose_route` initially.
+- baseline extraction
+- outline-injected extraction
+- outline plus selected lens extraction
+- alternate model route if needed
 
-Recommendation:
+Metrics:
 
-- Start by reusing `general` to keep migration small.
-- Add `macro` auxiliary slot only if outline/relationship calls need different
-  model economics than taxonomy naming and other general work.
+- accepted claim rate
+- reviewer revision rate
+- quote validation failure rate
+- near-duplicate rate
+- handoff/dependency/exception recall
+- coverage findings resolved by extraction
+- macro relationships approved/rejected
+- cost per accepted claim
+- cost per approved macro relationship
 
-## Observability Plan
+Fixtures:
 
-Every new model call must write:
+- diagram with branches
+- multi-page SOP with acronym/pronoun dependencies
+- Teams incident split across hours
+- policy document plus Teams workaround thread
+- table-heavy manufacturing/spec sheet
 
-- `oracle_context_packs`
-- `model_runs`
-- `model_run_usage_details`
-- `model_run_attempts`
+Success threshold:
 
-Use task types:
+- outline injection must improve accepted useful claims or reduce revisions
+  enough to justify cost
+- lens fan-out must not inflate duplicate review load beyond threshold
+- macro relationships must have a materially higher approval rate than generic
+  model summaries
 
-- `source_outline`
-- `macro_relationship_extraction`
-- `source_coverage_audit`
+## Brain Synthesis Protection
 
-Context pack observability:
+The Brain may cite approved macro relationship IDs only when:
 
-- `includedDocumentChunkIds`
-- `includedMessageIds`
-- `includedClaimIds`
-- `selectedDomains`
-- source outline ID in `blocksJson` metadata or a future
-  `includedSourceOutlineIds` field
+- relationship status is `approved`
+- relationship is not stale
+- all support claims are approved
+- support claims are included or expandable in the synthesis validator
 
-Admin run summaries should show:
+Prompt must include:
 
-- outline generated or skipped
-- groups created
-- extraction units run
-- candidates staged
-- claims promoted
-- macro relationships proposed
-- coverage findings created
-- failures by validation check
+- relationship `impact_score`
+- relationship `confidence_score`
+- support claim IDs
+- claim kinds
+- relationship type
+
+Prompt instruction:
+
+- prioritize high-confidence structural workflow rules
+- distinguish policy from observed practice
+- explicitly mention unresolved policy/practice tension rather than resolving it
+  without evidence
+- avoid elevating low-confidence conversational inferences above official policy
+
+Validator:
+
+- rejects unknown macro IDs
+- rejects stale/unapproved macro IDs
+- expands macro support claims for named-entity backing
+- optionally requires paragraphs citing macro IDs to cite at least one
+  underlying claim ID in structured support data
 
 ## Migration and Backfill Plan
 
 ### Migration 1
 
-Add source outline tables and macro relationship tables.
+Add:
+
+- source outline tables
+- source group tables
+- macro relationship tables
+- coverage finding table
+- `claims.claim_kind`
+- `claims.claim_kind_confidence`
+- `claims.claim_kind_review_status`
 
 Files:
 
 - `packages/db/src/schema.ts`
 - `packages/db/migrations/sql/79_macro_understanding.sql`
 
-If generated Drizzle migration is desired later, keep the hand-written SQL
-idempotent and reconcile drift intentionally.
-
 ### Migration 2
 
-Add optional metadata fields to existing tables:
+Add any indexes needed after production query plans are observed:
 
-- `extraction_batches.batch_type` values are varchar already, so no schema
-  change needed for new batch types.
-- `documents` can remain unchanged if outlines live in `source_outlines`.
-  Avoid adding `documents.global_context_json` because it will become cramped
-  and hides version history.
+- macro relationship embedding index
+- source group embedding index
+- triage/status indexes
+- cross-source relationship source indexes
+
+Vector index rule:
+
+- Add vector columns in `79_macro_understanding.sql`.
+- Do not create HNSW/IVFFlat indexes in that migration.
+- Add vector indexes in a gated vector-index migration following the existing
+  `ORACLE_RUN_VECTOR_INDEXES=1` pattern, likely near
+  `packages/db/migrations/sql/99_vector_indexes.sql`.
+- Document any new vector index names and build commands in
+  `docs/deployment.md` or the migration README when implemented.
 
 ### Backfill
 
-1. Generate source outlines for the most important existing documents first.
-2. Run macro relationship extraction on documents with:
-   - many approved claims
-   - known workflow/process content
-   - known diagram/image ingestion issues
-3. Do not backfill every document immediately. Cost and reviewer load will be
-   high.
+Do not backfill all documents at once.
 
-Backfill script:
+Priority:
+
+1. known workflow documents
+2. known diagram/image ingestion incidents
+3. documents with many approved claims
+4. documents feeding active Brain sections
+5. Teams transcripts tied to known operational incidents
+
+Script:
 
 - `scripts/backfill-source-outlines.mjs`
 - dry-run by default
 - filters by document ID, status, created date, minimum approved claims
 - triggers tasks rather than doing provider work inline
+- respects per-document and global budget caps
 
 ## Implementation Phases
 
@@ -950,319 +1734,328 @@ Backfill script:
 
 Deliverables:
 
-- add `DECISIONS.md` entry for macro understanding
-- confirm evidence rule:
+- `DECISIONS.md` entry for macro understanding
+- define evidence rule:
   - source outlines are guidance
   - atomic claims require direct quotes
   - macro relationships cite validated claim IDs
-- add this plan to docs map
+  - approved macro relationships require approved support claims
+  - stale support removes relationships from trusted retrieval/synthesis
+- trusted retrieval/synthesis must verify support approval at read time
+- record schedule constraint: no new Trigger.dev cron until the 10/10 schedule
+  limit is resolved or schedules are consolidated
+- record RLS/service-role boundary for new macro tables
+- record vector-index gate for source group and macro relationship embeddings
+- update docs map
 
-Acceptance criteria:
+Acceptance:
 
-- future sessions can name the provenance boundary in one paragraph
-- no code change yet mutates production behavior
+- provenance boundary is explicit
+- no runtime behavior changes
 
 ### Phase 1: Source Outline Storage and Worker
 
 Deliverables:
 
-- schema and migration for `source_outlines`, refs, groups, group items
-- `packages/ai/src/prompts/source-outline.ts`
-- `apps/workers/src/trigger/source-outline.ts`
-- admin action to generate outline for a document
+- schema/migration for outlines, sources, refs, groups, group items
+- source outline prompt/schema
+- `source-outline` worker for documents
+- admin action to generate outline
 - context pack/model run logging
 
-Acceptance criteria:
+Acceptance:
 
-- a document can produce one source outline
-- outline source refs all validate against existing chunks
-- admin can inspect the outline
-- no claims are created by this pass
+- document can produce an outline
+- outline refs validate
+- admin can inspect outline
+- no claims are created
 
-Suggested tests:
-
-- schema typecheck
-- prompt schema parse smoke
-- source ref validator smoke
-- local fixture document outline smoke with mock adapter if available
-
-### Phase 2: Inject Outline into Document Extraction
+### Phase 2: Outline Injection Into Extraction
 
 Deliverables:
 
-- `ensureSourceOutlineForDocument()` in document ingestion
-- extraction prompt includes outline as `semi_stable_domain_context`
-- extraction batches record outline ID in context metadata
-- feature flag `enable_source_outline_pass`
-
-Acceptance criteria:
-
-- document ingestion still succeeds when outline generation fails if feature is
-  configured as non-blocking
-- extracted claims still validate exact quotes
-- context packs show the outline block
-- disabling the feature returns to current behavior
-
-Suggested tests:
-
-- document ingestion typecheck
-- a fixture where pronoun/acronym resolution improves
-- quote validation regression: outline text cannot be cited as evidence
-
-### Phase 3: Meaning-Based Source Groups and Lens Extraction
-
-Deliverables:
-
-- `buildDocumentExtractionUnits()` prefers source groups
-- lens prompt addendum
-- batch metadata includes lens and source group ID
-- settings for enabled lenses
-
-Acceptance criteria:
-
-- the system can run handoff and exception lens passes
-- every lens output still enters the same candidate validation path
-- duplicate detection prevents obvious repeated claims across lenses
-
-Suggested tests:
-
-- fixture with handoff hidden across sections
-- fixture with exception branch in later chunk
-- duplicate candidate hash regression
-
-### Phase 4: Macro Relationship Extraction
-
-Deliverables:
-
-- schema for `macro_relationships` and `macro_relationship_claims`
-- prompt/schema for macro relationships
-- worker
-- validators
-- admin review page
-
-Acceptance criteria:
-
-- model can propose relationships over validated document claims
-- invalid claim IDs are rejected
-- rejected/superseded support claims are rejected
-- pending macro relationships are visible in admin
-- approving a macro relationship requires all support claims to be approved
-
-Suggested tests:
-
-- validator unit tests
-- macro relationship prompt schema smoke
-- admin action typecheck
-- fixture where two atomic claims produce one dependency relationship
-
-### Phase 5: Coverage Audit and Gap Creation
-
-Deliverables:
-
-- `source_coverage_findings`
-- coverage audit prompt/schema
-- worker
-- admin document coverage tab
-- optional gap creation action
-
-Acceptance criteria:
-
-- the system identifies at least one missing stage/owner in a fixture
-- findings never become claims automatically
-- created gaps link back to coverage finding/source outline
-
-Suggested tests:
-
-- fixture with outline stage not represented by claims
-- validator rejects invented refs
-
-### Phase 6: Chat Thread State
-
-Deliverables:
-
-- source outline support for channel threads
-- rolling thread summary after message segment extraction
-- injection into future message extraction
+- `ensureSourceOutlineForDocument()`
+- extraction context block includes outline
 - feature flag
+- quote validation regression test that outline text cannot be cited
 
-Acceptance criteria:
+Acceptance:
 
-- follow-up segments receive prior thread state
-- prior thread state cannot be cited as evidence
-- no segment extraction is blocked by a failed summary update
+- document ingestion still works if outline generation fails in non-blocking
+  mode
+- claims still require direct quotes
+- context packs show outline block
 
-Suggested tests:
+### Phase 3: Claim Kind
 
-- two-segment fixture where "them" resolves from earlier segment
-- quote validation rejects thread summary text
+Deliverables:
 
-### Phase 7: Brain Synthesis Integration
+- `claims.claim_kind`
+- `claims.claim_kind_confidence`
+- `claims.claim_kind_review_status`
+- extraction schema emits claim kind
+- admin displays claim kind
+- reviewer approve/revise can correct claim kind
+- retrieval/synthesis can use claim kind as context
+
+Acceptance:
+
+- policy versus observed practice can be represented
+- low-confidence kind defaults to uncertain behavior
+- revision flow preserves/updates claim kind
+
+### Phase 4: Budgeted Source Groups and Lens Extraction
+
+Deliverables:
+
+- source groups drive extraction units
+- outline-recommended lenses become child tasks after budget gate
+- semantic dedup before review
+- admin displays skipped lens reasons
+
+Acceptance:
+
+- lenses improve recall on fixtures
+- duplicate queue is controlled
+- budget limits are enforced
+
+### Phase 5: Macro Relationship Extraction and Lifecycle
+
+Deliverables:
+
+- macro relationship schema
+- macro relationship worker
+- validators
+- review events
+- staleness watcher
+- read-time support approval helper
+- approval-driven revalidation
+- admin macro review page
+
+Acceptance:
+
+- pending support blocks approval
+- approved relationship goes stale when support claim dies
+- stale relationships are excluded from Brain/chat by both status and read-time
+  support verification
+- support approval can move relationship back to review
+- no new scheduled Trigger.dev task is added unless a schedule slot exists or
+  schedules are consolidated
+
+### Phase 6: Coverage Audit and Gap Creation
+
+Deliverables:
+
+- coverage finding table
+- coverage audit worker
+- admin coverage surface
+- gap creation from findings
+
+Acceptance:
+
+- missing stages/owners can be detected
+- findings do not become claims automatically
+
+### Phase 7: Cross-Source Macro Relationships
+
+Deliverables:
+
+- cross-source support claim selection
+- bounded/ranked candidate retrieval
+- macro relationship sources
+- policy-versus-practice tension detection
+- contradiction integration
+
+Acceptance:
+
+- relationship can connect Document X and Channel Y
+- candidate set is capped, ranked, and source-diversified
+- contradiction queue is not duplicated
+- claim kind improves relationship classification
+
+### Phase 8: Chat Thread State
+
+Deliverables:
+
+- channel/thread source outlines
+- semantic incident stitching
+- source group embeddings
+- future segment context injection
+
+Acceptance:
+
+- long-running incident is grouped across time
+- thread state cannot be cited as evidence
+
+### Phase 9: Brain Synthesis Integration
 
 Deliverables:
 
 - synthesis loads approved macro relationships
-- synthesis corpus includes macro relationships and supporting claim IDs
-- diff validator accepts approved macro relationship citations
-- Brain section UI can display macro relationship citations
+- prompt includes impact/confidence/support claims/claim kinds
+- validator accepts safe macro citations
+- stale macro IDs reject
+- synthesis query verifies all support claims are still approved at read time
 
-Acceptance criteria:
+Acceptance:
 
-- Brain synthesis can cite macro relationship IDs
-- unsupported macro IDs reject the synthesis
-- named-entity validation still works through support claims
-- sections with more than 200 claims are not silently limited to a flat top-200
-  input in the final design
+- Brain can cite approved macro relationships
+- stale or support-invalid relationships are excluded
+- named-entity validation still works
 
-Suggested tests:
-
-- synthesis validator test with macro relationship citation
-- rejection test for unapproved relationship
-- regression: atomic-claim-only synthesis still works
-
-### Phase 8: Retrieval and Chat Use of Macro Relationships
+### Phase 10: Retrieval and Chat Use
 
 Deliverables:
 
 - macro relationship retrieval helper
-- chat route includes approved macro relationship context in a separate block
+- chat prompt includes approved macro relationships separately
 - context packs record included macro IDs
 
-Acceptance criteria:
+Acceptance:
 
-- chat answers can use approved macro relationships
-- answers cite or reference underlying approved claims where needed
-- existing `searchWithRetrievalPlan` remains the endorsed atomic claim path
-
-Suggested tests:
-
-- retrieval helper unit smoke
-- chat context pack smoke
-- no macro relationship leakage when feature disabled
+- chat can use approved macro relationships
+- no macro leakage when disabled
+- atomic claim retrieval path remains endorsed and unchanged
 
 ## Rollout Plan
 
-1. Ship tables and source outline worker behind feature flags.
+1. Ship schema and source outline worker behind flags.
 2. Generate outlines manually for 3 to 5 known workflow documents.
-3. Compare extraction quality with and without outline injection.
+3. Run A/B eval: baseline versus outline-injected extraction.
 4. Enable outline injection for admin document uploads only.
-5. Add macro relationship proposals, review manually, no auto-approval.
-6. Add coverage audit, create gaps manually at first.
-7. Integrate approved macro relationships into synthesis.
-8. Only after reviewer trust is established, consider limited auto-approval for
-   low-risk macro relationships.
+5. Add claim kind.
+6. Add budgeted source groups and one or two lenses.
+7. Add semantic dedup and reviewer triage before broad lens rollout.
+8. Add macro relationship proposals with no auto-approval.
+9. Add read-time support verification and staleness watcher before any macro
+   relationship can be used by Brain.
+10. Add coverage audit.
+11. Add cross-source macro relationships.
+12. Integrate approved macro relationships into Brain.
+13. Integrate approved macro relationships into chat retrieval.
 
 ## Quality Metrics
 
-Track before/after:
+Track:
 
-- claim acceptance rate
+- accepted claim rate
 - quote validation failure rate
+- reviewer revision rate
 - rejected claim rate by reason
-- number of handoff/dependency/exception claims per source
-- reviewer revisions per 100 claims
+- near-duplicate rate
+- claims per source by claim type and claim kind
+- handoff/dependency/exception recall
 - coverage findings per source
-- macro relationships approved/rejected
+- macro relationships proposed/approved/rejected/stale
+- blocked macro relationships waiting on support approval
+- staleness events
+- reviewer queue size and age
+- cost per source
+- cost per approved claim
+- cost per approved macro relationship
 - Brain synthesis validation failures
-- admin-reported "missed big picture" incidents
-- answer quality for broad process questions
-
-Useful evaluation fixtures:
-
-- a flowchart/diagram with branches
-- a multi-page SOP with acronyms and pronouns
-- a Teams transcript where problem and resolution are separated by hours
-- a business-process document with cross-department handoffs
-- a document where one section defines a term and later sections use shorthand
+- broad process answer quality
 
 ## Risks and Mitigations
 
-Risk: first-pass outline pollutes atomic claims with unsupported assumptions.
+Risk: source outline pollutes atomic claims with unsupported assumptions.
 
 Mitigation:
 
-- label outline as context only
-- prohibit outline source IDs as evidence
-- keep exact quote validation unchanged
-- add tests where model tries to quote outline text
+- outline is context only
+- outline source IDs are not valid evidence IDs
+- quote validation unchanged
+- tests where model tries to quote outline text
+
+Risk: macro relationships become stale.
+
+Mitigation:
+
+- lifecycle states
+- application watcher
+- sweep through an existing/consolidated schedule or admin action
+- retrieval/synthesis verifies support claims at read time and excludes
+  stale/unapproved relationships
 
 Risk: macro relationships weaken provenance.
 
 Mitigation:
 
-- keep them in a separate table first
-- require support claim IDs
-- require support claims to be approved before macro approval
-- document the exception in `DECISIONS.md`
+- separate table first
+- support claim IDs required
+- approval requires approved support
+- no recursive macro support in round 1
 
-Risk: cost and latency increase significantly.
-
-Mitigation:
-
-- feature flags
-- manual admin triggers first
-- use provider caching for long sources
-- run lens passes selectively
-- avoid immediate full backfill
-
-Risk: reviewer UI becomes overwhelming.
+Risk: reviewer queue explodes.
 
 Mitigation:
 
-- start with documents page outline display
-- separate macro review queue
-- group by source and relationship type
-- convert weak relationships into gaps instead of claims
+- triage score
+- duplicate clustering
+- budgeted lens fan-out
+- no automatic broad backfill
 
-Risk: synthesis trusts macro relationships too much.
-
-Mitigation:
-
-- synthesis validator resolves macro relationship support claims
-- require paragraphs citing macro IDs to cite underlying claim IDs in structured
-  output or store the expansion server-side
-- keep rejection behavior unchanged
-
-Risk: duplicate claims increase because lens passes overlap.
+Risk: cost cliff.
 
 Mitigation:
 
-- candidate hash dedup remains active
-- lens metadata helps inspect overlap
-- add per-source duplicate reports
+- per-document budget settings
+- deterministic lens cap
+- cache leases and cleanup
+- manual rollout first
+
+Risk: contradiction duplication.
+
+Mitigation:
+
+- macro contradiction/tension feeds existing contradiction path
+- admin UI links relationship and contradiction
+
+Risk: vision/text outline misses spatial meaning.
+
+Mitigation:
+
+- multimodal source outline for images, diagrams, forms, spec sheets, and
+  spatial PDFs
 
 ## Open Questions
 
-1. Should macro relationships be a separate first-class artifact permanently,
-   or eventually become a claim type with claim-to-claim evidence?
-2. Should source outlines be generated automatically for every upload, or only
-   for documents above a size/complexity threshold?
-3. Which model should own macro passes: `general`, `synthesis`, or a new
-   `macro` auxiliary route?
-4. Should pending-review atomic claims be allowed as support for pending macro
-   relationships? Recommended: yes. For approved macro relationships:
-   approved support only.
-5. Should macro relationships be visible to employee chat before Brain
-   synthesis uses them? Recommended: no until admin approval is established.
-6. How should source groups interact with batch extraction mode?
-7. Do we need embeddings for source outlines and macro relationships in round 1?
-   Recommended: macro relationship embeddings yes before chat retrieval;
-   source outline embeddings optional.
+1. Should macro relationships remain separate forever, or eventually become a
+   claim subtype with claim-to-claim evidence?
+2. Should `claim_kind` be a checked varchar first or a Postgres enum?
+3. Which macro relationship types should feed `contradictions` automatically?
+4. What default budget is acceptable per document?
+5. Which model should own macro passes: general, synthesis, or a new macro
+   auxiliary route?
+6. What near-duplicate threshold is safe enough to collapse review UI without
+   hiding distinct facts?
+7. Should source group embeddings use the same embedding model as claims?
+8. When a support claim is superseded, can replacement mapping be automatic, or
+   must it always be reviewer-approved?
 
 ## First Slice Recommendation
 
-The first shippable slice should be deliberately small:
+The first shippable slice should be conservative:
 
-1. Add `source_outlines`, `source_outline_source_refs`, `source_groups`, and
-   `source_group_items`.
-2. Add `source-outline` worker for documents only.
-3. Add a manual "Generate outline" action on Admin Documents.
-4. Show the outline in Admin Documents.
-5. Inject the outline into document extraction behind
-   `enable_source_outline_pass`.
-6. Prove with one fixture that outline text cannot be cited as evidence and
-   direct quote validation remains unchanged.
+1. Add source outline and source group tables.
+2. Add document-only `source-outline` worker.
+3. Add manual "Generate outline" on Admin Documents.
+4. Show outline and groups in Admin Documents.
+5. Inject outline into document extraction behind a feature flag.
+6. Add A/B eval comparing baseline versus outline-injected extraction.
+7. Prove outline text cannot be cited as evidence.
 
-Then add macro relationships as the second slice.
+Second slice:
 
-This avoids changing the evidence model in the first release while still moving
-the pipeline from bottom-up only to macro-first local extraction.
+1. Add `claim_kind`.
+2. Add budgeted handoff and exception lenses.
+3. Add semantic dedup in review UI.
+
+Third slice:
+
+1. Add macro relationships.
+2. Add support-claim lifecycle states.
+3. Add staleness watcher before Brain or chat can consume them.
+
+This sequence moves the system toward macro-first understanding without taking
+a risky shortcut around provenance.
