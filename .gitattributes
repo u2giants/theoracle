@@ -1,0 +1,2 @@
+/.gitattributes text eol=lf
+packages/db/migrations/*.sql text eol=lf
