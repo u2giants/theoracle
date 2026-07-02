@@ -1,0 +1,4411 @@
+{
+  "exportedAt": "2026-07-02T22:09:01.707Z",
+  "baseline": "current-gui-before-rerun",
+  "document": {
+    "id": "9d09fa89-3a46-465e-a98b-837287c9e22a",
+    "file_name": "Pop Creations Flow 12112025 (1).png",
+    "status": "complete",
+    "created_at": "2026-06-22T22:02:48.251Z",
+    "processed_at": "2026-07-02T23:18:35.756Z",
+    "processing_error": null
+  },
+  "summary": [
+    {
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "n": 57
+    },
+    {
+      "status": "pending_review",
+      "claim_type": "exception_rule",
+      "claim_kind": "observed_practice",
+      "n": 9
+    },
+    {
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "n": 55
+    },
+    {
+      "status": "approved",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "n": 1
+    }
+  ],
+  "chunks": [
+    {
+      "id": "205b5079-5d68-403a-aa50-f7e667efbf1d",
+      "chunk_index": 0,
+      "page_number": null,
+      "content_hash": "b07622db49bdaa902fb81da42c6643b1f5de2ba81f1ae2d8b8206e76bfa73282",
+      "raw_text_preview": "Visual transcription of uploaded image \"Pop Creations Flow 12112025 (1).png\" (image/png), produced by a vision model because the source is an image rather than text.\n\nEdge Home - Licensed Flow\n\n### Swimlane: Albert :)\n[Rectangle: \"Factory selection\"]\n\n### Swimlane: Buyer\n[Rectangle: \"Meeting Scheduled\"]\n[Rectangle: \"Meeting w Buyer / Trendboards\"]\n[Rectangle: \"Call/email from the buyer\"]\n[Rectangle: \"Buyer's Approval\"]\n[Rectangle: \"Samples Buyer's approval\"]\n[Rectangle: \"Buyer places an order\"]\n\n### Swimlane: Sales\n[Rectangle: \"Agenda template/ Kick off Meeting\"]\n[Rectangle: \"Design Request Format\"]\n[Rectangle: \"Picks confirmation to PM\"]\n[Rectangle: \"Sample request\"]\n\n### Swimlane: Creative direction\n[Rectangle: \"Create card: Style guides - input for designers\"]\n[Rectangle: \"Pre-brief design notes + Confirming size\"]\n[Rectangle: \"Brief\"]\n[Rectangle: \"Debriefing\"]\n[Rectangle: \"Costing sheets approval\"]\n[Rectangle: \"Designs Approval\"]\n[Rectangle: \"Tech Pack Submit Authorization\"]\n[Recta"
+    },
+    {
+      "id": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+      "chunk_index": 1,
+      "page_number": null,
+      "content_hash": "39cb8c68d78aec604f763fcc384a93f63a6aa22a4ac1e8b2506ebe7ef9b18563",
+      "raw_text_preview": "### Connections\n[Rectangle: \"Factory selection\"] --> [Rectangle: \"Buyer's Approval\"]\n[Rectangle: \"Meeting Scheduled\"] --> [Rectangle: \"Agenda template/ Kick off Meeting\"]\n[Rectangle: \"Meeting w Buyer / Trendboards\"] --> [Rectangle: \"Design Request Format\"]\n[Rectangle: \"Call/email from the buyer\"] --> [Rectangle: \"Design Request Format\"]\n[Rectangle: \"Agenda template/ Kick off Meeting\"] --> [Rectangle: \"Create card: Style guides - input for designers\"]\n[Rectangle: \"Design Request Format\"] --> [Rectangle: \"Pre-brief design notes + Confirming size\"]\n[Rectangle: \"Pre-brief design notes + Confirming size\"] --> [Rectangle: \"Brief\"]\n[Rectangle: \"Brief\"] --> [Rectangle: \"Debriefing\"]\n[Rectangle: \"Debriefing\"] --(Existing Product)--> [Rectangle: \"Costing sheets approval\"]\n[Rectangle: \"Debriefing\"] --(New Product Type)--> [Rectangle: \"Costing sheets elaboration\"]\n[Rectangle: \"Debriefing\"] --> [Rectangle: \"Design in Progress\"]\n[Rectangle: \"Costing sheets approval\"] --> [Rectangle: \"Costing sheets "
+    },
+    {
+      "id": "a856c688-6692-40ff-9d28-da30446c1393",
+      "chunk_index": 2,
+      "page_number": null,
+      "content_hash": "a571be2bc8307b64395e84dd94e09ad27209835c0ac3f77f15280f2419b8be6d",
+      "raw_text_preview": "[Rectangle: \"Samples Order / TechPack request\"] --> [Rectangle: \"Files for Factory: Art Files + Mock ups+ Packaging + Legal\"]\n[Rectangle: \"Files for Factory: Art Files + Mock ups+ Packaging + Legal\"] --> [Rectangle: \"PPS Audit\"]\n[Rectangle: \"PPS Audit\"] --> [Rectangle: \"Review Audit and send to factory\"]\n[Rectangle: \"Review Audit and send to factory\"] --(If Audit: Fail)--> [Rectangle: \"Re-sampling\"]\n[Rectangle: \"Review Audit and send to factory\"] --(If Audit: Pass)--> [Rectangle: \"PPS Submit to licensor\"]\n[Rectangle: \"Re-sampling\"] --> [Rectangle: \"Sampling\"]\n[Rectangle: \"Sampling\"] --> [Rectangle: \"PPS Audit\"]\n[Rectangle: \"PPS Submit to licensor\"] --> [Rectangle: \"PPS Approved\"]\n[Rectangle: \"PPS Approved\"] --> [Rectangle: \"Samples shipped to US\"]\n[Rectangle: \"Samples shipped to US\"] --> [Rectangle: \"Samples Internal Approval\"]\n[Rectangle: \"Samples Internal Approval\"] --> [Rectangle: \"Samples Buyer's approval\"]\n[Rectangle: \"Samples Buyer's approval\"] --> [Rectangle: \"Buyer places an or"
+    }
+  ],
+  "claims": [
+    {
+      "id": "98fbfae0-4d48-488f-a43f-a59ac896550b",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "The 'Factory selection' step must occur before 'Buyer's Approval' can be obtained.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "7ff16f0395f4aba2b48bae581f9a44b0a2ea40c6538033ced8c55b62dbfb6866",
+      "created_at": "2026-07-02T23:18:23.014Z",
+      "evidence": [
+        {
+          "charEnd": 84,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 16,
+          "chunkIndex": 1,
+          "evidenceId": "b76cc63a-0a2e-4c51-9831-060f4daa9480",
+          "exactQuote": "[Rectangle: \"Factory selection\"] --> [Rectangle: \"Buyer's Approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "f14faf2c-a215-4a37-865f-e3bd5b53325c",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After a 'Meeting Scheduled' by the Buyer, the Sales team prepares an 'Agenda template/ Kick off Meeting'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "9a156cdc1bedc880f45ba19b8f461a501c35b8d4ab810d803bf816da2d590793",
+      "created_at": "2026-07-02T23:18:23.221Z",
+      "evidence": [
+        {
+          "charEnd": 170,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 85,
+          "chunkIndex": 1,
+          "evidenceId": "269a0002-d76c-4368-8161-443c82fdeca5",
+          "exactQuote": "[Rectangle: \"Meeting Scheduled\"] --> [Rectangle: \"Agenda template/ Kick off Meeting\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "6e370237-1435-403f-a790-d415beea16d2",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Following a 'Meeting w Buyer / Trendboards', a 'Design Request Format' is initiated.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "1b8c5f108030dbdce8569c861742651fd962a8cee778738cd1ebfb40bea037f7",
+      "created_at": "2026-07-02T23:18:23.417Z",
+      "evidence": [
+        {
+          "charEnd": 256,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 171,
+          "chunkIndex": 1,
+          "evidenceId": "ae369732-6bf6-42e8-8e0b-b31e65bd3613",
+          "exactQuote": "[Rectangle: \"Meeting w Buyer / Trendboards\"] --> [Rectangle: \"Design Request Format\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "46a1ab1c-89db-4d77-8d4e-b00de1870d5c",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "A 'Call/email from the buyer' leads to the creation of a 'Design Request Format'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "a0549946d463bcc96aae3f78cdd6d2f43471289f7a2dfa911a4905f096ed3206",
+      "created_at": "2026-07-02T23:18:23.589Z",
+      "evidence": [
+        {
+          "charEnd": 338,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 257,
+          "chunkIndex": 1,
+          "evidenceId": "d859d4bf-7381-46d3-8a29-f8fd3cd3824f",
+          "exactQuote": "[Rectangle: \"Call/email from the buyer\"] --> [Rectangle: \"Design Request Format\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "bbe79312-c14e-45df-b6b0-1b760633453c",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After an 'Agenda template/ Kick off Meeting', the Creative direction team creates a card for 'Style guides - input for designers'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "5ffbf568ca56b4a5e1c91002a0c2862d967344e6f7ac641da027a4888d01d2c1",
+      "created_at": "2026-07-02T23:18:23.769Z",
+      "evidence": [
+        {
+          "charEnd": 454,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 339,
+          "chunkIndex": 1,
+          "evidenceId": "f11776ee-0328-4588-984f-fe0a918dcc9a",
+          "exactQuote": "[Rectangle: \"Agenda template/ Kick off Meeting\"] --> [Rectangle: \"Create card: Style guides - input for designers\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "3325069a-b77f-472c-8943-bca43bbae780",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "A 'Design Request Format' leads to 'Pre-brief design notes + Confirming size' by the Creative direction team.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "d7fb16ed5f4c39ceea00903b8f6b5f48619fed14e4ded01c4b04a5fe8716459c",
+      "created_at": "2026-07-02T23:18:23.952Z",
+      "evidence": [
+        {
+          "charEnd": 551,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 455,
+          "chunkIndex": 1,
+          "evidenceId": "be19ce55-cf9b-4d68-9b92-33c34144f357",
+          "exactQuote": "[Rectangle: \"Design Request Format\"] --> [Rectangle: \"Pre-brief design notes + Confirming size\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "15a3ca9a-7887-41db-9f2c-6761b0da695e",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Pre-brief design notes + Confirming size', a 'Brief' is created by the Creative direction team.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "890b42e080a5af2d6676c28db1ba748559499eb05d55786d797d3b60f4e7bf09",
+      "created_at": "2026-07-02T23:18:24.138Z",
+      "evidence": [
+        {
+          "charEnd": 632,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 552,
+          "chunkIndex": 1,
+          "evidenceId": "a5896f28-853d-480c-a5d9-ffaff7c4c846",
+          "exactQuote": "[Rectangle: \"Pre-brief design notes + Confirming size\"] --> [Rectangle: \"Brief\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "ff36ef61-483a-4484-8d9b-bb2aa3cf3c3f",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "A 'Brief' is followed by a 'Debriefing' by the Creative direction team.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "5a253803dcebac678eea25dab93fc9c3cf20e35496cf0c18c6a4016e7a994189",
+      "created_at": "2026-07-02T23:18:24.312Z",
+      "evidence": [
+        {
+          "charEnd": 683,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 633,
+          "chunkIndex": 1,
+          "evidenceId": "971fa666-3dd6-4919-a657-229fe8bb5eae",
+          "exactQuote": "[Rectangle: \"Brief\"] --> [Rectangle: \"Debriefing\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "e4bb1997-faf7-4a64-a3e3-f6dbe0ad7dbd",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Debriefing', 'Design in Progress' is initiated by Creative designers.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "2fd521be60c6e774abcb971426636a3ffb14eb24d0fd91ddbcb8ecc9a0075981",
+      "created_at": "2026-07-02T23:18:24.895Z",
+      "evidence": [
+        {
+          "charEnd": 928,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 865,
+          "chunkIndex": 1,
+          "evidenceId": "e6ad5056-8b3f-4c84-b2ea-8c6d2f767600",
+          "exactQuote": "[Rectangle: \"Debriefing\"] --> [Rectangle: \"Design in Progress\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "2eaf7aaf-6969-44e5-ace7-e86597f4ab1a",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "'Costing sheets approval' by Creative direction leads to 'Costing sheets elaboration' by Technical designers.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "9542edb4c5bbf43bf54082b80c75ee757c34048e2e6647bd8683d6f2583597b6",
+      "created_at": "2026-07-02T23:18:25.084Z",
+      "evidence": [
+        {
+          "charEnd": 1013,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 929,
+          "chunkIndex": 1,
+          "evidenceId": "51d11a85-6c43-42d7-9454-9dadd49831c0",
+          "exactQuote": "[Rectangle: \"Costing sheets approval\"] --> [Rectangle: \"Costing sheets elaboration\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "finance_pricing"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "f194832c-1ed8-4d18-8e97-a1c1fec8af06",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "'Costing sheets approval' by Creative direction also leads to 'Costing sheets/Tech Pack elaboration' by Creative designers.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "49141eb576d3b7d79e0ffb2d1b8fd69272a59325be006465a7b29f667934073f",
+      "created_at": "2026-07-02T23:18:25.341Z",
+      "evidence": [
+        {
+          "charEnd": 1108,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1014,
+          "chunkIndex": 1,
+          "evidenceId": "ceec8af9-c764-4584-b25a-157347e119ba",
+          "exactQuote": "[Rectangle: \"Costing sheets approval\"] --> [Rectangle: \"Costing sheets/Tech Pack elaboration\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "finance_pricing"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "1ad3dbf9-d354-4bfc-9433-55c31984ae80",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Costing sheets elaboration' by Technical designers, the next step is to 'Upload to DFlow RFQ code'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "c52d75f5199a6243e9dd9fba24a1562309289de044cc0712a8577bd14565adf5",
+      "created_at": "2026-07-02T23:18:25.546Z",
+      "evidence": [
+        {
+          "charEnd": 1194,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1109,
+          "chunkIndex": 1,
+          "evidenceId": "4bc3d40d-52b4-4620-abe5-65832d6d641b",
+          "exactQuote": "[Rectangle: \"Costing sheets elaboration\"] --> [Rectangle: \"Upload to DFlow RFQ code\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "finance_pricing"
+        },
+        {
+          "domainId": "it_systems"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "9bdf10c5-ff06-4934-a768-ca6f6684c326",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Costing sheets/Tech Pack elaboration' by Creative designers, the next step is to 'Upload to DFlow RFQ code'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "098b7b3e3265f467c2c29ff250f6eefc79b5276df1bfac806fe4968c3abe6816",
+      "created_at": "2026-07-02T23:18:25.755Z",
+      "evidence": [
+        {
+          "charEnd": 1290,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1195,
+          "chunkIndex": 1,
+          "evidenceId": "8edef3f8-e028-4ec9-b7ee-a60068407ada",
+          "exactQuote": "[Rectangle: \"Costing sheets/Tech Pack elaboration\"] --> [Rectangle: \"Upload to DFlow RFQ code\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "finance_pricing"
+        },
+        {
+          "domainId": "it_systems"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "a2150f38-0122-43c2-8c41-e6f0407fd50a",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Upload to DFlow RFQ code', 'RFQ to Factories' is sent by Sourcing.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "57afa0c18fe0ac5bf6c84ca86be473e616f1374fe1020f8fe7bcb57a71c4e420",
+      "created_at": "2026-07-02T23:18:25.941Z",
+      "evidence": [
+        {
+          "charEnd": 1366,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1291,
+          "chunkIndex": 1,
+          "evidenceId": "66788e6e-a2b0-4161-8c2e-eea67dc24bed",
+          "exactQuote": "[Rectangle: \"Upload to DFlow RFQ code\"] --> [Rectangle: \"RFQ to Factories\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "0095103a-a3d5-4c76-8504-7f0e72d9ab11",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'RFQ to Factories' is sent, 'Details and Limitations' are provided by the Factories.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "f633fe28daba9dd643da70996694b500efac17d1bfe0153f88d4cf09a0da5983",
+      "created_at": "2026-07-02T23:18:26.123Z",
+      "evidence": [
+        {
+          "charEnd": 1441,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1367,
+          "chunkIndex": 1,
+          "evidenceId": "feb9e8b7-f1b0-4272-b425-5b36455b8908",
+          "exactQuote": "[Rectangle: \"RFQ to Factories\"] --> [Rectangle: \"Details and Limitations\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "84405346-3cf1-4f7d-a603-e96261aabcc2",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Details and Limitations' are provided by Factories, Sourcing proceeds to 'Asking the factories about limitations'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "fcb510cb69b8c9e8e8305abc33c8151ec04b9c11644937a1982c6310bf31873d",
+      "created_at": "2026-07-02T23:18:26.299Z",
+      "evidence": [
+        {
+          "charEnd": 1538,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1442,
+          "chunkIndex": 1,
+          "evidenceId": "5526d3e8-b2ac-4f54-b504-a77d83c600bd",
+          "exactQuote": "[Rectangle: \"Details and Limitations\"] --> [Rectangle: \"Asking the factories about limitations\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "ab957f47-1249-4850-af43-024c3e2f69d0",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Asking the factories about limitations', Sourcing must 'Provide details in Click Up'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "b75c810609dcabe36b1c87ac12acb835e5f2336ed991c80c373c84dae4b4d9c1",
+      "created_at": "2026-07-02T23:18:26.481Z",
+      "evidence": [
+        {
+          "charEnd": 1639,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1539,
+          "chunkIndex": 1,
+          "evidenceId": "ffb3b03d-512d-4249-94e9-bbafaf24258f",
+          "exactQuote": "[Rectangle: \"Asking the factories about limitations\"] --> [Rectangle: \"Provide details in Click Up\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "it_systems"
+        },
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "7ba4fd75-1226-4cfd-a49e-82f9feceb945",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After the 'Price' is established, Carlos is responsible for 'SKUs creation (DFlow, ColdLion, MasterData, ClickUp)'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "90fa3cea146356463a254f2b6cc5b41c31b9856a6c88616de0b36f9c17f842c1",
+      "created_at": "2026-07-02T23:18:26.908Z",
+      "evidence": [
+        {
+          "charEnd": 1846,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1754,
+          "chunkIndex": 1,
+          "evidenceId": "d8df91bf-5cba-4dc7-baf1-683d68eb38c8",
+          "exactQuote": "[Rectangle: \"Price\"] --> [Rectangle: \"SKUs creation (DFlow, ColdLion, MasterData, ClickUp)\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "it_systems"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "94f2f611-90da-445c-b5b8-540cea4efdc0",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Create card: Style guides - input for designers', Creative designers perform 'Assets/ compositions selection'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "d1a76f159c2af2849f057114dabeac2d5ea0846c9fc4206c9614446d23caa566",
+      "created_at": "2026-07-02T23:18:27.101Z",
+      "evidence": [
+        {
+          "charEnd": 1959,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1847,
+          "chunkIndex": 1,
+          "evidenceId": "276b828f-9643-42f0-b2cb-57b36c029ded",
+          "exactQuote": "[Rectangle: \"Create card: Style guides - input for designers\"] --> [Rectangle: \"Assets/ compositions selection\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "80fda7ae-1d77-4aa6-b19b-f1053b530a97",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Assets/ compositions selection', Creative designers perform 'Costing sheets/Tech Pack elaboration'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "d05543ee5837a3457c93bfd085950640181d7174d039a4d2a33000ad68f048d1",
+      "created_at": "2026-07-02T23:18:27.277Z",
+      "evidence": [
+        {
+          "charEnd": 2061,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1960,
+          "chunkIndex": 1,
+          "evidenceId": "c6159e8f-63e2-4060-bf5d-00d9c8697825",
+          "exactQuote": "[Rectangle: \"Assets/ compositions selection\"] --> [Rectangle: \"Costing sheets/Tech Pack elaboration\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "finance_pricing"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "f795bff5-6db7-49e7-b4cc-31b22543b726",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Design in Progress', Creative designers update the 'DFlow Library + Reference number in PPT'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "242c9883a2946a72d2ed7e498e02434b46f83c68f1603d395a98912d7d278933",
+      "created_at": "2026-07-02T23:18:27.470Z",
+      "evidence": [
+        {
+          "charEnd": 2154,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2062,
+          "chunkIndex": 1,
+          "evidenceId": "4c21d375-00ef-4d0e-a4a4-88d3bda6556c",
+          "exactQuote": "[Rectangle: \"Design in Progress\"] --> [Rectangle: \"DFlow Library + Reference number in PPT\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "it_systems"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "ced2e15f-36c5-46c3-b79f-29c7b456250e",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After updating the 'DFlow Library + Reference number in PPT', Creative designers prepare 'Art files in the right format + Packaging'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "6695779f0bb2ddb80d1fd212e5273ed094559be4839e3c532b893913ebbacfd3",
+      "created_at": "2026-07-02T23:18:27.668Z",
+      "evidence": [
+        {
+          "charEnd": 2270,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2155,
+          "chunkIndex": 1,
+          "evidenceId": "072bb079-1365-4b1b-b059-3ac55b1a9dd9",
+          "exactQuote": "[Rectangle: \"DFlow Library + Reference number in PPT\"] --> [Rectangle: \"Art files in the right format + Packaging\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "design_file_operations"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "b9960f3c-4a74-42aa-9873-eca62de3fc74",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After preparing 'Art files in the right format + Packaging', Technical designers perform 'Tech Packing'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "032dda462eeea6dbe35ef8f9616d02a219fb7e25ab0b27170e1ef55c7854a372",
+      "created_at": "2026-07-02T23:18:27.858Z",
+      "evidence": [
+        {
+          "charEnd": 2359,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2271,
+          "chunkIndex": 1,
+          "evidenceId": "3e651b1c-69b0-4f5e-8692-c86cdfb1b777",
+          "exactQuote": "[Rectangle: \"Art files in the right format + Packaging\"] --> [Rectangle: \"Tech Packing\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "19192ebe-6ac0-4a62-a4e5-99683ab4e9ab",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Tech Packing', 'Tech Pack Approval' is required by Creative direction.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "55d04f210bdb32ff45076aceb75291498ad46c5bf4cec507fdd2c26e3404a76b",
+      "created_at": "2026-07-02T23:18:28.055Z",
+      "evidence": [
+        {
+          "charEnd": 2425,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2360,
+          "chunkIndex": 1,
+          "evidenceId": "f984cf17-0c20-4a2f-9770-b9e50124c21c",
+          "exactQuote": "[Rectangle: \"Tech Packing\"] --> [Rectangle: \"Tech Pack Approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "1e52376f-70a2-4bae-a7a5-c523d15d68d1",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Tech Pack Approval', 'Tech Pack Submit Authorization' is required by Creative direction.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "32592d2398a0beda5de30ee3b78cad784ff6ae290c7c45c0dc2a9087729fe150",
+      "created_at": "2026-07-02T23:18:28.239Z",
+      "evidence": [
+        {
+          "charEnd": 2509,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2426,
+          "chunkIndex": 1,
+          "evidenceId": "0fe63126-3835-4fab-8b6e-e3c5fcd76fe1",
+          "exactQuote": "[Rectangle: \"Tech Pack Approval\"] --> [Rectangle: \"Tech Pack Submit Authorization\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "9fa9ba8d-34d3-49d5-9c53-bd3e98033e4b",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Tech Pack Submit Authorization', the 'Licensor's comment' is received by Creative direction.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "3b53b2ecc0f68fe3052aa19a282d5b662e6438183e33509448c69a5d8ff26a86",
+      "created_at": "2026-07-02T23:18:28.439Z",
+      "evidence": [
+        {
+          "charEnd": 2593,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2510,
+          "chunkIndex": 1,
+          "evidenceId": "00fd0211-24b8-436f-b901-dedbd6c949d3",
+          "exactQuote": "[Rectangle: \"Tech Pack Submit Authorization\"] --> [Rectangle: \"Licensor's comment\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "a9f43e69-3cae-4e54-94a2-7d1f54b2516b",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After a 'Tech Pack Update', the process returns to 'Tech Pack Submit Authorization'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "520d75cf9f003d100ffa2c6cd0113385c65b714c9c947f3c06b8cf7a6e8dc3bc",
+      "created_at": "2026-07-02T23:18:28.958Z",
+      "evidence": [
+        {
+          "charEnd": 2903,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2822,
+          "chunkIndex": 1,
+          "evidenceId": "93102946-f61c-41f1-8c44-fb20453bcb51",
+          "exactQuote": "[Rectangle: \"Tech Pack Update\"] --> [Rectangle: \"Tech Pack Submit Authorization\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "a7a527cb-0bf2-4959-9400-703c63fe4b1b",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Revisions implementation', the process returns to 'Design in Progress'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "8ae881fbc0f4e443b8baa2cfc98ed30452c4cc13444bb32451022f5430c9080a",
+      "created_at": "2026-07-02T23:18:29.132Z",
+      "evidence": [
+        {
+          "charEnd": 2981,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2904,
+          "chunkIndex": 1,
+          "evidenceId": "d7dc1993-e279-477a-a70c-8bd7738bd693",
+          "exactQuote": "[Rectangle: \"Revisions implementation\"] --> [Rectangle: \"Design in Progress\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "97cd108d-e3da-4a54-b8b5-f8511b25b544",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Tech Pack Submit Authorization', the Licensing Team performs 'Concept Submit to Licensor'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "7aee68a2f18150a59e6e50eaa9ec4ced91fac931438ccda6092798553051bcde",
+      "created_at": "2026-07-02T23:18:29.321Z",
+      "evidence": [
+        {
+          "charEnd": 3073,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2982,
+          "chunkIndex": 1,
+          "evidenceId": "bafe5607-d907-4fcb-8d0f-de28cc2e2caf",
+          "exactQuote": "[Rectangle: \"Tech Pack Submit Authorization\"] --> [Rectangle: \"Concept Submit to Licensor\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "216ae247-028d-44d3-9a36-6b036aeeb7d7",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Concept Submit to Licensor', the Licensor may request 'Concept Revisions'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "0d2690a58facb5793d94d32362308e933fcc6cb30da5e47d8f3b119971532ff5",
+      "created_at": "2026-07-02T23:18:29.505Z",
+      "evidence": [
+        {
+          "charEnd": 3152,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3074,
+          "chunkIndex": 1,
+          "evidenceId": "3a6fea89-93bb-4667-af63-2b050b768bfc",
+          "exactQuote": "[Rectangle: \"Concept Submit to Licensor\"] --> [Rectangle: \"Concept Revisions\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "aaafffb2-ddf6-4ce6-808c-93cfeaa392b3",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Concept Revisions', the Licensing Team must 'Resubmit' the concept.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "c146e51a164e32a9928219144739f56214df942fd5f7682ce55465ed4f5c7219",
+      "created_at": "2026-07-02T23:18:29.680Z",
+      "evidence": [
+        {
+          "charEnd": 3213,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3153,
+          "chunkIndex": 1,
+          "evidenceId": "67a34fd3-b50f-42f8-99be-43a1f25f2b12",
+          "exactQuote": "[Rectangle: \"Concept Revisions\"] --> [Rectangle: \"Resubmit\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "6c54a930-2745-462b-86e9-144628abc005",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Resubmit', the concept goes back to 'Concept Submit to Licensor'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "15e5c02ef49f3d4a9d764c1d601269d9f7084f5b35ff447373abf5f319a403f8",
+      "created_at": "2026-07-02T23:18:29.846Z",
+      "evidence": [
+        {
+          "charEnd": 3283,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3214,
+          "chunkIndex": 1,
+          "evidenceId": "b6269909-f6be-4d2b-a6b0-564941d7cc71",
+          "exactQuote": "[Rectangle: \"Resubmit\"] --> [Rectangle: \"Concept Submit to Licensor\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "e7d67ba5-d04b-4c47-adf4-a305a7a8f1cf",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Concept Revisions', the Licensor may provide 'Concept Approved w comments'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "6b035ed879197a4fd82e465248b4cb0bd203ce3444e603beba803994d0632e50",
+      "created_at": "2026-07-02T23:18:30.031Z",
+      "evidence": [
+        {
+          "charEnd": 3363,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3284,
+          "chunkIndex": 1,
+          "evidenceId": "7daddeb9-9f65-481d-ab3f-e1ec01c9dc93",
+          "exactQuote": "[Rectangle: \"Concept Revisions\"] --> [Rectangle: \"Concept Approved w comments\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "76f082f3-5c84-498b-a06b-db61e1f8ffe2",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Concept Approved w comments' from the Licensor, the Licensing Team performs 'Comments approval'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "a8ae9058f4f7415008f70fe64b85d310360a320c33761dda58640d8d528b2ed5",
+      "created_at": "2026-07-02T23:18:30.225Z",
+      "evidence": [
+        {
+          "charEnd": 3443,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3364,
+          "chunkIndex": 1,
+          "evidenceId": "0991e1fe-62af-414a-9a90-9a69c8dd8435",
+          "exactQuote": "[Rectangle: \"Concept Approved w comments\"] --> [Rectangle: \"Comments approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "bd24aa8a-a85b-47ab-a584-cf3ce6f34e54",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Comments approval' by the Licensing Team, the concept is 'Concept Approved' by the Licensor.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "1d925df5ee7eac12f01183f23eab594e18ca3ea08cfdfc3de3fa5929cce16385",
+      "created_at": "2026-07-02T23:18:30.420Z",
+      "evidence": [
+        {
+          "charEnd": 3512,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3444,
+          "chunkIndex": 1,
+          "evidenceId": "980563b3-c311-4182-9295-bb8012ac25e6",
+          "exactQuote": "[Rectangle: \"Comments approval\"] --> [Rectangle: \"Concept Approved\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "6b7054ee-be46-47ac-ae60-e92768de1c2b",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After a concept is 'Concept Approved', Carlos is responsible for 'SKUs creation (DFlow, ColdLion, MasterData, ClickUp)'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "eb8e25e09c4342480782efb1b747bffcef48faafdd7fec6d95af250178468996",
+      "created_at": "2026-07-02T23:18:30.627Z",
+      "evidence": [
+        {
+          "charEnd": 3616,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3513,
+          "chunkIndex": 1,
+          "evidenceId": "0999bf01-eeec-43d6-9d56-9f8f0c2f36d9",
+          "exactQuote": "[Rectangle: \"Concept Approved\"] --> [Rectangle: \"SKUs creation (DFlow, ColdLion, MasterData, ClickUp)\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "it_systems"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "4f354b44-211f-4b39-b59a-1f7e26ddc61d",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'SKUs creation (DFlow, ColdLion, MasterData, ClickUp)', Carlos uploads the 'Concept image to ColdLion and ClickUp'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "6fe26fe64a918dccad6f16c8c0ef6ff63fea5845f6d8a78196d2e38d89971cc6",
+      "created_at": "2026-07-02T23:18:30.830Z",
+      "evidence": [
+        {
+          "charEnd": 3741,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3617,
+          "chunkIndex": 1,
+          "evidenceId": "dcb8a515-dab0-4227-855e-66a22ed36008",
+          "exactQuote": "[Rectangle: \"SKUs creation (DFlow, ColdLion, MasterData, ClickUp)\"] --> [Rectangle: \"Concept image to ColdLion and ClickUp\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "it_systems"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "a23484fd-c114-4151-bac3-b1e6266345a1",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After uploading the 'Concept image to ColdLion and ClickUp', Production must 'Include in Task List'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "3cd3d48b3da76bb730e432717ee4c1ba31917ab354857aaba5c1d1b6ff15c220",
+      "created_at": "2026-07-02T23:18:31.009Z",
+      "evidence": [
+        {
+          "charEnd": 3834,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3742,
+          "chunkIndex": 1,
+          "evidenceId": "6424db0a-dd09-4c81-b6be-d4e4170d7b12",
+          "exactQuote": "[Rectangle: \"Concept image to ColdLion and ClickUp\"] --> [Rectangle: \"Include in Task List\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "it_systems"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "8f1a658a-fbf4-44da-b57b-be10c033d50d",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After Production 'Include in Task List', they initiate 'Samples Order / TechPack request'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "61896beea8e22e3030a599c9ce43f1e3a51042d9e194f72dec988b5713344e4a",
+      "created_at": "2026-07-02T23:18:31.288Z",
+      "evidence": [
+        {
+          "charEnd": 3922,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3835,
+          "chunkIndex": 1,
+          "evidenceId": "5ccdff30-e9fe-47b6-920a-c5c290935c52",
+          "exactQuote": "[Rectangle: \"Include in Task List\"] --> [Rectangle: \"Samples Order / TechPack request\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "product_development"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "71461ea1-f830-4a51-8adb-c0b065d2b82d",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Samples Order / TechPack request', Technical designers prepare 'Files for Factory: Art Files + Mock ups+ Packaging + Legal'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "7f71e413937796d28765d79b457b21b9fdcaabd257f6f6d6e98a1cc739fe9d5b",
+      "created_at": "2026-07-02T23:18:31.486Z",
+      "evidence": [
+        {
+          "charEnd": 125,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 0,
+          "chunkIndex": 2,
+          "evidenceId": "92fd714e-7c9c-4b5c-bd55-2c45034f569b",
+          "exactQuote": "[Rectangle: \"Samples Order / TechPack request\"] --> [Rectangle: \"Files for Factory: Art Files + Mock ups+ Packaging + Legal\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "design_file_operations"
+        },
+        {
+          "domainId": "production_lifecycle"
+        },
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "7920f99a-f54a-40b1-a125-5575bd201e2a",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After preparing 'Files for Factory: Art Files + Mock ups+ Packaging + Legal', a 'PPS Audit' is conducted by Technical designers.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "d89c0b693c01147b33369cf67a305aa8f70314da0570f2b57f5a65c67e3f0a8f",
+      "created_at": "2026-07-02T23:18:31.696Z",
+      "evidence": [
+        {
+          "charEnd": 228,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 126,
+          "chunkIndex": 2,
+          "evidenceId": "c61c2778-964b-4405-96d3-6e49e7286858",
+          "exactQuote": "[Rectangle: \"Files for Factory: Art Files + Mock ups+ Packaging + Legal\"] --> [Rectangle: \"PPS Audit\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "bc490613-75bb-4af4-8aca-1dd966338919",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After a 'PPS Audit', Gina must 'Review Audit and send to factory'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "b03d2790555eb1022e0801ecbb732578cbe523d8005ec5bd1b6b48788ae18a59",
+      "created_at": "2026-07-02T23:18:31.884Z",
+      "evidence": [
+        {
+          "charEnd": 305,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 229,
+          "chunkIndex": 2,
+          "evidenceId": "aeddc12d-bdd6-4fa3-a7bd-867862f8abfd",
+          "exactQuote": "[Rectangle: \"PPS Audit\"] --> [Rectangle: \"Review Audit and send to factory\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "production_lifecycle"
+        },
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "d6ff5b4c-cfc0-448b-b6f6-ef2c9d131e04",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Re-sampling' by Factories, the process returns to 'Sampling' by Factories.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "2db511821bc3b3f05d5f82fd03fd84c906adac6e427671fd741b775c48a60dee",
+      "created_at": "2026-07-02T23:18:32.504Z",
+      "evidence": [
+        {
+          "charEnd": 565,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 511,
+          "chunkIndex": 2,
+          "evidenceId": "49dd5b9e-2743-4e55-b6b3-cbb4a6d3874d",
+          "exactQuote": "[Rectangle: \"Re-sampling\"] --> [Rectangle: \"Sampling\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "product_development"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "1f8074ea-57ac-42b9-9bf0-1541499c9d4b",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Sampling' by Factories, a 'PPS Audit' is conducted by Technical designers.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "fddfb9d29b1f4e17152e29df200ccb1827625bb85fb5dc62ebffd8e566f62dc3",
+      "created_at": "2026-07-02T23:18:32.688Z",
+      "evidence": [
+        {
+          "charEnd": 618,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 566,
+          "chunkIndex": 2,
+          "evidenceId": "2880de5f-1bc2-4d09-a652-417c8fba372c",
+          "exactQuote": "[Rectangle: \"Sampling\"] --> [Rectangle: \"PPS Audit\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "product_development"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "8df77871-55a2-4692-b614-eb022e4fa686",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'PPS Submit to licensor', the Licensor provides 'PPS Approved'.",
+      "impact_score": 7,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "12a4173255e2d60f62000e57fa963bf3b39dbabfb2b78d3260212bc16e82b5e3",
+      "created_at": "2026-07-02T23:18:32.872Z",
+      "evidence": [
+        {
+          "charEnd": 688,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 619,
+          "chunkIndex": 2,
+          "evidenceId": "e7c0d188-1796-46e2-b9e2-a5bb90b1bad7",
+          "exactQuote": "[Rectangle: \"PPS Submit to licensor\"] --> [Rectangle: \"PPS Approved\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "6c639d71-9925-4584-9074-96bdd2cc4c20",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'PPS Approved' by the Licensor, Carlos handles 'Samples shipped to US'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "e11c029bc67fe25e7f19d9de9945ecc06491d562acebffe50625265429e8b344",
+      "created_at": "2026-07-02T23:18:33.064Z",
+      "evidence": [
+        {
+          "charEnd": 757,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 689,
+          "chunkIndex": 2,
+          "evidenceId": "29fada63-d089-490f-9367-e2e114e69161",
+          "exactQuote": "[Rectangle: \"PPS Approved\"] --> [Rectangle: \"Samples shipped to US\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "licensing_approvals"
+        },
+        {
+          "domainId": "logistics_shipping"
+        },
+        {
+          "domainId": "product_development"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "9ae1fca6-055c-48aa-a42a-4616042f6d26",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Samples shipped to US', Creative direction performs 'Samples Internal Approval'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "9ecda95c0cf869faa06b413a13beb50a2e9b72114bd8ad542cc38494db7480f5",
+      "created_at": "2026-07-02T23:18:33.266Z",
+      "evidence": [
+        {
+          "charEnd": 839,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 758,
+          "chunkIndex": 2,
+          "evidenceId": "dadc6c6f-221c-4952-a44e-9b9ed9d7795a",
+          "exactQuote": "[Rectangle: \"Samples shipped to US\"] --> [Rectangle: \"Samples Internal Approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "licensing_approvals"
+        },
+        {
+          "domainId": "product_development"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "9558bfd6-5fef-4337-b729-3b2b5cc9b39f",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Samples Internal Approval', the Buyer provides 'Samples Buyer's approval'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "9f183398dcd46942578270a2079a15ebef6d52f3bd411688e07e59474ba43aca",
+      "created_at": "2026-07-02T23:18:33.455Z",
+      "evidence": [
+        {
+          "charEnd": 924,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 840,
+          "chunkIndex": 2,
+          "evidenceId": "669eaad8-56d1-4413-b209-20a816d3e011",
+          "exactQuote": "[Rectangle: \"Samples Internal Approval\"] --> [Rectangle: \"Samples Buyer's approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "customer_ops"
+        },
+        {
+          "domainId": "licensing_approvals"
+        },
+        {
+          "domainId": "product_development"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "3c7027c8-c910-4860-8527-85d554334e61",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Samples Buyer's approval', the 'Buyer places an order'.",
+      "impact_score": 7,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "17b83045a363d43aa23b48cf2cc77a43b53a2314f50502857ce673f1c7d1f160",
+      "created_at": "2026-07-02T23:18:33.657Z",
+      "evidence": [
+        {
+          "charEnd": 1005,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 925,
+          "chunkIndex": 2,
+          "evidenceId": "10e7ef98-8bb1-41c7-b6f2-fda0b93be93a",
+          "exactQuote": "[Rectangle: \"Samples Buyer's approval\"] --> [Rectangle: \"Buyer places an order\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "99f6be38-3dd0-4080-9f24-f522f1337922",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After a 'Production order', Factories proceed to 'Mass Production'.",
+      "impact_score": 7,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "ffcf28287ab67bc88f55070ae374847acd6f775b24f8c678c3814fc265db83e7",
+      "created_at": "2026-07-02T23:18:34.030Z",
+      "evidence": [
+        {
+          "charEnd": 1162,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1096,
+          "chunkIndex": 2,
+          "evidenceId": "a90f049d-7e5f-453b-b886-8dbc8aa67833",
+          "exactQuote": "[Rectangle: \"Production order\"] --> [Rectangle: \"Mass Production\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "1e882f17-10fc-4796-ba77-e30ce96b0347",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Professional Photos', 'Professional Photos Approval' is required by Technical designers.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "81611be152f15470a0468c20bd3a519347ee91d0a51268fac3d2f79d8773d32f",
+      "created_at": "2026-07-02T23:18:34.594Z",
+      "evidence": [
+        {
+          "charEnd": 1418,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1336,
+          "chunkIndex": 2,
+          "evidenceId": "a9d61a3a-3a7c-4c69-872b-fa93aa7683e1",
+          "exactQuote": "[Rectangle: \"Professional Photos\"] --> [Rectangle: \"Professional Photos Approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "59b48164-b91f-421c-a5da-7b3a58fb453f",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Professional Photos Approval', Carlos handles 'Ship to US'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "526d5365d067c288f6fb202e38c32f72dace84bd2dca7a4537b3623f149ef91b",
+      "created_at": "2026-07-02T23:18:34.777Z",
+      "evidence": [
+        {
+          "charEnd": 1492,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1419,
+          "chunkIndex": 2,
+          "evidenceId": "9c095494-3606-4ea1-b2a4-bce098fcf760",
+          "exactQuote": "[Rectangle: \"Professional Photos Approval\"] --> [Rectangle: \"Ship to US\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "logistics_shipping"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "ecddd046-c982-458b-949d-9749dcb862d5",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "For 'Existing Items', 'Ship to US' is the final step.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "a6fbc3e47d9cd81a27a1bf48d8aaab394a6876b1177425256eb573f15f6a0084",
+      "created_at": "2026-07-02T23:18:34.944Z",
+      "evidence": [
+        {
+          "charEnd": 1550,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1493,
+          "chunkIndex": 2,
+          "evidenceId": "b710a0d1-1a6a-452d-bcc8-d2b43af2ce02",
+          "exactQuote": "[Rectangle: \"Ship to US\"] --(For Existing Items)--> [End]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "logistics_shipping"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "d1df41fd-71bd-410a-8587-8c69b9e6fd95",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Buyer's Approval', Sales sends 'Picks confirmation to PM'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "1acb049c2be84d1809bbc48c98b2c2475d80e8cbe76c0a452aa9afb62b1d8dda",
+      "created_at": "2026-07-02T23:18:35.113Z",
+      "evidence": [
+        {
+          "charEnd": 1626,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1551,
+          "chunkIndex": 2,
+          "evidenceId": "ab5590b6-778f-4233-9ee3-5b8bdd3b7fd9",
+          "exactQuote": "[Rectangle: \"Buyer's Approval\"] --> [Rectangle: \"Picks confirmation to PM\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "38a7a8b7-165d-47cf-8b82-9fef2158e0c5",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After 'Picks confirmation to PM', the process returns to 'Buyer's Approval'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "45d4a5e9c0cfe553a3ff3471628aa287cfe4291c37e84d5fad49b3b37b2aaa41",
+      "created_at": "2026-07-02T23:18:35.275Z",
+      "evidence": [
+        {
+          "charEnd": 1702,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1627,
+          "chunkIndex": 2,
+          "evidenceId": "cf41e06d-3f2d-4ead-8892-951a8fdbcc7c",
+          "exactQuote": "[Rectangle: \"Picks confirmation to PM\"] --> [Rectangle: \"Buyer's Approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "cb802a4d-e5bb-45b1-810f-77ee24cf12a3",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "For a 'Customer Refresh', the process starts with 'Debriefing'.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "0de2c8fcf91f9648aae2957d36e17b21c9704fadb5584b1c9916d0c92970628b",
+      "created_at": "2026-07-02T23:18:35.434Z",
+      "evidence": [
+        {
+          "charEnd": 1768,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1703,
+          "chunkIndex": 2,
+          "evidenceId": "1279c39f-b919-4eac-a8e5-3114b9f9fabd",
+          "exactQuote": "[Rectangle: \"For Customer Refresh\"] --> [Rectangle: \"Debriefing\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "56344539-5811-4095-ba09-5fc9a5eb381f",
+      "status": "pending_review",
+      "claim_type": "dependency",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "'Before an Order' is placed, 'Files for Factory: Art Files + Mock ups+ Packaging + Legal' are prepared by Technical designers.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "69bda027182457c1889384c063a73c709244852de53b4c34c8cab9b692926c53",
+      "created_at": "2026-07-02T23:18:35.623Z",
+      "evidence": [
+        {
+          "charEnd": 1877,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1769,
+          "chunkIndex": 2,
+          "evidenceId": "8429bddc-fa06-4cc4-bbdb-7fce3f56eb60",
+          "exactQuote": "[Rectangle: \"Before an Order\"] --> [Rectangle: \"Files for Factory: Art Files + Mock ups+ Packaging + Legal\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "design_file_operations"
+        },
+        {
+          "domainId": "production_lifecycle"
+        },
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "16dd4f18-0b06-4dd1-8adb-5305df10801c",
+      "status": "pending_review",
+      "claim_type": "exception_rule",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "If the product is an 'Existing Product', the 'Debriefing' leads to 'Costing sheets approval' by Creative direction.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "3ff8daafc4e1c08824d2e64fc0b14442fa0935fc3c8cf45325e53a8f269dc6ff",
+      "created_at": "2026-07-02T23:18:24.498Z",
+      "evidence": [
+        {
+          "charEnd": 772,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 684,
+          "chunkIndex": 1,
+          "evidenceId": "6697939a-ad9f-46b0-9d63-9001e0f437fd",
+          "exactQuote": "[Rectangle: \"Debriefing\"] --(Existing Product)--> [Rectangle: \"Costing sheets approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "finance_pricing"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "705ac15c-35d6-4127-a564-eeb8d8dc44ab",
+      "status": "pending_review",
+      "claim_type": "exception_rule",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "If the product is a 'New Product Type', the 'Debriefing' leads to 'Costing sheets elaboration' by Technical designers.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "7b0339eabb78dfb181ea4e4ca4eaced6e7bf5d392fb78cfcb327250978137b7d",
+      "created_at": "2026-07-02T23:18:24.699Z",
+      "evidence": [
+        {
+          "charEnd": 864,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 773,
+          "chunkIndex": 1,
+          "evidenceId": "cd11f163-151e-4a25-bc1a-3893629f138b",
+          "exactQuote": "[Rectangle: \"Debriefing\"] --(New Product Type)--> [Rectangle: \"Costing sheets elaboration\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "finance_pricing"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "f6c2ee0f-db6c-45f4-b015-8e8bfa45937b",
+      "status": "pending_review",
+      "claim_type": "exception_rule",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "If Sales confirms the buyer approves the Price, then the 'Price' is established by the Factories.",
+      "impact_score": 7,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "7185bd19516688d0ece7124500b73121902914be127a72af99e7d6c05b3937e3",
+      "created_at": "2026-07-02T23:18:26.673Z",
+      "evidence": [
+        {
+          "charEnd": 1753,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1640,
+          "chunkIndex": 1,
+          "evidenceId": "0ce39327-7665-4638-ab30-44d7ee0598b8",
+          "exactQuote": "[Rectangle: \"Provide details in Click Up\"] --(If Sales confirms buyer approves the Price)--> [Rectangle: \"Price\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "customer_ops"
+        },
+        {
+          "domainId": "finance_pricing"
+        },
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "773ae931-a1b7-446f-a8c8-6946b7b22325",
+      "status": "pending_review",
+      "claim_type": "exception_rule",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "If the 'Licensor's comment' is about a 'legal line or packaging', a 'Tech Pack Update' is performed by Technical designers.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "9600dff9df63566a050476f11fd43317244e14b6a3685bead76e516ea8472835",
+      "created_at": "2026-07-02T23:18:28.664Z",
+      "evidence": [
+        {
+          "charEnd": 2704,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2594,
+          "chunkIndex": 1,
+          "evidenceId": "e811727b-6076-4f74-9f02-bb62e4bf38a3",
+          "exactQuote": "[Rectangle: \"Licensor's comment\"] --(If comment is legal line or packaging)--> [Rectangle: \"Tech Pack Update\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "licensing_approvals"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "dd4dff87-2bfb-4ed9-bf2b-f7bbb0e61658",
+      "status": "pending_review",
+      "claim_type": "exception_rule",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "If the 'Audit: Fail', then 'Re-sampling' is required by the Factories.",
+      "impact_score": 7,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "79ace411345006ebc8a330427880d3afc7238007e9cac01719cc7e21bf8d0145",
+      "created_at": "2026-07-02T23:18:32.086Z",
+      "evidence": [
+        {
+          "charEnd": 402,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 306,
+          "chunkIndex": 2,
+          "evidenceId": "20f3fdae-0474-485b-906b-55b59589c869",
+          "exactQuote": "[Rectangle: \"Review Audit and send to factory\"] --(If Audit: Fail)--> [Rectangle: \"Re-sampling\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "product_development"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "ea21aea3-f73a-4fa7-a600-08d64d45841b",
+      "status": "pending_review",
+      "claim_type": "exception_rule",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "If the 'Audit: Pass', then the Licensing Team performs 'PPS Submit to licensor'.",
+      "impact_score": 7,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "2b4807cbe0f18c40e1afe412af1506c51b8885ce7b4987ee25fc242e2e652749",
+      "created_at": "2026-07-02T23:18:32.309Z",
+      "evidence": [
+        {
+          "charEnd": 510,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 403,
+          "chunkIndex": 2,
+          "evidenceId": "1b8af323-9b96-461b-bf83-fe504aa007a4",
+          "exactQuote": "[Rectangle: \"Review Audit and send to factory\"] --(If Audit: Pass)--> [Rectangle: \"PPS Submit to licensor\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "licensing_approvals"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "05ae53dc-7518-4ddc-bf48-9b4c33b75095",
+      "status": "pending_review",
+      "claim_type": "exception_rule",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "If the buyer places an order 'With an Order', then Carlos initiates a 'Production order'.",
+      "impact_score": 7,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "cc2c492758a6d5424c4a8417dea3e2ae57d8c153b8ae0cf1504cda66451e4862",
+      "created_at": "2026-07-02T23:18:33.846Z",
+      "evidence": [
+        {
+          "charEnd": 1095,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1006,
+          "chunkIndex": 2,
+          "evidenceId": "a2c2afaf-d16f-44c0-b38c-c0e254dfaaef",
+          "exactQuote": "[Rectangle: \"Buyer places an order\"] --(With an Order)--> [Rectangle: \"Production order\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "customer_ops"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "c6461c99-e368-4eed-813e-2feeaeaccccb",
+      "status": "pending_review",
+      "claim_type": "exception_rule",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "For 'existing products' in 'Mass Production', the next step is to 'Ship to US'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "5901f4ffc9d5645971fe876f6d3c69a88dc86438baf0cda3501c409dc2d00ffe",
+      "created_at": "2026-07-02T23:18:34.209Z",
+      "evidence": [
+        {
+          "charEnd": 1248,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1163,
+          "chunkIndex": 2,
+          "evidenceId": "fc5f597c-a6c9-4780-aa28-576efba77a2b",
+          "exactQuote": "[Rectangle: \"Mass Production\"] --(For existing products)--> [Rectangle: \"Ship to US\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "logistics_shipping"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "157a73be-8324-4707-8082-ad64a6e5c2b4",
+      "status": "pending_review",
+      "claim_type": "exception_rule",
+      "claim_kind": "observed_practice",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "For 'New Items' in 'Mass Production', Carlos handles 'Professional Photos'.",
+      "impact_score": 6,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "f362c6a3d4e95ce27912cb9fe759bc0c6b632ad1db68d301334bccc4bbfacc98",
+      "created_at": "2026-07-02T23:18:34.404Z",
+      "evidence": [
+        {
+          "charEnd": 1335,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1249,
+          "chunkIndex": 2,
+          "evidenceId": "16b21e5c-98cc-423d-bafd-7e18d6c0ca93",
+          "exactQuote": "[Rectangle: \"Mass Production\"] --(For New Items)--> [Rectangle: \"Professional Photos\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "2ece01f0-a562-40ce-a5a3-01a6fb844078",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After a meeting with the buyer or review of trendboards, a Design Request Format is generated.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "a8f8b8c8ce03d8ec3f469558efc5ffc1d0be2da8b591a8ffc3f27e62965b18f7",
+      "created_at": "2026-07-03T00:13:20.222Z",
+      "evidence": [
+        {
+          "charEnd": 256,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 171,
+          "chunkIndex": 1,
+          "evidenceId": "bedd4dda-8934-49cc-9b5c-5224f36032c3",
+          "exactQuote": "[Rectangle: \"Meeting w Buyer / Trendboards\"] --> [Rectangle: \"Design Request Format\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "603f5c3c-c052-4e2c-8a4e-7ca321daf854",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "A call or email from the buyer leads to the generation of a Design Request Format.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "ae981761fad636a0de14bcd81ac2d8716301b688f04b76a2824a98ea9faeb6f5",
+      "created_at": "2026-07-03T00:13:21.222Z",
+      "evidence": [
+        {
+          "charEnd": 338,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 257,
+          "chunkIndex": 1,
+          "evidenceId": "6a26a087-b94d-429c-96be-25bad325ef03",
+          "exactQuote": "[Rectangle: \"Call/email from the buyer\"] --> [Rectangle: \"Design Request Format\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "6c36e56b-445c-4731-a9e8-3a6d476ce174",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "An Agenda template/Kick off Meeting leads to the creation of a card for Style guides, which serves as input for designers.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "01beb7d5dc17b78d2066aceeec6776d9279c3e3ad8733813c02e0f6cd6dc29f8",
+      "created_at": "2026-07-03T00:13:21.570Z",
+      "evidence": [
+        {
+          "charEnd": 454,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 339,
+          "chunkIndex": 1,
+          "evidenceId": "c0ea9fe5-2851-40b7-a389-15b76ed16c9b",
+          "exactQuote": "[Rectangle: \"Agenda template/ Kick off Meeting\"] --> [Rectangle: \"Create card: Style guides - input for designers\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "cfb99829-c8f2-449e-93d7-d3bee7bb21af",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "The Design Request Format is used to create pre-brief design notes and confirm sizing.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "5e0052693005d508ccca172bd5ba8e2db4cc635ca00026374eada76bc696e1ca",
+      "created_at": "2026-07-03T00:13:22.266Z",
+      "evidence": [
+        {
+          "charEnd": 551,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 455,
+          "chunkIndex": 1,
+          "evidenceId": "c5823479-a6dc-4d74-a951-528d723c8fba",
+          "exactQuote": "[Rectangle: \"Design Request Format\"] --> [Rectangle: \"Pre-brief design notes + Confirming size\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "63922956-60e2-41f3-85c7-7c4bd7e4bbed",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Pre-brief design notes and size confirmation lead to the creation of a design brief.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "b4be3cb9899058bfc9b93f0516b0203b1e35e0aefc32883fd38e5b53ec16fd2a",
+      "created_at": "2026-07-03T00:13:25.650Z",
+      "evidence": [
+        {
+          "charEnd": 632,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 552,
+          "chunkIndex": 1,
+          "evidenceId": "8cd83051-4406-405c-bf9c-19a829a42721",
+          "exactQuote": "[Rectangle: \"Pre-brief design notes + Confirming size\"] --> [Rectangle: \"Brief\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "1990c33d-1a48-47d9-a468-410eb88e1e7c",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "A design brief is followed by a debriefing session.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "8d97ef85e26e731b8448614cf38fd7393cfbd4c68ecf381d3ed569b73f2f474a",
+      "created_at": "2026-07-03T00:13:26.018Z",
+      "evidence": [
+        {
+          "charEnd": 683,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 633,
+          "chunkIndex": 1,
+          "evidenceId": "0b992d78-5b8e-4db3-b726-c74f7897f4b7",
+          "exactQuote": "[Rectangle: \"Brief\"] --> [Rectangle: \"Debriefing\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "77028de4-f9dc-4173-9d3b-2c606bf6c2b4",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "For existing products, the debriefing leads to costing sheets approval.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "f0f106c8e87d4de31a84113aa70a8f28c64e72ede57088de82b01c07509f9f84",
+      "created_at": "2026-07-03T00:13:26.372Z",
+      "evidence": [
+        {
+          "charEnd": 772,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 684,
+          "chunkIndex": 1,
+          "evidenceId": "a55811e2-4a53-4a67-9f8b-1fba4d288e55",
+          "exactQuote": "[Rectangle: \"Debriefing\"] --(Existing Product)--> [Rectangle: \"Costing sheets approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "finance_pricing"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "ad270854-b4d1-4882-8eeb-3665f52f4b88",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "For new product types, the debriefing leads to costing sheets elaboration.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "f669a0c7f34c343a9ab08d46afec724232a85b41d5c63e7556895bb5ac3e879f",
+      "created_at": "2026-07-03T00:13:26.735Z",
+      "evidence": [
+        {
+          "charEnd": 864,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 773,
+          "chunkIndex": 1,
+          "evidenceId": "be250eea-5616-4c87-9a64-278c44c882a2",
+          "exactQuote": "[Rectangle: \"Debriefing\"] --(New Product Type)--> [Rectangle: \"Costing sheets elaboration\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "finance_pricing"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "be4cfa22-de3e-41f7-a5bc-725356a14184",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "The debriefing stage initiates the 'Design in Progress' phase.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "c835c75079fbf1d6284f8137f744b17a6edd7786d846a330c4aca7ae2ff7c29c",
+      "created_at": "2026-07-03T00:13:30.323Z",
+      "evidence": [
+        {
+          "charEnd": 928,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 865,
+          "chunkIndex": 1,
+          "evidenceId": "2978f258-f1d2-491b-abdc-cf592cf2feda",
+          "exactQuote": "[Rectangle: \"Debriefing\"] --> [Rectangle: \"Design in Progress\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "96c7b5c3-7f46-460b-b94d-d319a70ecdb7",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Costing sheets approval leads to costing sheets elaboration.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "12caa5185fcc3c0bf7a0bb7524c4edc195230642b3b5b84a07de31044107b45e",
+      "created_at": "2026-07-03T00:13:30.680Z",
+      "evidence": [
+        {
+          "charEnd": 1013,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 929,
+          "chunkIndex": 1,
+          "evidenceId": "2a774319-5e1a-4746-9bab-9dc3a5dc48c6",
+          "exactQuote": "[Rectangle: \"Costing sheets approval\"] --> [Rectangle: \"Costing sheets elaboration\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "finance_pricing"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "150a1040-e36d-489f-ae32-675271bcef28",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Costing sheets approval also leads to costing sheets/tech pack elaboration.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "03c5c16a457d937267d0daddb850b70c852f4b92d56f306037e428ae2f2161e6",
+      "created_at": "2026-07-03T00:13:31.006Z",
+      "evidence": [
+        {
+          "charEnd": 1108,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1014,
+          "chunkIndex": 1,
+          "evidenceId": "c853cbca-495e-441c-a437-9b4f51b10470",
+          "exactQuote": "[Rectangle: \"Costing sheets approval\"] --> [Rectangle: \"Costing sheets/Tech Pack elaboration\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "finance_pricing"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "4c8fcb65-3a39-405a-86c8-e91dcb42c5a7",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Costing sheets elaboration results in uploading to DFlow with an RFQ code.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "51bd7e83f6203d1b70bdcf9307cc672c66bd08ee0a279f9b1e2346db93b638fd",
+      "created_at": "2026-07-03T00:13:31.393Z",
+      "evidence": [
+        {
+          "charEnd": 1194,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1109,
+          "chunkIndex": 1,
+          "evidenceId": "41f71361-a85d-4ee9-90a6-a73c07a3147f",
+          "exactQuote": "[Rectangle: \"Costing sheets elaboration\"] --> [Rectangle: \"Upload to DFlow RFQ code\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "finance_pricing"
+        },
+        {
+          "domainId": "it_systems"
+        },
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "dfeb7aeb-f615-422d-a6bd-9d1e215cfc10",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Costing sheets/Tech Pack elaboration results in uploading to DFlow with an RFQ code.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "5fe30fd5f3662c4700954e1b9137283b0b143757882f9d794cb5b822cda8cd9b",
+      "created_at": "2026-07-03T00:13:31.846Z",
+      "evidence": [
+        {
+          "charEnd": 1290,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1195,
+          "chunkIndex": 1,
+          "evidenceId": "5be54610-90b6-42f5-9d4e-d56088a75a92",
+          "exactQuote": "[Rectangle: \"Costing sheets/Tech Pack elaboration\"] --> [Rectangle: \"Upload to DFlow RFQ code\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "finance_pricing"
+        },
+        {
+          "domainId": "it_systems"
+        },
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "a9896b21-f995-4ffc-afc5-0aa3cf51f691",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Uploading to DFlow with an RFQ code leads to sending an RFQ to factories.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "a663fba6d0fd1953d331f9573dd6d602093b0ba8d30ea211449f1237e21ea353",
+      "created_at": "2026-07-03T00:13:32.334Z",
+      "evidence": [
+        {
+          "charEnd": 1366,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1291,
+          "chunkIndex": 1,
+          "evidenceId": "7f906fd6-13af-4512-ad9f-eadc1d14e755",
+          "exactQuote": "[Rectangle: \"Upload to DFlow RFQ code\"] --> [Rectangle: \"RFQ to Factories\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "f5dc45b9-034c-4c7e-bb26-a1dbd4838c6b",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Sending an RFQ to factories results in receiving details and limitations from the factories.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "2f58d5ac4f51e2028552a285d38dace2a872b29140dea0f7f038f88794ca1685",
+      "created_at": "2026-07-03T00:13:32.723Z",
+      "evidence": [
+        {
+          "charEnd": 1441,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1367,
+          "chunkIndex": 1,
+          "evidenceId": "604cd43a-bb0b-4038-8632-9535f84a83c1",
+          "exactQuote": "[Rectangle: \"RFQ to Factories\"] --> [Rectangle: \"Details and Limitations\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "c507be3d-ae49-4ea0-83ff-70bb3a9711c7",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "The 'Details and Limitations' received from factories prompt the sourcing team to ask factories about limitations.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "85ddeaf4122585e7d46468778eb8837ca96274c20bac467819285f537702e152",
+      "created_at": "2026-07-03T00:13:33.097Z",
+      "evidence": [
+        {
+          "charEnd": 1538,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1442,
+          "chunkIndex": 1,
+          "evidenceId": "b1f41a9b-7d4b-4597-97e1-4ad9d9fc0b6b",
+          "exactQuote": "[Rectangle: \"Details and Limitations\"] --> [Rectangle: \"Asking the factories about limitations\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "41d34129-8f30-4f74-b1a5-79c0f6afc112",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "After asking factories about limitations, the sourcing team provides details in Click Up.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "c6bb7fc7eb985d8426613aecfbc85e4a040168098a996fbf76f680db8b3677c2",
+      "created_at": "2026-07-03T00:13:33.410Z",
+      "evidence": [
+        {
+          "charEnd": 1639,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1539,
+          "chunkIndex": 1,
+          "evidenceId": "611858c6-d8e2-4f7d-9d08-29eaf45c6912",
+          "exactQuote": "[Rectangle: \"Asking the factories about limitations\"] --> [Rectangle: \"Provide details in Click Up\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "it_systems"
+        },
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "d41e8fd7-2085-4891-8411-96d52697176b",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "If Sales confirms the buyer approves the price, the price information is then used.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "a24b3d2123636bfa77b7ac313d55b33f05ae981ff81d9d50f03e65606fb287cc",
+      "created_at": "2026-07-03T00:13:34.479Z",
+      "evidence": [
+        {
+          "charEnd": 1753,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1640,
+          "chunkIndex": 1,
+          "evidenceId": "3f5c7cb8-19f6-47ea-bb42-db2072c97e3f",
+          "exactQuote": "[Rectangle: \"Provide details in Click Up\"] --(If Sales confirms buyer approves the Price)--> [Rectangle: \"Price\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "customer_ops"
+        },
+        {
+          "domainId": "finance_pricing"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "86d1ecae-d1e4-464f-b5e6-a1bf2ceefc4f",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "The approved price leads to the creation of SKUs in DFlow, ColdLion, MasterData, and ClickUp.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "3495161fb928669c74ff60271e88a8e3d64f850d37a9dd34914c165efb0c9ea4",
+      "created_at": "2026-07-03T00:13:34.830Z",
+      "evidence": [
+        {
+          "charEnd": 1846,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1754,
+          "chunkIndex": 1,
+          "evidenceId": "6ba5ff19-2786-4a75-988b-0c24fef22f20",
+          "exactQuote": "[Rectangle: \"Price\"] --> [Rectangle: \"SKUs creation (DFlow, ColdLion, MasterData, ClickUp)\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "finance_pricing"
+        },
+        {
+          "domainId": "it_systems"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "1ad64fab-8366-4096-9d74-208f68e4268d",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "The creation of a style guide card for designers leads to the selection of assets and compositions.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "b646d6cb1b8fbb8fa3ec91b29f04f82b10badabbf10616fe8f19e3cbf454f281",
+      "created_at": "2026-07-03T00:13:35.188Z",
+      "evidence": [
+        {
+          "charEnd": 1959,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1847,
+          "chunkIndex": 1,
+          "evidenceId": "e0f03114-9087-413b-94bb-5abe9c53ed70",
+          "exactQuote": "[Rectangle: \"Create card: Style guides - input for designers\"] --> [Rectangle: \"Assets/ compositions selection\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "b672c3d3-c075-4c5d-9fbd-53c80ef2c606",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Asset and composition selection leads to costing sheets/tech pack elaboration.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "74c1e71abedbbcb93631b0deeb4eeaa98bdf64501e1dcbde84e58571bf150d1c",
+      "created_at": "2026-07-03T00:13:35.556Z",
+      "evidence": [
+        {
+          "charEnd": 2061,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 1960,
+          "chunkIndex": 1,
+          "evidenceId": "a407281c-4d22-4b04-a545-2ddbb9abde76",
+          "exactQuote": "[Rectangle: \"Assets/ compositions selection\"] --> [Rectangle: \"Costing sheets/Tech Pack elaboration\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "finance_pricing"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "945017dc-319b-4775-920a-22bb6f947179",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "The 'Design in Progress' stage leads to updating the DFlow Library and adding a reference number in the PPT.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "aee76c3a4d5931e01dd439f0b5c9aa1e9d8035cf5edb101d86b5df151c01c1de",
+      "created_at": "2026-07-03T00:13:35.984Z",
+      "evidence": [
+        {
+          "charEnd": 2154,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2062,
+          "chunkIndex": 1,
+          "evidenceId": "7d3cdc0f-f243-4c48-9c27-e303043321bd",
+          "exactQuote": "[Rectangle: \"Design in Progress\"] --> [Rectangle: \"DFlow Library + Reference number in PPT\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "design_file_operations"
+        },
+        {
+          "domainId": "it_systems"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "283a6684-65ae-43e4-a38f-6f6d2eefe8b6",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Tech packing is followed by tech pack approval.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "589160ccc3f488c96caf3e0f1cb8d0a61a867a0e53656ec9e61f8348cafec5c2",
+      "created_at": "2026-07-03T00:13:36.937Z",
+      "evidence": [
+        {
+          "charEnd": 2425,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2360,
+          "chunkIndex": 1,
+          "evidenceId": "a24f833d-7769-4934-be47-6840f51d79d5",
+          "exactQuote": "[Rectangle: \"Tech Packing\"] --> [Rectangle: \"Tech Pack Approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "8685f468-e248-4bf7-bcf5-4f3d4713b24d",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Tech pack approval leads to tech pack submit authorization.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "1b03a38c47f922cb3a10d43f5a7e081a4fe6e98ef7a8f50aa654e35861c39eab",
+      "created_at": "2026-07-03T00:13:37.330Z",
+      "evidence": [
+        {
+          "charEnd": 2509,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2426,
+          "chunkIndex": 1,
+          "evidenceId": "dff4236c-ec90-4155-b42f-2edfe22c1959",
+          "exactQuote": "[Rectangle: \"Tech Pack Approval\"] --> [Rectangle: \"Tech Pack Submit Authorization\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "159ab343-3e5f-4124-b880-e2b31e9f46a3",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Tech pack submit authorization leads to licensor's comment.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "82230a7dca8d006d76e35c1a563a19a7063df88b5ab9e405e48a96f54e9343fb",
+      "created_at": "2026-07-03T00:13:37.659Z",
+      "evidence": [
+        {
+          "charEnd": 2593,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2510,
+          "chunkIndex": 1,
+          "evidenceId": "87440361-9f02-421a-a708-3d457967c64c",
+          "exactQuote": "[Rectangle: \"Tech Pack Submit Authorization\"] --> [Rectangle: \"Licensor's comment\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "e53df74b-ca5c-4f6d-bbb0-58b98cf5c50c",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "A tech pack update requires another tech pack submit authorization.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "5b87f762f3b8e3c11a29f93ed938d4f300505ff10a87ef352b7c058e7304eb58",
+      "created_at": "2026-07-03T00:13:39.719Z",
+      "evidence": [
+        {
+          "charEnd": 2903,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2822,
+          "chunkIndex": 1,
+          "evidenceId": "56ff3e5e-4541-411b-9a91-ea47954260f6",
+          "exactQuote": "[Rectangle: \"Tech Pack Update\"] --> [Rectangle: \"Tech Pack Submit Authorization\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "2228b347-fcea-469b-aa20-1db79479a514",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Revisions implementation leads back to the 'Design in Progress' stage.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "058f1445adc6f54e194a7ed6f4eb5b3115e88682824c939936c85e84e4005835",
+      "created_at": "2026-07-03T00:13:40.069Z",
+      "evidence": [
+        {
+          "charEnd": 2981,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2904,
+          "chunkIndex": 1,
+          "evidenceId": "cfbe8886-2f64-46ae-b9ae-f093185774f5",
+          "exactQuote": "[Rectangle: \"Revisions implementation\"] --> [Rectangle: \"Design in Progress\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "42d18036-893b-4016-9d90-0e003fd05299",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Tech pack submit authorization leads to concept submission to the licensor.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "a582a7f46873c9de954e7a925343c66a54f4af511ee8d80f2c40746ce007fa1d",
+      "created_at": "2026-07-03T00:13:40.426Z",
+      "evidence": [
+        {
+          "charEnd": 3073,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 2982,
+          "chunkIndex": 1,
+          "evidenceId": "7844d157-153b-4107-90c1-0f260730d094",
+          "exactQuote": "[Rectangle: \"Tech Pack Submit Authorization\"] --> [Rectangle: \"Concept Submit to Licensor\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "8b77e931-7232-4ebe-b80c-33c7d323b0b6",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Concept submission to the licensor can result in concept revisions.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "fde55702653f28a26382b673f163b02fb3d7f6bfa1e97bf2acb4907d31ce380e",
+      "created_at": "2026-07-03T00:13:40.723Z",
+      "evidence": [
+        {
+          "charEnd": 3152,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3074,
+          "chunkIndex": 1,
+          "evidenceId": "cab5db7a-c8d3-4e3f-978c-6c8d354ce5ff",
+          "exactQuote": "[Rectangle: \"Concept Submit to Licensor\"] --> [Rectangle: \"Concept Revisions\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "81684d95-a08b-48dd-98f7-95615909fa75",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Concept revisions require a resubmission.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "01696f38a753bb397d0984f175684f660c932404672f7edf3b800cb52cf8d013",
+      "created_at": "2026-07-03T00:13:41.045Z",
+      "evidence": [
+        {
+          "charEnd": 3213,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3153,
+          "chunkIndex": 1,
+          "evidenceId": "995e81a0-7c1e-4f13-8fe6-a8ce781eccb0",
+          "exactQuote": "[Rectangle: \"Concept Revisions\"] --> [Rectangle: \"Resubmit\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "fa4364c5-c362-44d1-9557-99c03f5cc15c",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "A resubmission goes back to the 'Concept Submit to Licensor' stage.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "912a9488d9d173950c486f5a72fed314002baa725f6a3fd0388870d2a492a275",
+      "created_at": "2026-07-03T00:13:41.332Z",
+      "evidence": [
+        {
+          "charEnd": 3283,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3214,
+          "chunkIndex": 1,
+          "evidenceId": "4de5a1e1-ae42-426a-93b2-d4dcf36f1959",
+          "exactQuote": "[Rectangle: \"Resubmit\"] --> [Rectangle: \"Concept Submit to Licensor\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "b78bfb39-9fef-4a48-b794-74ab8e353f4f",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Concept revisions can lead to a 'Concept Approved w comments' status.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "55fa51b7a594a19616b324bfcb28cd4b7fbfc1d5ce5886f050137bce9d832846",
+      "created_at": "2026-07-03T00:13:41.693Z",
+      "evidence": [
+        {
+          "charEnd": 3363,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3284,
+          "chunkIndex": 1,
+          "evidenceId": "24c9ed9f-7ec9-491f-a7f3-896198523afe",
+          "exactQuote": "[Rectangle: \"Concept Revisions\"] --> [Rectangle: \"Concept Approved w comments\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "566d5f76-4149-4421-bf31-8383c1e21f0f",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "A 'Concept Approved w comments' status requires comments approval.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "a5277afb060023bf3a75c1765eda40d83b220de905779fd87e0dcf5b94d4acf6",
+      "created_at": "2026-07-03T00:13:41.992Z",
+      "evidence": [
+        {
+          "charEnd": 3443,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3364,
+          "chunkIndex": 1,
+          "evidenceId": "e532a448-1801-4c99-b373-7576713a0d59",
+          "exactQuote": "[Rectangle: \"Concept Approved w comments\"] --> [Rectangle: \"Comments approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "999b68cd-d987-49b9-8425-74d1e7dfc2f7",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Comments approval leads to the 'Concept Approved' status.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "61779de75cf07c40f8c8051eeb0845d61c181ea33f95226fe4626e82e8bc612c",
+      "created_at": "2026-07-03T00:13:42.333Z",
+      "evidence": [
+        {
+          "charEnd": 3512,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3444,
+          "chunkIndex": 1,
+          "evidenceId": "3a5037fe-d1f0-4c97-9c63-c0d0d3e6aace",
+          "exactQuote": "[Rectangle: \"Comments approval\"] --> [Rectangle: \"Concept Approved\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "771f501c-f107-411f-889a-0c13448723cc",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "A 'Concept Approved' status leads to SKU creation in DFlow, ColdLion, MasterData, and ClickUp.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "d131f0153c775b21ea98e5b1b2d17acdd70b055eb9e6beafb3fea54bdc1caf08",
+      "created_at": "2026-07-03T00:13:42.682Z",
+      "evidence": [
+        {
+          "charEnd": 3616,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3513,
+          "chunkIndex": 1,
+          "evidenceId": "f7dcc5e1-3d83-4a47-9963-6d068e6e67bd",
+          "exactQuote": "[Rectangle: \"Concept Approved\"] --> [Rectangle: \"SKUs creation (DFlow, ColdLion, MasterData, ClickUp)\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "it_systems"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "30c507f4-72b6-4385-82d3-17060c4c07af",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "SKU creation in DFlow, ColdLion, MasterData, and ClickUp leads to uploading the concept image to ColdLion and ClickUp.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "f44dd23a778ec18aa4b3b770ff350bb9f81058f9963915c2d00a4e95b5cd72cf",
+      "created_at": "2026-07-03T00:13:43.020Z",
+      "evidence": [
+        {
+          "charEnd": 3741,
+          "chunkId": "4f4a88fc-2241-49ed-9363-ce7644d29117",
+          "charStart": 3617,
+          "chunkIndex": 1,
+          "evidenceId": "32945ef6-9f70-45a1-8eea-f91e0a7ac150",
+          "exactQuote": "[Rectangle: \"SKUs creation (DFlow, ColdLion, MasterData, ClickUp)\"] --> [Rectangle: \"Concept image to ColdLion and ClickUp\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "design_file_operations"
+        },
+        {
+          "domainId": "it_systems"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "17be880b-e0b9-4d11-ad6e-92e816f0ccda",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "A PPS Audit leads to reviewing the audit and sending it to the factory.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "ecbdce8887b127ef1186f816d51227b3ac7e24168edc274d59a30db5593966b2",
+      "created_at": "2026-07-03T00:13:44.624Z",
+      "evidence": [
+        {
+          "charEnd": 305,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 229,
+          "chunkIndex": 2,
+          "evidenceId": "f582af1c-0ab2-424a-a8cf-fb31de024293",
+          "exactQuote": "[Rectangle: \"PPS Audit\"] --> [Rectangle: \"Review Audit and send to factory\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "production_lifecycle"
+        },
+        {
+          "domainId": "supply_chain"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "6cc77117-99e0-4c7d-8192-d6debbe1973e",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "If an audit fails, re-sampling is required.",
+      "impact_score": 7,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "938c84550221bbfbbe844f2eaedc8abc3591a0ca0863b87110c5530d29e27e9c",
+      "created_at": "2026-07-03T00:13:44.987Z",
+      "evidence": [
+        {
+          "charEnd": 402,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 306,
+          "chunkIndex": 2,
+          "evidenceId": "49631e02-fc86-4b93-9dfe-1ed1c6af7e46",
+          "exactQuote": "[Rectangle: \"Review Audit and send to factory\"] --(If Audit: Fail)--> [Rectangle: \"Re-sampling\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "product_development"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "254d4257-2009-420d-88ff-9d455a8a89f1",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "If an audit passes, the PPS is submitted to the licensor.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "6e76a4b47195a736a984bc96f558d60a43e5336093cfd782885aa7d385749cb6",
+      "created_at": "2026-07-03T00:13:45.308Z",
+      "evidence": [
+        {
+          "charEnd": 510,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 403,
+          "chunkIndex": 2,
+          "evidenceId": "514deff4-2bda-4bcd-8cac-027e3e6b32f8",
+          "exactQuote": "[Rectangle: \"Review Audit and send to factory\"] --(If Audit: Pass)--> [Rectangle: \"PPS Submit to licensor\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "db1694c7-5fe7-4aed-a3ed-eb4dcc3b4ae9",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Re-sampling leads to sampling.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "6af62ec802a1426aaffe734b08125ac39e3d19a030d9dc80de81c8ba54015cbb",
+      "created_at": "2026-07-03T00:13:45.658Z",
+      "evidence": [
+        {
+          "charEnd": 565,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 511,
+          "chunkIndex": 2,
+          "evidenceId": "89750ace-6d53-40b6-96ca-46cfbe46ca22",
+          "exactQuote": "[Rectangle: \"Re-sampling\"] --> [Rectangle: \"Sampling\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "product_development"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "3beaf762-66e0-4da2-98c3-b0d02742888c",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Sampling leads to a PPS Audit.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "da380ecc704f499b382ef29c1c75c294325365b3ca9e6a195edb72760825a802",
+      "created_at": "2026-07-03T00:13:45.964Z",
+      "evidence": [
+        {
+          "charEnd": 618,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 566,
+          "chunkIndex": 2,
+          "evidenceId": "25c07aa4-4661-4fb7-b937-b5d43873c529",
+          "exactQuote": "[Rectangle: \"Sampling\"] --> [Rectangle: \"PPS Audit\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "product_development"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "51acefcd-c810-4770-acdb-c89b9604e745",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Submitting the PPS to the licensor leads to PPS approval.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "1c1521476495d619fb7ce1e43c4bdf82a31c20cff7656b003b9d611e53926cdd",
+      "created_at": "2026-07-03T00:13:46.265Z",
+      "evidence": [
+        {
+          "charEnd": 688,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 619,
+          "chunkIndex": 2,
+          "evidenceId": "7861897b-5c01-44dc-a13d-0d2771cf77b9",
+          "exactQuote": "[Rectangle: \"PPS Submit to licensor\"] --> [Rectangle: \"PPS Approved\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "1a776a06-0417-4582-8513-33d1d955d646",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "PPS approval leads to samples being shipped to the US.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "0e463fd4e0c048110fb2ae326d46c566f2f2bcb82a8f291bc76d69c378ff0083",
+      "created_at": "2026-07-03T00:13:46.564Z",
+      "evidence": [
+        {
+          "charEnd": 757,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 689,
+          "chunkIndex": 2,
+          "evidenceId": "fa290a24-0ddd-4f8a-b848-dfc6489e7de2",
+          "exactQuote": "[Rectangle: \"PPS Approved\"] --> [Rectangle: \"Samples shipped to US\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "logistics_shipping"
+        },
+        {
+          "domainId": "product_development"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "26c061ee-29f7-46bf-bdde-15def92b6887",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Samples shipped to the US undergo internal approval.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "a5d300b561cdf5bda1202c492074eb31345df269247dfc162ad67bbeb9d821f2",
+      "created_at": "2026-07-03T00:13:46.878Z",
+      "evidence": [
+        {
+          "charEnd": 839,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 758,
+          "chunkIndex": 2,
+          "evidenceId": "07021d95-364b-416b-b2dd-0b7d6a3f4ec7",
+          "exactQuote": "[Rectangle: \"Samples shipped to US\"] --> [Rectangle: \"Samples Internal Approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "licensing_approvals"
+        },
+        {
+          "domainId": "product_development"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "4c64955f-dbba-4c12-9204-6597d779499d",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Internal samples approval leads to buyer's approval of samples.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "994958f0b3eb02388aa411698025d930bc629810729cfef5036e97e9342ebd46",
+      "created_at": "2026-07-03T00:13:47.237Z",
+      "evidence": [
+        {
+          "charEnd": 924,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 840,
+          "chunkIndex": 2,
+          "evidenceId": "d9380bb8-9d74-46b1-9777-05f836bc9df0",
+          "exactQuote": "[Rectangle: \"Samples Internal Approval\"] --> [Rectangle: \"Samples Buyer's approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "customer_ops"
+        },
+        {
+          "domainId": "licensing_approvals"
+        },
+        {
+          "domainId": "product_development"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "79c27e77-6a99-4739-9674-493abc8bec8f",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Buyer's approval of samples leads to the buyer placing an order.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "fb7c34d91fdc1b7d8aadf5d6f51bc0fde5f8564b1456cc743fd25a5117813962",
+      "created_at": "2026-07-03T00:13:47.985Z",
+      "evidence": [
+        {
+          "charEnd": 1005,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 925,
+          "chunkIndex": 2,
+          "evidenceId": "f09021e7-e721-43c1-98dd-a1708dbe1316",
+          "exactQuote": "[Rectangle: \"Samples Buyer's approval\"] --> [Rectangle: \"Buyer places an order\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "05e5bcd8-ecd0-4bd1-aeca-f4a31ed66d84",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "If an order is placed, it leads to a production order.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "c11cfabec1e0dbb2e7b85fcd2e0737c3b4c79fa639ec62abaf83a48cf9d20414",
+      "created_at": "2026-07-03T00:13:48.281Z",
+      "evidence": [
+        {
+          "charEnd": 1095,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1006,
+          "chunkIndex": 2,
+          "evidenceId": "5deef05e-d0dd-40b8-b97c-94c811268d61",
+          "exactQuote": "[Rectangle: \"Buyer places an order\"] --(With an Order)--> [Rectangle: \"Production order\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "customer_ops"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "9acb079d-30c4-4ba7-860e-ae5c54616b02",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "A production order leads to mass production.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "2ab8d76647dd70c5d7f763cd0a3f659acc658535346341eacf920b1bd2b6dff2",
+      "created_at": "2026-07-03T00:13:48.573Z",
+      "evidence": [
+        {
+          "charEnd": 1162,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1096,
+          "chunkIndex": 2,
+          "evidenceId": "8e6e4e87-f872-4929-9356-f605ec61ad62",
+          "exactQuote": "[Rectangle: \"Production order\"] --> [Rectangle: \"Mass Production\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "26a9590b-0dce-4e20-8e09-ec138a9bb5a1",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "For existing products, mass production leads to shipping to the US.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "c60afaea83ba982d4e6111e35ceb31212ca4216f0ad95d7cf6744912db59c757",
+      "created_at": "2026-07-03T00:13:48.896Z",
+      "evidence": [
+        {
+          "charEnd": 1248,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1163,
+          "chunkIndex": 2,
+          "evidenceId": "105afcd5-f7a1-48f0-9e45-7732ea1bebfe",
+          "exactQuote": "[Rectangle: \"Mass Production\"] --(For existing products)--> [Rectangle: \"Ship to US\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "logistics_shipping"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "a0f94244-1568-4bd6-8a88-d19708cc1664",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "For new items, mass production leads to professional photos.",
+      "impact_score": 5,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "422dda7d75c07873b746da17b7dd11a4899c62755ec375963c10781ad2e2fc3e",
+      "created_at": "2026-07-03T00:13:49.194Z",
+      "evidence": [
+        {
+          "charEnd": 1335,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1249,
+          "chunkIndex": 2,
+          "evidenceId": "dc6ea48d-11b9-4489-8aaf-95395e11d94f",
+          "exactQuote": "[Rectangle: \"Mass Production\"] --(For New Items)--> [Rectangle: \"Professional Photos\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "production_lifecycle"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "4a471330-e345-4a4e-9a27-83769b836784",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Professional photos require professional photos approval.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "41b0bc2e08a00f77b8a87442ba8d10ae2c63ec53f271b0dea769ed3665e2d514",
+      "created_at": "2026-07-03T00:13:49.555Z",
+      "evidence": [
+        {
+          "charEnd": 1418,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1336,
+          "chunkIndex": 2,
+          "evidenceId": "250f33a8-8665-4272-b60d-3aa2fffcd85c",
+          "exactQuote": "[Rectangle: \"Professional Photos\"] --> [Rectangle: \"Professional Photos Approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "licensing_approvals"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "8aa6b8aa-9186-4699-a2fa-abb8074b7930",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Professional photos approval leads to shipping to the US.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "d931bbd61e61f1092f65b86508737eea62507fbd28e1d79420a78a6f21b80401",
+      "created_at": "2026-07-03T00:13:49.889Z",
+      "evidence": [
+        {
+          "charEnd": 1492,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1419,
+          "chunkIndex": 2,
+          "evidenceId": "dfc334b4-b3c3-4a27-b3a4-358eded263e1",
+          "exactQuote": "[Rectangle: \"Professional Photos Approval\"] --> [Rectangle: \"Ship to US\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "logistics_shipping"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "ce529d9b-cccd-43cb-b8a5-d314ee28d36f",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Buyer's approval leads to picks confirmation to the Project Manager.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "b6439013cf36e2a0120426a587b6a30dd975cc1c82bafccc86659461ceb2ce6c",
+      "created_at": "2026-07-03T00:13:50.496Z",
+      "evidence": [
+        {
+          "charEnd": 1626,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1551,
+          "chunkIndex": 2,
+          "evidenceId": "7021139f-6e4f-49b1-a81d-27b8bf3f7a62",
+          "exactQuote": "[Rectangle: \"Buyer's Approval\"] --> [Rectangle: \"Picks confirmation to PM\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "3235fbd7-f729-4d62-b578-0e2529f90a28",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "Picks confirmation to the Project Manager leads back to Buyer's Approval.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "080545c8ffd6abd4995c51a13f48c4b94ba8312c4f28bf202547c40653c45b2c",
+      "created_at": "2026-07-03T00:13:50.938Z",
+      "evidence": [
+        {
+          "charEnd": 1702,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1627,
+          "chunkIndex": 2,
+          "evidenceId": "e6d0e1cf-c7fb-4805-85d0-9fc82486eb0e",
+          "exactQuote": "[Rectangle: \"Picks confirmation to PM\"] --> [Rectangle: \"Buyer's Approval\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "86652d59-eaca-49ff-a223-615dcb5ccb0f",
+      "status": "pending_review",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "The 'For Customer Refresh' process leads to debriefing.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "b5fc6ec3093e87a9412dc2b1af519596b3a170096a418d57be581b3f0b38dca5",
+      "created_at": "2026-07-03T00:13:51.287Z",
+      "evidence": [
+        {
+          "charEnd": 1768,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1703,
+          "chunkIndex": 2,
+          "evidenceId": "90b3a93d-810f-40fe-af90-6c8a6332908d",
+          "exactQuote": "[Rectangle: \"For Customer Refresh\"] --> [Rectangle: \"Debriefing\"]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "creative_design"
+        },
+        {
+          "domainId": "customer_ops"
+        }
+      ],
+      "metadata": []
+    },
+    {
+      "id": "476e9820-39bc-431a-8c80-44ffcd2df1d8",
+      "status": "approved",
+      "claim_type": "process_rule",
+      "claim_kind": "policy",
+      "claim_kind_confidence": 7,
+      "claim_kind_review_status": "model_labeled",
+      "summary": "For existing items, shipping to the US marks the end of the process.",
+      "impact_score": 3,
+      "confidence_score": 9,
+      "source_lang": "en",
+      "candidate_hash": "3d33337752be6f683c495ba15afe93103fb5c7a9cca02e4e93e8a4e444e899ef",
+      "created_at": "2026-07-03T00:13:50.163Z",
+      "evidence": [
+        {
+          "charEnd": 1550,
+          "chunkId": "a856c688-6692-40ff-9d28-da30446c1393",
+          "charStart": 1493,
+          "chunkIndex": 2,
+          "evidenceId": "4a1a6235-f149-4eb9-9898-4ac59fa4d6b2",
+          "exactQuote": "[Rectangle: \"Ship to US\"] --(For Existing Items)--> [End]",
+          "pageNumber": null,
+          "sourceType": "document_chunk"
+        }
+      ],
+      "top_domains": [
+        {
+          "domainId": "business_process"
+        },
+        {
+          "domainId": "logistics_shipping"
+        }
+      ],
+      "metadata": []
+    }
+  ]
+}

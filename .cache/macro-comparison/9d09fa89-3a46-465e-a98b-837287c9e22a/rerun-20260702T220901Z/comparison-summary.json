@@ -1,0 +1,808 @@
+{
+  "generatedAt": "2026-07-02T22:31:53.045Z",
+  "outDir": ".cache\\macro-comparison\\9d09fa89-3a46-465e-a98b-837287c9e22a\\rerun-20260702T220901Z",
+  "old": {
+    "total": 122,
+    "byTypeKind": {
+      "approved / process_rule / policy": 1,
+      "pending_review / dependency / observed_practice": 57,
+      "pending_review / exception_rule / observed_practice": 9,
+      "pending_review / process_rule / policy": 55
+    }
+  },
+  "new": {
+    "total": 241,
+    "byTypeKind": {
+      "approved / dependency / observed_practice": 1,
+      "approved / process_rule / observed_practice": 5,
+      "pending_review / dependency / observed_practice": 49,
+      "pending_review / dependency / policy": 46,
+      "pending_review / exception_rule / observed_practice": 1,
+      "pending_review / process_rule / observed_practice": 139
+    },
+    "outlines": [
+      {
+        "id": "2b982c56-238c-462c-ac65-6909ac4b63ba",
+        "created_at": "2026-07-02T22:21:25.226Z",
+        "recommended_lenses": [
+          "handoffs",
+          "exceptions_and_workarounds",
+          "ownership_and_roles",
+          "dependencies_and_sequence",
+          "systems_and_data_entry",
+          "customer_or_licensor_risk"
+        ],
+        "groups": 10,
+        "group_items": 30,
+        "macros": 0,
+        "findings": 0
+      }
+    ],
+    "jobs": [
+      {
+        "job_type": "document-ingestion",
+        "status": "complete",
+        "n": 1
+      },
+      {
+        "job_type": "document-lens-extraction",
+        "status": "complete",
+        "n": 4
+      },
+      {
+        "job_type": "source-outline",
+        "status": "complete",
+        "n": 1
+      }
+    ],
+    "broadJob": {
+      "rejections": 0,
+      "chunksInserted": 3,
+      "claimsPromoted": 53,
+      "candidatesStaged": 53,
+      "claimsAutoApproved": 0,
+      "duplicatesAppended": 0
+    },
+    "lensJobCount": 4,
+    "lensTotals": {
+      "candidatesStaged": 211,
+      "claimsPromoted": 188,
+      "claimsAutoApproved": 6,
+      "duplicatesAppended": 3,
+      "rejections": 211
+    }
+  },
+  "delta": {
+    "total": 119,
+    "exactSummaryOverlap": 6,
+    "oldOnly": 116,
+    "newOnly": 235,
+    "normalizedQuoteOverlap": 32,
+    "oldUniqueNormalizedQuotes": 66,
+    "newUniqueNormalizedQuotes": 56
+  },
+  "oldOnlyExamples": [
+    {
+      "id": "98fbfae0-4d48-488f-a43f-a59ac896550b",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "The 'Factory selection' step must occur before 'Buyer's Approval' can be obtained.",
+      "quote": "[Rectangle: \"Factory selection\"] --> [Rectangle: \"Buyer's Approval\"]"
+    },
+    {
+      "id": "6e370237-1435-403f-a790-d415beea16d2",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "Following a 'Meeting w Buyer / Trendboards', a 'Design Request Format' is initiated.",
+      "quote": "[Rectangle: \"Meeting w Buyer / Trendboards\"] --> [Rectangle: \"Design Request Format\"]"
+    },
+    {
+      "id": "46a1ab1c-89db-4d77-8d4e-b00de1870d5c",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "A 'Call/email from the buyer' leads to the creation of a 'Design Request Format'.",
+      "quote": "[Rectangle: \"Call/email from the buyer\"] --> [Rectangle: \"Design Request Format\"]"
+    },
+    {
+      "id": "bbe79312-c14e-45df-b6b0-1b760633453c",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After an 'Agenda template/ Kick off Meeting', the Creative direction team creates a card for 'Style guides - input for designers'.",
+      "quote": "[Rectangle: \"Agenda template/ Kick off Meeting\"] --> [Rectangle: \"Create card: Style guides - input for designers\"]"
+    },
+    {
+      "id": "3325069a-b77f-472c-8943-bca43bbae780",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "A 'Design Request Format' leads to 'Pre-brief design notes + Confirming size' by the Creative direction team.",
+      "quote": "[Rectangle: \"Design Request Format\"] --> [Rectangle: \"Pre-brief design notes + Confirming size\"]"
+    },
+    {
+      "id": "15a3ca9a-7887-41db-9f2c-6761b0da695e",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Pre-brief design notes + Confirming size', a 'Brief' is created by the Creative direction team.",
+      "quote": "[Rectangle: \"Pre-brief design notes + Confirming size\"] --> [Rectangle: \"Brief\"]"
+    },
+    {
+      "id": "ff36ef61-483a-4484-8d9b-bb2aa3cf3c3f",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "A 'Brief' is followed by a 'Debriefing' by the Creative direction team.",
+      "quote": "[Rectangle: \"Brief\"] --> [Rectangle: \"Debriefing\"]"
+    },
+    {
+      "id": "e4bb1997-faf7-4a64-a3e3-f6dbe0ad7dbd",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Debriefing', 'Design in Progress' is initiated by Creative designers.",
+      "quote": "[Rectangle: \"Debriefing\"] --> [Rectangle: \"Design in Progress\"]"
+    },
+    {
+      "id": "2eaf7aaf-6969-44e5-ace7-e86597f4ab1a",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "'Costing sheets approval' by Creative direction leads to 'Costing sheets elaboration' by Technical designers.",
+      "quote": "[Rectangle: \"Costing sheets approval\"] --> [Rectangle: \"Costing sheets elaboration\"]"
+    },
+    {
+      "id": "f194832c-1ed8-4d18-8e97-a1c1fec8af06",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "'Costing sheets approval' by Creative direction also leads to 'Costing sheets/Tech Pack elaboration' by Creative designers.",
+      "quote": "[Rectangle: \"Costing sheets approval\"] --> [Rectangle: \"Costing sheets/Tech Pack elaboration\"]"
+    },
+    {
+      "id": "9bdf10c5-ff06-4934-a768-ca6f6684c326",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Costing sheets/Tech Pack elaboration' by Creative designers, the next step is to 'Upload to DFlow RFQ code'.",
+      "quote": "[Rectangle: \"Costing sheets/Tech Pack elaboration\"] --> [Rectangle: \"Upload to DFlow RFQ code\"]"
+    },
+    {
+      "id": "a2150f38-0122-43c2-8c41-e6f0407fd50a",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Upload to DFlow RFQ code', 'RFQ to Factories' is sent by Sourcing.",
+      "quote": "[Rectangle: \"Upload to DFlow RFQ code\"] --> [Rectangle: \"RFQ to Factories\"]"
+    },
+    {
+      "id": "0095103a-a3d5-4c76-8504-7f0e72d9ab11",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'RFQ to Factories' is sent, 'Details and Limitations' are provided by the Factories.",
+      "quote": "[Rectangle: \"RFQ to Factories\"] --> [Rectangle: \"Details and Limitations\"]"
+    },
+    {
+      "id": "84405346-3cf1-4f7d-a603-e96261aabcc2",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Details and Limitations' are provided by Factories, Sourcing proceeds to 'Asking the factories about limitations'.",
+      "quote": "[Rectangle: \"Details and Limitations\"] --> [Rectangle: \"Asking the factories about limitations\"]"
+    },
+    {
+      "id": "ab957f47-1249-4850-af43-024c3e2f69d0",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Asking the factories about limitations', Sourcing must 'Provide details in Click Up'.",
+      "quote": "[Rectangle: \"Asking the factories about limitations\"] --> [Rectangle: \"Provide details in Click Up\"]"
+    },
+    {
+      "id": "7ba4fd75-1226-4cfd-a49e-82f9feceb945",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After the 'Price' is established, Carlos is responsible for 'SKUs creation (DFlow, ColdLion, MasterData, ClickUp)'.",
+      "quote": "[Rectangle: \"Price\"] --> [Rectangle: \"SKUs creation (DFlow, ColdLion, MasterData, ClickUp)\"]"
+    },
+    {
+      "id": "94f2f611-90da-445c-b5b8-540cea4efdc0",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Create card: Style guides - input for designers', Creative designers perform 'Assets/ compositions selection'.",
+      "quote": "[Rectangle: \"Create card: Style guides - input for designers\"] --> [Rectangle: \"Assets/ compositions selection\"]"
+    },
+    {
+      "id": "80fda7ae-1d77-4aa6-b19b-f1053b530a97",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Assets/ compositions selection', Creative designers perform 'Costing sheets/Tech Pack elaboration'.",
+      "quote": "[Rectangle: \"Assets/ compositions selection\"] --> [Rectangle: \"Costing sheets/Tech Pack elaboration\"]"
+    },
+    {
+      "id": "b9960f3c-4a74-42aa-9873-eca62de3fc74",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After preparing 'Art files in the right format + Packaging', Technical designers perform 'Tech Packing'.",
+      "quote": "[Rectangle: \"Art files in the right format + Packaging\"] --> [Rectangle: \"Tech Packing\"]"
+    },
+    {
+      "id": "19192ebe-6ac0-4a62-a4e5-99683ab4e9ab",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Tech Packing', 'Tech Pack Approval' is required by Creative direction.",
+      "quote": "[Rectangle: \"Tech Packing\"] --> [Rectangle: \"Tech Pack Approval\"]"
+    },
+    {
+      "id": "1e52376f-70a2-4bae-a7a5-c523d15d68d1",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Tech Pack Approval', 'Tech Pack Submit Authorization' is required by Creative direction.",
+      "quote": "[Rectangle: \"Tech Pack Approval\"] --> [Rectangle: \"Tech Pack Submit Authorization\"]"
+    },
+    {
+      "id": "9fa9ba8d-34d3-49d5-9c53-bd3e98033e4b",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Tech Pack Submit Authorization', the 'Licensor's comment' is received by Creative direction.",
+      "quote": "[Rectangle: \"Tech Pack Submit Authorization\"] --> [Rectangle: \"Licensor's comment\"]"
+    },
+    {
+      "id": "a9f43e69-3cae-4e54-94a2-7d1f54b2516b",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After a 'Tech Pack Update', the process returns to 'Tech Pack Submit Authorization'.",
+      "quote": "[Rectangle: \"Tech Pack Update\"] --> [Rectangle: \"Tech Pack Submit Authorization\"]"
+    },
+    {
+      "id": "a7a527cb-0bf2-4959-9400-703c63fe4b1b",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Revisions implementation', the process returns to 'Design in Progress'.",
+      "quote": "[Rectangle: \"Revisions implementation\"] --> [Rectangle: \"Design in Progress\"]"
+    },
+    {
+      "id": "97cd108d-e3da-4a54-b8b5-f8511b25b544",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Tech Pack Submit Authorization', the Licensing Team performs 'Concept Submit to Licensor'.",
+      "quote": "[Rectangle: \"Tech Pack Submit Authorization\"] --> [Rectangle: \"Concept Submit to Licensor\"]"
+    },
+    {
+      "id": "216ae247-028d-44d3-9a36-6b036aeeb7d7",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Concept Submit to Licensor', the Licensor may request 'Concept Revisions'.",
+      "quote": "[Rectangle: \"Concept Submit to Licensor\"] --> [Rectangle: \"Concept Revisions\"]"
+    },
+    {
+      "id": "aaafffb2-ddf6-4ce6-808c-93cfeaa392b3",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Concept Revisions', the Licensing Team must 'Resubmit' the concept.",
+      "quote": "[Rectangle: \"Concept Revisions\"] --> [Rectangle: \"Resubmit\"]"
+    },
+    {
+      "id": "6c54a930-2745-462b-86e9-144628abc005",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Resubmit', the concept goes back to 'Concept Submit to Licensor'.",
+      "quote": "[Rectangle: \"Resubmit\"] --> [Rectangle: \"Concept Submit to Licensor\"]"
+    },
+    {
+      "id": "e7d67ba5-d04b-4c47-adf4-a305a7a8f1cf",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Concept Revisions', the Licensor may provide 'Concept Approved w comments'.",
+      "quote": "[Rectangle: \"Concept Revisions\"] --> [Rectangle: \"Concept Approved w comments\"]"
+    },
+    {
+      "id": "76f082f3-5c84-498b-a06b-db61e1f8ffe2",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Concept Approved w comments' from the Licensor, the Licensing Team performs 'Comments approval'.",
+      "quote": "[Rectangle: \"Concept Approved w comments\"] --> [Rectangle: \"Comments approval\"]"
+    }
+  ],
+  "newOnlyExamples": [
+    {
+      "id": "def057a6-e211-48d8-9c68-b54e532c8150",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "The Sales team's 'Agenda template/Kick off Meeting' is a prerequisite for the Creative Direction team to 'Create card: Style guides - input for designers'.",
+      "quote": "[White Box: \"Agenda template/ Kick off Meeting\"] --> [White Box: \"Create card: Style guides - input for designers\"]"
+    },
+    {
+      "id": "da12416a-a5a3-44ca-9242-bf6be9cd0b65",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "Following a 'Meeting w Buyer / Trendboards', the Sales team initiates a 'Design Request Format'.",
+      "quote": "[White Box: \"Meeting w Buyer / Trendboards\"] --> [White Box: \"Design Request Format\"]"
+    },
+    {
+      "id": "e9ada41e-e4a3-4b38-9724-108d51581fa7",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "A 'Call/email from the buyer' triggers the Sales team to create a 'Design Request Format'.",
+      "quote": "[White Box: \"Call/email from the buyer\"] --> [White Box: \"Design Request Format\"]"
+    },
+    {
+      "id": "7be073b7-97c2-424b-b713-aa65bc5af519",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "The 'Design Request Format' from Sales leads to the Creative Direction team's 'Pre-brief design notes + Confirming size' stage.",
+      "quote": "[White Box: \"Design Request Format\"] --> [White Box: \"Pre-brief design notes + Confirming size\"]"
+    },
+    {
+      "id": "ace8cd05-4ebb-4588-9749-890af6a66006",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "The Creative Direction team's 'Create card: Style guides - input for designers' step is followed by the Creative Designers' 'Assets/compositions selection'.",
+      "quote": "[White Box: \"Create card: Style guides - input for designers\"] --> [White Box: \"Assets/ compositions selection\"]"
+    },
+    {
+      "id": "f82fbd5e-6954-4cd7-aa21-a7fde6ff6fac",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Pre-brief design notes + Confirming size', the Creative Direction team proceeds to 'Brief'.",
+      "quote": "[White Box: \"Pre-brief design notes + Confirming size\"] --> [White Box: \"Brief\"]"
+    },
+    {
+      "id": "3bda79ce-cab3-44a7-91c6-ee2e404c0c45",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "The 'Brief' stage is followed by 'Debriefing' within the Creative Direction team.",
+      "quote": "[White Box: \"Brief\"] --> [White Box: \"Debriefing\"]"
+    },
+    {
+      "id": "eb8fb2ab-dc47-4bf9-ab4e-53f4909d6e6c",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Debriefing', the Creative Direction team moves to 'Costing sheets approval'.",
+      "quote": "[White Box: \"Debriefing\"] --> [White Box: \"Costing sheets approval\"]"
+    },
+    {
+      "id": "84d97c79-ee7a-460e-907f-cd79b48837a5",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "The 'Costing sheets approval' step by Creative Direction leads to 'Costing sheets elaboration' by Technical Designers.",
+      "quote": "[White Box: \"Costing sheets approval\"] --> [White Box: \"Costing sheets elaboration\"]"
+    },
+    {
+      "id": "dd3da397-da22-43f3-b910-8467b3381261",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Costing sheets approval', the Creative Direction team proceeds to 'Designs Approval'.",
+      "quote": "[White Box: \"Costing sheets approval\"] --> [White Box: \"Designs Approval\"]"
+    },
+    {
+      "id": "30c55454-316d-4a5e-af7f-807803561ffe",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Upload to DFlow RFQ code', the Sourcing team sends an 'RFQ to Factories'.",
+      "quote": "[White Box: \"Upload to DFlow RFQ code\"] --> [White Box: \"RFQ to Factories\"]"
+    },
+    {
+      "id": "38c23d0c-ecb3-4994-86f4-80968c0a271f",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After sending an 'RFQ to Factories', the Factories provide 'Details and Limitations'.",
+      "quote": "[White Box: \"RFQ to Factories\"] --> [White Box: \"Details and Limitations\"]"
+    },
+    {
+      "id": "48fb0fed-68b9-44e4-8266-527d8a5c49fe",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "The Sourcing team's 'Asking the factories about limitations' step is followed by 'Provide details in Click Up'.",
+      "quote": "[White Box: \"Asking the factories about limitations\"] --> [White Box: \"Provide details in Click Up\"]"
+    },
+    {
+      "id": "c8656b29-d8bc-4706-9ce2-b8831fc6b9a8",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Provide details in Click Up', the Factories provide a 'Price'.",
+      "quote": "[White Box: \"Provide details in Click Up\"] --> [White Box: \"Price\"]"
+    },
+    {
+      "id": "e40aea58-1b07-4f97-99a1-8a53c0bb2f1c",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "If Sales confirms the buyer approves the 'Price', the process moves to 'Designs Approval' by Creative Direction.",
+      "quote": "[White Box: \"Price\"] --(Arrow: \"If Sales confirms buyer approves the Price\")--> [White Box: \"Designs Approval\"]"
+    },
+    {
+      "id": "4a20c7c2-c34b-4666-81bc-59f6c3a5f002",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Designs Approval' by Creative Direction, the Creative Designers begin 'Design in Progress'.",
+      "quote": "[White Box: \"Designs Approval\"] --> [White Box: \"Design in Progress\"]"
+    },
+    {
+      "id": "7456ef6a-eb3f-4357-8428-7cad4cddd0af",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Art files in the right format + Packaging' are prepared by Creative Designers, Technical Designers perform 'Tech Packing'.",
+      "quote": "[White Box: \"Art files in the right format + Packaging\"] --> [White Box: \"Tech Packing\"]"
+    },
+    {
+      "id": "5b30057e-30f6-41bb-bac2-479ed996c2a6",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Tech Packing' by Technical Designers, the next step is 'Tech Pack Approval'.",
+      "quote": "[White Box: \"Tech Packing\"] --> [White Box: \"Tech Pack Approval\"]"
+    },
+    {
+      "id": "244e443f-1bc9-457b-bf84-42cdae7a1e3f",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Tech Pack Approval', the Creative Direction team provides 'Tech Pack Submit Authorization'.",
+      "quote": "[White Box: \"Tech Pack Approval\"] --> [White Box: \"Tech Pack Submit Authorization\"]"
+    },
+    {
+      "id": "1d05985e-58a7-4e0f-8fc4-29ecc37d95ec",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Tech Pack Submit Authorization' by Creative Direction, the Licensor provides 'Licensor's comment'.",
+      "quote": "[White Box: \"Tech Pack Submit Authorization\"] --> [White Box: \"Licensor's comment\"]"
+    },
+    {
+      "id": "27c5f51b-1352-455c-a200-2283844c37f4",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After a 'Tech Pack Update' by Technical Designers, the Creative Direction team provides 'Tech Pack Submit Authorization' again.",
+      "quote": "[White Box: \"Tech Pack Update\"] --> [White Box: \"Tech Pack Submit Authorization\"]"
+    },
+    {
+      "id": "47bea457-b661-46fb-be73-da7ac8f7d218",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Revisions implementation' by Creative Designers, the process loops back to 'Designs Approval' by Creative Direction.",
+      "quote": "[White Box: \"Revisions implementation\"] --> [White Box: \"Designs Approval\"]"
+    },
+    {
+      "id": "e77962d5-a6c8-4d1c-9e07-72e505097428",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Buyer's Approval', the Sales team sends 'Picks confirmation to PM'.",
+      "quote": "[White Box: \"Buyer's Approval\"] --> [White Box: \"Picks confirmation to PM\"]"
+    },
+    {
+      "id": "726ed9f3-be17-4d8b-9c9c-43cd2c327c2c",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Picks confirmation to PM' from Sales, the next step is a 'Sample request'.",
+      "quote": "[White Box: \"Picks confirmation to PM\"] --> [White Box: \"Sample request\"]"
+    },
+    {
+      "id": "28f73936-7355-48ce-9678-f47d6f1c9de4",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After a 'Sample request' from Sales, Junior Designers prepare 'Files for Factory: Art Files + Mock ups+ Packaging + Legal'.",
+      "quote": "[White Box: \"Sample request\"] --> [White Box: \"Files for Factory: Art Files + Mock ups+ Packaging + Legal\"]"
+    },
+    {
+      "id": "44dd0225-f52b-49d3-bba1-97f1da6a8071",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After Junior Designers prepare 'Files for Factory: Art Files + Mock ups+ Packaging + Legal', they proceed to 'PPS Audit'.",
+      "quote": "[White Box: \"Files for Factory: Art Files + Mock ups+ Packaging + Legal\"] --> [White Box: \"PPS Audit\"]"
+    },
+    {
+      "id": "b0e4c9f5-dc30-4b64-892e-6ba37791d99a",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'PPS Audit' by Junior Designers, Gina 'Review Audit and send to factory'.",
+      "quote": "[White Box: \"PPS Audit\"] --> [White Box: \"Review Audit and send to factory\"]"
+    },
+    {
+      "id": "3572caa8-50d3-4999-8140-0771eecd6160",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After Carlos creates a 'Concept image to ColdLion and ClickUp', the Production team handles 'Samples shipped to US'.",
+      "quote": "[White Box: \"Concept image to ColdLion and ClickUp\"] --> [White Box: \"Samples shipped to US\"]"
+    },
+    {
+      "id": "0bf23143-a244-475a-8e2f-1c28b958b7cd",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Samples shipped to US', the Buyer provides 'Samples Buyer's approval'.",
+      "quote": "[White Box: \"Samples shipped to US\"] --> [White Box: \"Samples Buyer's approval\"]"
+    },
+    {
+      "id": "57531157-bc6f-4888-b836-b1ee6b30ed3b",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Factory selection' by Albert, the Buyer provides 'Samples Buyer's approval'.",
+      "quote": "[White Box: \"Factory selection\"] --> [White Box: \"Samples Buyer's approval\"]"
+    },
+    {
+      "id": "bb3c505b-9455-471b-8bd3-4e3ef82e24c8",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After the Licensing Team performs 'Concept Submit to Licensor', the Licensor provides 'Concept Revisions'.",
+      "quote": "[White Box: \"Concept Submit to Licensor\"] --> [White Box: \"Concept Revisions\"]"
+    },
+    {
+      "id": "d54a7709-6cd5-45a1-981f-2426680d65e8",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Concept Revisions' from the Licensor, the Licensing Team performs a 'Resubmit'.",
+      "quote": "[White Box: \"Concept Revisions\"] --> [White Box: \"Resubmit\"]"
+    },
+    {
+      "id": "b0ea3d9c-e5c6-4e48-bb9d-575da70040d5",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After a 'Resubmit' by the Licensing Team, the process loops back to 'Concept Submit to Licensor'.",
+      "quote": "[White Box: \"Resubmit\"] --> [White Box: \"Concept Submit to Licensor\"]"
+    },
+    {
+      "id": "59f9f444-d7a2-4ebb-9532-3b2ebf39ce0b",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After the Licensor provides 'Concept Approved w comments', the Licensing Team performs 'Comments approval'.",
+      "quote": "[White Box: \"Concept Approved w comments\"] --> [White Box: \"Comments approval\"]"
+    },
+    {
+      "id": "facd6a1c-195b-4117-ab6b-9b82282578b5",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Comments approval' by the Licensing Team, the Licensor provides 'Concept Approved'.",
+      "quote": "[White Box: \"Comments approval\"] --> [White Box: \"Concept Approved\"]"
+    },
+    {
+      "id": "d5554d11-c1c4-4a82-83b2-b2adb45c966d",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Concept Approved' by the Licensor, Carlos creates a 'Concept image to ColdLion and ClickUp'.",
+      "quote": "[White Box: \"Concept Approved\"] --> [White Box: \"Concept image to ColdLion and ClickUp\"]"
+    },
+    {
+      "id": "64288efe-b271-4fd7-b943-f787e4d69a4e",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Samples Internal Approval' by Creative Direction, Junior Designers perform a 'PPS Audit'.",
+      "quote": "[White Box: \"Samples Internal Approval\"] --> [White Box: \"PPS Audit\"]"
+    },
+    {
+      "id": "fd575a2a-58f8-4f7c-a8aa-69ca4488e402",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After 'Professional Photos Approval' by Junior Designers, the Production team takes 'Professional Photos'.",
+      "quote": "[White Box: \"Professional Photos Approval\"] --> [White Box: \"Professional Photos\"]"
+    },
+    {
+      "id": "6d202fc8-f0d3-4ead-af42-eabdb0a4b85d",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "After the Production team takes 'Professional Photos', Carlos handles 'Ship to US'.",
+      "quote": "[White Box: \"Professional Photos\"] --> [White Box: \"Ship to US\"]"
+    },
+    {
+      "id": "eafbc9e5-8594-4baf-8f16-36d893a433f2",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "Design approval proceeds only if Sales confirms the buyer approves the price.",
+      "quote": "[White Box: \"Price\"] --(Arrow: \"If Sales confirms buyer approves the Price\")--> [White Box: \"Designs Approval\"]"
+    },
+    {
+      "id": "5353b6b5-4dfd-4863-bd14-93e363ac8c6d",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "Creative Direction's design approval is dependent on Sales confirming the buyer approves the price.",
+      "quote": "[White Box: \"Price\"] --(Arrow: \"If Sales confirms buyer approves the Price\")--> [White Box: \"Designs Approval\"]"
+    },
+    {
+      "id": "df5e9363-127a-4c52-abaa-35d25ad0a033",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "Creative Direction's design approval is dependent on Sales confirming the buyer approves the price.",
+      "quote": "[White Box: \"Price\"] --(Arrow: \"If Sales confirms buyer approves the Price\")--> [White Box: \"Designs Approval\"]"
+    },
+    {
+      "id": "2994f39b-ef3c-423d-a41d-03bd59642492",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "observed_practice",
+      "summary": "If the audit passes, the PPS is submitted to the licensor.",
+      "quote": "[White Box: \"Review Audit and send to factory\"] --(Arrow: \"If Audit: Pass\")--> [White Box: \"PPS Submit to licensor\"]"
+    },
+    {
+      "id": "7568626b-329a-4852-a1ea-e0a9ffc55a8f",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After a meeting is scheduled with a buyer, the Sales team must create an agenda template for a kick-off meeting.",
+      "quote": "[White Box: \"Meeting Scheduled\"] --> [White Box: \"Agenda template/ Kick off Meeting\"]"
+    },
+    {
+      "id": "bafd0c9f-6fad-40aa-9d29-ce35c2286581",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After a meeting with a buyer or trendboards, the Sales team must create a design request format.",
+      "quote": "[White Box: \"Meeting w Buyer / Trendboards\"] --> [White Box: \"Design Request Format\"]"
+    },
+    {
+      "id": "16beb0ae-09bf-45b5-85aa-f74aa3e7a608",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "A call or email from the buyer triggers the Sales team to create a design request format.",
+      "quote": "[White Box: \"Call/email from the buyer\"] --> [White Box: \"Design Request Format\"]"
+    },
+    {
+      "id": "33af7b17-c374-43bd-b5a1-224eb2d973ae",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After the Sales team creates an agenda template for a kick-off meeting, Creative Direction must create a card for style guides as input for designers.",
+      "quote": "[White Box: \"Agenda template/ Kick off Meeting\"] --> [White Box: \"Create card: Style guides - input for designers\"]"
+    },
+    {
+      "id": "e9205368-b9fe-4ae2-a6c4-439ce4a6e3d5",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After the Sales team creates a design request format, Creative Direction must provide pre-brief design notes and confirm the size.",
+      "quote": "[White Box: \"Design Request Format\"] --> [White Box: \"Pre-brief design notes + Confirming size\"]"
+    },
+    {
+      "id": "370cbcdf-2d41-4d85-b60e-ee1f513a86a0",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After Creative Direction creates a card for style guides, Creative Designers must select assets and compositions.",
+      "quote": "[White Box: \"Create card: Style guides - input for designers\"] --> [White Box: \"Assets/ compositions selection\"]"
+    },
+    {
+      "id": "067f5312-ba43-425c-8d2c-06cdf5cd1924",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After Creative Direction provides pre-brief design notes and confirms the size, they must create a brief.",
+      "quote": "[White Box: \"Pre-brief design notes + Confirming size\"] --> [White Box: \"Brief\"]"
+    },
+    {
+      "id": "4338c944-2a4b-451f-b6db-afac5dab9dca",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After Creative Direction creates a brief, they must conduct a debriefing.",
+      "quote": "[White Box: \"Brief\"] --> [White Box: \"Debriefing\"]"
+    },
+    {
+      "id": "626d83a7-13f5-49b1-a83f-7e3661ad867d",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After Creative Direction conducts a debriefing, they must approve costing sheets.",
+      "quote": "[White Box: \"Debriefing\"] --> [White Box: \"Costing sheets approval\"]"
+    },
+    {
+      "id": "160ce36a-523a-4f6a-9491-cad7bec43224",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After Creative Direction approves costing sheets, Technical Designers must elaborate on the costing sheets.",
+      "quote": "[White Box: \"Costing sheets approval\"] --> [White Box: \"Costing sheets elaboration\"]"
+    },
+    {
+      "id": "66b045ac-f9f2-4c0b-8fdd-49663fb53375",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After Creative Direction approves costing sheets, they must also approve designs.",
+      "quote": "[White Box: \"Costing sheets approval\"] --> [White Box: \"Designs Approval\"]"
+    },
+    {
+      "id": "d75605f7-2a38-49d1-8c15-8fd76b1b4934",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After Technical Designers elaborate on costing sheets, they must upload them to DFlow with an RFQ code.",
+      "quote": "[White Box: \"Costing sheets elaboration\"] --> [White Box: \"Upload to DFlow RFQ code\"]"
+    },
+    {
+      "id": "fa5ca70a-7352-4007-bf43-a1c88eecbe73",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After Technical Designers upload costing sheets to DFlow with an RFQ code, Sourcing must send an RFQ to factories.",
+      "quote": "[White Box: \"Upload to DFlow RFQ code\"] --> [White Box: \"RFQ to Factories\"]"
+    },
+    {
+      "id": "e0889142-4774-4691-b732-a95b15d3acc2",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After Sourcing sends an RFQ to factories, the factories must provide details and limitations.",
+      "quote": "[White Box: \"RFQ to Factories\"] --> [White Box: \"Details and Limitations\"]"
+    },
+    {
+      "id": "2a985600-efd8-45b7-b6d9-6b08d5ac137c",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After Sourcing asks factories about limitations, they must provide details in ClickUp.",
+      "quote": "[White Box: \"Asking the factories about limitations\"] --> [White Box: \"Provide details in Click Up\"]"
+    },
+    {
+      "id": "e481b54e-5711-4a72-908f-feb8b62062f6",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "After Sourcing provides details in ClickUp, factories must provide a price.",
+      "quote": "[White Box: \"Provide details in Click Up\"] --> [White Box: \"Price\"]"
+    },
+    {
+      "id": "fe272347-cf2a-4094-98a3-2d37d32322f5",
+      "status": "pending_review",
+      "type": "dependency",
+      "kind": "policy",
+      "summary": "If Sales confirms the buyer approves the price, Creative Direction must approve the designs.",
+      "quote": "[White Box: \"Price\"] --(Arrow: \"If Sales confirms buyer approves the Price\")--> [White Box: \"Designs Approval\"]"
+    }
+  ]
+}

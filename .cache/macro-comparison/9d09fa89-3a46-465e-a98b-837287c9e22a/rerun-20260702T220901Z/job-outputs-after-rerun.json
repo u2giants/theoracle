@@ -1,0 +1,428 @@
+[
+  {
+    "job_type": "document-ingestion",
+    "status": "complete",
+    "trigger_run_id": "run_cmr42dr2m0tr00hof4ynvyk0p",
+    "output_json": {
+      "rejections": 0,
+      "chunksInserted": 3,
+      "claimsPromoted": 53,
+      "candidatesStaged": 53,
+      "claimsAutoApproved": 0,
+      "duplicatesAppended": 0
+    },
+    "started_at": "2026-07-03T02:16:39.967Z",
+    "finished_at": "2026-07-03T02:19:55.280Z"
+  },
+  {
+    "job_type": "source-outline",
+    "status": "complete",
+    "trigger_run_id": "run_cmr42hynm0ynj0hoaecnpmoha",
+    "output_json": {
+      "refCount": 3,
+      "outlineId": "2b982c56-238c-462c-ac65-6909ac4b63ba",
+      "documentId": "9d09fa89-3a46-465e-a98b-837287c9e22a",
+      "groupCount": 10,
+      "lensFanout": {
+        "skipped": [
+          {
+            "reason": "group_skipped_over_max_8",
+            "groupTitle": "SKU Creation & System Entry",
+            "sourceGroupId": "0f7c9fe8-7a23-40f1-9cee-9863aa2a91f5"
+          },
+          {
+            "reason": "group_skipped_over_max_8",
+            "groupTitle": "Mass Production & Shipment",
+            "sourceGroupId": "b533730b-dba5-4c2e-80df-785d5f7b33a2"
+          },
+          {
+            "lens": "ownership_and_roles",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Buyer Engagement & Kickoff",
+            "sourceGroupId": "41db0235-afe4-4096-9156-0745722dbd13"
+          },
+          {
+            "lens": "customer_or_licensor_risk",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Buyer Engagement & Kickoff",
+            "sourceGroupId": "41db0235-afe4-4096-9156-0745722dbd13"
+          },
+          {
+            "lens": "ownership_and_roles",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Creative Direction & Briefing",
+            "sourceGroupId": "a0663339-5bbc-4b62-9471-2ca712b517fd"
+          },
+          {
+            "lens": "customer_or_licensor_risk",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Creative Direction & Briefing",
+            "sourceGroupId": "a0663339-5bbc-4b62-9471-2ca712b517fd"
+          },
+          {
+            "lens": "ownership_and_roles",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Design Execution & Asset Selection",
+            "sourceGroupId": "5ccfee75-d62e-4bc0-921e-75f9b69cfb4e"
+          },
+          {
+            "lens": "customer_or_licensor_risk",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Design Execution & Asset Selection",
+            "sourceGroupId": "5ccfee75-d62e-4bc0-921e-75f9b69cfb4e"
+          },
+          {
+            "lens": "ownership_and_roles",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Costing & Factory Sourcing (RFQ)",
+            "sourceGroupId": "8f6e07c1-4fc1-416d-8d9a-ee0e2c3681eb"
+          },
+          {
+            "lens": "customer_or_licensor_risk",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Costing & Factory Sourcing (RFQ)",
+            "sourceGroupId": "8f6e07c1-4fc1-416d-8d9a-ee0e2c3681eb"
+          },
+          {
+            "lens": "ownership_and_roles",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Tech Pack Creation & Authorization",
+            "sourceGroupId": "16904869-df58-4039-8ede-b92a846cde6f"
+          },
+          {
+            "lens": "customer_or_licensor_risk",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Tech Pack Creation & Authorization",
+            "sourceGroupId": "16904869-df58-4039-8ede-b92a846cde6f"
+          },
+          {
+            "lens": "ownership_and_roles",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Licensor Concept Approval",
+            "sourceGroupId": "4357933b-4a32-408e-b4c0-291ee694bd6d"
+          },
+          {
+            "lens": "customer_or_licensor_risk",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Licensor Concept Approval",
+            "sourceGroupId": "4357933b-4a32-408e-b4c0-291ee694bd6d"
+          },
+          {
+            "lens": "ownership_and_roles",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Sampling & PPS Audit",
+            "sourceGroupId": "1cfe26b5-8333-4d17-9955-bcc6a78f28db"
+          },
+          {
+            "lens": "customer_or_licensor_risk",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Sampling & PPS Audit",
+            "sourceGroupId": "1cfe26b5-8333-4d17-9955-bcc6a78f28db"
+          },
+          {
+            "lens": "ownership_and_roles",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Buyer Sample Approval & Order Placement",
+            "sourceGroupId": "a40cb1ed-15b6-4b95-9757-ff92e7424bcb"
+          },
+          {
+            "lens": "customer_or_licensor_risk",
+            "reason": "group_lens_count_exceeds_4",
+            "groupTitle": "Buyer Sample Approval & Order Placement",
+            "sourceGroupId": "a40cb1ed-15b6-4b95-9757-ff92e7424bcb"
+          },
+          {
+            "lens": "handoffs",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 4,
+            "groupTitle": "Tech Pack Creation & Authorization",
+            "sourceGroupId": "16904869-df58-4039-8ede-b92a846cde6f",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "handoffs",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 5,
+            "groupTitle": "Licensor Concept Approval",
+            "sourceGroupId": "4357933b-4a32-408e-b4c0-291ee694bd6d",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "handoffs",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 6,
+            "groupTitle": "Sampling & PPS Audit",
+            "sourceGroupId": "1cfe26b5-8333-4d17-9955-bcc6a78f28db",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "handoffs",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 7,
+            "groupTitle": "Buyer Sample Approval & Order Placement",
+            "sourceGroupId": "a40cb1ed-15b6-4b95-9757-ff92e7424bcb",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "exceptions_and_workarounds",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 0,
+            "groupTitle": "Buyer Engagement & Kickoff",
+            "sourceGroupId": "41db0235-afe4-4096-9156-0745722dbd13",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "exceptions_and_workarounds",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 1,
+            "groupTitle": "Creative Direction & Briefing",
+            "sourceGroupId": "a0663339-5bbc-4b62-9471-2ca712b517fd",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "exceptions_and_workarounds",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 2,
+            "groupTitle": "Design Execution & Asset Selection",
+            "sourceGroupId": "5ccfee75-d62e-4bc0-921e-75f9b69cfb4e",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "exceptions_and_workarounds",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 3,
+            "groupTitle": "Costing & Factory Sourcing (RFQ)",
+            "sourceGroupId": "8f6e07c1-4fc1-416d-8d9a-ee0e2c3681eb",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "exceptions_and_workarounds",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 4,
+            "groupTitle": "Tech Pack Creation & Authorization",
+            "sourceGroupId": "16904869-df58-4039-8ede-b92a846cde6f",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "exceptions_and_workarounds",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 5,
+            "groupTitle": "Licensor Concept Approval",
+            "sourceGroupId": "4357933b-4a32-408e-b4c0-291ee694bd6d",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "exceptions_and_workarounds",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 6,
+            "groupTitle": "Sampling & PPS Audit",
+            "sourceGroupId": "1cfe26b5-8333-4d17-9955-bcc6a78f28db",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "exceptions_and_workarounds",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 7,
+            "groupTitle": "Buyer Sample Approval & Order Placement",
+            "sourceGroupId": "a40cb1ed-15b6-4b95-9757-ff92e7424bcb",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "dependencies_and_sequence",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 0,
+            "groupTitle": "Buyer Engagement & Kickoff",
+            "sourceGroupId": "41db0235-afe4-4096-9156-0745722dbd13",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "dependencies_and_sequence",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 1,
+            "groupTitle": "Creative Direction & Briefing",
+            "sourceGroupId": "a0663339-5bbc-4b62-9471-2ca712b517fd",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "dependencies_and_sequence",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 2,
+            "groupTitle": "Design Execution & Asset Selection",
+            "sourceGroupId": "5ccfee75-d62e-4bc0-921e-75f9b69cfb4e",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "dependencies_and_sequence",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 3,
+            "groupTitle": "Costing & Factory Sourcing (RFQ)",
+            "sourceGroupId": "8f6e07c1-4fc1-416d-8d9a-ee0e2c3681eb",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "dependencies_and_sequence",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 4,
+            "groupTitle": "Tech Pack Creation & Authorization",
+            "sourceGroupId": "16904869-df58-4039-8ede-b92a846cde6f",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "dependencies_and_sequence",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 5,
+            "groupTitle": "Licensor Concept Approval",
+            "sourceGroupId": "4357933b-4a32-408e-b4c0-291ee694bd6d",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "dependencies_and_sequence",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 6,
+            "groupTitle": "Sampling & PPS Audit",
+            "sourceGroupId": "1cfe26b5-8333-4d17-9955-bcc6a78f28db",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "dependencies_and_sequence",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 7,
+            "groupTitle": "Buyer Sample Approval & Order Placement",
+            "sourceGroupId": "a40cb1ed-15b6-4b95-9757-ff92e7424bcb",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "systems_and_data_entry",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 0,
+            "groupTitle": "Buyer Engagement & Kickoff",
+            "sourceGroupId": "41db0235-afe4-4096-9156-0745722dbd13",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "systems_and_data_entry",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 1,
+            "groupTitle": "Creative Direction & Briefing",
+            "sourceGroupId": "a0663339-5bbc-4b62-9471-2ca712b517fd",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "systems_and_data_entry",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 2,
+            "groupTitle": "Design Execution & Asset Selection",
+            "sourceGroupId": "5ccfee75-d62e-4bc0-921e-75f9b69cfb4e",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "systems_and_data_entry",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 3,
+            "groupTitle": "Costing & Factory Sourcing (RFQ)",
+            "sourceGroupId": "8f6e07c1-4fc1-416d-8d9a-ee0e2c3681eb",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "systems_and_data_entry",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 4,
+            "groupTitle": "Tech Pack Creation & Authorization",
+            "sourceGroupId": "16904869-df58-4039-8ede-b92a846cde6f",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "systems_and_data_entry",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 5,
+            "groupTitle": "Licensor Concept Approval",
+            "sourceGroupId": "4357933b-4a32-408e-b4c0-291ee694bd6d",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "systems_and_data_entry",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 6,
+            "groupTitle": "Sampling & PPS Audit",
+            "sourceGroupId": "1cfe26b5-8333-4d17-9955-bcc6a78f28db",
+            "estimatedInputTokens": 3516
+          },
+          {
+            "lens": "systems_and_data_entry",
+            "reason": "model_call_count_exceeds_4",
+            "groupSort": 7,
+            "groupTitle": "Buyer Sample Approval & Order Placement",
+            "sourceGroupId": "a40cb1ed-15b6-4b95-9757-ff92e7424bcb",
+            "estimatedInputTokens": 3516
+          }
+        ],
+        "triggered": 4
+      },
+      "macroFollowups": {
+        "triggered": true
+      }
+    },
+    "started_at": "2026-07-03T02:19:56.649Z",
+    "finished_at": "2026-07-03T02:21:26.073Z"
+  },
+  {
+    "job_type": "document-lens-extraction",
+    "status": "complete",
+    "trigger_run_id": "run_cmr42jwes0xsk0hofzyd482d9",
+    "output_json": {
+      "rejections": 52,
+      "claimsPromoted": 46,
+      "candidatesStaged": 52,
+      "duplicatesFlagged": 0,
+      "claimsAutoApproved": 0,
+      "duplicatesAppended": 0
+    },
+    "started_at": "2026-07-03T02:21:26.882Z",
+    "finished_at": "2026-07-03T02:22:46.492Z"
+  },
+  {
+    "job_type": "document-lens-extraction",
+    "status": "complete",
+    "trigger_run_id": "run_cmr42jwb40zz10hoawfzg0clz",
+    "output_json": {
+      "rejections": 53,
+      "claimsPromoted": 48,
+      "candidatesStaged": 53,
+      "duplicatesFlagged": 0,
+      "claimsAutoApproved": 0,
+      "duplicatesAppended": 3
+    },
+    "started_at": "2026-07-03T02:21:26.997Z",
+    "finished_at": "2026-07-03T02:22:45.894Z"
+  },
+  {
+    "job_type": "document-lens-extraction",
+    "status": "complete",
+    "trigger_run_id": "run_cmr42jwkm0ysc0vn41wr1lyft",
+    "output_json": {
+      "rejections": 53,
+      "claimsPromoted": 48,
+      "candidatesStaged": 53,
+      "duplicatesFlagged": 0,
+      "claimsAutoApproved": 6,
+      "duplicatesAppended": 0
+    },
+    "started_at": "2026-07-03T02:21:29.666Z",
+    "finished_at": "2026-07-03T02:22:41.595Z"
+  },
+  {
+    "job_type": "document-lens-extraction",
+    "status": "complete",
+    "trigger_run_id": "run_cmr42jwh210dw0jn5ji6ehplf",
+    "output_json": {
+      "rejections": 53,
+      "claimsPromoted": 46,
+      "candidatesStaged": 53,
+      "duplicatesFlagged": 0,
+      "claimsAutoApproved": 0,
+      "duplicatesAppended": 0
+    },
+    "started_at": "2026-07-03T02:21:29.750Z",
+    "finished_at": "2026-07-03T02:22:50.924Z"
+  }
+]
