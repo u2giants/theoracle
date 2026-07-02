@@ -3,8 +3,8 @@
 // Outlines are guidance only. They are not claim evidence, never promote
 // claims, and can only reference persisted document chunks for inspectability.
 
-import { task } from '@trigger.dev/sdk/v3';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { task, tasks } from '@trigger.dev/sdk/v3';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -48,6 +48,11 @@ type ChunkRow = {
   pageNumber: number | null;
   rawText: string;
   contentHash: string | null;
+};
+
+type MacroAutoBudget = {
+  enabled: boolean;
+  maxOutlineGroups: number;
 };
 
 function sha256(text: string): string {
@@ -233,6 +238,58 @@ async function persistOutline(args: {
   }
 
   return outlineRow.id;
+}
+
+function settingToBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value === 'true' || value === '1';
+  return fallback;
+}
+
+function settingToInt(value: unknown, fallback: number): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? Math.floor(parsed) : fallback;
+}
+
+async function loadMacroAutoBudget(db: OracleDb): Promise<MacroAutoBudget> {
+  const rows = await db.execute(
+    // Keep this raw to avoid expanding the public schema surface only for settings.
+    sql`SELECT key, value FROM settings WHERE key IN ('macro_auto_followups_enabled', 'macro_auto_max_outline_groups')`,
+  );
+  const map = new Map(([...rows] as Array<{ key: string; value: unknown }>).map((row) => [row.key, row.value]));
+  return {
+    enabled: settingToBoolean(map.get('macro_auto_followups_enabled'), true),
+    maxOutlineGroups: Math.max(1, settingToInt(map.get('macro_auto_max_outline_groups'), 12)),
+  };
+}
+
+async function triggerMacroFollowups(args: {
+  db: OracleDb;
+  documentId: string;
+  outlineId: string;
+  groupCount: number;
+}): Promise<{ triggered: boolean; reason?: string }> {
+  const budget = await loadMacroAutoBudget(args.db);
+  if (!budget.enabled) return { triggered: false, reason: 'macro_auto_followups_disabled' };
+  if (args.groupCount > budget.maxOutlineGroups) {
+    return {
+      triggered: false,
+      reason: `outline_group_count_${args.groupCount}_exceeds_${budget.maxOutlineGroups}`,
+    };
+  }
+
+  await tasks
+    .trigger('macro-relationship-extraction', {
+      documentId: args.documentId,
+      sourceOutlineId: args.outlineId,
+      relationshipScope: 'cross_source',
+    })
+    .catch((err) => console.warn('[source-outline] failed to trigger macro relationship extraction', err));
+  await tasks
+    .trigger('source-coverage-audit', { sourceOutlineId: args.outlineId })
+    .catch((err) => console.warn('[source-outline] failed to trigger source coverage audit', err));
+
+  return { triggered: true };
 }
 
 async function generateDocumentOutline(documentId: string, force: boolean, triggerRunId: string) {
@@ -456,6 +513,12 @@ async function generateDocumentOutline(documentId: string, force: boolean, trigg
       modelRunId,
       contextPackId: contextPack.id,
     });
+    const followups = await triggerMacroFollowups({
+      db,
+      documentId,
+      outlineId,
+      groupCount: outline.groups.length,
+    });
 
     await db
       .update(jobRuns)
@@ -467,6 +530,7 @@ async function generateDocumentOutline(documentId: string, force: boolean, trigg
           outlineId,
           groupCount: outline.groups.length,
           refCount: outline.refs.length,
+          macroFollowups: followups,
         },
       })
       .where(eq(jobRuns.id, jobRun.id));

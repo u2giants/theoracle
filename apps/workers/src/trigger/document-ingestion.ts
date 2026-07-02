@@ -1459,19 +1459,25 @@ async function processDocument(
     .orderBy(desc(sourceOutlines.createdAt))
     .limit(1);
   if (latestOutline) {
-    await tasks
-      .trigger('macro-relationship-extraction', {
-        documentId,
-        sourceOutlineId: latestOutline.id,
-      })
-      .catch((err) =>
-        console.warn('[document-ingestion] failed to trigger macro relationship extraction', err),
-      );
-    await tasks
-      .trigger('source-coverage-audit', { sourceOutlineId: latestOutline.id })
-      .catch((err) =>
-        console.warn('[document-ingestion] failed to trigger source coverage audit', err),
-      );
+    const followups = await macroAutoFollowupsAllowed(db, latestOutline.id);
+    if (followups.allowed) {
+      await tasks
+        .trigger('macro-relationship-extraction', {
+          documentId,
+          sourceOutlineId: latestOutline.id,
+          relationshipScope: 'cross_source',
+        })
+        .catch((err) =>
+          console.warn('[document-ingestion] failed to trigger macro relationship extraction', err),
+        );
+      await tasks
+        .trigger('source-coverage-audit', { sourceOutlineId: latestOutline.id })
+        .catch((err) =>
+          console.warn('[document-ingestion] failed to trigger source coverage audit', err),
+        );
+    } else {
+      console.warn('[document-ingestion] skipped automatic macro followups', followups.reason);
+    }
   } else {
     await tasks
       .trigger('source-outline', { documentId })
@@ -1547,6 +1553,34 @@ function settingEnabled(value: unknown): boolean {
   if (value === true) return true;
   if (typeof value === 'string') return value.toLowerCase() === 'true';
   return false;
+}
+
+function settingInt(value: unknown, fallback: number): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? Math.floor(parsed) : fallback;
+}
+
+async function macroAutoFollowupsAllowed(
+  db: OracleDb,
+  sourceOutlineId: string,
+): Promise<{ allowed: boolean; reason?: string }> {
+  const rows = await db
+    .select({ key: settings.key, value: settings.value })
+    .from(settings)
+    .where(inArray(settings.key, ['macro_auto_followups_enabled', 'macro_auto_max_outline_groups']));
+  const values = new Map(rows.map((row) => [row.key, row.value]));
+  if (!settingEnabled(values.get('macro_auto_followups_enabled') ?? true)) {
+    return { allowed: false, reason: 'macro_auto_followups_disabled' };
+  }
+  const maxGroups = Math.max(1, settingInt(values.get('macro_auto_max_outline_groups'), 12));
+  const groups = await db
+    .select({ id: sourceGroups.id })
+    .from(sourceGroups)
+    .where(eq(sourceGroups.sourceOutlineId, sourceOutlineId));
+  if (groups.length > maxGroups) {
+    return { allowed: false, reason: `outline_group_count_${groups.length}_exceeds_${maxGroups}` };
+  }
+  return { allowed: true };
 }
 
 async function loadDocumentOutlineContext(

@@ -238,7 +238,8 @@ export async function POST(req: NextRequest) {
     }
     contextLines.push(`\nApproved claims that may be relevant:`);
     for (const c of relevantClaims) {
-      contextLines.push(`- ${c.summary} (impact ${c.impactScore}; kind ${c.claimKind ?? 'uncertain'})`);
+      const reviewedKind = c.claimKindReviewStatus === 'reviewed' ? (c.claimKind ?? 'uncertain') : 'uncertain';
+      contextLines.push(`- ${c.summary} (impact ${c.impactScore}; kind ${reviewedKind})`);
     }
   }
   const dynamicContext = contextLines.join('\n');

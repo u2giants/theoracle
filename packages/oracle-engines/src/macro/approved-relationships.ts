@@ -92,6 +92,7 @@ export async function getApprovedMacroRelationships(args: {
       summary: claims.summary,
       claimType: claims.claimType,
       claimKind: claims.claimKind,
+      claimKindReviewStatus: claims.claimKindReviewStatus,
     })
     .from(macroRelationshipClaims)
     .innerJoin(claims, eq(claims.id, macroRelationshipClaims.claimId))
@@ -112,7 +113,7 @@ export async function getApprovedMacroRelationships(args: {
       id: row.claimId,
       summary: row.summary,
       claimType: row.claimType,
-      claimKind: row.claimKind,
+      claimKind: row.claimKindReviewStatus === 'reviewed' ? row.claimKind : null,
       supportRole: row.supportRole,
     });
     supportByRelationship.set(row.relationshipId, list);

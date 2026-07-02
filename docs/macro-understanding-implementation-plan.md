@@ -6,6 +6,24 @@ relationship proposals/lifecycle, coverage findings, admin review, and
 Brain/chat consumption are implemented. Remaining work is quality tuning,
 broader backfills/evals, richer lens fan-out, and production calibration.
 
+Hardening update on 2026-07-02:
+
+- source-outline completion now closes the automatic loop by triggering guarded
+  macro relationship extraction and coverage audit followups.
+- macro relationship summaries are rejected when they introduce unsupported
+  named entities absent from support claims or the entity registry.
+- macro tables remain deliberately owned by hand-written SQL migration
+  `79_macro_understanding.sql`; this is documented in `AGENTS.md` to avoid
+  accidental duplicate generated migrations.
+- unreviewed `claim_kind` labels are no longer allowed to steer chat or Brain
+  synthesis as policy/practice vocabulary.
+- cross-source macro extraction can auto-select related support claims by
+  shared top domains when a document outline asks for cross-source scope.
+- automatic followups are budget-gated by settings seeded in
+  `80_macro_auto_followup_settings.sql`; richer lens fan-out remains a later
+  expansion behind those budget controls.
+- macro entity validation and lifecycle transitions have smoke-test coverage.
+
 ## Executive Summary
 
 The Oracle's current extraction pipeline is evidence-safe but context-myopic. It

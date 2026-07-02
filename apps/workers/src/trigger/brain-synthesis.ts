@@ -184,7 +184,7 @@ OUTPUT: Return structured JSON matching the schema exactly. The updatedMarkdown 
 
 function buildSynthesisCorpus(
   currentMarkdown: string | null,
-  approvedClaims: Array<{ id: string; summary: string; claimType: string; claimKind?: string | null; impactScore: number; confidenceScore: number }>,
+  approvedClaims: Array<{ id: string; summary: string; claimType: string; claimKind?: string | null; claimKindReviewStatus?: string | null; impactScore: number; confidenceScore: number }>,
   macroRelationships: Array<{
     id: string;
     relationshipType: string;
@@ -196,8 +196,10 @@ function buildSynthesisCorpus(
 ): string {
   const claimList = approvedClaims
     .map(
-      (c) =>
-        `  - ID: ${c.id}\n    Type: ${c.claimType}\n    Kind: ${c.claimKind ?? 'uncertain'}\n    Impact: ${c.impactScore}/10  Confidence: ${c.confidenceScore}/10\n    Claim: ${c.summary}`,
+      (c) => {
+        const reviewedKind = c.claimKindReviewStatus === 'reviewed' ? (c.claimKind ?? 'uncertain') : 'uncertain (kind not reviewed)';
+        return `  - ID: ${c.id}\n    Type: ${c.claimType}\n    Kind: ${reviewedKind}\n    Impact: ${c.impactScore}/10  Confidence: ${c.confidenceScore}/10\n    Claim: ${c.summary}`;
+      },
     )
     .join('\n');
   const macroList = macroRelationships
@@ -291,6 +293,7 @@ async function synthesizeSection(
       summary: claims.summary,
       claimType: claims.claimType,
       claimKind: claims.claimKind,
+      claimKindReviewStatus: claims.claimKindReviewStatus,
       impactScore: claims.impactScore,
       confidenceScore: claims.confidenceScore,
     })
@@ -311,6 +314,7 @@ async function synthesizeSection(
       summary: claims.summary,
       claimType: claims.claimType,
       claimKind: claims.claimKind,
+      claimKindReviewStatus: claims.claimKindReviewStatus,
       impactScore: claims.impactScore,
       confidenceScore: claims.confidenceScore,
     })
@@ -341,6 +345,7 @@ async function synthesizeSection(
           summary: support.summary,
           claimType: support.claimType,
           claimKind: support.claimKind,
+          claimKindReviewStatus: 'reviewed',
           impactScore: relationship.impactScore,
           confidenceScore: relationship.confidenceScore,
         });

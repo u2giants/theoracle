@@ -18,10 +18,9 @@ import {
 } from '@oracle/ai';
 import { getDirectDb } from '@oracle/db/client';
 import {
-  claimEvidence,
   claims,
   contradictions,
-  documentChunks,
+  entities,
   macroRelationshipClaims,
   macroRelationshipSources,
   macroRelationships,
@@ -31,6 +30,7 @@ import {
   sourceOutlineSources,
   sourceOutlines,
 } from '@oracle/db';
+import { statusForGeneratedMacroRelationship, validateMacroRelationshipSummaryEntities } from '@oracle/engines';
 
 const payloadSchema = z.object({
   documentId: z.string().uuid().optional(),
@@ -49,6 +49,10 @@ type SupportClaim = {
   status: string;
   impactScore: number;
   confidenceScore: number;
+};
+
+type MacroBudget = {
+  maxSupportClaims: number;
 };
 
 function sha256(text: string): string {
@@ -96,6 +100,7 @@ async function loadSupportClaims(args: {
   documentId?: string;
   sourceOutlineId?: string;
   claimIds?: string[];
+  relationshipScope?: 'single_source' | 'cross_source';
 }): Promise<{ claims: SupportClaim[]; documentId: string | null; sourceOutlineId: string | null }> {
   const db = getDirectDb();
   let documentId = args.documentId ?? null;
@@ -132,6 +137,52 @@ async function loadSupportClaims(args: {
       .from(claims)
       .where(inArray(claims.id, args.claimIds))
       .limit(40);
+  } else if (documentId && args.relationshipScope === 'cross_source') {
+    const result = await db.execute(sql`
+      WITH seed_claims AS (
+        SELECT DISTINCT c.id
+        FROM claims c
+        JOIN claim_evidence ce ON ce.claim_id = c.id
+        JOIN document_chunks dc ON dc.id = ce.source_document_chunk_id
+        WHERE dc.document_id = ${documentId}::uuid
+          AND c.status IN ('pending_review', 'approved')
+      ),
+      seed_domains AS (
+        SELECT DISTINCT ctd.top_domain_id
+        FROM claim_top_domains ctd
+        JOIN seed_claims sc ON sc.id = ctd.claim_id
+      ),
+      related_claims AS (
+        SELECT DISTINCT c.id
+        FROM claims c
+        JOIN claim_top_domains ctd ON ctd.claim_id = c.id
+        WHERE c.status IN ('pending_review', 'approved')
+          AND ctd.top_domain_id IN (SELECT top_domain_id FROM seed_domains)
+      )
+      SELECT DISTINCT
+        c.id,
+        c.summary,
+        c.claim_type AS "claimType",
+        c.claim_kind AS "claimKind",
+        c.claim_kind_confidence AS "claimKindConfidence",
+        c.claim_kind_review_status AS "claimKindReviewStatus",
+        c.status,
+        c.impact_score AS "impactScore",
+        c.confidence_score AS "confidenceScore"
+      FROM claims c
+      WHERE c.id IN (
+        SELECT id FROM seed_claims
+        UNION
+        SELECT id FROM related_claims
+      )
+      ORDER BY
+        CASE WHEN c.id IN (SELECT id FROM seed_claims) THEN 0 ELSE 1 END,
+        c.impact_score DESC,
+        c.confidence_score DESC,
+        c.created_at DESC
+      LIMIT 40
+    `);
+    rows = [...result] as SupportClaim[];
   } else if (documentId) {
     const result = await db.execute(sql`
       SELECT DISTINCT
@@ -177,6 +228,20 @@ async function loadSupportClaims(args: {
   return { claims: rows, documentId, sourceOutlineId };
 }
 
+async function loadMacroBudget(): Promise<MacroBudget> {
+  const db = getDirectDb();
+  const rows = await db.execute(sql`
+    SELECT key, value FROM settings
+    WHERE key IN ('macro_auto_max_support_claims')
+  `);
+  const map = new Map(([...rows] as Array<{ key: string; value: unknown }>).map((row) => [row.key, row.value]));
+  const raw = map.get('macro_auto_max_support_claims');
+  const parsed = typeof raw === 'number' ? raw : Number(raw ?? 40);
+  return {
+    maxSupportClaims: Number.isFinite(parsed) && parsed > 1 ? Math.min(80, Math.floor(parsed)) : 40,
+  };
+}
+
 async function runMacroRelationshipExtraction(rawPayload: unknown) {
   const payload = payloadSchema.parse(rawPayload);
   const db = getDirectDb();
@@ -184,6 +249,8 @@ async function runMacroRelationshipExtraction(rawPayload: unknown) {
   if (support.claims.length < 2) {
     return { status: 'skipped_too_few_claims', count: support.claims.length };
   }
+  const budget = await loadMacroBudget();
+  support.claims = support.claims.slice(0, budget.maxSupportClaims);
 
   const client = new OracleAIClient({ adapters: buildStandardAdapters() });
   const resolved = await resolveRouteCandidates(db, 'general');
@@ -324,10 +391,26 @@ async function runMacroRelationshipExtraction(rawPayload: unknown) {
   }
 
   const supportById = new Map(support.claims.map((claim) => [claim.id, claim]));
+  const registryRows = await db.select({ canonicalValue: entities.canonicalValue }).from(entities);
+  const registryEntityNames = registryRows.map((row) => row.canonicalValue);
   let inserted = 0;
+  let rejectedUnsupportedEntities = 0;
   for (const relationship of result.object.relationships) {
     const supportLinks = relationship.supportingClaims.filter((link) => supportById.has(link.claimId));
     if (supportLinks.length < 2) continue;
+    const entityValidation = validateMacroRelationshipSummaryEntities({
+      summary: relationship.summary,
+      supportClaimSummaries: supportLinks.map((link) => supportById.get(link.claimId)!.summary),
+      registryEntityNames,
+    });
+    if (!entityValidation.ok) {
+      rejectedUnsupportedEntities += 1;
+      console.warn('[macro-relationship] rejected unsupported summary entities', {
+        unsupportedEntities: entityValidation.unsupportedEntities,
+        summary: relationship.summary,
+      });
+      continue;
+    }
 
     const duplicateHash = sha256(
       `${relationship.relationshipType}\n${relationship.summary.toLowerCase().replace(/\s+/g, ' ').trim()}\n${supportLinks.map((link) => link.claimId).sort().join(',')}`,
@@ -339,14 +422,14 @@ async function runMacroRelationshipExtraction(rawPayload: unknown) {
       .limit(1);
     if (existing) continue;
 
-    const allApproved = supportLinks.every((link) => supportById.get(link.claimId)?.status === 'approved');
+    const supportStatuses = supportLinks.map((link) => supportById.get(link.claimId)?.status ?? 'missing');
     const { vector } = await embedText(relationship.summary);
     const [row] = await db
       .insert(macroRelationships)
       .values({
         relationshipType: relationship.relationshipType,
         summary: relationship.summary,
-        status: allApproved ? 'pending_review' : 'blocked_pending_support',
+        status: statusForGeneratedMacroRelationship(supportStatuses),
         sourceOutlineId: support.sourceOutlineId,
         confidenceScore: relationship.confidenceScore,
         impactScore: relationship.impactScore,
@@ -403,7 +486,7 @@ async function runMacroRelationshipExtraction(rawPayload: unknown) {
     inserted += 1;
   }
 
-  return { status: 'complete', inserted };
+  return { status: 'complete', inserted, rejectedUnsupportedEntities };
 }
 
 export const macroRelationshipExtractionTask = task({

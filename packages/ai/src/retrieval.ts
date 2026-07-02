@@ -186,6 +186,7 @@ export type RelevantClaim = {
   summary: string;
   claimType: string;
   claimKind: string | null;
+  claimKindReviewStatus: string | null;
   impactScore: number;
   confidenceScore: number;
   distance: number;
@@ -336,6 +337,7 @@ export async function searchWithRetrievalPlan(
     summary: string;
     claim_type: string;
     claim_kind: string | null;
+    claim_kind_review_status: string | null;
     impact_score: number;
     confidence_score: number;
     distance: number;
@@ -346,7 +348,8 @@ export async function searchWithRetrievalPlan(
       -- Bilingual: render summary/embedding in the reader's locale, falling
       -- back to the canonical claim when no translation row exists.
       SELECT DISTINCT
-        c.id, ${localizedSummary} AS summary, c.claim_type, c.claim_kind, c.impact_score, c.confidence_score,
+        c.id, ${localizedSummary} AS summary, c.claim_type, c.claim_kind, c.claim_kind_review_status,
+        c.impact_score, c.confidence_score,
         COALESCE(ct.embedding, c.embedding) AS embedding
       FROM claims c
       ${translationJoin}
@@ -366,7 +369,7 @@ export async function searchWithRetrievalPlan(
       -- EMBEDDING_DIM is inlined via sql.raw: a type modifier like vector(N)
       -- cannot be a bind parameter, and the constant is project-owned (1536).
       SELECT
-        id, summary, claim_type, claim_kind, impact_score, confidence_score,
+        id, summary, claim_type, claim_kind, claim_kind_review_status, impact_score, confidence_score,
         (embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))})) AS vec_dist,
         ROW_NUMBER() OVER (
           ORDER BY embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))})
@@ -390,7 +393,7 @@ export async function searchWithRetrievalPlan(
     ${deptBonusCte}
     rrf AS (
       SELECT
-        vr.id, vr.summary, vr.claim_type, vr.claim_kind, vr.impact_score, vr.confidence_score,
+        vr.id, vr.summary, vr.claim_type, vr.claim_kind, vr.claim_kind_review_status, vr.impact_score, vr.confidence_score,
         vr.vec_dist,
         1.0 / (60.0 + vr.vrank::float) +
         COALESCE(1.0 / (60.0 + tr.trank::float), 0.0)
@@ -399,7 +402,7 @@ export async function searchWithRetrievalPlan(
       LEFT JOIN txt_ranked tr ON tr.id = vr.id
       ${deptBonusJoin}
     )
-    SELECT id, summary, claim_type, claim_kind, impact_score, confidence_score,
+    SELECT id, summary, claim_type, claim_kind, claim_kind_review_status, impact_score, confidence_score,
            vec_dist AS distance, rrf_score
     FROM rrf
     ORDER BY rrf_score DESC
@@ -411,6 +414,7 @@ export async function searchWithRetrievalPlan(
     summary: r.summary,
     claimType: r.claim_type,
     claimKind: r.claim_kind,
+    claimKindReviewStatus: r.claim_kind_review_status,
     impactScore: r.impact_score,
     confidenceScore: r.confidence_score,
     distance: r.distance,
@@ -460,12 +464,14 @@ async function _searchFallbackTsvector(
     summary: string;
     claim_type: string;
     claim_kind: string | null;
+    claim_kind_review_status: string | null;
     impact_score: number;
     confidence_score: number;
     ts_score: number;
   }>(sql`
     SELECT DISTINCT
-      c.id, ${localizedSummary} AS summary, c.claim_type, c.claim_kind, c.impact_score, c.confidence_score,
+      c.id, ${localizedSummary} AS summary, c.claim_type, c.claim_kind, c.claim_kind_review_status,
+      c.impact_score, c.confidence_score,
       ts_rank(
         to_tsvector(${ftsConfig}, ${localizedSummary}),
         plainto_tsquery(${ftsConfig}, ${textQuery})
@@ -491,6 +497,7 @@ async function _searchFallbackTsvector(
     summary: r.summary,
     claimType: r.claim_type,
     claimKind: r.claim_kind,
+    claimKindReviewStatus: r.claim_kind_review_status,
     impactScore: r.impact_score,
     confidenceScore: r.confidence_score,
     // `distance` is PATH-DEPENDENT and must NOT be cross-thresholded against

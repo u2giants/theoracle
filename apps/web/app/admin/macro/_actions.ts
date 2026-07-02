@@ -13,7 +13,7 @@ import {
   macroRelationships,
   sourceCoverageFindings,
 } from '@oracle/db/schema';
-import { sweepStaleMacroRelationships } from '@oracle/engines';
+import { statusAfterDroppingMacroSupport, sweepStaleMacroRelationships } from '@oracle/engines';
 import { createHash } from 'node:crypto';
 
 function refresh() {
@@ -97,10 +97,7 @@ export async function dropMacroSupportAndRevalidate(formData: FormData) {
       .from(macroRelationshipClaims)
       .innerJoin(claims, eq(claims.id, macroRelationshipClaims.claimId))
       .where(eq(macroRelationshipClaims.macroRelationshipId, id));
-    const nextStatus =
-      remaining.length >= 2 && remaining.every((row) => row.status === 'approved')
-        ? 'pending_review'
-        : 'needs_review';
+    const nextStatus = statusAfterDroppingMacroSupport(remaining.map((row) => row.status));
     await tx
       .update(macroRelationships)
       .set({ status: nextStatus, updatedAt: new Date() })
@@ -136,7 +133,7 @@ export async function runMacroRelationshipExtraction(formData: FormData) {
   await requireAdmin();
   const sourceOutlineId = String(formData.get('sourceOutlineId') ?? '');
   if (!sourceOutlineId) return;
-  const ok = await triggerTask('macro-relationship-extraction', { sourceOutlineId });
+  const ok = await triggerTask('macro-relationship-extraction', { sourceOutlineId, relationshipScope: 'cross_source' });
   if (!ok) throw new Error('Could not dispatch macro relationship extraction.');
   refresh();
 }
