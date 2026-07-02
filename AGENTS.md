@@ -14,7 +14,7 @@ There is no universal ignore-file standard across AI coding tools.
 
 When using any other AI tool, paste this file as your first message and follow the instructions in the "What to ignore" section.
 
-## Documentation map: what to read for each task
+## 3. Documentation map: what to read for each task
 
 Always start with:
 
@@ -27,19 +27,19 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 | Quick repo orientation | `README.md`, `AGENTS.md` | Deep docs under `docs/` unless task requires them |
 | Modify app behavior or project-owned code | `AGENTS.md`, relevant folder-level `README.md` if present, `docs/architecture.md` if system design is affected | `docs/deployment.md` unless deploy behavior changes |
 | Add or change AI provider adapter or model catalog | `AGENTS.md`, `docs/architecture.md` (adapter table + data flow), provider files under `packages/ai/src/providers/`, `DECISIONS.md` | Worker or webhook code |
-| Add or change configuration, env vars, feature flags, secrets | `AGENTS.md` §11, `docs/configuration.md`, `docs/deployment.md` if prod/runtime env is affected | Unrelated architecture docs |
+| Add or change configuration, env vars, feature flags, secrets | `AGENTS.md` §12, `docs/configuration.md`, `docs/deployment.md` if prod/runtime env is affected | Unrelated architecture docs |
 | Pull secrets from 1Password via the MCP server or `op` CLI | `AGENTS.md`, `docs/1password.md` | Unrelated architecture docs |
 | Change local setup, dev scripts, test/lint/debug workflow, package scripts, or tooling | `AGENTS.md`, `docs/development.md`, relevant package/config files | `docs/deployment.md` unless CI/CD changes |
-| Change deployment, Docker, CI/CD, hosting, release flow, rollback, or runtime environment | `AGENTS.md` §12, `docs/deployment.md`, `docs/configuration.md`, relevant workflow/deployment files | Local-only development docs unless needed |
+| Change deployment, Docker, CI/CD, hosting, release flow, rollback, or runtime environment | `AGENTS.md` §13, `docs/deployment.md`, `docs/configuration.md`, relevant workflow/deployment files | Local-only development docs unless needed |
 | Change database schema, migrations, models, external IDs, or data flow | `AGENTS.md`, `docs/architecture.md`, `docs/configuration.md` if env/config is affected, `packages/db/src/schema.ts`, relevant migration/model docs | Deployment docs unless rollout/deploy behavior changes |
-| Add or change a worker task | `AGENTS.md` §6 task-to-file, `apps/workers/src/trigger/`, `docs/architecture.md` if data flow changes | Front-end app code unless there is a matching UI/API hook |
-| Change Teams transcript ingestion (Graph path) | `AGENTS.md` §6 + §10 quirks, `docs/architecture.md` §"Teams transcript ingestion" | Recall docs unless both paths are affected |
-| Change Recall.ai live bot path | `AGENTS.md` §6 + §10 quirks, `docs/architecture.md` §"Teams live participation (Recall.ai)" | Microsoft Graph Teams ingestion docs |
-| Investigate a bug or incident | `AGENTS.md` §13 (critical incidents), docs for the affected area, `HANDOFF.md` if present | Unrelated folder-level READMEs |
+| Add or change a worker task | `AGENTS.md` §7 task-to-file, `apps/workers/src/trigger/`, `docs/architecture.md` if data flow changes | Front-end app code unless there is a matching UI/API hook |
+| Change Teams transcript ingestion (Graph path) | `AGENTS.md` §7 + §11 quirks, `docs/architecture.md` §"Teams transcript ingestion" | Recall docs unless both paths are affected |
+| Change Recall.ai live bot path | `AGENTS.md` §7 + §11 quirks, `docs/architecture.md` §"Teams live participation (Recall.ai)" | Microsoft Graph Teams ingestion docs |
+| Investigate a bug or incident | `AGENTS.md` §14 (critical incidents), docs for the affected area, `HANDOFF.md` if present | Unrelated folder-level READMEs |
 | Continue unfinished work | `AGENTS.md`, `HANDOFF.md`, docs named inside `HANDOFF.md` | Docs unrelated to the handoff scope |
 | Work in a subfolder with its own README | `AGENTS.md`, that folder-level `README.md`, and only broader docs referenced there | Other folder-level READMEs |
-| Change the remote MCP knowledge endpoint (tools agents query) | `AGENTS.md` §10 MCP quirk, `apps/web/lib/mcp/README.md`, `apps/web/lib/mcp/*`, `apps/web/app/api/mcp/[transport]/route.ts` | Unrelated chat/worker code |
-| China bilingual claim layer / claim translation / asking China-team members to verify a claim | `AGENTS.md` §7–§10, `china_imp.md` (design + resolved decisions), `packages/ai/src/retrieval.ts`, `apps/workers/src/trigger/claim-translation.ts`, `apps/web/app/admin/claims/*` (verification reuses main's `claim_review_question` + review-groups) | Teams/Recall docs; provider-adapter internals |
+| Change the remote MCP knowledge endpoint (tools agents query) | `AGENTS.md` §11 MCP quirk, `apps/web/lib/mcp/README.md`, `apps/web/lib/mcp/*`, `apps/web/app/api/mcp/[transport]/route.ts` | Unrelated chat/worker code |
+| China bilingual claim layer / claim translation / asking China-team members to verify a claim | `AGENTS.md` §8–§11, `china_imp.md` (design + resolved decisions), `packages/ai/src/retrieval.ts`, `apps/workers/src/trigger/claim-translation.ts`, `apps/web/app/admin/claims/*` (verification reuses main's `claim_review_question` + review-groups) | Teams/Recall docs; provider-adapter internals |
 | Claude Code session | `CLAUDE.md`, then `AGENTS.md` | Other docs unless task requires them |
 | Documentation-only cleanup | `AGENTS.md`, `README.md`, affected docs under `docs/`, folder-level READMEs only where relevant, `HANDOFF.md` if present | Source files except as needed to verify accuracy |
 | Product/spec contract or AI-retrofit provenance | `AGENTS.md`, `oracle_master_spec.md`, relevant `docs/oracle/*` file, `oracle_ai_architecture_prompt caching.md` only if prompt-cache retrofit history is directly relevant | Current deployment/config docs unless operations are affected |
@@ -58,13 +58,13 @@ Rules:
 If you are new to this repo, read only this path first:
 
 1. `README.md` for the repo shape.
-2. This file through §9 for operating rules, what to touch, external IDs, services, and ignore rules.
+2. This file through §10 for operating rules, what to touch, external IDs, services, and ignore rules.
 3. `HANDOFF.md` if it exists.
 4. The single topic doc named by the table above.
 
 Do not open every Markdown file. Most tasks need `AGENTS.md` plus one topic doc and the affected source files.
 
-## 3. Repository structure
+## 4. Repository structure
 
 This is a `pnpm` + `turbo` TypeScript monorepo.
 
@@ -107,7 +107,7 @@ Docs:
 - `docs/configuration.md`
 - `docs/deployment.md`
 - `docs/wet-test-walkthrough.md`
-- `docs/macro-understanding-implementation-plan.md` - plan for macro-first source outlines, meaning-based source groups, cross-claim macro relationships, and coverage audits
+- `docs/macro-understanding-implementation-plan.md` - macro-first source outlines, meaning-based source groups, cross-claim macro relationships, and coverage audits; the first end-to-end implementation has landed but still needs migration/deploy rollout
 - `docs/oracle/` — deeper AI-retrofit reference material
 - `oracle_master_spec.md` — product/spec contract
 - `oracle_ai_architecture_prompt caching.md` — historical AI architecture/prompt-cache reference
@@ -135,7 +135,7 @@ Deployment files:
 - `.github/workflows/pr-check.yml` — current CI gate
 - `apps/workers/trigger.config.ts` — Trigger.dev runtime config
 
-## 4. Prime Directive: custom-code boundary
+## 5. Prime Directive: custom-code boundary
 
 Our custom code lives here:
 
@@ -156,13 +156,13 @@ Specific boundaries:
 - Do not scatter project logic into `apps/web/components/ui/*`; extend behavior from app-owned files instead.
 - Do not change `oracle_master_spec.md` casually; if code and spec conflict, record the conflict in `DECISIONS.md`.
 
-## 5. Core modification inventory
+## 6. Core modification inventory
 
 | File | Change made | Why it was necessary | Risk during upgrades |
 |---|---|---|---|
 | _(none)_ | — | No framework/vendor files are intentionally patched in this repo. | — |
 
-## 6. Task-to-file navigation: what to edit for common changes
+## 7. Task-to-file navigation: what to edit for common changes
 
 | Task | Files to touch | Files not to touch |
 |---|---|---|
@@ -180,6 +180,7 @@ Specific boundaries:
 | Change Teams transcript ingestion | webhook: `apps/web/app/api/teams/notifications/route.ts` + `apps/web/lib/graph-notification-crypto.ts` + the subscription helpers in `apps/web/lib/microsoft-graph.ts`; workers: `apps/workers/src/trigger/teams-{subscription-manager,transcript-ingestion,transcript-discovery-scan}.ts` + `apps/workers/src/lib/graph-transcripts.ts`; env in `docs/configuration.md`. Keep the two Graph helper copies in sync (web is reference). The Oracle does NOT auto-ingest — the webhook + discovery scan only RECORD available meetings into `meeting_transcripts`; ingestion runs only when an admin picks a meeting (see the meeting-picker row). `teams-transcript-ingestion` writes `messages` as `extraction_status='pending'`, anchored to the real meeting time. | the candidate-before-claim pipeline (ingestion only writes `messages`; never `claims`) |
 | Change the meeting picker / discovery | `apps/web/app/admin/transcripts/page.tsx` + `_actions.ts` (`ingestMeetings`/`dismissMeeting`/`runDiscoveryScan`, admin-only) over the `meeting_transcripts` table (migration `77_meeting_transcripts.sql`); discovery sources = the webhook (real-time, `discovered_via='subscription'`) and `teams-transcript-discovery-scan` (past meetings, `'scan'`), both metadata-only upserts; picking → `triggerTask('teams-transcript-ingestion', {…, discoveryTranscriptId})` which flips the row to `ingested`. NOTE: the older `awaiting_approval` enum value + `raw_transcripts.approval_status` (migrations 75/76) are now DEPRECATED/unused — see DECISIONS `D-meeting-picker`. | the live Recall path (`teams-live-recall-utterance.ts`); re-introducing auto-ingest in the webhook |
 | Change document ingestion (formats / image vision / prompts / chunking) | `apps/workers/src/trigger/document-ingestion.ts` (`resolveParseKind`, `extractTextFrom*`, `transcribeImageToText`, `IMAGE_TRANSCRIPTION_SYSTEM`, `buildUploaderContextNote`; chunking = `chunkTextStructured`/`computeStructuralBoundaries`; window budgets `MAX_DOCUMENT_TEXT_CHARS`=24k / `MAX_IMAGE_TEXT_CHARS`=32k; diagram prompt switch `looksLikeDiagramTranscription`); image inline support in `packages/ai/src/providers/vertex-gemini-adapter.ts` (`toVertexParts`); admin upload UI `apps/web/app/admin/documents/**` + `apps/web/app/api/admin/documents/route.ts`. Redeploy the worker for parse/prompt changes (CLI deploy needs a PAT; the Trigger MCP `deploy` is authenticated). | the candidate-before-claim pipeline; the channel-based `POST /api/documents` (separate, chat path) |
+| Change macro-first extraction / source outlines / cross-claim relationships | Schema: `packages/db/src/schema.ts`, `packages/db/migrations/sql/79_macro_understanding.sql`; prompts: `packages/ai/src/prompts/{source-outline,macro-relationship,coverage-audit}.ts`; workers: `apps/workers/src/trigger/{source-outline,macro-relationship-extraction,source-coverage-audit}.ts`; admin: `apps/web/app/admin/macro/**` and document outline controls; consumption helpers: `packages/oracle-engines/src/macro/approved-relationships.ts`, chat, Brain synthesis. | quote validator/provenance rules unless explicitly changing evidence policy; generated Drizzle migrations |
 | Add/change an auxiliary model (vision, general-purpose, translation, …) | `packages/ai/src/routes/auxiliary.ts` (registry entry), `apps/web/app/admin/settings/page.tsx` (`AUX_PRESENTATION` entry + optional `AUX_CLIPBOARD_BRIEFS` brief). Resolver, picker, and `/api/admin/models` already iterate the registry — no new branches needed. | `OracleModelRole` (stays the 3 pipeline roles); the pipeline route catalog |
 | Change China bilingual claim rendering / locale-aware retrieval | `packages/db/src/schema.ts` (`claims.source_lang`, `claim_translations`), `packages/ai/src/retrieval.ts` (`buildPlanMetadataFilters` localization fragments — interpolate into BOTH branches; parity guard enforces), `packages/shared/src/domains.ts` (`SUPPORTED_LOCALES`), `apps/workers/src/trigger/claim-translation.ts`, `apps/web/app/api/chat/route.ts` | `getBrainSectionSnippets` (Brain is English-only by decision); the candidate-before-claim pipeline |
 | Change claim translation / China review-question flow | `apps/web/app/admin/claims/page.tsx` + `apps/web/app/admin/claims/_actions.ts` (`translateClaimsForChina`; `assignClaimQuestion` + bulk `assignClaimQuestionBulkWithState` share `assignClaimQuestionCore`, which translates the question per `zh-CN` recipient via `translateReviewQuestionToChinese`), `apps/workers/src/trigger/claim-translation.ts` | the auto gap-generation path; `gaps` schema (no change needed) |
@@ -187,7 +188,7 @@ Specific boundaries:
 | Show which claims are out for review / to whom | `apps/web/app/admin/claims/page.tsx` — derived live from open `claim_review_question` gaps (`gaps.related_claim_ids ? claim.id`, status in `open/queued/asked`), NOT a column on `claims`. The bulk "Ask selected to evaluate" checkboxes are UI-gated to `pending_review` rows, but `assignClaimQuestionCore` has no status gate. | adding a denormalized column on `claims` (the gap rows are the source of truth) |
 | Change claims grouping / checkbox range-select | `apps/web/app/admin/claims/page.tsx` — claims are grouped by specific source (channel/meeting, document, external, or manual), derived in the evidence `LATERAL` (`source_group_key/label/kind`); rows arrive newest-first so first-seen key orders groups. Shift-click range select is a pure-DOM client enhancer `_components/shift-select.tsx` keyed off `data-select-form`/`data-select-index` (ranges never cross the `bulk-evaluate`/`translate-claims` form boundary). | the form-based submission model (checkboxes stay server-rendered + `form=`-associated) |
 
-## 7. Data model and external identifiers
+## 8. Data model and external identifiers
 
 | Entity/System | Identifier | Where defined | Notes |
 |---|---|---|---|
@@ -217,6 +218,10 @@ Specific boundaries:
 | Claim review events | `claim_review_events` | `packages/db/src/schema.ts`, migration `68_claim_review_workflow.sql` | Append-only audit for approve/reject/revise/assign decisions. Revise creates a replacement claim and supersedes the original; do not overwrite original AI output in place. |
 | Claim review groups | `claim_review_groups`, `claim_review_group_members` | `packages/db/src/schema.ts`, migration `73_claim_review_groups.sql` | Admin-managed recipient lists for sending a claim-review question to multiple employees. Sending to a group expands into one `gaps` assignment per active employee. |
 | Domain review permissions | `knowledge_domain_review_departments` | same | Department-to-domain authorization map retained for future claim-review routing. It is currently not exposed in `/claims`; non-admin claim review is direct-assignment only. |
+| Source outline tables | `source_outlines`, `source_outline_sources`, `source_outline_source_refs`, `source_groups`, `source_group_items` | `packages/db/src/schema.ts`, migration `79_macro_understanding.sql` | Provisional macro summaries and meaning-based groups over document chunks. They guide extraction but are not evidence and cannot validate quotes. |
+| Claim kind fields | `claims.claim_kind`, `claims.claim_kind_confidence`, `claims.claim_kind_review_status`; candidate mirrors | `packages/db/src/schema.ts`, migration `79_macro_understanding.sql` | Labels atomic claims as `atomic_fact`, `process_step`, `decision_rule`, `exception`, `risk`, `metric`, `definition`, or `uncertain`; admins can review kind/confidence in `/admin/claims`. |
+| Macro relationship tables | `macro_relationships`, `macro_relationship_sources`, `macro_relationship_claims`, `macro_relationship_review_events` | `packages/db/src/schema.ts`, migration `79_macro_understanding.sql` | Reviewable cross-claim process/decision/risk relationships. Approved relationships are usable only when all support claims are still `approved` at read time. |
+| Coverage findings table | `source_coverage_findings` | `packages/db/src/schema.ts`, migration `79_macro_understanding.sql` | Coverage audit findings over a source outline; admins can dismiss findings or convert them into gaps. |
 | Entra app (Graph backend) | `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc` | Entra `TheOracle` app | App-only Graph: directory pull + Teams transcripts. Tenant `1caeb1c0-a087-4cb9-b046-a5e22404f971`. |
 | Azure Bot resource | `theoracle-popcre-teams-bot` | Azure subscription `37077c95-ea53-4a19-8380-f3f48f0cc75d`, resource group `rg-oracle-teams-bot` | Free `F0` Bot Service resource. Display name `The Oracle`, endpoint `https://oracle.designflow.app/api/teams/bot/messages`, `msaAppType=SingleTenant`, Teams channel enabled. |
 | Teams org app | Teams app id `17ccd7a1-b90b-428c-9966-33e7fb832923`; external id `850b2963-3583-4af9-bf18-84985ecbcf03` | Teams tenant app store, package generated from `apps/web/teams-app/oracle/manifest.template.json` | Organization/private-catalog app named `The Oracle`. Available to everyone; installed for Albert on 2026-06-09. |
@@ -237,7 +242,7 @@ Specific boundaries:
 
 Do not casually rename or regenerate these identifiers. They are wired across code, DB, and deployment surfaces.
 
-## 8. Container and service inventory
+## 9. Container and service inventory
 
 There are no Docker containers in this repo. Runtime services are fully managed.
 
@@ -260,15 +265,19 @@ There are no Docker containers in this repo. Runtime services are fully managed.
 | Azure Bot Service | Teams Bot Framework message ingress for `@The Oracle join`. | Azure | subscription `37077c95-ea53-4a19-8380-f3f48f0cc75d`; resource `theoracle-popcre-teams-bot` | Free `F0` Bot Service registration; Teams channel routes signed Bot Framework turns to `/api/teams/bot/messages`. |
 | Teams tenant app store | Makes The Oracle addable/searchable inside Teams. | Microsoft Teams Admin Center / Teams PowerShell | Teams app id `17ccd7a1-b90b-428c-9966-33e7fb832923` | Organization/private-catalog app package built from `apps/web/teams-app/oracle/manifest.template.json`. |
 
-## 9. What to ignore
+## 10. What to ignore
 
 Do not load these into AI context unless a task explicitly requires them:
 
 - `node_modules/`
 - `apps/web/.next/`
+- `out/`
+- `build/`
 - `dist/`
 - `.turbo/`
 - `.vercel/`
+- `.trigger/`
+- `supabase/.temp/`
 - `.cache/`
 - `coverage/`
 - `.claude/`
@@ -285,7 +294,7 @@ Do not load these into AI context unless a task explicitly requires them:
 
 For orientation, follow the documentation map near the top of this file. Do not load broad source files such as `packages/db/src/schema.ts` or `packages/ai/src/providers/*.ts` unless the task needs that subsystem.
 
-## 10. Intentional quirks and non-obvious decisions
+## 11. Intentional quirks and non-obvious decisions
 
 ### One employee can have many auth identities
 
@@ -325,6 +334,20 @@ The project depends on provider-specific caching and structured-output behavior 
 
 Do not change because:
 Direct SDK calls bypass context-pack logging, cache observability, route fallback, and consistent validation.
+
+### Source outlines are not evidence
+
+Looks like:
+`source_outlines` and `source_groups` summarize a document, so it can be tempting to quote them or treat them as another evidence source.
+
+Actually:
+Source outlines are provisional macro guidance only. Durable claims still require exact quotes from messages or document chunks, and durable macro relationships cite approved claim IDs through `macro_relationship_claims`.
+
+Why:
+The Oracle's core guarantee is quote-level provenance. Outline prose can help the extractor notice source structure, but it is model-generated interpretation rather than source text.
+
+Do not change because:
+Letting outline prose validate quotes would create untraceable claims. Approved macro relationship helpers must continue to verify support claims are currently `approved` at read time.
 
 ### Log the actual AI result route, not only the planned route
 
@@ -918,7 +941,7 @@ Translating evidence would break verbatim provenance; auto-translating every cla
 Do not change because:
 Feeding a translated quote into validation, or adding a locale branch to `getBrainSectionSnippets`, or auto-translating on approval, each reverses a deliberate decision. The locale-rendering SQL fragments live in `buildPlanMetadataFilters()` precisely so the parity guard forces both retrieval branches to stay in lockstep — add new locale logic there, not in one branch.
 
-## 11. Credentials and environment
+## 12. Credentials and environment
 
 | Variable | Purpose | Stored where | Required in dev | Required in prod |
 |---|---|---|---|---|
@@ -934,6 +957,7 @@ Feeding a translated quote into validation, or adding a locale branch to `getBra
 | `GOOGLE_CLOUD_PROJECT` | Vertex adapter project | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `GOOGLE_CLOUD_LOCATION` | Vertex region | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` | service-account JSON content for Vertex ADC bootstrapping | Vercel/Trigger.dev secret, optional local | no | yes |
+| `GOOGLE_GEMINI_REQUEST_TIMEOUT_MS` | Optional timeout override for the direct Google Gemini adapter | `.env.local`, Vercel, Trigger.dev | optional | optional |
 | `GEMINI_API_KEY` | Optional direct Gemini API key for `google/*` routes; `GoogleGeminiAdapter` falls back to `GOOGLE_APPLICATION_CREDENTIALS_JSON` OAuth when unset | `.env.local`, Vercel/Trigger.dev secret if used | no | no |
 | `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` | temp GCS bucket for oversized file-backed Vertex caches | env/secret | optional | recommended |
 | `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_PREFIX` | temp GCS prefix for those uploads | env/secret | optional | optional |
@@ -944,6 +968,8 @@ Feeding a translated quote into validation, or adding a locale branch to `getBra
 | `DASHSCOPE_BASE_URL` | Qwen adapter region override (default `dashscope-us`; set to the `dashscope-intl` compat endpoint in prod) | `.env.local`, Trigger.dev | optional | recommended when using `qwen/*` models served only on intl |
 | `OPENROUTER_API_KEY` | model catalog enrichment only | `.env.local`, Vercel if desired | optional | optional |
 | `ORACLE_MCP_TOKEN` | Static bearer token for the remote MCP knowledge endpoint (`/api/mcp/mcp`). External AI agents present it to query approved business knowledge. If unset, the endpoint rejects all requests. | `.env.local`, Vercel | optional | yes for MCP access |
+| `ORACLE_MCP_ENABLED_TOOLS` | Optional CSV allowlist for remote MCP capabilities | Vercel/local env if used | optional | optional |
+| `ORACLE_MCP_DISABLED_TOOLS` | Optional CSV denylist for remote MCP capabilities; overrides enabled list | Vercel/local env if used | optional | optional |
 | `TRIGGER_SECRET_KEY` | Trigger.dev auth | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `PROD_DIRECT_URL` | Used by the CI drift-check step to reach production Postgres | GitHub Actions repo secret (`gh secret list`) | no | yes (CI) |
 | `TRIGGER_PROJECT_REF` | Trigger.dev project selector | `.env.local`, Vercel | optional | optional |
@@ -969,7 +995,7 @@ Feeding a translated quote into validation, or adding a locale branch to `getBra
 
 The Teams transcript app also needs the Graph **Application** permissions `OnlineMeetingTranscript.Read.All` + `CallTranscripts.Read.All` (tenant admin consent) and a Teams application access policy. For exact sources and setup notes, read `docs/configuration.md`.
 
-## 12. Deployment
+## 13. Deployment
 
 Current deployment path:
 
@@ -1017,7 +1043,7 @@ This repo is a **managed-platform** deployment — Vercel (web) + Trigger.dev (w
 - **Traceability:** every production change is auditable from repo commit history + Vercel / Trigger.dev / Supabase deployment history.
 - **Drift check is advisory.** The Drizzle migration-drift check needs prod DB creds and runs only in `pr-check.yml`, not in the Vercel build (the build has no prod DB access, by design). Migrations are applied manually via `pnpm db:migrate` anyway, so drift is a bookkeeping signal, not a runtime-breakage gate. Everything else (build + verify guards) is hard-gated in the Vercel build per the bullet above.
 
-## 13. Critical incidents
+## 14. Critical incidents
 
 ### 2026-05-26 Provider-layer regression through a generic SDK abstraction
 
@@ -1146,11 +1172,12 @@ Created fresh appended Entra secrets. Updated Supabase Auth's Azure provider cli
 Rule added to prevent recurrence:
 When creating or rotating a client secret on the shared Entra app, use `az ad app credential reset --append --display-name <purpose> ...` unless intentionally replacing every consumer. Keep separate display names for `supabase-prod-*`, `oracle-graph-*`, and `oracle-teams-bot-*`. Never put `/v2.0` in the Supabase Azure provider URL.
 
-## 14. Pending work
+## 15. Pending work
 
 | Status | Item | Owner/next action |
 |---|---|---|
 | open | `apps/web/app/admin/taxonomy/_actions.ts` approves some proposal types by queueing reclassification work rather than applying it inline. | Keep the actions as-is until the reclassification path is expanded further. |
+| open | Macro-understanding code is implemented locally across schema, workers, admin review, chat, and Brain synthesis, but `79_macro_understanding.sql` has not been applied and the new worker/web code has not been deployed from this checkout. | Apply the hand-written migration through the approved path, deploy Trigger.dev workers, then push/deploy web. See `HANDOFF.md` for the exact continuation state. |
 | open | Only `.github/workflows/pr-check.yml` exists (build + two verify guards + Drizzle drift check). There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers run deploy` (note: `run` keyword required — `pnpm` reserves the bare `deploy` form for its own subcommand) in the release process until workflows are added. |
 | resolved | `RetrievalPlan.requiredEntities` semantics: **disjunctive (any-of) — decided 2026-05-28, keep as-is.** A claim matches if it carries ANY of the listed entities. Conjunctive (all-of) was rejected because it would require a single claim to mention every listed entity, collapsing recall for multi-entity queries (claims are typically single-entity). Filter lives in `buildPlanMetadataFilters()` in `packages/ai/src/retrieval.ts`. | No action. If a future "facts connecting X and Y" feature is ever wanted, add it as a separate explicit mode — do not flip the default. |
 | done | China bilingual claim layer (schema, locale-aware retrieval, `claim-translation` worker, translate-for-China bulk action, per-`zh-CN`-recipient translation of `claim_review_question`s) is **merged to `main`**, migration `0007` is **applied to prod**, and `claim-translation` is deployed in Trigger.dev worker `20260620.1`. | Set a China employee's `locale='zh-CN'` and pick a translation model at Admin → Settings → "Translation model" when the owner wants to use it. |
@@ -1183,7 +1210,7 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 | done | **Conversation-aware message batching (2026-06-26).** Sync and batch message extraction now select whole same-channel conversations with non-quotable carry-in context. `BATCH_SIZE` and `extraction_char_budget` stop work only between conversations; oversized single conversations are processed whole and logged. | No action. Keep carry-in non-quotable unless quote provenance is deliberately redesigned. |
 | done | **General-purpose / utility picker wired (2026-06-25).** `taxonomy-reevaluation` cluster naming now uses the `general` auxiliary slot instead of a hard-coded route. | No action. |
 | done | **Worker deploy state verified.** Verified 2026-06-29 via Trigger.dev MCP: current prod worker is `20260629.1` with 21 tasks. This deploy includes the R9 synthesis validator false-positive fix. | No action. |
-| done | **Repository documentation audit from pasted charter (2026-06-25).** Second run of the same Markdown-maintenance spec. | Brought §14 current (entity registry seeded, synthesis unblocked, extraction/fallback workstreams added), updated the diagram quirk + added a silent-fallback quirk, listed the `fix_*.md` plan docs + `scripts/reevaluate-document.mjs`, added `DASHSCOPE_BASE_URL`. |
+| done | **Repository documentation audit from pasted charter (2026-06-25).** Second run of the same Markdown-maintenance spec. | Brought the pending-work section current (entity registry seeded, synthesis unblocked, extraction/fallback workstreams added), updated the diagram quirk + added a silent-fallback quirk, listed the `fix_*.md` plan docs + `scripts/reevaluate-document.mjs`, added `DASHSCOPE_BASE_URL`. |
 
 If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.
 <!-- ansible-host-policy: managed rollout from u2giants/ansible -->

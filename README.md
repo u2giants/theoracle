@@ -16,10 +16,10 @@ Start here:
 ## Repo map
 
 - `apps/web/` — Next.js 16 web app, admin UI, chat route, Teams transcript webhook (`/api/teams/notifications`), Recall live Teams webhook (`/api/teams/live/recall`)
-- `apps/workers/` — Trigger.dev workers (claim extraction, doc ingestion, synthesis, contradiction watcher, Teams transcript ingestion + subscription manager, Recall live Teams utterance processor, China bilingual claim translation)
+- `apps/workers/` — Trigger.dev workers (claim extraction, document ingestion, source outlines, macro relationships, coverage audits, synthesis, contradiction watcher, Teams transcript ingestion + subscription manager, Recall live Teams utterance processor, China bilingual claim translation)
 - `packages/ai/` — `OracleAIClient`, retrieval, prompts, provider adapters
 - `packages/db/` — Drizzle schema, migrations, seed, DB client
-- `packages/oracle-engines/` — deterministic validation/promotion/synthesis logic
+- `packages/oracle-engines/` — deterministic validation/promotion/synthesis logic and approved macro-relationship helpers
 - `packages/auth/` — auth linking helpers
 - `packages/shared/` — shared types/constants
 

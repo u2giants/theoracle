@@ -5,9 +5,13 @@ node_modules/
 
 # Build output
 apps/web/.next/
+out/
+build/
 dist/
 .turbo/
 .vercel/
+.trigger/
+supabase/.temp/
 .playwright-mcp/
 .claude/
 
