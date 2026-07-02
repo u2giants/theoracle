@@ -22,6 +22,10 @@
  *        a. mentioned in at least one approved claim summary, OR
  *        b. a canonical entity in the R3.5 registry.
  *      Otherwise it's a fabricated name and the synthesis is rejected.
+ *   8. If a paragraph cites support claims that were pulled in through an
+ *      approved macro relationship, named entities in that paragraph must be
+ *      backed by that paragraph's support claims or the registry, not merely
+ *      by unrelated approved claims elsewhere in the section corpus.
  *
  * Why check (7) deterministically and not via the LLM:
  *   "Reject unsupported named people, systems, customers, stages,
@@ -151,6 +155,8 @@ export function validateSynthesisDiff(input: SynthesisValidationInput): Synthesi
     output,
     approvedClaimIds,
     approvedClaimSummariesLower,
+    approvedClaimSummariesLowerById,
+    macroExpandedSupportClaimIds,
     registryEntityCanonicalsLower,
     expectedSectionId,
   } = input;
@@ -174,6 +180,27 @@ export function validateSynthesisDiff(input: SynthesisValidationInput): Synthesi
           kind: 'paragraph_cites_non_approved_claim',
           detail: `Paragraph ${i + 1} cites non-approved claim ID ${cid}.`,
           claimId: cid,
+        });
+      }
+    }
+    if (
+      approvedClaimSummariesLowerById &&
+      macroExpandedSupportClaimIds &&
+      para.supportingClaimIds.some((cid) => macroExpandedSupportClaimIds.has(cid))
+    ) {
+      const paragraphSupportSummaries = para.supportingClaimIds
+        .map((cid) => approvedClaimSummariesLowerById.get(cid))
+        .filter((summary): summary is string => typeof summary === 'string');
+      const unsupportedInParagraph = findUnsupportedNamedEntities(
+        para.text,
+        paragraphSupportSummaries,
+        registryEntityCanonicalsLower,
+      );
+      for (const name of unsupportedInParagraph) {
+        failures.push({
+          kind: 'macro_paragraph_unsupported_named_entity',
+          detail: `Paragraph ${i + 1} uses macro-expanded support but mentions "${name}" without backing in that paragraph's support claims or registry.`,
+          name,
         });
       }
     }

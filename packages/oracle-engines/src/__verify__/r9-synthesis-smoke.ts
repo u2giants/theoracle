@@ -5,7 +5,7 @@
  *
  * Covers the new pure validator R9 ships:
  *
- *   - validateSynthesisDiff: all 7 failure kinds firing correctly,
+ *   - validateSynthesisDiff: all failure kinds firing correctly,
  *     happy-path passing, and the boundary cases for the
  *     unsupported_named_entity check.
  *   - findUnsupportedNamedEntities: pure helper exercised against the
@@ -46,15 +46,23 @@ function uuid(n: number): string {
 const CLAIM_A = uuid(1);
 const CLAIM_B = uuid(2);
 const CLAIM_C = uuid(3);
+const CLAIM_D = uuid(4);
 const CLAIM_UNAPPROVED = uuid(99);
 
-const APPROVED_IDS = new Set([CLAIM_A, CLAIM_B, CLAIM_C]);
+const APPROVED_IDS = new Set([CLAIM_A, CLAIM_B, CLAIM_C, CLAIM_D]);
 const APPROVED_SUMMARIES_LOWER = [
   'burlington seasonal items must go through the new routing guide before shipment.',
   'disney approvals must precede tooling for all licensed sku launches.',
   'coldlion is the system of record for sku metadata after sample sign-off.',
+  'target routing uses a separate vendor portal after customer approval.',
   'the creative director must review licensing sheets before licensor submission.',
 ];
+const APPROVED_SUMMARY_BY_ID = new Map([
+  [CLAIM_A, APPROVED_SUMMARIES_LOWER[0]!],
+  [CLAIM_B, APPROVED_SUMMARIES_LOWER[1]!],
+  [CLAIM_C, APPROVED_SUMMARIES_LOWER[2]!],
+  [CLAIM_D, APPROVED_SUMMARIES_LOWER[3]!],
+]);
 const REGISTRY_ENTITY_CANONICALS_LOWER = new Set([
   'disney',
   'marvel',
@@ -127,6 +135,31 @@ function main() {
     assert(res.ok, 'A1 happy path → ok');
     assert(res.failures.length === 0, 'A1 no failures');
     assert(res.unsupportedNames.length === 0, 'A1 no unsupported names');
+  }
+
+  {
+    const out = happyPathOutput();
+    out.paragraphs = [
+      {
+        text: 'Target seasonal items must clear routing-guide validation before shipment.',
+        supportingClaimIds: [CLAIM_A],
+      },
+    ];
+    out.updatedMarkdown =
+      'Target seasonal items must clear routing-guide validation before shipment.';
+    const res = validateSynthesisDiff({
+      output: out,
+      approvedClaimIds: APPROVED_IDS,
+      approvedClaimSummariesLower: APPROVED_SUMMARIES_LOWER,
+      approvedClaimSummariesLowerById: APPROVED_SUMMARY_BY_ID,
+      macroExpandedSupportClaimIds: new Set([CLAIM_A]),
+      registryEntityCanonicalsLower: REGISTRY_ENTITY_CANONICALS_LOWER,
+      expectedSectionId: SECTION_ID,
+    });
+    assert(
+      !res.ok && res.failures.some((f) => f.kind === 'macro_paragraph_unsupported_named_entity'),
+      'A2 macro-backed paragraph cannot borrow entity support from unrelated approved claims',
+    );
   }
 
   // ── Section B — claim-ID failures ─────────────────────────────────────

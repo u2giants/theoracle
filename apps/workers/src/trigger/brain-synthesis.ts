@@ -337,8 +337,10 @@ async function synthesizeSection(
     domainIds: topDomainIds,
     limit: 30,
   });
+  const macroExpandedSupportClaimIds = new Set<string>();
   for (const relationship of macroRelationships) {
     for (const support of relationship.supportClaims) {
+      macroExpandedSupportClaimIds.add(support.id);
       if (!allClaimsMap.has(support.id)) {
         allClaimsMap.set(support.id, {
           id: support.id,
@@ -355,6 +357,9 @@ async function synthesizeSection(
   const approvedClaimsForValidation = Array.from(allClaimsMap.values());
   const approvedClaimIds = new Set(approvedClaimsForValidation.map((c) => c.id));
   const approvedClaimSummariesLower = approvedClaimsForValidation.map((c) => c.summary.toLowerCase());
+  const approvedClaimSummariesLowerById = new Map(
+    approvedClaimsForValidation.map((c) => [c.id, c.summary.toLowerCase()]),
+  );
 
   // Canonical entity names from the R3.5 registry. Used by the unsupported-
   // named-entity check in the validator.
@@ -539,6 +544,8 @@ async function synthesizeSection(
     output: modelOutput as PureSynthesisOutput,
     approvedClaimIds,
     approvedClaimSummariesLower,
+    approvedClaimSummariesLowerById,
+    macroExpandedSupportClaimIds,
     registryEntityCanonicalsLower,
     expectedSectionId: sectionId,
   });

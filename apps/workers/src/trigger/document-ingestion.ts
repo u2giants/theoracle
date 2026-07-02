@@ -7,8 +7,8 @@
 //     (Vertex / Anthropic / OpenAI raw SDKs — DECISIONS.md D6 / D9) using
 //     the curated route ID from `settings.default_extraction_route`. R7
 //     ships the explicit-cache profitability heuristic +
-//     provider_cached_content lifecycle bookkeeping; native Vertex
-//     cachedContent lifecycle creation is a round-2 follow-up to R-providers.
+//     provider_cached_content lifecycle bookkeeping and releases document-owned
+//     explicit Vertex caches once extraction/follow-up dispatch finishes.
 //   - Output flows through extraction_batches → extraction_candidates →
 //     extraction_candidate_evidence first. NOTHING writes to permanent
 //     claims tables before R5's deterministic validator passes.
@@ -65,6 +65,7 @@ import {
   logAllCandidatesFailedAttempts,
   logModelRunAttempts,
   makeBlock,
+  releaseVertexExplicitCaches,
   EXTRACTION_SYSTEM_PROMPT,
   EXTRACTION_PROMPT_VERSION,
   ExtractionOutputSchema,
@@ -687,6 +688,7 @@ async function processDocument(
     duplicatesAppended: 0,
     rejections: 0,
   };
+  const documentExtractionCacheSourceHashes = new Set<string>();
 
   // 1. Load + mark processing.
   const [doc] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
@@ -874,6 +876,7 @@ async function processDocument(
     const windowChunks = extractionWindow.chunks;
     const documentCorpus = extractionWindow.content;
     const sourceHash = createHash('sha256').update(documentCorpus, 'utf8').digest('hex');
+    documentExtractionCacheSourceHashes.add(sourceHash);
     const [batch] = await db
       .insert(extractionBatches)
       .values({
@@ -1488,6 +1491,25 @@ async function processDocument(
 
   if (fileBackedCachePath) {
     await unlink(fileBackedCachePath).catch(() => undefined);
+  }
+  let releasedCaches = 0;
+  let failedCacheReleases = 0;
+  for (const extractionSourceHash of documentExtractionCacheSourceHashes) {
+    const cacheRelease = await releaseVertexExplicitCaches({
+      db,
+      sourceHash: extractionSourceHash,
+      cleanupOwner: 'document-ingestion-worker',
+      createdByJobRunId: jobRunId,
+      reason: 'document ingestion completed and macro followups were queued or skipped',
+    });
+    releasedCaches += cacheRelease.deleted;
+    failedCacheReleases += cacheRelease.failed;
+  }
+  if (releasedCaches > 0 || failedCacheReleases > 0) {
+    console.log('[document-ingestion] explicit cache release', {
+      deleted: releasedCaches,
+      failed: failedCacheReleases,
+    });
   }
 
   return outcome;

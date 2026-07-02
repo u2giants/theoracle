@@ -69,6 +69,10 @@ export interface SynthesisValidationInput {
   approvedClaimIds: Set<string>;
   /** All approved claim summaries (lowercased once by the caller). The validator scans for entity mentions in this corpus. */
   approvedClaimSummariesLower: string[];
+  /** Lowercased summaries keyed by approved claim ID, used for paragraph-scoped macro support checks. */
+  approvedClaimSummariesLowerById?: Map<string, string>;
+  /** Claim IDs that entered the synthesis corpus through approved macro relationship support expansion. */
+  macroExpandedSupportClaimIds?: Set<string>;
   /**
    * Canonical entity names from `entities` (R3.5 registry). Used by the
    * unsupported-names check to whitelist entities the model can reference
@@ -91,6 +95,7 @@ export type SynthesisFailureKind =
   | 'claim_ref_not_approved'
   | 'gap_missing_required_fields'
   | 'unsupported_named_entity'
+  | 'macro_paragraph_unsupported_named_entity'
   | 'contradiction_cites_non_approved_claim';
 
 export interface SynthesisValidationFailure {

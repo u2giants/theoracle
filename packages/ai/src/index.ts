@@ -114,6 +114,7 @@ export {
 // Provider-internal helper exposed for batch submitters that need to convert
 // a Zod schema to JSON Schema before passing it to adapter.submitBatch.
 export { zodToJsonSchema } from './providers/vertex-gemini-adapter';
+export { releaseVertexExplicitCaches } from './providers/vertex-cache-cleanup';
 export { MockProviderAdapter, type MockAdapterOptions } from './providers/mock-adapter';
 export { AnthropicAdapter } from './providers/anthropic-adapter';
 export { VertexGeminiAdapter } from './providers/vertex-gemini-adapter';
