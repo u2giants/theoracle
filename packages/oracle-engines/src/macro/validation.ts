@@ -41,11 +41,19 @@ function containsNormalizedPhrase(haystack: string, needle: string): boolean {
 }
 
 export function extractLikelyNamedEntities(text: string): string[] {
+  return extractLikelyNamedEntitiesWithStopwords(text);
+}
+
+function extractLikelyNamedEntitiesWithStopwords(text: string, extraStopwords: string[] = []): string[] {
+  const stopwords = new Set([
+    ...ENTITY_STOPWORDS,
+    ...extraStopwords.map((word) => word.trim()).filter(Boolean),
+  ]);
   const matches = text.match(/\b(?:[A-Z][A-Za-z0-9&.'’/-]*(?:\s+|$)){1,5}/g) ?? [];
   const entities = matches
     .map((match) => match.trim().replace(/[.,;:!?]+$/g, ''))
     .filter((match) => match.length >= 3)
-    .filter((match) => !ENTITY_STOPWORDS.has(match))
+    .filter((match) => !stopwords.has(match))
     .filter((match) => !/^(ID|IDs|JSON|URL|API|DB)$/i.test(match));
   return Array.from(new Set(entities));
 }
@@ -54,10 +62,14 @@ export function validateMacroRelationshipSummaryEntities(args: {
   summary: string;
   supportClaimSummaries: string[];
   registryEntityNames?: string[];
+  extraStopwords?: string[];
 }): MacroEntityValidationResult {
   const supportText = normalizeEntity(args.supportClaimSummaries.join('\n'));
   const registry = new Set((args.registryEntityNames ?? []).map(normalizeEntity).filter(Boolean));
-  const unsupportedEntities = extractLikelyNamedEntities(args.summary).filter((entity) => {
+  const unsupportedEntities = extractLikelyNamedEntitiesWithStopwords(
+    args.summary,
+    args.extraStopwords,
+  ).filter((entity) => {
     const normalized = normalizeEntity(entity);
     if (!normalized) return false;
     if (containsNormalizedPhrase(supportText, normalized)) return false;

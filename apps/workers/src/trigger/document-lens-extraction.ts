@@ -21,7 +21,6 @@ import {
 } from '@oracle/ai';
 import { getDirectDb } from '@oracle/db/client';
 import {
-  claims,
   documentChunks,
   documentChunkTopDomains,
   documentTopDomains,
@@ -50,7 +49,6 @@ import {
   validateQuote,
   validateSourcePointer,
   validateTaxonomy,
-  type ExecutePromotionResult,
   type RegistryEntity,
 } from '@oracle/engines';
 import {
@@ -60,6 +58,7 @@ import {
   type TopLevelDomainId,
 } from '@oracle/shared';
 import { documentHasCompletedLensBatch, type ExtractionLens } from '../lib/document-lens-budget';
+import { autoApproveDocumentClaimIfEligible } from '../lib/document-claim-auto-approval';
 
 const payloadSchema = z.object({
   documentId: z.string().uuid(),
@@ -69,16 +68,8 @@ const payloadSchema = z.object({
 });
 
 const EXTRACTION_MAX_OUTPUT_TOKENS = 32_000;
-const AUTO_APPROVE_MIN_CONFIDENCE = 9;
-const AUTO_APPROVE_MAX_IMPACT = 6;
-const AUTO_APPROVE_CLAIM_TYPES = new Set([
-  'process_rule',
-  'dependency',
-  'workaround',
-  'system_limitation',
-]);
-const LENS_DEDUP_DISTANCE = 0.08;
-const LENS_DEDUP_DENSITY_THRESHOLD_PER_10K = 10;
+const DEFAULT_LENS_DEDUP_DISTANCE = 0.08;
+const DEFAULT_LENS_DEDUP_DENSITY_THRESHOLD_PER_10K = 10;
 
 type InsertedDocumentChunk = {
   id: string;
@@ -86,6 +77,10 @@ type InsertedDocumentChunk = {
 };
 
 type ExtractedClaim = ExtractionOutput['claims'][number];
+type LensValidationTuning = {
+  dedupDistance: number;
+  dedupDensityThresholdPer10k: number;
+};
 
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
@@ -163,50 +158,6 @@ function hasSensitivityFlags(claim: ExtractedClaim): boolean {
   );
 }
 
-function decideDocumentClaimAutoApproval(input: {
-  extracted: ExtractedClaim;
-  result: ExecutePromotionResult;
-  quoteVerdict: string;
-  validTopDomainIds: string[];
-}): boolean {
-  const { extracted, result, quoteVerdict, validTopDomainIds } = input;
-  return (
-    result.outcome !== 'recorded_rejection' &&
-    Boolean(result.claimId) &&
-    result.stagedEntityProposalIds.length === 0 &&
-    AUTO_APPROVE_CLAIM_TYPES.has(extracted.claimType) &&
-    !extracted.requiresReview &&
-    !hasSensitivityFlags(extracted) &&
-    extracted.confidenceScore >= AUTO_APPROVE_MIN_CONFIDENCE &&
-    extracted.impactScore <= AUTO_APPROVE_MAX_IMPACT &&
-    ['exact_match', 'normalized_match'].includes(quoteVerdict) &&
-    validTopDomainIds.length > 0
-  );
-}
-
-async function autoApproveDocumentClaimIfEligible(args: {
-  db: OracleDb;
-  candidateId: string;
-  extracted: ExtractedClaim;
-  result: ExecutePromotionResult;
-  quoteVerdict: string;
-  validTopDomainIds: string[];
-}): Promise<boolean> {
-  if (!decideDocumentClaimAutoApproval(args)) return false;
-  await args.db
-    .update(claims)
-    .set({
-      status: 'approved',
-      claimKindReviewStatus: 'model_labeled',
-    })
-    .where(eq(claims.id, args.result.claimId!));
-  await args.db
-    .update(extractionCandidates)
-    .set({ promotedAt: new Date() })
-    .where(eq(extractionCandidates.id, args.candidateId));
-  return true;
-}
-
 async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
   const rows = await db.execute<{ id: string }>(
     sql`SELECT id FROM knowledge_top_domains WHERE is_active = true`,
@@ -241,10 +192,42 @@ async function resolveExtractionCandidates(db: OracleDb): Promise<RouteCandidate
   return resolved.candidates;
 }
 
+function settingToNumber(value: unknown, fallback: number, options: { min?: number; max?: number } = {}): number {
+  const parsed = typeof value === 'number' ? value : Number(value ?? fallback);
+  if (!Number.isFinite(parsed)) return fallback;
+  const min = options.min ?? Number.NEGATIVE_INFINITY;
+  const max = options.max ?? Number.POSITIVE_INFINITY;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+async function loadLensValidationTuning(db: OracleDb): Promise<LensValidationTuning> {
+  const rows = await db.execute<{ key: string; value: unknown }>(sql`
+    SELECT key, value FROM settings
+    WHERE key IN (
+      'macro_lens_dedup_distance',
+      'macro_lens_dedup_density_threshold_per_10k'
+    )
+  `);
+  const values = new Map([...rows].map((row) => [row.key, row.value]));
+  return {
+    dedupDistance: settingToNumber(
+      values.get('macro_lens_dedup_distance'),
+      DEFAULT_LENS_DEDUP_DISTANCE,
+      { min: 0.001, max: 1 },
+    ),
+    dedupDensityThresholdPer10k: settingToNumber(
+      values.get('macro_lens_dedup_density_threshold_per_10k'),
+      DEFAULT_LENS_DEDUP_DENSITY_THRESHOLD_PER_10K,
+      { min: 0, max: 1000 },
+    ),
+  };
+}
+
 async function shouldRunSemanticDedup(args: {
   db: OracleDb;
   documentId: string;
   chunkChars: number;
+  thresholdPer10k: number;
 }): Promise<boolean> {
   const rows = await args.db.execute<{ claim_count: number }>(sql`
     SELECT COUNT(DISTINCT c.id)::int AS claim_count
@@ -256,13 +239,14 @@ async function shouldRunSemanticDedup(args: {
   `);
   const count = Number([...rows][0]?.claim_count ?? 0);
   const density = count / Math.max(1, args.chunkChars / 10_000);
-  return density >= LENS_DEDUP_DENSITY_THRESHOLD_PER_10K;
+  return density >= args.thresholdPer10k;
 }
 
 async function findNearDuplicateClaim(args: {
   db: OracleDb;
   summary: string;
   topDomainIds: string[];
+  distance: number;
 }): Promise<{ id: string; distance: number } | null> {
   const { vector } = await embedText(args.summary);
   const vec = `[${vector.join(',')}]`;
@@ -275,7 +259,7 @@ async function findNearDuplicateClaim(args: {
     FROM claims c
     WHERE c.embedding IS NOT NULL
       AND c.status IN ('approved', 'pending_review')
-      AND c.embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))}) < ${LENS_DEDUP_DISTANCE}
+      AND c.embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))}) < ${args.distance}
       AND EXISTS (
         SELECT 1 FROM claim_top_domains ctd
         WHERE ctd.claim_id = c.id
@@ -390,10 +374,12 @@ async function runDocumentLensExtraction(rawPayload: unknown, triggerRunId: stri
     const activeTopDomainIds = await loadActiveTopDomainIds(db);
     const entityRegistry = await loadEntityRegistry(db);
     const correctionLessons = await loadClaimCorrectionLessonPack(db);
+    const validationTuning = await loadLensValidationTuning(db);
     const semanticDedupEnabled = await shouldRunSemanticDedup({
       db,
       documentId: payload.documentId,
       chunkChars: chunks.reduce((sum, chunk) => sum + chunk.text.length, 0),
+      thresholdPer10k: validationTuning.dedupDensityThresholdPer10k,
     }).catch((err) => {
       console.warn('[document-lens-extraction] semantic dedup density check failed', err);
       return false;
@@ -631,6 +617,7 @@ async function runDocumentLensExtraction(rawPayload: unknown, triggerRunId: stri
           db,
           summary: extracted.summary,
           topDomainIds: proposedTopDomainIds,
+          distance: validationTuning.dedupDistance,
         }).catch((err) => {
           console.warn('[document-lens-extraction] semantic duplicate check failed', err);
           return null;

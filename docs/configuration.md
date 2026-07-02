@@ -207,6 +207,8 @@ We don't have a feature-flag service. Boolean settings in the `settings` table f
 
 Macro lens fan-out is controlled by `settings` rows seeded in migration `81_macro_lens_fanout_settings.sql`: `macro_lenses_enabled`, `macro_max_lenses_per_document`, `macro_max_lens_groups_per_document`, `macro_max_lens_model_calls_per_document`, and `macro_max_lens_estimated_input_tokens`.
 
+Macro validation tuning is controlled by `settings` rows seeded in `82_macro_validation_tuning_settings.sql`: `macro_relationship_near_duplicate_distance` blocks semantically duplicate macro relationships, including ones reviewers already rejected; `macro_lens_dedup_distance` and `macro_lens_dedup_density_threshold_per_10k` control when lens extraction pays the embedding dedup cost; `macro_entity_validation_extra_stopwords` extends the named-entity validator's ignored-term list without code changes.
+
 ## Files that read configuration
 
 - `apps/web/next.config.ts` — loads `.env.local` from the monorepo root.

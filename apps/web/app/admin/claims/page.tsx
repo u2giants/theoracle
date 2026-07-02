@@ -504,11 +504,19 @@ export default async function AdminClaimsPage({
                           <div className="flex min-w-[18rem] flex-col gap-2">
                             {row.status === 'pending_review' && (
                               <div className="flex gap-2">
-                              <form action={updateClaimStatus}>
+                              <form action={updateClaimStatus} className="flex items-center gap-2">
                                 <input type="hidden" name="id" value={row.id} />
                                 <input type="hidden" name="status" value="approved" />
                                 <input type="hidden" name="claimKind" value={row.claim_kind ?? 'uncertain'} />
                                 <input type="hidden" name="claimKindConfidence" value={row.claim_kind_confidence ?? 5} />
+                                <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                  <input
+                                    type="checkbox"
+                                    name="confirmClaimKind"
+                                    className="h-3 w-3"
+                                  />
+                                  Kind
+                                </label>
                                 <button
                                   type="submit"
                                   className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"

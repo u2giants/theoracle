@@ -40,7 +40,7 @@ const payloadSchema = z.object({
   relationshipScope: z.enum(['single_source', 'cross_source']).default('single_source'),
 });
 
-const MACRO_RELATIONSHIP_NEAR_DUPLICATE_DISTANCE = 0.08;
+const DEFAULT_MACRO_RELATIONSHIP_NEAR_DUPLICATE_DISTANCE = 0.08;
 
 type SupportClaim = {
   id: string;
@@ -56,6 +56,8 @@ type SupportClaim = {
 
 type MacroBudget = {
   maxSupportClaims: number;
+  nearDuplicateDistance: number;
+  entityValidationExtraStopwords: string[];
 };
 
 function sha256(text: string): string {
@@ -231,17 +233,42 @@ async function loadSupportClaims(args: {
   return { claims: rows, documentId, sourceOutlineId };
 }
 
+function settingToNumber(value: unknown, fallback: number, options: { min?: number; max?: number } = {}): number {
+  const parsed = typeof value === 'number' ? value : Number(value ?? fallback);
+  if (!Number.isFinite(parsed)) return fallback;
+  const min = options.min ?? Number.NEGATIVE_INFINITY;
+  const max = options.max ?? Number.POSITIVE_INFINITY;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function settingToStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => String(entry).trim()).filter(Boolean);
+}
+
 async function loadMacroBudget(): Promise<MacroBudget> {
   const db = getDirectDb();
   const rows = await db.execute(sql`
     SELECT key, value FROM settings
-    WHERE key IN ('macro_auto_max_support_claims')
+    WHERE key IN (
+      'macro_auto_max_support_claims',
+      'macro_relationship_near_duplicate_distance',
+      'macro_entity_validation_extra_stopwords'
+    )
   `);
   const map = new Map(([...rows] as Array<{ key: string; value: unknown }>).map((row) => [row.key, row.value]));
-  const raw = map.get('macro_auto_max_support_claims');
-  const parsed = typeof raw === 'number' ? raw : Number(raw ?? 40);
   return {
-    maxSupportClaims: Number.isFinite(parsed) && parsed > 1 ? Math.min(80, Math.floor(parsed)) : 40,
+    maxSupportClaims: Math.floor(
+      settingToNumber(map.get('macro_auto_max_support_claims'), 40, { min: 2, max: 80 }),
+    ),
+    nearDuplicateDistance: settingToNumber(
+      map.get('macro_relationship_near_duplicate_distance'),
+      DEFAULT_MACRO_RELATIONSHIP_NEAR_DUPLICATE_DISTANCE,
+      { min: 0.001, max: 1 },
+    ),
+    entityValidationExtraStopwords: settingToStringArray(
+      map.get('macro_entity_validation_extra_stopwords'),
+    ),
   };
 }
 
@@ -398,6 +425,7 @@ async function runMacroRelationshipExtraction(rawPayload: unknown) {
   const registryEntityNames = registryRows.map((row) => row.canonicalValue);
   let inserted = 0;
   let rejectedUnsupportedEntities = 0;
+  let rejectedNearDuplicates = 0;
   for (const relationship of result.object.relationships) {
     const supportLinks = relationship.supportingClaims.filter((link) => supportById.has(link.claimId));
     if (supportLinks.length < 2) continue;
@@ -405,6 +433,7 @@ async function runMacroRelationshipExtraction(rawPayload: unknown) {
       summary: relationship.summary,
       supportClaimSummaries: supportLinks.map((link) => supportById.get(link.claimId)!.summary),
       registryEntityNames,
+      extraStopwords: budget.entityValidationExtraStopwords,
     });
     if (!entityValidation.ok) {
       rejectedUnsupportedEntities += 1;
@@ -427,17 +456,20 @@ async function runMacroRelationshipExtraction(rawPayload: unknown) {
 
     const { vector } = await embedText(relationship.summary);
     const vec = `[${vector.join(',')}]`;
-    const [nearDuplicate] = await db.execute<{ id: string; distance: number }>(sql`
-      SELECT id, embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))}) AS distance
+    const [nearDuplicate] = await db.execute<{ id: string; status: string; distance: number }>(sql`
+      SELECT id, status, embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))}) AS distance
       FROM macro_relationships
       WHERE relationship_type = ${relationship.relationshipType}
-        AND status IN ('pending_review', 'blocked_pending_support', 'needs_review', 'approved')
+        AND status IN ('pending_review', 'blocked_pending_support', 'needs_review', 'approved', 'rejected')
         AND embedding IS NOT NULL
-        AND embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))}) < ${MACRO_RELATIONSHIP_NEAR_DUPLICATE_DISTANCE}
+        AND embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))}) < ${budget.nearDuplicateDistance}
       ORDER BY embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))})
       LIMIT 1
     `);
-    if (nearDuplicate) continue;
+    if (nearDuplicate) {
+      if (nearDuplicate.status === 'rejected') rejectedNearDuplicates += 1;
+      continue;
+    }
 
     const supportStatuses = supportLinks.map((link) => supportById.get(link.claimId)?.status ?? 'missing');
     const [row] = await db
@@ -502,7 +534,7 @@ async function runMacroRelationshipExtraction(rawPayload: unknown) {
     inserted += 1;
   }
 
-  return { status: 'complete', inserted, rejectedUnsupportedEntities };
+  return { status: 'complete', inserted, rejectedUnsupportedEntities, rejectedNearDuplicates };
 }
 
 export const macroRelationshipExtractionTask = task({

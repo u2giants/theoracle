@@ -58,6 +58,27 @@ function claimKindFromForm(formData: FormData, fallback = 'uncertain'): string {
   return CLAIM_KINDS.has(raw) ? raw : 'uncertain';
 }
 
+function claimKindReviewStatusForStatusUpdate(input: {
+  formData: FormData;
+  status: ReviewStatus;
+  beforeStatus: string | null;
+  beforeClaimKind: string | null;
+  beforeClaimKindConfidence: number | null;
+  claimKind: string;
+  claimKindConfidence: number;
+}): string | null {
+  if (input.status !== 'approved') return input.beforeStatus;
+  const explicitConfirmation =
+    input.formData.get('confirmClaimKind') === 'on' ||
+    input.formData.get('confirmClaimKind') === 'true';
+  const kindChanged = input.claimKind !== (input.beforeClaimKind ?? 'uncertain');
+  const confidenceChanged =
+    input.claimKindConfidence !== (input.beforeClaimKindConfidence ?? 5);
+  return explicitConfirmation || kindChanged || confidenceChanged
+    ? 'reviewed'
+    : input.beforeStatus;
+}
+
 function buildAutoRevisionNote(input: {
   beforeSummary: string;
   afterSummary: string;
@@ -180,6 +201,15 @@ export async function updateClaimStatus(formData: FormData) {
     'claimKindConfidence',
     before.claim.claimKindConfidence ?? 5,
   );
+  const claimKindReviewStatus = claimKindReviewStatusForStatusUpdate({
+    formData,
+    status,
+    beforeStatus: before.claim.claimKindReviewStatus,
+    beforeClaimKind: before.claim.claimKind,
+    beforeClaimKindConfidence: before.claim.claimKindConfidence,
+    claimKind,
+    claimKindConfidence,
+  });
 
   await db.transaction(async (tx) => {
     await tx
@@ -188,7 +218,7 @@ export async function updateClaimStatus(formData: FormData) {
         status,
         claimKind,
         claimKindConfidence,
-        claimKindReviewStatus: status === 'approved' ? 'reviewed' : before.claim.claimKindReviewStatus,
+        claimKindReviewStatus,
       })
       .where(eq(claims.id, id));
     await tx.insert(claimReviewEvents).values({
@@ -203,8 +233,7 @@ export async function updateClaimStatus(formData: FormData) {
           status,
           claimKind,
           claimKindConfidence,
-          claimKindReviewStatus:
-            status === 'approved' ? 'reviewed' : before.claim.claimKindReviewStatus,
+          claimKindReviewStatus,
         },
         topDomainIds: before.topDomainIds,
       },

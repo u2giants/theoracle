@@ -1,0 +1,8 @@
+-- Drizzle snapshot reconciliation only.
+--
+-- Macro-understanding tables and claim-kind columns were intentionally
+-- materialized by hand-written SQL migrations under packages/db/migrations/sql
+-- (79/80/81) before Drizzle's generated snapshot knew about them. The generated
+-- SQL for this migration attempted to replay already-applied DDL, so this file
+-- is intentionally SQL-empty while meta/0008_snapshot.json records the current
+-- schema shape for the next drizzle-kit generate.
