@@ -357,7 +357,9 @@ async function transcribeImageToText(
 ): Promise<string> {
   const resolution = await resolveRouteCandidates(db, 'vision');
   for (const skipped of resolution.skipped) {
-    console.error(`[document-ingestion] skipped configured vision candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`);
+    console.error(
+      `[document-ingestion] skipped configured vision candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`,
+    );
   }
   const routeCandidates = resolution.candidates;
   const route = routeCandidates[0]!.route;
@@ -433,7 +435,9 @@ async function transcribeImageToText(
       taskType: 'document-ingestion-vision',
       slot: 'vision',
       modelRunId: modelRun.id,
-    }).catch((e) => console.error('[document-ingestion] failed to record vision model attempts', e));
+    }).catch((e) =>
+      console.error('[document-ingestion] failed to record vision model attempts', e),
+    );
   }
 
   return result.text ?? '';
@@ -525,9 +529,7 @@ interface ProcessDocumentResult {
 
 type ExtractedClaim = ExtractionOutput['claims'][number];
 
-type AutoApprovalDecision =
-  | { approve: true; reason: string }
-  | { approve: false; reason: string };
+type AutoApprovalDecision = { approve: true; reason: string } | { approve: false; reason: string };
 
 function hasSensitivityFlags(claim: ExtractedClaim): boolean {
   return (
@@ -868,7 +870,10 @@ async function processDocument(
     parseKind === 'image' ? MAX_IMAGE_TEXT_CHARS : MAX_DOCUMENT_TEXT_CHARS,
   );
   const outlineContext = await loadDocumentOutlineContext(db, documentId).catch((err) => {
-    console.warn('[document-ingestion] source outline context unavailable; continuing without it', err);
+    console.warn(
+      '[document-ingestion] source outline context unavailable; continuing without it',
+      err,
+    );
     return null;
   });
   for (let windowIndex = 0; windowIndex < extractionWindows.length; windowIndex++) {
@@ -928,8 +933,7 @@ async function processDocument(
               label: 'Provisional source outline',
               kind: 'semi_stable_domain_context' as const,
               content: outlineContext,
-              reasonIncluded:
-                'macro source outline guidance only; not valid evidence for claims',
+              reasonIncluded: 'macro source outline guidance only; not valid evidence for claims',
             }),
           ]
         : []),
@@ -1445,49 +1449,11 @@ async function processDocument(
     })
     .where(eq(documents.id, documentId));
 
-  const [latestOutline] = await db
-    .select({ id: sourceOutlines.id })
-    .from(sourceOutlines)
-    .innerJoin(
-      sourceOutlineSources,
-      eq(sourceOutlineSources.sourceOutlineId, sourceOutlines.id),
-    )
-    .where(
-      and(
-        eq(sourceOutlineSources.sourceType, 'document'),
-        eq(sourceOutlineSources.documentId, documentId),
-        eq(sourceOutlines.status, 'provisional'),
-      ),
-    )
-    .orderBy(desc(sourceOutlines.createdAt))
-    .limit(1);
-  if (latestOutline) {
-    const followups = await macroAutoFollowupsAllowed(db, latestOutline.id);
-    if (followups.allowed) {
-      await tasks
-        .trigger('macro-relationship-extraction', {
-          documentId,
-          sourceOutlineId: latestOutline.id,
-          relationshipScope: 'cross_source',
-        })
-        .catch((err) =>
-          console.warn('[document-ingestion] failed to trigger macro relationship extraction', err),
-        );
-      await tasks
-        .trigger('source-coverage-audit', { sourceOutlineId: latestOutline.id })
-        .catch((err) =>
-          console.warn('[document-ingestion] failed to trigger source coverage audit', err),
-        );
-    } else {
-      console.warn('[document-ingestion] skipped automatic macro followups', followups.reason);
-    }
-  } else {
-    await tasks
-      .trigger('source-outline', { documentId })
-      .catch((err) =>
-        console.warn('[document-ingestion] failed to trigger source outline generation', err),
-      );
-  }
+  await tasks
+    .trigger('source-outline', { documentId })
+    .catch((err) =>
+      console.warn('[document-ingestion] failed to trigger source outline orchestration', err),
+    );
 
   if (fileBackedCachePath) {
     await unlink(fileBackedCachePath).catch(() => undefined);
@@ -1522,7 +1488,9 @@ async function processDocument(
 async function resolveExtractionCandidates(db: OracleDb): Promise<RouteCandidate[]> {
   const resolved = await resolveRouteCandidates(db, 'extraction');
   for (const skipped of resolved.skipped) {
-    console.error(`[document-ingestion] skipped configured extraction candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`);
+    console.error(
+      `[document-ingestion] skipped configured extraction candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`,
+    );
   }
   return resolved.candidates;
 }
@@ -1577,34 +1545,6 @@ function settingEnabled(value: unknown): boolean {
   return false;
 }
 
-function settingInt(value: unknown, fallback: number): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.floor(parsed) : fallback;
-}
-
-async function macroAutoFollowupsAllowed(
-  db: OracleDb,
-  sourceOutlineId: string,
-): Promise<{ allowed: boolean; reason?: string }> {
-  const rows = await db
-    .select({ key: settings.key, value: settings.value })
-    .from(settings)
-    .where(inArray(settings.key, ['macro_auto_followups_enabled', 'macro_auto_max_outline_groups']));
-  const values = new Map(rows.map((row) => [row.key, row.value]));
-  if (!settingEnabled(values.get('macro_auto_followups_enabled') ?? true)) {
-    return { allowed: false, reason: 'macro_auto_followups_disabled' };
-  }
-  const maxGroups = Math.max(1, settingInt(values.get('macro_auto_max_outline_groups'), 12));
-  const groups = await db
-    .select({ id: sourceGroups.id })
-    .from(sourceGroups)
-    .where(eq(sourceGroups.sourceOutlineId, sourceOutlineId));
-  if (groups.length > maxGroups) {
-    return { allowed: false, reason: `outline_group_count_${groups.length}_exceeds_${maxGroups}` };
-  }
-  return { allowed: true };
-}
-
 async function loadDocumentOutlineContext(
   db: OracleDb,
   documentId: string,
@@ -1623,10 +1563,7 @@ async function loadDocumentOutlineContext(
       outlineJson: sourceOutlines.outlineJson,
     })
     .from(sourceOutlines)
-    .innerJoin(
-      sourceOutlineSources,
-      eq(sourceOutlineSources.sourceOutlineId, sourceOutlines.id),
-    )
+    .innerJoin(sourceOutlineSources, eq(sourceOutlineSources.sourceOutlineId, sourceOutlines.id))
     .where(
       and(
         eq(sourceOutlineSources.sourceType, 'document'),
@@ -1668,9 +1605,10 @@ async function loadDocumentOutlineContext(
   if (groups.length > 0) {
     lines.push('', 'Source groups:');
     for (const group of groups) {
-      const meta = group.metadataJson as
-        | { recommendedLenses?: string[]; uncertainty?: string | null }
-        | null;
+      const meta = group.metadataJson as {
+        recommendedLenses?: string[];
+        uncertainty?: string | null;
+      } | null;
       lines.push(
         `- ${group.title} (${group.groupType})${group.description ? `: ${group.description}` : ''}`,
       );

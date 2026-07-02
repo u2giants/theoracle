@@ -36,6 +36,7 @@ import {
   sourceOutlines,
   type OracleDb,
 } from '@oracle/db';
+import { buildLensDispatchPlan } from '../lib/document-lens-budget';
 
 const payloadSchema = z.object({
   documentId: z.string().uuid(),
@@ -124,10 +125,7 @@ function normalizeOutlineRefs(
   };
 }
 
-async function supersedeExistingDocumentOutlines(
-  db: OracleDb,
-  documentId: string,
-): Promise<void> {
+async function supersedeExistingDocumentOutlines(db: OracleDb, documentId: string): Promise<void> {
   const existing = await db
     .select({ outlineId: sourceOutlineSources.sourceOutlineId })
     .from(sourceOutlineSources)
@@ -160,7 +158,9 @@ async function persistOutline(args: {
   await supersedeExistingDocumentOutlines(db, documentId);
 
   const groupTexts = outline.groups.map((group) =>
-    [group.title, group.description, group.recommendedLenses?.join(', ')].filter(Boolean).join('\n'),
+    [group.title, group.description, group.recommendedLenses?.join(', ')]
+      .filter(Boolean)
+      .join('\n'),
   );
   let groupEmbeddings: number[][] = [];
   if (groupTexts.length > 0) {
@@ -256,7 +256,9 @@ async function loadMacroAutoBudget(db: OracleDb): Promise<MacroAutoBudget> {
     // Keep this raw to avoid expanding the public schema surface only for settings.
     sql`SELECT key, value FROM settings WHERE key IN ('macro_auto_followups_enabled', 'macro_auto_max_outline_groups')`,
   );
-  const map = new Map(([...rows] as Array<{ key: string; value: unknown }>).map((row) => [row.key, row.value]));
+  const map = new Map(
+    ([...rows] as Array<{ key: string; value: unknown }>).map((row) => [row.key, row.value]),
+  );
   return {
     enabled: settingToBoolean(map.get('macro_auto_followups_enabled'), true),
     maxOutlineGroups: Math.max(1, settingToInt(map.get('macro_auto_max_outline_groups'), 12)),
@@ -284,12 +286,54 @@ async function triggerMacroFollowups(args: {
       sourceOutlineId: args.outlineId,
       relationshipScope: 'cross_source',
     })
-    .catch((err) => console.warn('[source-outline] failed to trigger macro relationship extraction', err));
+    .catch((err) =>
+      console.warn('[source-outline] failed to trigger macro relationship extraction', err),
+    );
   await tasks
     .trigger('source-coverage-audit', { sourceOutlineId: args.outlineId })
     .catch((err) => console.warn('[source-outline] failed to trigger source coverage audit', err));
 
   return { triggered: true };
+}
+
+async function countSourceOutlineGroups(db: OracleDb, outlineId: string): Promise<number> {
+  const rows = await db
+    .select({ id: sourceGroups.id })
+    .from(sourceGroups)
+    .where(eq(sourceGroups.sourceOutlineId, outlineId));
+  return rows.length;
+}
+
+async function triggerDocumentLensFanout(args: {
+  db: OracleDb;
+  documentId: string;
+  outlineId: string;
+}): Promise<{
+  triggered: number;
+  skipped: Array<{ sourceGroupId?: string; groupTitle?: string; lens?: string; reason: string }>;
+}> {
+  const plan = await buildLensDispatchPlan(args.db, args.outlineId);
+  let triggered = 0;
+  for (const selected of plan.selected) {
+    await tasks
+      .trigger('document-lens-extraction', {
+        documentId: args.documentId,
+        sourceOutlineId: args.outlineId,
+        sourceGroupId: selected.sourceGroupId,
+        lens: selected.lens,
+      })
+      .then(() => {
+        triggered += 1;
+      })
+      .catch((err) =>
+        console.warn('[source-outline] failed to trigger document lens extraction', {
+          sourceGroupId: selected.sourceGroupId,
+          lens: selected.lens,
+          err,
+        }),
+      );
+  }
+  return { triggered, skipped: plan.skipped };
 }
 
 async function generateDocumentOutline(documentId: string, force: boolean, triggerRunId: string) {
@@ -333,10 +377,7 @@ async function generateDocumentOutline(documentId: string, force: boolean, trigg
     const [existing] = await db
       .select({ id: sourceOutlines.id })
       .from(sourceOutlines)
-      .innerJoin(
-        sourceOutlineSources,
-        eq(sourceOutlineSources.sourceOutlineId, sourceOutlines.id),
-      )
+      .innerJoin(sourceOutlineSources, eq(sourceOutlineSources.sourceOutlineId, sourceOutlines.id))
       .where(
         and(
           eq(sourceOutlineSources.documentId, documentId),
@@ -348,7 +389,24 @@ async function generateDocumentOutline(documentId: string, force: boolean, trigg
       .orderBy(desc(sourceOutlines.createdAt))
       .limit(1);
     if (existing) {
-      return { documentId, status: 'skipped_existing' as const, outlineId: existing.id };
+      const lensFanout = await triggerDocumentLensFanout({
+        db,
+        documentId,
+        outlineId: existing.id,
+      });
+      const followups = await triggerMacroFollowups({
+        db,
+        documentId,
+        outlineId: existing.id,
+        groupCount: await countSourceOutlineGroups(db, existing.id),
+      });
+      return {
+        documentId,
+        status: 'skipped_existing' as const,
+        outlineId: existing.id,
+        lensFanout,
+        macroFollowups: followups,
+      };
     }
   }
 
@@ -513,6 +571,11 @@ async function generateDocumentOutline(documentId: string, force: boolean, trigg
       modelRunId,
       contextPackId: contextPack.id,
     });
+    const lensFanout = await triggerDocumentLensFanout({
+      db,
+      documentId,
+      outlineId,
+    });
     const followups = await triggerMacroFollowups({
       db,
       documentId,
@@ -530,6 +593,7 @@ async function generateDocumentOutline(documentId: string, force: boolean, trigg
           outlineId,
           groupCount: outline.groups.length,
           refCount: outline.refs.length,
+          lensFanout,
           macroFollowups: followups,
         },
       })

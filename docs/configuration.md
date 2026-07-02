@@ -205,6 +205,8 @@ WHERE key = 'default_interview_route';
 
 We don't have a feature-flag service. Boolean settings in the `settings` table fill that role for now (`enable_live_contradiction_interjections`, `enable_group_chat_lull_questions`, and the `teams_live_recall_*` test overrides). Numeric settings can also act as safety clamps; for example `teams_live_recall_min_confidence_to_post=101` disables live Recall posting.
 
+Macro lens fan-out is controlled by `settings` rows seeded in migration `81_macro_lens_fanout_settings.sql`: `macro_lenses_enabled`, `macro_max_lenses_per_document`, `macro_max_lens_groups_per_document`, `macro_max_lens_model_calls_per_document`, and `macro_max_lens_estimated_input_tokens`.
+
 ## Files that read configuration
 
 - `apps/web/next.config.ts` — loads `.env.local` from the monorepo root.
