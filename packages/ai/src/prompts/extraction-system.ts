@@ -1,6 +1,10 @@
 // Claim extraction system prompt — spec Part 9.4, 9.5 + R5.5 + R12-prompt.
 // Used by the Trigger.dev claim-extraction worker and the document-ingestion worker.
 //
+// Version 2.3.0 adds:
+//   - claimKind + claimKindConfidence so policy, observed practice, exception,
+//     workaround, historical, and uncertain source posture can be distinguished.
+//
 // Version 2.2.0 adds:
 //   - non-quotable carry-in conversation context for message extraction.
 //
@@ -31,7 +35,7 @@
 import { z } from 'zod';
 import { KNOWLEDGE_DOMAINS, ENTITY_TYPES } from '@oracle/shared';
 
-export const EXTRACTION_PROMPT_VERSION = '2.2.0';
+export const EXTRACTION_PROMPT_VERSION = '2.3.0';
 
 // ---------------------------------------------------------------------------
 // Claim type taxonomy (spec 9.4 + Part 6).
@@ -49,6 +53,18 @@ export const CLAIM_TYPES = [
 ] as const;
 
 export type ClaimType = (typeof CLAIM_TYPES)[number];
+
+export const CLAIM_KINDS = [
+  'policy',
+  'observed_practice',
+  'workaround',
+  'exception',
+  'historical',
+  'uncertain',
+  'proposed_future_state',
+] as const;
+
+export type ClaimKind = (typeof CLAIM_KINDS)[number];
 
 // Group chat semantic roles (spec 9.5).
 export const SEMANTIC_ROLES = [
@@ -157,6 +173,21 @@ export const ExtractionSensitivityFlagsSchema = z.object({
 
 export const ExtractionClaimSchema = z.object({
   claimType: z.enum(CLAIM_TYPES),
+  claimKind: z
+    .enum(CLAIM_KINDS)
+    .default('uncertain')
+    .describe(
+      'Source posture: policy=official documented rule/SOP; observed_practice=what employees actually do/report; workaround=unofficial temporary method; exception=sanctioned deviation; historical=past behavior that may not be current; proposed_future_state=planned not active; uncertain=unclear/contested.',
+    ),
+  claimKindConfidence: z
+    .number()
+    .int()
+    .min(1)
+    .max(10)
+    .default(5)
+    .describe(
+      'Confidence in claimKind only. Use <=5 unless the source explicitly signals policy/SOP, observed practice, workaround, exception, historical, or future-state posture.',
+    ),
   summary: z
     .string()
     .min(10)
@@ -253,6 +284,17 @@ CLAIM TYPES:
 - handoff_gap: Information that tends to get lost between departments or people
 - contradiction: Two conflicting statements about the same process
 - process_ambiguity: Unclear ownership, unclear when something happens, or unclear who is responsible
+
+CLAIM KINDS:
+- policy: Official documented rule, SOP, requirement, or manager-approved standard.
+- observed_practice: What employees actually do or report doing.
+- workaround: An unofficial temporary method used because the official path is insufficient.
+- exception: A sanctioned deviation from the standard path under stated conditions.
+- historical: Past behavior that may no longer be current.
+- proposed_future_state: Planned or requested process that is not yet active.
+- uncertain: Source posture is unclear, contested, or too weak to classify.
+
+If unsure, use claimKind="uncertain" with low claimKindConfidence. Do not label a claim as policy just because it sounds procedural; require document/SOP/official-rule language or clear approval authority.
 
 GROUP CHAT SEMANTICS — track how claims interact when multiple employees speak:
 - claim_stated: First assertion of a new fact

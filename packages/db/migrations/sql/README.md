@@ -82,6 +82,7 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `76_transcript_approval.sql` | Adds raw transcript approval metadata for the earlier transcript-approval experiment. Deprecated by the meeting picker flow. |
 | `77_meeting_transcripts.sql` | Adds the meeting picker discovery table for Teams transcript metadata before admin-triggered ingestion. |
 | `78_fail_loud_model_routing_settings.sql` | Seeds explicit model pools, capability enforcement, auxiliary model slots, and message-extraction conversation selection settings for environments created before hard-coded route fallbacks were removed. |
+| `79_macro_understanding.sql` | Adds server-only provisional source outline/source group tables, claim-kind columns, macro relationship/support/review tables, coverage findings, and the `macro_outline_injection_enabled` setting. Outlines are guidance, not evidence; approved macro relationships still require read-time support-claim verification. |
 | `99_vector_indexes.sql` | HNSW indexes on `claims.embedding` and `document_chunks.embedding`. Opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`. |
 
 ## Anti-patterns

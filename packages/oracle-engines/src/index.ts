@@ -3,3 +3,4 @@ export * from './interjection';
 export * from './extraction';
 // R9 — synthesis-diff validator.
 export * from './synthesis';
+export * from './macro/approved-relationships';

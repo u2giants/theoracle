@@ -15,6 +15,9 @@ type ClaimRow = {
   id: string;
   summary: string;
   claim_type: string;
+  claim_kind: string | null;
+  claim_kind_confidence: number | null;
+  claim_kind_review_status: string | null;
   status: string;
   impact_score: number;
   confidence_score: number;
@@ -96,6 +99,9 @@ export default async function AdminClaimsPage({
       c.id,
       c.summary,
       c.claim_type,
+      c.claim_kind,
+      c.claim_kind_confidence,
+      c.claim_kind_review_status,
       c.status,
       c.impact_score,
       c.confidence_score,
@@ -334,6 +340,7 @@ export default async function AdminClaimsPage({
                     </th>
                     <th className="py-2 pr-4">Summary</th>
                     <th className="py-2 pr-4">Type</th>
+                    <th className="py-2 pr-4">Kind</th>
                     <th className="py-2 pr-4">Status</th>
                     <th className="py-2 pr-4">Domains</th>
                     <th className="py-2 pr-4">Impact</th>
@@ -348,7 +355,7 @@ export default async function AdminClaimsPage({
                   {sourceGroups.map((group) => (
                     <Fragment key={group.key}>
                       <tr className="bg-muted/40">
-                        <td colSpan={11} className="py-2 pr-4">
+                        <td colSpan={12} className="py-2 pr-4">
                           <div className="flex flex-wrap items-center gap-2 text-xs">
                             <span aria-hidden>{SOURCE_KIND_ICON[group.kind]}</span>
                             <span className="font-semibold text-foreground">
@@ -443,6 +450,14 @@ export default async function AdminClaimsPage({
                       <td className="py-3 pr-4 whitespace-nowrap text-xs text-muted-foreground">
                         {row.claim_type}
                       </td>
+                      <td className="py-3 pr-4 whitespace-nowrap text-xs">
+                        <span
+                          className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground"
+                          title={`confidence ${row.claim_kind_confidence ?? '—'} · ${row.claim_kind_review_status ?? 'unreviewed'}`}
+                        >
+                          {(row.claim_kind ?? 'uncertain').replace(/_/g, ' ')}
+                        </span>
+                      </td>
                       <td className="py-3 pr-4">
                         <span
                           className={`rounded px-2 py-0.5 text-xs font-medium ${statusBadge(row.status)}`}
@@ -492,6 +507,8 @@ export default async function AdminClaimsPage({
                               <form action={updateClaimStatus}>
                                 <input type="hidden" name="id" value={row.id} />
                                 <input type="hidden" name="status" value="approved" />
+                                <input type="hidden" name="claimKind" value={row.claim_kind ?? 'uncertain'} />
+                                <input type="hidden" name="claimKindConfidence" value={row.claim_kind_confidence ?? 5} />
                                 <button
                                   type="submit"
                                   className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
@@ -522,6 +539,33 @@ export default async function AdminClaimsPage({
                                   <input
                                     name="claimType"
                                     defaultValue={row.claim_type}
+                                    className="mt-1 w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
+                                  />
+                                </label>
+                                <label className="block text-[11px] font-medium text-muted-foreground">
+                                  Claim kind
+                                  <select
+                                    name="claimKind"
+                                    defaultValue={row.claim_kind ?? 'uncertain'}
+                                    className="mt-1 w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
+                                  >
+                                    <option value="policy">Policy</option>
+                                    <option value="observed_practice">Observed practice</option>
+                                    <option value="workaround">Workaround</option>
+                                    <option value="exception">Exception</option>
+                                    <option value="historical">Historical</option>
+                                    <option value="proposed_future_state">Proposed future state</option>
+                                    <option value="uncertain">Uncertain</option>
+                                  </select>
+                                </label>
+                                <label className="block text-[11px] font-medium text-muted-foreground">
+                                  Kind confidence
+                                  <input
+                                    name="claimKindConfidence"
+                                    type="number"
+                                    min="1"
+                                    max="10"
+                                    defaultValue={row.claim_kind_confidence ?? 5}
                                     className="mt-1 w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
                                   />
                                 </label>

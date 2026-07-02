@@ -2,14 +2,14 @@
 
 Last updated: 2026-07-02. Delete this file once the remaining open items below are closed.
 
-HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is the current active continuation state. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with the current status.
+HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is current for the macro work. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with the current status.
 
 ---
 
 ## Macro understanding implementation — 2026-07-02
 
 Status:
-code-complete in this checkout, not yet committed, migrated, or deployed.
+implemented, production DB migration applied, and Trigger.dev workers deployed. Web deployment completes through the pushed `main` commit.
 
 What is fully done:
 - Added macro-understanding schema and hand-written migration `packages/db/migrations/sql/79_macro_understanding.sql`.
@@ -22,31 +22,27 @@ What is fully done:
 - Updated `docs/architecture.md`, `docs/macro-understanding-implementation-plan.md`, `DECISIONS.md`, and AGENTS routing/pending-work notes.
 
 What is partially done:
-- The migration exists but has not been applied to the live database from this checkout.
-- The new worker files exist but have not been deployed to Trigger.dev from this checkout.
-- The web/admin changes exist locally but have not been committed, pushed, or deployed from this checkout.
-- `macro_outline_injection_enabled` is seeded false; enabling it is a rollout decision after migration/deploy.
+- The web/admin changes deploy through Vercel after the implementation commit is pushed to `main`.
+- `macro_outline_injection_enabled` is seeded false; enabling it is a rollout decision after a small admin-reviewed pilot.
 
 Exact next action:
-1. Review the diff for `79_macro_understanding.sql`.
-2. Apply the hand-written migration through the approved migration path for this repo.
-3. Commit the macro implementation and its topic-specific docs together after the migration plan is ready.
-4. Deploy workers with `corepack pnpm --filter @oracle/workers run deploy`.
-5. Push the implementation commit to `main` so Vercel builds/deploys the web app.
-6. In admin, generate source outlines for a small document set, run macro relationship extraction and coverage audits, approve only relationships whose support claims are approved, then consider enabling `macro_outline_injection_enabled`.
+1. Push the implementation commit to `main` so Vercel builds/deploys the web app.
+2. In admin, generate source outlines for a small document set, run macro relationship extraction and coverage audits, approve only relationships whose support claims are approved, then consider enabling `macro_outline_injection_enabled`.
 
 Known risks / blockers / unknowns:
-- The migration is broad and should be applied before any code path tries to read the new tables/columns.
 - Existing documents are not backfilled automatically; run outline/macro/audit actions manually or add a deliberate backfill job later.
 - No production calibration/eval pass has been run for the new macro prompts yet.
 - Approved macro relationships intentionally cite approved claim IDs, not raw outline prose. Do not weaken that provenance boundary.
 
 Verification already run in this checkout:
-- PASS: `corepack pnpm -r typecheck`
-- PASS: `corepack pnpm --filter @oracle/engines verify:r5`
-- PASS: `corepack pnpm --filter @oracle/web lint`
-- PASS: `corepack pnpm --filter @oracle/workers lint`
-- PASS: `corepack pnpm --filter @oracle/web build`
+- PASS: production DB migration via `pnpm db:migrate` (`79_macro_understanding.sql` applied).
+- PASS: DB verification found `source_outlines`, `macro_relationships`, `source_coverage_findings`, claim-kind columns, and `macro_outline_injection_enabled`.
+- PASS: Trigger.dev prod worker `20260702.1` deployed with 24 tasks.
+- PASS: per-package `tsc --noEmit` through root `corepack pnpm exec tsc` for shared, db, auth, oracle-engines, ai, workers, and web.
+- PASS: `corepack pnpm exec tsx packages/oracle-engines/src/__verify__/r5-validator-smoke.ts`
+- PASS: MCP registry, retrieval filter parity, Vertex file-cache, Vertex inline-image, and auxiliary-model guards through root `corepack pnpm exec tsx`.
+- PASS: web lint via root ESLint binary from `apps/web`.
+- PASS: production Next build via root Next binary from `apps/web`.
 - PASS: `git diff --check`
 
 ---

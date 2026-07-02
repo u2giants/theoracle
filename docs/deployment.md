@@ -45,8 +45,9 @@ pnpm --filter @oracle/workers run deploy
 
 The `run` keyword is required: pnpm reserves the bare `pnpm deploy` form for its own
 package-deployment subcommand, so `pnpm --filter @oracle/workers deploy` fails with
-`ERR_PNPM_INVALID_DEPLOY_TARGET`. The script under the hood is
-`npx trigger.dev@latest deploy` against the checked-in `apps/workers/trigger.config.ts`.
+`ERR_PNPM_INVALID_DEPLOY_TARGET`. The script under the hood is pinned to
+`npx trigger.dev@4.4.6 deploy` so the CLI matches the checked-in `@trigger.dev/*`
+package versions.
 
 ### Database
 

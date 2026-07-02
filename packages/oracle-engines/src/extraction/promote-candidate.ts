@@ -51,6 +51,8 @@ export interface CandidateSnapshot {
     status: string;
     summary: string;
     claimType: string;
+    claimKind?: string | null;
+    claimKindConfidence?: number | null;
     impactScore: number;
     confidenceScore?: number;
     domains: string[];
@@ -125,6 +127,8 @@ export type PromotionDecision =
       candidateHash: string;
       claim: {
         claimType: string;
+        claimKind: string;
+        claimKindConfidence?: number;
         summary: string;
         impactScore: number;
         confidenceScore?: number;
@@ -278,6 +282,8 @@ export function decidePromotion(snapshot: CandidateSnapshot): PromotionDecision 
     candidateHash,
     claim: {
       claimType: candidate.claimType,
+      claimKind: candidate.claimKind ?? 'uncertain',
+      claimKindConfidence: candidate.claimKindConfidence ?? undefined,
       summary: candidate.summary,
       impactScore: candidate.impactScore,
       confidenceScore: candidate.confidenceScore,

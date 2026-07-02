@@ -50,6 +50,7 @@ const GROUPS: NavGroup[] = [
       { href: '/admin/claims', label: 'Claims' },
       { href: '/admin/gaps', label: 'Gaps' },
       { href: '/admin/contradictions', label: 'Contradictions' },
+      { href: '/admin/macro', label: 'Macro' },
       { href: '/admin/brain', label: 'Brain' },
     ],
   },

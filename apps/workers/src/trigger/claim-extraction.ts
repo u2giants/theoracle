@@ -656,6 +656,8 @@ export async function processSegmentOutput(
         extractionBatchId: batch.id,
         status: 'pending_validation',
         claimType: extracted.claimType,
+        claimKind: extracted.claimKind ?? 'uncertain',
+        claimKindConfidence: extracted.claimKindConfidence ?? 5,
         summary: extracted.summary,
         impactScore: extracted.impactScore,
         confidenceScore: extracted.confidenceScore,

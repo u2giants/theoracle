@@ -221,6 +221,23 @@ function main() {
     assert(res.verdict === 'failed', 'Extra: empty quote fails');
   }
 
+  // ── Macro outline guidance is not valid document evidence ───────────
+  {
+    const sourceChunk =
+      'Chunk says: after licensor approval, Design sends the approved art package to Sourcing.';
+    const outlineOnlyQuote =
+      'The workflow has a cross-functional approval gate before the China factory lane.';
+    const res = validateQuote({
+      sourceText: sourceChunk,
+      exactQuoteProvided: outlineOnlyQuote,
+      normalizationPolicy: MARKDOWN_DOCUMENT_NORMALIZATION_POLICY,
+    });
+    assert(
+      res.verdict === 'failed',
+      'Extra: source-outline-only prose cannot validate against document chunks',
+    );
+  }
+
   // ── Normalized match works when the policy is enabled ───────────────
   // OCR doubled a space; with whitespace normalization the quote matches.
   {

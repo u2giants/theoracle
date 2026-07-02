@@ -58,6 +58,7 @@ import {
   type OraclePromptPlan,
 } from '@oracle/ai';
 import {
+  getApprovedMacroRelationships,
   mapLegacyDomainToTopDomain,
   validateSynthesisDiff,
   type SynthesisOutput as PureSynthesisOutput,
@@ -183,12 +184,26 @@ OUTPUT: Return structured JSON matching the schema exactly. The updatedMarkdown 
 
 function buildSynthesisCorpus(
   currentMarkdown: string | null,
-  approvedClaims: Array<{ id: string; summary: string; claimType: string; impactScore: number; confidenceScore: number }>,
+  approvedClaims: Array<{ id: string; summary: string; claimType: string; claimKind?: string | null; impactScore: number; confidenceScore: number }>,
+  macroRelationships: Array<{
+    id: string;
+    relationshipType: string;
+    summary: string;
+    impactScore: number;
+    confidenceScore: number;
+    supportClaims: Array<{ id: string; claimKind: string | null }>;
+  }> = [],
 ): string {
   const claimList = approvedClaims
     .map(
       (c) =>
-        `  - ID: ${c.id}\n    Type: ${c.claimType}\n    Impact: ${c.impactScore}/10  Confidence: ${c.confidenceScore}/10\n    Claim: ${c.summary}`,
+        `  - ID: ${c.id}\n    Type: ${c.claimType}\n    Kind: ${c.claimKind ?? 'uncertain'}\n    Impact: ${c.impactScore}/10  Confidence: ${c.confidenceScore}/10\n    Claim: ${c.summary}`,
+    )
+    .join('\n');
+  const macroList = macroRelationships
+    .map(
+      (m) =>
+        `  - Macro ID: ${m.id}\n    Type: ${m.relationshipType}\n    Impact: ${m.impactScore}/10  Confidence: ${m.confidenceScore}/10\n    Support claims: ${m.supportClaims.map((c) => `${c.id} (${c.claimKind ?? 'uncertain'})`).join(', ')}\n    Relationship: ${m.summary}`,
     )
     .join('\n');
 
@@ -199,7 +214,12 @@ function buildSynthesisCorpus(
   return `${currentSection}
 
 APPROVED CLAIMS FOR THIS SECTION (${approvedClaims.length} total):
-${claimList || '(No approved claims yet — output an empty section with a gap asking for foundational knowledge.)'}`;
+${claimList || '(No approved claims yet — output an empty section with a gap asking for foundational knowledge.)'}
+
+APPROVED MACRO RELATIONSHIPS (${macroRelationships.length} total):
+${macroList || '(No approved macro relationships yet.)'}
+
+Use macro relationships as the primary workflow backbone when they apply. Atomic claims are supporting details, examples, exceptions, observed practices, or source-specific evidence. If a policy claim and an observed-practice/workaround claim conflict, preserve the tension instead of resolving it without evidence.`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -270,6 +290,7 @@ async function synthesizeSection(
       id: claims.id,
       summary: claims.summary,
       claimType: claims.claimType,
+      claimKind: claims.claimKind,
       impactScore: claims.impactScore,
       confidenceScore: claims.confidenceScore,
     })
@@ -289,6 +310,7 @@ async function synthesizeSection(
       id: claims.id,
       summary: claims.summary,
       claimType: claims.claimType,
+      claimKind: claims.claimKind,
       impactScore: claims.impactScore,
       confidenceScore: claims.confidenceScore,
     })
@@ -306,8 +328,28 @@ async function synthesizeSection(
     allClaimsMap.set(c.id, c);
   }
   const approvedClaims = Array.from(allClaimsMap.values());
-  const approvedClaimIds = new Set(approvedClaims.map((c) => c.id));
-  const approvedClaimSummariesLower = approvedClaims.map((c) => c.summary.toLowerCase());
+  const macroRelationships = await getApprovedMacroRelationships({
+    db,
+    domainIds: topDomainIds,
+    limit: 30,
+  });
+  for (const relationship of macroRelationships) {
+    for (const support of relationship.supportClaims) {
+      if (!allClaimsMap.has(support.id)) {
+        allClaimsMap.set(support.id, {
+          id: support.id,
+          summary: support.summary,
+          claimType: support.claimType,
+          claimKind: support.claimKind,
+          impactScore: relationship.impactScore,
+          confidenceScore: relationship.confidenceScore,
+        });
+      }
+    }
+  }
+  const approvedClaimsForValidation = Array.from(allClaimsMap.values());
+  const approvedClaimIds = new Set(approvedClaimsForValidation.map((c) => c.id));
+  const approvedClaimSummariesLower = approvedClaimsForValidation.map((c) => c.summary.toLowerCase());
 
   // Canonical entity names from the R3.5 registry. Used by the unsupported-
   // named-entity check in the validator.
@@ -325,7 +367,7 @@ async function synthesizeSection(
       category: section.category,
     },
   );
-  const synthesisCorpus = buildSynthesisCorpus(currentMarkdown, approvedClaims);
+  const synthesisCorpus = buildSynthesisCorpus(currentMarkdown, approvedClaims, macroRelationships);
 
   const blocks = [
     makeBlock({
@@ -340,13 +382,13 @@ async function synthesizeSection(
       label: 'Current section markdown + approved claim corpus',
       kind: 'retrieved_context',
       content: synthesisCorpus,
-      reasonIncluded: `${approvedClaims.length} approved claim(s) + current section snapshot`,
+      reasonIncluded: `${approvedClaims.length} approved claim(s), ${macroRelationships.length} approved macro relationship(s) + current section snapshot`,
     }),
     makeBlock({
       id: 'turn-request',
       label: 'Synthesis request',
       kind: 'dynamic_input',
-      content: `Please synthesize brain section: ${section.id}\nTrigger: ${trigger}\nApproved claims available: ${approvedClaims.length}`,
+      content: `Please synthesize brain section: ${section.id}\nTrigger: ${trigger}\nApproved claims available: ${approvedClaims.length}\nApproved macro relationships available: ${macroRelationships.length}`,
       reasonIncluded: `trigger=${trigger}`,
     }),
   ];
@@ -356,7 +398,7 @@ async function synthesizeSection(
     routeId: route.routeId,
     promptVersion: SYNTHESIS_PROMPT_VERSION,
     blocks,
-    observability: { includedClaimIds: approvedClaims.map((c) => c.id) },
+    observability: { includedClaimIds: approvedClaimsForValidation.map((c) => c.id) },
   });
 
   // ── 3. Stage context pack BEFORE the model call ──────────────────────
@@ -388,7 +430,7 @@ async function synthesizeSection(
       promptVersion: SYNTHESIS_PROMPT_VERSION,
       blocks,
       schema: SynthesisOutputSchema,
-      observability: { includedClaimIds: approvedClaims.map((c) => c.id) },
+      observability: { includedClaimIds: approvedClaimsForValidation.map((c) => c.id) },
       providerOptions: {
         cache: {
           preferLongLivedCache: true,

@@ -486,6 +486,252 @@ export const documentChunks = pgTable(
   }),
 );
 
+// ---------------------------------------------------------------------------
+// 6.4.5 Macro understanding: provisional source outlines and source groups
+// ---------------------------------------------------------------------------
+
+export const sourceOutlines = pgTable(
+  'source_outlines',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceType: varchar('source_type', { length: 50 }).notNull(),
+    status: varchar('status', { length: 50 }).notNull().default('provisional'),
+    outlineVersion: varchar('outline_version', { length: 50 }).notNull(),
+    modelRunId: uuid('model_run_id').references(() => modelRuns.id),
+    contextPackId: uuid('context_pack_id').references(() => oracleContextPacks.id),
+    sourceHash: varchar('source_hash', { length: 64 }).notNull(),
+    outlineJson: jsonb('outline_json').notNull(),
+    summary: text('summary'),
+    budgetJson: jsonb('budget_json'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    sourceStatusCreatedIdx: index('source_outlines_source_status_created_idx').on(
+      t.sourceType,
+      t.status,
+      t.createdAt,
+    ),
+    sourceHashIdx: index('source_outlines_source_hash_idx').on(t.sourceHash),
+    modelRunIdx: index('source_outlines_model_run_idx').on(t.modelRunId),
+    contextPackIdx: index('source_outlines_context_pack_idx').on(t.contextPackId),
+  }),
+);
+
+export const sourceOutlineSources = pgTable(
+  'source_outline_sources',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceOutlineId: uuid('source_outline_id')
+      .references(() => sourceOutlines.id, { onDelete: 'cascade' })
+      .notNull(),
+    sourceType: varchar('source_type', { length: 50 }).notNull(),
+    documentId: uuid('document_id').references(() => documents.id),
+    channelId: uuid('channel_id').references(() => channels.id),
+    meetingTranscriptId: uuid('meeting_transcript_id'),
+    startMessageId: uuid('start_message_id').references(() => messages.id),
+    endMessageId: uuid('end_message_id').references(() => messages.id),
+    sourceHash: varchar('source_hash', { length: 64 }),
+    metadataJson: jsonb('metadata_json'),
+  },
+  (t) => ({
+    outlineIdx: index('source_outline_sources_outline_idx').on(t.sourceOutlineId),
+    documentIdx: index('source_outline_sources_document_idx').on(t.documentId),
+    channelIdx: index('source_outline_sources_channel_idx').on(t.channelId),
+  }),
+);
+
+export const sourceOutlineSourceRefs = pgTable(
+  'source_outline_source_refs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceOutlineId: uuid('source_outline_id')
+      .references(() => sourceOutlines.id, { onDelete: 'cascade' })
+      .notNull(),
+    outlineElementId: varchar('outline_element_id', { length: 100 }),
+    refType: varchar('ref_type', { length: 50 }).notNull(),
+    documentChunkId: uuid('document_chunk_id').references(() => documentChunks.id),
+    messageId: uuid('message_id').references(() => messages.id),
+    claimId: uuid('claim_id').references(() => claims.id),
+    refRole: varchar('ref_role', { length: 50 }),
+    metadataJson: jsonb('metadata_json'),
+  },
+  (t) => ({
+    outlineIdx: index('source_outline_source_refs_outline_idx').on(t.sourceOutlineId),
+    documentChunkIdx: index('source_outline_source_refs_chunk_idx').on(t.documentChunkId),
+    messageIdx: index('source_outline_source_refs_message_idx').on(t.messageId),
+    claimIdx: index('source_outline_source_refs_claim_idx').on(t.claimId),
+  }),
+);
+
+export const sourceGroups = pgTable(
+  'source_groups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceOutlineId: uuid('source_outline_id')
+      .references(() => sourceOutlines.id, { onDelete: 'cascade' })
+      .notNull(),
+    groupType: varchar('group_type', { length: 50 }).notNull(),
+    title: text('title').notNull(),
+    description: text('description'),
+    embedding: vector('embedding', { dimensions: EMBEDDING_DIM }),
+    sortOrder: integer('sort_order'),
+    metadataJson: jsonb('metadata_json'),
+  },
+  (t) => ({
+    outlineIdx: index('source_groups_outline_idx').on(t.sourceOutlineId),
+    typeIdx: index('source_groups_type_idx').on(t.groupType),
+  }),
+);
+
+export const sourceGroupItems = pgTable(
+  'source_group_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceGroupId: uuid('source_group_id')
+      .references(() => sourceGroups.id, { onDelete: 'cascade' })
+      .notNull(),
+    itemType: varchar('item_type', { length: 50 }).notNull(),
+    documentChunkId: uuid('document_chunk_id').references(() => documentChunks.id),
+    messageId: uuid('message_id').references(() => messages.id),
+    sortOrder: integer('sort_order').default(0).notNull(),
+    metadataJson: jsonb('metadata_json'),
+  },
+  (t) => ({
+    groupIdx: index('source_group_items_group_idx').on(t.sourceGroupId),
+    documentChunkIdx: index('source_group_items_chunk_idx').on(t.documentChunkId),
+    messageIdx: index('source_group_items_message_idx').on(t.messageId),
+  }),
+);
+
+export const macroRelationships = pgTable(
+  'macro_relationships',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    relationshipType: varchar('relationship_type', { length: 100 }).notNull(),
+    summary: text('summary').notNull(),
+    status: varchar('status', { length: 50 }).notNull().default('pending_review'),
+    stalenessReason: text('staleness_reason'),
+    staleSince: timestamp('stale_since'),
+    sourceOutlineId: uuid('source_outline_id').references(() => sourceOutlines.id),
+    confidenceScore: integer('confidence_score').notNull(),
+    impactScore: integer('impact_score').notNull(),
+    triageScore: numeric('triage_score', { precision: 12, scale: 6 }),
+    embedding: vector('embedding', { dimensions: EMBEDDING_DIM }),
+    metadataJson: jsonb('metadata_json'),
+    modelRunId: uuid('model_run_id').references(() => modelRuns.id),
+    contextPackId: uuid('context_pack_id').references(() => oracleContextPacks.id),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    statusCreatedIdx: index('macro_relationships_status_created_idx').on(t.status, t.createdAt),
+    typeStatusIdx: index('macro_relationships_type_status_idx').on(t.relationshipType, t.status),
+    sourceOutlineIdx: index('macro_relationships_source_outline_idx').on(t.sourceOutlineId),
+    triageIdx: index('macro_relationships_triage_idx').on(t.triageScore),
+  }),
+);
+
+export const macroRelationshipSources = pgTable(
+  'macro_relationship_sources',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    macroRelationshipId: uuid('macro_relationship_id')
+      .references(() => macroRelationships.id, { onDelete: 'cascade' })
+      .notNull(),
+    sourceType: varchar('source_type', { length: 50 }).notNull(),
+    documentId: uuid('document_id').references(() => documents.id),
+    channelId: uuid('channel_id').references(() => channels.id),
+    meetingTranscriptId: uuid('meeting_transcript_id'),
+    metadataJson: jsonb('metadata_json'),
+  },
+  (t) => ({
+    relationshipIdx: index('macro_relationship_sources_relationship_idx').on(
+      t.macroRelationshipId,
+    ),
+    documentIdx: index('macro_relationship_sources_document_idx').on(t.documentId),
+    channelIdx: index('macro_relationship_sources_channel_idx').on(t.channelId),
+  }),
+);
+
+export const macroRelationshipClaims = pgTable(
+  'macro_relationship_claims',
+  {
+    macroRelationshipId: uuid('macro_relationship_id')
+      .references(() => macroRelationships.id, { onDelete: 'cascade' })
+      .notNull(),
+    claimId: uuid('claim_id')
+      .references(() => claims.id, { onDelete: 'restrict' })
+      .notNull(),
+    supportRole: varchar('support_role', { length: 50 }).notNull(),
+    claimStatusAtLink: varchar('claim_status_at_link', { length: 50 }).notNull(),
+    claimVersionHash: varchar('claim_version_hash', { length: 64 }),
+    sortOrder: integer('sort_order').default(0).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.macroRelationshipId, t.claimId, t.supportRole] }),
+    relationshipIdx: index('macro_relationship_claims_relationship_idx').on(
+      t.macroRelationshipId,
+    ),
+    claimIdx: index('macro_relationship_claims_claim_idx').on(t.claimId),
+  }),
+);
+
+export const macroRelationshipReviewEvents = pgTable(
+  'macro_relationship_review_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    macroRelationshipId: uuid('macro_relationship_id')
+      .references(() => macroRelationships.id, { onDelete: 'cascade' })
+      .notNull(),
+    action: varchar('action', { length: 50 }).notNull(),
+    reviewedByEmployeeId: uuid('reviewed_by_employee_id').references(() => employees.id),
+    reviewerNote: text('reviewer_note'),
+    beforeState: jsonb('before_state').notNull(),
+    afterState: jsonb('after_state'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    relationshipIdx: index('macro_relationship_review_events_relationship_idx').on(
+      t.macroRelationshipId,
+    ),
+    actionCreatedIdx: index('macro_relationship_review_events_action_created_idx').on(
+      t.action,
+      t.createdAt,
+    ),
+  }),
+);
+
+export const sourceCoverageFindings = pgTable(
+  'source_coverage_findings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceOutlineId: uuid('source_outline_id').references(() => sourceOutlines.id),
+    findingType: varchar('finding_type', { length: 100 }).notNull(),
+    summary: text('summary').notNull(),
+    suggestedQuestion: text('suggested_question'),
+    relatedClaimIds: jsonb('related_claim_ids').default([]).notNull(),
+    relatedSourceRefs: jsonb('related_source_refs').default([]).notNull(),
+    severity: integer('severity').default(5).notNull(),
+    triageScore: numeric('triage_score', { precision: 12, scale: 6 }),
+    status: varchar('status', { length: 50 }).notNull().default('open'),
+    createdGapId: uuid('created_gap_id').references(() => gaps.id),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    outlineIdx: index('source_coverage_findings_outline_idx').on(t.sourceOutlineId),
+    statusCreatedIdx: index('source_coverage_findings_status_created_idx').on(
+      t.status,
+      t.createdAt,
+    ),
+    typeStatusIdx: index('source_coverage_findings_type_status_idx').on(
+      t.findingType,
+      t.status,
+    ),
+  }),
+);
+
 export const messages = pgTable(
   'messages',
   {
@@ -601,6 +847,9 @@ export const claims = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     claimType: varchar('claim_type', { length: 100 }).notNull(),
+    claimKind: varchar('claim_kind', { length: 50 }).default('uncertain'),
+    claimKindConfidence: integer('claim_kind_confidence'),
+    claimKindReviewStatus: varchar('claim_kind_review_status', { length: 50 }).default('model_labeled'),
     summary: text('summary').notNull(),
     impactScore: integer('impact_score').notNull(),
     confidenceScore: integer('confidence_score').notNull(),
@@ -626,6 +875,7 @@ export const claims = pgTable(
     impactIdx: index('claims_impact_idx').on(t.impactScore),
     confidenceIdx: index('claims_confidence_idx').on(t.confidenceScore),
     candidateHashIdx: index('claims_candidate_hash_idx').on(t.candidateHash),
+    claimKindIdx: index('claims_claim_kind_idx').on(t.claimKind),
   }),
 );
 
@@ -1620,6 +1870,8 @@ export const extractionCandidates = pgTable(
     status: varchar('status', { length: 50 }).default('pending_validation').notNull(),
 
     claimType: varchar('claim_type', { length: 100 }).notNull(),
+    claimKind: varchar('claim_kind', { length: 50 }),
+    claimKindConfidence: integer('claim_kind_confidence'),
     summary: text('summary').notNull(),
     impactScore: integer('impact_score').notNull(),
     confidenceScore: integer('confidence_score'),

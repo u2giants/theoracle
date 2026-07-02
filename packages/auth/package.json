@@ -25,12 +25,15 @@
   },
   "devDependencies": {
     "@types/node": "^24.12.4",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "next": "*"
   },
   "peerDependenciesMeta": {
-    "next": { "optional": true }
+    "next": {
+      "optional": true
+    }
   }
 }

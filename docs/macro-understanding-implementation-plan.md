@@ -1,6 +1,10 @@
 # Macro Understanding Implementation Plan
 
-Status: planning document. No implementation has landed yet.
+Status: implementation landed in conservative slices and was migrated/deployed
+on 2026-07-02. Durable storage, document outlines, claim kind, macro
+relationship proposals/lifecycle, coverage findings, admin review, and
+Brain/chat consumption are implemented. Remaining work is quality tuning,
+broader backfills/evals, richer lens fan-out, and production calibration.
 
 ## Executive Summary
 

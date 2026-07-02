@@ -18,6 +18,10 @@ export type OracleTaskType =
   | 'gap_generation'
   | 'admin_explanation'
   | 'validation_repair'
+  | 'source_outline'
+  | 'document_lens_extraction'
+  | 'macro_relationship'
+  | 'coverage_audit'
   | 'model_capability_discovery'
   // Bilingual claim/Brain layer (china_imp.md): translate an approved claim
   // summary or Brain section markdown into another supported language.

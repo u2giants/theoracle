@@ -538,6 +538,13 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Provenance rule**: Prior same-channel messages are included only as non-quotable carry-in context (`extraction_carry_in_count`). The active segment's message IDs remain the only valid evidence sources, so quote validation still rejects claims that cite carry-in context.
 - **Oversized conversations**: If one conversation exceeds the configured budget, process it whole and log the oversized condition rather than silently truncating it. Future work can add a more sophisticated sliding-window strategy if real conversations exceed model limits.
 
+## D-macro-understanding-boundary — source outlines guide extraction, not evidence (2026-07-02)
+
+- **Decision**: Add a macro-understanding layer in conservative slices. It stores provisional document `source_outlines`/`source_groups`, claim-level `claim_kind`, reviewable `macro_relationships` with `macro_relationship_claims` support links, and `source_coverage_findings`. Admins can generate outlines, extract/review macro relationships, run staleness sweeps, manually author relationships from approved support claims, drop stuck support, and convert coverage findings into gaps.
+- **Trust rule**: Source outlines and groups are non-quotable guidance. They can help extraction resolve workflow shape, acronyms, handoffs, branches, and likely lenses, but they cannot create approved knowledge by themselves. Atomic claims still require exact quotes from `document_chunks` or source messages, and quote validation remains the enforcement boundary.
+- **Macro relationship rule**: Durable macro relationships cite validated claim IDs, not raw model interpretation. Any Brain/chat/MCP helper that serves approved macro relationships must verify every support claim is currently `approved` at read time; relationship status alone is not trusted.
+- **Operational guardrails**: No new Trigger.dev schedule is introduced while the project is at the schedule limit. New macro tables are server-only/service-role surfaces in this slice; RLS is enabled without anon/authenticated policies. Vector columns can exist now, but expensive vector indexes must follow the existing gated `ORACLE_RUN_VECTOR_INDEXES=1` convention.
+
 # Document ingestion: Word, image vision, auxiliary models, context (2026-06-14)
 
 ## D-image-vision-two-pass — transcribe images to text before extraction

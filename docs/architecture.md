@@ -881,6 +881,18 @@ The seven failure kinds `validateSynthesisDiff` distinguishes:
 
 The unsupported-named-entity check is the R9-new addition. It strips Markdown structure (code blocks, inline code, image refs, markdown links, ENTIRE heading lines) before regex-matching for capitalized proper-noun phrases, then checks each candidate against the lowercase approved-summary corpus and the lowercase registry canonical set. Heuristic, not a parser; false positives hold for admin review (acceptable), false negatives let fabricated names through (worse), so the stopword list is curated tight.
 
+### Macro understanding
+
+The macro-understanding layer starts with provisional document outlines. The `source-outline` Trigger.dev task reads persisted `document_chunks`, calls the admin-selected `general` auxiliary model through `OracleAIClient`, and stores a `source_outlines` row plus `source_groups`, `source_group_items`, and inspectable chunk refs. Admins can manually generate or regenerate an outline from `/admin/documents`.
+
+Outlines are guidance only. They help later extraction understand whole-source shape, handoffs, branches, acronyms, and likely extraction lenses, but they are not evidence and do not create claims. Document ingestion only injects the latest provisional outline when `settings.macro_outline_injection_enabled=true`; even then, `claim_evidence` must still quote one persisted `document_chunk`, and the existing deterministic quote validator remains the trust boundary.
+
+Durable macro relationships live in `macro_relationships` with support claim links in `macro_relationship_claims` and source lineage in `macro_relationship_sources`. The `macro-relationship-extraction` task proposes reviewable relationships from bounded support claims; `/admin/macro` lets admins approve, reject, manually author, drop stuck support, run staleness sweeps, and trigger source coverage audits. Coverage findings live in `source_coverage_findings` and can be converted into gaps.
+
+Macro relationships cite claim IDs rather than raw outline interpretation. Brain and chat read approved macro relationships only through a shared helper that verifies every support claim is currently `approved` at read time instead of trusting a denormalized relationship status. If a support claim leaves approved status through normal review actions, the application watcher marks affected approved relationships `stale_support`; the admin sweep catches drift from scripts or future code paths.
+
+Macro tables are server-only. RLS is enabled on `source_outlines`, `source_outline_sources`, `source_outline_source_refs`, `source_groups`, `source_group_items`, `macro_relationships`, `macro_relationship_sources`, `macro_relationship_claims`, `macro_relationship_review_events`, and `source_coverage_findings`, with no anon/authenticated policies. Admin pages and workers use service-role server code. If a future browser/employee path reads these tables through the Supabase anon client, add explicit RLS policies first.
+
 ### Admin observability surface (R10, landed)
 
 Six read-only Next.js App Router pages under `/admin/ai`. Server-rendered Drizzle queries against existing R3 / R4 / R7 tables and the `model_runs_with_usage` view. No new schema, no new server actions, no new dependencies.

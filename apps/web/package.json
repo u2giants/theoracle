@@ -16,6 +16,7 @@
     "@oracle/ai": "workspace:*",
     "@oracle/auth": "workspace:*",
     "@oracle/db": "workspace:*",
+    "@oracle/engines": "workspace:*",
     "@oracle/shared": "workspace:*",
     "@radix-ui/react-avatar": "^1.1.2",
     "@radix-ui/react-dialog": "^1.1.4",

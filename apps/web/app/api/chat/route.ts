@@ -66,6 +66,7 @@ import {
   settings,
   type OracleDb,
 } from '@oracle/db';
+import { getApprovedMacroRelationships } from '@oracle/engines';
 import { getServerSupabase } from '@/lib/supabase/server';
 
 const BodySchema = z.object({
@@ -188,6 +189,14 @@ export async function POST(req: NextRequest) {
   const relevantClaims = queryForClaims
     ? await searchWithRetrievalPlan(db, retrievalPlan, locale)
     : [];
+  const macroRelationships =
+    relevantClaims.length > 0
+      ? await getApprovedMacroRelationships({
+          db,
+          claimIds: relevantClaims.map((claim) => claim.id),
+          limit: 8,
+        })
+      : [];
 
   // ── 4. Resolve curated interview route ───────────────────────────────
   const routeCandidates = await resolveInterviewCandidates(db);
@@ -216,9 +225,20 @@ export async function POST(req: NextRequest) {
     }
   }
   if (relevantClaims.length > 0) {
+    if (macroRelationships.length > 0) {
+      contextLines.push(`\nApproved macro relationships (workflow backbone):`);
+      contextLines.push(
+        'Treat these as reviewed structure. Atomic claims below are supporting details, examples, exceptions, or local observations.',
+      );
+      for (const relationship of macroRelationships) {
+        contextLines.push(
+          `- [${relationship.relationshipType}] ${relationship.summary} (impact ${relationship.impactScore}; support claims ${relationship.supportClaims.map((c) => c.id).join(', ')})`,
+        );
+      }
+    }
     contextLines.push(`\nApproved claims that may be relevant:`);
     for (const c of relevantClaims) {
-      contextLines.push(`- ${c.summary} (impact ${c.impactScore})`);
+      contextLines.push(`- ${c.summary} (impact ${c.impactScore}; kind ${c.claimKind ?? 'uncertain'})`);
     }
   }
   const dynamicContext = contextLines.join('\n');
@@ -248,7 +268,14 @@ export async function POST(req: NextRequest) {
     observability: {
       includedMessageIds: recent.map((m) => m.id),
       includedGapIds: openGaps.map((g) => g.id),
-      includedClaimIds: relevantClaims.map((c) => c.id),
+      includedClaimIds: Array.from(
+        new Set([
+          ...relevantClaims.map((c) => c.id),
+          ...macroRelationships.flatMap((relationship) =>
+            relationship.supportClaims.map((claim) => claim.id),
+          ),
+        ]),
+      ),
       // Retrieval scope audit — stored in oracle_context_packs.selected_domains.
       // domain_filtered → actual domain IDs used for pre-filtering.
       // global_fallback → '_global_fallback' tag; query

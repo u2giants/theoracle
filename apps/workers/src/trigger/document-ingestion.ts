@@ -29,7 +29,7 @@
 //   - Direct + sweep task variants (single document + cron safety net).
 
 import { schedules, task, tasks } from '@trigger.dev/sdk/v3';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { createHash } from 'crypto';
 import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -52,6 +52,9 @@ import {
   modelRuns,
   oracleContextPacks,
   settings,
+  sourceGroups,
+  sourceOutlineSources,
+  sourceOutlines,
   type OracleDb,
 } from '@oracle/db';
 import {
@@ -862,6 +865,10 @@ async function processDocument(
     insertedChunkIds,
     parseKind === 'image' ? MAX_IMAGE_TEXT_CHARS : MAX_DOCUMENT_TEXT_CHARS,
   );
+  const outlineContext = await loadDocumentOutlineContext(db, documentId).catch((err) => {
+    console.warn('[document-ingestion] source outline context unavailable; continuing without it', err);
+    return null;
+  });
   for (let windowIndex = 0; windowIndex < extractionWindows.length; windowIndex++) {
     const extractionWindow = extractionWindows[windowIndex]!;
     const windowChunks = extractionWindow.chunks;
@@ -908,6 +915,18 @@ async function processDocument(
               kind: 'semi_stable_domain_context' as const,
               content: correctionLessons.promptBlock,
               reasonIncluded: 'approved claim revisions teach extraction corrections',
+            }),
+          ]
+        : []),
+      ...(outlineContext
+        ? [
+            makeBlock({
+              id: 'source-outline-guidance',
+              label: 'Provisional source outline',
+              kind: 'semi_stable_domain_context' as const,
+              content: outlineContext,
+              reasonIncluded:
+                'macro source outline guidance only; not valid evidence for claims',
             }),
           ]
         : []),
@@ -1118,6 +1137,8 @@ async function processDocument(
             extractionBatchId: batch.id,
             status: 'pending_validation',
             claimType: extracted.claimType,
+            claimKind: extracted.claimKind ?? 'uncertain',
+            claimKindConfidence: extracted.claimKindConfidence ?? 5,
             summary: extracted.summary,
             impactScore: extracted.impactScore,
             confidenceScore: extracted.confidenceScore,
@@ -1421,6 +1442,44 @@ async function processDocument(
     })
     .where(eq(documents.id, documentId));
 
+  const [latestOutline] = await db
+    .select({ id: sourceOutlines.id })
+    .from(sourceOutlines)
+    .innerJoin(
+      sourceOutlineSources,
+      eq(sourceOutlineSources.sourceOutlineId, sourceOutlines.id),
+    )
+    .where(
+      and(
+        eq(sourceOutlineSources.sourceType, 'document'),
+        eq(sourceOutlineSources.documentId, documentId),
+        eq(sourceOutlines.status, 'provisional'),
+      ),
+    )
+    .orderBy(desc(sourceOutlines.createdAt))
+    .limit(1);
+  if (latestOutline) {
+    await tasks
+      .trigger('macro-relationship-extraction', {
+        documentId,
+        sourceOutlineId: latestOutline.id,
+      })
+      .catch((err) =>
+        console.warn('[document-ingestion] failed to trigger macro relationship extraction', err),
+      );
+    await tasks
+      .trigger('source-coverage-audit', { sourceOutlineId: latestOutline.id })
+      .catch((err) =>
+        console.warn('[document-ingestion] failed to trigger source coverage audit', err),
+      );
+  } else {
+    await tasks
+      .trigger('source-outline', { documentId })
+      .catch((err) =>
+        console.warn('[document-ingestion] failed to trigger source outline generation', err),
+      );
+  }
+
   if (fileBackedCachePath) {
     await unlink(fileBackedCachePath).catch(() => undefined);
   }
@@ -1482,6 +1541,98 @@ function buildUploaderContextNote(
       `If a suggested area is Business Process, represent cross-functional or end-to-end workflow claims with the general output domain.`;
   }
   return note;
+}
+
+function settingEnabled(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === 'string') return value.toLowerCase() === 'true';
+  return false;
+}
+
+async function loadDocumentOutlineContext(
+  db: OracleDb,
+  documentId: string,
+): Promise<string | null> {
+  const [flag] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, 'macro_outline_injection_enabled'))
+    .limit(1);
+  if (!settingEnabled(flag?.value)) return null;
+
+  const [outline] = await db
+    .select({
+      id: sourceOutlines.id,
+      summary: sourceOutlines.summary,
+      outlineJson: sourceOutlines.outlineJson,
+    })
+    .from(sourceOutlines)
+    .innerJoin(
+      sourceOutlineSources,
+      eq(sourceOutlineSources.sourceOutlineId, sourceOutlines.id),
+    )
+    .where(
+      and(
+        eq(sourceOutlineSources.sourceType, 'document'),
+        eq(sourceOutlineSources.documentId, documentId),
+        eq(sourceOutlines.status, 'provisional'),
+      ),
+    )
+    .orderBy(desc(sourceOutlines.createdAt))
+    .limit(1);
+  if (!outline) return null;
+
+  const groups = await db
+    .select({
+      title: sourceGroups.title,
+      groupType: sourceGroups.groupType,
+      description: sourceGroups.description,
+      metadataJson: sourceGroups.metadataJson,
+      sortOrder: sourceGroups.sortOrder,
+    })
+    .from(sourceGroups)
+    .where(eq(sourceGroups.sourceOutlineId, outline.id))
+    .orderBy(sourceGroups.sortOrder);
+
+  const outlineJson = outline.outlineJson as {
+    recommendedLenses?: string[];
+    openQuestions?: string[];
+  };
+  const lines = [
+    'PROVISIONAL SOURCE OUTLINE (GUIDANCE ONLY; NOT CLAIM EVIDENCE)',
+    'You may use this to resolve acronyms, pronouns, workflow shape, and likely extraction lenses.',
+    'Never quote this outline. Every exactQuote must still come from one Document Chunk ID in the document text block.',
+    '',
+    `Summary: ${outline.summary ?? 'No summary.'}`,
+  ];
+
+  if (outlineJson.recommendedLenses?.length) {
+    lines.push('', `Recommended lenses: ${outlineJson.recommendedLenses.join(', ')}`);
+  }
+  if (groups.length > 0) {
+    lines.push('', 'Source groups:');
+    for (const group of groups) {
+      const meta = group.metadataJson as
+        | { recommendedLenses?: string[]; uncertainty?: string | null }
+        | null;
+      lines.push(
+        `- ${group.title} (${group.groupType})${group.description ? `: ${group.description}` : ''}`,
+      );
+      if (meta?.recommendedLenses?.length) {
+        lines.push(`  Lenses: ${meta.recommendedLenses.join(', ')}`);
+      }
+      if (meta?.uncertainty) {
+        lines.push(`  Uncertainty: ${meta.uncertainty}`);
+      }
+    }
+  }
+  if (outlineJson.openQuestions?.length) {
+    lines.push('', 'Open questions:');
+    for (const question of outlineJson.openQuestions.slice(0, 8)) {
+      lines.push(`- ${question}`);
+    }
+  }
+  return lines.join('\n');
 }
 
 /**

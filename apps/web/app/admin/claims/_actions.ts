@@ -25,8 +25,21 @@ import {
   gaps,
   knowledgeTopDomains,
 } from '@oracle/db/schema';
+import {
+  markMacroRelationshipsStaleForClaim,
+  requeueMacroRelationshipsReadyForReview,
+} from '@oracle/engines';
 
 type ReviewStatus = 'approved' | 'rejected';
+const CLAIM_KINDS = new Set([
+  'policy',
+  'observed_practice',
+  'workaround',
+  'exception',
+  'historical',
+  'uncertain',
+  'proposed_future_state',
+]);
 
 export type AssignClaimQuestionState = {
   status: 'idle' | 'success' | 'error';
@@ -38,6 +51,11 @@ function intFromForm(formData: FormData, key: string, fallback: number): number 
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, Math.min(10, parsed));
+}
+
+function claimKindFromForm(formData: FormData, fallback = 'uncertain'): string {
+  const raw = String(formData.get('claimKind') ?? fallback).trim();
+  return CLAIM_KINDS.has(raw) ? raw : 'uncertain';
 }
 
 function buildAutoRevisionNote(input: {
@@ -156,9 +174,23 @@ export async function updateClaimStatus(formData: FormData) {
   const me = await requireClaimReviewer(id);
   const before = await claimSnapshot(id);
   const db = getDirectDb();
+  const claimKind = claimKindFromForm(formData, before.claim.claimKind ?? 'uncertain');
+  const claimKindConfidence = intFromForm(
+    formData,
+    'claimKindConfidence',
+    before.claim.claimKindConfidence ?? 5,
+  );
 
   await db.transaction(async (tx) => {
-    await tx.update(claims).set({ status }).where(eq(claims.id, id));
+    await tx
+      .update(claims)
+      .set({
+        status,
+        claimKind,
+        claimKindConfidence,
+        claimKindReviewStatus: status === 'approved' ? 'reviewed' : before.claim.claimKindReviewStatus,
+      })
+      .where(eq(claims.id, id));
     await tx.insert(claimReviewEvents).values({
       claimId: id,
       action: status === 'approved' ? 'approve' : 'reject',
@@ -166,11 +198,28 @@ export async function updateClaimStatus(formData: FormData) {
       reviewerNote: String(formData.get('reviewerNote') ?? '').trim() || null,
       beforeState: before,
       afterState: {
-        claim: { ...before.claim, status },
+        claim: {
+          ...before.claim,
+          status,
+          claimKind,
+          claimKindConfidence,
+          claimKindReviewStatus:
+            status === 'approved' ? 'reviewed' : before.claim.claimKindReviewStatus,
+        },
         topDomainIds: before.topDomainIds,
       },
     });
   });
+
+  if (status === 'approved') {
+    await requeueMacroRelationshipsReadyForReview({ db, claimId: id });
+  } else if (before.claim.status === 'approved') {
+    await markMacroRelationshipsStaleForClaim({
+      db,
+      claimId: id,
+      reason: `support claim was ${status}`,
+    });
+  }
 
   refreshClaimPages();
 }
@@ -190,6 +239,12 @@ export async function reviseClaim(formData: FormData) {
   const db = getDirectDb();
   const impactScore = intFromForm(formData, 'impactScore', before.claim.impactScore);
   const confidenceScore = intFromForm(formData, 'confidenceScore', before.claim.confidenceScore);
+  const claimKind = claimKindFromForm(formData, before.claim.claimKind ?? 'uncertain');
+  const claimKindConfidence = intFromForm(
+    formData,
+    'claimKindConfidence',
+    before.claim.claimKindConfidence ?? 5,
+  );
   const domainRecalculation = await recalculateClaimDomainIds({
     summary,
     claimType,
@@ -219,6 +274,9 @@ export async function reviseClaim(formData: FormData) {
       .insert(claims)
       .values({
         claimType,
+        claimKind,
+        claimKindConfidence,
+        claimKindReviewStatus: 'reviewed',
         summary,
         impactScore,
         confidenceScore,
@@ -308,6 +366,9 @@ export async function reviseClaim(formData: FormData) {
         claim: {
           id: replacementClaimId,
           claimType,
+          claimKind,
+          claimKindConfidence,
+          claimKindReviewStatus: 'reviewed',
           summary,
           impactScore,
           confidenceScore,
@@ -325,6 +386,14 @@ export async function reviseClaim(formData: FormData) {
       },
     });
   });
+
+  if (before.claim.status === 'approved') {
+    await markMacroRelationshipsStaleForClaim({
+      db,
+      claimId: id,
+      reason: 'support claim was superseded by reviewer revision',
+    });
+  }
 
   refreshClaimPages();
 }

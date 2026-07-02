@@ -3,6 +3,7 @@ export {
   EXTRACTION_SYSTEM_PROMPT,
   EXTRACTION_PROMPT_VERSION,
   CLAIM_TYPES,
+  CLAIM_KINDS,
   SEMANTIC_ROLES,
   ExtractionOutputSchema,
   ExtractionClaimSchema,
@@ -10,6 +11,7 @@ export {
   ExtractionGapSchema,
   formatConversationSegment,
   type ClaimType,
+  type ClaimKind,
   type SemanticRole,
   type ExtractionOutput,
   type ExtractionClaim,
@@ -21,6 +23,32 @@ export {
   type ClaimCorrectionLessonPack,
   type ClaimCorrectionLessonRow,
 } from './prompts/claim-correction-lessons';
+export {
+  SOURCE_OUTLINE_PROMPT_VERSION,
+  SOURCE_OUTLINE_SYSTEM_PROMPT,
+  SOURCE_GROUP_TYPES,
+  SOURCE_REF_ROLES,
+  EXTRACTION_LENSES,
+  SourceOutlineSchema,
+  SourceOutlineGroupSchema,
+  SourceOutlineRefSchema,
+  type SourceOutlineOutput,
+} from './prompts/source-outline';
+export {
+  MACRO_RELATIONSHIP_PROMPT_VERSION,
+  MACRO_RELATIONSHIP_SYSTEM_PROMPT,
+  MACRO_RELATIONSHIP_TYPES,
+  MACRO_SUPPORT_ROLES,
+  MacroRelationshipOutputSchema,
+  type MacroRelationshipOutput,
+} from './prompts/macro-relationship';
+export {
+  COVERAGE_AUDIT_PROMPT_VERSION,
+  COVERAGE_AUDIT_SYSTEM_PROMPT,
+  COVERAGE_FINDING_TYPES,
+  CoverageAuditOutputSchema,
+  type CoverageAuditOutput,
+} from './prompts/coverage-audit';
 // OpenRouter has been removed from the codebase per R-providers / R11.0.
 // Every production model call goes through OracleAIClient with direct
 // Anthropic / Vertex / OpenAI adapters. See DECISIONS.md D6, D9.

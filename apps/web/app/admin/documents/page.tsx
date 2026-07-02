@@ -1,8 +1,17 @@
-import { asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
-import { documents, employees, knowledgeTopDomains } from '@oracle/db/schema';
+import {
+  documents,
+  employees,
+  knowledgeTopDomains,
+  sourceGroups,
+  sourceOutlineSources,
+  sourceOutlines,
+} from '@oracle/db/schema';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatNYDateTime } from '@/lib/time';
+import { generateSourceOutline } from './_actions';
 import { AdminDocumentUpload } from './_components/admin-document-upload';
 
 export const dynamic = 'force-dynamic';
@@ -39,6 +48,57 @@ export default async function AdminDocumentsPage() {
     .from(knowledgeTopDomains)
     .where(eq(knowledgeTopDomains.isActive, true))
     .orderBy(asc(knowledgeTopDomains.displayOrder));
+
+  const documentIds = rows.map((row) => row.id);
+  const outlineRows =
+    documentIds.length > 0
+      ? await db
+          .select({
+            id: sourceOutlines.id,
+            documentId: sourceOutlineSources.documentId,
+            status: sourceOutlines.status,
+            summary: sourceOutlines.summary,
+            createdAt: sourceOutlines.createdAt,
+          })
+          .from(sourceOutlines)
+          .innerJoin(
+            sourceOutlineSources,
+            eq(sourceOutlineSources.sourceOutlineId, sourceOutlines.id),
+          )
+          .where(
+            and(
+              eq(sourceOutlineSources.sourceType, 'document'),
+              inArray(sourceOutlineSources.documentId, documentIds),
+            ),
+          )
+          .orderBy(desc(sourceOutlines.createdAt))
+      : [];
+  const outlineIds = outlineRows.map((row) => row.id);
+  const groupRows =
+    outlineIds.length > 0
+      ? await db
+          .select({
+            outlineId: sourceGroups.sourceOutlineId,
+            id: sourceGroups.id,
+            title: sourceGroups.title,
+            groupType: sourceGroups.groupType,
+          })
+          .from(sourceGroups)
+          .where(inArray(sourceGroups.sourceOutlineId, outlineIds))
+          .orderBy(asc(sourceGroups.sortOrder))
+      : [];
+  const groupsByOutline = new Map<string, typeof groupRows>();
+  for (const group of groupRows) {
+    const existing = groupsByOutline.get(group.outlineId) ?? [];
+    existing.push(group);
+    groupsByOutline.set(group.outlineId, existing);
+  }
+  const latestOutlineByDocument = new Map<string, (typeof outlineRows)[number]>();
+  for (const outline of outlineRows) {
+    if (outline.documentId && !latestOutlineByDocument.has(outline.documentId)) {
+      latestOutlineByDocument.set(outline.documentId, outline);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -79,56 +139,96 @@ export default async function AdminDocumentsPage() {
                 <th className="py-2 pr-4">Uploaded</th>
                 <th className="py-2 pr-4">Processed</th>
                 <th className="py-2 pr-4">What is this?</th>
+                <th className="py-2 pr-4">Outline</th>
                 <th className="py-2 pr-4">Details</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((d) => (
-                <tr key={d.id} className="border-b last:border-0">
-                  <td className="py-2 pr-4 font-medium">{d.fileName}</td>
-                  <td className="py-2 pr-4">{d.fileType}</td>
-                  <td className="py-2 pr-4">{d.status}</td>
-                  <td className="py-2 pr-4">{d.uploadedBy ?? '—'}</td>
-                  <td className="py-2 pr-4">
-                    {formatNYDateTime(d.createdAt)}
-                  </td>
-                  <td className="py-2 pr-4">
-                    {d.processedAt ? formatNYDateTime(d.processedAt) : '—'}
-                  </td>
-                  <td className="max-w-xs py-2 pr-4 align-top">
-                    {d.context ? (
-                      <details className="group">
-                        <summary className="cursor-pointer list-none text-xs font-medium text-foreground underline underline-offset-2">
-                          View upload note
-                        </summary>
-                        <div className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-2 text-xs text-foreground">
-                          {d.context}
-                        </div>
-                      </details>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </td>
-                  <td className="max-w-md py-2 pr-4 align-top">
-                    {d.processingError ? (
-                      <details className="group">
-                        <summary className="cursor-pointer list-none text-xs font-medium text-red-700 underline underline-offset-2">
-                          {plainDocumentStatusMessage(d.status, d.processingError)}
-                        </summary>
-                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border bg-red-50 p-2 text-xs text-red-950">
-                          {d.processingError}
-                        </pre>
-                      </details>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        {d.status === 'processing' || d.status === 'pending_processing'
-                          ? 'Waiting for the ingestion worker.'
-                          : '—'}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((d) => {
+                const outline = latestOutlineByDocument.get(d.id);
+                const outlineGroups = outline ? groupsByOutline.get(outline.id) ?? [] : [];
+                return (
+                  <tr key={d.id} className="border-b last:border-0">
+                    <td className="py-2 pr-4 font-medium">{d.fileName}</td>
+                    <td className="py-2 pr-4">{d.fileType}</td>
+                    <td className="py-2 pr-4">{d.status}</td>
+                    <td className="py-2 pr-4">{d.uploadedBy ?? '—'}</td>
+                    <td className="py-2 pr-4">
+                      {formatNYDateTime(d.createdAt)}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {d.processedAt ? formatNYDateTime(d.processedAt) : '—'}
+                    </td>
+                    <td className="max-w-xs py-2 pr-4 align-top">
+                      {d.context ? (
+                        <details className="group">
+                          <summary className="cursor-pointer list-none text-xs font-medium text-foreground underline underline-offset-2">
+                            View upload note
+                          </summary>
+                          <div className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-2 text-xs text-foreground">
+                            {d.context}
+                          </div>
+                        </details>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="max-w-md py-2 pr-4 align-top">
+                      <div className="space-y-2">
+                        {outline ? (
+                          <details>
+                            <summary className="cursor-pointer list-none text-xs font-medium text-foreground underline underline-offset-2">
+                              {outline.status} · {formatNYDateTime(outline.createdAt)}
+                            </summary>
+                            <div className="mt-2 space-y-2 rounded-md border bg-muted/40 p-2 text-xs">
+                              <p className="whitespace-pre-wrap">{outline.summary}</p>
+                              {outlineGroups.length > 0 ? (
+                                <ul className="space-y-1">
+                                  {outlineGroups.slice(0, 8).map((group) => (
+                                    <li key={group.id}>
+                                      <span className="font-medium">{group.title}</span>{' '}
+                                      <span className="text-muted-foreground">
+                                        ({group.groupType})
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </div>
+                          </details>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No outline yet.</span>
+                        )}
+                        <form action={generateSourceOutline}>
+                          <input type="hidden" name="documentId" value={d.id} />
+                          <input type="hidden" name="force" value={outline ? 'true' : 'false'} />
+                          <Button size="sm" variant="outline" type="submit">
+                            {outline ? 'Regenerate outline' : 'Generate outline'}
+                          </Button>
+                        </form>
+                      </div>
+                    </td>
+                    <td className="max-w-md py-2 pr-4 align-top">
+                      {d.processingError ? (
+                        <details className="group">
+                          <summary className="cursor-pointer list-none text-xs font-medium text-red-700 underline underline-offset-2">
+                            {plainDocumentStatusMessage(d.status, d.processingError)}
+                          </summary>
+                          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border bg-red-50 p-2 text-xs text-red-950">
+                            {d.processingError}
+                          </pre>
+                        </details>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {d.status === 'processing' || d.status === 'pending_processing'
+                            ? 'Waiting for the ingestion worker.'
+                            : '—'}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </CardContent>

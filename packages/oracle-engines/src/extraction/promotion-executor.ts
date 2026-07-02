@@ -84,6 +84,8 @@ export interface ExtractionCandidateRow {
   status: string;
   summary: string;
   claim_type: string;
+  claim_kind?: string | null;
+  claim_kind_confidence?: number | null;
   impact_score: number;
   confidence_score: number | null;
   domains: unknown; // jsonb — array of strings
@@ -140,6 +142,8 @@ export function mapCandidateRowToSnapshotCandidate(
     status: row.status,
     summary: row.summary,
     claimType: row.claim_type,
+    claimKind: row.claim_kind ?? 'uncertain',
+    claimKindConfidence: row.claim_kind_confidence ?? 5,
     impactScore: row.impact_score,
     // NULL must become undefined, not 0. R5 smoke covers this distinction.
     confidenceScore: row.confidence_score == null ? undefined : row.confidence_score,
@@ -223,6 +227,8 @@ async function loadCandidateSnapshotInLock(
       status: extractionCandidates.status,
       summary: extractionCandidates.summary,
       claim_type: extractionCandidates.claimType,
+      claim_kind: extractionCandidates.claimKind,
+      claim_kind_confidence: extractionCandidates.claimKindConfidence,
       impact_score: extractionCandidates.impactScore,
       confidence_score: extractionCandidates.confidenceScore,
       domains: extractionCandidates.domains,
@@ -429,6 +435,9 @@ export async function executePromotion(input: ExecutePromotionInput): Promise<Ex
           .insert(claims)
           .values({
             claimType: decision.claim.claimType,
+            claimKind: decision.claim.claimKind,
+            claimKindConfidence: decision.claim.claimKindConfidence ?? null,
+            claimKindReviewStatus: 'model_labeled',
             summary: decision.claim.summary,
             impactScore: decision.claim.impactScore,
             confidenceScore: decision.claim.confidenceScore ?? 5,
