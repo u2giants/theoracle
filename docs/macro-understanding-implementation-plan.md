@@ -1,10 +1,10 @@
 # Macro Understanding Implementation Plan
 
 Status: implementation landed in conservative slices and was migrated/deployed
-on 2026-07-02. Durable storage, document outlines, claim kind, macro
-relationship proposals/lifecycle, coverage findings, admin review, and
-Brain/chat consumption are implemented. Remaining work is quality tuning,
-broader backfills/evals, richer lens fan-out, and production calibration.
+on 2026-07-02. Durable storage, document outlines, claim kind, budgeted
+document lens fan-out, macro relationship proposals/lifecycle, coverage
+findings, admin review, and Brain/chat consumption are implemented. Remaining
+work is quality tuning, broader backfills/evals, and production calibration.
 
 Hardening update on 2026-07-02:
 
@@ -19,9 +19,12 @@ Hardening update on 2026-07-02:
   synthesis as policy/practice vocabulary.
 - cross-source macro extraction can auto-select related support claims by
   shared top domains when a document outline asks for cross-source scope.
-- automatic followups are budget-gated by settings seeded in
-  `80_macro_auto_followup_settings.sql`; richer lens fan-out remains a later
-  expansion behind those budget controls.
+- automatic macro/coverage followups are budget-gated by settings seeded in
+  `80_macro_auto_followup_settings.sql`.
+- document lens fan-out ships through `source-outline` orchestration,
+  `document-lens-extraction`, and the deterministic budget gate in
+  `apps/workers/src/lib/document-lens-budget.ts`; settings are seeded in
+  `81_macro_lens_fanout_settings.sql`.
 - macro entity validation and lifecycle transitions have smoke-test coverage.
 - document ingestion explicitly releases its own persisted Vertex explicit-cache
   rows after extraction and macro follow-up dispatch finishes; cleanup is scoped
@@ -1378,17 +1381,14 @@ and macro passes may not flow through that worker.
 
 Add hard settings:
 
-- `enable_source_outline_pass`
-- `enable_macro_relationship_pass`
-- `enable_source_coverage_audit`
-- `macro_outline_max_chars`
 - `macro_max_lenses_per_document`
-- `macro_max_source_groups_per_document`
-- `macro_max_model_calls_per_document`
-- `macro_max_input_tokens_per_document`
-- `macro_max_estimated_cost_usd_per_document`
-- `macro_relationship_max_support_claims`
+- `macro_max_lens_groups_per_document`
+- `macro_max_lens_model_calls_per_document`
+- `macro_max_lens_estimated_input_tokens`
 - `macro_lenses_enabled`
+- `macro_auto_followups_enabled`
+- `macro_auto_max_outline_groups`
+- `macro_auto_max_support_claims`
 
 Budget gate behavior:
 
@@ -1401,9 +1401,13 @@ Budget gate behavior:
 
 Default rollout:
 
-- outline pass enabled manually only
-- macro relationship pass manual only
-- no automatic coverage audit until reviewer queue impact is known
+- source outlines are automatically orchestrated after document ingestion and
+  can also be manually generated from admin document controls
+- lens fan-out defaults to enabled but capped at four model calls / eight source
+  groups / 32k estimated input tokens per document
+- macro relationship and coverage followups are automatically triggered after
+  outline/lens orchestration, with duplicate/staleness guards still acting as
+  the safety boundary
 
 ## Semantic Deduplication Plan
 

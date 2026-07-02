@@ -1,43 +1,47 @@
-# HANDOFF — Macro understanding deployment + prior completed work
+# HANDOFF — Prior completed work and remaining historical watchouts
 
 Last updated: 2026-07-02. Delete this file once the remaining open items below are closed.
 
-HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is current for the macro work. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with the current status.
+HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
 ---
 
 ## Macro understanding implementation — 2026-07-02
 
 Status:
-implemented, production DB migration applied, and Trigger.dev workers deployed. Web deployment completes through the pushed `main` commit.
+complete. Macro understanding, automatic followups, hardening fixes, and document lens fan-out were implemented, migrated, deployed, committed, pushed, and verified through CI on 2026-07-02.
 
 What is fully done:
 - Added macro-understanding schema and hand-written migration `packages/db/migrations/sql/79_macro_understanding.sql`.
 - Added source outline, macro relationship, and coverage audit prompts under `packages/ai/src/prompts/`.
 - Added Trigger.dev tasks `source-outline`, `macro-relationship-extraction`, and `source-coverage-audit`.
-- Wired document ingestion to optionally inject source-outline guidance, label claim kinds, and dispatch macro follow-up work.
+- Added budgeted document lens fan-out via `apps/workers/src/lib/document-lens-budget.ts`, `apps/workers/src/trigger/document-lens-extraction.ts`, and migration `packages/db/migrations/sql/81_macro_lens_fanout_settings.sql`.
+- Wired document ingestion to optionally inject source-outline guidance, label claim kinds, and dispatch source-outline orchestration; `source-outline` now dispatches budgeted lens passes plus macro relationship and coverage followups.
 - Carried claim kind/confidence through extraction candidates, promotion, and admin claim review.
 - Added `/admin/macro` for reviewing/approving/rejecting macro relationships, dropping support links, running coverage audits, converting findings into gaps, and manually authoring relationships from approved claims.
 - Added approved macro-relationship helpers in `packages/oracle-engines/src/macro/approved-relationships.ts`; chat and Brain synthesis now consume approved relationships only after read-time support-claim verification.
 - Updated `docs/architecture.md`, `docs/macro-understanding-implementation-plan.md`, `DECISIONS.md`, and AGENTS routing/pending-work notes.
 
 What is partially done:
-- The web/admin changes deploy through Vercel after the implementation commit is pushed to `main`.
-- `macro_outline_injection_enabled` is seeded false; enabling it is a rollout decision after a small admin-reviewed pilot.
+- Production calibration/evals and broad historical-document backfills remain product/ops follow-ups, not unfinished implementation.
+- `macro_outline_injection_enabled` is seeded false; enabling outline injection into the broad extraction prompt remains a rollout decision after a small admin-reviewed pilot. Lens fan-out itself is separately controlled by `macro_lenses_enabled`.
 
 Exact next action:
-1. Push the implementation commit to `main` so Vercel builds/deploys the web app.
-2. In admin, generate source outlines for a small document set, run macro relationship extraction and coverage audits, approve only relationships whose support claims are approved, then consider enabling `macro_outline_injection_enabled`.
+- No code/deploy continuation is required for the macro work. For operations, run a small admin-reviewed pilot, review macro relationship queue quality, then decide whether to enable `macro_outline_injection_enabled`.
 
 Known risks / blockers / unknowns:
 - Existing documents are not backfilled automatically; run outline/macro/audit actions manually or add a deliberate backfill job later.
 - No production calibration/eval pass has been run for the new macro prompts yet.
 - Approved macro relationships intentionally cite approved claim IDs, not raw outline prose. Do not weaken that provenance boundary.
+- Lens fan-out is intentionally budget-clamped by `macro_max_lenses_per_document`, `macro_max_lens_groups_per_document`, `macro_max_lens_model_calls_per_document`, and `macro_max_lens_estimated_input_tokens`.
 
 Verification already run in this checkout:
 - PASS: production DB migration via `pnpm db:migrate` (`79_macro_understanding.sql` applied).
+- PASS: production DB migration via `corepack pnpm --filter @oracle/db migrate` (`81_macro_lens_fanout_settings.sql` applied).
 - PASS: DB verification found `source_outlines`, `macro_relationships`, `source_coverage_findings`, claim-kind columns, and `macro_outline_injection_enabled`.
 - PASS: Trigger.dev prod worker `20260702.1` deployed with 24 tasks.
+- PASS: Trigger.dev prod worker `20260702.6` deployed with 26 tasks, including `document-lens-extraction`.
+- PASS: GitHub PR check for `87a6cb3 feat(macro): ship document lens fan-out`.
 - PASS: per-package `tsc --noEmit` through root `corepack pnpm exec tsc` for shared, db, auth, oracle-engines, ai, workers, and web.
 - PASS: `corepack pnpm exec tsx packages/oracle-engines/src/__verify__/r5-validator-smoke.ts`
 - PASS: MCP registry, retrieval filter parity, Vertex file-cache, Vertex inline-image, and auxiliary-model guards through root `corepack pnpm exec tsx`.
