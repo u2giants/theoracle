@@ -58,7 +58,6 @@ import {
 import {
   decideContradictionInterjection,
   CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD,
-  sweepStaleMacroRelationships,
 } from '@oracle/engines';
 
 // Default settings if the rows are missing — match seed defaults.
@@ -719,7 +718,13 @@ export const contradictionWatcherSweepTask = schedules.task({
   retry: { maxAttempts: 1 },
   run: async (_payload, { ctx: _ctx }) => {
     const db = getDirectDb();
-    const staleMacroRelationships = await sweepStaleMacroRelationships(db);
+    let macroStalenessSweepTriggered = false;
+    try {
+      await tasks.trigger('macro-relationship-staleness-sweep', {});
+      macroStalenessSweepTriggered = true;
+    } catch (err) {
+      console.error('[contradiction-watcher-sweep] failed to trigger macro staleness sweep:', err);
+    }
 
     const unchecked = await db.execute<{ id: string }>(
       sql`
@@ -737,7 +742,7 @@ export const contradictionWatcherSweepTask = schedules.task({
     );
 
     if (unchecked.length === 0) {
-      return { ok: true, triggered: 0, staleMacroRelationships };
+      return { ok: true, triggered: 0, macroStalenessSweepTriggered };
     }
 
     let triggered = 0;
@@ -752,7 +757,7 @@ export const contradictionWatcherSweepTask = schedules.task({
       }
     }
 
-    return { ok: failedToTrigger === 0, triggered, failedToTrigger, total: unchecked.length, staleMacroRelationships };
+    return { ok: failedToTrigger === 0, triggered, failedToTrigger, total: unchecked.length, macroStalenessSweepTriggered };
   },
 });
 

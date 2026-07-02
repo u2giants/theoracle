@@ -27,8 +27,8 @@ Hardening update on 2026-07-02:
   rows after extraction and macro follow-up dispatch finishes; cleanup is scoped
   by source hash, cleanup owner, and job run id.
 - macro staleness has both application hooks and a repair sweep. The sweep is a
-  triggerable task and also runs inside the existing four-hour contradiction
-  watcher sweep so it does not consume a new Trigger schedule slot.
+  triggerable task dispatched by the existing four-hour contradiction watcher
+  sweep so it does not consume a new Trigger schedule slot.
 - Brain synthesis validation now applies a paragraph-scoped named-entity check
   when a paragraph uses macro-expanded support claims, preventing unrelated
   approved claims elsewhere in the section from backing a new entity.

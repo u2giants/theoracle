@@ -49,6 +49,17 @@ function main() {
   assert(!unsupported.ok, 'unsupported entity fails validation');
   assert(unsupported.unsupportedEntities.includes('Target'), 'reports unsupported entity');
 
+  const substringLeak = validateMacroRelationshipSummaryEntities({
+    summary: 'Designflow waits for App approval before Sourcing starts vendor work.',
+    supportClaimSummaries: [
+      'Designflow waits for approval.',
+      'Sourcing starts vendor work after approval.',
+    ],
+    registryEntityNames: ['Designflow'],
+  });
+  assert(!substringLeak.ok, 'entity validation requires word-boundary support matches');
+  assert(substringLeak.unsupportedEntities.includes('App'), 'does not support App from approval substring');
+
   assert(
     statusForGeneratedMacroRelationship(['approved', 'approved']) === 'pending_review',
     'generated macro with approved support is pending review',

@@ -31,6 +31,15 @@ function normalizeEntity(value: string): string {
   return value.toLowerCase().replace(/['’]s\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsNormalizedPhrase(haystack: string, needle: string): boolean {
+  if (!needle) return false;
+  return new RegExp(`(^|[^a-z0-9])${escapeRegExp(needle)}($|[^a-z0-9])`, 'i').test(haystack);
+}
+
 export function extractLikelyNamedEntities(text: string): string[] {
   const matches = text.match(/\b(?:[A-Z][A-Za-z0-9&.'’/-]*(?:\s+|$)){1,5}/g) ?? [];
   const entities = matches
@@ -46,12 +55,12 @@ export function validateMacroRelationshipSummaryEntities(args: {
   supportClaimSummaries: string[];
   registryEntityNames?: string[];
 }): MacroEntityValidationResult {
-  const supportText = args.supportClaimSummaries.join('\n').toLowerCase();
+  const supportText = normalizeEntity(args.supportClaimSummaries.join('\n'));
   const registry = new Set((args.registryEntityNames ?? []).map(normalizeEntity).filter(Boolean));
   const unsupportedEntities = extractLikelyNamedEntities(args.summary).filter((entity) => {
     const normalized = normalizeEntity(entity);
     if (!normalized) return false;
-    if (supportText.includes(normalized)) return false;
+    if (containsNormalizedPhrase(supportText, normalized)) return false;
     return !registry.has(normalized);
   });
 

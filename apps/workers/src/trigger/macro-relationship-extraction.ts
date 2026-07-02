@@ -17,6 +17,7 @@ import {
   type OraclePromptPlan,
 } from '@oracle/ai';
 import { getDirectDb } from '@oracle/db/client';
+import { EMBEDDING_DIM } from '@oracle/shared';
 import {
   claims,
   contradictions,
@@ -38,6 +39,8 @@ const payloadSchema = z.object({
   claimIds: z.array(z.string().uuid()).optional(),
   relationshipScope: z.enum(['single_source', 'cross_source']).default('single_source'),
 });
+
+const MACRO_RELATIONSHIP_NEAR_DUPLICATE_DISTANCE = 0.08;
 
 type SupportClaim = {
   id: string;
@@ -422,8 +425,21 @@ async function runMacroRelationshipExtraction(rawPayload: unknown) {
       .limit(1);
     if (existing) continue;
 
-    const supportStatuses = supportLinks.map((link) => supportById.get(link.claimId)?.status ?? 'missing');
     const { vector } = await embedText(relationship.summary);
+    const vec = `[${vector.join(',')}]`;
+    const [nearDuplicate] = await db.execute<{ id: string; distance: number }>(sql`
+      SELECT id, embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))}) AS distance
+      FROM macro_relationships
+      WHERE relationship_type = ${relationship.relationshipType}
+        AND status IN ('pending_review', 'blocked_pending_support', 'needs_review', 'approved')
+        AND embedding IS NOT NULL
+        AND embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))}) < ${MACRO_RELATIONSHIP_NEAR_DUPLICATE_DISTANCE}
+      ORDER BY embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))})
+      LIMIT 1
+    `);
+    if (nearDuplicate) continue;
+
+    const supportStatuses = supportLinks.map((link) => supportById.get(link.claimId)?.status ?? 'missing');
     const [row] = await db
       .insert(macroRelationships)
       .values({
