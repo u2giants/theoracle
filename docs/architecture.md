@@ -795,6 +795,11 @@ Cache lifecycle (`packages/oracle-engines/src/extraction/cache-lifecycle.ts`):
 - `recordCacheCreation` inserts a `provider_cached_content` row with `status='active'` and the required reuse policy fields (`expected_reuse_count`, `latest_planned_reuse_step`, `hard_expiration_at`, `cleanup_owner`).
 - `recordCacheReuse(handle)` bumps `actual_reuse_count`.
 - `recordCacheTermination({ handle, status, reason })` marks the row `deleted | expired | failed | orphaned` and stamps `deleted_at`. The CHECK constraint on `provider_cached_content` enforces `deleted_at IS NOT NULL` whenever status is non-active.
+- `releaseVertexExplicitCaches()` deletes provider-side Vertex `cachedContent`
+  resources and any temporary GCS cache-source objects for active rows matching
+  a specific `source_hash`, `cleanup_owner`, and optional `created_by_job_run_id`.
+  Document ingestion uses this at the end of `processDocument()` so large
+  document caches do not wait for TTL after extraction/follow-up dispatch.
 
 ### Worker and chat-route integration (R6 + R7 + R8 + R9 + R11.0, all landed)
 
@@ -889,7 +894,9 @@ Outlines are guidance only. They help later extraction understand whole-source s
 
 Durable macro relationships live in `macro_relationships` with support claim links in `macro_relationship_claims` and source lineage in `macro_relationship_sources`. The `macro-relationship-extraction` task proposes reviewable relationships from bounded support claims; `/admin/macro` lets admins approve, reject, manually author, drop stuck support, run staleness sweeps, and trigger source coverage audits. Coverage findings live in `source_coverage_findings` and can be converted into gaps.
 
-Macro relationships cite claim IDs rather than raw outline interpretation. Brain and chat read approved macro relationships only through a shared helper that verifies every support claim is currently `approved` at read time instead of trusting a denormalized relationship status. If a support claim leaves approved status through normal review actions, the application watcher marks affected approved relationships `stale_support`; the admin sweep catches drift from scripts or future code paths.
+Macro relationships cite claim IDs rather than raw outline interpretation. Brain and chat read approved macro relationships only through a shared helper that verifies every support claim is currently `approved` at read time instead of trusting a denormalized relationship status. If a support claim leaves approved status through normal review actions, the application watcher marks affected approved relationships `stale_support`; the triggerable `macro-relationship-staleness-sweep` task and the existing four-hour contradiction watcher sweep catch drift from scripts or future code paths without consuming another Trigger schedule slot.
+
+Brain synthesis expands approved macro relationships to their underlying support claims before validation. The normal diff validator still checks all named entities against approved claim summaries plus the entity registry, and macro-backed paragraphs get an additional paragraph-scoped check: named entities in that paragraph must be backed by that paragraph's support claims or the registry, not merely by unrelated approved claims elsewhere in the section corpus.
 
 Macro tables are server-only. RLS is enabled on `source_outlines`, `source_outline_sources`, `source_outline_source_refs`, `source_groups`, `source_group_items`, `macro_relationships`, `macro_relationship_sources`, `macro_relationship_claims`, `macro_relationship_review_events`, and `source_coverage_findings`, with no anon/authenticated policies. Admin pages and workers use service-role server code. If a future browser/employee path reads these tables through the Supabase anon client, add explicit RLS policies first.
 

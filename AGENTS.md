@@ -498,12 +498,16 @@ The adapter could rely only on in-memory cache handles.
 
 Actually:
 `provider_cached_content` is the cross-process source of truth for explicit Vertex cache lifecycle, and `provider_metadata_json` now also tracks cleanup metadata for temporary GCS-backed cache sources.
+Document ingestion records one source hash per extraction window and calls
+`releaseVertexExplicitCaches()` after extraction plus macro follow-up dispatch
+finishes, scoped by `source_hash`, `cleanup_owner='document-ingestion-worker'`,
+and `created_by_job_run_id`.
 
 Why:
 Workers and web requests run in different processes and time windows. Cache accounting and cleanup have to survive process boundaries.
 
 Do not change because:
-Process-local cache tracking leaks money and makes cache reuse/cleanup invisible.
+Process-local cache tracking leaks money and makes cache reuse/cleanup invisible. Do not add a generic "delete every cache for this document" cleanup; use the lifecycle row scope so another run's active cache is not removed.
 
 ### Qwen chat cache state is persisted separately from run usage
 
@@ -1181,7 +1185,7 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 | Status | Item | Owner/next action |
 |---|---|---|
 | open | `apps/web/app/admin/taxonomy/_actions.ts` approves some proposal types by queueing reclassification work rather than applying it inline. | Keep the actions as-is until the reclassification path is expanded further. |
-| done | Macro-understanding implementation (source outlines, claim kinds, macro relationships, coverage findings, admin review, chat/Brain consumption) was migrated and worker-deployed on 2026-07-02. | Migration `79_macro_understanding.sql` applied through `pnpm db:migrate`; follow-up settings live in `80_macro_auto_followup_settings.sql`; macro tables are deliberately hand-SQL-owned and documented in the Drizzle snapshot quirk. Trigger.dev prod workers must be redeployed after macro worker changes. |
+| done | Macro-understanding implementation (source outlines, claim kinds, macro relationships, coverage findings, admin review, chat/Brain consumption) was migrated and worker-deployed on 2026-07-02. | Migration `79_macro_understanding.sql` applied through `pnpm db:migrate`; follow-up settings live in `80_macro_auto_followup_settings.sql`; macro tables are deliberately hand-SQL-owned and documented in the Drizzle snapshot quirk. Trigger.dev prod worker `20260702.3` deployed with 25 tasks after cache release + staleness guard hardening. |
 | open | Only `.github/workflows/pr-check.yml` exists (build + two verify guards + Drizzle drift check). There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers run deploy` (note: `run` keyword required — `pnpm` reserves the bare `deploy` form for its own subcommand) in the release process until workflows are added. |
 | resolved | `RetrievalPlan.requiredEntities` semantics: **disjunctive (any-of) — decided 2026-05-28, keep as-is.** A claim matches if it carries ANY of the listed entities. Conjunctive (all-of) was rejected because it would require a single claim to mention every listed entity, collapsing recall for multi-entity queries (claims are typically single-entity). Filter lives in `buildPlanMetadataFilters()` in `packages/ai/src/retrieval.ts`. | No action. If a future "facts connecting X and Y" feature is ever wanted, add it as a separate explicit mode — do not flip the default. |
 | done | China bilingual claim layer (schema, locale-aware retrieval, `claim-translation` worker, translate-for-China bulk action, per-`zh-CN`-recipient translation of `claim_review_question`s) is **merged to `main`**, migration `0007` is **applied to prod**, and `claim-translation` is deployed in Trigger.dev worker `20260620.1`. | Set a China employee's `locale='zh-CN'` and pick a translation model at Admin → Settings → "Translation model" when the owner wants to use it. |
