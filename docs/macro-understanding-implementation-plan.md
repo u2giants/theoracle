@@ -286,6 +286,29 @@ Examples:
 - "Pronoun 'them' appears to refer to the offshore team, but no claim captured
   that definition."
 
+### Zero-Atomic Source
+
+A zero-atomic source is a source whose outline is valuable but whose content
+does not yield enough quote-validated atomic claims to support ordinary claim
+promotion or macro relationships. Examples:
+
+- high-level Visio or flowchart diagrams
+- Vision and Mission slide decks
+- strategy decks with little operational procedure
+- visually structural documents whose meaning is mostly layout/relationships
+
+These sources should not disappear as "failed extraction" or cause admins to
+rerun extraction endlessly. They should produce an explicit coverage finding
+such as `macro_only_source` when:
+
+- the source outline has substantial structure, stages, entities, or terms
+- atomic claim count is below a configured threshold
+- lens extraction also yields too few validated claims
+
+The admin-facing meaning is: this source may be useful as global context or
+orientation, but it does not currently contribute approved operational claims
+under the quote-level evidence rules.
+
 ### Relationship Staleness
 
 Macro relationships are only as strong as their support claims. If any support
@@ -552,6 +575,7 @@ Suggested columns:
   - `unresolved_reference`
   - `unrepresented_exception`
   - `low_claim_density`
+  - `macro_only_source`
   - `conflict_without_contradiction`
 - `summary text not null`
 - `suggested_question text`
@@ -566,6 +590,10 @@ Suggested columns:
   - `resolved`
 - `created_gap_id uuid references gaps(id)`
 - `created_at timestamptz default now() not null`
+
+`macro_only_source` findings should include source outline richness metadata,
+atomic claim counts, lens attempts, and the reason the source should be treated
+as contextual rather than repeatedly re-extracted.
 
 ### Existing Table Extensions
 
@@ -1149,6 +1177,32 @@ Flow:
    whether replacement claims preserve the relationship.
 5. Move to `pending_review`, `needs_review`, or `stale_support`.
 
+### Drop Pending Support and Re-Evaluate
+
+Blocked macro relationships need a reviewer escape hatch. If a relationship has
+mostly approved support but one or more support claims are stuck in
+`pending_review`, the reviewer should be able to drop selected pending support
+claims and re-evaluate whether the relationship still holds.
+
+Rules:
+
+1. The action is reviewer-driven, not automatic.
+2. The UI shows current support claims grouped by status.
+3. The reviewer selects support claims to remove.
+4. The system revalidates the remaining support set:
+   - at least the minimum support count remains
+   - all remaining support claims are approved
+   - named entities remain backed by support claims or registry entries
+   - the relationship summary still follows from the remaining support
+5. If the relationship still holds, move it to `pending_review`.
+6. If it no longer holds, move it to `needs_review` or ask the reviewer to
+   revise the summary.
+7. Write a `macro_relationship_review_events` row with before/after support IDs
+   and the reviewer note.
+
+This prevents `blocked_pending_support` from becoming purgatory when one
+supporting claim is waiting on a coworker or review group.
+
 ### New Worker: `source-coverage-audit`
 
 Location:
@@ -1160,9 +1214,16 @@ Flow:
 1. Load outline.
 2. Load extracted atomic claims and macro relationships.
 3. Ask what outline elements are not represented.
-4. Validate references.
-5. Insert `source_coverage_findings`.
-6. Optionally create gaps.
+4. Detect zero-atomic sources:
+   - source outline richness above threshold
+   - atomic claim count below threshold
+   - lens attempts exhausted or skipped for budget reasons
+5. Validate references.
+6. Insert `source_coverage_findings`.
+7. For zero-atomic sources, insert `finding_type='macro_only_source'` with
+   admin guidance that the source is context-rich but not currently atomizable
+   under quote-level evidence rules.
+8. Optionally create gaps.
 
 ### Modify Worker: `claim-extraction`
 
@@ -1415,6 +1476,7 @@ Features:
 - triage-sorted pending queue
 - blocked pending support queue
 - stale support queue
+- manual "Author Macro Relationship" action
 - relationship summary
 - relationship type
 - impact/confidence
@@ -1424,8 +1486,28 @@ Features:
 - source lineage across documents/channels
 - approve/reject/revise
 - revalidate
+- drop pending support and re-evaluate
 - convert to gap
 - link to contradiction row where applicable
+
+Manual authoring flow:
+
+1. Reviewer clicks "Author Macro Relationship".
+2. UI opens a claim picker filtered by source, domain, entity, process stage,
+   claim kind, and status.
+3. Reviewer selects at least two approved atomic claims.
+4. Reviewer writes the macro relationship summary and relationship type.
+5. Server validates the relationship using the same macro validator:
+   - all selected support claims are approved
+   - named entities are backed by support claims or registry entries
+   - no near-duplicate approved/pending relationship already exists
+6. Insert `macro_relationships` and `macro_relationship_claims`.
+7. Insert a `macro_relationship_review_events` row with
+   `action='manual_author'`.
+
+Manual authoring is not a provenance shortcut. It is often safer than a model
+proposal because the evidence remains selected approved claim IDs and the
+reviewer owns the summary.
 
 ### Admin Contradictions
 
@@ -1467,6 +1549,31 @@ These are higher-level relationships supported by approved claim IDs.
 ```
 
 Do not hide macro relationships inside the atomic claim RRF path in round 1.
+
+### Chat Resolution Hierarchy
+
+When approved macro relationships and atomic claims are both retrieved for a
+user question, the chat prompt must tell the model how to weigh them.
+
+Instruction:
+
+```text
+When synthesizing an answer, APPROVED PROCESS RELATIONSHIPS represent the
+canonical, reviewed structure of the workflow. Use them as the primary backbone
+of your answer.
+
+Atomic claims retrieved alongside them are supporting details: examples,
+specific executions, local exceptions, observed practices, or source-specific
+evidence within that broader structure.
+
+If an atomic claim appears to conflict with an approved process relationship,
+do not replace the workflow with the atomic claim. Frame it as a possible
+exception, workaround, local practice, or tension, and say what evidence would
+be needed to resolve it.
+```
+
+This prevents a single retrieved Slack/Teams observation from being presented
+with the same authority as an approved macro workflow relationship.
 
 ### Read-Time Support Verification
 
@@ -1590,6 +1697,32 @@ Validate:
 - source refs belong to the source
 - suggested gap text is actionable
 - finding does not assert new operational truth
+- `macro_only_source` findings include the source outline ID, outline richness
+  signal, atomic claim count, lens attempts, and reason extraction should not be
+  blindly rerun
+
+### Manual Macro Authoring
+
+Validate:
+
+- author selected at least two approved support claims
+- selected claims exist and are approved at write time
+- summary named entities are backed by selected support claims or registry
+  entries
+- manual relationship passes the same near-duplicate and source-lineage checks
+  as model-generated relationships
+- review event records the author, support claim IDs, and before/after state
+
+### Drop Pending Support
+
+Validate:
+
+- reviewer explicitly selected support claims to remove
+- removed support claims were not approved, or reviewer provided a note if
+  removing approved support
+- remaining support claims all pass approved read-time checks
+- relationship still satisfies minimum support and named-entity validation
+- review event records removed support IDs and revalidation result
 
 ## Evaluation Plan
 
@@ -1614,10 +1747,13 @@ Metrics:
 - accepted claim rate
 - reviewer revision rate
 - quote validation failure rate
+- zero-atomic source rate
 - near-duplicate rate
 - handoff/dependency/exception recall
 - coverage findings resolved by extraction
 - macro relationships approved/rejected
+- manual macro relationships authored
+- blocked pending support relationships resolved by dropping/revalidating
 - cost per accepted claim
 - cost per approved macro relationship
 
@@ -1830,6 +1966,8 @@ Deliverables:
 - staleness watcher
 - read-time support approval helper
 - approval-driven revalidation
+- drop pending support and re-evaluate action
+- manual macro authoring action
 - admin macro review page
 
 Acceptance:
@@ -1841,6 +1979,8 @@ Acceptance:
 - support approval can move relationship back to review
 - no new scheduled Trigger.dev task is added unless a schedule slot exists or
   schedules are consolidated
+- reviewer can manually author a relationship from approved claims
+- reviewer can drop stuck pending support and revalidate the relationship
 
 ### Phase 6: Coverage Audit and Gap Creation
 
@@ -1850,10 +1990,14 @@ Deliverables:
 - coverage audit worker
 - admin coverage surface
 - gap creation from findings
+- `macro_only_source` finding for context-rich sources with too few atomic
+  claims
 
 Acceptance:
 
 - missing stages/owners can be detected
+- zero-atomic sources are flagged instead of silently treated as failed
+  extraction
 - findings do not become claims automatically
 
 ### Phase 7: Cross-Source Macro Relationships
@@ -1909,11 +2053,14 @@ Deliverables:
 
 - macro relationship retrieval helper
 - chat prompt includes approved macro relationships separately
+- chat prompt includes macro-over-micro resolution hierarchy
 - context packs record included macro IDs
 
 Acceptance:
 
 - chat can use approved macro relationships
+- chat treats macro relationships as workflow backbone and atomic claims as
+  examples/exceptions/local observations
 - no macro leakage when disabled
 - atomic claim retrieval path remains endorsed and unchanged
 
@@ -1929,10 +2076,12 @@ Acceptance:
 8. Add macro relationship proposals with no auto-approval.
 9. Add read-time support verification and staleness watcher before any macro
    relationship can be used by Brain.
-10. Add coverage audit.
-11. Add cross-source macro relationships.
-12. Integrate approved macro relationships into Brain.
-13. Integrate approved macro relationships into chat retrieval.
+10. Add manual macro authoring and drop-pending-support revalidation actions.
+11. Add coverage audit, including `macro_only_source` findings.
+12. Add cross-source macro relationships.
+13. Integrate approved macro relationships into Brain.
+14. Integrate approved macro relationships into chat retrieval with the
+    macro-over-micro answer hierarchy.
 
 ## Quality Metrics
 
@@ -1948,6 +2097,9 @@ Track:
 - coverage findings per source
 - macro relationships proposed/approved/rejected/stale
 - blocked macro relationships waiting on support approval
+- blocked macro relationships resolved by dropping pending support
+- manually authored macro relationships
+- macro-only source findings
 - staleness events
 - reviewer queue size and age
 - cost per source
