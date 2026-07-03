@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ModelCatalogEntry } from '@/app/api/admin/model-catalog/route';
 import {
+  CAP_BY_FIELD,
   CAPS,
   STAGES,
   STAGE_LABELS,
@@ -59,9 +60,32 @@ const STAGE_SETTING_KEYS: Record<Stage, string> = {
   synthesis: 'model_pool_synthesis',
 };
 
-type PoolState = Record<Stage, Set<string>>;
+const POOL_KEYS = [...STAGES, 'macro'] as const;
+type PoolKey = (typeof POOL_KEYS)[number];
+
+const POOL_LABELS: Record<PoolKey, string> = {
+  ...STAGE_LABELS,
+  macro: 'Macro',
+};
+
+const POOL_SETTING_KEYS: Record<PoolKey, string> = {
+  ...STAGE_SETTING_KEYS,
+  macro: 'model_pool_macro',
+};
+
+type PoolState = Record<PoolKey, Set<string>>;
 type SortKey = 'context' | 'price' | null;
 type SortDir = 'asc' | 'desc';
+
+function missingPoolReqs(m: ModelCatalogEntry, pool: PoolKey) {
+  if (pool === 'macro') {
+    const cap = CAP_BY_FIELD.structuredOutputs;
+    return hasEnrichment(m) && !m.structuredOutputs
+      ? [{ label: cap.long, icon: cap.icon, color: cap.color }]
+      : [];
+  }
+  return missingReqs(m, pool);
+}
 
 // ---------------------------------------------------------------------------
 // Header components
@@ -90,7 +114,7 @@ function SortLabel({ label, active, dir, onClick }: {
 export function ModelPoolEditor({
   initial,
 }: {
-  initial: Record<Stage, string[]>;
+  initial: Record<PoolKey, string[]>;
 }) {
   const [catalog, setCatalog] = useState<ModelCatalogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,6 +128,7 @@ export function ModelPoolEditor({
     interview: new Set(initial.interview),
     extraction: new Set(initial.extraction),
     synthesis: new Set(initial.synthesis),
+    macro: new Set(initial.macro),
   });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -162,7 +187,7 @@ export function ModelPoolEditor({
     }
   }
 
-  function toggle(stage: Stage, id: string) {
+  function toggle(stage: PoolKey, id: string) {
     setPools((prev) => {
       const next = { ...prev, [stage]: new Set(prev[stage]) };
       if (next[stage].has(id)) next[stage].delete(id);
@@ -172,12 +197,12 @@ export function ModelPoolEditor({
     setSaveStatus('idle');
   }
 
-  function clearStage(stage: Stage) {
+  function clearStage(stage: PoolKey) {
     setPools((prev) => ({ ...prev, [stage]: new Set<string>() }));
     setSaveStatus('idle');
   }
 
-  function copyFrom(source: Stage, target: Stage) {
+  function copyFrom(source: PoolKey, target: PoolKey) {
     setPools((prev) => ({ ...prev, [target]: new Set(prev[source]) }));
     setSaveStatus('idle');
   }
@@ -205,19 +230,19 @@ export function ModelPoolEditor({
     setSaveStatus('saving');
     setSaveError(null);
     try {
-      for (const stage of STAGES) {
+      for (const stage of POOL_KEYS) {
         const res = await fetch('/api/admin/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            key: STAGE_SETTING_KEYS[stage],
+            key: POOL_SETTING_KEYS[stage],
             value: Array.from(pools[stage]),
-            description: `Admin-curated model shortlist for the ${STAGE_LABELS[stage]} stage picker.`,
+            description: `Admin-curated model shortlist for the ${POOL_LABELS[stage]} picker.`,
           }),
         });
         if (!res.ok) {
           const body = await res.text();
-          throw new Error(`${STAGE_LABELS[stage]}: ${res.status}: ${body}`);
+          throw new Error(`${POOL_LABELS[stage]}: ${res.status}: ${body}`);
         }
       }
       setSaveStatus('saved');
@@ -319,9 +344,9 @@ export function ModelPoolEditor({
       {/* Pool counts + reset */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {STAGES.map((s) => (
+          {POOL_KEYS.map((s) => (
             <span key={s} className="rounded bg-muted px-2 py-0.5">
-              {STAGE_LABELS[s]}: <strong className="text-foreground">{pools[s].size}</strong>
+              {POOL_LABELS[s]}: <strong className="text-foreground">{pools[s].size}</strong>
             </span>
           ))}
         </div>
@@ -338,9 +363,9 @@ export function ModelPoolEditor({
 
       {/* Per-stage controls row */}
       <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-muted-foreground">
-        {STAGES.map((stage) => (
+        {POOL_KEYS.map((stage) => (
           <div key={stage} className="flex items-center gap-2">
-            <span className="font-medium text-foreground">{STAGE_LABELS[stage]}:</span>
+            <span className="font-medium text-foreground">{POOL_LABELS[stage]}:</span>
             <button
               type="button"
               onClick={() => clearStage(stage)}
@@ -348,15 +373,15 @@ export function ModelPoolEditor({
             >
               Clear
             </button>
-            {STAGES.filter((s) => s !== stage).map((src) => (
+            {POOL_KEYS.filter((s) => s !== stage).map((src) => (
               <button
                 key={src}
                 type="button"
                 onClick={() => copyFrom(src, stage)}
                 className="underline underline-offset-2 hover:text-foreground"
-                title={`Replace ${STAGE_LABELS[stage]} pool with a copy of ${STAGE_LABELS[src]}`}
+                title={`Replace ${POOL_LABELS[stage]} pool with a copy of ${POOL_LABELS[src]}`}
               >
-                Copy from {STAGE_LABELS[src]}
+                Copy from {POOL_LABELS[src]}
               </button>
             ))}
           </div>
@@ -436,12 +461,21 @@ export function ModelPoolEditor({
                         );
                       })}
                       {/* Stage columns — label + all required-cap icons */}
-                      {STAGES.map((stage) => (
+                      {POOL_KEYS.map((stage) => (
                         <th key={stage} className="text-center px-3 py-2 font-medium text-xs text-muted-foreground whitespace-nowrap">
                           <div className="flex flex-col items-center gap-1">
-                            <span>{STAGE_LABELS[stage]}</span>
+                            <span>{POOL_LABELS[stage]}</span>
                             <div className="flex items-center gap-0.5">
-                              {STAGE_REQUIREMENTS[stage].map((req, i) => (
+                              {(stage === 'macro'
+                                ? [
+                                    {
+                                      label: CAP_BY_FIELD.structuredOutputs.long,
+                                      icon: CAP_BY_FIELD.structuredOutputs.icon,
+                                      color: CAP_BY_FIELD.structuredOutputs.color,
+                                    },
+                                  ]
+                                : STAGE_REQUIREMENTS[stage]
+                              ).map((req, i) => (
                                 <req.icon key={i} className={cn('h-3 w-3', req.color)} aria-label={`Requires ${req.label}`} />
                               ))}
                             </div>
@@ -488,9 +522,9 @@ export function ModelPoolEditor({
                             (border + accent) and the hover tooltip lists missing capabilities.
                             Admin override is intentional — sometimes a model is good enough
                             for a stage even when one capability flag is missing. */}
-                        {STAGES.map((stage) => {
+                        {POOL_KEYS.map((stage) => {
                           const checked = pools[stage].has(m.id);
-                          const missing = missingReqs(m, stage);
+                          const missing = missingPoolReqs(m, stage);
                           const eligible = missing.length === 0;
                           const reasonText = !eligible
                             ? `Override — missing: ${missing.map((r) => r.label).join(', ')}`
@@ -516,7 +550,7 @@ export function ModelPoolEditor({
                                         ? 'border-gray-300 accent-primary'
                                         : 'border-red-500 accent-red-600 ring-1 ring-red-400/60',
                                     )}
-                                    aria-label={`Include ${m.id} in ${STAGE_LABELS[stage]} pool${eligible ? '' : ' (override — missing required capabilities)'}`}
+                                    aria-label={`Include ${m.id} in ${POOL_LABELS[stage]} pool${eligible ? '' : ' (override — missing required capabilities)'}`}
                                   />
                                 </label>
                                 {!eligible && (
@@ -525,7 +559,7 @@ export function ModelPoolEditor({
                                     className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 -translate-x-1/2 whitespace-nowrap rounded-md border border-red-300 bg-popover px-2.5 py-1.5 text-xs text-popover-foreground opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 dark:border-red-800"
                                   >
                                     <div className="font-medium text-red-700 dark:text-red-400 mb-1">
-                                      Override — missing for {STAGE_LABELS[stage]}:
+                                      Override — missing for {POOL_LABELS[stage]}:
                                     </div>
                                     <ul className="space-y-0.5">
                                       {missing.map((r, i) => (
@@ -557,7 +591,7 @@ export function ModelPoolEditor({
           {saveStatus === 'saving' ? 'Saving all pools…' : 'Save all pools'}
         </Button>
         {saveStatus === 'saved' && (
-          <span className="text-sm text-green-600">All three pools saved.</span>
+          <span className="text-sm text-green-600">All four pools saved.</span>
         )}
         {saveStatus === 'error' && saveError && (
           <span className="text-sm text-destructive">{saveError}</span>

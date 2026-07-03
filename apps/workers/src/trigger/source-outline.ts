@@ -4,7 +4,7 @@
 // claims, and can only reference persisted document chunks for inspectability.
 
 import { task, tasks } from '@trigger.dev/sdk/v3';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -38,6 +38,7 @@ import {
 } from '@oracle/db';
 import { buildLensDispatchPlan } from '../lib/document-lens-budget';
 import { markMacroFailed, markMacroPending } from '../lib/macro-health';
+import { triggerMacroFollowupsOnce } from '../lib/macro-followups';
 
 const payloadSchema = z.object({
   documentId: z.string().uuid(),
@@ -50,11 +51,6 @@ type ChunkRow = {
   pageNumber: number | null;
   rawText: string;
   contentHash: string | null;
-};
-
-type MacroAutoBudget = {
-  enabled: boolean;
-  maxOutlineGroups: number;
 };
 
 function sha256(text: string): string {
@@ -241,68 +237,6 @@ async function persistOutline(args: {
   return outlineRow.id;
 }
 
-function settingToBoolean(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') return value === 'true' || value === '1';
-  return fallback;
-}
-
-function settingToInt(value: unknown, fallback: number): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) ? Math.floor(parsed) : fallback;
-}
-
-async function loadMacroAutoBudget(db: OracleDb): Promise<MacroAutoBudget> {
-  const rows = await db.execute(
-    // Keep this raw to avoid expanding the public schema surface only for settings.
-    sql`SELECT key, value FROM settings WHERE key IN ('macro_auto_followups_enabled', 'macro_auto_max_outline_groups')`,
-  );
-  const map = new Map(
-    ([...rows] as Array<{ key: string; value: unknown }>).map((row) => [row.key, row.value]),
-  );
-  return {
-    enabled: settingToBoolean(map.get('macro_auto_followups_enabled'), true),
-    maxOutlineGroups: Math.max(1, settingToInt(map.get('macro_auto_max_outline_groups'), 12)),
-  };
-}
-
-async function triggerMacroFollowups(args: {
-  db: OracleDb;
-  documentId: string;
-  outlineId: string;
-  groupCount: number;
-}): Promise<{ triggered: boolean; reason?: string }> {
-  const budget = await loadMacroAutoBudget(args.db);
-  if (!budget.enabled) return { triggered: false, reason: 'macro_auto_followups_disabled' };
-  if (args.groupCount > budget.maxOutlineGroups) {
-    return {
-      triggered: false,
-      reason: `outline_group_count_${args.groupCount}_exceeds_${budget.maxOutlineGroups}`,
-    };
-  }
-
-  // Mark the holistic layer in-progress so a followup success can promote it to
-  // 'complete' and a followup failure can downgrade it to 'degraded'. Without
-  // this, macro_health would stay 'not_applicable' and a failed macro layer
-  // would be indistinguishable from "no macro attempted". See macro-health.ts.
-  await markMacroPending(args.db, args.documentId);
-
-  await tasks
-    .trigger('macro-relationship-extraction', {
-      documentId: args.documentId,
-      sourceOutlineId: args.outlineId,
-      relationshipScope: 'cross_source',
-    })
-    .catch((err) =>
-      console.warn('[source-outline] failed to trigger macro relationship extraction', err),
-    );
-  await tasks
-    .trigger('source-coverage-audit', { sourceOutlineId: args.outlineId })
-    .catch((err) => console.warn('[source-outline] failed to trigger source coverage audit', err));
-
-  return { triggered: true };
-}
-
 async function countSourceOutlineGroups(db: OracleDb, outlineId: string): Promise<number> {
   const rows = await db
     .select({ id: sourceGroups.id })
@@ -317,6 +251,7 @@ async function triggerDocumentLensFanout(args: {
   outlineId: string;
 }): Promise<{
   triggered: number;
+  planned: number;
   skipped: Array<{ sourceGroupId?: string; groupTitle?: string; lens?: string; reason: string }>;
 }> {
   const plan = await buildLensDispatchPlan(args.db, args.outlineId);
@@ -340,7 +275,7 @@ async function triggerDocumentLensFanout(args: {
         }),
       );
   }
-  return { triggered, skipped: plan.skipped };
+  return { triggered, planned: plan.selected.length, skipped: plan.skipped };
 }
 
 async function generateDocumentOutline(documentId: string, force: boolean, triggerRunId: string) {
@@ -401,12 +336,19 @@ async function generateDocumentOutline(documentId: string, force: boolean, trigg
         documentId,
         outlineId: existing.id,
       });
-      const followups = await triggerMacroFollowups({
-        db,
-        documentId,
-        outlineId: existing.id,
-        groupCount: await countSourceOutlineGroups(db, existing.id),
-      });
+      const followups =
+        lensFanout.planned === 0
+          ? await triggerMacroFollowupsOnce({
+              db,
+              documentId,
+              outlineId: existing.id,
+              groupCount: await countSourceOutlineGroups(db, existing.id),
+              reason: 'source_outline_no_lens_jobs',
+            })
+          : await markMacroPending(db, documentId).then(() => ({
+              triggered: false,
+              reason: 'deferred_until_lens_fanout_complete',
+            }));
       return {
         documentId,
         status: 'skipped_existing' as const,
@@ -583,12 +525,19 @@ async function generateDocumentOutline(documentId: string, force: boolean, trigg
       documentId,
       outlineId,
     });
-    const followups = await triggerMacroFollowups({
-      db,
-      documentId,
-      outlineId,
-      groupCount: outline.groups.length,
-    });
+    const followups =
+      lensFanout.planned === 0
+        ? await triggerMacroFollowupsOnce({
+            db,
+            documentId,
+            outlineId,
+            groupCount: outline.groups.length,
+            reason: 'source_outline_no_lens_jobs',
+          })
+        : await markMacroPending(db, documentId).then(() => ({
+            triggered: false,
+            reason: 'deferred_until_lens_fanout_complete',
+          }));
 
     await db
       .update(jobRuns)

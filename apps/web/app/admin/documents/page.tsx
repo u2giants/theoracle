@@ -29,6 +29,7 @@ export default async function AdminDocumentsPage() {
       createdAt: documents.createdAt,
       processedAt: documents.processedAt,
       processingError: documents.processingError,
+      macroHealth: documents.macroHealth,
       context: documents.context,
     })
     .from(documents)
@@ -135,6 +136,7 @@ export default async function AdminDocumentsPage() {
                 <th className="py-2 pr-4">File</th>
                 <th className="py-2 pr-4">Type</th>
                 <th className="py-2 pr-4">Status</th>
+                <th className="py-2 pr-4">Macro</th>
                 <th className="py-2 pr-4">Uploaded by</th>
                 <th className="py-2 pr-4">Uploaded</th>
                 <th className="py-2 pr-4">Processed</th>
@@ -152,6 +154,9 @@ export default async function AdminDocumentsPage() {
                     <td className="py-2 pr-4 font-medium">{d.fileName}</td>
                     <td className="py-2 pr-4">{d.fileType}</td>
                     <td className="py-2 pr-4">{d.status}</td>
+                    <td className="py-2 pr-4">
+                      <MacroHealthBadge value={d.macroHealth} />
+                    </td>
                     <td className="py-2 pr-4">{d.uploadedBy ?? '—'}</td>
                     <td className="py-2 pr-4">
                       {formatNYDateTime(d.createdAt)}
@@ -234,6 +239,34 @@ export default async function AdminDocumentsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function MacroHealthBadge({ value }: { value: string | null }) {
+  const health = value ?? 'not_applicable';
+  const styles: Record<string, string> = {
+    complete: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    pending: 'border-sky-200 bg-sky-50 text-sky-800',
+    degraded: 'border-amber-200 bg-amber-50 text-amber-800',
+    failed: 'border-red-200 bg-red-50 text-red-800',
+    not_applicable: 'border-muted bg-muted/40 text-muted-foreground',
+  };
+  const labels: Record<string, string> = {
+    complete: 'Complete',
+    pending: 'Pending',
+    degraded: 'Degraded',
+    failed: 'Failed',
+    not_applicable: 'Not run',
+  };
+  return (
+    <span
+      className={`inline-flex whitespace-nowrap rounded border px-2 py-0.5 text-xs font-medium ${
+        styles[health] ?? styles.not_applicable
+      }`}
+      title="Holistic source-outline, macro-relationship, and coverage-audit health"
+    >
+      {labels[health] ?? health}
+    </span>
   );
 }
 

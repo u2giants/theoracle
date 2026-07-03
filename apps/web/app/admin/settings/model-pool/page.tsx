@@ -10,7 +10,7 @@
 import { inArray } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { settings } from '@oracle/db/schema';
-import { MODEL_POOL_SETTING_KEYS } from '@oracle/ai';
+import { MODEL_POOL_MACRO_SETTING_KEY, MODEL_POOL_SETTING_KEYS } from '@oracle/ai';
 import { ModelPoolEditor } from './_components/model-pool-editor';
 
 export default async function ModelPoolPage() {
@@ -19,6 +19,7 @@ export default async function ModelPoolPage() {
     MODEL_POOL_SETTING_KEYS.interview,
     MODEL_POOL_SETTING_KEYS.extraction,
     MODEL_POOL_SETTING_KEYS.synthesis,
+    MODEL_POOL_MACRO_SETTING_KEY,
   ];
   const rows = await db
     .select({ key: settings.key, value: settings.value })
@@ -35,6 +36,7 @@ export default async function ModelPoolPage() {
     interview: poolFor(MODEL_POOL_SETTING_KEYS.interview),
     extraction: poolFor(MODEL_POOL_SETTING_KEYS.extraction),
     synthesis: poolFor(MODEL_POOL_SETTING_KEYS.synthesis),
+    macro: poolFor(MODEL_POOL_MACRO_SETTING_KEY),
   };
 
   return (
@@ -43,14 +45,14 @@ export default async function ModelPoolPage() {
         <h1 className="text-2xl font-semibold">Model Pool</h1>
         <p className="text-sm text-muted-foreground max-w-prose">
           Pick which models appear in each stage&apos;s dropdown on the main
-          Settings page. Three independent pools — Interview, Extraction,
-          Synthesis. Oracle calls Anthropic, OpenAI, Google Vertex, DeepSeek,
-          and Alibaba Qwen directly (no third-party proxy).
+          Settings page. Four independent pools — Interview, Extraction,
+          Synthesis, and Macro. Oracle calls Anthropic, OpenAI, Google Vertex,
+          DeepSeek, and Alibaba Qwen directly (no third-party proxy).
         </p>
         <p className="text-sm text-muted-foreground">
-          Leaving a stage&apos;s pool empty falls back to the 6 curated
-          Oracle catalog routes for that stage. Changes take effect
-          immediately in the pickers on the main{' '}
+          Runtime pools should stay non-empty; the Macro pool is especially
+          load-bearing because it gives the holistic workers a fallback chain.
+          Changes take effect immediately in the pickers on the main{' '}
           <a
             href="/admin/settings"
             className="underline underline-offset-2 text-foreground hover:text-foreground/70"

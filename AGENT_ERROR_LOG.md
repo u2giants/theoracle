@@ -52,7 +52,6 @@ This is also the proof that the fallback-pool design (below) is load-bearing, no
   - **Fallback pool added:** the `macro` slot is no longer single-pick. New `model_pool_macro = [google/gemini-2.5-flash, google/gemini-2.5-pro, openai/gpt-4.1-mini]` (all strict-schema) is wired through the existing pool machinery (`packages/ai/src/routes/{defaults,candidates}.ts`, migration `84`, seed). One bad response now falls through to the next candidate instead of zeroing the layer.
   - **Visibility:** `macro-relationship-extraction` and `source-coverage-audit` now write `job_runs` rows (running → complete/failed) and update `documents.macro_health` (migration `85`, `apps/workers/src/lib/macro-health.ts`). A failed macro layer now downgrades `macro_health` to `degraded`/`failed` — it can no longer masquerade as a green `complete` document at the data layer.
 - **Still OPEN (do next):**
-  - Surface `documents.macro_health` in the **Admin → Documents UI** (column + worker writes exist; the page doesn't render it yet).
   - Optional hardening: a **schema-repair sub-pass** on structured-output validation failure (belt-and-suspenders on top of the pool).
   - Set `DEEPSEEK_API_KEY` in the worker env or stop advertising deepseek as a phantom fallback.
 - **Verification (DONE 2026-07-03):** migrations `83/84/85` applied to prod; workers deployed (`20260703.4`); verified `macro_relationships` inserted (run `run_cmr5gu7lx…`), `source_coverage_findings=4` (run `run_cmr5guyry…`), and `documents.macro_health=complete` (clean run `run_cmr5h0izj…`).
@@ -66,11 +65,11 @@ This is also the proof that the fallback-pool design (below) is load-bearing, no
 - **Fix:** cross-source → drop the redundant outer `DISTINCT` (the `IN`-subquery already yields unique ids); single-source + coverage → add `c.created_at` to the select list (JOINs can duplicate, so `DISTINCT` stays). All three corrected forms verified against prod (40/40/80 rows) before patching, then verified live (post-fix macro/coverage runs completed — see ERR-001).
 - **Do next (optional):** a DB-touching smoke test that runs all three queries against a seeded fixture so this class can't silently regress.
 
-### ERR-003 — Followup fan-out: each lens job re-triggers macro + coverage  — OPEN (inefficiency, not a hard failure)
+### ERR-003 — Followup fan-out: each lens job re-triggers macro + coverage  — MITIGATED IN SOURCE (needs deploy/rerun verification)
 
 - **Symptom:** one `source-outline` run produced **~49 macro + ~50 coverage** runs in ~15 min (`job_runs`). Pre-fix those were failures; post-fix they'd be redundant *successes* over the same claims.
 - **Cause:** both `source-outline` AND every `document-lens-extraction` job trigger the two followups on completion. With coverage-first fan-out dispatching up to 16 lens jobs, that's up to ~16× redundant macro/coverage passes (the near-duplicate guard prevents duplicate rows, but the model calls are wasted spend + noise, and they leave `macro_health='degraded'` from any transient failure).
-- **Fix (do next):** debounce — trigger the followups **once**, after the lens fan-out for a document completes, not per-lens-job. Self-correcting until then (dedup guards hold).
+- **Fix applied in source:** `document-lens-extraction` no longer triggers macro + coverage directly. Lens jobs now record completed/skipped-existing work, and the final completed lens job claims a one-time `source_outlines.budget_json.macroFollowupsDispatchedAt` latch before triggering `macro-relationship-extraction`. `macro-relationship-extraction` triggers `source-coverage-audit` only after the macro pass finishes, so coverage no longer races ahead of relationship insertion. Verify after deploy by rerunning a diagram outline and checking for one macro run plus one coverage run per outline.
 
 ---
 
@@ -79,8 +78,8 @@ This is also the proof that the fallback-pool design (below) is load-bearing, no
 These are tracked in detail in `fix_enhancement.md` §5 (Bugs C, D, G) and its fix priority. Summarized here because they are the reason ERR-001 went unseen:
 
 - **Macro/coverage workers did not write `job_runs` rows** → FIXED 2026-07-03: both now write `job_runs`. (source-outline already did.)
-- **No document-level `macro_health`** → FIXED at the data layer 2026-07-03: `documents.macro_health` added and written by the workers (`not_applicable | pending | complete | degraded | failed`). REMAINING: render it in the Admin → Documents UI.
-- **Followups are fire-and-forget** (`source-outline.ts` `.trigger(...).catch(warn)`) → parent job succeeds regardless. Failure now propagates into `macro_health` (race-tolerant precedence). REMAINING: sequence coverage *after* macro (Bug G) so coverage can actually see the relationships — still concurrent today.
+- **No document-level `macro_health`** → FIXED: `documents.macro_health` is written by the workers (`not_applicable | pending | complete | degraded | failed`) and rendered in Admin → Documents.
+- **Followups are fire-and-forget** (`source-outline.ts` `.trigger(...).catch(warn)`) → parent job succeeds regardless. Failure now propagates into `macro_health` (race-tolerant precedence). Coverage is sequenced after macro in source; verify in prod after deploy.
 
 ---
 

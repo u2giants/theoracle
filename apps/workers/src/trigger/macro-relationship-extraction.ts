@@ -1,4 +1,4 @@
-import { task } from '@trigger.dev/sdk/v3';
+import { task, tasks } from '@trigger.dev/sdk/v3';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -597,6 +597,13 @@ async function runMacroRelationshipExtraction(rawPayload: unknown, triggerRunId:
     }
     if (result.status === 'complete') {
       await markMacroComplete(db, documentId ?? payloadDocId);
+    }
+    const sourceOutlineId = payloadSchema.parse(rawPayload).sourceOutlineId;
+    if (sourceOutlineId) {
+      await tasks.trigger('source-coverage-audit', { sourceOutlineId }).catch(async (err) => {
+        await markMacroDegraded(db, documentId ?? payloadDocId);
+        console.warn('[macro-relationship] failed to trigger source coverage audit', err);
+      });
     }
     return result;
   } catch (err) {

@@ -1,4 +1,4 @@
-import { task, tasks } from '@trigger.dev/sdk/v3';
+import { task } from '@trigger.dev/sdk/v3';
 import { and, eq, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -59,6 +59,7 @@ import {
 } from '@oracle/shared';
 import { documentHasCompletedLensBatch, type ExtractionLens } from '../lib/document-lens-budget';
 import { autoApproveDocumentClaimIfEligible } from '../lib/document-claim-auto-approval';
+import { maybeTriggerMacroFollowupsAfterLensCompletion } from '../lib/macro-followups';
 
 const payloadSchema = z.object({
   documentId: z.string().uuid(),
@@ -342,10 +343,6 @@ async function runDocumentLensExtraction(rawPayload: unknown, triggerRunId: stri
       chunkHash: sha256(documentCorpus),
     }),
   );
-  if (await documentHasCompletedLensBatch({ db, sourceHash })) {
-    return { status: 'skipped_existing_batch' as const, ...payload };
-  }
-
   const [jobRun] = await db
     .insert(jobRuns)
     .values({
@@ -357,6 +354,30 @@ async function runDocumentLensExtraction(rawPayload: unknown, triggerRunId: stri
     })
     .returning({ id: jobRuns.id });
   if (!jobRun) throw new Error('[document-lens-extraction] failed to insert job_runs row');
+
+  if (await documentHasCompletedLensBatch({ db, sourceHash })) {
+    const output = {
+      status: 'skipped_existing_batch' as const,
+      ...payload,
+    };
+    await db
+      .update(jobRuns)
+      .set({ status: 'complete', finishedAt: new Date(), outputJson: output })
+      .where(eq(jobRuns.id, jobRun.id));
+    const macroFollowups = await maybeTriggerMacroFollowupsAfterLensCompletion({
+      db,
+      documentId: payload.documentId,
+      outlineId: payload.sourceOutlineId,
+    }).catch((err) => {
+      console.warn('[document-lens-extraction] macro followup check failed', err);
+      return { triggered: false, reason: 'macro_followup_check_failed' };
+    });
+    await db
+      .update(jobRuns)
+      .set({ outputJson: { ...output, macroFollowups } })
+      .where(eq(jobRuns.id, jobRun.id));
+    return { ...output, macroFollowups };
+  }
 
   let modelRunId: string | null = null;
   const outcome = {
@@ -877,26 +898,24 @@ async function runDocumentLensExtraction(rawPayload: unknown, triggerRunId: stri
       .where(eq(extractionBatches.id, batch.id));
     await db
       .update(jobRuns)
-      .set({ status: 'complete', finishedAt: new Date(), outputJson: outcome })
-      .where(eq(jobRuns.id, jobRun.id));
-
-    await tasks
-      .trigger('macro-relationship-extraction', {
-        documentId: payload.documentId,
-        sourceOutlineId: payload.sourceOutlineId,
-        relationshipScope: 'cross_source',
+      .set({
+        status: 'complete',
+        finishedAt: new Date(),
+        outputJson: outcome,
       })
-      .catch((err) =>
-        console.warn(
-          '[document-lens-extraction] failed to trigger macro relationship extraction',
-          err,
-        ),
-      );
-    await tasks
-      .trigger('source-coverage-audit', { sourceOutlineId: payload.sourceOutlineId })
-      .catch((err) =>
-        console.warn('[document-lens-extraction] failed to trigger source coverage audit', err),
-      );
+      .where(eq(jobRuns.id, jobRun.id));
+    const macroFollowups = await maybeTriggerMacroFollowupsAfterLensCompletion({
+      db,
+      documentId: payload.documentId,
+      outlineId: payload.sourceOutlineId,
+    }).catch((err) => {
+      console.warn('[document-lens-extraction] macro followup check failed', err);
+      return { triggered: false, reason: 'macro_followup_check_failed' };
+    });
+    await db
+      .update(jobRuns)
+      .set({ outputJson: { ...outcome, macroFollowups } })
+      .where(eq(jobRuns.id, jobRun.id));
 
     return { status: 'complete' as const, ...payload, ...outcome };
   } catch (err) {

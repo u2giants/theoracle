@@ -119,14 +119,14 @@ const AUX_PRESENTATION: Record<
         <strong>macro relationship extraction</strong> (infers the cross-claim
         workflow — dependencies, handoffs, sequence, branches, loops —{' '}
         <em>after</em> extraction), and <strong>coverage audit</strong> (flags
-        what the source shows but the claims missed). Each emits deep,{' '}
-        <strong>nested JSON</strong>, so this model must have real{' '}
-        <strong>strict structured-output</strong> support — a model that only
-        does loose <code>json_object</code> (e.g. Qwen) will hard-fail here. The
-        picker is filtered to structured-output-capable models; pick a strong
-        long-context reasoning model with native JSON-schema output (e.g.
-        Gemini 2.5 Flash, GPT-4.1). Use &ldquo;Copy job brief&rdquo; for the full
-        spec.
+        what the source shows but the claims missed). Each emits deep, heavily{' '}
+        <strong>nested JSON</strong> validated against a strict schema, so this
+        model must have real <strong>strict, schema-enforced structured output</strong>{' '}
+        <em>and</em> be able to accept and fully populate a{' '}
+        <strong>very complex, deeply-nested schema</strong> — best-effort JSON
+        modes, or schema modes that reject/truncate large nested schemas, will
+        hard-fail here. The picker is filtered to structured-output-capable
+        models; use &ldquo;Copy job brief&rdquo; for the full technical spec.
       </>
     ),
     settingDescription:
@@ -485,7 +485,7 @@ WHAT IT IS FED (input)
 It is NOT user-facing. Nobody is waiting on it. It runs asynchronously in the background at document scale.
 
 WHAT IS EXPECTED (output) — this is the crux
-- DEEP, NESTED, SCHEMA-VALID JSON, every time. The output schemas are large and nested (arrays of stages, each with arrays of inputs/outputs/nextStageIds/sourceRefs; arrays of relationships each with an array of supportingClaims with roles; arrays of findings). The runtime validates the output against a strict Zod schema and FAILS THE WHOLE TASK if a required field or array is missing.
+- DEEP, NESTED, SCHEMA-VALID JSON, every time. The output schemas are large and HEAVILY NESTED — arrays of objects that themselves contain arrays of objects, several levels deep (e.g. stages, each with arrays of inputs/outputs/next-stage IDs/source refs; relationships, each with an array of supporting-claim objects with roles; arrays of findings). The runtime validates every response against a strict schema and FAILS THE WHOLE TASK if any required field or nested array is missing or malformed.
 - Faithful, conservative reasoning: say "unknown" when the source doesn't say; never invent stages, owners, or entities; only reference claim IDs / source refs from the supplied list; never introduce a named entity not present in the support claims or the entity registry.
 - Genuine holistic comprehension of process structure: correctly reading a diagram's sequence, branches (new vs existing, pass vs fail), loops (revision/re-sampling), cross-swimlane handoffs, and terminal outcomes.
 
@@ -493,7 +493,7 @@ PROCESS IT USES
 Asynchronous, background, single-shot STRUCTURED-OUTPUT generation (runObject) per task. Long input, long nested output. No human latency requirement. It reasons over structure; it does not fetch anything itself (retrieval/claim-selection happens before the call).
 
 WHAT MAKES A MODEL PERFECTLY SUITED
-- NATIVE STRICT JSON-SCHEMA structured output (Gemini responseJsonSchema, OpenAI json_schema strict). This is the single most important attribute — see hard requirements.
+- STRICT, SCHEMA-ENFORCED structured output — the model is constrained to conform to a supplied JSON schema, rather than emitting best-effort JSON that is parsed afterward. This is the single most important attribute — see hard requirements.
 - Strong multi-step reasoning over structure: assembling a lifecycle, detecting branches/loops/handoffs, spotting coverage gaps and policy-vs-practice tension. This is a synthesis/reasoning task, closer to the Synthesis role than to verbatim extraction.
 - Large context window: outlines can ingest a whole document or a dense diagram transcription in one call (aim comfortably >100K, more is better).
 - Generous max OUTPUT tokens: the nested JSON for a 10-stage workflow with branches is large; truncated output = schema failure.
@@ -501,8 +501,8 @@ WHAT MAKES A MODEL PERFECTLY SUITED
 - Reliability/determinism of schema adherence across retries. Cost/throughput matter (runs at document volume, async), but correctness of structured output dominates.
 
 CAPABILITIES IT NEEDS (hard requirements)
-- STRICT structured output / JSON-schema mode — NON-NEGOTIABLE. A model that only offers loose "json_object" (return-some-JSON) is NOT acceptable: it intermittently omits required arrays and the task hard-fails with AllCandidatesFailedError. (This exact failure took the macro layer to zero on the Pop Creations flow diagram when this slot pointed at Qwen qwen3.7-max.)
-- Ability to handle DEEP, COMPLEX NESTED schemas specifically — not merely "has a JSON mode". VERIFIED IN PROD 2026-07-03: Google Gemini 2.5 flash AND pro REJECT the macro relationship/coverage schemas with 400 "the specified schema produces a constraint that is too complex", even though Gemini has a strict-schema mode. OpenAI strict-json-schema models (e.g. gpt-4.1-mini) handle them fine. This is why the shipped primary is an OpenAI model and Gemini is fallback-only (Gemini is fine for the simpler source-outline schema, not for relationships/coverage).
+- STRICT, SCHEMA-ENFORCED structured output — NON-NEGOTIABLE. The model must be constrained to emit JSON that conforms to a supplied schema, not best-effort / free-form JSON. Best-effort JSON modes intermittently omit required fields or whole nested arrays; the runtime hard-validates every response and FAILS THE ENTIRE TASK on any missing required field, so best-effort JSON produces frequent, total failures.
+- Ability to ACCEPT AND FULLY POPULATE DEEP, VERY COMPLEX, HEAVILY NESTED schemas specifically — not merely "has a JSON mode." Some models expose a schema/structured mode but REJECT schemas past a certain nesting depth or size (e.g. an error that the schema is too complex), or silently truncate or flatten them. The model must accept the entire deeply-nested schema and correctly populate every required level. This is a distinct, HIGHER bar than "supports structured output" and must be tested against the real macro schemas, not a small/toy schema.
 - Large context window (>100K; bigger is better for whole-source outlines).
 - High max-output-token ceiling for deep nested JSON.
 - Strong instruction-following and reasoning.
@@ -518,13 +518,13 @@ CAPABILITIES IT DOES NOT NEED
 - Verbatim-quote fidelity — unlike atomic extraction, this model does not quote the source; its evidence is claim IDs and its outline is explicitly non-quotable.
 
 NEGATIVE ATTRIBUTES (avoid)
-- Loose-JSON-only providers (json_object without strict schema) — the top cause of failure here.
-- Google Gemini as the PRIMARY for this slot — Gemini 2.5 flash/pro reject the nested macro relationship/coverage schemas (400 "constraint too complex"). Keep Gemini only as a lower-priority fallback (it's fine for the source-outline schema).
-- Small context or small max-output models — they truncate the nested JSON and fail validation.
-- Models that hallucinate entities/stages or ignore "reference only the supplied IDs" instructions — they poison provenance and get rejected by the entity/support validators anyway.
+- Best-effort / free-form JSON only, with no real schema enforcement — the top cause of failure here.
+- A schema/structured mode with a low complexity or nesting ceiling — anything that rejects, truncates, or flattens large deeply-nested schemas will fail these tasks even though it nominally "supports structured output."
+- Small context window or low maximum-output-token cap — truncates the input or the nested output and fails validation.
+- Tendency to hallucinate entities/stages, or to ignore "reference only the supplied IDs" — poisons provenance and gets rejected by the entity/support validators anyway.
 
 BOTTOM LINE
-Pick a strong long-context REASONING model with NATIVE STRICT JSON-SCHEMA output that can handle DEEP NESTED schemas (OpenAI strict-json-schema models are proven here; Gemini is NOT — it 400s on the nested schemas) and a high output-token ceiling; multimodal is a bonus for diagrams. Do NOT pick a loose-json-object-only model, and do NOT optimize for latency. This slot is intentionally separate from the Extraction model: extraction mines verbatim-quoted facts; this model reasons about the whole process and must emit deep nested schema-valid JSON. The fallback POOL for this slot is the settings row model_pool_macro (ordered, admin-editable); this picker sets the primary (default_macro_route).`;
+This slot needs a strong, long-context REASONING model whose structured output is STRICTLY SCHEMA-ENFORCED and that can accept and fully populate a DEEP, VERY COMPLEX, HEAVILY NESTED schema (test this against the real macro schemas, not a simple one), with a high maximum-output-token ceiling; multimodal input is a bonus for diagrams. Avoid best-effort-JSON-only models and any model whose schema mode caps out on nesting/complexity. Do not optimize for latency. This slot is intentionally separate from the Extraction model: extraction mines verbatim-quoted facts, while this model reasons about the whole process and must emit deep, nested, schema-valid JSON.`;
 
 // Clipboard "job brief" text by auxiliary-model id. Declared after the brief
 // literals (which are large) so the earlier AUX_PRESENTATION map stays free of
