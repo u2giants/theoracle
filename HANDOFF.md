@@ -1,8 +1,20 @@
 # HANDOFF — Prior completed work and remaining historical watchouts
 
-Last updated: 2026-07-02. Delete this file once the remaining open items below are closed.
+Last updated: 2026-07-03. Delete this file once the remaining open items below are closed.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
+
+### ⚠️ Active runtime failures — see `AGENT_ERROR_LOG.md` (2026-07-03)
+
+`AGENT_ERROR_LOG.md` is the designated in-repo log of runtime worker failures, written so a coding agent can fix them. It is REQUIRED reading. Open right now:
+- **ERR-001 + ERR-002 — ✅ FIXED & VERIFIED IN PROD (2026-07-03, worker `20260703.4`).** The macro/holistic layer (`source-outline`, `macro-relationship-extraction`, `source-coverage-audit`) had hard-failed on every run. Two root causes, both fixed and verified live:
+  - **Model route:** it borrowed the `general` slot (Qwen, no strict schema, no fallback). Now a dedicated **`macro` slot** with an admin picker (`default_macro_route`) + **fallback pool** (`model_pool_macro`). **Key discovery from the fallback logs: Gemini 2.5 flash *and* pro also reject the nested macro schemas (`400 too-complex`)** — so the primary is now **`openai/gpt-4.1-mini`** (Gemini is fallback only). The pool is what made the layer survive both the Qwen and Gemini failures — it is load-bearing.
+  - **SQL:** three support-claim queries hit `42P10 (SELECT DISTINCT / ORDER BY)` — fixed.
+  - **Verified:** migrations `83/84/85` applied to prod; workers deployed `20260703.4`; `macro_relationships` inserted, `source_coverage_findings=4`, `documents.macro_health=complete` on a clean run (`run_cmr5h0izj…`, attempt `openai/gpt-4.1-mini primary=true success`). Observability now real: `job_runs` + `documents.macro_health` are written by all macro workers.
+  - **Still open (non-blocking, all tracked in `fix_enhancement.md`):** expose `model_pool_macro` in the model-pool-editor UI (it's a settings row — admin-editable via SQL now, but no UI widget yet; the primary IS in the new "Macro understanding model" picker); render `macro_health` in the Admin → Documents UI; **ERR-003** followup fan-out (each lens job re-triggers macro/coverage → ~16× redundant runs — debounce it); sequence coverage after macro (Bug G); Bug D (relationships born `blocked_pending_support`, confirmed live). See `AGENT_ERROR_LOG.md` + `fix_enhancement.md`.
+- **Verified clean:** `@oracle/{ai,db,workers}` typecheck; `verify:r2` + `verify:auxiliary-defaults` pass. Web typecheck has a pre-existing `@oracle/engines` workspace-link issue unrelated to these changes. **Code changes are NOT committed/pushed** (per repo rule — push only when asked). Prod DB + Trigger workers ARE updated. `default_general_purpose_route` was left on Qwen (correct — `general` is still the utility slot).
+
+The full holistic-understanding diagnosis + fix plan for the swimlane-diagram class of document lives in `fix_enhancement.md`.
 
 ---
 

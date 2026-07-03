@@ -37,6 +37,7 @@ import {
   type OracleDb,
 } from '@oracle/db';
 import { buildLensDispatchPlan } from '../lib/document-lens-budget';
+import { markMacroFailed, markMacroPending } from '../lib/macro-health';
 
 const payloadSchema = z.object({
   documentId: z.string().uuid(),
@@ -280,6 +281,12 @@ async function triggerMacroFollowups(args: {
     };
   }
 
+  // Mark the holistic layer in-progress so a followup success can promote it to
+  // 'complete' and a followup failure can downgrade it to 'degraded'. Without
+  // this, macro_health would stay 'not_applicable' and a failed macro layer
+  // would be indistinguishable from "no macro attempted". See macro-health.ts.
+  await markMacroPending(args.db, args.documentId);
+
   await tasks
     .trigger('macro-relationship-extraction', {
       documentId: args.documentId,
@@ -424,7 +431,7 @@ async function generateDocumentOutline(documentId: string, force: boolean, trigg
 
   try {
     const client = new OracleAIClient({ adapters: buildStandardAdapters() });
-    const resolved = await resolveRouteCandidates(db, 'general');
+    const resolved = await resolveRouteCandidates(db, 'macro');
     for (const skipped of resolved.skipped) {
       console.warn('[source-outline] skipped general route candidate', skipped);
     }
@@ -501,7 +508,7 @@ async function generateDocumentOutline(documentId: string, force: boolean, trigg
           db,
           error: err,
           taskType: 'source-outline',
-          slot: 'general',
+          slot: 'macro',
           contextPackId: contextPack.id,
         }).catch((logErr) =>
           console.error('[source-outline] failed to record failed model attempts', logErr),
@@ -546,7 +553,7 @@ async function generateDocumentOutline(documentId: string, force: boolean, trigg
       db,
       metadata: result,
       taskType: 'source-outline',
-      slot: 'general',
+      slot: 'macro',
       contextPackId: contextPack.id,
       modelRunId,
     });
@@ -609,6 +616,8 @@ async function generateDocumentOutline(documentId: string, force: boolean, trigg
         error: err instanceof Error ? err.message : String(err),
       })
       .where(eq(jobRuns.id, jobRun.id));
+    // Outline itself failed => no holistic layer at all for this document.
+    await markMacroFailed(db, documentId);
     throw err;
   }
 }

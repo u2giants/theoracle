@@ -12,6 +12,7 @@ import {
   VISION_ROUTE_SETTING_KEY,
   VISION_REASONING_EFFORT_SETTING_KEY,
   TRANSLATION_ROUTE_SETTING_KEY,
+  MACRO_ROUTE_SETTING_KEY,
 } from './defaults';
 
 /**
@@ -61,9 +62,25 @@ export const TRANSLATION_AUXILIARY_MODEL: AuxiliaryModelDef = {
   label: 'Translation model',
 };
 
+/**
+ * Macro-understanding model. Drives the holistic layer: source outlines, macro
+ * relationship extraction, and coverage audits. It is a SEPARATE slot from
+ * extraction on purpose — extraction mines verbatim-quoted atomic claims, while
+ * this model reasons over structure and emits deep nested JSON. The hard
+ * capability filter is structured output; the job brief additionally warns that
+ * STRICT json-schema (not just json_object) is required.
+ */
+export const MACRO_AUXILIARY_MODEL: AuxiliaryModelDef = {
+  id: 'macro',
+  routeSettingKey: MACRO_ROUTE_SETTING_KEY,
+  requiredCapability: 'structuredOutputs',
+  label: 'Macro understanding model',
+};
+
 /** Order here is the order the auxiliary cards render in the admin settings page. */
 export const AUXILIARY_MODELS: AuxiliaryModelDef[] = [
   VISION_AUXILIARY_MODEL,
+  MACRO_AUXILIARY_MODEL,
   GENERAL_PURPOSE_AUXILIARY_MODEL,
   TRANSLATION_AUXILIARY_MODEL,
 ];

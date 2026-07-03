@@ -139,58 +139,70 @@ export async function buildLensDispatchPlan(
     .groupBy(sourceGroups.id)
     .orderBy(sourceGroups.sortOrder);
 
-  if (groups.length > budget.maxGroupsPerDocument) {
-    for (const group of groups.slice(budget.maxGroupsPerDocument)) {
+  // COVERAGE-FIRST budgeting (2026-07-03). The old plan (a) hard-dropped groups
+  // beyond maxGroupsPerDocument — which silently deleted the *terminal* workflow
+  // stages (SKU creation, production, shipment) because they sort last — and (b)
+  // sorted candidates lens-major, so the whole budget was spent running ONE lens
+  // (handoffs) on the first few groups. Both together meant the endgame of a
+  // swimlane diagram got zero lens coverage. See fix_enhancement.md §5 Bugs A/B/F.
+  //
+  // New model: every source group is a "round". Round 0 gives EVERY group its
+  // single highest-priority lens before any group gets a second lens (round 1),
+  // etc. Selection then walks rounds in order, so breadth-across-the-workflow
+  // wins over depth-on-one-stage, and terminal stages are never dropped by sort
+  // position. Cost stays bounded by maxModelCallsPerDocument and the token ceiling.
+  const perGroup = groups.map((group) => {
+    const metadata = group.metadataJson as { recommendedLenses?: unknown[] } | null;
+    const groupLenses = (metadata?.recommendedLenses ?? []).filter(isExtractionLens);
+    const lenses = [...new Set([...groupLenses, ...outlineLenses])].sort(
+      (a, b) => priority(a) - priority(b),
+    );
+    // maxLensesPerDocument is a per-GROUP depth cap (its name is legacy; see the
+    // note in loadLensBudget). It bounds how many lenses one stage can consume.
+    const kept = lenses.slice(0, budget.maxLensesPerDocument);
+    for (const lens of lenses.slice(budget.maxLensesPerDocument)) {
       skipped.push({
         sourceGroupId: group.id,
         groupTitle: group.title,
-        reason: `group_skipped_over_max_${budget.maxGroupsPerDocument}`,
+        lens,
+        reason: `group_lens_depth_exceeds_${budget.maxLensesPerDocument}`,
       });
     }
-  }
+    return {
+      group,
+      lenses: kept,
+      estimatedInputTokens: Math.max(1, Math.ceil((Number(group.textChars) || 0) / 4) + 1500),
+    };
+  });
 
+  const maxRounds = Math.max(0, ...perGroup.map((g) => g.lenses.length));
   const candidates: Array<{
     sourceGroupId: string;
     groupTitle: string;
     groupSort: number;
     lens: ExtractionLens;
     estimatedInputTokens: number;
+    round: number;
   }> = [];
-
-  for (const group of groups.slice(0, budget.maxGroupsPerDocument)) {
-    const metadata = group.metadataJson as { recommendedLenses?: unknown[] } | null;
-    const groupLenses = (metadata?.recommendedLenses ?? []).filter(isExtractionLens);
-    const lenses = [...new Set([...groupLenses, ...outlineLenses])].sort(
-      (a, b) => priority(a) - priority(b),
-    );
-    for (const lens of lenses.slice(0, budget.maxLensesPerDocument)) {
+  // Round-major, then group sort order: [g0.lens0, g1.lens0, … , g0.lens1, …].
+  for (let round = 0; round < maxRounds; round += 1) {
+    for (const g of perGroup) {
+      const lens = g.lenses[round];
+      if (!lens) continue;
       candidates.push({
-        sourceGroupId: group.id,
-        groupTitle: group.title,
-        groupSort: group.sortOrder ?? 0,
+        sourceGroupId: g.group.id,
+        groupTitle: g.group.title,
+        groupSort: g.group.sortOrder ?? 0,
         lens,
-        estimatedInputTokens: Math.max(1, Math.ceil((Number(group.textChars) || 0) / 4) + 1500),
-      });
-    }
-    for (const lens of lenses.slice(budget.maxLensesPerDocument)) {
-      skipped.push({
-        sourceGroupId: group.id,
-        groupTitle: group.title,
-        lens,
-        reason: `group_lens_count_exceeds_${budget.maxLensesPerDocument}`,
+        estimatedInputTokens: g.estimatedInputTokens,
+        round,
       });
     }
   }
 
-  candidates.sort((a, b) => {
-    const lensPriority = priority(a.lens) - priority(b.lens);
-    if (lensPriority !== 0) return lensPriority;
-    return a.groupSort - b.groupSort;
-  });
-
   const selected: LensDispatchPlan['selected'] = [];
   let tokenTotal = 0;
-  const callLimit = Math.min(budget.maxModelCallsPerDocument, budget.maxLensesPerDocument);
+  const callLimit = budget.maxModelCallsPerDocument;
   for (const candidate of candidates) {
     if (selected.length >= callLimit) {
       skipped.push({ ...candidate, reason: `model_call_count_exceeds_${callLimit}` });
@@ -203,7 +215,12 @@ export async function buildLensDispatchPlan(
       });
       continue;
     }
-    selected.push(candidate);
+    selected.push({
+      sourceGroupId: candidate.sourceGroupId,
+      groupTitle: candidate.groupTitle,
+      lens: candidate.lens,
+      estimatedInputTokens: candidate.estimatedInputTokens,
+    });
     tokenTotal += candidate.estimatedInputTokens;
   }
 
@@ -214,12 +231,16 @@ export async function documentHasCompletedLensBatch(args: {
   db: OracleDb;
   sourceHash: string;
 }): Promise<boolean> {
+  // Must include the TERMINAL status 'complete' (document-lens-extraction.ts
+  // writes 'complete' as the final batch state). Omitting it made a fully
+  // finished lens batch invisible to this guard, so a re-run re-extracted and
+  // re-promoted duplicate lens claims (fix_enhancement.md §5 Bug C).
   const rows = await args.db.execute<{ id: string }>(sql`
     SELECT id
     FROM extraction_batches
     WHERE batch_type = 'document_lens_group'
       AND source_hash = ${args.sourceHash}
-      AND status IN ('pending_model', 'model_complete', 'validation_complete')
+      AND status IN ('pending_model', 'model_complete', 'validation_complete', 'complete')
     LIMIT 1
   `);
   return [...rows].length > 0;

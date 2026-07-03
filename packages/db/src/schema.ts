@@ -448,6 +448,15 @@ export const documents = pgTable(
     // prior in the extraction prompt. Per-claim domain validation stays
     // authoritative — these never override it.
     domainHints: jsonb('domain_hints').$type<string[]>(),
+    // Health of the macro (holistic) layer for this document, surfaced in
+    // Admin -> Documents so a failed holistic layer can't read as a green
+    // `complete`. Written by the source-outline / macro-relationship /
+    // coverage-audit workers. Column added via hand-written SQL migration 85
+    // (like context/domain_hints); values: not_applicable | pending | complete
+    // | degraded | failed. See apps/workers/src/lib/macro-health.ts.
+    macroHealth: varchar('macro_health', { length: 20 })
+      .default('not_applicable')
+      .notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => ({

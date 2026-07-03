@@ -477,6 +477,48 @@ If you have never seen this repo, read this before touching the macro pipeline.
 
 ---
 
+## 6.9 Changes implemented 2026-07-03, and the before/after ordering decision (Claude)
+
+### Implemented this session
+
+1. **Dedicated `macro` model slot (fixes the ERR-001 proximate cause).** The macro layer no longer borrows the `general` utility slot. New auxiliary slot `macro` with its own admin picker **`default_macro_route`** (Admin → Settings → "Macro understanding model"), a `requiredCapability: 'structuredOutputs'` filter, and a comprehensive **"Copy job brief"** (spells out that STRICT json-schema — not loose `json_object` — is a hard requirement, that it runs before *and* after atomic extraction, and what capabilities help/hurt). Seeded to `google/gemini-2.5-flash`.
+   - Files: `packages/ai/src/routes/{errors,defaults,auxiliary,capability-requirements}.ts`; `apps/web/app/admin/settings/page.tsx`; `packages/db/migrations/sql/83_macro_route_setting.sql`; `packages/db/src/seed.ts`; workers `source-outline.ts`, `macro-relationship-extraction.ts`, `source-coverage-audit.ts` (`'general'` → `'macro'`, incl. attempt-logging slot).
+   - **Why a separate slot at all:** macro is a reasoning/synthesis task over claims + structure, not verbatim quote-extraction — but the real point is it must be a *visible, explicit* choice, not an anonymous inheritance from "utility." See the settings job brief.
+   - **Needs to go live:** apply migration 83, deploy workers, re-run doc `9d09fa89`, confirm `macro_relationships > 0`. Tracked as `AGENT_ERROR_LOG.md` ERR-001.
+   - **Still open:** the slot is single-pick — add a **fallback pool + schema-repair pass** so one malformed structured-output response can't zero the layer.
+
+2. **`AGENT_ERROR_LOG.md`** — a designated, in-repo, agent-readable failure log, referenced from `HANDOFF.md`. Seeded with ERR-001 (Qwen schema hard-fail) and ERR-002 (cross-source SQL). Rule: runtime failures must be captured here in a form specific enough to change code from — because a failure that lives only in Trigger.dev/`model_run_attempts` and nobody reads *is* a silent failure. Enabling work still open: macro/coverage must write `job_runs` + a `macro_health` status, then a `scripts/export-worker-failures.mjs` can refresh the log automatically.
+
+### Implemented this session — batch 2 (2026-07-03)
+
+Verified from the Trigger logs that ERR-001's macro/coverage failures were `AllCandidatesFailedError` on the Qwen `general` route, then landed the following (all typecheck-clean; `verify:r2` + `verify:auxiliary-defaults` pass):
+
+3. **Macro fallback pool (resilience).** The `macro` slot is no longer single-pick — `model_pool_macro = [gemini-2.5-flash, gemini-2.5-pro, gpt-4.1-mini]` wired through the existing pool machinery so one malformed structured-output response falls through instead of zeroing the layer. (`packages/ai/src/routes/{defaults,candidates}.ts`, migration `84`, seed.)
+4. **Observability — failures can't hide (§5 Bug C).** `macro-relationship-extraction` and `source-coverage-audit` now write `job_runs` (running → complete/failed) and update the new **`documents.macro_health`** (`not_applicable | pending | complete | degraded | failed`, migration `85`, `apps/workers/src/lib/macro-health.ts`, race-tolerant precedence). A failed holistic layer downgrades health so it can't read as a green `complete`. **Remaining:** render `macro_health` in the Admin → Documents UI.
+5. **Lens fan-out is coverage-first (§5 Bugs A/B/F).** Rewrote `buildLensDispatchPlan`: every source group gets its top lens before any group gets a second (round-major), terminal stages are no longer dropped by the group cap, and the inert `min()` clamp is gone. Budgets raised to cover the workflow (migration `84`: model_calls 4→16, tokens 32k→64k). (`apps/workers/src/lib/document-lens-budget.ts`.)
+6. **Bug C idempotency + Bug E dead tunable.** `documentHasCompletedLensBatch` now includes the terminal `'complete'` status (no more duplicate re-extraction on re-run). `macro_auto_max_support_claims` now actually raises the SQL `LIMIT` instead of being silently capped at 40.
+
+Still not done (deliberately deferred, see below and §5): the workflow-map artifact (§7), Bug G sequencing (coverage still races macro), Bug D (`blocked_pending_support` gating), and the before/after reorder.
+
+### The "macro before AND after atomic extraction" requirement — current state is WRONG, must change
+
+Intended design (agreed): a macro read **before** atomic extraction (so extraction has whole-source context — referents, acronyms, branches, ownership) **and** a macro pass **after** (relationships + coverage, to check the claims reflect the big picture).
+
+**Verified current reality — the "before" is not actually happening:**
+- In `document-ingestion.ts`, `processDocument` runs parse → chunk → embed → **broad atomic extraction** (`buildDocumentChunkWindows`, ~line 713) → promote → mark document `complete` (~line 1291), and only THEN triggers `source-outline` (~line 1298). So the outline for a document is generated **after** its atomic extraction already ran.
+- The broad extraction *does* have an outline-injection point (`source-outline-guidance` block, ~line 777), but it injects only a **prior** outline and only when `macro_outline_injection_enabled = true` — which is **seeded `false`** (migration 79). On a first ingestion there is no prior outline, so the broad pass runs blind.
+- Net: today it's effectively **after-only**. The outline (the "before" artifact) exists but runs too late to inform the extraction it was meant to guide, and injection is off.
+
+**Target change (open, not yet implemented — larger architectural edit):**
+1. Reorder `processDocument`: generate the source outline **immediately after chunk+embed, before** `buildDocumentChunkWindows` extraction (await it; it's one model call).
+2. Inject that fresh outline into the broad extraction as non-quotable guidance, and turn `macro_outline_injection_enabled` on (after a small pilot).
+3. Keep `macro-relationship-extraction` + `source-coverage-audit` as the **after** pass, and sequence coverage *after* macro (Bug G).
+4. This composes with the workflow-map artifact (§7): ideally the "before" pass produces the workflow map, extraction is driven from it, and the "after" pass derives relationships from it.
+
+This is a deliberate follow-up because it changes prod extraction ordering and cost; it should ship with the `macro_health` observability so a failed/blind pass is visible.
+
+---
+
 ## 7. Original diagnosis (Codex) — preserved verbatim
 
 > The text in this section is Codex's original `fix_enhancement.md`, unchanged except for the inline **⚠️ Claude disagrees with this** callouts, which are additions, not edits, and never remove Codex's words.

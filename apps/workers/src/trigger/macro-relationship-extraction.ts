@@ -22,6 +22,7 @@ import {
   claims,
   contradictions,
   entities,
+  jobRuns,
   macroRelationshipClaims,
   macroRelationshipSources,
   macroRelationships,
@@ -32,6 +33,7 @@ import {
   sourceOutlines,
 } from '@oracle/db';
 import { statusForGeneratedMacroRelationship, validateMacroRelationshipSummaryEntities } from '@oracle/engines';
+import { markMacroComplete, markMacroDegraded } from '../lib/macro-health';
 
 const payloadSchema = z.object({
   documentId: z.string().uuid().optional(),
@@ -106,10 +108,15 @@ async function loadSupportClaims(args: {
   sourceOutlineId?: string;
   claimIds?: string[];
   relationshipScope?: 'single_source' | 'cross_source';
+  maxSupportClaims?: number;
 }): Promise<{ claims: SupportClaim[]; documentId: string | null; sourceOutlineId: string | null }> {
   const db = getDirectDb();
   let documentId = args.documentId ?? null;
   let sourceOutlineId = args.sourceOutlineId ?? null;
+  // Honor the macro_auto_max_support_claims setting (2..80). The SQL LIMIT used
+  // to be hard-coded at 40, which silently capped the setting (fix_enhancement.md
+  // §5 Bug E). Inlined via sql.raw because it's a validated integer.
+  const lim = Math.max(2, Math.min(80, Math.floor(args.maxSupportClaims ?? 40)));
 
   if (sourceOutlineId && !documentId) {
     const [source] = await db
@@ -141,7 +148,7 @@ async function loadSupportClaims(args: {
       })
       .from(claims)
       .where(inArray(claims.id, args.claimIds))
-      .limit(40);
+      .limit(lim);
   } else if (documentId && args.relationshipScope === 'cross_source') {
     const result = await db.execute(sql`
       WITH seed_claims AS (
@@ -164,7 +171,10 @@ async function loadSupportClaims(args: {
         WHERE c.status IN ('pending_review', 'approved')
           AND ctd.top_domain_id IN (SELECT top_domain_id FROM seed_domains)
       )
-      SELECT DISTINCT
+      -- No DISTINCT: the IN-subquery already yields one row per claim id, and
+      -- SELECT DISTINCT would make Postgres reject the ORDER BY CASE/created_at
+      -- expressions (42P10 — the real ERR-002 cause; see AGENT_ERROR_LOG.md).
+      SELECT
         c.id,
         c.summary,
         c.claim_type AS "claimType",
@@ -185,7 +195,7 @@ async function loadSupportClaims(args: {
         c.impact_score DESC,
         c.confidence_score DESC,
         c.created_at DESC
-      LIMIT 40
+      LIMIT ${sql.raw(String(lim))}
     `);
     rows = [...result] as SupportClaim[];
   } else if (documentId) {
@@ -199,14 +209,18 @@ async function loadSupportClaims(args: {
         c.claim_kind_review_status AS "claimKindReviewStatus",
         c.status,
         c.impact_score AS "impactScore",
-        c.confidence_score AS "confidenceScore"
+        c.confidence_score AS "confidenceScore",
+        -- created_at must be in the select list because SELECT DISTINCT +
+        -- ORDER BY c.created_at otherwise fails with 42P10 (ERR-002). The JOINs
+        -- can duplicate a claim per evidence row, so DISTINCT stays.
+        c.created_at
       FROM claims c
       JOIN claim_evidence ce ON ce.claim_id = c.id
       JOIN document_chunks dc ON dc.id = ce.source_document_chunk_id
       WHERE dc.document_id = ${documentId}::uuid
         AND c.status IN ('pending_review', 'approved')
       ORDER BY c.impact_score DESC, c.confidence_score DESC, c.created_at DESC
-      LIMIT 40
+      LIMIT ${sql.raw(String(lim))}
     `);
     rows = [...result] as SupportClaim[];
   }
@@ -272,18 +286,26 @@ async function loadMacroBudget(): Promise<MacroBudget> {
   };
 }
 
-async function runMacroRelationshipExtraction(rawPayload: unknown) {
+async function runMacroRelationshipExtractionCore(
+  rawPayload: unknown,
+): Promise<{ documentId: string | null; result: Record<string, unknown> }> {
   const payload = payloadSchema.parse(rawPayload);
   const db = getDirectDb();
-  const support = await loadSupportClaims(payload);
-  if (support.claims.length < 2) {
-    return { status: 'skipped_too_few_claims', count: support.claims.length };
-  }
   const budget = await loadMacroBudget();
+  const support = await loadSupportClaims({
+    ...payload,
+    maxSupportClaims: budget.maxSupportClaims,
+  });
+  if (support.claims.length < 2) {
+    return {
+      documentId: support.documentId,
+      result: { status: 'skipped_too_few_claims', count: support.claims.length },
+    };
+  }
   support.claims = support.claims.slice(0, budget.maxSupportClaims);
 
   const client = new OracleAIClient({ adapters: buildStandardAdapters() });
-  const resolved = await resolveRouteCandidates(db, 'general');
+  const resolved = await resolveRouteCandidates(db, 'macro');
   const routeCandidates = resolved.candidates;
   const route = routeCandidates[0]!.route;
   const claimIds = support.claims.map((claim) => claim.id);
@@ -365,7 +387,7 @@ async function runMacroRelationshipExtraction(rawPayload: unknown) {
         db,
         error: err,
         taskType: 'macro-relationship',
-        slot: 'general',
+        slot: 'macro',
         contextPackId: contextPack.id,
       });
       throw err;
@@ -404,7 +426,7 @@ async function runMacroRelationshipExtraction(rawPayload: unknown) {
     db,
     metadata: result,
     taskType: 'macro-relationship',
-    slot: 'general',
+    slot: 'macro',
     contextPackId: contextPack.id,
     modelRunId: modelRun.id,
   });
@@ -534,11 +556,67 @@ async function runMacroRelationshipExtraction(rawPayload: unknown) {
     inserted += 1;
   }
 
-  return { status: 'complete', inserted, rejectedUnsupportedEntities, rejectedNearDuplicates };
+  return {
+    documentId: support.documentId,
+    result: { status: 'complete', inserted, rejectedUnsupportedEntities, rejectedNearDuplicates },
+  };
+}
+
+/**
+ * Wrapper that makes this worker VISIBLE: it writes a job_runs row (running ->
+ * complete/failed) and updates the document's macro_health. Previously this task
+ * wrote no job_runs row at all, so its repeated AllCandidatesFailedError failures
+ * were invisible in the Oracle's own dashboards (fix_enhancement.md §5 Bug C;
+ * AGENT_ERROR_LOG.md ERR-001).
+ */
+async function runMacroRelationshipExtraction(rawPayload: unknown, triggerRunId: string) {
+  const db = getDirectDb();
+  let payloadDocId: string | null = null;
+  try {
+    payloadDocId = payloadSchema.parse(rawPayload).documentId ?? null;
+  } catch {
+    payloadDocId = null;
+  }
+  const [jobRun] = await db
+    .insert(jobRuns)
+    .values({
+      triggerRunId,
+      jobType: 'macro-relationship-extraction',
+      status: 'running',
+      startedAt: new Date(),
+      inputJson: rawPayload as Record<string, unknown>,
+    })
+    .returning({ id: jobRuns.id });
+  try {
+    const { documentId, result } = await runMacroRelationshipExtractionCore(rawPayload);
+    if (jobRun) {
+      await db
+        .update(jobRuns)
+        .set({ status: 'complete', finishedAt: new Date(), outputJson: result })
+        .where(eq(jobRuns.id, jobRun.id));
+    }
+    if (result.status === 'complete') {
+      await markMacroComplete(db, documentId ?? payloadDocId);
+    }
+    return result;
+  } catch (err) {
+    if (jobRun) {
+      await db
+        .update(jobRuns)
+        .set({
+          status: 'failed',
+          finishedAt: new Date(),
+          error: err instanceof Error ? err.message : String(err),
+        })
+        .where(eq(jobRuns.id, jobRun.id));
+    }
+    await markMacroDegraded(db, payloadDocId);
+    throw err;
+  }
 }
 
 export const macroRelationshipExtractionTask = task({
   id: 'macro-relationship-extraction',
   maxDuration: 60 * 10,
-  run: async (payload: unknown) => runMacroRelationshipExtraction(payload),
+  run: async (payload: unknown, { ctx }) => runMacroRelationshipExtraction(payload, ctx.run.id),
 });

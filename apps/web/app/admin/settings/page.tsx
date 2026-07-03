@@ -107,6 +107,31 @@ const AUX_PRESENTATION: Record<
     effortSettingDescription:
       'Reasoning effort for image transcription. Most vision models ignore this; leave Off unless the chosen model benefits.',
   },
+  macro: {
+    subtitle: 'Holistic understanding — outlines, relationships, coverage',
+    description: (
+      <>
+        Drives the <strong>macro (holistic) layer</strong> of document
+        understanding, which is separate from atomic claim extraction. Three
+        background workers use it: <strong>source outline</strong> (reads a whole
+        source and maps its stages, owners, systems, branches, and terms{' '}
+        <em>before</em> atomic extraction, so extraction has context),{' '}
+        <strong>macro relationship extraction</strong> (infers the cross-claim
+        workflow — dependencies, handoffs, sequence, branches, loops —{' '}
+        <em>after</em> extraction), and <strong>coverage audit</strong> (flags
+        what the source shows but the claims missed). Each emits deep,{' '}
+        <strong>nested JSON</strong>, so this model must have real{' '}
+        <strong>strict structured-output</strong> support — a model that only
+        does loose <code>json_object</code> (e.g. Qwen) will hard-fail here. The
+        picker is filtered to structured-output-capable models; pick a strong
+        long-context reasoning model with native JSON-schema output (e.g.
+        Gemini 2.5 Flash, GPT-4.1). Use &ldquo;Copy job brief&rdquo; for the full
+        spec.
+      </>
+    ),
+    settingDescription:
+      'Model for the macro/holistic layer: source outlines, macro relationship extraction, and coverage audits. Requires strict structured-output support.',
+  },
   general: {
     subtitle: 'Utility / fallback model for internal jobs',
     description: (
@@ -440,11 +465,73 @@ CAPABILITIES IT DOES NOT NEED (do not pay for these; some actively hurt)
 BOTTOM LINE
 Pick the model with the best, most natural translation quality for your exact language pair and the strictest "output only the translation" discipline — a Chinese-native flagship (e.g. Qwen-Max-tier) is a strong default for English<->Chinese. Ignore reasoning, tools, structured output, vision, and long context; keep reasoning effort low. Since it runs async on only the claims you direct to a language group, spend for fidelity, not speed or cost. Validate the final choice with a small A/B (this model vs one alternative) on ~15 real claims judged by a bilingual reviewer.`;
 
+const MACRO_MODEL_BRIEF = `THE ORACLE — "Macro Understanding Model" role brief
+(Paste this into a model-evaluation assistant or vendor comparison to judge whether a given model is the right pick for this setting.)
+
+PURPOSE
+This model builds The Oracle's HOLISTIC understanding of a source. Atomic extraction (a different model) breaks a document into many small, quote-validated "claims." That is necessary but not sufficient: a swimlane diagram or SOP is a whole business process, not a bag of isolated arrows. This model's job is to understand and represent the BIG PICTURE — the end-to-end lifecycle, who owns each stage, the order and dependencies, the conditional branches, the approval loops, the systems of record, and what the source shows that the atomic claims failed to capture. If atomic extraction answers "what are the facts," this model answers "what is the process, and does our set of facts faithfully represent it."
+
+WHERE IT SITS IN THE PIPELINE (it runs both BEFORE and AFTER atomic extraction)
+Three background (Trigger.dev) workers share this one model setting:
+  1. source-outline — runs on/near ingestion. Reads the whole source (all chunks, and for images the transcription) and produces a provisional structured "outline": the source's purpose, process stages, actors/owners, systems, customers/licensors, geographies, term/acronym definitions, handoffs, exceptions, open questions, recommended extraction "lenses," and meaning-based groupings of the source. This is the BEFORE pass: its output is injected as non-quotable CONTEXT so atomic extraction understands the source's shape (referents, acronyms, branches) instead of extracting blind. The outline is GUIDANCE ONLY — never evidence, never quotable.
+  2. macro-relationship-extraction — runs AFTER atomic claims exist. Reads the already-validated claims and proposes durable cross-claim relationships (dependency, handoff, sequence, exception_path, policy_vs_practice_tension, workaround_to_system_limitation, definition_resolution). Each relationship must be supported by ≥2 real claim IDs — its evidence is claim IDs, NOT free text.
+  3. source-coverage-audit — runs AFTER. Compares the outline's expectations against the claims + relationships actually produced and emits "coverage findings" (missing stage, missing owner, missing branch, unresolved reference, unrepresented exception, low_claim_density, macro_only_source). Findings become gaps; they never assert new facts as true.
+
+WHAT IT IS FED (input)
+- A large STRUCTURED-JSON system prompt + schema for whichever of the three tasks is running.
+- For outlines: the full source text/topology (can be long — a whole document or diagram transcription), plus, for visual sources, the image itself when the model is multimodal.
+- For relationships: a bounded set of candidate claim summaries with their IDs, types, "claim kinds," and statuses.
+- For coverage: the outline JSON plus the extracted claims/relationships JSON.
+It is NOT user-facing. Nobody is waiting on it. It runs asynchronously in the background at document scale.
+
+WHAT IS EXPECTED (output) — this is the crux
+- DEEP, NESTED, SCHEMA-VALID JSON, every time. The output schemas are large and nested (arrays of stages, each with arrays of inputs/outputs/nextStageIds/sourceRefs; arrays of relationships each with an array of supportingClaims with roles; arrays of findings). The runtime validates the output against a strict Zod schema and FAILS THE WHOLE TASK if a required field or array is missing.
+- Faithful, conservative reasoning: say "unknown" when the source doesn't say; never invent stages, owners, or entities; only reference claim IDs / source refs from the supplied list; never introduce a named entity not present in the support claims or the entity registry.
+- Genuine holistic comprehension of process structure: correctly reading a diagram's sequence, branches (new vs existing, pass vs fail), loops (revision/re-sampling), cross-swimlane handoffs, and terminal outcomes.
+
+PROCESS IT USES
+Asynchronous, background, single-shot STRUCTURED-OUTPUT generation (runObject) per task. Long input, long nested output. No human latency requirement. It reasons over structure; it does not fetch anything itself (retrieval/claim-selection happens before the call).
+
+WHAT MAKES A MODEL PERFECTLY SUITED
+- NATIVE STRICT JSON-SCHEMA structured output (Gemini responseJsonSchema, OpenAI json_schema strict). This is the single most important attribute — see hard requirements.
+- Strong multi-step reasoning over structure: assembling a lifecycle, detecting branches/loops/handoffs, spotting coverage gaps and policy-vs-practice tension. This is a synthesis/reasoning task, closer to the Synthesis role than to verbatim extraction.
+- Large context window: outlines can ingest a whole document or a dense diagram transcription in one call (aim comfortably >100K, more is better).
+- Generous max OUTPUT tokens: the nested JSON for a 10-stage workflow with branches is large; truncated output = schema failure.
+- Multimodal (image) input is a strong PLUS for source outlines of diagrams/flowcharts/spec sheets, so the model can reconcile the picture with the parsed text.
+- Reliability/determinism of schema adherence across retries. Cost/throughput matter (runs at document volume, async), but correctness of structured output dominates.
+
+CAPABILITIES IT NEEDS (hard requirements)
+- STRICT structured output / JSON-schema mode — NON-NEGOTIABLE. A model that only offers loose "json_object" (return-some-JSON) is NOT acceptable: it intermittently omits required arrays and the task hard-fails with AllCandidatesFailedError. (This exact failure took the macro layer to zero on the Pop Creations flow diagram when this slot pointed at Qwen qwen3.7-max.)
+- Ability to handle DEEP, COMPLEX NESTED schemas specifically — not merely "has a JSON mode". VERIFIED IN PROD 2026-07-03: Google Gemini 2.5 flash AND pro REJECT the macro relationship/coverage schemas with 400 "the specified schema produces a constraint that is too complex", even though Gemini has a strict-schema mode. OpenAI strict-json-schema models (e.g. gpt-4.1-mini) handle them fine. This is why the shipped primary is an OpenAI model and Gemini is fallback-only (Gemini is fine for the simpler source-outline schema, not for relationships/coverage).
+- Large context window (>100K; bigger is better for whole-source outlines).
+- High max-output-token ceiling for deep nested JSON.
+- Strong instruction-following and reasoning.
+
+CAPABILITIES THAT ARE NICE TO HAVE
+- Image/multimodal input (helps outline quality on visual sources).
+- Reasoning/"thinking" controls — modest effort can help assemble structure; keep an eye on cost.
+- Prompt caching for the stable schema/system prefix.
+
+CAPABILITIES IT DOES NOT NEED
+- Low latency / streaming — it is a background job; nobody is watching.
+- Tool / function calling — retrieval and claim selection happen before the call.
+- Verbatim-quote fidelity — unlike atomic extraction, this model does not quote the source; its evidence is claim IDs and its outline is explicitly non-quotable.
+
+NEGATIVE ATTRIBUTES (avoid)
+- Loose-JSON-only providers (json_object without strict schema) — the top cause of failure here.
+- Google Gemini as the PRIMARY for this slot — Gemini 2.5 flash/pro reject the nested macro relationship/coverage schemas (400 "constraint too complex"). Keep Gemini only as a lower-priority fallback (it's fine for the source-outline schema).
+- Small context or small max-output models — they truncate the nested JSON and fail validation.
+- Models that hallucinate entities/stages or ignore "reference only the supplied IDs" instructions — they poison provenance and get rejected by the entity/support validators anyway.
+
+BOTTOM LINE
+Pick a strong long-context REASONING model with NATIVE STRICT JSON-SCHEMA output that can handle DEEP NESTED schemas (OpenAI strict-json-schema models are proven here; Gemini is NOT — it 400s on the nested schemas) and a high output-token ceiling; multimodal is a bonus for diagrams. Do NOT pick a loose-json-object-only model, and do NOT optimize for latency. This slot is intentionally separate from the Extraction model: extraction mines verbatim-quoted facts; this model reasons about the whole process and must emit deep nested schema-valid JSON. The fallback POOL for this slot is the settings row model_pool_macro (ordered, admin-editable); this picker sets the primary (default_macro_route).`;
+
 // Clipboard "job brief" text by auxiliary-model id. Declared after the brief
 // literals (which are large) so the earlier AUX_PRESENTATION map stays free of
 // forward references. Aux models without a brief simply omit an entry.
 const AUX_CLIPBOARD_BRIEFS: Record<string, string> = {
   vision: VISION_MODEL_BRIEF,
+  macro: MACRO_MODEL_BRIEF,
   translation: TRANSLATION_MODEL_BRIEF,
 };
 

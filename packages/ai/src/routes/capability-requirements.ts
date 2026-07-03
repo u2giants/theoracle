@@ -28,6 +28,12 @@ export function requiredCapabilitiesFor(slot: ModelSlot): CapabilityRequirement[
       ];
     case 'vision':
       return [{ kind: 'capability', field: 'vision', label: 'vision' }];
+    case 'macro':
+      // Macro understanding (source outlines, relationship extraction, coverage
+      // audits) emits deep nested JSON. It MUST have real structured-output
+      // support — this is the exact capability whose absence made the Qwen
+      // json_object route throw AllCandidatesFailedError. See AGENT_ERROR_LOG.md.
+      return [{ kind: 'capability', field: 'structuredOutputs', label: 'structured outputs' }];
     case 'general':
     case 'translation':
       return [];

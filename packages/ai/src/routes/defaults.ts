@@ -28,6 +28,15 @@ export const VISION_REASONING_EFFORT_SETTING_KEY = 'default_vision_reasoning_eff
 export const TRANSLATION_ROUTE_SETTING_KEY = 'default_translation_route';
 
 /**
+ * Macro-understanding model used by the source-outline, macro-relationship, and
+ * source-coverage-audit workers. Distinct from the general-purpose slot on
+ * purpose: these workers emit deep nested JSON and MUST use a model with real
+ * (strict) structured-output support. See AGENT_ERROR_LOG.md for why Qwen
+ * (json_object only) hard-failed here.
+ */
+export const MACRO_ROUTE_SETTING_KEY = 'default_macro_route';
+
+/**
  * Reasoning effort settings keys, one per stage. Values are 'off' | 'low' |
  * 'medium' | 'high' (unified across providers; adapters translate).
  */
@@ -54,6 +63,15 @@ export const MODEL_POOL_SETTING_KEYS = {
   extraction: 'model_pool_extraction',
   synthesis: 'model_pool_synthesis',
 } as const satisfies Record<OracleModelRole, string>;
+
+/**
+ * Fallback pool for the macro slot. Unlike the other auxiliary slots (which are
+ * single-pick), the macro layer gets an ordered approved chain so one malformed
+ * structured-output response can't zero the whole holistic layer. Must be
+ * non-empty and must contain the `default_macro_route` primary. See
+ * AGENT_ERROR_LOG.md ERR-001.
+ */
+export const MODEL_POOL_MACRO_SETTING_KEY = 'model_pool_macro';
 
 /** Emergency capability-enforcement override. Defaults to true when unset. */
 export const ENFORCE_MODEL_CAPABILITIES_SETTING_KEY = 'enforce_model_capabilities';

@@ -47,6 +47,8 @@ const DEFAULT_SETTINGS: Array<{
   { key: 'enforce_model_capabilities', value: true, description: 'When true, model routing rejects configured models that do not meet slot capability requirements.' },
   { key: 'default_vision_route', value: 'qwen/qwen3-vl-235b-a22b-thinking', description: 'Auxiliary image-vision model route for document image transcription.' },
   { key: 'default_general_purpose_route', value: 'qwen/qwen3.7-max', description: 'Auxiliary general-purpose model route for internal utility jobs.' },
+  { key: 'default_macro_route', value: 'openai/gpt-4.1-mini', description: 'Macro/holistic-layer model (source outlines, macro relationship extraction, coverage audits). Requires strict structured-output support. Gemini rejects the nested schemas (400 too-complex) — use an OpenAI strict-json-schema model.' },
+  { key: 'model_pool_macro', value: ['openai/gpt-4.1-mini', 'openai/gpt-4.1', 'google/gemini-2.5-pro'], description: 'Ordered fallback chain for the macro slot. OpenAI first — Gemini rejects the nested macro schemas.' },
   { key: 'default_translation_route', value: 'qwen/qwen-mt-plus', description: 'Auxiliary translation model route for bilingual claim rendering and review questions.' },
   { key: 'extraction_char_budget', value: 24000, description: 'Approximate max characters of active conversation text selected per extraction run before stopping at a conversation boundary.' },
   { key: 'extraction_carry_in_count', value: 12, description: 'Prior complete/skipped same-channel messages included as non-quotable context for message extraction.' },

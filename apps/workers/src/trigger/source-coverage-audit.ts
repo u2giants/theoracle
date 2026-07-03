@@ -17,6 +17,7 @@ import {
 import { getDirectDb } from '@oracle/db/client';
 import {
   claims,
+  jobRuns,
   macroRelationships,
   modelRunUsageDetails,
   modelRuns,
@@ -25,6 +26,7 @@ import {
   sourceOutlineSources,
   sourceOutlines,
 } from '@oracle/db';
+import { markMacroComplete, markMacroDegraded } from '../lib/macro-health';
 
 const payloadSchema = z.object({
   sourceOutlineId: z.string().uuid(),
@@ -54,7 +56,7 @@ function buildContextPackInsert(plan: OraclePromptPlan) {
   };
 }
 
-async function runCoverageAudit(rawPayload: unknown) {
+async function runCoverageAuditCore(rawPayload: unknown) {
   const { sourceOutlineId } = payloadSchema.parse(rawPayload);
   const db = getDirectDb();
 
@@ -76,7 +78,9 @@ async function runCoverageAudit(rawPayload: unknown) {
 
   const claimRows = outline.documentId
     ? ([...(await db.execute(sql`
-        SELECT DISTINCT c.id, c.summary, c.claim_type, c.claim_kind, c.status
+        -- created_at is in the select list: SELECT DISTINCT + ORDER BY
+        -- c.created_at otherwise fails with 42P10 (ERR-002). See AGENT_ERROR_LOG.md.
+        SELECT DISTINCT c.id, c.summary, c.claim_type, c.claim_kind, c.status, c.created_at
         FROM claims c
         JOIN claim_evidence ce ON ce.claim_id = c.id
         JOIN document_chunks dc ON dc.id = ce.source_document_chunk_id
@@ -104,7 +108,7 @@ async function runCoverageAudit(rawPayload: unknown) {
     .limit(50);
 
   const client = new OracleAIClient({ adapters: buildStandardAdapters() });
-  const resolved = await resolveRouteCandidates(db, 'general');
+  const resolved = await resolveRouteCandidates(db, 'macro');
   const routeCandidates = resolved.candidates;
   const route = routeCandidates[0]!.route;
 
@@ -173,7 +177,7 @@ async function runCoverageAudit(rawPayload: unknown) {
         db,
         error: err,
         taskType: 'source-coverage-audit',
-        slot: 'general',
+        slot: 'macro',
         contextPackId: contextPack.id,
       });
       throw err;
@@ -212,7 +216,7 @@ async function runCoverageAudit(rawPayload: unknown) {
     db,
     metadata: result,
     taskType: 'source-coverage-audit',
-    slot: 'general',
+    slot: 'macro',
     contextPackId: contextPack.id,
     modelRunId: modelRun.id,
   });
@@ -267,8 +271,66 @@ async function runCoverageAudit(rawPayload: unknown) {
   return { status: 'complete', findings: findings.length };
 }
 
+/**
+ * Wrapper that makes coverage-audit VISIBLE: writes a job_runs row and updates
+ * the document's macro_health. Like macro-relationship-extraction, this task
+ * previously wrote no job_runs row, so its failures were invisible. See
+ * AGENT_ERROR_LOG.md ERR-001 and fix_enhancement.md §5 Bug C.
+ */
+async function runCoverageAudit(rawPayload: unknown, triggerRunId: string) {
+  const db = getDirectDb();
+  let documentId: string | null = null;
+  try {
+    const { sourceOutlineId } = payloadSchema.parse(rawPayload);
+    const [row] = await db
+      .select({ documentId: sourceOutlineSources.documentId })
+      .from(sourceOutlineSources)
+      .where(eq(sourceOutlineSources.sourceOutlineId, sourceOutlineId))
+      .limit(1);
+    documentId = row?.documentId ?? null;
+  } catch {
+    documentId = null;
+  }
+  const [jobRun] = await db
+    .insert(jobRuns)
+    .values({
+      triggerRunId,
+      jobType: 'source-coverage-audit',
+      status: 'running',
+      startedAt: new Date(),
+      inputJson: rawPayload as Record<string, unknown>,
+    })
+    .returning({ id: jobRuns.id });
+  try {
+    const result = await runCoverageAuditCore(rawPayload);
+    if (jobRun) {
+      await db
+        .update(jobRuns)
+        .set({ status: 'complete', finishedAt: new Date(), outputJson: result })
+        .where(eq(jobRuns.id, jobRun.id));
+    }
+    if (result.status === 'complete') {
+      await markMacroComplete(db, documentId);
+    }
+    return result;
+  } catch (err) {
+    if (jobRun) {
+      await db
+        .update(jobRuns)
+        .set({
+          status: 'failed',
+          finishedAt: new Date(),
+          error: err instanceof Error ? err.message : String(err),
+        })
+        .where(eq(jobRuns.id, jobRun.id));
+    }
+    await markMacroDegraded(db, documentId);
+    throw err;
+  }
+}
+
 export const sourceCoverageAuditTask = task({
   id: 'source-coverage-audit',
   maxDuration: 60 * 10,
-  run: async (payload: unknown) => runCoverageAudit(payload),
+  run: async (payload: unknown, { ctx }) => runCoverageAudit(payload, ctx.run.id),
 });

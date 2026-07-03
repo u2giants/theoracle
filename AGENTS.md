@@ -952,6 +952,17 @@ Translating evidence would break verbatim provenance; auto-translating every cla
 Do not change because:
 Feeding a translated quote into validation, or adding a locale branch to `getBrainSectionSnippets`, or auto-translating on approval, each reverses a deliberate decision. The locale-rendering SQL fragments live in `buildPlanMetadataFilters()` precisely so the parity guard forces both retrieval branches to stay in lockstep — add new locale logic there, not in one branch.
 
+### The macro/holistic layer runs on its OWN model slot, and Gemini can't serve it
+
+Looks like:
+The Admin → Settings Extraction and Vision model pickers should control everything about processing a document, so if extraction is set to Gemini, the whole document pipeline (including the macro/holistic layer) must be using Gemini.
+
+Actually:
+The macro/holistic layer — `source-outline`, `macro-relationship-extraction`, `source-coverage-audit` — resolves a SEPARATE auxiliary slot, `macro` (`resolveRouteCandidates(db, 'macro')` → `default_macro_route` + fallback pool `model_pool_macro`). It is NOT the extraction route and NOT the `general` utility slot. It was on `general` (Qwen) until 2026-07-03, which hard-failed every run (`AllCandidatesFailedError`), producing zero macro relationships/coverage while the document still showed `complete`. See DECISIONS `D-macro-model-slot` and `AGENT_ERROR_LOG.md` ERR-001.
+
+Do not change because:
+The macro schemas are deep/nested and need a STRICT-json-schema model — and, VERIFIED IN PROD, **Google Gemini 2.5 flash AND pro reject them with `400 "the specified schema produces a constraint that is too complex"`** even though Gemini has a strict-schema mode. So the macro primary must be an **OpenAI** strict-json-schema model (`default_macro_route` seeded `openai/gpt-4.1-mini`); Gemini is fallback-only (fine for the simpler source-outline schema). Do NOT set the macro slot to Qwen (loose `json_object`) or to a Gemini model as primary. The fallback pool `model_pool_macro` is load-bearing — both the Qwen and Gemini primaries failed, and only the pool made the layer resilient. Failures are now visible via `job_runs` + `documents.macro_health`; a fresh macro run must leave `documents.macro_health='complete'`.
+
 ## 12. Credentials and environment
 
 | Variable | Purpose | Stored where | Required in dev | Required in prod |
