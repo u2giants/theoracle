@@ -32,6 +32,12 @@ export interface CandidateHashInputs {
   validatedQuotes: string[];
   /** Sorted source pointers — each one is `${sourceType}:${sourceId}`. */
   sourcePointers: string[];
+  /**
+   * Optional graph-level dedup key for structured sources. When present, it
+   * replaces summary text in the hash so multiple phrasings of the same
+   * workflow edge/node dedupe to one canonical claim.
+   */
+  stableGraphKey?: string;
 }
 
 export interface MapElementCandidateHashInputs {
@@ -49,7 +55,9 @@ export interface MapElementCandidateHashInputs {
  */
 export function computeCandidateHash(inputs: CandidateHashInputs): string {
   const canonical = {
-    summary: canonicalizeSummary(inputs.summary),
+    summary: inputs.stableGraphKey
+      ? `graph:${canonicalizeSummary(inputs.stableGraphKey)}`
+      : canonicalizeSummary(inputs.summary),
     topDomainIds: [...inputs.topDomainIds].map((d) => d.trim().toLowerCase()).sort(),
     validatedQuotes: [...inputs.validatedQuotes].map((q) => q.trim()).sort(),
     sourcePointers: [...inputs.sourcePointers].map((s) => s.trim()).sort(),

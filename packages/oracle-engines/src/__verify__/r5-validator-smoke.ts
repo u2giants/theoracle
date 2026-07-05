@@ -352,6 +352,22 @@ function main() {
     });
     assert(h3 !== h1, 'Extra: distinct candidate inputs produce distinct hashes');
     assert(/^[0-9a-f]{64}$/.test(h1), 'Extra: hash is 64-char sha256 hex');
+
+    const edgeHash1 = computeCandidateHash({
+      summary: 'Design sends the approved package to Sourcing.',
+      topDomainIds: ['business_process'],
+      validatedQuotes: ['Design sends the approved package to Sourcing.'],
+      sourcePointers: ['document_chunk:chunk-1'],
+      stableGraphKey: 'workflow-map:map-1:edge:design-to-sourcing',
+    });
+    const edgeHash2 = computeCandidateHash({
+      summary: 'Sourcing receives approved artwork from Design.',
+      topDomainIds: ['business_process'],
+      validatedQuotes: ['Design sends the approved package to Sourcing.'],
+      sourcePointers: ['document_chunk:chunk-1'],
+      stableGraphKey: 'workflow-map:map-1:edge:design-to-sourcing',
+    });
+    assert(edgeHash1 === edgeHash2, 'Extra: workflow edge key dedupes paraphrased edge claims');
   }
 
   // ── Stage 3 map-element dedup hash ─────────────────────────────────

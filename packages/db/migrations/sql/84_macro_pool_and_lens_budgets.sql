@@ -3,7 +3,7 @@
 -- (1) model_pool_macro: the macro slot now has an ordered fallback chain so one
 --     malformed structured-output response can't zero the holistic layer
 --     (AGENT_ERROR_LOG.md ERR-001). Must contain the default_macro_route primary
---     (google/gemini-2.5-flash) and only strict-json-schema-capable models.
+--     (openai/gpt-4.1-mini) and only strict-json-schema-capable models.
 --
 -- (2) Lens fan-out budgets: the old defaults (model_calls=4, groups=8) plus the
 --     lens-major selection meant a 10-stage swimlane diagram ran ONE lens on the

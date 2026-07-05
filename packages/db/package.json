@@ -15,6 +15,7 @@
     "migrate": "tsx src/migrate.ts",
     "check-drift": "tsx src/check-migration-drift.ts",
     "seed": "tsx src/seed.ts",
+    "verify:macro-support-queries": "tsx src/verify-macro-support-queries.ts",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },

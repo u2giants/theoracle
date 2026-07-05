@@ -65,8 +65,12 @@ function main() {
     'generated macro with approved support is pending review',
   );
   assert(
-    statusForGeneratedMacroRelationship(['approved', 'pending_review']) === 'blocked_pending_support',
-    'generated macro with pending support is blocked',
+    statusForGeneratedMacroRelationship(['approved', 'pending_review']) === 'pending_review',
+    'generated macro with pending support is still pending review',
+  );
+  assert(
+    statusForGeneratedMacroRelationship(['approved', 'rejected']) === 'needs_review',
+    'generated macro with rejected support needs review',
   );
   assert(
     statusAfterDroppingMacroSupport(['approved']) === 'needs_review',

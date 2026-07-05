@@ -645,21 +645,20 @@ async function checkClaimForContradictions(
         });
       }
 
-      // Log oracle_interventions row. channelId is the real channel if we found
-      // one, or the all-zero placeholder if the contradiction is between
-      // claims sourced only from documents (no chat channel).
-      await tx.insert(oracleInterventions).values({
-        channelId: channelCtx?.channelId ?? '00000000-0000-0000-0000-000000000000',
-        triggerType: 'possible_contradiction',
-        relatedContradictionId: contradiction?.id,
-        interjectionMessageId,
-        confidence: detectionConfidence,
-        impactScore: object.severity === 'high' ? 9 : object.severity === 'medium' ? 6 : 3,
-        wasLiveInterjection: interjectionMessageId !== null,
-        reason: interjectionDecisionResult.decision === 'live'
-          ? interjectionDecisionResult.reason
-          : `${interjectionDecisionResult.reason} [details: ${object.explanation}]`,
-      });
+      if (channelCtx) {
+        await tx.insert(oracleInterventions).values({
+          channelId: channelCtx.channelId,
+          triggerType: 'possible_contradiction',
+          relatedContradictionId: contradiction?.id,
+          interjectionMessageId,
+          confidence: detectionConfidence,
+          impactScore: object.severity === 'high' ? 9 : object.severity === 'medium' ? 6 : 3,
+          wasLiveInterjection: interjectionMessageId !== null,
+          reason: interjectionDecisionResult.decision === 'live'
+            ? interjectionDecisionResult.reason
+            : `${interjectionDecisionResult.reason} [details: ${object.explanation}]`,
+        });
+      }
     });
   }
 

@@ -29,7 +29,7 @@ ALTER TABLE extraction_batches
   ADD CONSTRAINT extraction_batches_status_check
   CHECK (status IN (
     'pending_model','model_complete','validation_complete',
-    'promoted','failed','skipped','failed_validation_loop'
+    'promoted','complete','failed','skipped','failed_validation_loop'
   ));
 
 ALTER TABLE extraction_batches

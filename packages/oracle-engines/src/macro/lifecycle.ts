@@ -14,7 +14,15 @@ export function allMacroSupportApproved(statuses: readonly SupportClaimStatus[])
 }
 
 export function statusForGeneratedMacroRelationship(statuses: readonly SupportClaimStatus[]): MacroRelationshipStatus {
-  return allMacroSupportApproved(statuses) ? 'pending_review' : 'blocked_pending_support';
+  if (statuses.length < 2) return 'needs_review';
+  if (statuses.some((status) => status === 'rejected' || status === 'superseded')) {
+    return 'needs_review';
+  }
+  // Generated macro relationships should be visible in the admin review queue
+  // even while their support claims are pending. Read-time Brain/chat helpers
+  // still require approved support before trusted consumption; this only avoids
+  // the holistic layer disappearing behind a noisy atomic-claim queue.
+  return 'pending_review';
 }
 
 export function statusAfterDroppingMacroSupport(statuses: readonly SupportClaimStatus[]): MacroRelationshipStatus {
