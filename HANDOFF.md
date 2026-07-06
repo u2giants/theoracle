@@ -63,6 +63,17 @@ Verification already run in this checkout:
 
 ---
 
+## ACTIVE (2026-07-06): Vision transcription & claim-extraction test plan → see `test_code_changes.md`
+
+We ingested a swimlane process diagram (test doc `9d09fa89-3a46-465e-a98b-837287c9e22a`) and the Oracle drew many wrong conclusions from it. We root-caused the failures (image→text→claims pipeline; the extractor never sees the image), made a first round of code changes (information-weight windowing, `buildStandardAdapters` adding deepseek+qwen, `decideCacheProfitability` cache gating, admin cache visibility, a new `verify:openai-qwen-cache` gate), and defined **two tests** to run next in a fresh session:
+
+1. **Test 1** — faithfulness: what the system transcribes/claims vs. a human reading of the diagram (scored rubric + ground truth).
+2. **Test 2** — 5 vision models head-to-head on transcription quality **and** prompt-cache effectiveness (to decide whether good caching lets us afford a stronger/more expensive vision model than the current `qwen/qwen3-vl-235b-a22b-thinking`).
+
+**`test_code_changes.md` is the complete, self-contained brief** — background, every change made and not-yet-made, prior bake-off results, ground truth, step-by-step commands, cache-metric locations, cost model, and env/tooling. Written for a developer new to the app. Start there.
+
+---
+
 ## Four model-adapter bugs fixed + extraction bake-off — 2026-06-26 (DONE: fixed, proven, deployed, prod set)
 
 Status: complete. Code on `main` (`c9cc5d0`), prod worker deployed (`20260626.7`), prod settings updated to the bake-off winner. All four bugs were live-API proven, not just typechecked.
