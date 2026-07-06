@@ -163,7 +163,7 @@ architecture?* Time and money already spent are irrelevant.
 | Hybrid retrieval (pgvector + tsvector + RRF) | `packages/ai/src/retrieval.ts` | Stays as the EVIDENCE lookup — finding supporting claims for a model element or a chat answer. It stops being the primary answering path (§4.6). |
 | Entity registry + taxonomy (top domains, sub-topics, entity proposals) | `entities`, `knowledge_top_domains`, etc. | The business model references entities (systems, roles) instead of inventing parallel tables (§6.2). |
 | Admin claim review UI + review groups + review events | `/admin/claims`, `claim_review_*` tables | Adapted, not rebuilt: it gains a "bundle" context (§4.5) but per-claim veto and audit events survive. |
-| Brain synthesis worker + sections/versions | `brain-synthesis.ts`, `brain_sections`, `brain_section_versions` | Re-anchored to consume the business model (§5.6, Stage 5). The versioned-draft + validator pattern is good. |
+| Brain synthesis worker + sections/versions | `brain-synthesis.ts`, `brain_sections`, `brain_section_versions` | Re-anchored to consume the business model (§5.6, Stage 6). The versioned-draft + validator pattern is good. |
 | Translation layer, Teams/Recall/meeting ingestion transports, settings system, seed conventions | various | Orthogonal to the inversion. Untouched except where §5.5 taps conversations into the merge pipeline. |
 | Conversation segmenting + non-quotable carry-in | `claim-extraction.ts:1095–1252` | Correct provenance behavior. The macro layer, not quotability changes, is how earlier context becomes durable. |
 
@@ -174,7 +174,7 @@ architecture?* Time and money already spent are irrelevant.
 | Document lens fan-out (whole subsystem) | `apps/workers/src/trigger/document-lens-extraction.ts`, `apps/workers/src/lib/document-lens-budget.ts`, settings `macro_lenses_enabled`, `macro_max_lens_*` (4 keys), migration-81 seeds | It exists to compensate for blind extraction by re-running extraction through themed "lenses," and it produced the 4× duplication disaster (241 claims / 56 quotes). Map-directed extraction makes it redundant: the map already tells us exactly what to extract. Budget machinery, lens-major sort fixes, idempotency guard — all of it goes. | §5.4 map-directed extraction |
 | LLM macro rediscovery | `macro-relationship-extraction.ts` model call + `MACRO_RELATIONSHIP_SYSTEM_PROMPT` (`packages/ai/src/prompts/macro-relationship.ts`) + `loadSupportClaims` LIMIT/impact-sort machinery | Asks an LLM to rebuild a graph from ≤40 impact-sorted prose summaries after the pipeline destroyed the graph. Structurally cannot work and empirically never has. | §5.3 deterministic derivation from the map/model + §4.7 for the genuinely inferential relationship types |
 | `macro_outline_injection_enabled` flag + prior-outline injection path | `document-ingestion.ts:1424–…` (`loadDocumentOutlineContext`), setting seeded false in migration 79 | Superseded: the map is generated BEFORE extraction and injected unconditionally (§5.2). A flag that gates the architecture's core step is a bug. | awaited pre-read |
-| LLM-first coverage audit | `source-coverage-audit.ts` model call + `packages/ai/src/prompts/coverage-audit.ts` | Coverage of a known graph is a deterministic computation, not an LLM opinion. | §5.7 deterministic coverage checks (an optional LLM "anything qualitative missing?" pass may be re-added LAST, Stage 6, if deterministic checks prove insufficient) |
+| LLM-first coverage audit | `source-coverage-audit.ts` model call + `packages/ai/src/prompts/coverage-audit.ts` | Coverage of a known graph is a deterministic computation, not an LLM opinion. | §5.7 deterministic coverage checks (an optional LLM "anything qualitative missing?" pass may be re-added LAST, Stage 7, if deterministic checks prove insufficient) |
 | Summary-text candidate dedup for map-derived claims | candidate-hash logic in promotion path | Same edge phrased 3 ways = 3 claims. | edge-level dedup keys (§5.4) |
 | Bug D birth-status semantics for generated structure | `packages/oracle-engines/src/macro/lifecycle.ts` `statusForGeneratedMacroRelationship` | Gating generated structure behind prior mass claim-approval inverts D3 and made the macro layer permanently invisible. | bundle review (§4.5) + read-time verification kept (§11) |
 | `source-outline` as a fire-and-forget afterthought | trigger at `document-ingestion.ts:1328–1332` | The read must happen BEFORE extraction, awaited, inline (§5.2). The outline worker's group/lens-recommendation output is superseded by the map. | `source-workflow-read` (§5.2) |
@@ -189,8 +189,8 @@ rows (§3.3) — re-point it at the new support-status transitions; otherwise de
 
 | Component | Disposition |
 |---|---|
-| `source_outlines`, `source_groups`, `source_group_items`, `source_outline_sources/_refs` tables | Retire from the pipeline (no new writers after Stage 2). Do NOT drop the tables until Stage 7 cleanup — historical rows aid the backfill comparison. The new `source_workflow_maps` table (§6.1) is the successor. |
-| `macro_relationships` (+ `_claims`, `_sources`, `_review_events`) | KEEP the tables, change the producer and the meaning. Sequence/handoff/branch/loop relationships now live NATIVELY in the process graph (edges) — never as `macro_relationships` rows. `macro_relationships` becomes the home of genuinely inferential cross-claim insights only: `policy_vs_practice_tension`, `contradiction_or_tension`, `workaround_to_system_limitation`, `coverage_gap`, `definition_resolution` — produced by the Stage 6 consultant pass and by contradiction tooling. Rows of type `dependency`/`handoff`/`sequence`/`exception_path` get no new writers. `/admin/macro` UI survives, re-scoped to these types. |
+| `source_outlines`, `source_groups`, `source_group_items`, `source_outline_sources/_refs` tables | Retire from the pipeline (no new writers after Stage 3). Do NOT drop the tables until Stage 9 cleanup — historical rows aid the backfill comparison. The new `source_workflow_maps` table (§6.1) is the successor. |
+| `macro_relationships` (+ `_claims`, `_sources`, `_review_events`) | KEEP the tables, change the producer and the meaning. Sequence/handoff/branch/loop relationships now live NATIVELY in the process graph (edges) — never as `macro_relationships` rows. `macro_relationships` becomes the home of genuinely inferential cross-claim insights only: `policy_vs_practice_tension`, `contradiction_or_tension`, `workaround_to_system_limitation`, `coverage_gap`, `definition_resolution` — produced by the Stage 7 consultant pass and by contradiction tooling. Rows of type `dependency`/`handoff`/`sequence`/`exception_path` get no new writers. `/admin/macro` UI survives, re-scoped to these types. |
 | `/admin/macro` page | Becomes the review surface for model changes (§4.5) + inferential relationships. |
 | `gaps` table | Gains a writer: deterministic coverage findings (§5.7) file gaps referencing model elements. |
 | Chat's existing macro-relationship injection (`apps/web/app/api/chat/route.ts:192–275`) | Pattern survives; the primary context block becomes the process narrative (§4.6). |
@@ -248,9 +248,12 @@ responsibility list must never be analyzed against logistics flow data):** the s
 knowledge top-domains (already classified by the existing taxonomy pipeline on the
 document/chunks) filter the candidate processes FIRST via `process_top_domains`
 (§6.2); embedding similarity on process/node labels + entity overlap ranks WITHIN the
-domain-filtered set (top `process_match_top_k`). Only shortlisted processes enter the
-merge context window. A source whose domains match no existing process goes straight
-to `create_process`. The proposal is one of:
+domain-filtered set. Shortlist width: `merge_candidate_top_k` (seed 5) candidates are
+considered INTERNALLY, then narrowed to the highest-confidence 1–2 before the LLM
+alignment pass sees them — a hard top-2 cutoff fails on overlapping processes, while
+showing the LLM five graphs invites over-matching; shortlist wide, align narrow. Only
+the narrowed processes enter the merge context window. A source whose domains match no
+existing process goes straight to `create_process`. The proposal is one of:
 
 - `create_process` — nothing matches; propose a new process built from the map. (This
   is the "add a whole process" case.)
@@ -294,17 +297,31 @@ claims per operation with their quotes inline.
 
 Rules (implement exactly):
 
-- Approving a proposal: creates the new process version, applies the operations,
-  auto-approves every bundled claim that passed quote validation (writing a
-  `claim_review_events` row with `review_source='model_change_bundle'` and the proposal
-  ID), and links `process_element_claims`.
+- Approving a proposal executes the TRANSACTIONAL APPLY defined in §4.8 (optimistic
+  lock on the process's `current_version_id`; all-or-nothing). Within that
+  transaction it: creates the new process version, applies the operations, approves
+  the bundled claims that pass the eligibility checks below (writing a
+  `claim_review_events` row with `review_source='model_change_bundle'` and the
+  proposal ID), and links `process_element_claims`.
+- **Claim eligibility checks — bundle approval is NOT blanket approval.** "The
+  structure is right" and "every quoted sentence is right" are related but not
+  identical judgments. A bundled claim auto-approves only if ALL of: (a) it passed
+  quote validation; (b) its content matches the element/support-role it is linked to
+  (an ownership claim linked to an edge-transition op fails this); (c) no open
+  `contradictions` row touches it; (d) it is not a duplicate of an existing canonical
+  claim for the same business-model element (§4.8 canonical dedup — the newcomer
+  links as `corroborating` instead of approving as a second canonical). Claims
+  failing any check stay `pending_review` individually and are listed on the
+  proposal so the reviewer sees what did NOT ride along.
 - The reviewer can veto individual claims within the bundle before approving. A vetoed
-  claim is rejected normally. If a veto leaves an operation's element with zero
-  supporting claims, that element is created/updated as `provisional`.
+  claim is rejected normally. If a veto (or eligibility failure) leaves an operation's
+  element with zero supporting claims, that element is created/updated as
+  `provisional`.
 - Rejecting a proposal: no version change; bundled claims fall back to ordinary
   `pending_review` (they may still be true facts even if the structural read was wrong).
 - `confirm` proposals auto-apply without human review (they add evidence, never change
-  structure). Everything else requires a human.
+  structure) — through the same §4.8 transaction and the same claim eligibility
+  checks.
 - Every transition writes an audit event (`business_model_change_events`, mirroring
   `claim_review_events`).
 
@@ -330,7 +347,7 @@ claim approval rides on structure approval, which is one human decision per sour
 
 The system prompt (`packages/ai/src/prompts/oracle-system.ts`) is updated to instruct:
 answer from the process model, cite claims, state provisional/gap status honestly.
-Brain synthesis (Stage 5) anchors sections to processes the same way.
+Brain synthesis (Stage 6) anchors sections to processes the same way.
 
 ### 4.7 The consultant layer
 
@@ -350,6 +367,70 @@ Runs over the approved business model. Two halves:
 
 Recommendations are served in chat (B8/B9) and in a new `/admin/recommendations` view,
 with statuses (`open | accepted | dismissed | done`).
+
+### 4.8 The state machine and transaction contract (implement this BEFORE any worker code)
+
+This section is the concurrency/idempotency spec for the whole redesign. Stage 1
+lands it as schema + a short `docs/`-adjacent contract check; every worker built later
+must conform. The failure modes it prevents are not hypothetical: two documents CAN
+propose changes to the same process concurrently, and re-dispatched Trigger runs CAN
+double-fire.
+
+**States (exhaustive — no other values may be written):**
+
+- `source_workflow_maps.status`: `pending → validated | degraded | failed`;
+  `validated/degraded → superseded` (only by a newer validated map for the same
+  source, §6.1). Maps are immutable after leaving `pending`.
+- `business_model_changes.status`: `pending_review → approved | rejected |
+  needs_rebase | superseded`; `pending_review → auto_applied` (confirm only);
+  any apply attempt that errors mid-transaction → `failed_apply` (terminal until
+  manually re-dispatched). `needs_rebase → superseded` when the rebased replacement
+  proposal is created.
+- `business_process_versions.status`: `pending_review → approved → superseded`;
+  `pending_review → rejected`. Versions are immutable after creation; "editing" a
+  version is always creating a new one.
+
+**Transactional apply (approval and confirm auto-apply both use this):**
+
+One database transaction that (1) takes a per-process advisory lock (reuse the
+existing promotion-path advisory-lock helper); (2) re-checks
+`business_processes.current_version_id == proposal.base_version_id` — if stale, the
+transaction aborts and the proposal flips to `needs_rebase` (nothing else changes);
+(3) creates the new version + nodes/edges/paths (carrying stable `node_key`/
+`edge_key` forward per §6.2); (4) runs the §4.5 claim eligibility checks and approves
+eligible claims; (5) runs canonical dedup (below) and writes
+`process_element_claims`; (6) writes the audit event; (7) flips
+`current_version_id`. Any error → full rollback, proposal `failed_apply`,
+`job_runs` failed, `macro_health` degraded. NO partial state, ever.
+
+**Rebase:** a `needs_rebase` proposal is not hand-edited — re-dispatch
+`business-model-merge` with the same `source_workflow_map_id` against the NEW current
+version; the old proposal is marked `superseded` by the new one. This is safe because
+maps are immutable.
+
+**Canonical dedup (cross-source — per-document dedup alone is not enough):** at
+link time, if the target element (`version lineage` + `element_key`) already has a
+`primary` claim in `process_element_claims`, a new claim asserting the same fact
+links as `corroborating` — it never becomes a second canonical claim. Per-document
+`(documentId, mapElementRef)` dedup (§5.4) handles within-source duplication; this
+rule handles across-source duplication.
+
+**Idempotency keys (every worker; re-dispatch with the same key must be a no-op that
+returns the existing artifact):**
+
+- `source-workflow-read`: `(source id, source content hash)` — the §6.1 uniqueness.
+- `business-model-merge`: `(source_workflow_map_id, base_version_id)` — a second
+  dispatch finds the existing proposal and exits.
+- apply: proposal ID + status guard — only a `pending_review` proposal can apply;
+  double-click/double-dispatch hits the status check and no-ops.
+- extraction: the existing batch machinery + `(documentId, mapElementRef)` dedup.
+- recommendations: `(version_id, analyzer_key, hash(element_keys))`.
+
+**Retries and poison jobs:** bounded retries via Trigger.dev task config (max 3, as
+today); a run that exhausts retries writes `job_runs` failed + the appropriate
+terminal status (`map_failed` / `failed_apply` / `macro_health='failed'`) — never an
+infinite retry loop, never a silently vanished job (D4). A stuck document (any
+`pending` state older than 24h) is surfaced in Admin → Documents.
 
 ---
 
@@ -375,8 +456,12 @@ truly optional afterthoughts (translations, notifications).
 ### 5.2 `source-workflow-read` (new worker; successor to `source-outline`)
 
 Input: document ID (or meeting/segment ref). Loads all chunks IN ORDER (never a
-truncated/impact-sorted subset — if the source exceeds the model context, window it
-sequentially and merge in code; fork F5). Model: the `workflow_read` slot (§8). Output (FLAT, D6):
+truncated/impact-sorted subset). Token/cost guardrail: estimated input above
+`workflow_read_max_estimated_input_tokens` (setting, seed `150000`) switches to
+sequential windows in chunk order, each producing partial flat lists with a
+carried-forward node-label registry, merged + re-validated in code (fork F5) — the
+budget triggers windowing, never truncation or failure. Model: the `workflow_read`
+slot (§8). Output (FLAT, D6):
 
 ```
 nodes:   [{ nodeId, label, lane, ownerName?, nodeType, systems?, evidenceQuote, chunkId }]
@@ -432,25 +517,28 @@ fan-out) with:
   `mapElementRef` (`nodeId`/`edgeId` or null).
 - Dedup key for map-referenced candidates: `(documentId, mapElementRef)` — first valid
   candidate wins, later phrasings are dropped as duplicates (not promoted as variants).
-  Non-map candidates keep the existing summary-hash dedup.
+  Non-map candidates keep the existing summary-hash dedup. This handles WITHIN-source
+  duplication only; ACROSS-source duplication (a second document evidencing the same
+  business-model element) is handled at link time by §4.8 canonical dedup — the new
+  claim links as `corroborating`, never as a second canonical.
 - Everything downstream (quote validation, taxonomy, entity checks, promotion) is the
   EXISTING pipeline, untouched.
 
 Expected result on the test diagram: ~60–90 claims (one per unique element + genuine
-extras), not 241. That number is a Stage-2 gate (§9).
+extras), not 241. That number is a Stage-3 gate (§9).
 
 ### 5.5 Conversations and meetings
 
-Stage-3+ scope (do documents first). Same shape, lighter weight: after a conversation
-segment's claim extraction completes, a `segment-model-merge` pass runs the §5.3
-matcher over the segment's promoted claims + segment summary against the business
-model. It emits `confirm`/`contradict`/`refine` proposals only (segments rarely
+Stage-5+ scope (do documents first — segments need the apply path to exist). Same
+shape, lighter weight: after a conversation segment's claim extraction completes, a
+`segment-model-merge` pass runs the §5.3 matcher over the segment's promoted claims +
+segment summary against the business model. It emits `confirm`/`contradict`/`refine` proposals only (segments rarely
 justify `create_process`). This is what makes a meeting utterance mean something in
 context: "they described a workaround at the PPS audit stage" becomes a linked model
 change, not fragment #4,012. Live Recall interjections may later consult the process
 match (fork F8) — NOT in initial scope.
 
-### 5.6 Brain synthesis re-anchoring (Stage 5)
+### 5.6 Brain synthesis re-anchoring (Stage 6)
 
 `brain-synthesis.ts` currently synthesizes per knowledge domain from approved claims.
 Change: for domains that intersect business processes, the synthesis prompt receives
@@ -482,8 +570,13 @@ only); vector indexes gated behind `ORACLE_RUN_VECTOR_INDEXES=1`; seeds use
 `channel_id` FK null, `segment_ref` null, `status`
 (`pending|validated|degraded|failed`), `map_kind` (`workflow|reference`), `summary`,
 `nodes_json`, `edges_json`, `lanes_json`, `paths_json`, `validation_json`,
-`model_run_id` FK, `context_pack_id` FK, timestamps. One validated map per
-(source, source content hash); re-ingest replaces.
+`model_run_id` FK, `context_pack_id` FK, `superseded_by_map_id` FK null, timestamps.
+Maps are IMMUTABLE once out of `pending` and are never deleted or overwritten:
+re-ingesting a source creates a NEW map row and marks the old one
+`status='superseded'` (+ `superseded_by_map_id`). Rationale: maps influence claims
+and model changes, so replacing one destructively would orphan the audit trail of
+everything derived from it. Uniqueness: at most one non-superseded map per
+(source, source content hash).
 
 ### 6.2 Business model tables
 
@@ -506,8 +599,10 @@ only); vector indexes gated behind `ORACLE_RUN_VECTOR_INDEXES=1`; seeds use
   `node_keys_ordered` jsonb, `terminal_outcome` null.
 - `process_element_claims`: `id`, `version_id`, `element_kind` (`node|edge`),
   `element_key`, `claim_id` FK, `support_role` (`primary|corroborating`),
-  `claim_status_at_link`. Read-time approval verification queries through this
-  (same pattern as `approved-relationships.ts`).
+  `claim_status_at_link`. ⚠️ `claim_status_at_link` is AUDIT METADATA ONLY — it
+  records history and goes stale by design. Serving and verification must ALWAYS
+  join the live `claims.status` (read-time verification, §11.2); no code path may
+  branch on `claim_status_at_link` for anything except audit display.
 - `process_top_domains`: (`process_id`, `top_domain_id` FK →
   `knowledge_top_domains`) — links every business process to the existing knowledge
   taxonomy. Written at process creation (from the founding source's domains) and
@@ -522,22 +617,28 @@ only); vector indexes gated behind `ORACLE_RUN_VECTOR_INDEXES=1`; seeds use
 
 ### 6.4 `business_model_changes`
 
-`id`, `process_id` FK null (null for `create_process`), `base_version_id` FK null,
-`change_type` (`create_process|refine_process|confirm|contradict`), `status`
-(`pending_review|approved|rejected|auto_applied`), `source_workflow_map_id` FK,
-`operations_json` (flat list: `{op: add_node|update_node|remove_node|add_edge|
-update_edge|remove_edge|add_path|update_narrative, payload, supportClaimIds[]}`),
-`summary`, `contradiction_id` FK null, `reviewed_by` FK null, `model_run_id`,
-timestamps. Plus `business_model_change_events` audit table (mirror
+`id`, `process_id` FK null (null for `create_process`), `base_version_id` FK
+(REQUIRED for `refine_process`/`contradict`/`confirm` — the optimistic-lock anchor,
+§4.8), `change_type` (`create_process|refine_process|confirm|contradict`), `status`
+(`pending_review|approved|rejected|auto_applied|needs_rebase|superseded|failed_apply`
+— full transition rules in §4.8), `superseded_by_change_id` FK null,
+`source_workflow_map_id` FK, `operations_json` (flat list:
+`{op: add_node|update_node|remove_node|add_edge|update_edge|remove_edge|add_path|
+update_narrative, payload, supportClaimIds[]}`), `summary`, `contradiction_id` FK
+null, `reviewed_by` FK null, `model_run_id`, timestamps. Unique partial index on
+`(source_workflow_map_id, base_version_id)` for non-superseded rows — the §4.8 merge
+idempotency key. Plus `business_model_change_events` audit table (mirror
 `claim_review_events` columns).
 
 ### 6.5 Settings (seed in the same migration)
 
 `serve_provisional_process_elements=true`, `workflow_map_max_dropped_ratio=0.2`,
-`model_merge_min_alignment_confidence=70`, `process_match_top_k=2` (chat),
-plus DELETE of the dead lens keys in the Stage-7 cleanup migration.
+`model_merge_min_alignment_confidence=70`, `merge_candidate_top_k=5` (internal merge
+shortlist, §4.3), `process_match_top_k=2` (chat process matching, §4.6),
+`workflow_read_max_estimated_input_tokens=150000` (§5.2 windowing trigger),
+plus DELETE of the dead lens keys in the Stage-9 cleanup migration.
 
-### 6.6 `recommendations` (Stage 6)
+### 6.6 `recommendations` (Stage 7)
 
 `id`, `process_id` FK, `version_id` FK, `origin` (`deterministic|llm`), `analyzer_key`
 null, `title`, `severity` (`info|warning|critical`), `narrative`, `element_keys` jsonb,
@@ -584,7 +685,7 @@ Model-agnosticism rules first (these are architecture, not preference):
 - Model names below are SEEDED DEFAULTS + bake-off candidate lists, not dependencies.
   The repo's proven convention (2026-06-26 extraction bake-off) applies: isolate each
   candidate in a one-element pool so fail-over can't mask failures, run the fixture,
-  pick the winner empirically. Stage 1 and Stage 6 gates include these bake-offs.
+  pick the winner empirically. The §9 stage gates include these bake-offs (§8.3).
 - Cost policy (Albert): no premium-tier models (Claude Opus/Fable, GPT-5.5,
   Gemini 3.1 Pro Preview). Mid-tier (e.g., Claude Sonnet, Gemini 2.5 Pro) is allowed
   and is worth it for the low-volume, high-reasoning passes: workflow-read and
@@ -620,10 +721,11 @@ Implementation rules:
   and the conversation row is a UI relabel of the interview slot — do NOT rename
   settings keys; renames are churn with zero function. Confirm live Recall
   interjections resolve the interview slot too; if they don't, re-point them to it.
-- Each new row ships in the stage that introduces its worker (workflow read + merge in
-  Stage 1/3); the relabels/consolidations and new pools for existing slots ship in
-  Stage 1. The old `macro` slot (`default_macro_route`, `model_pool_macro`) is
-  superseded and its keys retire in the Stage-7 cleanup migration.
+- The entire Model Passes table (all 8 rows, relabels, new pools, empty-state
+  pickers) ships in Stage 1 with the rest of the schema/settings work (§9) — the rows
+  exist before their workers do. The old `macro` slot (`default_macro_route`,
+  `model_pool_macro`) is superseded and its keys retire in the Stage-9 cleanup
+  migration.
 
 The eight rows:
 
@@ -736,16 +838,16 @@ filled CHEAP-FIRST, decided by the battery, not by intuition:
 3. Only then seat `claude-sonnet-5`.
 
 Re-run this ladder whenever the chat prompt or context-pack shape changes materially
-(the Stage 5 gate includes the first run). Escalation/de-escalation is an admin
+(the Stage 6 gate includes the first run). Escalation/de-escalation is an admin
 settings change, so trying cheap first costs nothing.
 
 ### 8.3 Bake-offs
 
 The seeded orders above are HYPOTHESES. `MODEL_BAKEOFF_SPEC.md` is the complete,
 self-contained protocol for validating them empirically (one-element pools, fixtures,
-scoring rubrics, recording, safe settings restore). Stage 1 (workflow read, vision),
-Stage 3 (merge), Stage 5 (conversation ladder), and Stage 6 (deep synthesis) gates
-each require their bake-off from that spec.
+scoring rubrics, recording, safe settings restore). Stage 2 (workflow read, vision),
+Stage 3 (extraction re-run), Stage 4 (merge), Stage 6 (conversation ladder), and
+Stage 7 (deep synthesis) gates each require their bake-off from that spec.
 
 ---
 
@@ -753,55 +855,96 @@ each require their bake-off from that spec.
 
 Work in this order. Each stage ends with: typecheck all packages, the listed gate,
 a battery scoring run appended to `evals/macro-first-battery.md`, `HANDOFF.md` updated,
-and — since worker behavior changes — a Trigger.dev prod deploy recorded. Do not start
+and — when worker behavior changes — a Trigger.dev prod deploy recorded. Do not start
 stage N+1 with stage N's gate red. NOTE: the working tree already has uncommitted
 changes (macro admin UI, cache work — see `git status` / HANDOFF 2026-07-03); get those
 committed/deployed with Albert's sign-off BEFORE Stage 0 so your baseline is clean.
 
+Staging principles (why this order): schema and the §4.8 contract land BEFORE any LLM
+work, so a wrong data model can't hide behind prompt-tuning; the merge runs in SHADOW
+mode (proposals produced, nothing applied) one full stage before transactional apply
+exists, because apply is the highest-risk code in the redesign and deserves its own
+stage and gate; backfill and cleanup are separate stages, because cleanup is only safe
+after the backfill proves the new model survives real corpus diversity.
+
 - **Stage 0 — Baseline.** Create `evals/macro-first-battery.md`; run B1–B10 against
-  current prod chat, score, record (expect ~0s — that's the point). Snapshot claim/
-  relationship counts for the test document. No code changes. *Gate: baseline recorded.*
-- **Stage 1 — Schema + reader.** Migrations §6.1–6.3; `source-workflow-read` worker +
-  validation; rewire `processDocument` to await it before extraction and inject the map
-  (no flag); write `macro_health`. Lens fan-out: disabled via its existing kill-switch
-  setting this stage, code deleted in Stage 2. *Gate: re-ingest the test document →
-  validated map with ≥90% of the diagram's nodes/edges surviving validation (compare
-  against `fix_enhancement.md` §2.1's human-verified workflow read, which is the ground
-  truth); `macro_health` reflects reality when you force a reader failure.*
-- **Stage 2 — Map-directed extraction + dedup + kills.** §5.4; delete lens fan-out and
-  outline-injection flag path per §3.2. *Gate: test document yields ≤100 promoted
+  current prod chat, score, record (expect ~0s — that's the point). Run BO-0 (ceiling
+  benchmark) for its Stage-0 measurement. Snapshot claim/relationship counts for the
+  test document. No code changes. *Gate: baseline + ceiling recorded.*
+- **Stage 1 — Schema + contract (no LLM work).** ALL migrations §6.1–6.6 (additive),
+  `schema.ts` mirrors, RLS, the §4.8 state-machine/transaction contract implemented as
+  shared helpers (`packages/oracle-engines/src/model/lifecycle.ts` + apply-transaction
+  skeleton with the advisory lock and optimistic-lock check, unit-tested against a
+  seeded fixture — no LLM anywhere); settings seeds; the §8 Model Passes table UI
+  (new rows, relabels, pools) with empty-state admin pages for the new tables.
+  *Gate: migrations applied to prod AND a fresh-DB apply proves idempotency; RLS
+  verified (anon denied, service role passes); settings read back single-encoded;
+  Model Passes table renders all 8 rows with seeded pools; lifecycle/transaction unit
+  tests pass, including the stale-base-version and mid-transaction-error paths.*
+- **Stage 2 — Workflow reader.** `source-workflow-read` worker + deterministic
+  validation + supersede-on-reingest semantics (§6.1) + token-budget windowing (§5.2);
+  rewire `processDocument` to await it before extraction and inject the map (no flag);
+  write `macro_health`. Lens fan-out: disabled via its existing kill-switch setting
+  this stage; code deleted in Stage 3. Run BO-1 (vision) and BO-2 (workflow read)
+  bake-offs. *Gate: re-ingest the test document → validated map with ≥90% of the
+  diagram's nodes/edges surviving validation (answer key: `fix_enhancement.md` §2.1);
+  re-ingest again → old map `superseded`, exactly one non-superseded map; forced
+  reader failure shows in `macro_health`; re-dispatch with same content hash is a
+  no-op (§4.8 idempotency).*
+- **Stage 3 — Map-directed extraction + dedup + kills.** §5.4; delete lens fan-out and
+  outline-injection flag path per §3.2. Keep the OLD extraction path callable behind a
+  setting until the Stage 5 gate passes (comparison + emergency fallback while merge/
+  review are being proven), then delete it. Re-run BO-4 (extraction — the map-injection
+  prompt change qualifies as material). *Gate: test document yields ≤100 promoted
   claims with ≥95% of map elements evidenced by ≥1 claim; zero elements with 3+
   same-element claims; typecheck passes with killed files gone.*
-- **Stage 3 — Business model + merge.** Tables §6.2/6.4; `business-model-merge`;
-  proposals written; `confirm` auto-applies. *Gate: first ingest → `create_process`
-  proposal whose operations reproduce the map; re-ingest same doc → `confirm`, not a
-  duplicate process; ingest a doctored variant (change one edge) → `refine` or
-  `contradict` touching only that edge.*
-- **Stage 4 — Review inversion.** `/admin/macro` rebuilt for proposals (before/after
-  graph diff, per-op claims with quotes, per-claim veto); bundle approval per §4.5
-  rules; audit events. *Gate: approving the test proposal creates version 1, approves
-  bundled claims with `model_change_bundle` events, links `process_element_claims`;
-  veto path produces a `provisional` element; rejecting returns claims to
-  `pending_review`.*
-- **Stage 5 — Answering inversion.** Chat context per §4.6 with read-time verification;
-  `oracle-system.ts` update; Brain re-anchor §5.6. *Gate: battery B1–B7 all score 2;
-  B10 scores 2; answers cite claim IDs; unplugging approval (set a support claim
-  rejected) demotes the element to provisional in the live answer.*
-- **Stage 6 — Consultant layer.** Analyzers + `recommendations` + LLM synthesis +
+- **Stage 4 — Merge in SHADOW mode.** Tables already exist (Stage 1);
+  `business-model-merge` produces proposals — NOTHING applies, not even `confirm`
+  (auto-apply is switched on in Stage 5). Read-only admin list of proposals. Run BO-3
+  (merge). *Gate: first ingest → `create_process` proposal whose operations reproduce
+  the map; re-ingest same doc → `confirm` proposal, not a duplicate process proposal;
+  doctored variant (one edge changed) → `refine`/`contradict` touching only that
+  edge's neighborhood; re-dispatching the merge produces NO duplicate proposals
+  (§4.8 idempotency key).*
+- **Stage 5 — Review, apply, versioning (the transactional core).** `/admin/macro`
+  rebuilt for proposals (before/after graph diff, per-op claims with quotes, per-claim
+  veto, eligibility-failure list); bundle approval per §4.5; §4.8 transactional apply
+  live, `confirm` auto-apply switched on; rebase path working. Delete the old
+  extraction path after this gate. *Gate: approving the test proposal creates version
+  1, approves eligible bundled claims with `model_change_bundle` events, links
+  `process_element_claims`; veto → `provisional` element; reject → claims back to
+  `pending_review`; CONCURRENCY TEST: two pending proposals on the same base version —
+  first applies, second flips `needs_rebase`, rebase yields a correct replacement
+  proposal; injected mid-apply error → `failed_apply` with zero partial state.*
+- **Stage 6 — Answering inversion.** Chat context per §4.6 with read-time
+  verification; `oracle-system.ts` update; Brain re-anchor §5.6. Run BO-6
+  (conversation ladder) and BO-0's second measurement. *Gate: battery B1–B7 all score
+  2; B10 scores 2; answers cite claim IDs; rejecting a support claim demotes the
+  element to provisional in the live answer.*
+- **Stage 7 — Consultant layer.** Analyzers + `recommendations` + LLM synthesis +
   `/admin/recommendations`; repurposed `macro_relationships` writers for inferential
-  types. *Gate: B8/B9 score 2; every recommendation's element/claim citations resolve;
-  a fabricated-ID canary in a test fixture is rejected.*
-- **Stage 7 — Backfill + cleanup.** Re-ingest the historical corpus through the new
-  pipeline (deliberate, document-by-document, admin reviewing proposals — this is also
-  the real-world shakedown); cleanup migration dropping dead settings; drop retired
-  tables ONLY after Albert confirms the backfill; delete `HANDOFF.md` items this
-  supersedes. *Gate: full battery ≥ 18/20; no `pending` maps/proposals older than the
-  backfill; grep proves no references to killed modules.*
+  types. Run BO-5 (deep synthesis). *Gate: B8/B9 score 2; every recommendation's
+  element/claim citations resolve; a fabricated-ID canary in a test fixture is
+  rejected.*
+- **Stage 8 — Backfill (its own stage — this is the real-world shakedown).** Re-ingest
+  the historical corpus through the new pipeline, BATCHED, not naively: (1) first a
+  DRY-RUN REPORT — for the whole corpus, produce maps + shadow proposals without
+  apply, and report expected proposal counts per document/domain so Albert can see the
+  review load before committing to it; (2) priority order chosen by Albert
+  (highest-value domains first); (3) bulk-accept UI action for `confirm` proposals;
+  (4) review sessions sized to a human — target ≤10 structural proposals per sitting,
+  batches sequenced so early approvals make later merges smarter. Run BO-0's third
+  measurement. *Gate: full corpus ingested; no `pending` maps/proposals older than the
+  backfill window; full battery ≥18/20; BO-0 ≥80% of ceiling on all three fixtures.*
+- **Stage 9 — Cleanup.** ONLY after Albert confirms the backfill: cleanup migration
+  dropping dead settings keys + retired tables (§3.3); retire old `macro` slot keys;
+  delete `HANDOFF.md` items this supersedes. *Gate: typecheck + drift check clean;
+  grep proves no references to killed modules or dead settings keys.*
 
-Rollback posture: stages 1–2 are shadowable (old extraction path can run one more
-document if the reader fails — keep `processDocument`'s old path callable until Stage 2's
-gate passes, then delete it). From Stage 3 on, new tables are additive; rollback = stop
-the new workers. Never half-apply a stage to prod.
+Rollback posture: Stages 2–3 are shadowable (the old extraction path stays callable
+until the Stage 5 gate); Stage 4 is shadow by design (nothing applies); from Stage 5
+on, all new tables are additive and rollback = stop the new workers and stop serving
+process context (a settings flip). Never half-apply a stage to prod.
 
 ---
 
@@ -930,3 +1073,21 @@ node / edge / path** (§4.1, durable cross-source model), **model change proposa
   chat apps on three modality fixtures: swimlane image, licensing prose doc, ClickUp/
   Cloudflare-D1 data export) to `MODEL_BAKEOFF_SPEC.md`, run at Stages 0/2/5/7 with a
   ≥80%-of-ceiling target and a regression alarm.
+- 2026-07-06 (Claude, Fable 5), Codex-review integration (Albert directed adopting
+  the "Where Codex is right" findings; Codex CLI reviewed both docs in full): NEW
+  §4.8 state-machine + transaction contract — exhaustive status enums (proposals gain
+  `needs_rebase`/`superseded`/`failed_apply`), transactional apply with advisory lock
+  + optimistic lock on `current_version_id`, rebase path, per-worker idempotency
+  keys, bounded retries/poison-job handling. §4.5 rewritten: bundle approval now runs
+  per-claim ELIGIBILITY checks (quote valid, role matches element, no open
+  contradiction, not a canonical duplicate) instead of blanket auto-approval. §4.8
+  adds CROSS-source canonical dedup (newcomers link `corroborating`). §6.1: maps
+  supersede, never replace (audit trail). §6.2: `claim_status_at_link` is audit-only.
+  §4.3/§6.5: `merge_candidate_top_k=5` internal shortlist, narrow before the LLM.
+  §5.2: `workflow_read_max_estimated_input_tokens` windowing guardrail. §9 restaged
+  0–9: schema+contract land BEFORE any LLM work (Stage 1); merge runs in SHADOW mode
+  (Stage 4) before transactional apply gets its own stage and concurrency gate
+  (Stage 5); old extraction path retained until the Stage 5 gate; backfill (Stage 8,
+  batched with dry-run report + bulk-accept confirms + human-sized review sessions)
+  split from cleanup (Stage 9). All stage cross-references renumbered here, in
+  `MODEL_BAKEOFF_SPEC.md`, and in `HANDOFF.md`.

@@ -85,13 +85,15 @@ Ground rules (all learned the hard way in this repo — see HANDOFF 2026-06-26):
 
 | # | Slot (row in §8 table) | Earliest stage it can run | Candidates (in seeded order) | Protocol |
 |---|---|---|---|---|
-| BO-0 | — (PIPELINE ceiling benchmark, not a model test) | NOW (Stage 0), re-run at Stages 2, 5, 7 | n/a — compares the Oracle end-to-end against frontier chat apps | §5.0 |
+| BO-0 | — (PIPELINE ceiling benchmark, not a model test) | NOW (Stage 0), re-run at Stages 3, 6, 8 | n/a — compares the Oracle end-to-end against frontier chat apps | §5.0 |
 | BO-1 | Vision transcription | NOW (Stage 0) | `qwen/qwen3-vl-235b-a22b-thinking`, `google/gemini-2.5-flash`, `claude-sonnet-5` | §5.1 |
-| BO-2 | Workflow read | Stage 1 (needs the `source-workflow-read` worker) | `claude-sonnet-5`, `google/gemini-2.5-pro`, `openai/gpt-4.1` | §5.2 |
-| BO-3 | Model merge | Stage 3 (needs `business-model-merge`) | `openai/gpt-4.1-mini`, `google/gemini-2.5-flash`, `claude-haiku-4-5` | §5.3 |
-| BO-4 | Claim extraction | Only if extraction prompts change materially (already decided 2026-06-26) | current pool members + any new candidate | §5.4 |
-| BO-5 | Deep synthesis | Stage 6 (needs the consultant pass; Brain half can run at Stage 5) | `claude-sonnet-5`, `google/gemini-2.5-pro`, `openai/gpt-4.1` | §5.5 |
-| BO-6 | Conversation (cheap-first ladder) | Stage 5 (needs the new chat context path) | `claude-haiku-4-5`, `google/gemini-2.5-flash`, `claude-sonnet-5` | §5.6 |
+| BO-2 | Workflow read | Stage 2 (needs the `source-workflow-read` worker) | `claude-sonnet-5`, `google/gemini-2.5-pro`, `openai/gpt-4.1` | §5.2 |
+| BO-3 | Model merge | Stage 4 (shadow-mode `business-model-merge` suffices) | `openai/gpt-4.1-mini`, `google/gemini-2.5-flash`, `claude-haiku-4-5` | §5.3 |
+| BO-4 | Claim extraction | Re-run at Stage 3 (the map-injection prompt change is material; baseline decided 2026-06-26) | current pool members + any new candidate | §5.4 |
+| BO-5 | Deep synthesis | Stage 7 (needs the consultant pass; Brain half can run at Stage 6) | `claude-sonnet-5`, `google/gemini-2.5-pro`, `openai/gpt-4.1` | §5.5 |
+| BO-6 | Conversation (cheap-first ladder) | Stage 6 (needs the new chat context path) | `claude-haiku-4-5`, `google/gemini-2.5-flash`, `claude-sonnet-5` | §5.6 |
+
+Stage numbers refer to `MACRO_FIRST_REDESIGN.md` §9 (the 0–9 staging).
 | — | Translation, General utility | no bake-off — incumbents proven; revisit only on observed failure | — | — |
 
 ---
@@ -157,10 +159,10 @@ Procedure, per fixture:
    correctness vs. the source; for the Oracle also note citations, which the ceiling
    side won't have). Ceiling score = the better of the two chat apps per question.
 4. **Report the gap**: `oracle_total / ceiling_total` per fixture. Record in
-   `evals/bakeoffs/ceiling.md` with the stage label (0, 2, 5, 7).
+   `evals/bakeoffs/ceiling.md` with the stage label (0, 3, 6, 8).
 
 Expected trajectory: Stage 0 gap is large (that is the point of the redesign);
-Stage 5 should reach ≥80% of ceiling on the swimlane and prose fixtures; Stage 7
+Stage 6 should reach ≥80% of ceiling on the swimlane and prose fixtures; Stage 8
 ≥80% on all three. If a re-run REGRESSES by more than 10 points, stop feature work
 and diagnose before proceeding (this is a pipeline health alarm, not a model issue).
 
@@ -224,7 +226,7 @@ candidate wins.
 The 2026-06-26 live bake-off already decided this slot (gemini-2.5-flash: 54 claims
 with branch capture, vs 12 for gpt-4.1-mini, 5 for gemini-3.1-flash-lite). Re-run ONLY
 if the extraction prompt changes materially (the §5.4 map-injection change in the
-redesign QUALIFIES — re-run this at Stage 2). Procedure: exactly the historical one —
+redesign QUALIFIES — re-run this at Stage 3). Procedure: exactly the historical one —
 each candidate isolated per §4, full fixture re-ingest, score = promoted-claim count ×
 type variety × quote-validation pass rate × map-element coverage (new metric: % of map
 elements that got their canonical claim). Record deltas against the 2026-06-26 numbers.
@@ -233,13 +235,13 @@ elements that got their canonical claim). Record deltas against the 2026-06-26 n
 
 Two halves, same candidates, one winner (the slot is shared — §8 row 5):
 
-- **Consultant half** (Stage 6): run the recommendation pass over the approved fixture
+- **Consultant half** (Stage 7): run the recommendation pass over the approved fixture
   process version. Score: grounding (every elementId/claimId cited actually exists —
   any fabricated ID = automatic 0 for the run), usefulness (blind-rank the candidates'
   recommendation sets 1–3 — Albert or the reviewing admin does the ranking, not the
   agent running the bake-off), specificity (counts concrete stage/system references vs
   generic advice), schema validity, cost.
-- **Brain half** (Stage 5): run `brain-synthesis` for `domain-licensing` (the
+- **Brain half** (Stage 6): run `brain-synthesis` for `domain-licensing` (the
   established heavyweight: 124+ approved claims). Score: passes the R9 named-entity
   validator first try; draft coherence blind-rank; length within section norms; cost.
 

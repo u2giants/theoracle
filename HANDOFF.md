@@ -79,8 +79,13 @@ choosing the model for every LLM pass (one-element-pool isolation, per-slot fixt
 and rubrics, cheap-first conversation ladder, decision rules, settings-restore
 checklist). The redesign's §8 admin "Model passes" table (8 rows, primary + 2
 fallbacks each, Copy-job-brief per row) seeds Claude's suggested defaults; stage gates
-1/3/5/6 each require the corresponding bake-off from the spec. BO-1 (vision) can run
+2/3/4/6/7 each require the corresponding bake-off from the spec. BO-1 (vision) can run
 immediately and folds in the pre-existing `test_code_changes.md` Test 2.
+2026-07-06 update: a Codex CLI review of both docs was adopted — new §4.8
+state-machine/transaction contract (optimistic locking, rebase, idempotency keys),
+per-claim eligibility checks in bundle approval, cross-source canonical dedup,
+supersede-not-replace maps, and a restaged 0–9 plan (schema+contract first, shadow-mode
+merge before transactional apply, backfill split from cleanup).
 
 ---
 
