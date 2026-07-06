@@ -43,7 +43,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 | Claude Code session | `CLAUDE.md`, then `AGENTS.md` | Other docs unless task requires them |
 | Documentation-only cleanup | `AGENTS.md`, `README.md`, affected docs under `docs/`, folder-level READMEs only where relevant, `HANDOFF.md` if present | Source files except as needed to verify accuracy |
 | Product/spec contract or AI-retrofit provenance | `AGENTS.md`, `oracle_master_spec.md`, relevant `docs/oracle/*` file, `oracle_ai_architecture_prompt caching.md` only if prompt-cache retrofit history is directly relevant | Current deployment/config docs unless operations are affected |
-| Macro-first extraction / source outlines / cross-claim process relationships | `AGENTS.md`, `docs/architecture.md`, `docs/macro-understanding-implementation-plan.md`, `docs/oracle/07-knowledge-segmentation.md` if taxonomy/sub-topic clustering is affected, `DECISIONS.md` when changing provenance rules | Deployment docs unless worker schedules/env/deploy behavior changes |
+| Macro-first redesign / business model layer / workflow maps / source outlines / cross-claim process relationships | `MACRO_FIRST_REDESIGN.md` (the approved forward plan), `MODEL_BAKEOFF_SPEC.md` for model selection, `fix_enhancement.md` §1–§6 as diagnosis record + ground truth only, `AGENTS.md`, `docs/architecture.md`, `DECISIONS.md` when changing provenance rules | `docs/macro-understanding-implementation-plan.md` (pre-redesign plan, historical), deployment docs unless worker schedules/env/deploy behavior changes |
 
 Rules:
 - MUST be task-based.

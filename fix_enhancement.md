@@ -1,5 +1,13 @@
 # Fix Enhancement: Holistic Macro Understanding of Structured / Diagram Sources
 
+> **⚠️ SUPERSEDED AS THE FORWARD PLAN (2026-07-06).** Albert approved a macro-first
+> architectural redesign; **`MACRO_FIRST_REDESIGN.md`** is now the implementation
+> brief and says exactly which parts of this document survive (its §2.3). Do NOT
+> execute this document's fix plan. This file remains valuable as: the verified
+> diagnosis record (§1–§5, incl. Bugs A–I), the human-verified ground-truth workflow
+> read (§2.1 — used as the bake-off answer key), and the onboarding/invariants
+> material (§6).
+
 ## About this document (READ THIS FIRST)
 
 **Authorship.** The original diagnosis was written by **Codex**. On **2026-07-03**, **Claude** expanded it into this comprehensive version.

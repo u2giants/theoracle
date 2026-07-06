@@ -63,6 +63,27 @@ Verification already run in this checkout:
 
 ---
 
+## ACTIVE (2026-07-06): Macro-first redesign → see `MACRO_FIRST_REDESIGN.md`
+
+Albert approved refactoring the Oracle to a macro-first architecture (business model as
+the primary understanding object; claims demoted to the evidence layer). The complete,
+self-contained implementation brief — keep/kill inventory, target schema, staged plan
+with verification gates, and pre-made decisions for forks — is `MACRO_FIRST_REDESIGN.md`.
+It SUPERSEDES `fix_enhancement.md` as the forward plan (that file remains the diagnosis
+record and ground-truth workflow read). Start at Stage 0 (baseline), and note the
+redesign doc's warning: commit/deploy the currently-uncommitted working-tree changes
+with Albert's sign-off before starting.
+
+Companion spec: **`MODEL_BAKEOFF_SPEC.md`** — the complete protocol for empirically
+choosing the model for every LLM pass (one-element-pool isolation, per-slot fixtures
+and rubrics, cheap-first conversation ladder, decision rules, settings-restore
+checklist). The redesign's §8 admin "Model passes" table (8 rows, primary + 2
+fallbacks each, Copy-job-brief per row) seeds Claude's suggested defaults; stage gates
+1/3/5/6 each require the corresponding bake-off from the spec. BO-1 (vision) can run
+immediately and folds in the pre-existing `test_code_changes.md` Test 2.
+
+---
+
 ## ACTIVE (2026-07-06): Vision transcription & claim-extraction test plan → see `test_code_changes.md`
 
 We ingested a swimlane process diagram (test doc `9d09fa89-3a46-465e-a98b-837287c9e22a`) and the Oracle drew many wrong conclusions from it. We root-caused the failures (image→text→claims pipeline; the extractor never sees the image), made a first round of code changes (information-weight windowing, `buildStandardAdapters` adding deepseek+qwen, `decideCacheProfitability` cache gating, admin cache visibility, a new `verify:openai-qwen-cache` gate), and defined **two tests** to run next in a fresh session:
