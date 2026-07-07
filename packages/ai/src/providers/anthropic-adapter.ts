@@ -101,15 +101,17 @@ export class AnthropicAdapter implements OracleProviderAdapter {
         ? providerOptions.maxOutputTokens
         : this.defaultMaxTokens;
     const thinking = thinkingParam(route.reasoningEffort, effectiveMaxTokens);
+    const temperature = anthropicTemperature(
+      route.modelId,
+      thinking,
+      typeof providerOptions?.temperature === 'number'
+        ? providerOptions.temperature
+        : undefined,
+    );
     const response = await this.client.messages.create({
       model: route.modelId,
       max_tokens: effectiveMaxTokens,
-      // Anthropic requires temperature=1 when thinking is enabled.
-      temperature: thinking
-        ? 1
-        : (typeof providerOptions?.temperature === 'number'
-          ? providerOptions.temperature
-          : undefined),
+      ...(temperature === undefined ? {} : { temperature }),
       system: this.buildSystem(plan, systemPrompt, providerOptions, ttl),
       messages,
       ...(thinking ? { thinking } : {}),
@@ -135,11 +137,11 @@ export class AnthropicAdapter implements OracleProviderAdapter {
     // output contract; Anthropic enforces it on the model.
     const TOOL_NAME = 'output_structured';
     const thinking = thinkingParam(route.reasoningEffort, this.defaultMaxTokens);
+    const temperature = anthropicTemperature(route.modelId, thinking, 0.1);
     const response = await this.client.messages.create({
       model: route.modelId,
       max_tokens: this.defaultMaxTokens,
-      // Anthropic forbids temperature != 1 when thinking is enabled.
-      temperature: thinking ? 1 : 0.1,
+      ...(temperature === undefined ? {} : { temperature }),
       system: this.buildSystem(plan, systemPrompt, providerOptions, ttl),
       messages: this.buildMessages(plan, userMessage, providerOptions, ttl),
       tools: [
@@ -198,16 +200,18 @@ export class AnthropicAdapter implements OracleProviderAdapter {
     const sdkRequests = requests.map((req) => {
       const { systemPrompt, userMessage } = flattenPlan(req.plan);
       const providerOptions = req.providerOptions;
+      const temperature = anthropicTemperature(
+        route.modelId,
+        thinking,
+        structuredTool
+          ? 0.1
+          : (typeof providerOptions?.temperature === 'number'
+            ? providerOptions.temperature
+            : undefined),
+      );
       const params: MessageCreateParamsNonStreaming = {
         model: route.modelId,
         max_tokens: this.defaultMaxTokens,
-        temperature: thinking
-          ? 1
-          : structuredTool
-            ? 0.1
-            : (typeof providerOptions?.temperature === 'number'
-              ? providerOptions.temperature
-              : undefined) as number | undefined,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
         ...(structuredTool
@@ -218,6 +222,7 @@ export class AnthropicAdapter implements OracleProviderAdapter {
           : {}),
         ...(thinking ? { thinking } : {}),
       };
+      if (temperature !== undefined) params.temperature = temperature;
       return { custom_id: req.customId, params };
     });
 
@@ -420,6 +425,24 @@ function anthropicCacheMinTokens(routeId: string): number {
 
 function estimateText(text: string): number {
   return Math.ceil(text.length / 4);
+}
+
+function requiresDefaultSampling(modelId: string): boolean {
+  const lower = modelId.toLowerCase();
+  if (/claude-(?:fable|mythos|sonnet|haiku|opus)-5\b/.test(lower)) return true;
+  const opus = /claude-opus-4-(\d+)/.exec(lower);
+  return !!opus && Number(opus[1]) >= 7;
+}
+
+function anthropicTemperature(
+  modelId: string,
+  thinking: ReturnType<typeof thinkingParam>,
+  requested: number | undefined,
+): number | undefined {
+  if (requiresDefaultSampling(modelId)) return undefined;
+  // Anthropic requires the default temperature when thinking is enabled.
+  if (thinking) return 1;
+  return requested;
 }
 
 /**

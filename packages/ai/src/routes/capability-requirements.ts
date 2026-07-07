@@ -50,6 +50,7 @@ export function requiredCapabilitiesFor(slot: ModelSlot): CapabilityRequirement[
 export function missingRequirements(
   model: Pick<
     ModelCapability,
+    | 'provider'
     | 'vision'
     | 'thinking'
     | 'structuredOutputs'
@@ -68,6 +69,16 @@ export function missingRequirements(
     } else if (model.contextLength == null || model.contextLength <= req.minExclusive) {
       missing.push(req.label);
     }
+  }
+  if (
+    (slot === 'workflow_read' || slot === 'macro' || slot === 'model_merge') &&
+    (model.provider === 'google' || model.provider === 'qwen' || model.provider === 'deepseek')
+  ) {
+    missing.push(
+      model.provider === 'google'
+        ? 'complex structured outputs (Gemini schema complexity limit)'
+        : 'strict JSON Schema enforcement',
+    );
   }
   return missing;
 }

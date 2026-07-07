@@ -235,6 +235,31 @@ verify:source-workflow-read`, `corepack pnpm --filter @oracle/workers typecheck`
    no-silent-entity-invention invariant). Nothing downstream consumes the unresolved
    FKs until merge exists, so this is not urgent — but it must be done at/by merge.
 
+2026-07-07 Stage 2 live gate (not committed yet): PASS for the workflow-reader gate on
+the canonical swimlane fixture with one explicit limitation. The destructive clean
+re-ingest path was blocked by the existing provenance guard (old fixture claims have 1
+Brain citation and 2 gap references), so the gate ran `source-workflow-read` directly
+against the existing chunks instead of wiping the document. Live checks completed:
+first read `run_cmra2epx05qke0kmvp80vlrmd` produced a validated map with
+`keptCount=151`, `droppedCount=0`; same-content redispatch
+`run_cmra2g75q5z1m0wmvs9b47pz9` returned `skipped_existing`; forced rerun
+`run_cmra2gfri5u5l0mmzn7adxwj0` superseded the old map and produced one active map;
+controlled invalid-route failure `run_cmra2iihl5v400mmzp0rich66` wrote a failed map and
+set `documents.macro_health='failed'`; repair/final runs restored health. Final active
+map `72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8` from
+`run_cmra2ork561l00jonzlrqxfcv` is `validated`, `nodes=63`, `edges=71`, `lanes=14`,
+`paths=1`, `keptCount=149`, `droppedCount=0`; document is back to
+`status='complete'`, `macro_health='complete'`, `processing_error=NULL`, and exactly
+one non-superseded map remains. Scored against `fix_enhancement.md` §2.1, it covers
+9/9 stage groups plus the named branch/loop/system landmarks. The run exposed a model
+route issue: `claude-sonnet-5` failed on the current Anthropic adapter temperature
+parameter and Gemini 2.5 Pro rejected the schema as too complex, while
+`openai/gpt-4.1` succeeded. Updated source defaults/docs and prod settings to make
+`default_workflow_read_route='openai/gpt-4.1'` and
+`model_pool_workflow_read=['openai/gpt-4.1','anthropic/claude-sonnet-5','google/gemini-2.5-pro']`.
+Recorded the gate in `evals/macro-first-battery.md`. Follow-up: fix the Anthropic
+adapter temperature handling before rerunning BO-2 if Sonnet should compete again.
+
 #### 2026-07-06 — Stage 1 migration 86 **APPLIED TO PROD and VERIFIED** ✅
 
 Migration `packages/db/migrations/sql/86_macro_first_schema.sql` (as amended by commit

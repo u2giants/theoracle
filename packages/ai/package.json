@@ -31,6 +31,7 @@
     "verify:auxiliary-defaults": "tsx src/__verify__/auxiliary-defaults.ts",
     "verify:settings-encoding": "tsx src/__verify__/settings-encoding.ts",
     "verify:workflow-read": "tsx src/__verify__/workflow-read-smoke.ts",
+    "verify:adapter-request-shapes": "tsx src/__verify__/adapter-request-shapes.ts",
     "verify:adapter-bugs-live": "tsx src/__verify__/adapter-bugs-live.ts",
     "eval:extraction": "tsx evals/runners/eval-extraction.ts"
   },

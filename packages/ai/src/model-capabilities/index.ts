@@ -169,7 +169,7 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
   const merged: ModelCapability[] = rawModels.map((raw) => {
     const { enrichment: or, matched } = lookupEnrichment(enrichmentMap, raw.id);
     if (!matched) unenrichedIds.push(raw.id);
-    return {
+    return normalizeDirectProviderCapabilities({
       id: raw.id,
       provider: raw.provider,
       displayName: raw.displayName,
@@ -188,7 +188,7 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
       outputCap: or.outputCap,
       knowledgeCutoff: or.knowledgeCutoff,
       source: raw.source,
-    };
+    });
   });
 
   // Post-enrichment quality filters:
@@ -254,6 +254,58 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
     });
 
   return { catalog, written: rows.length, refreshedAt: refreshedAtIso, errors, unenrichedIds };
+}
+
+function isQwenVisionModel(id: string): boolean {
+  const lower = id.toLowerCase();
+  return lower.includes('-vl') || lower.includes('/vl-') || lower.includes('omni');
+}
+
+function isQwenThinkingModel(id: string): boolean {
+  const lower = id.toLowerCase();
+  return (
+    lower.includes('/qwq') ||
+    lower.includes('-thinking') ||
+    lower.includes('qwen3') ||
+    lower.includes('qwen-plus') ||
+    lower.includes('qwen-turbo') ||
+    lower.includes('qwen-flash')
+  );
+}
+
+function isDeepSeekThinkingModel(id: string): boolean {
+  const lower = id.toLowerCase();
+  return lower.includes('reasoner') || lower.includes('-r1') || lower.includes('deepseek-r1');
+}
+
+function normalizeDirectProviderCapabilities(model: ModelCapability): ModelCapability {
+  if (model.provider === 'qwen') {
+    return {
+      ...model,
+      vision: model.vision && isQwenVisionModel(model.id),
+      thinking: isQwenThinkingModel(model.id),
+      // DashScope exposes json_object; it does not enforce arbitrary JSON Schema
+      // like OpenAI strict JSON Schema or Gemini responseJsonSchema.
+      structuredOutputs: false,
+      // Qwen explicit cache is documented for current Qwen model families even
+      // when third-party enrichment misses the flag.
+      promptCaching: true,
+      outputCap: true,
+    };
+  }
+  if (model.provider === 'deepseek') {
+    return {
+      ...model,
+      thinking: isDeepSeekThinkingModel(model.id),
+      // DeepSeek JSON Output is syntactic JSON mode plus prompt guidance, not
+      // provider-enforced schema conformance.
+      structuredOutputs: false,
+      toolCalling: true,
+      promptCaching: true,
+      outputCap: true,
+    };
+  }
+  return model;
 }
 
 /** Read the persisted catalog. Empty array means "never refreshed". */

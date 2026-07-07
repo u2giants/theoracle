@@ -120,12 +120,17 @@ export class DeepSeekAdapter implements OracleProviderAdapter {
     const callStartedAt = Date.now();
     const completion = await this.client.chat.completions.create({
       model: route.modelId,
-      messages: this.buildMessages(systemPrompt, userMessage, providerOptions),
+      messages: this.ensureJsonInstruction(
+        this.buildMessages(systemPrompt, userMessage, providerOptions),
+      ),
       temperature:
         typeof providerOptions?.temperature === 'number'
           ? providerOptions.temperature
           : 0.1,
       response_format: { type: 'json_object' },
+      ...(typeof providerOptions?.maxOutputTokens === 'number'
+        ? { max_tokens: providerOptions.maxOutputTokens }
+        : {}),
     });
     const latencyMs = Date.now() - callStartedAt;
     const choice = completion.choices[0];
@@ -170,6 +175,32 @@ export class DeepSeekAdapter implements OracleProviderAdapter {
     return msgs;
   }
 
+  private ensureJsonInstruction(
+    messages: ChatCompletionMessageParam[],
+  ): ChatCompletionMessageParam[] {
+    const combined = messages
+      .map((message) =>
+        stringifyOpenAIContent(
+          (message as ChatCompletionMessageParam & { content?: unknown }).content,
+        ),
+      )
+      .join('\n')
+      .toLowerCase();
+    if (combined.includes('json')) return messages;
+
+    const next = messages.map((message) => ({ ...message }));
+    const target = [...next]
+      .reverse()
+      .find((message) => message.role === 'user') as
+      | (ChatCompletionMessageParam & { content?: unknown })
+      | undefined;
+    if (target) {
+      target.content = `${stringifyOpenAIContent(target.content)}\n\nReturn a valid JSON object.`;
+      return next;
+    }
+    return [{ role: 'user', content: 'Return a valid JSON object.' }, ...next];
+  }
+
   /**
    * Normalize DeepSeek usage. Cache hits live in `prompt_cache_hit_tokens`
    * (NOT the OpenAI prompt_tokens_details shape). The OpenAI SDK exposes
@@ -191,4 +222,12 @@ export class DeepSeekAdapter implements OracleProviderAdapter {
       rawUsageJson: u,
     };
   }
+}
+
+function stringifyOpenAIContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  return normalizeMessageContentArray(content)
+    .map((part) => String(part.text ?? ''))
+    .filter(Boolean)
+    .join('\n');
 }

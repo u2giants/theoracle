@@ -767,7 +767,7 @@ The eight rows:
 | # | Row (UI label) | Settings keys | Passes served | Seeded primary | Seeded fallback 1 | Seeded fallback 2 |
 |---|---|---|---|---|---|---|
 | 1 | Vision transcription | `default_vision_route` + NEW `model_pool_vision` | image → text topology (Pass 1) | `qwen/qwen3-vl-235b-a22b-thinking` (incumbent until the Test 2 bake-off decides) | `google/gemini-2.5-flash` | `claude-sonnet-5` |
-| 2 | Workflow read | NEW `default_workflow_read_route` + `model_pool_workflow_read` | §5.2 source workflow read; §5.5 segment read | `claude-sonnet-5` | `google/gemini-2.5-pro` | `openai/gpt-4.1` |
+| 2 | Workflow read | NEW `default_workflow_read_route` + `model_pool_workflow_read` | §5.2 source workflow read; §5.5 segment read | `openai/gpt-4.1` | `claude-sonnet-5` | `google/gemini-2.5-pro` |
 | 3 | Model merge | NEW `default_model_merge_route` + `model_pool_model_merge` | §5.3 merge-alignment verdicts | `openai/gpt-4.1-mini` | `google/gemini-2.5-flash` | `claude-haiku-4-5` |
 | 4 | Claim extraction | `default_extraction_route` + `model_pool_extraction` | §5.4 map-directed extraction | `google/gemini-2.5-flash` (2026-06-26 bake-off winner) | `vertex_gemini_2_5_flash_extraction_primary` | `openai/gpt-4.1-mini` |
 | 5 | Deep synthesis | EXISTING `default_synthesis_route` + `model_pool_synthesis` (create pool if missing) | §4.7 consultant recommendations + Brain synthesis (combined: same needs) | `claude-sonnet-5` | `google/gemini-2.5-pro` | `openai/gpt-4.1` |
@@ -1146,3 +1146,9 @@ node / edge / path** (§4.1, durable cross-source model), **model change proposa
   `process_node_systems`, preserving the no-silent-entity-invention invariant. Both
   are open items in `HANDOFF.md`; neither blocks the Stage 2 gate's map-quality
   measurement, but the fallback should land before Stage 2 is declared green.
+- 2026-07-07 (Codex): Ran the live Stage 2 workflow-reader gate. The reader validated
+  the canonical swimlane fixture and the fallback chain proved load-bearing:
+  `claude-sonnet-5` rejected the current adapter temperature parameter, Gemini 2.5 Pro
+  rejected the schema as too complex, and `openai/gpt-4.1` succeeded. Updated the
+  workflow-read seeded primary/pool order to put OpenAI first until BO-2 is rerun after
+  the Anthropic adapter temperature issue is fixed.
