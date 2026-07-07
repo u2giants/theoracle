@@ -97,12 +97,15 @@ workstream — leave it until someone runs `test_code_changes.md` Tests 1–2.
   the map as non-quotable extraction guidance, carries `mapElementRef` into claims.
   Two live bugs found in review and **already hotfixed** (`37ee7d5`): failed/pending
   maps no longer poison retries; cross-window edge IDs no longer mangled.
-- **Stage 2 reader-failure fallback** — implemented in source on 2026-07-07. New
-  setting `require_workflow_map_for_ingestion` defaults false; when the workflow
-  reader exhausts its pool, ingestion logs loudly, leaves a failed map/job-run,
-  marks `documents.macro_health='map_failed'`, and continues blind extraction with
-  a degraded processing note. When the setting is true, reader failure still fails
-  the document.
+- **Stage 2 reader-failure fallback** — implemented, committed, pushed, migrated,
+  and deployed on 2026-07-07. New setting `require_workflow_map_for_ingestion`
+  defaults false; when the workflow reader exhausts its pool, ingestion logs
+  loudly, leaves a failed map/job-run, marks `documents.macro_health='map_failed'`,
+  and continues blind extraction with a degraded processing note. When the setting
+  is true, reader failure still fails the document. Code commits: `40b1edd`
+  fallback + `5597d48` migration-runner constraint fix. Prod DB verified setting
+  `require_workflow_map_for_ingestion=false`. Trigger.dev prod worker deployed as
+  `20260707.3` (`rvnnzn4h`) with 27 tasks.
 
 **NEXT ACTIONS, in order:**
 1. **Stage 3** (map-directed extraction + edge-dedup + kill lens fan-out) →
@@ -224,14 +227,21 @@ Verification run locally: `corepack pnpm --filter @oracle/workers run
 verify:source-workflow-read`, `corepack pnpm --filter @oracle/workers typecheck`,
 `corepack pnpm -r typecheck`, and `git diff --check`.
 
-2026-07-07 Stage 2 reader-failure fallback (implemented in source): added migration
-`88_require_workflow_map_for_ingestion.sql`, seed default `false`, `map_failed` macro
-health helper, document-ingestion fallback handling, docs, and
-`verify:document-ingestion-fallback`. Verification run locally:
+2026-07-07 Stage 2 reader-failure fallback (committed, pushed, migrated, deployed):
+added migration `88_require_workflow_map_for_ingestion.sql`, seed default `false`,
+`map_failed` macro health helper, document-ingestion fallback handling, docs, and
+`verify:document-ingestion-fallback`. Follow-up commit `5597d48` fixed the reusable
+`13_extraction_constraints.sql` whitelist to include the live `document_lens_group`
+batch type, which had blocked the first prod migration attempt before migration `88`.
+Prod migration then completed via the 1Password current-prod session pooler; DB
+verification found `settings.require_workflow_map_for_ingestion=false` and live
+`document_lens_group` rows. Trigger.dev prod worker deploy `20260707.3` (`rvnnzn4h`)
+succeeded with 27 detected tasks. Verification run locally:
 `corepack pnpm --filter @oracle/workers run verify:document-ingestion-fallback`,
 `corepack pnpm --filter @oracle/workers run verify:source-workflow-read`,
 `corepack pnpm --filter @oracle/workers typecheck`,
-`corepack pnpm --filter @oracle/db typecheck`, and `git diff --check`.
+`corepack pnpm --filter @oracle/db typecheck`, `git diff --check`, and GitHub
+Actions `PR check` green for `40b1edd` and `5597d48`.
 
 **OPEN — Stage 2 deferral from the plan (correct fix written into
 `MACRO_FIRST_REDESIGN.md`; implement at/by merge):**
