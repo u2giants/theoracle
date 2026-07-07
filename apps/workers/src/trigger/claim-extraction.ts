@@ -76,6 +76,7 @@ export const BATCH_SIZE = 100;
 export const SEGMENT_GAP_MS = 60 * 60 * 1000;
 export const DEFAULT_EXTRACTION_CHAR_BUDGET = 24_000;
 export const DEFAULT_EXTRACTION_CARRY_IN_COUNT = 12;
+const EXTRACTION_MAX_OUTPUT_TOKENS = 32_000;
 
 export interface ExtractionSelectionSettings {
   charBudget: number;
@@ -442,6 +443,7 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
       schema: ExtractionOutputSchema,
       observability: { includedMessageIds: segmentIds },
       providerOptions: {
+        maxOutputTokens: EXTRACTION_MAX_OUTPUT_TOKENS,
         cache: {
           preferExplicitCache: route.provider === 'vertex',
           cacheTtlSeconds: 15 * 60,

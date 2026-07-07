@@ -37,6 +37,17 @@ type ProviderRow = {
   total_cache_write_tokens: number | null;
 };
 
+type ProviderRouteCacheRow = {
+  provider: string;
+  route_id: string | null;
+  total_runs: number;
+  total_input_tokens: number | null;
+  total_cached_tokens: number | null;
+  total_cache_write_tokens: number | null;
+  weighted_hit_ratio: number | null;
+  avg_hit_ratio: number | null;
+};
+
 type TaskRouteRow = {
   task_type: string;
   route_id: string | null;
@@ -66,6 +77,28 @@ type SummaryRow = {
   total_cache_write_tokens: number | null;
 };
 
+type ResponseSessionRow = {
+  provider: string;
+  session_key: string;
+  scope_kind: string;
+  scope_id: string;
+  model_id: string;
+  latest_response_id: string;
+  updated_at: string;
+};
+
+type VertexFileCacheComparisonRow = {
+  input_mode: string;
+  task_type: string;
+  route_id: string | null;
+  provider: string;
+  run_count: number;
+  total_input_tokens: number | null;
+  total_cached_tokens: number | null;
+  total_cache_write_tokens: number | null;
+  weighted_hit_ratio: number | null;
+};
+
 function statusBadge(status: string) {
   const map: Record<string, string> = {
     active: 'bg-green-100 text-green-800',
@@ -88,7 +121,17 @@ export default async function AdminAICachePage({
 
   const filterSql = statusFilter === 'all' ? sql`` : sql`WHERE status = ${statusFilter}`;
 
-  const [rowsResult, statusCountsResult, providerHitResult, taskRouteResult, lowHitResult, summaryResult] = await Promise.all([
+  const [
+    rowsResult,
+    statusCountsResult,
+    providerHitResult,
+    providerRouteCacheResult,
+    taskRouteResult,
+    lowHitResult,
+    summaryResult,
+    responseSessionsResult,
+    vertexFileCacheComparisonResult,
+  ] = await Promise.all([
     db.execute(sql`
       SELECT id, provider, cache_kind, source_description, source_token_estimate,
              expected_reuse_count, actual_reuse_count, latest_planned_reuse_step,
@@ -111,6 +154,25 @@ export default async function AdminAICachePage({
       WHERE run_created_at >= now() - interval '7 days'
       GROUP BY provider
       ORDER BY total_runs DESC
+    `),
+    db.execute(sql`
+      SELECT provider,
+             route_id,
+             COUNT(*) AS total_runs,
+             SUM(input_tokens) AS total_input_tokens,
+             SUM(cached_input_tokens) AS total_cached_tokens,
+             SUM(cache_write_tokens) AS total_cache_write_tokens,
+             CASE
+               WHEN COALESCE(SUM(input_tokens), 0) = 0
+               THEN NULL
+               ELSE COALESCE(SUM(cached_input_tokens), 0)::float / SUM(input_tokens)::float
+             END AS weighted_hit_ratio,
+             AVG(cache_hit_ratio) AS avg_hit_ratio
+      FROM model_runs_with_usage
+      WHERE run_created_at >= now() - interval '7 days'
+      GROUP BY provider, route_id
+      ORDER BY weighted_hit_ratio DESC NULLS LAST, total_input_tokens DESC NULLS LAST
+      LIMIT 25
     `),
     db.execute(sql`
       SELECT task_type,
@@ -151,14 +213,76 @@ export default async function AdminAICachePage({
       FROM model_runs_with_usage
       WHERE run_created_at >= now() - interval '7 days'
     `),
+    db.execute(sql`
+      SELECT provider,
+             session_key,
+             scope_kind,
+             scope_id,
+             model_id,
+             latest_response_id,
+             updated_at
+      FROM provider_response_sessions
+      ORDER BY updated_at DESC
+      LIMIT 20
+    `),
+    db.execute(sql`
+      WITH extraction_runs AS (
+        SELECT
+          mwu.model_run_id,
+          mwu.task_type,
+          mwu.route_id,
+          mwu.provider,
+          mwu.input_tokens,
+          mwu.cached_input_tokens,
+          mwu.cache_write_tokens,
+          mwu.dispatch_mode,
+          eb.job_run_id
+        FROM model_runs_with_usage mwu
+        JOIN extraction_batches eb ON eb.model_run_id = mwu.model_run_id
+        WHERE mwu.run_created_at >= now() - interval '30 days'
+          AND mwu.task_type IN ('claim-extraction', 'document-ingestion')
+      )
+      SELECT
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM provider_cached_content pcc
+            WHERE pcc.created_by_job_run_id = er.job_run_id
+              AND pcc.provider = 'vertex'
+              AND pcc.provider_metadata_json ? 'uploadedGcsUri'
+          ) THEN 'file-backed cache'
+          WHEN er.dispatch_mode = 'batch' THEN 'batch/plain'
+          ELSE 'sync/plain'
+        END AS input_mode,
+        er.task_type,
+        er.route_id,
+        er.provider,
+        COUNT(*) AS run_count,
+        SUM(er.input_tokens) AS total_input_tokens,
+        SUM(er.cached_input_tokens) AS total_cached_tokens,
+        SUM(er.cache_write_tokens) AS total_cache_write_tokens,
+        CASE
+          WHEN COALESCE(SUM(er.input_tokens), 0) = 0
+          THEN NULL
+          ELSE COALESCE(SUM(er.cached_input_tokens), 0)::float / SUM(er.input_tokens)::float
+        END AS weighted_hit_ratio
+      FROM extraction_runs er
+      GROUP BY 1, er.task_type, er.route_id, er.provider
+      ORDER BY total_input_tokens DESC NULLS LAST, run_count DESC
+      LIMIT 20
+    `),
   ]);
 
   const rows = [...rowsResult] as unknown as CacheRow[];
   const statusCounts = [...statusCountsResult] as unknown as StatusCountRow[];
   const providerHit = [...providerHitResult] as unknown as ProviderRow[];
+  const providerRouteCache = [...providerRouteCacheResult] as unknown as ProviderRouteCacheRow[];
   const taskRouteRows = [...taskRouteResult] as unknown as TaskRouteRow[];
   const lowHitRows = [...lowHitResult] as unknown as LowHitRow[];
   const summary = ([...summaryResult] as unknown as SummaryRow[])[0];
+  const responseSessions = [...responseSessionsResult] as unknown as ResponseSessionRow[];
+  const vertexFileCacheComparison =
+    [...vertexFileCacheComparisonResult] as unknown as VertexFileCacheComparisonRow[];
 
   const STATUS_TABS = [
     { value: 'all', label: 'All' },
@@ -221,6 +345,48 @@ export default async function AdminAICachePage({
                     <td className="text-right">{formatPct(p.avg_hit_ratio)}</td>
                     <td className="text-right">{formatTokens(Number(p.total_cached_tokens ?? 0))}</td>
                     <td className="text-right">{formatTokens(Number(p.total_cache_write_tokens ?? 0))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Provider / route cache share (last 7 days)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {providerRouteCache.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No runs in the last 7 days yet.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="border-b text-left">
+                <tr>
+                  <th className="py-2">Provider</th>
+                  <th>Route</th>
+                  <th className="text-right">Runs</th>
+                  <th className="text-right">Input tokens</th>
+                  <th className="text-right">Cached tokens</th>
+                  <th className="text-right">Weighted hit ratio</th>
+                  <th className="text-right">Avg hit ratio</th>
+                  <th className="text-right">Cache writes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {providerRouteCache.map((row) => (
+                  <tr key={`${row.provider}:${row.route_id ?? 'none'}`} className="border-b">
+                    <td className="py-2">{row.provider}</td>
+                    <td className="max-w-sm truncate text-muted-foreground" title={row.route_id ?? undefined}>
+                      {row.route_id ?? '—'}
+                    </td>
+                    <td className="text-right">{Number(row.total_runs)}</td>
+                    <td className="text-right">{formatTokens(Number(row.total_input_tokens ?? 0))}</td>
+                    <td className="text-right">{formatTokens(Number(row.total_cached_tokens ?? 0))}</td>
+                    <td className="text-right">{formatPct(row.weighted_hit_ratio)}</td>
+                    <td className="text-right">{formatPct(row.avg_hit_ratio)}</td>
+                    <td className="text-right">{formatTokens(Number(row.total_cache_write_tokens ?? 0))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -324,6 +490,95 @@ export default async function AdminAICachePage({
                     <td className="text-muted-foreground">
                       {formatNYDateTime(row.run_created_at)}
                     </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">File-backed cache vs plain extraction input (last 30 days)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {vertexFileCacheComparison.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No extraction runs in the last 30 days.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="border-b text-left">
+                <tr>
+                  <th className="py-2">Input mode</th>
+                  <th>Task</th>
+                  <th>Route</th>
+                  <th>Provider</th>
+                  <th className="text-right">Runs</th>
+                  <th className="text-right">Input tokens</th>
+                  <th className="text-right">Cached tokens</th>
+                  <th className="text-right">Weighted hit ratio</th>
+                  <th className="text-right">Cache writes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vertexFileCacheComparison.map((row) => (
+                  <tr
+                    key={`${row.input_mode}:${row.task_type}:${row.route_id ?? 'none'}:${row.provider}`}
+                    className="border-b"
+                  >
+                    <td className="py-2">{row.input_mode}</td>
+                    <td>{row.task_type}</td>
+                    <td className="max-w-xs truncate text-muted-foreground" title={row.route_id ?? undefined}>
+                      {row.route_id ?? '—'}
+                    </td>
+                    <td>{row.provider}</td>
+                    <td className="text-right">{Number(row.run_count)}</td>
+                    <td className="text-right">{formatTokens(Number(row.total_input_tokens ?? 0))}</td>
+                    <td className="text-right">{formatTokens(Number(row.total_cached_tokens ?? 0))}</td>
+                    <td className="text-right">{formatPct(row.weighted_hit_ratio)}</td>
+                    <td className="text-right">{formatTokens(Number(row.total_cache_write_tokens ?? 0))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Provider response sessions ({responseSessions.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {responseSessions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No provider response sessions have been recorded.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="border-b text-left">
+                <tr>
+                  <th className="py-2">Provider</th>
+                  <th>Session</th>
+                  <th>Scope</th>
+                  <th>Model</th>
+                  <th>Latest response</th>
+                  <th>Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {responseSessions.map((row) => (
+                  <tr key={`${row.provider}:${row.session_key}`} className="border-b">
+                    <td className="py-2">{row.provider}</td>
+                    <td className="max-w-xs truncate font-mono text-muted-foreground" title={row.session_key}>
+                      {row.session_key}
+                    </td>
+                    <td>{row.scope_kind}:{row.scope_id}</td>
+                    <td className="max-w-xs truncate text-muted-foreground" title={row.model_id}>
+                      {row.model_id}
+                    </td>
+                    <td className="max-w-xs truncate font-mono text-muted-foreground" title={row.latest_response_id}>
+                      {row.latest_response_id}
+                    </td>
+                    <td className="text-muted-foreground">{formatNYDateTime(row.updated_at)}</td>
                   </tr>
                 ))}
               </tbody>

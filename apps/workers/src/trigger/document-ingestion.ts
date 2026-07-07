@@ -212,21 +212,52 @@ function formatDocumentChunksForExtraction(chunks: Array<{ id: string; text: str
   return parts.join('\n');
 }
 
+function estimateDocumentInformationWeight(text: string): number {
+  const lines = text.split(/\r?\n/);
+  const nonBlankLines = lines.filter((line) => line.trim().length > 0);
+  const headingLines = nonBlankLines.filter((line) =>
+    /^\s*(?:#{1,6}\s+|[A-Z][A-Z0-9 /&()'-]{8,}:?\s*$|\d+(?:\.\d+)*[.)]\s+\S)/.test(line),
+  ).length;
+  const listLines = nonBlankLines.filter((line) =>
+    /^\s*(?:[-*•]|\d+[.)]|[A-Z][.)])\s+\S/.test(line),
+  ).length;
+  const tableLines = nonBlankLines.filter((line) => {
+    const trimmed = line.trim();
+    return trimmed.includes('|') || trimmed.split(/\t/).length >= 3 || trimmed.split(',').length >= 5;
+  }).length;
+  const diagramEdges = nonBlankLines.filter((line) =>
+    /(?:-->|->|=>|--\(|\)\s*-->)/.test(line),
+  ).length;
+  const decisionTerms =
+    text.match(
+      /\b(?:must|should|required|requires|approval|approve|reject|if|when|unless|except|before|after|handoff|send|submit|escalate|responsible|owner|depends|blocked|cannot|never|always)\b/gi,
+    )?.length ?? 0;
+
+  const structuralWeight =
+    headingLines * 350 + listLines * 180 + tableLines * 260 + diagramEdges * 900 + decisionTerms * 90;
+  return Math.max(text.length, Math.min(text.length * 3, text.length + structuralWeight));
+}
+
 function buildDocumentChunkWindows<TChunk extends { id: string; text: string }>(
   chunks: TChunk[],
   maxChars = MAX_DOCUMENT_TEXT_CHARS,
 ): Array<{ chunks: TChunk[]; content: string }> {
   const windows: Array<{ chunks: TChunk[]; content: string }> = [];
   let current: TChunk[] = [];
+  let currentWeight = 0;
 
   for (const chunk of chunks) {
     const next = [...current, chunk];
     const nextContent = formatDocumentChunksForExtraction(next);
-    if (current.length > 0 && nextContent.length > maxChars) {
+    const chunkWeight = estimateDocumentInformationWeight(chunk.text);
+    const nextWeight = currentWeight + chunkWeight;
+    if (current.length > 0 && (nextContent.length > maxChars || nextWeight > maxChars)) {
       windows.push({ chunks: current, content: formatDocumentChunksForExtraction(current) });
       current = [chunk];
+      currentWeight = chunkWeight;
     } else {
       current = next;
+      currentWeight = nextWeight;
     }
   }
 

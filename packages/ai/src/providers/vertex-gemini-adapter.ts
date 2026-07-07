@@ -43,6 +43,7 @@ import { z, type ZodTypeAny } from 'zod';
 import { providerCachedContent } from '@oracle/db';
 import { getDirectDb } from '@oracle/db/client';
 import {
+  decideCacheProfitability,
   recordCacheCreation,
   recordCacheReuse,
   recordCacheTermination,
@@ -293,13 +294,6 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
       .flatMap((content) => content.parts ?? [])
       .map((part) => String(part.text ?? ''))
       .join('\n');
-    const stableTokens = estimatePlanStableTokens(plan);
-    const prefixTokens = estimateTextTokens(prefixText);
-    const shouldCreate =
-      hints?.preferExplicitCache === true ||
-      prefixTokens >= 2048 ||
-      stableTokens >= 2048;
-    if (!shouldCreate || !latestTurn) return null;
 
     const cachePayload = prefixContents.length > 0
       ? { contents: prefixContents, includesSystemInstruction: !!systemPrompt }
@@ -307,6 +301,14 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
     const sourceText = [systemPrompt, prefixContents.length > 0 ? prefixText : '']
       .filter(Boolean)
       .join('\n\n');
+    const sourceTokenEstimate = estimateTextTokens(sourceText);
+    const expectedReuseCount = Math.max(1, hints?.expectedReuseCount ?? 1);
+    const cacheDecision = decideCacheProfitability({
+      sourceTokenEstimate,
+      expectedReuseCount,
+    });
+    if (cacheDecision.kind !== 'create_explicit_cache' || !latestTurn) return null;
+
     const explicitCache = await this.getOrCreateExplicitCache({
       modelId,
       systemInstruction: systemPrompt || undefined,
@@ -321,10 +323,10 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
         plan.metadata.stablePrefixHash,
         prefixContents.length > 0 ? prefixText : '',
       ]),
-      sourceTokenEstimate: estimateTextTokens(sourceText),
+      sourceTokenEstimate,
       sourceDescription:
         hints?.sourceDescription ?? `${plan.taskType} reusable prefix`,
-      expectedReuseCount: Math.max(1, hints?.expectedReuseCount ?? 1),
+      expectedReuseCount,
       latestPlannedReuseStep: hints?.latestPlannedReuseStep ?? plan.taskType,
       cleanupOwner: hints?.cleanupOwner,
       createdByJobRunId: hints?.createdByJobRunId,
@@ -365,8 +367,13 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
     const stableTokens = estimatePlanStableTokens(plan);
     const prefixTokens = estimateTextTokens(prefixContext);
     const cacheableTokenEstimate = stableTokens + prefixTokens;
+    const expectedReuseCount = Math.max(1, hints?.expectedReuseCount ?? 1);
+    const cacheDecision = decideCacheProfitability({
+      sourceTokenEstimate: cacheableTokenEstimate,
+      expectedReuseCount,
+    });
     if (
-      !(hints?.preferExplicitCache === true || cacheableTokenEstimate >= 2048) ||
+      cacheDecision.kind !== 'create_explicit_cache' ||
       (!systemPrompt && !prefixContext)
     ) {
       return null;
@@ -391,10 +398,10 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
         plan.metadata.retrievedContextHash,
         'object-prefix',
       ]),
-      sourceTokenEstimate: estimateTextTokens([systemPrompt, prefixContext].filter(Boolean).join('\n\n')),
+      sourceTokenEstimate: cacheableTokenEstimate,
       sourceDescription:
         hints?.sourceDescription ?? `${plan.taskType} structured-output prefix`,
-      expectedReuseCount: Math.max(1, hints?.expectedReuseCount ?? 1),
+      expectedReuseCount,
       latestPlannedReuseStep: hints?.latestPlannedReuseStep ?? plan.taskType,
       cleanupOwner: hints?.cleanupOwner,
       createdByJobRunId: hints?.createdByJobRunId,

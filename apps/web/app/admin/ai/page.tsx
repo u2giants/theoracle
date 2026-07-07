@@ -61,11 +61,36 @@ type RecentRunRow = {
 type CandidateCountRow = { status: string; count: number };
 type CacheCountRow = { status: string; count: number };
 
+type ExtractionCostRow = {
+  task_type: string;
+  batch_type: string | null;
+  route_id: string | null;
+  provider: string;
+  dispatch_mode: string | null;
+  run_count: number;
+  promoted_claims: number;
+  validation_failed_candidates: number;
+  estimated_cost_usd: number | null;
+  cost_per_promoted_claim: number | null;
+};
+
+function formatUsd(n: number | null | undefined, digits = 4): string {
+  if (n == null) return '—';
+  return `$${Number(n).toFixed(digits)}`;
+}
+
 export default async function AdminAIPage() {
   const db = getDirectDb();
 
   // Summary row aggregated across the last 7 days.
-  const [summaryResult, routeUsageResult, recentRunsResult, candidateCountsResult, cacheCountsResult] =
+  const [
+    summaryResult,
+    routeUsageResult,
+    recentRunsResult,
+    candidateCountsResult,
+    cacheCountsResult,
+    extractionCostResult,
+  ] =
     await Promise.all([
       db.execute(sql`
         SELECT
@@ -124,6 +149,77 @@ export default async function AdminAIPage() {
         FROM provider_cached_content
         GROUP BY status
       `),
+      db.execute(sql`
+        WITH extraction_runs AS (
+          SELECT
+            mwu.model_run_id,
+            mwu.task_type,
+            mwu.route_id,
+            mwu.provider,
+            mwu.model,
+            mwu.dispatch_mode,
+            mwu.input_tokens,
+            mwu.cached_input_tokens,
+            mwu.output_tokens,
+            mwu.cost_usd,
+            eb.id AS extraction_batch_id,
+            eb.batch_type
+          FROM model_runs_with_usage mwu
+          JOIN extraction_batches eb ON eb.model_run_id = mwu.model_run_id
+          WHERE mwu.run_created_at >= now() - interval '7 days'
+        ),
+        run_costs AS (
+          SELECT
+            er.*,
+            COALESCE(
+              er.cost_usd::float,
+              CASE
+                WHEN mc.prompt_per_1m_usd IS NULL AND mc.completion_per_1m_usd IS NULL THEN NULL
+                ELSE (
+                  (
+                    GREATEST(COALESCE(er.input_tokens, 0) - COALESCE(er.cached_input_tokens, 0), 0)
+                    * COALESCE(mc.prompt_per_1m_usd::float, 0)
+                  )
+                  + (COALESCE(er.output_tokens, 0) * COALESCE(mc.completion_per_1m_usd::float, 0))
+                ) / 1000000.0
+              END
+            ) AS estimated_cost_usd
+          FROM extraction_runs er
+          LEFT JOIN model_capabilities mc
+            ON mc.provider = er.provider
+           AND mc.model_id = er.model
+        ),
+        candidate_counts AS (
+          SELECT
+            extraction_batch_id,
+            COUNT(DISTINCT promoted_to_claim_id) FILTER (WHERE promoted_to_claim_id IS NOT NULL) AS promoted_claims,
+            COUNT(*) FILTER (WHERE status = 'validation_failed') AS validation_failed_candidates
+          FROM extraction_candidates
+          GROUP BY extraction_batch_id
+        )
+        SELECT
+          rc.task_type,
+          rc.batch_type,
+          rc.route_id,
+          rc.provider,
+          rc.dispatch_mode,
+          COUNT(DISTINCT rc.model_run_id) AS run_count,
+          COALESCE(SUM(cc.promoted_claims), 0) AS promoted_claims,
+          COALESCE(SUM(cc.validation_failed_candidates), 0) AS validation_failed_candidates,
+          SUM(rc.estimated_cost_usd) AS estimated_cost_usd,
+          CASE
+            WHEN COALESCE(SUM(cc.promoted_claims), 0) = 0
+            THEN NULL
+            ELSE SUM(rc.estimated_cost_usd)
+              / SUM(cc.promoted_claims)
+          END AS cost_per_promoted_claim
+        FROM run_costs rc
+        LEFT JOIN candidate_counts cc
+          ON cc.extraction_batch_id = rc.extraction_batch_id
+        GROUP BY rc.task_type, rc.batch_type, rc.route_id, rc.provider, rc.dispatch_mode
+        ORDER BY cost_per_promoted_claim ASC NULLS LAST, promoted_claims DESC, run_count DESC
+        LIMIT 20
+      `),
     ]);
 
   const summary = ([...summaryResult] as unknown as SummaryRow[])[0];
@@ -131,6 +227,7 @@ export default async function AdminAIPage() {
   const recentRuns = [...recentRunsResult] as unknown as RecentRunRow[];
   const candidateCounts = [...candidateCountsResult] as unknown as CandidateCountRow[];
   const cacheCounts = [...cacheCountsResult] as unknown as CacheCountRow[];
+  const extractionCostRows = [...extractionCostResult] as unknown as ExtractionCostRow[];
 
   const totalRuns7d = Number(summary?.total_runs_7d ?? 0);
   const successfulRuns7d = Number(summary?.successful_runs_7d ?? 0);
@@ -279,6 +376,56 @@ export default async function AdminAIPage() {
                     <td className="text-right">{formatTokens(Number(r.avg_input_tokens))}</td>
                     <td className="text-right">{formatPct(r.avg_cache_hit_ratio)}</td>
                     <td className="text-right">{formatPct(r.success_rate)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Extraction cost per promoted claim (last 7 days)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {extractionCostRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No extraction runs with candidate rows in the last 7 days.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="border-b text-left">
+                <tr>
+                  <th className="py-2">Task</th>
+                  <th>Route</th>
+                  <th>Provider</th>
+                  <th>Mode</th>
+                  <th className="text-right">Runs</th>
+                  <th className="text-right">Promoted</th>
+                  <th className="text-right">Quote/schema rejects</th>
+                  <th className="text-right">Est. cost</th>
+                  <th className="text-right">Cost / promoted</th>
+                </tr>
+              </thead>
+              <tbody>
+                {extractionCostRows.map((row) => (
+                  <tr
+                    key={`${row.task_type}:${row.batch_type ?? 'none'}:${row.route_id ?? 'none'}:${row.provider}:${row.dispatch_mode ?? 'sync'}`}
+                    className="border-b"
+                  >
+                    <td className="py-2">
+                      <div>{row.task_type}</div>
+                      <div className="text-muted-foreground">{row.batch_type ?? '—'}</div>
+                    </td>
+                    <td className="max-w-xs truncate font-mono text-muted-foreground" title={row.route_id ?? undefined}>
+                      {row.route_id ?? '—'}
+                    </td>
+                    <td>{row.provider}</td>
+                    <td>{row.dispatch_mode ?? 'sync'}</td>
+                    <td className="text-right">{Number(row.run_count)}</td>
+                    <td className="text-right">{Number(row.promoted_claims)}</td>
+                    <td className="text-right">{Number(row.validation_failed_candidates)}</td>
+                    <td className="text-right">{formatUsd(row.estimated_cost_usd)}</td>
+                    <td className="text-right font-medium">{formatUsd(row.cost_per_promoted_claim)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -19,10 +19,7 @@
 import type { ZodType } from 'zod';
 import { getContextCompiler, type CompileArgs } from '../context/context-compiler';
 import { ModelRouter, type ProviderAdapterMap } from '../routing/model-router';
-import { AnthropicAdapter } from '../providers/anthropic-adapter';
-import { VertexGeminiAdapter } from '../providers/vertex-gemini-adapter';
-import { GoogleGeminiAdapter } from '../providers/google-gemini-adapter';
-import { OpenAIAdapter } from '../providers/openai-adapter';
+import { buildStandardAdapters } from './standard-adapters';
 import { MockProviderAdapter } from '../providers/mock-adapter';
 import {
   getStructuredOutputValidator,
@@ -89,13 +86,10 @@ export class OracleAIClient {
             vertex: new MockProviderAdapter({ provider: 'vertex' }),
             google: new MockProviderAdapter({ provider: 'google' }),
             openai: new MockProviderAdapter({ provider: 'openai' }),
+            deepseek: new MockProviderAdapter({ provider: 'deepseek' }),
+            qwen: new MockProviderAdapter({ provider: 'qwen' }),
           }
-        : {
-            anthropic: new AnthropicAdapter(),
-            vertex: new VertexGeminiAdapter(),
-            google: new GoogleGeminiAdapter(),
-            openai: new OpenAIAdapter(),
-          });
+        : buildStandardAdapters());
     this.router = new ModelRouter({ adapters });
   }
 
