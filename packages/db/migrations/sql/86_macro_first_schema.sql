@@ -7,6 +7,35 @@
 
 BEGIN;
 
+-- Reconcile a stale prod-only 'source_workflow_maps' left by a pre-Stage-1
+-- experiment (shape from fix_enhancement.md §7: source_outline_id,
+-- workflow_version, coverage_json; recorded in no migration). CREATE IF NOT
+-- EXISTS would silently keep it and the index below would fail (42703).
+-- Guarded: drops ONLY the legacy shape, ONLY when empty; errors loudly if it
+-- somehow holds rows. No-op on fresh databases and on re-runs.
+DO $$
+BEGIN
+  IF to_regclass('public.source_workflow_maps') IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'source_workflow_maps'
+         AND column_name = 'source_outline_id'
+     )
+     AND NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'source_workflow_maps'
+         AND column_name = 'source_content_hash'
+     ) THEN
+    IF EXISTS (SELECT 1 FROM source_workflow_maps LIMIT 1) THEN
+      RAISE EXCEPTION
+        'source_workflow_maps has the legacy pre-Stage-1 shape AND contains rows — manual reconciliation required before migration 86';
+    END IF;
+    DROP TABLE source_workflow_maps CASCADE;
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS source_workflow_maps (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source_type varchar(50) NOT NULL,
