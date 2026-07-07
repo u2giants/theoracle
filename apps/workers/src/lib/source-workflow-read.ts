@@ -1,0 +1,749 @@
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+import {
+  OracleAIClient,
+  WORKFLOW_READ_PROMPT_VERSION,
+  WORKFLOW_READ_SYSTEM_PROMPT,
+  WorkflowReadSchema,
+  buildStandardAdapters,
+  estimateTokens,
+  logAllCandidatesFailedAttempts,
+  logModelRunAttempts,
+  makeBlock,
+  resolveRouteCandidates,
+  type OraclePromptPlan,
+  type WorkflowReadEdge,
+  type WorkflowReadLane,
+  type WorkflowReadNode,
+  type WorkflowReadOutput,
+  type WorkflowReadPath,
+} from '@oracle/ai';
+import {
+  businessProcesses,
+  documentChunks,
+  documents,
+  entities,
+  jobRuns,
+  modelRunUsageDetails,
+  modelRuns,
+  oracleContextPacks,
+  settings,
+  sourceWorkflowMaps,
+  type OracleDb,
+} from '@oracle/db';
+import { getDirectDb } from '@oracle/db/client';
+import { validateQuote } from '@oracle/engines';
+import { markMacroComplete, markMacroDegraded, markMacroFailed, markMacroPending } from './macro-health';
+
+type ChunkRow = {
+  id: string;
+  chunkIndex: number;
+  pageNumber: number | null;
+  rawText: string;
+  contentHash: string | null;
+};
+
+type WorkflowMapStatus = 'validated' | 'degraded' | 'failed';
+
+export type SourceWorkflowReadResult = {
+  documentId: string;
+  status: 'validated' | 'degraded' | 'failed' | 'skipped_existing' | 'skipped_no_chunks' | 'skipped_not_found';
+  mapId?: string;
+  mapKind?: 'workflow' | 'reference';
+  droppedCount?: number;
+  keptCount?: number;
+};
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+function buildContextPackInsert(plan: OraclePromptPlan) {
+  return {
+    taskType: plan.taskType,
+    routeId: plan.routeId,
+    promptVersion: plan.promptVersion,
+    schemaVersion: plan.schemaVersion ?? null,
+    stablePrefixHash: plan.metadata.stablePrefixHash,
+    semiStableContextHash: plan.metadata.semiStableContextHash ?? null,
+    retrievedContextHash: plan.metadata.retrievedContextHash ?? null,
+    dynamicInputHash: plan.metadata.dynamicInputHash,
+    toolSchemaHash: plan.metadata.toolSchemaHash ?? null,
+    outputSchemaHash: plan.metadata.outputSchemaHash ?? null,
+    blocksJson: plan.blocks.map((b) => ({
+      id: b.id,
+      label: b.label,
+      kind: b.kind,
+      hash: b.hash,
+      tokenEstimate: b.tokenEstimate ?? null,
+      cacheEligible: b.cacheEligible,
+      reasonIncluded: b.reasonIncluded,
+    })),
+    includedDocumentChunkIds: plan.metadata.includedDocumentChunkIds ?? null,
+  };
+}
+
+function buildDocumentCorpus(chunks: ChunkRow[]): string {
+  return chunks
+    .map((chunk) => {
+      const page = chunk.pageNumber ? ` page=${chunk.pageNumber}` : '';
+      return `--- Document Chunk ID: ${chunk.id} index=${chunk.chunkIndex}${page} ---\n${chunk.rawText}`;
+    })
+    .join('\n\n');
+}
+
+function sourceHashForDocument(documentId: string, chunks: ChunkRow[]): string {
+  return sha256(
+    JSON.stringify({
+      documentId,
+      chunks: chunks.map((chunk) => [chunk.id, chunk.chunkIndex, chunk.contentHash, chunk.rawText]),
+    }),
+  );
+}
+
+async function readNumberSetting(db: OracleDb, key: string, fallback: number): Promise<number> {
+  const [row] = await db.select({ value: settings.value }).from(settings).where(eq(settings.key, key)).limit(1);
+  const value = row?.value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && Number.isFinite(Number(value))) return Number(value);
+  return fallback;
+}
+
+async function buildReferentPack(db: OracleDb): Promise<string> {
+  const [entityRows, processRows] = await Promise.all([
+    db
+      .select({
+        canonicalValue: entities.canonicalValue,
+        displayLabel: entities.displayLabel,
+        entityType: entities.entityType,
+        aliases: entities.aliases,
+      })
+      .from(entities)
+      .orderBy(entities.entityType, entities.canonicalValue)
+      .limit(300),
+    db
+      .select({ name: businessProcesses.name, summary: businessProcesses.summary })
+      .from(businessProcesses)
+      .orderBy(desc(businessProcesses.updatedAt))
+      .limit(80),
+  ]);
+
+  const lines = [
+    'REFERENT PACK (names and acronyms only; do not copy existing structure):',
+    '',
+    'Known entities:',
+  ];
+  for (const entity of entityRows) {
+    const aliases = Array.isArray(entity.aliases) && entity.aliases.length > 0 ? ` aliases=${entity.aliases.join(', ')}` : '';
+    lines.push(`- ${entity.entityType}: ${entity.displayLabel ?? entity.canonicalValue}${aliases}`);
+  }
+  if (processRows.length > 0) {
+    lines.push('', 'Existing process names only:');
+    for (const process of processRows) {
+      lines.push(`- ${process.name}${process.summary ? `: ${process.summary.slice(0, 180)}` : ''}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function chunkWindows(chunks: ChunkRow[], maxEstimatedInputTokens: number): ChunkRow[][] {
+  const maxChars = Math.max(8_000, maxEstimatedInputTokens * 4);
+  const windows: ChunkRow[][] = [];
+  let current: ChunkRow[] = [];
+  for (const chunk of chunks) {
+    const next = [...current, chunk];
+    if (current.length > 0 && buildDocumentCorpus(next).length > maxChars) {
+      windows.push(current);
+      current = [chunk];
+    } else {
+      current = next;
+    }
+  }
+  if (current.length > 0) windows.push(current);
+  return windows;
+}
+
+function prefixWindowIds(output: WorkflowReadOutput, windowIndex: number, totalWindows: number): WorkflowReadOutput {
+  if (totalWindows <= 1) return output;
+  const prefix = `w${windowIndex + 1}_`;
+  const remap = new Map<string, string>();
+  for (const node of output.nodes) remap.set(node.nodeId, `${prefix}${node.nodeId}`);
+  return {
+    ...output,
+    nodes: output.nodes.map((node) => ({ ...node, nodeId: remap.get(node.nodeId) ?? `${prefix}${node.nodeId}` })),
+    edges: output.edges.map((edge) => ({
+      ...edge,
+      edgeId: `${prefix}${edge.edgeId}`,
+      fromNodeId: remap.get(edge.fromNodeId) ?? `${prefix}${edge.fromNodeId}`,
+      toNodeId: remap.get(edge.toNodeId) ?? `${prefix}${edge.toNodeId}`,
+    })),
+    lanes: output.lanes.map((lane) => ({ ...lane, laneId: `${prefix}${lane.laneId}` })),
+    paths: output.paths.map((path) => ({
+      ...path,
+      pathId: `${prefix}${path.pathId}`,
+      nodeIdsOrdered: path.nodeIdsOrdered.map((id) => remap.get(id) ?? `${prefix}${id}`),
+    })),
+  };
+}
+
+function mergeWorkflowOutputs(outputs: WorkflowReadOutput[]): WorkflowReadOutput {
+  if (outputs.length === 1) return outputs[0]!;
+  const mapKind = outputs.some((output) => output.mapKind === 'workflow') ? 'workflow' : 'reference';
+  return {
+    mapKind,
+    summary: outputs.map((output, index) => `Window ${index + 1}: ${output.summary}`).join('\n'),
+    nodes: outputs.flatMap((output) => output.nodes),
+    edges: outputs.flatMap((output) => output.edges),
+    lanes: outputs.flatMap((output) => output.lanes),
+    paths: outputs.flatMap((output) => output.paths),
+  };
+}
+
+function validateWorkflowMap(
+  output: WorkflowReadOutput,
+  chunkTextById: Map<string, string>,
+  maxDroppedRatio: number,
+): {
+  status: WorkflowMapStatus;
+  map: WorkflowReadOutput;
+  validationJson: Record<string, unknown>;
+  droppedCount: number;
+  keptCount: number;
+} {
+  const dropped: Array<{ elementType: string; elementId: string; reason: string }> = [];
+  const nodeIds = new Set<string>();
+  const lanes = output.lanes.filter((lane) => {
+    const ok = Boolean(lane.laneId && lane.label);
+    if (!ok) dropped.push({ elementType: 'lane', elementId: lane.laneId ?? 'unknown', reason: 'missing lane id or label' });
+    return ok;
+  });
+
+  const nodes: WorkflowReadNode[] = [];
+  for (const node of output.nodes) {
+    const chunkText = chunkTextById.get(node.chunkId);
+    const quote = chunkText
+      ? validateQuote({ sourceText: chunkText, exactQuoteProvided: node.evidenceQuote })
+      : null;
+    if (!chunkText) {
+      dropped.push({ elementType: 'node', elementId: node.nodeId, reason: `unknown chunkId ${node.chunkId}` });
+      continue;
+    }
+    if (quote?.verdict !== 'exact_match' && quote?.verdict !== 'normalized_match') {
+      dropped.push({ elementType: 'node', elementId: node.nodeId, reason: quote?.detail ?? 'quote did not validate' });
+      continue;
+    }
+    if (nodeIds.has(node.nodeId)) {
+      dropped.push({ elementType: 'node', elementId: node.nodeId, reason: 'duplicate nodeId' });
+      continue;
+    }
+    nodeIds.add(node.nodeId);
+    nodes.push(node);
+  }
+
+  const edges: WorkflowReadEdge[] = [];
+  for (const edge of output.edges) {
+    const chunkText = chunkTextById.get(edge.chunkId);
+    const quote = chunkText
+      ? validateQuote({ sourceText: chunkText, exactQuoteProvided: edge.evidenceQuote })
+      : null;
+    if (!nodeIds.has(edge.fromNodeId) || !nodeIds.has(edge.toNodeId)) {
+      dropped.push({ elementType: 'edge', elementId: edge.edgeId, reason: 'edge endpoint does not exist after node validation' });
+      continue;
+    }
+    if (!chunkText) {
+      dropped.push({ elementType: 'edge', elementId: edge.edgeId, reason: `unknown chunkId ${edge.chunkId}` });
+      continue;
+    }
+    if (quote?.verdict !== 'exact_match' && quote?.verdict !== 'normalized_match') {
+      dropped.push({ elementType: 'edge', elementId: edge.edgeId, reason: quote?.detail ?? 'quote did not validate' });
+      continue;
+    }
+    edges.push(edge);
+  }
+
+  const laneLabels = new Set(lanes.map((lane) => lane.label.toLowerCase()));
+  const orphanLaneRefs = nodes
+    .filter((node) => node.lane && !laneLabels.has(node.lane.toLowerCase()))
+    .map((node) => ({ nodeId: node.nodeId, lane: node.lane }));
+
+  const paths: WorkflowReadPath[] = [];
+  for (const path of output.paths) {
+    const missing = path.nodeIdsOrdered.filter((id) => !nodeIds.has(id));
+    if (missing.length > 0) {
+      dropped.push({ elementType: 'path', elementId: path.pathId, reason: `missing node IDs: ${missing.join(', ')}` });
+      continue;
+    }
+    paths.push(path);
+  }
+
+  const keptCount = nodes.length + edges.length + lanes.length + paths.length;
+  const droppedCount = dropped.length;
+  const ratio = keptCount + droppedCount === 0 ? 0 : droppedCount / (keptCount + droppedCount);
+  const status: WorkflowMapStatus = droppedCount > 0 && ratio > maxDroppedRatio ? 'degraded' : 'validated';
+  return {
+    status,
+    map: { ...output, nodes, edges, lanes, paths },
+    validationJson: {
+      promptVersion: WORKFLOW_READ_PROMPT_VERSION,
+      dropped,
+      droppedCount,
+      keptCount,
+      droppedRatio: ratio,
+      maxDroppedRatio,
+      orphanLaneRefs,
+    },
+    droppedCount,
+    keptCount,
+  };
+}
+
+async function createPendingMap(args: {
+  db: OracleDb;
+  documentId: string;
+  sourceContentHash: string;
+  force: boolean;
+}): Promise<{ mapId: string; skippedExisting: boolean }> {
+  const { db, documentId, sourceContentHash, force } = args;
+  if (!force) {
+    const [existing] = await db
+      .select({ id: sourceWorkflowMaps.id, status: sourceWorkflowMaps.status })
+      .from(sourceWorkflowMaps)
+      .where(
+        and(
+          eq(sourceWorkflowMaps.sourceType, 'document'),
+          eq(sourceWorkflowMaps.documentId, documentId),
+          eq(sourceWorkflowMaps.sourceContentHash, sourceContentHash),
+          ne(sourceWorkflowMaps.status, 'superseded'),
+        ),
+      )
+      .orderBy(desc(sourceWorkflowMaps.createdAt))
+      .limit(1);
+    if (existing) return { mapId: existing.id, skippedExisting: true };
+  }
+
+  return db.transaction(async (tx) => {
+    const oldRows = await tx
+      .select({ id: sourceWorkflowMaps.id })
+      .from(sourceWorkflowMaps)
+      .where(
+        and(
+          eq(sourceWorkflowMaps.sourceType, 'document'),
+          eq(sourceWorkflowMaps.documentId, documentId),
+          ne(sourceWorkflowMaps.status, 'superseded'),
+        ),
+      );
+    const oldIds = oldRows.map((row) => row.id);
+    if (oldIds.length > 0) {
+      await tx
+        .update(sourceWorkflowMaps)
+        .set({ status: 'superseded', updatedAt: new Date() })
+        .where(inArray(sourceWorkflowMaps.id, oldIds));
+    }
+
+    const [inserted] = await tx
+      .insert(sourceWorkflowMaps)
+      .values({
+        sourceType: 'document',
+        documentId,
+        sourceContentHash,
+        status: 'pending',
+        mapKind: 'workflow',
+        validationJson: { promptVersion: WORKFLOW_READ_PROMPT_VERSION, status: 'pending' },
+      })
+      .returning({ id: sourceWorkflowMaps.id });
+    if (!inserted) throw new Error('[source-workflow-read] failed to insert pending source_workflow_maps row');
+
+    if (oldIds.length > 0) {
+      await tx
+        .update(sourceWorkflowMaps)
+        .set({ supersededByMapId: inserted.id, updatedAt: new Date() })
+        .where(inArray(sourceWorkflowMaps.id, oldIds));
+    }
+
+    return { mapId: inserted.id, skippedExisting: false };
+  });
+}
+
+async function runWorkflowReadModel(args: {
+  db: OracleDb;
+  client: OracleAIClient;
+  doc: { fileName: string; fileType: string; context: string | null };
+  chunks: ChunkRow[];
+  referentPack: string;
+  triggerRunId: string;
+  mapId: string;
+  force: boolean;
+}): Promise<{ output: WorkflowReadOutput; modelRunIds: string[]; contextPackIds: string[] }> {
+  const { db, client, doc, chunks, referentPack, mapId } = args;
+  const maxEstimatedTokens = await readNumberSetting(db, 'workflow_read_max_estimated_input_tokens', 150_000);
+  const windows = estimateTokens(buildDocumentCorpus(chunks)) > maxEstimatedTokens ? chunkWindows(chunks, maxEstimatedTokens) : [chunks];
+  const resolved = await resolveRouteCandidates(db, 'workflow_read');
+  for (const skipped of resolved.skipped) {
+    console.warn('[source-workflow-read] skipped workflow_read route candidate', skipped);
+  }
+  const routeCandidates = resolved.candidates;
+  const route = routeCandidates[0]!.route;
+  const outputs: WorkflowReadOutput[] = [];
+  const modelRunIds: string[] = [];
+  const contextPackIds: string[] = [];
+  const carriedRegistry: string[] = [];
+
+  for (let windowIndex = 0; windowIndex < windows.length; windowIndex++) {
+    const windowChunks = windows[windowIndex]!;
+    const chunkIds = windowChunks.map((chunk) => chunk.id);
+    const blocks = [
+      makeBlock({
+        id: 'workflow-read-system',
+        label: 'Workflow read system prompt',
+        kind: 'stable_system',
+        content: WORKFLOW_READ_SYSTEM_PROMPT,
+        reasonIncluded: `workflow read prompt v${WORKFLOW_READ_PROMPT_VERSION}`,
+      }),
+      makeBlock({
+        id: 'document-metadata',
+        label: 'Document metadata',
+        kind: 'semi_stable_domain_context',
+        content: [
+          `Document name: ${doc.fileName}`,
+          `File type: ${doc.fileType}`,
+          doc.context ? `Uploader context:\n${doc.context}` : null,
+          `Source workflow map row: ${mapId}`,
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+        reasonIncluded: 'document-level context for source workflow read',
+      }),
+      makeBlock({
+        id: 'referent-pack',
+        label: 'Referent pack',
+        kind: 'semi_stable_domain_context',
+        content: referentPack,
+        reasonIncluded: 'known names and acronyms only; existing process graphs withheld by design',
+      }),
+      ...(carriedRegistry.length > 0
+        ? [
+            makeBlock({
+              id: 'carried-node-registry',
+              label: 'Prior window node labels',
+              kind: 'semi_stable_domain_context' as const,
+              content: carriedRegistry.join('\n'),
+              reasonIncluded: 'large-source windowing continuity without truncation',
+            }),
+          ]
+        : []),
+      makeBlock({
+        id: 'document-chunks',
+        label: 'Document chunks',
+        kind: 'retrieved_context',
+        content: buildDocumentCorpus(windowChunks),
+        reasonIncluded: `window ${windowIndex + 1}/${windows.length}; map elements must cite these chunk IDs`,
+      }),
+      makeBlock({
+        id: 'workflow-read-request',
+        label: 'Workflow read request',
+        kind: 'dynamic_input',
+        content:
+          'Read these chunks in order and produce the source workflow map. Capture the topology visible in this source, not what you expect from prior knowledge. Every node and edge must cite a verbatim quote from one chunk.',
+        reasonIncluded: 'current workflow-read request',
+      }),
+    ];
+
+    const plan = client.compile({
+      taskType: 'source_workflow_read',
+      routeId: route.routeId,
+      promptVersion: WORKFLOW_READ_PROMPT_VERSION,
+      blocks,
+      observability: { includedDocumentChunkIds: chunkIds },
+    });
+    const [contextPack] = await db
+      .insert(oracleContextPacks)
+      .values(buildContextPackInsert(plan))
+      .returning({ id: oracleContextPacks.id });
+    if (!contextPack) throw new Error('[source-workflow-read] failed to insert oracle_context_packs row');
+    contextPackIds.push(contextPack.id);
+
+    const started = Date.now();
+    const result = await client
+      .runObject<WorkflowReadOutput>({
+        taskType: 'source_workflow_read',
+        routeId: route.routeId,
+        promptVersion: WORKFLOW_READ_PROMPT_VERSION,
+        blocks,
+        schema: WorkflowReadSchema,
+        observability: { includedDocumentChunkIds: chunkIds },
+        providerOptions: { maxOutputTokens: 32_000 },
+        routeCandidates,
+      })
+      .catch(async (err) => {
+        await logAllCandidatesFailedAttempts({
+          db,
+          error: err,
+          taskType: 'source-workflow-read',
+          slot: 'workflow_read',
+          contextPackId: contextPack.id,
+        }).catch((logErr) =>
+          console.error('[source-workflow-read] failed to record failed model attempts', logErr),
+        );
+        throw err;
+      });
+
+    const actualRouteId = result.routeId ?? route.routeId;
+    const actualProvider = result.provider ?? route.provider;
+    const actualModelId = result.modelId ?? route.modelId;
+    const [modelRun] = await db
+      .insert(modelRuns)
+      .values({
+        taskType: 'source-workflow-read',
+        model: actualModelId,
+        provider: actualProvider,
+        promptVersion: WORKFLOW_READ_PROMPT_VERSION,
+        inputHash: plan.metadata.stablePrefixHash,
+        inputTokens: result.usage.inputTokens ?? null,
+        outputTokens: result.usage.outputTokens ?? null,
+        latencyMs: Date.now() - started,
+        success: result.validation.ok,
+        error: result.validation.ok ? null : result.validation.error.message,
+      })
+      .returning({ id: modelRuns.id });
+    if (!modelRun) throw new Error('[source-workflow-read] failed to insert model_runs row');
+    modelRunIds.push(modelRun.id);
+
+    await db.insert(modelRunUsageDetails).values({
+      modelRunId: modelRun.id,
+      contextPackId: contextPack.id,
+      routeId: actualRouteId,
+      inputTokens: result.usage.inputTokens ?? null,
+      cachedInputTokens: result.usage.cachedInputTokens ?? null,
+      cacheWriteTokens: result.usage.cacheWriteTokens ?? null,
+      outputTokens: result.usage.outputTokens ?? null,
+      reasoningTokens: result.usage.reasoningTokens ?? null,
+      providerRequestId: result.usage.providerRequestId ?? null,
+      rawUsageJson: result.usage.rawUsageJson ?? null,
+    });
+    await logModelRunAttempts({
+      db,
+      metadata: result,
+      taskType: 'source-workflow-read',
+      slot: 'workflow_read',
+      contextPackId: contextPack.id,
+      modelRunId: modelRun.id,
+    });
+    await db.update(oracleContextPacks).set({ modelRunId: modelRun.id }).where(eq(oracleContextPacks.id, contextPack.id));
+
+    if (!result.validation.ok) {
+      throw new Error('[source-workflow-read] model output failed Zod schema validation: ' + result.validation.error.message);
+    }
+    const output = prefixWindowIds(result.object, windowIndex, windows.length);
+    outputs.push(output);
+    carriedRegistry.push(...output.nodes.map((node) => `- ${node.nodeId}: ${node.label}`));
+  }
+
+  return { output: mergeWorkflowOutputs(outputs), modelRunIds, contextPackIds };
+}
+
+export function renderWorkflowMapGuidance(mapId: string, map: Pick<WorkflowReadOutput, 'summary' | 'mapKind' | 'nodes' | 'edges' | 'lanes' | 'paths'>): string {
+  const lines = [
+    'SOURCE WORKFLOW MAP (GUIDANCE ONLY - NEVER QUOTE THIS BLOCK)',
+    `Map ID: ${mapId}`,
+    `Kind: ${map.mapKind}`,
+    `Summary: ${map.summary}`,
+  ];
+  if (map.lanes.length > 0) {
+    lines.push('', 'Lanes:');
+    for (const lane of map.lanes) lines.push(`- ${lane.laneId}: ${lane.label}${lane.ownerName ? ` (owner: ${lane.ownerName})` : ''}`);
+  }
+  if (map.nodes.length > 0) {
+    lines.push('', 'Nodes:');
+    for (const node of map.nodes) {
+      const ref = `${mapId}:node:${node.nodeId}`;
+      lines.push(`- ${ref} [${node.nodeType}] ${node.label}${node.lane ? ` | lane=${node.lane}` : ''}${node.ownerName ? ` | owner=${node.ownerName}` : ''}`);
+    }
+  }
+  if (map.edges.length > 0) {
+    lines.push('', 'Edges:');
+    for (const edge of map.edges) {
+      const ref = `${mapId}:edge:${edge.edgeId}`;
+      lines.push(`- ${ref} [${edge.edgeType}] ${edge.fromNodeId} -> ${edge.toNodeId}${edge.condition ? ` | condition=${edge.condition}` : ''}`);
+    }
+  }
+  if (map.paths.length > 0) {
+    lines.push('', 'Paths:');
+    for (const path of map.paths) lines.push(`- ${path.pathId} [${path.pathType}] ${path.name}: ${path.nodeIdsOrdered.join(' -> ')}`);
+  }
+  lines.push(
+    '',
+    'Extraction instruction: when a claim supports a listed node or edge, set mapElementRef to the exact ref shown above. Claims still require a verbatim exactQuote from a Document Chunk ID.',
+  );
+  return lines.join('\n');
+}
+
+export async function loadLatestWorkflowMapGuidance(db: OracleDb, documentId: string): Promise<string | null> {
+  const [row] = await db
+    .select({
+      id: sourceWorkflowMaps.id,
+      status: sourceWorkflowMaps.status,
+      summary: sourceWorkflowMaps.summary,
+      mapKind: sourceWorkflowMaps.mapKind,
+      nodesJson: sourceWorkflowMaps.nodesJson,
+      edgesJson: sourceWorkflowMaps.edgesJson,
+      lanesJson: sourceWorkflowMaps.lanesJson,
+      pathsJson: sourceWorkflowMaps.pathsJson,
+    })
+    .from(sourceWorkflowMaps)
+    .where(
+      and(
+        eq(sourceWorkflowMaps.sourceType, 'document'),
+        eq(sourceWorkflowMaps.documentId, documentId),
+        sql`${sourceWorkflowMaps.status} IN ('validated', 'degraded')`,
+      ),
+    )
+    .orderBy(desc(sourceWorkflowMaps.createdAt))
+    .limit(1);
+  if (!row) return null;
+  return renderWorkflowMapGuidance(row.id, {
+    summary: row.summary ?? 'No summary.',
+    mapKind: row.mapKind as 'workflow' | 'reference',
+    nodes: row.nodesJson as WorkflowReadNode[],
+    edges: row.edgesJson as WorkflowReadEdge[],
+    lanes: row.lanesJson as WorkflowReadLane[],
+    paths: row.pathsJson as WorkflowReadPath[],
+  });
+}
+
+export async function generateSourceWorkflowMap(args: {
+  documentId: string;
+  triggerRunId: string;
+  force?: boolean;
+  db?: OracleDb;
+  client?: OracleAIClient;
+}): Promise<SourceWorkflowReadResult> {
+  const db = args.db ?? getDirectDb();
+  const client = args.client ?? new OracleAIClient({ adapters: buildStandardAdapters() });
+  const force = args.force ?? false;
+
+  const [doc] = await db
+    .select({ id: documents.id, fileName: documents.fileName, fileType: documents.fileType, context: documents.context })
+    .from(documents)
+    .where(eq(documents.id, args.documentId))
+    .limit(1);
+  if (!doc) return { documentId: args.documentId, status: 'skipped_not_found' };
+
+  const chunks = await db
+    .select({
+      id: documentChunks.id,
+      chunkIndex: documentChunks.chunkIndex,
+      pageNumber: documentChunks.pageNumber,
+      rawText: documentChunks.rawText,
+      contentHash: documentChunks.contentHash,
+    })
+    .from(documentChunks)
+    .where(eq(documentChunks.documentId, args.documentId))
+    .orderBy(documentChunks.chunkIndex);
+  if (chunks.length === 0) return { documentId: args.documentId, status: 'skipped_no_chunks' };
+
+  await markMacroPending(db, args.documentId);
+  const sourceContentHash = sourceHashForDocument(args.documentId, chunks);
+  const pending = await createPendingMap({ db, documentId: args.documentId, sourceContentHash, force });
+  if (pending.skippedExisting) {
+    await markMacroComplete(db, args.documentId);
+    return { documentId: args.documentId, status: 'skipped_existing', mapId: pending.mapId };
+  }
+
+  const [jobRun] = await db
+    .insert(jobRuns)
+    .values({
+      triggerRunId: args.triggerRunId,
+      jobType: 'source-workflow-read',
+      status: 'running',
+      startedAt: new Date(),
+      inputJson: { documentId: args.documentId, force, mapId: pending.mapId },
+    })
+    .returning({ id: jobRuns.id });
+  if (!jobRun) throw new Error('[source-workflow-read] failed to insert job_runs row');
+
+  try {
+    const referentPack = await buildReferentPack(db);
+    const modelResult = await runWorkflowReadModel({
+      db,
+      client,
+      doc,
+      chunks,
+      referentPack,
+      triggerRunId: args.triggerRunId,
+      mapId: pending.mapId,
+      force,
+    });
+    const maxDroppedRatio = await readNumberSetting(db, 'workflow_map_max_dropped_ratio', 0.2);
+    const validation = validateWorkflowMap(
+      modelResult.output,
+      new Map(chunks.map((chunk) => [chunk.id, chunk.rawText])),
+      maxDroppedRatio,
+    );
+    const lastModelRunId = modelResult.modelRunIds.at(-1) ?? null;
+    const lastContextPackId = modelResult.contextPackIds.at(-1) ?? null;
+
+    await db
+      .update(sourceWorkflowMaps)
+      .set({
+        status: validation.status,
+        mapKind: validation.map.mapKind,
+        summary: validation.map.summary,
+        nodesJson: validation.map.nodes,
+        edgesJson: validation.map.edges,
+        lanesJson: validation.map.lanes,
+        pathsJson: validation.map.paths,
+        validationJson: validation.validationJson,
+        modelRunId: lastModelRunId,
+        contextPackId: lastContextPackId,
+        updatedAt: new Date(),
+        finalizedAt: new Date(),
+      })
+      .where(eq(sourceWorkflowMaps.id, pending.mapId));
+
+    await db
+      .update(jobRuns)
+      .set({
+        status: 'complete',
+        finishedAt: new Date(),
+        outputJson: {
+          documentId: args.documentId,
+          mapId: pending.mapId,
+          status: validation.status,
+          mapKind: validation.map.mapKind,
+          droppedCount: validation.droppedCount,
+          keptCount: validation.keptCount,
+          modelRunIds: modelResult.modelRunIds,
+        },
+      })
+      .where(eq(jobRuns.id, jobRun.id));
+
+    if (validation.status === 'degraded') await markMacroDegraded(db, args.documentId);
+    else await markMacroComplete(db, args.documentId);
+
+    return {
+      documentId: args.documentId,
+      status: validation.status,
+      mapId: pending.mapId,
+      mapKind: validation.map.mapKind,
+      droppedCount: validation.droppedCount,
+      keptCount: validation.keptCount,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await db
+      .update(sourceWorkflowMaps)
+      .set({
+        status: 'failed',
+        validationJson: { promptVersion: WORKFLOW_READ_PROMPT_VERSION, error: message },
+        updatedAt: new Date(),
+        finalizedAt: new Date(),
+      })
+      .where(eq(sourceWorkflowMaps.id, pending.mapId));
+    await db
+      .update(jobRuns)
+      .set({ status: 'failed', finishedAt: new Date(), error: message })
+      .where(eq(jobRuns.id, jobRun.id));
+    await markMacroFailed(db, args.documentId);
+    throw err;
+  }
+}

@@ -1091,3 +1091,9 @@ node / edge / path** (§4.1, durable cross-source model), **model change proposa
   batched with dry-run report + bulk-accept confirms + human-sized review sessions)
   split from cleanup (Stage 9). All stage cross-references renumbered here, in
   `MODEL_BAKEOFF_SPEC.md`, and in `HANDOFF.md`.
+- 2026-07-07 (Codex): Implemented the local Stage 2 foundation in source:
+  `workflow-read-v1` flat schema/prompt, `source-workflow-read` worker/service,
+  immutable `source_workflow_maps` supersede/validate/fail behavior, awaited
+  document-ingestion workflow-read barrier, workflow-map guidance injection into
+  extraction windows, and `mapElementRef` extraction linkage. Not deployed or
+  live-gate verified yet; see `HANDOFF.md` for exact verification state.

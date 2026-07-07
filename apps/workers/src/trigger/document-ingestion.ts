@@ -29,7 +29,7 @@
 //   - Direct + sweep task variants (single document + cron safety net).
 
 import { schedules, task, tasks } from '@trigger.dev/sdk/v3';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { createHash } from 'crypto';
 import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -50,10 +50,7 @@ import {
   modelRunUsageDetails,
   modelRuns,
   oracleContextPacks,
-  settings,
-  sourceGroups,
-  sourceOutlineSources,
-  sourceOutlines,
+  claims,
   type OracleDb,
 } from '@oracle/db';
 import {
@@ -89,6 +86,10 @@ import {
 import { createServiceRoleClient } from '@oracle/auth/server';
 import type { EntityType, KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
 import { autoApproveDocumentClaimIfEligible } from '../lib/document-claim-auto-approval';
+import {
+  generateSourceWorkflowMap,
+  loadLatestWorkflowMapGuidance,
+} from '../lib/source-workflow-read';
 
 const CHUNK_SIZE = 4000;
 // Extraction-window budget: how much chunk text a single extraction call sees.
@@ -714,13 +715,33 @@ async function processDocument(
     insertedChunkIds,
     parseKind === 'image' ? MAX_IMAGE_TEXT_CHARS : MAX_DOCUMENT_TEXT_CHARS,
   );
-  const outlineContext = await loadDocumentOutlineContext(db, documentId).catch((err) => {
-    console.warn(
-      '[document-ingestion] source outline context unavailable; continuing without it',
-      err,
-    );
-    return null;
+  const workflowRead = await generateSourceWorkflowMap({
+    documentId,
+    triggerRunId: jobRunId,
+    db,
+    client,
+  }).catch(async (err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    await db
+      .update(documents)
+      .set({
+        status: 'failed',
+        processedAt: new Date(),
+        processingError: `Source workflow read failed: ${message}`,
+      })
+      .where(eq(documents.id, documentId));
+    if (fileBackedCachePath) {
+      await unlink(fileBackedCachePath).catch(() => undefined);
+    }
+    throw err;
   });
+  const workflowMapContext = await loadLatestWorkflowMapGuidance(db, documentId);
+  if (!workflowMapContext && workflowRead.status !== 'skipped_no_chunks') {
+    console.warn('[document-ingestion] workflow map guidance unavailable after workflow read', {
+      documentId,
+      workflowRead,
+    });
+  }
   for (let windowIndex = 0; windowIndex < extractionWindows.length; windowIndex++) {
     const extractionWindow = extractionWindows[windowIndex]!;
     const windowChunks = extractionWindow.chunks;
@@ -771,14 +792,14 @@ async function processDocument(
             }),
           ]
         : []),
-      ...(outlineContext
+      ...(workflowMapContext
         ? [
             makeBlock({
-              id: 'source-outline-guidance',
-              label: 'Provisional source outline',
+              id: 'source-workflow-map-guidance',
+              label: 'Source workflow map',
               kind: 'semi_stable_domain_context' as const,
-              content: outlineContext,
-              reasonIncluded: 'macro source outline guidance only; not valid evidence for claims',
+              content: workflowMapContext,
+              reasonIncluded: 'validated source workflow map guidance only; not valid evidence for claims',
             }),
           ]
         : []),
@@ -794,7 +815,7 @@ async function processDocument(
         label: 'Document extraction request',
         kind: 'dynamic_input',
         content:
-          'Read the document chunks as a whole, infer the operational process flow they describe, and extract dense, evidence-backed operational claims. For SOP/checklist/responsibility-list text, extract each concrete actionable step or handoff as a separate claim; do not collapse a numbered list or section into one broad summary. Classify by meaning and handoff structure, not by literal keywords. Every exactQuote must be copied verbatim from within ONE provided document chunk, and sourceMessageId must be that exact Document Chunk ID. Return only claims that are explicitly supported by the document text.',
+          'Read the document chunks as a whole, use the source workflow map as guidance only, and extract dense, evidence-backed operational claims. For every map node or edge visible in this window, extract at most one canonical claim that states the supported operational fact and set mapElementRef to the exact map ref when applicable. Also extract operational facts not captured by the map. For SOP/checklist/responsibility-list text, extract each concrete actionable step or handoff as a separate claim; do not collapse a numbered list or section into one broad summary. Classify by meaning and handoff structure, not by literal keywords. Every exactQuote must be copied verbatim from within ONE provided document chunk, and sourceMessageId must be that exact Document Chunk ID. Return only claims that are explicitly supported by the document text.',
         reasonIncluded:
           'small dynamic request so the document corpus can be cached as reusable prefix',
       }),
@@ -994,6 +1015,7 @@ async function processDocument(
             summary: extracted.summary,
             impactScore: extracted.impactScore,
             confidenceScore: extracted.confidenceScore,
+            mapElementRef: extracted.mapElementRef ?? null,
             domains: proposedTopDomainIds satisfies TopLevelDomainId[],
             // P2 #1 — proposedEntities now sourced from prompt-2.x.
             proposedEntities: (extracted.proposedEntities ?? []).map((e) => ({
@@ -1216,6 +1238,13 @@ async function processDocument(
           else if (result.outcome === 'appended_to_existing_claim') outcome.duplicatesAppended += 1;
           else outcome.rejections += 1;
 
+          if (result.outcome === 'inserted_new_claim' && result.claimId && extracted.mapElementRef) {
+            await db
+              .update(claims)
+              .set({ mapElementRef: extracted.mapElementRef })
+              .where(eq(claims.id, result.claimId));
+          }
+
           // Write document-level + chunk-level top-domain tags for retrieval.
           if (result.outcome !== 'recorded_rejection') {
             const autoApproved = await autoApproveDocumentClaimIfEligible({
@@ -1293,12 +1322,6 @@ async function processDocument(
       processedAt: new Date(),
     })
     .where(eq(documents.id, documentId));
-
-  await tasks
-    .trigger('source-outline', { documentId })
-    .catch((err) =>
-      console.warn('[document-ingestion] failed to trigger source outline orchestration', err),
-    );
 
   if (fileBackedCachePath) {
     await unlink(fileBackedCachePath).catch(() => undefined);
@@ -1382,96 +1405,6 @@ function buildUploaderContextNote(
       `If a suggested area is Business Process, represent cross-functional or end-to-end workflow claims with the general output domain.`;
   }
   return note;
-}
-
-function settingEnabled(value: unknown): boolean {
-  if (value === true) return true;
-  if (typeof value === 'string') return value.toLowerCase() === 'true';
-  return false;
-}
-
-async function loadDocumentOutlineContext(
-  db: OracleDb,
-  documentId: string,
-): Promise<string | null> {
-  const [flag] = await db
-    .select({ value: settings.value })
-    .from(settings)
-    .where(eq(settings.key, 'macro_outline_injection_enabled'))
-    .limit(1);
-  if (!settingEnabled(flag?.value)) return null;
-
-  const [outline] = await db
-    .select({
-      id: sourceOutlines.id,
-      summary: sourceOutlines.summary,
-      outlineJson: sourceOutlines.outlineJson,
-    })
-    .from(sourceOutlines)
-    .innerJoin(sourceOutlineSources, eq(sourceOutlineSources.sourceOutlineId, sourceOutlines.id))
-    .where(
-      and(
-        eq(sourceOutlineSources.sourceType, 'document'),
-        eq(sourceOutlineSources.documentId, documentId),
-        eq(sourceOutlines.status, 'provisional'),
-      ),
-    )
-    .orderBy(desc(sourceOutlines.createdAt))
-    .limit(1);
-  if (!outline) return null;
-
-  const groups = await db
-    .select({
-      title: sourceGroups.title,
-      groupType: sourceGroups.groupType,
-      description: sourceGroups.description,
-      metadataJson: sourceGroups.metadataJson,
-      sortOrder: sourceGroups.sortOrder,
-    })
-    .from(sourceGroups)
-    .where(eq(sourceGroups.sourceOutlineId, outline.id))
-    .orderBy(sourceGroups.sortOrder);
-
-  const outlineJson = outline.outlineJson as {
-    recommendedLenses?: string[];
-    openQuestions?: string[];
-  };
-  const lines = [
-    'PROVISIONAL SOURCE OUTLINE (GUIDANCE ONLY; NOT CLAIM EVIDENCE)',
-    'You may use this to resolve acronyms, pronouns, workflow shape, and likely extraction lenses.',
-    'Never quote this outline. Every exactQuote must still come from one Document Chunk ID in the document text block.',
-    '',
-    `Summary: ${outline.summary ?? 'No summary.'}`,
-  ];
-
-  if (outlineJson.recommendedLenses?.length) {
-    lines.push('', `Recommended lenses: ${outlineJson.recommendedLenses.join(', ')}`);
-  }
-  if (groups.length > 0) {
-    lines.push('', 'Source groups:');
-    for (const group of groups) {
-      const meta = group.metadataJson as {
-        recommendedLenses?: string[];
-        uncertainty?: string | null;
-      } | null;
-      lines.push(
-        `- ${group.title} (${group.groupType})${group.description ? `: ${group.description}` : ''}`,
-      );
-      if (meta?.recommendedLenses?.length) {
-        lines.push(`  Lenses: ${meta.recommendedLenses.join(', ')}`);
-      }
-      if (meta?.uncertainty) {
-        lines.push(`  Uncertainty: ${meta.uncertainty}`);
-      }
-    }
-  }
-  if (outlineJson.openQuestions?.length) {
-    lines.push('', 'Open questions:');
-    for (const question of outlineJson.openQuestions.slice(0, 8)) {
-      lines.push(`- ${question}`);
-    }
-  }
-  return lines.join('\n');
 }
 
 /**
