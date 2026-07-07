@@ -51,6 +51,7 @@ import {
   modelRuns,
   oracleContextPacks,
   claims,
+  settings,
   type OracleDb,
 } from '@oracle/db';
 import {
@@ -90,6 +91,7 @@ import {
   generateSourceWorkflowMap,
   loadLatestWorkflowMapGuidance,
 } from '../lib/source-workflow-read';
+import { markMacroMapFailed } from '../lib/macro-health';
 
 const CHUNK_SIZE = 4000;
 // Extraction-window budget: how much chunk text a single extraction call sees.
@@ -115,6 +117,7 @@ const VISION_TEMPERATURE = 0.6;
 // parses as a raw string, and fails the schema ("expected object").
 const EXTRACTION_MAX_OUTPUT_TOKENS = 32_000;
 const VERTEX_FILE_CACHE_MIN_BYTES = 10 * 1024 * 1024;
+const REQUIRE_WORKFLOW_MAP_FOR_INGESTION_SETTING = 'require_workflow_map_for_ingestion';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Payload schema for the single-document task
@@ -643,6 +646,7 @@ async function processDocument(
   // failed chunk insert means lost text — both previously only console.warn'd.
   let embeddingDegraded = false;
   let chunkInsertFailures = 0;
+  let workflowMapFallbackDegraded = false;
   try {
     const { vectors } = await embedMany(textChunks.map((c) => c.text));
     chunkVectors = vectors;
@@ -722,18 +726,32 @@ async function processDocument(
     client,
   }).catch(async (err) => {
     const message = err instanceof Error ? err.message : String(err);
-    await db
-      .update(documents)
-      .set({
-        status: 'failed',
-        processedAt: new Date(),
-        processingError: `Source workflow read failed: ${message}`,
-      })
-      .where(eq(documents.id, documentId));
-    if (fileBackedCachePath) {
-      await unlink(fileBackedCachePath).catch(() => undefined);
+    const requireWorkflowMap = await readBooleanSetting(
+      db,
+      REQUIRE_WORKFLOW_MAP_FOR_INGESTION_SETTING,
+      false,
+    );
+    if (requireWorkflowMap) {
+      await db
+        .update(documents)
+        .set({
+          status: 'failed',
+          processedAt: new Date(),
+          processingError: `Source workflow read failed: ${message}`,
+        })
+        .where(eq(documents.id, documentId));
+      if (fileBackedCachePath) {
+        await unlink(fileBackedCachePath).catch(() => undefined);
+      }
+      throw err;
     }
-    throw err;
+    workflowMapFallbackDegraded = true;
+    await markMacroMapFailed(db, documentId);
+    console.error(
+      '[document-ingestion] SOURCE WORKFLOW READ FAILED - continuing blind extraction because require_workflow_map_for_ingestion=false',
+      { documentId, error: message },
+    );
+    return { documentId, status: 'failed' as const };
   });
   const workflowMapContext = await loadLatestWorkflowMapGuidance(db, documentId);
   if (!workflowMapContext && workflowRead.status !== 'skipped_no_chunks') {
@@ -1314,6 +1332,10 @@ async function processDocument(
     );
   if (chunkInsertFailures > 0)
     degradedNotes.push(`${chunkInsertFailures} chunk insert(s) failed: that text was lost`);
+  if (workflowMapFallbackDegraded)
+    degradedNotes.push(
+      'source workflow map failed: extraction continued without map guidance because require_workflow_map_for_ingestion=false',
+    );
   await db
     .update(documents)
     .set({
@@ -1362,6 +1384,29 @@ async function resolveExtractionCandidates(db: OracleDb): Promise<RouteCandidate
   }
   return resolved.candidates;
 }
+
+async function readBooleanSetting(db: OracleDb, key: string, fallback: boolean): Promise<boolean> {
+  const [row] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, key))
+    .limit(1);
+  return coerceBooleanSetting(row?.value, fallback);
+}
+
+function coerceBooleanSetting(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return fallback;
+}
+
+export const __documentIngestionTestHooks = {
+  coerceBooleanSetting,
+};
 
 async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
   const { sql } = await import('drizzle-orm');

@@ -97,22 +97,19 @@ workstream — leave it until someone runs `test_code_changes.md` Tests 1–2.
   the map as non-quotable extraction guidance, carries `mapElementRef` into claims.
   Two live bugs found in review and **already hotfixed** (`37ee7d5`): failed/pending
   maps no longer poison retries; cross-window edge IDs no longer mangled.
+- **Stage 2 reader-failure fallback** — implemented in source on 2026-07-07. New
+  setting `require_workflow_map_for_ingestion` defaults false; when the workflow
+  reader exhausts its pool, ingestion logs loudly, leaves a failed map/job-run,
+  marks `documents.macro_health='map_failed'`, and continues blind extraction with
+  a degraded processing note. When the setting is true, reader failure still fails
+  the document.
 
 **NEXT ACTIONS, in order:**
-1. **Implement the Stage 2 reader-failure fallback** (deviation #1, spec in
-   `MACRO_FIRST_REDESIGN.md` §5.1 + open-items list below). Small; should land before
-   the gate so the gate measures intended behavior.
-2. **Run the Stage 2 gate** (NOT yet done — this is the real proof the redesign works):
-   re-ingest doc `9d09fa89-3a46-465e-a98b-837287c9e22a` via
-   `scripts/reevaluate-document.mjs` (DRY-RUN by default; prod DB access via the
-   1Password session pooler, NEVER local `.env.local` which points at the OLD project),
-   then score the produced `source_workflow_maps` row against `fix_enhancement.md` §2.1.
-   PASS = ≥90% of ground-truth nodes/edges survive validation; also confirm re-ingest
-   supersedes cleanly and a forced reader failure shows in `macro_health`. Then run
-   BO-1/BO-2 bake-offs (`MODEL_BAKEOFF_SPEC.md`). Record in `evals/` per the spec.
-3. Then **Stage 3** (map-directed extraction + edge-dedup + kill lens fan-out) →
+1. **Stage 3** (map-directed extraction + edge-dedup + kill lens fan-out) →
    Stage 4 (shadow merge) → Stage 5 (transactional apply/review) → 6 answering → 7
    consultant → 8 backfill → 9 cleanup.
+2. Run BO-2/deep-schema probes before promoting any non-OpenAI workflow/macro
+   candidate.
 
 **HOW TO RUN EACH STAGE (working pattern, keep using it):** spin up a FRESH-context
 agent (clean window beats continuity — everything durable is in the docs/code/prod, and
@@ -129,10 +126,8 @@ writes `job_runs` + `macro_health` (silent failures hid ERR-001 for weeks). Veri
 sub-agent's/Codex's work — this session caught real bugs in otherwise-good output every
 time by reading the diff and running the gates.
 
-**Two OPEN Stage 2 deviations** (fixes already spec'd in `MACRO_FIRST_REDESIGN.md`
-§5.1/§5.2; also listed in the Stage 2 block below): (1) reader is currently a HARD
-dependency of ingestion — add `require_workflow_map_for_ingestion` (seed false) blind-
-path fallback; (2) owner/system names stored raw — the merge worker (Stage 4/§5.3) must
+**Remaining Stage 2 deferral** (fix already spec'd in `MACRO_FIRST_REDESIGN.md`
+§5.2): owner/system names are still stored raw. The merge worker (Stage 4/§5.3) must
 resolve them to `entities` / file `entity_proposals`.
 
 **Adapter/model-routing follow-up:** see `fix_adapter_quirks.md`. Workflow/macro
@@ -229,16 +224,18 @@ Verification run locally: `corepack pnpm --filter @oracle/workers run
 verify:source-workflow-read`, `corepack pnpm --filter @oracle/workers typecheck`,
 `corepack pnpm -r typecheck`, and `git diff --check`.
 
-**OPEN — Stage 2 deviations from the plan (correct fixes now written into
-`MACRO_FIRST_REDESIGN.md`; implement in a later session):**
-1. **Reader-failure fallback (§5.1).** As shipped, the workflow reader is a HARD
-   dependency: if all `workflow_read` pool models fail, the whole document fails, so a
-   reader outage would halt ALL document ingestion. Target: gate on new setting
-   `require_workflow_map_for_ingestion` (seed `false`); on total reader failure, log
-   loudly, set the map `failed` + `macro_health='map_failed'`, and CONTINUE to
-   blind-path extraction so the document completes `degraded` rather than failing.
-   Land this before declaring the Stage 2 gate green.
-2. **Entity resolution deferred (§5.2).** The reader stores `ownerName`/`systems` as
+2026-07-07 Stage 2 reader-failure fallback (implemented in source): added migration
+`88_require_workflow_map_for_ingestion.sql`, seed default `false`, `map_failed` macro
+health helper, document-ingestion fallback handling, docs, and
+`verify:document-ingestion-fallback`. Verification run locally:
+`corepack pnpm --filter @oracle/workers run verify:document-ingestion-fallback`,
+`corepack pnpm --filter @oracle/workers run verify:source-workflow-read`,
+`corepack pnpm --filter @oracle/workers typecheck`,
+`corepack pnpm --filter @oracle/db typecheck`, and `git diff --check`.
+
+**OPEN — Stage 2 deferral from the plan (correct fix written into
+`MACRO_FIRST_REDESIGN.md`; implement at/by merge):**
+1. **Entity resolution deferred (§5.2).** The reader stores `ownerName`/`systems` as
    raw strings and does not resolve them against `entities` or file `entity_proposals`
    yet. Accepted as a deferral ONLY if the merge worker (§5.3) does the resolution when
    it writes durable `process_node` owner FKs + `process_node_systems` (preserving the

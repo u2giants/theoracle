@@ -11,12 +11,21 @@ import type { OracleDb } from '@oracle/db';
  *   - markMacroPending  — set when document-ingestion dispatches the outline (fresh run).
  *   - markMacroComplete — a followup succeeded and nothing has failed yet.
  *   - markMacroDegraded — a macro/coverage followup failed (partial holistic layer).
- *   - markMacroFailed   — the outline itself failed (no holistic layer at all).
+ *   - markMacroMapFailed — the source workflow map failed; blind extraction may still continue.
+ *   - markMacroFailed    — a hard macro failure should block the document.
  *
  * The conditional WHERE clauses make these safe to call concurrently: a success
  * can never overwrite a recorded failure, and a failure always downgrades.
  */
-export type MacroHealth = 'not_applicable' | 'pending' | 'complete' | 'degraded' | 'failed';
+export type MacroHealth =
+  | 'not_applicable'
+  | 'pending'
+  | 'complete'
+  | 'map_failed'
+  | 'map_degraded'
+  | 'merge_pending_review'
+  | 'degraded'
+  | 'failed';
 
 async function setMacroHealth(
   db: OracleDb,
@@ -56,6 +65,10 @@ export function markMacroComplete(db: OracleDb, documentId?: string | null): Pro
 export function markMacroDegraded(db: OracleDb, documentId?: string | null): Promise<void> {
   // Downgrade from pending/complete; never overwrite a hard 'failed'.
   return setMacroHealth(db, documentId, 'degraded', ['pending', 'complete']);
+}
+
+export function markMacroMapFailed(db: OracleDb, documentId?: string | null): Promise<void> {
+  return setMacroHealth(db, documentId, 'map_failed');
 }
 
 export function markMacroFailed(db: OracleDb, documentId?: string | null): Promise<void> {

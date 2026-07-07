@@ -59,6 +59,7 @@ const DEFAULT_SETTINGS: Array<{
   { key: 'model_pool_translation', value: ['qwen/qwen-mt-plus', 'qwen/qwen3.7-max', 'google/gemini-2.5-flash'], description: 'Ordered fallback chain for translation.' },
   { key: 'serve_provisional_process_elements', value: true, description: 'When true, chat may serve process elements with unapproved support as explicitly provisional.' },
   { key: 'workflow_map_max_dropped_ratio', value: 0.2, description: 'Maximum dropped workflow-map element ratio before a validated map is marked degraded.' },
+  { key: 'require_workflow_map_for_ingestion', value: false, description: 'When false, document ingestion falls back to blind extraction if source workflow read exhausts its model pool; when true, reader failure fails the document.' },
   { key: 'model_merge_min_alignment_confidence', value: 70, description: 'Minimum confidence score for accepting a source-map to business-model alignment.' },
   { key: 'merge_candidate_top_k', value: 5, description: 'Internal domain-scoped process shortlist width for business-model merge.' },
   { key: 'process_match_top_k', value: 2, description: 'Number of business processes to render into chat context.' },

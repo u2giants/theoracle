@@ -8,7 +8,8 @@
     "deploy": "npx trigger.dev@4.4.6 deploy",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "verify:source-workflow-read": "tsx src/__verify__/source-workflow-read-smoke.ts"
+    "verify:source-workflow-read": "tsx src/__verify__/source-workflow-read-smoke.ts",
+    "verify:document-ingestion-fallback": "tsx src/__verify__/document-ingestion-fallback-smoke.ts"
   },
   "dependencies": {
     "@oracle/ai": "workspace:*",

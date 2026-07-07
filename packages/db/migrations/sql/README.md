@@ -86,6 +86,12 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `80_macro_auto_followup_settings.sql` | Seeds guarded macro auto-followup settings for outline-completion fan-out and macro extraction support-claim budgets. |
 | `81_macro_lens_fanout_settings.sql` | Seeds document lens fan-out budget settings for macro-first source-group extraction. |
 | `82_macro_validation_tuning_settings.sql` | Seeds tunable macro/lens dedup and entity-validation thresholds. |
+| `83_macro_route_setting.sql` | Adds the dedicated macro auxiliary route setting for holistic source-outline / relationship / coverage workers. |
+| `84_macro_pool_and_lens_budgets.sql` | Adds the macro model fallback pool and adjusts lens fan-out budgets. |
+| `85_documents_macro_health.sql` | Adds document-level `macro_health` observability for macro/holistic worker state. |
+| `86_macro_first_schema.sql` | Adds the macro-first source workflow map and business-process graph foundation. |
+| `87_model_capability_granularity.sql` | Adds stricter model capability flags for schema depth and adapter request safety. |
+| `88_require_workflow_map_for_ingestion.sql` | Seeds the default-off guard that lets document ingestion fall back to blind extraction when source workflow read exhausts its model pool. |
 | `99_vector_indexes.sql` | HNSW indexes on `claims.embedding` and `document_chunks.embedding`. Opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`. |
 
 ## Anti-patterns

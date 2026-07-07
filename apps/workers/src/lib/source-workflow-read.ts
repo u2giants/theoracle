@@ -33,7 +33,7 @@ import {
 } from '@oracle/db';
 import { getDirectDb } from '@oracle/db/client';
 import { validateQuote } from '@oracle/engines';
-import { markMacroComplete, markMacroDegraded, markMacroFailed, markMacroPending } from './macro-health';
+import { markMacroComplete, markMacroDegraded, markMacroMapFailed, markMacroPending } from './macro-health';
 
 type ChunkRow = {
   id: string;
@@ -779,7 +779,7 @@ export async function generateSourceWorkflowMap(args: {
       .update(jobRuns)
       .set({ status: 'failed', finishedAt: new Date(), error: message })
       .where(eq(jobRuns.id, jobRun.id));
-    await markMacroFailed(db, args.documentId);
+    await markMacroMapFailed(db, args.documentId);
     throw err;
   }
 }
