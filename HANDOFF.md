@@ -110,6 +110,66 @@ proposal after the advisory lock, no-oping terminal statuses, status-guarding
 failed-apply overwrite guards. Added read-only empty-state admin pages for
 `/admin/business-model` and `/admin/recommendations`.
 
+#### 2026-07-06 — Stage 1 migration 86 **APPLIED TO PROD and VERIFIED** ✅
+
+Migration `packages/db/migrations/sql/86_macro_first_schema.sql` (as amended by commit
+`01ed195`) was applied to prod (`eqccjfbyrywsqkxxpjvg`) in one shot and fully verified.
+Note: a first attempt earlier the same day ABORTED with zero prod changes — prod had an
+orphan legacy `source_workflow_maps` table (pre-Stage-1 shape: `source_outline_id` /
+`workflow_version` / `coverage_json`, 0 rows, defined by no migration) which made the
+original migration fail `42703: column "channel_id" does not exist` at the new unique
+index. Albert approved the guarded reconciliation pre-step in `01ed195` (drops ONLY that
+legacy shape, ONLY when empty, raises loudly if it holds rows, no-op on fresh DBs and
+re-runs), which resolved it.
+
+Access notes: psql and Supabase MCP were unavailable; apply/verify ran via the `pg` node
+client over the 1Password **session pooler** (`aws-1-us-east-1.pooler.supabase.com:5432`)
+— the direct `db.<ref>.supabase.co` host does not resolve locally (IPv6-only).
+
+Verification results (all read-only, post-apply):
+- **3a PASS** — all 12 tables exist (source_workflow_maps, business_processes,
+  business_process_versions, process_nodes, process_edges, process_node_systems,
+  process_paths, process_element_claims, process_top_domains, business_model_changes,
+  business_model_change_events, recommendations).
+- **Legacy drop confirmed** — `source_workflow_maps` now has the NEW 20-column shape
+  including `source_type, channel_id, segment_ref, source_content_hash, map_kind,
+  lanes_json, validation_json, superseded_by_map_id, finalized_at`.
+- **3b PASS** — `relrowsecurity = true` on all 12; `pg_policies` empty for all 12
+  (RLS enabled, zero policies → service-role only).
+- **3c PASS** — partial unique indexes exist:
+  `source_workflow_maps_active_source_hash_unique`,
+  `business_model_changes_active_idempotency_unique`,
+  `process_element_claims_primary_unique`.
+- **3d PASS** — new columns exist: `extraction_candidates.map_element_ref`,
+  `claims.map_element_ref`, `claim_review_events.review_source`,
+  `claim_review_events.business_model_change_id`.
+- **3e PASS** — `documents_macro_health_check` re-created and includes `map_failed`
+  (and `map_degraded`, `merge_pending_review`).
+- **3f PASS** — all 13 new settings rows seeded and **single-encoded** (jsonb_typeof
+  boolean/number/string/array as appropriate; pools are real JSON arrays, not escaped
+  strings). Settings count went **44 → 57** (+13, matching the seed block).
+- **3g PASS** — idempotency: re-ran ONLY the settings INSERT … ON CONFLICT DO NOTHING
+  block a second time; count unchanged at 57.
+- **3h NOT TESTED** — anon-key access denial was not exercised: this session only had the
+  postgres pooler connection (service path), no anon key. RLS-enabled + zero policies
+  implies anon deny, but a live anon probe remains open.
+- **Task 4 PASS** — all 9 pre-existing model-pass settings present alongside the new ones:
+  `default_vision_route`, `default_interview_route`, `model_pool_interview`,
+  `default_synthesis_route`, `model_pool_synthesis`, `default_extraction_route`,
+  `model_pool_extraction`, `default_translation_route`, `default_general_purpose_route`.
+  None missing.
+
+Remaining for the Stage 1 gate:
+- Albert's visual check of Admin → Settings "Model Passes" (all 8 rows render with seeded
+  pools) — data side is verified; UI not exercised (no auth bypass attempted).
+- Live anon-RLS probe (3h above).
+- Fresh-DB idempotency apply (gate wording): prod re-run idempotency of the settings block
+  is proven; a full fresh-DB apply was not run this session.
+
+Next step: Stage 2 (`source-workflow-read` worker), still blocked on resolving/committing
+the 8 uncommitted cache-workstream working-tree files. No Trigger deploy was done (no
+worker changes in Stage 1). Nothing was committed by this session.
+
 ---
 
 ## ACTIVE (2026-07-06): Vision transcription & claim-extraction test plan → see `test_code_changes.md`
