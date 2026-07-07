@@ -148,6 +148,22 @@ Verification run locally: `corepack pnpm --filter @oracle/workers run
 verify:source-workflow-read`, `corepack pnpm --filter @oracle/workers typecheck`,
 `corepack pnpm -r typecheck`, and `git diff --check`.
 
+**OPEN — Stage 2 deviations from the plan (correct fixes now written into
+`MACRO_FIRST_REDESIGN.md`; implement in a later session):**
+1. **Reader-failure fallback (§5.1).** As shipped, the workflow reader is a HARD
+   dependency: if all `workflow_read` pool models fail, the whole document fails, so a
+   reader outage would halt ALL document ingestion. Target: gate on new setting
+   `require_workflow_map_for_ingestion` (seed `false`); on total reader failure, log
+   loudly, set the map `failed` + `macro_health='map_failed'`, and CONTINUE to
+   blind-path extraction so the document completes `degraded` rather than failing.
+   Land this before declaring the Stage 2 gate green.
+2. **Entity resolution deferred (§5.2).** The reader stores `ownerName`/`systems` as
+   raw strings and does not resolve them against `entities` or file `entity_proposals`
+   yet. Accepted as a deferral ONLY if the merge worker (§5.3) does the resolution when
+   it writes durable `process_node` owner FKs + `process_node_systems` (preserving the
+   no-silent-entity-invention invariant). Nothing downstream consumes the unresolved
+   FKs until merge exists, so this is not urgent — but it must be done at/by merge.
+
 #### 2026-07-06 — Stage 1 migration 86 **APPLIED TO PROD and VERIFIED** ✅
 
 Migration `packages/db/migrations/sql/86_macro_first_schema.sql` (as amended by commit

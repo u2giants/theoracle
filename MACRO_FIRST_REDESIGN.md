@@ -453,6 +453,25 @@ steps. Trigger.dev `triggerAndWait` (or direct function composition inside
 `document-ingestion`) is the mechanism; fire-and-forget remains acceptable only for
 truly optional afterthoughts (translations, notifications).
 
+**Reader-failure fallback (required — do not make the reader a hard dependency of
+ingestion).** The 3-model `workflow_read` pool makes total reader failure rare, but
+"rare" is not "never": if all candidates fail, a document must still ingest as claims,
+not fail outright — otherwise a workflow-read outage halts ALL document ingestion,
+which is a worse regression than the blind-extraction it replaced. Behavior on a
+reader that exhausts its pool:
+- Gate it on a setting `require_workflow_map_for_ingestion` (seed **`false`**). When
+  `false` (default): log the failure loudly, set the map row `failed` and
+  `macro_health='map_failed'` (so the miss is VISIBLE, per D4), and CONTINUE to
+  map-directed extraction with no map block — extraction falls back to the pre-map
+  blind path for this one document. The document completes as `degraded`, never
+  silently `complete`. When `true`: the document fails (the §5.1 hard-stop), for
+  deployments that would rather block than ingest un-mapped.
+- This composes with the Stage-3 old-extraction-path retention (§9): the blind path
+  stays reachable as this fallback even after Stage 5 deletes it as the *default*.
+- ⚠️ Deviation note (2026-07-07): Stage 2 as first shipped made the reader a HARD
+  dependency (total failure fails the document). This fallback is the correct target;
+  implement it before the Stage 2 gate is declared green.
+
 ### 5.2 `source-workflow-read` (new worker; successor to `source-outline`)
 
 Input: document ID (or meeting/segment ref). Loads all chunks IN ORDER (never a
@@ -483,6 +502,22 @@ understanding beats none) but sets `macro_health='degraded'`.
 `ownerName`/`systems` are resolved against the `entities` registry in code
 (exact/alias match); unresolved names become `entity_proposals`, and the element keeps
 the raw string until resolution — never invent entity rows silently.
+
+**Entity resolution — where it happens (resolved 2026-07-07).** Stage 2 as first
+shipped stored `ownerName`/`systems` as raw strings and did NOT resolve them against
+the `entities` registry or file `entity_proposals`. That is an acceptable DEFERRAL,
+not a permanent skip, on one condition: resolution MUST happen no later than the merge
+step (§5.3), because the durable `process_nodes.owner_department_id`/`owner_entity_id`
+FKs and `process_node_systems` rows cannot be written from raw strings. The rule:
+- The reader keeps emitting raw `ownerName`/`systems` strings (correct — the reader
+  should not be gated on registry lookups).
+- The **merge worker** (§5.3), when it turns an approved map element into a durable
+  `process_node`, resolves each raw owner/system against `entities` (exact/alias),
+  writes the FK when matched, keeps `owner_raw` and files an `entity_proposal` when
+  not — never inventing an entity row silently.
+This keeps the invariant (no silent entity invention) while letting the reader stay a
+pure topology pass. If merge is not yet built when this is read, the raw strings sit
+harmlessly on the map until it is; nothing downstream consumes the unresolved FKs yet.
 
 **Reader context rule — referents, NOT structure (deliberate anti-bias decision).**
 The reader prompt is enriched with a compact "referent pack": known entity names and
@@ -1097,3 +1132,17 @@ node / edge / path** (§4.1, durable cross-source model), **model change proposa
   document-ingestion workflow-read barrier, workflow-map guidance injection into
   extraction windows, and `mapElementRef` extraction linkage. Not deployed or
   live-gate verified yet; see `HANDOFF.md` for exact verification state.
+- 2026-07-07 (Claude, Fable 5), Stage 2 deviation-fix specs (Albert directed): after
+  reviewing the shipped Stage 2 code, wrote the correct target for the two deviations
+  from plan into the sections they belong to, so a later session implements them
+  rather than inheriting undocumented gaps. (1) §5.1 — reader-failure fallback: the
+  workflow reader must NOT be a hard dependency of ingestion; on total pool failure,
+  gated by new setting `require_workflow_map_for_ingestion` (seed `false`), the
+  document ingests via the blind-extraction path and completes `degraded` with
+  `macro_health='map_failed'`, never silently failing all ingestion. (2) §5.2 —
+  entity resolution: the reader may keep emitting raw `ownerName`/`systems` strings
+  (deferral is fine), but the merge worker (§5.3) MUST resolve them against `entities`
+  / file `entity_proposals` when it writes durable `process_node` owner FKs and
+  `process_node_systems`, preserving the no-silent-entity-invention invariant. Both
+  are open items in `HANDOFF.md`; neither blocks the Stage 2 gate's map-quality
+  measurement, but the fallback should land before Stage 2 is declared green.
