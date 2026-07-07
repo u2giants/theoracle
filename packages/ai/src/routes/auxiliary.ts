@@ -13,6 +13,14 @@ import {
   VISION_REASONING_EFFORT_SETTING_KEY,
   TRANSLATION_ROUTE_SETTING_KEY,
   MACRO_ROUTE_SETTING_KEY,
+  MODEL_MERGE_ROUTE_SETTING_KEY,
+  MODEL_POOL_GENERAL_SETTING_KEY,
+  MODEL_POOL_MACRO_SETTING_KEY,
+  MODEL_POOL_MODEL_MERGE_SETTING_KEY,
+  MODEL_POOL_TRANSLATION_SETTING_KEY,
+  MODEL_POOL_VISION_SETTING_KEY,
+  MODEL_POOL_WORKFLOW_READ_SETTING_KEY,
+  WORKFLOW_READ_ROUTE_SETTING_KEY,
 } from './defaults';
 
 /**
@@ -34,6 +42,8 @@ export interface AuxiliaryModelDef {
   id: string;
   /** Settings row holding the chosen route/model id. */
   routeSettingKey: string;
+  /** Optional ordered fallback pool. */
+  poolSettingKey?: string;
   /** Optional settings row for reasoning effort. Omit when effort is irrelevant. */
   reasoningEffortSettingKey?: string;
   /** Capability the picker filters the model list on. Omit for any model. */
@@ -45,21 +55,40 @@ export interface AuxiliaryModelDef {
 export const VISION_AUXILIARY_MODEL: AuxiliaryModelDef = {
   id: 'vision',
   routeSettingKey: VISION_ROUTE_SETTING_KEY,
+  poolSettingKey: MODEL_POOL_VISION_SETTING_KEY,
   reasoningEffortSettingKey: VISION_REASONING_EFFORT_SETTING_KEY,
   requiredCapability: 'vision',
-  label: 'Image vision model',
+  label: 'Vision transcription',
+};
+
+export const WORKFLOW_READ_AUXILIARY_MODEL: AuxiliaryModelDef = {
+  id: 'workflow_read',
+  routeSettingKey: WORKFLOW_READ_ROUTE_SETTING_KEY,
+  poolSettingKey: MODEL_POOL_WORKFLOW_READ_SETTING_KEY,
+  requiredCapability: 'structuredOutputs',
+  label: 'Workflow read',
+};
+
+export const MODEL_MERGE_AUXILIARY_MODEL: AuxiliaryModelDef = {
+  id: 'model_merge',
+  routeSettingKey: MODEL_MERGE_ROUTE_SETTING_KEY,
+  poolSettingKey: MODEL_POOL_MODEL_MERGE_SETTING_KEY,
+  requiredCapability: 'structuredOutputs',
+  label: 'Model merge',
 };
 
 export const GENERAL_PURPOSE_AUXILIARY_MODEL: AuxiliaryModelDef = {
   id: 'general',
   routeSettingKey: GENERAL_PURPOSE_ROUTE_SETTING_KEY,
-  label: 'General-purpose model',
+  poolSettingKey: MODEL_POOL_GENERAL_SETTING_KEY,
+  label: 'General utility',
 };
 
 export const TRANSLATION_AUXILIARY_MODEL: AuxiliaryModelDef = {
   id: 'translation',
   routeSettingKey: TRANSLATION_ROUTE_SETTING_KEY,
-  label: 'Translation model',
+  poolSettingKey: MODEL_POOL_TRANSLATION_SETTING_KEY,
+  label: 'Translation',
 };
 
 /**
@@ -73,6 +102,7 @@ export const TRANSLATION_AUXILIARY_MODEL: AuxiliaryModelDef = {
 export const MACRO_AUXILIARY_MODEL: AuxiliaryModelDef = {
   id: 'macro',
   routeSettingKey: MACRO_ROUTE_SETTING_KEY,
+  poolSettingKey: MODEL_POOL_MACRO_SETTING_KEY,
   requiredCapability: 'structuredOutputs',
   label: 'Macro understanding model',
 };
@@ -80,9 +110,11 @@ export const MACRO_AUXILIARY_MODEL: AuxiliaryModelDef = {
 /** Order here is the order the auxiliary cards render in the admin settings page. */
 export const AUXILIARY_MODELS: AuxiliaryModelDef[] = [
   VISION_AUXILIARY_MODEL,
+  WORKFLOW_READ_AUXILIARY_MODEL,
+  MODEL_MERGE_AUXILIARY_MODEL,
   MACRO_AUXILIARY_MODEL,
-  GENERAL_PURPOSE_AUXILIARY_MODEL,
   TRANSLATION_AUXILIARY_MODEL,
+  GENERAL_PURPOSE_AUXILIARY_MODEL,
 ];
 
 export function getAuxiliaryModelDef(id: string): AuxiliaryModelDef | undefined {

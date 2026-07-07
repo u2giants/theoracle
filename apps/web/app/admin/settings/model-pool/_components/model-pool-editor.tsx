@@ -60,17 +60,35 @@ const STAGE_SETTING_KEYS: Record<Stage, string> = {
   synthesis: 'model_pool_synthesis',
 };
 
-const POOL_KEYS = [...STAGES, 'macro'] as const;
+const POOL_KEYS = [
+  'vision',
+  'workflow_read',
+  'model_merge',
+  ...STAGES,
+  'macro',
+  'translation',
+  'general',
+] as const;
 type PoolKey = (typeof POOL_KEYS)[number];
 
 const POOL_LABELS: Record<PoolKey, string> = {
+  vision: 'Vision',
+  workflow_read: 'Workflow',
+  model_merge: 'Merge',
   ...STAGE_LABELS,
   macro: 'Macro',
+  translation: 'Translation',
+  general: 'General',
 };
 
 const POOL_SETTING_KEYS: Record<PoolKey, string> = {
+  vision: 'model_pool_vision',
+  workflow_read: 'model_pool_workflow_read',
+  model_merge: 'model_pool_model_merge',
   ...STAGE_SETTING_KEYS,
   macro: 'model_pool_macro',
+  translation: 'model_pool_translation',
+  general: 'model_pool_general',
 };
 
 type PoolState = Record<PoolKey, Set<string>>;
@@ -78,12 +96,38 @@ type SortKey = 'context' | 'price' | null;
 type SortDir = 'asc' | 'desc';
 
 function missingPoolReqs(m: ModelCatalogEntry, pool: PoolKey) {
-  if (pool === 'macro') {
+  if (pool === 'vision') {
+    const cap = CAP_BY_FIELD.vision;
+    return hasEnrichment(m) && !m.vision
+      ? [{ label: cap.long, icon: cap.icon, color: cap.color }]
+      : [];
+  }
+  if (pool === 'workflow_read') {
+    const reqs = [
+      {
+        label: CAP_BY_FIELD.structuredOutputs.long,
+        icon: CAP_BY_FIELD.structuredOutputs.icon,
+        color: CAP_BY_FIELD.structuredOutputs.color,
+        missing: !m.structuredOutputs,
+      },
+      {
+        label: 'Context > 100K',
+        icon: STAGE_REQUIREMENTS.extraction[1]!.icon,
+        color: STAGE_REQUIREMENTS.extraction[1]!.color,
+        missing: m.contextLength == null || m.contextLength <= 100_000,
+      },
+    ];
+    return hasEnrichment(m)
+      ? reqs.filter((r) => r.missing).map(({ label, icon, color }) => ({ label, icon, color }))
+      : [];
+  }
+  if (pool === 'model_merge' || pool === 'macro') {
     const cap = CAP_BY_FIELD.structuredOutputs;
     return hasEnrichment(m) && !m.structuredOutputs
       ? [{ label: cap.long, icon: cap.icon, color: cap.color }]
       : [];
   }
+  if (pool === 'translation' || pool === 'general') return [];
   return missingReqs(m, pool);
 }
 
@@ -125,10 +169,15 @@ export function ModelPoolEditor({
   const [refreshErrors, setRefreshErrors] = useState<string[]>([]);
   const [refreshUnenrichedCount, setRefreshUnenrichedCount] = useState(0);
   const [pools, setPools] = useState<PoolState>({
+    vision: new Set(initial.vision),
+    workflow_read: new Set(initial.workflow_read),
+    model_merge: new Set(initial.model_merge),
     interview: new Set(initial.interview),
     extraction: new Set(initial.extraction),
     synthesis: new Set(initial.synthesis),
     macro: new Set(initial.macro),
+    translation: new Set(initial.translation),
+    general: new Set(initial.general),
   });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -466,7 +515,24 @@ export function ModelPoolEditor({
                           <div className="flex flex-col items-center gap-1">
                             <span>{POOL_LABELS[stage]}</span>
                             <div className="flex items-center gap-0.5">
-                              {(stage === 'macro'
+                              {(stage === 'vision'
+                                ? [
+                                    {
+                                      label: CAP_BY_FIELD.vision.long,
+                                      icon: CAP_BY_FIELD.vision.icon,
+                                      color: CAP_BY_FIELD.vision.color,
+                                    },
+                                  ]
+                                : stage === 'workflow_read'
+                                  ? [
+                                      {
+                                        label: CAP_BY_FIELD.structuredOutputs.long,
+                                        icon: CAP_BY_FIELD.structuredOutputs.icon,
+                                        color: CAP_BY_FIELD.structuredOutputs.color,
+                                      },
+                                      STAGE_REQUIREMENTS.extraction[1]!,
+                                    ]
+                                  : stage === 'model_merge' || stage === 'macro'
                                 ? [
                                     {
                                       label: CAP_BY_FIELD.structuredOutputs.long,
@@ -474,7 +540,9 @@ export function ModelPoolEditor({
                                       color: CAP_BY_FIELD.structuredOutputs.color,
                                     },
                                   ]
-                                : STAGE_REQUIREMENTS[stage]
+                                : stage === 'translation' || stage === 'general'
+                                  ? []
+                                  : STAGE_REQUIREMENTS[stage]
                               ).map((req, i) => (
                                 <req.icon key={i} className={cn('h-3 w-3', req.color)} aria-label={`Requires ${req.label}`} />
                               ))}

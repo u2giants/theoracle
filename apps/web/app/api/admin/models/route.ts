@@ -22,6 +22,7 @@ import { settings } from '@oracle/db/schema';
 import {
   MODEL_POOL_SETTING_KEYS,
   AUXILIARY_MODEL_IDS,
+  getAuxiliaryModelDef,
   loadModelCatalog,
   type ModelCapability,
 } from '@oracle/ai';
@@ -73,7 +74,10 @@ function capabilityToModelInfo(cap: ModelCapability): ModelInfo {
 }
 
 type PipelineStage = 'interview' | 'extraction' | 'synthesis';
-type ModelScope = { kind: 'stage'; stage: PipelineStage } | { kind: 'full' };
+type ModelScope =
+  | { kind: 'stage'; stage: PipelineStage }
+  | { kind: 'auxiliary'; auxiliaryId: string; poolKey?: string }
+  | { kind: 'full' };
 
 function parseScope(req: NextRequest): ModelScope {
   const raw = req.nextUrl.searchParams.get('stage');
@@ -81,9 +85,11 @@ function parseScope(req: NextRequest): ModelScope {
     return { kind: 'stage', stage: raw };
   }
   // Any auxiliary-model id (general-purpose, vision, …) → full catalog; the
-  // client filters by that model's required capability.
+  // client filters by that model's required capability. If that auxiliary has
+  // an ordered pool, return only pool members so fallbacks and pickers stay in
+  // the same approved set.
   if (raw && AUXILIARY_MODEL_IDS.has(raw)) {
-    return { kind: 'full' };
+    return { kind: 'auxiliary', auxiliaryId: raw, poolKey: getAuxiliaryModelDef(raw)?.poolSettingKey };
   }
   return { kind: 'stage', stage: 'interview' };
 }
@@ -99,8 +105,27 @@ export async function GET(req: NextRequest) {
   const db = getDirectDb();
   const catalog = await loadModelCatalog(db);
 
-  // Auxiliary-model pickers draw from the full catalog (no per-stage pool); the
-  // client filters by the aux model's single required capability.
+  // Auxiliary-model pickers draw from the configured auxiliary pool when one
+  // exists, otherwise from the full catalog.
+  if (scope.kind === 'auxiliary') {
+    if (!scope.poolKey) {
+      return NextResponse.json({ models: catalog.map(capabilityToModelInfo) });
+    }
+    const poolRow = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, scope.poolKey))
+      .limit(1);
+    const pool: string[] = Array.isArray(poolRow[0]?.value) ? (poolRow[0]!.value as string[]) : [];
+    if (pool.length === 0) {
+      return NextResponse.json({ models: catalog.map(capabilityToModelInfo) });
+    }
+    const poolSet = new Set(pool);
+    return NextResponse.json({
+      models: catalog.filter((c) => poolSet.has(c.id)).map(capabilityToModelInfo),
+    });
+  }
+
   if (scope.kind === 'full') {
     return NextResponse.json({ models: catalog.map(capabilityToModelInfo) });
   }

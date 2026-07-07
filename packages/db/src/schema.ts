@@ -453,7 +453,8 @@ export const documents = pgTable(
     // `complete`. Written by the source-outline / macro-relationship /
     // coverage-audit workers. Column added via hand-written SQL migration 85
     // (like context/domain_hints); values: not_applicable | pending | complete
-    // | degraded | failed. See apps/workers/src/lib/macro-health.ts.
+    // | map_failed | map_degraded | merge_pending_review | degraded |
+    // failed. See apps/workers/src/lib/macro-health.ts.
     macroHealth: varchar('macro_health', { length: 20 })
       .default('not_applicable')
       .notNull(),
@@ -741,6 +742,314 @@ export const sourceCoverageFindings = pgTable(
   }),
 );
 
+// ---------------------------------------------------------------------------
+// 6.4.6 Macro-first business model: source maps, versioned processes,
+// proposal/apply audit, and recommendations.
+// ---------------------------------------------------------------------------
+
+export const sourceWorkflowMaps = pgTable(
+  'source_workflow_maps',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceType: varchar('source_type', { length: 50 }).notNull(),
+    documentId: uuid('document_id').references(() => documents.id, { onDelete: 'set null' }),
+    channelId: uuid('channel_id').references(() => channels.id, { onDelete: 'set null' }),
+    segmentRef: text('segment_ref'),
+    sourceContentHash: varchar('source_content_hash', { length: 64 }).notNull(),
+    status: varchar('status', { length: 50 }).notNull().default('pending'),
+    mapKind: varchar('map_kind', { length: 50 }).notNull().default('workflow'),
+    summary: text('summary'),
+    nodesJson: jsonb('nodes_json').default([]).notNull(),
+    edgesJson: jsonb('edges_json').default([]).notNull(),
+    lanesJson: jsonb('lanes_json').default([]).notNull(),
+    pathsJson: jsonb('paths_json').default([]).notNull(),
+    validationJson: jsonb('validation_json').default({}).notNull(),
+    modelRunId: uuid('model_run_id').references(() => modelRuns.id, { onDelete: 'set null' }),
+    contextPackId: uuid('context_pack_id').references(() => oracleContextPacks.id, {
+      onDelete: 'set null',
+    }),
+    // SQL migration 86 adds the self-FK; keep Drizzle plain to avoid circular
+    // table-initializer inference.
+    supersededByMapId: uuid('superseded_by_map_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    finalizedAt: timestamp('finalized_at', { withTimezone: true }),
+  },
+  (t) => ({
+    statusCreatedIdx: index('source_workflow_maps_status_created_idx').on(t.status, t.createdAt),
+    documentIdx: index('source_workflow_maps_document_idx').on(t.documentId),
+    channelIdx: index('source_workflow_maps_channel_idx').on(t.channelId),
+    modelRunIdx: index('source_workflow_maps_model_run_idx').on(t.modelRunId),
+    contextPackIdx: index('source_workflow_maps_context_pack_idx').on(t.contextPackId),
+  }),
+);
+
+export const businessProcesses = pgTable(
+  'business_processes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    slug: varchar('slug', { length: 160 }).notNull().unique(),
+    status: varchar('status', { length: 50 }).notNull().default('draft'),
+    // SQL migration 86 adds the FK to business_process_versions.
+    currentVersionId: uuid('current_version_id'),
+    summary: text('summary'),
+    embedding: vector('embedding', { dimensions: EMBEDDING_DIM }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    statusIdx: index('business_processes_status_idx').on(t.status),
+    currentVersionIdx: index('business_processes_current_version_idx').on(t.currentVersionId),
+  }),
+);
+
+export const businessProcessVersions = pgTable(
+  'business_process_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    processId: uuid('process_id')
+      .references(() => businessProcesses.id, { onDelete: 'cascade' })
+      .notNull(),
+    versionNumber: integer('version_number').notNull(),
+    status: varchar('status', { length: 50 }).notNull().default('pending_review'),
+    narrative: text('narrative'),
+    // SQL migration 86 adds the FK to business_model_changes.
+    createdFromChangeId: uuid('created_from_change_id'),
+    modelRunId: uuid('model_run_id').references(() => modelRuns.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+  },
+  (t) => ({
+    processStatusIdx: index('business_process_versions_process_status_idx').on(
+      t.processId,
+      t.status,
+    ),
+    processVersionUnique: uniqueIndex('business_process_versions_process_version_unique').on(
+      t.processId,
+      t.versionNumber,
+    ),
+  }),
+);
+
+export const processNodes = pgTable(
+  'process_nodes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    versionId: uuid('version_id')
+      .references(() => businessProcessVersions.id, { onDelete: 'cascade' })
+      .notNull(),
+    nodeKey: varchar('node_key', { length: 120 }).notNull(),
+    label: text('label').notNull(),
+    nodeType: varchar('node_type', { length: 50 }).notNull(),
+    laneLabel: text('lane_label'),
+    ownerDepartmentId: departmentEnum('owner_department_id').references(() => departments.id, {
+      onDelete: 'set null',
+    }),
+    ownerEntityId: uuid('owner_entity_id').references(() => entities.id, {
+      onDelete: 'set null',
+    }),
+    ownerRaw: text('owner_raw'),
+    sortOrder: integer('sort_order'),
+    provisional: boolean('provisional').default(true).notNull(),
+    confidenceScore: integer('confidence_score'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    versionNodeUnique: uniqueIndex('process_nodes_version_node_unique').on(t.versionId, t.nodeKey),
+  }),
+);
+
+export const processEdges = pgTable(
+  'process_edges',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    versionId: uuid('version_id')
+      .references(() => businessProcessVersions.id, { onDelete: 'cascade' })
+      .notNull(),
+    edgeKey: varchar('edge_key', { length: 120 }).notNull(),
+    fromNodeKey: varchar('from_node_key', { length: 120 }).notNull(),
+    toNodeKey: varchar('to_node_key', { length: 120 }).notNull(),
+    condition: text('condition'),
+    edgeType: varchar('edge_type', { length: 50 }).notNull(),
+    provisional: boolean('provisional').default(true).notNull(),
+    confidenceScore: integer('confidence_score'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    versionEdgeUnique: uniqueIndex('process_edges_version_edge_unique').on(t.versionId, t.edgeKey),
+  }),
+);
+
+export const processNodeSystems = pgTable(
+  'process_node_systems',
+  {
+    nodeId: uuid('node_id')
+      .references(() => processNodes.id, { onDelete: 'cascade' })
+      .notNull(),
+    entityId: uuid('entity_id')
+      .references(() => entities.id, { onDelete: 'cascade' })
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.nodeId, t.entityId] }),
+  }),
+);
+
+export const processPaths = pgTable(
+  'process_paths',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    versionId: uuid('version_id')
+      .references(() => businessProcessVersions.id, { onDelete: 'cascade' })
+      .notNull(),
+    pathKey: varchar('path_key', { length: 120 }).notNull(),
+    name: text('name').notNull(),
+    pathType: varchar('path_type', { length: 50 }).notNull(),
+    nodeKeysOrdered: jsonb('node_keys_ordered').default([]).notNull(),
+    terminalOutcome: text('terminal_outcome'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    versionPathUnique: uniqueIndex('process_paths_version_path_unique').on(t.versionId, t.pathKey),
+  }),
+);
+
+export const processElementClaims = pgTable(
+  'process_element_claims',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    versionId: uuid('version_id')
+      .references(() => businessProcessVersions.id, { onDelete: 'cascade' })
+      .notNull(),
+    elementKind: varchar('element_kind', { length: 20 }).notNull(),
+    elementKey: varchar('element_key', { length: 120 }).notNull(),
+    claimId: uuid('claim_id')
+      .references(() => claims.id, { onDelete: 'restrict' })
+      .notNull(),
+    supportRole: varchar('support_role', { length: 50 }).default('primary').notNull(),
+    claimStatusAtLink: varchar('claim_status_at_link', { length: 50 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    claimIdx: index('process_element_claims_claim_idx').on(t.claimId),
+  }),
+);
+
+export const processTopDomains = pgTable(
+  'process_top_domains',
+  {
+    processId: uuid('process_id')
+      .references(() => businessProcesses.id, { onDelete: 'cascade' })
+      .notNull(),
+    topDomainId: varchar('top_domain_id', { length: 100 })
+      .references(() => knowledgeTopDomains.id, { onDelete: 'cascade' })
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.processId, t.topDomainId] }),
+    domainIdx: index('process_top_domains_domain_idx').on(t.topDomainId),
+  }),
+);
+
+export const businessModelChanges = pgTable(
+  'business_model_changes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    processId: uuid('process_id').references(() => businessProcesses.id, {
+      onDelete: 'set null',
+    }),
+    baseVersionId: uuid('base_version_id').references(() => businessProcessVersions.id, {
+      onDelete: 'set null',
+    }),
+    changeType: varchar('change_type', { length: 50 }).notNull(),
+    status: varchar('status', { length: 50 }).notNull().default('pending_review'),
+    // SQL migration 86 adds the self-FK.
+    supersededByChangeId: uuid('superseded_by_change_id'),
+    sourceWorkflowMapId: uuid('source_workflow_map_id')
+      .references(() => sourceWorkflowMaps.id, { onDelete: 'restrict' })
+      .notNull(),
+    operationsJson: jsonb('operations_json').default([]).notNull(),
+    summary: text('summary'),
+    contradictionId: uuid('contradiction_id').references(() => contradictions.id, {
+      onDelete: 'set null',
+    }),
+    reviewedBy: uuid('reviewed_by').references(() => employees.id, { onDelete: 'set null' }),
+    modelRunId: uuid('model_run_id').references(() => modelRuns.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    appliedAt: timestamp('applied_at', { withTimezone: true }),
+  },
+  (t) => ({
+    statusCreatedIdx: index('business_model_changes_status_created_idx').on(
+      t.status,
+      t.createdAt,
+    ),
+    processStatusIdx: index('business_model_changes_process_status_idx').on(t.processId, t.status),
+    sourceMapIdx: index('business_model_changes_source_map_idx').on(t.sourceWorkflowMapId),
+  }),
+);
+
+export const businessModelChangeEvents = pgTable(
+  'business_model_change_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    businessModelChangeId: uuid('business_model_change_id')
+      .references(() => businessModelChanges.id, { onDelete: 'cascade' })
+      .notNull(),
+    action: varchar('action', { length: 50 }).notNull(),
+    reviewedByEmployeeId: uuid('reviewed_by_employee_id').references(() => employees.id, {
+      onDelete: 'set null',
+    }),
+    reviewerNote: text('reviewer_note'),
+    beforeState: jsonb('before_state').notNull(),
+    afterState: jsonb('after_state'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    changeIdx: index('business_model_change_events_change_idx').on(
+      t.businessModelChangeId,
+      t.createdAt,
+    ),
+    actionCreatedIdx: index('business_model_change_events_action_created_idx').on(
+      t.action,
+      t.createdAt,
+    ),
+  }),
+);
+
+export const recommendations = pgTable(
+  'recommendations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    processId: uuid('process_id')
+      .references(() => businessProcesses.id, { onDelete: 'cascade' })
+      .notNull(),
+    versionId: uuid('version_id')
+      .references(() => businessProcessVersions.id, { onDelete: 'cascade' })
+      .notNull(),
+    origin: varchar('origin', { length: 50 }).notNull(),
+    analyzerKey: varchar('analyzer_key', { length: 120 }),
+    title: text('title').notNull(),
+    severity: varchar('severity', { length: 50 }).notNull().default('info'),
+    narrative: text('narrative').notNull(),
+    elementKeys: jsonb('element_keys').default([]).notNull(),
+    supportClaimIds: jsonb('support_claim_ids').default([]).notNull(),
+    status: varchar('status', { length: 50 }).notNull().default('open'),
+    modelRunId: uuid('model_run_id').references(() => modelRuns.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    processStatusIdx: index('recommendations_process_status_idx').on(t.processId, t.status),
+    versionIdx: index('recommendations_version_idx').on(t.versionId),
+  }),
+);
+
 export const messages = pgTable(
   'messages',
   {
@@ -877,6 +1186,9 @@ export const claims = pgTable(
     // index in migrations/sql/14_claims_candidate_hash_unique.sql
     // enforces uniqueness only when populated.
     candidateHash: varchar('candidate_hash', { length: 64 }),
+    // Macro-first linkage: source workflow map element this claim evidences,
+    // formatted as <source_workflow_map_id>:<node|edge>:<key>.
+    mapElementRef: text('map_element_ref'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => ({
@@ -885,6 +1197,7 @@ export const claims = pgTable(
     confidenceIdx: index('claims_confidence_idx').on(t.confidenceScore),
     candidateHashIdx: index('claims_candidate_hash_idx').on(t.candidateHash),
     claimKindIdx: index('claims_claim_kind_idx').on(t.claimKind),
+    mapElementRefIdx: index('claims_map_element_ref_idx').on(t.mapElementRef),
   }),
 );
 
@@ -1009,6 +1322,11 @@ export const claimReviewEvents = pgTable(
       .references(() => employees.id)
       .notNull(),
     reviewerNote: text('reviewer_note'),
+    reviewSource: varchar('review_source', { length: 100 }),
+    businessModelChangeId: uuid('business_model_change_id').references(
+      () => businessModelChanges.id,
+      { onDelete: 'set null' },
+    ),
     beforeState: jsonb('before_state').notNull(),
     afterState: jsonb('after_state'),
     aiComparisonJson: jsonb('ai_comparison_json'),
@@ -1017,6 +1335,9 @@ export const claimReviewEvents = pgTable(
   (t) => ({
     claimIdx: index('claim_review_events_claim_idx').on(t.claimId, t.createdAt),
     replacementClaimIdx: index('claim_review_events_replacement_claim_idx').on(t.replacementClaimId),
+    businessModelChangeIdx: index('claim_review_events_business_model_change_idx').on(
+      t.businessModelChangeId,
+    ),
   }),
 );
 
@@ -1893,6 +2214,9 @@ export const extractionCandidates = pgTable(
     proposedEntities: jsonb('proposed_entities').default([]).notNull(),
     // Optional metadata the model surfaced (process_stage, department, etc.).
     proposedMetadata: jsonb('proposed_metadata'),
+    // Macro-first linkage: source workflow map element this candidate is meant
+    // to evidence. Nullable for ordinary/non-map extraction.
+    mapElementRef: text('map_element_ref'),
 
     // CANDIDATE_STANCES.
     stance: varchar('stance', { length: 50 }),
@@ -1926,6 +2250,7 @@ export const extractionCandidates = pgTable(
     batchIdx: index('extraction_candidates_batch_idx').on(t.extractionBatchId),
     promotedClaimIdx: index('extraction_candidates_promoted_claim_idx').on(t.promotedToClaimId),
     duplicateClaimIdx: index('extraction_candidates_duplicate_claim_idx').on(t.duplicateOfClaimId),
+    mapElementRefIdx: index('extraction_candidates_map_element_ref_idx').on(t.mapElementRef),
     sensitivityIdx: index('extraction_candidates_sensitivity_idx').on(
       t.containsSensitiveHRData,
       t.isPersonalConflict,
@@ -2084,6 +2409,31 @@ export type TypingIndicator = typeof typingIndicators.$inferSelect;
 export type NewTypingIndicator = typeof typingIndicators.$inferInsert;
 export type ModelCapabilityRow = typeof modelCapabilities.$inferSelect;
 export type NewModelCapabilityRow = typeof modelCapabilities.$inferInsert;
+// Macro-first business model
+export type SourceWorkflowMap = typeof sourceWorkflowMaps.$inferSelect;
+export type NewSourceWorkflowMap = typeof sourceWorkflowMaps.$inferInsert;
+export type BusinessProcess = typeof businessProcesses.$inferSelect;
+export type NewBusinessProcess = typeof businessProcesses.$inferInsert;
+export type BusinessProcessVersion = typeof businessProcessVersions.$inferSelect;
+export type NewBusinessProcessVersion = typeof businessProcessVersions.$inferInsert;
+export type ProcessNode = typeof processNodes.$inferSelect;
+export type NewProcessNode = typeof processNodes.$inferInsert;
+export type ProcessEdge = typeof processEdges.$inferSelect;
+export type NewProcessEdge = typeof processEdges.$inferInsert;
+export type ProcessNodeSystem = typeof processNodeSystems.$inferSelect;
+export type NewProcessNodeSystem = typeof processNodeSystems.$inferInsert;
+export type ProcessPath = typeof processPaths.$inferSelect;
+export type NewProcessPath = typeof processPaths.$inferInsert;
+export type ProcessElementClaim = typeof processElementClaims.$inferSelect;
+export type NewProcessElementClaim = typeof processElementClaims.$inferInsert;
+export type ProcessTopDomain = typeof processTopDomains.$inferSelect;
+export type NewProcessTopDomain = typeof processTopDomains.$inferInsert;
+export type BusinessModelChange = typeof businessModelChanges.$inferSelect;
+export type NewBusinessModelChange = typeof businessModelChanges.$inferInsert;
+export type BusinessModelChangeEvent = typeof businessModelChangeEvents.$inferSelect;
+export type NewBusinessModelChangeEvent = typeof businessModelChangeEvents.$inferInsert;
+export type Recommendation = typeof recommendations.$inferSelect;
+export type NewRecommendation = typeof recommendations.$inferInsert;
 // R4 candidate-before-claim staging
 export type ExtractionBatch = typeof extractionBatches.$inferSelect;
 export type NewExtractionBatch = typeof extractionBatches.$inferInsert;

@@ -6,3 +6,4 @@ export * from './synthesis';
 export * from './macro/approved-relationships';
 export * from './macro/lifecycle';
 export * from './macro/validation';
+export * from './model/lifecycle';

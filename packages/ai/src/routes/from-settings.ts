@@ -8,7 +8,9 @@
 
 import type { OracleDb } from '@oracle/db';
 import { resolvePrimaryRouteFromSettings, resolveRouteCandidates } from './candidates';
+import { AUXILIARY_MODEL_IDS } from './auxiliary';
 import type { OracleModelRole, OracleModelRoute } from './types';
+import type { ModelSlot } from './errors';
 
 export { resolveRouteCandidates, resolvePrimaryRouteFromSettings };
 export type { RouteCandidate, RouteCandidateResolution, SkippedRouteCandidate } from './candidates';
@@ -24,8 +26,8 @@ export async function resolveAuxiliaryRouteFromSettings(
   db: OracleDb,
   auxiliaryId: string,
 ): Promise<OracleModelRoute | null> {
-  if (auxiliaryId !== 'vision' && auxiliaryId !== 'general' && auxiliaryId !== 'translation') {
+  if (!AUXILIARY_MODEL_IDS.has(auxiliaryId)) {
     return null;
   }
-  return resolvePrimaryRouteFromSettings(db, auxiliaryId);
+  return resolvePrimaryRouteFromSettings(db, auxiliaryId as ModelSlot);
 }

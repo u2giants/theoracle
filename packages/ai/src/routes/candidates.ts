@@ -4,7 +4,6 @@ import { modelCapabilities, settings } from '@oracle/db/schema';
 import { getAuxiliaryModelDef } from './auxiliary';
 import {
   ENFORCE_MODEL_CAPABILITIES_SETTING_KEY,
-  MODEL_POOL_MACRO_SETTING_KEY,
   MODEL_POOL_SETTING_KEYS,
   REASONING_EFFORT_SETTING_KEYS,
   ROUTE_SETTING_KEYS,
@@ -43,6 +42,8 @@ function isPipelineSlot(slot: ModelSlot): slot is OracleModelRole {
 }
 
 function roleForSlot(slot: ModelSlot): OracleModelRole {
+  if (slot === 'workflow_read' || slot === 'macro') return 'synthesis';
+  if (slot === 'model_merge') return 'extraction';
   return isPipelineSlot(slot) ? slot : 'extraction';
 }
 
@@ -63,9 +64,7 @@ function settingKeysForSlot(slot: ModelSlot): {
   return {
     routeKey: def.routeSettingKey,
     effortKey: def.reasoningEffortSettingKey,
-    // The macro slot is the one auxiliary with a fallback pool (resilience for
-    // the holistic layer). Other aux slots stay single-pick.
-    poolKey: slot === 'macro' ? MODEL_POOL_MACRO_SETTING_KEY : undefined,
+    poolKey: def.poolSettingKey,
   };
 }
 

@@ -92,20 +92,41 @@ const AUX_PRESENTATION: Record<
   }
 > = {
   vision: {
-    subtitle: 'Reads uploaded images (diagrams, screenshots, photos)',
+    subtitle: 'Image to faithful text topology',
     description: (
       <>
-        When an employee uploads an <strong>image</strong> (PNG, JPEG, WebP, or
-        HEIC), this model transcribes it to faithful text — verbatim text plus
-        the meaning of diagrams, tables, and layout — before claim extraction
-        runs over that text. The picker is filtered to{' '}
-        <strong>vision-capable</strong> models from any provider. The shipped
-        default is the Gemini extraction model; change it here with no redeploy.
+        First pass over uploaded images. Its transcription becomes persisted
+        chunks that downstream evidence quotes must match, so diagram topology
+        and verbatim labels matter more than prose polish.
       </>
     ),
     settingDescription: 'Vision model used to transcribe uploaded images to text before extraction.',
     effortSettingDescription:
       'Reasoning effort for image transcription. Most vision models ignore this; leave Off unless the chosen model benefits.',
+  },
+  workflow_read: {
+    subtitle: 'Holistic source map before extraction',
+    description: (
+      <>
+        Reads ordered chunks before atomic extraction and emits the source&apos;s
+        workflow topology: nodes, edges, lanes, paths, summary, and map kind.
+        This is guidance only, never quotable evidence.
+      </>
+    ),
+    settingDescription:
+      'Model for source workflow read. Requires strict structured output and long context.',
+  },
+  model_merge: {
+    subtitle: 'Source map to business model alignment',
+    description: (
+      <>
+        Aligns a validated source workflow map against candidate business-process
+        versions. The model emits verdicts only; deterministic code computes the
+        actual diff and proposal.
+      </>
+    ),
+    settingDescription:
+      'Model for business-model merge alignment. Requires strict structured output.',
   },
   macro: {
     subtitle: 'Holistic understanding — outlines, relationships, coverage',
@@ -133,7 +154,7 @@ const AUX_PRESENTATION: Record<
       'Model for the macro/holistic layer: source outlines, macro relationship extraction, and coverage audits. Requires strict structured-output support.',
   },
   general: {
-    subtitle: 'Utility / fallback model for internal jobs',
+    subtitle: 'Utility model for low-risk internal jobs',
     description: (
       <>
         Used for one-off internal tasks that don&apos;t fit the three stages
@@ -146,7 +167,7 @@ const AUX_PRESENTATION: Record<
     settingDescription: 'General-purpose / utility model. Admin updates this when a newer model is available.',
   },
   translation: {
-    subtitle: 'Translates approved claims into employees’ languages',
+    subtitle: 'Translates claims and review questions',
     description: (
       <>
         When a claim is approved, this model translates its summary into the
@@ -214,6 +235,52 @@ CAPABILITIES IT DOES NOT NEED (do not pay for these; some actively hurt)
 
 BOTTOM LINE
 Pick the cheapest, most reliable vision model with the best OCR plus document/diagram comprehension and the strictest instruction-following. Ignore reasoning, tools, structured output, and long context — they are irrelevant here, and reasoning effort should stay low.`;
+
+const WORKFLOW_READ_MODEL_BRIEF = `THE ORACLE — "Workflow Read" role brief
+
+BACKGROUND
+This is the holistic read that runs before claim extraction. Its output directs extraction and feeds the business-model merge, so quality here caps the system's understanding.
+
+THE JOB
+Read all source chunks in order and emit the source's complete workflow topology without using it as evidence.
+
+INPUT
+Ordered chunk text, optional document context, and compact entity/referent hints. Existing process graph structure is intentionally withheld to avoid biasing away contradictions.
+
+OUTPUT
+Strict flat JSON lists: nodes, edges, lanes, paths, summary, and mapKind. Every node and edge must include a supplied chunkId and a verbatim evidenceQuote from that chunk.
+
+REQUIRED CAPABILITIES
+Strict structured outputs and long context.
+
+BENEFICIAL ATTRIBUTES
+Strong multi-step process reasoning, disciplined ID cross-referencing, conservative handling of missing owners/systems, and high output-token ceiling.
+
+FAILURE MODES
+Invented nodes, paraphrased quotes, dropped terminal stages, broken cross-references, or schema violations.`;
+
+const MODEL_MERGE_MODEL_BRIEF = `THE ORACLE — "Model Merge" role brief
+
+BACKGROUND
+This pass decides whether a new source confirms, refines, or contradicts the durable business model.
+
+THE JOB
+Align source-map elements against candidate process-version elements and emit alignment verdicts only. Code computes the diff, confidence math, and proposal operations.
+
+INPUT
+A compact source workflow map plus one or two domain-scoped candidate process versions.
+
+OUTPUT
+Strict flat JSON alignment records, such as mapNodeId, modelNodeId or null, verdict, and confidence.
+
+REQUIRED CAPABILITIES
+Strict structured outputs.
+
+BENEFICIAL ATTRIBUTES
+Cheap, fast, consistent entity and label matching, and good restraint around near-but-not-same process stages.
+
+FAILURE MODES
+Over-matching distinct stages, under-matching renamed stages, fabricated IDs, or schema violations.`;
 
 const INTERVIEW_MODEL_BRIEF = `THE ORACLE — "Interview Model" role brief
 (Paste this into a model-evaluation assistant or vendor comparison to judge whether a given model is the right pick for this setting.)
@@ -531,6 +598,8 @@ This slot needs a strong, long-context REASONING model whose structured output i
 // forward references. Aux models without a brief simply omit an entry.
 const AUX_CLIPBOARD_BRIEFS: Record<string, string> = {
   vision: VISION_MODEL_BRIEF,
+  workflow_read: WORKFLOW_READ_MODEL_BRIEF,
+  model_merge: MODEL_MERGE_MODEL_BRIEF,
   macro: MACRO_MODEL_BRIEF,
   translation: TRANSLATION_MODEL_BRIEF,
 };
@@ -541,8 +610,8 @@ const STAGE_MODEL_ROLES: RoleDef[] = [
     stage: 'interview',
     effortSettingKey: REASONING_EFFORT_SETTING_KEYS.interview,
     effortSettingDescription: 'Reasoning effort for the Interview stage. Translated per provider at inference time.',
-    title: 'Interview model',
-    subtitle: 'Real-time Oracle chat',
+    title: 'Conversation',
+    subtitle: 'Chat, review questions, live interjection drafting',
     description: (
       <>
         Called synchronously every time an employee sends a message. The employee
@@ -554,7 +623,7 @@ const STAGE_MODEL_ROLES: RoleDef[] = [
         aim for under 8 s including tool calls.
       </>
     ),
-    settingDescription: 'Direct-provider model for real-time Oracle interview chat.',
+    settingDescription: 'Conversation model for chat, review questions, and live interjection drafting.',
     clipboardBrief: INTERVIEW_MODEL_BRIEF,
   },
   {
@@ -562,8 +631,8 @@ const STAGE_MODEL_ROLES: RoleDef[] = [
     stage: 'extraction',
     effortSettingKey: REASONING_EFFORT_SETTING_KEYS.extraction,
     effortSettingDescription: 'Reasoning effort for async claim extraction. Higher = better recall at higher cost.',
-    title: 'Extraction model',
-    subtitle: 'Async claim extraction from messages & documents',
+    title: 'Claim extraction',
+    subtitle: 'Atomic quote-backed evidence extraction',
     description: (
       <>
         Runs in the background every 4 hours (and on document upload) via
@@ -583,8 +652,8 @@ const STAGE_MODEL_ROLES: RoleDef[] = [
     stage: 'synthesis',
     effortSettingKey: REASONING_EFFORT_SETTING_KEYS.synthesis,
     effortSettingDescription: 'Reasoning effort for brain synthesis. High effort recommended for contradiction reasoning.',
-    title: 'Synthesis model',
-    subtitle: 'Periodic Brain section synthesis',
+    title: 'Deep synthesis',
+    subtitle: 'Brain synthesis and consultant recommendations',
     description: (
       <>
         Runs on a weekly schedule and on admin trigger. Reads up to 200 approved
@@ -602,9 +671,10 @@ const STAGE_MODEL_ROLES: RoleDef[] = [
   },
 ];
 
-// Auxiliary-model cards are generated from the @oracle/ai registry so adding a
-// new one is a one-line registry change plus an AUX_PRESENTATION entry.
-const AUX_MODEL_ROLES: RoleDef[] = AUXILIARY_MODELS.map((def) => {
+// Auxiliary-model cards are generated from the @oracle/ai registry. The legacy
+// `macro` slot remains resolvable for old workers but is hidden from the
+// macro-first "Model passes" settings surface.
+const AUX_MODEL_ROLES: RoleDef[] = AUXILIARY_MODELS.filter((def) => def.id !== 'macro').map((def) => {
   const p = AUX_PRESENTATION[def.id];
   if (!p) {
     throw new Error(`Missing AUX_PRESENTATION entry for auxiliary model "${def.id}"`);

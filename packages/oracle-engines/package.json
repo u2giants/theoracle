@@ -14,7 +14,8 @@
     "verify:r7": "tsx src/__verify__/r7-cache-smoke.ts",
     "verify:r9": "tsx src/__verify__/r9-synthesis-smoke.ts",
     "verify:r11.1": "tsx src/__verify__/r11-1-interjection-decision-smoke.ts",
-    "verify:macro": "tsx src/__verify__/macro-validation-smoke.ts"
+    "verify:macro": "tsx src/__verify__/macro-validation-smoke.ts",
+    "verify:macro-first": "tsx src/__verify__/macro-first-lifecycle-smoke.ts"
   },
   "dependencies": {
     "@oracle/db": "workspace:*",

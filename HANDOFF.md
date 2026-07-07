@@ -87,6 +87,22 @@ per-claim eligibility checks in bundle approval, cross-source canonical dedup,
 supersede-not-replace maps, and a restaged 0–9 plan (schema+contract first, shadow-mode
 merge before transactional apply, backfill split from cleanup).
 
+2026-07-07 local Codex implementation update (not committed, not migrated, not
+deployed): Stage 1 foundation is implemented in source. Added hand-written migration
+`packages/db/migrations/sql/86_macro_first_schema.sql` for source workflow maps,
+business-process graph/version tables, model-change proposals/events, recommendations,
+claim/candidate map-element linkage, process-serving settings, and model-pass pool
+settings. Mirrored the tables in `packages/db/src/schema.ts`; added macro-first
+workflow/model-merge route slots and fallback pools in `packages/ai/src/routes/*`;
+expanded Admin → Settings / model pool to the eight macro-first model passes while
+leaving the legacy `macro` slot resolvable for old workers until Stage 9 cleanup; and
+added `packages/oracle-engines/src/model/lifecycle.ts` with the status-machine helpers
+and advisory-lock / optimistic-lock apply transaction skeleton. Verification run
+locally: `corepack pnpm -r typecheck`, `corepack pnpm --filter @oracle/engines run
+verify:macro-first`, and `git diff --check` all pass. Not run: Stage 0 prod battery,
+prod migration, RLS live checks, fresh-DB idempotency, Trigger deploy, or any LLM/worker
+behavior.
+
 ---
 
 ## ACTIVE (2026-07-06): Vision transcription & claim-extraction test plan → see `test_code_changes.md`

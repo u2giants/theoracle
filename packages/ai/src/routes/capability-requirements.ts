@@ -28,6 +28,13 @@ export function requiredCapabilitiesFor(slot: ModelSlot): CapabilityRequirement[
       ];
     case 'vision':
       return [{ kind: 'capability', field: 'vision', label: 'vision' }];
+    case 'workflow_read':
+      return [
+        { kind: 'capability', field: 'structuredOutputs', label: 'structured outputs' },
+        { kind: 'context', minExclusive: 100_000, label: 'context > 100K' },
+      ];
+    case 'model_merge':
+      return [{ kind: 'capability', field: 'structuredOutputs', label: 'structured outputs' }];
     case 'macro':
       // Macro understanding (source outlines, relationship extraction, coverage
       // audits) emits deep nested JSON. It MUST have real structured-output

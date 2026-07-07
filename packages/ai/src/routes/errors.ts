@@ -1,6 +1,13 @@
 import type { OracleModelRole } from './types';
 
-export type ModelSlot = OracleModelRole | 'vision' | 'general' | 'translation' | 'macro';
+export type ModelSlot =
+  | OracleModelRole
+  | 'vision'
+  | 'workflow_read'
+  | 'model_merge'
+  | 'general'
+  | 'translation'
+  | 'macro';
 
 export class NoConfiguredModelError extends Error {
   constructor(slot: ModelSlot, detail?: string) {
