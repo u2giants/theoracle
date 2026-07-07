@@ -135,6 +135,13 @@ verify:auxiliary-defaults`, `corepack pnpm --filter @oracle/ai run verify:r2`,
 2 gate on document `9d09fa89-3a46-465e-a98b-837287c9e22a`, BO-1/BO-2 bake-offs, or
 prod re-ingest.
 
+2026-07-07 Stage 2 hotfix (pending commit/deploy at time of writing): fixed two live
+workflow-reader bugs. Failed/pending same-hash maps are no longer treated as reusable
+idempotency hits; only active `validated`/`degraded` maps are skipped, with degraded
+health mirrored correctly. Multi-window ID prefixing now preserves endpoints that
+already refer to prior-window node IDs, so cross-window edges are not deterministically
+dropped. Added `@oracle/workers` smoke gate `verify:source-workflow-read`.
+
 #### 2026-07-06 — Stage 1 migration 86 **APPLIED TO PROD and VERIFIED** ✅
 
 Migration `packages/db/migrations/sql/86_macro_first_schema.sql` (as amended by commit

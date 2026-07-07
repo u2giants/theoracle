@@ -44,11 +44,13 @@ type ChunkRow = {
 };
 
 type WorkflowMapStatus = 'validated' | 'degraded' | 'failed';
+type ReusableWorkflowMapStatus = 'validated' | 'degraded';
 
 export type SourceWorkflowReadResult = {
   documentId: string;
   status: 'validated' | 'degraded' | 'failed' | 'skipped_existing' | 'skipped_no_chunks' | 'skipped_not_found';
   mapId?: string;
+  existingMapStatus?: 'validated' | 'degraded';
   mapKind?: 'workflow' | 'reference';
   droppedCount?: number;
   keptCount?: number;
@@ -163,25 +165,42 @@ function chunkWindows(chunks: ChunkRow[], maxEstimatedInputTokens: number): Chun
   return windows;
 }
 
-function prefixWindowIds(output: WorkflowReadOutput, windowIndex: number, totalWindows: number): WorkflowReadOutput {
+function isReusableWorkflowMapStatus(status: string | null | undefined): status is ReusableWorkflowMapStatus {
+  return status === 'validated' || status === 'degraded';
+}
+
+function prefixWindowIds(
+  output: WorkflowReadOutput,
+  windowIndex: number,
+  totalWindows: number,
+  priorNodeIds: ReadonlySet<string>,
+): WorkflowReadOutput {
   if (totalWindows <= 1) return output;
   const prefix = `w${windowIndex + 1}_`;
   const remap = new Map<string, string>();
-  for (const node of output.nodes) remap.set(node.nodeId, `${prefix}${node.nodeId}`);
+  for (const node of output.nodes) {
+    remap.set(node.nodeId, priorNodeIds.has(node.nodeId) ? node.nodeId : `${prefix}${node.nodeId}`);
+  }
+  const mapNodeRef = (nodeId: string) => {
+    const mapped = remap.get(nodeId);
+    if (mapped) return mapped;
+    if (priorNodeIds.has(nodeId)) return nodeId;
+    return `${prefix}${nodeId}`;
+  };
   return {
     ...output,
-    nodes: output.nodes.map((node) => ({ ...node, nodeId: remap.get(node.nodeId) ?? `${prefix}${node.nodeId}` })),
+    nodes: output.nodes.map((node) => ({ ...node, nodeId: mapNodeRef(node.nodeId) })),
     edges: output.edges.map((edge) => ({
       ...edge,
       edgeId: `${prefix}${edge.edgeId}`,
-      fromNodeId: remap.get(edge.fromNodeId) ?? `${prefix}${edge.fromNodeId}`,
-      toNodeId: remap.get(edge.toNodeId) ?? `${prefix}${edge.toNodeId}`,
+      fromNodeId: mapNodeRef(edge.fromNodeId),
+      toNodeId: mapNodeRef(edge.toNodeId),
     })),
     lanes: output.lanes.map((lane) => ({ ...lane, laneId: `${prefix}${lane.laneId}` })),
     paths: output.paths.map((path) => ({
       ...path,
       pathId: `${prefix}${path.pathId}`,
-      nodeIdsOrdered: path.nodeIdsOrdered.map((id) => remap.get(id) ?? `${prefix}${id}`),
+      nodeIdsOrdered: path.nodeIdsOrdered.map(mapNodeRef),
     })),
   };
 }
@@ -302,7 +321,7 @@ async function createPendingMap(args: {
   documentId: string;
   sourceContentHash: string;
   force: boolean;
-}): Promise<{ mapId: string; skippedExisting: boolean }> {
+}): Promise<{ mapId: string; skippedExisting: boolean; existingStatus?: ReusableWorkflowMapStatus }> {
   const { db, documentId, sourceContentHash, force } = args;
   if (!force) {
     const [existing] = await db
@@ -313,12 +332,21 @@ async function createPendingMap(args: {
           eq(sourceWorkflowMaps.sourceType, 'document'),
           eq(sourceWorkflowMaps.documentId, documentId),
           eq(sourceWorkflowMaps.sourceContentHash, sourceContentHash),
-          ne(sourceWorkflowMaps.status, 'superseded'),
+          sql`${sourceWorkflowMaps.status} IN ('validated', 'degraded')`,
         ),
       )
       .orderBy(desc(sourceWorkflowMaps.createdAt))
       .limit(1);
-    if (existing) return { mapId: existing.id, skippedExisting: true };
+    if (existing) {
+      if (!isReusableWorkflowMapStatus(existing.status)) {
+        throw new Error(`[source-workflow-read] unexpected reusable map status ${existing.status}`);
+      }
+      return {
+        mapId: existing.id,
+        skippedExisting: true,
+        existingStatus: existing.status,
+      };
+    }
   }
 
   return db.transaction(async (tx) => {
@@ -387,6 +415,7 @@ async function runWorkflowReadModel(args: {
   const modelRunIds: string[] = [];
   const contextPackIds: string[] = [];
   const carriedRegistry: string[] = [];
+  const priorNodeIds = new Set<string>();
 
   for (let windowIndex = 0; windowIndex < windows.length; windowIndex++) {
     const windowChunks = windows[windowIndex]!;
@@ -533,8 +562,9 @@ async function runWorkflowReadModel(args: {
     if (!result.validation.ok) {
       throw new Error('[source-workflow-read] model output failed Zod schema validation: ' + result.validation.error.message);
     }
-    const output = prefixWindowIds(result.object, windowIndex, windows.length);
+    const output = prefixWindowIds(result.object, windowIndex, windows.length, priorNodeIds);
     outputs.push(output);
+    for (const node of output.nodes) priorNodeIds.add(node.nodeId);
     carriedRegistry.push(...output.nodes.map((node) => `- ${node.nodeId}: ${node.label}`));
   }
 
@@ -645,8 +675,14 @@ export async function generateSourceWorkflowMap(args: {
   const sourceContentHash = sourceHashForDocument(args.documentId, chunks);
   const pending = await createPendingMap({ db, documentId: args.documentId, sourceContentHash, force });
   if (pending.skippedExisting) {
-    await markMacroComplete(db, args.documentId);
-    return { documentId: args.documentId, status: 'skipped_existing', mapId: pending.mapId };
+    if (pending.existingStatus === 'degraded') await markMacroDegraded(db, args.documentId);
+    else await markMacroComplete(db, args.documentId);
+    return {
+      documentId: args.documentId,
+      status: 'skipped_existing',
+      mapId: pending.mapId,
+      existingMapStatus: pending.existingStatus,
+    };
   }
 
   const [jobRun] = await db
@@ -747,3 +783,8 @@ export async function generateSourceWorkflowMap(args: {
     throw err;
   }
 }
+
+export const __sourceWorkflowReadTestHooks = {
+  isReusableWorkflowMapStatus,
+  prefixWindowIds,
+};
