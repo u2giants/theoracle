@@ -135,12 +135,18 @@ verify:auxiliary-defaults`, `corepack pnpm --filter @oracle/ai run verify:r2`,
 2 gate on document `9d09fa89-3a46-465e-a98b-837287c9e22a`, BO-1/BO-2 bake-offs, or
 prod re-ingest.
 
-2026-07-07 Stage 2 hotfix (pending commit/deploy at time of writing): fixed two live
+2026-07-07 Stage 2 hotfix (committed, pushed, deployed): fixed two live
 workflow-reader bugs. Failed/pending same-hash maps are no longer treated as reusable
 idempotency hits; only active `validated`/`degraded` maps are skipped, with degraded
 health mirrored correctly. Multi-window ID prefixing now preserves endpoints that
 already refer to prior-window node IDs, so cross-window edges are not deterministically
-dropped. Added `@oracle/workers` smoke gate `verify:source-workflow-read`.
+dropped. Added `@oracle/workers` smoke gate `verify:source-workflow-read`. Commit:
+`37ee7d5 fix(macro): retry failed workflow reads`. Trigger.dev prod deploy:
+`20260707.2` with 27 detected tasks, deployment `yvrhtfyg`
+(`https://cloud.trigger.dev/projects/v3/proj_wgpzsvhmsopqhvwqaycn/deployments/yvrhtfyg`).
+Verification run locally: `corepack pnpm --filter @oracle/workers run
+verify:source-workflow-read`, `corepack pnpm --filter @oracle/workers typecheck`,
+`corepack pnpm -r typecheck`, and `git diff --check`.
 
 #### 2026-07-06 — Stage 1 migration 86 **APPLIED TO PROD and VERIFIED** ✅
 
