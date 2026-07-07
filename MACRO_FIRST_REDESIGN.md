@@ -1153,3 +1153,11 @@ node / edge / path** (§4.1, durable cross-source model), **model change proposa
   workflow-read seeded primary/pool order to put OpenAI first. Anthropic request-shape
   handling is now guarded, but BO-2 must be rerun before changing the workflow-read
   primary.
+- 2026-07-07 (Codex): Implemented the Stage 2 deviation #2 foundation. Added
+  `resolveWorkflowMapNodeEntities()` in
+  `packages/oracle-engines/src/model/entity-resolution.ts`, exported it from
+  `@oracle/engines`, and covered it in `verify:macro-first`. The workflow reader still
+  persists raw `ownerName`/`systems` strings by design; Stage 4's merge worker must call
+  this helper when writing durable `process_nodes` / `process_node_systems` so matched
+  owners/systems become FKs and unknown names become `entity_proposals` inputs without
+  silently inventing entities.

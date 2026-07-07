@@ -7,6 +7,7 @@ import {
   assertBusinessModelChangeTransition,
   shouldMarkFailedApply,
 } from '../model/lifecycle';
+import { resolveWorkflowMapNodeEntities } from '../model/entity-resolution';
 
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
@@ -116,5 +117,99 @@ assert(
   !shouldMarkFailedApply('needs_rebase'),
   'needs_rebase proposal must not be overwritten by failed_apply',
 );
+
+const entityRegistry = [
+  {
+    id: 'entity-designflow',
+    entityType: 'system' as const,
+    canonicalValue: 'Designflow',
+    aliases: ['DFlow'],
+  },
+  {
+    id: 'entity-sharepoint',
+    entityType: 'system' as const,
+    canonicalValue: 'SharePoint',
+    aliases: ['SP'],
+  },
+  {
+    id: 'entity-uma',
+    entityType: 'person' as const,
+    canonicalValue: 'Uma',
+    aliases: ['Uma Design'],
+  },
+];
+
+const resolvedNodeRefs = resolveWorkflowMapNodeEntities({
+  mapId: 'map-1',
+  modelRunId: '11111111-1111-1111-1111-111111111111',
+  nodeKey: 'node-1',
+  ownerName: 'Design',
+  systems: ['DFlow', 'SharePoint', 'DFlow'],
+  chunkId: '22222222-2222-2222-2222-222222222222',
+  entityRegistry,
+  departmentRegistry: [{ id: 'design', displayLabel: 'Design' }],
+});
+
+assert(resolvedNodeRefs.ownerDepartmentId === 'design', 'owner resolves to department FK');
+assert(resolvedNodeRefs.ownerEntityId === null, 'department owner does not also set entity FK');
+assert(resolvedNodeRefs.ownerRaw === null, 'resolved owner does not keep owner_raw');
+assert(resolvedNodeRefs.systemEntityIds.length === 2, 'systems resolve and dedupe to entity IDs');
+assert(
+  resolvedNodeRefs.systemEntityIds.includes('entity-designflow') &&
+    resolvedNodeRefs.systemEntityIds.includes('entity-sharepoint'),
+  'system aliases resolve against entity aliases',
+);
+assert(resolvedNodeRefs.entityProposalsToStage.length === 0, 'resolved refs stage no proposals');
+
+const unknownNodeRefs = resolveWorkflowMapNodeEntities({
+  mapId: 'map-2',
+  modelRunId: null,
+  nodeKey: 'node-2',
+  ownerName: 'Packaging Steering',
+  systems: ['PPS'],
+  chunkId: '33333333-3333-3333-3333-333333333333',
+  entityRegistry,
+  departmentRegistry: [{ id: 'design', displayLabel: 'Design' }],
+});
+
+assert(unknownNodeRefs.ownerDepartmentId === null, 'unknown owner has no department FK');
+assert(unknownNodeRefs.ownerEntityId === null, 'unknown owner has no entity FK');
+assert(unknownNodeRefs.ownerRaw === 'Packaging Steering', 'unknown owner preserves raw owner');
+assert(unknownNodeRefs.systemEntityIds.length === 0, 'unknown system has no system FK');
+assert(unknownNodeRefs.unresolved.length === 2, 'unknown owner and system are reported');
+assert(
+  unknownNodeRefs.entityProposalsToStage.length === 2,
+  'unknown owner and system create proposal inputs',
+);
+assert(
+  unknownNodeRefs.entityProposalsToStage.some(
+    (proposal) =>
+      proposal.proposedEntityType === 'department' &&
+      proposal.proposedCanonicalValue === 'Packaging Steering' &&
+      proposal.observedInSourceType === 'document_chunk',
+  ),
+  'unknown owner stages a department proposal against the cited chunk',
+);
+assert(
+  unknownNodeRefs.entityProposalsToStage.some(
+    (proposal) =>
+      proposal.proposedEntityType === 'system' &&
+      proposal.proposedCanonicalValue === 'PPS' &&
+      proposal.observedInSourceId === '33333333-3333-3333-3333-333333333333',
+  ),
+  'unknown system stages a system proposal against the cited chunk',
+);
+
+const personOwnerRefs = resolveWorkflowMapNodeEntities({
+  mapId: 'map-3',
+  nodeKey: 'node-3',
+  ownerName: 'Uma Design',
+  systems: [],
+  chunkId: '44444444-4444-4444-4444-444444444444',
+  entityRegistry,
+});
+
+assert(personOwnerRefs.ownerEntityId === 'entity-uma', 'person owner resolves to entity FK');
+assert(personOwnerRefs.ownerRaw === null, 'resolved person owner does not keep owner_raw');
 
 console.log('macro-first lifecycle smoke passed');

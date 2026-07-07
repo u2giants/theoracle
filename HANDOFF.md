@@ -147,9 +147,17 @@ writes `job_runs` + `macro_health` (silent failures hid ERR-001 for weeks). Veri
 sub-agent's/Codex's work — this session caught real bugs in otherwise-good output every
 time by reading the diff and running the gates.
 
-**Remaining Stage 2 deferral** (fix already spec'd in `MACRO_FIRST_REDESIGN.md`
-§5.2): owner/system names are still stored raw. The merge worker (Stage 4/§5.3) must
-resolve them to `entities` / file `entity_proposals`.
+**Stage 2 deviation #2 / entity resolution status:** owner/system names are still
+stored raw on `source_workflow_maps` (correct), but this session added the merge-time
+resolver helper in `packages/oracle-engines/src/model/entity-resolution.ts` plus
+`verify:macro-first` smoke coverage. Verified locally with
+`corepack pnpm --filter @oracle/engines run verify:macro-first`,
+`corepack pnpm --filter @oracle/engines typecheck`, and `git diff --check`.
+The future merge worker (Stage 4/§5.3) must call
+`resolveWorkflowMapNodeEntities()` when writing durable `process_nodes` and
+`process_node_systems`: matched owners become `owner_department_id` or
+`owner_entity_id`, matched systems become `process_node_systems`, and unknown names
+become `entity_proposals` inputs while preserving `owner_raw`.
 
 **Adapter/model-routing follow-up:** see `fix_adapter_quirks.md`. Workflow/macro
 should stay OpenAI-primary until non-OpenAI candidates have `strict_json_schema`,
