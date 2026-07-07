@@ -110,7 +110,7 @@ proposal after the advisory lock, no-oping terminal statuses, status-guarding
 failed-apply overwrite guards. Added read-only empty-state admin pages for
 `/admin/business-model` and `/admin/recommendations`.
 
-2026-07-07 local Codex Stage 2 implementation update (not committed, not deployed):
+2026-07-07 Codex Stage 2 implementation update (committed, pushed, deployed):
 Added the macro-first `source-workflow-read` worker/service and flat
 `workflow-read-v1` prompt/schema. Document ingestion now awaits the workflow reader
 after chunk persistence and before claim extraction, writes immutable
@@ -122,11 +122,18 @@ version is now `2.4.0` with optional `mapElementRef`; document candidates and ne
 inserted claims persist that ref. The old post-extraction fire-and-forget
 `source-outline` dispatch and `macro_outline_injection_enabled` loader were removed
 from `document-ingestion`, but legacy source-outline/lens files still exist for Stage
-3 cleanup. Added `@oracle/ai` smoke gate `verify:workflow-read`. Verification run
+3 cleanup. Added `@oracle/ai` smoke gate `verify:workflow-read`. Commit:
+`5acddc9 feat(macro): add source workflow reader`. Trigger.dev prod deploy:
+`20260707.1` with 27 detected tasks, deployment `hxvtrlqa`
+(`https://cloud.trigger.dev/projects/v3/proj_wgpzsvhmsopqhvwqaycn/deployments/hxvtrlqa`).
+Verification run
 locally: `corepack pnpm --filter @oracle/ai run verify:workflow-read`,
-`corepack pnpm --filter @oracle/{ai,db,workers} typecheck`. Not run: live Stage 2
-gate on document `9d09fa89-3a46-465e-a98b-837287c9e22a`, BO-1/BO-2 bake-offs,
-Trigger deploy, prod re-ingest, or full root/web checks yet.
+`corepack pnpm -r typecheck`, `corepack pnpm --filter @oracle/ai run
+verify:auxiliary-defaults`, `corepack pnpm --filter @oracle/ai run verify:r2`,
+`corepack pnpm --filter @oracle/engines run verify:r5`, `corepack pnpm --filter
+@oracle/engines run verify:macro-first`, and `git diff --check`. Not run: live Stage
+2 gate on document `9d09fa89-3a46-465e-a98b-837287c9e22a`, BO-1/BO-2 bake-offs, or
+prod re-ingest.
 
 #### 2026-07-06 — Stage 1 migration 86 **APPLIED TO PROD and VERIFIED** ✅
 
