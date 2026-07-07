@@ -3,7 +3,7 @@
  *
  * Fires generateText + generateObject against each direct provider adapter
  * with a minimal fixture plan. Confirms:
- *   - The adapter connects to the real provider (Vertex / Anthropic / OpenAI).
+ *   - The adapter connects to the real provider.
  *   - Structured-output schema parsing works.
  *   - Usage tokens normalize correctly.
  *
@@ -11,6 +11,9 @@
  *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts vertex
  *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts anthropic
  *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts openai
+ *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts google
+ *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts deepseek
+ *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts qwen
  *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts all
  *
  * Costs roughly $0.001 per provider per run.
@@ -21,7 +24,10 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { AnthropicAdapter } from '../providers/anthropic-adapter';
+import { DeepSeekAdapter } from '../providers/deepseek-adapter';
+import { GoogleGeminiAdapter } from '../providers/google-gemini-adapter';
 import { OpenAIAdapter } from '../providers/openai-adapter';
+import { QwenAdapter } from '../providers/qwen-adapter';
 import { VertexGeminiAdapter } from '../providers/vertex-gemini-adapter';
 import type {
   OracleObjectResult,
@@ -96,9 +102,17 @@ function smokeRoute(
         ? 'vertex_implicit'
         : provider === 'anthropic'
           ? 'anthropic_automatic'
-          : 'openai_automatic_prefix',
+          : provider === 'deepseek'
+            ? 'deepseek_automatic_prefix'
+            : provider === 'qwen'
+              ? 'qwen_explicit_context_cache'
+              : 'openai_automatic_prefix',
     structuredOutputStrategy:
-      provider === 'anthropic' ? 'tool_call' : 'native_json_schema',
+      provider === 'anthropic'
+        ? 'tool_call'
+        : provider === 'deepseek' || provider === 'qwen'
+          ? 'schema_prompt_plus_validator'
+          : 'native_json_schema',
     supportsVision: false,
     supportsStreaming: false,
     supportsToolCalling: true,
@@ -161,6 +175,57 @@ async function smokeOpenAI(): Promise<void> {
   );
 }
 
+async function smokeGoogle(): Promise<void> {
+  console.log('\n══ google ════════════════════════════════════════════════════');
+  if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY && !process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+    console.warn('  SKIP: GEMINI_API_KEY / GOOGLE_API_KEY / GOOGLE_APPLICATION_CREDENTIALS_JSON not set.');
+    return;
+  }
+  const adapter = new GoogleGeminiAdapter();
+  const route = smokeRoute('google', 'gemini-2.5-flash-lite');
+
+  await runOne('google.generateText', () =>
+    adapter.generateText({ plan: fixturePlan, route }),
+  );
+  await runOne('google.generateObject', () =>
+    adapter.generateObject({ plan: fixturePlan, route, schema: factSchema }),
+  );
+}
+
+async function smokeDeepSeek(): Promise<void> {
+  console.log('\n══ deepseek ══════════════════════════════════════════════════');
+  if (!process.env.DEEPSEEK_API_KEY) {
+    console.warn('  SKIP: DEEPSEEK_API_KEY not set.');
+    return;
+  }
+  const adapter = new DeepSeekAdapter();
+  const route = smokeRoute('deepseek', 'deepseek-chat');
+
+  await runOne('deepseek.generateText', () =>
+    adapter.generateText({ plan: fixturePlan, route }),
+  );
+  await runOne('deepseek.generateObject', () =>
+    adapter.generateObject({ plan: fixturePlan, route, schema: factSchema }),
+  );
+}
+
+async function smokeQwen(): Promise<void> {
+  console.log('\n══ qwen ══════════════════════════════════════════════════════');
+  if (!process.env.DASHSCOPE_API_KEY) {
+    console.warn('  SKIP: DASHSCOPE_API_KEY not set.');
+    return;
+  }
+  const adapter = new QwenAdapter();
+  const route = smokeRoute('qwen', process.env.QWEN_SMOKE_MODEL ?? 'qwen3.7-plus-us');
+
+  await runOne('qwen.generateText', () =>
+    adapter.generateText({ plan: fixturePlan, route }),
+  );
+  await runOne('qwen.generateObject', () =>
+    adapter.generateObject({ plan: fixturePlan, route, schema: factSchema }),
+  );
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 async function runOne(
@@ -199,6 +264,9 @@ async function main(): Promise<void> {
   if (target === 'vertex' || target === 'all') await smokeVertex();
   if (target === 'anthropic' || target === 'all') await smokeAnthropic();
   if (target === 'openai' || target === 'all') await smokeOpenAI();
+  if (target === 'google' || target === 'all') await smokeGoogle();
+  if (target === 'deepseek' || target === 'all') await smokeDeepSeek();
+  if (target === 'qwen' || target === 'all') await smokeQwen();
 
   console.log('\nDone.');
 }
