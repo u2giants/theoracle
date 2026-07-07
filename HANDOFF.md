@@ -98,14 +98,32 @@ workstream — leave it until someone runs `test_code_changes.md` Tests 1–2.
   Two live bugs found in review and **already hotfixed** (`37ee7d5`): failed/pending
   maps no longer poison retries; cross-window edge IDs no longer mangled.
 - **Stage 2 reader-failure fallback** — implemented, committed, pushed, migrated,
-  and deployed on 2026-07-07. New setting `require_workflow_map_for_ingestion`
-  defaults false; when the workflow reader exhausts its pool, ingestion logs
-  loudly, leaves a failed map/job-run, marks `documents.macro_health='map_failed'`,
-  and continues blind extraction with a degraded processing note. When the setting
-  is true, reader failure still fails the document. Code commits: `40b1edd`
-  fallback + `5597d48` migration-runner constraint fix. Prod DB verified setting
-  `require_workflow_map_for_ingestion=false`. Trigger.dev prod worker deployed as
-  `20260707.3` (`rvnnzn4h`) with 27 tasks.
+  deployed, and **LIVE-GATE VERIFIED** on 2026-07-07. New setting
+  `require_workflow_map_for_ingestion` defaults false; when the workflow reader
+  exhausts its pool, ingestion logs loudly, leaves a failed map/job-run, marks
+  `documents.macro_health='map_failed'`, and continues blind extraction with a
+  degraded processing note. When the setting is true, reader failure still fails
+  the document. Code commits: `40b1edd` fallback + `5597d48` migration-runner
+  constraint fix. Deployed `20260707.3` (`rvnnzn4h`), 27 tasks.
+  - **Live forced-failure gate (2026-07-07, recorded in `evals/macro-first-battery.md`):**
+    ran full `document-ingestion` (NOT the standalone reader — the fallback lives
+    in `processDocument()`) against disposable duplicate doc
+    `6491a849-95a2-49cb-b919-b3d95b9d33bc` with the `workflow_read` route forced to
+    a nonexistent model. **`require=false` PASS** (run `run_cmrayd1er`): doc
+    `complete`, `macro_health='map_failed'`, `processing_error` starts
+    `DEGRADED — source workflow map failed…`, 6 claims still extracted, 1 failed
+    map. **`require=true`** (run `run_cmraym76g`): doc correctly `failed` and
+    extraction blocked, but exposed a PRE-EXISTING contract bug — the outer task
+    `run` catch (`document-ingestion.ts` ~L1604) overwrites `processing_error`
+    with the raw thrown error, so the strict path did NOT surface the contracted
+    `Source workflow read failed:` prefix.
+  - **Fix `e6a5e07` (committed, pushed, deployed `20260707.4` / `mq239ok5`,
+    27 tasks):** strict branch now re-throws `new Error(processingError)` so the
+    outer catch preserves the prefix; `verify:document-ingestion-fallback` now
+    asserts BOTH branches (was only the boolean-parser helper before). Route
+    settings restored to `openai/gpt-4.1` + pool after the gate (proven by clean
+    cleanup run `run_cmrayo7v`, which produced a real degraded map). Deviation #1
+    is CLOSED.
 
 **NEXT ACTIONS, in order:**
 1. **Stage 3** (map-directed extraction + edge-dedup + kill lens fan-out) →

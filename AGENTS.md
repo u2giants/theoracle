@@ -296,6 +296,26 @@ For orientation, follow the documentation map near the top of this file. Do not 
 
 ## 11. Intentional quirks and non-obvious decisions
 
+### `document-ingestion`'s outer task catch overwrites `documents.processing_error`
+
+Looks like:
+An inner branch in `processDocument()` sets a specific `documents.processing_error`
+(e.g. the workflow-reader strict branch writing `Source workflow read failed: …`),
+so that message is what admins will see on a failed document.
+
+Actually:
+The task-level `run` catch (`apps/workers/src/trigger/document-ingestion.ts`, ~L1604)
+unconditionally re-writes `documents.processing_error` with the THROWN error's
+`.message` on any throw. If an inner branch sets a nice message but then re-throws a
+different (raw) error, the outer catch clobbers the nice message. This silently broke
+the strict workflow-read contract until the 2026-07-07 live gate exposed it.
+
+Why / do not change without care:
+The outer catch is the single loud failure surface for the whole task, which is good.
+The rule for inner branches: if you want a specific `processing_error` to survive,
+`throw new Error(thatSameMessage)` — do not set it and then throw a different error.
+See fix `e6a5e07` for the pattern.
+
 ### One employee can have many auth identities
 
 Looks like:

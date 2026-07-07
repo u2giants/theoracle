@@ -64,3 +64,45 @@ gate was not run because provenance guards correctly blocked deleting live cited
 claims. The workflow-reader, validation, same-hash idempotency, supersede semantics,
 failure visibility, final health restoration, and route setting hardening were all
 verified live.
+
+## 2026-07-07 — Stage 2 Reader-Failure Fallback Gate (deviation #1)
+
+Proves the `require_workflow_map_for_ingestion` fallback branch inside
+`processDocument()` — NOT reachable via the standalone `source-workflow-read` task,
+so this gate runs FULL `document-ingestion`. The canonical fixture `9d09fa89…` is
+blocked by the provenance guard, so a disposable duplicate was used.
+
+Fixture: disposable duplicate doc `6491a849-95a2-49cb-b919-b3d95b9d33bc`
+(`Licensed Team Responsibilities 2 - tagged.txt`, 5 chunks, 0 provenance blockers).
+A second duplicate `5fc17b22-…` was left untouched (had Brain/contradiction/gap
+blockers). Failure forced by setting `default_workflow_read_route` +
+`model_pool_workflow_read` to `openai/forced-failure-nonexistent`.
+
+Runs (deployed worker `20260707.3`):
+
+- `run_cmrayd1er9lyh0ilq800q321f` (`require=false`): **PASS**. Trigger `completed`;
+  doc `status='complete'`, `macro_health='map_failed'`, `processing_error` starts
+  `DEGRADED — source workflow map failed: extraction continued without map guidance
+  because require_workflow_map_for_ingestion=false`, `claim_count=6`,
+  `source_workflow_maps` has 1 `failed` row.
+- `run_cmraym76g9kl60plwtflae0bp` (`require=true`): doc correctly `status='failed'`,
+  `claim_count=0`, extraction blocked. Contract MISS: `processing_error` was the raw
+  `ModelCapabilityError`, not the `Source workflow read failed:` prefix — the outer
+  task `run` catch overwrites `documents.processing_error` with the raw thrown error
+  (pre-existing bug, first exposed here).
+- `run_cmrayo7v69dwe0pn91x5mme9d` (restored route, cleanup): `completed`, real
+  `degraded` map, `claim_count=26` — confirms route settings were restored to a
+  functional model (a nonexistent route cannot produce a map).
+
+Fix: commit `e6a5e07` re-throws `new Error(processingError)` in the strict branch so
+the outer catch preserves the prefix; `verify:document-ingestion-fallback` now
+asserts both branches. Deployed `20260707.4` (`mq239ok5`, 27 tasks). Settings
+restored to `default_workflow_read_route='openai/gpt-4.1'` +
+`model_pool_workflow_read=['openai/gpt-4.1','anthropic/claude-sonnet-5','google/gemini-2.5-pro']`,
+`require_workflow_map_for_ingestion=false`.
+
+Gate result: PASS. `require=false` (the actual point of deviation #1 — degrade
+instead of halting all ingestion) is proven correct and live. The strict-path error
+message was fixed and redeployed; that fix's contract is covered by the automated
+gate but has not been re-run live against prod (low risk — cosmetic error text on
+the non-default path; the document still correctly fails).
