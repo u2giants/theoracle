@@ -1,6 +1,6 @@
 # HANDOFF — Prior completed work and remaining historical watchouts
 
-Last updated: 2026-07-03. Delete this file once the remaining open items below are closed.
+Last updated: 2026-07-07. Delete this file once the remaining open items below are closed.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
@@ -79,7 +79,8 @@ consultant, every assertion traceable to a quote. Full plan: `MACRO_FIRST_REDESI
 `fix_enhancement.md` = superseded as a plan, kept as diagnosis + the §2.1 ground-truth
 workflow read used as the gate answer-key.
 
-**Git state:** `main` clean, all pushed, HEAD `3037b88`. Parked branch
+**Git state:** `main` clean, all pushed, HEAD `568c636` before this documentation
+closeout. Parked branch
 `wip/vision-cache-tests` (`75291d9`) holds an unrelated, untested vision/cache
 workstream — leave it until someone runs `test_code_changes.md` Tests 1–2.
 
@@ -138,6 +139,10 @@ resolve them to `entities` / file `entity_proposals`.
 should stay OpenAI-primary until non-OpenAI candidates have `strict_json_schema`,
 `deep_schema_accepted`, and `adapter_params_safe` proven by real workflow/macro
 schema probes. Do not regain portability by weakening schemas or quote validation.
+This adapter/capability hardening is implemented and pushed in `568c636`
+(`fix(ai): harden macro model capability gates`); remaining work is operational:
+run real BO-2/deep-schema probes before promoting any non-OpenAI workflow/macro
+candidate.
 
 ---
 

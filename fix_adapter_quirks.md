@@ -1,7 +1,8 @@
 # Adapter quirks and structured-output capability split
 
-Status: implementation started 2026-07-07. This file is the forward plan and
-implementation record for making Oracle model routing capability-accurate
+Status: implemented and pushed 2026-07-07 in `568c636`
+(`fix(ai): harden macro model capability gates`). This file is the forward plan
+and implementation record for making Oracle model routing capability-accurate
 instead of model-family folklore.
 
 ## Why this exists
