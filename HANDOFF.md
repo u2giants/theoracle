@@ -65,6 +65,77 @@ Verification already run in this checkout:
 
 ## ACTIVE (2026-07-06): Macro-first redesign → see `MACRO_FIRST_REDESIGN.md`
 
+### ▶ RESUME HERE (snapshot as of 2026-07-07, end of a long planning+build session)
+
+**What this project is.** The Oracle extracted tiny quote-validated "claims" and never
+understood whole business processes (proven on swimlane diagram `9d09fa89-…`: 241
+fragment claims, zero assembled workflow). Albert approved a full **macro-first**
+refactor: a durable, versioned **business model** (processes → stages/owners/systems/
+gates/branches) becomes the primary understanding object; atomic claims are demoted to
+the auditable **evidence layer** (quote-level provenance stays sacred). Chat/Brain will
+reason from the model and cite claims downward. End goal: answer like a McKinsey
+consultant, every assertion traceable to a quote. Full plan: `MACRO_FIRST_REDESIGN.md`
+(the forward brief, 0–9 staged). `MODEL_BAKEOFF_SPEC.md` = empirical model selection.
+`fix_enhancement.md` = superseded as a plan, kept as diagnosis + the §2.1 ground-truth
+workflow read used as the gate answer-key.
+
+**Git state:** `main` clean, all pushed, HEAD `3037b88`. Parked branch
+`wip/vision-cache-tests` (`75291d9`) holds an unrelated, untested vision/cache
+workstream — leave it until someone runs `test_code_changes.md` Tests 1–2.
+
+**Done and verified:**
+- **Stage 1 (schema + §4.8 transaction contract)** — code merged; migration
+  `86_macro_first_schema.sql` (amended by `01ed195` to drop a stale orphan prod table)
+  **APPLIED TO PROD `eqccjfbyrywsqkxxpjvg` and fully verified** (12 tables, RLS on +
+  zero policies, partial-unique idempotency indexes, 13 settings 44→57 single-encoded).
+  Details in the dated block below.
+- **Stage 2 (workflow reader)** — `source-workflow-read` worker/service + flat
+  `workflow-read-v1` prompt/schema built, deployed prod (Trigger `20260707.2`).
+  Ingestion now AWAITS the reader before extraction, writes immutable superseding
+  `source_workflow_maps`, validates evidence quotes with the real validator, injects
+  the map as non-quotable extraction guidance, carries `mapElementRef` into claims.
+  Two live bugs found in review and **already hotfixed** (`37ee7d5`): failed/pending
+  maps no longer poison retries; cross-window edge IDs no longer mangled.
+
+**NEXT ACTIONS, in order:**
+1. **Implement the Stage 2 reader-failure fallback** (deviation #1, spec in
+   `MACRO_FIRST_REDESIGN.md` §5.1 + open-items list below). Small; should land before
+   the gate so the gate measures intended behavior.
+2. **Run the Stage 2 gate** (NOT yet done — this is the real proof the redesign works):
+   re-ingest doc `9d09fa89-3a46-465e-a98b-837287c9e22a` via
+   `scripts/reevaluate-document.mjs` (DRY-RUN by default; prod DB access via the
+   1Password session pooler, NEVER local `.env.local` which points at the OLD project),
+   then score the produced `source_workflow_maps` row against `fix_enhancement.md` §2.1.
+   PASS = ≥90% of ground-truth nodes/edges survive validation; also confirm re-ingest
+   supersedes cleanly and a forced reader failure shows in `macro_health`. Then run
+   BO-1/BO-2 bake-offs (`MODEL_BAKEOFF_SPEC.md`). Record in `evals/` per the spec.
+3. Then **Stage 3** (map-directed extraction + edge-dedup + kill lens fan-out) →
+   Stage 4 (shadow merge) → Stage 5 (transactional apply/review) → 6 answering → 7
+   consultant → 8 backfill → 9 cleanup.
+
+**HOW TO RUN EACH STAGE (working pattern, keep using it):** spin up a FRESH-context
+agent (clean window beats continuity — everything durable is in the docs/code/prod, and
+stale context causes errors). Codex CLI has been doing implementation well; use a
+sub-agent for prod DB ops. Seed each with: this RESUME block, the relevant
+`MACRO_FIRST_REDESIGN.md` §9 stage entry + its §5.x, and `AGENTS.md`. After each stage:
+typecheck, run the stage gate, update THIS file, deploy + record the Trigger version.
+Albert pushes to `main` from his own machine; commit only when he says so (he has).
+
+**HARD RULES that bit us already:** local `.env.local` → OLD Supabase project, never
+migrate prod from it (use 1Password session pooler). Flat schemas only (Qwen/Gemini
+reject nested — D6). No new Trigger SCHEDULED tasks (10/10 full). Every new worker
+writes `job_runs` + `macro_health` (silent failures hid ERR-001 for weeks). Verify a
+sub-agent's/Codex's work — this session caught real bugs in otherwise-good output every
+time by reading the diff and running the gates.
+
+**Two OPEN Stage 2 deviations** (fixes already spec'd in `MACRO_FIRST_REDESIGN.md`
+§5.1/§5.2; also listed in the Stage 2 block below): (1) reader is currently a HARD
+dependency of ingestion — add `require_workflow_map_for_ingestion` (seed false) blind-
+path fallback; (2) owner/system names stored raw — the merge worker (Stage 4/§5.3) must
+resolve them to `entities` / file `entity_proposals`.
+
+---
+
 Albert approved refactoring the Oracle to a macro-first architecture (business model as
 the primary understanding object; claims demoted to the evidence layer). The complete,
 self-contained implementation brief — keep/kill inventory, target schema, staged plan
