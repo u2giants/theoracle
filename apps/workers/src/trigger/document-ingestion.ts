@@ -524,6 +524,19 @@ interface ProcessDocumentResult {
 
 type ExtractedClaim = ExtractionOutput['claims'][number];
 
+type WorkflowReadFailureAction = 'fail_document' | 'continue_degraded';
+
+const WORKFLOW_MAP_FAILURE_DEGRADED_NOTE =
+  'source workflow map failed: extraction continued without map guidance because require_workflow_map_for_ingestion=false';
+
+function decideWorkflowReadFailureAction(requireWorkflowMap: boolean): WorkflowReadFailureAction {
+  return requireWorkflowMap ? 'fail_document' : 'continue_degraded';
+}
+
+function formatWorkflowReadFailedProcessingError(message: string): string {
+  return `Source workflow read failed: ${message}`;
+}
+
 async function processDocument(
   documentId: string,
   jobRunId: string,
@@ -731,19 +744,20 @@ async function processDocument(
       REQUIRE_WORKFLOW_MAP_FOR_INGESTION_SETTING,
       false,
     );
-    if (requireWorkflowMap) {
+    if (decideWorkflowReadFailureAction(requireWorkflowMap) === 'fail_document') {
+      const processingError = formatWorkflowReadFailedProcessingError(message);
       await db
         .update(documents)
         .set({
           status: 'failed',
           processedAt: new Date(),
-          processingError: `Source workflow read failed: ${message}`,
+          processingError,
         })
         .where(eq(documents.id, documentId));
       if (fileBackedCachePath) {
         await unlink(fileBackedCachePath).catch(() => undefined);
       }
-      throw err;
+      throw new Error(processingError);
     }
     workflowMapFallbackDegraded = true;
     await markMacroMapFailed(db, documentId);
@@ -1333,9 +1347,7 @@ async function processDocument(
   if (chunkInsertFailures > 0)
     degradedNotes.push(`${chunkInsertFailures} chunk insert(s) failed: that text was lost`);
   if (workflowMapFallbackDegraded)
-    degradedNotes.push(
-      'source workflow map failed: extraction continued without map guidance because require_workflow_map_for_ingestion=false',
-    );
+    degradedNotes.push(WORKFLOW_MAP_FAILURE_DEGRADED_NOTE);
   await db
     .update(documents)
     .set({
@@ -1406,6 +1418,9 @@ function coerceBooleanSetting(value: unknown, fallback: boolean): boolean {
 
 export const __documentIngestionTestHooks = {
   coerceBooleanSetting,
+  decideWorkflowReadFailureAction,
+  formatWorkflowReadFailedProcessingError,
+  WORKFLOW_MAP_FAILURE_DEGRADED_NOTE,
 };
 
 async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
