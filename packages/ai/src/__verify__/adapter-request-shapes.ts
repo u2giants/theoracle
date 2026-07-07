@@ -81,8 +81,10 @@ async function verifyAnthropicTemperature(): Promise<void> {
     plan,
     route: route('anthropic', 'claude-sonnet-5'),
     schema,
+    providerOptions: { maxOutputTokens: 32_000 },
   });
   assert(!('temperature' in calls[0]!), 'claude-sonnet-5 request must omit temperature');
+  assert(calls[0]!.max_tokens === 32_000, 'Anthropic generateObject must honor maxOutputTokens');
 
   await adapter.generateObject({
     plan,
@@ -197,13 +199,42 @@ function verifyCapabilityGates(): void {
     'Gemini should remain allowed for ordinary extraction schemas',
   );
   assert(
-    missingRequirements(base, 'workflow_read').includes('complex structured outputs (Gemini schema complexity limit)'),
+    missingRequirements(base, 'workflow_read').includes('deep Oracle schema accepted'),
     'Gemini should not satisfy workflow_read complex-schema requirements',
   );
+  const qwenMacroMissing = missingRequirements(
+    normalizeDirectProviderCapabilities({
+      ...base,
+      id: 'qwen/qwen3.7-plus-us',
+      provider: 'qwen',
+      structuredOutputs: true,
+      strictJsonSchema: true,
+      deepSchemaAccepted: true,
+    }),
+    'macro',
+  );
   assert(
-    missingRequirements({ ...base, provider: 'qwen', structuredOutputs: false }, 'macro')
-      .includes('strict JSON Schema enforcement'),
-    'Qwen json_object models should not satisfy strict macro structured-output requirements',
+    qwenMacroMissing.includes('strict JSON Schema enforcement') &&
+      qwenMacroMissing.includes('deep Oracle schema accepted'),
+    `Qwen json_object models should not satisfy strict macro requirements: ${qwenMacroMissing.join(', ')}`,
+  );
+  assert(
+    normalizeDirectProviderCapabilities({
+      ...base,
+      id: 'deepseek/deepseek-chat',
+      provider: 'deepseek',
+      structuredOutputs: true,
+    }).structuredOutputs === false,
+    'DeepSeek stale catalog rows must be normalized away from strict structured output',
+  );
+  assert(
+    normalizeDirectProviderCapabilities({
+      ...base,
+      id: 'qwen/qwen3.7-plus-us',
+      provider: 'qwen',
+      structuredOutputs: true,
+    }).structuredOutputs === false,
+    'Qwen stale catalog rows must be normalized away from strict structured output',
   );
   assert(
     normalizeDirectProviderCapabilities({

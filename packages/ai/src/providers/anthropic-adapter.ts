@@ -136,11 +136,15 @@ export class AnthropicAdapter implements OracleProviderAdapter {
     // Force a single tool call. The tool's input_schema is the structured
     // output contract; Anthropic enforces it on the model.
     const TOOL_NAME = 'output_structured';
-    const thinking = thinkingParam(route.reasoningEffort, this.defaultMaxTokens);
+    const effectiveMaxTokens =
+      typeof providerOptions?.maxOutputTokens === 'number'
+        ? providerOptions.maxOutputTokens
+        : this.defaultMaxTokens;
+    const thinking = thinkingParam(route.reasoningEffort, effectiveMaxTokens);
     const temperature = anthropicTemperature(route.modelId, thinking, 0.1);
     const response = await this.client.messages.create({
       model: route.modelId,
-      max_tokens: this.defaultMaxTokens,
+      max_tokens: effectiveMaxTokens,
       ...(temperature === undefined ? {} : { temperature }),
       system: this.buildSystem(plan, systemPrompt, providerOptions, ttl),
       messages: this.buildMessages(plan, userMessage, providerOptions, ttl),

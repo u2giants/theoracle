@@ -26,7 +26,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 |---|---|---|
 | Quick repo orientation | `README.md`, `AGENTS.md` | Deep docs under `docs/` unless task requires them |
 | Modify app behavior or project-owned code | `AGENTS.md`, relevant folder-level `README.md` if present, `docs/architecture.md` if system design is affected | `docs/deployment.md` unless deploy behavior changes |
-| Add or change AI provider adapter or model catalog | `AGENTS.md`, `docs/architecture.md` (adapter table + data flow), provider files under `packages/ai/src/providers/`, `DECISIONS.md`; run/update `packages/ai/src/__verify__/adapter-request-shapes.ts` when request-shaping, strict-schema eligibility, or usage normalization changes | Worker or webhook code |
+| Add or change AI provider adapter or model catalog | `AGENTS.md`, `docs/architecture.md` (adapter table + data flow), provider files under `packages/ai/src/providers/`, `DECISIONS.md`; `fix_adapter_quirks.md` when strict/deep schema eligibility or adapter request safety is involved; run/update `packages/ai/src/__verify__/adapter-request-shapes.ts` when request-shaping, strict-schema eligibility, or usage normalization changes | Worker or webhook code |
 | Add or change configuration, env vars, feature flags, secrets | `AGENTS.md` §12, `docs/configuration.md`, `docs/deployment.md` if prod/runtime env is affected | Unrelated architecture docs |
 | Pull secrets from 1Password via the MCP server or `op` CLI | `AGENTS.md`, `docs/1password.md` | Unrelated architecture docs |
 | Change local setup, dev scripts, test/lint/debug workflow, package scripts, or tooling | `AGENTS.md`, `docs/development.md`, relevant package/config files | `docs/deployment.md` unless CI/CD changes |

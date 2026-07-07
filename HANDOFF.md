@@ -134,6 +134,11 @@ dependency of ingestion — add `require_workflow_map_for_ingestion` (seed false
 path fallback; (2) owner/system names stored raw — the merge worker (Stage 4/§5.3) must
 resolve them to `entities` / file `entity_proposals`.
 
+**Adapter/model-routing follow-up:** see `fix_adapter_quirks.md`. Workflow/macro
+should stay OpenAI-primary until non-OpenAI candidates have `strict_json_schema`,
+`deep_schema_accepted`, and `adapter_params_safe` proven by real workflow/macro
+schema probes. Do not regain portability by weakening schemas or quote validation.
+
 ---
 
 Albert approved refactoring the Oracle to a macro-first architecture (business model as
