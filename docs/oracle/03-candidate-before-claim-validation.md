@@ -66,7 +66,7 @@ export const extractionBatches = pgTable('extraction_batches', {
   contextPackId: uuid('context_pack_id').references(() => oracleContextPacks.id),
 
   batchType: varchar('batch_type', { length: 50 }).notNull(),
-  // message_segment | document_chunk | document_page | transcript_segment
+  // message_segment | document_chunk | document_page | document_lens_group | transcript_segment
 
   status: varchar('status', { length: 50 }).default('pending_model').notNull(),
   // pending_model | model_complete | validation_complete | promoted | failed |

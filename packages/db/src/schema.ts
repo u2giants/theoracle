@@ -2151,7 +2151,8 @@ export const extractionBatches = pgTable(
     // to the provider_batch_jobs row that owns the in-flight provider batch.
     providerBatchJobId: uuid('provider_batch_job_id'),
 
-    // 'message_segment' | 'document_chunk' | 'document_page' | 'transcript_segment'.
+    // 'message_segment' | 'document_chunk' | 'document_page' |
+    // 'document_lens_group' | 'transcript_segment'.
     batchType: varchar('batch_type', { length: 50 }).notNull(),
 
     // EXTRACTION_BATCH_STATUSES.

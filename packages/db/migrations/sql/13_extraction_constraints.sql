@@ -15,7 +15,13 @@ ALTER TABLE extraction_batches
   DROP CONSTRAINT IF EXISTS extraction_batches_batch_type_check;
 ALTER TABLE extraction_batches
   ADD CONSTRAINT extraction_batches_batch_type_check
-  CHECK (batch_type IN ('message_segment','document_chunk','document_page','transcript_segment'));
+  CHECK (batch_type IN (
+    'message_segment',
+    'document_chunk',
+    'document_page',
+    'document_lens_group',
+    'transcript_segment'
+  ));
 
 ALTER TABLE extraction_batches
   DROP CONSTRAINT IF EXISTS extraction_batches_status_check;
