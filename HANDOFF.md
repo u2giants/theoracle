@@ -166,9 +166,11 @@ Remaining for the Stage 1 gate:
 - Fresh-DB idempotency apply (gate wording): prod re-run idempotency of the settings block
   is proven; a full fresh-DB apply was not run this session.
 
-Next step: Stage 2 (`source-workflow-read` worker), still blocked on resolving/committing
-the 8 uncommitted cache-workstream working-tree files. No Trigger deploy was done (no
-worker changes in Stage 1). Nothing was committed by this session.
+Next step: Stage 2 (`source-workflow-read` worker). UNBLOCKED 2026-07-06: the 8
+uncommitted cache-workstream files were parked on branch `wip/vision-cache-tests`
+(commit `75291d9`), so the main working tree is clean. Run Stage 2 in a FRESH session
+seeded with `MACRO_FIRST_REDESIGN.md` (§9 Stage 2 + §5.1/§5.2) + this file. No Trigger
+deploy was done in Stage 1 (no worker changes).
 
 ---
 
@@ -180,6 +182,12 @@ We ingested a swimlane process diagram (test doc `9d09fa89-3a46-465e-a98b-837287
 2. **Test 2** — 5 vision models head-to-head on transcription quality **and** prompt-cache effectiveness (to decide whether good caching lets us afford a stronger/more expensive vision model than the current `qwen/qwen3-vl-235b-a22b-thinking`).
 
 **`test_code_changes.md` is the complete, self-contained brief** — background, every change made and not-yet-made, prior bake-off results, ground truth, step-by-step commands, cache-metric locations, cost model, and env/tooling. Written for a developer new to the app. Start there.
+
+**2026-07-06: this workstream's code changes are parked on branch
+`wip/vision-cache-tests` (commit `75291d9`)** — they were untested and sat uncommitted
+in the main working tree, blocking macro-first Stage 2 (which must edit
+`document-ingestion.ts`). To resume: check out that branch, rebase onto current
+`main`, run Tests 1–2, then merge deliberately.
 
 ---
 
