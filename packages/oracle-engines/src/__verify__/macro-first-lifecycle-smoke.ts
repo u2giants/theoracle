@@ -3,7 +3,9 @@ import {
   canTransitionBusinessModelChange,
   canTransitionBusinessProcessVersion,
   canTransitionSourceWorkflowMap,
+  evaluateBusinessModelApplyPrecondition,
   assertBusinessModelChangeTransition,
+  shouldMarkFailedApply,
 } from '../model/lifecycle';
 
 function assert(condition: unknown, message: string): void {
@@ -64,6 +66,55 @@ assert(
 assert(
   businessModelAdvisoryLockKey(null, 'proposal-1') === 'business_model_change:proposal-1',
   'create-process proposals lock per proposal',
+);
+
+const readyPrecondition = evaluateBusinessModelApplyPrecondition(
+  {
+    id: 'proposal-ready',
+    status: 'pending_review',
+    processId: 'process-1',
+    baseVersionId: 'version-1',
+  },
+  'version-1',
+);
+assert(readyPrecondition.status === 'ready', 'matching base version is ready to apply');
+
+const stalePrecondition = evaluateBusinessModelApplyPrecondition(
+  {
+    id: 'proposal-stale',
+    status: 'pending_review',
+    processId: 'process-1',
+    baseVersionId: 'version-1',
+  },
+  'version-2',
+);
+assert(stalePrecondition.status === 'needs_rebase', 'stale base version needs rebase');
+assert(
+  stalePrecondition.status === 'needs_rebase' &&
+    stalePrecondition.actualVersionId === 'version-2',
+  'stale precondition carries the current version id',
+);
+
+const terminalPrecondition = evaluateBusinessModelApplyPrecondition(
+  {
+    id: 'proposal-approved',
+    status: 'approved',
+    processId: 'process-1',
+    baseVersionId: 'version-1',
+  },
+  'version-2',
+);
+assert(terminalPrecondition.status === 'noop', 'terminal proposal no-ops after locked re-read');
+
+assert(shouldMarkFailedApply('pending_review'), 'pending proposal may be marked failed_apply');
+assert(!shouldMarkFailedApply('approved'), 'approved proposal must not be overwritten by failed_apply');
+assert(
+  !shouldMarkFailedApply('auto_applied'),
+  'auto-applied proposal must not be overwritten by failed_apply',
+);
+assert(
+  !shouldMarkFailedApply('needs_rebase'),
+  'needs_rebase proposal must not be overwritten by failed_apply',
 );
 
 console.log('macro-first lifecycle smoke passed');

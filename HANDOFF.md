@@ -103,6 +103,13 @@ verify:macro-first`, and `git diff --check` all pass. Not run: Stage 0 prod batt
 prod migration, RLS live checks, fresh-DB idempotency, Trigger deploy, or any LLM/worker
 behavior.
 
+2026-07-07 local review fix (not committed, not migrated, not deployed): Hardened
+`applyBusinessModelChangeTransaction` against the Stage-1 TOCTOU bug by re-reading the
+proposal after the advisory lock, no-oping terminal statuses, status-guarding
+`needs_rebase` / `failed_apply` updates, and adding smoke coverage for stale-base and
+failed-apply overwrite guards. Added read-only empty-state admin pages for
+`/admin/business-model` and `/admin/recommendations`.
+
 ---
 
 ## ACTIVE (2026-07-06): Vision transcription & claim-extraction test plan → see `test_code_changes.md`
