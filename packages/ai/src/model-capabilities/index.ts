@@ -183,9 +183,13 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
       pdf: or.pdf,
       thinking: or.thinking,
       structuredOutputs: or.structuredOutputs,
+      strictJsonSchema: or.structuredOutputs && ['openai', 'google', 'anthropic'].includes(raw.provider),
+      deepSchemaAccepted: isKnownDeepSchemaModel(raw.id),
+      adapterParamsSafe: true,
       toolCalling: or.toolCalling,
       promptCaching: or.promptCaching,
       outputCap: or.outputCap,
+      adapterParamNotes: {},
       knowledgeCutoff: or.knowledgeCutoff,
       source: raw.source,
     });
@@ -220,9 +224,13 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
     pdf: c.pdf,
     thinking: c.thinking,
     structuredOutputs: c.structuredOutputs,
+    strictJsonSchema: c.strictJsonSchema,
+    deepSchemaAccepted: c.deepSchemaAccepted,
+    adapterParamsSafe: c.adapterParamsSafe,
     toolCalling: c.toolCalling,
     promptCaching: c.promptCaching,
     outputCap: c.outputCap,
+    adapterParamNotes: c.adapterParamNotes,
     knowledgeCutoff: c.knowledgeCutoff,
     source: c.source,
     refreshedAt: new Date(refreshedAtIso),
@@ -244,9 +252,13 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
         pdf: sql`excluded.pdf`,
         thinking: sql`excluded.thinking`,
         structuredOutputs: sql`excluded.structured_outputs`,
+        strictJsonSchema: sql`excluded.strict_json_schema`,
+        deepSchemaAccepted: sql`excluded.deep_schema_accepted`,
+        adapterParamsSafe: sql`excluded.adapter_params_safe`,
         toolCalling: sql`excluded.tool_calling`,
         promptCaching: sql`excluded.prompt_caching`,
         outputCap: sql`excluded.output_cap`,
+        adapterParamNotes: sql`excluded.adapter_param_notes`,
         knowledgeCutoff: sql`excluded.knowledge_cutoff`,
         source: sql`excluded.source`,
         refreshedAt: sql`excluded.refreshed_at`,
@@ -278,7 +290,11 @@ function isDeepSeekThinkingModel(id: string): boolean {
   return lower.includes('reasoner') || lower.includes('-r1') || lower.includes('deepseek-r1');
 }
 
-function normalizeDirectProviderCapabilities(model: ModelCapability): ModelCapability {
+function isKnownDeepSchemaModel(id: string): boolean {
+  return id === 'openai/gpt-4.1' || id === 'openai/gpt-4.1-mini';
+}
+
+export function normalizeDirectProviderCapabilities(model: ModelCapability): ModelCapability {
   if (model.provider === 'qwen') {
     return {
       ...model,
@@ -287,10 +303,16 @@ function normalizeDirectProviderCapabilities(model: ModelCapability): ModelCapab
       // DashScope exposes json_object; it does not enforce arbitrary JSON Schema
       // like OpenAI strict JSON Schema or Gemini responseJsonSchema.
       structuredOutputs: false,
+      strictJsonSchema: false,
+      deepSchemaAccepted: false,
       // Qwen explicit cache is documented for current Qwen model families even
       // when third-party enrichment misses the flag.
       promptCaching: true,
       outputCap: true,
+      adapterParamNotes: {
+        ...model.adapterParamNotes,
+        strictSchema: 'DashScope path uses json_object, not provider-enforced JSON Schema.',
+      },
     };
   }
   if (model.provider === 'deepseek') {
@@ -300,9 +322,40 @@ function normalizeDirectProviderCapabilities(model: ModelCapability): ModelCapab
       // DeepSeek JSON Output is syntactic JSON mode plus prompt guidance, not
       // provider-enforced schema conformance.
       structuredOutputs: false,
+      strictJsonSchema: false,
+      deepSchemaAccepted: false,
       toolCalling: true,
       promptCaching: true,
       outputCap: true,
+      adapterParamNotes: {
+        ...model.adapterParamNotes,
+        strictSchema: 'DeepSeek path uses json_object plus validation, not strict JSON Schema.',
+      },
+    };
+  }
+  if (model.provider === 'google') {
+    return {
+      ...model,
+      strictJsonSchema: model.structuredOutputs,
+      deepSchemaAccepted: false,
+      adapterParamNotes: {
+        ...model.adapterParamNotes,
+        deepSchema: 'Gemini schema mode has rejected Oracle workflow/macro deep schemas as too complex.',
+      },
+    };
+  }
+  if (model.provider === 'openai') {
+    return {
+      ...model,
+      strictJsonSchema: model.structuredOutputs || model.strictJsonSchema,
+      deepSchemaAccepted: model.deepSchemaAccepted || isKnownDeepSchemaModel(model.id),
+    };
+  }
+  if (model.provider === 'anthropic') {
+    return {
+      ...model,
+      strictJsonSchema: model.structuredOutputs || model.strictJsonSchema,
+      deepSchemaAccepted: false,
     };
   }
   return model;
@@ -311,24 +364,30 @@ function normalizeDirectProviderCapabilities(model: ModelCapability): ModelCapab
 /** Read the persisted catalog. Empty array means "never refreshed". */
 export async function loadModelCatalog(db: OracleDb): Promise<ModelCapability[]> {
   const rows = await db.select().from(modelCapabilities);
-  return rows.map((r): ModelCapability => ({
-    id: r.id,
-    provider: r.provider as ModelCapability['provider'],
-    displayName: r.displayName,
-    contextLength: r.contextLength,
-    maxOutputTokens: r.maxOutputTokens,
-    promptPer1mUsd: r.promptPer1mUsd != null ? Number(r.promptPer1mUsd) : null,
-    completionPer1mUsd: r.completionPer1mUsd != null ? Number(r.completionPer1mUsd) : null,
-    vision: r.vision,
-    pdf: r.pdf,
-    thinking: r.thinking,
-    structuredOutputs: r.structuredOutputs,
-    toolCalling: r.toolCalling,
-    promptCaching: r.promptCaching,
-    outputCap: r.outputCap,
-    knowledgeCutoff: r.knowledgeCutoff,
-    source: r.source as ModelCapability['source'],
-  }));
+  return rows.map((r): ModelCapability =>
+    normalizeDirectProviderCapabilities({
+      id: r.id,
+      provider: r.provider as ModelCapability['provider'],
+      displayName: r.displayName,
+      contextLength: r.contextLength,
+      maxOutputTokens: r.maxOutputTokens,
+      promptPer1mUsd: r.promptPer1mUsd != null ? Number(r.promptPer1mUsd) : null,
+      completionPer1mUsd: r.completionPer1mUsd != null ? Number(r.completionPer1mUsd) : null,
+      vision: r.vision,
+      pdf: r.pdf,
+      thinking: r.thinking,
+      structuredOutputs: r.structuredOutputs,
+      strictJsonSchema: r.strictJsonSchema,
+      deepSchemaAccepted: r.deepSchemaAccepted,
+      adapterParamsSafe: r.adapterParamsSafe,
+      toolCalling: r.toolCalling,
+      promptCaching: r.promptCaching,
+      outputCap: r.outputCap,
+      adapterParamNotes: r.adapterParamNotes ?? {},
+      knowledgeCutoff: r.knowledgeCutoff,
+      source: r.source as ModelCapability['source'],
+    }),
+  );
 }
 
 /** Return the most recent refreshedAt timestamp across all rows, or null. */

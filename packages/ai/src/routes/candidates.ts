@@ -11,7 +11,7 @@ import {
 import { ModelCapabilityError, NoConfiguredModelError, type ModelSlot } from './errors';
 import { missingRequirements } from './capability-requirements';
 import { providerModelIdForRoute, resolveModelRoute, type SyntheticRouteCaps } from './resolve';
-import type { ModelCapability } from '../model-capabilities/types';
+import { normalizeDirectProviderCapabilities, type ModelCapability } from '../model-capabilities';
 import type { OracleModelRole, OracleModelRoute, ReasoningEffort } from './types';
 
 export interface RouteCandidate {
@@ -90,10 +90,11 @@ function isQwenVisionModel(id: string): boolean {
  * should satisfy the image-vision slot.
  */
 function normalizeProviderCapabilities(cap: ModelCapability): ModelCapability {
+  const directNormalized = normalizeDirectProviderCapabilities(cap);
   if (cap.provider === 'qwen' && cap.vision && !isQwenVisionModel(cap.id)) {
-    return { ...cap, vision: false };
+    return { ...directNormalized, vision: false };
   }
-  return cap;
+  return directNormalized;
 }
 
 function catalogIdsForRoute(route: OracleModelRoute): string[] {
@@ -132,9 +133,13 @@ async function loadCapabilityMap(db: OracleDb, ids: string[]): Promise<Map<strin
         pdf: r.pdf,
         thinking: r.thinking,
         structuredOutputs: r.structuredOutputs,
+        strictJsonSchema: r.strictJsonSchema,
+        deepSchemaAccepted: r.deepSchemaAccepted,
+        adapterParamsSafe: r.adapterParamsSafe,
         toolCalling: r.toolCalling,
         promptCaching: r.promptCaching,
         outputCap: r.outputCap,
+        adapterParamNotes: r.adapterParamNotes ?? {},
         knowledgeCutoff: r.knowledgeCutoff,
         source: r.source as ModelCapability['source'],
       } satisfies ModelCapability,

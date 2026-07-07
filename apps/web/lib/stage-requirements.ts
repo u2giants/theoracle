@@ -9,7 +9,7 @@
  * update together.
  */
 
-import { Braces, Eye, Maximize2, Sparkles, Type, Wrench, Zap, FileText } from 'lucide-react';
+import { BadgeCheck, Braces, Eye, Maximize2, ShieldCheck, Sparkles, Type, Wrench, Zap, FileText } from 'lucide-react';
 
 type IconComponent = React.ComponentType<{ className?: string }>;
 
@@ -22,6 +22,9 @@ export type CapKey =
   | 'thinking'
   | 'tools'
   | 'structuredOutputs'
+  | 'strictJsonSchema'
+  | 'deepSchemaAccepted'
+  | 'adapterParamsSafe'
   | 'promptCaching'
   | 'outputCap'
   | 'pdf';
@@ -39,6 +42,9 @@ export const CAPS: ReadonlyArray<CapMeta> = [
   { field: 'thinking',          short: 'Reasoning',  long: 'Reasoning / include_reasoning',                     icon: Sparkles, color: 'text-violet-600 dark:text-violet-400' },
   { field: 'tools',             short: 'Tools',      long: 'Tools / tool_choice',                               icon: Wrench,   color: 'text-emerald-600 dark:text-emerald-400' },
   { field: 'structuredOutputs', short: 'Structured', long: 'Structured outputs / response_format',              icon: Braces,   color: 'text-orange-600 dark:text-orange-400' },
+  { field: 'strictJsonSchema',  short: 'Strict',     long: 'Strict JSON Schema enforcement',                    icon: ShieldCheck, color: 'text-rose-600 dark:text-rose-400' },
+  { field: 'deepSchemaAccepted', short: 'Deep',      long: 'Deep Oracle schema accepted',                       icon: BadgeCheck, color: 'text-lime-700 dark:text-lime-400' },
+  { field: 'adapterParamsSafe', short: 'Safe',       long: 'Adapter params accepted by model',                  icon: ShieldCheck, color: 'text-cyan-700 dark:text-cyan-400' },
   { field: 'promptCaching',     short: 'Caching',    long: 'Prompt caching',                                    icon: Zap,      color: 'text-amber-600 dark:text-amber-400' },
   { field: 'outputCap',         short: 'OutCap',     long: 'Output cap (max_completion_tokens or max_tokens)',  icon: Type,     color: 'text-teal-600 dark:text-teal-400' },
   { field: 'pdf',               short: 'PDF',        long: 'PDF input',                                         icon: FileText, color: 'text-slate-600 dark:text-slate-400' },
@@ -70,6 +76,9 @@ export interface ReqEvaluable {
   thinking: boolean;
   tools: boolean;
   structuredOutputs: boolean;
+  strictJsonSchema: boolean;
+  deepSchemaAccepted: boolean;
+  adapterParamsSafe: boolean;
   promptCaching: boolean;
   outputCap: boolean;
   pdf: boolean;
@@ -126,7 +135,7 @@ export const STAGE_REQUIREMENTS: Record<Stage, StageRequirement[]> = {
     CTX_REQ(100_000),
   ],
   extraction: [
-    CAP_REQ('structuredOutputs'),
+    CAP_REQ('strictJsonSchema'),
     CTX_REQ(100_000),
   ],
   synthesis: [

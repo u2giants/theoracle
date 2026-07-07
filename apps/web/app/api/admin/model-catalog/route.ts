@@ -32,8 +32,12 @@ export type ModelCatalogEntry = {
   thinking: boolean;
   tools: boolean;
   structuredOutputs: boolean;
+  strictJsonSchema: boolean;
+  deepSchemaAccepted: boolean;
+  adapterParamsSafe: boolean;
   promptCaching: boolean;
   outputCap: boolean;
+  adapterParamNotes: Record<string, unknown>;
   knowledgeCutoff: string | null;
 };
 
@@ -51,8 +55,12 @@ function capabilityToEntry(cap: ModelCapability): ModelCatalogEntry {
     thinking: cap.thinking,
     tools: cap.toolCalling,
     structuredOutputs: cap.structuredOutputs,
+    strictJsonSchema: cap.strictJsonSchema,
+    deepSchemaAccepted: cap.deepSchemaAccepted,
+    adapterParamsSafe: cap.adapterParamsSafe,
     promptCaching: cap.promptCaching,
     outputCap: cap.outputCap,
+    adapterParamNotes: cap.adapterParamNotes,
     knowledgeCutoff: cap.knowledgeCutoff,
   };
 }
@@ -70,7 +78,8 @@ function passesQualityFilter(cap: ModelCapability): boolean {
   const hasPrice = cap.promptPer1mUsd != null;
   const hasCaps =
     cap.vision || cap.pdf || cap.thinking ||
-    cap.structuredOutputs || cap.toolCalling ||
+    cap.structuredOutputs || cap.strictJsonSchema || cap.deepSchemaAccepted ||
+    cap.toolCalling ||
     cap.promptCaching || cap.outputCap;
   if (!hasPrice && !hasCaps) return false;
   if (cap.promptPer1mUsd != null && cap.promptPer1mUsd >= 15.01) return false;

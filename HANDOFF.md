@@ -252,13 +252,14 @@ map `72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8` from
 `status='complete'`, `macro_health='complete'`, `processing_error=NULL`, and exactly
 one non-superseded map remains. Scored against `fix_enhancement.md` §2.1, it covers
 9/9 stage groups plus the named branch/loop/system landmarks. The run exposed a model
-route issue: `claude-sonnet-5` failed on the current Anthropic adapter temperature
-parameter and Gemini 2.5 Pro rejected the schema as too complex, while
+route issue: `claude-sonnet-5` failed before the Anthropic temperature request-shape
+guard landed, and Gemini 2.5 Pro rejected the schema as too complex, while
 `openai/gpt-4.1` succeeded. Updated source defaults/docs and prod settings to make
 `default_workflow_read_route='openai/gpt-4.1'` and
 `model_pool_workflow_read=['openai/gpt-4.1','anthropic/claude-sonnet-5','google/gemini-2.5-pro']`.
-Recorded the gate in `evals/macro-first-battery.md`. Follow-up: fix the Anthropic
-adapter temperature handling before rerunning BO-2 if Sonnet should compete again.
+Recorded the gate in `evals/macro-first-battery.md`. Anthropic temperature handling is
+now guarded by `verify:adapter-request-shapes`; rerun BO-2 before seating Sonnet as the
+workflow-read primary again.
 
 #### 2026-07-06 — Stage 1 migration 86 **APPLIED TO PROD and VERIFIED** ✅
 

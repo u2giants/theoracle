@@ -1148,7 +1148,8 @@ node / edge / path** (§4.1, durable cross-source model), **model change proposa
   measurement, but the fallback should land before Stage 2 is declared green.
 - 2026-07-07 (Codex): Ran the live Stage 2 workflow-reader gate. The reader validated
   the canonical swimlane fixture and the fallback chain proved load-bearing:
-  `claude-sonnet-5` rejected the current adapter temperature parameter, Gemini 2.5 Pro
+  `claude-sonnet-5` hit the pre-fix Anthropic temperature request shape, Gemini 2.5 Pro
   rejected the schema as too complex, and `openai/gpt-4.1` succeeded. Updated the
-  workflow-read seeded primary/pool order to put OpenAI first until BO-2 is rerun after
-  the Anthropic adapter temperature issue is fixed.
+  workflow-read seeded primary/pool order to put OpenAI first. Anthropic request-shape
+  handling is now guarded, but BO-2 must be rerun before changing the workflow-read
+  primary.

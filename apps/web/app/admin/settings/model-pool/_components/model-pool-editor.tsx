@@ -105,10 +105,22 @@ function missingPoolReqs(m: ModelCatalogEntry, pool: PoolKey) {
   if (pool === 'workflow_read') {
     const reqs = [
       {
-        label: CAP_BY_FIELD.structuredOutputs.long,
-        icon: CAP_BY_FIELD.structuredOutputs.icon,
-        color: CAP_BY_FIELD.structuredOutputs.color,
-        missing: !m.structuredOutputs,
+        label: CAP_BY_FIELD.strictJsonSchema.long,
+        icon: CAP_BY_FIELD.strictJsonSchema.icon,
+        color: CAP_BY_FIELD.strictJsonSchema.color,
+        missing: !m.strictJsonSchema,
+      },
+      {
+        label: CAP_BY_FIELD.deepSchemaAccepted.long,
+        icon: CAP_BY_FIELD.deepSchemaAccepted.icon,
+        color: CAP_BY_FIELD.deepSchemaAccepted.color,
+        missing: !m.deepSchemaAccepted,
+      },
+      {
+        label: CAP_BY_FIELD.adapterParamsSafe.long,
+        icon: CAP_BY_FIELD.adapterParamsSafe.icon,
+        color: CAP_BY_FIELD.adapterParamsSafe.color,
+        missing: !m.adapterParamsSafe,
       },
       {
         label: 'Context > 100K',
@@ -121,10 +133,35 @@ function missingPoolReqs(m: ModelCatalogEntry, pool: PoolKey) {
       ? reqs.filter((r) => r.missing).map(({ label, icon, color }) => ({ label, icon, color }))
       : [];
   }
-  if (pool === 'model_merge' || pool === 'macro') {
-    const cap = CAP_BY_FIELD.structuredOutputs;
-    return hasEnrichment(m) && !m.structuredOutputs
+  if (pool === 'model_merge') {
+    const cap = CAP_BY_FIELD.strictJsonSchema;
+    return hasEnrichment(m) && !m.strictJsonSchema
       ? [{ label: cap.long, icon: cap.icon, color: cap.color }]
+      : [];
+  }
+  if (pool === 'macro') {
+    const reqs = [
+      {
+        label: CAP_BY_FIELD.strictJsonSchema.long,
+        icon: CAP_BY_FIELD.strictJsonSchema.icon,
+        color: CAP_BY_FIELD.strictJsonSchema.color,
+        missing: !m.strictJsonSchema,
+      },
+      {
+        label: CAP_BY_FIELD.deepSchemaAccepted.long,
+        icon: CAP_BY_FIELD.deepSchemaAccepted.icon,
+        color: CAP_BY_FIELD.deepSchemaAccepted.color,
+        missing: !m.deepSchemaAccepted,
+      },
+      {
+        label: CAP_BY_FIELD.adapterParamsSafe.long,
+        icon: CAP_BY_FIELD.adapterParamsSafe.icon,
+        color: CAP_BY_FIELD.adapterParamsSafe.color,
+        missing: !m.adapterParamsSafe,
+      },
+    ];
+    return hasEnrichment(m)
+      ? reqs.filter((r) => r.missing).map(({ label, icon, color }) => ({ label, icon, color }))
       : [];
   }
   if (pool === 'translation' || pool === 'general') return [];

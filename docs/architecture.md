@@ -833,12 +833,35 @@ Six production adapters in `packages/ai/src/providers/`:
 | `VertexGeminiAdapter` | `@google/genai` (v2.6+) | `responseMimeType: 'application/json'` + `responseJsonSchema` for strict native JSON-schema output; implicit prefix caching plus explicit `client.caches.create(...)` / `cachedContent` reuse persisted through `provider_cached_content`; structured-output calls can cache stable + semi-stable + retrieved context while sending only dynamic input live; `usageMetadata.cachedContentTokenCount` + `thoughtsTokenCount` normalized into `OracleUsage` |
 | `GoogleGeminiAdapter` | `@google/genai` (v2.6+) | Gemini Developer API path for `google/*` routes; `responseMimeType: 'application/json'` + `responseJsonSchema`; Gemini 3 `thinkingConfig.thinkingLevel`; useful when cataloged Gemini API models are not available to the configured Vertex project/region |
 | `OpenAIAdapter` | `openai` (v6.39+) | `response_format: { type: 'json_schema', strict: true }`; auto-cache via `prompt_tokens_details.cached_tokens`; per-request `prompt_cache_retention`; reasoning tokens via `completion_tokens_details.reasoning_tokens` |
-| `DeepSeekAdapter` | `openai` (custom baseURL to `api.deepseek.com`) | Automatic disk-backed prefix caching only; `prompt_cache_hit_tokens` normalized into `OracleUsage.cachedInputTokens`; no user-managed explicit cache resource exists today |
-| `QwenAdapter` | `openai` (custom baseURL to DashScope OpenAI-compat) | Explicit prompt caching on Chat Completions via `cache_control` markers on reusable prefixes plus Responses-API session cache for text calls; `prompt_tokens_details.cached_tokens` / `cache_creation_input_tokens` and Responses cached-token usage normalized into `OracleUsage` |
+| `DeepSeekAdapter` | `openai` (custom baseURL to `api.deepseek.com`) | Automatic disk-backed prefix caching only; JSON-object mode + Zod validation for `generateObject` (not provider-enforced arbitrary JSON Schema); `prompt_cache_hit_tokens` normalized into `OracleUsage.cachedInputTokens`; no user-managed explicit cache resource exists today |
+| `QwenAdapter` | `openai` (custom baseURL to DashScope OpenAI-compat) | Explicit prompt caching on Chat Completions via `cache_control` markers on reusable prefixes plus Responses-API session cache for text calls; JSON-object mode + Zod validation for `generateObject`, with thinking forcibly disabled on structured calls; `prompt_tokens_details.cached_tokens` / `cache_creation_input_tokens` and Responses cached-token usage normalized into `OracleUsage` |
 
 Each adapter authenticates via env vars / ADC (see `docs/configuration.md`). The Vercel AI SDK is explicitly forbidden inside these adapters per DECISIONS.md D6 + D9 — it normalizes provider-specific cache fields and structured-output strategies through a uniform abstraction that destroys both. Raw SDKs preserve every native feature.
 
 Structured-output adapters should parse JSON defensively (`parseJsonOrRaw`) and let `OracleAIClient` / Zod return `validation.ok=false` for schema mismatches whenever possible. Provider/network failures should still throw, but invalid model JSON should not bypass the validation result path.
+
+Adapter request-shaping constraints are part of the runtime contract and are guarded by
+`corepack pnpm --filter @oracle/ai run verify:adapter-request-shapes`. Current
+provider-specific rules:
+
+- Anthropic Claude 5-family requests omit `temperature`; those models reject explicit
+  temperature today. Older Anthropic models still use deterministic temperature for
+  structured calls, and thinking requests use Anthropic's required default sampling.
+- DeepSeek and Qwen expose JSON-object mode plus Zod validation, not provider-enforced
+  arbitrary JSON Schema. They must not satisfy strict-structured-output slots.
+- DeepSeek's documented function-calling strict mode currently lives on the beta
+  endpoint (`https://api.deepseek.com/beta`) and is not wired into
+  `DeepSeekAdapter`; enabling it would need a separate tool-call request shape and
+  schema-subset guard before DeepSeek can be marked strict-schema eligible.
+- Qwen structured-object calls force thinking off because DashScope JSON mode is
+  incompatible with thinking mode.
+- Direct-provider capability normalization is applied both when refreshing the model
+  catalog and when reading persisted catalog rows, so stale DB capability flags cannot
+  make Qwen/DeepSeek look eligible for strict-schema stages.
+- Gemini remains eligible for ordinary extraction schemas, but it is intentionally
+  rejected for the complex macro-first strict-schema slots (`workflow_read`, `macro`,
+  `model_merge`) because live runs showed Gemini 2.5 Pro/Flash can reject those schemas
+  with the provider's constraint-complexity limit.
 
 ### Synthesis pipeline (R9, landed)
 
@@ -901,6 +924,15 @@ Macro relationships cite claim IDs rather than raw outline interpretation. Brain
 Brain synthesis expands approved macro relationships to their underlying support claims before validation. The normal diff validator still checks all named entities against approved claim summaries plus the entity registry, and macro-backed paragraphs get an additional paragraph-scoped check: named entities in that paragraph must be backed by that paragraph's support claims or the registry, not merely by unrelated approved claims elsewhere in the section corpus.
 
 **Model routing + health (2026-07-03 / macro-first Stage 2).** The legacy outline/relationship/coverage workers resolve the `macro` slot (`default_macro_route` + `model_pool_macro`). The new source workflow reader resolves the dedicated `workflow_read` slot (`default_workflow_read_route` + `model_pool_workflow_read`) because it is a long-context, flat structured-output pass. Macro health is still the document-level surface (`not_applicable | pending | complete | degraded | failed`, `apps/workers/src/lib/macro-health.ts`) rendered in Admin → Documents.
+
+The 2026-07-07 Stage 2 live gate is recorded in
+`evals/macro-first-battery.md`. Final active fixture map
+`72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8` validated with 63 nodes, 71 edges,
+14 lanes, 1 path, and zero dropped elements. The gate also proved same-hash
+idempotency, supersede-on-force semantics, and failure visibility through failed
+map rows plus `documents.macro_health`. The destructive clean re-ingest subcheck was
+not run because the existing provenance guard correctly blocked deleting fixture
+claims that were referenced by Brain/gaps.
 
 Macro tables are server-only. RLS is enabled on `source_workflow_maps`, the business-model tables, `source_outlines`, `source_outline_sources`, `source_outline_source_refs`, `source_groups`, `source_group_items`, `macro_relationships`, `macro_relationship_sources`, `macro_relationship_claims`, `macro_relationship_review_events`, and `source_coverage_findings`, with no anon/authenticated policies. Admin pages and workers use service-role server code. If a future browser/employee path reads these tables through the Supabase anon client, add explicit RLS policies first.
 

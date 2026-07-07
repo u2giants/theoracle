@@ -34,6 +34,9 @@ type Model = {
   thinking: boolean;
   tools: boolean;
   structuredOutputs: boolean;
+  strictJsonSchema: boolean;
+  deepSchemaAccepted: boolean;
+  adapterParamsSafe: boolean;
   promptCaching: boolean;
   outputCap: boolean;
   pdf: boolean;

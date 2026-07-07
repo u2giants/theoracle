@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AnthropicAdapter } from '../providers/anthropic-adapter';
 import { DeepSeekAdapter } from '../providers/deepseek-adapter';
 import { QwenAdapter } from '../providers/qwen-adapter';
+import { normalizeDirectProviderCapabilities } from '../model-capabilities';
 import { missingRequirements } from '../routes/capability-requirements';
 import type { OraclePromptPlan } from '../client/types';
 import type { OracleModelRoute } from '../routes';
@@ -135,8 +136,11 @@ async function verifyDeepSeekJsonMode(): Promise<void> {
 async function verifyQwenUsage(): Promise<void> {
   process.env.DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY || 'test-key';
   const adapter = new QwenAdapter({ apiKey: 'test-key' });
-  (adapter as unknown as { client: { chat: { completions: { create: () => Promise<unknown> } } } }).client.chat.completions.create =
-    async () => ({
+  const calls: Array<Record<string, unknown>> = [];
+  (adapter as unknown as { client: { chat: { completions: { create: (body: unknown) => Promise<unknown> } } } }).client.chat.completions.create =
+    async (body: unknown) => {
+      calls.push(body as Record<string, unknown>);
+      return {
       id: 'chatcmpl_test',
       choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
       usage: {
@@ -145,7 +149,8 @@ async function verifyQwenUsage(): Promise<void> {
         prompt_tokens_details: { cached_tokens: 3, cache_creation_input_tokens: 7 },
         completion_tokens_details: { reasoning_tokens: 5 },
       },
-    });
+    };
+  };
 
   const result = await adapter.generateText({
     plan,
@@ -154,6 +159,14 @@ async function verifyQwenUsage(): Promise<void> {
   assert(result.usage.cachedInputTokens === 3, 'Qwen cached token reads should be normalized');
   assert(result.usage.cacheWriteTokens === 7, 'Qwen cache creation tokens should be normalized');
   assert(result.usage.reasoningTokens === 5, 'Qwen reasoning tokens should be normalized');
+
+  await adapter.generateObject({
+    plan,
+    route: { ...route('qwen', 'qwen3.7-plus-us'), reasoningEffort: 'high' },
+    schema: z.string(),
+  });
+  assert(calls[1]!.enable_thinking === false, 'Qwen structured-output calls must force thinking off');
+  assert(!('thinking_budget' in calls[1]!), 'Qwen structured-output calls must not send thinking_budget');
 }
 
 function verifyCapabilityGates(): void {
@@ -169,9 +182,13 @@ function verifyCapabilityGates(): void {
     pdf: true,
     thinking: true,
     structuredOutputs: true,
+    strictJsonSchema: true,
+    deepSchemaAccepted: false,
+    adapterParamsSafe: true,
     toolCalling: true,
     promptCaching: true,
     outputCap: true,
+    adapterParamNotes: {},
     knowledgeCutoff: null,
     source: 'google_api',
   };
@@ -187,6 +204,24 @@ function verifyCapabilityGates(): void {
     missingRequirements({ ...base, provider: 'qwen', structuredOutputs: false }, 'macro')
       .includes('strict JSON Schema enforcement'),
     'Qwen json_object models should not satisfy strict macro structured-output requirements',
+  );
+  assert(
+    normalizeDirectProviderCapabilities({
+      ...base,
+      id: 'deepseek/deepseek-chat',
+      provider: 'deepseek',
+      structuredOutputs: true,
+    }).structuredOutputs === false,
+    'DeepSeek stale catalog rows must be normalized away from strict structured output',
+  );
+  assert(
+    normalizeDirectProviderCapabilities({
+      ...base,
+      id: 'qwen/qwen3.7-plus-us',
+      provider: 'qwen',
+      structuredOutputs: true,
+    }).structuredOutputs === false,
+    'Qwen stale catalog rows must be normalized away from strict structured output',
   );
 }
 

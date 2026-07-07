@@ -33,6 +33,9 @@ export type AuxiliaryCapabilityFilter =
   | 'thinking'
   | 'tools'
   | 'structuredOutputs'
+  | 'strictJsonSchema'
+  | 'deepSchemaAccepted'
+  | 'adapterParamsSafe'
   | 'promptCaching'
   | 'outputCap'
   | 'pdf';
@@ -65,7 +68,7 @@ export const WORKFLOW_READ_AUXILIARY_MODEL: AuxiliaryModelDef = {
   id: 'workflow_read',
   routeSettingKey: WORKFLOW_READ_ROUTE_SETTING_KEY,
   poolSettingKey: MODEL_POOL_WORKFLOW_READ_SETTING_KEY,
-  requiredCapability: 'structuredOutputs',
+  requiredCapability: 'deepSchemaAccepted',
   label: 'Workflow read',
 };
 
@@ -73,7 +76,7 @@ export const MODEL_MERGE_AUXILIARY_MODEL: AuxiliaryModelDef = {
   id: 'model_merge',
   routeSettingKey: MODEL_MERGE_ROUTE_SETTING_KEY,
   poolSettingKey: MODEL_POOL_MODEL_MERGE_SETTING_KEY,
-  requiredCapability: 'structuredOutputs',
+  requiredCapability: 'strictJsonSchema',
   label: 'Model merge',
 };
 
@@ -103,7 +106,7 @@ export const MACRO_AUXILIARY_MODEL: AuxiliaryModelDef = {
   id: 'macro',
   routeSettingKey: MACRO_ROUTE_SETTING_KEY,
   poolSettingKey: MODEL_POOL_MACRO_SETTING_KEY,
-  requiredCapability: 'structuredOutputs',
+  requiredCapability: 'deepSchemaAccepted',
   label: 'Macro understanding model',
 };
 

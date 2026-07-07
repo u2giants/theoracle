@@ -199,7 +199,10 @@ export class QwenAdapter implements OracleProviderAdapter {
       messages,
       temperature: 0.1,
       response_format: { type: 'json_object' },
-      ...qwenThinkingExtras(route.reasoningEffort),
+      // DashScope structured output is JSON mode, and Qwen thinking mode is
+      // explicitly incompatible with that mode. Force non-thinking here even
+      // if the route carries a stage-level reasoning effort.
+      ...({ enable_thinking: false } as Record<string, unknown>),
     });
     const latencyMs = Date.now() - callStartedAt;
     const choice = completion.choices[0];

@@ -2,7 +2,7 @@ import type { ModelCapability } from '../model-capabilities/types';
 import type { ModelSlot } from './errors';
 
 export type CapabilityRequirement =
-  | { kind: 'capability'; field: keyof Pick<ModelCapability, 'vision' | 'thinking' | 'structuredOutputs' | 'toolCalling' | 'outputCap' | 'pdf' | 'promptCaching'>; label: string }
+  | { kind: 'capability'; field: keyof Pick<ModelCapability, 'vision' | 'thinking' | 'structuredOutputs' | 'strictJsonSchema' | 'deepSchemaAccepted' | 'adapterParamsSafe' | 'toolCalling' | 'outputCap' | 'pdf' | 'promptCaching'>; label: string }
   | { kind: 'context'; minExclusive: number; label: string };
 
 export function requiredCapabilitiesFor(slot: ModelSlot): CapabilityRequirement[] {
@@ -30,17 +30,23 @@ export function requiredCapabilitiesFor(slot: ModelSlot): CapabilityRequirement[
       return [{ kind: 'capability', field: 'vision', label: 'vision' }];
     case 'workflow_read':
       return [
-        { kind: 'capability', field: 'structuredOutputs', label: 'structured outputs' },
+        { kind: 'capability', field: 'strictJsonSchema', label: 'strict JSON Schema enforcement' },
+        { kind: 'capability', field: 'deepSchemaAccepted', label: 'deep Oracle schema accepted' },
+        { kind: 'capability', field: 'adapterParamsSafe', label: 'adapter params accepted by model' },
         { kind: 'context', minExclusive: 100_000, label: 'context > 100K' },
       ];
     case 'model_merge':
-      return [{ kind: 'capability', field: 'structuredOutputs', label: 'structured outputs' }];
+      return [{ kind: 'capability', field: 'strictJsonSchema', label: 'strict JSON Schema enforcement' }];
     case 'macro':
       // Macro understanding (source outlines, relationship extraction, coverage
       // audits) emits deep nested JSON. It MUST have real structured-output
       // support — this is the exact capability whose absence made the Qwen
       // json_object route throw AllCandidatesFailedError. See AGENT_ERROR_LOG.md.
-      return [{ kind: 'capability', field: 'structuredOutputs', label: 'structured outputs' }];
+      return [
+        { kind: 'capability', field: 'strictJsonSchema', label: 'strict JSON Schema enforcement' },
+        { kind: 'capability', field: 'deepSchemaAccepted', label: 'deep Oracle schema accepted' },
+        { kind: 'capability', field: 'adapterParamsSafe', label: 'adapter params accepted by model' },
+      ];
     case 'general':
     case 'translation':
       return [];
@@ -54,6 +60,9 @@ export function missingRequirements(
     | 'vision'
     | 'thinking'
     | 'structuredOutputs'
+    | 'strictJsonSchema'
+    | 'deepSchemaAccepted'
+    | 'adapterParamsSafe'
     | 'toolCalling'
     | 'outputCap'
     | 'pdf'
@@ -69,16 +78,6 @@ export function missingRequirements(
     } else if (model.contextLength == null || model.contextLength <= req.minExclusive) {
       missing.push(req.label);
     }
-  }
-  if (
-    (slot === 'workflow_read' || slot === 'macro' || slot === 'model_merge') &&
-    (model.provider === 'google' || model.provider === 'qwen' || model.provider === 'deepseek')
-  ) {
-    missing.push(
-      model.provider === 'google'
-        ? 'complex structured outputs (Gemini schema complexity limit)'
-        : 'strict JSON Schema enforcement',
-    );
   }
   return missing;
 }

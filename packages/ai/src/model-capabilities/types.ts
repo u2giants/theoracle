@@ -33,10 +33,18 @@ export interface ModelCapability {
   pdf: boolean;
   thinking: boolean;
   structuredOutputs: boolean;
+  /** Provider/adapter can enforce a supplied JSON Schema, not just emit JSON text. */
+  strictJsonSchema: boolean;
+  /** Proven against Oracle's workflow/macro deep nested schemas. */
+  deepSchemaAccepted: boolean;
+  /** Current adapter request body is accepted by this model. */
+  adapterParamsSafe: boolean;
   toolCalling: boolean;
   promptCaching: boolean;
   /** Model supports an output-length cap (max_completion_tokens or max_tokens). */
   outputCap: boolean;
+  /** Notes about model-specific adapter/capability caveats. */
+  adapterParamNotes: Record<string, unknown>;
 
   /** ISO date string (YYYY-MM-DD), if the provider published it. */
   knowledgeCutoff: string | null;

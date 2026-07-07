@@ -42,9 +42,13 @@ export type ModelInfo = {
   thinking: boolean;
   tools: boolean;
   structuredOutputs: boolean;
+  strictJsonSchema: boolean;
+  deepSchemaAccepted: boolean;
+  adapterParamsSafe: boolean;
   promptCaching: boolean;
   outputCap: boolean;
   pdf: boolean;
+  adapterParamNotes: Record<string, unknown>;
   // Legacy aliases kept for older client code (channel chat, document upload)
   // that still uses the friendly names. Remove after those callers migrate.
   files: boolean;       // alias for pdf
@@ -64,9 +68,13 @@ function capabilityToModelInfo(cap: ModelCapability): ModelInfo {
     thinking: cap.thinking,
     tools: cap.toolCalling,
     structuredOutputs: cap.structuredOutputs,
+    strictJsonSchema: cap.strictJsonSchema,
+    deepSchemaAccepted: cap.deepSchemaAccepted,
+    adapterParamsSafe: cap.adapterParamsSafe,
     promptCaching: cap.promptCaching,
     outputCap: cap.outputCap,
     pdf: cap.pdf,
+    adapterParamNotes: cap.adapterParamNotes,
     files: cap.pdf,
     reasoning: cap.thinking,
     imageGen: false,
