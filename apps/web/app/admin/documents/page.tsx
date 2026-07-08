@@ -8,10 +8,8 @@ import {
   sourceOutlineSources,
   sourceOutlines,
 } from '@oracle/db/schema';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatNYDateTime } from '@/lib/time';
-import { generateSourceOutline } from './_actions';
 import { AdminDocumentUpload } from './_components/admin-document-upload';
 
 export const dynamic = 'force-dynamic';
@@ -204,13 +202,6 @@ export default async function AdminDocumentsPage() {
                         ) : (
                           <span className="text-xs text-muted-foreground">No outline yet.</span>
                         )}
-                        <form action={generateSourceOutline}>
-                          <input type="hidden" name="documentId" value={d.id} />
-                          <input type="hidden" name="force" value={outline ? 'true' : 'false'} />
-                          <Button size="sm" variant="outline" type="submit">
-                            {outline ? 'Regenerate outline' : 'Generate outline'}
-                          </Button>
-                        </form>
                       </div>
                     </td>
                     <td className="max-w-md py-2 pr-4 align-top">
@@ -263,7 +254,7 @@ function MacroHealthBadge({ value }: { value: string | null }) {
       className={`inline-flex whitespace-nowrap rounded border px-2 py-0.5 text-xs font-medium ${
         styles[health] ?? styles.not_applicable
       }`}
-      title="Holistic source-outline, macro-relationship, and coverage-audit health"
+      title="Macro-first map, merge, and relationship health"
     >
       {labels[health] ?? health}
     </span>

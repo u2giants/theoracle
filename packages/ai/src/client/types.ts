@@ -24,6 +24,7 @@ export type OracleTaskType =
   | 'macro_relationship'
   | 'coverage_audit'
   | 'model_capability_discovery'
+  | 'transcript_summary'
   // Bilingual claim/Brain layer (china_imp.md): translate an approved claim
   // summary or Brain section markdown into another supported language.
   | 'claim_translation';

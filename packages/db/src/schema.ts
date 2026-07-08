@@ -452,10 +452,9 @@ export const documents = pgTable(
     // prior in the extraction prompt. Per-claim domain validation stays
     // authoritative — these never override it.
     domainHints: jsonb('domain_hints').$type<string[]>(),
-    // Health of the macro (holistic) layer for this document, surfaced in
-    // Admin -> Documents so a failed holistic layer can't read as a green
-    // `complete`. Written by the source-outline / macro-relationship /
-    // coverage-audit workers. Column added via hand-written SQL migration 85
+    // Health of the macro-first layer for this document, surfaced in
+    // Admin -> Documents so failed map/merge work can't read as a green
+    // `complete`. Column added via hand-written SQL migration 85
     // (like context/domain_hints); values: not_applicable | pending | complete
     // | map_failed | map_degraded | merge_pending_review | degraded |
     // failed. See apps/workers/src/lib/macro-health.ts.
@@ -1093,6 +1092,42 @@ export const messages = pgTable(
       t.channelId,
       t.clientMessageId,
     ),
+  }),
+);
+
+export const meetingTranscripts = pgTable(
+  'meeting_transcripts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    transcriptId: text('transcript_id').notNull(),
+    meetingId: text('meeting_id'),
+    callId: text('call_id'),
+    organizerId: text('organizer_id'),
+    organizerName: text('organizer_name'),
+    subject: text('subject'),
+    participants: jsonb('participants').default([]).notNull(),
+    durationSeconds: integer('duration_seconds'),
+    messageCount: integer('message_count'),
+    transcriptCharCount: integer('transcript_char_count'),
+    aiSummary: text('ai_summary'),
+    aiSummaryModel: text('ai_summary_model'),
+    aiSummaryGeneratedAt: timestamp('ai_summary_generated_at', { withTimezone: true }),
+    transcriptContentUrl: text('transcript_content_url'),
+    meetingTime: timestamp('meeting_time', { withTimezone: true }),
+    status: text('status').default('available').notNull(),
+    ingestedChannelId: uuid('ingested_channel_id').references(() => channels.id, {
+      onDelete: 'set null',
+    }),
+    ingestedAt: timestamp('ingested_at', { withTimezone: true }),
+    discoveredVia: text('discovered_via'),
+    discoveredAt: timestamp('discovered_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    transcriptIdKey: uniqueIndex('meeting_transcripts_transcript_id_key').on(t.transcriptId),
+    statusTimeIdx: index('meeting_transcripts_status_time_idx').on(t.status, t.meetingTime),
+    summaryMissingIdx: index('meeting_transcripts_summary_missing_idx')
+      .on(t.status, t.aiSummaryGeneratedAt)
+      .where(sql`ai_summary_generated_at IS NULL`),
   }),
 );
 

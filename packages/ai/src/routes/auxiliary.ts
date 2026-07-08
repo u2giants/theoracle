@@ -95,12 +95,9 @@ export const TRANSLATION_AUXILIARY_MODEL: AuxiliaryModelDef = {
 };
 
 /**
- * Macro-understanding model. Drives the holistic layer: source outlines, macro
- * relationship extraction, and coverage audits. It is a SEPARATE slot from
- * extraction on purpose — extraction mines verbatim-quoted atomic claims, while
- * this model reasons over structure and emits deep nested JSON. The hard
- * capability filter is structured output; the job brief additionally warns that
- * STRICT json-schema (not just json_object) is required.
+ * Macro-understanding model reserved for later inferential macro passes. It is
+ * separate from workflow_read and model_merge; the old outline/coverage writers
+ * were deleted in macro-first Stage 3.
  */
 export const MACRO_AUXILIARY_MODEL: AuxiliaryModelDef = {
   id: 'macro',

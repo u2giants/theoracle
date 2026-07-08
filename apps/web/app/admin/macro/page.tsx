@@ -15,8 +15,6 @@ import {
   createManualMacroRelationship,
   dismissCoverageFinding,
   dropMacroSupportAndRevalidate,
-  runCoverageAudit,
-  runMacroRelationshipExtraction,
   sweepMacroStaleness,
   updateMacroRelationshipStatus,
 } from './_actions';
@@ -156,7 +154,7 @@ export default async function AdminMacroPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Source outlines</CardTitle>
-          <CardDescription>Run coverage audits against provisional outlines.</CardDescription>
+          <CardDescription>Historical provisional outlines retained for comparison during the macro-first migration.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
@@ -167,16 +165,6 @@ export default async function AdminMacroPage() {
                   <div className="text-xs text-muted-foreground">
                     {outline.status} · {formatNYDateTime(outline.createdAt)}
                   </div>
-                </div>
-                <div className="flex gap-2">
-                  <form action={runMacroRelationshipExtraction}>
-                    <input type="hidden" name="sourceOutlineId" value={outline.id} />
-                    <Button size="sm" variant="outline" type="submit">Extract relationships</Button>
-                  </form>
-                  <form action={runCoverageAudit}>
-                    <input type="hidden" name="sourceOutlineId" value={outline.id} />
-                    <Button size="sm" variant="outline" type="submit">Audit coverage</Button>
-                  </form>
                 </div>
               </div>
             ))}

@@ -53,15 +53,27 @@ try {
               join document_chunks dc on dc.id = ce.source_document_chunk_id
               where dc.document_id = ${docId} and ce.claim_id is not null`
   ).map((r) => r.claim_id);
-  const candidateIds = (
-    await sql`select distinct cce.candidate_id from extraction_candidate_evidence cce
-              join document_chunks dc on dc.id = cce.source_document_chunk_id
-              where dc.document_id = ${docId} and cce.candidate_id is not null`
-  ).map((r) => r.candidate_id);
   const batchIds = (
     await sql`select distinct eb.id from extraction_batches eb
               join job_runs jr on jr.id = eb.job_run_id
               where jr.input_json->>'documentId' = ${docId}`
+  ).map((r) => r.id);
+  const candidateIds = (
+    await sql`select distinct id from (
+                select cce.candidate_id as id
+                from extraction_candidate_evidence cce
+                join document_chunks dc on dc.id = cce.source_document_chunk_id
+                where dc.document_id = ${docId} and cce.candidate_id is not null
+                union
+                select ec.id
+                from extraction_candidates ec
+                where (${batchIds.length} > 0 and ec.extraction_batch_id = any(${batchIds}))
+                   or (${claimIds.length} > 0 and (
+                        ec.promoted_to_claim_id = any(${claimIds})
+                     or ec.duplicate_of_claim_id = any(${claimIds})
+                   ))
+              ) scoped_candidates
+              where id is not null`
   ).map((r) => r.id);
 
   log(
@@ -130,14 +142,18 @@ try {
     // Nulling them in place would violate extraction_candidates' promoted/
     // duplicate consistency CHECK; deleting the row does not.
     if (candidateIds.length) {
-      await del('extraction_validation_results', tx`delete from extraction_validation_results where candidate_id = any(${candidateIds})`);
+      await del('extraction_validation_results', tx`delete from extraction_validation_results
+        where candidate_id = any(${candidateIds})
+           or candidate_evidence_id in (
+             select id from extraction_candidate_evidence where candidate_id = any(${candidateIds})
+           )`);
       await del('extraction_candidate_evidence', tx`delete from extraction_candidate_evidence where candidate_id = any(${candidateIds})`);
       await del('extraction_candidates', tx`delete from extraction_candidates where id = any(${candidateIds})`);
     }
     if (claimIds.length) {
-      // Safety net: any stray candidate (outside candidateIds) still pointing at
-      // a target claim — delete it too, so the claim delete can't hit an FK.
-      await tx`delete from extraction_candidates where promoted_to_claim_id = any(${claimIds}) or duplicate_of_claim_id = any(${claimIds})`;
+      await del('macro_relationship_claims', tx`delete from macro_relationship_claims where claim_id = any(${claimIds})`);
+      await del('process_element_claims', tx`delete from process_element_claims where claim_id = any(${claimIds})`);
+      await del('source_outline_source_refs_claims', tx`delete from source_outline_source_refs where claim_id = any(${claimIds})`);
       await del('claim_review_events', tx`delete from claim_review_events where claim_id = any(${claimIds}) or replacement_claim_id = any(${claimIds})`);
       await del('claim_domains', tx`delete from claim_domains where claim_id = any(${claimIds})`);
       await del('claim_entities', tx`delete from claim_entities where claim_id = any(${claimIds})`);
@@ -155,10 +171,12 @@ try {
         and not exists (select 1 from extraction_candidates c where c.extraction_batch_id = eb.id)`);
     }
     if (chunkIds.length) {
+      await del('source_outline_source_refs_chunks', tx`delete from source_outline_source_refs where document_chunk_id = any(${chunkIds})`);
+      await del('source_group_items', tx`delete from source_group_items where document_chunk_id = any(${chunkIds})`);
       await del('document_chunk_top_domains', tx`delete from document_chunk_top_domains where document_chunk_id = any(${chunkIds})`);
       await del('document_chunk_entities', tx`delete from document_chunk_entities where document_chunk_id = any(${chunkIds})`);
       // Belt-and-suspenders: any extraction evidence still pointing at these chunks.
-      await tx`delete from extraction_candidate_evidence where source_document_chunk_id = any(${chunkIds})`;
+      await del('extraction_candidate_evidence_by_chunk', tx`delete from extraction_candidate_evidence where source_document_chunk_id = any(${chunkIds})`);
     }
     await del('document_chunks', tx`delete from document_chunks where document_id = ${docId}`);
     await del('document_top_domains', tx`delete from document_top_domains where document_id = ${docId}`);

@@ -34,6 +34,11 @@ export interface CandidateHashInputs {
   sourcePointers: string[];
 }
 
+export interface MapElementCandidateHashInputs {
+  documentId: string;
+  mapElementRef: string;
+}
+
 /**
  * Produce a deterministic sha256 hex hash for the candidate.
  *
@@ -48,6 +53,23 @@ export function computeCandidateHash(inputs: CandidateHashInputs): string {
     topDomainIds: [...inputs.topDomainIds].map((d) => d.trim().toLowerCase()).sort(),
     validatedQuotes: [...inputs.validatedQuotes].map((q) => q.trim()).sort(),
     sourcePointers: [...inputs.sourcePointers].map((s) => s.trim()).sort(),
+  };
+  const json = JSON.stringify(canonical);
+  return createHash('sha256').update(json, 'utf8').digest('hex');
+}
+
+/**
+ * Produce the Stage-3 macro-first dedup key for map-referenced document claims.
+ *
+ * Map claims intentionally ignore summary wording and quote span: if two valid
+ * candidates refer to the same map node/edge in the same document, they are the
+ * same within-source fact and the first promoted claim wins.
+ */
+export function computeMapElementCandidateHash(inputs: MapElementCandidateHashInputs): string {
+  const canonical = {
+    kind: 'document_map_element',
+    documentId: inputs.documentId.trim().toLowerCase(),
+    mapElementRef: inputs.mapElementRef.trim(),
   };
   const json = JSON.stringify(canonical);
   return createHash('sha256').update(json, 'utf8').digest('hex');

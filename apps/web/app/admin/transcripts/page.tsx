@@ -6,7 +6,13 @@ import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatNYDateTime } from '@/lib/time';
 import { ShiftSelect } from '../claims/_components/shift-select';
-import { ingestMeetings, dismissMeeting, runDiscoveryScan } from './_actions';
+import {
+  dismissMeeting,
+  generateAvailableTranscriptSummaries,
+  generateTranscriptSummary,
+  ingestMeetings,
+  runDiscoveryScan,
+} from './_actions';
 
 // Meeting picker.
 //
@@ -21,6 +27,13 @@ type MeetingRow = {
   organizer_name: string | null;
   organizer_id: string | null;
   subject: string | null;
+  participants: unknown;
+  duration_seconds: number | null;
+  message_count: number | null;
+  transcript_char_count: number | null;
+  ai_summary: string | null;
+  ai_summary_model: string | null;
+  ai_summary_generated_at: string | null;
   meeting_time: string | null;
   status: string;
   discovered_via: string | null;
@@ -43,6 +56,38 @@ function statusBadge(status: string) {
   return map[status] ?? 'bg-gray-100 text-gray-600';
 }
 
+function participantNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((p) => {
+      if (typeof p === 'string') return p.trim();
+      if (p && typeof p === 'object') {
+        const item = p as { name?: unknown; email?: unknown };
+        const name = typeof item.name === 'string' ? item.name.trim() : '';
+        const email = typeof item.email === 'string' ? item.email.trim() : '';
+        return name || email;
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function formatDuration(seconds: number | null): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '—';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rem = minutes % 60;
+  return rem ? `${hours}h ${rem}m` : `${hours}h`;
+}
+
+function formatSize(messages: number | null, chars: number | null): string {
+  const parts = [];
+  if (messages != null) parts.push(`${messages.toLocaleString()} utterances`);
+  if (chars != null) parts.push(`${chars.toLocaleString()} chars`);
+  return parts.length ? parts.join(' / ') : '—';
+}
+
 export default async function AdminTranscriptsPage({
   searchParams,
 }: {
@@ -56,6 +101,8 @@ export default async function AdminTranscriptsPage({
     activeStatus !== 'all' ? sql`WHERE status = ${activeStatus}` : sql``;
   const result = await db.execute(sql`
     SELECT id, organizer_name, organizer_id, subject, meeting_time, status,
+           participants, duration_seconds, message_count, transcript_char_count,
+           ai_summary, ai_summary_model, ai_summary_generated_at,
            discovered_via, discovered_at
     FROM meeting_transcripts
     ${whereClause}
@@ -106,6 +153,15 @@ export default async function AdminTranscriptsPage({
             Scan for recent meetings
           </button>
         </form>
+        <form action={generateAvailableTranscriptSummaries}>
+          <button
+            type="submit"
+            className="rounded border px-3 py-1 text-xs font-medium hover:bg-muted"
+            title="Generate cheap AI summaries for available meetings only; does not ingest or extract claims"
+          >
+            Summarize available
+          </button>
+        </form>
       </div>
 
       {/* Bulk ingest — tick available meetings, then submit. Lives outside the
@@ -149,6 +205,10 @@ export default async function AdminTranscriptsPage({
                     <th className="py-2 pr-4">Organizer</th>
                     <th className="py-2 pr-4">Meeting time</th>
                     <th className="py-2 pr-4">Subject</th>
+                    <th className="py-2 pr-4">Participants</th>
+                    <th className="py-2 pr-4">Length</th>
+                    <th className="py-2 pr-4">Size</th>
+                    <th className="py-2 pr-4">AI summary</th>
                     <th className="py-2 pr-4">Source</th>
                     <th className="py-2 pr-4">Status</th>
                     <th className="py-2">Actions</th>
@@ -158,6 +218,7 @@ export default async function AdminTranscriptsPage({
                   {rows.map((row) => {
                     const isAvailable = row.status === 'available';
                     const idx = isAvailable ? selectIdx++ : -1;
+                    const names = participantNames(row.participants);
                     return (
                       <tr key={row.id} className="border-b last:border-0">
                         <td className="py-3 pr-4 align-top">
@@ -185,6 +246,37 @@ export default async function AdminTranscriptsPage({
                         <td className="max-w-[24rem] py-3 pr-4">
                           {row.subject ?? <span className="text-muted-foreground">—</span>}
                         </td>
+                        <td className="max-w-[18rem] py-3 pr-4 text-xs">
+                          {names.length ? (
+                            <span title={names.join(', ')}>
+                              {names.slice(0, 4).join(', ')}
+                              {names.length > 4 ? ` +${names.length - 4}` : ''}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 pr-4 whitespace-nowrap text-xs text-muted-foreground">
+                          {formatDuration(row.duration_seconds)}
+                        </td>
+                        <td className="py-3 pr-4 whitespace-nowrap text-xs text-muted-foreground">
+                          {formatSize(row.message_count, row.transcript_char_count)}
+                        </td>
+                        <td className="min-w-[22rem] max-w-[32rem] py-3 pr-4 text-xs leading-5">
+                          {row.ai_summary ? (
+                            <div className="space-y-1">
+                              <p className="whitespace-pre-wrap">{row.ai_summary}</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {row.ai_summary_model ?? 'model unknown'}
+                                {row.ai_summary_generated_at
+                                  ? ` · ${formatNYDateTime(row.ai_summary_generated_at)}`
+                                  : ''}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
                         <td className="py-3 pr-4 text-xs text-muted-foreground">
                           {row.discovered_via ?? '—'}
                         </td>
@@ -196,8 +288,18 @@ export default async function AdminTranscriptsPage({
                           </span>
                         </td>
                         <td className="py-3">
-                          {isAvailable && (
-                            <div className="flex gap-2">
+                          <div className="flex flex-wrap gap-2">
+                            <form action={generateTranscriptSummary}>
+                              <input type="hidden" name="meetingId" value={row.id} />
+                              <button
+                                type="submit"
+                                className="rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+                              >
+                                {row.ai_summary ? 'Refresh summary' : 'Summarize'}
+                              </button>
+                            </form>
+                            {isAvailable && (
+                              <>
                               <form action={ingestMeetings}>
                                 <input type="hidden" name="meetingId" value={row.id} />
                                 <button
@@ -216,8 +318,9 @@ export default async function AdminTranscriptsPage({
                                   Dismiss
                                 </button>
                               </form>
-                            </div>
-                          )}
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

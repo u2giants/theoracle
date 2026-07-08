@@ -129,29 +129,19 @@ const AUX_PRESENTATION: Record<
       'Model for business-model merge alignment. Requires strict structured output.',
   },
   macro: {
-    subtitle: 'Holistic understanding — outlines, relationships, coverage',
+    subtitle: 'Reserved inferential macro pass',
     description: (
       <>
-        Drives the <strong>macro (holistic) layer</strong> of document
-        understanding, which is separate from atomic claim extraction. Three
-        background workers use it: <strong>source outline</strong> (reads a whole
-        source and maps its stages, owners, systems, branches, and terms{' '}
-        <em>before</em> atomic extraction, so extraction has context),{' '}
-        <strong>macro relationship extraction</strong> (infers the cross-claim
-        workflow — dependencies, handoffs, sequence, branches, loops —{' '}
-        <em>after</em> extraction), and <strong>coverage audit</strong> (flags
-        what the source shows but the claims missed). Each emits deep, heavily{' '}
-        <strong>nested JSON</strong> validated against a strict schema, so this
-        model must have real <strong>strict, schema-enforced structured output</strong>{' '}
-        <em>and</em> be able to accept and fully populate a{' '}
-        <strong>very complex, deeply-nested schema</strong> — best-effort JSON
-        modes, or schema modes that reject/truncate large nested schemas, will
-        hard-fail here. The picker is filtered to structured-output-capable
-        models; use &ldquo;Copy job brief&rdquo; for the full technical spec.
+        Reserved for later macro-first consultant and inferential relationship
+        passes. It is separate from <strong>workflow read</strong> (source map)
+        and <strong>model merge</strong> (business-model alignment). The old
+        source-outline, lens fan-out, macro-relationship extraction, and coverage
+        audit workers were deleted in Stage 3. Keep this on a strict
+        structured-output model until the future Stage 7 schema is tested.
       </>
     ),
     settingDescription:
-      'Model for the macro/holistic layer: source outlines, macro relationship extraction, and coverage audits. Requires strict structured-output support.',
+      'Reserved model for later inferential macro passes. Requires strict structured-output support.',
   },
   general: {
     subtitle: 'Utility model for low-risk internal jobs',
@@ -536,19 +526,18 @@ const MACRO_MODEL_BRIEF = `THE ORACLE — "Macro Understanding Model" role brief
 (Paste this into a model-evaluation assistant or vendor comparison to judge whether a given model is the right pick for this setting.)
 
 PURPOSE
-This model builds The Oracle's HOLISTIC understanding of a source. Atomic extraction (a different model) breaks a document into many small, quote-validated "claims." That is necessary but not sufficient: a swimlane diagram or SOP is a whole business process, not a bag of isolated arrows. This model's job is to understand and represent the BIG PICTURE — the end-to-end lifecycle, who owns each stage, the order and dependencies, the conditional branches, the approval loops, the systems of record, and what the source shows that the atomic claims failed to capture. If atomic extraction answers "what are the facts," this model answers "what is the process, and does our set of facts faithfully represent it."
+This setting is reserved for macro-first inferential passes after the source workflow map and business-model merge exist. It is NOT the workflow reader and NOT atomic extraction. Stage 3 deleted the old source-outline, lens fan-out, macro-relationship-extraction, and source-coverage-audit workers because they tried to rediscover process structure after atomic extraction had already flattened it.
 
-WHERE IT SITS IN THE PIPELINE (it runs both BEFORE and AFTER atomic extraction)
-Three background (Trigger.dev) workers share this one model setting:
-  1. source-outline — runs on/near ingestion. Reads the whole source (all chunks, and for images the transcription) and produces a provisional structured "outline": the source's purpose, process stages, actors/owners, systems, customers/licensors, geographies, term/acronym definitions, handoffs, exceptions, open questions, recommended extraction "lenses," and meaning-based groupings of the source. This is the BEFORE pass: its output is injected as non-quotable CONTEXT so atomic extraction understands the source's shape (referents, acronyms, branches) instead of extracting blind. The outline is GUIDANCE ONLY — never evidence, never quotable.
-  2. macro-relationship-extraction — runs AFTER atomic claims exist. Reads the already-validated claims and proposes durable cross-claim relationships (dependency, handoff, sequence, exception_path, policy_vs_practice_tension, workaround_to_system_limitation, definition_resolution). Each relationship must be supported by ≥2 real claim IDs — its evidence is claim IDs, NOT free text.
-  3. source-coverage-audit — runs AFTER. Compares the outline's expectations against the claims + relationships actually produced and emits "coverage findings" (missing stage, missing owner, missing branch, unresolved reference, unrepresented exception, low_claim_density, macro_only_source). Findings become gaps; they never assert new facts as true.
+WHERE IT SITS IN THE PIPELINE
+Current active macro-first document flow:
+  1. workflow_read model — reads the whole source before extraction and writes a flat source workflow map.
+  2. extraction model — extracts quote-validated claims with mapElementRef links.
+  3. model_merge model — aligns the source map to the durable business model.
+  4. this macro setting — reserved for later consultant/inferential relationship passes such as policy-vs-practice tension, workaround-to-system-limitation, and qualitative coverage questions.
 
 WHAT IT IS FED (input)
-- A large STRUCTURED-JSON system prompt + schema for whichever of the three tasks is running.
-- For outlines: the full source text/topology (can be long — a whole document or diagram transcription), plus, for visual sources, the image itself when the model is multimodal.
-- For relationships: a bounded set of candidate claim summaries with their IDs, types, "claim kinds," and statuses.
-- For coverage: the outline JSON plus the extracted claims/relationships JSON.
+- A structured prompt and schema for a later inferential macro pass.
+- Approved or reviewable claims, source workflow maps, business-model elements, and reviewer context.
 It is NOT user-facing. Nobody is waiting on it. It runs asynchronously in the background at document scale.
 
 WHAT IS EXPECTED (output) — this is the crux
@@ -562,27 +551,26 @@ Asynchronous, background, single-shot STRUCTURED-OUTPUT generation (runObject) p
 WHAT MAKES A MODEL PERFECTLY SUITED
 - STRICT, SCHEMA-ENFORCED structured output — the model is constrained to conform to a supplied JSON schema, rather than emitting best-effort JSON that is parsed afterward. This is the single most important attribute — see hard requirements.
 - Strong multi-step reasoning over structure: assembling a lifecycle, detecting branches/loops/handoffs, spotting coverage gaps and policy-vs-practice tension. This is a synthesis/reasoning task, closer to the Synthesis role than to verbatim extraction.
-- Large context window: outlines can ingest a whole document or a dense diagram transcription in one call (aim comfortably >100K, more is better).
+- Large context window: future inferential passes may ingest source maps, business-model context, and many supporting claims in one call (aim comfortably >100K, more is better).
 - Generous max OUTPUT tokens: the nested JSON for a 10-stage workflow with branches is large; truncated output = schema failure.
-- Multimodal (image) input is a strong PLUS for source outlines of diagrams/flowcharts/spec sheets, so the model can reconcile the picture with the parsed text.
+- Multimodal image input is not required for the current reserved macro slot; diagrams are handled by vision transcription plus workflow read.
 - Reliability/determinism of schema adherence across retries. Cost/throughput matter (runs at document volume, async), but correctness of structured output dominates.
 
 CAPABILITIES IT NEEDS (hard requirements)
 - STRICT, SCHEMA-ENFORCED structured output — NON-NEGOTIABLE. The model must be constrained to emit JSON that conforms to a supplied schema, not best-effort / free-form JSON. Best-effort JSON modes intermittently omit required fields or whole nested arrays; the runtime hard-validates every response and FAILS THE ENTIRE TASK on any missing required field, so best-effort JSON produces frequent, total failures.
 - Ability to ACCEPT AND FULLY POPULATE DEEP, VERY COMPLEX, HEAVILY NESTED schemas specifically — not merely "has a JSON mode." Some models expose a schema/structured mode but REJECT schemas past a certain nesting depth or size (e.g. an error that the schema is too complex), or silently truncate or flatten them. The model must accept the entire deeply-nested schema and correctly populate every required level. This is a distinct, HIGHER bar than "supports structured output" and must be tested against the real macro schemas, not a small/toy schema.
-- Large context window (>100K; bigger is better for whole-source outlines).
+- Large context window (>100K; bigger is better for future source-map/business-model context packs).
 - High max-output-token ceiling for deep nested JSON.
 - Strong instruction-following and reasoning.
 
 CAPABILITIES THAT ARE NICE TO HAVE
-- Image/multimodal input (helps outline quality on visual sources).
+- Prompt caching for stable schema/system prefixes.
 - Reasoning/"thinking" controls — modest effort can help assemble structure; keep an eye on cost.
-- Prompt caching for the stable schema/system prefix.
 
 CAPABILITIES IT DOES NOT NEED
 - Low latency / streaming — it is a background job; nobody is watching.
 - Tool / function calling — retrieval and claim selection happen before the call.
-- Verbatim-quote fidelity — unlike atomic extraction, this model does not quote the source; its evidence is claim IDs and its outline is explicitly non-quotable.
+- Verbatim-quote fidelity — unlike atomic extraction, this model does not quote the source; its evidence is claim IDs and map/model element references.
 
 NEGATIVE ATTRIBUTES (avoid)
 - Best-effort / free-form JSON only, with no real schema enforcement — the top cause of failure here.
@@ -591,7 +579,7 @@ NEGATIVE ATTRIBUTES (avoid)
 - Tendency to hallucinate entities/stages, or to ignore "reference only the supplied IDs" — poisons provenance and gets rejected by the entity/support validators anyway.
 
 BOTTOM LINE
-This slot needs a strong, long-context REASONING model whose structured output is STRICTLY SCHEMA-ENFORCED and that can accept and fully populate a DEEP, VERY COMPLEX, HEAVILY NESTED schema (test this against the real macro schemas, not a simple one), with a high maximum-output-token ceiling; multimodal input is a bonus for diagrams. Avoid best-effort-JSON-only models and any model whose schema mode caps out on nesting/complexity. Do not optimize for latency. This slot is intentionally separate from the Extraction model: extraction mines verbatim-quoted facts, while this model reasons about the whole process and must emit deep, nested, schema-valid JSON.`;
+This slot needs a strong, long-context REASONING model whose structured output is STRICTLY SCHEMA-ENFORCED and that can accept and fully populate a DEEP, VERY COMPLEX, HEAVILY NESTED schema (test this against the future real macro schema, not a simple one), with a high maximum-output-token ceiling. Avoid best-effort-JSON-only models and any model whose schema mode caps out on nesting/complexity. Do not optimize for latency. This slot is intentionally separate from the Extraction model: extraction mines verbatim-quoted facts, while this model reasons about process-level implications and must emit deep, nested, schema-valid JSON.`;
 
 // Clipboard "job brief" text by auxiliary-model id. Declared after the brief
 // literals (which are large) so the earlier AUX_PRESENTATION map stays free of

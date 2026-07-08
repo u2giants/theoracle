@@ -10,7 +10,11 @@
 // R5 — quote validator + source pointer check + promotion decision
 export { validateQuote, validateSourcePointer } from './quote-validator';
 export { normalize, methodForApplied } from './normalization';
-export { computeCandidateHash, canonicalizeSummary } from './candidate-hash';
+export {
+  computeCandidateHash,
+  computeMapElementCandidateHash,
+  canonicalizeSummary,
+} from './candidate-hash';
 export {
   decidePromotion,
   PROMOTION_TRANSACTION_RUNBOOK,

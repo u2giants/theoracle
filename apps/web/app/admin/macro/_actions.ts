@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache';
 import { and, eq, inArray } from 'drizzle-orm';
 import { requireAdmin } from '@/lib/auth-guard';
-import { triggerTask } from '@/lib/trigger';
 import { getDirectDb } from '@oracle/db/client';
 import {
   claims,
@@ -117,24 +116,6 @@ export async function sweepMacroStaleness() {
   await requireAdmin();
   const db = getDirectDb();
   await sweepStaleMacroRelationships(db);
-  refresh();
-}
-
-export async function runCoverageAudit(formData: FormData) {
-  await requireAdmin();
-  const sourceOutlineId = String(formData.get('sourceOutlineId') ?? '');
-  if (!sourceOutlineId) return;
-  const ok = await triggerTask('source-coverage-audit', { sourceOutlineId });
-  if (!ok) throw new Error('Could not dispatch coverage audit.');
-  refresh();
-}
-
-export async function runMacroRelationshipExtraction(formData: FormData) {
-  await requireAdmin();
-  const sourceOutlineId = String(formData.get('sourceOutlineId') ?? '');
-  if (!sourceOutlineId) return;
-  const ok = await triggerTask('macro-relationship-extraction', { sourceOutlineId, relationshipScope: 'cross_source' });
-  if (!ok) throw new Error('Could not dispatch macro relationship extraction.');
   refresh();
 }
 

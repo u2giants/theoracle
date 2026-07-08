@@ -4,6 +4,7 @@ const {
   coerceBooleanSetting,
   decideWorkflowReadFailureAction,
   formatWorkflowReadFailedProcessingError,
+  MAP_DIRECTED_EXTRACTION_ENABLED_SETTING,
   WORKFLOW_MAP_FAILURE_DEGRADED_NOTE,
 } = __documentIngestionTestHooks;
 
@@ -49,6 +50,12 @@ if (
   !degradedProcessingError.includes('source workflow map failed')
 ) {
   throw new Error(`unexpected degraded processing error: ${degradedProcessingError}`);
+}
+
+if (MAP_DIRECTED_EXTRACTION_ENABLED_SETTING !== 'map_directed_extraction_enabled') {
+  throw new Error(
+    `unexpected map-directed setting key: ${MAP_DIRECTED_EXTRACTION_ENABLED_SETTING}`,
+  );
 }
 
 console.log('PASS document ingestion fallback smoke');

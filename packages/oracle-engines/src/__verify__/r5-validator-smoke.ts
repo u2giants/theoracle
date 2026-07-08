@@ -19,6 +19,7 @@ import {
   validateQuote,
   validateSourcePointer,
   computeCandidateHash,
+  computeMapElementCandidateHash,
   canonicalizeSummary,
   decidePromotion,
   mapCandidateRowToSnapshotCandidate,
@@ -351,6 +352,40 @@ function main() {
     });
     assert(h3 !== h1, 'Extra: distinct candidate inputs produce distinct hashes');
     assert(/^[0-9a-f]{64}$/.test(h1), 'Extra: hash is 64-char sha256 hex');
+  }
+
+  // ── Stage 3 map-element dedup hash ─────────────────────────────────
+  {
+    const mapHashA = computeMapElementCandidateHash({
+      documentId: '9d09fa89-3a46-465e-a98b-837287c9e22a',
+      mapElementRef: '72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8:edge:buyer_to_sales',
+    });
+    const mapHashB = computeMapElementCandidateHash({
+      documentId: '9D09FA89-3A46-465E-A98B-837287C9E22A',
+      mapElementRef: '72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8:edge:buyer_to_sales',
+    });
+    const mapHashC = computeMapElementCandidateHash({
+      documentId: '9d09fa89-3a46-465e-a98b-837287c9e22a',
+      mapElementRef: '72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8:edge:sales_to_creative',
+    });
+    const summaryHashA = computeCandidateHash({
+      summary: 'Sales hands the buyer request to Creative.',
+      topDomainIds: ['business_process'],
+      validatedQuotes: ['[Buyer] --(Request)--> [Sales]'],
+      sourcePointers: ['document_chunk:chunk-1'],
+    });
+    const summaryHashB = computeCandidateHash({
+      summary: 'The buyer request moves from Buyer to Sales.',
+      topDomainIds: ['business_process'],
+      validatedQuotes: ['[Buyer] --(Request)--> [Sales]'],
+      sourcePointers: ['document_chunk:chunk-1'],
+    });
+    assert(mapHashA === mapHashB, 'Extra: map dedup hash keys only document + map ref');
+    assert(mapHashA !== mapHashC, 'Extra: map dedup hash changes for a different map ref');
+    assert(
+      summaryHashA !== summaryHashB,
+      'Extra: non-map candidates keep summary-hash wording sensitivity',
+    );
   }
 
   // ── canonicalizeSummary basics ──────────────────────────────────────

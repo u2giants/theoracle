@@ -34,11 +34,9 @@ export const WORKFLOW_READ_ROUTE_SETTING_KEY = 'default_workflow_read_route';
 export const MODEL_MERGE_ROUTE_SETTING_KEY = 'default_model_merge_route';
 
 /**
- * Macro-understanding model used by the source-outline, macro-relationship, and
- * source-coverage-audit workers. Distinct from the general-purpose slot on
- * purpose: these workers emit deep nested JSON and MUST use a model with real
- * (strict) structured-output support. See AGENT_ERROR_LOG.md for why Qwen
- * (json_object only) hard-failed here.
+ * Macro-understanding model reserved for later inferential macro passes. The
+ * old source-outline / macro-relationship / coverage-audit writers were deleted
+ * in macro-first Stage 3; workflow reading and model merge use separate slots.
  */
 export const MACRO_ROUTE_SETTING_KEY = 'default_macro_route';
 

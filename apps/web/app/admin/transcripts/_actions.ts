@@ -34,6 +34,37 @@ export async function runDiscoveryScan(formData: FormData) {
   }
 }
 
+/** Generate/refresh cheap preview summaries without ingesting into the Brain. */
+export async function generateTranscriptSummary(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get('meetingId') ?? '').trim();
+  if (!id) return;
+  const dispatched = await triggerTask('teams-transcript-summary', {
+    meetingTranscriptId: id,
+  });
+  refresh();
+  if (!dispatched) {
+    throw new Error(
+      'Transcript summary was not dispatched (no cron sweep will retry). Check TRIGGER_SECRET_KEY, then re-run.',
+    );
+  }
+}
+
+/** Generate/refresh summaries for currently available meetings, capped in worker. */
+export async function generateAvailableTranscriptSummaries(_formData: FormData) {
+  await requireAdmin();
+  const dispatched = await triggerTask('teams-transcript-summary', {
+    allAvailable: true,
+    limit: 25,
+  });
+  refresh();
+  if (!dispatched) {
+    throw new Error(
+      'Transcript summary batch was not dispatched (no cron sweep will retry). Check TRIGGER_SECRET_KEY, then re-run.',
+    );
+  }
+}
+
 /** Ingest the selected available meetings — the explicit "pull this in" action. */
 export async function ingestMeetings(formData: FormData) {
   await requireAdmin();

@@ -92,6 +92,7 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `86_macro_first_schema.sql` | Adds the macro-first source workflow map and business-process graph foundation. |
 | `87_model_capability_granularity.sql` | Adds stricter model capability flags for schema depth and adapter request safety. |
 | `88_require_workflow_map_for_ingestion.sql` | Seeds the default-off guard that lets document ingestion fall back to blind extraction when source workflow read exhausts its model pool. |
+| `89_map_directed_extraction_cleanup.sql` | Deletes dead lens/outline settings and seeds `map_directed_extraction_enabled=true` as a single-encoded jsonb boolean for Stage 3. |
 | `99_vector_indexes.sql` | HNSW indexes on `claims.embedding` and `document_chunks.embedding`. Opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`. |
 
 ## Anti-patterns

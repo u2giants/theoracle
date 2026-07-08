@@ -296,14 +296,21 @@ export async function listDisplayNameToEmail(): Promise<Map<string, string>> {
 // their meeting transcripts in a time window. Idempotency is handled downstream
 // by teams-transcript-ingestion (dedupes on transcriptId), so re-running is safe.
 
-/** All M365 users (id + display name) — the candidate meeting organizers. */
-export async function listUsers(): Promise<Array<{ id: string; name: string | null }>> {
+export type GraphDirectoryUser = {
+  id: string;
+  name: string | null;
+  mail: string | null;
+  userPrincipalName: string | null;
+};
+
+/** All M365 users (id + display name/email) — the candidate meeting organizers. */
+export async function listUsers(): Promise<GraphDirectoryUser[]> {
   const cfg = getConfigOrNull();
   if (!cfg) return [];
   const token = await getToken(cfg);
-  const users: Array<{ id: string; name: string | null }> = [];
+  const users: GraphDirectoryUser[] = [];
   let url: string | undefined =
-    'https://graph.microsoft.com/v1.0/users?$select=id,displayName&$top=100';
+    'https://graph.microsoft.com/v1.0/users?$select=id,displayName,mail,userPrincipalName&$top=100';
   while (url) {
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
@@ -313,10 +320,24 @@ export async function listUsers(): Promise<Array<{ id: string; name: string | nu
       throw new Error(`list users failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
     }
     const page = (await res.json()) as {
-      value?: Array<{ id: string; displayName: string | null }>;
+      value?: Array<{
+        id: string;
+        displayName: string | null;
+        mail: string | null;
+        userPrincipalName: string | null;
+      }>;
       '@odata.nextLink'?: string;
     };
-    for (const u of page.value ?? []) if (u.id) users.push({ id: u.id, name: u.displayName ?? null });
+    for (const u of page.value ?? []) {
+      if (u.id) {
+        users.push({
+          id: u.id,
+          name: u.displayName ?? null,
+          mail: u.mail ?? null,
+          userPrincipalName: u.userPrincipalName ?? null,
+        });
+      }
+    }
     url = page['@odata.nextLink'];
   }
   return users;
@@ -328,6 +349,113 @@ export interface BackfillTranscript {
   meetingId: string | null;
   callId: string | null;
   createdDateTime: string | null;
+}
+
+export type MeetingParticipant = {
+  name: string;
+  email?: string;
+};
+
+export interface OnlineMeetingMetadata {
+  subject: string | null;
+  participants: MeetingParticipant[];
+  startDateTime: string | null;
+  endDateTime: string | null;
+  durationSeconds: number | null;
+}
+
+type GraphIdentity = {
+  displayName?: string | null;
+  id?: string | null;
+  user?: {
+    id?: string | null;
+    displayName?: string | null;
+    userPrincipalName?: string | null;
+    mail?: string | null;
+  } | null;
+};
+
+type GraphMeetingParticipant = {
+  identity?: GraphIdentity | null;
+  upn?: string | null;
+  emailAddress?: string | null;
+};
+
+function participantFromGraph(p: GraphMeetingParticipant | null | undefined): MeetingParticipant | null {
+  const user = p?.identity?.user;
+  const name = (user?.displayName ?? p?.identity?.displayName ?? '').trim();
+  const email = (user?.mail ?? user?.userPrincipalName ?? p?.emailAddress ?? p?.upn ?? '').trim();
+  if (!name && !email) return null;
+  return email ? { name: name || email, email } : { name };
+}
+
+function uniqueParticipants(participants: Array<MeetingParticipant | null>): MeetingParticipant[] {
+  const seen = new Set<string>();
+  const out: MeetingParticipant[] = [];
+  for (const p of participants) {
+    if (!p) continue;
+    const key = (p.email ?? p.name).trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
+}
+
+function durationSeconds(startDateTime: string | null, endDateTime: string | null): number | null {
+  const start = startDateTime ? Date.parse(startDateTime) : NaN;
+  const end = endDateTime ? Date.parse(endDateTime) : NaN;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return Math.round((end - start) / 1000);
+}
+
+/**
+ * Fetch subject, scheduled participants, and scheduled duration from the
+ * onlineMeeting resource. This is metadata only; transcript content is not
+ * pulled here.
+ */
+export async function getOnlineMeetingMetadata(
+  organizerId: string,
+  meetingId: string | null,
+): Promise<OnlineMeetingMetadata | null> {
+  if (!meetingId) return null;
+  const cfg = getConfigOrNull();
+  if (!cfg) return null;
+  const token = await getToken(cfg);
+  const url =
+    `${GRAPH_V1}/users/${encodeURIComponent(organizerId)}/onlineMeetings/` +
+    `${encodeURIComponent(meetingId)}?$select=subject,startDateTime,endDateTime,participants`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `onlineMeeting metadata fetch failed (${res.status}) for organizer ${organizerId}: ` +
+        `${(await res.text()).slice(0, 300)}`,
+    );
+  }
+  const meeting = (await res.json()) as {
+    subject?: string | null;
+    startDateTime?: string | null;
+    endDateTime?: string | null;
+    participants?: {
+      organizer?: GraphMeetingParticipant | null;
+      attendees?: GraphMeetingParticipant[] | null;
+    } | null;
+  };
+  const startDateTime = meeting.startDateTime ?? null;
+  const endDateTime = meeting.endDateTime ?? null;
+  return {
+    subject: meeting.subject ?? null,
+    participants: uniqueParticipants([
+      participantFromGraph(meeting.participants?.organizer),
+      ...(meeting.participants?.attendees ?? []).map((p) => participantFromGraph(p)),
+    ]),
+    startDateTime,
+    endDateTime,
+    durationSeconds: durationSeconds(startDateTime, endDateTime),
+  };
 }
 
 /**

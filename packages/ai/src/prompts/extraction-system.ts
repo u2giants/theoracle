@@ -39,7 +39,7 @@
 import { z } from 'zod';
 import { KNOWLEDGE_DOMAINS, ENTITY_TYPES } from '@oracle/shared';
 
-export const EXTRACTION_PROMPT_VERSION = '2.4.0';
+export const EXTRACTION_PROMPT_VERSION = '2.4.1';
 
 // ---------------------------------------------------------------------------
 // Claim type taxonomy (spec 9.4 + Part 6).
