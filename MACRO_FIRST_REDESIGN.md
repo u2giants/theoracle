@@ -1161,3 +1161,14 @@ node / edge / path** (§4.1, durable cross-source model), **model change proposa
   this helper when writing durable `process_nodes` / `process_node_systems` so matched
   owners/systems become FKs and unknown names become `entity_proposals` inputs without
   silently inventing entities.
+- 2026-07-07 (Codex): Implemented Stage 3 map-directed extraction cleanup. Added
+  `map_directed_extraction_enabled` (default `true`) to keep the old blind extraction
+  request callable until Stage 5; added map-element candidate hashing so document
+  claims with `mapElementRef` dedup by `(documentId, mapElementRef)` while non-map
+  candidates keep summary-hash dedup; deleted lens fan-out, source-outline,
+  macro-relationship extraction, coverage-audit workers/prompts, and admin dispatch
+  paths; added cleanup migration `89_map_directed_extraction_cleanup.sql`; migrated
+  prod and deployed Trigger worker `20260707.5` (`s2if9yzf`, 23 tasks). Local gates
+  passed. The canonical fixture numeric gate is blocked by existing provenance
+  references (1 Brain citation + 2 gap refs), so the clean re-ingest target remains
+  unproven until those references are resolved through admin review.

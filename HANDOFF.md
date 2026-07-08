@@ -65,6 +65,74 @@ Verification already run in this checkout:
 
 ## ACTIVE (2026-07-06): Macro-first redesign → see `MACRO_FIRST_REDESIGN.md`
 
+### ▶▶ LATEST SNAPSHOT (2026-07-08) — read this first; supersedes the 07-07 block below where they conflict
+
+**Big picture shift this session:** Stage 3 was finished AND we discovered the macro-first
+foundation is too narrow. Root finding (proven on the real corpus): the source reader forces
+EVERY document into a workflow/flowchart shape; but real business documents are composites of
+many shapes, so 86% of real knowledge (all the TEXT docs) ran ~96% BLIND (fragment soup).
+Albert approved a foundational pivot: a **shape-aware, two-pass source reader**. FULL DESIGN
+(approved) is in `SHAPE_AWARE_READER_DESIGN.md`. That is the next major build; Stage 4+ of the
+old macro-first plan is PAUSED until the reader is generalized.
+
+**Shape-aware reader — approved decisions (Albert 2026-07-08):** 6 shapes
+(process, responsibilities, reference, ruleset, conversation, narrative) built as an
+EXTENSIBLE REGISTRY (more shapes later); **two-pass** (segment, then read each segment into
+its shape); conversation shape ALSO reconstructs any process described mid-meeting. Build is
+staged + regression-safe (Stage 1 must reproduce the swimlane result exactly). Validate against
+the 5 real docs in `Z:\Documentation\company process - Oracle\` (business-process.md,
+Licensed Team Responsibilities 2 - tagged.txt, transcript-Book report overview.txt,
+Team Communication and Product Details 2.docx, SKU descriptions naming convention.pdf) + a
+Teams transcript. NOT STARTED yet.
+
+**Stage 3 (map-directed extraction + dedup + kills): DONE + deployed + committed this session.**
+Duplication bug FIXED & proven (swimlane: 241 → ~66 claims, zero triple-counting). Coverage
+gate was RE-FRAMED: measuring "% of every node+edge" was wrong (nodes fold into edge claims);
+correct metric is EDGE/flow coverage (~93%) + structural nodes become graph nodes at merge.
+Extraction thoroughness is the only residual (LLM under-enumerates ~half; acceptable under the
+reframe; the shape-aware reader work will revisit). Prod worker `20260708.1` (Stage 3),
+migration `89`. Full detail in `evals/macro-first-battery.md` (2026-07-07 entries) and the
+07-07 block below.
+
+**Vision model:** `default_vision_route` = `qwen/qwen3-vl-235b-a22b-thinking` (restored; won a
+live A/B vs gemini-2.5-flash — richer map, better lane/owner attribution).
+
+**Teams transcript picker: DONE + deployed (worker `20260708.3`, migration `90`, new task
+`teams-transcript-summary`).** Added participants + duration + size + cheap AI summary
+(currently `qwen/qwen3.7-max`) shown on `/admin/transcripts`; discovery now fetches
+subject/participants/duration. Proven on real meetings (participants, duration, Qwen summaries
+populated). **Subject was 403-blocked** — FIXED this session by granting the Azure app
+`OnlineMeetings.Read.All`.
+
+**Azure (done this session):** granted `OnlineMeetings.Read.All` (application role, admin-
+consented via direct appRoleAssignment) to app **TheOracle** `ed0b64b2-2cb1-44b1-817e-ef1cb1da5bcc`
+in tenant `1caeb1c0-...` (popcre.com). Verified: a fresh discovery scan returned
+`metadataErrors: 0` (was 403). The Oracle's Graph app uses env `AZURE_GRAPH_CLIENT_ID` (this
+app), distinct from the Designflow app `8a8695bd-...`.
+
+**1Password (done this session):** created SecureNote **"Cloudflare D1 API - ClickUp monitoring
+data (The Oracle)"** in vault `vibe_coding` with placeholder fields + usage notes. Albert will
+paste the D1-scoped API token. (Existing `cloudflare-tunnel-tokens` are Tunnel tokens, NOT usable
+for D1.) ClickUp source creds also exist in the vault if raw ClickUp data is ever needed.
+
+**OPEN / PENDING (next actions in priority order):**
+1. **Model bake-off for the transcript summary** (Albert's request, NOT yet done): read one
+   transcript, write a gold summary, run it through `deepseek-v4-pro`, `deepseek-v4-flash`,
+   `qwen3.7-plus`, `qwen3.7-max`, `qwen3.6-flash`, then set the summary route to the CHEAPEST
+   (per openrouter.ai pricing) that still gives a great result. Setting key is the transcript-
+   summary route added in migration `90` / `packages/ai/src/routes` (currently Qwen-max).
+2. **Build the shape-aware reader** per `SHAPE_AWARE_READER_DESIGN.md`, Stage 1 first.
+3. Optional: switch transcript summary to a cheaper flash model pending #1; verify today's 2
+   meetings now appear with subjects after the Azure grant (Codex read-only check was running
+   at handoff: see `scratchpad/codex-tx-check-report.md`).
+
+**Git:** everything above was committed to `main` and pushed this session (Albert asked). If a
+push did not complete, the working tree holds: Stage 3 + transcript-picker code + migrations
+89/90 + `SHAPE_AWARE_READER_DESIGN.md` + doc updates. Untracked `detail-current.png`,
+`rfq-before.png` pre-existed and are NOT this session's (leave them).
+
+---
+
 ### ▶ RESUME HERE (snapshot as of 2026-07-07, end of a long planning+build session)
 
 **What this project is.** The Oracle extracted tiny quote-validated "claims" and never
@@ -124,12 +192,103 @@ workstream — leave it until someone runs `test_code_changes.md` Tests 1–2.
     settings restored to `openai/gpt-4.1` + pool after the gate (proven by clean
     cleanup run `run_cmrayo7v`, which produced a real degraded map). Deviation #1
     is CLOSED.
+- **Stage 3 (map-directed extraction + dedup + kills)** — implemented locally,
+  migrated to prod, and deployed to Trigger on 2026-07-07, **not committed/pushed per
+  Albert's handoff instruction for this session**. Key source changes:
+  - `document-ingestion` now reads boolean setting
+    `map_directed_extraction_enabled` (seeded `true`). When true, it keeps the
+    Stage 2 behavior: await `source-workflow-read`, inject the validated map into
+    every extraction window, and ask for `mapElementRef`. When false, it skips the
+    map read/guidance and uses the old blind document extraction request as an
+    emergency comparison/fallback until Stage 5 retires it.
+  - Map-referenced document candidates now dedup through the existing promotion
+    lock using `computeMapElementCandidateHash({ documentId, mapElementRef })`.
+    This intentionally ignores summary wording and quote span so the first valid
+    candidate for a map node/edge wins; non-map candidates still use the existing
+    summary/domain/quote/source hash.
+  - Deleted the killed writer subsystem files:
+    `apps/workers/src/trigger/document-lens-extraction.ts`,
+    `apps/workers/src/lib/document-lens-budget.ts`,
+    `apps/workers/src/lib/macro-followups.ts`,
+    `apps/workers/src/trigger/source-outline.ts`,
+    `apps/workers/src/trigger/macro-relationship-extraction.ts`,
+    `apps/workers/src/trigger/source-coverage-audit.ts`,
+    `packages/ai/src/prompts/{source-outline,macro-relationship,coverage-audit}.ts`.
+    Removed barrel exports and admin dispatch buttons/actions for those deleted
+    tasks. Historical `source_outlines`, `source_groups`, `macro_relationships`,
+    and `source_coverage_findings` tables survive per §3.3; `/admin/macro` still
+    supports manual macro relationships, support-drop review, staleness sweep, and
+    historical coverage-finding gap conversion/dismissal.
+  - New migration
+    `packages/db/migrations/sql/89_map_directed_extraction_cleanup.sql` deletes
+    dead settings `macro_lenses_enabled`, `macro_max_lenses_per_document`,
+    `macro_max_lens_groups_per_document`,
+    `macro_max_lens_model_calls_per_document`,
+    `macro_max_lens_estimated_input_tokens`, and
+    `macro_outline_injection_enabled`, then seeds
+    `map_directed_extraction_enabled=true` as a single-encoded jsonb boolean.
+    Note: `89_` is deliberately used instead of `100_` because the raw SQL runner
+    applies files in lexicographic order; `99_vector_indexes.sql` is an opt-in
+    special file, not the next normal migration slot.
+  - Prod DB migration applied via the 1Password current-prod session pooler.
+    Verification query returned `deadKeyCount=0` and
+    `settings.map_directed_extraction_enabled` with `jsonb_typeof(value)='boolean'`
+    and `value=true`.
+  - Trigger prod deploy succeeded: worker version `20260707.5`, deployment
+    `s2if9yzf`, 23 detected tasks. Current worker confirms the deleted task slugs
+    are gone; remaining tasks include `source-workflow-read`, `document-ingestion`,
+    and `macro-relationship-staleness-sweep`.
+  - Local verification passed:
+    `corepack pnpm -r typecheck` (after `corepack pnpm install` repaired the
+    missing local `apps/web/node_modules/@oracle/engines` workspace junction),
+    `corepack pnpm --filter @oracle/engines run verify:macro-first`,
+    `corepack pnpm --filter @oracle/engines run verify:r5` (includes the new map
+    dedup smoke assertions),
+    `corepack pnpm --filter @oracle/workers run verify:source-workflow-read`,
+    `corepack pnpm --filter @oracle/workers run verify:document-ingestion-fallback`,
+    `corepack pnpm --filter @oracle/ai run verify:workflow-read`, and
+    `git diff --check`.
+  - Stage 3 numeric live gate **RAN on 2026-07-07 (clean re-ingest, owner authorized
+    clearing the fixture's disposable test provenance).** Result: **gate A (≤100
+    claims) PASS and gate C (dedup: zero elements with 3+, dedup fires) PASS on both
+    vision models — the 4× duplication bug is FIXED and proven on real data. Gate B
+    (≥95% map-element coverage) FAILS.** Verified vs Trigger run records. Winning
+    vision model `qwen/qwen3-vl-235b-a22b-thinking` (restored as prod
+    `default_vision_route`): 117-element map, 43 claims, coverage 42/117 = 35.9%.
+    gemini-2.5-flash: 84-element map, 48 claims, 40.5%, but left 14 claims with null
+    map refs. Full numbers + the A/B table are in `evals/macro-first-battery.md`
+    (2026-07-07 entry).
+  - **Coverage FAIL is EXTRACTION-limited, not vision-limited, and is root-caused.**
+    Stage 2 validates a verbatim quote for every map element, so evidence for all 117
+    exists; extraction only PROPOSED ~48 candidates. Cause: the map-directed
+    extraction prompt is self-contradictory — the diagram note
+    (`apps/workers/src/trigger/document-ingestion.ts` ~L819) still carries the
+    PRE-map "Aim for FEWER, higher-altitude, CONNECTED claims" / "Do NOT emit a
+    separate claim for every box" guidance, while the request (~L865) says only "at
+    most one canonical claim" per element (ceiling, no floor). Also observed: high
+    run-to-run variance (same fixture+model → maps of 84–120 elements).
+  - **Reset-helper gap found:** `scripts/reevaluate-document.mjs`'s blocker/cascade
+    check does NOT know about newer macro/outline FK tables
+    (`macro_relationship_claims`, `source_outline_source_refs`, `source_group_items`);
+    they had to be cleared inline. Extend the helper before the next clean re-ingest.
 
 **NEXT ACTIONS, in order:**
-1. **Stage 3** (map-directed extraction + edge-dedup + kill lens fan-out) →
-   Stage 4 (shadow merge) → Stage 5 (transactional apply/review) → 6 answering → 7
-   consultant → 8 backfill → 9 cleanup.
-2. Run BO-2/deep-schema probes before promoting any non-OpenAI workflow/macro
+1. **Fix Stage 3 coverage (in progress):** de-conflict the map-directed extraction
+   prompt in `document-ingestion.ts` — in map-directed mode, drop the sparse "aim for
+   fewer / do not emit a claim per box" diagram guidance and instruct exactly one
+   claim per LISTED map node/edge evidenced in the window (a floor, not just the "at
+   most one" ceiling). Re-run the clean re-ingest gate on qwen3-vl. **If the prompt
+   fix alone misses ≥95%, escalate to deterministic map-element seeding:** seed one
+   candidate per map element directly from the element's Stage-2-validated
+   evidenceQuote, then let the LLM add non-map extras — guarantees coverage by
+   construction and kills the variance. Do NOT weaken quote validation to hit the
+   number.
+2. Commit/push the Stage 3 working tree when Albert is ready (migration, deleted
+   files, docs, handoff/eval updates). Untracked PNGs (`detail-current.png`,
+   `rfq-before.png`) pre-existed this work — leave unless Albert says disposable.
+3. **Stage 4** (shadow merge) → Stage 5 (transactional apply/review) → 6 answering
+   → 7 consultant → 8 backfill → 9 cleanup.
+4. Run BO-2/deep-schema probes before promoting any non-OpenAI workflow/macro
    candidate.
 
 **HOW TO RUN EACH STAGE (working pattern, keep using it):** spin up a FRESH-context
@@ -158,6 +317,13 @@ The future merge worker (Stage 4/§5.3) must call
 `process_node_systems`: matched owners become `owner_department_id` or
 `owner_entity_id`, matched systems become `process_node_systems`, and unknown names
 become `entity_proposals` inputs while preserving `owner_raw`.
+**Known flaw for the Stage 4 implementer to fix at wire-in:**
+`resolveWorkflowMapNodeEntities()` hard-codes `proposedEntityType: 'department'`
+for every unresolved owner (`entity-resolution.ts` ~L183/L215), so an unmatched
+*person* lane-owner (e.g. "Carlos") gets filed as a department proposal. Infer a
+better proposed type (or carry an honest "unknown") when Stage 4 calls this, so
+the `entity_proposals` review queue is not misleading. Cosmetic today — nothing
+calls the helper until merge exists.
 
 **Adapter/model-routing follow-up:** see `fix_adapter_quirks.md`. Workflow/macro
 should stay OpenAI-primary until non-OpenAI candidates have `strict_json_schema`,

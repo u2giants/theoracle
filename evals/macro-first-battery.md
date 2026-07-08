@@ -106,3 +106,95 @@ instead of halting all ingestion) is proven correct and live. The strict-path er
 message was fixed and redeployed; that fix's contract is covered by the automated
 gate but has not been re-run live against prod (low risk — cosmetic error text on
 the non-default path; the document still correctly fails).
+
+## 2026-07-07 — Stage 3 Map-Directed Extraction Gate Attempt
+
+Scope: Stage 3 shipped code + prod migration + Trigger deploy, then attempted the
+canonical fixture gate.
+
+Implementation/deploy state:
+
+- Prod migration `89_map_directed_extraction_cleanup.sql` applied via the current-prod
+  Supabase session pooler.
+- Verification query: six dead lens/outline settings count = `0`;
+  `map_directed_extraction_enabled=true`; `jsonb_typeof(value)='boolean'`.
+- Trigger prod worker deployed as version `20260707.5`, deployment `s2if9yzf`, with
+  23 detected tasks. Current worker no longer registers `source-outline`,
+  `document-lens-extraction`, `macro-relationship-extraction`, or
+  `source-coverage-audit`.
+
+Local gates:
+
+- PASS: `corepack pnpm -r typecheck`
+- PASS: `corepack pnpm --filter @oracle/engines run verify:macro-first`
+- PASS: `corepack pnpm --filter @oracle/engines run verify:r5` (includes Stage 3 map
+  dedup smoke)
+- PASS: `corepack pnpm --filter @oracle/workers run verify:source-workflow-read`
+- PASS: `corepack pnpm --filter @oracle/workers run verify:document-ingestion-fallback`
+- PASS: `corepack pnpm --filter @oracle/ai run verify:workflow-read`
+- PASS: `git diff --check`
+
+Canonical fixture gate:
+
+- Fixture: document `9d09fa89-3a46-465e-a98b-837287c9e22a`; active map
+  `72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8`.
+- Clean re-ingest remains blocked by provenance guard. Dry-run
+  `scripts/reevaluate-document.mjs` reported 3 blockers: 1 Brain citation and 2 gap
+  references. No force-delete was attempted.
+- Deployed worker run `run_cmrb30q0wbnva0mof8d1jguk5` completed but no-oped:
+  `chunksInserted=0`, `candidatesStaged=0`, `claimsPromoted=0`,
+  `duplicatesAppended=0`, `rejections=0`.
+- Current-state measurement after the no-op run: active map has 63 nodes + 71 edges
+  = 134 map elements; current document has 652 promoted claims, 0 mapped claims,
+  0/134 map elements evidenced by `mapElementRef`, max same-element claim count 0.
+
+Gate result: BLOCKED for the numeric claim-quality target, because the canonical
+fixture cannot be clean-reset without resolving live Brain/gap provenance references.
+The implementation, cleanup migration, worker task deletion, and deployment gates
+passed. The actual numeric target still needs a clean re-ingest after provenance is
+resolved through normal admin review.
+
+### 2026-07-07 — Stage 3 clean re-ingest gate + vision A/B (UNBLOCKED; coverage FAIL, root-caused)
+
+Owner confirmed the app is NOT launched: the fixture's Brain citation + gap refs were
+disposable test artifacts, so a clean reset was authorized. Blockers cleared (scoped to
+this doc's claims: 1 `section_claims`, 2 `gaps.related_claim_ids`, plus newer FK rows
+the reset helper's guard MISSES — `macro_relationship_claims`, `source_outline_source_refs`,
+`source_group_items`), then `APPLY=1 scripts/reevaluate-document.mjs` reset the doc and
+re-ingest ran on worker `20260707.5`. All runs verified against Trigger run records.
+
+**First clean re-ingest (gemini-2.5-flash vision, run `run_cmrb4ukrochnc0one92rsj3zc`):**
+63 promoted claims (gate A ≤100 PASS); dedup max 1 claim/ref, 0 elements with 3+,
+`duplicatesAppended=1` (gate C PASS); coverage 55/120 = 45.8% of the fresh map's
+elements (gate B ≥95% FAIL). Overall FAIL on coverage.
+
+**Vision A/B (identical fixture, only `default_vision_route` differs; both verified via
+Trigger tags/output):**
+
+| Metric | qwen3-vl (`run_cmrb5qi4…`) | gemini-2.5-flash (`run_cmrb5knp…`) |
+|---|---:|---:|
+| Transcription | 3 chunks, 9,340 chars; names Carlos, Gina | 3 chunks, 9,254 chars; mostly generic `[White Box]` |
+| Fresh map | 58 nodes + 59 edges = 117; validated; kept 131/dropped 7 | 41 + 43 = 84; validated; kept 99/dropped 0 |
+| Promoted claims | 43 (candidates 48, rej 5) | 48 (candidates 55, rej 7) |
+| Coverage | 42/117 = 35.9% (gate B FAIL) | 34/84 = 40.5% (gate B FAIL) |
+| Dedup (gate C) | max 1/ref, 0 with 3+, dup 0 — PASS | max 1/ref, 0 with 3+, dup 0 — PASS |
+| Claims anchored to map | 42/43 (1 null ref, 0 orphan) | 34/48 (**14 null refs**) |
+| Vision latency | 94.7s | 30.6s |
+
+Decision: **keep `qwen/qwen3-vl-235b-a22b-thinking`** (richer map, better lane/owner
+attribution, nearly all claims anchored vs 14 floating for flash). Prod
+`default_vision_route` restored to qwen3-vl; pool already contained it.
+
+**Gate A (≤100) PASS, C (dedup) PASS on both models. Gate B (coverage ≥95%) FAIL on
+both — and it is EXTRACTION-limited, not vision-limited:** qwen produced a 117-element
+map but extraction only PROPOSED ~48 candidates. Root cause (confirmed by reading
+`document-ingestion.ts`): in map-directed mode the extraction prompt is
+self-contradictory — the diagram note (`document-ingestion.ts` ~L819) still says the
+PRE-map "Aim for FEWER, higher-altitude, CONNECTED claims" / "Do NOT emit a separate
+claim for every box", while the request (~L865) says "at most one canonical claim" per
+element (a ceiling, no floor). Since Stage 2 validates a verbatim quote for EVERY map
+element, the evidence provably exists; the model is simply told to under-produce. Also
+noted: high run-to-run variance (same fixture+model gave maps of 84–120 elements across
+runs). Next: de-conflict the prompt (map-directed mode must instruct one claim per
+listed node/edge, no sparse guidance) and re-run; escalate to deterministic map-element
+seeding from the map's stored validated quotes if the prompt fix alone misses ≥95%.
