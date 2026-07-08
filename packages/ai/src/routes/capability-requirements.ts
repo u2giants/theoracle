@@ -49,6 +49,7 @@ export function requiredCapabilitiesFor(slot: ModelSlot): CapabilityRequirement[
       ];
     case 'general':
     case 'translation':
+    case 'transcript_summary':
       return [];
   }
 }

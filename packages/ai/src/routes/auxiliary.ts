@@ -17,9 +17,11 @@ import {
   MODEL_POOL_GENERAL_SETTING_KEY,
   MODEL_POOL_MACRO_SETTING_KEY,
   MODEL_POOL_MODEL_MERGE_SETTING_KEY,
+  MODEL_POOL_TRANSCRIPT_SUMMARY_SETTING_KEY,
   MODEL_POOL_TRANSLATION_SETTING_KEY,
   MODEL_POOL_VISION_SETTING_KEY,
   MODEL_POOL_WORKFLOW_READ_SETTING_KEY,
+  TRANSCRIPT_SUMMARY_ROUTE_SETTING_KEY,
   WORKFLOW_READ_ROUTE_SETTING_KEY,
 } from './defaults';
 
@@ -94,6 +96,13 @@ export const TRANSLATION_AUXILIARY_MODEL: AuxiliaryModelDef = {
   label: 'Translation',
 };
 
+export const TRANSCRIPT_SUMMARY_AUXILIARY_MODEL: AuxiliaryModelDef = {
+  id: 'transcript_summary',
+  routeSettingKey: TRANSCRIPT_SUMMARY_ROUTE_SETTING_KEY,
+  poolSettingKey: MODEL_POOL_TRANSCRIPT_SUMMARY_SETTING_KEY,
+  label: 'Teams transcript summary',
+};
+
 /**
  * Macro-understanding model reserved for later inferential macro passes. It is
  * separate from workflow_read and model_merge; the old outline/coverage writers
@@ -114,6 +123,7 @@ export const AUXILIARY_MODELS: AuxiliaryModelDef[] = [
   MODEL_MERGE_AUXILIARY_MODEL,
   MACRO_AUXILIARY_MODEL,
   TRANSLATION_AUXILIARY_MODEL,
+  TRANSCRIPT_SUMMARY_AUXILIARY_MODEL,
   GENERAL_PURPOSE_AUXILIARY_MODEL,
 ];
 

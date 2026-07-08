@@ -57,6 +57,8 @@ const DEFAULT_SETTINGS: Array<{
   { key: 'model_pool_macro', value: ['openai/gpt-4.1-mini', 'openai/gpt-4.1', 'google/gemini-2.5-pro'], description: 'Ordered fallback chain for the macro slot. OpenAI first — Gemini rejects the nested macro schemas.' },
   { key: 'default_translation_route', value: 'qwen/qwen-mt-plus', description: 'Auxiliary translation model route for bilingual claim rendering and review questions.' },
   { key: 'model_pool_translation', value: ['qwen/qwen-mt-plus', 'qwen/qwen3.7-max', 'google/gemini-2.5-flash'], description: 'Ordered fallback chain for translation.' },
+  { key: 'default_transcript_summary_route', value: 'qwen/qwen3.6-flash', description: 'Auxiliary model route for Teams transcript picker preview summaries.' },
+  { key: 'model_pool_transcript_summary', value: ['qwen/qwen3.6-flash', 'qwen/qwen3.7-plus'], description: 'Ordered fallback chain for Teams transcript picker preview summaries.' },
   { key: 'serve_provisional_process_elements', value: true, description: 'When true, chat may serve process elements with unapproved support as explicitly provisional.' },
   { key: 'workflow_map_max_dropped_ratio', value: 0.2, description: 'Maximum dropped workflow-map element ratio before a validated map is marked degraded.' },
   { key: 'require_workflow_map_for_ingestion', value: false, description: 'When false, document ingestion falls back to blind extraction if source workflow read exhausts its model pool; when true, reader failure fails the document.' },

@@ -27,6 +27,9 @@ export const VISION_REASONING_EFFORT_SETTING_KEY = 'default_vision_reasoning_eff
 /** Translation model used by the bilingual claim layer. */
 export const TRANSLATION_ROUTE_SETTING_KEY = 'default_translation_route';
 
+/** Teams transcript picker preview summary model. */
+export const TRANSCRIPT_SUMMARY_ROUTE_SETTING_KEY = 'default_transcript_summary_route';
+
 /** Macro-first source workflow reader. Runs before extraction. */
 export const WORKFLOW_READ_ROUTE_SETTING_KEY = 'default_workflow_read_route';
 
@@ -72,6 +75,7 @@ export const MODEL_POOL_VISION_SETTING_KEY = 'model_pool_vision';
 export const MODEL_POOL_WORKFLOW_READ_SETTING_KEY = 'model_pool_workflow_read';
 export const MODEL_POOL_MODEL_MERGE_SETTING_KEY = 'model_pool_model_merge';
 export const MODEL_POOL_TRANSLATION_SETTING_KEY = 'model_pool_translation';
+export const MODEL_POOL_TRANSCRIPT_SUMMARY_SETTING_KEY = 'model_pool_transcript_summary';
 export const MODEL_POOL_GENERAL_SETTING_KEY = 'model_pool_general';
 
 /**

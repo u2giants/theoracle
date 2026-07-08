@@ -115,16 +115,26 @@ data (The Oracle)"** in vault `vibe_coding` with placeholder fields + usage note
 paste the D1-scoped API token. (Existing `cloudflare-tunnel-tokens` are Tunnel tokens, NOT usable
 for D1.) ClickUp source creds also exist in the vault if raw ClickUp data is ever needed.
 
+**Transcript summary model bake-off: DONE (2026-07-08).** Tested all 5 models on the
+"Book report" transcript vs a hand-written gold summary. All 5 produced great, faithful
+summaries; choice was purely cost. Cost/summary: deepseek-v4-flash $0.00084 (23x cheaper
+than the old qwen3.7-max, but NOT prod-deployable yet — DeepSeek adapter is parked on
+`wip/vision-cache-tests`, and OpenRouter's data policy blocks it), qwen3.6-flash $0.0041,
+deepseek-v4-pro $0.0043, qwen3.7-plus $0.0058, qwen3.7-max $0.019 (old). **Wired
+`qwen/qwen3.6-flash`** as the cheapest prod-deployable great option (same DashScope provider,
+no new data exposure): new dedicated `transcript_summary` route slot + settings
+`default_transcript_summary_route` / `model_pool_transcript_summary`, migration `91`, worker
+`20260708.4`. Live-proven (run produced a qwen3.6-flash summary on slot `transcript_summary`).
+FUTURE WIN: adopt `deepseek-v4-flash` (23x cheaper, also great) once the DeepSeek adapter
+ships to prod from the parked branch.
+
 **OPEN / PENDING (next actions in priority order):**
-1. **Model bake-off for the transcript summary** (Albert's request, NOT yet done): read one
-   transcript, write a gold summary, run it through `deepseek-v4-pro`, `deepseek-v4-flash`,
-   `qwen3.7-plus`, `qwen3.7-max`, `qwen3.6-flash`, then set the summary route to the CHEAPEST
-   (per openrouter.ai pricing) that still gives a great result. Setting key is the transcript-
-   summary route added in migration `90` / `packages/ai/src/routes` (currently Qwen-max).
-2. **Build the shape-aware reader** per `SHAPE_AWARE_READER_DESIGN.md`, Stage 1 first.
-3. Optional: switch transcript summary to a cheaper flash model pending #1; verify today's 2
-   meetings now appear with subjects after the Azure grant (Codex read-only check was running
-   at handoff: see `scratchpad/codex-tx-check-report.md`).
+1. **Build the shape-aware reader** per `SHAPE_AWARE_READER_DESIGN.md`, Stage 1 first. THE
+   MAIN WORK.
+2. Adopt `deepseek-v4-flash` for transcript summaries (23x cheaper) once the DeepSeek adapter
+   is deployed to prod (currently parked on `wip/vision-cache-tests`).
+3. Verify today's Teams meetings now appear with subjects on `/admin/transcripts` after the
+   Azure `OnlineMeetings.Read.All` grant (scan showed metadataErrors=0).
 
 **Git:** everything above was committed to `main` and pushed this session (Albert asked). If a
 push did not complete, the working tree holds: Stage 3 + transcript-picker code + migrations

@@ -67,6 +67,7 @@ const POOL_KEYS = [
   ...STAGES,
   'macro',
   'translation',
+  'transcript_summary',
   'general',
 ] as const;
 type PoolKey = (typeof POOL_KEYS)[number];
@@ -78,6 +79,7 @@ const POOL_LABELS: Record<PoolKey, string> = {
   ...STAGE_LABELS,
   macro: 'Macro',
   translation: 'Translation',
+  transcript_summary: 'Transcript',
   general: 'General',
 };
 
@@ -88,6 +90,7 @@ const POOL_SETTING_KEYS: Record<PoolKey, string> = {
   ...STAGE_SETTING_KEYS,
   macro: 'model_pool_macro',
   translation: 'model_pool_translation',
+  transcript_summary: 'model_pool_transcript_summary',
   general: 'model_pool_general',
 };
 
@@ -164,7 +167,7 @@ function missingPoolReqs(m: ModelCatalogEntry, pool: PoolKey) {
       ? reqs.filter((r) => r.missing).map(({ label, icon, color }) => ({ label, icon, color }))
       : [];
   }
-  if (pool === 'translation' || pool === 'general') return [];
+  if (pool === 'translation' || pool === 'transcript_summary' || pool === 'general') return [];
   return missingReqs(m, pool);
 }
 
@@ -214,6 +217,7 @@ export function ModelPoolEditor({
     synthesis: new Set(initial.synthesis),
     macro: new Set(initial.macro),
     translation: new Set(initial.translation),
+    transcript_summary: new Set(initial.transcript_summary),
     general: new Set(initial.general),
   });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -577,7 +581,9 @@ export function ModelPoolEditor({
                                       color: CAP_BY_FIELD.structuredOutputs.color,
                                     },
                                   ]
-                                : stage === 'translation' || stage === 'general'
+                                : stage === 'translation' ||
+                                    stage === 'transcript_summary' ||
+                                    stage === 'general'
                                   ? []
                                   : STAGE_REQUIREMENTS[stage]
                               ).map((req, i) => (
@@ -696,7 +702,7 @@ export function ModelPoolEditor({
           {saveStatus === 'saving' ? 'Saving all pools…' : 'Save all pools'}
         </Button>
         {saveStatus === 'saved' && (
-          <span className="text-sm text-green-600">All four pools saved.</span>
+          <span className="text-sm text-green-600">All pools saved.</span>
         )}
         {saveStatus === 'error' && saveError && (
           <span className="text-sm text-destructive">{saveError}</span>

@@ -22,6 +22,7 @@ import {
   logModelRunAttempts,
   makeBlock,
   resolveRouteCandidates,
+  type ModelSlot,
   type RouteCandidate,
 } from '@oracle/ai';
 import { fetchTranscriptVtt } from '../lib/graph-transcripts';
@@ -143,6 +144,7 @@ async function summarizeOne(args: {
   db: ReturnType<typeof getDirectDb>;
   client: OracleAIClient;
   routeCandidates: RouteCandidate[];
+  routeSlot: ModelSlot;
   row: TranscriptRow;
 }): Promise<{
   meetingTranscriptId: string;
@@ -258,7 +260,7 @@ ${transcriptForModel}`;
       db: args.db,
       metadata: result,
       taskType: 'transcript-summary',
-      slot: 'general',
+      slot: args.routeSlot,
       contextPackId: contextPack.id,
       modelRunId: modelRun.id,
     });
@@ -297,7 +299,7 @@ ${transcriptForModel}`;
       db: args.db,
       error: err,
       taskType: 'transcript-summary',
-      slot: 'general',
+      slot: args.routeSlot,
       contextPackId: contextPack.id,
     });
     await args.db.insert(modelRuns).values({
@@ -311,6 +313,34 @@ ${transcriptForModel}`;
       error: message,
     });
     throw err;
+  }
+}
+
+async function resolveSummaryRoutes(
+  db: ReturnType<typeof getDirectDb>,
+): Promise<{
+  routeSlot: ModelSlot;
+  routeCandidates: RouteCandidate[];
+  skipped: unknown[];
+}> {
+  try {
+    const resolved = await resolveRouteCandidates(db, 'transcript_summary');
+    return {
+      routeSlot: 'transcript_summary',
+      routeCandidates: resolved.candidates,
+      skipped: resolved.skipped,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[teams-transcript-summary] transcript_summary slot unavailable; falling back to general: ${msg}`,
+    );
+    const fallback = await resolveRouteCandidates(db, 'general');
+    return {
+      routeSlot: 'general',
+      routeCandidates: fallback.candidates,
+      skipped: fallback.skipped,
+    };
   }
 }
 
@@ -343,9 +373,12 @@ export const teamsTranscriptSummaryTask = task({
         return out;
       }
 
-      const resolved = await resolveRouteCandidates(db, 'general');
+      const resolved = await resolveSummaryRoutes(db);
       for (const skipped of resolved.skipped) {
-        console.warn('[teams-transcript-summary] skipped general route candidate', skipped);
+        console.warn(
+          `[teams-transcript-summary] skipped ${resolved.routeSlot} route candidate`,
+          skipped,
+        );
       }
       const client = buildOracleClient();
       const processed = [];
@@ -354,7 +387,8 @@ export const teamsTranscriptSummaryTask = task({
           await summarizeOne({
             db,
             client,
-            routeCandidates: resolved.candidates,
+            routeCandidates: resolved.routeCandidates,
+            routeSlot: resolved.routeSlot,
             row,
           }),
         );

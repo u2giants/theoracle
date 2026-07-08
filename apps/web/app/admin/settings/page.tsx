@@ -171,6 +171,19 @@ const AUX_PRESENTATION: Record<
     ),
     settingDescription: 'Model used to translate approved claim summaries for the bilingual claim layer.',
   },
+  transcript_summary: {
+    subtitle: 'Cheap Teams meeting preview',
+    description: (
+      <>
+        Summarizes discovered Teams transcripts for the admin meeting picker.
+        This is preview-only: it helps decide whether a meeting is worth
+        ingesting, and it never creates messages, claims, or Brain artifacts.
+        The default is the bake-off winner <strong>qwen/qwen3.6-flash</strong>,
+        with a Qwen fallback in the same DashScope provider.
+      </>
+    ),
+    settingDescription: 'Model used for on-demand Teams transcript picker summaries.',
+  },
 };
 
 const VISION_MODEL_BRIEF = `THE ORACLE — "Image Vision Model" role brief
@@ -581,6 +594,23 @@ NEGATIVE ATTRIBUTES (avoid)
 BOTTOM LINE
 This slot needs a strong, long-context REASONING model whose structured output is STRICTLY SCHEMA-ENFORCED and that can accept and fully populate a DEEP, VERY COMPLEX, HEAVILY NESTED schema (test this against the future real macro schema, not a simple one), with a high maximum-output-token ceiling. Avoid best-effort-JSON-only models and any model whose schema mode caps out on nesting/complexity. Do not optimize for latency. This slot is intentionally separate from the Extraction model: extraction mines verbatim-quoted facts, while this model reasons about process-level implications and must emit deep, nested, schema-valid JSON.`;
 
+const TRANSCRIPT_SUMMARY_MODEL_BRIEF = `THE ORACLE — "Teams Transcript Summary" role brief
+
+PURPOSE
+This model writes short preview summaries for discovered Microsoft Teams transcripts before an admin decides whether to ingest the meeting into the Oracle knowledge graph.
+
+WHERE IT SITS
+The worker fetches transcript VTT, converts it to speaker-attributed plain text, and sends a cost-controlled transcript window plus meeting metadata. The output is stored only on meeting_transcripts.ai_summary for the admin picker.
+
+WHAT IS EXPECTED
+One concise 2-3 sentence synopsis followed by 4-8 bullet topics. Use only the transcript text. Prefer business processes, systems, owners, rules, risks, exceptions, decisions, and follow-ups. If the meeting is small talk or too thin, say so.
+
+CAPABILITIES IT NEEDS
+Plain text generation, low cost, solid long-ish transcript handling, and good instruction following. It does not need strict JSON schema, tools, vision, reasoning effort, or streaming.
+
+BOTTOM LINE
+Pick a cheap reliable text model. The current bake-off winner is qwen/qwen3.6-flash, with qwen/qwen3.7-plus as the same-provider fallback.`;
+
 // Clipboard "job brief" text by auxiliary-model id. Declared after the brief
 // literals (which are large) so the earlier AUX_PRESENTATION map stays free of
 // forward references. Aux models without a brief simply omit an entry.
@@ -590,6 +620,7 @@ const AUX_CLIPBOARD_BRIEFS: Record<string, string> = {
   model_merge: MODEL_MERGE_MODEL_BRIEF,
   macro: MACRO_MODEL_BRIEF,
   translation: TRANSLATION_MODEL_BRIEF,
+  transcript_summary: TRANSCRIPT_SUMMARY_MODEL_BRIEF,
 };
 
 const STAGE_MODEL_ROLES: RoleDef[] = [

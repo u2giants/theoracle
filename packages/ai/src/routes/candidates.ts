@@ -44,6 +44,7 @@ function isPipelineSlot(slot: ModelSlot): slot is OracleModelRole {
 function roleForSlot(slot: ModelSlot): OracleModelRole {
   if (slot === 'workflow_read' || slot === 'macro') return 'synthesis';
   if (slot === 'model_merge') return 'extraction';
+  if (slot === 'transcript_summary') return 'extraction';
   return isPipelineSlot(slot) ? slot : 'extraction';
 }
 

@@ -7,6 +7,7 @@ export type ModelSlot =
   | 'model_merge'
   | 'general'
   | 'translation'
+  | 'transcript_summary'
   | 'macro';
 
 export class NoConfiguredModelError extends Error {

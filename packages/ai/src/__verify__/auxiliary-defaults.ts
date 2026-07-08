@@ -13,6 +13,7 @@
 import {
   AUXILIARY_MODELS,
   GENERAL_PURPOSE_AUXILIARY_MODEL,
+  TRANSCRIPT_SUMMARY_AUXILIARY_MODEL,
   TRANSLATION_AUXILIARY_MODEL,
   VISION_AUXILIARY_MODEL,
 } from '../index';
@@ -47,6 +48,10 @@ function main() {
   assert(VISION_AUXILIARY_MODEL.id === 'vision', 'vision auxiliary id is stable');
   assert(GENERAL_PURPOSE_AUXILIARY_MODEL.id === 'general', 'general auxiliary id is stable');
   assert(TRANSLATION_AUXILIARY_MODEL.id === 'translation', 'translation auxiliary id is stable');
+  assert(
+    TRANSCRIPT_SUMMARY_AUXILIARY_MODEL.id === 'transcript_summary',
+    'transcript summary auxiliary id is stable',
+  );
 
   console.log('\nAuxiliary-model routing gate: PASS');
 }
