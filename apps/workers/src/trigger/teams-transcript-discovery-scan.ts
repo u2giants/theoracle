@@ -50,7 +50,7 @@ function transcriptDurationSeconds(start: string | null, end: string | null): nu
 
 export const teamsTranscriptDiscoveryScanTask = task({
   id: 'teams-transcript-discovery-scan',
-  maxDuration: 60 * 8,
+  maxDuration: 60 * 12,
   run: async (payload: ScanPayload) => {
     const sinceDays = Math.max(1, Math.min(60, payload?.sinceDays ?? 14));
     const sinceIso = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000).toISOString();
