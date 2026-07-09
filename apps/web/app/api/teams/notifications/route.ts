@@ -59,6 +59,19 @@ interface DecryptedTranscript {
   callId?: string;
   meetingOrganizer?: { user?: { id?: string; displayName?: string } } | null;
   createdDateTime?: string;
+  /** Transcription end time — with createdDateTime this gives the duration. */
+  endDateTime?: string;
+}
+
+/** Transcription span in seconds, or null when timestamps are missing/invalid. */
+function transcriptDurationSeconds(
+  start: string | null,
+  end: string | null,
+): number | null {
+  const s = start ? Date.parse(start) : NaN;
+  const e = end ? Date.parse(end) : NaN;
+  if (!Number.isFinite(s) || !Number.isFinite(e) || e < s) return null;
+  return Math.round((e - s) / 1000);
 }
 
 /** Full Graph transcript id from the content URL (else the resource path). */
@@ -129,6 +142,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     let meetingId: string | null = null;
     let callId: string | null = null;
     let meetingTime: string | null = null;
+    let endTime: string | null = null;
     let organizerId: string | null = null;
     let organizerName: string | null = null;
     if (n.encryptedContent && privateKeyPem) {
@@ -141,6 +155,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         meetingId = resource.meetingId ?? null;
         callId = resource.callId ?? null;
         meetingTime = resource.createdDateTime ?? null;
+        endTime = resource.endDateTime ?? null;
         organizerId = resource.meetingOrganizer?.user?.id ?? null;
         organizerName = resource.meetingOrganizer?.user?.displayName ?? null;
       } catch (err) {
@@ -156,6 +171,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       organizerName = await getUserDisplayName(organizerId);
     }
 
+    // Enrich the two fields ad-hoc calls lack: duration (from the transcript
+    // timestamps) and a synthesized subject (they have no scheduled subject).
+    // Scheduled meetings keep their real subject via the discovery scan, so we
+    // only synthesize one for ad-hoc calls (no meetingId, has callId).
+    const durationSeconds = transcriptDurationSeconds(meetingTime, endTime);
+    const isAdhoc = !meetingId && !!callId;
+    const subject = isAdhoc
+      ? `Ad-hoc call${meetingTime ? ` · ${meetingTime.slice(0, 10)}` : ''}`
+      : null;
+
     // DISCOVERY ONLY — record that this meeting's transcript is available; do
     // NOT ingest it. An admin chooses which meetings to ingest on
     // /admin/transcripts (which triggers teams-transcript-ingestion then).
@@ -165,15 +190,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         await getDirectDb().execute(sql`
           INSERT INTO meeting_transcripts
             (transcript_id, meeting_id, call_id, organizer_id, organizer_name,
-             transcript_content_url, meeting_time, status, discovered_via)
+             subject, duration_seconds, transcript_content_url, meeting_time,
+             status, discovered_via)
           VALUES
             (${transcriptId}, ${meetingId}, ${callId}, ${organizerId}, ${organizerName},
-             ${transcriptContentUrl}, ${meetingTime}, 'available', 'subscription')
+             ${subject}, ${durationSeconds}, ${transcriptContentUrl}, ${meetingTime},
+             'available', 'subscription')
           ON CONFLICT (transcript_id) DO UPDATE SET
             meeting_id = COALESCE(EXCLUDED.meeting_id, meeting_transcripts.meeting_id),
             call_id = COALESCE(EXCLUDED.call_id, meeting_transcripts.call_id),
             organizer_id = COALESCE(EXCLUDED.organizer_id, meeting_transcripts.organizer_id),
             organizer_name = COALESCE(EXCLUDED.organizer_name, meeting_transcripts.organizer_name),
+            subject = COALESCE(EXCLUDED.subject, meeting_transcripts.subject),
+            duration_seconds = COALESCE(EXCLUDED.duration_seconds, meeting_transcripts.duration_seconds),
             transcript_content_url = COALESCE(EXCLUDED.transcript_content_url, meeting_transcripts.transcript_content_url),
             meeting_time = COALESCE(EXCLUDED.meeting_time, meeting_transcripts.meeting_time)
         `);

@@ -48,6 +48,10 @@ const STATUS_TABS = [
   { label: 'All', value: 'all' },
 ] as const;
 
+// Calls known to be shorter than this are hidden from the picker — too short for
+// a meaningful company-process discussion.
+const MIN_MEETING_DURATION_SECONDS = 10 * 60;
+
 function statusBadge(status: string) {
   const map: Record<string, string> = {
     available: 'bg-blue-100 text-blue-800',
@@ -98,8 +102,13 @@ export default async function AdminTranscriptsPage({
   const activeStatus = status ?? 'available';
 
   const db = getDirectDb();
+  // Hide calls known to be under the duration floor. Rows with unknown duration
+  // (NULL) are kept so we never hide a real meeting we simply couldn't measure.
+  const durationFloor = sql`(duration_seconds IS NULL OR duration_seconds >= ${MIN_MEETING_DURATION_SECONDS})`;
   const whereClause =
-    activeStatus !== 'all' ? sql`WHERE status = ${activeStatus}` : sql``;
+    activeStatus !== 'all'
+      ? sql`WHERE status = ${activeStatus} AND ${durationFloor}`
+      : sql`WHERE ${durationFloor}`;
   const result = await db.execute(sql`
     SELECT id, organizer_name, organizer_id, subject, meeting_time, status,
            participants, duration_seconds, message_count, transcript_char_count,

@@ -476,10 +476,12 @@ export async function getOnlineMeetingMetadata(
  *
  * Resilient per organizer: only a first-page **403** (genuine app-access-policy
  * gap) throws — everything else keeps whatever was collected and stops. This
- * tolerates (a) Graph's beta pagination quirk where an `@odata.nextLink` comes
- * back with `startIndex=-1` (a 400 on page 2+), and (b) slow organizers that hit
- * the request timeout — neither should make one user abort the whole scan or
- * discard the page(s) we already have.
+ * tolerates slow organizers that hit the request timeout without aborting the
+ * whole scan or discarding the page(s) we already have.
+ *
+ * Uses the STABLE v1.0 function. The beta function returns a malformed
+ * `@odata.nextLink` (yielding a `startIndex ('-1')` 400 on page 2+); v1.0 does
+ * not have that pagination defect. onlineMeeting getAllTranscripts is GA on v1.0.
  */
 export async function getOnlineMeetingTranscripts(
   organizerId: string,
@@ -494,7 +496,7 @@ export async function getOnlineMeetingTranscripts(
   // communications/onlineMeetings/getAllTranscripts.) See diagnose-transcripts.ps1.
   const endIso = new Date().toISOString();
   let url: string | undefined =
-    `${GRAPH_BETA}/users/${organizerId}/onlineMeetings/getAllTranscripts(meetingOrganizerUserId='${organizerId}',startDateTime=${sinceIso},endDateTime=${endIso})`;
+    `${GRAPH_V1}/users/${organizerId}/onlineMeetings/getAllTranscripts(meetingOrganizerUserId='${organizerId}',startDateTime=${sinceIso},endDateTime=${endIso})`;
   let firstPage = true;
   while (url) {
     let res: Response;
