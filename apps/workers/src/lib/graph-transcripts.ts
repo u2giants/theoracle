@@ -480,22 +480,25 @@ interface RawTranscript {
 }
 
 /**
- * Page a per-organizer `getAllTranscripts` function by TIME instead of by
- * Graph's `@odata.nextLink`.
+ * Page a per-organizer `getAllTranscripts` function by recursive TIME BISECTION
+ * instead of by Graph's `@odata.nextLink`.
  *
  * Both the onlineMeetings (v1.0) and adhocCalls (beta) getAllTranscripts
- * functions return a MALFORMED nextLink (`startIndex=-1` → a 400 on page 2+)
- * once an organizer has more than one page of transcripts — silently dropping
- * their older ones. So we never follow the nextLink. Instead we keep each
- * window's results, then re-query with the upper bound (`endDateTime`) pulled
- * back to the oldest transcript we've seen, until a window surfaces nothing new.
- * This recovers every transcript whether or not Graph's own paging works, and
- * dedupes on transcript content URL across the inclusive window boundary.
+ * functions have a server-side pagination defect: once a window holds more than
+ * one page of transcripts, Graph either hands back a malformed nextLink or fails
+ * the call outright with `startIndex ('-1')` (a 400) — even though we send no
+ * paging params. High-volume organizers therefore 400 on the very first
+ * full-range call. So we never page Graph's way: we query a time window, and if
+ * it 400s (too big) OR returns a "more pages" link we can't follow, we split the
+ * window in half and recurse into each half, down to a 1-minute floor. Every
+ * transcript lands in exactly one small-enough window that returns cleanly;
+ * results dedupe on transcript content URL across the shared boundary. Recovers
+ * all transcripts whether or not Graph's own paging works.
  *
- * Resilience contract (per organizer): a FIRST-window 403 throws (genuine
- * access/policy gap the caller wants surfaced); any other failure — 404, other
- * 4xx, timeout — keeps what we have and stops. `label` names the endpoint in
- * logs. A window cap backstops against clock issues / pathological tenants.
+ * Resilience contract (per organizer): a 403 on the very FIRST call throws
+ * (genuine access/policy gap the caller wants surfaced); 404 is an empty window;
+ * a 400 bisects; network/timeout skips that window; a per-organizer call cap
+ * backstops runaway subdivision.
  */
 async function pageTranscriptsByTime(
   token: string,
@@ -506,59 +509,76 @@ async function pageTranscriptsByTime(
 ): Promise<RawTranscript[]> {
   const out: RawTranscript[] = [];
   const seen = new Set<string>();
-  let endIso = new Date().toISOString();
-  let firstWindow = true;
-  for (let window = 0; window < 60; window++) {
-    const url = buildUrl(sinceIso, endIso);
+  const MIN_WINDOW_MS = 60_000; // 1-minute floor; below this we stop subdividing
+  const MAX_CALLS = 250; // backstop against runaway subdivision for one organizer
+  // Work stack of [startIso, endIso] windows to fetch.
+  const stack: Array<[string, string]> = [[sinceIso, new Date().toISOString()]];
+  let calls = 0;
+  let firstCall = true;
+
+  while (stack.length > 0 && calls < MAX_CALLS) {
+    const [start, end] = stack.pop()!;
+    calls += 1;
     let res: Response;
     try {
-      res = await fetch(url, {
+      res = await fetch(buildUrl(start, end), {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(30_000),
       });
     } catch (err) {
-      // Network error / timeout — keep what we have, don't abort the scan.
-      console.warn(`[graph-transcripts] ${label} fetch error for ${organizerId}`, err);
-      return out;
+      // Network error / timeout — skip this window, keep scanning the rest.
+      console.warn(`[graph-transcripts] ${label} fetch error for ${organizerId} (${start}..${end})`, err);
+      firstCall = false;
+      continue;
     }
+
     if (!res.ok) {
       const body = (await res.text().catch(() => '')).slice(0, 200);
-      if (firstWindow && res.status === 403) {
+      if (firstCall && res.status === 403) {
         throw new Error(`${label} forbidden (403) for organizer ${organizerId}: ${body}`);
       }
-      // A first-window 404 usually means "no transcripts", but a wrong request
-      // shape also 404s — log it rather than swallow silently.
-      if (res.status === 404 && firstWindow) {
+      firstCall = false;
+      if (res.status === 404) continue; // no transcripts in this window
+      const startMs = Date.parse(start);
+      const endMs = Date.parse(end);
+      // A too-big window (Graph's startIndex/pagination bug) surfaces as 400 —
+      // bisect and retry the halves until each is small enough to return cleanly.
+      if (res.status === 400 && endMs - startMs > MIN_WINDOW_MS) {
+        const midIso = new Date((startMs + endMs) / 2).toISOString();
+        stack.push([start, midIso], [midIso, end]);
+      } else {
         console.warn(
-          `[graph-transcripts] ${label} 404 (first page) for ${organizerId} — treating as ` +
-            `"no transcripts": ${body}`,
+          `[graph-transcripts] ${label} ${res.status} for ${organizerId} (${start}..${end}): ${body}`,
         );
-      } else if (res.status !== 404) {
-        console.warn(`[graph-transcripts] ${label} ${res.status} for ${organizerId}: ${body}`);
       }
-      return out;
+      continue;
     }
-    const page = (await res.json()) as { value?: RawTranscript[] };
-    const items = page.value ?? [];
-    firstWindow = false;
 
-    let oldest: string | null = null;
-    let added = 0;
-    for (const t of items) {
+    firstCall = false;
+    const page = (await res.json()) as { value?: RawTranscript[]; '@odata.nextLink'?: string };
+    const startMs = Date.parse(start);
+    const endMs = Date.parse(end);
+    // Still more than one page and we can't follow the broken nextLink — subdivide
+    // to capture the rest rather than collect a partial window.
+    if (page['@odata.nextLink'] && endMs - startMs > MIN_WINDOW_MS) {
+      const midIso = new Date((startMs + endMs) / 2).toISOString();
+      stack.push([start, midIso], [midIso, end]);
+      continue;
+    }
+    for (const t of page.value ?? []) {
       const id = t.transcriptContentUrl ?? null;
       if (id) {
         if (seen.has(id)) continue;
         seen.add(id);
       }
       out.push(t);
-      added += 1;
-      const created = t.createdDateTime ?? null;
-      if (created && (oldest === null || created < oldest)) oldest = created;
     }
-    // Stop when this window surfaced nothing new, we can't determine an older
-    // bound (no createdDateTime to key on), or we've reached the floor.
-    if (added === 0 || !oldest || oldest <= sinceIso) break;
-    endIso = oldest; // next window: everything strictly older than what we've seen
+  }
+
+  if (calls >= MAX_CALLS) {
+    console.warn(
+      `[graph-transcripts] ${label} hit ${MAX_CALLS}-call cap for ${organizerId}; results may be partial`,
+    );
   }
   return out;
 }
@@ -567,7 +587,7 @@ async function pageTranscriptsByTime(
  * Scheduled-meeting transcripts for one organizer created at/after `sinceIso`.
  * Mirrors the change-notification payload shape so each result can be handed to
  * teams-transcript-ingestion exactly like a live notification. Uses the STABLE
- * v1.0 function and keyset-by-time paging (see pageTranscriptsByTime).
+ * v1.0 function and time-bisection paging (see pageTranscriptsByTime).
  *
  * The PULL endpoint is per-user: users/{id}/onlineMeetings/getAllTranscripts —
  * distinct from the tenant-wide SUBSCRIPTION resource
@@ -607,8 +627,8 @@ export async function getOnlineMeetingTranscripts(
  * this does too.
  *
  * Same resilience contract as getOnlineMeetingTranscripts, and the same
- * keyset-by-time paging (see pageTranscriptsByTime) — the adhocCalls function
- * has the identical malformed-nextLink defect, so we never follow it.
+ * time-bisection paging (see pageTranscriptsByTime) — the adhocCalls function
+ * has the identical pagination defect, so we never follow its nextLink.
  */
 export async function getAdhocCallTranscripts(
   organizerId: string,
