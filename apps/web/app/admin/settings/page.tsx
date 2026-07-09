@@ -178,8 +178,8 @@ const AUX_PRESENTATION: Record<
         Summarizes discovered Teams transcripts for the admin meeting picker.
         This is preview-only: it helps decide whether a meeting is worth
         ingesting, and it never creates messages, claims, or Brain artifacts.
-        The default is the bake-off winner <strong>qwen/qwen3.6-flash</strong>,
-        with a Qwen fallback in the same DashScope provider.
+        The default is the bake-off winner <strong>deepseek/deepseek-v4-flash</strong>,
+        with Qwen as the fallback provider.
       </>
     ),
     settingDescription: 'Model used for on-demand Teams transcript picker summaries.',
@@ -609,7 +609,7 @@ CAPABILITIES IT NEEDS
 Plain text generation, low cost, solid long-ish transcript handling, and good instruction following. It does not need strict JSON schema, tools, vision, reasoning effort, or streaming.
 
 BOTTOM LINE
-Pick a cheap reliable text model. The current bake-off winner is qwen/qwen3.6-flash, with qwen/qwen3.7-plus as the same-provider fallback.`;
+Pick a cheap reliable text model. The current bake-off winner is deepseek/deepseek-v4-flash, with qwen/qwen3.6-flash as the fallback.`;
 
 // Clipboard "job brief" text by auxiliary-model id. Declared after the brief
 // literals (which are large) so the earlier AUX_PRESENTATION map stays free of

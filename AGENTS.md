@@ -418,9 +418,10 @@ NEVER OpenRouter. There is no OpenRouter inference adapter in `buildStandardAdap
 `DEEPSEEK_API_KEY` must be set in EVERY environment that runs `deepseek/*` (Vercel chat +
 the Trigger worker). If it is missing, `DeepSeekAdapter` is omitted at boot (loud
 `console.error` in `standard-adapters.ts`) and any `deepseek/*` route fails to dispatch
-and falls back to the next pool candidate. (Known gap as of 2026-07-08: the PROD Trigger
-worker env is MISSING `DEEPSEEK_API_KEY`, so the transcript-summary `deepseek-v4-flash`
-choice fell back to Qwen — set the key in prod to enable it. See `HANDOFF.md`.)
+and falls back to the next pool candidate. (`DEEPSEEK_API_KEY` was set in the PROD Trigger
+env on 2026-07-09 via the Trigger management API + the Trigger PAT in 1Password; the
+transcript summary now runs on `deepseek/deepseek-v4-flash`, live-verified worker
+`20260709.1`.)
 
 ### `google/*` model settings are real Gemini API routes, not Vertex aliases
 

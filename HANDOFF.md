@@ -130,20 +130,24 @@ calls were only my test harness. **Real blocker: the PROD Trigger worker env is 
 `DEEPSEEK_API_KEY`** (verified 2026-07-08 — a forced deepseek-v4-flash run failed "No adapter
 registered for provider deepseek" and fell back to qwen; settings were reverted to
 qwen3.6-flash so summaries keep working). Prod `model_capabilities` already has the 2 deepseek
-models. Policy now documented in AGENTS.md ("OpenRouter is enrichment-only" block) +
+models. Policy documented in AGENTS.md ("OpenRouter is enrichment-only" block) +
 docs/configuration.md (`DEEPSEEK_API_KEY` row).
+**RESOLVED 2026-07-09:** `DEEPSEEK_API_KEY` was set in the PROD Trigger env via the Trigger
+management API (`POST https://api.trigger.dev/api/v1/projects/proj_wgpzsvhmsopqhvwqaycn/envvars/prod`
+`{name,value}`, Bearer = the new Trigger PAT in 1Password "Trigger.dev Personal Access Token
+(management)"). Summary switched to `deepseek/deepseek-v4-flash` (pool fallback qwen3.6-flash),
+worker `20260709.1`, migration `92`, LIVE-VERIFIED (run produced a deepseek-v4-flash summary,
+$0.0003 vs qwen-max ~$0.019). The Trigger PAT now lets an AI session set prod env vars itself
+(no dashboard). Enabler for future secret-use-without-exposure: 1Password MCP `op_run`
+(published `@u2giants/1password-mcp@2.5.1`, 2026-07-09) — activates on next MCP restart.
 
 **OPEN / PENDING (next actions in priority order):**
 1. **Build the shape-aware reader** per `SHAPE_AWARE_READER_DESIGN.md`, Stage 1 first. THE
    MAIN WORK.
-2. **Set `DEEPSEEK_API_KEY` in the PROD Trigger worker env** (value in 1Password vault
-   `vibe_coding`, item "ai-provider-api-keys"), then switch
-   `default_transcript_summary_route` → `deepseek/deepseek-v4-flash` (pool
-   `["deepseek/deepseek-v4-flash","qwen/qwen3.6-flash"]`), update the seeded default +
-   add a re-seed migration, redeploy, and re-test. This makes transcript summaries 23x
-   cheaper. Also add the key to Vercel for any chat-side `deepseek/*` use.
-3. Verify today's Teams meetings now appear with subjects on `/admin/transcripts` after the
+2. Verify today's Teams meetings now appear with subjects on `/admin/transcripts` after the
    Azure `OnlineMeetings.Read.All` grant (scan showed metadataErrors=0).
+3. Optional: add `DEEPSEEK_API_KEY` to Vercel too if any chat-side `deepseek/*` route is
+   selected (workers are done).
 
 **Git:** everything above was committed to `main` and pushed this session (Albert asked). If a
 push did not complete, the working tree holds: Stage 3 + transcript-picker code + migrations
