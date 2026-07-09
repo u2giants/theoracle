@@ -6,6 +6,7 @@ import { getDirectDb } from '@oracle/db/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatNYDateTime } from '@/lib/time';
 import { ShiftSelect } from '../claims/_components/shift-select';
+import { SubmitButton } from './_components/submit-button';
 import {
   dismissMeeting,
   generateAvailableTranscriptSummaries,
@@ -145,22 +146,22 @@ export default async function AdminTranscriptsPage({
         </div>
         <form action={runDiscoveryScan}>
           <input type="hidden" name="sinceDays" value="14" />
-          <button
-            type="submit"
+          <SubmitButton
             className="rounded border px-3 py-1 text-xs font-medium hover:bg-muted"
             title="Query Microsoft for meeting transcripts from the last 14 days and add them to the list (metadata only — does not ingest)"
+            pendingLabel="Scanning…"
           >
             Scan for recent meetings
-          </button>
+          </SubmitButton>
         </form>
         <form action={generateAvailableTranscriptSummaries}>
-          <button
-            type="submit"
+          <SubmitButton
             className="rounded border px-3 py-1 text-xs font-medium hover:bg-muted"
             title="Generate cheap AI summaries for available meetings only; does not ingest or extract claims"
+            pendingLabel="Summarizing…"
           >
             Summarize available
-          </button>
+          </SubmitButton>
         </form>
       </div>
 
@@ -172,12 +173,12 @@ export default async function AdminTranscriptsPage({
         action={ingestMeetings}
         className="flex flex-wrap items-center gap-3 rounded border border-dashed p-3 text-sm"
       >
-        <button
-          type="submit"
+        <SubmitButton
           className="rounded bg-foreground px-3 py-1 text-xs text-background hover:opacity-90"
+          pendingLabel="Ingesting…"
         >
           Ingest selected
-        </button>
+        </SubmitButton>
         <span className="text-xs text-muted-foreground">
           Tick available meetings (shift-click for a range), then submit to pull their
           transcripts in for extraction.
@@ -291,32 +292,32 @@ export default async function AdminTranscriptsPage({
                           <div className="flex flex-wrap gap-2">
                             <form action={generateTranscriptSummary}>
                               <input type="hidden" name="meetingId" value={row.id} />
-                              <button
-                                type="submit"
+                              <SubmitButton
                                 className="rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+                                pendingLabel={row.ai_summary ? 'Refreshing…' : 'Summarizing…'}
                               >
                                 {row.ai_summary ? 'Refresh summary' : 'Summarize'}
-                              </button>
+                              </SubmitButton>
                             </form>
                             {isAvailable && (
                               <>
                               <form action={ingestMeetings}>
                                 <input type="hidden" name="meetingId" value={row.id} />
-                                <button
-                                  type="submit"
+                                <SubmitButton
                                   className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
+                                  pendingLabel="Ingesting…"
                                 >
                                   Ingest
-                                </button>
+                                </SubmitButton>
                               </form>
                               <form action={dismissMeeting}>
                                 <input type="hidden" name="meetingId" value={row.id} />
-                                <button
-                                  type="submit"
+                                <SubmitButton
                                   className="rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+                                  pendingLabel="Dismissing…"
                                 >
                                   Dismiss
-                                </button>
+                                </SubmitButton>
                               </form>
                               </>
                             )}

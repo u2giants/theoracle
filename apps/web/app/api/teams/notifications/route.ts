@@ -29,6 +29,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { triggerTask } from '@/lib/trigger';
+import { getUserDisplayName } from '@/lib/microsoft-graph';
 import {
   decryptResourceData,
   type GraphEncryptedContent,
@@ -145,6 +146,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       } catch (err) {
         console.error('[teams/notifications] decrypt failed', err);
       }
+    }
+
+    // Ad-hoc "Meet Now" call notifications carry the organizer id but no
+    // display name, so the row would render as "Unknown" in the picker.
+    // Best-effort resolve the name from the directory (cached token → ~1 GET;
+    // returns null on any failure so we never block the fast 202 ack below).
+    if (organizerId && !organizerName) {
+      organizerName = await getUserDisplayName(organizerId);
     }
 
     // DISCOVERY ONLY — record that this meeting's transcript is available; do

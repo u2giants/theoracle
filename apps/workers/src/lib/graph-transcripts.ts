@@ -351,6 +351,17 @@ export interface BackfillTranscript {
   createdDateTime: string | null;
 }
 
+export interface AdhocCallTranscript {
+  transcriptContentUrl: string | null;
+  /** Always null for ad-hoc calls (no scheduled onlineMeeting object). */
+  meetingId: string | null;
+  callId: string | null;
+  organizerId: string | null;
+  createdDateTime: string | null;
+  /** Transcription end time — with createdDateTime this gives the duration. */
+  endDateTime: string | null;
+}
+
 export type MeetingParticipant = {
   name: string;
   email?: string;
@@ -536,6 +547,90 @@ export async function getOnlineMeetingTranscripts(
         meetingId: t.meetingId ?? null,
         callId: t.callId ?? null,
         createdDateTime: t.createdDateTime ?? null,
+      });
+    }
+    url = page['@odata.nextLink'];
+    firstPage = false;
+  }
+  return out;
+}
+
+/**
+ * Ad-hoc ("Meet Now" / group-chat) call transcripts for one organizer, created
+ * in [sinceIso, now]. Ad-hoc calls are enumerable ONLY through this BETA
+ * function (`adhocCalls/getAllTranscripts`, whose organizer param is named
+ * `userId`); the `onlineMeetings` function excludes them by design. Requires the
+ * `CallTranscripts.Read.All` application permission — the same one the standing
+ * ad-hoc change-notification subscription already uses, so if live capture works
+ * this does too.
+ *
+ * Same resilience contract as getOnlineMeetingTranscripts: a first-page 403 is a
+ * genuine access gap and throws; 404 / other 4xx / timeout keep whatever we
+ * collected and stop. Pages by following `@odata.nextLink` verbatim and never
+ * sends `$top` — a documented Graph quirk where `$top` drops the nextLink and
+ * yields the `startIndex ('-1')` 400 on page 2+.
+ */
+export async function getAdhocCallTranscripts(
+  organizerId: string,
+  sinceIso: string,
+): Promise<AdhocCallTranscript[]> {
+  const cfg = getConfigOrNull();
+  if (!cfg) return [];
+  const token = await getToken(cfg);
+  const out: AdhocCallTranscript[] = [];
+  const endIso = new Date().toISOString();
+  let url: string | undefined =
+    `${GRAPH_BETA}/users/${organizerId}/adhocCalls/getAllTranscripts(userId='${organizerId}',startDateTime=${sinceIso},endDateTime=${endIso})`;
+  let firstPage = true;
+  while (url) {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (err) {
+      console.warn(`[graph-transcripts] adhoc getAllTranscripts fetch error for ${organizerId}`, err);
+      return out;
+    }
+    if (!res.ok) {
+      const body = (await res.text().catch(() => '')).slice(0, 200);
+      if (firstPage && res.status === 403) {
+        throw new Error(
+          `adhoc getAllTranscripts forbidden (403) for organizer ${organizerId}: ${body}`,
+        );
+      }
+      if (res.status === 404 && firstPage) {
+        // Usually means "this organizer has no ad-hoc call transcripts". Logged
+        // (not silently swallowed) because a wrong request shape also 404s.
+        console.warn(
+          `[graph-transcripts] adhoc getAllTranscripts 404 (first page) for ${organizerId} — ` +
+            `treating as "no ad-hoc transcripts": ${body}`,
+        );
+      } else if (res.status !== 404) {
+        console.warn(`[graph-transcripts] adhoc getAllTranscripts ${res.status} for ${organizerId}: ${body}`);
+      }
+      return out;
+    }
+    const page = (await res.json()) as {
+      value?: Array<{
+        transcriptContentUrl?: string | null;
+        meetingId?: string | null;
+        callId?: string | null;
+        createdDateTime?: string | null;
+        endDateTime?: string | null;
+        meetingOrganizer?: { user?: { id?: string | null } | null } | null;
+      }>;
+      '@odata.nextLink'?: string;
+    };
+    for (const t of page.value ?? []) {
+      out.push({
+        transcriptContentUrl: t.transcriptContentUrl ?? null,
+        meetingId: t.meetingId ?? null,
+        callId: t.callId ?? null,
+        organizerId: t.meetingOrganizer?.user?.id ?? organizerId,
+        createdDateTime: t.createdDateTime ?? null,
+        endDateTime: t.endDateTime ?? null,
       });
     }
     url = page['@odata.nextLink'];

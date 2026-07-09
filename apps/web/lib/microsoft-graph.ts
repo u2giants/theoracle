@@ -157,6 +157,38 @@ export async function listTenantUsers(): Promise<GraphTenantUser[]> {
   return all;
 }
 
+/**
+ * Best-effort resolve a single user's display name from their Graph object id.
+ *
+ * Used to enrich transcript-discovery rows whose change-notification payload
+ * carried an organizer id but no display name (ad-hoc "Meet Now" calls omit it).
+ * Deliberately forgiving: returns null on any failure (not configured, 404,
+ * timeout) so callers can fall back to "Unknown" instead of erroring. The token
+ * is cached in-memory, so the common case is a single ~200ms directory GET.
+ */
+export async function getUserDisplayName(userId: string): Promise<string | null> {
+  const cfg = getGraphConfigOrNull();
+  if (!cfg || !userId) return null;
+  try {
+    const token = await getAccessToken(cfg);
+    const res = await fetch(
+      `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userId)}?$select=displayName`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        // Runs on the notification hot path; Graph disables slow endpoints, so
+        // bail fast and let the caller fall back to "Unknown".
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { displayName?: string | null };
+    const name = (data.displayName ?? '').trim();
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Teams transcript subscriptions ─────────────────────────────────────────
 //
 // We keep TWO standing change-notification subscriptions, one per resource:
