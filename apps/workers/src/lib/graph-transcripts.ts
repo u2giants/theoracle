@@ -481,25 +481,26 @@ interface RawTranscript {
 
 /**
  * Page a per-organizer `getAllTranscripts` function WITHOUT relying on Graph's
- * `@odata.nextLink`.
+ * `@odata.nextLink`, using an ADAPTIVE keyset walk (newest → oldest).
  *
  * Both the onlineMeetings (v1.0) and adhocCalls (beta) getAllTranscripts
  * functions have a server-side pagination defect: once a window holds more than
- * one page of transcripts, Graph hands back a malformed nextLink and, for
- * high-volume organizers, fails the whole call with `startIndex ('-1')` (a 400) —
- * even though we send no paging params. So we never follow the nextLink:
+ * one page of transcripts Graph hands back a malformed nextLink, and for
+ * high-volume organizers it fails the whole call with `startIndex ('-1')` (a 400)
+ * — even though we send no paging params. Graph calls are also slow (~seconds
+ * each), so the goal is FEW calls. We adapt the window size to the data:
  *
- *   1. Probe the full [sinceIso, now] range once. The common case — an organizer
- *      with at most one page of transcripts — is answered in a SINGLE call.
- *   2. Only if that probe is "too big" (a 400, or a 200 that still points at more
- *      pages) do we WALK the range in fixed 12-hour windows, oldest-last. A human
- *      has well under one page of transcripts in any 12h window, so each window's
- *      first page is its complete set (the nextLink there is the bug, ignored).
- *      Any window Graph still 400s on is bisected down to a 1-hour floor.
+ *   - Start with the full range. On a 200 with no nextLink (the common case: an
+ *     organizer with <= 1 page) we're done in ONE call.
+ *   - On a 400 (window too big) we halve the window and retry the same upper
+ *     bound until it fits.
+ *   - On a 200 that still has a nextLink we keep its first page and jump the upper
+ *     bound back to the oldest transcript we just saw, shrinking the window.
+ *   - On success/empty we jump the upper bound to the window's lower bound and
+ *     GROW the window, so long empty stretches are skipped in a few doublings.
  *
- * This is bounded — ~1 call for normal organizers, ~one call per 12h window for a
- * dense one — instead of the exponential top-down subdivision that timed the scan
- * out. Results dedupe on transcript content URL across window boundaries.
+ * A dense organizer costs ~a few dozen calls (≈ transcripts/page plus gap-skips)
+ * rather than one-per-fixed-slice. Results dedupe on transcript content URL.
  *
  * Resilience contract: a 403 on the very FIRST call throws (genuine access gap
  * the caller surfaces); 404 is an empty window; network/timeout skips a window; a
@@ -514,20 +515,23 @@ async function pageTranscriptsByTime(
 ): Promise<RawTranscript[]> {
   const out: RawTranscript[] = [];
   const seen = new Set<string>();
-  const STEP_MS = 12 * 60 * 60 * 1000; // 12-hour walk window
-  const MIN_WINDOW_MS = 60 * 60 * 1000; // 1-hour floor for 400-driven bisection
-  const MAX_CALLS = 200; // backstop for one organizer
-  const nowMs = new Date().getTime();
+  const MIN_WINDOW_MS = 60 * 60 * 1000; // 1-hour floor
+  const MAX_WINDOW_MS = 60 * 24 * 60 * 60 * 1000; // 60-day cap
+  const MAX_CALLS = 80; // backstop for one organizer
   const sinceMs = Date.parse(sinceIso);
   let calls = 0;
   let firstCall = true;
 
-  // Fetch one window and collect its first page. Returns:
+  // Fetch one window, collect its first page, and report the outcome plus the
+  // oldest createdDateTime seen (for the keyset jump). Status:
   //   'ok'     — 200, complete (no further pages)
-  //   'more'   — 200, but a nextLink we won't follow (page 1 already collected)
+  //   'more'   — 200 with a nextLink we won't follow (first page already kept)
   //   'toobig' — 400 (window too large for Graph to return at all)
   //   'empty'  — 404 / other non-fatal error
-  const fetchWindow = async (sMs: number, eMs: number): Promise<'ok' | 'more' | 'toobig' | 'empty'> => {
+  const fetchWindow = async (
+    sMs: number,
+    eMs: number,
+  ): Promise<{ status: 'ok' | 'more' | 'toobig' | 'empty'; oldestMs: number | null }> => {
     calls += 1;
     let res: Response;
     try {
@@ -538,7 +542,7 @@ async function pageTranscriptsByTime(
     } catch (err) {
       console.warn(`[graph-transcripts] ${label} fetch error for ${organizerId}`, err);
       firstCall = false;
-      return 'empty';
+      return { status: 'empty', oldestMs: null };
     }
     if (!res.ok) {
       const body = (await res.text().catch(() => '')).slice(0, 200);
@@ -546,13 +550,14 @@ async function pageTranscriptsByTime(
         throw new Error(`${label} forbidden (403) for organizer ${organizerId}: ${body}`);
       }
       firstCall = false;
-      if (res.status === 404) return 'empty';
-      if (res.status === 400) return 'toobig';
+      if (res.status === 404) return { status: 'empty', oldestMs: null };
+      if (res.status === 400) return { status: 'toobig', oldestMs: null };
       console.warn(`[graph-transcripts] ${label} ${res.status} for ${organizerId}: ${body}`);
-      return 'empty';
+      return { status: 'empty', oldestMs: null };
     }
     firstCall = false;
     const page = (await res.json()) as { value?: RawTranscript[]; '@odata.nextLink'?: string };
+    let oldestMs: number | null = null;
     for (const t of page.value ?? []) {
       const id = t.transcriptContentUrl ?? null;
       if (id) {
@@ -560,36 +565,39 @@ async function pageTranscriptsByTime(
         seen.add(id);
       }
       out.push(t);
+      const c = t.createdDateTime ? Date.parse(t.createdDateTime) : NaN;
+      if (Number.isFinite(c) && (oldestMs === null || c < oldestMs)) oldestMs = c;
     }
-    return page['@odata.nextLink'] ? 'more' : 'ok';
+    return { status: page['@odata.nextLink'] ? 'more' : 'ok', oldestMs };
   };
 
-  // 1) Whole-range probe — one call for the common (<= 1 page) organizer.
-  const probe = await fetchWindow(sinceMs, nowMs);
-  if (probe === 'ok' || probe === 'empty') return out;
-
-  // 2) Dense organizer: walk the range in 12h windows, bisecting on a 400.
-  let eMs = nowMs;
-  while (eMs > sinceMs && calls < MAX_CALLS) {
-    const sMs = Math.max(sinceMs, eMs - STEP_MS);
-    if ((await fetchWindow(sMs, eMs)) === 'toobig') {
-      const stack: Array<[number, number]> = [[sMs, eMs]];
-      while (stack.length > 0 && calls < MAX_CALLS) {
-        const [s, e] = stack.pop()!;
-        if ((await fetchWindow(s, e)) === 'toobig') {
-          if (e - s > MIN_WINDOW_MS) {
-            const m = Math.floor((s + e) / 2);
-            stack.push([s, m], [m, e]);
-          } else {
-            console.warn(
-              `[graph-transcripts] ${label} still 400 at 1h floor for ${organizerId} ` +
-                `(${new Date(s).toISOString()})`,
-            );
-          }
-        }
+  let endMs = new Date().getTime();
+  let windowMs = MAX_WINDOW_MS;
+  while (endMs > sinceMs && calls < MAX_CALLS) {
+    const startMs = Math.max(sinceMs, endMs - windowMs);
+    const { status, oldestMs } = await fetchWindow(startMs, endMs);
+    if (status === 'toobig') {
+      if (windowMs > MIN_WINDOW_MS) {
+        windowMs = Math.max(MIN_WINDOW_MS, Math.floor(windowMs / 2)); // shrink, same upper bound
+        continue;
       }
+      // Can't shrink further — accept the gap and move past it.
+      console.warn(
+        `[graph-transcripts] ${label} still 400 at 1h floor for ${organizerId} ` +
+          `(${new Date(startMs).toISOString()})`,
+      );
+      endMs = startMs;
+      continue;
     }
-    eMs = sMs;
+    if (status === 'more' && windowMs > MIN_WINDOW_MS) {
+      // Too dense to see fully; keep page 1, continue from the oldest we got, shrink.
+      endMs = oldestMs !== null ? oldestMs : startMs;
+      windowMs = Math.max(MIN_WINDOW_MS, Math.floor(windowMs / 2));
+      continue;
+    }
+    // 'ok', 'empty', or 'more' at the floor (a 1h window's first page is complete).
+    endMs = startMs;
+    windowMs = Math.min(MAX_WINDOW_MS, windowMs * 2); // grow to skip empty stretches fast
   }
   if (calls >= MAX_CALLS) {
     console.warn(
@@ -603,7 +611,7 @@ async function pageTranscriptsByTime(
  * Scheduled-meeting transcripts for one organizer created at/after `sinceIso`.
  * Mirrors the change-notification payload shape so each result can be handed to
  * teams-transcript-ingestion exactly like a live notification. Uses the STABLE
- * v1.0 function and time-bisection paging (see pageTranscriptsByTime).
+ * v1.0 function and adaptive keyset paging (see pageTranscriptsByTime).
  *
  * The PULL endpoint is per-user: users/{id}/onlineMeetings/getAllTranscripts —
  * distinct from the tenant-wide SUBSCRIPTION resource
@@ -643,7 +651,7 @@ export async function getOnlineMeetingTranscripts(
  * this does too.
  *
  * Same resilience contract as getOnlineMeetingTranscripts, and the same
- * time-bisection paging (see pageTranscriptsByTime) — the adhocCalls function
+ * adaptive keyset paging (see pageTranscriptsByTime) — the adhocCalls function
  * has the identical pagination defect, so we never follow its nextLink.
  */
 export async function getAdhocCallTranscripts(

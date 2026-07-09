@@ -65,7 +65,14 @@ export const teamsTranscriptDiscoveryScanTask = task({
     let adhocDiscovered = 0;
     let adhocSkippedShort = 0;
     let adhocErrors = 0;
-    for (const organizer of organizers) {
+
+    // Graph's getAllTranscripts calls run ~seconds each; scanning 50 organizers
+    // strictly sequentially times the task out. Fan out with bounded concurrency
+    // (counters mutate safely under Node's single-threaded event loop; postgres-js
+    // pools the upsert connections). Concurrency is modest to stay well under
+    // Graph's per-app throttle.
+    const CONCURRENCY = 6;
+    const scanOrganizer = async (organizer: (typeof organizers)[number]): Promise<void> => {
       const organizerName =
         organizer.name ?? organizer.mail ?? organizer.userPrincipalName ?? organizer.id;
 
@@ -163,6 +170,10 @@ export const teamsTranscriptDiscoveryScanTask = task({
           err,
         );
       }
+    };
+
+    for (let i = 0; i < organizers.length; i += CONCURRENCY) {
+      await Promise.all(organizers.slice(i, i + CONCURRENCY).map(scanOrganizer));
     }
 
     // Backfill organizer names for rows the webhook recorded without one.
