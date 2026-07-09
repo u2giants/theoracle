@@ -29,16 +29,26 @@ export {
   WORKFLOW_NODE_TYPES,
   WORKFLOW_EDGE_TYPES,
   WORKFLOW_PATH_TYPES,
+  SOURCE_STRUCTURE_SHAPES,
   WorkflowReadSchema,
   WorkflowReadNodeSchema,
   WorkflowReadEdgeSchema,
   WorkflowReadLaneSchema,
   WorkflowReadPathSchema,
+  SourceStructureMapSchema,
+  SourceStructureSegmentSchema,
+  SourceStructureElementSchema,
+  SourceStructureRelationSchema,
   type WorkflowReadOutput,
   type WorkflowReadNode,
   type WorkflowReadEdge,
   type WorkflowReadLane,
   type WorkflowReadPath,
+  type SourceStructureShape,
+  type SourceStructureMap,
+  type SourceStructureSegment,
+  type SourceStructureElement,
+  type SourceStructureRelation,
 } from './prompts/workflow-read';
 // OpenRouter has been removed from the codebase per R-providers / R11.0.
 // Every production model call goes through OracleAIClient with direct
@@ -67,11 +77,7 @@ export {
   type OracleTextResult,
   type OracleObjectResult,
 } from './client/types';
-export {
-  getContextCompiler,
-  ContextCompiler,
-  type CompileArgs,
-} from './context/context-compiler';
+export { getContextCompiler, ContextCompiler, type CompileArgs } from './context/context-compiler';
 export {
   hashContent,
   hashBlockSequence,

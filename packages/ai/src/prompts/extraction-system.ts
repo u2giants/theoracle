@@ -3,7 +3,7 @@
 //
 // Version 2.4.0 adds:
 //   - mapElementRef so macro-first document extraction can link candidates to
-//     source workflow map nodes/edges.
+//     source structure map elements/relations.
 //
 // Version 2.3.0 adds:
 //   - claimKind + claimKindConfidence so policy, observed practice, exception,
@@ -39,20 +39,20 @@
 import { z } from 'zod';
 import { KNOWLEDGE_DOMAINS, ENTITY_TYPES } from '@oracle/shared';
 
-export const EXTRACTION_PROMPT_VERSION = '2.4.1';
+export const EXTRACTION_PROMPT_VERSION = '2.4.2';
 
 // ---------------------------------------------------------------------------
 // Claim type taxonomy (spec 9.4 + Part 6).
 // ---------------------------------------------------------------------------
 export const CLAIM_TYPES = [
-  'process_rule',      // How something normally works
-  'exception_rule',    // An exception to a standard process
-  'bottleneck',        // A constraint or delay point (person, system, or approval)
-  'workaround',        // An unofficial solution for a missing capability
+  'process_rule', // How something normally works
+  'exception_rule', // An exception to a standard process
+  'bottleneck', // A constraint or delay point (person, system, or approval)
+  'workaround', // An unofficial solution for a missing capability
   'system_limitation', // What a system (Coldlion, ERP, etc.) fails to do
-  'dependency',        // Something that must occur before something else
-  'handoff_gap',       // Information lost between departments
-  'contradiction',     // Two conflicting facts about the same process
+  'dependency', // Something that must occur before something else
+  'handoff_gap', // Information lost between departments
+  'contradiction', // Two conflicting facts about the same process
   'process_ambiguity', // Unclear ownership or unclear when/how something happens
 ] as const;
 
@@ -223,9 +223,7 @@ export const ExtractionClaimSchema = z.object({
   semanticRole: z
     .enum(SEMANTIC_ROLES)
     .nullish()
-    .describe(
-      'In group chats: how this claim was introduced. Omit for single-speaker segments.',
-    ),
+    .describe('In group chats: how this claim was introduced. Omit for single-speaker segments.'),
   requiresReview: z
     .boolean()
     .describe(
@@ -242,10 +240,10 @@ export const ExtractionClaimSchema = z.object({
   ),
   mapElementRef: z
     .string()
-    .regex(/^[0-9a-f-]{36}:(node|edge):[a-z0-9][a-z0-9_-]*$/)
+    .regex(/^[0-9a-f-]{36}:(element|relation):[a-z0-9][a-z0-9_-]*$/)
     .nullish()
     .describe(
-      'For document extraction only: exact source workflow map ref this claim supports, e.g. <mapId>:node:<nodeId> or <mapId>:edge:<edgeId>. Omit when the claim is not tied to a listed map element.',
+      'For document extraction only: exact source structure map ref this claim supports, e.g. <mapId>:element:<elementId> or <mapId>:relation:<relationId>. Omit when the claim is not tied to a listed map element.',
     ),
   suggestedGaps: z
     .array(ExtractionGapSchema)
@@ -258,7 +256,9 @@ export const ExtractionClaimSchema = z.object({
 export const ExtractionOutputSchema = z.object({
   claims: z
     .array(ExtractionClaimSchema)
-    .describe('All operational claims extracted from this conversation segment. Empty array if no claims found.'),
+    .describe(
+      'All operational claims extracted from this conversation segment. Empty array if no claims found.',
+    ),
   segmentSummary: z
     .string()
     .max(2000)
@@ -328,7 +328,7 @@ EXTRACTION RULES:
 10. Use the \`general\` domain for end-to-end business-process or companywide workflow claims that explain how work moves across multiple departments. Also include narrower domains such as \`licensing\`, \`design\`, \`production\`, \`sourcing\`, \`logistics\`, \`customers\`, \`sales\`, \`costing\`, or \`coldlion\` when the same claim is materially about those areas. \`costing\` means product/SKU costing and customer product pricing, not company finance/accounting. A costing sheet created by Design and sent to factories should usually include \`costing\` plus \`design\`, \`production\`, and/or \`sourcing\` if those handoffs are part of the claim.
 11. Prefer small, reviewable operational claims over broad document summaries. Do not turn an entire form, spreadsheet, or SOP into one vague claim. Extract the concrete rule, handoff, responsibility, input, output, or exception.
 12. For handoff claims, include every materially involved workflow domain. Example: "Design sends the costing sheet to factories so factories can quote production costs" is not just \`costing\`; it also involves \`design\` and \`sourcing\`/factory communication.
-13. If a SOURCE WORKFLOW MAP block is provided, use it as non-quotable guidance only. When a claim supports one listed node or edge, set \`mapElementRef\` to that exact ref. Never quote the map block; exactQuote must still come from a source message or document chunk.
+13. If a SOURCE STRUCTURE MAP block is provided, use it as non-quotable guidance only. When a claim supports one listed element or relation, set \`mapElementRef\` to that exact ref. Never quote the map block; exactQuote must still come from a source message or document chunk.
 
 ENTITY EXTRACTION RULES:
 14. List every distinct entity the claim REFERENCES — not just the message-wide entities, but the ones THIS claim depends on.
@@ -370,7 +370,9 @@ function appendFormattedMessages(lines: string[], msgs: FormattedMessage[]): voi
   for (const m of msgs) {
     if (m.role === 'system') continue;
     const speaker =
-      m.role === 'assistant' ? '[Oracle - do not extract claims from this]' : `[${m.authorName ?? 'Unknown Employee'}]`;
+      m.role === 'assistant'
+        ? '[Oracle - do not extract claims from this]'
+        : `[${m.authorName ?? 'Unknown Employee'}]`;
     const timestamp = new Date(m.createdAt).toISOString().slice(0, 16).replace('T', ' ');
     lines.push(`Message ID: ${m.id}`);
     lines.push(`Speaker: ${speaker}`);
@@ -398,7 +400,9 @@ export function formatConversationSegment(
     appendFormattedMessages(lines, carryIn);
   }
   lines.push('CONVERSATION SEGMENT TO EXTRACT FROM:');
-  lines.push('Extract claims only from the messages in this segment. Evidence quotes must use these message IDs only.');
+  lines.push(
+    'Extract claims only from the messages in this segment. Evidence quotes must use these message IDs only.',
+  );
   lines.push('---');
   appendFormattedMessages(lines, msgs);
   return lines.join('\n');

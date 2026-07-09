@@ -62,7 +62,7 @@ export function computeCandidateHash(inputs: CandidateHashInputs): string {
  * Produce the Stage-3 macro-first dedup key for map-referenced document claims.
  *
  * Map claims intentionally ignore summary wording and quote span: if two valid
- * candidates refer to the same map node/edge in the same document, they are the
+ * candidates refer to the same map element/relation in the same document, they are the
  * same within-source fact and the first promoted claim wins.
  */
 export function computeMapElementCandidateHash(inputs: MapElementCandidateHashInputs): string {

@@ -25,15 +25,10 @@ export const WORKFLOW_NODE_TYPES = [
   'terminal',
 ] as const;
 
-export const WORKFLOW_EDGE_TYPES = [
-  'sequence',
-  'handoff',
-  'branch',
-  'loop',
-  'exception',
-] as const;
+export const WORKFLOW_EDGE_TYPES = ['sequence', 'handoff', 'branch', 'loop', 'exception'] as const;
 
 export const WORKFLOW_PATH_TYPES = ['main', 'alternate', 'exception', 'loop'] as const;
+export const SOURCE_STRUCTURE_SHAPES = ['process'] as const;
 
 const workflowId = z
   .string()
@@ -85,8 +80,56 @@ export const WorkflowReadSchema = z.object({
   paths: z.array(WorkflowReadPathSchema).max(80),
 });
 
+export const SourceStructureSegmentSchema = z.object({
+  segmentId: workflowId,
+  shape: z.enum(SOURCE_STRUCTURE_SHAPES),
+  title: z.string().min(1).max(240),
+  summary: z.string().max(3000).nullish(),
+  chunkIds: z.array(z.string().uuid()).min(1).max(500),
+});
+
+export const SourceStructureElementSchema = z.object({
+  elementId: workflowId,
+  segmentId: workflowId,
+  shape: z.enum(SOURCE_STRUCTURE_SHAPES),
+  elementKind: z.enum(WORKFLOW_NODE_TYPES),
+  label: z.string().min(1).max(240),
+  lane: z.string().max(160).nullish(),
+  ownerName: z.string().max(160).nullish(),
+  systems: z.string().max(1000).nullish(),
+  evidenceQuote: z.string().min(3).max(2000),
+  chunkId: z.string().uuid(),
+});
+
+export const SourceStructureRelationSchema = z.object({
+  relationId: workflowId,
+  segmentId: workflowId,
+  fromElementId: workflowId,
+  toElementId: workflowId,
+  shape: z.enum(SOURCE_STRUCTURE_SHAPES),
+  relationKind: z.enum(WORKFLOW_EDGE_TYPES),
+  condition: z.string().max(240).nullish(),
+  evidenceQuote: z.string().min(3).max(2000),
+  chunkId: z.string().uuid(),
+});
+
+export const SourceStructureMapSchema = z.object({
+  documentShape: z.enum(SOURCE_STRUCTURE_SHAPES),
+  summary: z.string().min(10).max(3000),
+  segments: z.array(SourceStructureSegmentSchema).max(100),
+  elements: z.array(SourceStructureElementSchema).max(500),
+  relations: z.array(SourceStructureRelationSchema).max(800),
+  lanes: z.array(WorkflowReadLaneSchema).max(80),
+  paths: z.array(WorkflowReadPathSchema).max(80),
+});
+
 export type WorkflowReadOutput = z.infer<typeof WorkflowReadSchema>;
 export type WorkflowReadNode = z.infer<typeof WorkflowReadNodeSchema>;
 export type WorkflowReadEdge = z.infer<typeof WorkflowReadEdgeSchema>;
 export type WorkflowReadLane = z.infer<typeof WorkflowReadLaneSchema>;
 export type WorkflowReadPath = z.infer<typeof WorkflowReadPathSchema>;
+export type SourceStructureShape = z.infer<typeof SourceStructureMapSchema>['documentShape'];
+export type SourceStructureMap = z.infer<typeof SourceStructureMapSchema>;
+export type SourceStructureSegment = z.infer<typeof SourceStructureSegmentSchema>;
+export type SourceStructureElement = z.infer<typeof SourceStructureElementSchema>;
+export type SourceStructureRelation = z.infer<typeof SourceStructureRelationSchema>;

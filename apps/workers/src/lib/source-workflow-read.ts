@@ -17,6 +17,9 @@ import {
   type WorkflowReadNode,
   type WorkflowReadOutput,
   type WorkflowReadPath,
+  type SourceStructureElement,
+  type SourceStructureMap,
+  type SourceStructureRelation,
 } from '@oracle/ai';
 import {
   businessProcesses,
@@ -33,7 +36,12 @@ import {
 } from '@oracle/db';
 import { getDirectDb } from '@oracle/db/client';
 import { validateQuote } from '@oracle/engines';
-import { markMacroComplete, markMacroDegraded, markMacroMapFailed, markMacroPending } from './macro-health';
+import {
+  markMacroComplete,
+  markMacroDegraded,
+  markMacroMapFailed,
+  markMacroPending,
+} from './macro-health';
 
 type ChunkRow = {
   id: string;
@@ -45,15 +53,28 @@ type ChunkRow = {
 
 type WorkflowMapStatus = 'validated' | 'degraded' | 'failed';
 type ReusableWorkflowMapStatus = 'validated' | 'degraded';
+const PROCESS_SEGMENT_ID = 'process';
 
 export type SourceWorkflowReadResult = {
   documentId: string;
-  status: 'validated' | 'degraded' | 'failed' | 'skipped_existing' | 'skipped_no_chunks' | 'skipped_not_found';
+  status:
+    | 'validated'
+    | 'degraded'
+    | 'failed'
+    | 'skipped_existing'
+    | 'skipped_no_chunks'
+    | 'skipped_not_found';
   mapId?: string;
   existingMapStatus?: 'validated' | 'degraded';
   mapKind?: 'workflow' | 'reference';
+  documentShape?: 'process';
   droppedCount?: number;
   keptCount?: number;
+  segmentCount?: number;
+  elementCount?: number;
+  relationCount?: number;
+  laneCount?: number;
+  pathCount?: number;
 };
 
 function sha256(text: string): string {
@@ -104,7 +125,11 @@ function sourceHashForDocument(documentId: string, chunks: ChunkRow[]): string {
 }
 
 async function readNumberSetting(db: OracleDb, key: string, fallback: number): Promise<number> {
-  const [row] = await db.select({ value: settings.value }).from(settings).where(eq(settings.key, key)).limit(1);
+  const [row] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, key))
+    .limit(1);
   const value = row?.value;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && Number.isFinite(Number(value))) return Number(value);
@@ -136,7 +161,10 @@ async function buildReferentPack(db: OracleDb): Promise<string> {
     'Known entities:',
   ];
   for (const entity of entityRows) {
-    const aliases = Array.isArray(entity.aliases) && entity.aliases.length > 0 ? ` aliases=${entity.aliases.join(', ')}` : '';
+    const aliases =
+      Array.isArray(entity.aliases) && entity.aliases.length > 0
+        ? ` aliases=${entity.aliases.join(', ')}`
+        : '';
     lines.push(`- ${entity.entityType}: ${entity.displayLabel ?? entity.canonicalValue}${aliases}`);
   }
   if (processRows.length > 0) {
@@ -165,7 +193,9 @@ function chunkWindows(chunks: ChunkRow[], maxEstimatedInputTokens: number): Chun
   return windows;
 }
 
-function isReusableWorkflowMapStatus(status: string | null | undefined): status is ReusableWorkflowMapStatus {
+function isReusableWorkflowMapStatus(
+  status: string | null | undefined,
+): status is ReusableWorkflowMapStatus {
   return status === 'validated' || status === 'degraded';
 }
 
@@ -207,7 +237,9 @@ function prefixWindowIds(
 
 function mergeWorkflowOutputs(outputs: WorkflowReadOutput[]): WorkflowReadOutput {
   if (outputs.length === 1) return outputs[0]!;
-  const mapKind = outputs.some((output) => output.mapKind === 'workflow') ? 'workflow' : 'reference';
+  const mapKind = outputs.some((output) => output.mapKind === 'workflow')
+    ? 'workflow'
+    : 'reference';
   return {
     mapKind,
     summary: outputs.map((output, index) => `Window ${index + 1}: ${output.summary}`).join('\n'),
@@ -233,7 +265,12 @@ function validateWorkflowMap(
   const nodeIds = new Set<string>();
   const lanes = output.lanes.filter((lane) => {
     const ok = Boolean(lane.laneId && lane.label);
-    if (!ok) dropped.push({ elementType: 'lane', elementId: lane.laneId ?? 'unknown', reason: 'missing lane id or label' });
+    if (!ok)
+      dropped.push({
+        elementType: 'lane',
+        elementId: lane.laneId ?? 'unknown',
+        reason: 'missing lane id or label',
+      });
     return ok;
   });
 
@@ -244,11 +281,19 @@ function validateWorkflowMap(
       ? validateQuote({ sourceText: chunkText, exactQuoteProvided: node.evidenceQuote })
       : null;
     if (!chunkText) {
-      dropped.push({ elementType: 'node', elementId: node.nodeId, reason: `unknown chunkId ${node.chunkId}` });
+      dropped.push({
+        elementType: 'node',
+        elementId: node.nodeId,
+        reason: `unknown chunkId ${node.chunkId}`,
+      });
       continue;
     }
     if (quote?.verdict !== 'exact_match' && quote?.verdict !== 'normalized_match') {
-      dropped.push({ elementType: 'node', elementId: node.nodeId, reason: quote?.detail ?? 'quote did not validate' });
+      dropped.push({
+        elementType: 'node',
+        elementId: node.nodeId,
+        reason: quote?.detail ?? 'quote did not validate',
+      });
       continue;
     }
     if (nodeIds.has(node.nodeId)) {
@@ -266,15 +311,27 @@ function validateWorkflowMap(
       ? validateQuote({ sourceText: chunkText, exactQuoteProvided: edge.evidenceQuote })
       : null;
     if (!nodeIds.has(edge.fromNodeId) || !nodeIds.has(edge.toNodeId)) {
-      dropped.push({ elementType: 'edge', elementId: edge.edgeId, reason: 'edge endpoint does not exist after node validation' });
+      dropped.push({
+        elementType: 'edge',
+        elementId: edge.edgeId,
+        reason: 'edge endpoint does not exist after node validation',
+      });
       continue;
     }
     if (!chunkText) {
-      dropped.push({ elementType: 'edge', elementId: edge.edgeId, reason: `unknown chunkId ${edge.chunkId}` });
+      dropped.push({
+        elementType: 'edge',
+        elementId: edge.edgeId,
+        reason: `unknown chunkId ${edge.chunkId}`,
+      });
       continue;
     }
     if (quote?.verdict !== 'exact_match' && quote?.verdict !== 'normalized_match') {
-      dropped.push({ elementType: 'edge', elementId: edge.edgeId, reason: quote?.detail ?? 'quote did not validate' });
+      dropped.push({
+        elementType: 'edge',
+        elementId: edge.edgeId,
+        reason: quote?.detail ?? 'quote did not validate',
+      });
       continue;
     }
     edges.push(edge);
@@ -289,7 +346,11 @@ function validateWorkflowMap(
   for (const path of output.paths) {
     const missing = path.nodeIdsOrdered.filter((id) => !nodeIds.has(id));
     if (missing.length > 0) {
-      dropped.push({ elementType: 'path', elementId: path.pathId, reason: `missing node IDs: ${missing.join(', ')}` });
+      dropped.push({
+        elementType: 'path',
+        elementId: path.pathId,
+        reason: `missing node IDs: ${missing.join(', ')}`,
+      });
       continue;
     }
     paths.push(path);
@@ -298,7 +359,8 @@ function validateWorkflowMap(
   const keptCount = nodes.length + edges.length + lanes.length + paths.length;
   const droppedCount = dropped.length;
   const ratio = keptCount + droppedCount === 0 ? 0 : droppedCount / (keptCount + droppedCount);
-  const status: WorkflowMapStatus = droppedCount > 0 && ratio > maxDroppedRatio ? 'degraded' : 'validated';
+  const status: WorkflowMapStatus =
+    droppedCount > 0 && ratio > maxDroppedRatio ? 'degraded' : 'validated';
   return {
     status,
     map: { ...output, nodes, edges, lanes, paths },
@@ -316,12 +378,75 @@ function validateWorkflowMap(
   };
 }
 
+function nodeSystemsToScalar(systems: string[] | null | undefined): string | null {
+  if (!systems || systems.length === 0) return null;
+  return (
+    systems
+      .map((system) => system.trim())
+      .filter(Boolean)
+      .join('; ') || null
+  );
+}
+
+function workflowToProcessStructureMap(args: {
+  output: WorkflowReadOutput;
+  chunks: ChunkRow[];
+  title: string;
+}): SourceStructureMap {
+  const { output, chunks, title } = args;
+  const elements: SourceStructureElement[] = output.nodes.map((node) => ({
+    elementId: node.nodeId,
+    segmentId: PROCESS_SEGMENT_ID,
+    shape: 'process',
+    elementKind: node.nodeType,
+    label: node.label,
+    lane: node.lane ?? null,
+    ownerName: node.ownerName ?? null,
+    systems: nodeSystemsToScalar(node.systems),
+    evidenceQuote: node.evidenceQuote,
+    chunkId: node.chunkId,
+  }));
+  const relations: SourceStructureRelation[] = output.edges.map((edge) => ({
+    relationId: edge.edgeId,
+    segmentId: PROCESS_SEGMENT_ID,
+    fromElementId: edge.fromNodeId,
+    toElementId: edge.toNodeId,
+    shape: 'process',
+    relationKind: edge.edgeType,
+    condition: edge.condition ?? null,
+    evidenceQuote: edge.evidenceQuote,
+    chunkId: edge.chunkId,
+  }));
+
+  return {
+    documentShape: 'process',
+    summary: output.summary,
+    segments: [
+      {
+        segmentId: PROCESS_SEGMENT_ID,
+        shape: 'process',
+        title,
+        summary: output.summary,
+        chunkIds: chunks.map((chunk) => chunk.id),
+      },
+    ],
+    elements,
+    relations,
+    lanes: output.lanes,
+    paths: output.paths,
+  };
+}
+
 async function createPendingMap(args: {
   db: OracleDb;
   documentId: string;
   sourceContentHash: string;
   force: boolean;
-}): Promise<{ mapId: string; skippedExisting: boolean; existingStatus?: ReusableWorkflowMapStatus }> {
+}): Promise<{
+  mapId: string;
+  skippedExisting: boolean;
+  existingStatus?: ReusableWorkflowMapStatus;
+}> {
   const { db, documentId, sourceContentHash, force } = args;
   if (!force) {
     const [existing] = await db
@@ -375,11 +500,13 @@ async function createPendingMap(args: {
         documentId,
         sourceContentHash,
         status: 'pending',
+        documentShape: 'process',
         mapKind: 'workflow',
         validationJson: { promptVersion: WORKFLOW_READ_PROMPT_VERSION, status: 'pending' },
       })
       .returning({ id: sourceWorkflowMaps.id });
-    if (!inserted) throw new Error('[source-workflow-read] failed to insert pending source_workflow_maps row');
+    if (!inserted)
+      throw new Error('[source-workflow-read] failed to insert pending source_workflow_maps row');
 
     if (oldIds.length > 0) {
       await tx
@@ -403,8 +530,15 @@ async function runWorkflowReadModel(args: {
   force: boolean;
 }): Promise<{ output: WorkflowReadOutput; modelRunIds: string[]; contextPackIds: string[] }> {
   const { db, client, doc, chunks, referentPack, mapId } = args;
-  const maxEstimatedTokens = await readNumberSetting(db, 'workflow_read_max_estimated_input_tokens', 150_000);
-  const windows = estimateTokens(buildDocumentCorpus(chunks)) > maxEstimatedTokens ? chunkWindows(chunks, maxEstimatedTokens) : [chunks];
+  const maxEstimatedTokens = await readNumberSetting(
+    db,
+    'workflow_read_max_estimated_input_tokens',
+    150_000,
+  );
+  const windows =
+    estimateTokens(buildDocumentCorpus(chunks)) > maxEstimatedTokens
+      ? chunkWindows(chunks, maxEstimatedTokens)
+      : [chunks];
   const resolved = await resolveRouteCandidates(db, 'workflow_read');
   for (const skipped of resolved.skipped) {
     console.warn('[source-workflow-read] skipped workflow_read route candidate', skipped);
@@ -488,7 +622,8 @@ async function runWorkflowReadModel(args: {
       .insert(oracleContextPacks)
       .values(buildContextPackInsert(plan))
       .returning({ id: oracleContextPacks.id });
-    if (!contextPack) throw new Error('[source-workflow-read] failed to insert oracle_context_packs row');
+    if (!contextPack)
+      throw new Error('[source-workflow-read] failed to insert oracle_context_packs row');
     contextPackIds.push(contextPack.id);
 
     const started = Date.now();
@@ -557,10 +692,16 @@ async function runWorkflowReadModel(args: {
       contextPackId: contextPack.id,
       modelRunId: modelRun.id,
     });
-    await db.update(oracleContextPacks).set({ modelRunId: modelRun.id }).where(eq(oracleContextPacks.id, contextPack.id));
+    await db
+      .update(oracleContextPacks)
+      .set({ modelRunId: modelRun.id })
+      .where(eq(oracleContextPacks.id, contextPack.id));
 
     if (!result.validation.ok) {
-      throw new Error('[source-workflow-read] model output failed Zod schema validation: ' + result.validation.error.message);
+      throw new Error(
+        '[source-workflow-read] model output failed Zod schema validation: ' +
+          result.validation.error.message,
+      );
     }
     const output = prefixWindowIds(result.object, windowIndex, windows.length, priorNodeIds);
     outputs.push(output);
@@ -571,49 +712,73 @@ async function runWorkflowReadModel(args: {
   return { output: mergeWorkflowOutputs(outputs), modelRunIds, contextPackIds };
 }
 
-export function renderWorkflowMapGuidance(mapId: string, map: Pick<WorkflowReadOutput, 'summary' | 'mapKind' | 'nodes' | 'edges' | 'lanes' | 'paths'>): string {
+export function renderWorkflowMapGuidance(mapId: string, map: SourceStructureMap): string {
   const lines = [
-    'SOURCE WORKFLOW MAP (GUIDANCE ONLY - NEVER QUOTE THIS BLOCK)',
+    'SOURCE STRUCTURE MAP (GUIDANCE ONLY - NEVER QUOTE THIS BLOCK)',
     `Map ID: ${mapId}`,
-    `Kind: ${map.mapKind}`,
+    `Document shape: ${map.documentShape}`,
     `Summary: ${map.summary}`,
   ];
-  if (map.lanes.length > 0) {
-    lines.push('', 'Lanes:');
-    for (const lane of map.lanes) lines.push(`- ${lane.laneId}: ${lane.label}${lane.ownerName ? ` (owner: ${lane.ownerName})` : ''}`);
-  }
-  if (map.nodes.length > 0) {
-    lines.push('', 'Nodes:');
-    for (const node of map.nodes) {
-      const ref = `${mapId}:node:${node.nodeId}`;
-      lines.push(`- ${ref} [${node.nodeType}] ${node.label}${node.lane ? ` | lane=${node.lane}` : ''}${node.ownerName ? ` | owner=${node.ownerName}` : ''}`);
+  if (map.segments.length > 0) {
+    lines.push('', 'Segments:');
+    for (const segment of map.segments) {
+      lines.push(
+        `- ${segment.segmentId} [${segment.shape}] ${segment.title}${segment.summary ? ` | ${segment.summary}` : ''}`,
+      );
     }
   }
-  if (map.edges.length > 0) {
-    lines.push('', 'Edges:');
-    for (const edge of map.edges) {
-      const ref = `${mapId}:edge:${edge.edgeId}`;
-      lines.push(`- ${ref} [${edge.edgeType}] ${edge.fromNodeId} -> ${edge.toNodeId}${edge.condition ? ` | condition=${edge.condition}` : ''}`);
+  if (map.lanes.length > 0) {
+    lines.push('', 'Lanes:');
+    for (const lane of map.lanes)
+      lines.push(
+        `- ${lane.laneId}: ${lane.label}${lane.ownerName ? ` (owner: ${lane.ownerName})` : ''}`,
+      );
+  }
+  if (map.elements.length > 0) {
+    lines.push('', 'Elements:');
+    for (const element of map.elements) {
+      const ref = `${mapId}:element:${element.elementId}`;
+      lines.push(
+        `- ${ref} [${element.elementKind}] ${element.label}${element.lane ? ` | lane=${element.lane}` : ''}${element.ownerName ? ` | owner=${element.ownerName}` : ''}${element.systems ? ` | systems=${element.systems}` : ''}`,
+      );
+    }
+  }
+  if (map.relations.length > 0) {
+    lines.push('', 'Relations:');
+    for (const relation of map.relations) {
+      const ref = `${mapId}:relation:${relation.relationId}`;
+      lines.push(
+        `- ${ref} [${relation.relationKind}] ${relation.fromElementId} -> ${relation.toElementId}${relation.condition ? ` | condition=${relation.condition}` : ''}`,
+      );
     }
   }
   if (map.paths.length > 0) {
     lines.push('', 'Paths:');
-    for (const path of map.paths) lines.push(`- ${path.pathId} [${path.pathType}] ${path.name}: ${path.nodeIdsOrdered.join(' -> ')}`);
+    for (const path of map.paths)
+      lines.push(
+        `- ${path.pathId} [${path.pathType}] ${path.name}: ${path.nodeIdsOrdered.join(' -> ')}`,
+      );
   }
   lines.push(
     '',
-    'Extraction instruction: when a claim supports a listed node or edge, set mapElementRef to the exact ref shown above. Claims still require a verbatim exactQuote from a Document Chunk ID.',
+    'Extraction instruction: when a claim supports a listed element or relation, set mapElementRef to the exact ref shown above. Claims still require a verbatim exactQuote from a Document Chunk ID.',
   );
   return lines.join('\n');
 }
 
-export async function loadLatestWorkflowMapGuidance(db: OracleDb, documentId: string): Promise<string | null> {
+export async function loadLatestWorkflowMapGuidance(
+  db: OracleDb,
+  documentId: string,
+): Promise<string | null> {
   const [row] = await db
     .select({
       id: sourceWorkflowMaps.id,
       status: sourceWorkflowMaps.status,
       summary: sourceWorkflowMaps.summary,
-      mapKind: sourceWorkflowMaps.mapKind,
+      documentShape: sourceWorkflowMaps.documentShape,
+      segmentsJson: sourceWorkflowMaps.segmentsJson,
+      elementsJson: sourceWorkflowMaps.elementsJson,
+      relationsJson: sourceWorkflowMaps.relationsJson,
       nodesJson: sourceWorkflowMaps.nodesJson,
       edgesJson: sourceWorkflowMaps.edgesJson,
       lanesJson: sourceWorkflowMaps.lanesJson,
@@ -630,14 +795,40 @@ export async function loadLatestWorkflowMapGuidance(db: OracleDb, documentId: st
     .orderBy(desc(sourceWorkflowMaps.createdAt))
     .limit(1);
   if (!row) return null;
-  return renderWorkflowMapGuidance(row.id, {
-    summary: row.summary ?? 'No summary.',
-    mapKind: row.mapKind as 'workflow' | 'reference',
-    nodes: row.nodesJson as WorkflowReadNode[],
-    edges: row.edgesJson as WorkflowReadEdge[],
-    lanes: row.lanesJson as WorkflowReadLane[],
-    paths: row.pathsJson as WorkflowReadPath[],
-  });
+  const elements = row.elementsJson as SourceStructureElement[];
+  const relations = row.relationsJson as SourceStructureRelation[];
+  const map =
+    elements.length > 0 || relations.length > 0
+      ? ({
+          documentShape: row.documentShape as 'process',
+          summary: row.summary ?? 'No summary.',
+          segments: row.segmentsJson as SourceStructureMap['segments'],
+          elements,
+          relations,
+          lanes: row.lanesJson as WorkflowReadLane[],
+          paths: row.pathsJson as WorkflowReadPath[],
+        } satisfies SourceStructureMap)
+      : workflowToProcessStructureMap({
+          output: {
+            summary: row.summary ?? 'No summary.',
+            mapKind: 'workflow',
+            nodes: row.nodesJson as WorkflowReadNode[],
+            edges: row.edgesJson as WorkflowReadEdge[],
+            lanes: row.lanesJson as WorkflowReadLane[],
+            paths: row.pathsJson as WorkflowReadPath[],
+          },
+          chunks: [
+            {
+              id: '00000000-0000-4000-8000-000000000000',
+              chunkIndex: 0,
+              pageNumber: null,
+              rawText: '',
+              contentHash: null,
+            },
+          ],
+          title: 'Full process',
+        });
+  return renderWorkflowMapGuidance(row.id, map);
 }
 
 export async function generateSourceWorkflowMap(args: {
@@ -652,7 +843,12 @@ export async function generateSourceWorkflowMap(args: {
   const force = args.force ?? false;
 
   const [doc] = await db
-    .select({ id: documents.id, fileName: documents.fileName, fileType: documents.fileType, context: documents.context })
+    .select({
+      id: documents.id,
+      fileName: documents.fileName,
+      fileType: documents.fileType,
+      context: documents.context,
+    })
     .from(documents)
     .where(eq(documents.id, args.documentId))
     .limit(1);
@@ -673,7 +869,12 @@ export async function generateSourceWorkflowMap(args: {
 
   await markMacroPending(db, args.documentId);
   const sourceContentHash = sourceHashForDocument(args.documentId, chunks);
-  const pending = await createPendingMap({ db, documentId: args.documentId, sourceContentHash, force });
+  const pending = await createPendingMap({
+    db,
+    documentId: args.documentId,
+    sourceContentHash,
+    force,
+  });
   if (pending.skippedExisting) {
     if (pending.existingStatus === 'degraded') await markMacroDegraded(db, args.documentId);
     else await markMacroComplete(db, args.documentId);
@@ -715,6 +916,11 @@ export async function generateSourceWorkflowMap(args: {
       new Map(chunks.map((chunk) => [chunk.id, chunk.rawText])),
       maxDroppedRatio,
     );
+    const structureMap = workflowToProcessStructureMap({
+      output: validation.map,
+      chunks,
+      title: doc.fileName,
+    });
     const lastModelRunId = modelResult.modelRunIds.at(-1) ?? null;
     const lastContextPackId = modelResult.contextPackIds.at(-1) ?? null;
 
@@ -722,8 +928,12 @@ export async function generateSourceWorkflowMap(args: {
       .update(sourceWorkflowMaps)
       .set({
         status: validation.status,
+        documentShape: structureMap.documentShape,
         mapKind: validation.map.mapKind,
         summary: validation.map.summary,
+        segmentsJson: structureMap.segments,
+        elementsJson: structureMap.elements,
+        relationsJson: structureMap.relations,
         nodesJson: validation.map.nodes,
         edgesJson: validation.map.edges,
         lanesJson: validation.map.lanes,
@@ -748,6 +958,9 @@ export async function generateSourceWorkflowMap(args: {
           mapKind: validation.map.mapKind,
           droppedCount: validation.droppedCount,
           keptCount: validation.keptCount,
+          elementCount: structureMap.elements.length,
+          relationCount: structureMap.relations.length,
+          segmentCount: structureMap.segments.length,
           modelRunIds: modelResult.modelRunIds,
         },
       })
@@ -761,8 +974,14 @@ export async function generateSourceWorkflowMap(args: {
       status: validation.status,
       mapId: pending.mapId,
       mapKind: validation.map.mapKind,
+      documentShape: structureMap.documentShape,
       droppedCount: validation.droppedCount,
       keptCount: validation.keptCount,
+      segmentCount: structureMap.segments.length,
+      elementCount: structureMap.elements.length,
+      relationCount: structureMap.relations.length,
+      laneCount: structureMap.lanes.length,
+      pathCount: structureMap.paths.length,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -787,4 +1006,5 @@ export async function generateSourceWorkflowMap(args: {
 export const __sourceWorkflowReadTestHooks = {
   isReusableWorkflowMapStatus,
   prefixWindowIds,
+  workflowToProcessStructureMap,
 };

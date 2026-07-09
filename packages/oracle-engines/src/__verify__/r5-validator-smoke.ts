@@ -358,15 +358,15 @@ function main() {
   {
     const mapHashA = computeMapElementCandidateHash({
       documentId: '9d09fa89-3a46-465e-a98b-837287c9e22a',
-      mapElementRef: '72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8:edge:buyer_to_sales',
+      mapElementRef: '72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8:relation:buyer_to_sales',
     });
     const mapHashB = computeMapElementCandidateHash({
       documentId: '9D09FA89-3A46-465E-A98B-837287C9E22A',
-      mapElementRef: '72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8:edge:buyer_to_sales',
+      mapElementRef: '72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8:relation:buyer_to_sales',
     });
     const mapHashC = computeMapElementCandidateHash({
       documentId: '9d09fa89-3a46-465e-a98b-837287c9e22a',
-      mapElementRef: '72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8:edge:sales_to_creative',
+      mapElementRef: '72ed0ef9-8ea7-4e60-84a3-a7e9236eb7c8:relation:sales_to_creative',
     });
     const summaryHashA = computeCandidateHash({
       summary: 'Sales hands the buyer request to Creative.',

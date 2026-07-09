@@ -698,7 +698,7 @@ async function processDocument(
         insertedChunkIds.push({ id: chunk.id, ...chunkTextWindow });
       } else {
         const [existingChunk] = await db
-          .select({ id: documentChunks.id })
+          .select({ id: documentChunks.id, rawText: documentChunks.rawText })
           .from(documentChunks)
           .where(
             and(
@@ -708,7 +708,11 @@ async function processDocument(
           )
           .limit(1);
         if (existingChunk) {
-          insertedChunkIds.push({ id: existingChunk.id, ...chunkTextWindow });
+          insertedChunkIds.push({
+            id: existingChunk.id,
+            ...chunkTextWindow,
+            text: existingChunk.rawText,
+          });
         }
       }
     } catch (chunkErr) {
@@ -817,7 +821,7 @@ async function processDocument(
       parseKind === 'image'
         ? isDiagram
           ? mapDirectedExtractionEnabled
-            ? `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded DIAGRAM (flowchart / swimlane / process map). Nodes are written as [Lane/Color: "label"] and connections as [A] --(Arrow: "condition")--> [B]. The MEANING of this document is the FLOW — who hands off to whom, in what sequence, and under which conditions — NOT the existence of individual boxes.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}\n\nMAP-DIRECTED DIAGRAM EXTRACTION GUIDANCE:\n- The SOURCE WORKFLOW MAP below is a validated checklist of this diagram's nodes and edges.\n- Produce exactly ONE claim for EACH listed node and EACH listed edge whose evidence is present in this window, quote the chunk line that evidences it, and set mapElementRef to that element's exact ref.\n- Do not skip listed elements and do not merge multiple map elements into one claim; the dedup layer removes true duplicates.\n- Capture DECISION/BRANCH rules and arrow condition labels on edge claims.\n- Then also add claims for operational facts not represented in the map.\n- Every exactQuote must still be copied verbatim from within ONE provided document chunk. For a handoff, quote the full \`[A] --(Arrow: "…")--> [B]\` line; for a branch, quote the line that contains the condition.`
+            ? `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded DIAGRAM (flowchart / swimlane / process map). Nodes are written as [Lane/Color: "label"] and connections as [A] --(Arrow: "condition")--> [B]. The MEANING of this document is the FLOW — who hands off to whom, in what sequence, and under which conditions — NOT the existence of individual boxes.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}\n\nMAP-DIRECTED DIAGRAM EXTRACTION GUIDANCE:\n- The SOURCE STRUCTURE MAP below is a validated checklist of this diagram's process elements and relations.\n- Produce exactly ONE claim for EACH listed element and EACH listed relation whose evidence is present in this window, quote the chunk line that evidences it, and set mapElementRef to that element or relation's exact ref.\n- Do not skip listed elements/relations and do not merge multiple map refs into one claim; the dedup layer removes true duplicates.\n- Capture DECISION/BRANCH rules and arrow condition labels on relation claims.\n- Then also add claims for operational facts not represented in the map.\n- Every exactQuote must still be copied verbatim from within ONE provided document chunk. For a handoff, quote the full \`[A] --(Arrow: "…")--> [B]\` line; for a branch, quote the line that contains the condition.`
             : `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded DIAGRAM (flowchart / swimlane / process map). Nodes are written as [Lane/Color: "label"] and connections as [A] --(Arrow: "condition")--> [B]. The MEANING of this document is the FLOW — who hands off to whom, in what sequence, and under which conditions — NOT the existence of individual boxes.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}\n\nDIAGRAM EXTRACTION GUIDANCE:\n- Prefer claims that capture HANDOFFS and SEQUENCE. Represent each arrow as a dependency claim — "After/from X, Y happens" or "X is handed off to <role/lane> who does Y" — and include the arrow's condition label when one is present.\n- Capture DECISION/BRANCH rules (e.g. "If Audit: Fail", "Existing Product" vs "New Product Type", "Before an Order") as exception or process rules that state the condition AND the resulting path.\n- Record OWNERSHIP only when it adds information (which lane/role performs a step). Do NOT emit a separate claim for every box: a bare node label with no relationship is low-value — fold it into the handoff claim it participates in.\n- Aim for fewer, higher-altitude, CONNECTED claims rather than many disconnected "box X exists" statements.\n- Every exactQuote must still be copied verbatim from within ONE provided document chunk. For a handoff, quote the full \`[A] --(Arrow: "…")--> [B]\` line; for a branch, quote the line that contains the condition.`
           : `\n\nNOTE: The text below is a VISION-MODEL TRANSCRIPTION of an uploaded image (not a conversation, not a native text document). Extract claims about operational processes, rules, systems, and dependencies that are explicitly supported by this transcription.\nImage name: ${doc.fileName}\nFile type: ${doc.fileType}`
         : `\n\nNOTE: This is a DOCUMENT, not a conversation. Extract claims about operational processes, rules, systems, and dependencies described in the document.\nDocument name: ${doc.fileName}\nFile type: ${doc.fileType}\n\nDOCUMENT EXTRACTION DENSITY:\n- If the document is an SOP, checklist, responsibility list, training guide, or numbered/bulleted workflow, treat each actionable responsibility, required input, required output, system update, file-save rule, approval step, exception, handoff, or escalation as its own candidate claim when it has distinct evidence.\n- Do not summarize an entire section into one broad claim when the section contains multiple concrete steps.\n- It is acceptable and expected for a dense responsibilities document to produce many small claims from one chunk.`;
@@ -845,10 +849,11 @@ async function processDocument(
         ? [
             makeBlock({
               id: 'source-workflow-map-guidance',
-              label: 'Source workflow map',
+              label: 'Source structure map',
               kind: 'semi_stable_domain_context' as const,
               content: workflowMapContext,
-              reasonIncluded: 'validated source workflow map guidance only; not valid evidence for claims',
+              reasonIncluded:
+                'validated source structure map guidance only; not valid evidence for claims',
             }),
           ]
         : []),
@@ -864,7 +869,7 @@ async function processDocument(
         label: 'Document extraction request',
         kind: 'dynamic_input',
         content: mapDirectedExtractionEnabled
-          ? 'Read the document chunks as a whole, use the source workflow map as guidance only, and extract dense, evidence-backed operational claims. Every listed map node or edge whose evidence is present in this window MUST get exactly one canonical claim that states the supported operational fact and sets mapElementRef to the exact map ref. Do not merge multiple map nodes or edges into one claim. Also extract operational facts not captured by the map. For SOP/checklist/responsibility-list text, extract each concrete actionable step or handoff as a separate claim; do not collapse a numbered list or section into one broad summary. Classify by meaning and handoff structure, not by literal keywords. Every exactQuote must be copied verbatim from within ONE provided document chunk, and sourceMessageId must be that exact Document Chunk ID. Return only claims that are explicitly supported by the document text.'
+          ? 'Read the document chunks as a whole, use the source structure map as guidance only, and extract dense, evidence-backed operational claims. Every listed map element or relation whose evidence is present in this window MUST get exactly one canonical claim that states the supported operational fact and sets mapElementRef to the exact map ref. Do not merge multiple map elements or relations into one claim. Also extract operational facts not captured by the map. For SOP/checklist/responsibility-list text, extract each concrete actionable step or handoff as a separate claim; do not collapse a numbered list or section into one broad summary. Classify by meaning and handoff structure, not by literal keywords. Every exactQuote must be copied verbatim from within ONE provided document chunk, and sourceMessageId must be that exact Document Chunk ID. Return only claims that are explicitly supported by the document text.'
           : 'Read the document chunks as a whole and extract dense, evidence-backed operational claims. For SOP/checklist/responsibility-list text, extract each concrete actionable step or handoff as a separate claim; do not collapse a numbered list or section into one broad summary. Classify by meaning and handoff structure, not by literal keywords. Every exactQuote must be copied verbatim from within ONE provided document chunk, and sourceMessageId must be that exact Document Chunk ID. Return only claims that are explicitly supported by the document text.',
         reasonIncluded:
           'small dynamic request so the document corpus can be cached as reusable prefix',
@@ -1294,7 +1299,11 @@ async function processDocument(
           else if (result.outcome === 'appended_to_existing_claim') outcome.duplicatesAppended += 1;
           else outcome.rejections += 1;
 
-          if (result.outcome === 'inserted_new_claim' && result.claimId && normalizedMapElementRef) {
+          if (
+            result.outcome === 'inserted_new_claim' &&
+            result.claimId &&
+            normalizedMapElementRef
+          ) {
             await db
               .update(claims)
               .set({ mapElementRef: normalizedMapElementRef })
@@ -1370,8 +1379,7 @@ async function processDocument(
     );
   if (chunkInsertFailures > 0)
     degradedNotes.push(`${chunkInsertFailures} chunk insert(s) failed: that text was lost`);
-  if (workflowMapFallbackDegraded)
-    degradedNotes.push(WORKFLOW_MAP_FAILURE_DEGRADED_NOTE);
+  if (workflowMapFallbackDegraded) degradedNotes.push(WORKFLOW_MAP_FAILURE_DEGRADED_NOTE);
   await db
     .update(documents)
     .set({

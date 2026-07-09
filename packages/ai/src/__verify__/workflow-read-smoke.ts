@@ -1,4 +1,4 @@
-import { ExtractionOutputSchema, WorkflowReadSchema } from '..';
+import { ExtractionOutputSchema, SourceStructureMapSchema, WorkflowReadSchema } from '..';
 
 const chunkId = '11111111-1111-4111-8111-111111111111';
 const mapId = '22222222-2222-4222-8222-222222222222';
@@ -54,6 +54,49 @@ if (workflow.nodes.length !== 2 || workflow.edges.length !== 1) {
   throw new Error('workflow-read schema did not preserve flat graph records');
 }
 
+const structureMap = SourceStructureMapSchema.parse({
+  documentShape: 'process',
+  summary: workflow.summary,
+  segments: [
+    {
+      segmentId: 'process',
+      shape: 'process',
+      title: 'Licensed product development',
+      summary: workflow.summary,
+      chunkIds: [chunkId],
+    },
+  ],
+  elements: workflow.nodes.map((node) => ({
+    elementId: node.nodeId,
+    segmentId: 'process',
+    shape: 'process',
+    elementKind: node.nodeType,
+    label: node.label,
+    lane: node.lane,
+    ownerName: node.ownerName,
+    systems: node.systems?.join('; '),
+    evidenceQuote: node.evidenceQuote,
+    chunkId: node.chunkId,
+  })),
+  relations: workflow.edges.map((edge) => ({
+    relationId: edge.edgeId,
+    segmentId: 'process',
+    fromElementId: edge.fromNodeId,
+    toElementId: edge.toNodeId,
+    shape: 'process',
+    relationKind: edge.edgeType,
+    condition: edge.condition,
+    evidenceQuote: edge.evidenceQuote,
+    chunkId: edge.chunkId,
+  })),
+  lanes: workflow.lanes,
+  paths: workflow.paths,
+});
+
+if (structureMap.elements.length !== 2 || structureMap.relations.length !== 1) {
+  throw new Error('source-structure schema did not preserve process records');
+}
+
 ExtractionOutputSchema.parse({
   claims: [
     {
@@ -70,7 +113,7 @@ ExtractionOutputSchema.parse({
         confidence: 9,
       },
       requiresReview: false,
-      mapElementRef: `${mapId}:edge:request_to_brief`,
+      mapElementRef: `${mapId}:relation:request_to_brief`,
     },
   ],
 });
@@ -98,6 +141,31 @@ const invalid = ExtractionOutputSchema.safeParse({
 
 if (invalid.success) {
   throw new Error('invalid mapElementRef was accepted');
+}
+
+const legacyRef = ExtractionOutputSchema.safeParse({
+  claims: [
+    {
+      claimType: 'dependency',
+      claimKind: 'policy',
+      claimKindConfidence: 8,
+      summary: 'The design brief follows the buyer request after kickoff.',
+      impactScore: 6,
+      confidenceScore: 8,
+      domains: ['general'],
+      evidence: {
+        exactQuote: '[Sales: "Buyer Request"] --(After kickoff)--> [Creative: "Design Brief"]',
+        sourceMessageId: chunkId,
+        confidence: 9,
+      },
+      requiresReview: false,
+      mapElementRef: `${mapId}:edge:request_to_brief`,
+    },
+  ],
+});
+
+if (legacyRef.success) {
+  throw new Error('legacy node/edge mapElementRef was accepted');
 }
 
 console.log('PASS workflow-read smoke');

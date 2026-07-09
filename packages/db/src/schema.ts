@@ -70,11 +70,7 @@ export const authProviderEnum = pgEnum('auth_provider', [
 
 export const messageRoleEnum = pgEnum('message_role', ['user', 'assistant', 'system']);
 
-export const channelStatusEnum = pgEnum('channel_status', [
-  'active',
-  'archived',
-  'locked',
-]);
+export const channelStatusEnum = pgEnum('channel_status', ['active', 'archived', 'locked']);
 
 export const extractionStatusEnum = pgEnum('extraction_status', [
   'pending',
@@ -113,12 +109,7 @@ export const gapStatusEnum = pgEnum('gap_status', [
   'rejected',
 ]);
 
-export const gapPriorityEnum = pgEnum('gap_priority', [
-  'low',
-  'medium',
-  'high',
-  'urgent',
-]);
+export const gapPriorityEnum = pgEnum('gap_priority', ['low', 'medium', 'high', 'urgent']);
 
 export const contradictionStatusEnum = pgEnum('contradiction_status', [
   'possible',
@@ -134,10 +125,13 @@ export const documentStatusEnum = pgEnum('document_status', [
   'failed',
 ]);
 
-export const oracleInterventionTriggerTypeEnum = pgEnum(
-  'oracle_intervention_trigger_type',
-  ['direct_mention', 'possible_contradiction', 'lull_gap', 'manual_admin', 'system_test'],
-);
+export const oracleInterventionTriggerTypeEnum = pgEnum('oracle_intervention_trigger_type', [
+  'direct_mention',
+  'possible_contradiction',
+  'lull_gap',
+  'manual_admin',
+  'system_test',
+]);
 
 export const interventionDecisionEnum = pgEnum('intervention_decision', [
   'no_intervention',
@@ -418,7 +412,10 @@ export const modelCapabilities = pgTable(
     toolCalling: boolean('tool_calling').default(false).notNull(),
     promptCaching: boolean('prompt_caching').default(false).notNull(),
     outputCap: boolean('output_cap').default(false).notNull(),
-    adapterParamNotes: jsonb('adapter_param_notes').$type<Record<string, unknown>>().default({}).notNull(),
+    adapterParamNotes: jsonb('adapter_param_notes')
+      .$type<Record<string, unknown>>()
+      .default({})
+      .notNull(),
     knowledgeCutoff: date('knowledge_cutoff'),
     source: text('source').notNull(),
     refreshedAt: timestamp('refreshed_at', { withTimezone: true }).defaultNow().notNull(),
@@ -458,16 +455,11 @@ export const documents = pgTable(
     // (like context/domain_hints); values: not_applicable | pending | complete
     // | map_failed | map_degraded | merge_pending_review | degraded |
     // failed. See apps/workers/src/lib/macro-health.ts.
-    macroHealth: varchar('macro_health', { length: 20 })
-      .default('not_applicable')
-      .notNull(),
+    macroHealth: varchar('macro_health', { length: 20 }).default('not_applicable').notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => ({
-    storageUnique: uniqueIndex('documents_storage_unique').on(
-      t.storageBucket,
-      t.storagePath,
-    ),
+    storageUnique: uniqueIndex('documents_storage_unique').on(t.storageBucket, t.storagePath),
     uploaderIdx: index('documents_uploader_idx').on(t.uploaderId),
   }),
 );
@@ -659,9 +651,7 @@ export const macroRelationshipSources = pgTable(
     metadataJson: jsonb('metadata_json'),
   },
   (t) => ({
-    relationshipIdx: index('macro_relationship_sources_relationship_idx').on(
-      t.macroRelationshipId,
-    ),
+    relationshipIdx: index('macro_relationship_sources_relationship_idx').on(t.macroRelationshipId),
     documentIdx: index('macro_relationship_sources_document_idx').on(t.documentId),
     channelIdx: index('macro_relationship_sources_channel_idx').on(t.channelId),
   }),
@@ -684,9 +674,7 @@ export const macroRelationshipClaims = pgTable(
   },
   (t) => ({
     pk: primaryKey({ columns: [t.macroRelationshipId, t.claimId, t.supportRole] }),
-    relationshipIdx: index('macro_relationship_claims_relationship_idx').on(
-      t.macroRelationshipId,
-    ),
+    relationshipIdx: index('macro_relationship_claims_relationship_idx').on(t.macroRelationshipId),
     claimIdx: index('macro_relationship_claims_claim_idx').on(t.claimId),
   }),
 );
@@ -738,10 +726,7 @@ export const sourceCoverageFindings = pgTable(
       t.status,
       t.createdAt,
     ),
-    typeStatusIdx: index('source_coverage_findings_type_status_idx').on(
-      t.findingType,
-      t.status,
-    ),
+    typeStatusIdx: index('source_coverage_findings_type_status_idx').on(t.findingType, t.status),
   }),
 );
 
@@ -760,8 +745,12 @@ export const sourceWorkflowMaps = pgTable(
     segmentRef: text('segment_ref'),
     sourceContentHash: varchar('source_content_hash', { length: 64 }).notNull(),
     status: varchar('status', { length: 50 }).notNull().default('pending'),
+    documentShape: varchar('document_shape', { length: 50 }).notNull().default('process'),
     mapKind: varchar('map_kind', { length: 50 }).notNull().default('workflow'),
     summary: text('summary'),
+    segmentsJson: jsonb('segments_json').default([]).notNull(),
+    elementsJson: jsonb('elements_json').default([]).notNull(),
+    relationsJson: jsonb('relations_json').default([]).notNull(),
     nodesJson: jsonb('nodes_json').default([]).notNull(),
     edgesJson: jsonb('edges_json').default([]).notNull(),
     lanesJson: jsonb('lanes_json').default([]).notNull(),
@@ -988,10 +977,7 @@ export const businessModelChanges = pgTable(
     appliedAt: timestamp('applied_at', { withTimezone: true }),
   },
   (t) => ({
-    statusCreatedIdx: index('business_model_changes_status_created_idx').on(
-      t.status,
-      t.createdAt,
-    ),
+    statusCreatedIdx: index('business_model_changes_status_created_idx').on(t.status, t.createdAt),
     processStatusIdx: index('business_model_changes_process_status_idx').on(t.processId, t.status),
     sourceMapIdx: index('business_model_changes_source_map_idx').on(t.sourceWorkflowMapId),
   }),
@@ -1068,9 +1054,7 @@ export const messages = pgTable(
     replyToMessageId: uuid('reply_to_message_id'),
     metadataJson: jsonb('metadata_json'),
 
-    extractionStatus: extractionStatusEnum('extraction_status')
-      .default('pending')
-      .notNull(),
+    extractionStatus: extractionStatusEnum('extraction_status').default('pending').notNull(),
     extractedAt: timestamp('extracted_at'),
     extractionError: text('extraction_error'),
 
@@ -1079,15 +1063,8 @@ export const messages = pgTable(
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => ({
-    channelCreatedIdx: index('messages_channel_created_idx').on(
-      t.channelId,
-      t.createdAt,
-    ),
-    extractionIdx: index('messages_extraction_idx').on(
-      t.extractionStatus,
-      t.role,
-      t.createdAt,
-    ),
+    channelCreatedIdx: index('messages_channel_created_idx').on(t.channelId, t.createdAt),
+    extractionIdx: index('messages_extraction_idx').on(t.extractionStatus, t.role, t.createdAt),
     clientMessageUnique: uniqueIndex('messages_channel_client_message_unique').on(
       t.channelId,
       t.clientMessageId,
@@ -1206,7 +1183,9 @@ export const claims = pgTable(
     claimType: varchar('claim_type', { length: 100 }).notNull(),
     claimKind: varchar('claim_kind', { length: 50 }).default('uncertain'),
     claimKindConfidence: integer('claim_kind_confidence'),
-    claimKindReviewStatus: varchar('claim_kind_review_status', { length: 50 }).default('model_labeled'),
+    claimKindReviewStatus: varchar('claim_kind_review_status', { length: 50 }).default(
+      'model_labeled',
+    ),
     summary: text('summary').notNull(),
     impactScore: integer('impact_score').notNull(),
     confidenceScore: integer('confidence_score').notNull(),
@@ -1225,8 +1204,8 @@ export const claims = pgTable(
     // index in migrations/sql/14_claims_candidate_hash_unique.sql
     // enforces uniqueness only when populated.
     candidateHash: varchar('candidate_hash', { length: 64 }),
-    // Macro-first linkage: source workflow map element this claim evidences,
-    // formatted as <source_workflow_map_id>:<node|edge>:<key>.
+    // Macro-first linkage: source structure map element/relation this claim
+    // evidences, formatted as <source_workflow_map_id>:<element|relation>:<key>.
     mapElementRef: text('map_element_ref'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
@@ -1264,20 +1243,12 @@ export const claimEvidence = pgTable(
 
     sourceType: evidenceSourceTypeEnum('source_type').notNull(),
     sourceMessageId: uuid('source_message_id').references(() => messages.id),
-    sourceDocumentChunkId: uuid('source_document_chunk_id').references(
-      () => documentChunks.id,
-    ),
+    sourceDocumentChunkId: uuid('source_document_chunk_id').references(() => documentChunks.id),
     sourceExternalRecordId: varchar('source_external_record_id', { length: 255 }),
 
-    assertedByEmployeeId: uuid('asserted_by_employee_id').references(
-      () => employees.id,
-    ),
-    uploadedByEmployeeId: uuid('uploaded_by_employee_id').references(
-      () => employees.id,
-    ),
-    createdByEmployeeId: uuid('created_by_employee_id').references(
-      () => employees.id,
-    ),
+    assertedByEmployeeId: uuid('asserted_by_employee_id').references(() => employees.id),
+    uploadedByEmployeeId: uuid('uploaded_by_employee_id').references(() => employees.id),
+    createdByEmployeeId: uuid('created_by_employee_id').references(() => employees.id),
 
     exactQuote: text('exact_quote').notNull(),
     charStart: integer('char_start'),
@@ -1289,9 +1260,7 @@ export const claimEvidence = pgTable(
   (t) => ({
     claimIdx: index('claim_evidence_claim_idx').on(t.claimId),
     messageIdx: index('claim_evidence_message_idx').on(t.sourceMessageId),
-    documentChunkIdx: index('claim_evidence_document_chunk_idx').on(
-      t.sourceDocumentChunkId,
-    ),
+    documentChunkIdx: index('claim_evidence_document_chunk_idx').on(t.sourceDocumentChunkId),
   }),
 );
 
@@ -1310,9 +1279,7 @@ export const claimTranslations = pgTable(
     summary: text('summary').notNull(),
     // Embedding of the translated summary (same model/dimension as claims).
     embedding: vector('embedding', { dimensions: EMBEDDING_DIM }),
-    translatedByModelRunId: uuid('translated_by_model_run_id').references(
-      () => modelRuns.id,
-    ),
+    translatedByModelRunId: uuid('translated_by_model_run_id').references(() => modelRuns.id),
     // sha256 hex of the canonical summary at translation time. The translation
     // worker re-translates when this no longer matches the current summary.
     sourceHash: varchar('source_hash', { length: 64 }),
@@ -1373,7 +1340,9 @@ export const claimReviewEvents = pgTable(
   },
   (t) => ({
     claimIdx: index('claim_review_events_claim_idx').on(t.claimId, t.createdAt),
-    replacementClaimIdx: index('claim_review_events_replacement_claim_idx').on(t.replacementClaimId),
+    replacementClaimIdx: index('claim_review_events_replacement_claim_idx').on(
+      t.replacementClaimId,
+    ),
     businessModelChangeIdx: index('claim_review_events_business_model_change_idx').on(
       t.businessModelChangeId,
     ),
@@ -1450,20 +1419,17 @@ export const brainSectionVersions = pgTable(
     changeSummary: text('change_summary').notNull(),
     createdByModelRunId: uuid('created_by_model_run_id').references(() => modelRuns.id),
 
-    reviewStatus: brainSectionReviewStatusEnum('review_status')
-      .default('draft')
-      .notNull(),
-    reviewedByEmployeeId: uuid('reviewed_by_employee_id').references(
-      () => employees.id,
-    ),
+    reviewStatus: brainSectionReviewStatusEnum('review_status').default('draft').notNull(),
+    reviewedByEmployeeId: uuid('reviewed_by_employee_id').references(() => employees.id),
     reviewedAt: timestamp('reviewed_at'),
 
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => ({
-    sectionVersionUnique: uniqueIndex(
-      'brain_section_versions_section_version_unique',
-    ).on(t.sectionId, t.versionNumber),
+    sectionVersionUnique: uniqueIndex('brain_section_versions_section_version_unique').on(
+      t.sectionId,
+      t.versionNumber,
+    ),
     sectionVersionIdx: index('brain_section_versions_section_version_idx').on(
       t.sectionId,
       t.versionNumber,
@@ -1512,10 +1478,7 @@ export const contradictions = pgTable(
     resolvedAt: timestamp('resolved_at'),
   },
   (t) => ({
-    statusSeverityIdx: index('contradictions_status_severity_idx').on(
-      t.status,
-      t.severity,
-    ),
+    statusSeverityIdx: index('contradictions_status_severity_idx').on(t.status, t.severity),
   }),
 );
 
@@ -1524,13 +1487,9 @@ export const gaps = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     gapType: varchar('gap_type', { length: 50 }).notNull(),
-    sectionId: varchar('section_id', { length: 255 }).references(
-      () => brainSections.id,
-    ),
+    sectionId: varchar('section_id', { length: 255 }).references(() => brainSections.id),
     relatedClaimIds: jsonb('related_claim_ids'),
-    relatedContradictionId: uuid('related_contradiction_id').references(
-      () => contradictions.id,
-    ),
+    relatedContradictionId: uuid('related_contradiction_id').references(() => contradictions.id),
     questionToAsk: text('question_to_ask').notNull(),
     whyItMatters: text('why_it_matters').notNull(),
     targetEmployeeId: uuid('target_employee_id').references(() => employees.id),
@@ -1557,9 +1516,7 @@ export const oracleInterventions = pgTable('oracle_interventions', {
     .notNull(),
   triggerType: oracleInterventionTriggerTypeEnum('trigger_type').notNull(),
   relatedGapId: uuid('related_gap_id').references(() => gaps.id),
-  relatedContradictionId: uuid('related_contradiction_id').references(
-    () => contradictions.id,
-  ),
+  relatedContradictionId: uuid('related_contradiction_id').references(() => contradictions.id),
   relatedMessageId: uuid('related_message_id').references(() => messages.id),
   interjectionMessageId: uuid('interjection_message_id').references(() => messages.id),
   confidence: integer('confidence'),
@@ -1636,7 +1593,9 @@ export const oracleContextPacks = pgTable(
     taskCreatedIdx: index('oracle_context_packs_task_created_idx').on(t.taskType, t.createdAt),
     routeIdx: index('oracle_context_packs_route_idx').on(t.routeId),
     modelRunIdx: index('oracle_context_packs_model_run_idx').on(t.modelRunId),
-    stablePrefixHashIdx: index('oracle_context_packs_stable_prefix_hash_idx').on(t.stablePrefixHash),
+    stablePrefixHashIdx: index('oracle_context_packs_stable_prefix_hash_idx').on(
+      t.stablePrefixHash,
+    ),
   }),
 );
 
@@ -1746,7 +1705,10 @@ export const providerCachedContent = pgTable(
   },
   (t) => ({
     statusIdx: index('provider_cached_content_status_idx').on(t.status),
-    providerStatusIdx: index('provider_cached_content_provider_status_idx').on(t.provider, t.status),
+    providerStatusIdx: index('provider_cached_content_provider_status_idx').on(
+      t.provider,
+      t.status,
+    ),
     sourceHashIdx: index('provider_cached_content_source_hash_idx').on(t.sourceHash),
     expirationIdx: index('provider_cached_content_expiration_idx').on(t.hardExpirationAt),
     cleanupOwnerIdx: index('provider_cached_content_cleanup_owner_idx').on(t.cleanupOwner),
@@ -1818,7 +1780,10 @@ export const providerBatchJobs = pgTable(
   },
   (t) => ({
     statusIdx: index('provider_batch_jobs_status_idx').on(t.status),
-    providerBatchIdx: uniqueIndex('provider_batch_jobs_provider_batch_unique').on(t.provider, t.providerBatchId),
+    providerBatchIdx: uniqueIndex('provider_batch_jobs_provider_batch_unique').on(
+      t.provider,
+      t.providerBatchId,
+    ),
     taskIdx: index('provider_batch_jobs_task_idx').on(t.taskType),
     submittedIdx: index('provider_batch_jobs_submitted_idx').on(t.submittedAt),
   }),
@@ -1887,7 +1852,10 @@ export const knowledgeSubTopics = pgTable(
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
   },
   (t) => ({
-    topDomainNameUnique: uniqueIndex('knowledge_sub_topics_top_domain_name_unique').on(t.topDomainId, t.name),
+    topDomainNameUnique: uniqueIndex('knowledge_sub_topics_top_domain_name_unique').on(
+      t.topDomainId,
+      t.name,
+    ),
     topDomainIdx: index('knowledge_sub_topics_top_domain_idx').on(t.topDomainId),
     reviewStatusIdx: index('knowledge_sub_topics_review_status_idx').on(t.reviewStatus),
   }),
@@ -2148,7 +2116,10 @@ export const entityProposals = pgTable(
   },
   (t) => ({
     statusIdx: index('entity_proposals_status_idx').on(t.status),
-    typeValueIdx: index('entity_proposals_type_value_idx').on(t.proposedEntityType, t.proposedCanonicalValue),
+    typeValueIdx: index('entity_proposals_type_value_idx').on(
+      t.proposedEntityType,
+      t.proposedCanonicalValue,
+    ),
   }),
 );
 
@@ -2254,15 +2225,17 @@ export const extractionCandidates = pgTable(
     proposedEntities: jsonb('proposed_entities').default([]).notNull(),
     // Optional metadata the model surfaced (process_stage, department, etc.).
     proposedMetadata: jsonb('proposed_metadata'),
-    // Macro-first linkage: source workflow map element this candidate is meant
-    // to evidence. Nullable for ordinary/non-map extraction.
+    // Macro-first linkage: source structure map element/relation this candidate
+    // is meant to evidence. Nullable for ordinary/non-map extraction.
     mapElementRef: text('map_element_ref'),
 
     // CANDIDATE_STANCES.
     stance: varchar('stance', { length: 50 }),
 
     // Privacy / sensitivity gate per docs/oracle/03 "Privacy and sensitivity gate".
-    containsSensitivePersonalData: boolean('contains_sensitive_personal_data').default(false).notNull(),
+    containsSensitivePersonalData: boolean('contains_sensitive_personal_data')
+      .default(false)
+      .notNull(),
     containsSensitiveHRData: boolean('contains_sensitive_hr_data').default(false).notNull(),
     isPersonalConflict: boolean('is_personal_conflict').default(false).notNull(),
     sensitivityReason: text('sensitivity_reason'),
@@ -2346,9 +2319,15 @@ export const extractionCandidateEvidence = pgTable(
   },
   (t) => ({
     candidateIdx: index('extraction_candidate_evidence_candidate_idx').on(t.candidateId),
-    sourceMessageIdx: index('extraction_candidate_evidence_source_message_idx').on(t.sourceMessageId),
-    sourceChunkIdx: index('extraction_candidate_evidence_source_chunk_idx').on(t.sourceDocumentChunkId),
-    validationStatusIdx: index('extraction_candidate_evidence_validation_status_idx').on(t.validationStatus),
+    sourceMessageIdx: index('extraction_candidate_evidence_source_message_idx').on(
+      t.sourceMessageId,
+    ),
+    sourceChunkIdx: index('extraction_candidate_evidence_source_chunk_idx').on(
+      t.sourceDocumentChunkId,
+    ),
+    validationStatusIdx: index('extraction_candidate_evidence_validation_status_idx').on(
+      t.validationStatus,
+    ),
   }),
 );
 
@@ -2357,7 +2336,9 @@ export const extractionValidationResults = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     candidateId: uuid('candidate_id').references(() => extractionCandidates.id),
-    candidateEvidenceId: uuid('candidate_evidence_id').references(() => extractionCandidateEvidence.id),
+    candidateEvidenceId: uuid('candidate_evidence_id').references(
+      () => extractionCandidateEvidence.id,
+    ),
 
     // VALIDATION_CHECK_NAMES.
     checkName: varchar('check_name', { length: 100 }).notNull(),
@@ -2371,8 +2352,13 @@ export const extractionValidationResults = pgTable(
   },
   (t) => ({
     candidateIdx: index('extraction_validation_results_candidate_idx').on(t.candidateId),
-    candidateEvidenceIdx: index('extraction_validation_results_candidate_evidence_idx').on(t.candidateEvidenceId),
-    checkNameStatusIdx: index('extraction_validation_results_check_name_status_idx').on(t.checkName, t.status),
+    candidateEvidenceIdx: index('extraction_validation_results_candidate_evidence_idx').on(
+      t.candidateEvidenceId,
+    ),
+    checkNameStatusIdx: index('extraction_validation_results_check_name_status_idx').on(
+      t.checkName,
+      t.status,
+    ),
     createdAtIdx: index('extraction_validation_results_created_at_idx').on(t.createdAt),
   }),
 );
@@ -2435,7 +2421,8 @@ export type NewMessageEntity = typeof messageEntities.$inferInsert;
 export type ClaimMetadata = typeof claimMetadata.$inferSelect;
 export type NewClaimMetadata = typeof claimMetadata.$inferInsert;
 export type KnowledgeDomainReviewDepartment = typeof knowledgeDomainReviewDepartments.$inferSelect;
-export type NewKnowledgeDomainReviewDepartment = typeof knowledgeDomainReviewDepartments.$inferInsert;
+export type NewKnowledgeDomainReviewDepartment =
+  typeof knowledgeDomainReviewDepartments.$inferInsert;
 export type ClaimReviewEvent = typeof claimReviewEvents.$inferSelect;
 export type NewClaimReviewEvent = typeof claimReviewEvents.$inferInsert;
 export type TaxonomyProposal = typeof taxonomyProposals.$inferSelect;
