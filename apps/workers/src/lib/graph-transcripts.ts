@@ -469,36 +469,47 @@ export async function getOnlineMeetingMetadata(
   };
 }
 
+/** Raw getAllTranscripts item — the union of fields both callers read. */
+interface RawTranscript {
+  transcriptContentUrl?: string | null;
+  meetingId?: string | null;
+  callId?: string | null;
+  createdDateTime?: string | null;
+  endDateTime?: string | null;
+  meetingOrganizer?: { user?: { id?: string | null } | null } | null;
+}
+
 /**
- * Scheduled-meeting transcripts for one organizer created at/after `sinceIso`.
- * Mirrors the change-notification payload shape so each result can be handed to
- * teams-transcript-ingestion exactly like a live notification.
+ * Page a per-organizer `getAllTranscripts` function by TIME instead of by
+ * Graph's `@odata.nextLink`.
  *
- * Resilient per organizer: only a first-page **403** (genuine app-access-policy
- * gap) throws — everything else keeps whatever was collected and stops. This
- * tolerates slow organizers that hit the request timeout without aborting the
- * whole scan or discarding the page(s) we already have.
+ * Both the onlineMeetings (v1.0) and adhocCalls (beta) getAllTranscripts
+ * functions return a MALFORMED nextLink (`startIndex=-1` → a 400 on page 2+)
+ * once an organizer has more than one page of transcripts — silently dropping
+ * their older ones. So we never follow the nextLink. Instead we keep each
+ * window's results, then re-query with the upper bound (`endDateTime`) pulled
+ * back to the oldest transcript we've seen, until a window surfaces nothing new.
+ * This recovers every transcript whether or not Graph's own paging works, and
+ * dedupes on transcript content URL across the inclusive window boundary.
  *
- * Uses the STABLE v1.0 function. The beta function returns a malformed
- * `@odata.nextLink` (yielding a `startIndex ('-1')` 400 on page 2+); v1.0 does
- * not have that pagination defect. onlineMeeting getAllTranscripts is GA on v1.0.
+ * Resilience contract (per organizer): a FIRST-window 403 throws (genuine
+ * access/policy gap the caller wants surfaced); any other failure — 404, other
+ * 4xx, timeout — keeps what we have and stops. `label` names the endpoint in
+ * logs. A window cap backstops against clock issues / pathological tenants.
  */
-export async function getOnlineMeetingTranscripts(
+async function pageTranscriptsByTime(
+  token: string,
   organizerId: string,
   sinceIso: string,
-): Promise<BackfillTranscript[]> {
-  const cfg = getConfigOrNull();
-  if (!cfg) return [];
-  const token = await getToken(cfg);
-  const out: BackfillTranscript[] = [];
-  // The PULL endpoint is per-user: users/{id}/onlineMeetings/getAllTranscripts.
-  // (Distinct from the tenant-wide SUBSCRIPTION resource
-  // communications/onlineMeetings/getAllTranscripts.) See diagnose-transcripts.ps1.
-  const endIso = new Date().toISOString();
-  let url: string | undefined =
-    `${GRAPH_V1}/users/${organizerId}/onlineMeetings/getAllTranscripts(meetingOrganizerUserId='${organizerId}',startDateTime=${sinceIso},endDateTime=${endIso})`;
-  let firstPage = true;
-  while (url) {
+  buildUrl: (startIso: string, endIso: string) => string,
+  label: string,
+): Promise<RawTranscript[]> {
+  const out: RawTranscript[] = [];
+  const seen = new Set<string>();
+  let endIso = new Date().toISOString();
+  let firstWindow = true;
+  for (let window = 0; window < 60; window++) {
+    const url = buildUrl(sinceIso, endIso);
     let res: Response;
     try {
       res = await fetch(url, {
@@ -507,54 +518,83 @@ export async function getOnlineMeetingTranscripts(
       });
     } catch (err) {
       // Network error / timeout — keep what we have, don't abort the scan.
-      console.warn(`[graph-transcripts] getAllTranscripts fetch error for ${organizerId}`, err);
+      console.warn(`[graph-transcripts] ${label} fetch error for ${organizerId}`, err);
       return out;
     }
     if (!res.ok) {
       const body = (await res.text().catch(() => '')).slice(0, 200);
-      // A first-page 403 is a genuine access/policy gap worth surfacing.
-      if (firstPage && res.status === 403) {
-        throw new Error(`getAllTranscripts forbidden (403) for organizer ${organizerId}: ${body}`);
+      if (firstWindow && res.status === 403) {
+        throw new Error(`${label} forbidden (403) for organizer ${organizerId}: ${body}`);
       }
-      // A FIRST-PAGE 404 is no longer swallowed silently as "no transcripts". It
-      // usually does mean the organizer has none, but it is ALSO what a wrong
-      // request shape returns (the documented communications/... vs
-      // users/{id}/onlineMeetings/... endpoint regression silently 404s). A
-      // silent 404-as-empty is exactly how that bug would hide, so log it. A 400
-      // on a nextLink is Graph's startIndex=-1 pagination quirk (end of pages).
-      if (res.status === 404 && firstPage) {
+      // A first-window 404 usually means "no transcripts", but a wrong request
+      // shape also 404s — log it rather than swallow silently.
+      if (res.status === 404 && firstWindow) {
         console.warn(
-          `[graph-transcripts] getAllTranscripts 404 (first page) for ${organizerId} — treating as ` +
-            `"no transcripts", but if you expected some, verify the endpoint shape ` +
-            `(must be users/{id}/onlineMeetings/getAllTranscripts): ${body}`,
+          `[graph-transcripts] ${label} 404 (first page) for ${organizerId} — treating as ` +
+            `"no transcripts": ${body}`,
         );
       } else if (res.status !== 404) {
-        console.warn(`[graph-transcripts] getAllTranscripts ${res.status} for ${organizerId}: ${body}`);
+        console.warn(`[graph-transcripts] ${label} ${res.status} for ${organizerId}: ${body}`);
       }
       return out;
     }
-    const page = (await res.json()) as {
-      value?: Array<{
-        transcriptContentUrl?: string | null;
-        meetingId?: string | null;
-        callId?: string | null;
-        createdDateTime?: string | null;
-      }>;
-      '@odata.nextLink'?: string;
-    };
-    for (const t of page.value ?? []) {
-      out.push({
-        transcriptContentUrl: t.transcriptContentUrl ?? null,
-        resourcePath: null,
-        meetingId: t.meetingId ?? null,
-        callId: t.callId ?? null,
-        createdDateTime: t.createdDateTime ?? null,
-      });
+    const page = (await res.json()) as { value?: RawTranscript[] };
+    const items = page.value ?? [];
+    firstWindow = false;
+
+    let oldest: string | null = null;
+    let added = 0;
+    for (const t of items) {
+      const id = t.transcriptContentUrl ?? null;
+      if (id) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+      }
+      out.push(t);
+      added += 1;
+      const created = t.createdDateTime ?? null;
+      if (created && (oldest === null || created < oldest)) oldest = created;
     }
-    url = page['@odata.nextLink'];
-    firstPage = false;
+    // Stop when this window surfaced nothing new, we can't determine an older
+    // bound (no createdDateTime to key on), or we've reached the floor.
+    if (added === 0 || !oldest || oldest <= sinceIso) break;
+    endIso = oldest; // next window: everything strictly older than what we've seen
   }
   return out;
+}
+
+/**
+ * Scheduled-meeting transcripts for one organizer created at/after `sinceIso`.
+ * Mirrors the change-notification payload shape so each result can be handed to
+ * teams-transcript-ingestion exactly like a live notification. Uses the STABLE
+ * v1.0 function and keyset-by-time paging (see pageTranscriptsByTime).
+ *
+ * The PULL endpoint is per-user: users/{id}/onlineMeetings/getAllTranscripts —
+ * distinct from the tenant-wide SUBSCRIPTION resource
+ * communications/onlineMeetings/getAllTranscripts. See diagnose-transcripts.ps1.
+ */
+export async function getOnlineMeetingTranscripts(
+  organizerId: string,
+  sinceIso: string,
+): Promise<BackfillTranscript[]> {
+  const cfg = getConfigOrNull();
+  if (!cfg) return [];
+  const token = await getToken(cfg);
+  const raws = await pageTranscriptsByTime(
+    token,
+    organizerId,
+    sinceIso,
+    (startIso, endIso) =>
+      `${GRAPH_V1}/users/${organizerId}/onlineMeetings/getAllTranscripts(meetingOrganizerUserId='${organizerId}',startDateTime=${startIso},endDateTime=${endIso})`,
+    'getAllTranscripts',
+  );
+  return raws.map((t) => ({
+    transcriptContentUrl: t.transcriptContentUrl ?? null,
+    resourcePath: null,
+    meetingId: t.meetingId ?? null,
+    callId: t.callId ?? null,
+    createdDateTime: t.createdDateTime ?? null,
+  }));
 }
 
 /**
@@ -566,11 +606,9 @@ export async function getOnlineMeetingTranscripts(
  * ad-hoc change-notification subscription already uses, so if live capture works
  * this does too.
  *
- * Same resilience contract as getOnlineMeetingTranscripts: a first-page 403 is a
- * genuine access gap and throws; 404 / other 4xx / timeout keep whatever we
- * collected and stop. Pages by following `@odata.nextLink` verbatim and never
- * sends `$top` — a documented Graph quirk where `$top` drops the nextLink and
- * yields the `startIndex ('-1')` 400 on page 2+.
+ * Same resilience contract as getOnlineMeetingTranscripts, and the same
+ * keyset-by-time paging (see pageTranscriptsByTime) — the adhocCalls function
+ * has the identical malformed-nextLink defect, so we never follow it.
  */
 export async function getAdhocCallTranscripts(
   organizerId: string,
@@ -579,64 +617,20 @@ export async function getAdhocCallTranscripts(
   const cfg = getConfigOrNull();
   if (!cfg) return [];
   const token = await getToken(cfg);
-  const out: AdhocCallTranscript[] = [];
-  const endIso = new Date().toISOString();
-  let url: string | undefined =
-    `${GRAPH_BETA}/users/${organizerId}/adhocCalls/getAllTranscripts(userId='${organizerId}',startDateTime=${sinceIso},endDateTime=${endIso})`;
-  let firstPage = true;
-  while (url) {
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(30_000),
-      });
-    } catch (err) {
-      console.warn(`[graph-transcripts] adhoc getAllTranscripts fetch error for ${organizerId}`, err);
-      return out;
-    }
-    if (!res.ok) {
-      const body = (await res.text().catch(() => '')).slice(0, 200);
-      if (firstPage && res.status === 403) {
-        throw new Error(
-          `adhoc getAllTranscripts forbidden (403) for organizer ${organizerId}: ${body}`,
-        );
-      }
-      if (res.status === 404 && firstPage) {
-        // Usually means "this organizer has no ad-hoc call transcripts". Logged
-        // (not silently swallowed) because a wrong request shape also 404s.
-        console.warn(
-          `[graph-transcripts] adhoc getAllTranscripts 404 (first page) for ${organizerId} — ` +
-            `treating as "no ad-hoc transcripts": ${body}`,
-        );
-      } else if (res.status !== 404) {
-        console.warn(`[graph-transcripts] adhoc getAllTranscripts ${res.status} for ${organizerId}: ${body}`);
-      }
-      return out;
-    }
-    const page = (await res.json()) as {
-      value?: Array<{
-        transcriptContentUrl?: string | null;
-        meetingId?: string | null;
-        callId?: string | null;
-        createdDateTime?: string | null;
-        endDateTime?: string | null;
-        meetingOrganizer?: { user?: { id?: string | null } | null } | null;
-      }>;
-      '@odata.nextLink'?: string;
-    };
-    for (const t of page.value ?? []) {
-      out.push({
-        transcriptContentUrl: t.transcriptContentUrl ?? null,
-        meetingId: t.meetingId ?? null,
-        callId: t.callId ?? null,
-        organizerId: t.meetingOrganizer?.user?.id ?? organizerId,
-        createdDateTime: t.createdDateTime ?? null,
-        endDateTime: t.endDateTime ?? null,
-      });
-    }
-    url = page['@odata.nextLink'];
-    firstPage = false;
-  }
-  return out;
+  const raws = await pageTranscriptsByTime(
+    token,
+    organizerId,
+    sinceIso,
+    (startIso, endIso) =>
+      `${GRAPH_BETA}/users/${organizerId}/adhocCalls/getAllTranscripts(userId='${organizerId}',startDateTime=${startIso},endDateTime=${endIso})`,
+    'adhoc getAllTranscripts',
+  );
+  return raws.map((t) => ({
+    transcriptContentUrl: t.transcriptContentUrl ?? null,
+    meetingId: t.meetingId ?? null,
+    callId: t.callId ?? null,
+    organizerId: t.meetingOrganizer?.user?.id ?? organizerId,
+    createdDateTime: t.createdDateTime ?? null,
+    endDateTime: t.endDateTime ?? null,
+  }));
 }
