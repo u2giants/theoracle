@@ -141,9 +141,21 @@ $0.0003 vs qwen-max ~$0.019). The Trigger PAT now lets an AI session set prod en
 (no dashboard). Enabler for future secret-use-without-exposure: 1Password MCP `op_run`
 (published `@u2giants/1password-mcp@2.5.1`, 2026-07-09) — activates on next MCP restart.
 
+**Shape-aware reader — STAGE 1 DONE (2026-07-09, committed `839603f`, CI green, deployed
+worker `20260709.5`).** Generalized the source reader to the unified structure-map model
+(documentShape + segments[] + elements[] + relations[]), process-only, behavior-preserving:
+the workflow-read LLM schema is unchanged; code maps nodes→elements, edges→relations;
+migration `93` adds the unified columns additively (backfills process rows). Extraction refs
+are now `<mapId>:element:`/`<mapId>:relation:`. Regression-verified clean on the swimlane
+(fresh chunks, 58 elements/56 relations/13 lanes, 57 claims, dedup clean, ~96% relation
+coverage). Removed an out-of-scope chunk-reuse-by-index shortcut Codex had added.
+WATCH-ITEM: ~3/57 claim refs pointed at dropped/malformed map elements (minor extraction
+tail; revisit in a later stage). NEXT: Stage 2 = segmentation (split a document into
+shape-tagged segments) per `SHAPE_AWARE_READER_DESIGN.md` §5/§9.
+
 **OPEN / PENDING (next actions in priority order):**
-1. **Build the shape-aware reader** per `SHAPE_AWARE_READER_DESIGN.md`, Stage 1 first. THE
-   MAIN WORK.
+1. **Shape-aware reader Stage 2 — segmentation** (then Stage 3 non-process shapes, Stage 4
+   conversation) per `SHAPE_AWARE_READER_DESIGN.md` §9. THE MAIN WORK.
 2. Verify today's Teams meetings now appear with subjects on `/admin/transcripts` after the
    Azure `OnlineMeetings.Read.All` grant (scan showed metadataErrors=0).
 3. Optional: add `DEEPSEEK_API_KEY` to Vercel too if any chat-side `deepseek/*` route is
