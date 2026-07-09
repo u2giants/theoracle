@@ -106,6 +106,11 @@ Remove-Item $env:TEMP\new-key.json -Force
   - `npx vercel@latest env pull .env.local --environment=development --yes`, OR
   - Manual paste for the direct-provider keys (Anthropic / OpenAI) and Google Cloud variables, which are not stored in Vercel.
 - **Vercel quirk:** "Sensitive" env vars in Vercel cannot be added to the Development environment. Either convert them to "Encrypted" or paste manually into `.env.local`.
+- **Trigger.dev WORKER env vars are separate from Vercel** and must be set on the Trigger project (Vercel only feeds the Next.js app). The web dashboard is one way; the programmatic way (no dashboard) — used 2026-07-09 to set `DEEPSEEK_API_KEY` in prod so `deepseek/*` routes work — is the Trigger **management REST API** with a Personal Access Token:
+  - Token: 1Password `vibe_coding` → "Trigger.dev Personal Access Token (management)" (has the exact recipe in its notes). NOT the per-env secret key.
+  - Create/upsert: `POST https://api.trigger.dev/api/v1/projects/proj_wgpzsvhmsopqhvwqaycn/envvars/prod` with `Authorization: Bearer <PAT>` and `{"name":...,"value":...}`; list names: `GET .../envvars/prod`. The Trigger CLI `env` subcommand is READ-ONLY.
+  - After changing worker env, REDEPLOY the worker so a fresh boot reads it.
+  - Prefer the 1Password MCP `op_run` to inject the PAT + secret value without exposing them in chat.
 
 ## Supabase Postgres — pooler vs direct
 
