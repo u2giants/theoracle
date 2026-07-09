@@ -118,21 +118,30 @@ for D1.) ClickUp source creds also exist in the vault if raw ClickUp data is eve
 **Transcript summary model bake-off: DONE (2026-07-08).** Tested all 5 models on the
 "Book report" transcript vs a hand-written gold summary. All 5 produced great, faithful
 summaries; choice was purely cost. Cost/summary: deepseek-v4-flash $0.00084 (23x cheaper
-than the old qwen3.7-max, but NOT prod-deployable yet — DeepSeek adapter is parked on
-`wip/vision-cache-tests`, and OpenRouter's data policy blocks it), qwen3.6-flash $0.0041,
-deepseek-v4-pro $0.0043, qwen3.7-plus $0.0058, qwen3.7-max $0.019 (old). **Wired
-`qwen/qwen3.6-flash`** as the cheapest prod-deployable great option (same DashScope provider,
-no new data exposure): new dedicated `transcript_summary` route slot + settings
-`default_transcript_summary_route` / `model_pool_transcript_summary`, migration `91`, worker
-`20260708.4`. Live-proven (run produced a qwen3.6-flash summary on slot `transcript_summary`).
-FUTURE WIN: adopt `deepseek-v4-flash` (23x cheaper, also great) once the DeepSeek adapter
-ships to prod from the parked branch.
+than the old qwen3.7-max), qwen3.6-flash $0.0041, deepseek-v4-pro $0.0043, qwen3.7-plus
+$0.0058, qwen3.7-max $0.019 (old). Initially wired `qwen/qwen3.6-flash` (dedicated
+`transcript_summary` route slot + settings `default_transcript_summary_route` /
+`model_pool_transcript_summary`, migration `91`, worker `20260708.4`, live-proven).
+**CORRECTION (2026-07-08): the target is `deepseek/deepseek-v4-flash`** (cheapest + great).
+My earlier "parked / OpenRouter-blocked" claim was WRONG: the app has NO OpenRouter inference
+adapter — DeepSeek ALWAYS routes DIRECT via `DeepSeekAdapter` → `api.deepseek.com`
+(`DEEPSEEK_API_KEY`), and that adapter is already in `main`. The bake-off's round-1 OpenRouter
+calls were only my test harness. **Real blocker: the PROD Trigger worker env is MISSING
+`DEEPSEEK_API_KEY`** (verified 2026-07-08 — a forced deepseek-v4-flash run failed "No adapter
+registered for provider deepseek" and fell back to qwen; settings were reverted to
+qwen3.6-flash so summaries keep working). Prod `model_capabilities` already has the 2 deepseek
+models. Policy now documented in AGENTS.md ("OpenRouter is enrichment-only" block) +
+docs/configuration.md (`DEEPSEEK_API_KEY` row).
 
 **OPEN / PENDING (next actions in priority order):**
 1. **Build the shape-aware reader** per `SHAPE_AWARE_READER_DESIGN.md`, Stage 1 first. THE
    MAIN WORK.
-2. Adopt `deepseek-v4-flash` for transcript summaries (23x cheaper) once the DeepSeek adapter
-   is deployed to prod (currently parked on `wip/vision-cache-tests`).
+2. **Set `DEEPSEEK_API_KEY` in the PROD Trigger worker env** (value in 1Password vault
+   `vibe_coding`, item "ai-provider-api-keys"), then switch
+   `default_transcript_summary_route` → `deepseek/deepseek-v4-flash` (pool
+   `["deepseek/deepseek-v4-flash","qwen/qwen3.6-flash"]`), update the seeded default +
+   add a re-seed migration, redeploy, and re-test. This makes transcript summaries 23x
+   cheaper. Also add the key to Vercel for any chat-side `deepseek/*` use.
 3. Verify today's Teams meetings now appear with subjects on `/admin/transcripts` after the
    Azure `OnlineMeetings.Read.All` grant (scan showed metadataErrors=0).
 

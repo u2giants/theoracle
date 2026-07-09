@@ -412,6 +412,16 @@ Inference requires native provider features and exact usage fields; catalog enri
 Do not change because:
 Reintroducing OpenRouter into the inference path would erase provider-native cache and usage behavior that the rest of the system expects.
 
+**DeepSeek inference is ALWAYS direct (policy).** `deepseek/*` routes run through
+`DeepSeekAdapter` against `api.deepseek.com` (OpenAI-compatible, `DEEPSEEK_API_KEY`) —
+NEVER OpenRouter. There is no OpenRouter inference adapter in `buildStandardAdapters()`.
+`DEEPSEEK_API_KEY` must be set in EVERY environment that runs `deepseek/*` (Vercel chat +
+the Trigger worker). If it is missing, `DeepSeekAdapter` is omitted at boot (loud
+`console.error` in `standard-adapters.ts`) and any `deepseek/*` route fails to dispatch
+and falls back to the next pool candidate. (Known gap as of 2026-07-08: the PROD Trigger
+worker env is MISSING `DEEPSEEK_API_KEY`, so the transcript-summary `deepseek-v4-flash`
+choice fell back to Qwen — set the key in prod to enable it. See `HANDOFF.md`.)
+
 ### `google/*` model settings are real Gemini API routes, not Vertex aliases
 
 What changed:
