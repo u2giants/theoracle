@@ -1,8 +1,82 @@
 # HANDOFF — Prior completed work and remaining historical watchouts
 
-Last updated: 2026-07-07. Delete this file once the remaining open items below are closed.
+Last updated: 2026-07-13. Delete this file once the remaining open items below are closed.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
+
+## LATEST SNAPSHOT — Shape-aware reader Stage 2 complete locally (2026-07-13)
+
+**What this application is.** The Oracle is POP Creations / Spruce Line's evidence-backed
+enterprise knowledge system. Employees use the Vercel web app at
+`https://oracle.designflow.app`; Supabase stores documents, messages, claims, and structure
+maps; Trigger.dev runs ingestion/extraction/synthesis workers; all model calls go through the
+repo's direct-provider `OracleAIClient`. The source of truth is `u2giants/theoracle`, branch
+`main`.
+
+**What this session set out to do and why.** Build Stage 2 of the approved shape-aware
+reader (`SHAPE_AWARE_READER_DESIGN.md`): classify real documents into process,
+responsibilities, reference, ruleset, conversation, and narrative segments before detailed
+reading. This fixes the proven problem where the process-only reader left ordinary text
+documents ~96% structurally blind.
+
+**Current state.** Stage 2 is implemented and passes the full real-data gate locally. The
+reader now runs strict segmentation first, persists all six segment shapes, validates full
+source coverage, allows controlled overlap for genuinely composite persisted chunks, retries
+one malformed segmentation with exact chunk-ID feedback, and runs the existing workflow
+reader only over process segments. The pipeline version is part of the source hash so old
+Stage 1 maps are not reused. No DB migration is required because migration 93 already added
+the generic JSON columns. Focused AI/worker smokes and package typechecks pass. The real gate
+passed all five named files under `Z:\Documentation\company process - Oracle\` plus the
+latest production-ingested Teams transcript using `openai/gpt-4.1`; exact results are in
+`evals/shape-aware-stage2.md`.
+
+**Deployment/git state.** At the time this snapshot was written, Stage 2 changes were in the
+local cleanly based `main` working tree but had not yet been committed, pushed, or deployed.
+Production therefore still ran Trigger worker `20260709.11` / commit `4422f77`. Before
+deploying, run the full repo verification, commit to `main`, push, confirm GitHub Actions, and
+deploy the Trigger worker. No Vercel behavior changed, but the shared AI package may still
+cause a normal Vercel build after push.
+
+**What did not work and why.** (1) Exactly-one segment assignment failed because real
+4,000-character chunks are themselves composite; controlled overlap is the permanent fix and
+does not change evidence chunk IDs. (2) The initial prompt treated role-duty lists as process;
+the final prompt classifies by passage purpose. (3) The Team Communication DOCX was initially
+expected to be conversation, but it is an explanatory memo; narrative is correct. (4) One
+model run mistyped a UUID; deterministic fallback prevented loss, and a bounded repair retry
+now handles this before fallback. (5) The first Teams query selected an unbounded live Recall
+channel; the repeatable gate now selects completed `teams_transcript` channels only.
+
+**Root causes/key findings.** Persisted chunk boundaries are evidence boundaries, not always
+knowledge-shape boundaries. A chunk may therefore need multiple shape lenses while retaining
+one immutable evidence source. The Book Report transcript proved the intended behavior by
+producing conversation, responsibilities, reference, and a separate reconstructed process.
+Files: `packages/ai/src/prompts/workflow-read.ts`,
+`apps/workers/src/lib/source-workflow-read.ts`, and
+`apps/workers/src/__verify__/shape-segmentation-real-docs.ts`.
+
+**Exact next steps.** (1) Finish the release verification and deploy Stage 2; success means
+CI is green, Trigger's current prod worker contains this commit, and a forced
+`source-workflow-read` on `business-process.md` persists the expected segment shapes. (2)
+Begin shape-aware Stage 3: implement responsibilities/reference/ruleset/narrative per-segment
+readers, their registry element/relation kinds, extraction directives, and deterministic
+coverage; success means the responsibilities and business-process sources are no longer
+mostly blind. (3) Stage 4 adds the conversation reader after Stage 3 is green.
+
+**Constraints/gotchas.** Preserve quote-level evidence and immutable superseding maps. Keep
+the blind extraction fallback until every shape passes. Do not add a DB migration for new
+element kinds; generic JSON plus the shape registry is designed to avoid one. The production
+`workflow_read` pool currently resolves to `openai/gpt-4.1` because the configured Anthropic
+and Gemini candidates fail the deep-schema capability gate.
+
+**Access/environment.** Local machine `916-alien`, repo `D:\repos\oracle`, branch `main`.
+Authenticated `gh`, Trigger MCP, Vercel MCP, Supabase credentials in `.env.local`, and secrets
+in 1Password vault `vibe_coding`. Real test corpus is on the explicitly approved Z: path above.
+
+**Open questions/risks.** Stage 2 classifies non-process material but Stage 3 does not yet
+turn it into structured elements, so the product-value gap is reduced but not closed until
+Stage 3. Controlled overlap increases per-segment read work later; Stage 3 must budget and
+deduplicate by stable segment/element refs. Existing historical maps are not backfilled
+automatically.
 
 ### ⚠️ Active runtime failures — see `AGENT_ERROR_LOG.md` (2026-07-03)
 

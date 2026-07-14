@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "verify:source-workflow-read": "tsx src/__verify__/source-workflow-read-smoke.ts",
+    "verify:shape-segmentation-real": "tsx src/__verify__/shape-segmentation-real-docs.ts",
     "verify:document-ingestion-fallback": "tsx src/__verify__/document-ingestion-fallback-smoke.ts"
   },
   "dependencies": {

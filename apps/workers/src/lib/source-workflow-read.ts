@@ -2,8 +2,12 @@ import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import {
   OracleAIClient,
+  SOURCE_READER_PIPELINE_VERSION,
+  SOURCE_SEGMENTATION_PROMPT_VERSION,
+  SOURCE_SEGMENTATION_SYSTEM_PROMPT,
   WORKFLOW_READ_PROMPT_VERSION,
   WORKFLOW_READ_SYSTEM_PROMPT,
+  SourceSegmentationSchema,
   WorkflowReadSchema,
   buildStandardAdapters,
   estimateTokens,
@@ -12,6 +16,9 @@ import {
   makeBlock,
   resolveRouteCandidates,
   type OraclePromptPlan,
+  type SourceSegmentationOutput,
+  type SourceStructureSegment,
+  type SourceStructureShape,
   type WorkflowReadEdge,
   type WorkflowReadLane,
   type WorkflowReadNode,
@@ -53,7 +60,6 @@ type ChunkRow = {
 
 type WorkflowMapStatus = 'validated' | 'degraded' | 'failed';
 type ReusableWorkflowMapStatus = 'validated' | 'degraded';
-const PROCESS_SEGMENT_ID = 'process';
 
 export type SourceWorkflowReadResult = {
   documentId: string;
@@ -67,7 +73,7 @@ export type SourceWorkflowReadResult = {
   mapId?: string;
   existingMapStatus?: 'validated' | 'degraded';
   mapKind?: 'workflow' | 'reference';
-  documentShape?: 'process';
+  documentShape?: SourceStructureShape;
   droppedCount?: number;
   keptCount?: number;
   segmentCount?: number;
@@ -119,6 +125,9 @@ function sourceHashForDocument(documentId: string, chunks: ChunkRow[]): string {
   return sha256(
     JSON.stringify({
       documentId,
+      readerPipelineVersion: SOURCE_READER_PIPELINE_VERSION,
+      segmentationPromptVersion: SOURCE_SEGMENTATION_PROMPT_VERSION,
+      workflowPromptVersion: WORKFLOW_READ_PROMPT_VERSION,
       chunks: chunks.map((chunk) => [chunk.id, chunk.chunkIndex, chunk.contentHash, chunk.rawText]),
     }),
   );
@@ -247,6 +256,154 @@ function mergeWorkflowOutputs(outputs: WorkflowReadOutput[]): WorkflowReadOutput
     edges: outputs.flatMap((output) => output.edges),
     lanes: outputs.flatMap((output) => output.lanes),
     paths: outputs.flatMap((output) => output.paths),
+  };
+}
+
+function contiguousRuns(
+  chunkIds: string[],
+  chunkIndexById: ReadonlyMap<string, number>,
+): string[][] {
+  const sorted = [...chunkIds].sort(
+    (a, b) =>
+      (chunkIndexById.get(a) ?? Number.MAX_SAFE_INTEGER) -
+      (chunkIndexById.get(b) ?? Number.MAX_SAFE_INTEGER),
+  );
+  const runs: string[][] = [];
+  for (const chunkId of sorted) {
+    const current = runs.at(-1);
+    if (!current) {
+      runs.push([chunkId]);
+      continue;
+    }
+    const previousIndex = chunkIndexById.get(current.at(-1)!);
+    const nextIndex = chunkIndexById.get(chunkId);
+    if (previousIndex !== undefined && nextIndex === previousIndex + 1) current.push(chunkId);
+    else runs.push([chunkId]);
+  }
+  return runs;
+}
+
+function validateSegmentation(
+  output: SourceSegmentationOutput,
+  chunks: ChunkRow[],
+): {
+  status: 'validated' | 'degraded';
+  documentShape: SourceStructureShape;
+  summary: string;
+  segments: SourceStructureSegment[];
+  integrityRepairCount: number;
+  validationJson: Record<string, unknown>;
+} {
+  const chunkIndexById = new Map(chunks.map((chunk) => [chunk.id, chunk.chunkIndex]));
+  const covered = new Set<string>();
+  const usedSegmentIds = new Set<string>();
+  const repairs: Array<Record<string, unknown>> = [];
+  let integrityRepairCount = 0;
+  const segments: SourceStructureSegment[] = [];
+
+  const uniqueSegmentId = (requested: string) => {
+    let candidate = requested;
+    let suffix = 2;
+    while (usedSegmentIds.has(candidate)) candidate = `${requested}_${suffix++}`;
+    usedSegmentIds.add(candidate);
+    return candidate;
+  };
+
+  for (const proposed of output.segments) {
+    const accepted: string[] = [];
+    const seenWithinSegment = new Set<string>();
+    for (const chunkId of proposed.chunkIds) {
+      if (!chunkIndexById.has(chunkId)) {
+        repairs.push({ segmentId: proposed.segmentId, chunkId, reason: 'unknown_chunk_id' });
+        integrityRepairCount += 1;
+        continue;
+      }
+      if (seenWithinSegment.has(chunkId)) {
+        repairs.push({
+          segmentId: proposed.segmentId,
+          chunkId,
+          reason: 'duplicate_chunk_within_segment',
+        });
+        integrityRepairCount += 1;
+        continue;
+      }
+      seenWithinSegment.add(chunkId);
+      covered.add(chunkId);
+      accepted.push(chunkId);
+    }
+    const runs = contiguousRuns(accepted, chunkIndexById);
+    if (runs.length > 1) {
+      repairs.push({
+        segmentId: proposed.segmentId,
+        reason: 'non_contiguous_segment_split',
+        runCount: runs.length,
+      });
+    }
+    for (let runIndex = 0; runIndex < runs.length; runIndex++) {
+      const run = runs[runIndex]!;
+      segments.push({
+        segmentId: uniqueSegmentId(
+          runIndex === 0 ? proposed.segmentId : `${proposed.segmentId}_${runIndex + 1}`,
+        ),
+        shape: proposed.shape,
+        title: runIndex === 0 ? proposed.title : `${proposed.title} (continued)`,
+        summary: proposed.summary ?? null,
+        chunkIds: run,
+      });
+    }
+    if (accepted.length === 0) {
+      repairs.push({ segmentId: proposed.segmentId, reason: 'empty_segment_dropped' });
+    }
+  }
+
+  const missingIds = chunks.filter((chunk) => !covered.has(chunk.id)).map((chunk) => chunk.id);
+  const missingRuns = contiguousRuns(missingIds, chunkIndexById);
+  for (let index = 0; index < missingRuns.length; index++) {
+    const segmentId = uniqueSegmentId(`unclassified_${index + 1}`);
+    segments.push({
+      segmentId,
+      shape: 'narrative',
+      title: 'Unclassified source material',
+      summary: 'Chunks omitted by the model and retained as narrative fallback material.',
+      chunkIds: missingRuns[index]!,
+    });
+    repairs.push({ segmentId, reason: 'missing_chunks_recovered', chunkIds: missingRuns[index] });
+    integrityRepairCount += 1;
+  }
+
+  segments.sort((a, b) => {
+    const aIndex = chunkIndexById.get(a.chunkIds[0]!) ?? Number.MAX_SAFE_INTEGER;
+    const bIndex = chunkIndexById.get(b.chunkIds[0]!) ?? Number.MAX_SAFE_INTEGER;
+    return aIndex - bIndex;
+  });
+
+  const shapeCounts = new Map<SourceStructureShape, number>();
+  for (const segment of segments) {
+    shapeCounts.set(segment.shape, (shapeCounts.get(segment.shape) ?? 0) + segment.chunkIds.length);
+  }
+  const documentShape = output.documentShape;
+
+  return {
+    status: integrityRepairCount === 0 ? 'validated' : 'degraded',
+    documentShape,
+    summary: output.summary,
+    segments,
+    integrityRepairCount,
+    validationJson: {
+      promptVersion: SOURCE_SEGMENTATION_PROMPT_VERSION,
+      proposedDocumentShape: output.documentShape,
+      documentShape,
+      segmentChunkAssignmentsByShape: Object.fromEntries(shapeCounts),
+      suppliedChunkCount: chunks.length,
+      coveredChunkCount: covered.size + missingIds.length,
+      segmentChunkAssignmentCount: segments.reduce(
+        (sum, segment) => sum + segment.chunkIds.length,
+        0,
+      ),
+      segmentCount: segments.length,
+      integrityRepairCount,
+      repairs,
+    },
   };
 }
 
@@ -392,11 +549,25 @@ function workflowToProcessStructureMap(args: {
   output: WorkflowReadOutput;
   chunks: ChunkRow[];
   title: string;
+  segment?: SourceStructureSegment;
+  documentShape?: SourceStructureShape;
+  prefixIds?: boolean;
 }): SourceStructureMap {
   const { output, chunks, title } = args;
+  const segment =
+    args.segment ??
+    ({
+      segmentId: 'process',
+      shape: 'process',
+      title,
+      summary: output.summary,
+      chunkIds: chunks.map((chunk) => chunk.id),
+    } satisfies SourceStructureSegment);
+  const prefix = args.prefixIds ? `${segment.segmentId}_` : '';
+  const mapElementId = (id: string) => `${prefix}${id}`;
   const elements: SourceStructureElement[] = output.nodes.map((node) => ({
-    elementId: node.nodeId,
-    segmentId: PROCESS_SEGMENT_ID,
+    elementId: mapElementId(node.nodeId),
+    segmentId: segment.segmentId,
     shape: 'process',
     elementKind: node.nodeType,
     label: node.label,
@@ -407,10 +578,10 @@ function workflowToProcessStructureMap(args: {
     chunkId: node.chunkId,
   }));
   const relations: SourceStructureRelation[] = output.edges.map((edge) => ({
-    relationId: edge.edgeId,
-    segmentId: PROCESS_SEGMENT_ID,
-    fromElementId: edge.fromNodeId,
-    toElementId: edge.toNodeId,
+    relationId: mapElementId(edge.edgeId),
+    segmentId: segment.segmentId,
+    fromElementId: mapElementId(edge.fromNodeId),
+    toElementId: mapElementId(edge.toNodeId),
     shape: 'process',
     relationKind: edge.edgeType,
     condition: edge.condition ?? null,
@@ -419,21 +590,17 @@ function workflowToProcessStructureMap(args: {
   }));
 
   return {
-    documentShape: 'process',
+    documentShape: args.documentShape ?? 'process',
     summary: output.summary,
-    segments: [
-      {
-        segmentId: PROCESS_SEGMENT_ID,
-        shape: 'process',
-        title,
-        summary: output.summary,
-        chunkIds: chunks.map((chunk) => chunk.id),
-      },
-    ],
+    segments: [segment],
     elements,
     relations,
-    lanes: output.lanes,
-    paths: output.paths,
+    lanes: output.lanes.map((lane) => ({ ...lane, laneId: mapElementId(lane.laneId) })),
+    paths: output.paths.map((path) => ({
+      ...path,
+      pathId: mapElementId(path.pathId),
+      nodeIdsOrdered: path.nodeIdsOrdered.map(mapElementId),
+    })),
   };
 }
 
@@ -502,7 +669,12 @@ async function createPendingMap(args: {
         status: 'pending',
         documentShape: 'process',
         mapKind: 'workflow',
-        validationJson: { promptVersion: WORKFLOW_READ_PROMPT_VERSION, status: 'pending' },
+        validationJson: {
+          pipelineVersion: SOURCE_READER_PIPELINE_VERSION,
+          segmentationPromptVersion: SOURCE_SEGMENTATION_PROMPT_VERSION,
+          workflowPromptVersion: WORKFLOW_READ_PROMPT_VERSION,
+          status: 'pending',
+        },
       })
       .returning({ id: sourceWorkflowMaps.id });
     if (!inserted)
@@ -519,6 +691,161 @@ async function createPendingMap(args: {
   });
 }
 
+async function runSegmentationModel(args: {
+  db: OracleDb;
+  client: OracleAIClient;
+  doc: { fileName: string; fileType: string; context: string | null };
+  chunks: ChunkRow[];
+  mapId: string;
+  repairFeedback?: string;
+}): Promise<{ output: SourceSegmentationOutput; modelRunId: string; contextPackId: string }> {
+  const { db, client, doc, chunks, mapId, repairFeedback } = args;
+  const resolved = await resolveRouteCandidates(db, 'workflow_read');
+  for (const skipped of resolved.skipped) {
+    console.warn('[source-workflow-read] skipped segmentation route candidate', skipped);
+  }
+  const routeCandidates = resolved.candidates;
+  const route = routeCandidates[0]!.route;
+  const chunkIds = chunks.map((chunk) => chunk.id);
+  const blocks = [
+    makeBlock({
+      id: 'source-segmentation-system',
+      label: 'Source segmentation system prompt',
+      kind: 'stable_system',
+      content: SOURCE_SEGMENTATION_SYSTEM_PROMPT,
+      reasonIncluded: `source segmentation prompt ${SOURCE_SEGMENTATION_PROMPT_VERSION}`,
+    }),
+    makeBlock({
+      id: 'document-metadata',
+      label: 'Document metadata',
+      kind: 'semi_stable_domain_context',
+      content: [
+        `Document name: ${doc.fileName}`,
+        `File type: ${doc.fileType}`,
+        doc.context ? `Uploader context:\n${doc.context}` : null,
+        `Source structure map row: ${mapId}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+      reasonIncluded: 'document-level context for source segmentation',
+    }),
+    makeBlock({
+      id: 'document-chunks',
+      label: 'Document chunks',
+      kind: 'retrieved_context',
+      content: buildDocumentCorpus(chunks),
+      reasonIncluded: 'complete ordered source; every chunk must be assigned exactly once',
+    }),
+    makeBlock({
+      id: 'source-segmentation-request',
+      label: 'Source segmentation request',
+      kind: 'dynamic_input',
+      content:
+        'Segment these chunks into the fewest coherent shape-focused passages. Cover every supplied chunk at least once and preserve source order. A genuinely composite chunk may appear in multiple differently shaped segments.' +
+        (repairFeedback
+          ? `\n\nREPAIR REQUIRED: The prior output failed deterministic validation. Return a complete corrected segmentation, copying chunk IDs exactly from this valid list:\n${chunks.map((chunk) => chunk.id).join('\n')}\n\nValidator feedback:\n${repairFeedback}`
+          : ''),
+      reasonIncluded: repairFeedback
+        ? 'bounded deterministic segmentation repair request'
+        : 'current source-segmentation request',
+    }),
+  ];
+  const plan = client.compile({
+    taskType: 'source_segmentation',
+    routeId: route.routeId,
+    promptVersion: SOURCE_SEGMENTATION_PROMPT_VERSION,
+    blocks,
+    observability: { includedDocumentChunkIds: chunkIds },
+  });
+  const [contextPack] = await db
+    .insert(oracleContextPacks)
+    .values(buildContextPackInsert(plan))
+    .returning({ id: oracleContextPacks.id });
+  if (!contextPack)
+    throw new Error('[source-workflow-read] failed to insert segmentation context pack');
+
+  const started = Date.now();
+  const result = await client
+    .runObject<SourceSegmentationOutput>({
+      taskType: 'source_segmentation',
+      routeId: route.routeId,
+      promptVersion: SOURCE_SEGMENTATION_PROMPT_VERSION,
+      blocks,
+      schema: SourceSegmentationSchema,
+      observability: { includedDocumentChunkIds: chunkIds },
+      providerOptions: { maxOutputTokens: 12_000 },
+      routeCandidates,
+    })
+    .catch(async (err) => {
+      await logAllCandidatesFailedAttempts({
+        db,
+        error: err,
+        taskType: 'source-segmentation',
+        slot: 'workflow_read',
+        contextPackId: contextPack.id,
+      }).catch((logErr) =>
+        console.error(
+          '[source-workflow-read] failed to record segmentation model attempts',
+          logErr,
+        ),
+      );
+      throw err;
+    });
+
+  const actualRouteId = result.routeId ?? route.routeId;
+  const actualProvider = result.provider ?? route.provider;
+  const actualModelId = result.modelId ?? route.modelId;
+  const [modelRun] = await db
+    .insert(modelRuns)
+    .values({
+      taskType: 'source-segmentation',
+      model: actualModelId,
+      provider: actualProvider,
+      promptVersion: SOURCE_SEGMENTATION_PROMPT_VERSION,
+      inputHash: plan.metadata.stablePrefixHash,
+      inputTokens: result.usage.inputTokens ?? null,
+      outputTokens: result.usage.outputTokens ?? null,
+      latencyMs: Date.now() - started,
+      success: result.validation.ok,
+      error: result.validation.ok ? null : result.validation.error.message,
+    })
+    .returning({ id: modelRuns.id });
+  if (!modelRun) throw new Error('[source-workflow-read] failed to insert segmentation model run');
+
+  await db.insert(modelRunUsageDetails).values({
+    modelRunId: modelRun.id,
+    contextPackId: contextPack.id,
+    routeId: actualRouteId,
+    inputTokens: result.usage.inputTokens ?? null,
+    cachedInputTokens: result.usage.cachedInputTokens ?? null,
+    cacheWriteTokens: result.usage.cacheWriteTokens ?? null,
+    outputTokens: result.usage.outputTokens ?? null,
+    reasoningTokens: result.usage.reasoningTokens ?? null,
+    providerRequestId: result.usage.providerRequestId ?? null,
+    rawUsageJson: result.usage.rawUsageJson ?? null,
+  });
+  await logModelRunAttempts({
+    db,
+    metadata: result,
+    taskType: 'source-segmentation',
+    slot: 'workflow_read',
+    contextPackId: contextPack.id,
+    modelRunId: modelRun.id,
+  });
+  await db
+    .update(oracleContextPacks)
+    .set({ modelRunId: modelRun.id })
+    .where(eq(oracleContextPacks.id, contextPack.id));
+
+  if (!result.validation.ok) {
+    throw new Error(
+      '[source-workflow-read] segmentation output failed Zod schema validation: ' +
+        result.validation.error.message,
+    );
+  }
+  return { output: result.object, modelRunId: modelRun.id, contextPackId: contextPack.id };
+}
+
 async function runWorkflowReadModel(args: {
   db: OracleDb;
   client: OracleAIClient;
@@ -528,8 +855,9 @@ async function runWorkflowReadModel(args: {
   triggerRunId: string;
   mapId: string;
   force: boolean;
+  segment?: SourceStructureSegment;
 }): Promise<{ output: WorkflowReadOutput; modelRunIds: string[]; contextPackIds: string[] }> {
-  const { db, client, doc, chunks, referentPack, mapId } = args;
+  const { db, client, doc, chunks, referentPack, mapId, segment } = args;
   const maxEstimatedTokens = await readNumberSetting(
     db,
     'workflow_read_max_estimated_input_tokens',
@@ -571,6 +899,9 @@ async function runWorkflowReadModel(args: {
           `File type: ${doc.fileType}`,
           doc.context ? `Uploader context:\n${doc.context}` : null,
           `Source workflow map row: ${mapId}`,
+          segment
+            ? `Process segment: ${segment.segmentId} | ${segment.title}${segment.summary ? ` | ${segment.summary}` : ''}`
+            : null,
         ]
           .filter(Boolean)
           .join('\n\n'),
@@ -606,7 +937,7 @@ async function runWorkflowReadModel(args: {
         label: 'Workflow read request',
         kind: 'dynamic_input',
         content:
-          'Read these chunks in order and produce the source workflow map. Capture the topology visible in this source, not what you expect from prior knowledge. Every node and edge must cite a verbatim quote from one chunk.',
+          'Read these process-segment chunks in order and produce the source workflow map. Capture only topology visible in this source, not what you expect from prior knowledge. Every node and edge must cite a verbatim quote from one chunk.',
         reasonIncluded: 'current workflow-read request',
       }),
     ];
@@ -797,12 +1128,13 @@ export async function loadLatestWorkflowMapGuidance(
   if (!row) return null;
   const elements = row.elementsJson as SourceStructureElement[];
   const relations = row.relationsJson as SourceStructureRelation[];
+  const segments = row.segmentsJson as SourceStructureMap['segments'];
   const map =
-    elements.length > 0 || relations.length > 0
+    segments.length > 0
       ? ({
-          documentShape: row.documentShape as 'process',
+          documentShape: row.documentShape as SourceStructureShape,
           summary: row.summary ?? 'No summary.',
-          segments: row.segmentsJson as SourceStructureMap['segments'],
+          segments,
           elements,
           relations,
           lanes: row.lanesJson as WorkflowReadLane[],
@@ -900,45 +1232,138 @@ export async function generateSourceWorkflowMap(args: {
 
   try {
     const referentPack = await buildReferentPack(db);
-    const modelResult = await runWorkflowReadModel({
+    const firstSegmentationModel = await runSegmentationModel({
       db,
       client,
       doc,
       chunks,
-      referentPack,
-      triggerRunId: args.triggerRunId,
       mapId: pending.mapId,
-      force,
     });
+    const segmentationModels = [firstSegmentationModel];
+    const segmentationValidations = [validateSegmentation(firstSegmentationModel.output, chunks)];
+    let segmentation = segmentationValidations[0]!;
+    if (segmentation.integrityRepairCount > 0) {
+      const retryModel = await runSegmentationModel({
+        db,
+        client,
+        doc,
+        chunks,
+        mapId: pending.mapId,
+        repairFeedback: JSON.stringify(segmentation.validationJson),
+      });
+      const retryValidation = validateSegmentation(retryModel.output, chunks);
+      segmentationModels.push(retryModel);
+      segmentationValidations.push(retryValidation);
+      if (retryValidation.integrityRepairCount <= segmentation.integrityRepairCount) {
+        segmentation = retryValidation;
+      }
+    }
+    const chunkById = new Map(chunks.map((chunk) => [chunk.id, chunk]));
     const maxDroppedRatio = await readNumberSetting(db, 'workflow_map_max_dropped_ratio', 0.2);
-    const validation = validateWorkflowMap(
-      modelResult.output,
-      new Map(chunks.map((chunk) => [chunk.id, chunk.rawText])),
-      maxDroppedRatio,
-    );
-    const structureMap = workflowToProcessStructureMap({
-      output: validation.map,
-      chunks,
-      title: doc.fileName,
-    });
-    const lastModelRunId = modelResult.modelRunIds.at(-1) ?? null;
-    const lastContextPackId = modelResult.contextPackIds.at(-1) ?? null;
+    const processSegments = segmentation.segments.filter((segment) => segment.shape === 'process');
+    const processReads: Array<{
+      segment: SourceStructureSegment;
+      validation: ReturnType<typeof validateWorkflowMap>;
+      map: SourceStructureMap;
+      modelRunIds: string[];
+      contextPackIds: string[];
+    }> = [];
+
+    for (const segment of processSegments) {
+      const segmentChunks = segment.chunkIds
+        .map((chunkId) => chunkById.get(chunkId))
+        .filter((chunk): chunk is ChunkRow => Boolean(chunk));
+      const modelResult = await runWorkflowReadModel({
+        db,
+        client,
+        doc,
+        chunks: segmentChunks,
+        referentPack,
+        triggerRunId: args.triggerRunId,
+        mapId: pending.mapId,
+        force,
+        segment,
+      });
+      const validation = validateWorkflowMap(
+        modelResult.output,
+        new Map(segmentChunks.map((chunk) => [chunk.id, chunk.rawText])),
+        maxDroppedRatio,
+      );
+      processReads.push({
+        segment,
+        validation,
+        map: workflowToProcessStructureMap({
+          output: validation.map,
+          chunks: segmentChunks,
+          title: segment.title,
+          segment,
+          documentShape: segmentation.documentShape,
+          prefixIds: processSegments.length > 1,
+        }),
+        modelRunIds: modelResult.modelRunIds,
+        contextPackIds: modelResult.contextPackIds,
+      });
+    }
+
+    const structureMap: SourceStructureMap = {
+      documentShape: segmentation.documentShape,
+      summary: segmentation.summary,
+      segments: segmentation.segments,
+      elements: processReads.flatMap((read) => read.map.elements),
+      relations: processReads.flatMap((read) => read.map.relations),
+      lanes: processReads.flatMap((read) => read.map.lanes),
+      paths: processReads.flatMap((read) => read.map.paths),
+    };
+    const workflowOutputs = processReads.map((read) => read.validation.map);
+    const droppedCount = processReads.reduce((sum, read) => sum + read.validation.droppedCount, 0);
+    const keptCount = processReads.reduce((sum, read) => sum + read.validation.keptCount, 0);
+    const status: WorkflowMapStatus =
+      segmentation.status === 'degraded' ||
+      processReads.some((read) => read.validation.status === 'degraded')
+        ? 'degraded'
+        : 'validated';
+    const mapKind: WorkflowReadOutput['mapKind'] = processReads.some(
+      (read) => read.validation.map.mapKind === 'workflow',
+    )
+      ? 'workflow'
+      : 'reference';
+    const modelRunIds = [
+      ...segmentationModels.map((model) => model.modelRunId),
+      ...processReads.flatMap((read) => read.modelRunIds),
+    ];
+    const contextPackIds = [
+      ...segmentationModels.map((model) => model.contextPackId),
+      ...processReads.flatMap((read) => read.contextPackIds),
+    ];
+    const lastModelRunId = modelRunIds.at(-1) ?? null;
+    const lastContextPackId = contextPackIds.at(-1) ?? null;
+    const validationJson = {
+      pipelineVersion: SOURCE_READER_PIPELINE_VERSION,
+      segmentation: segmentation.validationJson,
+      segmentationAttempts: segmentationValidations.map((validation) => validation.validationJson),
+      processSegments: processReads.map((read) => ({
+        segmentId: read.segment.segmentId,
+        ...read.validation.validationJson,
+      })),
+      droppedCount,
+      keptCount,
+    };
 
     await db
       .update(sourceWorkflowMaps)
       .set({
-        status: validation.status,
+        status,
         documentShape: structureMap.documentShape,
-        mapKind: validation.map.mapKind,
-        summary: validation.map.summary,
+        mapKind,
+        summary: structureMap.summary,
         segmentsJson: structureMap.segments,
         elementsJson: structureMap.elements,
         relationsJson: structureMap.relations,
-        nodesJson: validation.map.nodes,
-        edgesJson: validation.map.edges,
-        lanesJson: validation.map.lanes,
-        pathsJson: validation.map.paths,
-        validationJson: validation.validationJson,
+        nodesJson: workflowOutputs.flatMap((output) => output.nodes),
+        edgesJson: workflowOutputs.flatMap((output) => output.edges),
+        lanesJson: workflowOutputs.flatMap((output) => output.lanes),
+        pathsJson: workflowOutputs.flatMap((output) => output.paths),
+        validationJson,
         modelRunId: lastModelRunId,
         contextPackId: lastContextPackId,
         updatedAt: new Date(),
@@ -954,29 +1379,36 @@ export async function generateSourceWorkflowMap(args: {
         outputJson: {
           documentId: args.documentId,
           mapId: pending.mapId,
-          status: validation.status,
-          mapKind: validation.map.mapKind,
-          droppedCount: validation.droppedCount,
-          keptCount: validation.keptCount,
+          status,
+          mapKind,
+          documentShape: structureMap.documentShape,
+          droppedCount,
+          keptCount,
           elementCount: structureMap.elements.length,
           relationCount: structureMap.relations.length,
           segmentCount: structureMap.segments.length,
-          modelRunIds: modelResult.modelRunIds,
+          segmentShapeCounts: Object.fromEntries(
+            structureMap.segments.map((segment) => [
+              segment.shape,
+              structureMap.segments.filter((candidate) => candidate.shape === segment.shape).length,
+            ]),
+          ),
+          modelRunIds,
         },
       })
       .where(eq(jobRuns.id, jobRun.id));
 
-    if (validation.status === 'degraded') await markMacroDegraded(db, args.documentId);
+    if (status === 'degraded') await markMacroDegraded(db, args.documentId);
     else await markMacroComplete(db, args.documentId);
 
     return {
       documentId: args.documentId,
-      status: validation.status,
+      status,
       mapId: pending.mapId,
-      mapKind: validation.map.mapKind,
+      mapKind,
       documentShape: structureMap.documentShape,
-      droppedCount: validation.droppedCount,
-      keptCount: validation.keptCount,
+      droppedCount,
+      keptCount,
       segmentCount: structureMap.segments.length,
       elementCount: structureMap.elements.length,
       relationCount: structureMap.relations.length,
@@ -989,7 +1421,12 @@ export async function generateSourceWorkflowMap(args: {
       .update(sourceWorkflowMaps)
       .set({
         status: 'failed',
-        validationJson: { promptVersion: WORKFLOW_READ_PROMPT_VERSION, error: message },
+        validationJson: {
+          pipelineVersion: SOURCE_READER_PIPELINE_VERSION,
+          segmentationPromptVersion: SOURCE_SEGMENTATION_PROMPT_VERSION,
+          workflowPromptVersion: WORKFLOW_READ_PROMPT_VERSION,
+          error: message,
+        },
         updatedAt: new Date(),
         finalizedAt: new Date(),
       })
@@ -1004,6 +1441,7 @@ export async function generateSourceWorkflowMap(args: {
 }
 
 export const __sourceWorkflowReadTestHooks = {
+  validateSegmentation,
   isReusableWorkflowMapStatus,
   prefixWindowIds,
   workflowToProcessStructureMap,

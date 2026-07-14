@@ -1,7 +1,8 @@
 # Shape-Aware Source Reader — Design (First Iteration)
 
-Status: DRAFT for Albert's review. Written 2026-07-08. Supersedes the "workflow-only"
-Stage 2 reader in `MACRO_FIRST_REDESIGN.md` §5.2 once approved. Nothing here is built yet.
+Status: APPROVED. Stages 1 and 2 are implemented and real-corpus validated as of
+2026-07-13. This supersedes the workflow-only Stage 2 reader in
+`MACRO_FIRST_REDESIGN.md` §5.2. Stage 3 (non-process shape readers) is next.
 
 ---
 
@@ -93,7 +94,12 @@ Mapping proof: the current workflow map is exactly `shape='process'`,
 The coverage lesson (LLMs under-enumerate in one big pass) argues for smaller scopes:
 
 1. **Segment + classify** (one cheap call): split the document into coherent segments and
-   assign each a shape. Output: the `segments[]` list.
+   assign each a shape. Output: the `segments[]` list. Every persisted source chunk must
+   be covered. A genuinely composite chunk may appear in multiple differently shaped
+   segments with focused titles/summaries; this is required by the real 4,000-character
+   chunks, which often contain both role duties and an embedded process, or both lookup
+   examples and rules. Evidence still points to the original chunk, so provenance is
+   unchanged.
 2. **Per-segment structured read** (one call per segment, parallelizable): read each
    segment into elements/relations using the shape-specific instruction set. Smaller
    scope per call → far fewer tail omissions than one monolithic pass. Every element still
@@ -133,10 +139,13 @@ elements. This fixes the swimlane mis-measurement generally, for every shape.
 
 ## 9. Staged build (each stage regression-safe, validated on the 5 real docs + a transcript)
 
-1. **Generalize the schema + reader** to the unified model with ONLY `process` wired →
-   must reproduce today's swimlane result exactly (regression gate).
-2. **Add segmentation** (pass 1) — verify `business-process.md` splits into the right
-   segment shapes.
+1. **DONE 2026-07-09:** Generalize the schema + reader to the unified model with ONLY
+   `process` wired; reproduced the swimlane result at ~96% relation coverage.
+2. **DONE 2026-07-13:** Add segmentation (pass 1). The strict six-shape contract,
+   deterministic source-coverage validator, bounded repair retry, immutable persistence,
+   and process-only pass-2 compatibility are implemented. All five named real files plus
+   a production-ingested Teams transcript passed `verify:shape-segmentation-real`; see
+   `evals/shape-aware-stage2.md`.
 3. **Add the non-process shapes** (responsibilities, reference, ruleset, narrative) +
    their extraction directives + per-shape coverage. Validate on the real text docs
    (target: the responsibilities list and `business-process.md` go from ~96% blind to

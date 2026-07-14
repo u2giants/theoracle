@@ -1,7 +1,43 @@
-import { ExtractionOutputSchema, SourceStructureMapSchema, WorkflowReadSchema } from '..';
+import {
+  ExtractionOutputSchema,
+  SOURCE_STRUCTURE_SHAPE_REGISTRY,
+  SOURCE_STRUCTURE_SHAPES,
+  SourceSegmentationSchema,
+  SourceStructureMapSchema,
+  WorkflowReadSchema,
+} from '..';
 
 const chunkId = '11111111-1111-4111-8111-111111111111';
 const mapId = '22222222-2222-4222-8222-222222222222';
+
+const segmentation = SourceSegmentationSchema.parse({
+  documentShape: 'process',
+  summary: 'The source combines an operating process with owner responsibilities.',
+  segments: [
+    {
+      segmentId: 'operating_process',
+      shape: 'process',
+      title: 'Operating process',
+      chunkIds: [chunkId],
+    },
+    {
+      segmentId: 'role_owners',
+      shape: 'responsibilities',
+      title: 'Role owners',
+      chunkIds: ['33333333-3333-4333-8333-333333333333'],
+    },
+  ],
+});
+
+if (segmentation.segments[1]?.shape !== 'responsibilities') {
+  throw new Error('source segmentation schema did not preserve non-process shapes');
+}
+
+for (const shape of SOURCE_STRUCTURE_SHAPES) {
+  if (!SOURCE_STRUCTURE_SHAPE_REGISTRY[shape]) {
+    throw new Error(`shape registry is missing ${shape}`);
+  }
+}
 
 const workflow = WorkflowReadSchema.parse({
   summary: 'Licensed product development moves from buyer request through design approval.',

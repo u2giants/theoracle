@@ -20,6 +20,7 @@ export type OracleTaskType =
   | 'validation_repair'
   | 'source_outline'
   | 'source_workflow_read'
+  | 'source_segmentation'
   | 'document_lens_extraction'
   | 'macro_relationship'
   | 'coverage_audit'
