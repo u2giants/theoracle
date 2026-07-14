@@ -30,11 +30,14 @@ passed all five named files under `Z:\Documentation\company process - Oracle\` p
 latest production-ingested Teams transcript using `openai/gpt-4.1`; exact results are in
 `evals/shape-aware-stage2.md`.
 
-**Deployment/git state.** Code commit `326c7c6` is pushed to `u2giants/theoracle` `main`.
-GitHub Actions run `29297597038` passed. Vercel production deployment
-`dpl_DoPoGgPT3SQsBv6KK7gedWUusMQ9` is READY on that exact SHA, and
+**Deployment/git state.** Code commit `326c7c6` and final documentation commit `0abcb61`
+are pushed to `u2giants/theoracle` `main`. GitHub Actions runs `29297597038` and
+`29297894626` passed. Vercel production deployment
+`dpl_DJjg4C3PHmM7q6vfdLnbwCyRPzLK` is READY on final SHA `0abcb61`, and
 `https://oracle.designflow.app` returns HTTP 200. Trigger.dev production worker
-`20260714.1` is current with 24 tasks. Live run `run_cmrjyc4mg3mq80pom8wpz2odn` forced
+`20260714.1` contains code commit `326c7c6` and is current with 24 tasks; the later commit is
+documentation-only and does not require a worker redeploy. Live run
+`run_cmrjyc4mg3mq80pom8wpz2odn` forced
 `source-workflow-read` on the production `business-process.md` document and persisted map
 `9e84efda-755d-4a05-be5a-bbbadfce144e`: Stage 2 covered 12/12 chunks, produced 19 segments
 across process/narrative/reference/responsibilities, selected dominant `process`, and needed
