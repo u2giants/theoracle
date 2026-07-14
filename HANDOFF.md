@@ -4,7 +4,7 @@ Last updated: 2026-07-13. Delete this file once the remaining open items below a
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
-## LATEST SNAPSHOT — Shape-aware reader Stage 2 complete locally (2026-07-13)
+## LATEST SNAPSHOT — Shape-aware reader Stage 2 deployed (2026-07-13)
 
 **What this application is.** The Oracle is POP Creations / Spruce Line's evidence-backed
 enterprise knowledge system. Employees use the Vercel web app at
@@ -19,7 +19,7 @@ responsibilities, reference, ruleset, conversation, and narrative segments befor
 reading. This fixes the proven problem where the process-only reader left ordinary text
 documents ~96% structurally blind.
 
-**Current state.** Stage 2 is implemented and passes the full real-data gate locally. The
+**Current state.** Stage 2 is implemented, passes the full real-data gate, and is deployed. The
 reader now runs strict segmentation first, persists all six segment shapes, validates full
 source coverage, allows controlled overlap for genuinely composite persisted chunks, retries
 one malformed segmentation with exact chunk-ID feedback, and runs the existing workflow
@@ -30,12 +30,17 @@ passed all five named files under `Z:\Documentation\company process - Oracle\` p
 latest production-ingested Teams transcript using `openai/gpt-4.1`; exact results are in
 `evals/shape-aware-stage2.md`.
 
-**Deployment/git state.** At the time this snapshot was written, Stage 2 changes were in the
-local cleanly based `main` working tree but had not yet been committed, pushed, or deployed.
-Production therefore still ran Trigger worker `20260709.11` / commit `4422f77`. Before
-deploying, run the full repo verification, commit to `main`, push, confirm GitHub Actions, and
-deploy the Trigger worker. No Vercel behavior changed, but the shared AI package may still
-cause a normal Vercel build after push.
+**Deployment/git state.** Code commit `326c7c6` is pushed to `u2giants/theoracle` `main`.
+GitHub Actions run `29297597038` passed. Vercel production deployment
+`dpl_DoPoGgPT3SQsBv6KK7gedWUusMQ9` is READY on that exact SHA, and
+`https://oracle.designflow.app` returns HTTP 200. Trigger.dev production worker
+`20260714.1` is current with 24 tasks. Live run `run_cmrjyc4mg3mq80pom8wpz2odn` forced
+`source-workflow-read` on the production `business-process.md` document and persisted map
+`9e84efda-755d-4a05-be5a-bbbadfce144e`: Stage 2 covered 12/12 chunks, produced 19 segments
+across process/narrative/reference/responsibilities, selected dominant `process`, and needed
+zero integrity repairs. The overall map is `degraded` because the existing Stage 1 workflow
+quote validator dropped 101 graph items and retained 64; that is a downstream process-reader
+quality warning, not a Stage 2 segmentation failure.
 
 **What did not work and why.** (1) Exactly-one segment assignment failed because real
 4,000-character chunks are themselves composite; controlled overlap is the permanent fix and
@@ -44,7 +49,10 @@ the final prompt classifies by passage purpose. (3) The Team Communication DOCX 
 expected to be conversation, but it is an explanatory memo; narrative is correct. (4) One
 model run mistyped a UUID; deterministic fallback prevented loss, and a bounded repair retry
 now handles this before fallback. (5) The first Teams query selected an unbounded live Recall
-channel; the repeatable gate now selects completed `teams_transcript` channels only.
+channel; the repeatable gate now selects completed `teams_transcript` channels only. (6) The
+Trigger MCP deploy used CLI 4.5.3 while the repo pins SDK/build 4.5.2 and aborted before build;
+the repo's authenticated pinned `pnpm --filter @oracle/workers run deploy` path deployed 4.5.2
+cleanly as worker `20260714.1`.
 
 **Root causes/key findings.** Persisted chunk boundaries are evidence boundaries, not always
 knowledge-shape boundaries. A chunk may therefore need multiple shape lenses while retaining
@@ -54,13 +62,14 @@ Files: `packages/ai/src/prompts/workflow-read.ts`,
 `apps/workers/src/lib/source-workflow-read.ts`, and
 `apps/workers/src/__verify__/shape-segmentation-real-docs.ts`.
 
-**Exact next steps.** (1) Finish the release verification and deploy Stage 2; success means
-CI is green, Trigger's current prod worker contains this commit, and a forced
-`source-workflow-read` on `business-process.md` persists the expected segment shapes. (2)
-Begin shape-aware Stage 3: implement responsibilities/reference/ruleset/narrative per-segment
-readers, their registry element/relation kinds, extraction directives, and deterministic
-coverage; success means the responsibilities and business-process sources are no longer
-mostly blind. (3) Stage 4 adds the conversation reader after Stage 3 is green.
+**Exact next steps.** (1) Begin shape-aware Stage 3: implement
+responsibilities/reference/ruleset/narrative per-segment readers, their registry
+element/relation kinds, extraction directives, and deterministic coverage; success means the
+responsibilities and business-process sources are no longer mostly blind. (2) Add a focused
+quality investigation for the existing process reader's 101/165 dropped graph items on the
+live Business Process map; success means the quote validator's rejection reasons are grouped
+and either the prompt or validator is corrected without weakening verbatim evidence. (3)
+Stage 4 adds the conversation reader after Stage 3 is green.
 
 **Constraints/gotchas.** Preserve quote-level evidence and immutable superseding maps. Keep
 the blind extraction fallback until every shape passes. Do not add a DB migration for new
@@ -76,7 +85,9 @@ in 1Password vault `vibe_coding`. Real test corpus is on the explicitly approved
 turn it into structured elements, so the product-value gap is reduced but not closed until
 Stage 3. Controlled overlap increases per-segment read work later; Stage 3 must budget and
 deduplicate by stable segment/element refs. Existing historical maps are not backfilled
-automatically.
+automatically. The live Business Process run exposed high downstream graph-item rejection;
+do not misread its overall `degraded` status as a segmentation failure or weaken evidence
+checks to make the number green.
 
 ### ⚠️ Active runtime failures — see `AGENT_ERROR_LOG.md` (2026-07-03)
 

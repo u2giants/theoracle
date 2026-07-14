@@ -51,6 +51,19 @@ conversation segments plus a separate process segment that reconstructs the desc
 licensed/non-licensed design flow. That satisfies Albert's 2026-07-08 decision that a
 meeting can be both conversation and process.
 
+## Production task verification
+
+Deployed Trigger.dev worker `20260714.1` ran `source-workflow-read` against the real
+production `business-process.md` document in run `run_cmrjyc4mg3mq80pom8wpz2odn`.
+Persisted map `9e84efda-755d-4a05-be5a-bbbadfce144e` records:
+
+- Stage 2 segmentation: validated, 12/12 chunks covered, 19 segments, dominant `process`,
+  zero integrity repairs.
+- Persisted shapes: 5 process, 8 narrative, 4 reference, 2 responsibilities.
+- Whole-map status: degraded because the existing Stage 1 workflow quote validator retained
+  64 and dropped 101 graph items. This is a downstream process-reader quality finding; it did
+  not fail or repair Stage 2 segmentation.
+
 ## What did not work
 
 1. The first contract forced every chunk into exactly one segment. That failed on real
