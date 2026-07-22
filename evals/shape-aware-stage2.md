@@ -107,6 +107,10 @@ Local deterministic gates:
   `shape-reader-v2-r0-validator`, preventing silent reuse of pre-R0 maps for unchanged sources.
 - CI-only: the fresh pgvector database migration gate is wired into `pr-check.yml`. It could not
   run on this workstation because Docker, Podman, `psql`, and WSL are unavailable.
+- First CI execution exposed a test-environment defect before reaching the R0 schema: plain
+  pgvector Postgres lacks Supabase's `auth` schema and `anon`/`authenticated`/`service_role` roles.
+  The permanent CI fixture now creates only those Supabase-owned prerequisites in the guarded
+  loopback-only `oracle_fresh` database before running the complete application migration chain.
 
 Historical 101-drop audit:
 

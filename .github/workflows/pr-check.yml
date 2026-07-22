@@ -121,10 +121,12 @@ jobs:
         run: pnpm --filter @oracle/workers verify:r0-reader-validator
 
       - name: Fresh-database source-map migration guard
-        # Applies the full migration runner to an empty pgvector Postgres and
+        # Adds only the auth schema/function and roles that Supabase owns,
+        # applies the full migration runner to empty pgvector Postgres, and
         # proves only the surviving 86_macro_first_schema shape plus later
         # source-structure/R0 amendments exist.
         run: |
+          pnpm --filter @oracle/db prepare:fresh-supabase-test-db
           pnpm --filter @oracle/db migrate
           pnpm --filter @oracle/db verify:fresh-source-workflow-schema
         env:
