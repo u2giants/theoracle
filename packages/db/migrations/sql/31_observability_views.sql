@@ -17,6 +17,13 @@
 -- success-rate reporting.
 -- ---------------------------------------------------------------------------
 
+-- Migration 60 later owns this column's constraint and index, but this view
+-- was extended to select it after 31 first shipped. Declare the nullable
+-- column idempotently here so a fresh lexicographic migration run can create
+-- the view before reaching 60. Existing production databases are unchanged.
+ALTER TABLE model_runs
+  ADD COLUMN IF NOT EXISTS dispatch_mode varchar(20);
+
 CREATE OR REPLACE VIEW model_runs_with_usage AS
 SELECT
   mr.id                              AS model_run_id,

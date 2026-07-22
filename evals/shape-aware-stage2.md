@@ -111,6 +111,10 @@ Local deterministic gates:
   pgvector Postgres lacks Supabase's `auth` schema and `anon`/`authenticated`/`service_role` roles.
   The permanent CI fixture now creates only those Supabase-owned prerequisites in the guarded
   loopback-only `oracle_fresh` database before running the complete application migration chain.
+- The next CI execution reached migration 31 and exposed a second historical bootstrap defect:
+  its observability view had been amended to select `model_runs.dispatch_mode`, although migration
+  60 introduces that column later. Migration 31 now declares the nullable column idempotently;
+  migration 60 still owns its constraint and index, and existing production databases are unchanged.
 
 Historical 101-drop audit:
 
