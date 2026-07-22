@@ -15,6 +15,7 @@
     "migrate": "tsx src/migrate.ts",
     "check-drift": "tsx src/check-migration-drift.ts",
     "audit:r0-reader-drops": "tsx src/audit-r0-reader-drops.ts",
+    "audit:r0-release-map": "tsx src/audit-r0-release-map.ts",
     "prepare:fresh-supabase-test-db": "tsx src/prepare-fresh-supabase-test-db.ts",
     "seed": "tsx src/seed.ts",
     "verify:macro-support-queries": "tsx src/verify-macro-support-queries.ts",

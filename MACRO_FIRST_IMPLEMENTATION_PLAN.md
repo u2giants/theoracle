@@ -1111,19 +1111,17 @@ until R7 UI work.
 
 ## 18. Immediate next action
 
-Finish the R0 release and verification boundary. The local implementation, deterministic gates,
-historical 101-drop classification, and SELECT-only swimlane replay are recorded in
-`evals/shape-aware-stage2.md`. Do not build the responsibilities reader or author the R1 migration
-until both remaining gates complete:
+R0 is complete as of 2026-07-22. Both release gates and the complete production result are recorded
+in `evals/shape-aware-stage2.md`: fresh-database CI is green, migration 94 and worker version
+`20260722.1` are deployed, and forced `business-process.md` run
+`run_06fof96hugnkrumk86vi8f0d01` achieved a 3.6% whole-map drop ratio and 95.2% important-relation
+evidence coverage without weakening document quote validation.
 
-1. Commit/push only when authorized, then require CI to apply the entire migration sequence to its
-   empty pgvector database and pass `verify:fresh-source-workflow-schema`.
-2. After the migration and worker code are deployed through the normal pipeline, run one authorized
-   forced `business-process.md` read. Record its new root/cascade breakdown, selected/alternate
-   policy outcomes, drop ratio, relation-evidence coverage, and cost without weakening validation.
-
-R0 is complete only when those results are added to the eval log and all existing deterministic and
-swimlane gates remain green. R1 remains blocked until then.
+Begin R1 with its mandatory read-only production-data audit: count the existing macro/process
+tables, inspect inbound FKs and RLS/policies, record manual/test-row disposition, run migration
+drift/journal checks, and reconcile the generated Drizzle snapshot with the hand-written SQL target.
+Record that audit before authoring any R1 DDL. Do not begin the R2 responsibilities reader until the
+R1 durable cross-shape contract and all R1 exit gates are complete.
 
 ---
 

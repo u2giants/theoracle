@@ -1,8 +1,100 @@
 # HANDOFF — Prior completed work and remaining historical watchouts
 
-Last updated: 2026-07-21. Delete this file once the remaining open items below are closed.
+Last updated: 2026-07-22. Delete this file once the remaining open items below are closed.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
+
+## What this application is
+
+The Oracle is POP Creations / Spruce Line's evidence-backed enterprise knowledge system. Employees
+use `https://oracle.designflow.app`; Vercel runs the Next.js web app, Trigger.dev runs ingestion and
+knowledge workers, and Supabase project `eqccjfbyrywsqkxxpjvg` stores documents, maps, claims, and
+evidence. The source of truth is `u2giants/theoracle`, branch `main`. Macro-first work changes the
+system so durable business structure leads reasoning while atomic claims remain the traceable
+evidence receipts supporting that structure.
+
+## What we set out to do this session, and why
+
+Finish the two mandatory R0 release gates in `MACRO_FIRST_IMPLEMENTATION_PLAN.md`: prove the entire
+migration sequence on a fresh database in CI, then migrate/deploy R0 and force a real production
+`business-process.md` read. This was required before R1 because the former process reader dropped
+101/165 graph items and did not retain enough diagnostics to distinguish root validation failures
+from their relation/path cascades.
+
+## Current state
+
+R0 is complete, committed, pushed, migrated, deployed, and verified. GitHub Actions run
+`29885537017` is green. Production migration 94 is applied. Trigger worker `20260722.1` and Vercel
+deployment `dpl_5PTEATWNf9uZq9SjfzaVNfzvsKv9` are live; the public URL returned HTTP 200. Forced
+Trigger run `run_06fof96hugnkrumk86vi8f0d01` created production map
+`a2f38158-063f-4fcb-96e8-3e595766e6df` with 214 kept, 8 dropped (3.6%), and 79/83 important
+relations retained (95.2%). Exact gate evidence is in `evals/shape-aware-stage2.md`; the reusable
+SELECT-only audit is `packages/db/src/audit-r0-release-map.ts`.
+
+## Everything we tried that did NOT work
+
+1. The first fresh-database CI attempt failed before R0 because plain pgvector Postgres lacks the
+   Supabase-owned roles, `auth` schema, and `auth.uid()`. The permanent, loopback-only
+   `oracle_fresh` fixture is `packages/db/src/prepare-fresh-supabase-test-db.ts`.
+2. The next CI attempt exposed migration 31 reading `model_runs.dispatch_mode` before migration 60
+   introduced it. Migration 31 now adds the nullable column idempotently; migration 60 still owns
+   its constraint/index.
+3. The next attempt exposed migration 49 depending on optional `public.rls_auto_enable()`, which no
+   repository migration creates. Its privilege lockdown is now conditional on the helper existing.
+4. The new production audit initially used 1Password's direct-process mode with `pnpm`, but Windows
+   could not resolve that shim without a shell. Re-running through PowerShell worked; no secret was
+   exposed and the audit remained SELECT-only.
+
+## Root causes and key findings
+
+- The old 61.2% drop result mixed 36 root quote failures with 65 deterministic cascades and lacked
+  rejected-quote telemetry. R0 now preserves bounded raw-output hashes and structured diagnostics.
+- The new run has only two root mismatches. Both used `markdown_document` + `verbatim_includes`
+  and would pass only `transcript_fuzzy`; admitting them would weaken document evidence, so they
+  are correctly rejected.
+- Six dependent relation/path objects cascade from those two nodes. One segment therefore has a
+  24.2% local drop ratio and correctly keeps the whole map visibly `degraded`; whole-map health is
+  3.6% drops and 95.2% relationship evidence survival.
+- Budget enforcement is working: 7/40 reads, 26,567/500,000 estimated input tokens, zero repairs,
+  and estimated input cost `$0.132835` against `$10`.
+
+## Exact next steps
+
+1. Run R1's SELECT-only production audit before writing schema: count every existing macro/process
+   table, inspect inbound `pg_constraint` FKs, RLS enablement/policies, and manual/test rows. Gate:
+   the results and guarded-copy disposition are recorded in the appropriate eval log.
+2. Run `pnpm --filter @oracle/db check-drift`, inspect the Drizzle journal including duplicate
+   historical `86_*` filenames, and reconcile generated snapshots with the hand-written SQL target.
+   Gate: the exact snapshot-only reconciliation action is documented with no unexplained drift.
+3. Only after steps 1–2, implement R1's additive cross-shape spine/detail schema and object-general
+   proposal/recommendation changes. Gate: every R1 exit condition in the canonical plan passes,
+   including fresh DB, RLS, compatibility counts, rollback compatibility, and swimlane regression.
+4. Do not start the R2 responsibilities reader until R1 is committed, pushed, CI-green, migrated,
+   deployed where applicable, and its production evidence is recorded.
+
+## Constraints and gotchas
+
+Evidence validation must not be weakened to improve coverage. Existing maps/claims are immutable;
+supersede them normally. R1 is additive and must not copy legacy process content into the new spine.
+Legacy process tables remain through R9/R10. Use the journaled migration runner only—never
+`drizzle-kit push` or direct production DDL. The untracked root files `detail-current.png` and
+`rfq-before.png` belong to the user and must remain untouched.
+
+## Access and environment
+
+Repository: `C:\repos\oracle`, `main`, GitHub `u2giants/theoracle`. Authenticated CLIs/connectors
+used successfully: `gh`, Trigger.dev CLI/MCP, Vercel MCP, and 1Password MCP. Production database
+access comes from the current Supabase session-pooler reference in 1Password vault `vibe_coding`;
+never print or persist the value. Trigger project is `proj_wgpzsvhmsopqhvwqaycn`; Vercel project is
+`prj_rP6Jlima7iK1paffEPhLqxlswGsC`.
+
+## Open questions and risks
+
+No R0 release blocker remains. The localized degraded segment is intentionally retained as a
+quality signal; changing it requires a future prompt/reader decision, not weaker quote policy.
+R1's production audit may reveal unexpected manual/test rows, inbound dependencies, or generated
+snapshot drift; that is precisely why R1 DDL is prohibited until the audit is recorded. The
+canonical sequence and evidence-authority decisions remain unchanged.
 
 ## CANONICAL PLAN UPDATE — 2026-07-21
 
@@ -20,21 +112,22 @@ agreed with nine as written, and moved the duplicate-`86_*` migration repair fro
 the conflict can block a fresh migration before R1. Kimi's final verdict was implementation-ready
 at R0. The canonical plan's independent-review record contains the durable detail.
 
-R0 is now implemented in the local working tree but is not committed, pushed, migrated, deployed,
-or production-written. The shared quote-policy and exported map validator, active-map ref checks,
-coverage gaps, employee-query isolation, source-reader budgets, duplicate-`86_*` repair, migration
-94, deterministic CI gates, and audit/replay scripts are present. Parent review found and fixed one
-missing pipeline-version bump so unchanged sources cannot reuse pre-R0 maps. Local workspace
-typecheck, the R0 validator gate, existing reader/AI/engine smokes, the SELECT-only 101-drop audit,
-and the SELECT-only swimlane replay pass. The 101 drops classify as 36 root quotation failures, 46
-edge cascades, and 19 path cascades, with zero unresolved reason classes.
+R0 is complete, committed, pushed, CI-green, migrated, deployed, and verified against production.
+GitHub Actions run `29885537017` passed the complete fresh-database migration and drift gate.
+Migration 94 is applied; Trigger.dev worker `20260722.1` and Vercel deployment
+`dpl_5PTEATWNf9uZq9SjfzaVNfzvsKv9` are live; the public app returns HTTP 200. The forced production
+reader run `run_06fof96hugnkrumk86vi8f0d01` created map
+`a2f38158-063f-4fcb-96e8-3e595766e6df`: 214 kept, 8 dropped (3.6%), and 79/83 important relations
+retained (95.2%). The 8 drops are 2 correct hard quote mismatches plus 4 edge and 2 path cascades.
+Both root quotes would pass only transcript-fuzzy matching, so Markdown validation correctly
+rejected them. One process segment remains visibly degraded at 24.2% local drops; the whole-map
+gate passes and no validation was weakened. Full evidence is in `evals/shape-aware-stage2.md`.
 
-The exact next action is to finish the R0 release boundary—not the older Stage 3 instructions
-below. When authorized, commit and push, require the fresh pgvector CI migration gate to pass, then
-deploy through the normal pipeline and run one forced post-fix `business-process.md` read so the 36
-historical roots receive new selected/alternate-policy outcomes. Do not begin R1 or a new shape
-reader before those results are recorded and green. The old run cannot supply them because it did
-not retain rejected quotes or raw model output.
+The exact next action is R1's mandatory read-only production-data/schema audit from
+`MACRO_FIRST_IMPLEMENTATION_PLAN.md`: inventory existing macro/process rows, inbound FKs,
+RLS/policies, manual/test data, journal/drift state, and snapshot-versus-hand-written migration
+target. Record that audit before authoring R1 DDL. Do not begin the R2 responsibilities reader
+until R1's additive durable cross-shape contract is complete and green.
 
 ## LATEST SNAPSHOT — Shape-aware reader Stage 2 deployed (2026-07-13)
 

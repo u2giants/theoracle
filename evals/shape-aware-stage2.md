@@ -153,3 +153,48 @@ SELECT-only swimlane regression:
 Gate decision: the R0 code and every deterministic/read-only gate available in this session pass.
 The authorized post-deploy `business-process.md` model rerun remains separately scheduled; do not
 claim a new post-fix drop ratio or alternate-policy split until that run produces R0 diagnostics.
+
+## 2026-07-22 — R0 production release gates
+
+Release gate 1 — repository and fresh-database CI: **PASS**.
+
+- R0 shipped on `main` through commits `1a36e836`, `686fa81b`, `2fc1a61c`, and `5aa668f6`.
+- GitHub Actions run `29885537017` passed the full build, deterministic guards, R0 validator,
+  fresh pgvector database migration, surviving source-map schema assertion, and Drizzle journal
+  drift checks: `https://github.com/u2giants/theoracle/actions/runs/29885537017`.
+- The normal production migration runner applied migration 94 successfully against the current
+  Supabase project. Trigger.dev production worker `20260722.1` registered all 24 tasks. Vercel
+  deployment `dpl_5PTEATWNf9uZq9SjfzaVNfzvsKv9` reached READY for commit `5aa668f6`, and
+  `https://oracle.designflow.app` returned HTTP 200.
+
+Release gate 2 — forced production reader replay: **PASS, with one localized conservative
+degradation retained visibly**.
+
+- Trigger run `run_06fof96hugnkrumk86vi8f0d01` forced a new read of immutable document
+  `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea` (`business-process.md`) on worker `20260722.1`.
+  Persisted map: `a2f38158-063f-4fcb-96e8-3e595766e6df`, pipeline
+  `shape-reader-v2-r0-validator`.
+- Whole-map result: 214 kept, 8 dropped, `8 / 222 = 3.6%` drop ratio, versus 61.2% before R0.
+  The intended below-20% range is met without weakening validation.
+- Root/cascade breakdown: 2 root `quote_mismatch` node rejections, 4
+  `missing_endpoint_cascade` relation rejections, and 2 `missing_path_node_cascade` path
+  rejections. There is no unresolved class and no prompt under-production finding.
+- Both root mismatches used the selected `markdown_document` policy with
+  `verbatim_includes` and would pass only the looser `transcript_fuzzy` alternate. They remain
+  correctly rejected; document evidence policy was not weakened to admit transcript-style fuzzy
+  matches.
+- Important-relation evidence coverage is `79 / 83 = 95.2%`, inside the intended 90–95%
+  neighborhood (fractionally above it). Five of six process reads retained 100% relation
+  evidence. One costing/sourcing/manufacturing segment retained 66.7%, causing the persisted map
+  to remain loudly `degraded` because that segment's 24.2% local drop ratio exceeds its 20% alert.
+  This is not a release blocker: the failures are two correct hard rejections plus their six
+  deterministic cascades, while the whole-map release metrics are healthy.
+- Reader budget: 7/40 read calls, 26,567/500,000 estimated input tokens, no repair attempt, and
+  estimated input cost `$0.132835` against the `$10` cap. Cross-segment citation ratio was zero.
+- The read-only audit is reproducible with `pnpm --filter @oracle/db run audit:r0-release-map`
+  using `R0_AUDIT_DATABASE_URL` from 1Password and `R0_AUDIT_MAP_ID` set to the persisted map.
+
+Final decision: **R0 is complete.** Both mandatory release gates passed, the prior swimlane and
+deterministic regressions remain green, and validation stayed conservative. R1 may begin with its
+required read-only production-data/schema audit; no R1 DDL may be authored before that audit is
+recorded.
