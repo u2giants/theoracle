@@ -154,7 +154,8 @@ export function validateQuote(input: ValidateQuoteInput): QuoteValidationResult 
     !!policy.allowCRLF ||
     !!policy.allowSmartQuotes ||
     !!policy.allowWhitespaceCollapse ||
-    !!policy.allowLeadingTrailingTrim;
+    !!policy.allowLeadingTrailingTrim ||
+    !!policy.allowMarkdownFormatting;
   if (policyEnabled) {
     const normSource = normalize(sourceText, policy);
     const normQuote = normalize(exactQuoteProvided, policy);
@@ -240,8 +241,13 @@ export function validateQuote(input: ValidateQuoteInput): QuoteValidationResult 
 export function validateSourcePointer(
   input: ValidateSourcePointerInput,
 ): SourcePointerValidationResult {
-  const { sourceType, sourceMessageId, sourceDocumentChunkId, sourceExternalRecordId, createdByEmployeeId } =
-    input;
+  const {
+    sourceType,
+    sourceMessageId,
+    sourceDocumentChunkId,
+    sourceExternalRecordId,
+    createdByEmployeeId,
+  } = input;
 
   switch (sourceType) {
     case 'message':

@@ -10,7 +10,9 @@
     "lint": "tsc --noEmit",
     "verify:source-workflow-read": "tsx src/__verify__/source-workflow-read-smoke.ts",
     "verify:shape-segmentation-real": "tsx src/__verify__/shape-segmentation-real-docs.ts",
-    "verify:document-ingestion-fallback": "tsx src/__verify__/document-ingestion-fallback-smoke.ts"
+    "verify:document-ingestion-fallback": "tsx src/__verify__/document-ingestion-fallback-smoke.ts",
+    "verify:r0-reader-validator": "tsx src/__verify__/r0-reader-validator.ts",
+    "verify:r0-production-replay": "tsx src/__verify__/r0-production-replay.ts"
   },
   "dependencies": {
     "@oracle/ai": "workspace:*",
@@ -31,6 +33,7 @@
     "@trigger.dev/build": "4.5.2",
     "@types/node": "^24.12.4",
     "@types/pdf-parse": "^1.1.4",
+    "postgres": "^3.4.5",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3"
   }

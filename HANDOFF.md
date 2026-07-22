@@ -1,8 +1,40 @@
 # HANDOFF — Prior completed work and remaining historical watchouts
 
-Last updated: 2026-07-13. Delete this file once the remaining open items below are closed.
+Last updated: 2026-07-21. Delete this file once the remaining open items below are closed.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
+
+## CANONICAL PLAN UPDATE — 2026-07-21
+
+`MACRO_FIRST_IMPLEMENTATION_PLAN.md` is now the single forward plan of record. It reconciles
+the original process-centric macro redesign with the six-shape reader pivot. The agreed order is
+R0 validator/reference/coverage integrity, R1 additive durable cross-shape model, then vertical
+slices for responsibilities, rules/reference, conversation, and process shadow merge before
+transactional apply, answering inversion, consultant analysis, backfill, and cleanup. When older
+blocks in this handoff or the two supporting design docs conflict with that sequence, the new
+canonical plan wins.
+
+Kimi K3 and Claude Opus independently reviewed the plan against the repository. Claude required
+ten corrections; Codex verified and accepted all ten. Kimi then reconciled those corrections,
+agreed with nine as written, and moved the duplicate-`86_*` migration repair from R1 to R0 because
+the conflict can block a fresh migration before R1. Kimi's final verdict was implementation-ready
+at R0. The canonical plan's independent-review record contains the durable detail.
+
+R0 is now implemented in the local working tree but is not committed, pushed, migrated, deployed,
+or production-written. The shared quote-policy and exported map validator, active-map ref checks,
+coverage gaps, employee-query isolation, source-reader budgets, duplicate-`86_*` repair, migration
+94, deterministic CI gates, and audit/replay scripts are present. Parent review found and fixed one
+missing pipeline-version bump so unchanged sources cannot reuse pre-R0 maps. Local workspace
+typecheck, the R0 validator gate, existing reader/AI/engine smokes, the SELECT-only 101-drop audit,
+and the SELECT-only swimlane replay pass. The 101 drops classify as 36 root quotation failures, 46
+edge cascades, and 19 path cascades, with zero unresolved reason classes.
+
+The exact next action is to finish the R0 release boundary—not the older Stage 3 instructions
+below. When authorized, commit and push, require the fresh pgvector CI migration gate to pass, then
+deploy through the normal pipeline and run one forced post-fix `business-process.md` read so the 36
+historical roots receive new selected/alternate-policy outcomes. Do not begin R1 or a new shape
+reader before those results are recorded and green. The old run cannot supply them because it did
+not retain rejected quotes or raw model output.
 
 ## LATEST SNAPSHOT — Shape-aware reader Stage 2 deployed (2026-07-13)
 

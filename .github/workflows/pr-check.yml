@@ -28,6 +28,20 @@ jobs:
     name: Build @oracle/web
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: oracle
+          POSTGRES_PASSWORD: oracle
+          POSTGRES_DB: oracle_fresh
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oracle -d oracle_fresh"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout
@@ -99,6 +113,23 @@ jobs:
         # has a vision-capable default. Prevents the worker vision fallback from
         # throwing "vision route unresolvable" when an admin clears the setting.
         run: pnpm --filter @oracle/ai verify:auxiliary-defaults
+
+      - name: R0 reader and validator contract guard
+        # DB-free/network-free deterministic gate for source quote policies,
+        # direct map validation, cross-segment/foreign/uncovered citations,
+        # root-vs-cascade diagnostics, active-map refs, coverage, and budgets.
+        run: pnpm --filter @oracle/workers verify:r0-reader-validator
+
+      - name: Fresh-database source-map migration guard
+        # Applies the full migration runner to an empty pgvector Postgres and
+        # proves only the surviving 86_macro_first_schema shape plus later
+        # source-structure/R0 amendments exist.
+        run: |
+          pnpm --filter @oracle/db migrate
+          pnpm --filter @oracle/db verify:fresh-source-workflow-schema
+        env:
+          DIRECT_URL: postgres://oracle:oracle@localhost:5432/oracle_fresh
+          DATABASE_URL: postgres://oracle:oracle@localhost:5432/oracle_fresh
 
       - name: Drizzle journal drift check
         # Compares on-disk packages/db/migrations/0*.sql hashes against

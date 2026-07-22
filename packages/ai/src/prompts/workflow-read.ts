@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const WORKFLOW_READ_PROMPT_VERSION = 'workflow-read-v1';
 export const SOURCE_SEGMENTATION_PROMPT_VERSION = 'source-segmentation-v1';
-export const SOURCE_READER_PIPELINE_VERSION = 'shape-reader-v2-segmentation';
+export const SOURCE_READER_PIPELINE_VERSION = 'shape-reader-v2-r0-validator';
 
 export const SOURCE_STRUCTURE_SHAPES = [
   'process',
@@ -15,13 +15,15 @@ export const SOURCE_STRUCTURE_SHAPES = [
 
 export const SOURCE_STRUCTURE_SHAPE_REGISTRY = {
   process: {
-    primaryElementKinds: ['transition', 'handoff', 'branch'],
+    primaryElementKinds: [],
+    primaryRelationKinds: ['sequence', 'handoff', 'branch', 'loop', 'exception'],
     extractionDirective: 'Extract one canonical claim per transition, handoff, or branch.',
     readInstruction:
       'Reconstruct steps, decisions, approvals, handoffs, branches, loops, and outcomes.',
   },
   responsibilities: {
     primaryElementKinds: ['responsibility'],
+    primaryRelationKinds: [],
     extractionDirective:
       'Extract one canonical claim per owner-action-object responsibility record.',
     readInstruction:
@@ -29,18 +31,21 @@ export const SOURCE_STRUCTURE_SHAPE_REGISTRY = {
   },
   reference: {
     primaryElementKinds: ['attribute', 'relationship'],
+    primaryRelationKinds: ['relationship'],
     extractionDirective: 'Extract one canonical claim per attribute or entity relationship.',
     readInstruction:
       'Identify entities, attributes, values, and relationships without forcing sequence.',
   },
   ruleset: {
     primaryElementKinds: ['rule'],
+    primaryRelationKinds: ['applicability', 'exception'],
     extractionDirective: 'Extract one canonical claim per rule, condition, effect, or exception.',
     readInstruction:
       'Identify scoped rules, conditions, requirements, effects, exceptions, and rule groups.',
   },
   conversation: {
     primaryElementKinds: ['decision', 'assertion', 'open_question', 'problem', 'action_item'],
+    primaryRelationKinds: [],
     extractionDirective:
       'Extract one canonical claim per decision, assertion, open question, problem, or action item.',
     readInstruction:
@@ -48,6 +53,7 @@ export const SOURCE_STRUCTURE_SHAPE_REGISTRY = {
   },
   narrative: {
     primaryElementKinds: ['asserted_fact'],
+    primaryRelationKinds: [],
     extractionDirective: 'Extract one canonical claim per explicit operational fact.',
     readInstruction: 'Identify explicit operational facts that do not fit another source shape.',
   },
@@ -55,6 +61,7 @@ export const SOURCE_STRUCTURE_SHAPE_REGISTRY = {
   (typeof SOURCE_STRUCTURE_SHAPES)[number],
   {
     primaryElementKinds: readonly string[];
+    primaryRelationKinds: readonly string[];
     extractionDirective: string;
     readInstruction: string;
   }

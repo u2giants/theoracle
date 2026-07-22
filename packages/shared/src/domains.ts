@@ -75,12 +75,7 @@ export const EXTRACTION_STATUSES = [
 ] as const;
 export type ExtractionStatus = (typeof EXTRACTION_STATUSES)[number];
 
-export const CLAIM_STATUSES = [
-  'pending_review',
-  'approved',
-  'rejected',
-  'superseded',
-] as const;
+export const CLAIM_STATUSES = ['pending_review', 'approved', 'rejected', 'superseded'] as const;
 export type ClaimStatus = (typeof CLAIM_STATUSES)[number];
 
 export const EVIDENCE_SOURCE_TYPES = [
@@ -91,25 +86,13 @@ export const EVIDENCE_SOURCE_TYPES = [
 ] as const;
 export type EvidenceSourceType = (typeof EVIDENCE_SOURCE_TYPES)[number];
 
-export const GAP_STATUSES = [
-  'open',
-  'queued',
-  'asked',
-  'resolved',
-  'stale',
-  'rejected',
-] as const;
+export const GAP_STATUSES = ['open', 'queued', 'asked', 'resolved', 'stale', 'rejected'] as const;
 export type GapStatus = (typeof GAP_STATUSES)[number];
 
 export const GAP_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
 export type GapPriority = (typeof GAP_PRIORITIES)[number];
 
-export const CONTRADICTION_STATUSES = [
-  'possible',
-  'open',
-  'resolved',
-  'dismissed',
-] as const;
+export const CONTRADICTION_STATUSES = ['possible', 'open', 'resolved', 'dismissed'] as const;
 export type ContradictionStatus = (typeof CONTRADICTION_STATUSES)[number];
 
 export const DOCUMENT_STATUSES = [
@@ -127,8 +110,7 @@ export const ORACLE_INTERVENTION_TRIGGER_TYPES = [
   'manual_admin',
   'system_test',
 ] as const;
-export type OracleInterventionTriggerType =
-  (typeof ORACLE_INTERVENTION_TRIGGER_TYPES)[number];
+export type OracleInterventionTriggerType = (typeof ORACLE_INTERVENTION_TRIGGER_TYPES)[number];
 
 export const INTERVENTION_DECISIONS = [
   'no_intervention',
@@ -144,8 +126,7 @@ export const BRAIN_SECTION_REVIEW_STATUSES = [
   'needs_review',
   'rejected',
 ] as const;
-export type BrainSectionReviewStatus =
-  (typeof BRAIN_SECTION_REVIEW_STATUSES)[number];
+export type BrainSectionReviewStatus = (typeof BRAIN_SECTION_REVIEW_STATUSES)[number];
 
 // ===========================================================================
 // R3.5 — Three-layer knowledge taxonomy
@@ -248,11 +229,11 @@ export type EntityProposalSourceType = (typeof ENTITY_PROPOSAL_SOURCE_TYPES)[num
 
 /** Why a top-domain or sub-topic assignment row exists. */
 export const ASSIGNMENT_REASONS = [
-  'extraction',         // produced inline with the claim/message
-  'ingestion',          // produced when a document was first ingested
-  'reclassification',   // re-evaluation worker moved it
-  'manual',             // admin set it directly
-  'backfill',           // one-shot migration from legacy claim_domains
+  'extraction', // produced inline with the claim/message
+  'ingestion', // produced when a document was first ingested
+  'reclassification', // re-evaluation worker moved it
+  'manual', // admin set it directly
+  'backfill', // one-shot migration from legacy claim_domains
 ] as const;
 export type AssignmentReason = (typeof ASSIGNMENT_REASONS)[number];
 
@@ -337,6 +318,7 @@ export const VALIDATION_CHECK_NAMES = [
   'promotion_transaction',
   'duplicate_promotion_lock',
   'validation_loop_circuit_breaker',
+  'map_element_ref_membership',
 ] as const;
 export type ValidationCheckName = (typeof VALIDATION_CHECK_NAMES)[number];
 

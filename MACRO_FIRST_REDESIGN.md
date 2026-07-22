@@ -1,5 +1,11 @@
 # MACRO-FIRST REDESIGN — The Oracle as a business consultant
 
+> **Plan-of-record note (2026-07-21):** This document remains the rationale, original
+> architecture, keep/kill inventory, and historical implementation record. Its process-centric
+> stage sequence predates the six-shape reader pivot. Use `MACRO_FIRST_IMPLEMENTATION_PLAN.md`
+> as the canonical forward implementation plan whenever stages, cross-shape storage, gates, or
+> rollback posture differ.
+
 Status: **approved direction, not yet started**. Written 2026-07-06.
 Author: Claude (Fable 5), commissioned by Albert.
 Audience: the implementing developer. This document assumes you are competent but have

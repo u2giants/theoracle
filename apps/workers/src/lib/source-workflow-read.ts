@@ -42,13 +42,23 @@ import {
   type OracleDb,
 } from '@oracle/db';
 import { getDirectDb } from '@oracle/db/client';
-import { validateQuote } from '@oracle/engines';
+import { quoteSourceKindForDocument } from '@oracle/engines';
 import {
   markMacroComplete,
   markMacroDegraded,
   markMacroMapFailed,
   markMacroPending,
 } from './macro-health';
+import {
+  validateWorkflowMap,
+  type WorkflowMapChunkContext,
+  type WorkflowMapStatus,
+} from './workflow-map-validator';
+import {
+  mapWithConcurrency,
+  SourceReaderBudget,
+  type SourceReaderBudgetLimits,
+} from './source-reader-budget';
 
 type ChunkRow = {
   id: string;
@@ -58,7 +68,6 @@ type ChunkRow = {
   contentHash: string | null;
 };
 
-type WorkflowMapStatus = 'validated' | 'degraded' | 'failed';
 type ReusableWorkflowMapStatus = 'validated' | 'degraded';
 
 export type SourceWorkflowReadResult = {
@@ -407,134 +416,6 @@ function validateSegmentation(
   };
 }
 
-function validateWorkflowMap(
-  output: WorkflowReadOutput,
-  chunkTextById: Map<string, string>,
-  maxDroppedRatio: number,
-): {
-  status: WorkflowMapStatus;
-  map: WorkflowReadOutput;
-  validationJson: Record<string, unknown>;
-  droppedCount: number;
-  keptCount: number;
-} {
-  const dropped: Array<{ elementType: string; elementId: string; reason: string }> = [];
-  const nodeIds = new Set<string>();
-  const lanes = output.lanes.filter((lane) => {
-    const ok = Boolean(lane.laneId && lane.label);
-    if (!ok)
-      dropped.push({
-        elementType: 'lane',
-        elementId: lane.laneId ?? 'unknown',
-        reason: 'missing lane id or label',
-      });
-    return ok;
-  });
-
-  const nodes: WorkflowReadNode[] = [];
-  for (const node of output.nodes) {
-    const chunkText = chunkTextById.get(node.chunkId);
-    const quote = chunkText
-      ? validateQuote({ sourceText: chunkText, exactQuoteProvided: node.evidenceQuote })
-      : null;
-    if (!chunkText) {
-      dropped.push({
-        elementType: 'node',
-        elementId: node.nodeId,
-        reason: `unknown chunkId ${node.chunkId}`,
-      });
-      continue;
-    }
-    if (quote?.verdict !== 'exact_match' && quote?.verdict !== 'normalized_match') {
-      dropped.push({
-        elementType: 'node',
-        elementId: node.nodeId,
-        reason: quote?.detail ?? 'quote did not validate',
-      });
-      continue;
-    }
-    if (nodeIds.has(node.nodeId)) {
-      dropped.push({ elementType: 'node', elementId: node.nodeId, reason: 'duplicate nodeId' });
-      continue;
-    }
-    nodeIds.add(node.nodeId);
-    nodes.push(node);
-  }
-
-  const edges: WorkflowReadEdge[] = [];
-  for (const edge of output.edges) {
-    const chunkText = chunkTextById.get(edge.chunkId);
-    const quote = chunkText
-      ? validateQuote({ sourceText: chunkText, exactQuoteProvided: edge.evidenceQuote })
-      : null;
-    if (!nodeIds.has(edge.fromNodeId) || !nodeIds.has(edge.toNodeId)) {
-      dropped.push({
-        elementType: 'edge',
-        elementId: edge.edgeId,
-        reason: 'edge endpoint does not exist after node validation',
-      });
-      continue;
-    }
-    if (!chunkText) {
-      dropped.push({
-        elementType: 'edge',
-        elementId: edge.edgeId,
-        reason: `unknown chunkId ${edge.chunkId}`,
-      });
-      continue;
-    }
-    if (quote?.verdict !== 'exact_match' && quote?.verdict !== 'normalized_match') {
-      dropped.push({
-        elementType: 'edge',
-        elementId: edge.edgeId,
-        reason: quote?.detail ?? 'quote did not validate',
-      });
-      continue;
-    }
-    edges.push(edge);
-  }
-
-  const laneLabels = new Set(lanes.map((lane) => lane.label.toLowerCase()));
-  const orphanLaneRefs = nodes
-    .filter((node) => node.lane && !laneLabels.has(node.lane.toLowerCase()))
-    .map((node) => ({ nodeId: node.nodeId, lane: node.lane }));
-
-  const paths: WorkflowReadPath[] = [];
-  for (const path of output.paths) {
-    const missing = path.nodeIdsOrdered.filter((id) => !nodeIds.has(id));
-    if (missing.length > 0) {
-      dropped.push({
-        elementType: 'path',
-        elementId: path.pathId,
-        reason: `missing node IDs: ${missing.join(', ')}`,
-      });
-      continue;
-    }
-    paths.push(path);
-  }
-
-  const keptCount = nodes.length + edges.length + lanes.length + paths.length;
-  const droppedCount = dropped.length;
-  const ratio = keptCount + droppedCount === 0 ? 0 : droppedCount / (keptCount + droppedCount);
-  const status: WorkflowMapStatus =
-    droppedCount > 0 && ratio > maxDroppedRatio ? 'degraded' : 'validated';
-  return {
-    status,
-    map: { ...output, nodes, edges, lanes, paths },
-    validationJson: {
-      promptVersion: WORKFLOW_READ_PROMPT_VERSION,
-      dropped,
-      droppedCount,
-      keptCount,
-      droppedRatio: ratio,
-      maxDroppedRatio,
-      orphanLaneRefs,
-    },
-    droppedCount,
-    keptCount,
-  };
-}
-
 function nodeSystemsToScalar(systems: string[] | null | undefined): string | null {
   if (!systems || systems.length === 0) return null;
   return (
@@ -698,8 +579,9 @@ async function runSegmentationModel(args: {
   chunks: ChunkRow[];
   mapId: string;
   repairFeedback?: string;
+  budget: SourceReaderBudget;
 }): Promise<{ output: SourceSegmentationOutput; modelRunId: string; contextPackId: string }> {
-  const { db, client, doc, chunks, mapId, repairFeedback } = args;
+  const { db, client, doc, chunks, mapId, repairFeedback, budget } = args;
   const resolved = await resolveRouteCandidates(db, 'workflow_read');
   for (const skipped of resolved.skipped) {
     console.warn('[source-workflow-read] skipped segmentation route candidate', skipped);
@@ -750,6 +632,10 @@ async function runSegmentationModel(args: {
         : 'current source-segmentation request',
     }),
   ];
+  budget.reserveRead({
+    estimatedInputTokens: blocks.reduce((sum, block) => sum + (block.tokenEstimate ?? 0), 0),
+    label: repairFeedback ? 'source segmentation repair' : 'source segmentation',
+  });
   const plan = client.compile({
     taskType: 'source_segmentation',
     routeId: route.routeId,
@@ -856,8 +742,9 @@ async function runWorkflowReadModel(args: {
   mapId: string;
   force: boolean;
   segment?: SourceStructureSegment;
+  budget: SourceReaderBudget;
 }): Promise<{ output: WorkflowReadOutput; modelRunIds: string[]; contextPackIds: string[] }> {
-  const { db, client, doc, chunks, referentPack, mapId, segment } = args;
+  const { db, client, doc, chunks, referentPack, mapId, segment, budget } = args;
   const maxEstimatedTokens = await readNumberSetting(
     db,
     'workflow_read_max_estimated_input_tokens',
@@ -941,6 +828,10 @@ async function runWorkflowReadModel(args: {
         reasonIncluded: 'current workflow-read request',
       }),
     ];
+    budget.reserveRead({
+      estimatedInputTokens: blocks.reduce((sum, block) => sum + (block.tokenEstimate ?? 0), 0),
+      label: `workflow read ${segment?.segmentId ?? 'full-source'} window ${windowIndex + 1}/${windows.length}`,
+    });
 
     const plan = client.compile({
       taskType: 'source_workflow_read',
@@ -1097,10 +988,127 @@ export function renderWorkflowMapGuidance(mapId: string, map: SourceStructureMap
   return lines.join('\n');
 }
 
-export async function loadLatestWorkflowMapGuidance(
+export type ActiveWorkflowMapRef = {
+  ref: string;
+  kind: 'element' | 'relation';
+  localId: string;
+  segmentId: string;
+  shape: SourceStructureShape;
+  chunkId: string;
+};
+
+export type ActiveWorkflowMapContext = {
+  mapId: string;
+  map: SourceStructureMap;
+  guidance: string;
+  refs: ReadonlyMap<string, ActiveWorkflowMapRef>;
+};
+
+export type MapElementRefMembershipResult =
+  | { ok: true; target: ActiveWorkflowMapRef }
+  | {
+      ok: false;
+      failureClass: 'no_active_map' | 'wrong_map' | 'unknown_map_ref' | 'outside_extraction_window';
+      detail: string;
+    };
+
+export function buildActiveWorkflowMapRefIndex(
+  mapId: string,
+  map: SourceStructureMap,
+): Map<string, ActiveWorkflowMapRef> {
+  const refs = new Map<string, ActiveWorkflowMapRef>();
+  for (const element of map.elements) {
+    const ref = `${mapId}:element:${element.elementId}`;
+    refs.set(ref, {
+      ref,
+      kind: 'element',
+      localId: element.elementId,
+      segmentId: element.segmentId,
+      shape: element.shape,
+      chunkId: element.chunkId,
+    });
+  }
+  for (const relation of map.relations) {
+    const ref = `${mapId}:relation:${relation.relationId}`;
+    refs.set(ref, {
+      ref,
+      kind: 'relation',
+      localId: relation.relationId,
+      segmentId: relation.segmentId,
+      shape: relation.shape,
+      chunkId: relation.chunkId,
+    });
+  }
+  return refs;
+}
+
+async function loadSourceReaderBudgetLimits(db: OracleDb): Promise<SourceReaderBudgetLimits> {
+  const [
+    maxReadCalls,
+    maxInputTokens,
+    maxEstimatedCostUsd,
+    estimatedInputCostPerMillionTokensUsd,
+    maxRepairAttempts,
+    maxConcurrency,
+  ] = await Promise.all([
+    readNumberSetting(db, 'source_reader_max_read_calls_per_source', 40),
+    readNumberSetting(db, 'source_reader_max_input_tokens_per_source', 500_000),
+    readNumberSetting(db, 'source_reader_max_estimated_cost_usd_per_source', 10),
+    readNumberSetting(db, 'source_reader_estimated_input_cost_per_million_tokens_usd', 5),
+    readNumberSetting(db, 'source_reader_max_repair_attempts_per_source', 1),
+    readNumberSetting(db, 'source_reader_max_concurrency_per_source', 4),
+  ]);
+  return {
+    maxReadCalls: Math.trunc(maxReadCalls),
+    maxInputTokens: Math.trunc(maxInputTokens),
+    maxEstimatedCostUsd,
+    estimatedInputCostPerMillionTokensUsd,
+    maxRepairAttempts: Math.trunc(maxRepairAttempts),
+    maxConcurrency: Math.trunc(maxConcurrency),
+  };
+}
+
+export function validateMapElementRefMembership(args: {
+  mapElementRef: string;
+  activeMap: ActiveWorkflowMapContext | null;
+  eligibleChunkIds: ReadonlySet<string>;
+}): MapElementRefMembershipResult {
+  if (!args.activeMap) {
+    return {
+      ok: false,
+      failureClass: 'no_active_map',
+      detail: 'Candidate supplied mapElementRef but no active validated/degraded map exists.',
+    };
+  }
+  if (!args.mapElementRef.startsWith(`${args.activeMap.mapId}:`)) {
+    return {
+      ok: false,
+      failureClass: 'wrong_map',
+      detail: `mapElementRef does not belong to active map ${args.activeMap.mapId}.`,
+    };
+  }
+  const target = args.activeMap.refs.get(args.mapElementRef);
+  if (!target) {
+    return {
+      ok: false,
+      failureClass: 'unknown_map_ref',
+      detail: `mapElementRef is well-formed but is not a member of active map ${args.activeMap.mapId}.`,
+    };
+  }
+  if (!args.eligibleChunkIds.has(target.chunkId)) {
+    return {
+      ok: false,
+      failureClass: 'outside_extraction_window',
+      detail: `mapElementRef cites chunk ${target.chunkId}, which is outside the active extraction window.`,
+    };
+  }
+  return { ok: true, target };
+}
+
+export async function loadLatestWorkflowMapContext(
   db: OracleDb,
   documentId: string,
-): Promise<string | null> {
+): Promise<ActiveWorkflowMapContext | null> {
   const [row] = await db
     .select({
       id: sourceWorkflowMaps.id,
@@ -1160,7 +1168,61 @@ export async function loadLatestWorkflowMapGuidance(
           ],
           title: 'Full process',
         });
-  return renderWorkflowMapGuidance(row.id, map);
+  return {
+    mapId: row.id,
+    map,
+    guidance: renderWorkflowMapGuidance(row.id, map),
+    refs: buildActiveWorkflowMapRefIndex(row.id, map),
+  };
+}
+
+export async function loadLatestWorkflowMapGuidance(
+  db: OracleDb,
+  documentId: string,
+): Promise<string | null> {
+  return (await loadLatestWorkflowMapContext(db, documentId))?.guidance ?? null;
+}
+
+async function buildWorkflowValidationChunkContexts(args: {
+  db: OracleDb;
+  documentId: string;
+  output: WorkflowReadOutput;
+  documentChunks: ChunkRow[];
+  coveredChunkIds: ReadonlySet<string>;
+}): Promise<Map<string, WorkflowMapChunkContext>> {
+  const contexts = new Map<string, WorkflowMapChunkContext>(
+    args.documentChunks.map((chunk) => [
+      chunk.id,
+      {
+        documentId: args.documentId,
+        text: chunk.rawText,
+        coveredBySegmentation: args.coveredChunkIds.has(chunk.id),
+      },
+    ]),
+  );
+  const citedIds = new Set([
+    ...args.output.nodes.map((node) => node.chunkId),
+    ...args.output.edges.map((edge) => edge.chunkId),
+  ]);
+  const unresolvedIds = [...citedIds].filter((chunkId) => !contexts.has(chunkId));
+  if (unresolvedIds.length === 0) return contexts;
+
+  const referencedRows = await args.db
+    .select({
+      id: documentChunks.id,
+      documentId: documentChunks.documentId,
+      rawText: documentChunks.rawText,
+    })
+    .from(documentChunks)
+    .where(inArray(documentChunks.id, unresolvedIds));
+  for (const row of referencedRows) {
+    contexts.set(row.id, {
+      documentId: row.documentId,
+      text: row.rawText,
+      coveredBySegmentation: false,
+    });
+  }
+  return contexts;
 }
 
 export async function generateSourceWorkflowMap(args: {
@@ -1230,7 +1292,9 @@ export async function generateSourceWorkflowMap(args: {
     .returning({ id: jobRuns.id });
   if (!jobRun) throw new Error('[source-workflow-read] failed to insert job_runs row');
 
+  let readerBudget: SourceReaderBudget | null = null;
   try {
+    readerBudget = new SourceReaderBudget(await loadSourceReaderBudgetLimits(db));
     const referentPack = await buildReferentPack(db);
     const firstSegmentationModel = await runSegmentationModel({
       db,
@@ -1238,11 +1302,16 @@ export async function generateSourceWorkflowMap(args: {
       doc,
       chunks,
       mapId: pending.mapId,
+      budget: readerBudget,
     });
     const segmentationModels = [firstSegmentationModel];
     const segmentationValidations = [validateSegmentation(firstSegmentationModel.output, chunks)];
     let segmentation = segmentationValidations[0]!;
-    if (segmentation.integrityRepairCount > 0) {
+    while (
+      segmentation.integrityRepairCount > 0 &&
+      segmentationModels.length - 1 < readerBudget.limits.maxRepairAttempts
+    ) {
+      readerBudget.reserveRepair('source segmentation integrity repair');
       const retryModel = await runSegmentationModel({
         db,
         client,
@@ -1250,60 +1319,78 @@ export async function generateSourceWorkflowMap(args: {
         chunks,
         mapId: pending.mapId,
         repairFeedback: JSON.stringify(segmentation.validationJson),
+        budget: readerBudget,
       });
       const retryValidation = validateSegmentation(retryModel.output, chunks);
       segmentationModels.push(retryModel);
       segmentationValidations.push(retryValidation);
-      if (retryValidation.integrityRepairCount <= segmentation.integrityRepairCount) {
-        segmentation = retryValidation;
-      }
+      if (retryValidation.integrityRepairCount >= segmentation.integrityRepairCount) break;
+      segmentation = retryValidation;
     }
     const chunkById = new Map(chunks.map((chunk) => [chunk.id, chunk]));
+    const coveredChunkIds = new Set(segmentation.segments.flatMap((segment) => segment.chunkIds));
+    const quoteSourceKind = quoteSourceKindForDocument(doc);
     const maxDroppedRatio = await readNumberSetting(db, 'workflow_map_max_dropped_ratio', 0.2);
     const processSegments = segmentation.segments.filter((segment) => segment.shape === 'process');
-    const processReads: Array<{
-      segment: SourceStructureSegment;
-      validation: ReturnType<typeof validateWorkflowMap>;
-      map: SourceStructureMap;
-      modelRunIds: string[];
-      contextPackIds: string[];
-    }> = [];
-
-    for (const segment of processSegments) {
-      const segmentChunks = segment.chunkIds
-        .map((chunkId) => chunkById.get(chunkId))
-        .filter((chunk): chunk is ChunkRow => Boolean(chunk));
-      const modelResult = await runWorkflowReadModel({
-        db,
-        client,
-        doc,
-        chunks: segmentChunks,
-        referentPack,
-        triggerRunId: args.triggerRunId,
-        mapId: pending.mapId,
-        force,
-        segment,
-      });
-      const validation = validateWorkflowMap(
-        modelResult.output,
-        new Map(segmentChunks.map((chunk) => [chunk.id, chunk.rawText])),
-        maxDroppedRatio,
-      );
-      processReads.push({
-        segment,
-        validation,
-        map: workflowToProcessStructureMap({
-          output: validation.map,
+    const processReads = await mapWithConcurrency<
+      SourceStructureSegment,
+      {
+        segment: SourceStructureSegment;
+        validation: ReturnType<typeof validateWorkflowMap>;
+        map: SourceStructureMap;
+        modelRunIds: string[];
+        contextPackIds: string[];
+      }
+    >({
+      inputs: processSegments,
+      concurrency: readerBudget.limits.maxConcurrency,
+      run: async (segment) => {
+        const segmentChunks = segment.chunkIds
+          .map((chunkId) => chunkById.get(chunkId))
+          .filter((chunk): chunk is ChunkRow => Boolean(chunk));
+        const modelResult = await runWorkflowReadModel({
+          db,
+          client,
+          doc,
           chunks: segmentChunks,
-          title: segment.title,
+          referentPack,
+          triggerRunId: args.triggerRunId,
+          mapId: pending.mapId,
+          force,
           segment,
-          documentShape: segmentation.documentShape,
-          prefixIds: processSegments.length > 1,
-        }),
-        modelRunIds: modelResult.modelRunIds,
-        contextPackIds: modelResult.contextPackIds,
-      });
-    }
+          budget: readerBudget!,
+        });
+        const validationChunks = await buildWorkflowValidationChunkContexts({
+          db,
+          documentId: args.documentId,
+          output: modelResult.output,
+          documentChunks: chunks,
+          coveredChunkIds,
+        });
+        const validation = validateWorkflowMap({
+          output: modelResult.output,
+          activeDocumentId: args.documentId,
+          activeSegmentChunkIds: new Set(segment.chunkIds),
+          chunksById: validationChunks,
+          sourceKind: quoteSourceKind,
+          maxDroppedRatio,
+        });
+        return {
+          segment,
+          validation,
+          map: workflowToProcessStructureMap({
+            output: validation.map,
+            chunks: segmentChunks,
+            title: segment.title,
+            segment,
+            documentShape: segmentation.documentShape,
+            prefixIds: processSegments.length > 1,
+          }),
+          modelRunIds: modelResult.modelRunIds,
+          contextPackIds: modelResult.contextPackIds,
+        };
+      },
+    });
 
     const structureMap: SourceStructureMap = {
       documentShape: segmentation.documentShape,
@@ -1343,10 +1430,12 @@ export async function generateSourceWorkflowMap(args: {
       segmentationAttempts: segmentationValidations.map((validation) => validation.validationJson),
       processSegments: processReads.map((read) => ({
         segmentId: read.segment.segmentId,
+        promptVersion: WORKFLOW_READ_PROMPT_VERSION,
         ...read.validation.validationJson,
       })),
       droppedCount,
       keptCount,
+      readerBudget: readerBudget.snapshot(),
     };
 
     await db
@@ -1394,6 +1483,7 @@ export async function generateSourceWorkflowMap(args: {
             ]),
           ),
           modelRunIds,
+          readerBudget: readerBudget.snapshot(),
         },
       })
       .where(eq(jobRuns.id, jobRun.id));
@@ -1425,6 +1515,7 @@ export async function generateSourceWorkflowMap(args: {
           pipelineVersion: SOURCE_READER_PIPELINE_VERSION,
           segmentationPromptVersion: SOURCE_SEGMENTATION_PROMPT_VERSION,
           workflowPromptVersion: WORKFLOW_READ_PROMPT_VERSION,
+          readerBudget: readerBudget?.snapshot() ?? null,
           error: message,
         },
         updatedAt: new Date(),
@@ -1433,7 +1524,12 @@ export async function generateSourceWorkflowMap(args: {
       .where(eq(sourceWorkflowMaps.id, pending.mapId));
     await db
       .update(jobRuns)
-      .set({ status: 'failed', finishedAt: new Date(), error: message })
+      .set({
+        status: 'failed',
+        finishedAt: new Date(),
+        error: message,
+        outputJson: { readerBudget: readerBudget?.snapshot() ?? null },
+      })
       .where(eq(jobRuns.id, jobRun.id));
     await markMacroMapFailed(db, args.documentId);
     throw err;
@@ -1442,6 +1538,7 @@ export async function generateSourceWorkflowMap(args: {
 
 export const __sourceWorkflowReadTestHooks = {
   validateSegmentation,
+  validateWorkflowMap,
   isReusableWorkflowMapStatus,
   prefixWindowIds,
   workflowToProcessStructureMap,

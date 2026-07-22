@@ -14,8 +14,10 @@
     "generate": "drizzle-kit generate",
     "migrate": "tsx src/migrate.ts",
     "check-drift": "tsx src/check-migration-drift.ts",
+    "audit:r0-reader-drops": "tsx src/audit-r0-reader-drops.ts",
     "seed": "tsx src/seed.ts",
     "verify:macro-support-queries": "tsx src/verify-macro-support-queries.ts",
+    "verify:fresh-source-workflow-schema": "tsx src/verify-fresh-source-workflow-schema.ts",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },

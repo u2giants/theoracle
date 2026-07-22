@@ -20,7 +20,7 @@
 //   identical for filtering — both paths build their WHERE clauses from the
 //   shared buildPlanMetadataFilters() helper precisely so they cannot drift.
 
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
 import {
   brainSections,
   brainSectionVersions,
@@ -220,9 +220,12 @@ export async function getRelevantOpenGaps(
   employee: Employee,
   limit = DEFAULT_GAPS_LIMIT,
 ): Promise<Gap[]> {
-  const depts = employee.departments.length > 0
-    ? employee.departments
-    : employee.department ? [employee.department] : [];
+  const depts =
+    employee.departments.length > 0
+      ? employee.departments
+      : employee.department
+        ? [employee.department]
+        : [];
 
   const rows = await db
     .select()
@@ -230,11 +233,10 @@ export async function getRelevantOpenGaps(
     .where(
       and(
         inArray(gaps.status, ['open', 'queued', 'asked']),
+        ne(gaps.gapType, 'model_coverage'),
         or(
           eq(gaps.targetEmployeeId, employee.id),
-          depts.length > 0
-            ? inArray(gaps.targetDepartment, depts)
-            : undefined,
+          depts.length > 0 ? inArray(gaps.targetDepartment, depts) : undefined,
         ),
       ),
     )
@@ -324,13 +326,9 @@ export async function searchWithRetrievalPlan(
     ),`
       : sql``;
   const deptBonusTerm =
-    deptHints.length > 0
-      ? sql`+ CASE WHEN db.claim_id IS NOT NULL THEN 0.002 ELSE 0.0 END`
-      : sql``;
+    deptHints.length > 0 ? sql`+ CASE WHEN db.claim_id IS NOT NULL THEN 0.002 ELSE 0.0 END` : sql``;
   const deptBonusJoin =
-    deptHints.length > 0
-      ? sql`LEFT JOIN dept_bonus db ON db.claim_id = vr.id`
-      : sql``;
+    deptHints.length > 0 ? sql`LEFT JOIN dept_bonus db ON db.claim_id = vr.id` : sql``;
 
   const rows = await db.execute<{
     id: string;
@@ -432,10 +430,13 @@ async function _searchFallbackTsvector(
   locale: SupportedLocale = DEFAULT_LOCALE,
 ): Promise<RelevantClaim[]> {
   if (plan.searchScope === 'global_fallback') {
-    console.warn('[oracle:retrieval] global_fallback (tsvector path) — searching entire claim corpus', {
-      query: plan.vectorQuery.slice(0, 120),
-      hint: 'Add matching keywords to DOMAIN_KEYWORDS in packages/ai/src/retrieval-plan.ts',
-    });
+    console.warn(
+      '[oracle:retrieval] global_fallback (tsvector path) — searching entire claim corpus',
+      {
+        query: plan.vectorQuery.slice(0, 120),
+        hint: 'Add matching keywords to DOMAIN_KEYWORDS in packages/ai/src/retrieval-plan.ts',
+      },
+    );
   }
 
   const textQuery = plan.vectorQuery;
@@ -523,10 +524,7 @@ export async function getBrainSectionSnippets(
       markdown: brainSectionVersions.markdown,
     })
     .from(brainSections)
-    .leftJoin(
-      brainSectionVersions,
-      eq(brainSectionVersions.id, brainSections.currentVersionId),
-    )
+    .leftJoin(brainSectionVersions, eq(brainSectionVersions.id, brainSections.currentVersionId))
     .where(inArray(brainSections.id, sectionIds));
   return rows.map((r) => ({
     sectionId: r.sectionId,
@@ -556,13 +554,13 @@ export async function getOpenGapsForChannel(
 
   const employeeIds = members.map((m) => m.employeeId);
   // Flatten all departments from all channel members (both old and new fields).
-  const departments = Array.from(new Set(
-    members.flatMap((m) =>
-      m.departments.length > 0
-        ? m.departments
-        : m.department ? [m.department] : [],
+  const departments = Array.from(
+    new Set(
+      members.flatMap((m) =>
+        m.departments.length > 0 ? m.departments : m.department ? [m.department] : [],
+      ),
     ),
-  ));
+  );
 
   return db
     .select()
@@ -570,11 +568,10 @@ export async function getOpenGapsForChannel(
     .where(
       and(
         inArray(gaps.status, ['open', 'queued', 'asked']),
+        ne(gaps.gapType, 'model_coverage'),
         or(
           inArray(gaps.targetEmployeeId, employeeIds),
-          departments.length > 0
-            ? inArray(gaps.targetDepartment, departments)
-            : undefined,
+          departments.length > 0 ? inArray(gaps.targetDepartment, departments) : undefined,
         ),
       ),
     )

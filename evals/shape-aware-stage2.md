@@ -89,3 +89,55 @@ Persisted map `9e84efda-755d-4a05-be5a-bbbadfce144e` records:
 Stage 2 is green. Proceed to Stage 3: implement the non-process per-segment readers and
 their element kinds, extraction directives, and deterministic per-shape coverage. Do not
 retire the blind extraction fallback until every Stage 3 shape passes its real-data gate.
+
+## 2026-07-21 — R0 validator/reference/coverage implementation gate
+
+Scope: local implementation plus SELECT-only production audits. This session was explicitly
+not authorized to deploy, mutate production, or supersede a production map, so it did not run a
+new model-generated `business-process.md` read.
+
+Local deterministic gates:
+
+- PASS: `corepack pnpm --filter @oracle/workers run verify:r0-reader-validator`
+- PASS: `corepack pnpm --filter @oracle/workers run verify:source-workflow-read`
+- PASS: `corepack pnpm --filter @oracle/engines run verify:r5`
+- PASS: `corepack pnpm --filter @oracle/ai run verify:workflow-read`
+- PASS: workers, engines, AI, and DB package typechecks
+- PASS after parent review: reader pipeline version/source hash advanced to
+  `shape-reader-v2-r0-validator`, preventing silent reuse of pre-R0 maps for unchanged sources.
+- CI-only: the fresh pgvector database migration gate is wired into `pr-check.yml`. It could not
+  run on this workstation because Docker, Podman, `psql`, and WSL are unavailable.
+
+Historical 101-drop audit:
+
+- Command: `corepack pnpm --filter @oracle/db run audit:r0-reader-drops`, with the current
+  production session-pooler supplied only as `R0_AUDIT_DATABASE_URL` from 1Password.
+- Map `9e84efda-755d-4a05-be5a-bbbadfce144e`, document
+  `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea` (`business-process.md`): 64 kept, 101 dropped,
+  historical drop ratio `101 / 165 = 61.2%`.
+- 36 root nodes: `quote_not_found`. Decided disposition:
+  `separately_scheduled_post_fix_replay`. The old telemetry retained element ID/reason but not
+  the rejected quote or raw reader output, so it is impossible to decide honestly which of these
+  would pass Markdown normalization versus remain a correct paraphrase rejection.
+- 46 edges: `missing_endpoint_cascade`; disposition `cascade`.
+- 19 paths: `missing_path_node_cascade`; disposition `cascade`.
+- Zero persisted reasons fall into an unresolved classification. Historical important-relation
+  evidence survival was `14 / (14 + 46) = 23.3%`; this is a reported outcome, not a weakened
+  acceptance threshold. R0 now retains enough diagnostics/raw output for the next read to compute
+  exact selected/alternate policy outcomes instead of repeating this telemetry limitation.
+
+SELECT-only swimlane regression:
+
+- Command: `corepack pnpm --filter @oracle/workers run verify:r0-production-replay`, with the
+  current session-pooler supplied only as `R0_REPLAY_DATABASE_URL` from 1Password.
+- Current map `a008239d-773f-4c31-b78b-6cf639697c82` replayed through the new validator under
+  `vision_transcription_strict`: 58 nodes, 56 relations, 13 lanes, 0 paths; 0 root drops,
+  0 cascade drops, and 56/56 relation evidence survived.
+- Duplication regression: 0 duplicate node/relation IDs, maximum 1 current claim per map ref,
+  and 0 refs with 3 or more claims. The previously scored answer-key coverage remains the pinned
+  reader baseline because this audit replays persisted output and intentionally makes no model
+  call; the R0 validator introduced no survival or duplication regression.
+
+Gate decision: the R0 code and every deterministic/read-only gate available in this session pass.
+The authorized post-deploy `business-process.md` model rerun remains separately scheduled; do not
+claim a new post-fix drop ratio or alternate-policy split until that run produces R0 diagnostics.

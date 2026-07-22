@@ -63,6 +63,7 @@ import {
   decideCircuitBreaker,
   executePromotion,
   mapLegacyDomainsToTopDomains,
+  quoteValidationOptionsForSource,
   stageEntityProposal,
   validateQuote,
   validateSourcePointer,
@@ -89,7 +90,6 @@ export interface PendingConversationSegment {
   charCount: number;
   isOversized: boolean;
 }
-
 
 // ── Module-singletons ─────────────────────────────────────────────────────
 // The OracleAIClient is constructed once per worker process with the three
@@ -125,168 +125,172 @@ export interface ClaimExtractionRunTotals {
 export async function runClaimExtractionOnce(
   triggerRunId: string,
 ): Promise<ClaimExtractionRunTotals> {
-    const db = getDirectDb();
-    const client = buildOracleClient();
-    const startedAt = new Date();
+  const db = getDirectDb();
+  const client = buildOracleClient();
+  const startedAt = new Date();
 
-    const [jobRun] = await db
-      .insert(jobRuns)
-      .values({
-        triggerRunId,
-        jobType: 'claim-extraction',
-        status: 'running',
-        startedAt,
-        inputJson: { batchSize: BATCH_SIZE },
-      })
-      .returning({ id: jobRuns.id });
-    if (!jobRun) throw new Error('[claim-extraction] failed to insert job_runs row');
+  const [jobRun] = await db
+    .insert(jobRuns)
+    .values({
+      triggerRunId,
+      jobType: 'claim-extraction',
+      status: 'running',
+      startedAt,
+      inputJson: { batchSize: BATCH_SIZE },
+    })
+    .returning({ id: jobRuns.id });
+  if (!jobRun) throw new Error('[claim-extraction] failed to insert job_runs row');
 
-    const totals = {
-      batchesProcessed: 0,
-      candidatesStaged: 0,
-      claimsPromoted: 0,
-      duplicatesAppended: 0,
-      rejections: 0,
-      circuitBreakerTrips: 0,
-      messagesProcessed: 0,
-      errors: 0,
-    };
+  const totals = {
+    batchesProcessed: 0,
+    candidatesStaged: 0,
+    claimsPromoted: 0,
+    duplicatesAppended: 0,
+    rejections: 0,
+    circuitBreakerTrips: 0,
+    messagesProcessed: 0,
+    errors: 0,
+  };
 
-    try {
-      // 0. Dispatch-mode gate. If settings.extraction_dispatch_mode === 'batch'
-      //    the batch-submit worker owns extraction; the sync path bails. The
-      //    flag is read every run so admins can flip back to sync without
-      //    redeploying. See DECISIONS.md D14.
-      const dispatchModeRow = await db
-        .select({ value: settings.value })
-        .from(settings)
-        .where(eq(settings.key, 'extraction_dispatch_mode'))
-        .limit(1);
-      const dispatchMode = (dispatchModeRow[0]?.value as string | undefined) ?? 'sync';
-      if (dispatchMode === 'batch') {
-        await db
-          .update(jobRuns)
-          .set({
-            status: 'complete',
-            finishedAt: new Date(),
-            outputJson: { ...totals, skipped: true, reason: 'extraction_dispatch_mode=batch — handled by claim-extraction-batch-submit' },
-          })
-          .where(eq(jobRuns.id, jobRun.id));
-        return { ok: true, ...totals };
-      }
-
-      // 0.5. Reaper — reset messages stuck in 'processing'. A worker crash
-      //      between the 'processing' flip (step 3) and the terminal status
-      //      update leaves messages stranded: only 'pending' is ever
-      //      re-selected, so a stuck 'processing' row would never be retried.
-      //      Reset any 'processing' row older than 2 hours back to 'pending'
-      //      so the next pass picks it up. Idempotent (no-op when nothing is
-      //      stuck) and uses created_at since 'processing' has no own timestamp.
-      const reaped = await db
-        .update(messages)
-        .set({ extractionStatus: 'pending' })
-        .where(
-          and(
-            eq(messages.extractionStatus, 'processing'),
-            sql`${messages.createdAt} < now() - interval '2 hours'`,
-          ),
-        )
-        .returning({ id: messages.id });
-      if (reaped.length > 0) {
-        console.warn(
-          `[claim-extraction] reaper reset ${reaped.length} message(s) stuck in 'processing' (>2h) back to 'pending'.`,
-        );
-      }
-
-      // 1. Resolve the approved extraction candidate chain.
-      const routeCandidates = await resolveExtractionCandidates(db);
-      const route = routeCandidates[0]!.route;
-      const activeTopDomainIds = await loadActiveTopDomainIds(db);
-      const entityRegistry = await loadEntityRegistry(db);
-      const correctionLessons = await loadClaimCorrectionLessonPack(db);
-      const selectionSettings = await loadExtractionSelectionSettings(db);
-
-      // 2. Pull whole pending conversations. The selector may stop at the
-      // per-tick budget, but it never cuts a conversation mid-segment.
-      const conversations = await selectPendingConversations(db, {
-        charBudget: selectionSettings.charBudget,
-        maxMessages: BATCH_SIZE,
-        carryInCount: selectionSettings.carryInCount,
-      });
-
-      if (conversations.length === 0) {
-        await db
-          .update(jobRuns)
-          .set({ status: 'complete', finishedAt: new Date(), outputJson: totals })
-          .where(eq(jobRuns.id, jobRun.id));
-        return { ok: true, ...totals };
-      }
-
-      // 3. Mark selected segment messages as 'processing' (idempotency guard).
-      // Carry-in context is intentionally not claimed or re-extracted.
-      const messageIds = conversations.flatMap((conversation) =>
-        conversation.segment.map((m) => m.id),
-      );
+  try {
+    // 0. Dispatch-mode gate. If settings.extraction_dispatch_mode === 'batch'
+    //    the batch-submit worker owns extraction; the sync path bails. The
+    //    flag is read every run so admins can flip back to sync without
+    //    redeploying. See DECISIONS.md D14.
+    const dispatchModeRow = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'extraction_dispatch_mode'))
+      .limit(1);
+    const dispatchMode = (dispatchModeRow[0]?.value as string | undefined) ?? 'sync';
+    if (dispatchMode === 'batch') {
       await db
-        .update(messages)
-        .set({ extractionStatus: 'processing' })
-        .where(inArray(messages.id, messageIds));
+        .update(jobRuns)
+        .set({
+          status: 'complete',
+          finishedAt: new Date(),
+          outputJson: {
+            ...totals,
+            skipped: true,
+            reason: 'extraction_dispatch_mode=batch — handled by claim-extraction-batch-submit',
+          },
+        })
+        .where(eq(jobRuns.id, jobRun.id));
+      return { ok: true, ...totals };
+    }
 
-      // 4. Process each whole conversation segment as an extraction_batches row.
-      for (const conversation of conversations) {
-        if (conversation.isOversized) {
-          console.warn('[claim-extraction] processing oversized conversation without truncation', {
-            channelId: conversation.channelId,
-            messages: conversation.segment.length,
-            charCount: conversation.charCount,
-            charBudget: selectionSettings.charBudget,
-          });
-        }
-        try {
-          const outcome = await processSegment({
-            db,
-            client,
-            route,
-            routeCandidates,
-            activeTopDomainIds,
-            entityRegistry,
-            correctionLessonsPromptBlock: correctionLessons.promptBlock,
-            jobRunId: jobRun.id,
-            segment: conversation.segment,
-            carryIn: conversation.carryIn,
-          });
-          totals.batchesProcessed += 1;
-          totals.candidatesStaged += outcome.candidatesStaged;
-          totals.claimsPromoted += outcome.claimsPromoted;
-          totals.duplicatesAppended += outcome.duplicatesAppended;
-          totals.rejections += outcome.rejections;
-          totals.circuitBreakerTrips += outcome.circuitBreakerTripped ? 1 : 0;
-          totals.messagesProcessed += outcome.messagesProcessed;
-        } catch (segErr) {
-          totals.errors += 1;
-          console.error('[claim-extraction] segment processing failed', segErr);
-          // The segment-level error path already updates the batch + messages
-          // to 'failed'; nothing more to do here.
-        }
-      }
+    // 0.5. Reaper — reset messages stuck in 'processing'. A worker crash
+    //      between the 'processing' flip (step 3) and the terminal status
+    //      update leaves messages stranded: only 'pending' is ever
+    //      re-selected, so a stuck 'processing' row would never be retried.
+    //      Reset any 'processing' row older than 2 hours back to 'pending'
+    //      so the next pass picks it up. Idempotent (no-op when nothing is
+    //      stuck) and uses created_at since 'processing' has no own timestamp.
+    const reaped = await db
+      .update(messages)
+      .set({ extractionStatus: 'pending' })
+      .where(
+        and(
+          eq(messages.extractionStatus, 'processing'),
+          sql`${messages.createdAt} < now() - interval '2 hours'`,
+        ),
+      )
+      .returning({ id: messages.id });
+    if (reaped.length > 0) {
+      console.warn(
+        `[claim-extraction] reaper reset ${reaped.length} message(s) stuck in 'processing' (>2h) back to 'pending'.`,
+      );
+    }
 
+    // 1. Resolve the approved extraction candidate chain.
+    const routeCandidates = await resolveExtractionCandidates(db);
+    const route = routeCandidates[0]!.route;
+    const activeTopDomainIds = await loadActiveTopDomainIds(db);
+    const entityRegistry = await loadEntityRegistry(db);
+    const correctionLessons = await loadClaimCorrectionLessonPack(db);
+    const selectionSettings = await loadExtractionSelectionSettings(db);
+
+    // 2. Pull whole pending conversations. The selector may stop at the
+    // per-tick budget, but it never cuts a conversation mid-segment.
+    const conversations = await selectPendingConversations(db, {
+      charBudget: selectionSettings.charBudget,
+      maxMessages: BATCH_SIZE,
+      carryInCount: selectionSettings.carryInCount,
+    });
+
+    if (conversations.length === 0) {
       await db
         .update(jobRuns)
         .set({ status: 'complete', finishedAt: new Date(), outputJson: totals })
         .where(eq(jobRuns.id, jobRun.id));
-
       return { ok: true, ...totals };
-    } catch (fatalErr) {
-      await db
-        .update(jobRuns)
-        .set({
-          status: 'failed',
-          finishedAt: new Date(),
-          error: fatalErr instanceof Error ? fatalErr.message : String(fatalErr),
-        })
-        .where(eq(jobRuns.id, jobRun.id));
-      throw fatalErr;
     }
+
+    // 3. Mark selected segment messages as 'processing' (idempotency guard).
+    // Carry-in context is intentionally not claimed or re-extracted.
+    const messageIds = conversations.flatMap((conversation) =>
+      conversation.segment.map((m) => m.id),
+    );
+    await db
+      .update(messages)
+      .set({ extractionStatus: 'processing' })
+      .where(inArray(messages.id, messageIds));
+
+    // 4. Process each whole conversation segment as an extraction_batches row.
+    for (const conversation of conversations) {
+      if (conversation.isOversized) {
+        console.warn('[claim-extraction] processing oversized conversation without truncation', {
+          channelId: conversation.channelId,
+          messages: conversation.segment.length,
+          charCount: conversation.charCount,
+          charBudget: selectionSettings.charBudget,
+        });
+      }
+      try {
+        const outcome = await processSegment({
+          db,
+          client,
+          route,
+          routeCandidates,
+          activeTopDomainIds,
+          entityRegistry,
+          correctionLessonsPromptBlock: correctionLessons.promptBlock,
+          jobRunId: jobRun.id,
+          segment: conversation.segment,
+          carryIn: conversation.carryIn,
+        });
+        totals.batchesProcessed += 1;
+        totals.candidatesStaged += outcome.candidatesStaged;
+        totals.claimsPromoted += outcome.claimsPromoted;
+        totals.duplicatesAppended += outcome.duplicatesAppended;
+        totals.rejections += outcome.rejections;
+        totals.circuitBreakerTrips += outcome.circuitBreakerTripped ? 1 : 0;
+        totals.messagesProcessed += outcome.messagesProcessed;
+      } catch (segErr) {
+        totals.errors += 1;
+        console.error('[claim-extraction] segment processing failed', segErr);
+        // The segment-level error path already updates the batch + messages
+        // to 'failed'; nothing more to do here.
+      }
+    }
+
+    await db
+      .update(jobRuns)
+      .set({ status: 'complete', finishedAt: new Date(), outputJson: totals })
+      .where(eq(jobRuns.id, jobRun.id));
+
+    return { ok: true, ...totals };
+  } catch (fatalErr) {
+    await db
+      .update(jobRuns)
+      .set({
+        status: 'failed',
+        finishedAt: new Date(),
+        error: fatalErr instanceof Error ? fatalErr.message : String(fatalErr),
+      })
+      .where(eq(jobRuns.id, jobRun.id));
+    throw fatalErr;
+  }
 }
 
 // Trigger.dev scheduled wrapper — production cron entry point. Delegates
@@ -625,8 +629,15 @@ export async function processSegmentOutput(
   args: ProcessSegmentOutputArgs,
 ): Promise<SegmentOutcome> {
   const {
-    db, route, activeTopDomainIds, entityRegistry, segment,
-    extractionBatchId, modelRunId, sourceHash, modelOutput,
+    db,
+    route,
+    activeTopDomainIds,
+    entityRegistry,
+    segment,
+    extractionBatchId,
+    modelRunId,
+    sourceHash,
+    modelOutput,
   } = args;
   const segmentIds = segment.map((m) => m.id);
   const batch = { id: extractionBatchId };
@@ -725,9 +736,11 @@ export async function processSegmentOutput(
         sourceType: 'message',
         sourceMessageId: extracted.evidence.sourceMessageId,
         assertedByEmployeeId:
-          (segment.find((m) => m.id === extracted.evidence.sourceMessageId) as
-            | (FormattedMessage & { employeeId?: string })
-            | undefined)?.employeeId ?? null,
+          (
+            segment.find((m) => m.id === extracted.evidence.sourceMessageId) as
+              | (FormattedMessage & { employeeId?: string })
+              | undefined
+          )?.employeeId ?? null,
         exactQuoteProvided: extracted.evidence.exactQuote,
         validationStatus: 'pending',
         confidence: extracted.evidence.confidence,
@@ -745,13 +758,7 @@ export async function processSegmentOutput(
     const quoteRes = validateQuote({
       sourceText: sourceMsg.content,
       exactQuoteProvided: extracted.evidence.exactQuote,
-      normalizationPolicy: {
-        allowCRLF: true,
-        allowSmartQuotes: true,
-        allowWhitespaceCollapse: true,
-        allowLeadingTrailingTrim: true,
-      },
-      allowFuzzy: true,
+      ...quoteValidationOptionsForSource('transcript_message'),
     });
     await db
       .update(extractionCandidateEvidence)
@@ -887,7 +894,8 @@ export async function processSegmentOutput(
         candidateId: candidate.id,
         checkName: 'sensitivity_gate',
         status: 'fail',
-        detail: extracted.sensitivityFlags?.sensitivityReason ?? 'extractor flagged sensitive content',
+        detail:
+          extracted.sensitivityFlags?.sensitivityReason ?? 'extractor flagged sensitive content',
         metadataJson: {
           containsSensitiveHRData: extracted.sensitivityFlags?.containsSensitiveHRData ?? false,
           containsSensitivePersonalData:
@@ -899,7 +907,9 @@ export async function processSegmentOutput(
         .update(extractionCandidates)
         .set({
           status: 'quarantined_sensitive',
-          validationError: extracted.sensitivityFlags?.sensitivityReason ?? 'sensitive content flagged by extractor',
+          validationError:
+            extracted.sensitivityFlags?.sensitivityReason ??
+            'sensitive content flagged by extractor',
           validatedAt: new Date(),
         })
         .where(eq(extractionCandidates.id, candidate.id));
@@ -998,7 +1008,9 @@ export async function processSegmentOutput(
 export async function resolveExtractionCandidates(db: OracleDb): Promise<RouteCandidate[]> {
   const resolved = await resolveRouteCandidates(db, 'extraction');
   for (const skipped of resolved.skipped) {
-    console.error(`[claim-extraction] skipped configured extraction candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`);
+    console.error(
+      `[claim-extraction] skipped configured extraction candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`,
+    );
   }
   return resolved.candidates;
 }
@@ -1009,7 +1021,9 @@ function numberSetting(value: unknown, fallback: number, min: number, max: numbe
   return Math.max(min, Math.min(max, Math.floor(parsed)));
 }
 
-export async function loadExtractionSelectionSettings(db: OracleDb): Promise<ExtractionSelectionSettings> {
+export async function loadExtractionSelectionSettings(
+  db: OracleDb,
+): Promise<ExtractionSelectionSettings> {
   const rows = await db
     .select({ key: settings.key, value: settings.value })
     .from(settings)
@@ -1177,7 +1191,12 @@ export async function selectPendingConversations(
       const isOversized = segment.length > opts.maxMessages || charCount > opts.charBudget;
       const firstMessage = segment[0];
       const carryIn = firstMessage
-        ? await loadCarryInMessages(db, channelRow.channelId, firstMessage.createdAt, opts.carryInCount)
+        ? await loadCarryInMessages(
+            db,
+            channelRow.channelId,
+            firstMessage.createdAt,
+            opts.carryInCount,
+          )
         : [];
       selected.push({
         channelId: channelRow.channelId,
@@ -1285,7 +1304,14 @@ export function buildContextPackInsert(plan: OraclePromptPlan) {
 
 function legacyStanceToCandidateStance(
   role: string | null | undefined,
-): 'stated' | 'confirmed' | 'challenged' | 'refined' | 'exception_introduced' | 'ambiguity_revealed' | null {
+):
+  | 'stated'
+  | 'confirmed'
+  | 'challenged'
+  | 'refined'
+  | 'exception_introduced'
+  | 'ambiguity_revealed'
+  | null {
   switch (role) {
     case 'claim_stated':
       return 'stated';

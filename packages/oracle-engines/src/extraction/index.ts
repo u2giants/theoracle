@@ -39,6 +39,18 @@ export {
   PDF_OCR_NORMALIZATION_POLICY,
   MARKDOWN_DOCUMENT_NORMALIZATION_POLICY,
 } from './types';
+export {
+  VISION_TRANSCRIPTION_QUOTE_POLICY,
+  TRANSCRIPT_FUZZY_QUOTE_POLICY,
+  resolveSourceQuotePolicy,
+  quoteValidationOptionsForSource,
+  quoteSourceKindForDocument,
+  alternateSourceQuotePolicies,
+  alternateDocumentQuotePolicies,
+  type QuoteSourceKind,
+  type SourceQuotePolicy,
+  type SourceQuotePolicyName,
+} from './source-quote-policy';
 
 // R5.5 — taxonomy validation + entity resolution
 export {

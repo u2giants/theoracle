@@ -46,7 +46,7 @@ pnpm --filter @oracle/workers run deploy
 The `run` keyword is required: pnpm reserves the bare `pnpm deploy` form for its own
 package-deployment subcommand, so `pnpm --filter @oracle/workers deploy` fails with
 `ERR_PNPM_INVALID_DEPLOY_TARGET`. The script under the hood is pinned to
-`npx trigger.dev@4.4.6 deploy` so the CLI matches the checked-in `@trigger.dev/*`
+`npx trigger.dev@4.5.2 deploy` so the CLI matches the checked-in `@trigger.dev/*`
 package versions.
 
 ### Database
@@ -102,7 +102,9 @@ What it does (in order):
 2. **Build gate** — `pnpm --filter @oracle/web build`. This is a full production Next.js build (Turbopack); it is the only command that catches Next.js-specific type errors that `pnpm typecheck` alone misses.
 3. **Retrieval filter-parity guard** — `pnpm --filter @oracle/ai verify:retrieval-filter-parity`. DB-free static check that every filter key from `buildPlanMetadataFilters()` is interpolated into both the hybrid and tsvector-fallback SQL branches in `retrieval.ts`.
 4. **Vertex file-cache multi-turn guard** — `pnpm --filter @oracle/ai verify:vertex-file-cache`. DB-free, network-free (clients stubbed). Asserts the file-backed cache path preserves the full conversation as live contents rather than collapsing to a single turn.
-5. **Drizzle journal drift check** — `pnpm -w run db:check-drift`. Compares on-disk migration hashes against `drizzle.__drizzle_migrations` in production. Requires the `PROD_DIRECT_URL` repo secret; skips gracefully if absent.
+5. **R0 reader/validator contract** — `pnpm --filter @oracle/workers verify:r0-reader-validator`. DB-free deterministic validation for source quote policies, map validation, reference membership, coverage, and reader budgets.
+6. **Fresh-database migration gate** — starts pgvector Postgres 16, runs the complete `@oracle/db` migration runner, then runs `verify:fresh-source-workflow-schema`. This catches raw-migration ordering failures and verifies the surviving source-map schema before production migration.
+7. **Drizzle journal drift check** — `pnpm -w run db:check-drift`. Compares on-disk migration hashes against `drizzle.__drizzle_migrations` in production. Requires the `PROD_DIRECT_URL` repo secret; skips gracefully if absent.
 
 There is no checked-in workflow for DB migrations or worker deploys.
 

@@ -1,3 +1,16 @@
+-- SUPERSEDED / DEAD MIGRATION ARTIFACT.
+--
+-- This is preserved for audit only and is deliberately outside migrations/sql,
+-- so the raw migration runner never executes it. The final source_workflow_maps
+-- schema is owned by migrations/sql/86_macro_first_schema.sql and later amended
+-- by 93_source_structure_maps.sql.
+--
+-- Historical failure mode: both active files began with 86_. The runner sorts
+-- filenames lexicographically, so 86_macro_first_schema.sql created the current
+-- table first and this older file then attempted indexes/constraints against its
+-- retired source_outline_id/workflow_version shape. A fresh database therefore
+-- failed even though already-upgraded production had the correct surviving table.
+
 -- First-class workflow-map artifact for structured sources/diagrams.
 -- Source outlines remain guidance-only; this table preserves the graph shape
 -- (nodes/edges/paths/swimlanes) once so extraction, dedup, macro derivation,

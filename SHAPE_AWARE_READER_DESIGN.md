@@ -1,5 +1,10 @@
 # Shape-Aware Source Reader — Design (First Iteration)
 
+> **Plan-of-record note (2026-07-21):** This document remains authoritative for the reader's
+> six-shape and two-pass design and for completed reader Stages 1–2. The remaining reader work
+> is now sequenced as vertical slices inside `MACRO_FIRST_IMPLEMENTATION_PLAN.md`; use that file
+> for stage entry/exit gates, durable cross-shape storage, merge, apply, serving, and rollback.
+
 Status: APPROVED. Stages 1 and 2 are implemented and real-corpus validated as of
 2026-07-13. This supersedes the workflow-only Stage 2 reader in
 `MACRO_FIRST_REDESIGN.md` §5.2. Stage 3 (non-process shape readers) is next.

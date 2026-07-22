@@ -77,7 +77,8 @@ import {
   computeMapElementCandidateHash,
   executePromotion,
   mapLegacyDomainsToTopDomains,
-  MARKDOWN_DOCUMENT_NORMALIZATION_POLICY,
+  quoteSourceKindForDocument,
+  quoteValidationOptionsForSource,
   stageEntityProposal,
   validateQuote,
   validateSourcePointer,
@@ -90,9 +91,11 @@ import type { EntityType, KnowledgeDomain, TopLevelDomainId } from '@oracle/shar
 import { autoApproveDocumentClaimIfEligible } from '../lib/document-claim-auto-approval';
 import {
   generateSourceWorkflowMap,
-  loadLatestWorkflowMapGuidance,
+  loadLatestWorkflowMapContext,
+  validateMapElementRefMembership,
 } from '../lib/source-workflow-read';
 import { markMacroMapFailed } from '../lib/macro-health';
+import { reconcileAndWriteMapCoverageGaps } from '../lib/map-coverage-gaps';
 
 const CHUNK_SIZE = 4000;
 // Extraction-window budget: how much chunk text a single extraction call sees.
@@ -522,6 +525,10 @@ interface ProcessDocumentResult {
   claimsAutoApproved: number;
   duplicatesAppended: number;
   rejections: number;
+  mapPrimaryElements?: number;
+  mapPrimaryElementsCovered?: number;
+  mapCoverageOmissions?: number;
+  mapPrimaryCoverage?: number;
 }
 
 type ExtractedClaim = ExtractionOutput['claims'][number];
@@ -781,7 +788,7 @@ async function processDocument(
       })
     : { documentId, status: 'skipped_map_directed_disabled' as const };
   const workflowMapContext = mapDirectedExtractionEnabled
-    ? await loadLatestWorkflowMapGuidance(db, documentId)
+    ? await loadLatestWorkflowMapContext(db, documentId)
     : null;
   if (
     mapDirectedExtractionEnabled &&
@@ -851,7 +858,7 @@ async function processDocument(
               id: 'source-workflow-map-guidance',
               label: 'Source structure map',
               kind: 'semi_stable_domain_context' as const,
-              content: workflowMapContext,
+              content: workflowMapContext.guidance,
               reasonIncluded:
                 'validated source structure map guidance only; not valid evidence for claims',
             }),
@@ -1058,6 +1065,7 @@ async function processDocument(
         const proposedTopDomainIds = mapLegacyDomainsToTopDomains(
           extracted.domains as KnowledgeDomain[],
         );
+        const normalizedMapElementRef = extracted.mapElementRef?.trim() || null;
 
         const [candidate] = await db
           .insert(extractionCandidates)
@@ -1070,7 +1078,7 @@ async function processDocument(
             summary: extracted.summary,
             impactScore: extracted.impactScore,
             confidenceScore: extracted.confidenceScore,
-            mapElementRef: extracted.mapElementRef ?? null,
+            mapElementRef: normalizedMapElementRef,
             domains: proposedTopDomainIds satisfies TopLevelDomainId[],
             // P2 #1 — proposedEntities now sourced from prompt-2.x.
             proposedEntities: (extracted.proposedEntities ?? []).map((e) => ({
@@ -1090,6 +1098,45 @@ async function processDocument(
           .returning({ id: extractionCandidates.id });
         if (!candidate) continue;
         outcome.candidatesStaged += 1;
+
+        if (normalizedMapElementRef) {
+          const membership = validateMapElementRefMembership({
+            mapElementRef: normalizedMapElementRef,
+            activeMap: workflowMapContext,
+            eligibleChunkIds: new Set(windowChunks.map((chunk) => chunk.id)),
+          });
+          await db.insert(extractionValidationResults).values({
+            candidateId: candidate.id,
+            checkName: 'map_element_ref_membership',
+            status: membership.ok ? 'pass' : 'fail',
+            detail: membership.ok
+              ? `mapElementRef resolves to active ${membership.target.kind} ${membership.target.localId}.`
+              : membership.detail,
+            metadataJson: membership.ok
+              ? {
+                  mapElementRef: normalizedMapElementRef,
+                  shape: membership.target.shape,
+                  segmentId: membership.target.segmentId,
+                  sourceChunkId: membership.target.chunkId,
+                }
+              : {
+                  mapElementRef: normalizedMapElementRef,
+                  failureClass: membership.failureClass,
+                },
+          });
+          if (!membership.ok) {
+            await db
+              .update(extractionCandidates)
+              .set({
+                status: 'validation_failed',
+                validationError: membership.detail,
+                validatedAt: new Date(),
+              })
+              .where(eq(extractionCandidates.id, candidate.id));
+            outcome.rejections += 1;
+            continue;
+          }
+        }
 
         // Stage candidate evidence (source_type='document_chunk').
         const sourcePointerRes = validateSourcePointer({
@@ -1134,8 +1181,7 @@ async function processDocument(
         const quoteRes = validateQuote({
           sourceText: chunkForEvidence.text,
           exactQuoteProvided: extracted.evidence.exactQuote,
-          normalizationPolicy:
-            parseKind === 'text' ? MARKDOWN_DOCUMENT_NORMALIZATION_POLICY : undefined,
+          ...quoteValidationOptionsForSource(quoteSourceKindForDocument(doc)),
         });
         await db
           .update(extractionCandidateEvidence)
@@ -1274,7 +1320,6 @@ async function processDocument(
           .where(eq(extractionCandidates.id, candidate.id));
 
         const validatedQuote = quoteRes.validatedExactQuote ?? extracted.evidence.exactQuote;
-        const normalizedMapElementRef = extracted.mapElementRef?.trim() || null;
         const candidateHash = normalizedMapElementRef
           ? computeMapElementCandidateHash({
               documentId,
@@ -1367,6 +1412,30 @@ async function processDocument(
       .update(extractionBatches)
       .set({ status: 'validation_complete', finishedAt: new Date() })
       .where(eq(extractionBatches.id, batch.id));
+  }
+
+  if (workflowMapContext) {
+    const coverage = await reconcileAndWriteMapCoverageGaps({
+      db,
+      sourceType: 'document',
+      sourceId: documentId,
+      activeMap: workflowMapContext,
+    });
+    outcome.mapPrimaryElements = coverage.primaryRefs.length;
+    outcome.mapPrimaryElementsCovered = coverage.coveredRefs.length;
+    outcome.mapCoverageOmissions = coverage.omissions.length;
+    outcome.mapPrimaryCoverage = coverage.coverage;
+    console.log('[document-ingestion] deterministic map coverage reconciliation', {
+      documentId,
+      mapId: workflowMapContext.mapId,
+      primary: coverage.primaryRefs.length,
+      covered: coverage.coveredRefs.length,
+      omissions: coverage.omissions.length,
+      coverage: coverage.coverage,
+      coverageByShape: coverage.coverageByShape,
+      unknownClaimRefs: coverage.unknownClaimRefs,
+      duplicateClaimRefs: coverage.duplicateClaimRefs,
+    });
   }
 
   // Surface any degraded outcome on the document rather than reporting a clean

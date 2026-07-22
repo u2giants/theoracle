@@ -30,7 +30,7 @@
 // based topical relevance vs recent message embeddings is round 2.
 
 import { schedules } from '@trigger.dev/sdk/v3';
-import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
 import {
@@ -115,9 +115,7 @@ interface LullSettings {
   enableGroupChatLullQuestions: boolean;
 }
 
-async function loadLullSettings(
-  db: ReturnType<typeof getDirectDb>,
-): Promise<LullSettings> {
+async function loadLullSettings(db: ReturnType<typeof getDirectDb>): Promise<LullSettings> {
   const rows = await db
     .select({ key: settings.key, value: settings.value })
     .from(settings)
@@ -140,10 +138,7 @@ async function loadLullSettings(
   };
   return {
     lullWindowSeconds: num('lull_window_seconds', DEFAULT_LULL_WINDOW_SECONDS),
-    oracleCooldownMinutes: num(
-      'oracle_cooldown_minutes',
-      DEFAULT_ORACLE_COOLDOWN_MINUTES,
-    ),
+    oracleCooldownMinutes: num('oracle_cooldown_minutes', DEFAULT_ORACLE_COOLDOWN_MINUTES),
     maxOracleInterjectionsPerHour: num(
       'max_oracle_interjections_per_hour',
       DEFAULT_MAX_ORACLE_INTERJECTIONS_PER_HOUR,
@@ -177,7 +172,9 @@ async function loadChannelContext(
   const lastUserMsgRows = await db
     .select({ createdAt: messages.createdAt, content: messages.content })
     .from(messages)
-    .where(and(eq(messages.channelId, channelId), eq(messages.role, 'user'), isNull(messages.deletedAt)))
+    .where(
+      and(eq(messages.channelId, channelId), eq(messages.role, 'user'), isNull(messages.deletedAt)),
+    )
     .orderBy(desc(messages.createdAt))
     .limit(RECENT_MESSAGE_CONTEXT_COUNT);
 
@@ -237,7 +234,7 @@ async function loadChannelContext(
       createdAt: gaps.createdAt,
     })
     .from(gaps)
-    .where(eq(gaps.status, 'open'))
+    .where(and(eq(gaps.status, 'open'), ne(gaps.gapType, 'model_coverage')))
     .orderBy(
       sql`CASE ${gaps.priority}
             WHEN 'urgent' THEN 1
@@ -272,10 +269,7 @@ async function loadChannelContext(
     .select({ channelId: typingIndicators.channelId })
     .from(typingIndicators)
     .where(
-      and(
-        eq(typingIndicators.channelId, channelId),
-        sql`${typingIndicators.expiresAt} > NOW()`,
-      ),
+      and(eq(typingIndicators.channelId, channelId), sql`${typingIndicators.expiresAt} > NOW()`),
     )
     .limit(1);
   const isAnyoneTyping = typingRow.length > 0;
@@ -337,9 +331,10 @@ async function draftLullQuestion(
   gap: RelevantOpenGap,
   recentMessageExcerpts: string[],
 ): Promise<{ text: string; modelRunId: string | null }> {
-  const recentContext = recentMessageExcerpts.length === 0
-    ? '(no recent messages)'
-    : recentMessageExcerpts.map((m, i) => `[${i + 1}] ${m}`).join('\n');
+  const recentContext =
+    recentMessageExcerpts.length === 0
+      ? '(no recent messages)'
+      : recentMessageExcerpts.map((m, i) => `[${i + 1}] ${m}`).join('\n');
 
   const userMessage = `Open question to ask: ${gap.questionToAsk}
 Why it matters: ${gap.whyItMatters}
@@ -564,7 +559,11 @@ async function processChannel(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const lockRows: Array<{ locked: boolean }> = (lockRes as any).rows ?? (lockRes as any);
       if (lockRows[0]?.locked !== true) {
-        return { channelId: channel.id, decision: 'skip' as const, reasonCode: 'skipped: lock_contended' };
+        return {
+          channelId: channel.id,
+          decision: 'skip' as const,
+          reasonCode: 'skipped: lock_contended',
+        };
       }
 
       // Re-read cooldown + rate-cap state inside the lock and re-decide.
@@ -575,7 +574,11 @@ async function processChannel(
         interjectionsInLastHour: recheck.interjectionsInLastHour,
       });
       if (recheckDecision.decision === 'skip') {
-        return { channelId: channel.id, decision: 'skip' as const, reasonCode: recheckDecision.reasonCode };
+        return {
+          channelId: channel.id,
+          decision: 'skip' as const,
+          reasonCode: recheckDecision.reasonCode,
+        };
       }
 
       // Claim the gap atomically — only if it is still open.
@@ -585,7 +588,11 @@ async function processChannel(
         .where(and(eq(gaps.id, gap.id), eq(gaps.status, 'open')))
         .returning({ id: gaps.id });
       if (claimed.length === 0) {
-        return { channelId: channel.id, decision: 'skip' as const, reasonCode: 'gap_already_claimed' };
+        return {
+          channelId: channel.id,
+          decision: 'skip' as const,
+          reasonCode: 'gap_already_claimed',
+        };
       }
 
       // Insert the assistant message (no employeeId — Oracle messages are
@@ -636,7 +643,10 @@ async function processChannel(
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error(`[lull-interjection] channel ${channel.id} drafting/posting failed:`, errorMessage);
+    console.error(
+      `[lull-interjection] channel ${channel.id} drafting/posting failed:`,
+      errorMessage,
+    );
     return {
       channelId: channel.id,
       decision: 'skip',
