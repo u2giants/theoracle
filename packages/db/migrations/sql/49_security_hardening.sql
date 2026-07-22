@@ -58,11 +58,20 @@ END $$;
 -- ── 3. SECURITY DEFINER helpers must NOT be callable via REST RPC ────────────
 REVOKE EXECUTE ON FUNCTION public.current_employee_id()       FROM anon, authenticated, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.current_employee_is_admin() FROM anon, authenticated, PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.rls_auto_enable()           FROM anon, authenticated, PUBLIC;
 
 GRANT EXECUTE ON FUNCTION public.current_employee_id()       TO service_role;
 GRANT EXECUTE ON FUNCTION public.current_employee_is_admin() TO service_role;
-GRANT EXECUTE ON FUNCTION public.rls_auto_enable()           TO service_role;
+
+-- Some Supabase projects have the optional rls_auto_enable helper, but no
+-- repository migration creates it. Lock it down when present without making a
+-- clean repository-built database depend on hidden project state.
+DO $$
+BEGIN
+  IF to_regprocedure('public.rls_auto_enable()') IS NOT NULL THEN
+    REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM anon, authenticated, PUBLIC;
+    GRANT EXECUTE ON FUNCTION public.rls_auto_enable() TO service_role;
+  END IF;
+END $$;
 
 -- ── 4. Trigger function search_path pinned ───────────────────────────────────
 ALTER FUNCTION public.provider_cached_content_touch_updated_at()

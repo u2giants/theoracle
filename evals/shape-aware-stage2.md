@@ -115,6 +115,10 @@ Local deterministic gates:
   its observability view had been amended to select `model_runs.dispatch_mode`, although migration
   60 introduces that column later. Migration 31 now declares the nullable column idempotently;
   migration 60 still owns its constraint and index, and existing production databases are unchanged.
+- The following execution reached migration 49 and found a hidden-project-state assumption:
+  security hardening referenced an optional `public.rls_auto_enable()` helper that no repository
+  migration creates. Its privilege lockdown is now conditional on the helper existing, preserving
+  production security without making a clean repository-built database depend on it.
 
 Historical 101-drop audit:
 
