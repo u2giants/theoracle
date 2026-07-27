@@ -27,6 +27,29 @@ const proposalIds: string[] = [];
 const claimIds: string[] = [];
 let reviewerId: string | null = null;
 
+function hasExpectedClaimSubTopicsForeignKey(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current);
+    const details = current as {
+      code?: unknown;
+      table_name?: unknown;
+      constraint_name?: unknown;
+      cause?: unknown;
+    };
+    if (
+      details.code === '23503' &&
+      details.table_name === 'claim_sub_topics' &&
+      details.constraint_name === 'claim_sub_topics_claim_id_claims_id_fk'
+    ) {
+      return true;
+    }
+    current = details.cause;
+  }
+  return false;
+}
+
 async function seedProposal(payload: Record<string, unknown>): Promise<PendingProposal> {
   const [row] = await db
     .insert(taxonomyProposals)
@@ -149,9 +172,7 @@ try {
   });
   await assert.rejects(
     applyProposal(db, rollback, false, triggerRunId),
-    (error: unknown) =>
-      error instanceof Error &&
-      /claim_sub_topics.*foreign key|foreign key.*claim_sub_topics/i.test(error.message),
+    hasExpectedClaimSubTopicsForeignKey,
   );
   const rolledBack = await db
     .select({ id: knowledgeSubTopics.id })
