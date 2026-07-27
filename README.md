@@ -6,6 +6,9 @@ Start here:
 
 - `AGENTS.md` — primary developer and AI-session operating guide
 - `HANDOFF.md` — active unfinished work, when present
+- `MACRO_FIRST_IMPLEMENTATION_PLAN.md` — macro-first refactor status and execution gates
+- `plan_repo_reliability_and_release_gaps.md` — known reliability and release problems
+- `plan_deferred_product_and_infrastructure_gaps.md` — known product and infrastructure gaps
 - `docs/architecture.md` — current system design and data flow
 - `docs/development.md` — local setup and verification workflow
 - `docs/configuration.md` — env vars and runtime config

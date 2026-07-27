@@ -1,5 +1,8 @@
 # AGENT_ERROR_LOG.md — runtime failures for a coding agent to fix
 
+Forward implementation owner: `plan_repo_reliability_and_release_gaps.md`. Read its STATUS table
+before acting. This file keeps incident evidence and status; it is not a second implementation plan.
+
 ## What this file is (read first)
 
 This is the **designated place where runtime failures are written so a coding AI agent (or human) can act on them.** The Oracle's background workers run on Trigger.dev and cannot write into this repo, so a failure that only lands in Trigger.dev's dashboard or a `model_run_attempts` row is, in practice, **failing silently** — nobody and no agent is watching those. This file is the durable, in-repo, agent-readable digest.

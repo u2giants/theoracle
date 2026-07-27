@@ -44,6 +44,8 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 | Documentation-only cleanup | `AGENTS.md`, `README.md`, affected docs under `docs/`, folder-level READMEs only where relevant, `HANDOFF.md` if present | Source files except as needed to verify accuracy |
 | Product/spec contract or AI-retrofit provenance | `AGENTS.md`, `oracle_master_spec.md`, relevant `docs/oracle/*` file, `oracle_ai_architecture_prompt caching.md` only if prompt-cache retrofit history is directly relevant | Current deployment/config docs unless operations are affected |
 | Macro-first redesign / shape-aware reader / business model layer / workflow maps / source outlines / cross-claim process relationships | `MACRO_FIRST_IMPLEMENTATION_PLAN.md` (canonical forward plan), `SHAPE_AWARE_READER_DESIGN.md` and `MACRO_FIRST_REDESIGN.md` (supporting design/history), `MODEL_BAKEOFF_SPEC.md` for model selection, `evals/{shape-aware-stage2,macro-first-battery}.md` for stage-gate results, `fix_enhancement.md` §1–§6 as diagnosis record + ground truth only, `AGENTS.md`, `docs/architecture.md`, `DECISIONS.md` when changing provenance or routing rules | `docs/macro-understanding-implementation-plan.md` (pre-redesign plan, historical), deployment docs unless worker schedules/env/deploy behavior changes |
+| Known runtime failure, stale verification code, migration drift, missing production proof, or release automation | `plan_repo_reliability_and_release_gaps.md` (read its STATUS table first), `AGENT_ERROR_LOG.md`, affected code, `docs/deployment.md` when release behavior changes | Historical handoff blocks except for evidence |
+| Deferred product or infrastructure gap: taxonomy apply, entity-aware retrieval, Authentik, China review/search, attachment cache, Vertex GCS, eval UI, provider batch, secret rotation, identity cleanup | `plan_deferred_product_and_infrastructure_gaps.md` (read its STATUS table first), the affected topic doc and source files | Macro-first supporting history unless the gap changes macro evidence or serving |
 
 Rules:
 - MUST be task-based.
@@ -115,6 +117,10 @@ Docs:
 - `china_imp.md` — design + resolved decisions for the China bilingual claim layer (Phase 1 implemented; the code is the source of truth, this doc captures rationale). Read only for China bilingual / translation / recertification work.
 - `MACRO_FIRST_IMPLEMENTATION_PLAN.md` — canonical forward plan for the macro-first redesign;
   supporting macro/shape documents retain rationale, history, and completed gate evidence.
+- `plan_repo_reliability_and_release_gaps.md` — canonical plan for known runtime verification,
+  stale-script/comment, drift, production-proof, and release-automation gaps.
+- `plan_deferred_product_and_infrastructure_gaps.md` — canonical plan for known product,
+  optional-infrastructure, and owner-deferred security gaps.
 
 Scripts:
 
@@ -1252,6 +1258,11 @@ Rule added to prevent recurrence:
 When creating or rotating a client secret on the shared Entra app, use `az ad app credential reset --append --display-name <purpose> ...` unless intentionally replacing every consumer. Keep separate display names for `supabase-prod-*`, `oracle-graph-*`, and `oracle-teams-bot-*`. Never put `/v2.0` in the Supabase Azure provider URL.
 
 ## 15. Pending work
+
+Canonical ownership: read `HANDOFF.md`'s plan registry, then the relevant plan's STATUS table.
+`plan_repo_reliability_and_release_gaps.md` owns reliability and release gaps.
+`plan_deferred_product_and_infrastructure_gaps.md` owns product, infrastructure, and deferred
+security gaps. Do not re-plan these rows from this summary table.
 
 | Status | Item | Owner/next action |
 |---|---|---|

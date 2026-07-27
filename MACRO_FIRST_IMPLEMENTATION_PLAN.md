@@ -1,14 +1,35 @@
 # Macro-First Implementation Plan — Canonical Plan of Record
 
-Status: **CANONICAL. R0 is implemented locally; fresh-database CI and the authorized
-post-deploy business-process rerun remain required before R1 begins.**
+Status: **CANONICAL. R0 is complete and production-verified. R0.1 and the R1
+read-only audit are the next work and may run in parallel. R0.1 must be green
+before R2 begins.**
 
 Created: 2026-07-21
-Last reviewed: 2026-07-21
+Last reviewed: 2026-07-26
 Repository: `u2giants/theoracle`, branch `main`
 Production: `https://oracle.designflow.app`
 Database: Supabase project `eqccjfbyrywsqkxxpjvg`
 Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
+
+## Status table
+
+| Stage | Status | Evidence or blocker |
+|---|---|---|
+| R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
+| R0.1 | ⬜ open | Implement the bounded quote-copy repair in this plan; no blocker |
+| R1 | ⬜ open | Start with the mandatory SELECT-only production audit; no DDL before the audit is recorded |
+| R2 | ⬜ open | Blocked on R0.1 and R1 being green |
+| R3 | ⬜ open | Blocked on R2 |
+| R4 | ⬜ open | Blocked on R3 |
+| R5 | ⬜ open | Blocked on R4 |
+| R6 | ⬜ open | Blocked on R5 |
+| R7 | ⬜ open | Blocked on R6 |
+| R8 | ⬜ open | Blocked on R7 |
+| R9 | ⬜ open | Blocked on R8 |
+| R10 | ⬜ open | Blocked on R9 |
+
+Fresh-session starting point: implement R0.1 while a separate read-only workstream performs
+the R1 production audit. Do not start R2 until both are green.
 
 This is the single forward implementation plan for completing the Oracle's macro-first
 redesign. It reconciles the original process-centric redesign with the later shape-aware
@@ -32,6 +53,11 @@ remain valid unless explicitly corrected here.
 ---
 
 ## 1. Outcome and acceptance standard
+
+The Oracle is POP Creations and Spruce Line's evidence-backed company knowledge system. Employees
+use its Vercel web app for chat and documents; Trigger.dev workers read sources and maintain
+knowledge; Supabase stores sources, claims, maps, model versions, reviews, and audit history. This
+TypeScript `pnpm` monorepo is the code source of truth on GitHub branch `main`.
 
 The Oracle must understand POP Creations / Spruce Line as a coherent, evolving business,
 not as a search index of disconnected sentences.
@@ -58,7 +84,10 @@ The redesign is complete only when:
 3. Rejecting or superseding support evidence changes the served confidence/provisional state
    without rewriting history.
 4. Administrators review coherent model-change bundles rather than hundreds of isolated
-   claims.
+claims.
+
+If any implementation step conflicts with this outcome or the evidence contract, the outcome wins.
+Stop and record the conflict before changing code, schema, validation, or stage order.
 5. The full historical corpus has been backfilled through the new pipeline.
 6. The old blind claim-first path and retired macro machinery have been removed only after
    the backfill and rollback gates pass.
@@ -618,6 +647,82 @@ Rollback:
   never rewritten.
 - No durable business-model writes exist yet.
 
+### R0.1 — Bounded quote-copy repair
+
+**Purpose:** recover map elements when the model selected the correct source text but copied it
+with a small case, lead-in, punctuation, or Markdown error. Evidence validation remains unchanged.
+
+Trigger and evidence:
+
+- The R0 production map kept 214 objects and dropped 8.
+- Two root node quotes from chunk index 5 caused all 8 drops.
+- Both root quotes had the correct words, but one omitted `The problem:`, one omitted `The fix:`,
+  lowercase `the` became uppercase `The`, and Markdown characters changed.
+- Four edges and two paths then dropped because their endpoint nodes were absent.
+- The strict validator was correct to reject the copied text. The repair fixes copying, not policy.
+- Full investigation is in `.ai/reviews/kimi-k3-reader-improvement-review.md` and Codex's accepted
+  design is in `.ai/reviews/kimi-k3-reader-improvement-evaluation.md`.
+
+Entry:
+
+- R0 remains green.
+- The existing `workflow_read` route and `SourceReaderBudget` repair reservation remain available.
+- Run the existing SELECT-only R0 audit first so stored failure counts are captured unchanged.
+
+Build:
+
+1. In `packages/ai/src/prompts/workflow-read.ts`, add a strict repair response shaped as
+   `{ repairs: [{ elementId, elementType, chunkId, evidenceQuote }] }`. `elementType` is required
+   because node and edge IDs can overlap. The prompt must say to preserve lead-ins, case,
+   punctuation, whitespace-significant Markdown, and source spelling exactly.
+2. In `apps/workers/src/lib/source-workflow-read.ts`, offer one repair only for root
+   `quote_mismatch` and `quote_ambiguous` failures. Do not offer repair for unknown, foreign,
+   uncovered, or missing chunks.
+3. Require every repair to echo the original chunk ID. Reject unknown IDs, the wrong element type,
+   duplicates, and any chunk move. Patch only `evidenceQuote` in an ephemeral copy.
+4. Run the exact unchanged `validateWorkflowMap` again. Keep the repaired result only when it has
+   fewer root failures; otherwise persist the original validated result.
+5. Use the existing configurable `workflow_read` route, model pool, attempt logging, context packs,
+   usage records, `source_reader_max_repair_attempts_per_source`, and
+   `SourceReaderBudget.reserveRepair`. Never hard-code a model or add a new setting.
+6. A repair budget miss is optional degradation: retain the original map and record
+   `repairSkipped: 'budget_exhausted'`. A base-read budget miss must still fail loudly.
+7. Record attempt count, skip reason, and before/after root and cascade counts in the existing
+   `validation_json`. Add no schema column or migration.
+8. Bump the workflow prompt version and reader pipeline version so old maps are not silently reused.
+9. Extend `packages/db/src/audit-r0-release-map.ts` to report repair attempts and root/cascade
+   before-and-after counts for the release map.
+
+Tests:
+
+- `apps/workers/src/__verify__/r0-reader-validator.ts`: a valid repair changes only the target
+  quote; the original object remains unchanged.
+- The same verify rejects chunk moves, unknown IDs, wrong element types, and duplicate repairs.
+- The same verify proves an exhausted optional repair budget completes with the original map.
+- The same verify proves a base-read budget failure still throws.
+- The same verify proves a repair is selected only when root failures decrease.
+- `packages/ai/src/__verify__/workflow-read-smoke.ts`: strict repair schema and prompt fidelity.
+- Existing adapter request-shape, workflow-read, R0 validator, and real-shape segmentation gates
+  remain green.
+
+Verification gate:
+
+1. Run the DB-free worker and AI verifies named above.
+2. Run `pnpm --filter @oracle/db check-drift`; it must report no unexplained change.
+3. Replay the two stored R0 failures against their stored chunk text with SELECT-only access.
+4. After normal commit, push, CI, migration check, and worker deploy, run one owner-authorized
+   forced production read of `business-process.md`.
+5. Pass when root drops fall from 2 to at most 1, target 0; swimlane remains 56/56; repair attempts
+   stay at 1 or fewer; and no fuzzy document quote is admitted.
+6. Previously skipped edge quotes may expose 0–2 honest edge failures after the nodes recover.
+   Record them as real evidence rather than weakening validation.
+
+Rollback:
+
+- Disable the new repair call and restore the prior prompt/pipeline version.
+- No data rewrite or schema rollback is needed.
+- Existing maps remain immutable and auditable.
+
 ### R1 — Durable cross-shape model contract
 
 **Purpose:** give every structured shape a safe, versioned destination before more readers depend
@@ -1117,11 +1222,12 @@ in `evals/shape-aware-stage2.md`: fresh-database CI is green, migration 94 and w
 `run_06fof96hugnkrumk86vi8f0d01` achieved a 3.6% whole-map drop ratio and 95.2% important-relation
 evidence coverage without weakening document quote validation.
 
-Begin R1 with its mandatory read-only production-data audit: count the existing macro/process
+Begin R0.1 and R1 in parallel. R0.1 adds the bounded quote-copy repair above and must be green
+before R2. R1 begins with its mandatory read-only production-data audit: count the existing macro/process
 tables, inspect inbound FKs and RLS/policies, record manual/test-row disposition, run migration
 drift/journal checks, and reconcile the generated Drizzle snapshot with the hand-written SQL target.
 Record that audit before authoring any R1 DDL. Do not begin the R2 responsibilities reader until the
-R1 durable cross-shape contract and all R1 exit gates are complete.
+R0.1 quote-repair gate and the R1 durable cross-shape contract are complete and green.
 
 ---
 
@@ -1152,3 +1258,26 @@ R1 durable cross-shape contract and all R1 exit gates are complete.
   create-versus-existing guard, relation-evidence semantics, classify-first R0 gate, explicit new
   apply work, no R1 process-content copy, coverage-gap isolation, duplicate-86 disposition,
   effective provisional state, and map-less candidate identity—are incorporated here.
+
+---
+
+## 21. Plan self-audit
+
+Completed 2026-07-26 against the implementation-plan standard.
+
+1. **Can a new session execute this without the planning chat? Yes.** Sections 1–10 define the
+   business goal, application, evidence contract, data model, identity, merge, review, and serving
+   rules. Section 11 gives ordered stages with entry, build, exit, and rollback gates. Sections
+   12–18 provide verification, routing, operations, security, risks, decisions, and the next action.
+2. **Does it preserve background, rejected paths, and reasoning? Yes.** Sections 2–4 retain the
+   diagnosis and locked invariants; each stage records rejected shortcuts and rollback. R0.1 records
+   the production evidence, why the validator must not change, and why full-map regeneration,
+   chunk moves, a new setting, and a new migration are rejected.
+3. **Is the goal clear enough for judgment calls? Yes.** Section 1 states the acceptance standard
+   and Section 4 makes evidence authority non-negotiable. If any step conflicts with that goal, the
+   goal wins: stop and record the conflict before changing code.
+
+Checklist result: all 13 required planning dimensions are present across the numbered sections,
+every implementation stage names concrete behavior and verification, locked constraints are
+explicit, and landing requirements include commit, push, CI, deployment, production evidence,
+documentation, and rollback.

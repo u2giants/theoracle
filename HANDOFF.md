@@ -1,8 +1,49 @@
 # HANDOFF — Prior completed work and remaining historical watchouts
 
-Last updated: 2026-07-22. Delete this file once the remaining open items below are closed.
+Last updated: 2026-07-26. Delete this file once every plan below is complete, intentionally
+rejected with recorded evidence, or transferred to a named external owner.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
+
+## Canonical plan registry
+
+This table is the complete owner map for every open problem known on 2026-07-26. A fresh session
+must read the named plan's status table first and must not re-plan the work from old handoff history.
+
+| Known problem class | Canonical plan and exact owner |
+|---|---|
+| Macro-first redesign, R1–R10 | [Macro-first plan](MACRO_FIRST_IMPLEMENTATION_PLAN.md) |
+| Two root quote-copy failures and their six cascades | [Macro-first plan R0.1](MACRO_FIRST_IMPLEMENTATION_PLAN.md#r01--bounded-quote-copy-repair) |
+| Stale workflow production script | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
+| False Teams transcript TODO comments | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
+| ERR-003 follow-up fan-out needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-close-err-003-err-004-and-err-005) |
+| ERR-004 workflow-map path needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-close-err-003-err-004-and-err-005) |
+| ERR-005 document contradiction fix needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-close-err-003-err-004-and-err-005) |
+| ERR-002 lacks a DB regression test | [Reliability plan REL-3](plan_repo_reliability_and_release_gaps.md#rel-3-support-query-regression-test) |
+| Old DeepSeek phantom-fallback instruction | [Reliability plan REL-4](plan_repo_reliability_and_release_gaps.md#rel-4-model-pool-fallback-truth) |
+| Migration 65 generated/fresh-DB drift warning | [Reliability plan REL-5](plan_repo_reliability_and_release_gaps.md#rel-5-migration-65-and-snapshot-drift) |
+| Live image upload has no recorded production proof | [Reliability plan REL-6](plan_repo_reliability_and_release_gaps.md#rel-6-live-image-upload-proof) |
+| DB and Trigger.dev releases are manual | [Reliability plan REL-7](plan_repo_reliability_and_release_gaps.md#rel-7-guarded-release-automation) |
+| Unused hard-coded schema repair helper | [Reliability plan REL-8](plan_repo_reliability_and_release_gaps.md#rel-8-remove-dead-schema-repair) |
+| Stale runtime/error documentation | [Reliability plan REL-9](plan_repo_reliability_and_release_gaps.md#rel-9-close-documentation-and-logs) |
+| Old storage-bucket and completed-feature TODO notes | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
+| Taxonomy proposals can be approved before apply | [Product plan GAP-1](plan_deferred_product_and_infrastructure_gaps.md#gap-1-transactional-taxonomy-reclassification) |
+| Retrieval entity filter has no production populator | [Product plan GAP-2](plan_deferred_product_and_infrastructure_gaps.md#gap-2-entity-aware-retrieval-planning) |
+| Authentik is documented but not built | [Product plan GAP-3](plan_deferred_product_and_infrastructure_gaps.md#gap-3-authentik-disposition) |
+| China side-by-side review and measured search hardening | [Product plan GAP-4](plan_deferred_product_and_infrastructure_gaps.md#gap-4-china-review-and-search-hardening) |
+| One-PDF cache and cross-provider attachment loss | [Product plan GAP-5](plan_deferred_product_and_infrastructure_gaps.md#gap-5-attachment-and-cache-safety) |
+| Vertex cache and batch GCS are not provisioned | [Product plan GAP-6](plan_deferred_product_and_infrastructure_gaps.md#gap-6-vertex-cache-and-batch-storage) |
+| Admin eval results page is a placeholder | [Product plan GAP-7](plan_deferred_product_and_infrastructure_gaps.md#gap-7-eval-results-dashboard) |
+| Qwen/DeepSeek batch parity limitations | [Product plan GAP-8](plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
+| Qwen explicit cache and DeepSeek beta strict-schema limitations | [Product plan GAP-8](plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
+| Deferred credential rotation | [Product plan GAP-9](plan_deferred_product_and_infrastructure_gaps.md#gap-9-secret-rotation), blocked on Albert |
+| Deprecated employee identity columns | [Product plan GAP-10](plan_deferred_product_and_infrastructure_gaps.md#gap-10-deprecated-identity-columns) |
+| No audited conversion from model-quality finding to human question | [Product plan GAP-11](plan_deferred_product_and_infrastructure_gaps.md#gap-11-audited-model-coverage-conversion) |
+| Lull questions lack semantic topical relevance | [Product plan GAP-12](plan_deferred_product_and_infrastructure_gaps.md#gap-12-topical-gap-selection-for-lull-questions) |
+| Oversized conversations lack bounded windowing | [Product plan GAP-13](plan_deferred_product_and_infrastructure_gaps.md#gap-13-oversized-conversation-windowing) |
+
+`bug_d_ungating_plan.md` is historical and superseded. Its remaining ideas are owned by the macro
+plan and reliability REL-2. `docs/macro-understanding-implementation-plan.md` is also historical.
 
 ## What this application is
 
@@ -60,17 +101,21 @@ SELECT-only audit is `packages/db/src/audit-r0-release-map.ts`.
 
 ## Exact next steps
 
-1. Run R1's SELECT-only production audit before writing schema: count every existing macro/process
+1. Implement macro R0.1's bounded quote-copy repair without changing validation. Gate: root drops
+   fall from 2 to at most 1, target 0, and no fuzzy document quote is admitted.
+2. In parallel, run R1's SELECT-only production audit before writing schema: count every existing macro/process
    table, inspect inbound `pg_constraint` FKs, RLS enablement/policies, and manual/test rows. Gate:
    the results and guarded-copy disposition are recorded in the appropriate eval log.
-2. Run `pnpm --filter @oracle/db check-drift`, inspect the Drizzle journal including duplicate
+3. Run `pnpm --filter @oracle/db check-drift`, inspect the Drizzle journal including duplicate
    historical `86_*` filenames, and reconcile generated snapshots with the hand-written SQL target.
    Gate: the exact snapshot-only reconciliation action is documented with no unexplained drift.
-3. Only after steps 1–2, implement R1's additive cross-shape spine/detail schema and object-general
+4. Only after the R1 audit and drift gates, implement R1's additive cross-shape spine/detail schema and object-general
    proposal/recommendation changes. Gate: every R1 exit condition in the canonical plan passes,
    including fresh DB, RLS, compatibility counts, rollback compatibility, and swimlane regression.
-4. Do not start the R2 responsibilities reader until R1 is committed, pushed, CI-green, migrated,
-   deployed where applicable, and its production evidence is recorded.
+5. Do not start the R2 responsibilities reader until R0.1 and R1 are committed, pushed, CI-green,
+   deployed where applicable, and their production evidence is recorded.
+6. Reliability work may start at REL-1 and product-gap work at GAP-1 without changing macro stage
+   order. Each session must update its plan status table and this handoff.
 
 ## Constraints and gotchas
 
@@ -1450,3 +1495,20 @@ WHERE key = 'teams_live_recall_min_confidence_to_post';
 - **Subscription lapse = lost calls** — the `teams-subscription-renew` cron (`*/30`) must stay healthy; monitor `job_runs` for `teams-subscription-*`.
 - **Fuzzy quote matching** relaxes the verbatim-provenance guarantee for transcripts. See DECISIONS.md D-transcript-fuzzy-quote.
 - **`TEAMS_WEBHOOK_CLIENT_STATE`** must match in Vercel + Trigger.dev; the private key must pair with the worker's public cert.
+
+---
+
+## Handoff completeness audit — 2026-07-26
+
+1. **Can a new developer continue with no project or chat knowledge? Yes.** The application,
+   production systems, repository, current R0 evidence, exact next steps, constraints, access, and
+   known risks are defined near the top. The canonical plan registry routes every known open item.
+2. **Can that developer continue as effectively as this session? Yes.** Each open item points to a
+   self-contained plan with a current status table, root cause, rejected approaches, file-level
+   steps, tests, verification, rollback, and owner blockers.
+3. **Is every relevant detail needed for execution present? Yes.** The current-state sections retain
+   failed attempts and production identifiers, while the plan registry prevents the older dated
+   history below from overriding current instructions.
+
+Audit result: passed. Future sessions must update the relevant plan status table and this registry
+whenever a problem is completed, rejected, newly discovered, or blocked.

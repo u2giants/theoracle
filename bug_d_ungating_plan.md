@@ -1,5 +1,18 @@
 # Bug D Ungating Plan
 
+Status: **SUPERSEDED as a forward plan. Do not implement this file independently.**
+
+| Former workstream | Current owner |
+|---|---|
+| Workflow identity and dedup | `MACRO_FIRST_IMPLEMENTATION_PLAN.md` sections 8, R2–R5 |
+| Admin visibility and review | `MACRO_FIRST_IMPLEMENTATION_PLAN.md` R6 |
+| Serving safety | `MACRO_FIRST_IMPLEMENTATION_PLAN.md` sections 10 and R7 |
+| Backfill and legacy cleanup | `MACRO_FIRST_IMPLEMENTATION_PLAN.md` R9–R10 |
+| Production incident rerun evidence | `plan_repo_reliability_and_release_gaps.md` REL-2 |
+
+Fresh-session starting point: read the current owner's status table above. This file is retained
+only for the original Bug D diagnosis and rejected-path history.
+
 ## Problem Restatement
 
 Bug D is the failure mode where the Oracle can extract many quote-backed atomic claims from a workflow diagram but still cannot expose the holistic workflow layer until a large pending claim queue is manually approved.
