@@ -1,11 +1,11 @@
 # Macro-First Implementation Plan — Canonical Plan of Record
 
-Status: **CANONICAL. R0 and R0.1 are complete and production-verified. The R1
-audit and local implementation are complete; its migration, fresh-database, CI,
-and production gates remain before R2.**
+Status: **CANONICAL. R0 and R1 are complete and production-verified. R0.1 is
+implemented, CI-green, and deployed; its forced production read remains before
+R2.**
 
 Created: 2026-07-21
-Last reviewed: 2026-07-26
+Last reviewed: 2026-07-27
 Repository: `u2giants/theoracle`, branch `main`
 Production: `https://oracle.designflow.app`
 Database: Supabase project `eqccjfbyrywsqkxxpjvg`
@@ -16,9 +16,9 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | Stage | Status | Evidence or blocker |
 |---|---|---|
 | R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
-| R0.1 | ✅ done, 2026-07-27 | Strict bounded quote-copy repair, CI run `30265543965` attempt 2, deploy, and production forced-read gate passed |
-| R1 | 🟡 local complete, release gates pending | Mandatory audit recorded; additive spine/detail schema, object-general proposals/recommendations, registry, admin/API, constraints, RLS, flags, and local tests implemented. Fresh DB, journaled production migration, CI, and authorized reads remain. |
-| R2 | ⬜ open | Blocked on R0.1 and R1 being green |
+| R0.1 | 🟡 deployed, forced read pending | Strict bounded quote-copy repair is CI-green (`30265543965` attempt 2) and deployed in worker `20260727.2` (`h6ri0rb9`, 24 tasks); the forced production read is not yet recorded |
+| R1 | ✅ done, 2026-07-27 | Commits `5f962b5` + `24bbf70`; CI `30269886119` attempt 2 green including empty-DB migration, transactional R1 verifier, and drift; production migration succeeded; drift 11/11; Vercel `24bbf70` deployed with HTTP 200; worker `20260727.2` (`h6ri0rb9`, 24 tasks) |
+| R2 | ⬜ open | Blocked only on the R0.1 forced production read and R2 entry decisions |
 | R3 | ⬜ open | Blocked on R2 |
 | R4 | ⬜ open | Blocked on R3 |
 | R5 | ⬜ open | Blocked on R4 |
@@ -28,8 +28,8 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R9 | ⬜ open | Blocked on R8 |
 | R10 | ⬜ open | Blocked on R9 |
 
-Fresh-session starting point: implement R0.1 while a separate read-only workstream performs
-the R1 production audit. Do not start R2 until both are green.
+Fresh-session starting point: finish and record the R0.1 forced production read, then confirm
+the R2 entry decisions. R1 is green.
 
 This is the single forward implementation plan for completing the Oracle's macro-first
 redesign. It reconciles the original process-centric redesign with the later shape-aware

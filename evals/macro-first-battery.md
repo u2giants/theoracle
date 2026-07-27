@@ -497,3 +497,47 @@ Local correction evidence:
 
 The corrected fresh-database migration still requires CI execution before R1
 can be release-green.
+
+### 2026-07-27 — R1 production release gate
+
+R1 is complete and production-applied.
+
+Release evidence:
+
+- implementation commits: `5f962b5` and migration-order correction `24bbf70`;
+- GitHub Actions run `30269886119`, attempt 2: green;
+- the green CI run applied the complete migration chain to empty pgvector
+  PostgreSQL, passed `verify:r1-generated-order`, passed the rollback-only
+  transactional R1 schema/constraint/RLS verifier, and passed production drift;
+- the normal production migration runner applied generated migrations 0009 and
+  0010 plus raw migration 95 successfully;
+- post-migration production drift: 11 on-disk migrations and 11 journal rows
+  match exactly;
+- Vercel deployed commit `24bbf70` successfully and the production site returned
+  HTTP 200;
+- Trigger.dev production worker `20260727.2`, deployment `h6ri0rb9`, registered
+  24 tasks successfully.
+
+R1 exit-gate disposition:
+
+- mandatory production audit: PASS;
+- journaled and fresh-database migration: PASS;
+- expected-zero compatibility behavior and no process-content copy: PASS;
+- anonymous/authenticated database-role denial and service access: PASS in the
+  transactional fresh-database verifier;
+- all shape detail, identity, ownership, path, relation, recommendation, and
+  lifecycle contracts: PASS;
+- legacy process tables and rollback path preserved: PASS;
+- web and worker release health: PASS.
+
+Gate result: **PASS. R1 complete.**
+
+No R1 release blocker remains. An authenticated screenshot of the empty generic
+admin surface was not recaptured after deployment; the server-side read path,
+authorization boundary, production build, deployment, and HTTP health are
+green. Capture populated visual evidence during the first R2 fixture rather
+than manufacturing R1 production rows.
+
+R0.1 remains separate: its quote-copy repair is CI-green and deployed in worker
+`20260727.2`, but its required forced production read has not been recorded and
+must not be described as complete.

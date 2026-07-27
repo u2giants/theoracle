@@ -42,7 +42,7 @@ must read the named plan's status table first and must not re-plan the work from
 | ERR-004 current map-directed path needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
 | ERR-005 document contradiction fix needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
 | ERR-002 obsolete SQL smoke, resolved by zero-caller proof and retirement on 2026-07-27 | [Reliability plan REL-3](plan_repo_reliability_and_release_gaps.md#rel-3-retire-or-retarget-the-obsolete-macro-support-sql-smoke) |
-| Old DeepSeek phantom-fallback instruction | [Reliability plan REL-4](plan_repo_reliability_and_release_gaps.md#rel-4-model-pool-fallback-truth) |
+| Old DeepSeek phantom-fallback instruction, closed and released 2026-07-27 | [Reliability plan REL-4](plan_repo_reliability_and_release_gaps.md#rel-4-model-pool-fallback-truth) |
 | Migration 65 generated/fresh-DB drift warning | [Reliability plan REL-5](plan_repo_reliability_and_release_gaps.md#rel-5-migration-65-and-snapshot-drift) |
 | Live image upload has no recorded production proof | [Reliability plan REL-6](plan_repo_reliability_and_release_gaps.md#rel-6-live-image-upload-proof) |
 | DB and Trigger.dev releases are manual | [Reliability plan REL-7](plan_repo_reliability_and_release_gaps.md#rel-7-guarded-release-automation) |

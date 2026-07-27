@@ -60,7 +60,9 @@ This is also the proof that the fallback-pool design (below) is load-bearing, no
   candidate in the `workflow_read`, `macro`, `model_merge`, or `general` pools. DeepSeek remains
   deliberately in the loose-schema transcript-summary slot, where production attempt history
   records a successful `deepseek-v4-flash` call on 2026-07-09. Its catalog rows remain ineligible
-  for deep-schema work. No key or pool change was needed.
+  for deep-schema work. No key or pool change was needed. The permanent strict-slot enforcement
+  guard is live in commits `5f962b5`/`24bbf70`, Vercel HTTP 200, and Trigger worker `20260727.2`
+  deployment `h6ri0rb9`; CI `30269886119` attempt 2 and migration/drift gates are green.
 - **Verification (DONE 2026-07-03):** migrations `83/84/85` applied to prod; workers deployed (`20260703.4`); verified `macro_relationships` inserted (run `run_cmr5gu7lx…`), `source_coverage_findings=4` (run `run_cmr5guyry…`), and `documents.macro_health=complete` (clean run `run_cmr5h0izj…`).
 
 </details>

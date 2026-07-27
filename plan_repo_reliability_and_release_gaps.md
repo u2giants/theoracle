@@ -17,7 +17,7 @@ Database: Supabase project `eqccjfbyrywsqkxxpjvg`
 | REL-1 Stale verification script and false comments | ✅ done, 2026-07-26 | Deleted the obsolete pre-migration-89 workflow audit; corrected Teams, typing-presence, storage-bucket, and retrofit-status notes; REL-1 search/diff gates passed (full worker gate is temporarily blocked by a concurrent out-of-scope taxonomy test edit) |
 | REL-2 Reconcile ERR-003, ERR-004, ERR-005 with the current reader | 🟨 partial, 2026-07-27 | ERR-003 is closed by source removal plus deployed worker `20260722.1`; ERR-004 and ERR-005 still require owner-authorized fixture reruns |
 | REL-3 Retire or retarget the obsolete macro-support SQL smoke | ✅ done, 2026-07-27 | Zero-caller search proved the three query contracts and package command had no runtime or CI owner; deleted the smoke and package script without restoring retired writers |
-| REL-4 Model-pool phantom fallback audit | 🟨 mitigated, 2026-07-27 | Audit found production's global capability setting false; local routing now makes strict/deep-schema enforcement mandatory regardless of that flag. Needs normal code deployment before final closure |
+| REL-4 Model-pool phantom fallback audit | ✅ done, 2026-07-27 | Released in `5f962b5`/`24bbf70`; CI `30269886119` attempt 2 green, migration/drift green, Vercel HTTP 200, and Trigger worker `20260727.2` deployment `h6ri0rb9` |
 | REL-5 Migration 65 and generated-snapshot drift | ⬜ open | Coordinate with macro R1 drift audit to avoid duplicate migration work |
 | REL-6 Live image upload verification | ⬜ open | Requires an owner-approved non-sensitive image fixture |
 | REL-7 Database and Trigger.dev release automation | ⬜ open | Starts after REL-2 through REL-5 establish the current release contract |
@@ -316,8 +316,11 @@ or its audited configured use moves outside `transcript_summary`.
   `workflow_read`, `macro`, and `model_merge` even when the global debug setting is false.
 - The first assertion-enabled audit exposed `enforce_model_capabilities=false` in production. No
   production setting was changed. The permanent code remedy makes strict/deep-schema safety
-  independent of that mutable debug flag; REL-4 remains mitigated until this code reaches the
-  normal production deployment.
+  independent of that mutable debug flag.
+- Release proof: commits `5f962b5` and `24bbf70`; GitHub Actions run `30269886119` attempt 2
+  green, including migration/drift; Vercel production deploy successful with HTTP 200; Trigger.dev
+  worker `20260727.2`, deployment `h6ri0rb9`. The mandatory strict-slot guard is now live, so REL-4
+  is closed.
 - DeepSeek is not a phantom provider. Sanitized attempt history contains one failed and one
   successful `transcript_summary` call for `deepseek-v4-flash` on 2026-07-09. That loose-schema
   role is its actual configured use and proves the production worker adapter/key path was reachable.
