@@ -1,8 +1,9 @@
 # Macro-First Implementation Plan — Canonical Plan of Record
 
-Status: **CANONICAL. R0 and R1 are complete and production-verified. R0.1 is
-implemented, CI-green, and deployed; its forced production read remains before
-R2.**
+Status: **CANONICAL. R0 and R1 are complete and production-verified. R0.1's
+first forced production read exposed a source-level repair-allocation bug; the
+deterministic fix is local and must pass review, deploy, and a fresh forced read
+before R2.**
 
 Created: 2026-07-21
 Last reviewed: 2026-07-27
@@ -16,7 +17,7 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | Stage | Status | Evidence or blocker |
 |---|---|---|
 | R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
-| R0.1 | 🟡 deployed, forced read pending | Strict bounded quote-copy repair is CI-green (`30265543965` attempt 2) and deployed in worker `20260727.2` (`h6ri0rb9`, 24 tasks); the forced production read is not yet recorded |
+| R0.1 | 🟡 production retry required | Forced run `run_06fq7gp183ec884c609se50401` on worker `20260727.2` produced degraded map `e2720c21-06f2-426e-a763-2f9fdf41c5b0`: the first eligible segment consumed the one source repair, leaving the later higher-impact segment at 2 roots/5 cascades; a deterministic highest-impact selector is implemented locally and awaits review/deploy/retry |
 | R1 | ✅ done, 2026-07-27 | Commits `5f962b5` + `24bbf70`; CI `30269886119` attempt 2 green including empty-DB migration, transactional R1 verifier, and drift; production migration succeeded; drift 11/11; Vercel `24bbf70` deployed with HTTP 200; worker `20260727.2` (`h6ri0rb9`, 24 tasks) |
 | R2 | ⬜ open | Blocked only on the R0.1 forced production read and R2 entry decisions |
 | R3 | ⬜ open | Blocked on R2 |
@@ -28,8 +29,8 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R9 | ⬜ open | Blocked on R8 |
 | R10 | ⬜ open | Blocked on R9 |
 
-Fresh-session starting point: finish and record the R0.1 forced production read, then confirm
-the R2 entry decisions. R1 is green.
+Fresh-session starting point: review, deploy, and production-retry the R0.1 highest-impact repair
+allocation, then confirm the R2 entry decisions. R1 is green.
 
 This is the single forward implementation plan for completing the Oracle's macro-first
 redesign. It reconciles the original process-centric redesign with the later shape-aware
@@ -717,6 +718,20 @@ Verification gate:
    stay at 1 or fewer; and no fuzzy document quote is admitted.
 6. Previously skipped edge quotes may expose 0–2 honest edge failures after the nodes recover.
    Record them as real evidence rather than weakening validation.
+
+Production evidence, 2026-07-27:
+
+- Forced run `run_06fq7gp183ec884c609se50401` on worker `20260727.2` produced map
+  `e2720c21-06f2-426e-a763-2f9fdf41c5b0`.
+- `work-initiation` had 1 root and 2 cascades and consumed the single source repair, reaching zero.
+- Later `costing-sourcing` had 2 roots and 5 cascades, but recorded
+  `repairSkipped='budget_exhausted'`; the persisted map therefore remained degraded.
+- Root cause: segment reads repaired independently while running concurrently, so completion/source
+  order, not deterministic source-wide impact, allocated the one allowed repair.
+- Permanent correction: finish all base validations first, then select the eligible segment by
+  repairable root drops, cascade drops, total root drops, total drops, and stable source order.
+  Validation and the one-repair budget are unchanged. The correction still needs independent
+  review, deploy, and a fresh forced read.
 
 Rollback:
 

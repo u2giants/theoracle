@@ -147,6 +147,38 @@ export function chooseWorkflowQuoteRepair(
   return repaired.rootDroppedCount < original.rootDroppedCount ? repaired : original;
 }
 
+export function selectWorkflowQuoteRepairCandidate(
+  candidates: readonly WorkflowMapValidationResult[],
+): number | null {
+  let selected: number | null = null;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index]!;
+    const candidateEligibleRootCount = eligibleWorkflowQuoteRepairs(candidate).length;
+    if (candidateEligibleRootCount === 0) continue;
+    if (selected === null) {
+      selected = index;
+      continue;
+    }
+    const current = candidates[selected]!;
+    const currentEligibleRootCount = eligibleWorkflowQuoteRepairs(current).length;
+    if (
+      candidateEligibleRootCount > currentEligibleRootCount ||
+      (candidateEligibleRootCount === currentEligibleRootCount &&
+        candidate.cascadeDroppedCount > current.cascadeDroppedCount) ||
+      (candidateEligibleRootCount === currentEligibleRootCount &&
+        candidate.cascadeDroppedCount === current.cascadeDroppedCount &&
+        candidate.rootDroppedCount > current.rootDroppedCount) ||
+      (candidateEligibleRootCount === currentEligibleRootCount &&
+        candidate.cascadeDroppedCount === current.cascadeDroppedCount &&
+        candidate.rootDroppedCount === current.rootDroppedCount &&
+        candidate.droppedCount > current.droppedCount)
+    ) {
+      selected = index;
+    }
+  }
+  return selected;
+}
+
 export type SourceWorkflowReadResult = {
   documentId: string;
   status:
@@ -1546,7 +1578,10 @@ export async function generateSourceWorkflowMap(args: {
       {
         segment: SourceStructureSegment;
         validation: ReturnType<typeof validateWorkflowMap>;
-        map: SourceStructureMap;
+        output: WorkflowReadOutput;
+        segmentChunks: ChunkRow[];
+        validationChunks: Map<string, WorkflowMapChunkContext>;
+        eligibleFailures: WorkflowMapRejectionDiagnostic[];
         modelRunIds: string[];
         contextPackIds: string[];
         repair: WorkflowQuoteRepairMetadata;
@@ -1585,80 +1620,25 @@ export async function generateSourceWorkflowMap(args: {
           sourceKind: quoteSourceKind,
           maxDroppedRatio,
         });
-        let validation = originalValidation;
-        let repair: WorkflowQuoteRepairMetadata = {
+        const eligibleFailures = eligibleWorkflowQuoteRepairs(originalValidation);
+        const repair: WorkflowQuoteRepairMetadata = {
           repairAttempts: 0,
-          repairSkipped: null,
+          repairSkipped:
+            eligibleFailures.length === 0
+              ? 'no_eligible_root_quote_failure'
+              : 'not_selected_lower_impact',
           rootDroppedBefore: originalValidation.rootDroppedCount,
           cascadeDroppedBefore: originalValidation.cascadeDroppedCount,
           rootDroppedAfter: originalValidation.rootDroppedCount,
           cascadeDroppedAfter: originalValidation.cascadeDroppedCount,
         };
-        const eligibleFailures = eligibleWorkflowQuoteRepairs(originalValidation);
-        if (eligibleFailures.length === 0) {
-          repair.repairSkipped = 'no_eligible_root_quote_failure';
-        } else {
-          try {
-            readerBudget!.reserveRepair('workflow quote-copy repair');
-            repair.repairAttempts = 1;
-            const repairResult = await runWorkflowQuoteRepairModel({
-              db,
-              client,
-              doc,
-              mapId: pending.mapId,
-              chunks,
-              failures: eligibleFailures,
-              budget: readerBudget!,
-            });
-            modelResult.modelRunIds.push(repairResult.modelRunId);
-            modelResult.contextPackIds.push(repairResult.contextPackId);
-            const patched = patchWorkflowQuoteRepairs({
-              original: modelResult.output,
-              requested: eligibleFailures,
-              response: repairResult.output,
-            });
-            if (!patched.ok) {
-              repair.repairSkipped = patched.reason;
-            } else {
-              const repairedValidation = validateWorkflowMap({
-                output: patched.output,
-                activeDocumentId: args.documentId,
-                activeSegmentChunkIds: new Set(segment.chunkIds),
-                chunksById: validationChunks,
-                sourceKind: quoteSourceKind,
-                maxDroppedRatio,
-              });
-              repair.rootDroppedAfter = repairedValidation.rootDroppedCount;
-              repair.cascadeDroppedAfter = repairedValidation.cascadeDroppedCount;
-              validation = chooseWorkflowQuoteRepair(originalValidation, repairedValidation);
-              if (validation === originalValidation) repair.repairSkipped = 'no_root_improvement';
-            }
-          } catch (error) {
-            if (
-              error instanceof SourceReaderBudgetExceededError &&
-              (error.check === 'max_repair_attempts' ||
-                error.check === 'max_read_calls' ||
-                error.check === 'max_input_tokens' ||
-                error.check === 'max_estimated_cost_usd')
-            ) {
-              repair.repairSkipped = 'budget_exhausted';
-            } else {
-              repair.repairSkipped = 'repair_call_failed';
-              console.error('[source-workflow-read] optional quote-copy repair failed', error);
-            }
-          }
-        }
         return {
           segment,
-          validation,
-          map: workflowToProcessStructureMap({
-            output: validation.map,
-            chunks: segmentChunks,
-            title: segment.title,
-            segment,
-            documentShape: segmentation.documentShape,
-            prefixIds: processSegments.length > 1,
-          }),
+          validation: originalValidation,
+          output: modelResult.output,
+          segmentChunks,
+          validationChunks,
+          eligibleFailures,
           modelRunIds: modelResult.modelRunIds,
           contextPackIds: modelResult.contextPackIds,
           repair,
@@ -1666,14 +1646,90 @@ export async function generateSourceWorkflowMap(args: {
       },
     });
 
+    const repairCandidateIndex = selectWorkflowQuoteRepairCandidate(
+      processReads.map((read) => read.validation),
+    );
+    if (repairCandidateIndex !== null) {
+      const read = processReads[repairCandidateIndex]!;
+      read.repair.repairSkipped = null;
+      try {
+        readerBudget.reserveRepair('workflow quote-copy repair');
+        read.repair.repairAttempts = 1;
+        const repairResult = await runWorkflowQuoteRepairModel({
+          db,
+          client,
+          doc,
+          mapId: pending.mapId,
+          chunks,
+          failures: read.eligibleFailures,
+          budget: readerBudget,
+        });
+        read.modelRunIds.push(repairResult.modelRunId);
+        read.contextPackIds.push(repairResult.contextPackId);
+        const patched = patchWorkflowQuoteRepairs({
+          original: read.output,
+          requested: read.eligibleFailures,
+          response: repairResult.output,
+        });
+        if (!patched.ok) {
+          read.repair.repairSkipped = patched.reason;
+        } else {
+          const repairedValidation = validateWorkflowMap({
+            output: patched.output,
+            activeDocumentId: args.documentId,
+            activeSegmentChunkIds: new Set(read.segment.chunkIds),
+            chunksById: read.validationChunks,
+            sourceKind: quoteSourceKind,
+            maxDroppedRatio,
+          });
+          read.repair.rootDroppedAfter = repairedValidation.rootDroppedCount;
+          read.repair.cascadeDroppedAfter = repairedValidation.cascadeDroppedCount;
+          const selectedValidation = chooseWorkflowQuoteRepair(
+            read.validation,
+            repairedValidation,
+          );
+          if (selectedValidation === read.validation) {
+            read.repair.repairSkipped = 'no_root_improvement';
+          } else {
+            read.validation = selectedValidation;
+          }
+        }
+      } catch (error) {
+        if (
+          error instanceof SourceReaderBudgetExceededError &&
+          (error.check === 'max_repair_attempts' ||
+            error.check === 'max_read_calls' ||
+            error.check === 'max_input_tokens' ||
+            error.check === 'max_estimated_cost_usd')
+        ) {
+          read.repair.repairSkipped = 'budget_exhausted';
+        } else {
+          read.repair.repairSkipped = 'repair_call_failed';
+          console.error('[source-workflow-read] optional quote-copy repair failed', error);
+        }
+      }
+    }
+
+    const finalizedProcessReads = processReads.map((read) => ({
+      ...read,
+      map: workflowToProcessStructureMap({
+        output: read.validation.map,
+        chunks: read.segmentChunks,
+        title: read.segment.title,
+        segment: read.segment,
+        documentShape: segmentation.documentShape,
+        prefixIds: processSegments.length > 1,
+      }),
+    }));
+
     const structureMap: SourceStructureMap = {
       documentShape: segmentation.documentShape,
       summary: segmentation.summary,
       segments: segmentation.segments,
-      elements: processReads.flatMap((read) => read.map.elements),
-      relations: processReads.flatMap((read) => read.map.relations),
-      lanes: processReads.flatMap((read) => read.map.lanes),
-      paths: processReads.flatMap((read) => read.map.paths),
+      elements: finalizedProcessReads.flatMap((read) => read.map.elements),
+      relations: finalizedProcessReads.flatMap((read) => read.map.relations),
+      lanes: finalizedProcessReads.flatMap((read) => read.map.lanes),
+      paths: finalizedProcessReads.flatMap((read) => read.map.paths),
     };
     const workflowOutputs = processReads.map((read) => read.validation.map);
     const droppedCount = processReads.reduce((sum, read) => sum + read.validation.droppedCount, 0);

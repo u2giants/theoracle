@@ -538,6 +538,17 @@ authorization boundary, production build, deployment, and HTTP health are
 green. Capture populated visual evidence during the first R2 fixture rather
 than manufacturing R1 production rows.
 
-R0.1 remains separate: its quote-copy repair is CI-green and deployed in worker
-`20260727.2`, but its required forced production read has not been recorded and
-must not be described as complete.
+R0.1 remains separate. Forced run `run_06fq7gp183ec884c609se50401` on worker
+`20260727.2` produced degraded map `e2720c21-06f2-426e-a763-2f9fdf41c5b0`.
+`work-initiation` spent the single repair on 1 root and 2 cascades and reached
+zero; later `costing-sourcing` retained 2 roots and 5 cascades because the
+source-level budget was exhausted. This failed the at-most-1-root gate.
+
+The local correction completes every base validation before the optional repair,
+then deterministically ranks eligible segments by repairable root drops, cascade
+drops, total root drops, total drops, and stable source order. The cap remains
+one repair per source.
+Strict quote validation and repair eligibility are unchanged. Local guards cover
+highest-impact selection, completion-order independence, stable ties, no
+eligible candidate, exact patching, and budget behavior. Independent review,
+deployment, and the fresh production retry remain pending.

@@ -6,7 +6,8 @@ import {
 
 export const WORKFLOW_READ_PROMPT_VERSION = 'workflow-read-v2-quote-copy-repair';
 export const SOURCE_SEGMENTATION_PROMPT_VERSION = 'source-segmentation-v1';
-export const SOURCE_READER_PIPELINE_VERSION = 'shape-reader-v3-r0.1-quote-copy-repair';
+export const SOURCE_READER_PIPELINE_VERSION =
+  'shape-reader-v4-r0.1-highest-impact-quote-repair';
 
 export const SOURCE_STRUCTURE_SHAPES = BUSINESS_MODEL_SHAPES;
 export const SOURCE_STRUCTURE_SHAPE_REGISTRY = BUSINESS_MODEL_SHAPE_REGISTRY;

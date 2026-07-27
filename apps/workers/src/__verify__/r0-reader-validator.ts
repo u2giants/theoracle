@@ -9,6 +9,7 @@ import {
   chooseWorkflowQuoteRepair,
   eligibleWorkflowQuoteRepairs,
   patchWorkflowQuoteRepairs,
+  selectWorkflowQuoteRepairCandidate,
   validateMapElementRefMembership,
   type ActiveWorkflowMapContext,
 } from '../lib/source-workflow-read';
@@ -238,6 +239,47 @@ assert(
 assert(
   chooseWorkflowQuoteRepair(repairedValidation, rootAndCascade) === repairedValidation,
   'Worse repair replaced the original result',
+);
+const lowImpactRepairCandidate = {
+  ...rootAndCascade,
+  rootDroppedCount: 1,
+  cascadeDroppedCount: 2,
+  droppedCount: 3,
+};
+const highImpactRepairCandidate = {
+  ...rootAndCascade,
+  diagnostics: [
+    ...rootAndCascade.diagnostics,
+    rootAndCascade.diagnostics.find((item) => item.failureOrigin === 'root')!,
+  ],
+  rootDroppedCount: 2,
+  cascadeDroppedCount: 5,
+  droppedCount: 7,
+};
+assert(
+  selectWorkflowQuoteRepairCandidate([
+    lowImpactRepairCandidate,
+    highImpactRepairCandidate,
+  ]) === 1,
+  'Source-level quote repair did not select the highest-impact segment',
+);
+assert(
+  selectWorkflowQuoteRepairCandidate([
+    highImpactRepairCandidate,
+    lowImpactRepairCandidate,
+  ]) === 0,
+  'Source-level quote repair selection depended on segment completion order',
+);
+assert(
+  selectWorkflowQuoteRepairCandidate([
+    highImpactRepairCandidate,
+    { ...highImpactRepairCandidate },
+  ]) === 0,
+  'Source-level quote repair tie did not preserve stable source order',
+);
+assert(
+  selectWorkflowQuoteRepairCandidate([repairedValidation]) === null,
+  'Source-level quote repair selected a segment without an eligible root failure',
 );
 const invalidRepairs = [
   { elementId: 'sales_proof', elementType: 'node', chunkId: chunkB, evidenceQuote: 'Wrong chunk.' },
