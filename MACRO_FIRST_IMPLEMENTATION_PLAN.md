@@ -1,9 +1,7 @@
 # Macro-First Implementation Plan — Canonical Plan of Record
 
-Status: **CANONICAL. R0 and R1 are complete and production-verified. R0.1's
-first forced production read exposed a source-level repair-allocation bug; the
-deterministic fix is local and must pass review, deploy, and a fresh forced read
-before R2.**
+Status: **CANONICAL. R0, R0.1, and R1 are complete and production-verified.
+R2 is unblocked except for its recorded entry decisions.**
 
 Created: 2026-07-21
 Last reviewed: 2026-07-27
@@ -17,9 +15,9 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | Stage | Status | Evidence or blocker |
 |---|---|---|
 | R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
-| R0.1 | 🟡 production retry required | Forced run `run_06fq7gp183ec884c609se50401` on worker `20260727.2` produced degraded map `e2720c21-06f2-426e-a763-2f9fdf41c5b0`: the first eligible segment consumed the one source repair, leaving the later higher-impact segment at 2 roots/5 cascades; a deterministic highest-impact selector is implemented locally and awaits review/deploy/retry |
+| R0.1 | ✅ done, 2026-07-27 | Commit `da1ad5a`; CI `30271360677`; worker `20260727.3` (`75jeiusj`, 24 tasks); forced run `run_06fqbf50qn8kvq69h6u3dg7601` produced map `54cfec32-b428-490f-9e21-ab79c8f3add4` with 1 exact root drop, 5 cascades, 1 repair attempt, and no admitted fuzzy quote |
 | R1 | ✅ done, 2026-07-27 | Commits `5f962b5` + `24bbf70`; CI `30269886119` attempt 2 green including empty-DB migration, transactional R1 verifier, and drift; production migration succeeded; drift 11/11; Vercel `24bbf70` deployed with HTTP 200; worker `20260727.2` (`h6ri0rb9`, 24 tasks) |
-| R2 | ⬜ open | Blocked only on the R0.1 forced production read and R2 entry decisions |
+| R2 | ⬜ open | R0, R0.1, and R1 are green; blocked only on the recorded R2 entry decisions |
 | R3 | ⬜ open | Blocked on R2 |
 | R4 | ⬜ open | Blocked on R3 |
 | R5 | ⬜ open | Blocked on R4 |
@@ -29,8 +27,8 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R9 | ⬜ open | Blocked on R8 |
 | R10 | ⬜ open | Blocked on R9 |
 
-Fresh-session starting point: review, deploy, and production-retry the R0.1 highest-impact repair
-allocation, then confirm the R2 entry decisions. R1 is green.
+Fresh-session starting point: confirm the recorded R2 entry decisions, then begin the
+responsibilities vertical slice. R0, R0.1, and R1 are green.
 
 This is the single forward implementation plan for completing the Oracle's macro-first
 redesign. It reconciles the original process-centric redesign with the later shape-aware
@@ -163,11 +161,11 @@ Every served model element points downward to claims and validated quotes.
 - Consultant analyzers and recommendations over the new model.
 - Historical corpus backfill and final legacy cleanup.
 
-### 3.4 Known blocking quality finding
+### 3.4 Resolved quality finding and retained signal
 
-A production read of `business-process.md` segmented successfully but retained 64 and dropped
-101 process graph items during quote validation. The current diagnostics do not preserve enough
-information to separate:
+The original production read of `business-process.md` segmented successfully but retained 64 and
+dropped 101 process graph items during quote validation. At that time, diagnostics did not
+preserve enough information to separate:
 
 - source-kind normalization mismatch;
 - valid citations outside the current segment's chunk subset;
@@ -175,9 +173,16 @@ information to separate:
 - true hallucinated/mismatched quotations;
 - node failures amplified into incident edge failures.
 
-The code currently validates process-map quotations with the default strict policy while text
-claims use `MARKDOWN_DOCUMENT_NORMALIZATION_POLICY`. This is a contract mismatch, not evidence
-that the standard should be weakened. R0 resolves it before new pass-2 readers ship.
+This was a contract mismatch, not evidence that the standard should be weakened. R0 resolved the
+diagnostic and policy mismatch. Production map `a2f38158-063f-4fcb-96e8-3e595766e6df` then kept
+214 and dropped 8, separating 2 exact root quote failures from 6 cascades.
+
+R0.1 subsequently added bounded exact quote-copy repair. Its first production attempt exposed a
+repair-allocation defect; the corrected production map
+`54cfec32-b428-490f-9e21-ab79c8f3add4` kept 100 and dropped 6, with 1 exact root quote failure,
+5 cascades, and 1 repair attempt. The remaining costing segment stays visibly `degraded` because
+its local drop ratio exceeds the threshold. That honest quality signal is not a release blocker,
+and no fuzzy document quote was admitted. R0 and R0.1 are complete.
 
 ---
 
@@ -730,8 +735,29 @@ Production evidence, 2026-07-27:
   order, not deterministic source-wide impact, allocated the one allowed repair.
 - Permanent correction: finish all base validations first, then select the eligible segment by
   repairable root drops, cascade drops, total root drops, total drops, and stable source order.
-  Validation and the one-repair budget are unchanged. The correction still needs independent
-  review, deploy, and a fresh forced read.
+  Validation and the one-repair budget are unchanged. At this first-failure checkpoint, the
+  correction still needed independent review, deploy, and a fresh forced read; the production
+  closure below records their completion.
+
+Production closure, 2026-07-27:
+
+- Commit `da1ad5a` passed CI run `30271360677` and shipped in Trigger worker `20260727.3`,
+  deployment `75jeiusj`, with all 24 tasks registered.
+- Forced run `run_06fqbf50qn8kvq69h6u3dg7601` reread document
+  `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea` and produced map
+  `54cfec32-b428-490f-9e21-ab79c8f3add4` on pipeline
+  `shape-reader-v4-r0.1-highest-impact-quote-repair`.
+- The map kept 100 objects and dropped 6: 1 exact root quote drop and 5 deterministic cascades.
+  The required root target of at most 1 passed with exactly 1 repair attempt.
+- `transcript_fuzzy` appears only in the rejected `quote_mismatch` diagnostic. No fuzzy document
+  quote was admitted.
+- Reader use was 5 calls, 30,949 estimated input tokens, and `$0.154745` estimated input cost.
+- The map remains visibly `degraded` because the remaining costing segment's local drop ratio
+  exceeds its threshold. This is an honest quality signal, not a failed R0.1 gate.
+- Later full release CI `30312068037` is green. Vercel commit `65d0b7b` is ready and
+  `https://oracle.designflow.app` returns HTTP 200.
+
+Final decision: **R0.1 is complete.** R2 no longer has an R0.1 blocker.
 
 Rollback:
 
@@ -1232,18 +1258,13 @@ until R7 UI work.
 
 ## 18. Immediate next action
 
-R0 is complete as of 2026-07-22. Both release gates and the complete production result are recorded
-in `evals/shape-aware-stage2.md`: fresh-database CI is green, migration 94 and worker version
-`20260722.1` are deployed, and forced `business-process.md` run
-`run_06fof96hugnkrumk86vi8f0d01` achieved a 3.6% whole-map drop ratio and 95.2% important-relation
-evidence coverage without weakening document quote validation.
+R0, R0.1, and R1 are complete, CI-green, deployed, and production-verified. Their release evidence
+is recorded in the status table and eval logs. The R0.1 production gate passed with 1 exact root
+drop, 5 cascades, 1 repair attempt, and no admitted fuzzy document quote.
 
-Begin R0.1 and R1 in parallel. R0.1 adds the bounded quote-copy repair above and must be green
-before R2. R1 begins with its mandatory read-only production-data audit: count the existing macro/process
-tables, inspect inbound FKs and RLS/policies, record manual/test-row disposition, run migration
-drift/journal checks, and reconcile the generated Drizzle snapshot with the hand-written SQL target.
-Record that audit before authoring any R1 DDL. Do not begin the R2 responsibilities reader until the
-R0.1 quote-repair gate and the R1 durable cross-shape contract are complete and green.
+The immediate next action is to record decisions 1, 3, and 4 from §17.2. Once those decisions are
+recorded, begin R2's responsibilities vertical slice. Do not repeat R0/R0.1 work or the completed
+R1 audit/schema stage.
 
 ---
 

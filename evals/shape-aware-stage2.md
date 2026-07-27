@@ -62,7 +62,8 @@ Persisted map `9e84efda-755d-4a05-be5a-bbbadfce144e` records:
 - Persisted shapes: 5 process, 8 narrative, 4 reference, 2 responsibilities.
 - Whole-map status: degraded because the existing Stage 1 workflow quote validator retained
   64 and dropped 101 graph items. This is a downstream process-reader quality finding; it did
-  not fail or repair Stage 2 segmentation.
+  not fail or repair Stage 2 segmentation. This is historical evidence; R0 and R0.1 resolved the
+  reader blocker in the later release sections below.
 
 ## What did not work
 
@@ -216,5 +217,33 @@ recorded.
   `DIRECT_URL`/`DATABASE_URL` was absent.
 - The real-shape segmentation gate loaded local fixtures, then stopped before the Teams transcript
   query because `DIRECT_URL` was absent.
-- Remaining release gate: SELECT-only stored-failure replay, real drift check, CI, worker deploy,
-  and one owner-authorized forced production read.
+- The original local release gate was subsequently completed by the production evidence below.
+
+## R0.1 production release gate (2026-07-27)
+
+Result: **PASS. R0.1 complete.**
+
+- The first production attempt did not pass and is not the release baseline. Forced run
+  `run_06fq7gp183ec884c609se50401` on worker `20260727.2` produced map
+  `e2720c21-06f2-426e-a763-2f9fdf41c5b0`. Parallel segment execution let the first eligible
+  segment consume the single source-level repair. The later higher-impact segment then recorded
+  `repairSkipped='budget_exhausted'`, leaving 2 exact roots and 5 cascades. This exposed the
+  deterministic repair-allocation defect corrected by commit `da1ad5a`.
+- Commit `da1ad5a` passed GitHub Actions run `30271360677` and shipped in Trigger worker
+  `20260727.3`, deployment `75jeiusj`, with 24 tasks.
+- Forced run `run_06fqbf50qn8kvq69h6u3dg7601` reread immutable document
+  `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea` and produced map
+  `54cfec32-b428-490f-9e21-ab79c8f3add4`.
+- Pipeline `shape-reader-v4-r0.1-highest-impact-quote-repair` kept 100 objects and dropped 6.
+- Exact root quote drops were 1, meeting the required target of at most 1. Five dependent objects
+  were classified as deterministic cascades. The source used exactly 1 repair attempt.
+- `transcript_fuzzy` appears only as an alternate policy in the rejected `quote_mismatch`
+  diagnostic. It admitted no document quote.
+- Reader budget evidence: 5 calls, 30,949 estimated input tokens, and `$0.154745` estimated cost.
+- The map remains `degraded` because the remaining costing segment's local drop ratio exceeds the
+  configured threshold. The degradation is retained visibly and does not weaken the passed root
+  quote gate.
+- Later full release CI run `30312068037` is green. Vercel commit `65d0b7b` is ready and
+  `https://oracle.designflow.app` returns HTTP 200.
+
+R2 is no longer blocked by R0.1. Its recorded entry decisions remain the only entry blocker.

@@ -1,11 +1,23 @@
 # HANDOFF — Prior completed work and remaining historical watchouts
 
-Last updated: 2026-07-26. Delete this file once every plan below is complete, intentionally
+Last updated: 2026-07-27. Delete this file once every plan below is complete, intentionally
 rejected with recorded evidence, or transferred to a named external owner.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
-## Latest closeout — 2026-07-26
+## Latest closeout — 2026-07-27
+
+Macro R0.1 is complete. Commit `da1ad5a` passed CI run `30271360677` and shipped in Trigger worker
+`20260727.3`, deployment `75jeiusj`, with 24 tasks. Forced run
+`run_06fqbf50qn8kvq69h6u3dg7601` produced production map
+`54cfec32-b428-490f-9e21-ab79c8f3add4` on pipeline
+`shape-reader-v4-r0.1-highest-impact-quote-repair`. It kept 100 objects, dropped 1 exact root quote
+plus 5 cascades, used 1 repair attempt, and admitted no fuzzy document quote. The remaining local
+costing-segment degradation is an honest threshold signal, not a failed release gate. Later full
+release CI `30312068037` is green; Vercel commit `65d0b7b` is ready and the public app returns HTTP
+200. R0, R0.1, and R1 are green. R2 is blocked only on its recorded entry decisions.
+
+## Prior closeout — 2026-07-26
 
 Grok's five correct blocking plan corrections are implemented in commit `676d60e` and pushed to
 `main`. GitHub Actions run `30233675031` passed, Vercel reported the deployment ready, and
@@ -23,9 +35,9 @@ raw model output and scratch probes remain local and gitignored. The user-owned 
 During closeout, uncommitted R0.1 work appeared in
 `apps/workers/src/lib/source-workflow-read.ts`, `packages/ai/src/index.ts`, and
 `packages/ai/src/prompts/workflow-read.ts`. These edits add quote-repair contracts and helpers but
-are incomplete, unreviewed, and not part of commit `676d60e` or this documentation closeout. Keep
-them intact. Before adding more R0.1 code, inspect the full diff, identify the owning session, and
-run the R0.1 tests and gates from the canonical plan.
+were incomplete and unreviewed at this historical checkpoint and were not part of commit
+`676d60e`. This warning is resolved: the finished implementation shipped in commit `da1ad5a`,
+passed CI, and passed its production gate. Do not treat these files as abandoned work.
 
 ## Canonical plan registry
 
@@ -35,7 +47,7 @@ must read the named plan's status table first and must not re-plan the work from
 | Known problem class | Canonical plan and exact owner |
 |---|---|
 | Macro-first redesign, R1–R10 | [Macro-first plan](MACRO_FIRST_IMPLEMENTATION_PLAN.md) |
-| Two root quote-copy failures and their six cascades | [Macro-first plan R0.1](MACRO_FIRST_IMPLEMENTATION_PLAN.md#r01--bounded-quote-copy-repair) |
+| Completed bounded quote-copy repair and production proof | [Macro-first plan R0.1](MACRO_FIRST_IMPLEMENTATION_PLAN.md#r01--bounded-quote-copy-repair) |
 | Stale workflow production script | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
 | False Teams transcript TODO comments | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
 | ERR-003 retired fan-out needs a deployed task-inventory check | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
@@ -94,6 +106,13 @@ Trigger run `run_06fof96hugnkrumk86vi8f0d01` created production map
 relations retained (95.2%). Exact gate evidence is in `evals/shape-aware-stage2.md`; the reusable
 SELECT-only audit is `packages/db/src/audit-r0-release-map.ts`.
 
+R0.1 is also complete and production-verified. Commit `da1ad5a`, CI `30271360677`, worker
+`20260727.3`, forced run `run_06fqbf50qn8kvq69h6u3dg7601`, and map
+`54cfec32-b428-490f-9e21-ab79c8f3add4` prove the at-most-1-root gate with no fuzzy quote admitted.
+The run reread document `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea`, kept 100, dropped 6, used 5
+read calls, 30,949 estimated input tokens, and `$0.154745` estimated input cost. R1 is complete.
+The next macro stage is R2 after its recorded entry decisions are confirmed.
+
 ## Everything we tried that did NOT work
 
 1. The first fresh-database CI attempt failed before R0 because plain pgvector Postgres lacks the
@@ -107,36 +126,36 @@ SELECT-only audit is `packages/db/src/audit-r0-release-map.ts`.
 4. The new production audit initially used 1Password's direct-process mode with `pnpm`, but Windows
    could not resolve that shim without a shell. Re-running through PowerShell worked; no secret was
    exposed and the audit remained SELECT-only.
+5. The first R0.1 production attempt is not the release baseline. Forced run
+   `run_06fq7gp183ec884c609se50401` on worker `20260727.2` produced map
+   `e2720c21-06f2-426e-a763-2f9fdf41c5b0`. Parallel reads let the first eligible segment consume
+   the single repair, so the later higher-impact segment recorded
+   `repairSkipped='budget_exhausted'` and retained 2 roots plus 5 cascades. Commit `da1ad5a`
+   permanently moved allocation after all base validations.
 
 ## Root causes and key findings
 
 - The old 61.2% drop result mixed 36 root quote failures with 65 deterministic cascades and lacked
   rejected-quote telemetry. R0 now preserves bounded raw-output hashes and structured diagnostics.
-- The new run has only two root mismatches. Both used `markdown_document` + `verbatim_includes`
+- R0's 2026-07-22 run had only two root mismatches. Both used `markdown_document` + `verbatim_includes`
   and would pass only `transcript_fuzzy`; admitting them would weaken document evidence, so they
   are correctly rejected.
-- Six dependent relation/path objects cascade from those two nodes. One segment therefore has a
-  24.2% local drop ratio and correctly keeps the whole map visibly `degraded`; whole-map health is
-  3.6% drops and 95.2% relationship evidence survival.
-- Budget enforcement is working: 7/40 reads, 26,567/500,000 estimated input tokens, zero repairs,
-  and estimated input cost `$0.132835` against `$10`.
+- In that R0 run, six dependent relation/path objects cascaded from those two nodes. One segment
+  therefore had a 24.2% local drop ratio and correctly kept the whole map visibly `degraded`;
+  whole-map health was 3.6% drops and 95.2% relationship evidence survival.
+- R0's budget evidence was 7/40 reads, 26,567/500,000 estimated input tokens, zero repairs, and
+  `$0.132835` estimated input cost against `$10`.
+- The current R0.1 baseline has 1 exact root quote drop, 5 deterministic cascades, and exactly 1
+  repair attempt. It admitted no `transcript_fuzzy` document quote. Its budget evidence is 5 read
+  calls, 30,949 estimated input tokens, and `$0.154745` estimated input cost.
 
 ## Exact next steps
 
-1. Implement macro R0.1's bounded quote-copy repair without changing validation. Gate: root drops
-   fall from 2 to at most 1, target 0, and no fuzzy document quote is admitted.
-2. In parallel, run R1's SELECT-only production audit before writing schema: count every existing macro/process
-   table, inspect inbound `pg_constraint` FKs, RLS enablement/policies, and manual/test rows. Gate:
-   the results and guarded-copy disposition are recorded in the appropriate eval log.
-3. Run `pnpm --filter @oracle/db check-drift`, inspect the Drizzle journal including duplicate
-   historical `86_*` filenames, and reconcile generated snapshots with the hand-written SQL target.
-   Gate: the exact snapshot-only reconciliation action is documented with no unexplained drift.
-4. Only after the R1 audit and drift gates, implement R1's additive cross-shape spine/detail schema and object-general
-   proposal/recommendation changes. Gate: every R1 exit condition in the canonical plan passes,
-   including fresh DB, RLS, compatibility counts, rollback compatibility, and swimlane regression.
-5. Do not start the R2 responsibilities reader until R0.1 and R1 are committed, pushed, CI-green,
-   deployed where applicable, and their production evidence is recorded.
-6. Reliability work may start at REL-1 and product-gap work at GAP-1 without changing macro stage
+1. Confirm the recorded R2 entry decisions in `MACRO_FIRST_IMPLEMENTATION_PLAN.md`.
+2. Begin R2's responsibilities vertical slice only after those decisions are recorded.
+3. Use the existing R0.1 production map as the release baseline; do not weaken exact quote
+   validation to remove the remaining honest costing-segment degradation.
+4. Reliability and product-gap work may continue without changing macro stage
    order. Each session must update its plan status table and this handoff.
 
 ## Constraints and gotchas
@@ -157,17 +176,17 @@ never print or persist the value. Trigger project is `proj_wgpzsvhmsopqhvwqaycn`
 
 ## Open questions and risks
 
-No R0 release blocker remains. The localized degraded segment is intentionally retained as a
-quality signal; changing it requires a future prompt/reader decision, not weaker quote policy.
-R1's production audit may reveal unexpected manual/test rows, inbound dependencies, or generated
-snapshot drift; that is precisely why R1 DDL is prohibited until the audit is recorded. The
-canonical sequence and evidence-authority decisions remain unchanged.
+No R0, R0.1, or R1 release blocker remains. The localized degraded segment is intentionally
+retained as a quality signal; changing it requires a future prompt/reader decision, not weaker
+quote policy. R2 awaits only its recorded entry decisions. The canonical sequence and
+evidence-authority decisions remain unchanged.
 
 ## HISTORICAL PLAN UPDATE — 2026-07-21
 
-The next-action wording in this dated block is superseded. The only current macro starting work is
-R0.1 plus the R1 SELECT-only audit in parallel, as stated in the top "Exact next steps" section and
-the canonical plan's status table. Do not use this historical block to choose work.
+The next-action wording in this dated block is superseded. Current macro work is to record the R2
+entry decisions, then begin R2's responsibilities vertical slice, as stated in the top "Exact next
+steps" section and the canonical plan's status table. Do not use this historical block to choose
+work.
 
 `MACRO_FIRST_IMPLEMENTATION_PLAN.md` is now the single forward plan of record. It reconciles
 the original process-centric macro redesign with the six-shape reader pivot. The agreed order is
@@ -195,8 +214,9 @@ rejected them. One process segment remains visibly degraded at 24.2% local drops
 gate passes and no validation was weakened. Full evidence is in `evals/shape-aware-stage2.md`.
 
 The next action recorded on 2026-07-21 was R1's audit. That instruction is historical. R0.1 was
-added after the production quote-copy review and now runs in parallel with the R1 audit. Do not
-begin R2 until R0.1 and R1 are both green.
+added after the production quote-copy review and ran in parallel with the R1 audit. The historical
+constraint required both R0.1 and R1 to be green before R2; both are now complete, so that
+constraint is satisfied.
 
 ## LATEST SNAPSHOT — Shape-aware reader Stage 2 deployed (2026-07-13)
 
@@ -1538,6 +1558,11 @@ Audit result: passed. Future sessions must update the relevant plan status table
 whenever a problem is completed, rejected, newly discovered, or blocked.
 
 Re-audited after the 2026-07-26 Grok corrections: the registry no longer points at deleted
-outline/lens/macro workers, R2 cannot start without R0.1, the historical R1-only instruction is
-superseded, and GAP-1 now finishes the existing taxonomy worker path. A fresh developer can choose
-the correct next step without the review chat.
+outline/lens/macro workers, the historical R1-only instruction is superseded, and GAP-1 now
+finishes the existing taxonomy worker path. The R2 requirement for green R0.1 evidence was
+satisfied on 2026-07-27. A fresh developer can choose the correct next step without the review
+chat.
+
+Re-audited on 2026-07-27 after R0.1 production closure: the release proof, failed first run,
+remaining honest degradation, next macro step, constraints, access, and identifiers are complete
+and consistent. A new developer can continue with no questions. Audit result: passed.
