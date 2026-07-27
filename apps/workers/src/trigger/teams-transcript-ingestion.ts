@@ -17,14 +17,15 @@
 //   - Idempotent: re-running for the same transcript is a no-op (clientMessageId
 //     `teams:<transcriptId>:<n>` is the dedupe key).
 //
-// Known v1 limitations (intentional, documented for follow-up):
-//   - Speaker→employee match is by display-name (case-insensitive) against
-//     employees.name. Teams VTT carries display names, not emails/AAD ids, so
-//     unmatched speakers get a null employeeId. TODO: resolve via AAD id when
-//     the decrypted resource exposes participant identities.
-//   - Message createdAt is anchored to ingestion time + the cue offset (so all
-//     cues cluster into a single extraction segment). TODO: anchor to the real
-//     meeting start when available.
+// Current identity/time behavior:
+//   - Speaker→employee resolution maps the VTT display name through the M365
+//     directory email first, then falls back to an employee display-name match.
+//     Internal directory users may be bootstrapped by email. Speakers absent
+//     from the directory still have a null employeeId; participant AAD-id
+//     matching remains an optional follow-up.
+//   - Message createdAt is anchored to payload.meetingTime plus the cue offset.
+//     Non-picker callers that do not supply meetingTime fall back to ingestion
+//     time.
 
 import { task } from '@trigger.dev/sdk/v3';
 import { eq, sql } from 'drizzle-orm';

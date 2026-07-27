@@ -73,13 +73,15 @@ This is also the proof that the fallback-pool design (below) is load-bearing, no
   current callers, then delete the obsolete smoke, or retarget it only if a current runtime owner
   is found. Do not restore the deleted writers.
 
-### ERR-003 — Followup fan-out: each lens job re-triggers macro + coverage — DEPLOYED (source fixed by architecture removal; task inventory pending)
+### ERR-003 — Followup fan-out: each lens job re-triggers macro + coverage — ✅ FIXED BY ARCHITECTURE REMOVAL (2026-07-27)
 
-**Current disposition (2026-07-26):** `source-outline`, `document-lens-extraction`,
+**Current disposition (2026-07-27):** `source-outline`, `document-lens-extraction`,
 `macro-relationship-extraction`, and `source-coverage-audit` no longer exist in the repository.
 Migration 89 removed the retired outline/lens path. The old "one macro plus one coverage run per
-outline" verification is invalid and must not be run. Reliability REL-2 requires one final
-read-only deployed task-inventory check before this production incident is marked fully closed.
+outline" verification is invalid and must not be run. Read-only Trigger.dev inventory confirmed
+that deployed worker `20260722.1` (deployment `deployment_hm4hhngt6jnit96rd1huc`) advertises none
+of those four tasks; it does advertise the replacement `source-workflow-read` task. This closes the
+fan-out incident without recreating or rerunning the retired architecture.
 
 - **Symptom:** one `source-outline` run produced **~49 macro + ~50 coverage** runs in ~15 min (`job_runs`). Pre-fix those were failures; post-fix they'd be redundant *successes* over the same claims.
 - **Cause:** both `source-outline` AND every `document-lens-extraction` job trigger the two followups on completion. With coverage-first fan-out dispatching up to 16 lens jobs, that's up to ~16× redundant macro/coverage passes (the near-duplicate guard prevents duplicate rows, but the model calls are wasted spend + noise, and they leave `macro_health='degraded'` from any transient failure).
@@ -93,6 +95,13 @@ were removed. The remaining business problem is verified through the current map
 candidates, and deterministic `model_coverage` gaps. Reliability REL-2 owns that proof. Do not
 rebuild the deleted writer chain.
 
+**Read-only inventory (2026-07-27, not fixture proof):** production has 3 validated/degraded
+non-empty maps, 74 candidate rows referencing those map IDs, and 0 current `model_coverage` gaps.
+A strict latest-active-map membership audit counted 54 of 75 historical referenced candidates as
+current members and 21 as older or otherwise non-current. Keep this incident open until an
+owner-authorized source-ID-and-hash fixture proves the current run's map, candidate membership, and
+omission-gap behavior together.
+
 - **Symptom:** diagram/SOP sources could still explode into many atomic claims without preserving the underlying process graph. Macro relationships were also born `blocked_pending_support`, so the holistic layer stayed hidden until a noisy claim queue was approved.
 - **Fix applied/deployed:** added `source_workflow_maps` with nodes, edges, paths, and coverage metadata; source-outline now persists the graph; document ingestion runs the outline/workflow-map pass before broad extraction; candidates store `workflowTrace` when their quote matches a workflow edge; candidate hashes can use a stable graph edge key for edge-level dedup; macro extraction inserts deterministic path relationships from workflow-map paths; coverage audit inserts missing-edge findings; and generated macro relationships with pending support now enter `pending_review` while read-time Brain/chat helpers still require approved support. Migration `86_source_workflow_maps.sql` applied to prod and Trigger worker `20260704.2` deployed on 2026-07-04.
 - **Verification run:** local typechecks/smokes passed; production DB smoke `verify:macro-support-queries` passed; `source_workflow_maps` exists in prod. Still needs a real swimlane/Pop-style document rerun to verify non-empty workflow maps, traces, deterministic relationships, and missing-edge findings.
@@ -102,6 +111,10 @@ rebuild the deleted writer chain.
 - **Symptom:** `scripts/export-worker-failures.mjs` found recent `contradiction-watcher` failures inserting `oracle_interventions` with `channel_id=00000000-0000-0000-0000-000000000000`.
 - **Root cause:** `oracle_interventions.channel_id` is an FK to `channels.id`; document-only contradictions have no real chat channel, so the fake all-zero placeholder violates the FK.
 - **Fix applied/deployed:** `contradiction-watcher` now inserts an `oracle_interventions` row only when a real `channelCtx` exists. Document-only contradictions still persist the contradiction and gap rows. Deployed in Trigger worker `20260704.2`.
+- **Read-only inventory (2026-07-27):** current worker `20260722.1` advertises
+  `contradiction-watcher`, and production has 0 `oracle_interventions` rows using the all-zero
+  channel ID. This is useful negative evidence but does not prove the required document-only
+  contradiction, gap, and no-FK-failure fixture, so the incident remains deployed pending rerun.
 
 ---
 

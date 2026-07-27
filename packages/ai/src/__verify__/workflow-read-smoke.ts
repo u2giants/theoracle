@@ -5,6 +5,8 @@ import {
   SourceSegmentationSchema,
   SourceStructureMapSchema,
   WorkflowReadSchema,
+  WorkflowQuoteRepairSchema,
+  WORKFLOW_QUOTE_REPAIR_SYSTEM_PROMPT,
 } from '..';
 
 const chunkId = '11111111-1111-4111-8111-111111111111';
@@ -88,6 +90,27 @@ const workflow = WorkflowReadSchema.parse({
 
 if (workflow.nodes.length !== 2 || workflow.edges.length !== 1) {
   throw new Error('workflow-read schema did not preserve flat graph records');
+}
+
+const repair = WorkflowQuoteRepairSchema.parse({
+  repairs: [{
+    elementId: 'buyer_request',
+    elementType: 'node',
+    chunkId,
+    evidenceQuote: 'The problem: **Sales** creates the proof.',
+  }],
+});
+if (
+  repair.repairs[0]?.elementType !== 'node' ||
+  !WORKFLOW_QUOTE_REPAIR_SYSTEM_PROMPT.includes('lead-in') ||
+  !WORKFLOW_QUOTE_REPAIR_SYSTEM_PROMPT.includes('whitespace-significant Markdown')
+) {
+  throw new Error('workflow quote repair schema or prompt fidelity drifted');
+}
+if (WorkflowQuoteRepairSchema.safeParse({
+  repairs: [{ elementId: 'buyer_request', chunkId, evidenceQuote: 'Sales creates proof.' }],
+}).success) {
+  throw new Error('workflow quote repair accepted a missing elementType');
 }
 
 const structureMap = SourceStructureMapSchema.parse({

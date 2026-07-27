@@ -41,3 +41,28 @@ export async function triggerTask(
     return false;
   }
 }
+
+export type TriggerDispatchResult =
+  | { dispatched: true; runId: string }
+  | { dispatched: false; error: string };
+
+/** Dispatch a task when the caller must show and retain the exact Trigger run ID. */
+export async function triggerTaskWithResult(
+  taskId: string,
+  payload: Record<string, unknown>,
+): Promise<TriggerDispatchResult> {
+  if (!process.env.TRIGGER_SECRET_KEY) {
+    return { dispatched: false, error: 'Trigger.dev is not configured.' };
+  }
+  try {
+    const { tasks } = await import('@trigger.dev/sdk/v3');
+    const handle = await tasks.trigger(taskId, payload);
+    return { dispatched: true, runId: handle.id };
+  } catch (err) {
+    console.warn(`[trigger] could not dispatch task "${taskId}":`, err);
+    return {
+      dispatched: false,
+      error: err instanceof Error ? err.message : 'Trigger.dev dispatch failed.',
+    };
+  }
+}

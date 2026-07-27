@@ -198,3 +198,23 @@ Final decision: **R0 is complete.** Both mandatory release gates passed, the pri
 deterministic regressions remain green, and validation stayed conservative. R1 may begin with its
 required read-only production-data/schema audit; no R1 DDL may be authored before that audit is
 recorded.
+## R0.1 bounded quote-copy repair local gate (2026-07-26)
+
+- Implemented one optional repair call through the existing configurable `workflow_read` route.
+- Repair eligibility is limited to root `quote_mismatch` and `quote_ambiguous` node/edge failures.
+- The response must echo element ID, element type, and the original chunk ID. Unknown IDs, wrong
+  types, duplicate repairs, missing repairs, and chunk moves are rejected.
+- Only `evidenceQuote` changes in an ephemeral map copy. The unchanged strict
+  `validateWorkflowMap` decides whether the repaired copy is better.
+- A repaired result is selected only when root failures decrease. Budget exhaustion or repair-call
+  failure retains the original validated result and records the skip.
+- Prompt version: `workflow-read-v2-quote-copy-repair`.
+- Pipeline version: `shape-reader-v3-r0.1-quote-copy-repair`.
+- Green local gates: AI/workers/DB typechecks, workflow-read schema smoke, source-workflow-read
+  smoke, adapter request shapes, and R0 reader/validator contract.
+- `pnpm --filter @oracle/db check-drift` ran but could not query a database because
+  `DIRECT_URL`/`DATABASE_URL` was absent.
+- The real-shape segmentation gate loaded local fixtures, then stopped before the Teams transcript
+  query because `DIRECT_URL` was absent.
+- Remaining release gate: SELECT-only stored-failure replay, real drift check, CI, worker deploy,
+  and one owner-authorized forced production read.

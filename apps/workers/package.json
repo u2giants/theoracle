@@ -12,7 +12,9 @@
     "verify:shape-segmentation-real": "tsx src/__verify__/shape-segmentation-real-docs.ts",
     "verify:document-ingestion-fallback": "tsx src/__verify__/document-ingestion-fallback-smoke.ts",
     "verify:r0-reader-validator": "tsx src/__verify__/r0-reader-validator.ts",
-    "verify:r0-production-replay": "tsx src/__verify__/r0-production-replay.ts"
+    "verify:r0-production-replay": "tsx src/__verify__/r0-production-replay.ts",
+    "verify:taxonomy-reclassification": "tsx src/__verify__/taxonomy-reclassification-contract.ts",
+    "verify:taxonomy-reclassification-db": "tsx src/__verify__/taxonomy-reclassification-db.ts"
   },
   "dependencies": {
     "@oracle/ai": "workspace:*",

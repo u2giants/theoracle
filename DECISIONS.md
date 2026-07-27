@@ -91,10 +91,10 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Action item**: Delete this row before production: `DELETE FROM employees WHERE email = 'test-employee@oracle.local'`.
 - **Safer alternative ruled out**: Seeding 18 employees — they don't exist yet in the spec, and inventing names would create stale data. One synthetic test row is the minimum that demonstrates RLS works.
 
-### D1.storage-bucket — TODO for company_documents
+### D1.storage-bucket — company_documents is managed outside SQL migrations
 
-- **Decision**: Phase 2 needs the `company_documents` Supabase Storage bucket. Cannot create it via SQL migration (Supabase Storage buckets are managed via the Storage API or dashboard). Adding a TODO instead of stubbing in code.
-- **Action item**: In the Supabase dashboard for the linked project, go to Storage → New bucket → name `company_documents`, set to private, then run the Storage RLS policy that only allows authenticated employees to read their own uploads and channel-attachment documents (use spec 7.2 documents policy as the template).
+- **Decision**: Phase 2 needs the private `company_documents` Supabase Storage bucket. Storage buckets are managed through the Storage API or dashboard, not the app's SQL migration runner.
+- **Current state**: A SELECT-only production check on 2026-07-26 confirmed that `company_documents` exists and is private in Supabase project `eqccjfbyrywsqkxxpjvg`. There is no bucket-creation action left open.
 
 ### D1.rls-policies — admin reads via service role, not RLS bypass
 
@@ -429,19 +429,18 @@ This file is the running log of every assumption, stub, and resolution made by t
   - `max_oracle_interjections_per_hour` (default 3).
   - `CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD` (constant in `packages/oracle-engines/src/interjection.ts`, default 80). Adjustable for the next phase if confidence-vs-misfire trade off needs shifting.
 
-## D11.lull-interjection-round-1-simplifications — Topical relevance + presence are round 2
+## D11.lull-interjection-round-1-simplifications — Topical relevance remains open; presence landed later
 
 - **Decision**: R11.2 ships with two known simplifications that the user's HANDOFF decisions explicitly accepted as round-1 trade-offs:
-  - **Presence (`isAnyoneTyping`) hardcoded to `false`.** A real Supabase Realtime presence query against `presence_state` was out of scope for R11. The risk: the Oracle may post a question while a human is mid-keystroke.
+  - **Historical round-1 presence limit:** `isAnyoneTyping` was hardcoded to `false` because a reliable server-readable presence path was out of scope for R11. That limit was later removed: the chat client now writes short-lived `typing_indicators` heartbeats and the lull worker checks for an unexpired row before posting.
   - **Top-relevant-open-gap = highest-priority gap with targetEmployeeId null or a channel participant.** Embedding-based topical relevance (gap embeddings vs recent message embeddings) is out of scope for R11. The risk: the gap chosen may be in a domain the channel wasn't discussing.
 - **Why both are acceptable round 1**:
   - The rate-limiting + cooldown stack ensures any single misfire is at most 3/hour and at least 10 minutes apart per channel.
   - The first batch of approved claims (just 2 from the wet-test) doesn't yet justify the engineering of embedding-similarity scoring against a sparse gap corpus.
   - Admin sees every interjection via `oracle_interventions` + `/admin/ai/runs?taskType=lull-interjection` and can identify both classes of misfire and feed that into the round-2 prioritization.
-- **Round 2 work** (already on the HANDOFF "What's next" list):
-  - Wire `supabase.realtime.presenceState()` into the lull task before computing `isAnyoneTyping`.
+- **Remaining round 2 work**:
   - Add a `gaps.embedding` column + populate it at gap-creation time, then score by cosine similarity against the mean embedding of the channel's recent messages.
-- **Removal plan**: both round-1 shortcuts disappear when round 2 lands. Until then, they are explicit `// round 1` comments in `apps/workers/src/trigger/lull-interjection.ts`.
+- **Current code**: presence is implemented in `apps/workers/src/trigger/lull-interjection.ts`; only embedding-based topical gap selection remains a round-2 shortcut.
 
 ## D12.deepseek-and-qwen-adapters — Two new direct-provider adapters added (2026-05-27)
 

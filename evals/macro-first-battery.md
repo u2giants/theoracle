@@ -198,3 +198,181 @@ noted: high run-to-run variance (same fixture+model gave maps of 84–120 elemen
 runs). Next: de-conflict the prompt (map-directed mode must instruct one claim per
 listed node/edge, no sparse guidance) and re-run; escalate to deterministic map-element
 seeding from the map's stored validated quotes if the prompt fix alone misses ≥95%.
+
+## 2026-07-27 — R1 mandatory read-only production audit
+
+Scope: the pre-DDL R1 audit required by `MACRO_FIRST_IMPLEMENTATION_PLAN.md`.
+Every production query ran inside an explicit `BEGIN READ ONLY` transaction
+against current production project `eqccjfbyrywsqkxxpjvg` through its session
+pooler. No schema, data, journal, setting, deployment, or worker state changed.
+
+### Existing-table counts and row disposition
+
+| Table | Rows | R1 disposition |
+|---|---:|---|
+| `source_outlines` | 2 | Historical Stage 3 fixture output; preserve in place, do not copy to the new spine |
+| `source_outline_sources` | 2 | Preserve with its historical outlines |
+| `source_outline_source_refs` | 0 | No copy |
+| `source_groups` | 22 | Preserve with its historical outlines; no new writer and no R1 copy |
+| `source_group_items` | 0 | No copy |
+| `macro_relationships` | 4 | Historical blocked proposals; preserve, do not promote or copy |
+| `macro_relationship_sources` | 4 | Preserve with its historical relationships |
+| `macro_relationship_claims` | 0 | No copy |
+| `macro_relationship_review_events` | 0 | No copy |
+| `source_coverage_findings` | 4 | Historical open findings; preserve, do not convert or copy |
+| `source_workflow_maps` | 18 | Immutable reader/eval history; preserve as source artifacts, never copy as business-model objects |
+| `business_processes` | 0 | Expected zero; no legacy process content exists to copy |
+| `business_process_versions` | 0 | Expected zero |
+| `process_nodes` | 0 | Expected zero |
+| `process_edges` | 0 | Expected zero |
+| `process_node_systems` | 0 | Expected zero |
+| `process_paths` | 0 | Expected zero |
+| `process_element_claims` | 0 | Expected zero |
+| `process_top_domains` | 0 | Expected zero |
+| `business_model_changes` | 0 | Expected zero |
+| `business_model_change_events` | 0 | Expected zero |
+| `recommendations` | 0 | Expected zero |
+
+The two outlines are real production fixture/evaluation artifacts for document
+`Pop Creations Flow 12112025 (1).png`, created 2026-07-03. One is superseded and
+one remains provisional. Their 22 groups, four blocked relationships, and four
+open coverage findings are linked to that fixture. They are not manual business
+model records and are not eligible for the R1 compatibility copy. The 18 workflow
+maps are reader history across three documents: 15 superseded, two degraded, and
+one validated. No manual/test row was found in any legacy process destination
+table because all eleven process/change/recommendation tables are empty.
+
+Guarded-copy decision: R1 copies **zero process-content rows**. It preserves all
+historical tables and rows in place. Any later compatibility/reference-column
+copy must assert an expected source count of zero and abort if production stops
+matching this audit before that migration runs.
+
+### Inbound foreign keys
+
+The audit found 27 inbound foreign keys into the audited tables:
+
+- `business_model_changes`: event change ID `CASCADE`, self-supersession
+  `SET NULL`, process-version created-from change `SET NULL`, and
+  `claim_review_events.business_model_change_id` `SET NULL`.
+- `business_process_versions`: change base version `SET NULL`, process current
+  version `SET NULL`, and node/edge/path/element-claim/recommendation version
+  references `CASCADE`.
+- `business_processes`: versions and process domains `CASCADE`,
+  recommendations `CASCADE`, and change process ID `SET NULL`.
+- `macro_relationships`: claim links, source links, and review events `CASCADE`.
+- `process_nodes`: node-system links `CASCADE`.
+- `source_groups`: group items `CASCADE`.
+- `source_outlines`: outline sources, source refs, and groups `CASCADE`;
+  relationships and coverage findings use the default restrictive delete.
+- `source_workflow_maps`: change source-map references `RESTRICT`; map
+  supersession self-reference `SET NULL`.
+
+This means R1 must remain additive. It must not rename, replace, or drop these
+targets, and object-generalization must preserve the external
+`claim_review_events` reference as well as the audited internal references.
+
+### RLS and policies
+
+All 22 audited tables exist with row-level security enabled and not forced.
+Every table currently has zero explicit policies. This matches the intended
+service-role-only posture: browser roles receive no RLS policy grant. R1 must
+apply the same default-deny posture to every new spine/detail table and must not
+add anonymous or authenticated policies before the planned admin APIs exist.
+
+### Migration journal and duplicate `86_*` history
+
+Command:
+
+```text
+corepack pnpm --filter @oracle/db check-drift
+```
+
+Initial result: **FAIL caused by local CRLF bytes, not production drift**.
+
+- Production has nine journal rows.
+- This Windows checkout had CRLF bytes in generated migrations `0000` through
+  `0007`, despite `.gitattributes` requiring LF. Migration `0008` was already LF.
+- `check-migration-drift.ts` hashes raw worktree bytes, so the eight local CRLF
+  hashes did not match the production journal. The exact LF-controlled git blobs
+  did match all nine production journal hashes.
+- CI uses LF checkout bytes and passed the same production drift gate in run
+  `30233675031` on 2026-07-26. This independently supports the production
+  journal's LF hashes.
+- The first remedy was therefore local only: after proving that each
+  CRLF-normalized worktree file exactly matched its HEAD blob, migrations
+  `0000` through `0007` were rewritten to their exact HEAD LF bytes. No semantic
+  content, index entry, or production journal row changed.
+
+LF-controlled hashes:
+
+| Migration | SHA-256 |
+|---|---|
+| `0000_smart_jackpot.sql` | `d6749a5e279cb6770839810a6dcc3d282625b9b6077afffa33a63ce69c5bd4be` |
+| `0001_hot_johnny_blaze.sql` | `ab10b7a048b1b8919390c05703a23cc2f63693d4f883ad10fc8312a462d1cdd1` |
+| `0002_demonic_kid_colt.sql` | `cf5a629d17d0365a443d9ef2954842439bba5fefcd1c70daefd24dac98f4186f` |
+| `0003_magenta_lionheart.sql` | `f9b00ecd4238725e316165687bf2ade6401d4b9dd6e3c8e07a5881cfbf02bc39` |
+| `0004_simple_tomas.sql` | `1cdc4d781abcb09727a7743e943c3b9068b7d9b0b1f09daed66eb36d66f5ef84` |
+| `0005_kind_nekra.sql` | `a3f526a7db72a058ed405fc4679b8f1c435b12f5b2a7d8913aa3fed0f45ffdc1` |
+| `0006_magical_revanche.sql` | `d273fe37e62858c4e0e0b7e76fb6baa794889e2ed6efbf5f265f83c70d6941db` |
+| `0007_tricky_charles_xavier.sql` | `af12b253571b59ea7c214c978f11c21ef216bcca8e0dbe885ce61a011594cb5f` |
+| `0008_sour_agent_brand.sql` | `bc4b8cd26333eb2b0c6d383cde97d159417b6e5eb24d8b0bd1c595c34768607b` |
+
+The drift check was then rerun against current production and passed:
+
+```text
+[drift] OK — 9 on-disk migrations and 9 journal rows match exactly.
+```
+
+Production journal mutation is neither needed nor permitted for this incident.
+If an LF-controlled checkout ever fails this check again, verify schema reality
+before considering the separately documented production repair procedure. Never
+write CRLF hashes into the production journal.
+
+The historical duplicate filename is also resolved locally: git history shows
+both `86_macro_first_schema.sql` and `86_source_workflow_maps.sql` once existed.
+R0 commit `1a36e836681f16fe46f01374c17235a57f7b8348` deleted
+`86_source_workflow_maps.sql`. Exactly one `86_*` file now exists:
+`86_macro_first_schema.sql`. Production already contains all audited objects,
+including `source_workflow_maps`; do not restore or replay the deleted duplicate.
+
+### Drizzle snapshot reconciliation
+
+`schema.ts` declares the R1 predecessor tables, but
+`meta/0008_snapshot.json` contains the hand-SQL-owned migration-79 macro tables
+and does **not** contain the later migration-86 workflow/process tables.
+Therefore the generated snapshot and hand-written SQL target are not yet aligned.
+
+Drizzle Kit 0.31.10 `--custom` copies the prior snapshot and cannot reconcile
+`schema.ts`. The first custom attempt correctly stopped because its snapshot
+still had only 66 tables. The uncommitted attempt was removed, including only
+its journal addition, and the baseline was regenerated from `packages/db` with:
+
+```text
+corepack pnpm generate --name=r1_cross_shape_snapshot_baseline
+```
+
+Plain generation produced the correct 79-table snapshot and replay DDL for
+objects already owned by hand-written migrations. Following the established
+`0008` precedent, only generated `0009` SQL was trimmed to an LF-only,
+comment-only file. The snapshot and journal were not hand-edited. Its comment
+records the owning migrations: `77`, `85`, `86`, `87`, `90`, and `93`.
+
+Verification:
+
+- exact table-name equality: `schema.ts` 79, snapshot 79, difference 0;
+- trimmed SQL: zero active SQL lines and zero CR bytes;
+- a plain `snapshot_alignment_probe` generation reported
+  `No schema changes, nothing to migrate`, and created no probe artifacts;
+- production drift still matches all nine previously journaled hashes and
+  reports only the expected new local `0009` hash as pending; no production
+  journal row was inserted, updated, or deleted.
+
+Do not replay the trimmed DDL. Fresh databases continue to receive those objects
+from their hand-written SQL owners through the normal migration runner.
+
+### Gate result
+
+The SELECT-only data, FK, RLS, duplicate-file, existing-journal, and snapshot
+inspections are complete. The snapshot baseline is exact and idempotent with
+zero production mutation. R1 DDL remains gated until this pending comment-only
+baseline is reviewed and journaled through the normal migration runner.

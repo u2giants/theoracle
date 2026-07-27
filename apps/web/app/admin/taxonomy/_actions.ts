@@ -15,7 +15,7 @@
 //   - Every accepted change writes a taxonomy_change_log audit row.
 
 import { revalidatePath } from 'next/cache';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import {
   entityProposals,
   entities,
@@ -25,6 +25,7 @@ import {
 } from '@oracle/db';
 import { getDirectDb } from '@oracle/db/client';
 import { requireAdmin } from '@/lib/auth-guard';
+import { triggerTaskWithResult } from '@/lib/trigger';
 
 // ─────────────────────────────────────────────────────────────────────────
 // taxonomy_proposals — approve / reject / defer
@@ -68,21 +69,9 @@ export async function rejectTaxonomyProposal(proposalId: string, reason: string)
 /**
  * Approve a proposal. The mutation depends on the proposal type:
  *
- *   - create_top_domain → INSERT into knowledge_top_domains using the
- *     proposal payload (boundary rules included). This is the only
- *     mutation currently implemented inline; the reclassification path
- *     for merge_top_domains / split_top_domain / reassign_claims /
- *     create_sub_topic / merge_sub_topics / split_sub_topic / retire_sub_topic
- *     is scaffolded as a TODO — those need targeted reclassification of
- *     claim_top_domains / claim_sub_topics rows + optional Brain
- *     synthesis re-runs (the "transactional reclassification job"
- *     from R10.5 task 4 in the retrofit packet).
- *
- *   For the unimplemented branches, the proposal is marked approved
- *   (recording the reviewer) and the change log row is written, but
- *   the actual reclassification is queued as a TODO note. This
- *   preserves the audit trail without auto-mutating the taxonomy
- *   in ways the reclassifier isn't yet ready to handle.
+ * create_top_domain is applied inline. Other types are marked approved and
+ * receive an approve_pending_reclassification audit row. An admin then uses
+ * Apply approved change to dispatch the transactional worker explicitly.
  */
 export async function approveTaxonomyProposal(proposalId: string, reviewNote: string | null) {
   const me = await requireAdmin();
@@ -147,10 +136,9 @@ export async function approveTaxonomyProposal(proposalId: string, reviewNote: st
           belongsHere: (payload.boundaryRules?.belongsHere ?? []) as unknown[],
           doesNotBelongHere: (payload.boundaryRules?.doesNotBelongHere ?? []) as unknown[],
           commonEntityHints: (payload.boundaryRules?.commonEntityHints ?? []) as unknown[],
-          defaultExcludedDocumentClasses:
-            (payload.boundaryRules?.defaultExcludedDocumentClasses ??
-              payload.suggestedRetrievalExclusions ??
-              []) as string[],
+          defaultExcludedDocumentClasses: (payload.boundaryRules?.defaultExcludedDocumentClasses ??
+            payload.suggestedRetrievalExclusions ??
+            []) as string[],
           neighboringDomainIds: (payload.boundaryRules?.neighboringDomainIds ?? []) as string[],
           displayOrder: maxOrder + 10,
           isActive: true,
@@ -187,6 +175,70 @@ export async function approveTaxonomyProposal(proposalId: string, reviewNote: st
   revalidatePath('/admin/taxonomy/proposals');
   revalidatePath('/admin/taxonomy');
   revalidatePath('/admin/taxonomy/change-log');
+}
+
+export async function applyApprovedTaxonomyProposal(proposalId: string) {
+  await requireAdmin();
+  const db = getDirectDb();
+  const rows = await db.execute(sql`
+    SELECT p.id, p.status, p.proposal_type,
+      state.change_type, state.after_state, state.created_at
+    FROM taxonomy_proposals p
+    LEFT JOIN LATERAL (
+      SELECT change_type, after_state, created_at
+      FROM taxonomy_change_log
+      WHERE proposal_id = p.id
+        AND (change_type = 'reclassification_dispatched'
+          OR change_type = 'reclassification_failed'
+          OR change_type LIKE 'reclassification_applied_%'
+          OR change_type LIKE 'reclassification_skipped_%')
+      ORDER BY created_at DESC
+      LIMIT 1
+    ) state ON true
+    WHERE p.id = ${proposalId}
+  `);
+  const proposal = [...rows][0] as
+    | {
+        id: string;
+        status: string;
+        proposal_type: string;
+        change_type: string | null;
+        after_state: unknown;
+        created_at: string | null;
+      }
+    | undefined;
+  if (!proposal || proposal.status !== 'approved') {
+    throw new Error('Proposal is not approved or no longer exists.');
+  }
+  if (proposal.proposal_type === 'create_top_domain') {
+    throw new Error('Top-domain creation was already applied during approval.');
+  }
+  const staleDispatch =
+    proposal.change_type === 'reclassification_dispatched' &&
+    proposal.created_at != null &&
+    Date.now() - new Date(proposal.created_at).getTime() >= 15 * 60 * 1000;
+  if (
+    proposal.change_type &&
+    proposal.change_type !== 'reclassification_failed' &&
+    !staleDispatch
+  ) {
+    const state = proposal.change_type.replace('reclassification_', '').replaceAll('_', ' ');
+    throw new Error(`This proposal is already ${state}.`);
+  }
+
+  const dispatch = await triggerTaskWithResult('taxonomy-reclassification', { proposalId });
+  if (!dispatch.dispatched) throw new Error(dispatch.error);
+
+  await db.insert(taxonomyChangeLog).values({
+    changeType: 'reclassification_dispatched',
+    beforeState: { proposalId },
+    afterState: { triggerRunId: dispatch.runId },
+    reason: 'Approved taxonomy change dispatched by an admin.',
+    proposalId,
+  });
+  revalidatePath('/admin/taxonomy/proposals');
+  revalidatePath('/admin/taxonomy/change-log');
+  return dispatch;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

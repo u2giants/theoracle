@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { formatNYDateTime } from '@/lib/time';
 import {
   approveTaxonomyProposal,
+  applyApprovedTaxonomyProposal,
   rejectTaxonomyProposal,
 } from '../../_actions';
 
@@ -22,6 +23,10 @@ type ProposalCardProps = {
     reviewed_at: string | null;
     created_at: string;
     reviewer_name: string | null;
+    apply_change_type: string | null;
+    apply_reason: string | null;
+    trigger_run_id: string | null;
+    apply_retryable: boolean;
   };
 };
 
@@ -65,6 +70,7 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [dispatchResult, setDispatchResult] = useState<string | null>(null);
 
   const onApprove = () => {
     setError(null);
@@ -95,6 +101,25 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
   };
 
   const isPendingReview = proposal.status === 'pending';
+  const canApply =
+    proposal.status === 'approved' &&
+    proposal.proposal_type !== 'create_top_domain' &&
+    (!proposal.apply_change_type || proposal.apply_retryable);
+  const applyLabel = proposal.apply_change_type?.startsWith('reclassification_applied_')
+    ? 'Applied'
+    : proposal.apply_change_type?.startsWith('reclassification_skipped_')
+      ? proposal.proposal_type.startsWith('split_')
+        ? 'Manual intervention required'
+        : 'Skipped'
+      : proposal.apply_change_type === 'reclassification_dispatched'
+        ? proposal.apply_retryable
+          ? 'Dispatch stale, retry available'
+          : 'Applying'
+        : proposal.apply_change_type === 'reclassification_failed'
+          ? 'Failed'
+          : proposal.status === 'approved' && proposal.proposal_type !== 'create_top_domain'
+            ? 'Approved, waiting to apply'
+            : null;
   const evidence = payload.representativeEvidence ?? [];
   const entityHints = payload.boundaryRules?.commonEntityHints ?? [];
 
@@ -117,9 +142,7 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
             {proposal.status}
           </span>
         </div>
-        {payload.oneSentencePurpose && (
-          <p className="mt-1 text-sm">{payload.oneSentencePurpose}</p>
-        )}
+        {payload.oneSentencePurpose && <p className="mt-1 text-sm">{payload.oneSentencePurpose}</p>}
       </CardHeader>
       <CardContent className="space-y-3 text-xs">
         {payload.proposalReason && (
@@ -132,11 +155,7 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
         )}
 
         {payload.boundaryRules?.belongsHere && payload.boundaryRules.belongsHere.length > 0 && (
-          <ChipList
-            label="Belongs here"
-            tone="green"
-            items={payload.boundaryRules.belongsHere}
-          />
+          <ChipList label="Belongs here" tone="green" items={payload.boundaryRules.belongsHere} />
         )}
         {payload.boundaryRules?.doesNotBelongHere &&
           payload.boundaryRules.doesNotBelongHere.length > 0 && (
@@ -219,12 +238,43 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
           </span>
           {payload.recommendedAction && (
             <span>
-              Recommended:{' '}
-              <strong className="text-foreground">{payload.recommendedAction}</strong>
+              Recommended: <strong className="text-foreground">{payload.recommendedAction}</strong>
               {payload.confidence != null && ` (conf ${payload.confidence.toFixed(2)})`}
             </span>
           )}
         </div>
+        {applyLabel && (
+          <div className="rounded border bg-muted/30 px-2 py-1">
+            <strong>{applyLabel}</strong>
+            {proposal.trigger_run_id && <> · Run {proposal.trigger_run_id}</>}
+            {proposal.apply_reason && <div className="mt-1">{proposal.apply_reason}</div>}
+          </div>
+        )}
+        {canApply && (
+          <Button
+            type="button"
+            size="sm"
+            disabled={isPending}
+            onClick={() => {
+              setError(null);
+              setDispatchResult(null);
+              startTransition(async () => {
+                try {
+                  const result = await applyApprovedTaxonomyProposal(proposal.id);
+                  setDispatchResult(`Applying in Trigger run ${result.runId}.`);
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : String(e));
+                }
+              });
+            }}
+          >
+            {isPending ? 'Dispatching…' : 'Apply approved change'}
+          </Button>
+        )}
+        {dispatchResult && (
+          <div className="rounded bg-blue-50 px-2 py-1 text-blue-800">{dispatchResult}</div>
+        )}
+        {error && <div className="rounded bg-red-50 px-2 py-1 text-red-800">{error}</div>}
 
         {isPendingReview && (
           <div className="space-y-2 border-t pt-3">
@@ -255,9 +305,6 @@ export function ProposalCard({ proposal }: ProposalCardProps) {
                 Reject
               </Button>
             </div>
-            {error && (
-              <div className="rounded bg-red-50 px-2 py-1 text-xs text-red-800">{error}</div>
-            )}
           </div>
         )}
       </CardContent>

@@ -6,6 +6,9 @@ import {
 } from '@oracle/engines';
 import {
   buildActiveWorkflowMapRefIndex,
+  chooseWorkflowQuoteRepair,
+  eligibleWorkflowQuoteRepairs,
+  patchWorkflowQuoteRepairs,
   validateMapElementRefMembership,
   type ActiveWorkflowMapContext,
 } from '../lib/source-workflow-read';
@@ -203,6 +206,75 @@ assert(
   ),
   'Relation endpoint cascade diagnostic missing',
 );
+const eligibleRepairs = eligibleWorkflowQuoteRepairs(rootAndCascade);
+assert(eligibleRepairs.length === 1, 'Eligible root quote failure was not selected');
+const originalSnapshot = JSON.stringify(rootAndCascadeOutput);
+const patchedRepair = patchWorkflowQuoteRepairs({
+  original: rootAndCascadeOutput,
+  requested: eligibleRepairs,
+  response: {
+    repairs: [{
+      elementId: 'sales_proof',
+      elementType: 'node',
+      chunkId: chunkA,
+      evidenceQuote: '**Sales** creates the proof.',
+    }],
+  },
+});
+assert(patchedRepair.ok, 'Valid quote repair was rejected');
+assert(JSON.stringify(rootAndCascadeOutput) === originalSnapshot, 'Repair mutated original map');
+const repairedValidation = validateWorkflowMap({
+  output: patchedRepair.output,
+  activeDocumentId: documentId,
+  activeSegmentChunkIds: new Set([chunkA, chunkB]),
+  chunksById: chunks,
+  sourceKind: 'native_text_document',
+  maxDroppedRatio: 0.2,
+});
+assert(
+  chooseWorkflowQuoteRepair(rootAndCascade, repairedValidation) === repairedValidation,
+  'Improving repair was not selected',
+);
+assert(
+  chooseWorkflowQuoteRepair(repairedValidation, rootAndCascade) === repairedValidation,
+  'Worse repair replaced the original result',
+);
+const invalidRepairs = [
+  { elementId: 'sales_proof', elementType: 'node', chunkId: chunkB, evidenceQuote: 'Wrong chunk.' },
+  { elementId: 'sales_proof', elementType: 'edge', chunkId: chunkA, evidenceQuote: 'Wrong type.' },
+  { elementId: 'unknown', elementType: 'node', chunkId: chunkA, evidenceQuote: 'Unknown id.' },
+] as const;
+for (const repair of invalidRepairs) {
+  assert(
+    !patchWorkflowQuoteRepairs({
+      original: rootAndCascadeOutput,
+      requested: eligibleRepairs,
+      response: { repairs: [repair] },
+    }).ok,
+    `Invalid ${repair.evidenceQuote} repair was accepted`,
+  );
+}
+assert(
+  !patchWorkflowQuoteRepairs({
+    original: rootAndCascadeOutput,
+    requested: eligibleRepairs,
+    response: {
+      repairs: [
+        { elementId: 'sales_proof', elementType: 'node', chunkId: chunkA, evidenceQuote: 'First.' },
+        { elementId: 'sales_proof', elementType: 'node', chunkId: chunkA, evidenceQuote: 'Second.' },
+      ],
+    },
+  }).ok,
+  'Duplicate repair was accepted',
+);
+assert(
+  !patchWorkflowQuoteRepairs({
+    original: rootAndCascadeOutput,
+    requested: eligibleRepairs,
+    response: { repairs: [] },
+  }).ok,
+  'Missing repair was accepted',
+);
 
 for (const [chunkId, expected] of [
   [chunkForeign, 'foreign_document_citation'],
@@ -345,6 +417,27 @@ try {
     error instanceof SourceReaderBudgetExceededError && error.check === 'max_read_calls';
 }
 assert(budgetFailedLoud, 'Reader read-call budget did not fail loudly');
+
+const noRepairBudget = new SourceReaderBudget({
+  maxReadCalls: 1,
+  maxInputTokens: 10,
+  maxEstimatedCostUsd: 1,
+  estimatedInputCostPerMillionTokensUsd: 1,
+  maxRepairAttempts: 0,
+  maxConcurrency: 1,
+});
+let optionalRepairSkipped = false;
+try {
+  noRepairBudget.reserveRepair('optional quote repair');
+} catch (error) {
+  optionalRepairSkipped =
+    error instanceof SourceReaderBudgetExceededError && error.check === 'max_repair_attempts';
+}
+assert(optionalRepairSkipped, 'Exhausted optional repair budget was not detectable');
+assert(
+  JSON.stringify(rootAndCascadeOutput) === originalSnapshot,
+  'Optional repair budget miss changed the original map',
+);
 
 const concurrencyResult = await mapWithConcurrency({
   inputs: [1, 2, 3],

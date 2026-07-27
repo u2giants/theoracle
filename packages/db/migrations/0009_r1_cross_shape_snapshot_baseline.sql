@@ -1,0 +1,11 @@
+-- Drizzle snapshot reconciliation only.
+--
+-- Thirteen tables and related columns/indexes were intentionally materialized
+-- by hand-written SQL migrations under packages/db/migrations/sql before
+-- Drizzle's generated snapshot knew about them. Their owners are
+-- 77_meeting_transcripts.sql, 85_documents_macro_health.sql,
+-- 86_macro_first_schema.sql, 87_model_capability_granularity.sql,
+-- 90_meeting_transcript_picker_details.sql, and 93_source_structure_maps.sql.
+-- Production already contains every object, as the R1 read-only audit verified.
+-- The generated SQL attempted to replay that DDL, so this file is intentionally
+-- SQL-empty while meta/0009_snapshot.json records the current 79-table schema.

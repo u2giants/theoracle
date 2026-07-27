@@ -7,8 +7,10 @@ import {
   SOURCE_SEGMENTATION_SYSTEM_PROMPT,
   WORKFLOW_READ_PROMPT_VERSION,
   WORKFLOW_READ_SYSTEM_PROMPT,
+  WORKFLOW_QUOTE_REPAIR_SYSTEM_PROMPT,
   SourceSegmentationSchema,
   WorkflowReadSchema,
+  WorkflowQuoteRepairSchema,
   buildStandardAdapters,
   estimateTokens,
   logAllCandidatesFailedAttempts,
@@ -23,6 +25,7 @@ import {
   type WorkflowReadLane,
   type WorkflowReadNode,
   type WorkflowReadOutput,
+  type WorkflowQuoteRepairOutput,
   type WorkflowReadPath,
   type SourceStructureElement,
   type SourceStructureMap,
@@ -57,8 +60,13 @@ import {
 import {
   mapWithConcurrency,
   SourceReaderBudget,
+  SourceReaderBudgetExceededError,
   type SourceReaderBudgetLimits,
 } from './source-reader-budget';
+import type {
+  WorkflowMapRejectionDiagnostic,
+  WorkflowMapValidationResult,
+} from './workflow-map-validator';
 
 type ChunkRow = {
   id: string;
@@ -69,6 +77,75 @@ type ChunkRow = {
 };
 
 type ReusableWorkflowMapStatus = 'validated' | 'degraded';
+
+export type WorkflowQuoteRepairMetadata = {
+  repairAttempts: number;
+  repairSkipped: string | null;
+  rootDroppedBefore: number;
+  cascadeDroppedBefore: number;
+  rootDroppedAfter: number;
+  cascadeDroppedAfter: number;
+};
+
+export function eligibleWorkflowQuoteRepairs(
+  validation: WorkflowMapValidationResult,
+): WorkflowMapRejectionDiagnostic[] {
+  return validation.diagnostics.filter(
+    (item) =>
+      item.failureOrigin === 'root' &&
+      (item.elementType === 'node' || item.elementType === 'edge') &&
+      (item.failureClass === 'quote_mismatch' || item.failureClass === 'quote_ambiguous') &&
+      item.citedChunkId !== null,
+  );
+}
+
+export function patchWorkflowQuoteRepairs(args: {
+  original: WorkflowReadOutput;
+  requested: readonly WorkflowMapRejectionDiagnostic[];
+  response: WorkflowQuoteRepairOutput;
+}): { ok: true; output: WorkflowReadOutput } | { ok: false; reason: string } {
+  const requested = new Map(
+    args.requested.map((item) => [`${item.elementType}:${item.elementId}`, item]),
+  );
+  const seen = new Set<string>();
+  const replacements = new Map<string, string>();
+  for (const repair of args.response.repairs) {
+    const key = `${repair.elementType}:${repair.elementId}`;
+    if (seen.has(key)) return { ok: false, reason: 'duplicate_repair' };
+    seen.add(key);
+    const target = requested.get(key);
+    if (!target) return { ok: false, reason: 'unknown_or_wrong_element_type' };
+    if (target.citedChunkId !== repair.chunkId) return { ok: false, reason: 'chunk_move' };
+    replacements.set(key, repair.evidenceQuote);
+  }
+  if (seen.size !== requested.size) return { ok: false, reason: 'missing_repair' };
+  return {
+    ok: true,
+    output: {
+      ...args.original,
+      nodes: args.original.nodes.map((node) => ({
+        ...node,
+        evidenceQuote: replacements.get(`node:${node.nodeId}`) ?? node.evidenceQuote,
+      })),
+      edges: args.original.edges.map((edge) => ({
+        ...edge,
+        evidenceQuote: replacements.get(`edge:${edge.edgeId}`) ?? edge.evidenceQuote,
+      })),
+      lanes: args.original.lanes.map((lane) => ({ ...lane })),
+      paths: args.original.paths.map((path) => ({
+        ...path,
+        nodeIdsOrdered: [...path.nodeIdsOrdered],
+      })),
+    },
+  };
+}
+
+export function chooseWorkflowQuoteRepair(
+  original: WorkflowMapValidationResult,
+  repaired: WorkflowMapValidationResult,
+): WorkflowMapValidationResult {
+  return repaired.rootDroppedCount < original.rootDroppedCount ? repaired : original;
+}
 
 export type SourceWorkflowReadResult = {
   documentId: string;
@@ -934,6 +1011,138 @@ async function runWorkflowReadModel(args: {
   return { output: mergeWorkflowOutputs(outputs), modelRunIds, contextPackIds };
 }
 
+async function runWorkflowQuoteRepairModel(args: {
+  db: OracleDb;
+  client: OracleAIClient;
+  doc: { fileName: string; fileType: string; context: string | null };
+  mapId: string;
+  chunks: ChunkRow[];
+  failures: readonly WorkflowMapRejectionDiagnostic[];
+  budget: SourceReaderBudget;
+}): Promise<{ output: WorkflowQuoteRepairOutput; modelRunId: string; contextPackId: string }> {
+  const resolved = await resolveRouteCandidates(args.db, 'workflow_read');
+  const route = resolved.candidates[0]!.route;
+  const neededChunkIds = new Set(args.failures.map((failure) => failure.citedChunkId!));
+  const repairChunks = args.chunks.filter((chunk) => neededChunkIds.has(chunk.id));
+  const blocks = [
+    makeBlock({
+      id: 'workflow-quote-repair-system',
+      label: 'Workflow quote-copy repair system prompt',
+      kind: 'stable_system',
+      content: WORKFLOW_QUOTE_REPAIR_SYSTEM_PROMPT,
+      reasonIncluded: `bounded quote-copy repair ${WORKFLOW_READ_PROMPT_VERSION}`,
+    }),
+    makeBlock({
+      id: 'workflow-quote-repair-document',
+      label: 'Document metadata and source chunks',
+      kind: 'retrieved_context',
+      content: `Document: ${args.doc.fileName}\nMap: ${args.mapId}\n\n${buildDocumentCorpus(repairChunks)}`,
+      reasonIncluded: 'exact source text for failed quotes only',
+    }),
+    makeBlock({
+      id: 'workflow-quote-repair-request',
+      label: 'Failed quote-copy records',
+      kind: 'dynamic_input',
+      content: JSON.stringify(
+        args.failures.map((failure) => ({
+          elementId: failure.elementId,
+          elementType: failure.elementType,
+          chunkId: failure.citedChunkId,
+          rejectedEvidenceQuote: failure.failingQuoteExcerpt,
+          failureClass: failure.failureClass,
+        })),
+      ),
+      reasonIncluded: 'repair only eligible root quote-copy failures',
+    }),
+  ];
+  args.budget.reserveRead({
+    estimatedInputTokens: blocks.reduce((sum, block) => sum + (block.tokenEstimate ?? 0), 0),
+    label: 'workflow quote-copy repair',
+  });
+  const plan = args.client.compile({
+    taskType: 'source_workflow_read',
+    routeId: route.routeId,
+    promptVersion: WORKFLOW_READ_PROMPT_VERSION,
+    blocks,
+    observability: { includedDocumentChunkIds: [...neededChunkIds] },
+  });
+  const [contextPack] = await args.db
+    .insert(oracleContextPacks)
+    .values(buildContextPackInsert(plan))
+    .returning({ id: oracleContextPacks.id });
+  if (!contextPack) throw new Error('[source-workflow-read] failed to insert repair context pack');
+  const started = Date.now();
+  const result = await args.client
+    .runObject<WorkflowQuoteRepairOutput>({
+      taskType: 'source_workflow_read',
+      routeId: route.routeId,
+      promptVersion: WORKFLOW_READ_PROMPT_VERSION,
+      blocks,
+      schema: WorkflowQuoteRepairSchema,
+      observability: { includedDocumentChunkIds: [...neededChunkIds] },
+      providerOptions: { maxOutputTokens: 8_000 },
+      routeCandidates: resolved.candidates,
+    })
+    .catch(async (error) => {
+      await logAllCandidatesFailedAttempts({
+        db: args.db,
+        error,
+        taskType: 'source-workflow-read',
+        slot: 'workflow_read',
+        contextPackId: contextPack.id,
+      }).catch((logError) =>
+        console.error('[source-workflow-read] failed to log quote repair attempts', logError),
+      );
+      throw error;
+    });
+  const [modelRun] = await args.db
+    .insert(modelRuns)
+    .values({
+      taskType: 'source-workflow-read-quote-repair',
+      model: result.modelId ?? route.modelId,
+      provider: result.provider ?? route.provider,
+      promptVersion: WORKFLOW_READ_PROMPT_VERSION,
+      inputHash: plan.metadata.stablePrefixHash,
+      inputTokens: result.usage.inputTokens ?? null,
+      outputTokens: result.usage.outputTokens ?? null,
+      latencyMs: Date.now() - started,
+      success: result.validation.ok,
+      error: result.validation.ok ? null : result.validation.error.message,
+    })
+    .returning({ id: modelRuns.id });
+  if (!modelRun) throw new Error('[source-workflow-read] failed to insert repair model run');
+  await args.db.insert(modelRunUsageDetails).values({
+    modelRunId: modelRun.id,
+    contextPackId: contextPack.id,
+    routeId: result.routeId ?? route.routeId,
+    inputTokens: result.usage.inputTokens ?? null,
+    cachedInputTokens: result.usage.cachedInputTokens ?? null,
+    cacheWriteTokens: result.usage.cacheWriteTokens ?? null,
+    outputTokens: result.usage.outputTokens ?? null,
+    reasoningTokens: result.usage.reasoningTokens ?? null,
+    providerRequestId: result.usage.providerRequestId ?? null,
+    rawUsageJson: result.usage.rawUsageJson ?? null,
+  });
+  await logModelRunAttempts({
+    db: args.db,
+    metadata: result,
+    taskType: 'source-workflow-read',
+    slot: 'workflow_read',
+    contextPackId: contextPack.id,
+    modelRunId: modelRun.id,
+  });
+  await args.db
+    .update(oracleContextPacks)
+    .set({ modelRunId: modelRun.id })
+    .where(eq(oracleContextPacks.id, contextPack.id));
+  if (!result.validation.ok) {
+    throw new Error(
+      `[source-workflow-read] quote repair failed schema validation: ${result.validation.error.message}`,
+    );
+  }
+  return { output: result.object, modelRunId: modelRun.id, contextPackId: contextPack.id };
+}
+
 export function renderWorkflowMapGuidance(mapId: string, map: SourceStructureMap): string {
   const lines = [
     'SOURCE STRUCTURE MAP (GUIDANCE ONLY - NEVER QUOTE THIS BLOCK)',
@@ -1340,6 +1549,7 @@ export async function generateSourceWorkflowMap(args: {
         map: SourceStructureMap;
         modelRunIds: string[];
         contextPackIds: string[];
+        repair: WorkflowQuoteRepairMetadata;
       }
     >({
       inputs: processSegments,
@@ -1367,7 +1577,7 @@ export async function generateSourceWorkflowMap(args: {
           documentChunks: chunks,
           coveredChunkIds,
         });
-        const validation = validateWorkflowMap({
+        const originalValidation = validateWorkflowMap({
           output: modelResult.output,
           activeDocumentId: args.documentId,
           activeSegmentChunkIds: new Set(segment.chunkIds),
@@ -1375,6 +1585,69 @@ export async function generateSourceWorkflowMap(args: {
           sourceKind: quoteSourceKind,
           maxDroppedRatio,
         });
+        let validation = originalValidation;
+        let repair: WorkflowQuoteRepairMetadata = {
+          repairAttempts: 0,
+          repairSkipped: null,
+          rootDroppedBefore: originalValidation.rootDroppedCount,
+          cascadeDroppedBefore: originalValidation.cascadeDroppedCount,
+          rootDroppedAfter: originalValidation.rootDroppedCount,
+          cascadeDroppedAfter: originalValidation.cascadeDroppedCount,
+        };
+        const eligibleFailures = eligibleWorkflowQuoteRepairs(originalValidation);
+        if (eligibleFailures.length === 0) {
+          repair.repairSkipped = 'no_eligible_root_quote_failure';
+        } else {
+          try {
+            readerBudget!.reserveRepair('workflow quote-copy repair');
+            repair.repairAttempts = 1;
+            const repairResult = await runWorkflowQuoteRepairModel({
+              db,
+              client,
+              doc,
+              mapId: pending.mapId,
+              chunks,
+              failures: eligibleFailures,
+              budget: readerBudget!,
+            });
+            modelResult.modelRunIds.push(repairResult.modelRunId);
+            modelResult.contextPackIds.push(repairResult.contextPackId);
+            const patched = patchWorkflowQuoteRepairs({
+              original: modelResult.output,
+              requested: eligibleFailures,
+              response: repairResult.output,
+            });
+            if (!patched.ok) {
+              repair.repairSkipped = patched.reason;
+            } else {
+              const repairedValidation = validateWorkflowMap({
+                output: patched.output,
+                activeDocumentId: args.documentId,
+                activeSegmentChunkIds: new Set(segment.chunkIds),
+                chunksById: validationChunks,
+                sourceKind: quoteSourceKind,
+                maxDroppedRatio,
+              });
+              repair.rootDroppedAfter = repairedValidation.rootDroppedCount;
+              repair.cascadeDroppedAfter = repairedValidation.cascadeDroppedCount;
+              validation = chooseWorkflowQuoteRepair(originalValidation, repairedValidation);
+              if (validation === originalValidation) repair.repairSkipped = 'no_root_improvement';
+            }
+          } catch (error) {
+            if (
+              error instanceof SourceReaderBudgetExceededError &&
+              (error.check === 'max_repair_attempts' ||
+                error.check === 'max_read_calls' ||
+                error.check === 'max_input_tokens' ||
+                error.check === 'max_estimated_cost_usd')
+            ) {
+              repair.repairSkipped = 'budget_exhausted';
+            } else {
+              repair.repairSkipped = 'repair_call_failed';
+              console.error('[source-workflow-read] optional quote-copy repair failed', error);
+            }
+          }
+        }
         return {
           segment,
           validation,
@@ -1388,6 +1661,7 @@ export async function generateSourceWorkflowMap(args: {
           }),
           modelRunIds: modelResult.modelRunIds,
           contextPackIds: modelResult.contextPackIds,
+          repair,
         };
       },
     });
@@ -1432,6 +1706,7 @@ export async function generateSourceWorkflowMap(args: {
         segmentId: read.segment.segmentId,
         promptVersion: WORKFLOW_READ_PROMPT_VERSION,
         ...read.validation.validationJson,
+        quoteRepair: read.repair,
       })),
       droppedCount,
       keptCount,

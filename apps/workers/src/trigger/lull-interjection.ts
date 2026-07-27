@@ -22,12 +22,12 @@
 // Per HANDOFF.md the live-message-posting decision is intentional — no
 // dry-run gating. Admin reviews via /admin/ai and oracle_interventions.
 //
-// Presence check (isAnyoneTyping): round 1 defaults to false. Wiring real
-// Supabase Realtime presence is round 2.
+// Typing presence is live through short-lived `typing_indicators` heartbeats.
+// Round 1 deferred presence because no durable heartbeat path existed yet.
 //
 // Topical relevance of the chosen gap: round 1 picks highest-priority open
 // gap whose targetEmployeeId is null or is a channel participant. Embedding-
-// based topical relevance vs recent message embeddings is round 2.
+// based topical relevance vs recent message embeddings remains open.
 
 import { schedules } from '@trigger.dev/sdk/v3';
 import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';

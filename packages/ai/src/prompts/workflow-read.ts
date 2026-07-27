@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-export const WORKFLOW_READ_PROMPT_VERSION = 'workflow-read-v1';
+export const WORKFLOW_READ_PROMPT_VERSION = 'workflow-read-v2-quote-copy-repair';
 export const SOURCE_SEGMENTATION_PROMPT_VERSION = 'source-segmentation-v1';
-export const SOURCE_READER_PIPELINE_VERSION = 'shape-reader-v2-r0-validator';
+export const SOURCE_READER_PIPELINE_VERSION = 'shape-reader-v3-r0.1-quote-copy-repair';
 
 export const SOURCE_STRUCTURE_SHAPES = [
   'process',
@@ -109,6 +109,16 @@ HARD RULES:
 - If the source is not a process/workflow, return mapKind="reference", a concise summary, and empty graph arrays.
 - Use the referent pack only to resolve names and acronyms. Do not force the source to match any existing process name.`;
 
+export const WORKFLOW_QUOTE_REPAIR_SYSTEM_PROMPT = `You repair copying errors in evidence quotes for The Oracle.
+
+HARD RULES:
+- Return only JSON matching the schema.
+- Return one repair for each requested element, and no other elements.
+- Copy evidenceQuote verbatim from the specified Document Chunk ID.
+- Preserve every lead-in, letter case, punctuation mark, source spelling, and whitespace-significant Markdown character exactly.
+- Keep elementId, elementType, and chunkId exactly as supplied.
+- Never move evidence to another chunk, change map structure, add facts, summarize, paraphrase, or correct source spelling.`;
+
 export const WORKFLOW_NODE_TYPES = [
   'step',
   'decision',
@@ -170,6 +180,19 @@ export const WorkflowReadSchema = z.object({
   edges: z.array(WorkflowReadEdgeSchema).max(400),
   lanes: z.array(WorkflowReadLaneSchema).max(80),
   paths: z.array(WorkflowReadPathSchema).max(80),
+});
+
+export const WorkflowQuoteRepairSchema = z.object({
+  repairs: z
+    .array(
+      z.object({
+        elementId: workflowId,
+        elementType: z.enum(['node', 'edge']),
+        chunkId: z.string().uuid(),
+        evidenceQuote: z.string().min(3).max(2000),
+      }),
+    )
+    .max(650),
 });
 
 export const SourceSegmentationSchema = z.object({
@@ -248,6 +271,7 @@ export const SourceStructureMapSchema = z.object({
 });
 
 export type WorkflowReadOutput = z.infer<typeof WorkflowReadSchema>;
+export type WorkflowQuoteRepairOutput = z.infer<typeof WorkflowQuoteRepairSchema>;
 export type SourceSegmentationOutput = z.infer<typeof SourceSegmentationSchema>;
 export type WorkflowReadNode = z.infer<typeof WorkflowReadNodeSchema>;
 export type WorkflowReadEdge = z.infer<typeof WorkflowReadEdgeSchema>;

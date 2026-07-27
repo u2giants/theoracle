@@ -14,8 +14,8 @@ Database: Supabase project `eqccjfbyrywsqkxxpjvg`
 
 | Step | Status | Evidence or blocker |
 |---|---|---|
-| REL-1 Stale verification script and false comments | ⬜ open | No blocker |
-| REL-2 Reconcile ERR-003, ERR-004, ERR-005 with the current reader | 🟨 partial, 2026-07-26 | ERR-003's code path is deleted; ERR-004 and ERR-005 still need current-path evidence |
+| REL-1 Stale verification script and false comments | ✅ done, 2026-07-26 | Deleted the obsolete pre-migration-89 workflow audit; corrected Teams, typing-presence, storage-bucket, and retrofit-status notes; REL-1 search/diff gates passed (full worker gate is temporarily blocked by a concurrent out-of-scope taxonomy test edit) |
+| REL-2 Reconcile ERR-003, ERR-004, ERR-005 with the current reader | 🟨 partial, 2026-07-27 | ERR-003 is closed by source removal plus deployed worker `20260722.1`; ERR-004 and ERR-005 still require owner-authorized fixture reruns |
 | REL-3 Retire or retarget the obsolete macro-support SQL smoke | ⬜ open | Current script tests deleted writer queries and is not in CI |
 | REL-4 Model-pool phantom fallback audit | ⬜ open | Read-only production settings/env audit first |
 | REL-5 Migration 65 and generated-snapshot drift | ⬜ open | Coordinate with macro R1 drift audit to avoid duplicate migration work |
@@ -25,9 +25,9 @@ Database: Supabase project `eqccjfbyrywsqkxxpjvg`
 | REL-9 Close logs and documentation | ⬜ open | Depends on all earlier applicable steps |
 | Claude conditional-review queue | ⏸ blocked | Send the five conditional suggestions in §9 to Claude before promoting any into implementation work |
 
-Fresh-session starting point: REL-1 can begin now. REL-2 must use only the current map-directed
-reader files named below. REL-3 starts with a zero-caller proof before deciding whether the old
-smoke script should be deleted or retargeted. Coordinate REL-5 with macro R1.
+Fresh-session starting point: REL-2 must use only the current map-directed reader files named
+below. REL-3 starts with a zero-caller proof before deciding whether the old smoke script should
+be deleted or retargeted. Coordinate REL-5 with macro R1.
 
 ## 1. Ultimate goal
 
@@ -57,8 +57,8 @@ Kimi K3's 2026-07-26 full-repo review, and old handoff history:
 - ERR-003 and ERR-004 were written for outline, lens, macro, and coverage workers that Stage 3 later
   deleted. ERR-003 is fixed in source by removal of the fan-out architecture; ERR-004 must be
   rewritten around the current map-directed reader. ERR-005 still needs its current-path rerun.
-- `scripts/verify-workflow-map-prod.mjs` selects removed `source_outline_id` and uses
-  `macro_relationships.confidence` instead of `confidence_score`.
+- The now-retired `scripts/verify-workflow-map-prod.mjs` selected removed
+  `source_outline_id` and used `macro_relationships.confidence` instead of `confidence_score`.
 - `apps/workers/src/lib/schema-repair.ts` has no callers and hard-codes a route.
 - ERR-002's former runtime queries have no current writer callers. A standalone database smoke still
   contains those queries, is exposed by a package script, and is not wired into CI.
@@ -66,16 +66,16 @@ Kimi K3's 2026-07-26 full-repo review, and old handoff history:
   Current pool state must be checked before that instruction is acted on.
 - Migration 65 is hand-written only, while an old pending-work row warns that generated drift or
   fresh database creation may disagree.
-- The Teams transcript worker's top comment says speaker email resolution and meeting-time
-  anchoring are TODOs, but the same file already implements both.
-- The lull-interjection header and `DECISIONS.md` still say typing presence is hard-coded false,
-  but the worker now queries unexpired `typing_indicators` rows.
+- The Teams transcript worker's top comment said speaker email resolution and meeting-time
+  anchoring were TODOs, but the same file already implemented both.
+- The lull-interjection header and `DECISIONS.md` said typing presence was hard-coded false,
+  but the worker already queried unexpired `typing_indicators` rows.
 - The image ingestion feature passed code gates but lacks the recorded live upload proof.
 - CI checks the build and migration drift, but database migration and Trigger.dev deployment are
   still manual release steps.
-- Several docs describe already-completed model routing and catalog work as still pending.
-- `DECISIONS.md` still carries an early `company_documents` bucket TODO even though the current
-  project guide and runtime use that bucket.
+- Several docs described already-completed model routing and catalog work as still pending.
+- `DECISIONS.md` carried an early `company_documents` bucket TODO even though the current
+  project guide and runtime used that bucket.
 - `DECISIONS.md` still lists delivered macro pool UI, fan-out, workflow-map, ungating, and ordering
   work as deferred.
 
@@ -106,7 +106,8 @@ Not in this plan:
 
 - R0 is deployed and verified; see `MACRO_FIRST_IMPLEMENTATION_PLAN.md` and
   `evals/shape-aware-stage2.md`.
-- `scripts/verify-workflow-map-prod.mjs` is schema-stale and must not be trusted for R1.
+- The schema-stale `scripts/verify-workflow-map-prod.mjs` was deleted in REL-1 because it duplicated
+  the maintained audit while querying retired tables and columns.
 - `packages/db/src/audit-r0-release-map.ts` is the current post-migration SELECT-only map audit.
 - `packages/db/src/audit-r0-reader-drops.ts` intentionally covers only the old map.
 - `apps/workers/src/lib/schema-repair.ts` has zero callers as of 2026-07-26.
@@ -122,8 +123,8 @@ Not in this plan:
 - `.github/workflows/pr-check.yml` is the only workflow.
 - The worktree already contains user-owned untracked PNG files. Do not touch them.
 
-No step in this plan was implemented by the planning session. Only Markdown plans and routers were
-changed.
+The planning session changed only Markdown plans and routers. REL-1 was implemented in the
+follow-up session on 2026-07-26.
 
 ## 6. Root causes and key findings
 
@@ -231,6 +232,17 @@ matches the code at the email-resolution and `meetingTime` branches.
 5. Run the current document-only contradiction fixture through `contradiction-watcher`.
 6. Pass ERR-005 when contradiction and normal gap rows persist, no `oracle_interventions` row uses
    a fake channel ID, and no foreign-key failure occurs.
+
+Read-only evidence captured 2026-07-27:
+
+- Trigger.dev deployment `deployment_hm4hhngt6jnit96rd1huc`, worker `20260722.1`, advertises
+  `source-workflow-read` and `contradiction-watcher` and advertises none of the four retired tasks.
+- Production has 3 validated/degraded non-empty maps and 74 candidate rows whose refs use one of
+  those map IDs. A stricter latest-map membership audit found 54 of 75 historical referenced
+  candidates on the latest active map and 21 on an older or otherwise non-current map. This is
+  inventory evidence, not the pinned-fixture proof required by step 4.
+- Production currently has 0 `model_coverage` gaps and 0 interventions with the all-zero channel
+  ID. Those zero counts do not replace the omitted-element and document-only contradiction fixtures.
 
 Gate: ERR-003 is `FIXED BY ARCHITECTURE REMOVAL` with repo and deployed task-inventory evidence.
 ERR-004 and ERR-005 are `FIXED` only with run IDs, row counts, worker version, and date.

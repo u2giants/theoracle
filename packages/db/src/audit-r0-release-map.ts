@@ -27,6 +27,14 @@ type ProcessSegment = {
   crossSegmentCitationRatio?: unknown;
   importantRelationEvidenceCoverage?: unknown;
   degradationReasons?: unknown;
+  quoteRepair?: {
+    repairAttempts?: unknown;
+    repairSkipped?: unknown;
+    rootDroppedBefore?: unknown;
+    cascadeDroppedBefore?: unknown;
+    rootDroppedAfter?: unknown;
+    cascadeDroppedAfter?: unknown;
+  };
 };
 
 const databaseUrl = process.env.R0_AUDIT_DATABASE_URL;
@@ -131,6 +139,16 @@ try {
           degradationReasons: Array.isArray(segment.degradationReasons)
             ? segment.degradationReasons
             : [],
+          quoteRepair: segment.quoteRepair
+            ? {
+                repairAttempts: number(segment.quoteRepair.repairAttempts),
+                repairSkipped: segment.quoteRepair.repairSkipped ?? null,
+                rootDroppedBefore: number(segment.quoteRepair.rootDroppedBefore),
+                cascadeDroppedBefore: number(segment.quoteRepair.cascadeDroppedBefore),
+                rootDroppedAfter: number(segment.quoteRepair.rootDroppedAfter),
+                cascadeDroppedAfter: number(segment.quoteRepair.cascadeDroppedAfter),
+              }
+            : null,
         })),
       },
       null,

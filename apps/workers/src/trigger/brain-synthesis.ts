@@ -114,15 +114,14 @@ export const SynthesisOutputSchema = z.object({
   claimsRemoved: z.array(z.string().uuid()),
   claimsStrengthened: z.array(z.string().uuid()),
   claimsWeakened: z.array(z.string().uuid()),
-  newContradictions: z
-    .array(
-      z.object({
-        claimAId: z.string().uuid(),
-        claimBId: z.string().uuid(),
-        description: z.string(),
-        severity: z.enum(['low', 'medium', 'high']),
-      }),
-    ),
+  newContradictions: z.array(
+    z.object({
+      claimAId: z.string().uuid(),
+      claimBId: z.string().uuid(),
+      description: z.string(),
+      severity: z.enum(['low', 'medium', 'high']),
+    }),
+  ),
   resolvedContradictions: z.array(z.string().uuid()),
   newGaps: z.array(NewGapSchema),
   resolvedGaps: z.array(z.string().uuid()),
@@ -139,7 +138,7 @@ export type SynthesisOutput = z.infer<typeof SynthesisOutputSchema>;
 
 const PayloadSchema = z.object({
   sectionId: z.string().min(1),
-  trigger: z.enum(['scheduled', 'admin', 'new_claims']),
+  trigger: z.enum(['scheduled', 'admin', 'new_claims', 'taxonomy_reclassification']),
   minNewClaims: z.number().int().min(0).optional(),
 });
 
@@ -157,9 +156,12 @@ function buildOracleClient(): OracleAIClient {
 // Prompt builder — unchanged from legacy (same shape, same rules).
 // ─────────────────────────────────────────────────────────────────────────
 
-function buildSynthesisSystemPrompt(
-  section: { id: string; title: string; knowledgeDomain: string; category: string },
-): string {
+function buildSynthesisSystemPrompt(section: {
+  id: string;
+  title: string;
+  knowledgeDomain: string;
+  category: string;
+}): string {
   return `You are the Oracle Brain Synthesis engine for POP Creations / Spruce Line.
 
 Your task: synthesize a new version of the brain section "${section.title}" (domain: ${section.knowledgeDomain}, category: ${section.category}).
@@ -184,7 +186,15 @@ OUTPUT: Return structured JSON matching the schema exactly. The updatedMarkdown 
 
 function buildSynthesisCorpus(
   currentMarkdown: string | null,
-  approvedClaims: Array<{ id: string; summary: string; claimType: string; claimKind?: string | null; claimKindReviewStatus?: string | null; impactScore: number; confidenceScore: number }>,
+  approvedClaims: Array<{
+    id: string;
+    summary: string;
+    claimType: string;
+    claimKind?: string | null;
+    claimKindReviewStatus?: string | null;
+    impactScore: number;
+    confidenceScore: number;
+  }>,
   macroRelationships: Array<{
     id: string;
     relationshipType: string;
@@ -195,12 +205,13 @@ function buildSynthesisCorpus(
   }> = [],
 ): string {
   const claimList = approvedClaims
-    .map(
-      (c) => {
-        const reviewedKind = c.claimKindReviewStatus === 'reviewed' ? (c.claimKind ?? 'uncertain') : 'uncertain (kind not reviewed)';
-        return `  - ID: ${c.id}\n    Type: ${c.claimType}\n    Kind: ${reviewedKind}\n    Impact: ${c.impactScore}/10  Confidence: ${c.confidenceScore}/10\n    Claim: ${c.summary}`;
-      },
-    )
+    .map((c) => {
+      const reviewedKind =
+        c.claimKindReviewStatus === 'reviewed'
+          ? (c.claimKind ?? 'uncertain')
+          : 'uncertain (kind not reviewed)';
+      return `  - ID: ${c.id}\n    Type: ${c.claimType}\n    Kind: ${reviewedKind}\n    Impact: ${c.impactScore}/10  Confidence: ${c.confidenceScore}/10\n    Claim: ${c.summary}`;
+    })
     .join('\n');
   const macroList = macroRelationships
     .map(
@@ -252,7 +263,9 @@ async function synthesizeSection(
     .where(eq(brainSections.id, sectionId))
     .limit(1);
   if (!section) {
-    throw new Error(`Brain section "${sectionId}" does not exist. Create it in the admin UI first.`);
+    throw new Error(
+      `Brain section "${sectionId}" does not exist. Create it in the admin UI first.`,
+    );
   }
 
   let currentMarkdown: string | null = null;
@@ -299,12 +312,7 @@ async function synthesizeSection(
     })
     .from(claims)
     .innerJoin(claimTopDomains, eq(claimTopDomains.claimId, claims.id))
-    .where(
-      and(
-        eq(claims.status, 'approved'),
-        inArray(claimTopDomains.topDomainId, topDomainIds),
-      ),
-    )
+    .where(and(eq(claims.status, 'approved'), inArray(claimTopDomains.topDomainId, topDomainIds)))
     .orderBy(desc(claims.impactScore))
     .limit(200);
 
@@ -320,12 +328,7 @@ async function synthesizeSection(
     })
     .from(claims)
     .innerJoin(sectionClaims, eq(sectionClaims.claimId, claims.id))
-    .where(
-      and(
-        eq(claims.status, 'approved'),
-        eq(sectionClaims.sectionId, sectionId),
-      ),
-    );
+    .where(and(eq(claims.status, 'approved'), eq(sectionClaims.sectionId, sectionId)));
 
   const allClaimsMap = new Map<string, (typeof domainClaims)[number]>();
   for (const c of [...domainClaims, ...sectionSpecificClaims]) {
@@ -356,7 +359,9 @@ async function synthesizeSection(
   }
   const approvedClaimsForValidation = Array.from(allClaimsMap.values());
   const approvedClaimIds = new Set(approvedClaimsForValidation.map((c) => c.id));
-  const approvedClaimSummariesLower = approvedClaimsForValidation.map((c) => c.summary.toLowerCase());
+  const approvedClaimSummariesLower = approvedClaimsForValidation.map((c) =>
+    c.summary.toLowerCase(),
+  );
   const approvedClaimSummariesLowerById = new Map(
     approvedClaimsForValidation.map((c) => [c.id, c.summary.toLowerCase()]),
   );
@@ -369,14 +374,12 @@ async function synthesizeSection(
   );
 
   // ── 2. Compile prompt blocks ─────────────────────────────────────────
-  const systemPrompt = buildSynthesisSystemPrompt(
-    {
-      id: section.id,
-      title: section.title,
-      knowledgeDomain: section.knowledgeDomain,
-      category: section.category,
-    },
-  );
+  const systemPrompt = buildSynthesisSystemPrompt({
+    id: section.id,
+    title: section.title,
+    knowledgeDomain: section.knowledgeDomain,
+    category: section.category,
+  });
   const synthesisCorpus = buildSynthesisCorpus(currentMarkdown, approvedClaims, macroRelationships);
 
   const blocks = [
@@ -758,7 +761,9 @@ export const brainSynthesisScheduledTask = schedules.task({
 async function resolveSynthesisCandidates(db: OracleDb): Promise<RouteCandidate[]> {
   const resolved = await resolveRouteCandidates(db, 'synthesis');
   for (const skipped of resolved.skipped) {
-    console.error(`[brain-synthesis] skipped configured synthesis candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`);
+    console.error(
+      `[brain-synthesis] skipped configured synthesis candidate ${skipped.modelIdOrRouteId}: ${skipped.reason}`,
+    );
   }
   return resolved.candidates;
 }

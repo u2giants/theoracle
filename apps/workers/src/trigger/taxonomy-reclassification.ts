@@ -6,23 +6,22 @@
 // apps/web/app/admin/taxonomy/_actions.ts defers with:
 //   afterState.queuedFor = 'taxonomy-reclassification-worker'
 //
-// Applies the structural mutation that the proposal describes, then writes a
-// taxonomy_change_log row with changeType 'reclassification_applied_*' so the
-// proposal is never re-processed.
+// Applies or safely skips the structural mutation, records the terminal result,
+// and records the observable post-commit Brain follow-up.
 //
 // Governance invariants (see docs/oracle/07-knowledge-segmentation.md):
 //   - NEVER auto-mutates an un-approved proposal. status must be 'approved'.
 //   - NEVER touches claims, claim_evidence, or extraction tables.
-//   - NEVER deletes taxonomy rows — only inserts, updates (review_status),
-//     and claim_sub_topics re-assignments.
+//   - May insert/update taxonomy rows and move/delete taxonomy link rows, but
+//     never deletes a top-domain or sub-topic definition.
 //   - complex proposals (split_top_domain, split_sub_topic) require human
 //     judgment about which claims go where; they are logged as
-//     'manual_intervention_required' and skipped.
+//     'reclassification_skipped_split_*' and skipped.
 //
 // Trigger.dev auto-discovers this file via dirs: ['./src/trigger'] in
 // trigger.config.ts — no explicit registration needed.
 
-import { task } from '@trigger.dev/sdk/v3';
+import { task, tasks } from '@trigger.dev/sdk/v3';
 import { and, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDirectDb } from '@oracle/db/client';
@@ -35,12 +34,15 @@ import {
   taxonomyChangeLog,
   taxonomyProposals,
 } from '@oracle/db';
+import { validateTaxonomyReclassificationPayload } from '../lib/taxonomy-reclassification-contract.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Payload types
 // ─────────────────────────────────────────────────────────────────────────
 
 const ManualTriggerPayload = z.object({
+  /** Process one approved proposal. Preferred for admin dispatch. */
+  proposalId: z.string().uuid().optional(),
   /** Only reclassify proposals of this type. Omit to process all pending. */
   proposalType: z.string().optional(),
   /** Dry-run: find pending proposals but do not apply mutations. */
@@ -55,7 +57,7 @@ type ProposalPayload = Record<string, unknown>;
 // Find pending reclassifications
 // ─────────────────────────────────────────────────────────────────────────
 
-type PendingProposal = {
+export type PendingProposal = {
   id: string;
   proposalType: string;
   payload: ProposalPayload;
@@ -64,6 +66,7 @@ type PendingProposal = {
 async function findPendingReclassifications(
   db: ReturnType<typeof getDirectDb>,
   proposalTypeFilter?: string,
+  proposalId?: string,
 ): Promise<PendingProposal[]> {
   // Find approved proposals that have the "queuedFor" change_log row but NOT
   // a "reclassification_applied_*" row yet.
@@ -73,6 +76,7 @@ async function findPendingReclassifications(
     WHERE tp.status = 'approved'
       AND tp.proposal_type != 'create_top_domain'
       ${proposalTypeFilter ? sql`AND tp.proposal_type = ${proposalTypeFilter}` : sql``}
+      ${proposalId ? sql`AND tp.id = ${proposalId}` : sql``}
       AND EXISTS (
         SELECT 1 FROM taxonomy_change_log cl
         WHERE cl.proposal_id = tp.id
@@ -81,7 +85,8 @@ async function findPendingReclassifications(
       AND NOT EXISTS (
         SELECT 1 FROM taxonomy_change_log cl
         WHERE cl.proposal_id = tp.id
-          AND cl.change_type LIKE 'reclassification_applied_%'
+          AND (cl.change_type LIKE 'reclassification_applied_%'
+            OR cl.change_type LIKE 'reclassification_skipped_%')
       )
     ORDER BY tp.created_at ASC
     LIMIT 50
@@ -100,9 +105,7 @@ async function findPendingReclassifications(
 // Proposal handlers
 // ─────────────────────────────────────────────────────────────────────────
 
-type HandlerResult =
-  | { applied: true; afterState: unknown }
-  | { applied: false; reason: string };
+type HandlerResult = { applied: true; afterState: unknown } | { applied: false; reason: string };
 
 /** create_sub_topic: INSERT knowledge_sub_topics + link representative claims. */
 async function handleCreateSubTopic(
@@ -117,6 +120,14 @@ async function handleCreateSubTopic(
 
   if (!topDomainId || !proposedName) {
     return { applied: false, reason: 'payload missing topDomainId or proposedName' };
+  }
+  const topDomain = await db
+    .select({ id: knowledgeTopDomains.id })
+    .from(knowledgeTopDomains)
+    .where(eq(knowledgeTopDomains.id, topDomainId))
+    .limit(1);
+  if (!topDomain.length) {
+    return { applied: false, reason: `stale base: top-domain ${topDomainId} not found` };
   }
 
   const [inserted] = await db
@@ -146,7 +157,7 @@ async function handleCreateSubTopic(
         representativeClaimIds.map((claimId) => ({
           claimId,
           subTopicId: inserted.id,
-          assignmentReason: 'cluster_seed',
+          assignmentReason: 'reclassification',
           assignmentConfidence: '0.800',
         })),
       )
@@ -176,19 +187,27 @@ async function handleReassignClaims(
   if (!fromSubTopicId || !toSubTopicId) {
     return { applied: false, reason: 'payload missing fromSubTopicId or toSubTopicId' };
   }
+  if (fromSubTopicId === toSubTopicId) {
+    return { applied: false, reason: 'source and target sub-topic IDs are the same' };
+  }
 
-  const targetExists = await db
+  const endpoints = await db
     .select({ id: knowledgeSubTopics.id })
     .from(knowledgeSubTopics)
-    .where(eq(knowledgeSubTopics.id, toSubTopicId))
-    .limit(1);
-  if (!targetExists.length) {
+    .where(inArray(knowledgeSubTopics.id, [fromSubTopicId, toSubTopicId]));
+  if (!endpoints.some((row) => row.id === fromSubTopicId)) {
+    return { applied: false, reason: `stale base: source sub-topic ${fromSubTopicId} not found` };
+  }
+  if (!endpoints.some((row) => row.id === toSubTopicId)) {
     return { applied: false, reason: `target sub-topic ${toSubTopicId} not found` };
   }
 
   const whereClause =
     claimIds && claimIds.length > 0
-      ? and(eq(claimSubTopics.subTopicId, fromSubTopicId), inArray(claimSubTopics.claimId, claimIds))
+      ? and(
+          eq(claimSubTopics.subTopicId, fromSubTopicId),
+          inArray(claimSubTopics.claimId, claimIds),
+        )
       : eq(claimSubTopics.subTopicId, fromSubTopicId);
 
   // Re-point existing rows; skip claims already in the target.
@@ -229,6 +248,16 @@ async function handleMergeSubTopics(
   if (sourceSubTopicId === targetSubTopicId) {
     return { applied: false, reason: 'source and target sub-topic IDs are the same' };
   }
+  const endpoints = await db
+    .select({ id: knowledgeSubTopics.id })
+    .from(knowledgeSubTopics)
+    .where(inArray(knowledgeSubTopics.id, [sourceSubTopicId, targetSubTopicId]));
+  if (!endpoints.some((row) => row.id === sourceSubTopicId)) {
+    return { applied: false, reason: `stale base: source sub-topic ${sourceSubTopicId} not found` };
+  }
+  if (!endpoints.some((row) => row.id === targetSubTopicId)) {
+    return { applied: false, reason: `target sub-topic ${targetSubTopicId} not found` };
+  }
 
   // Move claims not already in target.
   const alreadyInTarget = await db
@@ -239,7 +268,10 @@ async function handleMergeSubTopics(
 
   const moveWhere =
     skipIds.length > 0
-      ? and(eq(claimSubTopics.subTopicId, sourceSubTopicId), notInArray(claimSubTopics.claimId, skipIds))
+      ? and(
+          eq(claimSubTopics.subTopicId, sourceSubTopicId),
+          notInArray(claimSubTopics.claimId, skipIds),
+        )
       : eq(claimSubTopics.subTopicId, sourceSubTopicId);
 
   const moved = await db
@@ -249,9 +281,7 @@ async function handleMergeSubTopics(
     .returning({ claimId: claimSubTopics.claimId });
 
   // Delete any leftover rows pointing at source (duplicates that were in target).
-  await db
-    .delete(claimSubTopics)
-    .where(eq(claimSubTopics.subTopicId, sourceSubTopicId));
+  await db.delete(claimSubTopics).where(eq(claimSubTopics.subTopicId, sourceSubTopicId));
 
   // Retire source sub-topic.
   await db
@@ -278,6 +308,14 @@ async function handleRetireSubTopic(
   const subTopicId = payload.subTopicId as string | undefined;
   if (!subTopicId) {
     return { applied: false, reason: 'payload missing subTopicId' };
+  }
+  const existing = await db
+    .select({ id: knowledgeSubTopics.id })
+    .from(knowledgeSubTopics)
+    .where(eq(knowledgeSubTopics.id, subTopicId))
+    .limit(1);
+  if (!existing.length) {
+    return { applied: false, reason: `stale base: sub-topic ${subTopicId} not found` };
   }
 
   const detached = await db
@@ -307,13 +345,21 @@ async function handleMergeTopDomains(
   if (!sourceTopDomainId || !targetTopDomainId) {
     return { applied: false, reason: 'payload missing sourceTopDomainId or targetTopDomainId' };
   }
+  if (sourceTopDomainId === targetTopDomainId) {
+    return { applied: false, reason: 'source and target top-domain IDs are the same' };
+  }
 
-  const targetExists = await db
+  const endpoints = await db
     .select({ id: knowledgeTopDomains.id })
     .from(knowledgeTopDomains)
-    .where(eq(knowledgeTopDomains.id, targetTopDomainId))
-    .limit(1);
-  if (!targetExists.length) {
+    .where(inArray(knowledgeTopDomains.id, [sourceTopDomainId, targetTopDomainId]));
+  if (!endpoints.some((row) => row.id === sourceTopDomainId)) {
+    return {
+      applied: false,
+      reason: `stale base: source top-domain ${sourceTopDomainId} not found`,
+    };
+  }
+  if (!endpoints.some((row) => row.id === targetTopDomainId)) {
     return { applied: false, reason: `target top-domain ${targetTopDomainId} not found` };
   }
 
@@ -339,9 +385,7 @@ async function handleMergeTopDomains(
     .returning({ claimId: claimTopDomains.claimId });
 
   // Delete remaining source rows (duplicates already in target).
-  await db
-    .delete(claimTopDomains)
-    .where(eq(claimTopDomains.topDomainId, sourceTopDomainId));
+  await db.delete(claimTopDomains).where(eq(claimTopDomains.topDomainId, sourceTopDomainId));
 
   // Deactivate source domain.
   await db
@@ -364,10 +408,11 @@ async function handleMergeTopDomains(
 // Main dispatch
 // ─────────────────────────────────────────────────────────────────────────
 
-async function applyProposal(
+export async function applyProposal(
   db: ReturnType<typeof getDirectDb>,
   proposal: PendingProposal,
   dryRun: boolean,
+  triggerRunId: string,
 ): Promise<{ proposalId: string; changeType: string; applied: boolean; note: string }> {
   if (dryRun) {
     return {
@@ -381,60 +426,162 @@ async function applyProposal(
   // Run the structural mutation AND the taxonomy_change_log row inside a single
   // transaction so a partial failure mid-handler can't leave the taxonomy moved
   // without an 'applied' log row (or vice versa) — the whole thing rolls back.
-  const result = await db.transaction<HandlerResult>(async (tx) => {
-    let r: HandlerResult;
-    switch (proposal.proposalType) {
-      case 'create_sub_topic':
-        r = await handleCreateSubTopic(tx, proposal.payload);
-        break;
-      case 'reassign_claims':
-        r = await handleReassignClaims(tx, proposal.payload);
-        break;
-      case 'merge_sub_topics':
-        r = await handleMergeSubTopics(tx, proposal.payload);
-        break;
-      case 'retire_sub_topic':
-        r = await handleRetireSubTopic(tx, proposal.payload);
-        break;
-      case 'merge_top_domains':
-        r = await handleMergeTopDomains(tx, proposal.payload);
-        break;
-      case 'split_top_domain':
-      case 'split_sub_topic':
-        r = {
-          applied: false,
-          reason: `${proposal.proposalType} requires manual admin intervention — claim-level split cannot be automated safely.`,
-        };
-        break;
-      default:
-        r = { applied: false, reason: `unknown proposal type: ${proposal.proposalType}` };
+  const outcome = await db.transaction<
+    | { kind: 'terminal'; changeType: string }
+    | { kind: 'handled'; result: HandlerResult; changeType: string }
+  >(async (tx) => {
+    const locked = await tx.execute(
+      sql`SELECT status FROM taxonomy_proposals WHERE id = ${proposal.id} FOR UPDATE`,
+    );
+    const lockedProposal = [...locked][0] as { status: string } | undefined;
+    if (!lockedProposal || lockedProposal.status !== 'approved') {
+      throw new Error('proposal disappeared or is no longer approved');
     }
+    const terminal = await tx.execute(sql`
+      SELECT change_type
+      FROM taxonomy_change_log
+      WHERE proposal_id = ${proposal.id}
+        AND (change_type LIKE 'reclassification_applied_%'
+          OR change_type LIKE 'reclassification_skipped_%')
+      ORDER BY created_at DESC
+      LIMIT 1
+    `);
+    const prior = [...terminal][0] as { change_type: string } | undefined;
+    if (prior) return { kind: 'terminal', changeType: prior.change_type };
+
+    const validation = validateTaxonomyReclassificationPayload(
+      proposal.proposalType,
+      proposal.payload,
+    );
+    let r: HandlerResult;
+    if (!validation.valid) {
+      r = { applied: false, reason: validation.reason };
+    } else
+      switch (proposal.proposalType) {
+        case 'create_sub_topic':
+          r = await handleCreateSubTopic(tx, proposal.payload);
+          break;
+        case 'reassign_claims':
+          r = await handleReassignClaims(tx, proposal.payload);
+          break;
+        case 'merge_sub_topics':
+          r = await handleMergeSubTopics(tx, proposal.payload);
+          break;
+        case 'retire_sub_topic':
+          r = await handleRetireSubTopic(tx, proposal.payload);
+          break;
+        case 'merge_top_domains':
+          r = await handleMergeTopDomains(tx, proposal.payload);
+          break;
+        case 'split_top_domain':
+        case 'split_sub_topic':
+          // Defense in depth: contract validation normally handles manual splits.
+          r = {
+            applied: false,
+            reason: `${proposal.proposalType} requires manual admin intervention — claim-level split cannot be automated safely.`,
+          };
+          break;
+        default:
+          r = { applied: false, reason: `unknown proposal type: ${proposal.proposalType}` };
+      }
 
     const ct = r.applied
       ? `reclassification_applied_${proposal.proposalType}`
       : `reclassification_skipped_${proposal.proposalType}`;
 
+    const handlerAfterState = r.applied ? r.afterState : { reason: r.reason };
     await tx.insert(taxonomyChangeLog).values({
       changeType: ct,
       beforeState: { proposalId: proposal.id, proposalType: proposal.proposalType },
-      afterState: r.applied ? r.afterState : { reason: r.reason },
+      afterState: { ...(handlerAfterState as Record<string, unknown>), triggerRunId },
       reason: r.applied ? 'Applied by taxonomy-reclassification worker' : r.reason,
       proposalId: proposal.id,
     });
 
-    return r;
+    return { kind: 'handled', result: r, changeType: ct };
   });
 
-  const changeType = result.applied
-    ? `reclassification_applied_${proposal.proposalType}`
-    : `reclassification_skipped_${proposal.proposalType}`;
+  if (outcome.kind === 'terminal') {
+    return {
+      proposalId: proposal.id,
+      changeType: outcome.changeType,
+      applied: outcome.changeType.startsWith('reclassification_applied_'),
+      note: 'already terminal; no duplicate audit row written',
+    };
+  }
 
   return {
     proposalId: proposal.id,
-    changeType,
-    applied: result.applied,
-    note: result.applied ? 'applied' : result.reason,
+    changeType: outcome.changeType,
+    applied: outcome.result.applied,
+    note: outcome.result.applied ? 'applied' : outcome.result.reason,
   };
+}
+
+export async function dispatchAffectedBrainSynthesis(
+  db: ReturnType<typeof getDirectDb>,
+  proposal: PendingProposal,
+  triggerRunId: string,
+) {
+  const payload = proposal.payload;
+  const directDomainIds = [
+    payload.topDomainId,
+    payload.sourceTopDomainId,
+    payload.targetTopDomainId,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+  const subTopicIds = [
+    payload.fromSubTopicId,
+    payload.toSubTopicId,
+    payload.sourceSubTopicId,
+    payload.targetSubTopicId,
+    payload.subTopicId,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+
+  const dispatched: Array<{ sectionId: string; runId: string }> = [];
+  try {
+    const sectionRows = await db.execute(sql`
+      SELECT DISTINCT sc.section_id
+      FROM section_claims sc
+      JOIN claim_top_domains ctd ON ctd.claim_id = sc.claim_id
+      WHERE ctd.top_domain_id IN (
+        SELECT jsonb_array_elements_text(${JSON.stringify(directDomainIds)}::jsonb)
+        UNION
+        SELECT top_domain_id FROM knowledge_sub_topics
+        WHERE id::text IN (
+          SELECT jsonb_array_elements_text(${JSON.stringify(subTopicIds)}::jsonb)
+        )
+      )
+    `);
+    const sectionIds = [...sectionRows].map((row) =>
+      String((row as { section_id: string }).section_id),
+    );
+    for (const sectionId of sectionIds) {
+      const handle = await tasks.trigger('brain-synthesis', {
+        sectionId,
+        trigger: 'taxonomy_reclassification',
+      });
+      dispatched.push({ sectionId, runId: handle.id });
+    }
+    await db.insert(taxonomyChangeLog).values({
+      changeType: 'brain_resynthesis_dispatched',
+      beforeState: { proposalId: proposal.id, taxonomyTriggerRunId: triggerRunId },
+      afterState: { dispatches: dispatched },
+      reason:
+        sectionIds.length > 0
+          ? 'Affected Brain sections dispatched after taxonomy commit.'
+          : 'No existing Brain sections were affected.',
+      proposalId: proposal.id,
+    });
+  } catch (err) {
+    await db.insert(taxonomyChangeLog).values({
+      changeType: 'brain_resynthesis_failed',
+      beforeState: { proposalId: proposal.id, taxonomyTriggerRunId: triggerRunId },
+      afterState: { dispatches: dispatched },
+      reason: err instanceof Error ? err.message : String(err),
+      proposalId: proposal.id,
+    });
+  }
+  return dispatched;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -455,18 +602,29 @@ export const taxonomyReclassificationTask = task({
         jobType: 'taxonomy-reclassification',
         status: 'running',
         startedAt: new Date(),
-        inputJson: { proposalType: parsed.proposalType ?? null, dryRun: parsed.dryRun ?? false },
+        inputJson: {
+          proposalId: parsed.proposalId ?? null,
+          proposalType: parsed.proposalType ?? null,
+          dryRun: parsed.dryRun ?? false,
+        },
       })
       .returning({ id: jobRuns.id });
     if (!jobRun) throw new Error('[taxonomy-reclassification] failed to insert job_runs row');
 
     try {
-      const pending = await findPendingReclassifications(db, parsed.proposalType);
+      const pending = await findPendingReclassifications(
+        db,
+        parsed.proposalType,
+        parsed.proposalId,
+      );
 
       const results = [];
       for (const proposal of pending) {
-        const r = await applyProposal(db, proposal, parsed.dryRun ?? false);
+        const r = await applyProposal(db, proposal, parsed.dryRun ?? false, ctx.run.id);
         results.push(r);
+        if (r.applied && !(parsed.dryRun ?? false) && r.note === 'applied') {
+          await dispatchAffectedBrainSynthesis(db, proposal, ctx.run.id);
+        }
       }
 
       const appliedCount = results.filter((r) => r.applied).length;
@@ -496,6 +654,29 @@ export const taxonomyReclassificationTask = task({
           error: err instanceof Error ? err.message : String(err),
         })
         .where(sql`id = ${jobRun.id}`);
+      if (parsed.proposalId) {
+        try {
+          const terminal = await db.execute(sql`
+            SELECT 1
+            FROM taxonomy_change_log
+            WHERE proposal_id = ${parsed.proposalId}
+              AND (change_type LIKE 'reclassification_applied_%'
+                OR change_type LIKE 'reclassification_skipped_%')
+            LIMIT 1
+          `);
+          if ([...terminal].length === 0) {
+            await db.insert(taxonomyChangeLog).values({
+              changeType: 'reclassification_failed',
+              beforeState: { proposalId: parsed.proposalId },
+              afterState: { triggerRunId: ctx.run.id },
+              reason: err instanceof Error ? err.message : String(err),
+              proposalId: parsed.proposalId,
+            });
+          }
+        } catch {
+          // Never hide the original worker failure with an audit-write failure.
+        }
+      }
       throw err;
     }
   },

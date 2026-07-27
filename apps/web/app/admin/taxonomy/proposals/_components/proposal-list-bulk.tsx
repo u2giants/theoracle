@@ -5,10 +5,7 @@
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  bulkApproveTaxonomyProposals,
-  bulkRejectTaxonomyProposals,
-} from '../../_actions';
+import { bulkApproveTaxonomyProposals, bulkRejectTaxonomyProposals } from '../../_actions';
 import { ProposalCard } from './proposal-card';
 
 type ProposalRow = {
@@ -19,6 +16,10 @@ type ProposalRow = {
   reviewed_at: string | null;
   created_at: string;
   reviewer_name: string | null;
+  apply_change_type: string | null;
+  apply_reason: string | null;
+  trigger_run_id: string | null;
+  apply_retryable: boolean;
 };
 
 export function ProposalListBulk({ proposals }: { proposals: ProposalRow[] }) {
@@ -63,7 +64,9 @@ export function ProposalListBulk({ proposals }: { proposals: ProposalRow[] }) {
       const ids = [...selected];
       const res = await bulkApproveTaxonomyProposals(ids, bulkNote.trim() || null);
       if (res.errors.length > 0) {
-        setBulkError(`${res.approved} approved; ${res.errors.length} failed: ${res.errors.map((e) => e.error).join(', ')}`);
+        setBulkError(
+          `${res.approved} approved; ${res.errors.length} failed: ${res.errors.map((e) => e.error).join(', ')}`,
+        );
       } else {
         setBulkResult(`${res.approved} proposal${res.approved !== 1 ? 's' : ''} approved.`);
       }
@@ -82,7 +85,9 @@ export function ProposalListBulk({ proposals }: { proposals: ProposalRow[] }) {
       const ids = [...selected];
       const res = await bulkRejectTaxonomyProposals(ids, bulkNote.trim());
       if (res.errors.length > 0) {
-        setBulkError(`${res.rejected} rejected; ${res.errors.length} failed: ${res.errors.map((e) => e.error).join(', ')}`);
+        setBulkError(
+          `${res.rejected} rejected; ${res.errors.length} failed: ${res.errors.map((e) => e.error).join(', ')}`,
+        );
       } else {
         setBulkResult(`${res.rejected} proposal${res.rejected !== 1 ? 's' : ''} rejected.`);
       }

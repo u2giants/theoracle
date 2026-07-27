@@ -16,6 +16,10 @@ type ProposalRow = {
   reviewed_at: string | null;
   created_at: string;
   reviewer_name: string | null;
+  apply_change_type: string | null;
+  apply_reason: string | null;
+  trigger_run_id: string | null;
+  apply_retryable: boolean;
 };
 
 const STATUS_TABS = [
@@ -40,9 +44,26 @@ export default async function AdminTaxonomyProposalsPage({
     SELECT
       p.id, p.proposal_type, p.payload, p.status,
       p.reviewed_by_employee_id, p.reviewed_at, p.created_at,
-      e.name AS reviewer_name
+      e.name AS reviewer_name,
+      apply_state.change_type AS apply_change_type,
+      apply_state.reason AS apply_reason,
+      apply_state.after_state->>'triggerRunId' AS trigger_run_id,
+      COALESCE((apply_state.change_type = 'reclassification_failed'
+        OR (apply_state.change_type = 'reclassification_dispatched'
+          AND apply_state.created_at < now() - interval '15 minutes')), false) AS apply_retryable
     FROM taxonomy_proposals p
     LEFT JOIN employees e ON e.id = p.reviewed_by_employee_id
+    LEFT JOIN LATERAL (
+      SELECT cl.change_type, cl.reason, cl.after_state, cl.created_at
+      FROM taxonomy_change_log cl
+      WHERE cl.proposal_id = p.id
+        AND (cl.change_type = 'reclassification_dispatched'
+          OR cl.change_type LIKE 'reclassification_applied_%'
+          OR cl.change_type LIKE 'reclassification_skipped_%'
+          OR cl.change_type = 'reclassification_failed')
+      ORDER BY cl.created_at DESC
+      LIMIT 1
+    ) apply_state ON true
     ${where}
     ORDER BY
       CASE WHEN p.status = 'pending' THEN 0 ELSE 1 END,
@@ -56,9 +77,9 @@ export default async function AdminTaxonomyProposalsPage({
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Taxonomy proposals</h1>
         <p className="text-sm text-muted-foreground">
-          Compact proposal cards from the taxonomy re-evaluation worker. Approve to
-          apply (with audit trail); reject to record the decision without mutation.
-          No auto-mutation: every taxonomy change is admin-gated.
+          Compact proposal cards from the taxonomy re-evaluation worker. Approve to accept a
+          proposal, then Apply to dispatch its audited reclassification. Reject records the decision
+          without mutation. No auto-mutation: every taxonomy change is admin-gated.
         </p>
       </header>
 

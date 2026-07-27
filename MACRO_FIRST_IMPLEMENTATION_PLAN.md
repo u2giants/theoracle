@@ -16,7 +16,7 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | Stage | Status | Evidence or blocker |
 |---|---|---|
 | R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
-| R0.1 | ⬜ open | Implement the bounded quote-copy repair in this plan; no blocker |
+| R0.1 | 🟡 local complete, production gate pending | Strict bounded quote-copy repair and DB-free tests are green; SELECT-only replay, CI, deploy, and forced production read remain |
 | R1 | ⬜ open | Start with the mandatory SELECT-only production audit; no DDL before the audit is recorded |
 | R2 | ⬜ open | Blocked on R0.1 and R1 being green |
 | R3 | ⬜ open | Blocked on R2 |
