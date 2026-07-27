@@ -592,6 +592,19 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Migration rule**: The historical second `86_source_workflow_maps.sql` is preserved under `migrations/superseded/` but removed from the active `migrations/sql/*.sql` runner. Lexicographic execution previously let it run after `86_macro_first_schema.sql` and describe an obsolete shape. CI now migrates a fresh pgvector database and asserts the surviving generic-map columns and constraints before build.
 - **Evidence**: The SELECT-only historical audit for map `9e84efda-755d-4a05-be5a-bbbadfce144e` classifies all 101 persisted drops as 36 root quote-not-found, 46 endpoint cascades, and 19 path cascades, with no unresolved reason class. The old validator did not persist rejected quotes/raw output, so alternate-policy verdicts for those 36 roots are not reconstructible; a post-fix model rerun is separately scheduled instead of guessing. The current production swimlane map replayed through the R0 validator with 0 drops, 56/56 relation-evidence survival, no duplicate element IDs, maximum one current claim per map ref, and no refs with three or more claims. Commands and complete gate status are recorded in `evals/shape-aware-stage2.md`.
 
+## D-r2-entry-approvals — bounded narrative, read-only shadow backlog, responsibilities first (2026-07-27)
+
+- **Narrative macro lane**: Approved at no more than five significant goal, constraint, risk,
+  rationale, or open-question elements per narrative segment. Ordinary facts remain claims.
+- **Shadow backlog**: Approved for R2 through R5 only as read-only proposals. Shadow rows cannot
+  write business objects or versions and carry an explicit `applyEligible=false` marker. The
+  application service also enforces the global fail-safe setting and rejects shadow rows.
+- **Vertical-slice order**: Responsibilities remain first. Flat role-action-object records are the
+  lowest-risk way to prove evidence linkage, semantic shortlisting, reviewed identity, and reuse
+  before conditional rules, conversation state, or process topology.
+- **Not decided**: Provisional employee answers remain an R6 decision. This approval does not
+  authorize provisional serving.
+
 # Document ingestion: Word, image vision, auxiliary models, context (2026-06-14)
 
 ## D-image-vision-two-pass — transcribe images to text before extraction

@@ -8,3 +8,4 @@ export * from './macro/lifecycle';
 export * from './macro/validation';
 export * from './model/entity-resolution';
 export * from './model/lifecycle';
+export * from './model/responsibility-merge';

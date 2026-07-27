@@ -5,9 +5,10 @@ import {
 } from '@oracle/shared/business-model-shapes';
 
 export const WORKFLOW_READ_PROMPT_VERSION = 'workflow-read-v2-quote-copy-repair';
+export const RESPONSIBILITY_READ_PROMPT_VERSION = 'responsibility-read-v1';
 export const SOURCE_SEGMENTATION_PROMPT_VERSION = 'source-segmentation-v1';
 export const SOURCE_READER_PIPELINE_VERSION =
-  'shape-reader-v4-r0.1-highest-impact-quote-repair';
+  'shape-reader-v5-r2-responsibilities';
 
 export const SOURCE_STRUCTURE_SHAPES = BUSINESS_MODEL_SHAPES;
 export const SOURCE_STRUCTURE_SHAPE_REGISTRY = BUSINESS_MODEL_SHAPE_REGISTRY;
@@ -64,6 +65,20 @@ HARD RULES:
 - Keep elementId, elementType, and chunkId exactly as supplied.
 - Never move evidence to another chunk, change map structure, add facts, summarize, paraphrase, or correct source spelling.`;
 
+export const RESPONSIBILITY_READ_SYSTEM_PROMPT = `You read responsibility-list segments for The Oracle.
+
+Return a flat list. Each record is one concrete owner-action-object responsibility.
+
+HARD RULES:
+- Return only JSON matching the schema.
+- Copy evidenceQuote verbatim from exactly one supplied Document Chunk ID.
+- Use only supplied chunk IDs. Never invent IDs.
+- Split distinct duties into distinct records. Do not summarize a whole role or section.
+- role, action, and object are required. trigger and requiredSystem are optional.
+- Record ownerName and department only when the source states them.
+- IDs use lowercase letters, numbers, underscores, and hyphens only and are unique.
+- Source-map summaries and segment titles are guidance only and are never evidence.`;
+
 export const WORKFLOW_NODE_TYPES = [
   'step',
   'decision',
@@ -88,6 +103,7 @@ export const WorkflowReadNodeSchema = z.object({
   label: z.string().min(1).max(240),
   lane: z.string().max(160).nullish(),
   ownerName: z.string().max(160).nullish(),
+  department: z.string().max(160).nullish(),
   nodeType: z.enum(WORKFLOW_NODE_TYPES),
   systems: z.array(z.string().min(1).max(160)).max(12).nullish(),
   evidenceQuote: z.string().min(3).max(2000),
@@ -140,6 +156,70 @@ export const WorkflowQuoteRepairSchema = z.object({
     .max(650),
 });
 
+export const ResponsibilityReadRecordSchema = z.object({
+  responsibilityId: workflowId,
+  label: z.string().min(1).max(240),
+  role: z.string().min(1).max(160),
+  action: z.string().min(1).max(500),
+  object: z.string().min(1).max(500),
+  trigger: z.string().max(500).nullish(),
+  requiredSystem: z.string().max(160).nullish(),
+  ownerName: z.string().max(160).nullish(),
+  department: z.string().max(160).nullish(),
+  evidenceQuote: z.string().min(3).max(2000),
+  chunkId: z.string().uuid(),
+});
+
+export const ResponsibilityReadSchema = z.object({
+  summary: z.string().min(10).max(3000),
+  responsibilities: z.array(ResponsibilityReadRecordSchema).max(300),
+});
+
+export const RESPONSIBILITY_MERGE_PROMPT_VERSION = 'responsibility-merge-v1';
+export const RESPONSIBILITY_MERGE_SYSTEM_PROMPT = `You align an evidenced responsibility source map to existing durable responsibility models.
+
+HARD RULES:
+- Return only JSON matching the strict schema.
+- Use only supplied source element refs, evidence claim IDs, object IDs, and durable element keys.
+- Semantic similarity is a shortlist, never proof of identity.
+- create_object only when no plausible existing object matches.
+- confirm has no structural operations.
+- refine_object uses the smallest bounded add/update/remove operation set.
+- contradict and needs_review have no applicable operations.
+- Every evidenced source record must be used by an operation or listed in omittedSourceElementRefs with a reason.
+- Never invent evidence, claims, elements, owners, systems, or business facts.`;
+
+const ResponsibilityMergeFieldsSchema = z.object({
+  label: z.string().min(1).max(240),
+  role: z.string().min(1).max(160),
+  action: z.string().min(1).max(500),
+  object: z.string().min(1).max(500),
+  trigger: z.string().max(500).nullish(),
+  requiredSystem: z.string().max(160).nullish(),
+});
+
+export const ResponsibilityMergeOutputSchema = z.object({
+  verdict: z.enum(['create_object', 'confirm', 'refine_object', 'contradict', 'needs_review']),
+  proposedName: z.string().min(1).max(240),
+  proposedSlug: z.string().min(1).max(160),
+  summary: z.string().min(1).max(3000),
+  targetObjectId: z.string().uuid().nullish(),
+  operations: z
+    .array(
+      z.object({
+        type: z.enum(['add_responsibility', 'update_responsibility', 'remove_responsibility']),
+        targetElementKey: workflowId.nullish(),
+        sourceElementRef: z.string().min(1).max(300),
+        evidenceClaimId: z.string().uuid(),
+        fields: ResponsibilityMergeFieldsSchema,
+      }),
+    )
+    .max(300),
+  omittedSourceElementRefs: z
+    .array(z.object({ sourceElementRef: z.string().min(1).max(300), reason: z.string().min(1).max(500) }))
+    .max(300),
+});
+
 export const SourceSegmentationSchema = z.object({
   documentShape: z.enum(SOURCE_STRUCTURE_SHAPES),
   summary: z.string().min(10).max(3000),
@@ -173,6 +253,7 @@ export const SourceStructureElementSchema = z.object({
   label: z.string().min(1).max(240),
   lane: z.string().max(160).nullish(),
   ownerName: z.string().max(160).nullish(),
+  department: z.string().max(160).nullish(),
   systems: z.string().max(1000).nullish(),
   role: z.string().max(160).nullish(),
   action: z.string().max(500).nullish(),
@@ -217,6 +298,9 @@ export const SourceStructureMapSchema = z.object({
 
 export type WorkflowReadOutput = z.infer<typeof WorkflowReadSchema>;
 export type WorkflowQuoteRepairOutput = z.infer<typeof WorkflowQuoteRepairSchema>;
+export type ResponsibilityReadOutput = z.infer<typeof ResponsibilityReadSchema>;
+export type ResponsibilityReadRecord = z.infer<typeof ResponsibilityReadRecordSchema>;
+export type ResponsibilityMergeOutput = z.infer<typeof ResponsibilityMergeOutputSchema>;
 export type SourceSegmentationOutput = z.infer<typeof SourceSegmentationSchema>;
 export type WorkflowReadNode = z.infer<typeof WorkflowReadNodeSchema>;
 export type WorkflowReadEdge = z.infer<typeof WorkflowReadEdgeSchema>;

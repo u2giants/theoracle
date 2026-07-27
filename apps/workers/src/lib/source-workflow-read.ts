@@ -2,7 +2,11 @@ import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import {
   OracleAIClient,
+  RESPONSIBILITY_READ_PROMPT_VERSION,
+  RESPONSIBILITY_READ_SYSTEM_PROMPT,
+  ResponsibilityReadSchema,
   SOURCE_READER_PIPELINE_VERSION,
+  SOURCE_STRUCTURE_SHAPE_REGISTRY,
   SOURCE_SEGMENTATION_PROMPT_VERSION,
   SOURCE_SEGMENTATION_SYSTEM_PROMPT,
   WORKFLOW_READ_PROMPT_VERSION,
@@ -18,6 +22,7 @@ import {
   makeBlock,
   resolveRouteCandidates,
   type OraclePromptPlan,
+  type ResponsibilityReadOutput,
   type SourceSegmentationOutput,
   type SourceStructureSegment,
   type SourceStructureShape,
@@ -57,6 +62,10 @@ import {
   type WorkflowMapChunkContext,
   type WorkflowMapStatus,
 } from './workflow-map-validator';
+import {
+  responsibilityRawAuditArtifact,
+  validateResponsibilityRead,
+} from './responsibility-reader';
 import {
   mapWithConcurrency,
   SourceReaderBudget,
@@ -1043,6 +1052,135 @@ async function runWorkflowReadModel(args: {
   return { output: mergeWorkflowOutputs(outputs), modelRunIds, contextPackIds };
 }
 
+async function runResponsibilityReadModel(args: {
+  db: OracleDb;
+  client: OracleAIClient;
+  doc: { fileName: string; fileType: string; context: string | null };
+  chunks: ChunkRow[];
+  triggerRunId: string;
+  mapId: string;
+  segment: SourceStructureSegment;
+  budget: SourceReaderBudget;
+}): Promise<{ output: ResponsibilityReadOutput; modelRunId: string; contextPackId: string }> {
+  const resolved = await resolveRouteCandidates(args.db, 'workflow_read');
+  for (const skipped of resolved.skipped) {
+    console.warn('[source-workflow-read] skipped responsibility route candidate', skipped);
+  }
+  const route = resolved.candidates[0]!.route;
+  const blocks = [
+    makeBlock({
+      id: 'responsibility-read-system',
+      label: 'Responsibility read system prompt',
+      kind: 'stable_system',
+      content: RESPONSIBILITY_READ_SYSTEM_PROMPT,
+      reasonIncluded: RESPONSIBILITY_READ_PROMPT_VERSION,
+    }),
+    makeBlock({
+      id: 'responsibility-metadata',
+      label: 'Responsibility segment metadata',
+      kind: 'semi_stable_domain_context',
+      content: [
+        `Document: ${args.doc.fileName}`,
+        `Segment: ${args.segment.segmentId} | ${args.segment.title}`,
+        args.segment.summary ? `Non-quotable segment summary: ${args.segment.summary}` : null,
+        args.doc.context ? `Uploader context: ${args.doc.context}` : null,
+        `Source map row: ${args.mapId}`,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      reasonIncluded: 'responsibility segment routing and audit context',
+    }),
+    makeBlock({
+      id: 'responsibility-chunks',
+      label: 'Document chunks',
+      kind: 'retrieved_context',
+      content: buildDocumentCorpus(args.chunks),
+      reasonIncluded: 'only valid evidence source for this responsibility segment',
+    }),
+    makeBlock({
+      id: 'responsibility-request',
+      label: 'Responsibility read request',
+      kind: 'dynamic_input',
+      content:
+        'Extract every distinct responsibility record. Keep the result flat and copy each quote exactly from one chunk.',
+      reasonIncluded: 'current responsibilities pass-2 request',
+    }),
+  ];
+  args.budget.reserveRead({
+    estimatedInputTokens: blocks.reduce((sum, block) => sum + (block.tokenEstimate ?? 0), 0),
+    label: `responsibility read ${args.segment.segmentId}`,
+  });
+  const plan = args.client.compile({
+    taskType: 'source_workflow_read',
+    routeId: route.routeId,
+    promptVersion: RESPONSIBILITY_READ_PROMPT_VERSION,
+    blocks,
+    observability: { includedDocumentChunkIds: args.chunks.map((chunk) => chunk.id) },
+  });
+  const [contextPack] = await args.db
+    .insert(oracleContextPacks)
+    .values(buildContextPackInsert(plan))
+    .returning({ id: oracleContextPacks.id });
+  if (!contextPack) throw new Error('[source-workflow-read] failed responsibility context pack');
+  const started = Date.now();
+  const result = await args.client.runObject<ResponsibilityReadOutput>({
+    taskType: 'source_workflow_read',
+    routeId: route.routeId,
+    promptVersion: RESPONSIBILITY_READ_PROMPT_VERSION,
+    blocks,
+    schema: ResponsibilityReadSchema,
+    observability: { includedDocumentChunkIds: args.chunks.map((chunk) => chunk.id) },
+    providerOptions: { maxOutputTokens: 32_000 },
+    routeCandidates: resolved.candidates,
+  });
+  const [modelRun] = await args.db
+    .insert(modelRuns)
+    .values({
+      taskType: 'source-responsibility-read',
+      model: result.modelId ?? route.modelId,
+      provider: result.provider ?? route.provider,
+      promptVersion: RESPONSIBILITY_READ_PROMPT_VERSION,
+      inputHash: plan.metadata.stablePrefixHash,
+      inputTokens: result.usage.inputTokens ?? null,
+      outputTokens: result.usage.outputTokens ?? null,
+      latencyMs: Date.now() - started,
+      success: result.validation.ok,
+      error: result.validation.ok ? null : result.validation.error.message,
+    })
+    .returning({ id: modelRuns.id });
+  if (!modelRun) throw new Error('[source-workflow-read] failed responsibility model run');
+  await args.db.insert(modelRunUsageDetails).values({
+    modelRunId: modelRun.id,
+    contextPackId: contextPack.id,
+    routeId: result.routeId ?? route.routeId,
+    inputTokens: result.usage.inputTokens ?? null,
+    cachedInputTokens: result.usage.cachedInputTokens ?? null,
+    cacheWriteTokens: result.usage.cacheWriteTokens ?? null,
+    outputTokens: result.usage.outputTokens ?? null,
+    reasoningTokens: result.usage.reasoningTokens ?? null,
+    providerRequestId: result.usage.providerRequestId ?? null,
+    rawUsageJson: result.usage.rawUsageJson ?? null,
+  });
+  await logModelRunAttempts({
+    db: args.db,
+    metadata: result,
+    taskType: 'source-responsibility-read',
+    slot: 'workflow_read',
+    contextPackId: contextPack.id,
+    modelRunId: modelRun.id,
+  });
+  await args.db
+    .update(oracleContextPacks)
+    .set({ modelRunId: modelRun.id })
+    .where(eq(oracleContextPacks.id, contextPack.id));
+  if (!result.validation.ok) {
+    throw new Error(
+      `[source-workflow-read] responsibility schema failed: ${result.validation.error.message}`,
+    );
+  }
+  return { output: result.object, modelRunId: modelRun.id, contextPackId: contextPack.id };
+}
+
 async function runWorkflowQuoteRepairModel(args: {
   db: OracleDb;
   client: OracleAIClient;
@@ -1223,6 +1361,11 @@ export function renderWorkflowMapGuidance(mapId: string, map: SourceStructureMap
       );
   }
   lines.push(
+    '',
+    'Shape-directed extraction:',
+    ...[...new Set(map.segments.map((segment) => segment.shape))].map(
+      (shape) => `- ${shape}: ${SOURCE_STRUCTURE_SHAPE_REGISTRY[shape].extractionDirective}`,
+    ),
     '',
     'Extraction instruction: when a claim supports a listed element or relation, set mapElementRef to the exact ref shown above. Claims still require a verbatim exactQuote from a Document Chunk ID.',
   );
@@ -1573,6 +1716,9 @@ export async function generateSourceWorkflowMap(args: {
     const quoteSourceKind = quoteSourceKindForDocument(doc);
     const maxDroppedRatio = await readNumberSetting(db, 'workflow_map_max_dropped_ratio', 0.2);
     const processSegments = segmentation.segments.filter((segment) => segment.shape === 'process');
+    const responsibilitySegments = segmentation.segments.filter(
+      (segment) => segment.shape === 'responsibilities',
+    );
     const processReads = await mapWithConcurrency<
       SourceStructureSegment,
       {
@@ -1710,6 +1856,39 @@ export async function generateSourceWorkflowMap(args: {
       }
     }
 
+    const responsibilityReads = await mapWithConcurrency({
+      inputs: responsibilitySegments,
+      concurrency: readerBudget.limits.maxConcurrency,
+      run: async (segment) => {
+        const segmentChunkIds = new Set(segment.chunkIds);
+        const segmentChunks = chunks.filter((chunk) => segmentChunkIds.has(chunk.id));
+        const model = await runResponsibilityReadModel({
+          db,
+          client,
+          doc,
+          chunks: segmentChunks,
+          triggerRunId: args.triggerRunId,
+          mapId: pending.mapId,
+          segment,
+          budget: readerBudget!,
+        });
+        const validation = validateResponsibilityRead({
+          output: model.output,
+          documentId: args.documentId,
+          segment,
+          fileType: doc.fileType,
+          fileName: doc.fileName,
+          allCoveredChunkIds: new Set(segmentation.segments.flatMap((item) => item.chunkIds)),
+          chunks: chunks.map((chunk) => ({
+            id: chunk.id,
+            documentId: args.documentId,
+            rawText: chunk.rawText,
+          })),
+        });
+        return { segment, model, validation };
+      },
+    });
+
     const finalizedProcessReads = processReads.map((read) => ({
       ...read,
       map: workflowToProcessStructureMap({
@@ -1726,17 +1905,31 @@ export async function generateSourceWorkflowMap(args: {
       documentShape: segmentation.documentShape,
       summary: segmentation.summary,
       segments: segmentation.segments,
-      elements: finalizedProcessReads.flatMap((read) => read.map.elements),
+      elements: [
+        ...finalizedProcessReads.flatMap((read) => read.map.elements),
+        ...responsibilityReads.flatMap((read) => read.validation.elements),
+      ],
       relations: finalizedProcessReads.flatMap((read) => read.map.relations),
       lanes: finalizedProcessReads.flatMap((read) => read.map.lanes),
       paths: finalizedProcessReads.flatMap((read) => read.map.paths),
     };
     const workflowOutputs = processReads.map((read) => read.validation.map);
-    const droppedCount = processReads.reduce((sum, read) => sum + read.validation.droppedCount, 0);
-    const keptCount = processReads.reduce((sum, read) => sum + read.validation.keptCount, 0);
+    const droppedCount =
+      processReads.reduce((sum, read) => sum + read.validation.droppedCount, 0) +
+      responsibilityReads.reduce((sum, read) => sum + read.validation.diagnostics.length, 0);
+    const keptCount =
+      processReads.reduce((sum, read) => sum + read.validation.keptCount, 0) +
+      responsibilityReads.reduce((sum, read) => sum + read.validation.elements.length, 0);
     const status: WorkflowMapStatus =
       segmentation.status === 'degraded' ||
-      processReads.some((read) => read.validation.status === 'degraded')
+      processReads.some((read) => read.validation.status === 'degraded') ||
+      responsibilityReads.some(
+        (read) =>
+          read.validation.diagnostics.length > 0 ||
+          read.validation.crossSegmentCitations.length /
+            Math.max(1, read.validation.elements.length) >
+            0.2,
+      )
         ? 'degraded'
         : 'validated';
     const mapKind: WorkflowReadOutput['mapKind'] = processReads.some(
@@ -1747,10 +1940,12 @@ export async function generateSourceWorkflowMap(args: {
     const modelRunIds = [
       ...segmentationModels.map((model) => model.modelRunId),
       ...processReads.flatMap((read) => read.modelRunIds),
+      ...responsibilityReads.map((read) => read.model.modelRunId),
     ];
     const contextPackIds = [
       ...segmentationModels.map((model) => model.contextPackId),
       ...processReads.flatMap((read) => read.contextPackIds),
+      ...responsibilityReads.map((read) => read.model.contextPackId),
     ];
     const lastModelRunId = modelRunIds.at(-1) ?? null;
     const lastContextPackId = contextPackIds.at(-1) ?? null;
@@ -1763,6 +1958,16 @@ export async function generateSourceWorkflowMap(args: {
         promptVersion: WORKFLOW_READ_PROMPT_VERSION,
         ...read.validation.validationJson,
         quoteRepair: read.repair,
+      })),
+      responsibilitySegments: responsibilityReads.map((read) => ({
+        segmentId: read.segment.segmentId,
+        promptVersion: RESPONSIBILITY_READ_PROMPT_VERSION,
+        keptCount: read.validation.elements.length,
+        droppedCount: read.validation.diagnostics.length,
+        primaryCount: read.validation.primaryCount,
+        crossSegmentCitations: read.validation.crossSegmentCitations,
+        rawOutputAudit: responsibilityRawAuditArtifact(read.model.output),
+        diagnostics: read.validation.diagnostics,
       })),
       droppedCount,
       keptCount,

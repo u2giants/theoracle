@@ -16,7 +16,8 @@
     "verify:r11.1": "tsx src/__verify__/r11-1-interjection-decision-smoke.ts",
     "verify:macro": "tsx src/__verify__/macro-validation-smoke.ts",
     "verify:macro-first": "tsx src/__verify__/macro-first-lifecycle-smoke.ts",
-    "verify:r1-cross-shape": "tsx src/__verify__/r1-cross-shape-contract.ts"
+    "verify:r1-cross-shape": "tsx src/__verify__/r1-cross-shape-contract.ts",
+    "verify:r2-responsibilities": "tsx src/__verify__/r2-responsibilities-contract.ts"
   },
   "dependencies": {
     "@oracle/db": "workspace:*",

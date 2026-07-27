@@ -78,6 +78,7 @@ export default async function AdminBusinessModelPage() {
           status: businessModelChanges.status,
           summary: businessModelChanges.summary,
           sourceWorkflowMapId: businessModelChanges.sourceWorkflowMapId,
+          operations: businessModelChanges.operationsJson,
           createdAt: businessModelChanges.createdAt,
         })
         .from(businessModelChanges)
@@ -232,6 +233,35 @@ export default async function AdminBusinessModelPage() {
                 <p className="mt-2 font-mono text-xs text-muted-foreground">
                   map {proposal.sourceWorkflowMapId}
                 </p>
+                {(() => {
+                  const details = proposal.operations as {
+                    shadow?: boolean;
+                    applyEligible?: boolean;
+                    operations?: Array<{ type?: string; sourceElementRef?: string }>;
+                    evidence?: Array<{ claimId?: string; quote?: string }>;
+                  };
+                  return details.shadow ? (
+                    <div className="mt-3 space-y-2 rounded border border-dashed p-3">
+                      <p className="font-medium">Shadow proposal. Read only.</p>
+                      <p className="text-xs text-muted-foreground">
+                        Apply eligible: {details.applyEligible === true ? 'yes' : 'no'}
+                      </p>
+                      {(details.operations ?? []).map((operation, index) => (
+                        <p key={`${operation.sourceElementRef}-${index}`} className="text-xs">
+                          {operation.type}: {operation.sourceElementRef}
+                        </p>
+                      ))}
+                      {(details.evidence ?? []).map((evidence, index) => (
+                        <blockquote
+                          key={`${evidence.claimId}-${index}`}
+                          className="border-l-2 pl-3 text-xs text-muted-foreground"
+                        >
+                          “{evidence.quote}” · claim {evidence.claimId}
+                        </blockquote>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
               </div>
             ))
           )}

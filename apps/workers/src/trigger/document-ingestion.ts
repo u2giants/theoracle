@@ -98,6 +98,7 @@ import { markMacroMapFailed } from '../lib/macro-health';
 import { reconcileAndWriteMapCoverageGaps } from '../lib/map-coverage-gaps';
 
 const CHUNK_SIZE = 4000;
+const BUSINESS_MODEL_MERGE_ENABLED_SETTING = 'business_model_merge_enabled';
 // Extraction-window budget: how much chunk text a single extraction call sees.
 // Meaning lives in CONTEXT that spans chunk boundaries — a multi-paragraph SOP
 // rule, a debated decision, and (worst case) a diagram whose meaning is entirely
@@ -1436,6 +1437,33 @@ async function processDocument(
       unknownClaimRefs: coverage.unknownClaimRefs,
       duplicateClaimRefs: coverage.duplicateClaimRefs,
     });
+    const mergeEnabled = await readBooleanSetting(
+      db,
+      BUSINESS_MODEL_MERGE_ENABLED_SETTING,
+      false,
+    );
+    const responsibilityCoverage = coverage.coverageByShape.responsibilities;
+    if (
+      shouldDispatchResponsibilityShadowMerge({
+        mergeEnabled,
+        primary: responsibilityCoverage?.primary ?? 0,
+        coverage: responsibilityCoverage?.coverage ?? 0,
+      })
+    ) {
+      await tasks.trigger('business-model-merge', { sourceMapId: workflowMapContext.mapId });
+      console.log('[document-ingestion] dispatched responsibility shadow merge', {
+        mapId: workflowMapContext.mapId,
+        coverage: responsibilityCoverage?.coverage,
+      });
+    } else if ((responsibilityCoverage?.primary ?? 0) > 0) {
+      console.warn('[document-ingestion] responsibility shadow merge not dispatched', {
+        mapId: workflowMapContext.mapId,
+        mergeEnabled,
+        primary: responsibilityCoverage?.primary,
+        coverage: responsibilityCoverage?.coverage,
+        requiredCoverage: 0.9,
+      });
+    }
   }
 
   // Surface any degraded outcome on the document rather than reporting a clean
@@ -1523,7 +1551,17 @@ export const __documentIngestionTestHooks = {
   formatWorkflowReadFailedProcessingError,
   MAP_DIRECTED_EXTRACTION_ENABLED_SETTING,
   WORKFLOW_MAP_FAILURE_DEGRADED_NOTE,
+  BUSINESS_MODEL_MERGE_ENABLED_SETTING,
+  shouldDispatchResponsibilityShadowMerge,
 };
+
+export function shouldDispatchResponsibilityShadowMerge(args: {
+  mergeEnabled: boolean;
+  primary: number;
+  coverage: number;
+}): boolean {
+  return args.mergeEnabled && args.primary > 0 && args.coverage >= 0.9;
+}
 
 async function loadActiveTopDomainIds(db: OracleDb): Promise<string[]> {
   const { sql } = await import('drizzle-orm');

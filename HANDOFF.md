@@ -15,7 +15,8 @@ Macro R0.1 is complete. Commit `da1ad5a` passed CI run `30271360677` and shipped
 plus 5 cascades, used 1 repair attempt, and admitted no fuzzy document quote. The remaining local
 costing-segment degradation is an honest threshold signal, not a failed release gate. Later full
 release CI `30312068037` is green; Vercel commit `65d0b7b` is ready and the public app returns HTTP
-200. R0, R0.1, and R1 are green. R2 is blocked only on its recorded entry decisions.
+200. R0, R0.1, and R1 are green. R2 code is locally gate-ready; its live fixture, model bake-off,
+real shadow-proposal, UI, and live regression gates remain.
 
 ## Prior closeout — 2026-07-26
 
@@ -111,7 +112,8 @@ R0.1 is also complete and production-verified. Commit `da1ad5a`, CI `30271360677
 `54cfec32-b428-490f-9e21-ab79c8f3add4` prove the at-most-1-root gate with no fuzzy quote admitted.
 The run reread document `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea`, kept 100, dropped 6, used 5
 read calls, 30,949 estimated input tokens, and `$0.154745` estimated input cost. R1 is complete.
-The next macro stage is R2 after its recorded entry decisions are confirmed.
+R2 entry decisions 1, 3, and 4 are recorded. Decision 2 remains deferred to R6. R2 is implemented
+locally but has not run its live/model/UI gates and is not released.
 
 ## Everything we tried that did NOT work
 
@@ -148,14 +150,21 @@ The next macro stage is R2 after its recorded entry decisions are confirmed.
 - The current R0.1 baseline has 1 exact root quote drop, 5 deterministic cascades, and exactly 1
   repair attempt. It admitted no `transcript_fuzzy` document quote. Its budget evidence is 5 read
   calls, 30,949 estimated input tokens, and `$0.154745` estimated input cost.
+- The local R2 working tree contains the strict responsibility reader, deterministic evidence and
+  coverage checks, real `model_merge` route call with provenance, deterministic shortlist,
+  version-aware refine validation, entity-proposal staging, concurrency-safe shadow persistence,
+  post-coverage dispatch, dual apply lockout, and read-only proposal rendering. No production data,
+  deployment, commit, or push proves this work yet.
 
 ## Exact next steps
 
-1. Confirm the recorded R2 entry decisions in `MACRO_FIRST_IMPLEMENTATION_PLAN.md`.
-2. Begin R2's responsibilities vertical slice only after those decisions are recorded.
-3. Use the existing R0.1 production map as the release baseline; do not weaken exact quote
+1. Keep every focused local R2 check green and inspect the full diff.
+2. Run the R2 model bake-off and versioned pinned answer key gate.
+3. Prove real shadow create, same-map idempotency, sequential confirm, near-match review, bounded
+   refine, namespace collision, and desktop/narrow read-only UI.
+4. Use the existing R0.1 production map as the release baseline; do not weaken exact quote
    validation to remove the remaining honest costing-segment degradation.
-4. Reliability and product-gap work may continue without changing macro stage
+5. Reliability and product-gap work may continue without changing macro stage
    order. Each session must update its plan status table and this handoff.
 
 ## Constraints and gotchas
@@ -178,8 +187,8 @@ never print or persist the value. Trigger project is `proj_wgpzsvhmsopqhvwqaycn`
 
 No R0, R0.1, or R1 release blocker remains. The localized degraded segment is intentionally
 retained as a quality signal; changing it requires a future prompt/reader decision, not weaker
-quote policy. R2 awaits only its recorded entry decisions. The canonical sequence and
-evidence-authority decisions remain unchanged.
+quote policy. R2 still lacks live fixture, bake-off, real shadow proposal, and visual proof. The
+canonical sequence and evidence-authority decisions remain unchanged.
 
 ## HISTORICAL PLAN UPDATE — 2026-07-21
 

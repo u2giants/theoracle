@@ -6,6 +6,7 @@ import {
   businessModelChanges,
   businessObjects,
   businessProcesses,
+  settings,
   type BusinessModelChange,
 } from '@oracle/db/schema';
 
@@ -39,6 +40,22 @@ export type BusinessObjectVersionStatus = (typeof BUSINESS_OBJECT_VERSION_STATUS
 // Compatibility aliases stay until the legacy process model is removed in R10.
 export const BUSINESS_PROCESS_VERSION_STATUSES = BUSINESS_OBJECT_VERSION_STATUSES;
 export type BusinessProcessVersionStatus = BusinessObjectVersionStatus;
+
+export function assertBusinessModelApplyAllowed(args: {
+  settingValue: unknown;
+  operationsJson?: unknown;
+}): void {
+  if (!(args.settingValue === true || args.settingValue === 'true')) {
+    throw new Error('Business-model apply is disabled by the fail-safe setting.');
+  }
+  const operations = (args.operationsJson ?? {}) as {
+    applyEligible?: boolean;
+    shadow?: boolean;
+  };
+  if (operations.shadow === true || operations.applyEligible === false) {
+    throw new Error('Shadow proposal is read-only and cannot be applied.');
+  }
+}
 
 const MAP_TRANSITIONS = {
   pending: ['validated', 'degraded', 'failed'],
@@ -234,6 +251,12 @@ export async function applyBusinessModelChangeTransaction<T>({
 }: ApplyBusinessModelChangeArgs<T>): Promise<ApplyBusinessModelChangeResult<T>> {
   try {
     return await db.transaction(async (tx) => {
+      const [applySetting] = await tx
+        .select({ value: settings.value })
+        .from(settings)
+        .where(eq(settings.key, 'business_model_apply_enabled'))
+        .limit(1);
+      assertBusinessModelApplyAllowed({ settingValue: applySetting?.value });
       const [proposal] = await tx
         .select()
         .from(businessModelChanges)
@@ -243,6 +266,10 @@ export async function applyBusinessModelChangeTransaction<T>({
       if (!proposal) {
         throw new Error(`Business model proposal not found: ${proposalId}`);
       }
+      assertBusinessModelApplyAllowed({
+        settingValue: applySetting?.value,
+        operationsJson: proposal.operationsJson,
+      });
 
       const lockKey = businessModelAdvisoryLockKey(
         proposal.processId,

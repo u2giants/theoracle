@@ -1,7 +1,7 @@
 # Macro-First Implementation Plan — Canonical Plan of Record
 
 Status: **CANONICAL. R0, R0.1, and R1 are complete and production-verified.
-R2 is unblocked except for its recorded entry decisions.**
+R2 entry decisions are approved and its responsibilities slice is in local verification.**
 
 Created: 2026-07-21
 Last reviewed: 2026-07-27
@@ -17,7 +17,7 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
 | R0.1 | ✅ done, 2026-07-27 | Commit `da1ad5a`; CI `30271360677`; worker `20260727.3` (`75jeiusj`, 24 tasks); forced run `run_06fqbf50qn8kvq69h6u3dg7601` produced map `54cfec32-b428-490f-9e21-ab79c8f3add4` with 1 exact root drop, 5 cascades, 1 repair attempt, and no admitted fuzzy quote |
 | R1 | ✅ done, 2026-07-27 | Commits `5f962b5` + `24bbf70`; CI `30269886119` attempt 2 green including empty-DB migration, transactional R1 verifier, and drift; production migration succeeded; drift 11/11; Vercel `24bbf70` deployed with HTTP 200; worker `20260727.2` (`h6ri0rb9`, 24 tasks) |
-| R2 | ⬜ open | R0, R0.1, and R1 are green; blocked only on the recorded R2 entry decisions |
+| R2 | 🟨 in progress, 2026-07-27 | Entry decisions 1, 3, and 4 recorded; local strict reader, map persistence, coverage, real model-merge routing/provenance, entity resolution, shadow merge guards, concurrency lock, apply lockout, dispatch, and read-only rendering pass focused checks; pinned live fixture, bake-off, real proposal, and visual gates remain unproven |
 | R3 | ⬜ open | Blocked on R2 |
 | R4 | ⬜ open | Blocked on R3 |
 | R5 | ⬜ open | Blocked on R4 |
@@ -27,8 +27,8 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R9 | ⬜ open | Blocked on R8 |
 | R10 | ⬜ open | Blocked on R9 |
 
-Fresh-session starting point: confirm the recorded R2 entry decisions, then begin the
-responsibilities vertical slice. R0, R0.1, and R1 are green.
+Fresh-session starting point: finish the remaining R2 real-data and model gates listed in
+`evals/r2-responsibilities.md`. R0, R0.1, and R1 are green.
 
 This is the single forward implementation plan for completing the Oracle's macro-first
 redesign. It reconciles the original process-centric redesign with the later shape-aware
@@ -1254,6 +1254,16 @@ Decisions 1, 3, and 4 must be recorded before R2 begins because R1 creates their
 R2/R3 consume them. Decision 2 must be recorded before R6 review behavior is finalized, not deferred
 until R7 UI work.
 
+Recorded 2026-07-27:
+
+- Decision 1 approved. Five significant narrative macro elements per segment is a clear cap that
+  prevents ordinary narrative facts from becoming structural fragment soup.
+- Decision 3 approved. R2–R5 may accumulate read-only shadow proposals because they cannot write
+  business objects or versions and remain blocked from the apply path until R6.
+- Decision 4 approved. Responsibilities remain first because their flat role-action-object records
+  are the lowest-risk proof of evidence, identity, merge, and reuse.
+- Decision 2 remains intentionally undecided. R6 consumes the provisional-serving policy.
+
 ---
 
 ## 18. Immediate next action
@@ -1262,9 +1272,9 @@ R0, R0.1, and R1 are complete, CI-green, deployed, and production-verified. Thei
 is recorded in the status table and eval logs. The R0.1 production gate passed with 1 exact root
 drop, 5 cascades, 1 repair attempt, and no admitted fuzzy document quote.
 
-The immediate next action is to record decisions 1, 3, and 4 from §17.2. Once those decisions are
-recorded, begin R2's responsibilities vertical slice. Do not repeat R0/R0.1 work or the completed
-R1 audit/schema stage.
+The immediate next action is to finish the R2 pinned-fixture read, model bake-off, entity-resolution,
+real shadow proposal, sequential reread, near-match, and namespace-collision gates recorded in
+`evals/r2-responsibilities.md`. Do not repeat R0/R0.1 work or the completed R1 audit/schema stage.
 
 ---
 
