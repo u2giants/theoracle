@@ -63,6 +63,12 @@ jobs:
         # Vercel would. See vercel.json at the repo root.
         run: pnpm install --frozen-lockfile=false
 
+      - name: Vercel build contract guard
+        # Vercel rejects buildCommand values longer than 256 characters.
+        # Keep vercel.json short and prove its delegated script retains all
+        # five network-free production guards before the web build.
+        run: pnpm verify:vercel-contract
+
       - name: Build apps/web (production tsc gate)
         run: pnpm --filter @oracle/web build
         env:

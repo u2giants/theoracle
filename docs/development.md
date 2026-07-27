@@ -98,7 +98,9 @@ pnpm --filter @oracle/engines verify:r11.1
 The five network-free guards (`verify:retrieval-filter-parity`,
 `verify:chinese-retrieval`, `verify:vertex-file-cache`,
 `verify:claim-translation-review`, and `verify:mcp`) also run inside Vercel's
-production build command. The live Chinese vector measurement does not.
+production `build:vercel` script. The live Chinese vector measurement does not.
+Run `pnpm verify:vercel-contract` after changing `vercel.json` or the delegated
+scripts; it enforces Vercel's 256-character command limit and the required guard list.
 
 If you need the mock extraction eval:
 
