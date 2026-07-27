@@ -64,6 +64,11 @@ coverage/
 # MCP tool session artifacts (Playwright screenshots, console logs, etc.)
 .playwright-mcp/
 
+# Raw local AI review transcripts and scratch probes
+.ai/reviews/*-result.json
+.ai/reviews/*-result.jsonl
+.ai/reviews/inspect-*.ts
+
 .vercel
 .env*.local
 

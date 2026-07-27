@@ -5,6 +5,28 @@ rejected with recorded evidence, or transferred to a named external owner.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
+## Latest closeout — 2026-07-26
+
+Grok's five correct blocking plan corrections are implemented in commit `676d60e` and pushed to
+`main`. GitHub Actions run `30233675031` passed, Vercel reported the deployment ready, and
+`https://oracle.designflow.app` returned HTTP 200. The corrected plans now use only current reader
+files, require R0.1 before R2, retire or retarget the obsolete SQL smoke based on current ownership,
+finish the existing taxonomy worker path instead of creating a second worker, and clearly mark the
+old R1-only next step as historical.
+
+The five smaller Grok suggestions remain conditional. They are listed in
+`plan_repo_reliability_and_release_gaps.md` §9 and must be sent to Claude for review before any are
+promoted into implementation work. Curated Qwen/GLM review notes are saved under `.ai/reviews/`;
+raw model output and scratch probes remain local and gitignored. The user-owned untracked files
+`detail-current.png` and `rfq-before.png` remain untouched.
+
+During closeout, uncommitted R0.1 work appeared in
+`apps/workers/src/lib/source-workflow-read.ts`, `packages/ai/src/index.ts`, and
+`packages/ai/src/prompts/workflow-read.ts`. These edits add quote-repair contracts and helpers but
+are incomplete, unreviewed, and not part of commit `676d60e` or this documentation closeout. Keep
+them intact. Before adding more R0.1 code, inspect the full diff, identify the owning session, and
+run the R0.1 tests and gates from the canonical plan.
+
 ## Canonical plan registry
 
 This table is the complete owner map for every open problem known on 2026-07-26. A fresh session
