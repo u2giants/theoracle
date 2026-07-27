@@ -458,3 +458,42 @@ Post-correction local gates:
 
 Fresh PostgreSQL execution remains a CI release gate because this Windows host
 has no Docker, WSL, local PostgreSQL, or database URL.
+
+### 2026-07-27 — R1 fresh-database migration-order correction
+
+CI run `30269130253` reached the empty pgvector PostgreSQL migration gate and
+failed in generated migration 0010 before raw SQL began:
+
+```text
+type "department" does not exist
+```
+
+Root cause: `department`, `departments`, `entities`, `knowledge_top_domains`,
+`business_model_changes`, and `recommendations` are raw-SQL-owned objects.
+The migration runner applies every generated migration in step 2, then creates
+or amends those raw-owned objects in step 3. The generated 0010 migration had
+incorrectly tried to use or alter them during step 2. The first visible failure
+was `business_elements.owner_department_id department`; additional raw-owned
+FKs and table alterations would have failed next.
+
+Correction:
+
+- the final Drizzle schema and snapshot still correctly describe
+  `owner_department_id` as the canonical `department` enum FK;
+- unapplied generated migration 0010 now creates only R1 tables/columns/FKs
+  whose prerequisites already exist during generated step 2;
+- raw migration 95, after raw owners 17/61/86, adds the department column,
+  entity/domain FKs, generic proposal/recommendation columns, FKs, and indexes;
+- `verify:r1-generated-order` fails if 0010 regains a raw-owned enum/table
+  reference or alteration, and confirms migration 95 owns every deferred
+  dependency;
+- CI runs that static order guard before touching its empty database.
+
+Local correction evidence:
+
+- PASS `corepack pnpm --filter @oracle/db typecheck`;
+- PASS `corepack pnpm --filter @oracle/db verify:r1-generated-order`;
+- PASS Drizzle 93-table alignment probe with no schema changes.
+
+The corrected fresh-database migration still requires CI execution before R1
+can be release-green.

@@ -33,7 +33,6 @@ CREATE TABLE "business_elements" (
 	"shape" varchar(50) NOT NULL,
 	"element_kind" varchar(50) NOT NULL,
 	"label" text NOT NULL,
-	"owner_department_id" "department",
 	"owner_entity_id" uuid,
 	"owner_raw" text,
 	"provisional" boolean DEFAULT true NOT NULL,
@@ -144,28 +143,15 @@ CREATE TABLE "business_rule_details" (
 	"exception" text
 );
 --> statement-breakpoint
-ALTER TABLE "recommendations" ALTER COLUMN "process_id" DROP NOT NULL;--> statement-breakpoint
-ALTER TABLE "recommendations" ALTER COLUMN "version_id" DROP NOT NULL;--> statement-breakpoint
-ALTER TABLE "business_model_changes" ADD COLUMN "object_id" uuid;--> statement-breakpoint
-ALTER TABLE "business_model_changes" ADD COLUMN "object_kind" varchar(50);--> statement-breakpoint
-ALTER TABLE "business_model_changes" ADD COLUMN "proposed_slug" varchar(160);--> statement-breakpoint
-ALTER TABLE "business_model_changes" ADD COLUMN "base_object_version_id" uuid;--> statement-breakpoint
-ALTER TABLE "recommendations" ADD COLUMN "object_id" uuid;--> statement-breakpoint
-ALTER TABLE "recommendations" ADD COLUMN "object_version_id" uuid;--> statement-breakpoint
-ALTER TABLE "recommendations" ADD COLUMN "object_kind" varchar(50);--> statement-breakpoint
 ALTER TABLE "business_conversation_details" ADD CONSTRAINT "business_conversation_details_element_id_business_elements_id_fk" FOREIGN KEY ("element_id") REFERENCES "public"."business_elements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "business_element_claims" ADD CONSTRAINT "business_element_claims_version_id_business_object_versions_id_fk" FOREIGN KEY ("version_id") REFERENCES "public"."business_object_versions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "business_element_claims" ADD CONSTRAINT "business_element_claims_element_id_business_elements_id_fk" FOREIGN KEY ("element_id") REFERENCES "public"."business_elements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "business_element_claims" ADD CONSTRAINT "business_element_claims_relation_id_business_relations_id_fk" FOREIGN KEY ("relation_id") REFERENCES "public"."business_relations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "business_element_claims" ADD CONSTRAINT "business_element_claims_claim_id_claims_id_fk" FOREIGN KEY ("claim_id") REFERENCES "public"."claims"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "business_element_systems" ADD CONSTRAINT "business_element_systems_element_id_business_elements_id_fk" FOREIGN KEY ("element_id") REFERENCES "public"."business_elements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "business_element_systems" ADD CONSTRAINT "business_element_systems_entity_id_entities_id_fk" FOREIGN KEY ("entity_id") REFERENCES "public"."entities"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "business_elements" ADD CONSTRAINT "business_elements_version_id_business_object_versions_id_fk" FOREIGN KEY ("version_id") REFERENCES "public"."business_object_versions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "business_elements" ADD CONSTRAINT "business_elements_owner_department_id_departments_id_fk" FOREIGN KEY ("owner_department_id") REFERENCES "public"."departments"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "business_elements" ADD CONSTRAINT "business_elements_owner_entity_id_entities_id_fk" FOREIGN KEY ("owner_entity_id") REFERENCES "public"."entities"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "business_narrative_macro_details" ADD CONSTRAINT "business_narrative_macro_details_element_id_business_elements_id_fk" FOREIGN KEY ("element_id") REFERENCES "public"."business_elements"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "business_object_top_domains" ADD CONSTRAINT "business_object_top_domains_object_id_business_objects_id_fk" FOREIGN KEY ("object_id") REFERENCES "public"."business_objects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "business_object_top_domains" ADD CONSTRAINT "business_object_top_domains_top_domain_id_knowledge_top_domains_id_fk" FOREIGN KEY ("top_domain_id") REFERENCES "public"."knowledge_top_domains"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "business_object_versions" ADD CONSTRAINT "business_object_versions_object_id_business_objects_id_fk" FOREIGN KEY ("object_id") REFERENCES "public"."business_objects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "business_object_versions" ADD CONSTRAINT "business_object_versions_model_run_id_model_runs_id_fk" FOREIGN KEY ("model_run_id") REFERENCES "public"."model_runs"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "business_paths" ADD CONSTRAINT "business_paths_version_id_business_object_versions_id_fk" FOREIGN KEY ("version_id") REFERENCES "public"."business_object_versions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -188,10 +174,3 @@ CREATE INDEX "business_objects_current_version_idx" ON "business_objects" USING 
 CREATE UNIQUE INDEX "business_paths_version_path_unique" ON "business_paths" USING btree ("version_id","path_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "business_relations_version_relation_unique" ON "business_relations" USING btree ("version_id","relation_key");--> statement-breakpoint
 CREATE INDEX "business_relations_version_shape_idx" ON "business_relations" USING btree ("version_id","shape");--> statement-breakpoint
-ALTER TABLE "business_model_changes" ADD CONSTRAINT "business_model_changes_object_id_business_objects_id_fk" FOREIGN KEY ("object_id") REFERENCES "public"."business_objects"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "business_model_changes" ADD CONSTRAINT "business_model_changes_base_object_version_id_business_object_versions_id_fk" FOREIGN KEY ("base_object_version_id") REFERENCES "public"."business_object_versions"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "recommendations" ADD CONSTRAINT "recommendations_object_id_business_objects_id_fk" FOREIGN KEY ("object_id") REFERENCES "public"."business_objects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "recommendations" ADD CONSTRAINT "recommendations_object_version_id_business_object_versions_id_fk" FOREIGN KEY ("object_version_id") REFERENCES "public"."business_object_versions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "business_model_changes_object_status_idx" ON "business_model_changes" USING btree ("object_id","status");--> statement-breakpoint
-CREATE INDEX "business_model_changes_proposed_namespace_idx" ON "business_model_changes" USING btree ("object_kind","proposed_slug","status");--> statement-breakpoint
-CREATE INDEX "recommendations_object_status_idx" ON "recommendations" USING btree ("object_id","status");

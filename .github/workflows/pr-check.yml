@@ -139,6 +139,7 @@ jobs:
         # proves only the surviving 86_macro_first_schema shape plus later
         # source-structure/R0 amendments exist.
         run: |
+          pnpm --filter @oracle/db verify:r1-generated-order
           pnpm --filter @oracle/db prepare:fresh-supabase-test-db
           pnpm --filter @oracle/db migrate
           pnpm --filter @oracle/db verify:fresh-source-workflow-schema

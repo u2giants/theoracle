@@ -2,8 +2,111 @@
 -- No legacy process content is copied. The mandatory production audit recorded
 -- zero rows in all process/change/recommendation destination tables.
 
+-- These references point to raw-SQL-owned tables/types created earlier in
+-- migration-runner step 3. They cannot live in generated migration 0010,
+-- because all generated migrations run before raw SQL.
+ALTER TABLE business_elements
+  ADD COLUMN IF NOT EXISTS owner_department_id department;
+ALTER TABLE business_model_changes
+  ADD COLUMN IF NOT EXISTS object_id uuid;
+ALTER TABLE business_model_changes
+  ADD COLUMN IF NOT EXISTS object_kind varchar(50);
+ALTER TABLE business_model_changes
+  ADD COLUMN IF NOT EXISTS proposed_slug varchar(160);
+ALTER TABLE business_model_changes
+  ADD COLUMN IF NOT EXISTS base_object_version_id uuid;
+ALTER TABLE recommendations
+  ADD COLUMN IF NOT EXISTS object_id uuid;
+ALTER TABLE recommendations
+  ADD COLUMN IF NOT EXISTS object_version_id uuid;
+ALTER TABLE recommendations
+  ADD COLUMN IF NOT EXISTS object_kind varchar(50);
+ALTER TABLE recommendations
+  ALTER COLUMN process_id DROP NOT NULL;
+ALTER TABLE recommendations
+  ALTER COLUMN version_id DROP NOT NULL;
+
+CREATE INDEX IF NOT EXISTS business_model_changes_object_status_idx
+  ON business_model_changes(object_id, status);
+CREATE INDEX IF NOT EXISTS business_model_changes_proposed_namespace_idx
+  ON business_model_changes(object_kind, proposed_slug, status);
+CREATE INDEX IF NOT EXISTS recommendations_object_status_idx
+  ON recommendations(object_id, status);
+
 DO $r1_constraints$
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'business_model_changes_object_id_business_objects_id_fk'
+  ) THEN
+    ALTER TABLE business_model_changes
+      ADD CONSTRAINT business_model_changes_object_id_business_objects_id_fk
+      FOREIGN KEY (object_id) REFERENCES business_objects(id)
+      ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'business_model_changes_base_object_version_id_business_object_versions_id_fk'
+  ) THEN
+    ALTER TABLE business_model_changes
+      ADD CONSTRAINT business_model_changes_base_object_version_id_business_object_versions_id_fk
+      FOREIGN KEY (base_object_version_id) REFERENCES business_object_versions(id)
+      ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'recommendations_object_id_business_objects_id_fk'
+  ) THEN
+    ALTER TABLE recommendations
+      ADD CONSTRAINT recommendations_object_id_business_objects_id_fk
+      FOREIGN KEY (object_id) REFERENCES business_objects(id)
+      ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'recommendations_object_version_id_business_object_versions_id_fk'
+  ) THEN
+    ALTER TABLE recommendations
+      ADD CONSTRAINT recommendations_object_version_id_business_object_versions_id_fk
+      FOREIGN KEY (object_version_id) REFERENCES business_object_versions(id)
+      ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'business_elements_owner_department_id_departments_id_fk'
+  ) THEN
+    ALTER TABLE business_elements
+      ADD CONSTRAINT business_elements_owner_department_id_departments_id_fk
+      FOREIGN KEY (owner_department_id) REFERENCES departments(id)
+      ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'business_elements_owner_entity_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE business_elements
+      ADD CONSTRAINT business_elements_owner_entity_id_entities_id_fk
+      FOREIGN KEY (owner_entity_id) REFERENCES entities(id)
+      ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'business_element_systems_entity_id_entities_id_fk'
+  ) THEN
+    ALTER TABLE business_element_systems
+      ADD CONSTRAINT business_element_systems_entity_id_entities_id_fk
+      FOREIGN KEY (entity_id) REFERENCES entities(id)
+      ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'business_object_top_domains_top_domain_id_knowledge_top_domains_id_fk'
+  ) THEN
+    ALTER TABLE business_object_top_domains
+      ADD CONSTRAINT business_object_top_domains_top_domain_id_knowledge_top_domains_id_fk
+      FOREIGN KEY (top_domain_id) REFERENCES knowledge_top_domains(id)
+      ON DELETE CASCADE;
+  END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'business_objects_current_version_fk'
   ) THEN
