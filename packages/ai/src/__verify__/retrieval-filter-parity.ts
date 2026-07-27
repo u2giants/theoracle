@@ -61,6 +61,14 @@ function extractFunctionBody(source: string, signature: string): string {
 function main(): void {
   console.log('Retrieval filter-parity guard\n');
   const source = readFileSync(RETRIEVAL_PATH, 'utf8');
+  if (!source.includes("ct.review_status = 'approved'")) {
+    fail('locale retrieval can use an unapproved or rejected translation');
+  }
+  pass('locale retrieval only uses admin-approved translations');
+  if (!source.includes("ct.source_hash = encode(digest(c.summary, 'sha256'), 'hex')")) {
+    fail('locale retrieval can use a translation of an older canonical summary');
+  }
+  pass('locale retrieval falls back when an approved translation is stale');
 
   // 1. Extract the keys returned by buildPlanMetadataFilters from its `return
   //    { ... }` object literal.

@@ -25,13 +25,17 @@ This file describes the current deploy and release path that exists in the repo 
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "pnpm --filter @oracle/ai verify:retrieval-filter-parity && pnpm --filter @oracle/ai verify:vertex-file-cache && pnpm --filter @oracle/web build",
+  "buildCommand": "pnpm --filter @oracle/ai verify:retrieval-filter-parity && pnpm --filter @oracle/ai verify:chinese-retrieval && pnpm --filter @oracle/ai verify:vertex-file-cache && pnpm --filter @oracle/web verify:claim-translation-review && pnpm --filter @oracle/web verify:mcp && pnpm --filter @oracle/web build",
   "installCommand": "pnpm install --frozen-lockfile=false",
   "outputDirectory": "apps/web/.next"
 }
 ```
 
-The verify guards are DB-free and network-free (the Vertex guard stubs its clients), so they run inside the Vercel build with no extra secrets. The migration-drift check is intentionally NOT in the Vercel build — it needs prod DB credentials and stays in `pr-check.yml` as an advisory check.
+The five verify guards are DB-free and network-free (the Vertex guard stubs its clients, and the
+default Chinese fixture never calls the embedding service), so they run inside the Vercel build
+with no extra secrets. The credentialed Chinese vector measurement is separate:
+`pnpm --filter @oracle/ai verify:chinese-retrieval-live`. The migration-drift check is intentionally
+NOT in the Vercel build — it needs prod DB credentials and stays in `pr-check.yml` as an advisory check.
 
 ### Workers
 
@@ -101,10 +105,18 @@ What it does (in order):
 1. Checks out the repo, installs pnpm 9.5.0, uses Node 24, runs `pnpm install --frozen-lockfile=false`.
 2. **Build gate** — `pnpm --filter @oracle/web build`. This is a full production Next.js build (Turbopack); it is the only command that catches Next.js-specific type errors that `pnpm typecheck` alone misses.
 3. **Retrieval filter-parity guard** — `pnpm --filter @oracle/ai verify:retrieval-filter-parity`. DB-free static check that every filter key from `buildPlanMetadataFilters()` is interpolated into both the hybrid and tsvector-fallback SQL branches in `retrieval.ts`.
-4. **Vertex file-cache multi-turn guard** — `pnpm --filter @oracle/ai verify:vertex-file-cache`. DB-free, network-free (clients stubbed). Asserts the file-backed cache path preserves the full conversation as live contents rather than collapsing to a single turn.
-5. **R0 reader/validator contract** — `pnpm --filter @oracle/workers verify:r0-reader-validator`. DB-free deterministic validation for source quote policies, map validation, reference membership, coverage, and reader budgets.
-6. **Fresh-database migration gate** — starts pgvector Postgres 16, creates only the Supabase-owned `auth.uid()`/role prerequisites in the isolated `oracle_fresh` database, runs the complete `@oracle/db` migration runner, then runs `verify:fresh-source-workflow-schema`. The prerequisite helper refuses non-loopback hosts and any other database name. This catches raw-migration ordering failures and verifies the surviving source-map schema before production migration.
-7. **Drizzle journal drift check** — `pnpm -w run db:check-drift`. Compares on-disk migration hashes against `drizzle.__drizzle_migrations` in production. Requires the `PROD_DIRECT_URL` repo secret; skips gracefully if absent.
+4. **Entity-aware retrieval guard** — `pnpm --filter @oracle/ai verify:entity-aware-retrieval`.
+5. **Chinese retrieval guard** — `pnpm --filter @oracle/ai verify:chinese-retrieval`. Always network-free; the live vector command is separate.
+6. **China translation review guard** — `pnpm --filter @oracle/web verify:claim-translation-review`.
+7. **Vertex file-cache multi-turn guard** — `pnpm --filter @oracle/ai verify:vertex-file-cache`.
+8. **MCP registry guard** — `pnpm --filter @oracle/web verify:mcp`.
+9. **Vertex inline-image guard** — `pnpm --filter @oracle/ai verify:vertex-inline-image`.
+10. **Auxiliary-model defaults guard** — `pnpm --filter @oracle/ai verify:auxiliary-defaults`.
+11. **R0 reader/validator contract** — `pnpm --filter @oracle/workers verify:r0-reader-validator`.
+12. **R1 cross-shape contract** — `pnpm --filter @oracle/engines verify:r1-cross-shape`.
+13. **Taxonomy reclassification contract** — `pnpm --filter @oracle/workers verify:taxonomy-reclassification`.
+14. **Fresh-database migration gate** — starts isolated pgvector Postgres and runs the generated-order, full migration, source-workflow, R1 schema, and taxonomy DB guards.
+15. **Drizzle journal drift check** — `pnpm -w run db:check-drift`. Requires `PROD_DIRECT_URL`; skips gracefully if absent.
 
 There is no checked-in workflow for DB migrations or worker deploys.
 

@@ -67,8 +67,20 @@ pnpm --filter @oracle/ai verify:r2
 # Retrieval filter parity — both SQL branches must stay in lockstep (also runs in CI)
 pnpm --filter @oracle/ai verify:retrieval-filter-parity
 
+# Network-free Chinese serving/simple-search contract (also runs in CI and Vercel)
+pnpm --filter @oracle/ai verify:chinese-retrieval
+
+# Credentialed Chinese vector measurement (separate release gate; never runs in CI/Vercel)
+pnpm --filter @oracle/ai verify:chinese-retrieval-live
+
 # Vertex file-cache multi-turn guard — cached prefix must not collapse conversation history (also runs in CI)
 pnpm --filter @oracle/ai verify:vertex-file-cache
+
+# Admin-only translation review, history, stale state, and concurrency tokens
+pnpm --filter @oracle/web verify:claim-translation-review
+
+# Remote MCP registry contract
+pnpm --filter @oracle/web verify:mcp
 
 # Deterministic extraction/validation/promotion logic
 pnpm --filter @oracle/engines verify:r5
@@ -83,7 +95,10 @@ pnpm --filter @oracle/engines verify:r9
 pnpm --filter @oracle/engines verify:r11.1
 ```
 
-The two guards also run inside Vercel's production build command (`vercel.json` `buildCommand`), so a commit that breaks them will fail the Vercel deploy and leave the previous production deployment live.
+The five network-free guards (`verify:retrieval-filter-parity`,
+`verify:chinese-retrieval`, `verify:vertex-file-cache`,
+`verify:claim-translation-review`, and `verify:mcp`) also run inside Vercel's
+production build command. The live Chinese vector measurement does not.
 
 If you need the mock extraction eval:
 

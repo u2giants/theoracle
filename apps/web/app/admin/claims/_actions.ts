@@ -1,6 +1,7 @@
 'use server';
 
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { requireAdmin, requireEmployee } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
@@ -19,6 +20,8 @@ import {
   claimReviewGroupMembers,
   claimReviewGroups,
   claimReviewEvents,
+  claimTranslationEvents,
+  claimTranslations,
   claims,
   claimTopDomains,
   employees,
@@ -796,4 +799,139 @@ export async function translateClaimsForChina(formData: FormData) {
         `and no sweep will retry them. Check TRIGGER_SECRET_KEY, then re-run.`,
     );
   }
+}
+
+type TranslationReviewAction = 'approved' | 'rejected';
+
+const translationAuditSelection = {
+  claimId: claimTranslations.claimId,
+  lang: claimTranslations.lang,
+  summary: claimTranslations.summary,
+  sourceHash: claimTranslations.sourceHash,
+  translationModelProvider: claimTranslations.translationModelProvider,
+  translationModelId: claimTranslations.translationModelId,
+  translationPromptVersion: claimTranslations.translationPromptVersion,
+  reviewStatus: claimTranslations.reviewStatus,
+  reviewedByEmployeeId: claimTranslations.reviewedByEmployeeId,
+  reviewedAt: claimTranslations.reviewedAt,
+  createdAt: claimTranslations.createdAt,
+  updatedAt: claimTranslations.updatedAt,
+};
+
+export async function reviewClaimTranslation(formData: FormData) {
+  const me = await requireAdmin();
+  const claimId = String(formData.get('claimId') ?? '');
+  const lang = String(formData.get('lang') ?? '');
+  const expectedSourceHash = String(formData.get('sourceHash') ?? '');
+  const expectedTranslationHash = String(formData.get('translationHash') ?? '');
+  const expectedUpdatedAtRaw = String(formData.get('updatedAt') ?? '');
+  const expectedUpdatedAt = new Date(expectedUpdatedAtRaw);
+  const action = String(formData.get('action') ?? '') as TranslationReviewAction;
+  if (
+    !claimId ||
+    !lang ||
+    !expectedSourceHash ||
+    !expectedTranslationHash ||
+    Number.isNaN(expectedUpdatedAt.getTime()) ||
+    !['approved', 'rejected'].includes(action)
+  ) {
+    throw new Error('Invalid translation review request.');
+  }
+
+  const db = getDirectDb();
+  await db.transaction(async (tx) => {
+    const [translation] = await tx
+      .select(translationAuditSelection)
+      .from(claimTranslations)
+      .where(and(eq(claimTranslations.claimId, claimId), eq(claimTranslations.lang, lang)))
+      .limit(1);
+    if (!translation) throw new Error('Translation not found.');
+
+    const reviewedAt = new Date();
+    if (translation.sourceHash !== expectedSourceHash) {
+      throw new Error('This translation changed. Refresh before reviewing it.');
+    }
+    const currentTranslationHash = createHash('sha256')
+      .update(translation.summary, 'utf8')
+      .digest('hex');
+    if (
+      currentTranslationHash !== expectedTranslationHash ||
+      translation.updatedAt.getTime() !== expectedUpdatedAt.getTime()
+    ) {
+      throw new Error('This translation changed. Refresh and review the new text.');
+    }
+    const updated = await tx
+      .update(claimTranslations)
+      .set({
+        reviewStatus: action,
+        reviewedByEmployeeId: me.id,
+        reviewedAt,
+        updatedAt: reviewedAt,
+      })
+      .where(
+        and(
+          eq(claimTranslations.claimId, claimId),
+          eq(claimTranslations.lang, lang),
+          eq(claimTranslations.sourceHash, expectedSourceHash),
+          eq(claimTranslations.summary, translation.summary),
+          eq(claimTranslations.updatedAt, expectedUpdatedAt),
+        ),
+      )
+      .returning({ claimId: claimTranslations.claimId });
+    if (updated.length !== 1) {
+      throw new Error('This translation changed. Refresh before reviewing it.');
+    }
+    await tx.insert(claimTranslationEvents).values({
+      claimId,
+      lang,
+      action,
+      actedByEmployeeId: me.id,
+      beforeState: translation,
+      afterState: {
+        ...translation,
+        reviewStatus: action,
+        reviewedByEmployeeId: me.id,
+        reviewedAt: reviewedAt.toISOString(),
+      },
+    });
+  });
+  refreshClaimPages();
+}
+
+export async function retranslateClaim(formData: FormData) {
+  const me = await requireAdmin();
+  const claimId = String(formData.get('claimId') ?? '');
+  const lang = String(formData.get('lang') ?? '');
+  if (!claimId || !lang) throw new Error('Invalid retranslation request.');
+
+  const db = getDirectDb();
+  const [translation] = await db
+    .select(translationAuditSelection)
+    .from(claimTranslations)
+    .where(and(eq(claimTranslations.claimId, claimId), eq(claimTranslations.lang, lang)))
+    .limit(1);
+  if (!translation) throw new Error('Translation not found.');
+
+  await db.insert(claimTranslationEvents).values({
+    claimId,
+    lang,
+    action: 'retranslation_requested',
+    actedByEmployeeId: me.id,
+    beforeState: translation,
+    afterState: { requested: true },
+  });
+
+  const dispatched = await triggerTask('claim-translation', { claimId, force: true });
+  if (!dispatched) {
+    await db.insert(claimTranslationEvents).values({
+      claimId,
+      lang,
+      action: 'retranslation_dispatch_failed',
+      actedByEmployeeId: me.id,
+      beforeState: translation,
+      afterState: { requested: false },
+    });
+    throw new Error('Retranslation was not queued. Check Trigger and try again.');
+  }
+  refreshClaimPages();
 }

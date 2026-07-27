@@ -328,9 +328,29 @@ Built (2026-06-18):
   everyone it's been routed to, derived from open `claim_review_question` gaps.
   (Shipped — commit `e5179c0`.)
 
-Still NOT built (optional, low priority): show canonical summary + each
-translation side by side so reviewers can spot a bad translation. Evidence
-quotes remain shown in their original language only.
+Built (2026-07-27): Admin Claims shows the canonical summary and current
+translation side by side. It shows source language, model/provider, prompt
+version, review status, stale state, and history count. Admin-only approve,
+reject, and forced retranslate actions are append-only audited. Pending or
+rejected translations are not served by retrieval. An approved translation whose
+source hash no longer matches the canonical summary is also excluded, with
+canonical English used as fallback. Review forms bind both the translated-content
+hash and `updated_at`, so a stale browser page cannot approve newly replaced
+Chinese text. Retranslation preserves the
+prior output in `claim_translation_events` before replacing the current
+rendering. Evidence quotes remain shown in their original language only.
+
+Chinese keyword search remains on PostgreSQL `simple`. The offline CI fixture
+records 0/5 contiguous-query recall for the current spaceless-Chinese set and checks that only approved
+translations enter retrieval. Run `pnpm --filter @oracle/ai
+verify:chinese-retrieval-live` with the real embedding credential to measure
+multilingual vector recall before closing GAP-4. Do not add `zhparser` or
+`pg_jieba` unless that combined fixture fails and hosted support plus rollback
+have been reviewed separately.
+
+The network-free GAP-4 review and retrieval guards run in both GitHub CI and the
+Vercel build command. The live vector measurement remains a separate
+credentialed release gate.
 
 ## 6. Migration mechanics
 

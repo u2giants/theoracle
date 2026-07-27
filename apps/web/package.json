@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",
-    "verify:mcp": "tsx lib/mcp/__verify__/mcp-registry.ts"
+    "verify:mcp": "tsx lib/mcp/__verify__/mcp-registry.ts",
+    "verify:claim-translation-review": "tsx lib/__verify__/claim-translation-review.ts"
   },
   "dependencies": {
     "@openrouter/ai-sdk-provider": "^2.9.0",

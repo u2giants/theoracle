@@ -1554,6 +1554,14 @@ export const claimTranslations = pgTable(
     // Embedding of the translated summary (same model/dimension as claims).
     embedding: vector('embedding', { dimensions: EMBEDDING_DIM }),
     translatedByModelRunId: uuid('translated_by_model_run_id').references(() => modelRuns.id),
+    translationModelProvider: varchar('translation_model_provider', { length: 100 }),
+    translationModelId: varchar('translation_model_id', { length: 255 }),
+    translationPromptVersion: varchar('translation_prompt_version', { length: 100 }),
+    reviewStatus: varchar('review_status', { length: 30 }).notNull().default('pending_review'),
+    reviewedByEmployeeId: uuid('reviewed_by_employee_id').references(() => employees.id, {
+      onDelete: 'set null',
+    }),
+    reviewedAt: timestamp('reviewed_at'),
     // sha256 hex of the canonical summary at translation time. The translation
     // worker re-translates when this no longer matches the current summary.
     sourceHash: varchar('source_hash', { length: 64 }),
@@ -1563,6 +1571,34 @@ export const claimTranslations = pgTable(
   (t) => ({
     pk: primaryKey({ columns: [t.claimId, t.lang] }),
     langIdx: index('claim_translations_lang_idx').on(t.lang),
+  }),
+);
+
+// Append-only history for every generated translation and admin review decision.
+// claim_translations remains the current rendering used by retrieval; this table
+// preserves prior output before a retranslation replaces that current rendering.
+export const claimTranslationEvents = pgTable(
+  'claim_translation_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    claimId: uuid('claim_id')
+      .references(() => claims.id, { onDelete: 'cascade' })
+      .notNull(),
+    lang: varchar('lang', { length: 12 }).notNull(),
+    action: varchar('action', { length: 30 }).notNull(),
+    actedByEmployeeId: uuid('acted_by_employee_id').references(() => employees.id, {
+      onDelete: 'set null',
+    }),
+    beforeState: jsonb('before_state'),
+    afterState: jsonb('after_state'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    claimLangIdx: index('claim_translation_events_claim_lang_idx').on(
+      t.claimId,
+      t.lang,
+      t.createdAt,
+    ),
   }),
 );
 

@@ -14,7 +14,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-1 Finish the existing taxonomy reclassification path | 🟨 local implementation complete; release proof blocked | Admin dispatch, visible failure/retry states, row-locked terminal idempotency, stale-base checks, run-ID audit, and post-commit Brain follow-up are implemented. Static checks pass; the DB concurrency/rollback guard is wired into fresh-database CI. Production SELECT audit, deployment, real run proof, and CI execution remain. |
 | GAP-2 Entity-aware retrieval planning                    | 🟨 local implementation complete; default stays off     | Registry-only resolution, model selection, loud deterministic fallback, and offline fixtures are implemented. Fixture recall is 100%, wrong-entity rate is 0%, and unresolved names invent 0 IDs. Enabling by default remains blocked until a live provider run records added latency and cost. |
 | GAP-3 Authentik disposition                              | ⬜ open                                                 | Owner must confirm whether Authentik is still a wanted login method                                                                                                                                                                                                                                                                                    |
-| GAP-4 China translation review and search hardening      | ⬜ open                                                 | Side-by-side review is unbuilt; true Chinese tokenization is optional                                                                                                                                                                                                                                                                                  |
+| GAP-4 China translation review and search hardening      | 🟨 local implementation complete; live vector gate remains | Side-by-side English/Chinese review, model/version/status/stale display, append-only generation and review history, approve/reject/retranslate actions, and CI guards are implemented. `simple` search is measured by the offline fixture; run the credentialed live vector fixture before closing. No Chinese search extension was added. |
 | GAP-5 Multi-attachment and cross-provider cache safety   | ⬜ open                                                 | Needs provider-shape design and live fallback fixture                                                                                                                                                                                                                                                                                                  |
 | GAP-6 Vertex cache and batch storage                     | ⬜ open                                                 | Production cloud mutation requires exact owner approval                                                                                                                                                                                                                                                                                                |
 | GAP-7 Eval-results dashboard                             | ⬜ open                                                 | CLI evals work; UI remains a deliberate placeholder                                                                                                                                                                                                                                                                                                    |
@@ -279,6 +279,27 @@ exists with security review.
 
 Gate: admins can compare and audit translations, Chinese retrieval passes the fixture, and no
 extension is added without measured need.
+
+Implementation evidence (2026-07-27):
+
+- Admin Claims renders canonical and translated summaries side by side, including source language,
+  model/provider, prompt version, review status, stale state, and append-only history count.
+- Admin-only approve, reject, and forced retranslate actions write
+  `claim_translation_events`. Review forms carry source hash, translated-content hash, and
+  `updated_at` concurrency tokens, so an old browser page cannot approve newly replaced text.
+- Rejected, pending, and stale translations are excluded from both retrieval paths, which fall
+  back to the canonical English summary.
+- The translation worker preserves the prior output before replacement and resets every new output
+  to `pending_review`. Existing-claim translation remains an explicit checkbox action.
+- `verify:chinese-retrieval` records `simple` search recall at 0/5 for the current representative
+  spaceless-Chinese queries and checks
+  approved/current, pending, rejected, and stale serving cases. The parity guard proves the shared
+  SQL join applies approval and source-hash freshness in both paths. The web guard verifies each
+  action has its own admin check and that review forms/actions use concurrency tokens. These guards
+  also run in the Vercel build command. `verify:chinese-retrieval-live` measures multilingual vector
+  recall@3 with the real embedding model and must reach 80% before this gap is marked complete.
+- No `zhparser`, `pg_jieba`, or other hosted extension was added. Extension work remains conditional
+  on a failing live vector-plus-simple fixture and a separate availability/rollback review.
 
 ### GAP-5: attachment and cache safety
 

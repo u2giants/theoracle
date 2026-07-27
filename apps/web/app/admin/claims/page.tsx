@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { Fragment } from 'react';
+import { createHash } from 'node:crypto';
 import Link from 'next/link';
 import { sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
@@ -9,11 +10,18 @@ import { formatNYDate } from '@/lib/time';
 import { AssignQuestionForm } from './_components/assign-question-form';
 import { BulkEvaluateBar } from './_components/bulk-evaluate-bar';
 import { ShiftSelect } from './_components/shift-select';
-import { reviseClaim, updateClaimStatus, translateClaimsForChina } from './_actions';
+import {
+  retranslateClaim,
+  reviseClaim,
+  reviewClaimTranslation,
+  updateClaimStatus,
+  translateClaimsForChina,
+} from './_actions';
 
 type ClaimRow = {
   id: string;
   summary: string;
+  source_lang: string;
   claim_type: string;
   claim_kind: string | null;
   claim_kind_confidence: number | null;
@@ -32,6 +40,18 @@ type ClaimRow = {
   // China bilingual layer (china_imp.md): languages this claim is translated into
   // — the persisted "routed to which group" signal; null when none.
   translated_langs: string[] | null;
+  translation: {
+    lang: string;
+    summary: string;
+    sourceHash: string | null;
+    modelProvider: string | null;
+    modelId: string | null;
+    promptVersion: string | null;
+    reviewStatus: string;
+    reviewedAt: string | null;
+    updatedAt: string;
+    eventCount: number;
+  } | null;
   // Names of employees this claim has been sent to for review (open/queued/asked
   // claim_review_question gaps). Persisted signal of "who is evaluating this";
   // null when the claim hasn't been sent to anyone.
@@ -98,6 +118,7 @@ export default async function AdminClaimsPage({
     SELECT
       c.id,
       c.summary,
+      c.source_lang,
       c.claim_type,
       c.claim_kind,
       c.claim_kind_confidence,
@@ -143,7 +164,30 @@ export default async function AdminClaimsPage({
         SELECT jsonb_agg(ct.lang ORDER BY ct.lang)
         FROM claim_translations ct
         WHERE ct.claim_id = c.id
+          AND ct.review_status = 'approved'
       ) AS translated_langs,
+      (
+        SELECT jsonb_build_object(
+          'lang', ct.lang,
+          'summary', ct.summary,
+          'sourceHash', ct.source_hash,
+          'modelProvider', ct.translation_model_provider,
+          'modelId', ct.translation_model_id,
+          'promptVersion', ct.translation_prompt_version,
+          'reviewStatus', ct.review_status,
+          'reviewedAt', ct.reviewed_at,
+          'updatedAt', ct.updated_at,
+          'eventCount', (
+            SELECT COUNT(*)::int
+            FROM claim_translation_events cte
+            WHERE cte.claim_id = ct.claim_id AND cte.lang = ct.lang
+          )
+        )
+        FROM claim_translations ct
+        WHERE ct.claim_id = c.id
+        ORDER BY ct.lang
+        LIMIT 1
+      ) AS translation,
       (
         SELECT jsonb_agg(DISTINCT te.name)
         FROM gaps g
@@ -370,6 +414,17 @@ export default async function AdminClaimsPage({
                       </tr>
                       {group.rows.map((row) => {
                         const wasCorrected = row.revision_reviewer_id !== null;
+                        const canonicalHash = createHash('sha256')
+                          .update(row.summary, 'utf8')
+                          .digest('hex');
+                        const translationIsStale =
+                          row.translation !== null &&
+                          row.translation.sourceHash !== canonicalHash;
+                        const translationHash = row.translation
+                          ? createHash('sha256')
+                              .update(row.translation.summary, 'utf8')
+                              .digest('hex')
+                          : null;
                         return (
                     <tr
                       key={row.id}
@@ -446,6 +501,75 @@ export default async function AdminClaimsPage({
                           </div>
                         )}
                         {row.summary}
+                        {row.translation && (
+                          <div className="mt-3 grid gap-2 rounded border bg-muted/20 p-3 lg:grid-cols-2">
+                            <div>
+                              <div className="mb-1 text-[10px] font-semibold uppercase text-muted-foreground">
+                                Original · {row.source_lang}
+                              </div>
+                              <p>{row.summary}</p>
+                            </div>
+                            <div>
+                              <div className="mb-1 flex flex-wrap items-center gap-1 text-[10px]">
+                                <span className="font-semibold uppercase text-muted-foreground">
+                                  Translation · {row.translation.lang}
+                                </span>
+                                <span className={`rounded px-1 py-0.5 ${
+                                  row.translation.reviewStatus === 'approved'
+                                    ? 'bg-green-100 text-green-800'
+                                    : row.translation.reviewStatus === 'rejected'
+                                      ? 'bg-red-100 text-red-800'
+                                      : 'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  {row.translation.reviewStatus.replace(/_/g, ' ')}
+                                </span>
+                                {translationIsStale && (
+                                  <span className="rounded bg-orange-100 px-1 py-0.5 text-orange-800">
+                                    stale
+                                  </span>
+                                )}
+                              </div>
+                              <p>{row.translation.summary}</p>
+                              <p className="mt-2 text-[10px] text-muted-foreground">
+                                Model: {row.translation.modelProvider ?? 'unknown'}/
+                                {row.translation.modelId ?? 'unknown'} · version{' '}
+                                {row.translation.promptVersion ?? 'legacy'} · history{' '}
+                                {row.translation.eventCount}
+                              </p>
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                <form action={reviewClaimTranslation}>
+                                  <input type="hidden" name="claimId" value={row.id} />
+                                  <input type="hidden" name="lang" value={row.translation.lang} />
+                                  <input type="hidden" name="sourceHash" value={row.translation.sourceHash ?? ''} />
+                                  <input type="hidden" name="translationHash" value={translationHash ?? ''} />
+                                  <input type="hidden" name="updatedAt" value={new Date(row.translation.updatedAt).toISOString()} />
+                                  <input type="hidden" name="action" value="approved" />
+                                  <button className="rounded bg-green-600 px-2 py-1 text-[10px] text-white">
+                                    Approve translation
+                                  </button>
+                                </form>
+                                <form action={reviewClaimTranslation}>
+                                  <input type="hidden" name="claimId" value={row.id} />
+                                  <input type="hidden" name="lang" value={row.translation.lang} />
+                                  <input type="hidden" name="sourceHash" value={row.translation.sourceHash ?? ''} />
+                                  <input type="hidden" name="translationHash" value={translationHash ?? ''} />
+                                  <input type="hidden" name="updatedAt" value={new Date(row.translation.updatedAt).toISOString()} />
+                                  <input type="hidden" name="action" value="rejected" />
+                                  <button className="rounded bg-red-600 px-2 py-1 text-[10px] text-white">
+                                    Reject translation
+                                  </button>
+                                </form>
+                                <form action={retranslateClaim}>
+                                  <input type="hidden" name="claimId" value={row.id} />
+                                  <input type="hidden" name="lang" value={row.translation.lang} />
+                                  <button className="rounded border px-2 py-1 text-[10px]">
+                                    Retranslate
+                                  </button>
+                                </form>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 pr-4 whitespace-nowrap text-xs text-muted-foreground">
                         {row.claim_type}

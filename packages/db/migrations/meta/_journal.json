@@ -78,6 +78,13 @@
       "when": 1785155454858,
       "tag": "0010_r1_cross_shape_model",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785158867458,
+      "tag": "0011_pink_titanium_man",
+      "breakpoints": true
     }
   ]
 }

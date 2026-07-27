@@ -21,7 +21,7 @@ import { and, eq } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { getDirectDb } from '@oracle/db/client';
-import { claims, claimTranslations } from '@oracle/db';
+import { claims, claimTranslationEvents, claimTranslations } from '@oracle/db';
 import {
   OracleAIClient,
   buildStandardAdapters,
@@ -47,6 +47,7 @@ const LANGUAGE_LABELS: Record<SupportedLocale, string> = {
 
 const payloadSchema = z.object({
   claimId: z.string().uuid(),
+  force: z.boolean().optional().default(false),
 });
 
 function sha256(text: string): string {
@@ -87,7 +88,7 @@ RULES:
  * than its source language. Skips languages already up to date (source_hash
  * matches the current summary).
  */
-async function translateClaim(claimId: string): Promise<{
+async function translateClaim(claimId: string, force = false): Promise<{
   claimId: string;
   status: 'translated' | 'skipped_not_found' | 'skipped_not_approved';
   langs: string[];
@@ -122,11 +123,22 @@ async function translateClaim(claimId: string): Promise<{
 
   for (const lang of targets) {
     const [existing] = await db
-      .select({ sourceHash: claimTranslations.sourceHash })
+      .select({
+        summary: claimTranslations.summary,
+        sourceHash: claimTranslations.sourceHash,
+        translationModelProvider: claimTranslations.translationModelProvider,
+        translationModelId: claimTranslations.translationModelId,
+        translationPromptVersion: claimTranslations.translationPromptVersion,
+        reviewStatus: claimTranslations.reviewStatus,
+        reviewedByEmployeeId: claimTranslations.reviewedByEmployeeId,
+        reviewedAt: claimTranslations.reviewedAt,
+        createdAt: claimTranslations.createdAt,
+        updatedAt: claimTranslations.updatedAt,
+      })
       .from(claimTranslations)
       .where(and(eq(claimTranslations.claimId, claimId), eq(claimTranslations.lang, lang)))
       .limit(1);
-    if (existing && existing.sourceHash === sourceHash) {
+    if (!force && existing && existing.sourceHash === sourceHash) {
       continue; // already up to date
     }
 
@@ -183,24 +195,55 @@ async function translateClaim(claimId: string): Promise<{
 
     const { vector } = await embedText(translated);
 
-    await db
-      .insert(claimTranslations)
-      .values({
+    const afterState = {
+      summary: translated,
+      sourceHash,
+      translationModelProvider: result.provider ?? null,
+      translationModelId: result.modelId ?? null,
+      translationPromptVersion: TRANSLATION_PROMPT_VERSION,
+      reviewStatus: 'pending_review',
+    };
+
+    await db.transaction(async (tx) => {
+      await tx.insert(claimTranslationEvents).values({
         claimId,
         lang,
-        summary: translated,
-        embedding: vector,
-        sourceHash,
-      })
-      .onConflictDoUpdate({
-        target: [claimTranslations.claimId, claimTranslations.lang],
-        set: {
+        action: existing ? 'retranslated' : 'generated',
+        beforeState: existing ?? null,
+        afterState,
+      });
+
+      await tx
+        .insert(claimTranslations)
+        .values({
+          claimId,
+          lang,
           summary: translated,
           embedding: vector,
           sourceHash,
-          updatedAt: new Date(),
-        },
-      });
+          translationModelProvider: result.provider ?? null,
+          translationModelId: result.modelId ?? null,
+          translationPromptVersion: TRANSLATION_PROMPT_VERSION,
+          reviewStatus: 'pending_review',
+          reviewedByEmployeeId: null,
+          reviewedAt: null,
+        })
+        .onConflictDoUpdate({
+          target: [claimTranslations.claimId, claimTranslations.lang],
+          set: {
+            summary: translated,
+            embedding: vector,
+            sourceHash,
+            translationModelProvider: result.provider ?? null,
+            translationModelId: result.modelId ?? null,
+            translationPromptVersion: TRANSLATION_PROMPT_VERSION,
+            reviewStatus: 'pending_review',
+            reviewedByEmployeeId: null,
+            reviewedAt: null,
+            updatedAt: new Date(),
+          },
+        });
+    });
 
     translatedLangs.push(lang);
   }
@@ -211,7 +254,7 @@ async function translateClaim(claimId: string): Promise<{
 export const claimTranslationTask = task({
   id: 'claim-translation',
   run: async (rawPayload: unknown) => {
-    const { claimId } = payloadSchema.parse(rawPayload);
-    return translateClaim(claimId);
+    const { claimId, force } = payloadSchema.parse(rawPayload);
+    return translateClaim(claimId, force);
   },
 });

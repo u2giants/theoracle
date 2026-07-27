@@ -93,6 +93,16 @@ jobs:
         # visible keyword-only fallback when the optional model call fails.
         run: pnpm --filter @oracle/ai verify:entity-aware-retrieval
 
+      - name: Chinese retrieval contract and simple-search fixture
+        # Network-free in CI. Records `simple` recall and proves rejected
+        # pending, and stale translations are excluded by the serving contract.
+        # SQL parity separately proves both retrieval paths use that contract.
+        # The live vector measurement is verify:chinese-retrieval-live.
+        run: pnpm --filter @oracle/ai verify:chinese-retrieval
+
+      - name: China translation review contract
+        run: pnpm --filter @oracle/web verify:claim-translation-review
+
       - name: Vertex file-cache multi-turn guard
         # Static, DB-free + network-free check (the GenAI + Storage clients are
         # stubbed). Asserts the Vertex file-backed cache path keeps the FULL

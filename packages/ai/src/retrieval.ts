@@ -70,7 +70,10 @@ function buildPlanMetadataFilters(plan: RetrievalPlan, locale: SupportedLocale) 
   // The localized EMBEDDING (COALESCE(ct.embedding, c.embedding)) is hybrid-only
   // — the fallback path has no embedding concept — so it is applied inline in the
   // hybrid query rather than returned here (like the dept-bonus CTE).
-  const translationJoin = sql`LEFT JOIN claim_translations ct ON ct.claim_id = c.id AND ct.lang = ${locale}`;
+  const translationJoin = sql`LEFT JOIN claim_translations ct ON ct.claim_id = c.id
+    AND ct.lang = ${locale}
+    AND ct.review_status = 'approved'
+    AND ct.source_hash = encode(digest(c.summary, 'sha256'), 'hex')`;
   const localizedSummary = sql`COALESCE(ct.summary, c.summary)`;
   // regconfig is derived from a coerced locale (never user input), injected as
   // raw SQL because a tsvector config cannot be a bind parameter.
