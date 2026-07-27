@@ -376,3 +376,85 @@ The SELECT-only data, FK, RLS, duplicate-file, existing-journal, and snapshot
 inspections are complete. The snapshot baseline is exact and idempotent with
 zero production mutation. R1 DDL remains gated until this pending comment-only
 baseline is reviewed and journaled through the normal migration runner.
+
+## 2026-07-27 — R1 local cross-shape implementation gate
+
+Scope: local implementation after the mandatory production audit and journaled
+comment-only `0009` snapshot baseline. No production database, deployment,
+commit, push, or worker state changed.
+
+Implemented:
+
+- generated additive migration `0010_r1_cross_shape_model.sql` and aligned
+  93-table snapshot;
+- shared object/version/element/relation/evidence/system/path/domain spine;
+- six one-to-one typed detail tables;
+- guarded object-general target columns for proposals and recommendations while
+  retaining all legacy process columns;
+- authoritative `object_kind + proposed_slug` create namespace and generic
+  object/create-namespace lifecycle locks;
+- cross-version, endpoint, target-identity, per-shape, typed-field, object-kind,
+  and detail-shape constraints;
+- RLS default-deny posture for every new table;
+- merge, apply, and serving settings seeded false;
+- one shared shape registry with persistence/render adapters, reader/extraction
+  instructions, coverage kinds, merge fragments, and deterministic validators;
+- read-only generic object/version/proposal/recommendation admin/API surfaces;
+- fresh-database verifier and CI steps.
+
+Local results:
+
+- PASS `corepack pnpm -r typecheck`;
+- PASS `corepack pnpm --filter @oracle/engines verify:r1-cross-shape`;
+- PASS `corepack pnpm --filter @oracle/engines verify:macro-first`;
+- PASS `corepack pnpm --filter @oracle/ai verify:workflow-read`;
+- PASS `corepack pnpm --filter @oracle/workers verify:r0-reader-validator`;
+- PASS `corepack pnpm --filter @oracle/web build` with CI placeholders;
+- PASS Drizzle alignment probe: 93 tables, no schema changes;
+- PASS `git diff --check`;
+- SKIP production drift query because this session had no database URL;
+- BLOCKED locally: fresh PostgreSQL migration execution and authenticated visual
+  admin rendering because this Windows host has no Docker, WSL, local Postgres,
+  or database URL. CI now runs the R1 verifier against its empty pgvector
+  PostgreSQL service.
+
+Gate result: local implementation PASS. R1 is not release-green until Kimi K3
+review, fresh-database CI, normal journaled production migration, production
+RLS/service/admin verification, and authenticated UI visual proof pass.
+
+### 2026-07-27 — R1 independent-review corrections
+
+Grok 4.5 correctly failed the first local R1 implementation because migration
+86's process-only proposal checks and idempotency index were still active.
+Those old rules would have rejected `create_object` and `refine_object` rows.
+
+Corrections:
+
+- migration 95 now replaces the old type/base checks once, preserves valid
+  `create_process`/`refine_process` rows, and enforces exclusive generic
+  create/existing-object identities;
+- existing object and legacy process changes require their optimistic base
+  version in SQL and fail loud in the lifecycle helper when it is missing;
+- active idempotency is split into legacy target, existing object target, and
+  map/create namespace indexes, plus the global create namespace guard;
+- paths reject non-process versions; relations reject the wrong parent object
+  kind, endpoint shape, or endpoint version;
+- deterministic object recommendations have an object-version unique index;
+- the plan now states that top domains are multi-valued tags, not part of
+  durable object identity or advisory locking;
+- the loopback-only `oracle_fresh` verifier now runs rollback-only INSERT
+  fixtures covering valid object and legacy proposals, invalid mixed/missing
+  identities, both proposal uniqueness paths, valid and invalid typed details,
+  object/detail/relation/path/version ownership, recommendation deduplication,
+  current service access, service-role access, authenticated-role denial, and
+  clean rollback.
+
+Post-correction local gates:
+
+- PASS `corepack pnpm -r typecheck`;
+- PASS `verify:r1-cross-shape`, `verify:macro-first`, `verify:workflow-read`,
+  and `verify:r0-reader-validator`;
+- PASS Drizzle 93-table alignment probe with no schema changes.
+
+Fresh PostgreSQL execution remains a CI release gate because this Windows host
+has no Docker, WSL, local PostgreSQL, or database URL.

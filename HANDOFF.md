@@ -14,7 +14,7 @@ files, require R0.1 before R2, retire or retarget the obsolete SQL smoke based o
 finish the existing taxonomy worker path instead of creating a second worker, and clearly mark the
 old R1-only next step as historical.
 
-The five smaller Grok suggestions remain conditional. They are listed in
+Four smaller Grok suggestions remain conditional. They are listed in
 `plan_repo_reliability_and_release_gaps.md` §9 and must be sent to Claude for review before any are
 promoted into implementation work. Curated Qwen/GLM review notes are saved under `.ai/reviews/`;
 raw model output and scratch probes remain local and gitignored. The user-owned untracked files
@@ -41,7 +41,7 @@ must read the named plan's status table first and must not re-plan the work from
 | ERR-003 retired fan-out needs a deployed task-inventory check | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
 | ERR-004 current map-directed path needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
 | ERR-005 document contradiction fix needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
-| ERR-002 obsolete SQL smoke needs retirement or a current owner | [Reliability plan REL-3](plan_repo_reliability_and_release_gaps.md#rel-3-retire-or-retarget-the-obsolete-macro-support-sql-smoke) |
+| ERR-002 obsolete SQL smoke, resolved by zero-caller proof and retirement on 2026-07-27 | [Reliability plan REL-3](plan_repo_reliability_and_release_gaps.md#rel-3-retire-or-retarget-the-obsolete-macro-support-sql-smoke) |
 | Old DeepSeek phantom-fallback instruction | [Reliability plan REL-4](plan_repo_reliability_and_release_gaps.md#rel-4-model-pool-fallback-truth) |
 | Migration 65 generated/fresh-DB drift warning | [Reliability plan REL-5](plan_repo_reliability_and_release_gaps.md#rel-5-migration-65-and-snapshot-drift) |
 | Live image upload has no recorded production proof | [Reliability plan REL-6](plan_repo_reliability_and_release_gaps.md#rel-6-live-image-upload-proof) |
@@ -902,7 +902,7 @@ FINAL PROD CONFIG (verified single-encoded):
 - `default_vision_route = qwen/qwen3-vl-235b-a22b-thinking` (kept — proven person-level lane attribution + cross-vendor diversity)
 - `enforce_model_capabilities = true`, `default_extraction_reasoning_effort = off`, `default_vision_reasoning_effort = medium`
 
-Vision side-finding (optional follow-up): `google/gemini-2.5-flash` vision works post-fix, is ~3× faster than qwen3-vl (33s vs ~90s) and yielded the single richest extraction (60 claims), and its transcript is faithful — BUT it labeled some person-lanes by department ("Carlos" absent where qwen3-vl names him). To switch vision to it, set `default_vision_route = "google/gemini-2.5-flash"` (no pool change needed; `model_pool_vision` does not exist — vision routes directly off `default_vision_route`).
+Vision side-finding (historical, before auxiliary pools were added): `google/gemini-2.5-flash` vision worked post-fix, was ~3× faster than qwen3-vl (33s vs ~90s), and yielded the single richest extraction (60 claims), but it labeled some person-lanes by department ("Carlos" absent where qwen3-vl named him). That old routing note predated auxiliary pools. Current routing uses `default_vision_route` as the primary plus `model_pool_vision` as the approved ordered pool; change both consistently through the normal settings path.
 
 New env var documented: `GOOGLE_GEMINI_REQUEST_TIMEOUT_MS` (optional; default 180000).
 
@@ -1230,7 +1230,7 @@ Committed (`d8dd2d6`, `195f9fc`, `bdb07c3`, `a2f9851`, `105addf`, `c388593`) and
 
 **Vision is GUI-choosable, provider-agnostic**
 - The Vertex adapter `buildContents`/`toVertexParts` now translate an inline `{type:'image',mimeType,data}` part into a Gemini `inlineData` part (guard: `verify:vertex-inline-image`). The worker formats the image part per provider (Gemini inlineData / Anthropic image block / OpenAI image_url) so whatever model the admin picks works. The file-backed Vertex cache path is skipped for images (a lone image is below the cache token minimum).
-- **Auxiliary-model registry** (`packages/ai/src/routes/auxiliary.ts`, `AUXILIARY_MODELS`): vision + general-purpose are "auxiliary models" — single-pick selections that are NOT one of the 3 strict `OracleModelRole`s (which stay frozen). The picker, `/api/admin/models`, and `resolveAuxiliaryRouteFromSettings(db, id)` all iterate the registry. Adding the next one (e.g. audio transcription) = one registry entry + one `AUX_PRESENTATION` entry in the settings page.
+- **Auxiliary-model registry** (`packages/ai/src/routes/auxiliary.ts`, `AUXILIARY_MODELS`): auxiliary models are outside the 3 frozen `OracleModelRole`s. Each has an explicit primary and may have an approved ordered pool. The picker, `/api/admin/models`, and runtime callers use the registry; production dispatch resolves the chain through `resolveRouteCandidates(db, slot)`. Adding the next one (e.g. audio transcription) = one registry entry + one `AUX_PRESENTATION` entry in the settings page.
 - Settings: **`default_vision_route`** (+ `default_vision_reasoning_effort`). Shipped fallback `vertex_gemini_2_5_flash_extraction_primary` (Gemini — already credentialed in prod). **Seeded in prod** with `ON CONFLICT (key) DO NOTHING` (won't clobber an admin choice). Admin → Settings → "Image vision model" has a "Copy job brief" button.
 
 **Inference vs catalog APIs** — the model dropdown reads the cached `model_capabilities` table (`GET /api/admin/models?stage=vision`), populated by `refreshModelCatalog` from direct provider list APIs + OpenRouter enrichment. Inference is always **provider-direct** (Gemini via `@google/genai`), never OpenRouter.

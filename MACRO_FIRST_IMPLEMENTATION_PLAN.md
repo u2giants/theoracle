@@ -1,8 +1,8 @@
 # Macro-First Implementation Plan — Canonical Plan of Record
 
-Status: **CANONICAL. R0 is complete and production-verified. R0.1 and the R1
-read-only audit are the next work and may run in parallel. R0.1 must be green
-before R2 begins.**
+Status: **CANONICAL. R0 and R0.1 are complete and production-verified. The R1
+audit and local implementation are complete; its migration, fresh-database, CI,
+and production gates remain before R2.**
 
 Created: 2026-07-21
 Last reviewed: 2026-07-26
@@ -16,8 +16,8 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | Stage | Status | Evidence or blocker |
 |---|---|---|
 | R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
-| R0.1 | 🟡 local complete, production gate pending | Strict bounded quote-copy repair and DB-free tests are green; SELECT-only replay, CI, deploy, and forced production read remain |
-| R1 | ⬜ open | Start with the mandatory SELECT-only production audit; no DDL before the audit is recorded |
+| R0.1 | ✅ done, 2026-07-27 | Strict bounded quote-copy repair, CI run `30265543965` attempt 2, deploy, and production forced-read gate passed |
+| R1 | 🟡 local complete, release gates pending | Mandatory audit recorded; additive spine/detail schema, object-general proposals/recommendations, registry, admin/API, constraints, RLS, flags, and local tests implemented. Fresh DB, journaled production migration, CI, and authorized reads remain. |
 | R2 | ⬜ open | Blocked on R0.1 and R1 being green |
 | R3 | ⬜ open | Blocked on R2 |
 | R4 | ⬜ open | Blocked on R3 |
@@ -543,8 +543,9 @@ If claim eligibility is incomplete, `confirm` remains pending review.
 
 Lock identity is explicit. Existing-object changes lock `business_object:<objectId>`. A create
 proposal locks a deterministic creation namespace derived from object kind, normalized proposed
-slug, and top-domain scope so competing creates cannot mint duplicate objects before an object ID
-exists.
+slug so competing creates cannot mint duplicate objects before an object ID exists. Top domains
+are multi-valued retrieval and merge-shortlisting tags, not part of durable object identity or the
+namespace lock.
 
 Stored and effective provisional state are distinct. `business_elements.provisional` records the
 decision made when that immutable version was applied. Serving derives:

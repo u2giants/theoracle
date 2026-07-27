@@ -251,9 +251,16 @@ export {
 } from './retrieval';
 export {
   buildRetrievalPlanFromQuery,
+  buildRetrievalPlanWithModel,
   buildDomainScopedPlan,
   buildGlobalRetrievalPlan,
+  lookupRegistryEntityCandidates,
+  strictEntityMatches,
   DEFAULT_TOP_K,
+  type EntityAwarePlanOptions,
+  type EntityPlannerFallbackEvent,
+  type EntityPlannerSelection,
+  type RegistryEntityCandidate,
   type RetrievalPlan,
   type RetrievalPlanSearchScope,
 } from './retrieval-plan';

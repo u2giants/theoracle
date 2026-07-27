@@ -796,6 +796,260 @@ export const businessProcesses = pgTable(
   }),
 );
 
+// R1 cross-shape business-model spine. The legacy process-only tables below
+// remain intact through R9 so the old runtime can roll back independently.
+export const businessObjects = pgTable(
+  'business_objects',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    objectKind: varchar('object_kind', { length: 50 }).notNull(),
+    name: text('name').notNull(),
+    slug: varchar('slug', { length: 160 }).notNull(),
+    status: varchar('status', { length: 50 }).notNull().default('draft'),
+    // The R1 constraints migration adds the circular version FK.
+    currentVersionId: uuid('current_version_id'),
+    summary: text('summary'),
+    embedding: vector('embedding', { dimensions: EMBEDDING_DIM }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    kindSlugUnique: uniqueIndex('business_objects_kind_slug_unique').on(t.objectKind, t.slug),
+    kindStatusIdx: index('business_objects_kind_status_idx').on(t.objectKind, t.status),
+    currentVersionIdx: index('business_objects_current_version_idx').on(t.currentVersionId),
+  }),
+);
+
+export const businessObjectVersions = pgTable(
+  'business_object_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    objectId: uuid('object_id')
+      .references(() => businessObjects.id, { onDelete: 'cascade' })
+      .notNull(),
+    versionNumber: integer('version_number').notNull(),
+    status: varchar('status', { length: 50 }).notNull().default('pending_review'),
+    summary: text('summary'),
+    // The R1 constraints migration adds the circular proposal FK.
+    createdFromChangeId: uuid('created_from_change_id'),
+    modelRunId: uuid('model_run_id').references(() => modelRuns.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+  },
+  (t) => ({
+    objectStatusIdx: index('business_object_versions_object_status_idx').on(t.objectId, t.status),
+    objectVersionUnique: uniqueIndex('business_object_versions_object_version_unique').on(
+      t.objectId,
+      t.versionNumber,
+    ),
+  }),
+);
+
+export const businessElements = pgTable(
+  'business_elements',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    versionId: uuid('version_id')
+      .references(() => businessObjectVersions.id, { onDelete: 'cascade' })
+      .notNull(),
+    elementKey: varchar('element_key', { length: 120 }).notNull(),
+    shape: varchar('shape', { length: 50 }).notNull(),
+    elementKind: varchar('element_kind', { length: 50 }).notNull(),
+    label: text('label').notNull(),
+    ownerDepartmentId: departmentEnum('owner_department_id').references(() => departments.id, {
+      onDelete: 'set null',
+    }),
+    ownerEntityId: uuid('owner_entity_id').references(() => entities.id, {
+      onDelete: 'set null',
+    }),
+    ownerRaw: text('owner_raw'),
+    provisional: boolean('provisional').default(true).notNull(),
+    confidenceScore: integer('confidence_score'),
+    sortOrder: integer('sort_order'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    versionElementUnique: uniqueIndex('business_elements_version_element_unique').on(
+      t.versionId,
+      t.elementKey,
+    ),
+    versionShapeIdx: index('business_elements_version_shape_idx').on(t.versionId, t.shape),
+  }),
+);
+
+export const businessRelations = pgTable(
+  'business_relations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    versionId: uuid('version_id')
+      .references(() => businessObjectVersions.id, { onDelete: 'cascade' })
+      .notNull(),
+    relationKey: varchar('relation_key', { length: 120 }).notNull(),
+    shape: varchar('shape', { length: 50 }).notNull(),
+    relationKind: varchar('relation_kind', { length: 50 }).notNull(),
+    fromElementKey: varchar('from_element_key', { length: 120 }).notNull(),
+    toElementKey: varchar('to_element_key', { length: 120 }).notNull(),
+    condition: text('condition'),
+    provisional: boolean('provisional').default(true).notNull(),
+    confidenceScore: integer('confidence_score'),
+    sortOrder: integer('sort_order'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    versionRelationUnique: uniqueIndex('business_relations_version_relation_unique').on(
+      t.versionId,
+      t.relationKey,
+    ),
+    versionShapeIdx: index('business_relations_version_shape_idx').on(t.versionId, t.shape),
+  }),
+);
+
+export const businessElementClaims = pgTable(
+  'business_element_claims',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    versionId: uuid('version_id')
+      .references(() => businessObjectVersions.id, { onDelete: 'cascade' })
+      .notNull(),
+    elementId: uuid('element_id').references(() => businessElements.id, { onDelete: 'cascade' }),
+    relationId: uuid('relation_id').references(() => businessRelations.id, {
+      onDelete: 'cascade',
+    }),
+    claimId: uuid('claim_id')
+      .references(() => claims.id, { onDelete: 'restrict' })
+      .notNull(),
+    supportRole: varchar('support_role', { length: 50 }).default('primary').notNull(),
+    claimStatusAtLink: varchar('claim_status_at_link', { length: 50 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    claimIdx: index('business_element_claims_claim_idx').on(t.claimId),
+    elementIdx: index('business_element_claims_element_idx').on(t.elementId),
+    relationIdx: index('business_element_claims_relation_idx').on(t.relationId),
+  }),
+);
+
+export const businessElementSystems = pgTable(
+  'business_element_systems',
+  {
+    elementId: uuid('element_id')
+      .references(() => businessElements.id, { onDelete: 'cascade' })
+      .notNull(),
+    entityId: uuid('entity_id')
+      .references(() => entities.id, { onDelete: 'cascade' })
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.elementId, t.entityId] }),
+  }),
+);
+
+export const businessPaths = pgTable(
+  'business_paths',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    versionId: uuid('version_id')
+      .references(() => businessObjectVersions.id, { onDelete: 'cascade' })
+      .notNull(),
+    pathKey: varchar('path_key', { length: 120 }).notNull(),
+    name: text('name').notNull(),
+    pathType: varchar('path_type', { length: 50 }).notNull(),
+    elementKeysOrdered: jsonb('element_keys_ordered').default([]).notNull(),
+    terminalOutcome: text('terminal_outcome'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    versionPathUnique: uniqueIndex('business_paths_version_path_unique').on(
+      t.versionId,
+      t.pathKey,
+    ),
+  }),
+);
+
+export const businessObjectTopDomains = pgTable(
+  'business_object_top_domains',
+  {
+    objectId: uuid('object_id')
+      .references(() => businessObjects.id, { onDelete: 'cascade' })
+      .notNull(),
+    topDomainId: varchar('top_domain_id', { length: 100 })
+      .references(() => knowledgeTopDomains.id, { onDelete: 'cascade' })
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.objectId, t.topDomainId] }),
+    domainIdx: index('business_object_top_domains_domain_idx').on(t.topDomainId),
+  }),
+);
+
+export const businessProcessDetails = pgTable('business_process_details', {
+  elementId: uuid('element_id')
+    .primaryKey()
+    .references(() => businessElements.id, { onDelete: 'cascade' }),
+  nodeType: varchar('node_type', { length: 50 }).notNull(),
+  laneLabel: text('lane_label'),
+  presentationLabel: text('presentation_label'),
+});
+
+export const businessResponsibilityDetails = pgTable('business_responsibility_details', {
+  elementId: uuid('element_id')
+    .primaryKey()
+    .references(() => businessElements.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(),
+  action: text('action').notNull(),
+  object: text('object').notNull(),
+  trigger: text('trigger'),
+  requiredSystem: text('required_system'),
+});
+
+export const businessRuleDetails = pgTable('business_rule_details', {
+  elementId: uuid('element_id')
+    .primaryKey()
+    .references(() => businessElements.id, { onDelete: 'cascade' }),
+  scope: text('scope').notNull(),
+  condition: text('condition'),
+  effect: text('effect').notNull(),
+  exception: text('exception'),
+});
+
+export const businessReferenceDetails = pgTable('business_reference_details', {
+  elementId: uuid('element_id')
+    .primaryKey()
+    .references(() => businessElements.id, { onDelete: 'cascade' }),
+  entityType: varchar('entity_type', { length: 120 }).notNull(),
+  attributeKey: varchar('attribute_key', { length: 160 }).notNull(),
+  attributeValue: text('attribute_value').notNull(),
+  referenceKind: varchar('reference_kind', { length: 50 }).notNull(),
+});
+
+export const businessConversationDetails = pgTable('business_conversation_details', {
+  elementId: uuid('element_id')
+    .primaryKey()
+    .references(() => businessElements.id, { onDelete: 'cascade' }),
+  decisionStatus: varchar('decision_status', { length: 50 }),
+  contested: boolean('contested').default(false).notNull(),
+  speaker: text('speaker'),
+  dueDate: date('due_date'),
+  actionStatus: varchar('action_status', { length: 50 }),
+  meetingReference: text('meeting_reference'),
+});
+
+export const businessNarrativeMacroDetails = pgTable('business_narrative_macro_details', {
+  elementId: uuid('element_id')
+    .primaryKey()
+    .references(() => businessElements.id, { onDelete: 'cascade' }),
+  macroKind: varchar('macro_kind', { length: 50 }).notNull(),
+  goal: text('goal'),
+  constraint: text('constraint'),
+  risk: text('risk'),
+  rationale: text('rationale'),
+});
+
 export const businessProcessVersions = pgTable(
   'business_process_versions',
   {
@@ -951,6 +1205,14 @@ export const businessModelChanges = pgTable(
   'business_model_changes',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    objectId: uuid('object_id').references(() => businessObjects.id, {
+      onDelete: 'set null',
+    }),
+    objectKind: varchar('object_kind', { length: 50 }),
+    proposedSlug: varchar('proposed_slug', { length: 160 }),
+    baseObjectVersionId: uuid('base_object_version_id').references(() => businessObjectVersions.id, {
+      onDelete: 'set null',
+    }),
     processId: uuid('process_id').references(() => businessProcesses.id, {
       onDelete: 'set null',
     }),
@@ -979,6 +1241,12 @@ export const businessModelChanges = pgTable(
   (t) => ({
     statusCreatedIdx: index('business_model_changes_status_created_idx').on(t.status, t.createdAt),
     processStatusIdx: index('business_model_changes_process_status_idx').on(t.processId, t.status),
+    objectStatusIdx: index('business_model_changes_object_status_idx').on(t.objectId, t.status),
+    proposedNamespaceIdx: index('business_model_changes_proposed_namespace_idx').on(
+      t.objectKind,
+      t.proposedSlug,
+      t.status,
+    ),
     sourceMapIdx: index('business_model_changes_source_map_idx').on(t.sourceWorkflowMapId),
   }),
 );
@@ -1015,12 +1283,17 @@ export const recommendations = pgTable(
   'recommendations',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    objectId: uuid('object_id').references(() => businessObjects.id, {
+      onDelete: 'cascade',
+    }),
+    objectVersionId: uuid('object_version_id').references(() => businessObjectVersions.id, {
+      onDelete: 'cascade',
+    }),
+    objectKind: varchar('object_kind', { length: 50 }),
     processId: uuid('process_id')
-      .references(() => businessProcesses.id, { onDelete: 'cascade' })
-      .notNull(),
+      .references(() => businessProcesses.id, { onDelete: 'cascade' }),
     versionId: uuid('version_id')
-      .references(() => businessProcessVersions.id, { onDelete: 'cascade' })
-      .notNull(),
+      .references(() => businessProcessVersions.id, { onDelete: 'cascade' }),
     origin: varchar('origin', { length: 50 }).notNull(),
     analyzerKey: varchar('analyzer_key', { length: 120 }),
     title: text('title').notNull(),
@@ -1035,6 +1308,7 @@ export const recommendations = pgTable(
   },
   (t) => ({
     processStatusIdx: index('recommendations_process_status_idx').on(t.processId, t.status),
+    objectStatusIdx: index('recommendations_object_status_idx').on(t.objectId, t.status),
     versionIdx: index('recommendations_version_idx').on(t.versionId),
   }),
 );
@@ -2439,6 +2713,34 @@ export type NewModelCapabilityRow = typeof modelCapabilities.$inferInsert;
 // Macro-first business model
 export type SourceWorkflowMap = typeof sourceWorkflowMaps.$inferSelect;
 export type NewSourceWorkflowMap = typeof sourceWorkflowMaps.$inferInsert;
+export type BusinessObject = typeof businessObjects.$inferSelect;
+export type NewBusinessObject = typeof businessObjects.$inferInsert;
+export type BusinessObjectVersion = typeof businessObjectVersions.$inferSelect;
+export type NewBusinessObjectVersion = typeof businessObjectVersions.$inferInsert;
+export type BusinessElement = typeof businessElements.$inferSelect;
+export type NewBusinessElement = typeof businessElements.$inferInsert;
+export type BusinessRelation = typeof businessRelations.$inferSelect;
+export type NewBusinessRelation = typeof businessRelations.$inferInsert;
+export type BusinessElementClaim = typeof businessElementClaims.$inferSelect;
+export type NewBusinessElementClaim = typeof businessElementClaims.$inferInsert;
+export type BusinessElementSystem = typeof businessElementSystems.$inferSelect;
+export type NewBusinessElementSystem = typeof businessElementSystems.$inferInsert;
+export type BusinessPath = typeof businessPaths.$inferSelect;
+export type NewBusinessPath = typeof businessPaths.$inferInsert;
+export type BusinessObjectTopDomain = typeof businessObjectTopDomains.$inferSelect;
+export type NewBusinessObjectTopDomain = typeof businessObjectTopDomains.$inferInsert;
+export type BusinessProcessDetail = typeof businessProcessDetails.$inferSelect;
+export type NewBusinessProcessDetail = typeof businessProcessDetails.$inferInsert;
+export type BusinessResponsibilityDetail = typeof businessResponsibilityDetails.$inferSelect;
+export type NewBusinessResponsibilityDetail = typeof businessResponsibilityDetails.$inferInsert;
+export type BusinessRuleDetail = typeof businessRuleDetails.$inferSelect;
+export type NewBusinessRuleDetail = typeof businessRuleDetails.$inferInsert;
+export type BusinessReferenceDetail = typeof businessReferenceDetails.$inferSelect;
+export type NewBusinessReferenceDetail = typeof businessReferenceDetails.$inferInsert;
+export type BusinessConversationDetail = typeof businessConversationDetails.$inferSelect;
+export type NewBusinessConversationDetail = typeof businessConversationDetails.$inferInsert;
+export type BusinessNarrativeMacroDetail = typeof businessNarrativeMacroDetails.$inferSelect;
+export type NewBusinessNarrativeMacroDetail = typeof businessNarrativeMacroDetails.$inferInsert;
 export type BusinessProcess = typeof businessProcesses.$inferSelect;
 export type NewBusinessProcess = typeof businessProcesses.$inferInsert;
 export type BusinessProcessVersion = typeof businessProcessVersions.$inferSelect;

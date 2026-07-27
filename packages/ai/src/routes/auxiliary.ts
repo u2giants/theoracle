@@ -2,9 +2,9 @@
  * Auxiliary model registry.
  *
  * Auxiliary models are admin-selectable model choices that are not one of the
- * three strict pipeline roles. They are explicit single-pick slots in this
- * pass: unset or unresolvable settings fail loudly instead of using a shipped
- * hidden default.
+ * three strict pipeline roles. Each has an explicit admin-selected primary and
+ * may have an approved pool. Unset or unresolvable settings fail loudly
+ * instead of using a shipped hidden default.
  */
 
 import {

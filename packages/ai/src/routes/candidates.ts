@@ -41,6 +41,21 @@ function isPipelineSlot(slot: ModelSlot): slot is OracleModelRole {
   return slot === 'interview' || slot === 'extraction' || slot === 'synthesis';
 }
 
+/**
+ * Strict/deep schema slots cannot use the global capability bypass. A malformed
+ * response in these stages can corrupt graph structure, so their catalog and
+ * adapter-shape requirements remain mandatory even during controlled debugging.
+ */
+export function shouldEnforceCapabilities(
+  slot: ModelSlot,
+  configuredEnforcement: boolean,
+): boolean {
+  return configuredEnforcement ||
+    slot === 'workflow_read' ||
+    slot === 'macro' ||
+    slot === 'model_merge';
+}
+
 function roleForSlot(slot: ModelSlot): OracleModelRole {
   if (slot === 'workflow_read' || slot === 'macro') return 'synthesis';
   if (slot === 'model_merge') return 'extraction';
@@ -204,7 +219,10 @@ export async function resolveRouteCandidates(
     ? (rows.get(effortKey) as ReasoningEffort)
     : undefined;
   const role = roleForSlot(slot);
-  const enforceCaps = await enforceCapabilitiesEnabled(db);
+  const enforceCaps = shouldEnforceCapabilities(
+    slot,
+    await enforceCapabilitiesEnabled(db),
+  );
 
   const pool = poolKey && Array.isArray(rows.get(poolKey))
     ? (rows.get(poolKey) as unknown[]).filter((v): v is string => typeof v === 'string')

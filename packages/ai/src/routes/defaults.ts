@@ -79,10 +79,10 @@ export const MODEL_POOL_TRANSCRIPT_SUMMARY_SETTING_KEY = 'model_pool_transcript_
 export const MODEL_POOL_GENERAL_SETTING_KEY = 'model_pool_general';
 
 /**
- * Fallback pool for the macro slot. Unlike the other auxiliary slots (which are
- * single-pick), the macro layer gets an ordered approved chain so one malformed
- * structured-output response can't zero the whole holistic layer. Must be
- * non-empty and must contain the `default_macro_route` primary. See
+ * Ordered approved pool for the macro slot. Like the other pooled auxiliary
+ * slots, it starts with the admin-selected primary and may continue through the
+ * remaining approved candidates. It must be non-empty and contain the
+ * `default_macro_route` primary; an unset primary fails loudly. See
  * AGENT_ERROR_LOG.md ERR-001.
  */
 export const MODEL_POOL_MACRO_SETTING_KEY = 'model_pool_macro';

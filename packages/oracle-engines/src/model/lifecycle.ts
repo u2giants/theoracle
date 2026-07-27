@@ -4,6 +4,7 @@ import type { OracleDb } from '@oracle/db/client';
 import {
   businessModelChangeEvents,
   businessModelChanges,
+  businessObjects,
   businessProcesses,
   type BusinessModelChange,
 } from '@oracle/db/schema';
@@ -28,13 +29,16 @@ export const BUSINESS_MODEL_CHANGE_STATUSES = [
 ] as const;
 export type BusinessModelChangeStatus = (typeof BUSINESS_MODEL_CHANGE_STATUSES)[number];
 
-export const BUSINESS_PROCESS_VERSION_STATUSES = [
+export const BUSINESS_OBJECT_VERSION_STATUSES = [
   'pending_review',
   'approved',
   'superseded',
   'rejected',
 ] as const;
-export type BusinessProcessVersionStatus = (typeof BUSINESS_PROCESS_VERSION_STATUSES)[number];
+export type BusinessObjectVersionStatus = (typeof BUSINESS_OBJECT_VERSION_STATUSES)[number];
+// Compatibility aliases stay until the legacy process model is removed in R10.
+export const BUSINESS_PROCESS_VERSION_STATUSES = BUSINESS_OBJECT_VERSION_STATUSES;
+export type BusinessProcessVersionStatus = BusinessObjectVersionStatus;
 
 const MAP_TRANSITIONS = {
   pending: ['validated', 'degraded', 'failed'],
@@ -59,7 +63,7 @@ const VERSION_TRANSITIONS = {
   approved: ['superseded'],
   superseded: [],
   rejected: [],
-} satisfies Record<BusinessProcessVersionStatus, readonly BusinessProcessVersionStatus[]>;
+} satisfies Record<BusinessObjectVersionStatus, readonly BusinessObjectVersionStatus[]>;
 
 export function canTransitionSourceWorkflowMap(
   from: SourceWorkflowMapStatus,
@@ -79,6 +83,13 @@ export function canTransitionBusinessProcessVersion(
   from: BusinessProcessVersionStatus,
   to: BusinessProcessVersionStatus,
 ): boolean {
+  return canTransitionBusinessObjectVersion(from, to);
+}
+
+export function canTransitionBusinessObjectVersion(
+  from: BusinessObjectVersionStatus,
+  to: BusinessObjectVersionStatus,
+): boolean {
   return VERSION_TRANSITIONS[from].some((candidate) => candidate === to);
 }
 
@@ -92,12 +103,12 @@ export class InvalidBusinessModelTransitionError extends Error {
 export class StaleBusinessModelProposalError extends Error {
   constructor(
     readonly proposalId: string,
-    readonly processId: string,
+    readonly targetId: string,
     readonly expectedVersionId: string | null,
     readonly actualVersionId: string | null,
   ) {
     super(
-      `Business model proposal ${proposalId} is stale for process ${processId}: expected current version ${expectedVersionId}, got ${actualVersionId}`,
+      `Business model proposal ${proposalId} is stale for object ${targetId}: expected current version ${expectedVersionId}, got ${actualVersionId}`,
     );
     this.name = 'StaleBusinessModelProposalError';
   }
@@ -110,6 +121,13 @@ export class BusinessModelApplyStatusError extends Error {
   }
 }
 
+export class InvalidBusinessModelProposalTargetError extends Error {
+  constructor(readonly proposalId: string, detail: string) {
+    super(`Business model proposal ${proposalId} has an invalid target: ${detail}`);
+    this.name = 'InvalidBusinessModelProposalTargetError';
+  }
+}
+
 export function assertBusinessModelChangeTransition(
   from: BusinessModelChangeStatus,
   to: BusinessModelChangeStatus,
@@ -119,7 +137,15 @@ export function assertBusinessModelChangeTransition(
   }
 }
 
-export function businessModelAdvisoryLockKey(processId: string | null, proposalId: string): string {
+export function businessModelAdvisoryLockKey(
+  processId: string | null,
+  proposalId: string,
+  objectId: string | null = null,
+  objectKind: string | null = null,
+  proposedSlug: string | null = null,
+): string {
+  if (objectId) return `business_object:${objectId}`;
+  if (objectKind && proposedSlug) return `business_object_namespace:${objectKind}:${proposedSlug}`;
   return processId ? `business_process:${processId}` : `business_model_change:${proposalId}`;
 }
 
@@ -143,6 +169,8 @@ export interface BusinessModelApplyPreconditionProposal {
   status: string;
   processId: string | null;
   baseVersionId: string | null;
+  objectId?: string | null;
+  baseObjectVersionId?: string | null;
 }
 
 export type BusinessModelApplyPrecondition =
@@ -162,10 +190,26 @@ export function evaluateBusinessModelApplyPrecondition(
     return { status: 'noop' };
   }
 
+  if (proposal.objectId && !proposal.baseObjectVersionId) {
+    throw new InvalidBusinessModelProposalTargetError(
+      proposal.id,
+      'existing object proposals require baseObjectVersionId',
+    );
+  }
+  if (proposal.processId && !proposal.baseVersionId) {
+    throw new InvalidBusinessModelProposalTargetError(
+      proposal.id,
+      'existing legacy process proposals require baseVersionId',
+    );
+  }
+
   if (
-    proposal.processId &&
-    proposal.baseVersionId &&
-    actualVersionId !== proposal.baseVersionId
+    ((proposal.objectId &&
+      proposal.baseObjectVersionId &&
+      actualVersionId !== proposal.baseObjectVersionId) ||
+      (proposal.processId &&
+        proposal.baseVersionId &&
+        actualVersionId !== proposal.baseVersionId))
   ) {
     return { status: 'needs_rebase', actualVersionId };
   }
@@ -176,9 +220,9 @@ export function evaluateBusinessModelApplyPrecondition(
 /**
  * Stage-1 transactional skeleton for model-change approval/confirm.
  *
- * Later stages provide the `apply` callback that creates versions, nodes,
- * edges, paths, claim events, and process_element_claims. This wrapper owns the
- * concurrency contract: per-process advisory lock, status guard, optimistic
+ * Later stages provide the `apply` callback that creates versions, typed
+ * elements, relations, paths, evidence links, and audit events. This wrapper owns the
+ * concurrency contract: per-object (or create namespace) advisory lock, status guard, optimistic
  * current-version check, terminal failure marking, and audit events.
  */
 export async function applyBusinessModelChangeTransaction<T>({
@@ -200,7 +244,13 @@ export async function applyBusinessModelChangeTransaction<T>({
         throw new Error(`Business model proposal not found: ${proposalId}`);
       }
 
-      const lockKey = businessModelAdvisoryLockKey(proposal.processId, proposal.id);
+      const lockKey = businessModelAdvisoryLockKey(
+        proposal.processId,
+        proposal.id,
+        proposal.objectId,
+        proposal.objectKind,
+        proposal.proposedSlug,
+      );
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
 
       const [lockedProposal] = await tx
@@ -217,7 +267,55 @@ export async function applyBusinessModelChangeTransaction<T>({
         return { status: 'noop', proposal: lockedProposal };
       }
 
-      if (lockedProposal.processId && lockedProposal.baseVersionId) {
+      if (lockedProposal.objectId) {
+        const [object] = await tx
+          .select({
+            id: businessObjects.id,
+            currentVersionId: businessObjects.currentVersionId,
+          })
+          .from(businessObjects)
+          .where(eq(businessObjects.id, lockedProposal.objectId))
+          .limit(1);
+
+        const actualVersionId = object?.currentVersionId ?? null;
+        const precondition = evaluateBusinessModelApplyPrecondition(
+          lockedProposal,
+          actualVersionId,
+        );
+        if (precondition.status === 'needs_rebase') {
+          const beforeState = lockedProposal;
+          const [updated] = await tx
+            .update(businessModelChanges)
+            .set({ status: 'needs_rebase', updatedAt: new Date() })
+            .where(
+              and(
+                eq(businessModelChanges.id, lockedProposal.id),
+                eq(businessModelChanges.status, 'pending_review'),
+              ),
+            )
+            .returning();
+
+          if (!updated) {
+            const [latest] = await tx
+              .select()
+              .from(businessModelChanges)
+              .where(eq(businessModelChanges.id, lockedProposal.id))
+              .limit(1);
+            return { status: 'noop', proposal: latest ?? lockedProposal };
+          }
+
+          await tx.insert(businessModelChangeEvents).values({
+            businessModelChangeId: lockedProposal.id,
+            action: 'needs_rebase',
+            reviewedByEmployeeId,
+            reviewerNote,
+            beforeState,
+            afterState: { ...updated, actualVersionId },
+          });
+
+          return { status: 'needs_rebase', proposal: updated, actualVersionId };
+        }
+      } else if (lockedProposal.processId) {
         const [process] = await tx
           .select({
             id: businessProcesses.id,

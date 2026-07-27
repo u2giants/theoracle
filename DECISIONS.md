@@ -457,7 +457,12 @@ This file is the running log of every assumption, stub, and resolution made by t
   - DeepSeek `generateObject` uses `response_format: { type: 'json_object' }` (JSON mode + Zod validation) rather than strict arbitrary JSON Schema on the normal endpoint. Risk: malformed JSON is caught by Zod, not by the provider itself. Falls back to schema_repair internal subroute on validation failure.
   - Qwen `generateObject` also uses JSON mode + Zod validation, not provider-enforced arbitrary JSON Schema. Structured calls force `enable_thinking: false` because DashScope JSON mode is incompatible with thinking mode.
   - Qwen via OpenAI-compat has no client-controlled prompt cache. Cache strategy `qwen_none`. Native explicit caching deferred until a use case justifies the native SDK swap.
-- **User actions required**: Set `DEEPSEEK_API_KEY` and `DASHSCOPE_API_KEY` in Vercel env (all 3 targets) + local `.env.local` for the workers to dispatch to these models. Without keys set, the adapters are silently omitted from the standard map; admin pool selections still work (you just can't pick a DeepSeek/Qwen model as a default).
+- **Environment contract (current):** provider keys must exist in each runtime that dispatches to
+  that provider. A missing key omits that adapter from the standard map and logs a loud provider
+  availability error; a selected candidate then fails and the approved pool may try its next
+  member. Trigger.dev production has proven DeepSeek reachability through a successful
+  `deepseek-v4-flash` transcript-summary attempt on 2026-07-09. Vercel still needs its own key only
+  if a web-side route is configured to use DeepSeek.
 
 ## D12a.qwen-deepseek-strict-schema-boundary — JSON mode is not strict schema (2026-07-07)
 
@@ -534,10 +539,17 @@ This file is the running log of every assumption, stub, and resolution made by t
 
 ## D-fail-loud-model-routing — approved pools replace hidden fallbacks (2026-06-25)
 
-- **Decision**: Remove route-level fallback targets and hard-coded worker fallback routes. Pipeline stages resolve an ordered candidate chain from the selected primary plus the DB-approved pool; auxiliary slots (`vision`, `general`, `translation`) are explicit single-pick settings. When all candidates fail or a slot is unset, the call fails loud.
+- **Decision**: Remove route-level fallback targets and hard-coded worker fallback routes. Pipeline
+  and auxiliary slots resolve an ordered candidate chain from the admin-selected primary plus an
+  optional DB-approved pool. A missing provider key fails that candidate loudly and the approved
+  pool may continue to its next member. An unset slot or exhausted pool fails loudly; an exhausted
+  dispatch raises `AllCandidatesFailedError`.
 - **Why**: A selected provider/model could silently run an unapproved fallback model when an adapter was missing or misconfigured, making cost, provenance, and capability debugging misleading. The approved pool is the only acceptable fallback chain because admins can inspect and edit it.
 - **Observability**: `model_run_attempts` records each attempted route, including failed primary attempts and successful non-primary attempts. Admin pages show a banner when recent failed or non-primary attempts exist.
-- **Capability guard**: Runtime resolution checks `model_capabilities` against slot requirements while `settings.enforce_model_capabilities=true`. Set it false only for controlled debugging.
+- **Capability guard**: Runtime resolution checks `model_capabilities` against slot requirements
+  while `settings.enforce_model_capabilities=true`. The strict/deep-schema `workflow_read`,
+  `macro`, and `model_merge` slots always enforce their requirements even when that setting is
+  false. Other slots may use the bypass only for controlled debugging.
 
 ## D-conversation-aware-message-extraction — whole conversations, non-quotable carry-in (2026-06-26)
 
@@ -555,7 +567,7 @@ This file is the running log of every assumption, stub, and resolution made by t
 
 ## D-macro-model-slot — the macro/holistic layer gets its own model slot + fallback pool; OpenAI, not Gemini (2026-07-03)
 
-- **Decision**: The macro/holistic workers (`source-outline`, `macro-relationship-extraction`, `source-coverage-audit`) resolve a dedicated `macro` auxiliary slot (`default_macro_route` primary + fallback pool `model_pool_macro`) instead of borrowing the `general` utility slot. The `macro` slot is the ONE auxiliary slot with a fallback pool. Primary seeded to `openai/gpt-4.1-mini`.
+- **Decision**: The macro/holistic workers (`source-outline`, `macro-relationship-extraction`, `source-coverage-audit`) resolve a dedicated `macro` auxiliary slot (`default_macro_route` primary + fallback pool `model_pool_macro`) instead of borrowing the `general` utility slot. Macro was the first pooled auxiliary slot; auxiliary pools now also cover vision, workflow reading, model merge, translation, transcript summary, and general utility work. Primary seeded to `openai/gpt-4.1-mini`.
 - **Why**: On the `general` slot (Qwen `qwen3.7-max`, loose `json_object`) the macro layer hard-failed on EVERY run with `AllCandidatesFailedError` (Qwen omits required arrays), producing zero macro relationships/coverage while the document still showed `complete` (`AGENT_ERROR_LOG.md` ERR-001). Macro is a reasoning/synthesis-over-claims task with deep nested output schemas, distinct from verbatim-quote extraction — it deserves an explicit, admin-visible model choice, not a silent inheritance from "utility".
 - **Why OpenAI, not Gemini (verified in prod)**: Google Gemini 2.5 flash AND pro both `400` on the macro relationship/coverage schemas ("the specified schema produces a constraint that is too complex") even though Gemini has a strict-schema mode. So the first Gemini-primary seed would also have failed — the fallback pool saved the run by falling through to `openai/gpt-4.1-mini`. Corrected the primary to OpenAI; Gemini stays as a lower-priority fallback (it handles the simpler source-outline schema). Lesson: for the macro slot use an OpenAI strict-json-schema model; do NOT use Qwen (loose json) or Gemini (complex-schema reject) as primary.
 - **Resilience is load-bearing, not optional**: both the Qwen and the Gemini primaries failed; only `model_pool_macro` made the layer survive. Kept as a settings row (admin-editable) wired through the existing pool machinery in `resolveRouteCandidates`.
@@ -588,9 +600,14 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Why**: Every claim's `exactQuote` must validate against a `document_chunk`. An image has no text to validate against, so a single-pass "image → claims" call would force bypassing quote validation and break the candidate-before-claim provenance guarantee. The transcription becomes the chunk text; the verbatim-label rule keeps quotes matchable. The topology output (vs free-form prose) gives the extractor un-scrambled structure.
 - **Provider path**: Inline image input is implemented in the Vertex adapter (`toVertexParts` → Gemini `inlineData`, guard `verify:vertex-inline-image`); the worker formats the image part per provider (Gemini/Anthropic/OpenAI). Inference is provider-direct (`@google/genai`), never OpenRouter. The file-backed Vertex cache is skipped for images (a lone image is below the cache token minimum).
 
-## D-auxiliary-models — single-pick models outside OracleModelRole
+## D-auxiliary-models — configurable models outside OracleModelRole
 
-- **Decision**: Admin-selectable models that are not one of the 3 strict pipeline roles (vision, general-purpose, translation) are "auxiliary models" defined in a registry (`packages/ai/src/routes/auxiliary.ts`, `AUXILIARY_MODELS`) and resolved by `resolveRouteCandidates(db, id)` as explicit single-pick slots. `OracleModelRole` stays frozen at `interview | extraction | synthesis`. The settings page, picker, and `/api/admin/models` iterate the registry; none special-case auxiliary ids.
+- **Decision**: Admin-selectable models that are not one of the 3 strict pipeline roles are
+  "auxiliary models" defined in a registry (`packages/ai/src/routes/auxiliary.ts`,
+  `AUXILIARY_MODELS`) and resolved by `resolveRouteCandidates(db, id)`. Each has an admin-selected
+  primary and may define an approved fallback pool. `OracleModelRole` stays frozen at
+  `interview | extraction | synthesis`. The settings page, picker, and `/api/admin/models` iterate
+  the registry; none special-case auxiliary ids.
 - **Why**: Pipeline roles carry structure auxiliary models don't (stage requirements, approved model pools, batch dispatch). Folding vision into `OracleModelRole` would ripple through every `Record<OracleModelRole, …>` map. The registry adds the next utility model with one entry and no new branches.
 - **Setting**: `default_vision_route` (+ `default_vision_reasoning_effort`), `default_general_purpose_route`, and `default_translation_route` are seeded with `ON CONFLICT DO NOTHING`. Unset means configuration error, not fallback.
 

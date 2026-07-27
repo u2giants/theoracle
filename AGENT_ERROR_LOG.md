@@ -56,8 +56,11 @@ This is also the proof that the fallback-pool design (below) is load-bearing, no
   - **Fallback pool added:** the `macro` slot is no longer single-pick. New `model_pool_macro = [google/gemini-2.5-flash, google/gemini-2.5-pro, openai/gpt-4.1-mini]` (all strict-schema) is wired through the existing pool machinery (`packages/ai/src/routes/{defaults,candidates}.ts`, migration `84`, seed). One bad response now falls through to the next candidate instead of zeroing the layer.
   - **Visibility:** `macro-relationship-extraction` and `source-coverage-audit` now write `job_runs` rows (running → complete/failed) and update `documents.macro_health` (migration `85`, `apps/workers/src/lib/macro-health.ts`). A failed macro layer now downgrades `macro_health` to `degraded`/`failed` — it can no longer masquerade as a green `complete` document at the data layer.
 - **Hardening added locally/deployed 2026-07-04:** macro relationship and coverage validation failures now get a one-shot strict OpenAI schema-repair pass before the worker fails the run.
-- **Still OPEN (do next):**
-  - Set `DEEPSEEK_API_KEY` in the worker env or stop advertising deepseek as a phantom fallback.
+- **Stale follow-up closed by REL-4 (2026-07-27):** a sanitized production audit found no DeepSeek
+  candidate in the `workflow_read`, `macro`, `model_merge`, or `general` pools. DeepSeek remains
+  deliberately in the loose-schema transcript-summary slot, where production attempt history
+  records a successful `deepseek-v4-flash` call on 2026-07-09. Its catalog rows remain ineligible
+  for deep-schema work. No key or pool change was needed.
 - **Verification (DONE 2026-07-03):** migrations `83/84/85` applied to prod; workers deployed (`20260703.4`); verified `macro_relationships` inserted (run `run_cmr5gu7lx…`), `source_coverage_findings=4` (run `run_cmr5guyry…`), and `documents.macro_health=complete` (clean run `run_cmr5h0izj…`).
 
 </details>
@@ -67,11 +70,13 @@ This is also the proof that the fallback-pool design (below) is load-bearing, no
 - **Symptom:** `macro-relationship-extraction` (and `source-coverage-audit` when a document was linked) failed fast, before the model call, with `Error: Failed query:`.
 - **Root cause (reproduced directly against prod):** `42P10 — for SELECT DISTINCT, ORDER BY expressions must appear in select list`. **Three** queries used `SELECT DISTINCT … ORDER BY c.created_at` (cross-source also `ORDER BY CASE …`) without those in the select list: the cross-source CTE and single-source query in `macro-relationship-extraction.ts`, and the claim query in `source-coverage-audit.ts`. So the document-scoped macro path was **always** broken, independent of ERR-001. (My earlier "likely fixed in `.2`" guess was wrong — it only "reached the model" on runs where `documentId` was null and the query was skipped.)
 - **Fix:** cross-source → drop the redundant outer `DISTINCT` (the `IN`-subquery already yields unique ids); single-source + coverage → add `c.created_at` to the select list (JOINs can duplicate, so `DISTINCT` stays). All three corrected forms verified against prod (40/40/80 rows) before patching, then verified live (post-fix macro/coverage runs completed — see ERR-001).
-- **Current disposition (2026-07-26):** the two workers that owned these queries were removed by
-  the Stage 3 architecture cleanup. `packages/db/src/verify-macro-support-queries.ts` is now an
-  isolated smoke with no current worker caller and no CI wiring. Reliability REL-3 must prove zero
-  current callers, then delete the obsolete smoke, or retarget it only if a current runtime owner
-  is found. Do not restore the deleted writers.
+- **Current disposition (2026-07-27): N/A after writer removal.** The two workers that owned these
+  queries were removed by the Stage 3 architecture cleanup. REL-3's repository-wide search found
+  no runtime copy of the three query contracts and no caller of the package command. The isolated
+  `verify-macro-support-queries.ts` smoke and its package script were deleted. The current
+  `map-coverage-gaps.ts` path reads active-map claim references directly and does not share this
+  retired SQL contract. No dead-architecture check was added to CI, and the deleted writers were
+  not restored.
 
 ### ERR-003 — Followup fan-out: each lens job re-triggers macro + coverage — ✅ FIXED BY ARCHITECTURE REMOVAL (2026-07-27)
 
@@ -104,7 +109,9 @@ omission-gap behavior together.
 
 - **Symptom:** diagram/SOP sources could still explode into many atomic claims without preserving the underlying process graph. Macro relationships were also born `blocked_pending_support`, so the holistic layer stayed hidden until a noisy claim queue was approved.
 - **Fix applied/deployed:** added `source_workflow_maps` with nodes, edges, paths, and coverage metadata; source-outline now persists the graph; document ingestion runs the outline/workflow-map pass before broad extraction; candidates store `workflowTrace` when their quote matches a workflow edge; candidate hashes can use a stable graph edge key for edge-level dedup; macro extraction inserts deterministic path relationships from workflow-map paths; coverage audit inserts missing-edge findings; and generated macro relationships with pending support now enter `pending_review` while read-time Brain/chat helpers still require approved support. Migration `86_source_workflow_maps.sql` applied to prod and Trigger worker `20260704.2` deployed on 2026-07-04.
-- **Verification run:** local typechecks/smokes passed; production DB smoke `verify:macro-support-queries` passed; `source_workflow_maps` exists in prod. Still needs a real swimlane/Pop-style document rerun to verify non-empty workflow maps, traces, deterministic relationships, and missing-edge findings.
+- **Historical verification run:** the now-retired production DB smoke passed before its owning
+  writers were removed; `source_workflow_maps` exists in prod. The current-path proof is owned by
+  ERR-004 and REL-2, not by the deleted macro-support query smoke.
 
 ### ERR-005 — Document-only contradiction watcher inserts fake channel id — DEPLOYED (needs rerun verification)
 

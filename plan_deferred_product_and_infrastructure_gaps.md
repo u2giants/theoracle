@@ -4,7 +4,7 @@ Status: **CANONICAL for known open product features, runtime limitations, option
 and owner-deferred security work outside the macro-first and reliability plans.**
 
 Created: 2026-07-26
-Last corrected: 2026-07-26 after Grok 4.5 repository review
+Last corrected: 2026-07-27 during GAP-2 implementation
 Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 
 ## Status table
@@ -12,7 +12,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | Step                                                     | Status                                                  | Evidence or blocker                                                                                                                                                                                                                                                                                                                                    |
 | -------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | GAP-1 Finish the existing taxonomy reclassification path | 🟨 local implementation complete; release proof blocked | Admin dispatch, visible failure/retry states, row-locked terminal idempotency, stale-base checks, run-ID audit, and post-commit Brain follow-up are implemented. Static checks pass; the DB concurrency/rollback guard is wired into fresh-database CI. Production SELECT audit, deployment, real run proof, and CI execution remain. |
-| GAP-2 Entity-aware retrieval planning                    | ⬜ open                                                 | Requires latency and model-cost gate                                                                                                                                                                                                                                                                                                                   |
+| GAP-2 Entity-aware retrieval planning                    | 🟨 local implementation complete; default stays off     | Registry-only resolution, model selection, loud deterministic fallback, and offline fixtures are implemented. Fixture recall is 100%, wrong-entity rate is 0%, and unresolved names invent 0 IDs. Enabling by default remains blocked until a live provider run records added latency and cost. |
 | GAP-3 Authentik disposition                              | ⬜ open                                                 | Owner must confirm whether Authentik is still a wanted login method                                                                                                                                                                                                                                                                                    |
 | GAP-4 China translation review and search hardening      | ⬜ open                                                 | Side-by-side review is unbuilt; true Chinese tokenization is optional                                                                                                                                                                                                                                                                                  |
 | GAP-5 Multi-attachment and cross-provider cache safety   | ⬜ open                                                 | Needs provider-shape design and live fallback fixture                                                                                                                                                                                                                                                                                                  |
@@ -233,6 +233,27 @@ remains visibly pending apply; retry creates no duplicate changes.
 
 Gate: fixture recall improves materially, wrong-entity filtering stays below the recorded limit,
 unresolved names do not invent IDs, and fallback is visible.
+
+Implementation evidence (2026-07-27):
+
+- `packages/ai/src/retrieval-plan.ts` now performs bounded registry candidate lookup, strict
+  whole-surface resolution, and model-assisted selection that can only narrow registry matches.
+- Candidate lookup retains useful tokens across the whole query and bounds database output to 200
+  rows; required entity types override conflicting broad heuristic exclusions.
+- `apps/web/app/api/chat/route.ts` uses the new planner only when
+  `settings.entity_aware_retrieval_enabled` is exactly `true`; absent or false keeps the zero-cost
+  deterministic path.
+- Model selection uses the configured `general` auxiliary route. Failure emits the structured
+  `entity_aware_retrieval_fallback` warning and returns the existing deterministic keyword plan.
+- Each enabled model call emits `entity_aware_retrieval_model_call` with latency, provider/model,
+  token counts, reported cost, candidate count, and attempt count, but never the employee's query
+  text. Only the primary configured candidate is passed, enforcing one provider attempt.
+- `pnpm --filter @oracle/ai verify:entity-aware-retrieval` passes five people/system/customer/
+  licensor/vendor/product and multi-entity fixtures: baseline resolved entities 0, entity-aware
+  recall 100%, wrong-entity rate 0%, invented IDs 0, and one modeled extra call when enabled.
+- The local deterministic portion completed in under 100 ms. Provider latency and dollar cost
+  remain intentionally unmeasured until an approved live gate, so the setting is not seeded or
+  enabled by default.
 
 ### GAP-3: Authentik disposition
 

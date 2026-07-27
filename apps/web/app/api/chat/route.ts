@@ -45,6 +45,8 @@ import {
   makeBlock,
   searchWithRetrievalPlan,
   buildRetrievalPlanFromQuery,
+  buildRetrievalPlanWithModel,
+  lookupRegistryEntityCandidates,
   type OracleModelRoute,
   type RouteCandidate,
   type OraclePromptPlan,
@@ -79,6 +81,14 @@ const BodySchema = z.object({
 // makes caching unprofitable (and risky — see route logic), so we leave small
 // files on the inline path.
 const VERTEX_CHAT_FILE_CACHE_MIN_BYTES = 256 * 1024;
+const ENTITY_AWARE_RETRIEVAL_SETTING_KEY = 'entity_aware_retrieval_enabled';
+
+const EntityPlannerOutputSchema = z.object({
+  requiredEntities: z.array(z.object({
+    entityType: z.string(),
+    canonicalValue: z.string(),
+  })).max(12),
+});
 
 // Lazy singleton OracleAIClient with direct provider adapters (R-providers).
 // Anthropic / Vertex / OpenAI raw SDKs per DECISIONS.md D6 — no Vercel AI
@@ -179,10 +189,74 @@ export async function POST(req: NextRequest) {
     me.departments.length > 0
       ? me.departments
       : me.department ? [me.department] : [];
-  const retrievalPlan = buildRetrievalPlanFromQuery(queryForClaims, {
-    topK: 8,
-    departmentHints: deptHints,
-  });
+  const [entityAwareSetting] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, ENTITY_AWARE_RETRIEVAL_SETTING_KEY))
+    .limit(1);
+  const entityAwareEnabled = entityAwareSetting?.value === true;
+  const retrievalPlan = entityAwareEnabled
+    ? await buildRetrievalPlanWithModel(queryForClaims, {
+        topK: 8,
+        departmentHints: deptHints,
+        lookupCandidates: (query) => lookupRegistryEntityCandidates(db, query),
+        selectWithModel: async (query, candidates) => {
+          const resolved = await resolveRouteCandidates(db, 'general');
+          // GAP-2 has a strict latency/cost budget: entity planning may make
+          // one provider call, never walk the general-purpose fallback pool.
+          const routeCandidates = resolved.candidates.slice(0, 1);
+          if (routeCandidates.length === 0) {
+            throw new Error('general route resolved no entity-planner candidate');
+          }
+          const result = await getOracleClient().runObject({
+            taskType: 'admin_explanation',
+            routeId: routeCandidates[0]!.route.routeId,
+            routeCandidates,
+            promptVersion: 'entity-retrieval-planner-1.0.0',
+            schemaVersion: 'entity-retrieval-planner-1.0.0',
+            schema: EntityPlannerOutputSchema,
+            blocks: [
+              makeBlock({
+                id: 'entity-planner-rules',
+                label: 'Entity planner rules',
+                kind: 'stable_system',
+                content:
+                  'Select only candidate entities explicitly named by the query. ' +
+                  'Copy entityType and canonicalValue exactly. Never invent an entity.',
+                cacheEligible: true,
+                reasonIncluded: 'Strict registry-only entity planning',
+              }),
+              makeBlock({
+                id: 'entity-planner-query',
+                label: 'Query and registry candidates',
+                kind: 'dynamic_input',
+                content: JSON.stringify({ query, candidates }),
+                cacheEligible: false,
+                reasonIncluded: 'Current query and bounded canonical candidates',
+              }),
+            ],
+          });
+          console.info(JSON.stringify({
+            event: 'entity_aware_retrieval_model_call',
+            latencyMs: result.usage.latencyMs,
+            totalCostUsd: result.usage.totalCostUsd ?? null,
+            inputTokens: result.usage.inputTokens ?? null,
+            outputTokens: result.usage.outputTokens ?? null,
+            provider: result.provider ?? null,
+            modelId: result.modelId ?? null,
+            candidateCount: candidates.length,
+            attemptedRouteCount: result.attemptedRoutes?.length ?? 1,
+          }));
+          if (!result.validation.ok) {
+            throw new Error(`entity planner output failed validation: ${result.validation.error}`);
+          }
+          return result.validation.value.requiredEntities;
+        },
+      })
+    : buildRetrievalPlanFromQuery(queryForClaims, {
+        topK: 8,
+        departmentHints: deptHints,
+      });
   // Reader locale ('zh-CN' for the manually-routed China group, else 'en').
   // Drives claim/Brain rendering language and the answer-language instruction.
   const locale = coerceLocale(me.locale);

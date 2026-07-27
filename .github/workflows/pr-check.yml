@@ -87,6 +87,12 @@ jobs:
         # filter to one path, forgot the other" regression.
         run: pnpm --filter @oracle/ai verify:retrieval-filter-parity
 
+      - name: Entity-aware retrieval guard
+        # DB-free and network-free fixture. Proves registry-only entity
+        # resolution, any-of multi-entity planning, no invented IDs, and a
+        # visible keyword-only fallback when the optional model call fails.
+        run: pnpm --filter @oracle/ai verify:entity-aware-retrieval
+
       - name: Vertex file-cache multi-turn guard
         # Static, DB-free + network-free check (the GenAI + Storage clients are
         # stubbed). Asserts the Vertex file-backed cache path keeps the FULL
@@ -120,6 +126,9 @@ jobs:
         # root-vs-cascade diagnostics, active-map refs, coverage, and budgets.
         run: pnpm --filter @oracle/workers verify:r0-reader-validator
 
+      - name: R1 cross-shape model contract guard
+        run: pnpm --filter @oracle/engines verify:r1-cross-shape
+
       - name: Taxonomy reclassification contract guard
         # DB-free guard for payload validation, manual splits, and retry states.
         run: pnpm --filter @oracle/workers verify:taxonomy-reclassification
@@ -133,6 +142,7 @@ jobs:
           pnpm --filter @oracle/db prepare:fresh-supabase-test-db
           pnpm --filter @oracle/db migrate
           pnpm --filter @oracle/db verify:fresh-source-workflow-schema
+          pnpm --filter @oracle/db verify:r1-cross-shape-schema
           pnpm --filter @oracle/workers verify:taxonomy-reclassification-db
         env:
           DIRECT_URL: postgres://oracle:oracle@localhost:5432/oracle_fresh

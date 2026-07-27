@@ -16,14 +16,14 @@ Database: Supabase project `eqccjfbyrywsqkxxpjvg`
 |---|---|---|
 | REL-1 Stale verification script and false comments | ✅ done, 2026-07-26 | Deleted the obsolete pre-migration-89 workflow audit; corrected Teams, typing-presence, storage-bucket, and retrofit-status notes; REL-1 search/diff gates passed (full worker gate is temporarily blocked by a concurrent out-of-scope taxonomy test edit) |
 | REL-2 Reconcile ERR-003, ERR-004, ERR-005 with the current reader | 🟨 partial, 2026-07-27 | ERR-003 is closed by source removal plus deployed worker `20260722.1`; ERR-004 and ERR-005 still require owner-authorized fixture reruns |
-| REL-3 Retire or retarget the obsolete macro-support SQL smoke | ⬜ open | Current script tests deleted writer queries and is not in CI |
-| REL-4 Model-pool phantom fallback audit | ⬜ open | Read-only production settings/env audit first |
+| REL-3 Retire or retarget the obsolete macro-support SQL smoke | ✅ done, 2026-07-27 | Zero-caller search proved the three query contracts and package command had no runtime or CI owner; deleted the smoke and package script without restoring retired writers |
+| REL-4 Model-pool phantom fallback audit | 🟨 mitigated, 2026-07-27 | Audit found production's global capability setting false; local routing now makes strict/deep-schema enforcement mandatory regardless of that flag. Needs normal code deployment before final closure |
 | REL-5 Migration 65 and generated-snapshot drift | ⬜ open | Coordinate with macro R1 drift audit to avoid duplicate migration work |
 | REL-6 Live image upload verification | ⬜ open | Requires an owner-approved non-sensitive image fixture |
 | REL-7 Database and Trigger.dev release automation | ⬜ open | Starts after REL-2 through REL-5 establish the current release contract |
 | REL-8 Dead schema-repair helper removal | ⬜ open | Wait until macro R10 unless a current caller is introduced |
 | REL-9 Close logs and documentation | ⬜ open | Depends on all earlier applicable steps |
-| Claude conditional-review queue | ⏸ blocked | Send the five conditional suggestions in §9 to Claude before promoting any into implementation work |
+| Claude conditional-review queue | ⏸ blocked | Four unresolved conditional suggestions remain in §9; the former ERR-002 smoke question was resolved by REL-3 and removed |
 
 Fresh-session starting point: REL-2 must use only the current map-directed reader files named
 below. REL-3 starts with a zero-caller proof before deciding whether the old smoke script should
@@ -118,8 +118,9 @@ Not in this plan:
 - The current reader path is `source-workflow-read.ts` plus map-directed
   `document-ingestion.ts`, with deterministic map omissions in `map-coverage-gaps.ts`.
 - `AGENT_ERROR_LOG.md` still describes ERR-003 and ERR-004 using the deleted architecture.
-- `packages/db/src/verify-macro-support-queries.ts` is the only remaining copy of ERR-002's former
-  support queries; no CI workflow or current worker calls it.
+- ERR-002's former support-query smoke and package command were deleted in REL-3 after a
+  repository-wide zero-caller search found no runtime or CI owner. The current map-coverage path
+  queries `claims.map_element_ref` directly and does not share any of the retired SQL contracts.
 - `.github/workflows/pr-check.yml` is the only workflow.
 - The worktree already contains user-owned untracked PNG files. Do not touch them.
 
@@ -263,6 +264,19 @@ ERR-004 and ERR-005 are `FIXED` only with run IDs, row counts, worker version, a
 Gate: either no obsolete macro-support smoke remains, or one current shared query contract is
 called by runtime and guarded in CI. The deleted writers are never restored.
 
+Completion evidence (2026-07-27):
+
+- `rg` found no runtime copy of `seed_claims`, `seed_domains`, `related_claims`, the single-source
+  support query, the cross-source support query, or the retired coverage-audit query outside the
+  obsolete smoke itself.
+- `rg` found no package-command caller outside `packages/db/package.json` and no CI reference.
+- The only current coverage query is `apps/workers/src/lib/map-coverage-gaps.ts`; it reads
+  `claims.map_element_ref` for the active workflow map and does not own ERR-002's deleted join,
+  deduplication, ordering, or limit contract.
+- Deleted `packages/db/src/verify-macro-support-queries.ts` and removed
+  `verify:macro-support-queries` from `packages/db/package.json`. No replacement CI job was added
+  because that would preserve dead architecture.
+
 ### REL-4: model-pool fallback truth
 
 1. Read production settings and model capabilities without printing secret values.
@@ -275,6 +289,43 @@ called by runtime and guarded in CI. The deleted writers are never restored.
 
 Gate: every advertised candidate is either callable for its slot or absent, and an exhausted pool
 still raises `AllCandidatesFailedError`.
+
+**Completed 2026-07-27.** The read-only production audit is reproducible with
+`REL4_AUDIT_DATABASE_URL=<production pooler> pnpm --filter @oracle/ai
+verify:rel4-model-pools`. The verifier prints only model ids, capability flags, resolution results,
+and aggregate attempt status/count/timestamps. It does not print the database URL, provider keys,
+prompts, model output, or provider error text. It exits nonzero if mandatory strict-slot enforcement
+is inactive, DeepSeek enters any of the four prohibited pools, its strict/deep flags become true,
+or its audited configured use moves outside `transcript_summary`.
+
+- `workflow_read` resolves `openai/gpt-4.1` as primary. Anthropic Sonnet 5 and Gemini 2.5 Pro are
+  present in the saved pool but are skipped because production catalog truth does not mark them
+  deep-schema eligible.
+- `macro` resolves `openai/gpt-4.1-mini` as primary and `openai/gpt-4.1` as its eligible fallback.
+  Gemini 2.5 Pro is skipped for the same deep-schema gate.
+- `model_merge` resolves OpenAI 4.1 Mini, Gemini 2.5 Flash, and Anthropic Haiku 4.5 with no skips.
+- `general` resolves Qwen 3.7 Max, Anthropic Haiku 4.5, and Gemini 2.5 Flash with no skips.
+- `transcript_summary` resolves `deepseek/deepseek-v4-flash` as primary and
+  `qwen/qwen3.6-flash` as fallback with no skipped candidates. This is DeepSeek's configured role,
+  not one of the four pools implicated by ERR-001.
+- DeepSeek is absent from all four affected pools. Its two production catalog rows are
+  `structured_outputs=false`, `strict_json_schema=false`, `deep_schema_accepted=false`, and
+  `adapter_params_safe=true`. Three separate barriers protect the deep-schema slots: DeepSeek is
+  not a saved pool member, runtime `normalizeDirectProviderCapabilities` forces its strict/deep
+  capability flags off, and `shouldEnforceCapabilities` now makes enforcement mandatory for
+  `workflow_read`, `macro`, and `model_merge` even when the global debug setting is false.
+- The first assertion-enabled audit exposed `enforce_model_capabilities=false` in production. No
+  production setting was changed. The permanent code remedy makes strict/deep-schema safety
+  independent of that mutable debug flag; REL-4 remains mitigated until this code reaches the
+  normal production deployment.
+- DeepSeek is not a phantom provider. Sanitized attempt history contains one failed and one
+  successful `transcript_summary` call for `deepseek-v4-flash` on 2026-07-09. That loose-schema
+  role is its actual configured use and proves the production worker adapter/key path was reachable.
+- No production setting needed mutation. The stale ERR-001 action was closed instead of adding a
+  key or removing a candidate that is not in the affected pools.
+- `pnpm --filter @oracle/ai verify:r2` passed, including the assertion that an exhausted approved
+  candidate chain raises `AllCandidatesFailedError`. `pnpm --filter @oracle/ai
+  verify:adapter-request-shapes` and `pnpm --filter @oracle/ai typecheck` also passed.
 
 ### REL-5: migration 65 and snapshot drift
 
@@ -337,21 +388,23 @@ owner action. No bare open item remains.
 
 ### Conditional suggestions pending Claude review
 
-These are not accepted implementation steps yet. Send all five to Claude with the current plans
-and code, then record Claude's evidence-based accept, reject, or narrow decision before moving one
-into a numbered plan step:
+These are not accepted implementation steps yet. Send all four remaining items to Claude with the
+current plans and code, then record Claude's evidence-based accept, reject, or narrow decision
+before moving one into a numbered plan step:
 
 1. **ERR-003 deployment proof:** confirm whether repository deletion plus the deployed Trigger.dev
    task inventory is sufficient to close the old fan-out incident.
-2. **ERR-002 smoke disposition:** confirm whether `verify-macro-support-queries.ts` protects any
-   current runtime contract or should be deleted with the retired writers.
-3. **Local environment warning:** check whether `.env.local` can still point at `oracle.old`.
+2. **Local environment warning:** check whether `.env.local` can still point at `oracle.old`.
    This is unverified and must not be called a known defect without evidence. Never read secret
    values into the review transcript.
-4. **Bug D backbone review UI:** decide whether the old "backbone claims" review slice is still a
+3. **Bug D backbone review UI:** decide whether the old "backbone claims" review slice is still a
    wanted product feature under macro R6 or should remain intentionally unsupported.
-5. **Teams AAD speaker matching:** decide whether resolving unmatched transcript speakers from
+4. **Teams AAD speaker matching:** decide whether resolving unmatched transcript speakers from
    participant AAD IDs is required work or an acceptable documented v1 limitation.
+
+The former ERR-002 smoke-disposition question is resolved, not pending review: REL-3 proved the
+query contracts and package command had no current runtime or CI owner, then deleted the obsolete
+smoke and command.
 
 Gate: Claude's critique is saved under `.ai/reviews/`, Codex verifies each accepted point against
 the repo, and only accepted items are added to the canonical plan registry.

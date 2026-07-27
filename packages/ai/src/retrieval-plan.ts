@@ -17,8 +17,11 @@
 //   - buildDomainScopedPlan()       — explicit domain list, no heuristic exclusions.
 //   - buildGlobalRetrievalPlan()    — intentional all-corpus search.
 //
-// A model-backed variant (buildRetrievalPlanWithModel) can be added later when
-// per-query latency budgets allow an extra cheap structured-output call.
+// Entity-aware planning is opt-in. buildRetrievalPlanWithModel() resolves only
+// registry-backed entities and falls back loudly to the deterministic planner.
+
+import { entities, type OracleDb } from '@oracle/db';
+import { or, ilike, sql } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -95,6 +98,183 @@ export type RetrievalPlan = {
 };
 
 export const DEFAULT_TOP_K = 8;
+
+export type RegistryEntityCandidate = {
+  id: string;
+  entityType: string;
+  canonicalValue: string;
+  displayLabel?: string | null;
+  aliases?: string[] | null;
+};
+
+export type EntityPlannerSelection = {
+  entityType: string;
+  canonicalValue: string;
+};
+
+export type EntityAwarePlanOptions = Parameters<typeof buildRetrievalPlanFromQuery>[1] & {
+  /** Candidate lookup must be bounded to the canonical entity registry. */
+  lookupCandidates: (query: string) => Promise<RegistryEntityCandidate[]>;
+  /**
+   * Optional model selector. It may select only from the supplied candidates;
+   * invented or unresolved values are discarded. When omitted, every strict
+   * surface match is used.
+   */
+  selectWithModel?: (
+    query: string,
+    candidates: RegistryEntityCandidate[],
+  ) => Promise<EntityPlannerSelection[]>;
+  onFallback?: (event: EntityPlannerFallbackEvent) => void;
+};
+
+export type EntityPlannerFallbackEvent = {
+  event: 'entity_aware_retrieval_fallback';
+  reason: 'candidate_lookup_failed' | 'model_selection_failed';
+  queryLength: number;
+  error: string;
+};
+
+function normalizeEntitySurface(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase('en-US')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+export function entityLookupTokens(query: string): string[] {
+  return Array.from(
+    new Set(normalizeEntitySurface(query).split(' ').filter((token) => token.length >= 3)),
+  );
+}
+
+function queryContainsEntitySurface(query: string, surface: string): boolean {
+  const normalizedQuery = ` ${normalizeEntitySurface(query)} `;
+  const normalizedSurface = normalizeEntitySurface(surface);
+  return normalizedSurface.length >= 2 && normalizedQuery.includes(` ${normalizedSurface} `);
+}
+
+export function strictEntityMatches(
+  query: string,
+  candidates: RegistryEntityCandidate[],
+): RegistryEntityCandidate[] {
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    const surfaces = [
+      candidate.canonicalValue,
+      candidate.displayLabel ?? '',
+      ...(candidate.aliases ?? []),
+    ];
+    if (!surfaces.some((surface) => queryContainsEntitySurface(query, surface))) return false;
+    const key = `${candidate.entityType}\u0000${candidate.canonicalValue}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Return a bounded candidate set from the canonical registry. Broad SQL
+ * matching is followed by strict whole-surface matching before any candidate
+ * can enter requiredEntities.
+ */
+export async function lookupRegistryEntityCandidates(
+  db: OracleDb,
+  query: string,
+  limit = 100,
+): Promise<RegistryEntityCandidate[]> {
+  const tokens = entityLookupTokens(query);
+  if (tokens.length === 0) return [];
+
+  const clauses = tokens.flatMap((token) => {
+    const pattern = `%${token.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
+    return [
+      ilike(entities.canonicalValue, pattern),
+      ilike(entities.displayLabel, pattern),
+      sql`${entities.aliases}::text ILIKE ${pattern}`,
+    ];
+  });
+  const rows = await db
+    .select({
+      id: entities.id,
+      entityType: entities.entityType,
+      canonicalValue: entities.canonicalValue,
+      displayLabel: entities.displayLabel,
+      aliases: entities.aliases,
+    })
+    .from(entities)
+    .where(or(...clauses))
+    .limit(Math.max(1, Math.min(limit, 200)));
+
+  return rows.map((row) => ({
+    ...row,
+    aliases: Array.isArray(row.aliases)
+      ? row.aliases.filter((value): value is string => typeof value === 'string')
+      : [],
+  }));
+}
+
+/**
+ * Opt-in entity-aware planner.
+ *
+ * Security/correctness invariant: requiredEntities is populated only from
+ * canonical registry candidates whose canonical value, label, or alias occurs
+ * as a complete surface in the query. Model output can narrow that set but can
+ * never add an entity. Multiple resolved entities retain existing any-of search
+ * semantics in searchWithRetrievalPlan().
+ */
+export async function buildRetrievalPlanWithModel(
+  query: string,
+  opts: EntityAwarePlanOptions,
+): Promise<RetrievalPlan> {
+  const { lookupCandidates, selectWithModel, onFallback, ...planOptions } = opts;
+  let candidates: RegistryEntityCandidate[];
+  try {
+    candidates = strictEntityMatches(query, await lookupCandidates(query));
+  } catch (error) {
+    const event: EntityPlannerFallbackEvent = {
+      event: 'entity_aware_retrieval_fallback',
+      reason: 'candidate_lookup_failed',
+      queryLength: query.length,
+      error: error instanceof Error ? error.message : String(error),
+    };
+    console.warn(JSON.stringify(event));
+    onFallback?.(event);
+    return buildRetrievalPlanFromQuery(query, planOptions);
+  }
+
+  let selected = candidates;
+  if (selectWithModel && candidates.length > 0) {
+    try {
+      const requested = await selectWithModel(query, candidates);
+      const requestedKeys = new Set(
+        requested.map((item) => `${item.entityType}\u0000${item.canonicalValue}`),
+      );
+      selected = candidates.filter((candidate) =>
+        requestedKeys.has(`${candidate.entityType}\u0000${candidate.canonicalValue}`),
+      );
+    } catch (error) {
+      const event: EntityPlannerFallbackEvent = {
+        event: 'entity_aware_retrieval_fallback',
+        reason: 'model_selection_failed',
+        queryLength: query.length,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      console.warn(JSON.stringify(event));
+      onFallback?.(event);
+      return buildRetrievalPlanFromQuery(query, planOptions);
+    }
+  }
+
+  return buildRetrievalPlanFromQuery(query, {
+    ...planOptions,
+    requiredEntities: selected.map(({ entityType, canonicalValue }) => ({
+      entityType,
+      canonicalValue,
+    })),
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Domain-hint heuristics.
@@ -528,6 +708,16 @@ export function buildRetrievalPlanFromQuery(
       ? opts.excludedEntityTypes
       : inferEntityExclusions(q);
 
+  // An explicit canonical requirement wins over a broad heuristic exclusion.
+  // Otherwise queries such as "Acme handoff to Designflow" would require a
+  // vendor and then exclude every vendor-tagged claim from the same search.
+  const requiredEntityTypes = new Set(
+    (opts?.requiredEntities ?? []).map((entity) => entity.entityType),
+  );
+  const reconciledExcludedEntityTypes = excludedEntityTypes.filter(
+    (entityType) => !requiredEntityTypes.has(entityType),
+  );
+
   const excludedDocumentClasses: string[] =
     opts?.excludedDocumentClasses && opts.excludedDocumentClasses.length > 0
       ? opts.excludedDocumentClasses
@@ -550,7 +740,8 @@ export function buildRetrievalPlanFromQuery(
     topDomainHints,
     requiredEntities: opts?.requiredEntities ?? [],
     excludedDocumentClasses: excludedDocumentClasses.length > 0 ? excludedDocumentClasses : undefined,
-    excludedEntityTypes: excludedEntityTypes.length > 0 ? excludedEntityTypes : undefined,
+    excludedEntityTypes:
+      reconciledExcludedEntityTypes.length > 0 ? reconciledExcludedEntityTypes : undefined,
     excludedTopDomains: excludedTopDomains.length > 0 ? excludedTopDomains : undefined,
     processStageHints: opts?.processStageHints,
     timeFilter: opts?.timeFilter ?? 'current',

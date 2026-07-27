@@ -4,6 +4,7 @@ import { DeepSeekAdapter } from '../providers/deepseek-adapter';
 import { QwenAdapter } from '../providers/qwen-adapter';
 import { normalizeDirectProviderCapabilities } from '../model-capabilities';
 import { missingRequirements } from '../routes/capability-requirements';
+import { shouldEnforceCapabilities } from '../routes/candidates';
 import type { OraclePromptPlan } from '../client/types';
 import type { OracleModelRoute } from '../routes';
 import type { ModelCapability } from '../model-capabilities';
@@ -226,6 +227,16 @@ function verifyCapabilityGates(): void {
       structuredOutputs: true,
     }).structuredOutputs === false,
     'DeepSeek stale catalog rows must be normalized away from strict structured output',
+  );
+  assert(
+    shouldEnforceCapabilities('workflow_read', false) &&
+      shouldEnforceCapabilities('macro', false) &&
+      shouldEnforceCapabilities('model_merge', false),
+    'strict/deep schema slots must ignore the global capability bypass',
+  );
+  assert(
+    !shouldEnforceCapabilities('general', false),
+    'non-strict slots may still use the controlled global capability bypass',
   );
   assert(
     normalizeDirectProviderCapabilities({

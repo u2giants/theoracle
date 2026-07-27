@@ -1,71 +1,15 @@
 import { z } from 'zod';
+import {
+  BUSINESS_MODEL_SHAPE_REGISTRY,
+  BUSINESS_MODEL_SHAPES,
+} from '@oracle/shared/business-model-shapes';
 
 export const WORKFLOW_READ_PROMPT_VERSION = 'workflow-read-v2-quote-copy-repair';
 export const SOURCE_SEGMENTATION_PROMPT_VERSION = 'source-segmentation-v1';
 export const SOURCE_READER_PIPELINE_VERSION = 'shape-reader-v3-r0.1-quote-copy-repair';
 
-export const SOURCE_STRUCTURE_SHAPES = [
-  'process',
-  'responsibilities',
-  'reference',
-  'ruleset',
-  'conversation',
-  'narrative',
-] as const;
-
-export const SOURCE_STRUCTURE_SHAPE_REGISTRY = {
-  process: {
-    primaryElementKinds: [],
-    primaryRelationKinds: ['sequence', 'handoff', 'branch', 'loop', 'exception'],
-    extractionDirective: 'Extract one canonical claim per transition, handoff, or branch.',
-    readInstruction:
-      'Reconstruct steps, decisions, approvals, handoffs, branches, loops, and outcomes.',
-  },
-  responsibilities: {
-    primaryElementKinds: ['responsibility'],
-    primaryRelationKinds: [],
-    extractionDirective:
-      'Extract one canonical claim per owner-action-object responsibility record.',
-    readInstruction:
-      'Identify roles and concrete owner-action-object responsibilities, including triggers and systems.',
-  },
-  reference: {
-    primaryElementKinds: ['attribute', 'relationship'],
-    primaryRelationKinds: ['relationship'],
-    extractionDirective: 'Extract one canonical claim per attribute or entity relationship.',
-    readInstruction:
-      'Identify entities, attributes, values, and relationships without forcing sequence.',
-  },
-  ruleset: {
-    primaryElementKinds: ['rule'],
-    primaryRelationKinds: ['applicability', 'exception'],
-    extractionDirective: 'Extract one canonical claim per rule, condition, effect, or exception.',
-    readInstruction:
-      'Identify scoped rules, conditions, requirements, effects, exceptions, and rule groups.',
-  },
-  conversation: {
-    primaryElementKinds: ['decision', 'assertion', 'open_question', 'problem', 'action_item'],
-    primaryRelationKinds: [],
-    extractionDirective:
-      'Extract one canonical claim per decision, assertion, open question, problem, or action item.',
-    readInstruction:
-      'Identify decisions, assertions, disagreements, open questions, problems, and action items.',
-  },
-  narrative: {
-    primaryElementKinds: ['asserted_fact'],
-    primaryRelationKinds: [],
-    extractionDirective: 'Extract one canonical claim per explicit operational fact.',
-    readInstruction: 'Identify explicit operational facts that do not fit another source shape.',
-  },
-} as const satisfies Record<
-  (typeof SOURCE_STRUCTURE_SHAPES)[number],
-  {
-    primaryElementKinds: readonly string[];
-    primaryRelationKinds: readonly string[];
-    extractionDirective: string;
-    readInstruction: string;
-  }
->;
+export const SOURCE_STRUCTURE_SHAPES = BUSINESS_MODEL_SHAPES;
+export const SOURCE_STRUCTURE_SHAPE_REGISTRY = BUSINESS_MODEL_SHAPE_REGISTRY;
 
 export const SOURCE_SEGMENTATION_SYSTEM_PROMPT = `You segment source material for The Oracle, an evidence-backed operational knowledge graph for POP Creations / Spruce Line.
 

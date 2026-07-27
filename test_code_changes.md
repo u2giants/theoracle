@@ -192,11 +192,11 @@ Confirm each route exists/`enabled` in `catalog.ts`; add a vision route if you w
 
 **Option A (low-code, uses the real pipeline): flip the setting + re-ingest, per model.**
 For each model on the slate:
-1. `POST /api/admin/settings` with `{ "key": "default_vision_route", "value": "<model route>" }` (route: `GET/POST /api/admin/settings`, upsert single setting by key). Optionally also set `default_vision_reasoning_effort`.
+1. Through the normal admin settings path, set `default_vision_route` to the candidate and temporarily set `model_pool_vision` to a one-item pool containing that same candidate. Optionally also set `default_vision_reasoning_effort`.
 2. Snapshot then re-ingest the doc (§4 "How to re-run").
 3. Pull the new transcription (§4 Step A) and the per-call usage from `model_runs` / usage-details (see 5c).
 4. Score transcription with the Test 1 rubric.
-5. Restore `default_vision_route = qwen/qwen3-vl-235b-a22b-thinking` when done.
+5. Restore both `default_vision_route = qwen/qwen3-vl-235b-a22b-thinking` and the approved `model_pool_vision` chain when done.
 
 **Option B (repeatable harness script): write a `__verify__`-style runner.**
 Model it on `packages/ai/src/__verify__/openai-qwen-cache-requests.ts` and `vertex-inline-image.ts`. The script:
@@ -233,8 +233,8 @@ Pull per-provider prices from each provider's pricing page (record the date + so
 
 ### 5f. Guardrails
 - Run the no-network shape gate first so you don't waste spend on a broken request: `pnpm --filter @oracle/ai exec tsx src/__verify__/openai-qwen-cache-requests.ts` (and `verify:vertex-inline-image` for the Vertex image path).
-- Isolate each model (Option A already does, since vision routes directly off `default_vision_route` — there is **no** `model_pool_vision`). For Option B, call one route at a time.
-- Restore prod settings when finished (`default_vision_route = qwen/qwen3-vl-235b-a22b-thinking`, `default_vision_reasoning_effort = medium`).
+- Isolate each model. For Option A, use a matching one-item `model_pool_vision`; for Option B, call one route at a time.
+- Restore prod settings when finished (`default_vision_route = qwen/qwen3-vl-235b-a22b-thinking`, the approved `model_pool_vision` chain, and `default_vision_reasoning_effort = medium`).
 
 ---
 

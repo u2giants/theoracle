@@ -4,8 +4,9 @@
  * Run with:
  *   pnpm --filter @oracle/ai exec tsx src/__verify__/auxiliary-defaults.ts
  *
- * Auxiliary models are explicit single-pick slots. They must not declare
- * baked-in default routes; an unset setting is a configuration error.
+ * Auxiliary models have explicit admin-selected primaries and optional
+ * approved pools. They must not declare baked-in default routes; an unset
+ * setting is a configuration error.
  *
  * No network / DB — pure registry assertions.
  */

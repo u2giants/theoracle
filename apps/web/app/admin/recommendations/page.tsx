@@ -21,6 +21,9 @@ export default async function AdminRecommendationsPage() {
   const rows = await db
     .select({
       id: recommendations.id,
+      objectId: recommendations.objectId,
+      objectKind: recommendations.objectKind,
+      legacyProcessId: recommendations.processId,
       origin: recommendations.origin,
       analyzerKey: recommendations.analyzerKey,
       title: recommendations.title,
@@ -77,6 +80,11 @@ export default async function AdminRecommendationsPage() {
                   </span>
                 </div>
                 <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{row.narrative}</p>
+                <p className="mt-2 font-mono text-xs text-muted-foreground">
+                  {row.objectId
+                    ? `${row.objectKind ?? 'object'} ${row.objectId}`
+                    : `legacy process ${row.legacyProcessId ?? 'none'}`}
+                </p>
               </div>
             ))
           )}
