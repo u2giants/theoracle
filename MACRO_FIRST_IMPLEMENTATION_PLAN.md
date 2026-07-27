@@ -784,7 +784,7 @@ Rollback:
 
 **Purpose:** prove the entire reader-to-shadow-merge contract on the simplest high-value shape.
 
-Entry: R0 and R1 green; narrative/responsibility business decisions confirmed; merge and apply
+Entry: R0, R0.1, and R1 green; narrative/responsibility business decisions confirmed; merge and apply
 settings remain off until this stage explicitly enables merge in shadow mode only.
 
 Build:
@@ -1258,6 +1258,13 @@ R0.1 quote-repair gate and the R1 durable cross-shape contract are complete and 
   create-versus-existing guard, relation-evidence semantics, classify-first R0 gate, explicit new
   apply work, no R1 process-content copy, coverage-gap isolation, duplicate-86 disposition,
   effective provisional state, and map-less candidate identity—are incorporated here.
+- **Grok 4.5, 2026-07-26:** reviewed the three active plans against current code and returned
+  `ready after corrections`. Its five blocking corrections are incorporated: REL-2 and REL-3 no
+  longer target deleted writers, R2 explicitly requires R0.1, the stale handoff next-action block
+  is marked historical, and GAP-1 now finishes the existing taxonomy worker path instead of adding
+  a second worker. Conditional suggestions remain blocked for a separate Claude review.
+  Full evidence is in `.ai/reviews/grok-implementation-plans-critique.md` and Codex's verification
+  is in `.ai/reviews/grok-implementation-plans-critique-evaluation.md`.
 
 ---
 

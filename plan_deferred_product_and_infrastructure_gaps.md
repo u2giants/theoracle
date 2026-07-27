@@ -4,13 +4,14 @@ Status: **CANONICAL for known open product features, runtime limitations, option
 and owner-deferred security work outside the macro-first and reliability plans.**
 
 Created: 2026-07-26
+Last corrected: 2026-07-26 after Grok 4.5 repository review
 Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 
 ## Status table
 
 | Step | Status | Evidence or blocker |
 |---|---|---|
-| GAP-1 Transactional taxonomy reclassification | ⬜ open | No business blocker; requires schema/data audit before design is finalized |
+| GAP-1 Finish the existing taxonomy reclassification path | ⬜ open | Worker exists, but approval does not trigger it and applied/skipped state is not clearly surfaced |
 | GAP-2 Entity-aware retrieval planning | ⬜ open | Requires latency and model-cost gate |
 | GAP-3 Authentik disposition | ⬜ open | Owner must confirm whether Authentik is still a wanted login method |
 | GAP-4 China translation review and search hardening | ⬜ open | Side-by-side review is unbuilt; true Chinese tokenization is optional |
@@ -52,8 +53,8 @@ The repo is a TypeScript `pnpm` monorepo. GitHub `main` is code truth. Productio
 The 2026-07-26 known-problem audit found open or deferred items in `AGENTS.md` section 15,
 `DECISIONS.md`, `docs/architecture.md`, `docs/configuration.md`, `china_imp.md`, and source code:
 
-- Taxonomy proposals other than `create_top_domain` can be marked approved while their actual
-  reclassification remains a TODO.
+- Taxonomy proposals other than `create_top_domain` can be marked approved and queued in the audit
+  log, but the existing `taxonomy-reclassification` worker is not triggered by the approval path.
 - `RetrievalPlan.requiredEntities` is enforced but no production planner populates it.
 - Docs mention Authentik, but no Authentik login flow exists.
 - China translation lacks side-by-side admin review; true Chinese keyword segmentation is deferred.
@@ -91,6 +92,11 @@ Not in this plan:
 
 - `approveTaxonomyProposal` in `apps/web/app/admin/taxonomy/_actions.ts` applies only
   `create_top_domain`; other proposal types write `approve_pending_reclassification_*`.
+- `apps/workers/src/trigger/taxonomy-reclassification.ts` already implements transactional handlers
+  for create sub-topic, reassign claims, merge/retire sub-topic, and merge top domains. It logs
+  split proposals as manual intervention and skips unknown or invalid payloads.
+- No call from the taxonomy approval action triggers that worker, so approved proposals can remain
+  queued indefinitely.
 - `packages/ai/src/retrieval-plan.ts` declares a future model-backed plan builder direction, while
   `buildRetrievalPlanFromQuery()` remains keyword-based.
 - `RetrievalPlan.requiredEntities` is applied as any-of filtering in
@@ -111,8 +117,9 @@ Not in this plan:
 
 ## 6. Root causes and key findings
 
-- Taxonomy approval state and mutation state were separated without a durable queued job, so
-  "approved" can mean "accepted but not applied."
+- Taxonomy approval state and mutation state were separated. A durable worker exists, but the
+  approval path records only a queue note and never dispatches the worker, so "approved" can mean
+  "accepted but not applied."
 - Entity-aware retrieval needs named-entity recognition plus registry resolution, not a change to
   the settled any-of filter.
 - Authentik is documentation residue unless the business still wants a third login path.
@@ -174,7 +181,7 @@ Primary file map:
 
 | Step | Primary files |
 |---|---|
-| GAP-1 | `apps/web/app/admin/taxonomy/_actions.ts`, taxonomy proposal UI, `apps/workers/src/trigger/taxonomy-reevaluation.ts` or a new `taxonomy-reclassification.ts`, `packages/db/src/schema.ts` |
+| GAP-1 | `apps/web/app/admin/taxonomy/_actions.ts`, taxonomy proposal UI, existing `apps/workers/src/trigger/taxonomy-reclassification.ts`, `packages/db/src/schema.ts` only if the current status/audit contract cannot represent queued/applied/skipped truth |
 | GAP-2 | `packages/ai/src/retrieval-plan.ts`, `packages/ai/src/retrieval.ts`, `apps/web/app/api/chat/route.ts`, retrieval verifies |
 | GAP-3 | `packages/auth/src/**`, `apps/web/app/auth/**`, `apps/web/app/_components/login-form.tsx`, `docs/{architecture,configuration}.md` |
 | GAP-4 | `apps/web/app/admin/claims/page.tsx`, `apps/web/app/admin/claims/_actions.ts`, `apps/workers/src/trigger/claim-translation.ts`, `packages/ai/src/retrieval.ts`, `china_imp.md` |
@@ -189,18 +196,27 @@ Primary file map:
 | GAP-13 | Conversation selection/windowing helpers used by `apps/workers/src/trigger/claim-extraction.ts` and `claim-extraction-batch-submit.ts`, extraction verifies |
 | GAP-14 | `AGENTS.md`, `HANDOFF.md`, affected topic docs, this plan |
 
-### GAP-1: transactional taxonomy reclassification
+### GAP-1: finish the existing taxonomy reclassification path
 
-1. Audit pending and approved taxonomy proposals by type with SELECT-only queries.
-2. Define payload contracts for merge/split/reassign/create/retire operations in shared types.
-3. Add a durable `taxonomy-reclassification` task or transaction executor that consumes only an
-   approved proposal and records before/after state in `taxonomy_change_log`.
-4. Move claims by changing taxonomy links only; preserve `claim_evidence`.
-5. Handle Brain impact through an explicit re-synthesis queue after the taxonomy transaction.
-6. Change `approveTaxonomyProposal` so non-inline types become `approved_pending_apply` only if the
-   schema supports it, or keep proposal approval plus a durable job row whose state is shown in UI.
-   Never call an unapplied proposal simply complete.
-7. Add idempotency, stale-base detection, retry, rollback, and partial-failure tests.
+1. Audit approved, queued, applied, skipped, and manual-intervention proposals by type with
+   SELECT-only queries over `taxonomy_proposals`, `taxonomy_change_log`, and `job_runs`.
+2. Read every existing handler in `taxonomy-reclassification.ts` and compare its accepted payload
+   fields with proposal creation code. Correct the contracts in shared types rather than adding a
+   second worker.
+3. Choose one explicit dispatch path: recommended default is an admin "Apply approved changes"
+   action that triggers `taxonomy-reclassification` and shows the Trigger run ID. Do not dispatch
+   inside the approval transaction where an external trigger can outlive a rolled-back commit.
+4. Keep the worker's existing transaction boundary: structural mutation and
+   `reclassification_applied_*` or `reclassification_skipped_*` audit row commit together.
+5. Show each proposal's real state in the admin UI: approved and queued, applying, applied, skipped
+   with reason, or manual intervention required. Do not call queued or skipped work complete.
+6. Keep `split_top_domain` and `split_sub_topic` manual until a separate claim-allocation review
+   design proves safe. Unknown or invalid payloads stay skipped with a visible reason.
+7. Preserve `claims` and `claim_evidence`; only taxonomy links and taxonomy review state may change.
+8. After a successful taxonomy change, enqueue any required Brain re-synthesis through an explicit,
+   observable follow-up that cannot make the taxonomy transaction partially fail.
+9. Add idempotency, stale-base, duplicate-dispatch, retry, rollback, invalid-payload, and
+   partial-failure tests around the existing worker and new dispatch action.
 
 Gate: every supported proposal type either commits its exact mutation and audit atomically or
 remains visibly pending apply; retry creates no duplicate changes.
@@ -411,7 +427,7 @@ decision. No vague "build later" row remains.
 
 Done means:
 
-- GAP-1 through GAP-11 are done, intentionally rejected, or explicitly blocked with owner and reason.
+- GAP-1 through GAP-14 are done, intentionally rejected, or explicitly blocked with owner and reason.
 - Implemented work has named tests, commit SHA, push, green CI, deployment proof, and docs.
 - User-facing claims match real working features.
 - No partial feature silently claims success.

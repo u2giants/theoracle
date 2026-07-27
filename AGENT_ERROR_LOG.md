@@ -67,15 +67,31 @@ This is also the proof that the fallback-pool design (below) is load-bearing, no
 - **Symptom:** `macro-relationship-extraction` (and `source-coverage-audit` when a document was linked) failed fast, before the model call, with `Error: Failed query:`.
 - **Root cause (reproduced directly against prod):** `42P10 — for SELECT DISTINCT, ORDER BY expressions must appear in select list`. **Three** queries used `SELECT DISTINCT … ORDER BY c.created_at` (cross-source also `ORDER BY CASE …`) without those in the select list: the cross-source CTE and single-source query in `macro-relationship-extraction.ts`, and the claim query in `source-coverage-audit.ts`. So the document-scoped macro path was **always** broken, independent of ERR-001. (My earlier "likely fixed in `.2`" guess was wrong — it only "reached the model" on runs where `documentId` was null and the query was skipped.)
 - **Fix:** cross-source → drop the redundant outer `DISTINCT` (the `IN`-subquery already yields unique ids); single-source + coverage → add `c.created_at` to the select list (JOINs can duplicate, so `DISTINCT` stays). All three corrected forms verified against prod (40/40/80 rows) before patching, then verified live (post-fix macro/coverage runs completed — see ERR-001).
-- **Do next (optional):** a DB-touching smoke test that runs all three queries against a seeded fixture so this class can't silently regress.
+- **Current disposition (2026-07-26):** the two workers that owned these queries were removed by
+  the Stage 3 architecture cleanup. `packages/db/src/verify-macro-support-queries.ts` is now an
+  isolated smoke with no current worker caller and no CI wiring. Reliability REL-3 must prove zero
+  current callers, then delete the obsolete smoke, or retarget it only if a current runtime owner
+  is found. Do not restore the deleted writers.
 
-### ERR-003 — Followup fan-out: each lens job re-triggers macro + coverage  — DEPLOYED (needs rerun verification)
+### ERR-003 — Followup fan-out: each lens job re-triggers macro + coverage — DEPLOYED (source fixed by architecture removal; task inventory pending)
+
+**Current disposition (2026-07-26):** `source-outline`, `document-lens-extraction`,
+`macro-relationship-extraction`, and `source-coverage-audit` no longer exist in the repository.
+Migration 89 removed the retired outline/lens path. The old "one macro plus one coverage run per
+outline" verification is invalid and must not be run. Reliability REL-2 requires one final
+read-only deployed task-inventory check before this production incident is marked fully closed.
 
 - **Symptom:** one `source-outline` run produced **~49 macro + ~50 coverage** runs in ~15 min (`job_runs`). Pre-fix those were failures; post-fix they'd be redundant *successes* over the same claims.
 - **Cause:** both `source-outline` AND every `document-lens-extraction` job trigger the two followups on completion. With coverage-first fan-out dispatching up to 16 lens jobs, that's up to ~16× redundant macro/coverage passes (the near-duplicate guard prevents duplicate rows, but the model calls are wasted spend + noise, and they leave `macro_health='degraded'` from any transient failure).
 - **Fix applied/deployed:** `document-lens-extraction` no longer triggers macro + coverage directly. Lens jobs now record completed/skipped-existing work, and the final completed lens job claims a one-time `source_outlines.budget_json.macroFollowupsDispatchedAt` latch before triggering `macro-relationship-extraction`. `macro-relationship-extraction` triggers `source-coverage-audit` only after the macro pass finishes, so coverage no longer races ahead of relationship insertion. Deployed in Trigger worker `20260704.2`; verify by rerunning a diagram outline and checking for one macro run plus one coverage run per outline.
 
-### ERR-004 — Workflow structure was not first-class; macro graph stayed invisible behind pending claims — DEPLOYED (needs rerun verification)
+### ERR-004 — Workflow structure was not first-class; macro graph stayed invisible behind pending claims — OPEN CURRENT-PATH VERIFICATION
+
+**Current disposition (2026-07-26):** the outline/lens/macro writers named below are historical and
+were removed. The remaining business problem is verified through the current map-directed path:
+`source-workflow-read`, `source_workflow_maps`, active-map `mapElementRef` membership in document
+candidates, and deterministic `model_coverage` gaps. Reliability REL-2 owns that proof. Do not
+rebuild the deleted writer chain.
 
 - **Symptom:** diagram/SOP sources could still explode into many atomic claims without preserving the underlying process graph. Macro relationships were also born `blocked_pending_support`, so the holistic layer stayed hidden until a noisy claim queue was approved.
 - **Fix applied/deployed:** added `source_workflow_maps` with nodes, edges, paths, and coverage metadata; source-outline now persists the graph; document ingestion runs the outline/workflow-map pass before broad extraction; candidates store `workflowTrace` when their quote matches a workflow edge; candidate hashes can use a stable graph edge key for edge-level dedup; macro extraction inserts deterministic path relationships from workflow-map paths; coverage audit inserts missing-edge findings; and generated macro relationships with pending support now enter `pending_review` while read-time Brain/chat helpers still require approved support. Migration `86_source_workflow_maps.sql` applied to prod and Trigger worker `20260704.2` deployed on 2026-07-04.

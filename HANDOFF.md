@@ -16,10 +16,10 @@ must read the named plan's status table first and must not re-plan the work from
 | Two root quote-copy failures and their six cascades | [Macro-first plan R0.1](MACRO_FIRST_IMPLEMENTATION_PLAN.md#r01--bounded-quote-copy-repair) |
 | Stale workflow production script | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
 | False Teams transcript TODO comments | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
-| ERR-003 follow-up fan-out needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-close-err-003-err-004-and-err-005) |
-| ERR-004 workflow-map path needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-close-err-003-err-004-and-err-005) |
-| ERR-005 document contradiction fix needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-close-err-003-err-004-and-err-005) |
-| ERR-002 lacks a DB regression test | [Reliability plan REL-3](plan_repo_reliability_and_release_gaps.md#rel-3-support-query-regression-test) |
+| ERR-003 retired fan-out needs a deployed task-inventory check | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
+| ERR-004 current map-directed path needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
+| ERR-005 document contradiction fix needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
+| ERR-002 obsolete SQL smoke needs retirement or a current owner | [Reliability plan REL-3](plan_repo_reliability_and_release_gaps.md#rel-3-retire-or-retarget-the-obsolete-macro-support-sql-smoke) |
 | Old DeepSeek phantom-fallback instruction | [Reliability plan REL-4](plan_repo_reliability_and_release_gaps.md#rel-4-model-pool-fallback-truth) |
 | Migration 65 generated/fresh-DB drift warning | [Reliability plan REL-5](plan_repo_reliability_and_release_gaps.md#rel-5-migration-65-and-snapshot-drift) |
 | Live image upload has no recorded production proof | [Reliability plan REL-6](plan_repo_reliability_and_release_gaps.md#rel-6-live-image-upload-proof) |
@@ -27,7 +27,7 @@ must read the named plan's status table first and must not re-plan the work from
 | Unused hard-coded schema repair helper | [Reliability plan REL-8](plan_repo_reliability_and_release_gaps.md#rel-8-remove-dead-schema-repair) |
 | Stale runtime/error documentation | [Reliability plan REL-9](plan_repo_reliability_and_release_gaps.md#rel-9-close-documentation-and-logs) |
 | Old storage-bucket and completed-feature TODO notes | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
-| Taxonomy proposals can be approved before apply | [Product plan GAP-1](plan_deferred_product_and_infrastructure_gaps.md#gap-1-transactional-taxonomy-reclassification) |
+| Taxonomy approval does not dispatch the existing apply worker | [Product plan GAP-1](plan_deferred_product_and_infrastructure_gaps.md#gap-1-finish-the-existing-taxonomy-reclassification-path) |
 | Retrieval entity filter has no production populator | [Product plan GAP-2](plan_deferred_product_and_infrastructure_gaps.md#gap-2-entity-aware-retrieval-planning) |
 | Authentik is documented but not built | [Product plan GAP-3](plan_deferred_product_and_infrastructure_gaps.md#gap-3-authentik-disposition) |
 | China side-by-side review and measured search hardening | [Product plan GAP-4](plan_deferred_product_and_infrastructure_gaps.md#gap-4-china-review-and-search-hardening) |
@@ -141,7 +141,11 @@ R1's production audit may reveal unexpected manual/test rows, inbound dependenci
 snapshot drift; that is precisely why R1 DDL is prohibited until the audit is recorded. The
 canonical sequence and evidence-authority decisions remain unchanged.
 
-## CANONICAL PLAN UPDATE — 2026-07-21
+## HISTORICAL PLAN UPDATE — 2026-07-21
+
+The next-action wording in this dated block is superseded. The only current macro starting work is
+R0.1 plus the R1 SELECT-only audit in parallel, as stated in the top "Exact next steps" section and
+the canonical plan's status table. Do not use this historical block to choose work.
 
 `MACRO_FIRST_IMPLEMENTATION_PLAN.md` is now the single forward plan of record. It reconciles
 the original process-centric macro redesign with the six-shape reader pivot. The agreed order is
@@ -168,11 +172,9 @@ Both root quotes would pass only transcript-fuzzy matching, so Markdown validati
 rejected them. One process segment remains visibly degraded at 24.2% local drops; the whole-map
 gate passes and no validation was weakened. Full evidence is in `evals/shape-aware-stage2.md`.
 
-The exact next action is R1's mandatory read-only production-data/schema audit from
-`MACRO_FIRST_IMPLEMENTATION_PLAN.md`: inventory existing macro/process rows, inbound FKs,
-RLS/policies, manual/test data, journal/drift state, and snapshot-versus-hand-written migration
-target. Record that audit before authoring R1 DDL. Do not begin the R2 responsibilities reader
-until R1's additive durable cross-shape contract is complete and green.
+The next action recorded on 2026-07-21 was R1's audit. That instruction is historical. R0.1 was
+added after the production quote-copy review and now runs in parallel with the R1 audit. Do not
+begin R2 until R0.1 and R1 are both green.
 
 ## LATEST SNAPSHOT — Shape-aware reader Stage 2 deployed (2026-07-13)
 
@@ -1512,3 +1514,8 @@ WHERE key = 'teams_live_recall_min_confidence_to_post';
 
 Audit result: passed. Future sessions must update the relevant plan status table and this registry
 whenever a problem is completed, rejected, newly discovered, or blocked.
+
+Re-audited after the 2026-07-26 Grok corrections: the registry no longer points at deleted
+outline/lens/macro workers, R2 cannot start without R0.1, the historical R1-only instruction is
+superseded, and GAP-1 now finishes the existing taxonomy worker path. A fresh developer can choose
+the correct next step without the review chat.

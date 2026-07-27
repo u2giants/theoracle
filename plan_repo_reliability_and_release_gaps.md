@@ -4,6 +4,7 @@ Status: **CANONICAL for known reliability, verification, migration-drift, releas
 and misleading-code-note problems that are outside the macro-first feature sequence.**
 
 Created: 2026-07-26
+Last corrected: 2026-07-26 after Grok 4.5 repository review
 Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 Production web: `https://oracle.designflow.app`
 Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
@@ -14,17 +15,19 @@ Database: Supabase project `eqccjfbyrywsqkxxpjvg`
 | Step | Status | Evidence or blocker |
 |---|---|---|
 | REL-1 Stale verification script and false comments | ⬜ open | No blocker |
-| REL-2 Runtime reruns for ERR-003, ERR-004, ERR-005 | ⬜ open | Needs safe production fixtures and read access; no production mutation without the normal authorized workflow |
-| REL-3 Support-query database regression test | ⬜ open | Depends on a seeded test database fixture |
+| REL-2 Reconcile ERR-003, ERR-004, ERR-005 with the current reader | 🟨 partial, 2026-07-26 | ERR-003's code path is deleted; ERR-004 and ERR-005 still need current-path evidence |
+| REL-3 Retire or retarget the obsolete macro-support SQL smoke | ⬜ open | Current script tests deleted writer queries and is not in CI |
 | REL-4 Model-pool phantom fallback audit | ⬜ open | Read-only production settings/env audit first |
 | REL-5 Migration 65 and generated-snapshot drift | ⬜ open | Coordinate with macro R1 drift audit to avoid duplicate migration work |
 | REL-6 Live image upload verification | ⬜ open | Requires an owner-approved non-sensitive image fixture |
 | REL-7 Database and Trigger.dev release automation | ⬜ open | Starts after REL-2 through REL-5 establish the current release contract |
 | REL-8 Dead schema-repair helper removal | ⬜ open | Wait until macro R10 unless a current caller is introduced |
 | REL-9 Close logs and documentation | ⬜ open | Depends on all earlier applicable steps |
+| Claude conditional-review queue | ⏸ blocked | Send the five conditional suggestions in §9 to Claude before promoting any into implementation work |
 
-Fresh-session starting point: REL-1 can begin now. REL-2, REL-3, and the read-only portion of REL-4
-can run independently. Coordinate REL-5 with macro R1.
+Fresh-session starting point: REL-1 can begin now. REL-2 must use only the current map-directed
+reader files named below. REL-3 starts with a zero-caller proof before deciding whether the old
+smoke script should be deleted or retargeted. Coordinate REL-5 with macro R1.
 
 ## 1. Ultimate goal
 
@@ -51,11 +54,14 @@ Vercel, Trigger.dev, and journaled database release paths.
 Known problems were spread across `AGENT_ERROR_LOG.md`, `AGENTS.md` section 15, code comments,
 Kimi K3's 2026-07-26 full-repo review, and old handoff history:
 
-- ERR-003, ERR-004, and ERR-005 are deployed but never closed by the exact production reruns.
+- ERR-003 and ERR-004 were written for outline, lens, macro, and coverage workers that Stage 3 later
+  deleted. ERR-003 is fixed in source by removal of the fan-out architecture; ERR-004 must be
+  rewritten around the current map-directed reader. ERR-005 still needs its current-path rerun.
 - `scripts/verify-workflow-map-prod.mjs` selects removed `source_outline_id` and uses
   `macro_relationships.confidence` instead of `confidence_score`.
 - `apps/workers/src/lib/schema-repair.ts` has no callers and hard-codes a route.
-- ERR-002 has no database-touching regression test for its three support queries.
+- ERR-002's former runtime queries have no current writer callers. A standalone database smoke still
+  contains those queries, is exposed by a package script, and is not wired into CI.
 - ERR-001 still contains an old instruction to add a DeepSeek key or remove a phantom fallback.
   Current pool state must be checked before that instruction is acted on.
 - Migration 65 is hand-written only, while an old pending-work row warns that generated drift or
@@ -106,7 +112,13 @@ Not in this plan:
 - `apps/workers/src/lib/schema-repair.ts` has zero callers as of 2026-07-26.
 - `apps/workers/src/trigger/teams-transcript-ingestion.ts` already resolves display names through
   directory email and anchors cue timestamps to `payload.meetingTime` when supplied.
-- `AGENT_ERROR_LOG.md` marks ERR-003 through ERR-005 as deployed but needing rerun proof.
+- `source-outline.ts`, `document-lens-extraction.ts`, `macro-relationship-extraction.ts`, and
+  `source-coverage-audit.ts` no longer exist. Migration 89 removed the retired outline/lens path.
+- The current reader path is `source-workflow-read.ts` plus map-directed
+  `document-ingestion.ts`, with deterministic map omissions in `map-coverage-gaps.ts`.
+- `AGENT_ERROR_LOG.md` still describes ERR-003 and ERR-004 using the deleted architecture.
+- `packages/db/src/verify-macro-support-queries.ts` is the only remaining copy of ERR-002's former
+  support queries; no CI workflow or current worker calls it.
 - `.github/workflows/pr-check.yml` is the only workflow.
 - The worktree already contains user-owned untracked PNG files. Do not touch them.
 
@@ -115,14 +127,16 @@ changed.
 
 ## 6. Root causes and key findings
 
-- ERR-003 was a fan-out ownership bug. Every lens pass started macro and coverage work. The deployed
-  latch and sequencing fix needs a one-outline proof of exactly one macro and one coverage run.
-- ERR-004 was a data-model gap. Workflow maps became first-class, but the original incident entry
-  was never closed with its named real-source checks.
+- ERR-003 was a fan-out ownership bug in workers that no longer exist. Stage 3 removed the entire
+  outline/lens/macro/coverage fan-out, so the correct close is architecture removal plus a deployed
+  task-inventory check, not a new outline rerun.
+- ERR-004's original data-model problem remains relevant, but its proof must use the current
+  `source_workflow_maps`, `mapElementRef`, and deterministic `model_coverage` gap path.
 - ERR-005 used an all-zero fake channel ID for document-only contradictions, violating a foreign
   key. The deployed guard needs a document-only contradiction rerun.
-- ERR-002 came from `SELECT DISTINCT` queries ordering by expressions outside the select list.
-  Manual production checks proved the fix, but there is no automated database regression.
+- ERR-002 came from `SELECT DISTINCT` queries in deleted writers. Manual production checks proved
+  the historical fix. The remaining smoke script must be retired unless a current runtime caller
+  of the same query contract is found.
 - The stale workflow script drifted because it duplicated schema knowledge instead of importing or
   querying current names.
 - The hard-coded schema repair helper violates configurable-model and observability rules even
@@ -141,7 +155,10 @@ changed.
 - Do not edit migration history blindly or replay a generated migration over live objects.
 - Do not automate deployment until the exact safe manual order, failure behavior, and rollback are
   encoded and tested.
-- Do not close ERR-003 through ERR-005 from local tests alone. Their open item is production proof.
+- Do not rebuild deleted outline/lens/macro workers merely to reproduce an old incident.
+- Do not keep an obsolete SQL smoke in CI when no current runtime path owns those queries.
+- Do not close ERR-004 or ERR-005 from local tests alone. Their remaining item is current production
+  proof after an owner-authorized fixture run.
 
 ## 8. Design decisions
 
@@ -171,8 +188,8 @@ Primary file map:
 | Step | Primary files |
 |---|---|
 | REL-1 | `scripts/verify-workflow-map-prod.mjs`, `packages/db/src/audit-r0-release-map.ts`, `apps/workers/src/trigger/teams-transcript-ingestion.ts`, `apps/workers/src/trigger/lull-interjection.ts`, `AGENTS.md`, `DECISIONS.md`, `docs/architecture.md` |
-| REL-2 | `apps/workers/src/trigger/{source-outline,document-lens-extraction,macro-relationship-extraction,source-coverage-audit,contradiction-watcher}.ts`, `AGENT_ERROR_LOG.md` |
-| REL-3 | `apps/workers/src/trigger/{macro-relationship-extraction,source-coverage-audit}.ts`, `packages/db/src/prepare-fresh-supabase-test-db.ts`, package verify scripts |
+| REL-2 | `apps/workers/src/lib/source-workflow-read.ts`, `apps/workers/src/trigger/{source-workflow-read,document-ingestion,contradiction-watcher}.ts`, `apps/workers/src/lib/map-coverage-gaps.ts`, migration `89_map_directed_extraction_cleanup.sql`, `AGENT_ERROR_LOG.md` |
+| REL-3 | `packages/db/src/verify-macro-support-queries.ts`, `packages/db/package.json`, `.github/workflows/pr-check.yml`, current runtime callers found by repository search |
 | REL-4 | `packages/ai/src/routes/{candidates,auxiliary,capability-requirements}.ts`, `packages/ai/src/model-capabilities/**`, production `settings` rows |
 | REL-5 | `packages/db/migrations/sql/65_document_context_and_domain_hints.sql`, `packages/db/src/schema.ts`, `packages/db/src/check-migration-drift.ts`, migration journal/snapshots |
 | REL-6 | `apps/web/app/api/admin/documents/route.ts`, `apps/web/app/admin/documents/**`, `apps/workers/src/trigger/document-ingestion.ts` |
@@ -198,31 +215,41 @@ Primary file map:
 Gate: `rg` finds no live instruction to use removed workflow-map columns and the Teams comment
 matches the code at the email-resolution and `meetingTime` branches.
 
-### REL-2: close ERR-003, ERR-004, and ERR-005
+### REL-2: reconcile ERR-003, ERR-004, and ERR-005 with the current reader
 
-1. Pin one safe outline/document fixture and record its source ID and hash in `AGENT_ERROR_LOG.md`.
-2. Run one outline flow and query Trigger runs plus `job_runs`.
-3. Pass ERR-003 when the outline creates one macro run and one coverage run, with no repeated lens
-   fan-out.
-4. Pass ERR-004 when the source has a non-empty workflow map, edge traces on applicable candidates,
-   deterministic macro rows, and missing-edge findings where the answer key expects them.
-5. Run a document-only contradiction fixture.
-6. Pass ERR-005 when contradiction and gap rows persist, no fake channel intervention is inserted,
-   and no foreign-key failure occurs.
+1. For ERR-003, record that migration 89 and the current trigger directory removed
+   `source-outline`, `document-lens-extraction`, `macro-relationship-extraction`, and
+   `source-coverage-audit`. Do not recreate them.
+2. Before marking the production incident fully closed, use a read-only Trigger.dev task inventory
+   to confirm the deployed worker no longer advertises those four tasks. Record the worker version.
+3. Rewrite ERR-004's remaining proof around the current path. Use an owner-authorized,
+   non-sensitive document fixture pinned by source ID and hash.
+4. Pass ERR-004 when `source-workflow-read` creates a non-empty `source_workflow_maps` row,
+   document candidates carry valid active-map `mapElementRef` values where applicable, and
+   deterministic `model_coverage` gaps represent omitted primary map elements without reaching
+   employee-facing gap consumers.
+5. Run the current document-only contradiction fixture through `contradiction-watcher`.
+6. Pass ERR-005 when contradiction and normal gap rows persist, no `oracle_interventions` row uses
+   a fake channel ID, and no foreign-key failure occurs.
 
-Gate: update each incident to `FIXED` with run IDs, row counts, worker version, and date.
+Gate: ERR-003 is `FIXED BY ARCHITECTURE REMOVAL` with repo and deployed task-inventory evidence.
+ERR-004 and ERR-005 are `FIXED` only with run IDs, row counts, worker version, and date.
 
-### REL-3: support-query regression test
+### REL-3: retire or retarget the obsolete macro-support SQL smoke
 
-1. Extract the three fixed query builders from
-   `apps/workers/src/trigger/macro-relationship-extraction.ts` and
-   `apps/workers/src/trigger/source-coverage-audit.ts` only if needed for direct testing.
-2. Seed duplicate-producing joins and differing `created_at` values in the existing fresh test DB.
-3. Execute cross-source, single-source, and coverage queries.
-4. Assert no `42P10`, correct deduplication, deterministic ordering, and expected limits.
+1. Search current runtime code for the three query contracts in
+   `packages/db/src/verify-macro-support-queries.ts` and for every reference to the package script
+   `verify:macro-support-queries`.
+2. If no runtime owner exists, delete the smoke and package script, then mark ERR-002's optional
+   follow-up `N/A after writer removal`. Do not wire dead architecture into CI.
+3. If a current runtime owner exists because the code changed after this plan was reviewed, move
+   the query into a shared helper, make the runtime caller and test import that helper, and seed the
+   fresh test DB with duplicate joins and differing `created_at` values.
+4. In the current-caller branch only, assert no `42P10`, correct deduplication, deterministic order,
+   and expected limits, then wire the named verify into CI.
 
-Gate: a named database verify runs in CI and fails when the old invalid `DISTINCT` ordering is
-restored.
+Gate: either no obsolete macro-support smoke remains, or one current shared query contract is
+called by runtime and guarded in CI. The deleted writers are never restored.
 
 ### REL-4: model-pool fallback truth
 
@@ -296,13 +323,34 @@ Gate: no hard-coded schema-repair route remains and all worker gates stay green.
 Gate: every reliability item is done, intentionally rejected with reason, or blocked on a named
 owner action. No bare open item remains.
 
+### Conditional suggestions pending Claude review
+
+These are not accepted implementation steps yet. Send all five to Claude with the current plans
+and code, then record Claude's evidence-based accept, reject, or narrow decision before moving one
+into a numbered plan step:
+
+1. **ERR-003 deployment proof:** confirm whether repository deletion plus the deployed Trigger.dev
+   task inventory is sufficient to close the old fan-out incident.
+2. **ERR-002 smoke disposition:** confirm whether `verify-macro-support-queries.ts` protects any
+   current runtime contract or should be deleted with the retired writers.
+3. **Local environment warning:** check whether `.env.local` can still point at `oracle.old`.
+   This is unverified and must not be called a known defect without evidence. Never read secret
+   values into the review transcript.
+4. **Bug D backbone review UI:** decide whether the old "backbone claims" review slice is still a
+   wanted product feature under macro R6 or should remain intentionally unsupported.
+5. **Teams AAD speaker matching:** decide whether resolving unmatched transcript speakers from
+   participant AAD IDs is required work or an acceptable documented v1 limitation.
+
+Gate: Claude's critique is saved under `.ai/reviews/`, Codex verifies each accepted point against
+the repo, and only accepted items are added to the canonical plan registry.
+
 ## 10. Tests required
 
 - Existing `pnpm lint`, `pnpm typecheck`, and `pnpm build`.
 - Current AI, worker, engine, and database verify commands named in package scripts.
-- New database support-query regression verify from REL-3.
+- REL-3 zero-caller proof, or a current shared-query regression verify only if a runtime owner exists.
 - Fresh-database migration and drift checks.
-- Trigger run-count assertions for ERR-003.
+- Read-only deployed task inventory proving ERR-003's retired tasks are absent.
 - Row-level workflow-map and contradiction assertions for ERR-004 and ERR-005.
 - Workflow release failure-path test proving later stages do not run after a failed gate.
 
@@ -342,6 +390,8 @@ Done means:
 - Any changed web/worker/database runtime is deployed through the normal path.
 - Deployment IDs, worker version, migration state, and production run IDs are recorded.
 - `AGENT_ERROR_LOG.md`, `AGENTS.md`, this plan, and `HANDOFF.md` agree.
+- Claude's conditional-review queue is resolved or remains explicitly blocked without being treated
+  as accepted work.
 
 Risks:
 
