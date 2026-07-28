@@ -7,6 +7,8 @@ Owner direction: Albert selected the deeper-architecture path by requesting this
 Canonical parent plan: `MACRO_FIRST_IMPLEMENTATION_PLAN.md`
 Current production handoff: `HANDOFF.md`
 Gate evidence: `evals/r2-responsibilities.md`
+Independent plan review: GLM 5.2 returned `APPROVE WITH CHANGES`; both P1 and all six P2 changes
+were incorporated on 2026-07-28 before implementation.
 
 ## STATUS table
 
@@ -92,7 +94,8 @@ Six live gates established a stable failure:
 - Batch E scored 20/30 and kept 179 responsibilities.
 - Batch F added strict span-bound field checks, scored 14/30, kept only 92 responsibilities, and
   raised full-map drops from 31 to 170.
-- Batch F improved quote failures from 10 to 4, so quote copying was not the main regression.
+- Batch F's grounded quote repair cut its own root quote failures from 10 to 4. Batch E's
+  post-repair count was 6, so quote copying was not the main regression.
 - Batch F lost seven duties that Batch E had already matched: rows 5, 7, 8, 9, 10, 13, and 25.
 - It gained only row 19.
 
@@ -348,9 +351,21 @@ Decisions dated 2026-07-28.
      expansion and repair.
    - `mergeEligibleElements`: complete elements only. Until the later R2 gate enables shadow
      merge, this set is audit evidence and a guard, not a dispatch authorization.
+   - `validation.elements` continues to mean complete elements only. It is the only responsibility
+     set allowed into `structureMap.elements`, `elementsJson`, `keptCount`, omission coverage,
+     coverage ratios, claim map references, or later merge preparation.
+   - Inventory-valid-but-incomplete records stay in memory for retries and repair, then persist only
+     as per-record audit inside `validationJson`. They never become authoritative map evidence.
 
 3. **One combined repair call under the existing repair budget.**
-   - One `SourceReaderBudget.reserveRepair(...)` call total.
+   - Reserve one
+     `responsibilityPostPassBudget.reserveQuoteRepair()` call total. This is the frozen 1/1
+     responsibility post-pass quote-repair allowance, repurposed to carry the combined field and
+     quote repair.
+   - Do not call `readerBudget.reserveRepair()` for the combined responsibility repair. That is a
+     separate general-repair slot shared by segmentation and workflow quote-copy repair.
+   - The combined model call still consumes one normal reader call plus its input tokens and
+     estimated cost from `readerBudget`.
    - The request uses a discriminated schema with `fieldRepairs[]` and `quoteRepairs[]`.
    - A field repair may change only role, action, object, trigger, and requiredSystem from its
      selected exact span. It may not change record ID, chunk ID, or evidence quote.
@@ -378,7 +393,11 @@ Decisions dated 2026-07-28.
 6. **Incomplete inventory remains auditable but cannot claim completeness.**
    - It must not close an omission.
    - It must not enter `mergeEligibleElements`.
-   - It must carry durable failure class and repair status in `validationJson`.
+   - It must not enter `validation.elements`, `structureMap.elements`, `elementsJson`,
+     `keptCount`, the responsibility coverage numerator or denominator, or claim map references.
+   - It must carry a per-record durable audit in `validationJson`: element ID, chunk ID, stable
+     failure category, repair status, selected/rejected reason, and bounded quote hash.
+   - Map status is `degraded` whenever `inventoryCount > completeCount`.
 
 7. **No schema migration unless proven necessary.**
    - Store the new audit in the existing map validation JSON.
@@ -458,6 +477,9 @@ Actions:
    - complete element IDs or complete elements;
    - field diagnostics keyed by responsibility ID;
    - existing quote/shape diagnostics.
+   Keep `validation.elements` as the complete set only. Persist it into map elements, count it as
+   kept, and use it for omission and coverage calculations. Keep incomplete inventory in a separate
+   audit structure that can persist only inside `validationJson`.
 4. Preserve field-fidelity reasons exactly and add a stable category:
    `field`, `quote`, `multi_verb`, `forced_missing`, or `invalid_detail`.
 5. Update `mergeResponsibilityValidationResults` and `mergeResponsibilityRetryValidation` so
@@ -539,8 +561,11 @@ Actions:
    - reject any text not present in the selected source span;
    - reject duplicates, missing IDs, extra IDs, and schema-valid but unrequested repairs.
 5. Re-run strict quote, shape, field, polarity, and multi-verb validation after patching.
-6. Reserve exactly one general repair attempt for the combined call. Remove any separate second
-   repair call. If there is no field or quote work, record `no_eligible_repairs`.
+6. Reserve exactly one `responsibilityPostPassBudget.reserveQuoteRepair()` attempt for the combined
+   call. Replace only the separate responsibility quote-repair call currently in
+   `apps/workers/src/lib/source-workflow-read.ts`; segmentation integrity repair and workflow
+   quote-copy repair remain unchanged. Do not use `readerBudget.reserveRepair()` for this combined
+   responsibility call. If there is no field or quote work, record `no_eligible_repairs`.
 7. Bound repair selection and record why each candidate was selected or skipped.
 8. Preserve candidate text, hashes, before/after fields, validation outcomes, and rejection reason
    in durable audit.
@@ -548,8 +573,9 @@ Actions:
 Dependencies: P1 and P2.
 
 Verification gate: one mocked combined call can repair a cadence-thinned object and select a
-grounded quote candidate in the same response, uses exactly one repair reservation, and rejects
-invented content or cross-mode field changes.
+grounded quote candidate in the same response, increments the responsibility post-pass quote-repair
+count exactly once, does not increment the reader general-repair count, and rejects invented
+content or cross-mode field changes.
 
 #### P4. Rebuild orchestration, omission coverage, and eligibility
 
@@ -565,26 +591,32 @@ Files:
 Actions:
 
 1. Base reads produce inventory plus completeness classifications.
-2. Run deterministic multi-destination expansion on inventory-valid records.
+2. Run deterministic multi-destination expansion on every completeness pass: after base reads,
+   after each omission-retry merge, and after combined repair.
 3. Compute omissions from complete elements only.
 4. Run the existing maximum five omission retries, one per chunk. Retry results also enter
-   inventory first and then completeness validation.
+   inventory first, then deterministic expansion and completeness validation.
 5. Build the one combined repair request from bounded field and quote failures across base and
    retry reads.
 6. Apply and revalidate the combined repair.
 7. Re-run deterministic expansion where repaired fields make it applicable.
 8. Compute final complete elements, merge-eligible IDs, and omissions.
 9. Persist:
-   - inventory count;
-   - complete count;
-   - merge-eligible count;
-   - drop/failure counts by taxonomy;
-   - repair candidates, outcomes, and one-call budget evidence;
-   - deterministic expansion evidence;
-   - before/after omission counts;
-   - final uncovered sample capped at 30.
-10. Ensure map status becomes degraded when incomplete inventory remains, but do not erase the
-    inventory.
+    - inventory count;
+    - complete count;
+    - merge-eligible count;
+    - drop/failure counts by taxonomy;
+    - a per-record incomplete-inventory audit containing element ID, chunk ID, failure category,
+      repair status, selected/rejected reason, and bounded quote hash;
+    - repair candidates, outcomes, and one-call budget evidence;
+    - deterministic expansion evidence;
+    - before/after omission counts;
+    - final uncovered sample capped at 30.
+10. Keep `validation.elements`, `structureMap.elements`, `elementsJson`, `keptCount`,
+    `findResponsibilityOmissions`, responsibility coverage, claim map references, and later merge
+    preparation bound to complete elements only. Persist inventory-valid-but-incomplete records only
+    in the `validationJson` audit. Set map status to `degraded` whenever
+    `inventoryCount > completeCount`, but do not erase the incomplete inventory audit.
 11. Add a fail-loud guard so downstream responsibility shadow merge cannot consume an ID absent
     from `mergeEligibleElements`.
 12. Keep merge/apply flags false and do not dispatch shadow merge during this phase.
@@ -773,11 +805,15 @@ Add tests with invented generic examples only:
     - Quote repair changes action or object.
     - Both fail loudly.
 
-13. **One repair budget**
-    - Mixed field and quote work uses one repair reservation, never two.
+13. **Correct repair-budget wiring**
+    - Mixed field and quote work uses one responsibility post-pass quote-repair reservation,
+      never two.
+    - `responsibilityPostPassBudget.snapshot().quoteRepairs` becomes 1.
+    - `readerBudget.snapshot().repairAttempts` does not increase.
 
 14. **Omission closes only on complete records**
     - Inventory-only record leaves span uncovered.
+    - It remains targeted by an omission retry.
     - Repaired complete record closes it.
 
 15. **Merge eligibility guard**
@@ -788,13 +824,34 @@ Add tests with invented generic examples only:
     - Durable counts and record IDs match.
 
 17. **Runtime leak guard**
-    - Continue the existing search/assertions that forbid fixture role names, answer-key terms,
-      and pinned business-specific strings in production reader/prompt code.
+    - Continue the existing search/assertions that forbid fixture role names and pinned
+      business-specific strings in production reader/prompt code.
+    - Derive destination, system, and object terms from the verifier fixture at test time and assert
+      that none appear in the production reader, prompt, or expansion source. Do not copy those
+      answer-key terms into the runtime code or hard-code a second answer key in the leak test.
 
 18. **Frozen invariants**
     - Answer-key SHA and matcher remain frozen.
     - Budgets remain 40/500k/$10 and 1/5/1.
     - Merge/apply remain false by default.
+
+19. **Incomplete inventory never persists as map evidence**
+    - An inventory-valid but field-incomplete record appears in the per-record `validationJson`
+      audit.
+    - It does not appear in `structureMap.elements`, `elementsJson`, `keptCount`, claim map
+      references, or merge preparation.
+
+20. **Incomplete inventory forces degraded status**
+    - When `inventoryCount > completeCount`, map status is `degraded` even if no legacy diagnostic
+      remains.
+
+21. **Post-repair expansion**
+    - A successful field repair that exposes an explicit destination list is expanded before final
+      completeness and persistence.
+
+22. **Complete-only coverage denominator**
+    - Responsibility coverage and `primaryCount` use complete elements only.
+    - Inventory-only elements cannot inflate either side of the ratio.
 
 ### Production-used orchestration test
 
@@ -845,14 +902,15 @@ access. Do not make a local test depend on production.
    duplicate destination, or audit mismatch must be loud and durable.
 8. No hard-coded model. Continue using the configured `workflow_read` route.
 9. No model pool manipulation during this architecture phase.
-10. One general repair attempt remains one attempt even when it contains both repair modes.
+10. The responsibility post-pass quote-repair allowance remains 1/1 even when its one combined
+    call contains both repair modes. The separate reader general-repair allowance remains unchanged.
 11. Five omission retries and one per chunk remain frozen.
 12. The answer-key fixture may appear in verifier/eval code only, never runtime reader logic.
 13. Merge and apply remain false. Do not enable them even if the score passes; later R2 gates own
     that action.
 14. Keep the quote-repair path candidate-bound.
 15. Inventory preservation does not mean incomplete records become authoritative. They are audit
-    and repair inputs only.
+    and repair inputs only, persist only in `validationJson`, and never enter `elementsJson`.
 16. Map status must honestly show degradation when incomplete inventory remains.
 17. Trigger CLI deploy requires the PAT from 1Password. Do not put secrets in command text, files,
     process arguments, or logs.
@@ -1016,8 +1074,8 @@ and environments.
 
 **Yes.** Sections 3, 6, and 7 record the six-gate history, Batch E→F regression, quote-repair
 result, inventory collapse, why model choice is not the first experiment, and every rejected
-shortcut. Section 8 records the chosen two-layer architecture, single combined repair budget,
-generic destination expansion, and authority boundaries.
+shortcut. Section 8 records the chosen two-layer architecture, correct responsibility post-pass
+repair budget, generic destination expansion, and authority boundaries.
 
 ### 3. Is the ultimate goal clear enough for a correct judgment call if a step is wrong?
 
@@ -1038,5 +1096,6 @@ Section 13 gives objective success, rollback, risk, and score-decision rules.
 - [x] Important paths, URLs, IDs, SHAs, and services are defined.
 - [x] Secrets are referenced by location only.
 - [x] Definition of done includes commit, push, CI, worker deploy, production gate, and docs.
+- [x] GLM 5.2's two major findings and six smaller findings are resolved in the plan.
 
-**Self-audit result: PASS.**
+**Self-audit result after GLM 5.2 review: PASS.**
