@@ -1,7 +1,7 @@
 # Macro-First Implementation Plan — Canonical Plan of Record
 
 Status: **CANONICAL. R0, R0.1, and R1 are complete and production-verified.
-R2 Batch C shipped, but its third production recall gate failed at 19/30 (63.3%).**
+R2 Batch D shipped, but its fourth production recall gate failed at 19/30 (63.3%).**
 
 Created: 2026-07-21
 Last reviewed: 2026-07-28
@@ -17,7 +17,7 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
 | R0.1 | ✅ done, 2026-07-27 | Commit `da1ad5a`; CI `30271360677`; worker `20260727.3` (`75jeiusj`, 24 tasks); forced run `run_06fqbf50qn8kvq69h6u3dg7601` produced map `54cfec32-b428-490f-9e21-ab79c8f3add4` with 1 exact root drop, 5 cascades, 1 repair attempt, and no admitted fuzzy quote |
 | R1 | ✅ done, 2026-07-27 | Commits `5f962b5` + `24bbf70`; CI `30269886119` attempt 2 green including empty-DB migration, transactional R1 verifier, and drift; production migration succeeded; drift 11/11; Vercel `24bbf70` deployed with HTTP 200; worker `20260727.2` (`h6ri0rb9`, 24 tasks) |
-| R2 | 🟥 blocked, 2026-07-28 | Batch C shipped in `f31f66a`; third live map `df81b823-70d2-46fa-b15c-8215de53a1cc` scored 19/30 (63.3%); Batch D is implemented and verified locally only, with no new live result; merge/apply remain forbidden and all durable business-model tables remain zero |
+| R2 | 🟥 blocked, 2026-07-28 | Batch D shipped in `d5df5b6`; fourth live map `6e4da423-f73c-4891-9b5a-9e046bd79823` again scored 19/30 (63.3%); reviewed Batch E direction is deterministic duty-span completeness, orphan/`no_source_read` repair, durable selected-span audit, and grounded quote repair; frozen controls remain unchanged |
 | R3 | ⬜ open | Blocked on R2 |
 | R4 | ⬜ open | Blocked on R3 |
 | R5 | ⬜ open | Blocked on R4 |
@@ -27,9 +27,9 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R9 | ⬜ open | Blocked on R8 |
 | R10 | ⬜ open | Blocked on R9 |
 
-Fresh-session starting point: review the local Batch D implementation recorded in
-`evals/r2-responsibilities.md`, then release it normally and rerun the fresh pinned 90% gate only
-after approval. Merge and apply remain forbidden until that gate passes. R0, R0.1, and R1 are green.
+Fresh-session starting point: design Batch E from the completed Grok review recorded in
+`HANDOFF.md` and the fourth-gate evidence in `evals/r2-responsibilities.md`. Merge and apply remain
+forbidden until a fresh pinned gate reaches 90%. R0, R0.1, and R1 are green.
 
 This is the single forward implementation plan for completing the Oracle's macro-first
 redesign. It reconciles the original process-centric redesign with the later shape-aware
@@ -1273,15 +1273,19 @@ R0, R0.1, and R1 are complete, CI-green, deployed, and production-verified. Thei
 is recorded in the status table and eval logs. The R0.1 production gate passed with 1 exact root
 drop, 5 cascades, 1 repair attempt, and no admitted fuzzy document quote.
 
-Batch C shipped in commit `f31f66a`, but the third pinned production gate scored only 19/30
-(63.3%). Its map kept 138 responsibilities, dropped 9 strict quote mismatches, found 28 uncovered
-spans, used two omission retries, and rejected one quote repair that made no strict improvement.
-Batch D is implemented and verified locally against the honest misses in
-`evals/r2-responsibilities.md`; it has no live result yet. The immediate next action is independent
-review, followed by the normal release path and one fresh pinned gate only after approval. Require
-at least 90% before enabling shadow merge or starting bake-off, proposal, reread, near-match,
-namespace-collision, or UI gates. Merge and apply remain forbidden. Do not repeat R0/R0.1 work or
-the completed R1 audit/schema stage.
+Batch D shipped in commit `d5df5b6`, but the fourth pinned production gate again scored only 19/30
+(63.3%). Its map kept 190 responsibilities, dropped five strict quote mismatches, moved the
+omission audit only from 92 to 89 uncovered spans after four retries, and rejected one grounded
+quote repair that made no strict improvement.
+
+Batch E is next after the completed independent review. Its bounded direction is deterministic
+duty-span completeness, repair of the orphan/`no_source_read` retry path, durable selected-span
+audit evidence, and grounded quote repair. The answer key, `field-aware-v3` scorer, 90% threshold,
+strict quote validator, reader budgets, merge/apply flags, and zero durable-write requirement stay
+frozen. Do not implement or release Batch E without the normal review gates. Require at least 90%
+on a fresh pinned run before enabling shadow merge or starting bake-off, proposal, reread,
+near-match, namespace-collision, or UI gates. Merge and apply remain forbidden. Do not repeat
+R0/R0.1 work or the completed R1 audit/schema stage.
 
 ---
 
