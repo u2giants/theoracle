@@ -1,7 +1,8 @@
 # Macro-First Implementation Plan — Canonical Plan of Record
 
 Status: **CANONICAL. R0, R0.1, and R1 are complete and production-verified.
-R2 is paused for an owner decision after Batch F's sixth gate regressed to 14/30 (46.7%).
+R2 deeper-architecture planning is complete after Batch F's sixth gate regressed to 14/30 (46.7%);
+implementation has not started.
 R3 through R10 are blocked.**
 
 Created: 2026-07-21
@@ -18,7 +19,7 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
 | R0.1 | ✅ done, 2026-07-27 | Commit `da1ad5a`; CI `30271360677`; worker `20260727.3` (`75jeiusj`, 24 tasks); forced run `run_06fqbf50qn8kvq69h6u3dg7601` produced map `54cfec32-b428-490f-9e21-ab79c8f3add4` with 1 exact root drop, 5 cascades, 1 repair attempt, and no admitted fuzzy quote |
 | R1 | ✅ done, 2026-07-27 | Commits `5f962b5` + `24bbf70`; CI `30269886119` attempt 2 green including empty-DB migration, transactional R1 verifier, and drift; production migration succeeded; drift 11/11; Vercel `24bbf70` deployed with HTTP 200; worker `20260727.2` (`h6ri0rb9`, 24 tasks) |
-| R2 | ⏸ paused for owner, 2026-07-28 | Batch F commit `08c2631`; CI `30385119532`; worker `20260728.5` / `f7trr764`; sixth map `85fc772b-92c3-4101-8b2a-288ba9ad6d4a` scored 14/30 (46.7%); the `<=23` hard stop binds; Albert must choose bounded bake-off or deeper architecture; Grok recommends architecture |
+| R2 | 🟨 deeper-reader plan ready, 2026-07-28 | Batch F commit `08c2631`; sixth map `85fc772b-92c3-4101-8b2a-288ba9ad6d4a` scored 14/30; Albert selected deeper-architecture planning; implementation starts at P0 in `plan_r2_deeper_responsibility_architecture.md` |
 | R3 | ⬜ open | Blocked on R2 |
 | R4 | ⬜ open | Blocked on R3 |
 | R5 | ⬜ open | Blocked on R4 |
@@ -28,10 +29,10 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R9 | ⬜ open | Blocked on R8 |
 | R10 | ⬜ open | Blocked on R9 |
 
-Fresh-session starting point: stop and ask Albert to choose Option A or Option B from `HANDOFF.md`.
-No Batch G or implementation is authorized. Grok recommends Option B, deeper architecture, but
-that is decision support only. Merge and apply remain forbidden. R0, R0.1, and R1 are green; R3
-through R10 remain blocked on R2.
+Fresh-session starting point: stop before code until Albert separately asks to implement
+`plan_r2_deeper_responsibility_architecture.md`. Then read its STATUS table and begin P0. The plan
+preserves the binding hard-stop controls and forbids Batch G prompt polish. Merge and apply remain
+forbidden. R0, R0.1, and R1 are green; R3 through R10 remain blocked on R2.
 
 This is the single forward implementation plan for completing the Oracle's macro-first
 redesign. It reconciles the original process-centric redesign with the later shape-aware
@@ -1284,7 +1285,9 @@ Batch F shipped in commit `08c2631`, CI `30385119532`, and worker `20260728.5` d
 `5,7,8,9,10,13,25` were lost and only row `19` was gained. Quote roots improved `10 -> 4`, so
 the failure is inventory loss under drop-as-enforcement, not quote repair.
 
-The locked `<=23` rule now binds. R2 is paused. Albert must choose exactly one option:
+The locked `<=23` rule now binds. Albert selected the recommended deeper-architecture planning
+path on 2026-07-28. The standalone implementation specification is
+`plan_r2_deeper_responsibility_architecture.md`; all steps are still open.
 
 - **Option A:** bounded model bake-off on frozen Batch F. Run one isolated eligible model at a
   time, two gates each, and restore settings. Mean `>=27` may proceed; `24–26` requires
@@ -1297,9 +1300,10 @@ The locked `<=23` rule now binds. R2 is paused. Albert must choose exactly one o
   another owner decision.
 
 No Batch G, model change, prompt-only completeness work, scorer/key/budget weakening,
-fixture-specific code, answer-key leakage, shadow merge, apply, R3 work, or implementation of
-either option is authorized. Full identifiers, safety evidence, the complete Option B brief, and
-the 30-row score are in `HANDOFF.md` and `evals/r2-responsibilities.md`.
+fixture-specific code, answer-key leakage, shadow merge, apply, or R3 work is authorized. Execute
+the selected deeper path only through `plan_r2_deeper_responsibility_architecture.md`. Full
+identifiers, safety evidence, and the 30-row score are in `HANDOFF.md` and
+`evals/r2-responsibilities.md`.
 
 ---
 

@@ -7,7 +7,8 @@ HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed 
 
 ## Latest closeout — 2026-07-28
 
-R2 is **paused for an owner decision**. Batch F shipped in commit `08c2631`, passed GitHub Actions
+R2 is **paused before implementation of the selected deeper-architecture plan**. Batch F shipped
+in commit `08c2631`, passed GitHub Actions
 run `30385119532`, and ran in Trigger worker `20260728.5`, deployment `f7trr764`. Its sixth and
 only fresh pinned production gate used fixture SHA-256
 `398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be`, Trigger run
@@ -43,7 +44,10 @@ stayed false, post-pass limits stayed 1/5/1, and `business_objects`,
 Grok 4.5's final-text review in
 `.ai/reviews/grok-4.5-r2-batch-f-hard-stop-review.json` recommends **Option B, deeper
 architecture**, because Batch F's stricter field checks drop incomplete records without a field
-repair path. That recommendation is decision support only. **OWNER APPROVAL REQUIRED.**
+repair path. Albert selected the deeper-architecture planning direction on 2026-07-28 by requesting
+the complete implementation plan. The standalone build specification is
+`plan_r2_deeper_responsibility_architecture.md`; read its STATUS table first. Planning is complete,
+but implementation has not started and was not part of the planning request.
 
 The only allowed owner choices are:
 
@@ -53,7 +57,8 @@ The only allowed owner choices are:
    candidate, and compare mean score plus drops, repair, cost, and truncation. Mean `>=27` may seat
    the winner and resume later R2 gates; `24–26` stops seating games and requires architecture;
    `<=23` fails Option A and requires architecture with no second bake-off.
-2. **Option B, recommended deeper architecture.** After explicit owner approval, split inventory
+2. **Option B, recommended deeper architecture.** If Albert separately asks to implement the
+   completed plan, split inventory
    discovery from field completion; add one bounded field-completion repair that may only correct
    role/action/object/trigger/system from the selected source span; deterministically emit one RAO
    per explicit destination; make span splitting and multi-verb rejection consistent; persist drop
@@ -310,10 +315,13 @@ table counts stayed zero. Batch E and all earlier gates remain recorded below as
 
 ## Exact next steps
 
-1. Stop. Do not implement Batch G, Option A, Option B, shadow merge, or R3 work.
-2. Ask Albert to approve exactly one choice: Option A bounded model bake-off, or recommended
-   Option B deeper architecture.
-3. After approval, follow that option's exact brief and stop rules in the latest closeout.
+1. Stop before code. The planning request is complete, but implementation was not requested.
+2. When Albert separately asks to implement the plan, start at P0 in
+   `plan_r2_deeper_responsibility_architecture.md`; re-read the whole plan, this handoff, and the
+   R2 eval before editing.
+3. Follow the plan's inventory-preservation, combined-repair, multi-destination, safety, review,
+   release, and one-gate sequence exactly. Keep the frozen scorer, fixture, budgets, flags, and
+   stop rules unchanged.
 4. Only after recall reaches at least 27/30, enable shadow merge and prove real shadow create, same-map idempotency, sequential confirm, near-match review, bounded
    refine, namespace collision, and desktop/narrow read-only UI.
 5. Use the existing R0.1 production map as the release baseline; do not weaken exact quote
@@ -340,9 +348,10 @@ never print or persist the value. Trigger project is `proj_wgpzsvhmsopqhvwqaycn`
 ## Open questions and risks
 
 No R0, R0.1, or R1 release blocker remains. R2 has six live fixture gates. Batch E remains the best
-at 20/30; Batch F regressed to 14/30 and bound the hard stop. Albert has not approved Option A or
-Option B. Grok recommends Option B, but no implementation is authorized. Shadow proposals, merge,
-apply, visual proof, and R3 through R10 remain blocked until R2 reaches at least 27/30.
+at 20/30; Batch F regressed to 14/30 and bound the hard stop. Albert selected the recommended
+deeper-architecture planning path. Its implementation is still open at P0 in
+`plan_r2_deeper_responsibility_architecture.md`. Shadow proposals, merge, apply, visual proof, and
+R3 through R10 remain blocked until R2 reaches at least 27/30.
 
 ## HANDOFF self-audit — 2026-07-28
 
