@@ -72,11 +72,13 @@ import {
   buildResponsibilitySelectedSpanAudit,
   buildGroundedResponsibilityQuoteCandidates,
   buildResponsibilityBaseReadPlan,
+  bindForcedResponsibilitySpans,
+  canonicalizeForcedResponsibilityOutput,
+  finalizeForcedResponsibilityAudits,
   mergeResponsibilityValidationResults,
   mergeResponsibilityRetryValidation,
   patchResponsibilityQuoteRepairs,
   prefixResponsibilityOutput,
-  prefixResponsibilityRetryOutput,
   assertUniqueResponsibilityElementIds,
   responsibilityParentSegment,
   responsibilityRawAuditArtifact,
@@ -86,6 +88,7 @@ import {
   validateResponsibilityRead,
   validateGroundedResponsibilityQuoteSelections,
   type GroundedResponsibilityQuoteCandidate,
+  type ForcedResponsibilitySpan,
 } from './responsibility-reader';
 import {
   mapWithConcurrency,
@@ -1113,7 +1116,7 @@ export function responsibilityReadPromptVersion(quoteRepair: boolean): string {
 }
 
 export function buildResponsibilityRequestContent(args: {
-  focusedSpans?: string[];
+  focusedSpans?: ForcedResponsibilitySpan[];
   quoteRepairRecords?: ResponsibilityReadOutput['responsibilities'];
   quoteRepairCandidates?: Array<{
     responsibilityId: string;
@@ -1136,7 +1139,22 @@ export function buildResponsibilityRequestContent(args: {
   }
   return [
     args.focusedSpans?.length
-      ? `Focused omission retry. Extract duties only from these source spans:\n${args.focusedSpans.join('\n---\n')}`
+      ? [
+          'Focused omission retry. Each JSON item is one isolated source span.',
+          'Return exactly one record per item using its forcedResponsibilityId and chunkId.',
+          'Copy evidenceQuote exactly. Use semanticSourceSpan only for owner/action/object fields.',
+          'Never copy or quote semanticSourceSpan. Do not use facts outside that item.',
+          JSON.stringify(args.focusedSpans.map((span) => ({
+            forcedResponsibilityId: span.forcedResponsibilityId,
+            chunkId: span.chunkId,
+            spanIndex: span.spanIndex,
+            sourceSpanSha256: span.sourceSpanSha256,
+            semanticSourceSpan: span.sourceSpan,
+            evidenceQuote: span.evidenceQuote,
+            sourceStart: span.sourceStart,
+            sourceEnd: span.sourceEnd,
+          }))),
+        ].join('\n')
       : 'Extract every distinct responsibility record from this segment.',
     'Use the exact source-owner role label and one short action verb phrase per record.',
     'Use the nearest explicit owner in the same span or active list heading. Never substitute a nearby owner.',
@@ -1149,6 +1167,20 @@ export function buildResponsibilityRequestContent(args: {
   ].join(' ');
 }
 
+export function buildFocusedResponsibilityEvidenceChunks<T extends {
+  id: string;
+  rawText: string;
+}>(chunks: readonly T[], focusedSpans: readonly ForcedResponsibilitySpan[]): T[] {
+  return chunks.map((chunk) => ({
+    ...chunk,
+    rawText: focusedSpans
+      .filter((span) => span.chunkId === chunk.id)
+      .sort((a, b) => a.spanIndex - b.spanIndex)
+      .map((span) => span.evidenceQuote)
+      .join('\n'),
+  }));
+}
+
 async function runResponsibilityReadModel(args: {
   db: OracleDb;
   client: OracleAIClient;
@@ -1158,7 +1190,7 @@ async function runResponsibilityReadModel(args: {
   mapId: string;
   segment: SourceStructureSegment;
   budget: SourceReaderBudget;
-  focusedSpans?: string[];
+  focusedSpans?: ForcedResponsibilitySpan[];
   quoteRepairRecords?: ResponsibilityReadOutput['responsibilities'];
   quoteRepairCandidates?: Array<{
     responsibilityId: string;
@@ -1174,6 +1206,7 @@ async function runResponsibilityReadModel(args: {
   modelRunId: string;
   contextPackId: string;
   execution: { outputTokens: number | null; finishReason: string | null; truncated: boolean };
+  forcedSpanAudits: ReturnType<typeof canonicalizeForcedResponsibilityOutput>['audits'];
 }> {
   const quoteRepairMode = Boolean(args.quoteRepairRecords?.length);
   const responsibilityTaskType = responsibilityReadTaskType(quoteRepairMode);
@@ -1183,6 +1216,9 @@ async function runResponsibilityReadModel(args: {
     console.warn('[source-workflow-read] skipped responsibility route candidate', skipped);
   }
   const route = resolved.candidates[0]!.route;
+  const evidenceChunks = args.focusedSpans?.length
+    ? buildFocusedResponsibilityEvidenceChunks(args.chunks, args.focusedSpans)
+    : args.chunks;
   const blocks = [
     makeBlock({
       id: 'responsibility-read-system',
@@ -1202,8 +1238,12 @@ async function runResponsibilityReadModel(args: {
       content: [
         `Document: ${args.doc.fileName}`,
         `Segment: ${args.segment.segmentId} | ${args.segment.title}`,
-        args.segment.summary ? `Non-quotable segment summary: ${args.segment.summary}` : null,
-        args.doc.context ? `Uploader context: ${args.doc.context}` : null,
+        !args.focusedSpans?.length && args.segment.summary
+          ? `Non-quotable segment summary: ${args.segment.summary}`
+          : null,
+        !args.focusedSpans?.length && args.doc.context
+          ? `Uploader context: ${args.doc.context}`
+          : null,
         `Source map row: ${args.mapId}`,
       ]
         .filter(Boolean)
@@ -1214,7 +1254,7 @@ async function runResponsibilityReadModel(args: {
       id: 'responsibility-chunks',
       label: 'Document chunks',
       kind: 'retrieved_context',
-      content: buildDocumentCorpus(args.chunks),
+      content: buildDocumentCorpus(evidenceChunks),
       reasonIncluded: 'only valid evidence source for this responsibility segment',
     }),
     makeBlock({
@@ -1334,7 +1374,7 @@ async function runResponsibilityReadModel(args: {
       );
     }
   }
-  const output: ResponsibilityReadOutput = args.quoteRepairRecords?.length
+  let output: ResponsibilityReadOutput = args.quoteRepairRecords?.length
     ? {
         summary: 'Quote-only responsibility repairs.',
         responsibilities: (result.object as ResponsibilityQuoteRepairOutput).repairs.flatMap(
@@ -1349,6 +1389,13 @@ async function runResponsibilityReadModel(args: {
         ),
       }
     : (result.object as ResponsibilityReadOutput);
+  const forcedResult = args.focusedSpans?.length
+    ? canonicalizeForcedResponsibilityOutput({
+        output,
+        selected: args.focusedSpans,
+      })
+    : null;
+  if (forcedResult) output = forcedResult.output;
   const rawUsage = result.usage.rawUsageJson as Record<string, unknown> | null | undefined;
   const finishReason =
     typeof rawUsage?.finishReason === 'string'
@@ -1365,6 +1412,7 @@ async function runResponsibilityReadModel(args: {
       finishReason,
       truncated: finishReason ? /length|max[_ -]?tokens|trunc/i.test(finishReason) : false,
     },
+    forcedSpanAudits: forcedResult?.audits ?? [],
   };
 }
 
@@ -2144,6 +2192,7 @@ export async function generateSourceWorkflowMap(args: {
       skipped: string | null;
       preOmissionCount: number;
       postOmissionCount: number;
+      fieldAudits: ReturnType<typeof canonicalizeForcedResponsibilityOutput>['audits'];
     }> = [];
     const sourceMetadataForChunk = (chunkId: string) => {
       const segments = segmentation.segments.filter((segment) => segment.chunkIds.includes(chunkId));
@@ -2152,7 +2201,6 @@ export async function generateSourceWorkflowMap(args: {
         sourceSegmentIds: segments.map((segment) => segment.segmentId),
       };
     };
-    const omissionRetryAttemptsByShard = new Map<string, number>();
     const omissionRetryScheduler = new ResponsibilityOmissionRetryScheduler();
     while (true) {
       const currentOmissions = auditResponsibilityOmissions();
@@ -2166,6 +2214,39 @@ export async function generateSourceWorkflowMap(args: {
       if (decision.kind === 'done') break;
       const { chunkId } = decision;
       const focusedOmissions = decision.omissions;
+      let forcedSpans: ForcedResponsibilitySpan[];
+      try {
+        forcedSpans = bindForcedResponsibilitySpans(
+          [...focusedOmissions].sort((a, b) => a.spanIndex - b.spanIndex),
+        );
+      } catch {
+        omissionRetries.push({
+          chunkId,
+          selectedSpanCount: focusedOmissions.length,
+          selectedSpans: buildResponsibilitySelectedSpanAudit({
+            selected: focusedOmissions,
+            finalOmissions: currentOmissions,
+            preRecordCount: responsibilityReads.reduce(
+              (sum, read) => sum + read.validation.elements.length,
+              0,
+            ),
+            postRecordCount: responsibilityReads.reduce(
+              (sum, read) => sum + read.validation.elements.length,
+              0,
+            ),
+            skipped: 'raw_source_binding_failed',
+            ...sourceMetadataForChunk(chunkId),
+            inResponsibilityBaseRead: true,
+          }),
+          acceptedCount: 0,
+          skipped: 'raw_source_binding_failed',
+          preOmissionCount: currentOmissions.length,
+          postOmissionCount: currentOmissions.length,
+          fieldAudits: [],
+        });
+        omissionRetryScheduler.recordAttempt(chunkId, 'retry_failed');
+        continue;
+      }
       const sourceRead = responsibilityReads.find((read) => read.segment.chunkIds.includes(chunkId));
       const chunk = chunkById.get(chunkId);
       if (decision.kind === 'no_source_read' || !sourceRead || !chunk) {
@@ -2174,7 +2255,7 @@ export async function generateSourceWorkflowMap(args: {
           chunkId,
           selectedSpanCount: focusedOmissions.length,
           selectedSpans: buildResponsibilitySelectedSpanAudit({
-            selected: focusedOmissions,
+            selected: forcedSpans,
             finalOmissions: currentOmissions,
             preRecordCount: responsibilityReads.reduce(
               (sum, read) => sum + read.validation.elements.length,
@@ -2192,6 +2273,7 @@ export async function generateSourceWorkflowMap(args: {
           skipped: 'no_source_read',
           preOmissionCount: decision.preOmissionCount,
           postOmissionCount: decision.preOmissionCount,
+          fieldAudits: [],
         });
         omissionRetryScheduler.recordAttempt(chunkId, 'retry_failed');
         continue;
@@ -2204,9 +2286,6 @@ export async function generateSourceWorkflowMap(args: {
         if (shardIndex < 0) {
           throw new Error(`Responsibility retry shard is not registered: ${sourceRead.segment.segmentId}`);
         }
-        const retryAttempt =
-          (omissionRetryAttemptsByShard.get(sourceRead.segment.segmentId) ?? 0) + 1;
-        omissionRetryAttemptsByShard.set(sourceRead.segment.segmentId, retryAttempt);
         const retryModel = await runResponsibilityReadModel({
           db,
           client,
@@ -2216,15 +2295,8 @@ export async function generateSourceWorkflowMap(args: {
           mapId: pending.mapId,
           segment: sourceRead.segment,
           budget: readerBudget,
-          focusedSpans: [...focusedOmissions]
-            .sort((a, b) => a.spanIndex - b.spanIndex)
-            .map((item) => item.sourceSpan),
+          focusedSpans: forcedSpans,
         });
-        retryModel.output = prefixResponsibilityRetryOutput(
-          retryModel.output,
-          shardIndex,
-          retryAttempt,
-        );
         const retryValidation = validateResponsibilityRead({
           output: retryModel.output,
           documentId: args.documentId,
@@ -2238,6 +2310,15 @@ export async function generateSourceWorkflowMap(args: {
           sourceRead.validation,
           retryValidation,
         );
+        const finalFieldAudits = finalizeForcedResponsibilityAudits({
+          audits: retryModel.forcedSpanAudits,
+          selected: forcedSpans,
+          durableAcceptedElementIds: new Set(mergedRetry.acceptedElementIds),
+          validation: retryValidation,
+          chunks: [{ id: chunk.id, documentId: args.documentId, rawText: chunk.rawText }],
+          fileType: doc.fileType,
+          fileName: doc.fileName,
+        });
         sourceRead.model.output = {
           ...sourceRead.model.output,
           responsibilities: [
@@ -2262,18 +2343,20 @@ export async function generateSourceWorkflowMap(args: {
           chunkId,
           selectedSpanCount: focusedOmissions.length,
           selectedSpans: buildResponsibilitySelectedSpanAudit({
-            selected: focusedOmissions,
+            selected: forcedSpans,
             finalOmissions: postOmissions,
             preRecordCount,
             postRecordCount,
             skipped,
             ...sourceMetadataForChunk(chunkId),
             inResponsibilityBaseRead: true,
+            fieldAudits: finalFieldAudits,
           }),
           acceptedCount: mergedRetry.acceptedCount,
           skipped,
           preOmissionCount: currentOmissions.length,
           postOmissionCount: postOmissions.length,
+          fieldAudits: finalFieldAudits,
         });
         omissionRetryScheduler.recordAttempt(
           chunkId,
@@ -2287,7 +2370,7 @@ export async function generateSourceWorkflowMap(args: {
           chunkId,
           selectedSpanCount: focusedOmissions.length,
           selectedSpans: buildResponsibilitySelectedSpanAudit({
-            selected: focusedOmissions,
+            selected: forcedSpans,
             finalOmissions: currentOmissions,
             preRecordCount: responsibilityReads.reduce(
               (sum, read) => sum + read.validation.elements.length,
@@ -2305,6 +2388,7 @@ export async function generateSourceWorkflowMap(args: {
           skipped: budgetExhausted ? 'budget_exhausted' : 'retry_failed',
           preOmissionCount: currentOmissions.length,
           postOmissionCount: currentOmissions.length,
+          fieldAudits: [],
         });
         omissionRetryScheduler.recordAttempt(
           chunkId,

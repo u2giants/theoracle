@@ -26,6 +26,10 @@ export type ResponsibilityOmission = {
   chunkId: string;
   spanIndex: number;
   sourceSpan: string;
+  evidenceQuote?: string;
+  sourceStart?: number;
+  sourceEnd?: number;
+  sourceLocationFailure?: string;
   listStructured?: boolean;
 };
 
@@ -43,6 +47,22 @@ export type RankedResponsibilityOmission = ResponsibilityOmission & {
   rankIndex: number;
   rankFeatures: ResponsibilitySpanRankFeatures;
   sourceSpanSha256: string;
+};
+
+export type ForcedResponsibilitySpan = RankedResponsibilityOmission & {
+  forcedResponsibilityId: string;
+  evidenceQuote: string;
+  sourceStart: number;
+  sourceEnd: number;
+};
+
+export type ResponsibilityFieldFidelityResult = {
+  passed: boolean;
+  reasons: string[];
+  sourceDutyVerbs: string[];
+  returnedActionVerbs: string[];
+  polarityFailure: boolean;
+  multiVerbReject: boolean;
 };
 
 export type GroundedResponsibilityQuoteCandidate = {
@@ -63,7 +83,7 @@ const MODAL_OR_DIRECT_OWNER_PATTERN = new RegExp(
   'i',
 );
 const DUTY_SPLIT_PATTERN = new RegExp(
-  `\\s+(?:&|and then|and(?=\\s+(?:${DUTY_VERBS})(?:s|es|ed|ing)?\\b))\\s+`,
+  `(?:\\s+(?:&|and then|then|and)\\s+|\\s*[,;]\\s*)(?=(?:${DUTY_VERBS})(?:s|es|d|ed|ing)?\\b)`,
   'i',
 );
 const FIELD_STOP_WORDS = new Set([
@@ -72,6 +92,8 @@ const FIELD_STOP_WORDS = new Set([
   'that', 'the', 'their', 'them', 'then', 'this', 'to', 'up', 'will', 'with',
 ]);
 const ACTION_PARTICLES = new Set(['ahead', 'away', 'back', 'down', 'forward', 'off', 'on', 'out', 'over', 'through', 'up']);
+const OUTBOUND_DUTY_VERBS = new Set(['provide', 'send', 'submit', 'email', 'upload', 'publish', 'inform', 'report']);
+const INBOUND_DUTY_VERBS = new Set(['receive', 'get', 'obtain', 'download']);
 
 function fieldTokens(value: string): string[] {
   return value
@@ -88,19 +110,118 @@ function stemDutyVerb(value: string): string {
   const normalized = value.toLowerCase();
   return (
     DUTY_VERBS.split('|').find((base) =>
-      new RegExp(`^${base}(?:s|es|d|ed|ing)?$`, 'i').test(normalized),
+      [
+        base,
+        `${base}s`,
+        `${base}es`,
+        `${base}d`,
+        `${base}ed`,
+        `${base}ing`,
+        ...(base.endsWith('e') ? [`${base.slice(0, -1)}ing`] : []),
+      ].includes(normalized),
     ) ?? normalized
   );
 }
 
-function fieldAwareSpanCovered(
+function dutyVerbsInText(value: string): string[] {
+  const dutyVerbs = new Set(DUTY_VERBS.split('|'));
+  return value
+    .normalize('NFKD')
+    .toLowerCase()
+    .match(/[a-z]+/g)
+    ?.map(stemDutyVerb)
+    .filter((token) => dutyVerbs.has(token)) ?? [];
+}
+
+function dutyVerbsInSourceSpan(value: string): string[] {
+  const first = sourceDutyVerbMatch(value);
+  if (!first) return [];
+  const verbs = [stemDutyVerb(first.text)];
+  const continuationPattern = new RegExp(
+    `(?:\\b(?:and|then)\\b|[;&,])\\s+((?:${DUTY_VERBS})(?:s|es|d|ed|ing)?)\\b`,
+    'gi',
+  );
+  for (const match of value.slice(first.index + first.text.length).matchAll(continuationPattern)) {
+    if (match[1]) verbs.push(stemDutyVerb(match[1]));
+  }
+  return verbs;
+}
+
+function fidelityTokens(value: string): string[] {
+  const rawTokens = value
+    .normalize('NFKD')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .match(/[a-z0-9]+/g) ?? [];
+  const markerLabels = new Set(['form', 'id', 'route', 'type']);
+  return rawTokens
+    .filter((token, index) =>
+      !FIELD_STOP_WORDS.has(token) ||
+      (token.length === 1 && markerLabels.has(rawTokens[index - 1] ?? '')),
+    )
+    .map((token) => {
+      const dutyStem = stemDutyVerb(token);
+      if (dutyStem !== token) return dutyStem;
+      if (token.length > 3 && /ies$/.test(token)) return `${token.slice(0, -3)}y`;
+      if (
+        token.length > 3 &&
+        /s$/.test(token) &&
+        !/(?:ss|us|is|status)$/.test(token)
+      ) {
+        return token.slice(0, -1);
+      }
+      return token;
+    });
+}
+
+function sourceDutyVerbMatch(sourceSpan: string): { text: string; index: number } | null {
+  const bracketPrefix = sourceSpan.match(/^\s*\[[^\]]{2,80}\]\s*/)?.[0] ?? '';
+  const body = sourceSpan.slice(bracketPrefix.length);
+  const firstWord = body.match(/^[A-Za-z]+/)?.[0] ?? '';
+  const ambiguousOwnerWord =
+    /s$/i.test(firstWord) &&
+    DUTY_VERBS.split('|').includes(stemDutyVerb(firstWord));
+  const ownerLed =
+    bracketPrefix || (DUTY_VERB_START_PATTERN.test(body) && !ambiguousOwnerWord)
+      ? undefined
+      : body.match(MODAL_OR_DIRECT_OWNER_PATTERN)?.[0];
+  const searchText = ownerLed ?? body;
+  const matches = [...searchText.matchAll(new RegExp(DUTY_VERB_PATTERN.source, 'gi'))];
+  const selected = ownerLed ? matches.at(-1) : matches[0];
+  return selected?.index === undefined
+    ? null
+    : {
+        text: selected[0],
+        index: bracketPrefix.length + selected.index,
+      };
+}
+
+function sourceObjectText(sourceSpan: string): string {
+  const verbMatch = sourceDutyVerbMatch(sourceSpan);
+  return !verbMatch
+    ? ''
+    : sourceSpan.slice(verbMatch.index + verbMatch.text.length);
+}
+
+export function validateResponsibilityFieldFidelity(
   sourceSpan: string,
-  element: SourceStructureElement,
-): boolean {
-  const verbMatch = sourceSpan.match(DUTY_VERB_PATTERN);
-  if (!verbMatch || verbMatch.index === undefined) return false;
+  element: Pick<SourceStructureElement, 'role' | 'action' | 'object'>,
+): ResponsibilityFieldFidelityResult {
+  const reasons: string[] = [];
+  const verbMatch = sourceDutyVerbMatch(sourceSpan);
+  const sourceDutyVerbs = dutyVerbsInSourceSpan(sourceSpan);
+  const returnedActionVerbs = dutyVerbsInText(element.action ?? '');
+  if (!verbMatch || sourceDutyVerbs.length === 0) {
+    return {
+      passed: false,
+      reasons: ['source_has_no_duty_verb'],
+      sourceDutyVerbs,
+      returnedActionVerbs,
+      polarityFailure: false,
+      multiVerbReject: false,
+    };
+  }
   const beforeVerb = sourceSpan.slice(0, verbMatch.index);
-  const afterVerb = sourceSpan.slice(verbMatch.index + verbMatch[0].length);
   const bracketOwner = sourceSpan.match(/^\s*\[([^\]]{2,80})\]/)?.[1] ?? null;
   const modalOwner =
     beforeVerb.match(/(?:^|[,;])\s*([A-Z][A-Za-z0-9 &/'-]{1,80}?)\s+(?:will|must|should|shall|may)\s*$/)?.[1] ??
@@ -120,18 +241,49 @@ function fieldAwareSpanCovered(
     (expectedRole.length !== actualRole.size ||
       !expectedRole.every((token) => actualRole.has(token)))
   ) {
-    return false;
+    reasons.push('owner_mismatch');
   }
-  const expectedAction = stemDutyVerb(verbMatch[0]);
-  const actualActions = fieldTokens(element.action ?? '').map(stemDutyVerb);
-  if (!actualActions.includes(expectedAction)) return false;
-  const afterVerbTokens = fieldTokens(afterVerb);
+  const expectedAction = sourceDutyVerbs[0]!;
+  if (!returnedActionVerbs.includes(expectedAction)) reasons.push('action_family_mismatch');
+  const polarityFailure =
+    (OUTBOUND_DUTY_VERBS.has(expectedAction) &&
+      returnedActionVerbs.some((verb) => INBOUND_DUTY_VERBS.has(verb))) ||
+    (INBOUND_DUTY_VERBS.has(expectedAction) &&
+      returnedActionVerbs.some((verb) => OUTBOUND_DUTY_VERBS.has(verb)));
+  if (polarityFailure) reasons.push('polarity_reversal');
+  const afterVerbTokens = fidelityTokens(sourceObjectText(sourceSpan));
   while (afterVerbTokens.length > 0 && ACTION_PARTICLES.has(afterVerbTokens[0]!)) {
     afterVerbTokens.shift();
   }
   const expectedObject = [...new Set(afterVerbTokens)];
-  const actualObject = new Set(fieldTokens(element.object ?? ''));
-  return expectedObject.length > 0 && expectedObject.every((token) => actualObject.has(token));
+  const actualObjectTokens = fidelityTokens(element.object ?? '');
+  const actualObject = new Set(actualObjectTokens);
+  const sourceTokens = new Set(fidelityTokens(sourceSpan));
+  const missingObjectTokens = expectedObject.filter((token) => !actualObject.has(token));
+  if (missingObjectTokens.length > 0) {
+    reasons.push(`object_qualifier_loss:${missingObjectTokens.join(',')}`);
+  }
+  const inventedObjectTokens = [...new Set(actualObjectTokens.filter((token) => !sourceTokens.has(token)))];
+  if (inventedObjectTokens.length > 0) {
+    reasons.push(`invented_object_content:${inventedObjectTokens.join(',')}`);
+  }
+  const multiVerbReject = sourceDutyVerbs.length > 1;
+  if (multiVerbReject) reasons.push('unrepresented_multi_verb_duty');
+  return {
+    passed: reasons.length === 0,
+    reasons,
+    sourceDutyVerbs,
+    returnedActionVerbs,
+    polarityFailure,
+    multiVerbReject,
+  };
+}
+
+function fieldAwareSpanCovered(
+  sourceSpan: string,
+  element: SourceStructureElement,
+): boolean {
+  return validateResponsibilityFieldFidelity(sourceSpan, element).passed;
 }
 
 function dutyTextWithoutOwner(sourceSpan: string): string {
@@ -308,11 +460,71 @@ function logicalSourceSpans(rawText: string): string[] {
   return spans;
 }
 
+export function locateResponsibilityRawSlice(
+  rawText: string,
+  value: string,
+  searchStart = 0,
+): { evidenceQuote: string; sourceStart: number; sourceEnd: number } {
+  const exactStart = rawText.indexOf(value, searchStart);
+  if (exactStart >= 0) {
+    return {
+      evidenceQuote: rawText.slice(exactStart, exactStart + value.length),
+      sourceStart: exactStart,
+      sourceEnd: exactStart + value.length,
+    };
+  }
+  const pattern = value
+    .split(/\s+/)
+    .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('\\s+');
+  const match = new RegExp(pattern, 'm').exec(rawText.slice(searchStart));
+  if (match?.index === undefined) {
+    throw new Error(
+      `Responsibility duty span could not be bound to raw source at offset ${searchStart}: ${value.slice(0, 240)}`,
+    );
+  }
+  const sourceStart = searchStart + match.index;
+  return {
+    evidenceQuote: match[0],
+    sourceStart,
+    sourceEnd: sourceStart + match[0].length,
+  };
+}
+
 function sourceDutySpanDetails(rawText: string): Array<{
   sourceSpan: string;
+  evidenceQuote?: string;
+  sourceStart?: number;
+  sourceEnd?: number;
+  sourceLocationFailure?: string;
   listStructured: boolean;
 }> {
-  const output: Array<{ sourceSpan: string; listStructured: boolean }> = [];
+  const output: Array<{
+    sourceSpan: string;
+    evidenceQuote?: string;
+    sourceStart?: number;
+    sourceEnd?: number;
+    sourceLocationFailure?: string;
+    listStructured: boolean;
+  }> = [];
+  let rawSearchCursor = 0;
+  const locateRawSlice = (value: string): {
+    evidenceQuote?: string;
+    sourceStart?: number;
+    sourceEnd?: number;
+    sourceLocationFailure?: string;
+  } => {
+    try {
+      const located = locateResponsibilityRawSlice(rawText, value, rawSearchCursor);
+      rawSearchCursor = located.sourceEnd;
+      return located;
+    } catch (error) {
+      return {
+        sourceLocationFailure:
+          error instanceof Error ? error.message : 'Responsibility raw source binding failed.',
+      };
+    }
+  };
   let ownerHeading: string | null = null;
   for (const rawSpan of logicalSourceSpans(rawText)) {
     const trimmed = rawSpan.trim();
@@ -326,10 +538,18 @@ function sourceDutySpanDetails(rawText: string): Array<{
     const span = trimmed.replace(/^(?:[-*•]|\d+[.)])\s*/, '');
     const inlineOwner = /^\[[^\]]{2,80}\]\s+/.test(span);
     const proseOwner = MODAL_OR_DIRECT_OWNER_PATTERN.test(span);
-    for (const part of span.split(DUTY_SPLIT_PATTERN).map((item) => item.trim())) {
-      if (part.length < 12) continue;
+    const inlineOwnerLabel = span.match(/^\[([^\]]{2,80})\]/)?.[1]?.trim() ?? null;
+    const proseDuty = proseOwner ? sourceDutyVerbMatch(span) : null;
+    const proseOwnerLabel =
+      proseDuty && proseDuty.index > 0
+        ? span.slice(0, proseDuty.index).replace(/\b(?:will|must|should|shall|may)\s*$/i, '').trim()
+        : null;
+    const inheritedOwner = inlineOwnerLabel ?? proseOwnerLabel ?? ownerHeading;
+    for (const [partIndex, rawPart] of span.split(DUTY_SPLIT_PATTERN).entries()) {
+      const part = rawPart.trim();
       const narrative = /^(?:background|note|overview|purpose|this (?:section|review|document|summary))\b/i.test(part);
       const hasDutyVerb = DUTY_VERB_PATTERN.test(part);
+      if (part.length < 12 && !hasDutyVerb) continue;
       if (
         !narrative &&
         ((listLike && hasDutyVerb) ||
@@ -338,10 +558,15 @@ function sourceDutySpanDetails(rawText: string): Array<{
           (proseOwner && hasDutyVerb) ||
           (ownerHeading !== null && hasDutyVerb))
       ) {
+        const rawSlice = locateRawSlice(part);
         output.push({
-          sourceSpan: ownerHeading && !inlineOwner ? `[${ownerHeading}] ${part}` : part,
-          listStructured: listLike,
-        });
+            sourceSpan:
+              inheritedOwner && (partIndex > 0 || (!inlineOwner && ownerHeading))
+                ? `[${inheritedOwner}] ${part}`
+                : part,
+            ...rawSlice,
+            listStructured: listLike,
+          });
       }
     }
   }
@@ -371,6 +596,171 @@ export function responsibilitySpanRankFeatures(
 
 export function responsibilitySpanSha256(sourceSpan: string): string {
   return createHash('sha256').update(sourceSpan).digest('hex');
+}
+
+export function bindForcedResponsibilitySpans(
+  selected: readonly RankedResponsibilityOmission[],
+): ForcedResponsibilitySpan[] {
+  const seen = new Set<string>();
+  return selected.map((item) => {
+    if (
+      !item.evidenceQuote ||
+      item.sourceStart === undefined ||
+      item.sourceEnd === undefined ||
+      item.sourceStart < 0 ||
+      item.sourceEnd <= item.sourceStart
+    ) {
+      throw new Error(
+        `Forced responsibility span is missing a valid raw evidence binding: ${item.chunkId}:${item.spanIndex}`,
+      );
+    }
+    const identity = `${item.chunkId}:${item.spanIndex}:${item.sourceSpanSha256}`;
+    const hash = createHash('sha256').update(identity).digest('hex').slice(0, 20);
+    const forcedResponsibilityId = `forced_span_${String(item.spanIndex).padStart(4, '0')}_${hash}`;
+    if (seen.has(forcedResponsibilityId)) {
+      throw new Error(`Duplicate forced responsibility span ID: ${forcedResponsibilityId}`);
+    }
+    seen.add(forcedResponsibilityId);
+    return {
+      ...item,
+      evidenceQuote: item.evidenceQuote,
+      sourceStart: item.sourceStart,
+      sourceEnd: item.sourceEnd,
+      forcedResponsibilityId,
+    };
+  });
+}
+
+export function canonicalizeForcedResponsibilityOutput(args: {
+  output: ResponsibilityReadOutput;
+  selected: readonly ForcedResponsibilitySpan[];
+}): {
+  output: ResponsibilityReadOutput;
+  audits: Array<{
+    forcedResponsibilityId: string;
+    chunkId: string;
+    spanIndex: number;
+    sourceSpanSha256: string;
+    evidenceQuoteSha256: string;
+    sourceStart: number;
+    sourceEnd: number;
+    returnedRao: ResponsibilityReadOutput['responsibilities'][number] | null;
+    exactQuoteBinding: boolean;
+    fieldFidelity: ResponsibilityFieldFidelityResult;
+    accepted: boolean;
+    rejectionReasons: string[];
+  }>;
+} {
+  const byId = new Map<string, ResponsibilityReadOutput['responsibilities'][number][]>();
+  for (const record of args.output.responsibilities) {
+    const records = byId.get(record.responsibilityId) ?? [];
+    records.push(record);
+    byId.set(record.responsibilityId, records);
+  }
+  const accepted: ResponsibilityReadOutput['responsibilities'] = [];
+  const audits = args.selected.map((span) => {
+    const returned = byId.get(span.forcedResponsibilityId) ?? [];
+    const record = returned.length === 1 ? returned[0]! : null;
+    const canonical = record
+      ? {
+          ...record,
+          responsibilityId: span.forcedResponsibilityId,
+          chunkId: span.chunkId,
+          evidenceQuote: span.evidenceQuote,
+        }
+      : null;
+    const fieldFidelity = canonical
+      ? validateResponsibilityFieldFidelity(span.sourceSpan, canonical)
+      : {
+          passed: false,
+          reasons: ['missing_or_duplicate_span_record'],
+          sourceDutyVerbs: dutyVerbsInSourceSpan(span.sourceSpan),
+          returnedActionVerbs: [],
+          polarityFailure: false,
+          multiVerbReject: false,
+        };
+    const rejectionReasons = [
+      ...(returned.length === 0 ? ['missing_span_record'] : []),
+      ...(returned.length > 1 ? ['duplicate_span_record'] : []),
+      ...(record && record.chunkId !== span.chunkId ? ['chunk_binding_mismatch'] : []),
+      ...fieldFidelity.reasons,
+    ];
+    const acceptedRecord = canonical && rejectionReasons.length === 0 ? canonical : null;
+    if (acceptedRecord) accepted.push(acceptedRecord);
+    return {
+      forcedResponsibilityId: span.forcedResponsibilityId,
+      chunkId: span.chunkId,
+      spanIndex: span.spanIndex,
+      sourceSpanSha256: span.sourceSpanSha256,
+      evidenceQuoteSha256: responsibilitySpanSha256(span.evidenceQuote),
+      sourceStart: span.sourceStart,
+      sourceEnd: span.sourceEnd,
+      returnedRao: canonical,
+      exactQuoteBinding: false,
+      fieldFidelity,
+      accepted: false,
+      rejectionReasons,
+    };
+  });
+  return {
+    output: { ...args.output, responsibilities: accepted },
+    audits,
+  };
+}
+
+export function finalizeForcedResponsibilityAudits(args: {
+  audits: ReturnType<typeof canonicalizeForcedResponsibilityOutput>['audits'];
+  selected: readonly ForcedResponsibilitySpan[];
+  durableAcceptedElementIds: ReadonlySet<string>;
+  validation: ResponsibilityValidation;
+  chunks: readonly ResponsibilityChunk[];
+  fileType?: string | null;
+  fileName?: string | null;
+}): ReturnType<typeof canonicalizeForcedResponsibilityOutput>['audits'] {
+  const selectedById = new Map(args.selected.map((span) => [span.forcedResponsibilityId, span]));
+  const chunksById = new Map(args.chunks.map((chunk) => [chunk.id, chunk]));
+  const sourceKind = quoteSourceKindForDocument({
+    fileType: args.fileType ?? '',
+    fileName: args.fileName ?? '',
+  });
+  return args.audits.map((audit) => {
+    const span = selectedById.get(audit.forcedResponsibilityId);
+    const chunk = chunksById.get(audit.chunkId);
+    const strictQuote = span && chunk
+      ? validateQuote({
+          sourceText: chunk.rawText,
+          exactQuoteProvided: span.evidenceQuote,
+          ...quoteValidationOptionsForSource(sourceKind),
+        })
+      : null;
+    const accepted =
+      args.durableAcceptedElementIds.has(audit.forcedResponsibilityId) &&
+      !args.validation.diagnostics.some(
+        (item) => item.responsibilityId === audit.forcedResponsibilityId,
+      );
+    return {
+      ...audit,
+      exactQuoteBinding:
+        accepted &&
+        Boolean(strictQuote) &&
+        ['exact_match', 'normalized_match'].includes(strictQuote!.validationStatus),
+      accepted,
+      rejectionReasons: accepted
+        ? []
+        : [
+            ...audit.rejectionReasons,
+            ...args.validation.diagnostics
+              .filter((item) => item.responsibilityId === audit.forcedResponsibilityId)
+              .map((item) => `${item.failureClass}:${item.detail}`),
+            ...(audit.rejectionReasons.length === 0 &&
+            !args.validation.diagnostics.some(
+              (item) => item.responsibilityId === audit.forcedResponsibilityId,
+            )
+              ? ['not_durably_accepted']
+              : []),
+          ],
+    };
+  });
 }
 
 export function buildGroundedResponsibilityQuoteCandidates(args: {
@@ -445,6 +835,36 @@ export function validateGroundedResponsibilityQuoteSelections(args: {
     : { ok: true };
 }
 
+export function resolveEnclosingResponsibilityDutySpan(args: {
+  rawText: string;
+  evidenceQuote: string;
+  fileType?: string | null;
+  fileName?: string | null;
+}): string | null {
+  const sourceKind = quoteSourceKindForDocument({
+    fileType: args.fileType ?? '',
+    fileName: args.fileName ?? '',
+  });
+  const match = sourceDutySpanDetails(args.rawText).find((span) => {
+    if (!span.evidenceQuote) return false;
+    const quoteWithinDuty = validateQuote({
+      sourceText: span.evidenceQuote,
+      exactQuoteProvided: args.evidenceQuote,
+      ...quoteValidationOptionsForSource(sourceKind),
+    });
+    const dutyWithinQuote = validateQuote({
+      sourceText: args.evidenceQuote,
+      exactQuoteProvided: span.evidenceQuote,
+      ...quoteValidationOptionsForSource(sourceKind),
+    });
+    return [quoteWithinDuty, dutyWithinQuote].some((result) =>
+      ['exact_match', 'normalized_match'].includes(result.validationStatus),
+    );
+  });
+  if (match) return match.sourceSpan;
+  return sourceDutyVerbMatch(args.evidenceQuote) ? args.evidenceQuote : null;
+}
+
 export function findResponsibilityOmissions(args: {
   chunks: readonly ResponsibilityChunk[];
   elements: readonly SourceStructureElement[];
@@ -463,16 +883,33 @@ export function findResponsibilityOmissions(args: {
     byChunk.set(element.chunkId, list);
   }
   return args.chunks.flatMap((chunk) =>
-    sourceDutySpanDetails(chunk.rawText).flatMap(({ sourceSpan, listStructured }, spanIndex) => {
+    sourceDutySpanDetails(chunk.rawText).flatMap<ResponsibilityOmission>((span, spanIndex) => {
+      const {
+        sourceSpan,
+        evidenceQuote,
+        sourceStart,
+        sourceEnd,
+        sourceLocationFailure,
+        listStructured,
+      } = span;
+      if (!evidenceQuote || sourceStart === undefined || sourceEnd === undefined) {
+        return [{
+          chunkId: chunk.id,
+          spanIndex,
+          sourceSpan,
+          listStructured,
+          sourceLocationFailure: sourceLocationFailure ?? 'Responsibility raw source binding failed.',
+        }];
+      }
       const covered = (byChunk.get(chunk.id) ?? []).some((element) => {
         const quoteWithinSpan = validateQuote({
-          sourceText: sourceSpan,
+          sourceText: evidenceQuote,
           exactQuoteProvided: element.evidenceQuote!,
           ...quoteValidationOptionsForSource(sourceKind),
         });
         const spanWithinQuote = validateQuote({
           sourceText: element.evidenceQuote!,
-          exactQuoteProvided: sourceSpan,
+          exactQuoteProvided: evidenceQuote,
           ...quoteValidationOptionsForSource(sourceKind),
         });
         const quoteCovered = [quoteWithinSpan, spanWithinQuote].some((result) =>
@@ -480,7 +917,18 @@ export function findResponsibilityOmissions(args: {
         );
         return quoteCovered && fieldAwareSpanCovered(sourceSpan, element);
       });
-      return covered ? [] : [{ chunkId: chunk.id, spanIndex, sourceSpan, listStructured }];
+      return covered
+        ? []
+        : [{
+            chunkId: chunk.id,
+            spanIndex,
+            sourceSpan,
+            evidenceQuote,
+            sourceStart,
+            sourceEnd,
+            sourceLocationFailure,
+            listStructured,
+          }];
     }),
   );
 }
@@ -519,7 +967,11 @@ type ResponsibilityValidation = ReturnType<typeof validateResponsibilityRead>;
 export function mergeResponsibilityRetryValidation(
   base: ResponsibilityValidation,
   retry: ResponsibilityValidation,
-): { validation: ResponsibilityValidation; acceptedCount: number } {
+): {
+  validation: ResponsibilityValidation;
+  acceptedCount: number;
+  acceptedElementIds: string[];
+} {
   const elementKey = (item: SourceStructureElement) =>
     `${item.chunkId}|${item.role}|${item.action}|${item.object}|${item.evidenceQuote}`;
   const existingElements = new Set(base.elements.map(elementKey));
@@ -544,6 +996,7 @@ export function mergeResponsibilityRetryValidation(
       primaryCount: base.primaryCount + accepted.length,
     },
     acceptedCount: accepted.length,
+    acceptedElementIds: accepted.map((item) => item.elementId),
   };
 }
 
@@ -626,9 +1079,9 @@ export function selectFocusedResponsibilityOmissions(
     .map((omission) => ({ omission, features: responsibilitySpanRankFeatures(omission) }))
     .sort(
       (a, b) =>
+        Number(b.features.listStructured) - Number(a.features.listStructured) ||
         Number(b.features.verbStartsSpan) - Number(a.features.verbStartsSpan) ||
         Number(b.features.explicitOwner) - Number(a.features.explicitOwner) ||
-        b.features.concreteTokenCount - a.features.concreteTokenCount ||
         a.features.sourceLength - b.features.sourceLength ||
         a.omission.spanIndex - b.omission.spanIndex,
     )
@@ -714,6 +1167,13 @@ export function buildResponsibilityOmissionAudit<T extends {
       chunkId: item.chunkId,
       spanIndex: item.spanIndex,
       sourceSpan: item.sourceSpan.slice(0, 2000),
+      evidenceQuote: item.evidenceQuote?.slice(0, 2000) ?? null,
+      evidenceQuoteSha256: item.evidenceQuote
+        ? responsibilitySpanSha256(item.evidenceQuote)
+        : null,
+      sourceStart: item.sourceStart ?? null,
+      sourceEnd: item.sourceEnd ?? null,
+      sourceLocationFailure: item.sourceLocationFailure ?? null,
       sourceSpanSha256: responsibilitySpanSha256(item.sourceSpan.slice(0, 2000)),
     })),
     retries: [...args.retries],
@@ -768,20 +1228,45 @@ export function buildResponsibilitySelectedSpanAudit(args: {
   sourceShapes?: readonly string[];
   sourceSegmentIds?: readonly string[];
   inResponsibilityBaseRead: boolean;
+  fieldAudits?: ReturnType<typeof canonicalizeForcedResponsibilityOutput>['audits'];
 }) {
   const finalKeys = new Set(
     args.finalOmissions.map((item) => `${item.chunkId}:${item.spanIndex}`),
   );
-  return args.selected.map((item) => ({
+  const fieldById = new Map(
+    (args.fieldAudits ?? []).map((audit) => [audit.forcedResponsibilityId, audit]),
+  );
+  return args.selected.map((item) => {
+    const forcedResponsibilityId =
+      'forcedResponsibilityId' in item
+        ? (item as ForcedResponsibilitySpan).forcedResponsibilityId
+        : null;
+    const fieldAudit = forcedResponsibilityId
+      ? fieldById.get(forcedResponsibilityId) ?? null
+      : null;
+    return {
     chunkId: item.chunkId,
     spanIndex: item.spanIndex,
     sourceSpan: item.sourceSpan.slice(0, 2000),
+    evidenceQuote: item.evidenceQuote?.slice(0, 2000) ?? null,
+    evidenceQuoteSha256: item.evidenceQuote
+      ? responsibilitySpanSha256(item.evidenceQuote)
+      : null,
+    sourceStart: item.sourceStart ?? null,
+    sourceEnd: item.sourceEnd ?? null,
+    sourceLocationFailure: item.sourceLocationFailure ?? null,
     sourceSpanSha256: responsibilitySpanSha256(item.sourceSpan.slice(0, 2000)),
+    forcedResponsibilityId,
     rankFeatures: item.rankFeatures,
     rankIndex: item.rankIndex,
     preRecordCount: args.preRecordCount,
     postRecordCount: args.postRecordCount,
-    result: args.skipped
+    result: fieldAudit
+      ? {
+          accepted: fieldAudit.accepted,
+          skipped: fieldAudit.accepted ? null : 'field_or_validation_reject',
+        }
+      : args.skipped
       ? { accepted: false, skipped: args.skipped }
       : finalKeys.has(`${item.chunkId}:${item.spanIndex}`)
         ? { accepted: false, skipped: 'not_covered' }
@@ -789,7 +1274,14 @@ export function buildResponsibilitySelectedSpanAudit(args: {
     sourceShapes: [...(args.sourceShapes ?? [])],
     sourceSegmentIds: [...(args.sourceSegmentIds ?? [])],
     inResponsibilityBaseRead: args.inResponsibilityBaseRead,
-  }));
+    returnedRao: fieldAudit?.returnedRao ?? null,
+    exactQuoteBinding: fieldAudit?.exactQuoteBinding ?? false,
+    fieldFidelity: fieldAudit?.fieldFidelity ?? null,
+    polarityFailure: fieldAudit?.fieldFidelity.polarityFailure ?? false,
+    multiVerbReject: fieldAudit?.fieldFidelity.multiVerbReject ?? false,
+    rejectionReasons: fieldAudit?.rejectionReasons ?? [],
+  };
+  });
 }
 
 export type ResponsibilityReaderDiagnostic = {
@@ -927,6 +1419,24 @@ export function validateResponsibilityRead(args: {
         ...base,
         failureClass: 'invalid_detail',
         detail: detail.errors.join('; '),
+      });
+      continue;
+    }
+    const enclosingDutySpan = resolveEnclosingResponsibilityDutySpan({
+      rawText: chunk.rawText,
+      evidenceQuote: quote.validatedExactQuote ?? record.evidenceQuote,
+      fileType: args.fileType,
+      fileName: args.fileName,
+    });
+    const fieldFidelity = enclosingDutySpan
+      ? validateResponsibilityFieldFidelity(enclosingDutySpan, record)
+      : null;
+    if (fieldFidelity && !fieldFidelity.passed) {
+      diagnostics.push({
+        ...base,
+        failureClass: 'invalid_detail',
+        detail: `Field fidelity failed: ${fieldFidelity.reasons.join('; ')}`,
+        validationMethod: quote.validationMethod,
       });
       continue;
     }

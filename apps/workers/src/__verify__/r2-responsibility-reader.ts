@@ -31,12 +31,17 @@ import {
   buildSyntheticResponsibilitySegments,
   buildResponsibilityBaseReadPlan,
   buildResponsibilityPostPassAudit,
+  bindForcedResponsibilitySpans,
+  canonicalizeForcedResponsibilityOutput,
+  finalizeForcedResponsibilityAudits,
+  locateResponsibilityRawSlice,
   responsibilitySpanSha256,
   selectResponsibilityQuoteRepairRead,
   sourceDutySpans,
   validateGroundedResponsibilityQuoteSelections,
   shardResponsibilitySegments,
   validateResponsibilityRead,
+  validateResponsibilityFieldFidelity,
 } from '../lib/responsibility-reader';
 import {
   responsibilityEvidenceCoverage,
@@ -55,6 +60,7 @@ import {
   SourceReaderBudgetExceededError,
 } from '../lib/source-reader-budget';
 import {
+  buildFocusedResponsibilityEvidenceChunks,
   buildResponsibilityRequestContent,
   responsibilityReadPromptVersion,
   responsibilityReadTaskType,
@@ -87,7 +93,7 @@ const output: ResponsibilityReadOutput = {
       label: 'Designer checks art files',
       role: 'Licensed Team Designer',
       action: 'checks',
-      object: 'art files for completeness',
+      object: 'art files for completeness before handoff',
       trigger: 'before handoff',
       requiredSystem: 'Designflow',
       evidenceQuote:
@@ -174,6 +180,7 @@ const omissionAudit = findResponsibilityOmissions({
     {
       ...result.elements[0]!,
       role: 'Licensed Team',
+      object: 'art files for completeness',
       evidenceQuote: 'Licensed Team checks art files for completeness.',
       chunkId,
     },
@@ -453,6 +460,396 @@ assert.equal(
   )[0]?.spanIndex,
   1,
   'owner-prefixed verb-start duties keep verb-start priority',
+);
+assert.equal(
+  selectFocusedResponsibilityOmissions(
+    [
+      {
+        chunkId,
+        spanIndex: 0,
+        sourceSpan:
+          'Operations reviews a long explanatory paragraph with many concrete details about records, schedules, folders, and background notes.',
+      },
+      {
+        chunkId,
+        spanIndex: 1,
+        sourceSpan: '[Operations] Submit access form.',
+        listStructured: true,
+      },
+    ],
+    1,
+  )[0]?.spanIndex,
+  1,
+  'a short structured duty outranks a long paragraph',
+);
+assert.deepEqual(
+  sourceDutySpans('[Support]\n- Review requests and then send approvals.'),
+  ['[Support] Review requests', '[Support] send approvals.'],
+  'adjacent duty verbs become separate span-bound work units',
+);
+assert.deepEqual(
+  sourceDutySpans('- Support reviews requests, sends approvals.'),
+  ['Support reviews requests', '[Support] sends approvals.'],
+  'an inline owner remains bound to every deterministically split duty',
+);
+const polarityFailure = validateResponsibilityFieldFidelity(
+  '[Support] Provide access codes to Portal X.',
+  { role: 'Support', action: 'receive', object: 'access codes to Portal X' },
+);
+assert.equal(polarityFailure.passed, false);
+assert.equal(polarityFailure.polarityFailure, true, 'provide-to-receive reversal is rejected');
+assert.equal(
+  validateResponsibilityFieldFidelity(
+    '[Compliance] Submit quarterly compliance reports.',
+    { role: 'Compliance', action: 'submit', object: 'reports' },
+  ).passed,
+  false,
+  'cadence and named qualifiers cannot be thinned out',
+);
+assert.equal(
+  validateResponsibilityFieldFidelity(
+    '[Intake] Complete Form A.',
+    { role: 'Intake', action: 'complete', object: 'Form B' },
+  ).passed,
+  false,
+  'a named form cannot be replaced',
+);
+assert.equal(
+  validateResponsibilityFieldFidelity(
+    '[Records] Upload signed notices to Archive Hub.',
+    { role: 'Records', action: 'upload', object: 'signed notices' },
+  ).passed,
+  false,
+  'destination and system qualifiers cannot disappear',
+);
+assert.equal(
+  validateResponsibilityFieldFidelity(
+    '[Billing] Review invoices.',
+    { role: 'Billing', action: 'review', object: 'invoice' },
+  ).passed,
+  true,
+  'light singular and plural object morphology does not create false failures',
+);
+assert.equal(
+  validateResponsibilityFieldFidelity(
+    '[Intake] Complete forms.',
+    { role: 'Intake', action: 'complete', object: 'form' },
+  ).passed,
+  true,
+  'generic form and forms morphology is normalized safely',
+);
+assert.equal(
+  validateResponsibilityFieldFidelity(
+    '[Intake] Complete Form A.',
+    { role: 'Intake', action: 'complete', object: 'Form A' },
+  ).passed,
+  true,
+  'single-letter form markers remain complete when they match',
+);
+assert.equal(
+  validateResponsibilityFieldFidelity(
+    'Check status.',
+    { role: 'Operator', action: 'check', object: 'status' },
+  ).passed,
+  true,
+  'a short real duty is not rejected for lacking extra qualifiers',
+);
+const forcedSpans = bindForcedResponsibilitySpans(
+  selectFocusedResponsibilityOmissions([
+    {
+      chunkId,
+      spanIndex: 7,
+      sourceSpan: '[Support] Send access notice to Portal X.',
+      evidenceQuote: '[Support] Send access notice to Portal X.',
+      sourceStart: 0,
+      sourceEnd: '[Support] Send access notice to Portal X.'.length,
+      listStructured: true,
+    },
+  ]),
+);
+const missingRawBinding = selectFocusedResponsibilityOmissions([{
+  chunkId,
+  spanIndex: 8,
+  sourceSpan: '[Support] Send a notice.',
+  sourceLocationFailure: 'synthetic raw binding failure',
+}]);
+assert.throws(
+  () => bindForcedResponsibilitySpans(missingRawBinding),
+  /missing a valid raw evidence binding/,
+  'forced retry binding fails loud instead of using semantic text as evidence',
+);
+const missingRawBindingAudit = buildResponsibilitySelectedSpanAudit({
+  selected: missingRawBinding,
+  finalOmissions: missingRawBinding,
+  preRecordCount: 0,
+  postRecordCount: 0,
+  skipped: 'raw_source_binding_failed',
+  inResponsibilityBaseRead: true,
+});
+assert.equal(
+  missingRawBindingAudit[0]?.sourceLocationFailure,
+  'synthetic raw binding failure',
+  'an unlocatable duty remains an honest durable uncovered audit row',
+);
+assert.throws(
+  () => locateResponsibilityRawSlice('Check status.', 'Send report.'),
+  /could not be bound to raw source/,
+  'an unlocatable duty-bearing part fails loud instead of disappearing',
+);
+const forcedId = forcedSpans[0]!.forcedResponsibilityId;
+const forcedResult = canonicalizeForcedResponsibilityOutput({
+  selected: forcedSpans,
+  output: {
+    summary: 'One isolated responsibility span.',
+    responsibilities: [{
+      responsibilityId: forcedId,
+      label: 'Send access notice',
+      role: 'Support',
+      action: 'send',
+      object: 'access notice to Portal X',
+      evidenceQuote: 'rewritten quote',
+      chunkId,
+    }],
+  },
+});
+assert.equal(forcedResult.output.responsibilities.length, 1);
+assert.equal(
+  forcedResult.output.responsibilities[0]?.evidenceQuote,
+  '[Support] Send access notice to Portal X.',
+  'a valid forced span always receives its exact offered quote',
+);
+assert.equal(forcedResult.audits[0]?.accepted, false);
+assert.equal(forcedResult.audits[0]?.exactQuoteBinding, false);
+assert.equal(forcedResult.audits[0]?.fieldFidelity.passed, true);
+assert.equal(forcedResult.audits[0]?.sourceSpanSha256, forcedSpans[0]?.sourceSpanSha256);
+const forcedValidation = validateResponsibilityRead({
+  output: forcedResult.output,
+  documentId,
+  segment,
+  fileType: 'text/plain',
+  chunks: [{
+    id: chunkId,
+    documentId,
+    rawText: '[Support] Send access notice to Portal X.',
+  }],
+});
+const finalForcedAudit = finalizeForcedResponsibilityAudits({
+  audits: forcedResult.audits,
+  selected: forcedSpans,
+  durableAcceptedElementIds: new Set(forcedValidation.elements.map((item) => item.elementId)),
+  validation: forcedValidation,
+  chunks: [{
+    id: chunkId,
+    documentId,
+    rawText: '[Support] Send access notice to Portal X.',
+  }],
+  fileType: 'text/plain',
+});
+assert.equal(finalForcedAudit[0]?.accepted, true);
+assert.equal(finalForcedAudit[0]?.exactQuoteBinding, true);
+const realContinuationText = '[Support]\n- Review requests and then send approvals.';
+const continuationOmissions = findResponsibilityOmissions({
+  chunks: [{ id: chunkId, documentId, rawText: realContinuationText }],
+  elements: [],
+  fileType: 'text/plain',
+});
+const continuationSpan = bindForcedResponsibilitySpans(
+  selectFocusedResponsibilityOmissions(
+    continuationOmissions.filter((item) => /send approvals/.test(item.sourceSpan)),
+  ),
+)[0]!;
+assert.equal(continuationSpan.sourceSpan, '[Support] send approvals.');
+assert.equal(continuationSpan.evidenceQuote, 'send approvals.');
+assert.equal(
+  realContinuationText.slice(continuationSpan.sourceStart, continuationSpan.sourceEnd),
+  continuationSpan.evidenceQuote,
+  'synthetic inherited owner context is never used as the evidence slice',
+);
+const continuationCandidate = canonicalizeForcedResponsibilityOutput({
+  selected: [continuationSpan],
+  output: {
+    summary: 'One real continuation duty.',
+    responsibilities: [{
+      responsibilityId: continuationSpan.forcedResponsibilityId,
+      label: 'Send approvals',
+      role: 'Support',
+      action: 'send',
+      object: 'approvals',
+      evidenceQuote: '[Support] send approvals.',
+      chunkId,
+    }],
+  },
+});
+assert.equal(continuationCandidate.output.responsibilities[0]?.evidenceQuote, 'send approvals.');
+const continuationValidation = validateResponsibilityRead({
+  output: continuationCandidate.output,
+  documentId,
+  segment,
+  fileType: 'text/plain',
+  chunks: [{ id: chunkId, documentId, rawText: realContinuationText }],
+});
+const continuationMerge = mergeResponsibilityRetryValidation(
+  {
+    elements: [],
+    diagnostics: [],
+    crossSegmentCitations: [],
+    primaryCount: 0,
+  },
+  continuationValidation,
+);
+const continuationFinalAudit = finalizeForcedResponsibilityAudits({
+  audits: continuationCandidate.audits,
+  selected: [continuationSpan],
+  durableAcceptedElementIds: new Set(continuationMerge.acceptedElementIds),
+  validation: continuationValidation,
+  chunks: [{ id: chunkId, documentId, rawText: realContinuationText }],
+  fileType: 'text/plain',
+});
+assert.equal(continuationMerge.acceptedCount, 1);
+assert.equal(continuationFinalAudit[0]?.accepted, true);
+assert.equal(continuationFinalAudit[0]?.exactQuoteBinding, true);
+const continuationSelectedAudit = buildResponsibilitySelectedSpanAudit({
+  selected: [continuationSpan],
+  finalOmissions: [],
+  preRecordCount: 0,
+  postRecordCount: 1,
+  skipped: null,
+  inResponsibilityBaseRead: true,
+  fieldAudits: continuationFinalAudit,
+});
+assert.equal(continuationSelectedAudit[0]?.forcedResponsibilityId, continuationSpan.forcedResponsibilityId);
+assert.equal(continuationSelectedAudit[0]?.result.accepted, true);
+assert.equal(continuationSelectedAudit[0]?.exactQuoteBinding, true);
+assert.equal(continuationSelectedAudit[0]?.fieldFidelity?.passed, true);
+const rejectedContinuation = canonicalizeForcedResponsibilityOutput({
+  selected: [continuationSpan],
+  output: {
+    summary: 'A reversed continuation duty.',
+    responsibilities: [{
+      responsibilityId: continuationSpan.forcedResponsibilityId,
+      label: 'Receive approvals',
+      role: 'Support',
+      action: 'receive',
+      object: 'approvals',
+      evidenceQuote: 'send approvals.',
+      chunkId,
+    }],
+  },
+});
+const rejectedContinuationValidation = validateResponsibilityRead({
+  output: rejectedContinuation.output,
+  documentId,
+  segment,
+  fileType: 'text/plain',
+  chunks: [{ id: chunkId, documentId, rawText: realContinuationText }],
+});
+const rejectedContinuationAudit = finalizeForcedResponsibilityAudits({
+  audits: rejectedContinuation.audits,
+  selected: [continuationSpan],
+  durableAcceptedElementIds: new Set(),
+  validation: rejectedContinuationValidation,
+  chunks: [{ id: chunkId, documentId, rawText: realContinuationText }],
+  fileType: 'text/plain',
+});
+assert.equal(rejectedContinuationValidation.elements.length, 0);
+assert.equal(rejectedContinuationAudit[0]?.accepted, false);
+assert.equal(rejectedContinuationAudit[0]?.exactQuoteBinding, false);
+assert.ok(
+  rejectedContinuationAudit[0]?.rejectionReasons.some((reason) => /polarity_reversal/.test(reason)),
+  'a production-path rejection remains honest in its final audit',
+);
+const missingForcedResult = canonicalizeForcedResponsibilityOutput({
+  selected: forcedSpans,
+  output: { summary: 'No returned responsibility for the isolated span.', responsibilities: [] },
+});
+assert.equal(missingForcedResult.output.responsibilities.length, 0);
+assert.deepEqual(missingForcedResult.audits[0]?.rejectionReasons, ['missing_span_record', 'missing_or_duplicate_span_record']);
+const focusedOnlyRequest = buildResponsibilityRequestContent({ focusedSpans: forcedSpans });
+assert.match(focusedOnlyRequest, /forcedResponsibilityId/);
+assert.match(focusedOnlyRequest, /Send access notice to Portal X/);
+assert.ok(
+  !focusedOnlyRequest.includes('hidden sibling duty'),
+  'focused retry input cannot invent a hidden sibling sentence',
+);
+const focusedEvidence = buildFocusedResponsibilityEvidenceChunks(
+  [{
+    id: chunkId,
+    rawText:
+      '[Support] Send access notice to Portal X.\n' +
+      '[Support] hidden sibling duty must not be visible.',
+  }],
+  forcedSpans,
+);
+assert.equal(
+  focusedEvidence[0]?.rawText,
+  '[Support] Send access notice to Portal X.',
+  'focused retry evidence excludes every unselected sibling sentence',
+);
+const baseFieldRegression = validateResponsibilityRead({
+  output: {
+    summary: 'A valid base-read responsibility.',
+    responsibilities: [{
+      responsibilityId: 'records_archive_notice',
+      label: 'Archive signed notice',
+      role: 'Records',
+      action: 'archive',
+      object: 'signed notice in Vault One',
+      evidenceQuote: 'Records archive signed notice in Vault One.',
+      chunkId,
+    }],
+  },
+  documentId,
+  segment,
+  fileType: 'text/plain',
+  chunks: [{ id: chunkId, documentId, rawText: 'Records archive signed notice in Vault One.' }],
+});
+assert.equal(baseFieldRegression.elements.length, 1, 'valid existing base RAOs survive field fidelity');
+const reversedBaseRegression = validateResponsibilityRead({
+  output: {
+    summary: 'An invalid reversed base-read responsibility.',
+    responsibilities: [{
+      responsibilityId: 'support_receive_code',
+      label: 'Receive access code',
+      role: 'Support',
+      action: 'receive',
+      object: 'access code to Portal X',
+      evidenceQuote: 'Support provide access code to Portal X.',
+      chunkId,
+    }],
+  },
+  documentId,
+  segment,
+  fileType: 'text/plain',
+  chunks: [{ id: chunkId, documentId, rawText: 'Support provide access code to Portal X.' }],
+});
+assert.equal(reversedBaseRegression.elements.length, 0, 'base reads use the same safe field validator');
+assert.match(reversedBaseRegression.diagnostics[0]?.detail ?? '', /polarity_reversal/);
+const unmappedQuoteFallback = validateResponsibilityRead({
+  output: {
+    summary: 'A legacy record with a grounded non-duty quote.',
+    responsibilities: [{
+      responsibilityId: 'legacy_grounded_record',
+      label: 'Legacy grounded record',
+      role: 'Operations',
+      action: 'maintain',
+      object: 'legacy record',
+      evidenceQuote: 'Operational ownership statement.',
+      chunkId,
+    }],
+  },
+  documentId,
+  segment,
+  fileType: 'text/plain',
+  chunks: [{
+    id: chunkId,
+    documentId,
+    rawText: 'Operational ownership statement.',
+  }],
+});
+assert.equal(
+  unmappedQuoteFallback.elements.length,
+  1,
+  'a grounded quote with no resolvable duty span keeps the safe legacy validation path',
 );
 const scheduler = new ResponsibilityOmissionRetryScheduler();
 const schedulerOmissions = [
@@ -1089,7 +1486,7 @@ assert.doesNotThrow(() =>
 assert.equal(answerKey.version, 'licensed-team-responsibilities-v1');
 assert.equal(answerKey.records.length, 30);
 assert.equal(RESPONSIBILITY_ANSWER_KEY_MATCHER_VERSION, 'field-aware-v3');
-assert.equal(RESPONSIBILITY_READ_PROMPT_VERSION, 'responsibility-read-v2.3-duty-complete');
+assert.equal(RESPONSIBILITY_READ_PROMPT_VERSION, 'responsibility-read-v2.4-span-bound');
 for (const requiredPromptRule of [
   'exact source-owner role label',
   'exactly one duty per record',
@@ -1187,7 +1584,7 @@ assert.equal(
 );
 assert.equal(
   responsibilityReadPromptVersion(false),
-  'responsibility-read-v2.3-duty-complete',
+  'responsibility-read-v2.4-span-bound',
 );
 assert.equal(
   RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
@@ -1242,7 +1639,27 @@ for (const extractionRule of [
   );
 }
 assert.match(
-  buildResponsibilityRequestContent({ focusedSpans: ['Finance approves invoices.'] }),
+  buildResponsibilityRequestContent({
+    focusedSpans: bindForcedResponsibilitySpans([{
+      chunkId,
+      spanIndex: 0,
+      sourceSpan: 'Finance approves invoices.',
+      evidenceQuote: 'Finance approves invoices.',
+      sourceStart: 0,
+      sourceEnd: 'Finance approves invoices.'.length,
+      rankIndex: 0,
+      rankFeatures: {
+        verbStartsSpan: false,
+        explicitOwner: true,
+        listStructured: false,
+        concreteTokenCount: 3,
+        sourceLength: 26,
+        chunkOmissionCount: 1,
+        sourceChunkIndex: 0,
+      },
+      sourceSpanSha256: responsibilitySpanSha256('Finance approves invoices.'),
+    }]),
+  }),
   /Focused omission retry/,
 );
 assert.equal(

@@ -5,11 +5,11 @@ import {
 } from '@oracle/shared/business-model-shapes';
 
 export const WORKFLOW_READ_PROMPT_VERSION = 'workflow-read-v2-quote-copy-repair';
-export const RESPONSIBILITY_READ_PROMPT_VERSION = 'responsibility-read-v2.3-duty-complete';
+export const RESPONSIBILITY_READ_PROMPT_VERSION = 'responsibility-read-v2.4-span-bound';
 export const RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION = 'responsibility-quote-repair-v2.3-grounded';
 export const SOURCE_SEGMENTATION_PROMPT_VERSION = 'source-segmentation-v1';
 export const SOURCE_READER_PIPELINE_VERSION =
-  'shape-reader-v6-r2-batch-e';
+  'shape-reader-v7-r2-batch-f';
 
 export const SOURCE_STRUCTURE_SHAPES = BUSINESS_MODEL_SHAPES;
 export const SOURCE_STRUCTURE_SHAPE_REGISTRY = BUSINESS_MODEL_SHAPE_REGISTRY;
@@ -100,6 +100,9 @@ HARD RULES:
 - When focused source spans are supplied, account for every span in source order. Preserve the
   explicit owner, single duty verb, complete concrete target/system/form, cadence, timing, and
   polarity. Do not broaden one span with facts from another span.
+- A focused span supplies its required responsibilityId. Return exactly one record with that ID
+  and its supplied chunkId. Copy the supplied evidenceQuote exactly. Use semanticSourceSpan only
+  to preserve owner, action, object, direction, and qualifiers. Never quote semanticSourceSpan.
 - Use the shortest verbatim quote that fully supports the one duty in this record.
 - A handling chain becomes one record per step stated in the source.
 - Do not invent duties, owners, targets, systems, timing, or cadence that are not present in the source.
