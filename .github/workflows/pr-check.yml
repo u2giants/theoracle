@@ -156,14 +156,20 @@ jobs:
         # source-structure/R0 amendments exist.
         run: |
           pnpm --filter @oracle/db verify:r1-generated-order
+          pnpm --filter @oracle/db verify:raw-constraint-chain
+          pnpm --filter @oracle/db verify:raw-migration-rerun-guard
           pnpm --filter @oracle/db prepare:fresh-supabase-test-db
           pnpm --filter @oracle/db migrate
+          pnpm --filter @oracle/db prepare:raw-migration-rerun-test
+          pnpm --filter @oracle/db migrate
+          pnpm --filter @oracle/db verify:raw-migration-rerun-test
           pnpm --filter @oracle/db verify:fresh-source-workflow-schema
           pnpm --filter @oracle/db verify:r1-cross-shape-schema
           pnpm --filter @oracle/workers verify:taxonomy-reclassification-db
         env:
           DIRECT_URL: postgres://oracle:oracle@localhost:5432/oracle_fresh
           DATABASE_URL: postgres://oracle:oracle@localhost:5432/oracle_fresh
+          ORACLE_MIGRATION_RERUN_TEST: '1'
 
       - name: Drizzle journal drift check
         # Compares on-disk packages/db/migrations/0*.sql hashes against

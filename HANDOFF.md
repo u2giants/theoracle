@@ -186,6 +186,9 @@ apply stayed false; durable business object/version counts stayed zero.
   reviewed, committed, deployed, or live-tested.
 - Base reads and retries use collision-proof deterministic ID prefixes, and map persistence now
   fails loudly if any responsibility element ID is duplicated.
+- The production migration rerun blocker is fixed locally in raw migration 13 by keeping its
+  strict validation-name whitelist forward-compatible with migration 94. A DB-free chain guard
+  passes locally, and CI now reruns the complete migration command against a populated fresh schema.
 
 ## Exact next steps
 

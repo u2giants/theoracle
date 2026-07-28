@@ -188,7 +188,10 @@ ALTER TABLE extraction_validation_results
   CHECK (check_name IN (
     'source_exists','quote_exact_match','quote_offsets_match','source_type_valid',
     'not_duplicate','domain_valid','score_range_valid','sensitivity_gate',
-    'promotion_transaction','duplicate_promotion_lock','validation_loop_circuit_breaker'
+    'promotion_transaction','duplicate_promotion_lock','validation_loop_circuit_breaker',
+    -- Raw SQL migrations rerun from the beginning on every migrate command.
+    -- Keep this early whitelist forward-compatible with values added later.
+    'map_element_ref_membership'
   ));
 
 ALTER TABLE extraction_validation_results

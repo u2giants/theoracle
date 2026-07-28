@@ -21,6 +21,10 @@
     "verify:fresh-source-workflow-schema": "tsx src/verify-fresh-source-workflow-schema.ts",
     "verify:r1-cross-shape-schema": "tsx src/verify-r1-cross-shape-schema.ts",
     "verify:r1-generated-order": "tsx src/verify-r1-generated-order.ts",
+    "prepare:raw-migration-rerun-test": "tsx src/verify-raw-migration-rerun.ts prepare",
+    "verify:raw-migration-rerun-test": "tsx src/verify-raw-migration-rerun.ts verify",
+    "verify:raw-migration-rerun-guard": "tsx src/verify-raw-migration-rerun-guard.ts",
+    "verify:raw-constraint-chain": "tsx src/verify-raw-constraint-chain.ts",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit"
   },
