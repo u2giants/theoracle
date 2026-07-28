@@ -17,7 +17,7 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
 | R0.1 | ✅ done, 2026-07-27 | Commit `da1ad5a`; CI `30271360677`; worker `20260727.3` (`75jeiusj`, 24 tasks); forced run `run_06fqbf50qn8kvq69h6u3dg7601` produced map `54cfec32-b428-490f-9e21-ab79c8f3add4` with 1 exact root drop, 5 cascades, 1 repair attempt, and no admitted fuzzy quote |
 | R1 | ✅ done, 2026-07-27 | Commits `5f962b5` + `24bbf70`; CI `30269886119` attempt 2 green including empty-DB migration, transactional R1 verifier, and drift; production migration succeeded; drift 11/11; Vercel `24bbf70` deployed with HTTP 200; worker `20260727.2` (`h6ri0rb9`, 24 tasks) |
-| R2 | 🟨 in progress, 2026-07-27 | Entry decisions 1, 3, and 4 recorded; local strict reader, map persistence, coverage, real model-merge routing/provenance, entity resolution, shadow merge guards, concurrency lock, apply lockout, dispatch, and read-only rendering pass focused checks; pinned live fixture, bake-off, real proposal, and visual gates remain unproven |
+| R2 | 🟥 blocked, 2026-07-27 | Live fixture map `ebd13d54-215f-4bed-9d3c-14c63df4b624` retained 98 responsibility records with zero drops, but exclusive deterministic matcher `field-aware-v3` scores 18/30 (60%), below the 90% gate; local thin-record prompt v2 awaits Grok review and live rerun; merge/apply stayed false and no durable object/version was written |
 | R3 | ⬜ open | Blocked on R2 |
 | R4 | ⬜ open | Blocked on R3 |
 | R5 | ⬜ open | Blocked on R4 |
@@ -27,8 +27,9 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R9 | ⬜ open | Blocked on R8 |
 | R10 | ⬜ open | Blocked on R9 |
 
-Fresh-session starting point: finish the remaining R2 real-data and model gates listed in
-`evals/r2-responsibilities.md`. R0, R0.1, and R1 are green.
+Fresh-session starting point: review and fix the honest R2 live-reader misses listed in
+`evals/r2-responsibilities.md`, then rerun the 90% gate before any shadow merge. R0, R0.1, and R1
+are green.
 
 This is the single forward implementation plan for completing the Oracle's macro-first
 redesign. It reconciles the original process-centric redesign with the later shape-aware
@@ -1272,9 +1273,12 @@ R0, R0.1, and R1 are complete, CI-green, deployed, and production-verified. Thei
 is recorded in the status table and eval logs. The R0.1 production gate passed with 1 exact root
 drop, 5 cascades, 1 repair attempt, and no admitted fuzzy document quote.
 
-The immediate next action is to finish the R2 pinned-fixture read, model bake-off, entity-resolution,
-real shadow proposal, sequential reread, near-match, and namespace-collision gates recorded in
-`evals/r2-responsibilities.md`. Do not repeat R0/R0.1 work or the completed R1 audit/schema stage.
+The immediate next action is Grok review of local
+`responsibility-read-v2.1-thin-source-faithful`, then a live fixture rerun for the 12 auditable
+pinned-fixture misses in `evals/r2-responsibilities.md`. Rerun the read-only answer-key score and
+require at least 90% before enabling shadow merge or starting bake-off, proposal, reread,
+near-match, namespace-collision, or UI gates. Do not repeat R0/R0.1 work or the completed R1
+audit/schema stage.
 
 ---
 

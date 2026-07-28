@@ -1101,8 +1101,14 @@ async function runResponsibilityReadModel(args: {
       id: 'responsibility-request',
       label: 'Responsibility read request',
       kind: 'dynamic_input',
-      content:
-        'Extract every distinct responsibility record. Keep the result flat and copy each quote exactly from one chunk.',
+      content: [
+        'Extract every distinct responsibility record from this segment.',
+        'Use the exact source-owner role label and one short action verb phrase per record.',
+        'Split adjacent verbs and duties. Split distinct destinations or systems into separate records.',
+        'Keep every stated target, system, destination, portal, server, form, deadline, cadence, and timing qualifier in object; trigger may repeat but never replace them.',
+        'Do not leave a real target only in requiredSystem. Do not invent duties not present in the source.',
+        'Prefer multiple thin records. Copy each evidence quote exactly from one chunk.',
+      ].join(' '),
       reasonIncluded: 'current responsibilities pass-2 request',
     }),
   ];

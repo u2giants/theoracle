@@ -5,7 +5,7 @@ import {
 } from '@oracle/shared/business-model-shapes';
 
 export const WORKFLOW_READ_PROMPT_VERSION = 'workflow-read-v2-quote-copy-repair';
-export const RESPONSIBILITY_READ_PROMPT_VERSION = 'responsibility-read-v1';
+export const RESPONSIBILITY_READ_PROMPT_VERSION = 'responsibility-read-v2.1-thin-source-faithful';
 export const SOURCE_SEGMENTATION_PROMPT_VERSION = 'source-segmentation-v1';
 export const SOURCE_READER_PIPELINE_VERSION =
   'shape-reader-v5-r2-responsibilities';
@@ -73,7 +73,17 @@ HARD RULES:
 - Return only JSON matching the schema.
 - Copy evidenceQuote verbatim from exactly one supplied Document Chunk ID.
 - Use only supplied chunk IDs. Never invent IDs.
-- Split distinct duties into distinct records. Do not summarize a whole role or section.
+- Copy the exact source-owner role label into role. Do not rename, generalize, alias, or infer the owner.
+- Emit exactly one duty per record. Never merge adjacent verbs, clauses, or duties into one action/object pair.
+- A multi-verb or "and then" sentence becomes one record per stated verb or duty.
+- When one sentence lists distinct destinations or systems, emit one thin record per destination or system.
+- Keep action as a short verb phrase. Move the concrete target into object.
+- object must preserve every concrete target, system, portal, server, form, cadence, and timing qualifier stated by the evidence for that duty.
+- Form names, systems, destinations, deadlines, and cadence must appear exactly as the source states them in object. trigger may repeat timing or cadence, but it must never be their only location.
+- Do not leave a real target only in requiredSystem. The target and its identity details belong in object.
+- Prefer multiple thin, independently evidenced records over one broad combined record.
+- A handling chain becomes one record per step stated in the source.
+- Do not invent duties, owners, targets, systems, timing, or cadence that are not present in the source.
 - role, action, and object are required. trigger and requiredSystem are optional.
 - Record ownerName and department only when the source states them.
 - IDs use lowercase letters, numbers, underscores, and hyphens only and are unique.

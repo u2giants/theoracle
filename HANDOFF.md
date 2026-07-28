@@ -15,8 +15,9 @@ Macro R0.1 is complete. Commit `da1ad5a` passed CI run `30271360677` and shipped
 plus 5 cascades, used 1 repair attempt, and admitted no fuzzy document quote. The remaining local
 costing-segment degradation is an honest threshold signal, not a failed release gate. Later full
 release CI `30312068037` is green; Vercel commit `65d0b7b` is ready and the public app returns HTTP
-200. R0, R0.1, and R1 are green. R2 code is locally gate-ready; its live fixture, model bake-off,
-real shadow-proposal, UI, and live regression gates remain.
+200. R0, R0.1, and R1 are green. R2's live fixture produced 98 responsibility records with zero
+drops, but its exclusive answer-key score is 18/30 (60%), below the 90% gate. Shadow merge, UI, and
+live regression gates remain blocked.
 
 ## Prior closeout — 2026-07-26
 
@@ -112,8 +113,15 @@ R0.1 is also complete and production-verified. Commit `da1ad5a`, CI `30271360677
 `54cfec32-b428-490f-9e21-ab79c8f3add4` prove the at-most-1-root gate with no fuzzy quote admitted.
 The run reread document `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea`, kept 100, dropped 6, used 5
 read calls, 30,949 estimated input tokens, and `$0.154745` estimated input cost. R1 is complete.
-R2 entry decisions 1, 3, and 4 are recorded. Decision 2 remains deferred to R6. R2 is implemented
-locally but has not run its live/model/UI gates and is not released.
+R2 entry decisions 1, 3, and 4 are recorded. Decision 2 remains deferred to R6. Production fixture
+document `79b0f629-4d42-4c8f-b6ad-e1e1dcf8befe` produced map
+`ebd13d54-215f-4bed-9d3c-14c63df4b624` with 5/5 chunks covered, 98 responsibility records, and zero
+responsibility drops. The old exact-string scorer falsely reported 0/30. Local deterministic
+matcher `field-aware-v3` fixes harmless phrase specialization without fuzzy evidence and assigns
+each actual record to at most one answer row. With the approved explicit approvals/approval
+normalization, the read-only rescore is 18/30 (60%). R2 is blocked
+below its 90% gate. Merge and apply stayed
+false; durable business object/version counts stayed zero.
 
 ## Everything we tried that did NOT work
 
@@ -155,16 +163,28 @@ locally but has not run its live/model/UI gates and is not released.
   version-aware refine validation, entity-proposal staging, concurrency-safe shadow persistence,
   post-coverage dispatch, dual apply lockout, and read-only proposal rendering. No production data,
   deployment, commit, or push proves this work yet.
+- The first live R2 map proved the reader runs, but it did not meet the answer-key gate. Exact
+  equality was an invalid scoring contract because model wording can safely specialize phrases.
+  `field-aware-v3` now requires exact role, compatible action, full expected object-token coverage,
+  matching negation, stable ordering, and exclusive one-to-one assignment. It rejects adversarial
+  role swaps, object substitutions, generic overlap, action false positives, and negation flips.
+  Its 18/30 result exposes 12 real remaining reader misses.
+- Local `responsibility-read-v2.1-thin-source-faithful` prompt rules now require exact source-owner
+  labels, one duty and one destination per record, short actions, and complete concrete target,
+  system, portal, server, form, cadence, and timing details. Tests pass, but this prompt has not
+  been reviewed by Grok, deployed, or rerun.
 
 ## Exact next steps
 
 1. Keep every focused local R2 check green and inspect the full diff.
-2. Run the R2 model bake-off and versioned pinned answer key gate.
-3. Prove real shadow create, same-map idempotency, sequential confirm, near-match review, bounded
+2. Have Grok review local `responsibility-read-v2.1-thin-source-faithful` and its prompt assertions.
+3. After approval, rerun the pinned gate without weakening evidence
+   until deterministic recall is at least 90%.
+4. Only after recall passes, prove real shadow create, same-map idempotency, sequential confirm, near-match review, bounded
    refine, namespace collision, and desktop/narrow read-only UI.
-4. Use the existing R0.1 production map as the release baseline; do not weaken exact quote
+5. Use the existing R0.1 production map as the release baseline; do not weaken exact quote
    validation to remove the remaining honest costing-segment degradation.
-5. Reliability and product-gap work may continue without changing macro stage
+6. Reliability and product-gap work may continue without changing macro stage
    order. Each session must update its plan status table and this handoff.
 
 ## Constraints and gotchas

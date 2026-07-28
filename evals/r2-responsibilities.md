@@ -2,7 +2,7 @@
 
 Date: 2026-07-27
 
-Status: **IN PROGRESS. Local deterministic contracts pass. Live/model gates are not yet proven.**
+Status: **BLOCKED. The live reader ran, but exclusive strict answer-key recall is 60%, below the 90% gate.**
 
 Pinned fixture manifest:
 
@@ -48,6 +48,11 @@ Pinned fixture manifest:
 - `business_model_apply_enabled=false` is enforced inside the transaction service. Shadow proposals
   also carry `applyEligible=false` and are rejected even if the global flag changes.
 - No migration was required. R1 already provides every R2 storage field and constraint.
+- Answer-key matcher `field-aware-v3` preserves exact matches and permits only deterministic,
+  field-aware specialization: exact role, compatible action phrase, complete expected object-token
+  coverage, and no negation change. Matching is exclusive and stable: one actual record can credit
+  only one expected row, with exact matches ranked first. It reports per-answer evidence and rejects
+  role swaps, object substitutions, unrelated one-token overlap, and negation flips.
 
 ## Commands and results
 
@@ -68,8 +73,61 @@ Pinned fixture manifest:
 
 ## Unproven release gates
 
-- The pinned `Licensed Team Responsibilities 2 - tagged.txt` answer key has not been run through the
-  new pass-2 reader, so the required 90% responsibility recall is not yet proven.
+- Production fixture document `79b0f629-4d42-4c8f-b6ad-e1e1dcf8befe` produced validated map
+  `ebd13d54-215f-4bed-9d3c-14c63df4b624`, model run
+  `3bea7c04-0316-4378-99a7-8a3a9a58d141`, and context pack
+  `cc0fae90-b992-4d6a-9ebb-1f9515d6404d`. It covered 5/5 chunks and retained 98 responsibility
+  records across three responsibility segments with zero responsibility drops.
+- The old exact-string scorer reported 0/30 because harmless model phrasing changes could never
+  match the terse answer key. That was a scorer failure, not proof of reader failure.
+- Instrument history: exact-string v1 reported 0/30 (scorer failure); non-exclusive
+  `field-aware-v2` reported 18/30; exclusive `field-aware-v3` initially reported 17/30, then the
+  approved explicit `approvals` → `approval` token normalization correctly classified row 30,
+  producing 18/30, or 60%. The remaining 12 misses are not being hidden with fuzzy matching.
+  Several expected responsibilities are absent
+  or have a materially different role/object, so the 90% reader gate remains failed.
+- Local Batch B bumps the reader to `responsibility-read-v2.1-thin-source-faithful`. Its system and
+  request prompts require exact source-owner labels, one duty and one destination per record, short
+  action phrases, and preservation of concrete systems, portals, servers, forms, cadence, and timing.
+  This prompt is locally tested but has not been deployed or rerun; Grok review is the next gate.
+
+## Field-aware-v3 production audit
+
+Map: `ebd13d54-215f-4bed-9d3c-14c63df4b624`. This is a read-only rescore of 98 persisted
+responsibility records. The table records the stable best candidate even when it is rejected.
+
+| # | Expected role / action / object | Result | Best actual role / action / object | Quote excerpt | Chunk |
+|---:|---|---|---|---|---|
+| 1 | Licensed Team / prioritize / rush submissions | match, field-aware | Licensed Team / prioritize and email / rush approval submissions | prioritize submissions that are rush requests | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 2 | Licensed Team / email / licensor for rush approval | miss, record already consumed and object incomplete | Licensed Team / prioritize and email / rush approval submissions | email the licensor to request a rush approval | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 3 | Lic Manager / request / order value and units from Sales | match, field-aware | Lic Manager / reach out / Sales team to get order value and units | reach out to Sales team | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 4 | Licensed Team / check / legal lines logos and artwork against style guides | match, field-aware | Licensed Team / check / all legal lines logos and artwork against Licensor Style Guides | MUST check all legal lines | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 5 | Licensed Team / submit / concepts into licensor systems | match, field-aware | Licensed Team / submit / concepts into different Licensor Systems | submits concepts into the different Licensor Systems | `86e9e4ea-00f7-4b29-b591-a253fcb9e653` |
+| 6 | Licensed Team / save / BA form to SharedLic server | match, field-aware | Licensed Team / save / BA form to SharedLic server | Save BA form to the SharedLic server | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 7 | Licensed Team / save / BA number to MasterData | match, field-aware | Licensed Team / save / BA number to MasterData | Save BA number to MasterData | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 8 | Licensed Team / save / BA number to DesignFlow | match, field-aware | Licensed Team / save / BA number to DesignFlow | Save BA number to DesignFlow | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 9 | Licensed Team / save / BA number to ColdLion | match, field-aware | Licensed Team / save / BA number to ColdLion | Save BA number to ColdLion | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 10 | Licensed Team / assign / revision to SKU designer | match, field-aware | Licensed Team / assign and inform / revision to Designer of SKU | Assign Revision to the Designer | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 11 | Licensed Team / update / Microsoft Loop licensor status | match, field-aware | Licensed Team / update and send / Microsoft Loop for Licensor Status | Update Microsoft Loop for Licensor Status | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 12 | Licensed Team / check / designer revision against licensor feedback | match, field-aware | Licensed Team / check / revision Designer provided against licensor feedback | Check the Revision that the Designer provided | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 13 | Licensed Team / resubmit / revised tech pack to licensor systems | match, field-aware | Licensed Team / resubmit / revised tech pack to Licensor Systems | Resubmit the revised tech pack | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 14 | Lic Coordinator / download / PPS photos from factory sample request email | miss | Lic Coordinator / provide / assets to partners | Licensed team provides assets to partners | `86e9e4ea-00f7-4b29-b591-a253fcb9e653` |
+| 15 | Lic Coordinator / rename / PPS files by SKU number | miss | Lic Coordinator / provide / assets to partners | Licensed team provides assets to partners | `86e9e4ea-00f7-4b29-b591-a253fcb9e653` |
+| 16 | Licensed Team / review / PPS photos against tech pack specifications | miss | Licensed Team / enter / tech pack submission date in MasterData | Enter the date when tech pack is submitted | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 17 | Licensed Team / submit / PPS photos in licensor portals | miss | Licensed Team / submit / photos for final licensor approval | submit photos again to receive final approval | `38ce9a67-8bb9-4c0c-ba4c-9b20a8c49f8a` |
+| 18 | Licensed Team / submit / product safety tests | miss | Licensed Team / submit / concept submissions into Licensor Systems | submits into the Different Licensor Systems | `a80d437a-21f2-48a1-a085-2ac9a00f0a7c` |
+| 19 | Lic Manager / fill out / Letter of Guarantee | miss | Lic Manager / fill out / Factory Authorization Request form | Fill out Factory Authorization Request form | `537111e5-d05c-4987-8185-12cf5dff5402` |
+| 20 | Lic Manager / request / contractual sample exemption | match, field-aware | Lic Manager / request / Contractual Sample Exemption from Licensors | Request Contractual Sample Exemption | `38ce9a67-8bb9-4c0c-ba4c-9b20a8c49f8a` |
+| 21 | Lic Manager / submit / factory audits into submission portal | miss, object incomplete | Lic Manager / submit / Factory Audits | Submit Factory Audits into the Submission Portal | `38ce9a67-8bb9-4c0c-ba4c-9b20a8c49f8a` |
+| 22 | Lic Manager / enter / factory information into MasterData vendor tab | match, field-aware | Lic Manager / enter / Factory Information on Vendor tab in MasterData | Enter Factory Information from the Audits | `38ce9a67-8bb9-4c0c-ba4c-9b20a8c49f8a` |
+| 23 | Lic Manager / request / factory audits before approval expiration | miss, object incomplete | Lic Manager / request / audits from Factories | Request audits at least 3 months before expiration | `38ce9a67-8bb9-4c0c-ba4c-9b20a8c49f8a` |
+| 24 | Licensed Team / download / style guides to style guide server | miss | Licensed Team / download / techpacks or linesheets | downloads techpacks or linesheets | `86e9e4ea-00f7-4b29-b591-a253fcb9e653` |
+| 25 | Licensed Team / organize / assets by file type | match, field-aware | Licensed Team / organize / Assets by File Type | Organizes the Assets by the File Type | `537111e5-d05c-4987-8185-12cf5dff5402` |
+| 26 | Licensed Team / submit / quarterly royalty reports | miss, object incomplete | Licensed Team / submit / Royalty Reports | Submit the Reports | `537111e5-d05c-4987-8185-12cf5dff5402` |
+| 27 | Lic Manager / request / trademark authorization forms | match, field-aware | Lic Manager / request / Trademark Authorization forms | Request Trademark Authorization forms | `537111e5-d05c-4987-8185-12cf5dff5402` |
+| 28 | Lic Manager / maintain / contracts by licensor | match, field-aware | Lic Manager / ensure / Contracts by Licensor up to date | Ensure Contracts by Licensor are up to date | `86e9e4ea-00f7-4b29-b591-a253fcb9e653` |
+| 29 | Licensed Team / provide / assets to partners | miss, action differs | Licensed Team / receive / request from partners for assets | receives a request from different partners | `86e9e4ea-00f7-4b29-b591-a253fcb9e653` |
+| 30 | Licensed Team / maintain / 4 Seasons approval status sheet | match, field-aware | Licensed Team / maintain / Status Approvals on Google Sheet for 4 Seasons | Maintains Status Approvals on a Separate Google Sheet | `86e9e4ea-00f7-4b29-b591-a253fcb9e653` |
 - The fixture has not completed map-directed claim extraction, so 90% valid evidence-claim coverage
   is not yet proven.
 - The responsibilities read and model-merge bake-off has not run.
@@ -83,4 +141,6 @@ Pinned fixture manifest:
 - The swimlane regression is green locally, but the new responsibilities reader has not been
   deployed or tested against live data.
 
-No production data, deployment, commit, push, or database setting was changed by this work.
+One disposable production fixture document and its normal ingestion artifacts were created for the
+authorized gate. Neither merge nor apply was enabled. Durable business objects and versions remain
+zero. No commit, push, deployment, or durable business-model write was made.

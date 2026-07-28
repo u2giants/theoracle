@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import type { ResponsibilityReadOutput, SourceStructureSegment } from '@oracle/ai';
+import {
+  RESPONSIBILITY_READ_PROMPT_VERSION,
+  RESPONSIBILITY_READ_SYSTEM_PROMPT,
+  type ResponsibilityReadOutput,
+  type SourceStructureSegment,
+} from '@oracle/ai';
 import {
   responsibilityCoverage,
   responsibilityRawAuditArtifact,
@@ -158,6 +163,45 @@ assert.doesNotThrow(() =>
   }),
 );
 assert.equal(answerKey.version, 'licensed-team-responsibilities-v1');
+assert.equal(RESPONSIBILITY_READ_PROMPT_VERSION, 'responsibility-read-v2.1-thin-source-faithful');
+for (const requiredPromptRule of [
+  'exact source-owner role label',
+  'exactly one duty per record',
+  'Never merge adjacent verbs',
+  'multi-verb or "and then" sentence',
+  'one thin record per destination or system',
+  'short verb phrase',
+  'target, system, portal, server, form, cadence, and timing qualifier',
+  'trigger may repeat timing or cadence, but it must never be their only location',
+  'Do not leave a real target only in requiredSystem',
+  'Prefer multiple thin',
+  'handling chain becomes one record per step',
+  'Do not invent duties',
+]) {
+  assert.ok(
+    RESPONSIBILITY_READ_SYSTEM_PROMPT.includes(requiredPromptRule),
+    `responsibility prompt is missing hard rule: ${requiredPromptRule}`,
+  );
+}
+const workflowReadSource = readFileSync(
+  new URL('../lib/source-workflow-read.ts', import.meta.url),
+  'utf8',
+);
+for (const requiredRequestRule of [
+  'exact source-owner role label',
+  'Split adjacent verbs and duties',
+  'Split distinct destinations or systems',
+  'target, system, destination, portal, server, form, deadline, cadence, and timing qualifier in object',
+  'trigger may repeat but never replace them',
+  'Do not leave a real target only in requiredSystem',
+  'Do not invent duties not present in the source',
+  'Prefer multiple thin records',
+]) {
+  assert.ok(
+    workflowReadSource.includes(requiredRequestRule),
+    `responsibility request block is missing rule: ${requiredRequestRule}`,
+  );
+}
 assert.equal(
   answerKey.sourceSha256,
   '398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be',
@@ -169,6 +213,148 @@ assert.equal(
   }).recall,
   0.9,
 );
+const specializedMatch = scoreResponsibilityAnswerKey({
+  expected: [{ role: 'Licensed Team', action: 'prioritize', object: 'rush submissions' }],
+  actual: [
+    {
+      role: 'Licensed Team',
+      action: 'prioritize and email',
+      object: 'rush approval submissions',
+    },
+  ],
+});
+assert.equal(specializedMatch.recall, 1);
+assert.equal(specializedMatch.evidence[0]?.method, 'field_aware');
+for (const adversarial of [
+  {
+    name: 'role swap',
+    actual: { role: 'Lic Manager', action: 'prioritize', object: 'rush submissions' },
+  },
+  {
+    name: 'object substitution',
+    actual: { role: 'Licensed Team', action: 'prioritize', object: 'royalty reports' },
+  },
+  {
+    name: 'unrelated overlap',
+    actual: { role: 'Licensed Team', action: 'prioritize', object: 'rush' },
+  },
+  {
+    name: 'negation flip',
+    actual: { role: 'Licensed Team', action: 'do not prioritize', object: 'rush submissions' },
+  },
+]) {
+  assert.equal(
+    scoreResponsibilityAnswerKey({
+      expected: [{ role: 'Licensed Team', action: 'prioritize', object: 'rush submissions' }],
+      actual: [adversarial.actual],
+    }).recall,
+    0,
+    adversarial.name,
+  );
+}
+const oneActualCannotCreditTwo = scoreResponsibilityAnswerKey({
+  expected: [
+    { role: 'Licensed Team', action: 'prioritize', object: 'rush submissions' },
+    { role: 'Licensed Team', action: 'email', object: 'rush submissions' },
+  ],
+  actual: [
+    {
+      role: 'Licensed Team',
+      action: 'prioritize and email',
+      object: 'rush approval submissions',
+    },
+  ],
+});
+assert.equal(oneActualCannotCreditTwo.matched, 1);
+const multiSystemBa = {
+  role: 'Licensed Team',
+  action: 'save',
+  object: 'BA number to MasterData DesignFlow and ColdLion',
+};
+assert.equal(
+  scoreResponsibilityAnswerKey({
+    expected: [
+      { role: 'Licensed Team', action: 'save', object: 'BA number to MasterData' },
+      { role: 'Licensed Team', action: 'save', object: 'BA number to DesignFlow' },
+      { role: 'Licensed Team', action: 'save', object: 'BA number to ColdLion' },
+    ],
+    actual: [multiSystemBa],
+  }).matched,
+  1,
+);
+assert.equal(
+  scoreResponsibilityAnswerKey({
+    expected: [
+      {
+        role: 'Licensed Team',
+        action: 'maintain',
+        object: '4 Seasons approval status sheet',
+      },
+    ],
+    actual: [
+      {
+        role: 'Licensed Team',
+        action: 'maintain',
+        object: 'Status Approvals on a Google Sheet for 4 Seasons',
+      },
+    ],
+  }).recall,
+  1,
+  'explicit approvals/approval normalization',
+);
+assert.equal(
+  scoreResponsibilityAnswerKey({
+    expected: [{ role: 'Licensed Team', action: 'save', object: 'BA number to MasterData' }],
+    actual: [{ role: 'Licensed Team', action: 'save', object: 'BA number to Master Data' }],
+  }).recall,
+  1,
+);
+assert.equal(
+  scoreResponsibilityAnswerKey({
+    expected: [{ role: 'Licensed Team', action: 'save', object: 'BA number to MasterData' }],
+    actual: [{ role: 'Licensing Team', action: 'save', object: 'BA number to MasterData' }],
+  }).recall,
+  0,
+  'unpinned role aliases must not match',
+);
+for (const negation of ['not', "don't", 'dont', 'cannot', "can't", 'cant']) {
+  assert.equal(
+    scoreResponsibilityAnswerKey({
+      expected: [{ role: 'Licensed Team', action: 'submit', object: 'product safety tests' }],
+      actual: [
+        {
+          role: 'Licensed Team',
+          action: `${negation} submit`,
+          object: 'product safety tests',
+        },
+      ],
+    }).recall,
+    0,
+    `negation ${negation}`,
+  );
+}
+const stableCandidates = [
+  { role: 'Licensed Team', action: 'submit', object: 'quarterly royalty reports' },
+  { role: 'Licensed Team', action: 'submit and archive', object: 'quarterly royalty reports' },
+];
+const stabilityExpected = [
+  { role: 'Licensed Team', action: 'submit', object: 'quarterly royalty reports' },
+];
+assert.deepEqual(
+  scoreResponsibilityAnswerKey({ expected: stabilityExpected, actual: stableCandidates }).evidence,
+  scoreResponsibilityAnswerKey({ expected: stabilityExpected, actual: [...stableCandidates].reverse() })
+    .evidence,
+);
+for (const falseEquivalent of ['insure', 'maintain contact', 'complete removal', 'reach around']) {
+  assert.equal(
+    scoreResponsibilityAnswerKey({
+      expected: [{ role: 'Lic Manager', action: 'request', object: 'factory audits' }],
+      actual: [{ role: 'Lic Manager', action: falseEquivalent, object: 'factory audits' }],
+    }).recall,
+    0,
+    `false action equivalent ${falseEquivalent}`,
+  );
+}
 const mergeSource = readFileSync(
   new URL('../lib/business-model-merge.ts', import.meta.url),
   'utf8',
