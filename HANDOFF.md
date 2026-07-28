@@ -7,6 +7,31 @@ HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed 
 
 ## Latest closeout — 2026-07-28
 
+R2 Batch E shipped in commit `b761df9`, green CI `30381079154`, and Trigger worker
+`20260728.4` deployment `0xa17r8u`. The fifth fresh pinned production gate completed as run
+`run_06fqjdgqlir7oi1sgdr1tvmj01`, disposable document
+`b01688b8-2d0c-4d0c-a546-464f154f7de9`, and degraded map
+`94a32c78-6adc-4af0-ae39-f60aa658331b`. Frozen `field-aware-v3` recall improved only to
+**20/30 (66.7%)**, below 27/30. The map kept 179 responsibilities and dropped 11, used all five
+omission retries, moved omissions from 92 to 84, and accepted grounded quote repair that reduced
+root quote failures from 10 to 6. Reader use was 25/40 calls, 62,680/500,000 input tokens, one
+general repair, and `$0.3134/$10` estimated input cost. No responsibility call truncated.
+Merge/apply stayed false, post-pass limits stayed 1/5/1, and business objects, versions, and changes
+stayed zero. The outer document was still in the later claim phase; the R2 map/job was terminal.
+
+Grok 4.5 reviewed the failure and said **continue R2 with Batch F**, but only as a bounded
+span-anchored field-fidelity change. Do not do another free-form prompt/retry batch. Batch F must
+force one selected duty span to one validated RAO, check action direction and object fidelity
+against that span, prefer short structured duties, split multi-verb chains, and keep focused
+context limited to the selected spans. Frozen scorer, fixture, quote policy, budgets, flags, and
+zero-write rules remain unchanged. After one reviewed Batch F release and one fresh gate:
+`>=27/30` proceeds to later R2 shadow-merge work; `24–26/30` stops code churn and permits a bounded
+model bake-off only on the span-anchored path; `<=23/30` stops completeness batches and requires an
+owner decision between bake-off and deeper architecture. Full evidence is in
+`evals/r2-responsibilities.md`.
+
+## Prior closeout — 2026-07-28
+
 R2 Batch D shipped in commit `d5df5b6`, green CI `30376445491`, Trigger worker `20260728.3`
 deployment `7ws4iiak`, and READY Vercel deployment
 `dpl_DDJuRqwSrUREN93ppBShrsGCmP1a`. The fourth fresh pinned production gate completed as Trigger
@@ -146,11 +171,12 @@ R0.1 is also complete and production-verified. Commit `da1ad5a`, CI `30271360677
 `54cfec32-b428-490f-9e21-ab79c8f3add4` prove the at-most-1-root gate with no fuzzy quote admitted.
 The run reread document `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea`, kept 100, dropped 6, used 5
 read calls, 30,949 estimated input tokens, and `$0.154745` estimated input cost. R1 is complete.
-R2 entry decisions 1, 3, and 4 are recorded. Decision 2 remains deferred to R6. Batch D shipped in
-commit `d5df5b6`. Its fourth production gate created map
-`6e4da423-f73c-4891-9b5a-9e046bd79823`, kept 190 responsibilities, dropped five strict quote
-mismatches, and still scored 19/30 (63.3%) with frozen `field-aware-v3`. R2 remains blocked below
-its 90% gate. Merge and apply stayed false; all durable business-model table counts stayed zero.
+R2 entry decisions 1, 3, and 4 are recorded. Decision 2 remains deferred to R6. Batch E shipped in
+commit `b761df9`. Its fifth production gate created map
+`94a32c78-6adc-4af0-ae39-f60aa658331b`, kept 179 responsibilities, dropped 11, and scored
+20/30 (66.7%) with frozen `field-aware-v3`. R2 remains blocked below its 90% gate. Merge and apply
+stayed false; all durable business-model table counts stayed zero. Batch D and all earlier gates
+remain recorded below as history.
 
 ## Everything we tried that did NOT work
 
@@ -208,6 +234,10 @@ its 90% gate. Merge and apply stayed false; all durable business-model table cou
   `evals/r2-responsibilities.md`.
 - Batch C shipped and live-tested. Its chunk shards, omission audit, bounded retries, strict quote
   repair, and finish/truncation diagnostics improved the score to 19/30 but did not pass.
+- Batch E shipped and live-tested. Duty-complete base reads, one durable synthetic read, five
+  focused retries, selected-span audits, and grounded quote repair improved exact quote failures
+  from 10 to 6, but recall moved only from 19/30 to 20/30. Grok found the remaining failure is
+  free-form field fidelity, not discovery, scoring, quote repair, or budget capacity.
 - Base reads and retries use collision-proof deterministic ID prefixes, and map persistence now
   fails loudly if any responsibility element ID is duplicated.
 - The production migration rerun blocker was fixed in commit `f31f66a`. CI `30318748914` passed
@@ -215,17 +245,20 @@ its 90% gate. Merge and apply stayed false; all durable business-model table cou
 
 ## Exact next steps
 
-1. Design Batch E from the completed Grok review: deterministic duty-span completeness, the
-   orphan/`no_source_read` path, durable selected-span audit evidence, and grounded quote repair.
+1. Implement Batch F only as the reviewed span-anchored field-fidelity change: one selected duty
+   span to one validated RAO, field/polarity checks against the span, short structured-span ranking,
+   deterministic multi-verb splitting, and selected-span-only retry context.
 2. Keep the frozen key, `field-aware-v3` scorer, 90% threshold, strict quote validation, reader
    budgets, merge/apply flags, and zero durable-write requirement unchanged.
-3. Implement and review Batch E, then release and rerun one fresh pinned gate only after approval;
-   require at least 90%.
-4. Only after recall passes, enable shadow merge and prove real shadow create, same-map idempotency, sequential confirm, near-match review, bounded
+3. Review Batch F independently, release it once, and run exactly one fresh pinned gate.
+4. Apply the exact decision gate: `>=27/30` proceeds; `24–26/30` stops code churn and runs a bounded
+   model bake-off only on the span-anchored path; `<=23/30` stops completeness batches and requires
+   an owner decision.
+5. Only after recall reaches at least 27/30, enable shadow merge and prove real shadow create, same-map idempotency, sequential confirm, near-match review, bounded
    refine, namespace collision, and desktop/narrow read-only UI.
-5. Use the existing R0.1 production map as the release baseline; do not weaken exact quote
+6. Use the existing R0.1 production map as the release baseline; do not weaken exact quote
    validation to remove the remaining honest costing-segment degradation.
-6. Reliability and product-gap work may continue without changing macro stage
+7. Reliability and product-gap work may continue without changing macro stage
    order. Each session must update its plan status table and this handoff.
 
 ## Constraints and gotchas
@@ -246,10 +279,11 @@ never print or persist the value. Trigger project is `proj_wgpzsvhmsopqhvwqaycn`
 
 ## Open questions and risks
 
-No R0, R0.1, or R1 release blocker remains. R2 has four live fixture runs, but its best frozen
-score is only 19/30 (63.3%). Batch D is released and its fourth gate failed. Bake-off, shadow
-proposals, merge, apply, and visual proof remain blocked. The canonical sequence and
-evidence-authority decisions remain unchanged.
+No R0, R0.1, or R1 release blocker remains. R2 has five live fixture runs. Its best frozen score is
+20/30 (66.7%) on Batch E. Batch F is the final bounded completeness batch under the reviewed
+decision tree. Bake-off is allowed only at 24–26 after Batch F; a result at or below 23 requires an
+owner decision. Shadow proposals, merge, apply, and visual proof remain blocked until at least
+27/30. The canonical sequence and evidence-authority decisions remain unchanged.
 
 ## HISTORICAL PLAN UPDATE — 2026-07-21
 

@@ -2,7 +2,7 @@
 
 Date: 2026-07-28
 
-Status: **BLOCKED. The fourth live reader scored 19/30 (63.3%), below the 90% gate.**
+Status: **BLOCKED. The fifth live reader scored 20/30 (66.7%), below the 90% gate. Batch F is next under the stop/go rules below.**
 
 Pinned fixture manifest:
 
@@ -402,3 +402,105 @@ Batch D shipped in commit `d5df5b6` and is the code exercised by the fourth prod
 - AI and worker typechecks passed.
 - R2 responsibility, source workflow, R0 validator, R1 cross-shape, macro-first lifecycle, and
   document-ingestion fallback checks passed.
+
+## Fifth production reader gate
+
+Batch E shipped in commit `b761df9`, green CI `30381079154`, and Trigger worker `20260728.4`
+deployment `0xa17r8u`. The fifth fresh pinned production gate completed normally, but frozen
+recall was only **20/30 (66.7%)**. R2 remains blocked.
+
+- Pinned source SHA-256:
+  `398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be`.
+- Frozen key: `licensed-team-responsibilities-v1`; matcher: `field-aware-v3`.
+- Trigger run: `run_06fqjdgqlir7oi1sgdr1tvmj01`.
+- Disposable document: `b01688b8-2d0c-4d0c-a546-464f154f7de9`.
+- Map: `94a32c78-6adc-4af0-ae39-f60aa658331b`, terminal `degraded`.
+- Source-workflow job: `65e91226-7aaf-4523-a41d-0455efc84494`, terminal `complete`, no error or
+  retry.
+- Final model run: `3eb7369d-11c9-4a0c-bc14-9254ec4dc5a7`.
+- Final context pack: `9187710f-0075-4d15-a6f2-ebfc0a51d857`.
+- Pipeline `shape-reader-v6-r2-batch-e` used five responsibility base reads. One was the durable
+  synthetic segment `responsibility_duty_chunk_002`.
+- Responsibility result: 179 kept, 11 dropped. Full map result: 485 kept, 31 dropped.
+- Omission audit moved from 92 to 84. All five allowed retries ran, one per chunk, with accepted
+  record counts `2`, `3`, `7`, `5`, and `4`.
+- Every selected span has durable rank, text, SHA-256, result, and base-read membership. The final
+  uncovered sample preserves the first 30 of 84 remaining spans.
+- Grounded quote repair used its one attempt, was accepted, and reduced root quote failures from
+  10 to 6. Ten repair rows each preserved 12 candidates plus returned text/SHA evidence.
+- Reader budget: 25/40 calls, 62,680/500,000 estimated input tokens, 1/1 general repair, and
+  `$0.3134/$10` estimated input cost.
+- Responsibility calls: 10 calls, 18,861 input tokens, 24,272 output tokens, prompt
+  `responsibility-read-v2.3-duty-complete`.
+- Responsibility quote repair: one call, 12,600 input tokens, 618 output tokens, prompt
+  `responsibility-quote-repair-v2.3-grounded`.
+- No responsibility execution reported truncation. Provider `cost_usd` stayed null, so the
+  reader's estimated input cost is the durable cost evidence.
+- The outer document remained `processing` with no error because later claim extraction was still
+  running. The R2 map and source-workflow job were terminal; the outer status is not an R2 failure.
+- Before and after: merge `false`, apply `false`, post-pass limits `1/5/1`, and
+  `business_objects`, `business_object_versions`, `business_model_changes` all `0`.
+
+Chunk aliases: C0 `7f1604d8-febe-4bdc-9237-8d5dd20043f3`; C1
+`c168a068-7faa-4e1b-a215-427ad0b364c2`; C2 `53a0d68f-1cb7-424a-adb1-5dbce5c7edf4`; C3
+`92d03713-c9ae-411a-9239-4328dc5af49c`; C4
+`b9ad26de-ffdd-4955-b9ae-4d45c130e0a6`.
+
+| # | Expected role / action / object | Result | Best actual role / action / object | Object coverage |
+|---:|---|---|---|---:|
+| 1 | Licensed Team / prioritize / rush submissions | match | Licensed Team / prioritize submissions / submissions that are rush requests | 100% |
+| 2 | Licensed Team / email / licensor for rush approval | match | Licensed Team / email / licensor to request rush approval in system | 100% |
+| 3 | Lic Manager / request / order value and units from Sales | match | Lic Manager / reach out / Sales team for order value and units | 100% |
+| 4 | Licensed Team / check / legal lines logos and artwork against style guides | match | Licensed Team / check / all legal lines, logos, and artwork against Licensor Style Guides | 100% |
+| 5 | Licensed Team / submit / concepts into licensor systems | match | Licensed Team / submit / concepts into different Licensor Systems | 100% |
+| 6 | Licensed Team / save / BA form to SharedLic server | match | Licensed Team / save / BA form to SharedLic server `SKU#_CRS` | 100% |
+| 7 | Licensed Team / save / BA number to MasterData | match | Licensed Team / save / BA number to MasterData | 100% |
+| 8 | Licensed Team / save / BA number to DesignFlow | match | Licensed Team / save / BA number to DesignFlow | 100% |
+| 9 | Licensed Team / save / BA number to ColdLion | match | Licensed Team / save / BA number to ColdLion | 100% |
+| 10 | Licensed Team / assign / revision to SKU designer | match | Licensed Team / assign / revision to Designer of SKU | 100% |
+| 11 | Licensed Team / update / Microsoft Loop licensor status | match | Licensed Team / update / Microsoft Loop for Licensor Status and team feedback | 100% |
+| 12 | Licensed Team / check / designer revision against licensor feedback | match | Licensed Team / check / revision against licensor feedback | 100% |
+| 13 | Licensed Team / resubmit / revised tech pack to licensor systems | match | Licensed Team / resubmit / revised tech pack to Licensor Systems | 100% |
+| 14 | Lic Coordinator / download / PPS photos from factory sample request email | miss | Lic Coordinator / download photos / Factory Sample Request email | 66.7% |
+| 15 | Lic Coordinator / rename / PPS files by SKU number | miss | Lic Coordinator / rename files / according to SKU number | 25% |
+| 16 | Licensed Team / review / PPS photos against tech pack specifications | miss | Licensed Team / review PPS photos / photos match tech pack specifications | 66.7% |
+| 17 | Licensed Team / submit / PPS photos in licensor portals | miss | Licensed Team / submit improved production photos / photos after PPS comments | 75% |
+| 18 | Licensed Team / submit / product safety tests | miss | Licensed Team / submit improved production photos / photos after PPS comments | 0% |
+| 19 | Lic Manager / fill out / Letter of Guarantee | miss | Lic Manager / fill out LOG / hazardous-substance safety submission | 0% |
+| 20 | Lic Manager / request / contractual sample exemption | match | Lic Manager / request / Contractual Sample Exemption | 100% |
+| 21 | Lic Manager / submit / factory audits into submission portal | match | Lic Manager / submit Factory Audits / audits into Submission Portal | 100% |
+| 22 | Lic Manager / enter / factory information into MasterData vendor tab | match | Lic Manager / enter Factory Information / Vendor tab in MasterData | 100% |
+| 23 | Lic Manager / request / factory audits before approval expiration | miss | Lic Manager / request audits / audits three months before approval expiration | 80% |
+| 24 | Licensed Team / download / style guides to style guide server | miss, action | Licensed Team / assist / Design Team downloading Style Guides to server | 100% |
+| 25 | Licensed Team / organize / assets by file type | match | Licensed Team / organize / assets by file type | 100% |
+| 26 | Licensed Team / submit / quarterly royalty reports | miss | Licensed Team / submit / reports | 33.3% |
+| 27 | Lic Manager / request / trademark authorization forms | match | Lic Manager / request / Trademark Authorization forms | 100% |
+| 28 | Lic Manager / maintain / contracts by licensor | match | Lic Manager / ensure / Contracts by Licensor are up to date | 100% |
+| 29 | Licensed Team / provide / assets to partners | miss, direction | Licensed Team / receive request / partner request for assets | 100% |
+| 30 | Licensed Team / maintain / 4 Seasons approval status sheet | match | Licensed Team / maintain Status Approvals / Google Sheet for 4 Seasons | 100% |
+
+### Fifth-gate review and Batch F decision
+
+Grok 4.5's verdict is **continue R2 with Batch F**. Batch E proved discovery and grounded quote
+repair work, but 21 accepted retry records closed only eight omissions and gained one answer-key
+row. The stable ten-row miss cluster is field fidelity, not scorer error or missing read capacity.
+Do not run another free-form prompt/retry batch.
+
+Batch F is bounded to the responsibility post-pass:
+
+- Force one selected duty span to one validated role-action-object record.
+- Validate action direction, named forms, systems, destinations, cadence, timing, and object
+  completeness against the selected span, never the answer key.
+- Prefer short list-structured, verb-starting, explicitly owned spans over long prose.
+- Split multi-verb chains and reject field-thinned, wrong-form, or reversed-direction records.
+- Limit focused retry evidence to the selected spans.
+- Keep grounded quote repair quote-only.
+- Keep the fixture, `field-aware-v3`, 27/30 threshold, strict quote policy, 40/500k/$10 reader
+  limits, 1/5/1 post-pass limits, false merge/apply flags, and zero-write rule frozen.
+
+After one independently reviewed Batch F release and one fresh gate:
+
+- `>=27/30`: proceed to later R2 shadow-merge gates.
+- `24–26/30`: stop code churn and run a bounded model bake-off only on the span-anchored path.
+- `<=23/30`: stop completeness batches and require an owner decision between bake-off and deeper
+  architecture.
