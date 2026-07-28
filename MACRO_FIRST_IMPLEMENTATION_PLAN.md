@@ -17,7 +17,7 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
 | R0.1 | ✅ done, 2026-07-27 | Commit `da1ad5a`; CI `30271360677`; worker `20260727.3` (`75jeiusj`, 24 tasks); forced run `run_06fqbf50qn8kvq69h6u3dg7601` produced map `54cfec32-b428-490f-9e21-ab79c8f3add4` with 1 exact root drop, 5 cascades, 1 repair attempt, and no admitted fuzzy quote |
 | R1 | ✅ done, 2026-07-27 | Commits `5f962b5` + `24bbf70`; CI `30269886119` attempt 2 green including empty-DB migration, transactional R1 verifier, and drift; production migration succeeded; drift 11/11; Vercel `24bbf70` deployed with HTTP 200; worker `20260727.2` (`h6ri0rb9`, 24 tasks) |
-| R2 | 🟥 blocked, 2026-07-27 | Live fixture map `ebd13d54-215f-4bed-9d3c-14c63df4b624` retained 98 responsibility records with zero drops, but exclusive deterministic matcher `field-aware-v3` scores 18/30 (60%), below the 90% gate; local thin-record prompt v2 awaits Grok review and live rerun; merge/apply stayed false and no durable object/version was written |
+| R2 | 🟥 blocked, 2026-07-28 | Second live map `242c84a3-d12b-4ff3-8ef8-35b6ef9245dc` on prompt v2.1 scored 17/30 (56.7%), kept 82 responsibilities, and dropped 5 strict quote mismatches; worse than the first map's 18/30 (60%); merge/apply stayed false and no durable object/version/proposal was written |
 | R3 | ⬜ open | Blocked on R2 |
 | R4 | ⬜ open | Blocked on R3 |
 | R5 | ⬜ open | Blocked on R4 |
@@ -1273,10 +1273,14 @@ R0, R0.1, and R1 are complete, CI-green, deployed, and production-verified. Thei
 is recorded in the status table and eval logs. The R0.1 production gate passed with 1 exact root
 drop, 5 cascades, 1 repair attempt, and no admitted fuzzy document quote.
 
-The immediate next action is Grok review of local
-`responsibility-read-v2.1-thin-source-faithful`, then a live fixture rerun for the 12 auditable
-pinned-fixture misses in `evals/r2-responsibilities.md`. Rerun the read-only answer-key score and
-require at least 90% before enabling shadow merge or starting bake-off, proposal, reread,
+The immediate next action is Grok review of the failed second live gate and a local reader
+completeness/quote-copy root fix for the 13 auditable misses and five strict quote drops in
+`evals/r2-responsibilities.md`. Local Batch C now shards reads by chunk, audits uncovered
+duty-bearing source spans, uses separate bounded responsibility omission and quote-repair allowances
+while still charging the shared read/token/cost limits, accepts quote repair only
+after the unchanged exact validator passes, and records finish/truncation data. Grok must approve
+this local implementation before another deployment. Rerun the pinned gate only after approval, and require
+at least 90% before enabling shadow merge or starting bake-off, proposal, reread,
 near-match, namespace-collision, or UI gates. Do not repeat R0/R0.1 work or the completed R1
 audit/schema stage.
 

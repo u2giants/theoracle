@@ -1,8 +1,8 @@
 # R2 Responsibilities Gate
 
-Date: 2026-07-27
+Date: 2026-07-28
 
-Status: **BLOCKED. The live reader ran, but exclusive strict answer-key recall is 60%, below the 90% gate.**
+Status: **BLOCKED. The latest live reader scored 56.7%, below the 90% gate.**
 
 Pinned fixture manifest:
 
@@ -89,7 +89,8 @@ Pinned fixture manifest:
 - Local Batch B bumps the reader to `responsibility-read-v2.1-thin-source-faithful`. Its system and
   request prompts require exact source-owner labels, one duty and one destination per record, short
   action phrases, and preservation of concrete systems, portals, servers, forms, cadence, and timing.
-  This prompt is locally tested but has not been deployed or rerun; Grok review is the next gate.
+  This prompt was deployed and failed its second live gate. Batch C local hardening now awaits Grok
+  review before any further deployment or rerun.
 
 ## Field-aware-v3 production audit
 
@@ -128,6 +129,64 @@ responsibility records. The table records the stable best candidate even when it
 | 28 | Lic Manager / maintain / contracts by licensor | match, field-aware | Lic Manager / ensure / Contracts by Licensor up to date | Ensure Contracts by Licensor are up to date | `86e9e4ea-00f7-4b29-b591-a253fcb9e653` |
 | 29 | Licensed Team / provide / assets to partners | miss, action differs | Licensed Team / receive / request from partners for assets | receives a request from different partners | `86e9e4ea-00f7-4b29-b591-a253fcb9e653` |
 | 30 | Licensed Team / maintain / 4 Seasons approval status sheet | match, field-aware | Licensed Team / maintain / Status Approvals on Google Sheet for 4 Seasons | Maintains Status Approvals on a Separate Google Sheet | `86e9e4ea-00f7-4b29-b591-a253fcb9e653` |
+
+## Second production reader gate
+
+The deployed `responsibility-read-v2.1-thin-source-faithful` reader ran on a new disposable copy of
+the same pinned SHA. This result is worse than the first gate and remains blocked.
+
+- Trigger run: `run_06fqc2v7c8kps1flqtfpjmts01`, worker `20260728.1`.
+- Document: `d5f8ebaa-83bd-49eb-ac2d-9226250960c9`.
+- Map: `242c84a3-d12b-4ff3-8ef8-35b6ef9245dc`, status `degraded`.
+- Workflow model run: `a3781e5c-18c2-427c-8dc3-60607968ec53`.
+- Context pack: `f0deefdb-b0fb-46ed-8059-d999b3dcc1a9`.
+- Pipeline: `shape-reader-v5-r2-responsibilities`.
+- Responsibility prompt: `responsibility-read-v2.1-thin-source-faithful`.
+- Coverage: 5/5 supplied chunks covered; 82 responsibilities kept and 5 dropped.
+- Whole map: 425 records kept and 12 dropped.
+- Five responsibility drops were strict `markdown_document` quote mismatches in
+  `licensed-team-and-manager-responsibilities`.
+- Unchanged `field-aware-v3` score: 17/30, or 56.7%.
+- Safety: merge and apply remained `false`; durable objects, versions, and proposals remained zero.
+
+| # | Expected role / action / object | Result | Best actual role / action / object | Quote excerpt | Chunk |
+|---:|---|---|---|---|---|
+| 1 | Licensed Team / prioritize / rush submissions | match | Licensed Team / prioritize submissions / submissions that are rush requests | prioritize submissions that are rush requests | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 2 | Licensed Team / email / licensor for rush approval | match | Licensed Team / email / licensor to request rush approval in system | email the licensor to request a rush approval | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 3 | Lic Manager / request / order value and units from Sales | match | Lic Manager / reach out / Sales team to get order value and units | reach out to Sales team | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 4 | Licensed Team / check / legal lines logos and artwork against style guides | match | Licensed Team / check / legal lines logos and artwork against Licensor Style Guides | MUST check all legal lines | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 5 | Licensed Team / submit / concepts into licensor systems | match | Licensed Team / submit / concepts into Different Licensor Systems | submits into the Different Licensor Systems | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 6 | Licensed Team / save / BA form to SharedLic server | match | Licensed Team / save / BA form to SharedLic server | Save BA form to SharedLic server | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 7 | Licensed Team / save / BA number to MasterData | match | Licensed Team / save / BA number to MasterData | Save BA number to MasterData | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 8 | Licensed Team / save / BA number to DesignFlow | match | Licensed Team / save / BA number to DesignFlow | Save BA number to DesignFlow | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 9 | Licensed Team / save / BA number to ColdLion | match | Licensed Team / save / BA number to ColdLion | Save BA number to ColdLion | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 10 | Licensed Team / assign / revision to SKU designer | match | Licensed Team / assign / Revision to Designer of SKU | Assign Revision to the Designer | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 11 | Licensed Team / update / Microsoft Loop licensor status | miss | Licensed Team / update / DesignFlow status | Update DesignFlow status | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 12 | Licensed Team / check / designer revision against licensor feedback | match | Licensed Team / check / Revision Designer provided against licensor feedback | Check the Revision | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 13 | Licensed Team / resubmit / revised tech pack to licensor systems | match | Licensed Team / resubmit / revised tech pack to Licensor Systems | Resubmit the revised tech pack | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 14 | Lic Coordinator / download / PPS photos from factory sample request email | miss | Lic Coordinator / provide / assets to partners | provides assets to partners | `b028869c-18c1-477a-88d4-1daa0884859f` |
+| 15 | Lic Coordinator / rename / PPS files by SKU number | miss | Lic Coordinator / provide / assets to partners | provides assets to partners | `b028869c-18c1-477a-88d4-1daa0884859f` |
+| 16 | Licensed Team / review / PPS photos against tech pack specifications | miss | Licensed Team / enter / tech pack submission date in MasterData | Enter the date when tech pack is submitted | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 17 | Licensed Team / submit / PPS photos in licensor portals | miss | Licensed Team / submit improved production photos / improved photos after licensor comments | Submit improved production photos | `27199df0-269d-4c6d-9d1d-f7b82293cfef` |
+| 18 | Licensed Team / submit / product safety tests | miss | Licensed Team / submit improved production photos / improved photos after comments | Submit improved production photos | `27199df0-269d-4c6d-9d1d-f7b82293cfef` |
+| 19 | Lic Manager / fill out / Letter of Guarantee | miss | Lic Manager / save Approval Letter / Approval Letter to FAMA Server | Save the Approval Letter | `27199df0-269d-4c6d-9d1d-f7b82293cfef` |
+| 20 | Lic Manager / request / contractual sample exemption | match | Lic Manager / request Contractual Sample Exemption / exemption from licensors | Request Contractual Sample Exemption | `27199df0-269d-4c6d-9d1d-f7b82293cfef` |
+| 21 | Lic Manager / submit / factory audits into submission portal | match | Lic Manager / submit factory audits / audits into Submission Portal | Submit Factory Audits into the Submission Portal | `27199df0-269d-4c6d-9d1d-f7b82293cfef` |
+| 22 | Lic Manager / enter / factory information into MasterData vendor tab | match | Lic Manager / enter factory information / information on Vendor tab in MasterData | Enter Factory Information | `27199df0-269d-4c6d-9d1d-f7b82293cfef` |
+| 23 | Lic Manager / request / factory audits before approval expiration | miss, object 80% | Lic Manager / reach out to Factories to request audits / audits three months before approval expiration | Request audits AT LEAST 3 months before expiration | `27199df0-269d-4c6d-9d1d-f7b82293cfef` |
+| 24 | Licensed Team / download / style guides to style guide server | miss | Licensed Team / download / techpacks or linesheets | downloads techpacks or linesheets | `b028869c-18c1-477a-88d4-1daa0884859f` |
+| 25 | Licensed Team / organize / assets by file type | miss | Licensed Team / check / legal lines logos and artwork | check all legal lines | `dddcab4b-c3e3-4fb0-8258-4abe3b91f30b` |
+| 26 | Licensed Team / submit / quarterly royalty reports | miss | Licensed Team / submit improved production photos / improved production photos | Submit improved production photos | `27199df0-269d-4c6d-9d1d-f7b82293cfef` |
+| 27 | Lic Manager / request / trademark authorization forms | miss | Lic Manager / request audits / audits before expiration | Request audits | `27199df0-269d-4c6d-9d1d-f7b82293cfef` |
+| 28 | Lic Manager / maintain / contracts by licensor | match | Lic Manager / ensure / Contracts by Licensor up to date | Ensure Contracts by Licensor are up to date | `b028869c-18c1-477a-88d4-1daa0884859f` |
+| 29 | Licensed Team / provide / assets to partners | miss, action differs | Licensed Team / receive / request from partners for assets | receives a request from different partners | `b028869c-18c1-477a-88d4-1daa0884859f` |
+| 30 | Licensed Team / maintain / 4 Seasons approval status sheet | match | Licensed Team / maintain / approval status on Google Sheet for 4 Seasons | Maintains Status Approvals on a Separate Google Sheet | `b028869c-18c1-477a-88d4-1daa0884859f` |
+
+Diagnosis: v2.1 correctly split the combined rush duties and preserved the audit portal, but it did
+not improve overall recall. It lost previously matched Loop, asset-organization, royalty-report,
+and trademark-form duties, retained the longstanding PPS/safety/guarantee/style-guide/partner
+misses, and introduced five strict quote drops. The next change must address reader completeness
+and verbatim quote copying without weakening the matcher or evidence validator.
 - The fixture has not completed map-directed claim extraction, so 90% valid evidence-claim coverage
   is not yet proven.
 - The responsibilities read and model-merge bake-off has not run.
@@ -138,8 +197,24 @@ responsibility records. The table records the stable best candidate even when it
   proofs only.
 - The read-only admin rendering typechecks, but its desktop and narrow-width visual gate has not run
   against a real shadow proposal.
-- The swimlane regression is green locally, but the new responsibilities reader has not been
-  deployed or tested against live data.
+- The swimlane regression is green locally. The responsibilities reader has been deployed and
+  tested twice, but both live answer-key gates failed.
+
+## Batch C local hardening
+
+- Responsibility reads are sharded into deterministic single-chunk calls and merged in stable
+  segment/chunk order. Base reads and every retry use separate deterministic prefixes, and a
+  global uniqueness guard blocks duplicate element IDs before map persistence.
+- A source-driven omission audit finds duty-bearing spans not covered by any kept exact quote and
+  allows bounded focused retries under separate responsibility post-pass allowances and the shared read/token/cost budget.
+- Responsibility quote repair is limited to root `quote_mismatch` records. It may change only the
+  quote, may not move chunks, and is accepted only when the unchanged strict validator reduces
+  exact-policy failures.
+- Responsibility call diagnostics now retain output tokens, provider finish reason when present,
+  and a derived truncation flag.
+- Structured list candidates require a duty verb or a generic ownership/responsibility cue.
+- The answer key and `field-aware-v3` scorer remain frozen.
+- Batch C is local and unreviewed. No production rerun is authorized until Grok approves it.
 
 One disposable production fixture document and its normal ingestion artifacts were created for the
 authorized gate. Neither merge nor apply was enabled. Durable business objects and versions remain

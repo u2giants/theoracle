@@ -130,6 +130,57 @@ export class SourceReaderBudget {
   }
 }
 
+export type ResponsibilityPostPassBudgetLimits = {
+  maxQuoteRepairsPerSource: number;
+  maxOmissionRetriesPerSource: number;
+  maxOmissionRetriesPerChunk: number;
+};
+
+export class ResponsibilityPostPassBudget {
+  private quoteRepairs = 0;
+  private omissionRetries = 0;
+  private readonly omissionRetriesByChunk = new Map<string, number>();
+
+  constructor(readonly limits: ResponsibilityPostPassBudgetLimits) {
+    for (const [name, value] of Object.entries(limits)) {
+      if (!Number.isInteger(value) || value < 0) {
+        throw new Error(`[responsibility-post-pass-budget] ${name} must be a non-negative integer.`);
+      }
+    }
+    if (limits.maxQuoteRepairsPerSource > 1) {
+      throw new Error('[responsibility-post-pass-budget] quote repair cap may not exceed 1.');
+    }
+  }
+
+  reserveQuoteRepair(): void {
+    if (this.quoteRepairs + 1 > this.limits.maxQuoteRepairsPerSource) {
+      throw new Error('[responsibility-post-pass-budget] quote repair allowance exhausted.');
+    }
+    this.quoteRepairs += 1;
+  }
+
+  reserveOmissionRetry(chunkId: string): void {
+    const chunkCount = this.omissionRetriesByChunk.get(chunkId) ?? 0;
+    if (this.omissionRetries + 1 > this.limits.maxOmissionRetriesPerSource) {
+      throw new Error('[responsibility-post-pass-budget] source omission allowance exhausted.');
+    }
+    if (chunkCount + 1 > this.limits.maxOmissionRetriesPerChunk) {
+      throw new Error('[responsibility-post-pass-budget] chunk omission allowance exhausted.');
+    }
+    this.omissionRetries += 1;
+    this.omissionRetriesByChunk.set(chunkId, chunkCount + 1);
+  }
+
+  snapshot() {
+    return {
+      quoteRepairs: this.quoteRepairs,
+      omissionRetries: this.omissionRetries,
+      omissionRetriesByChunk: Object.fromEntries(this.omissionRetriesByChunk),
+      limits: this.limits,
+    };
+  }
+}
+
 export async function mapWithConcurrency<TInput, TOutput>(args: {
   inputs: readonly TInput[];
   concurrency: number;

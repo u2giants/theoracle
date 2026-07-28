@@ -8,7 +8,17 @@ import {
 } from '@oracle/ai';
 import {
   responsibilityCoverage,
+  responsibilityMapElementRef,
+  findResponsibilityOmissions,
+  mergeResponsibilityValidationResults,
+  mergeResponsibilityRetryValidation,
+  patchResponsibilityQuoteRepairs,
+  prefixResponsibilityOutput,
+  prefixResponsibilityRetryOutput,
+  assertUniqueResponsibilityElementIds,
+  responsibilityParentSegment,
   responsibilityRawAuditArtifact,
+  shardResponsibilitySegments,
   validateResponsibilityRead,
 } from '../lib/responsibility-reader';
 import {
@@ -18,7 +28,15 @@ import {
   assertResponsibilityVersionTarget,
 } from '../lib/business-model-merge';
 import { shouldDispatchResponsibilityShadowMerge } from '../trigger/document-ingestion';
-import { scoreResponsibilityAnswerKey } from '../lib/responsibility-answer-key';
+import {
+  RESPONSIBILITY_ANSWER_KEY_MATCHER_VERSION,
+  scoreResponsibilityAnswerKey,
+} from '../lib/responsibility-answer-key';
+import {
+  ResponsibilityPostPassBudget,
+  SourceReaderBudget,
+  SourceReaderBudgetExceededError,
+} from '../lib/source-reader-budget';
 const answerKey = JSON.parse(
   readFileSync(
     new URL('../__fixtures__/licensed-team-responsibilities-v1.json', import.meta.url),
@@ -32,6 +50,7 @@ const answerKey = JSON.parse(
 
 const documentId = '11111111-1111-4111-8111-111111111111';
 const chunkId = '22222222-2222-4222-8222-222222222222';
+const otherChunkId = '44444444-4444-4444-8444-444444444444';
 const segment: SourceStructureSegment = {
   segmentId: 'licensed_team',
   shape: 'responsibilities',
@@ -74,13 +93,225 @@ assert.equal(result.primaryCount, 1);
 assert.equal(result.diagnostics.length, 0);
 assert.equal(result.elements[0]?.role, 'Licensed Team Designer');
 
-const bad = validateResponsibilityRead({
-  output: {
-    ...output,
-    responsibilities: [
-      { ...output.responsibilities[0]!, evidenceQuote: 'A paraphrase that is not in the source.' },
-    ],
+const shardChunks = [
+  { id: chunkId },
+  { id: otherChunkId },
+];
+const shards = shardResponsibilitySegments(
+  [{ ...segment, chunkIds: [otherChunkId, chunkId] }],
+  shardChunks,
+);
+assert.deepEqual(shards.map((item) => item.chunkIds), [[chunkId], [otherChunkId]]);
+assert.deepEqual(
+  shardResponsibilitySegments([{ ...segment, chunkIds: [otherChunkId, chunkId] }], shardChunks),
+  shards,
+  'sharding is idempotent',
+);
+assert.equal(
+  prefixResponsibilityOutput(output, 0).responsibilities[0]?.responsibilityId,
+  'shard_001__designer_preflight',
+);
+const mergedReads = mergeResponsibilityValidationResults([
+  { segment: shards[1]!, validation: result },
+  { segment: shards[0]!, validation: result },
+]);
+assert.deepEqual(mergedReads.map((item) => item.segment.segmentId), [
+  `${segment.segmentId}__chunk_001`,
+  `${segment.segmentId}__chunk_002`,
+]);
+const parentSegment = responsibilityParentSegment(shards[0]!);
+assert.equal(parentSegment.segmentId, segment.segmentId);
+const parentJoined = validateResponsibilityRead({
+  output: prefixResponsibilityOutput(output, 0),
+  documentId,
+  segment: parentSegment,
+  chunks: [
+    {
+      id: chunkId,
+      documentId,
+      rawText: output.responsibilities[0]!.evidenceQuote,
+    },
+  ],
+});
+assert.equal(parentJoined.elements[0]?.segmentId, segment.segmentId);
+
+const omissionChunks = [
+  {
+    id: chunkId,
+    documentId,
+    rawText:
+      '- Licensed Team checks art files for completeness.\n' +
+      '- Licensed Team emails the approved package to Sales.\n' +
+      '- Licensed Team downloads files & uploads files to the archive.\n' +
+      'This review summarizes prior work and contains no assigned duty.',
   },
+];
+const omissionAudit = findResponsibilityOmissions({
+  chunks: omissionChunks,
+  elements: [
+    {
+      ...result.elements[0]!,
+      evidenceQuote: 'Licensed Team checks art files for completeness.',
+      chunkId,
+    },
+  ],
+  fileType: 'text/plain',
+});
+assert.equal(omissionAudit.length, 3);
+assert.ok(omissionAudit.some((item) => /emails the approved package/.test(item.sourceSpan)));
+assert.ok(omissionAudit.some((item) => /downloads files/.test(item.sourceSpan)));
+assert.ok(omissionAudit.some((item) => /uploads files/.test(item.sourceSpan)));
+assert.ok(!omissionAudit.some((item) => /review summarizes/.test(item.sourceSpan)));
+const multiChunkOmissions = findResponsibilityOmissions({
+  chunks: [
+    { id: chunkId, documentId, rawText: '- Finance authorizes invoices.' },
+    { id: otherChunkId, documentId, rawText: '- Sales receives approved files.' },
+  ],
+  elements: [],
+  fileType: 'text/plain',
+});
+assert.deepEqual(
+  multiChunkOmissions.map((item) => item.chunkId),
+  [chunkId, otherChunkId],
+  'omissions remain bounded and addressable per chunk',
+);
+const bidirectionalCoverage = findResponsibilityOmissions({
+  chunks: [
+    {
+      id: chunkId,
+      documentId,
+      rawText:
+        '- Finance Operations approves invoices and then records the decision in the ledger.',
+    },
+  ],
+  elements: [
+    {
+      ...result.elements[0]!,
+      chunkId,
+      evidenceQuote:
+        'Finance Operations approves invoices and then records the decision in the ledger.',
+    },
+  ],
+  fileType: 'text/plain',
+});
+assert.equal(bidirectionalCoverage.length, 0, 'longer exact quote covers shorter duty spans');
+const nonLicensedOwnerAudit = findResponsibilityOmissions({
+  chunks: [
+    {
+      id: chunkId,
+      documentId,
+      rawText: '[Finance Operations]\n- Authorize invoices.\n- Monthly close ownership.',
+    },
+  ],
+  elements: [],
+  fileType: 'text/plain',
+});
+assert.equal(nonLicensedOwnerAudit.length, 2);
+const structuredListFalsePositiveAudit = findResponsibilityOmissions({
+  chunks: [
+    {
+      id: chunkId,
+      documentId,
+      rawText: '- Monthly close calendar.\n- General background information.',
+    },
+  ],
+  elements: [],
+  fileType: 'text/plain',
+});
+assert.equal(structuredListFalsePositiveAudit.length, 0);
+
+const sameLocalIdRetryA = prefixResponsibilityRetryOutput(output, 0, 1);
+const sameLocalIdRetryB = prefixResponsibilityRetryOutput(output, 1, 1);
+const sameLocalIdBase = prefixResponsibilityOutput(output, 0);
+const collisionResults = [sameLocalIdBase, sameLocalIdRetryA, sameLocalIdRetryB].map(
+  (item, index) =>
+    validateResponsibilityRead({
+      output: item,
+      documentId,
+      segment,
+      chunks: [
+        {
+          id: chunkId,
+          documentId,
+          rawText: output.responsibilities[0]!.evidenceQuote,
+        },
+      ],
+    }).elements[0]!,
+);
+assert.equal(new Set(collisionResults.map((item) => item.elementId)).size, 3);
+assertUniqueResponsibilityElementIds(collisionResults);
+const collisionMapRefs = collisionResults.map((item) =>
+  responsibilityMapElementRef('map-1', item.elementId),
+);
+assert.equal(new Set(collisionMapRefs).size, collisionMapRefs.length);
+assert.throws(
+  () => assertUniqueResponsibilityElementIds([collisionResults[0]!, collisionResults[0]!]),
+  /Duplicate responsibility elementId/,
+);
+
+const boundedBudget = new SourceReaderBudget({
+  maxReadCalls: 2,
+  maxInputTokens: 100,
+  maxEstimatedCostUsd: 1,
+  estimatedInputCostPerMillionTokensUsd: 1,
+  maxRepairAttempts: 1,
+  maxConcurrency: 1,
+});
+boundedBudget.reserveRepair('first focused retry');
+assert.throws(
+  () => boundedBudget.reserveRepair('second focused retry'),
+  (error) =>
+    error instanceof SourceReaderBudgetExceededError && error.check === 'max_repair_attempts',
+);
+const postPassBudget = new ResponsibilityPostPassBudget({
+  maxQuoteRepairsPerSource: 1,
+  maxOmissionRetriesPerSource: 2,
+  maxOmissionRetriesPerChunk: 1,
+});
+postPassBudget.reserveQuoteRepair();
+postPassBudget.reserveOmissionRetry(chunkId);
+postPassBudget.reserveOmissionRetry(otherChunkId);
+assert.deepEqual(postPassBudget.snapshot(), {
+  quoteRepairs: 1,
+  omissionRetries: 2,
+  omissionRetriesByChunk: { [chunkId]: 1, [otherChunkId]: 1 },
+  limits: {
+    maxQuoteRepairsPerSource: 1,
+    maxOmissionRetriesPerSource: 2,
+    maxOmissionRetriesPerChunk: 1,
+  },
+});
+assert.equal(boundedBudget.snapshot().repairAttempts, 1, 'process repair budget is isolated');
+assert.throws(
+  () =>
+    new ResponsibilityPostPassBudget({
+      maxQuoteRepairsPerSource: 2,
+      maxOmissionRetriesPerSource: 1,
+      maxOmissionRetriesPerChunk: 1,
+    }),
+  /quote repair cap may not exceed 1/,
+);
+const exhaustedPostPassBudget = new ResponsibilityPostPassBudget({
+  maxQuoteRepairsPerSource: 1,
+  maxOmissionRetriesPerSource: 2,
+  maxOmissionRetriesPerChunk: 1,
+});
+exhaustedPostPassBudget.reserveQuoteRepair();
+assert.throws(() => exhaustedPostPassBudget.reserveQuoteRepair(), /quote repair allowance exhausted/);
+exhaustedPostPassBudget.reserveOmissionRetry(chunkId);
+assert.throws(
+  () => exhaustedPostPassBudget.reserveOmissionRetry(chunkId),
+  /chunk omission allowance exhausted/,
+);
+
+const mismatchOutput: ResponsibilityReadOutput = {
+  ...output,
+  responsibilities: [
+    { ...output.responsibilities[0]!, evidenceQuote: 'A paraphrase that is not in the source.' },
+  ],
+};
+const bad = validateResponsibilityRead({
+  output: mismatchOutput,
   documentId,
   segment,
   chunks: [{ id: chunkId, documentId, rawText: 'Original text only.' }],
@@ -89,9 +320,40 @@ assert.equal(bad.elements.length, 0);
 assert.equal(bad.diagnostics[0]?.failureClass, 'quote_mismatch');
 assert.equal(bad.diagnostics[0]?.selectedPolicy, 'strict_verbatim');
 assert.equal(bad.diagnostics[0]?.failureOrigin, 'root');
+const patchedRepair = patchResponsibilityQuoteRepairs({
+  original: mismatchOutput,
+  diagnostics: bad.diagnostics,
+  repaired: output,
+});
+assert.equal(patchedRepair.ok, true);
+if (patchedRepair.ok) {
+  assert.equal(
+    validateResponsibilityRead({
+      output: patchedRepair.output,
+      documentId,
+      segment,
+      chunks: [{ id: chunkId, documentId, rawText: output.responsibilities[0]!.evidenceQuote }],
+    }).elements.length,
+    1,
+  );
+}
+assert.deepEqual(
+  patchResponsibilityQuoteRepairs({
+    original: mismatchOutput,
+    diagnostics: bad.diagnostics,
+    repaired: {
+      ...output,
+      responsibilities: [{ ...output.responsibilities[0]!, action: 'invent' }],
+    },
+  }),
+  { ok: false, reason: 'non_quote_field_change' },
+);
+const duplicateRetryMerge = mergeResponsibilityRetryValidation(result, result);
+assert.equal(duplicateRetryMerge.acceptedCount, 0);
+assert.equal(duplicateRetryMerge.validation.elements.length, result.elements.length);
+assert.equal(duplicateRetryMerge.validation.diagnostics.length, result.diagnostics.length);
 assert.ok(responsibilityRawAuditArtifact(output).sha256.length === 64);
 
-const otherChunkId = '44444444-4444-4444-8444-444444444444';
 const cross = validateResponsibilityRead({
   output: {
     summary: 'Cross-segment citation fixture.',
@@ -163,6 +425,8 @@ assert.doesNotThrow(() =>
   }),
 );
 assert.equal(answerKey.version, 'licensed-team-responsibilities-v1');
+assert.equal(answerKey.records.length, 30);
+assert.equal(RESPONSIBILITY_ANSWER_KEY_MATCHER_VERSION, 'field-aware-v3');
 assert.equal(RESPONSIBILITY_READ_PROMPT_VERSION, 'responsibility-read-v2.1-thin-source-faithful');
 for (const requiredPromptRule of [
   'exact source-owner role label',
@@ -187,6 +451,24 @@ const workflowReadSource = readFileSync(
   new URL('../lib/source-workflow-read.ts', import.meta.url),
   'utf8',
 );
+const responsibilityReaderSource = readFileSync(
+  new URL('../lib/responsibility-reader.ts', import.meta.url),
+  'utf8',
+);
+for (const forbiddenRuntimeLeak of [
+  '__fixtures__',
+  'responsibility-answer-key',
+  'licensed-team-responsibilities',
+  'Licensed Team',
+  'Lic Manager',
+  'Lic Coordinator',
+]) {
+  assert.ok(
+    !workflowReadSource.includes(forbiddenRuntimeLeak) &&
+      !responsibilityReaderSource.includes(forbiddenRuntimeLeak),
+    `runtime responsibility reader leaked fixture-specific knowledge: ${forbiddenRuntimeLeak}`,
+  );
+}
 for (const requiredRequestRule of [
   'exact source-owner role label',
   'Split adjacent verbs and duties',

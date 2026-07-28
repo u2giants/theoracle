@@ -63,14 +63,25 @@ import {
   type WorkflowMapStatus,
 } from './workflow-map-validator';
 import {
+  findResponsibilityOmissions,
+  mergeResponsibilityValidationResults,
+  mergeResponsibilityRetryValidation,
+  patchResponsibilityQuoteRepairs,
+  prefixResponsibilityOutput,
+  prefixResponsibilityRetryOutput,
+  assertUniqueResponsibilityElementIds,
+  responsibilityParentSegment,
   responsibilityRawAuditArtifact,
+  shardResponsibilitySegments,
   validateResponsibilityRead,
 } from './responsibility-reader';
 import {
   mapWithConcurrency,
+  ResponsibilityPostPassBudget,
   SourceReaderBudget,
   SourceReaderBudgetExceededError,
   type SourceReaderBudgetLimits,
+  type ResponsibilityPostPassBudgetLimits,
 } from './source-reader-budget';
 import type {
   WorkflowMapRejectionDiagnostic,
@@ -270,6 +281,31 @@ async function readNumberSetting(db: OracleDb, key: string, fallback: number): P
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && Number.isFinite(Number(value))) return Number(value);
   return fallback;
+}
+
+async function readResponsibilityPostPassSetting(
+  db: OracleDb,
+  key: string,
+  fallback: number,
+): Promise<number> {
+  const [row] = await db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, key))
+    .limit(1);
+  if (!row) return fallback;
+  const parsed =
+    typeof row.value === 'number'
+      ? row.value
+      : typeof row.value === 'string'
+        ? Number(row.value)
+        : Number.NaN;
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(
+      `Invalid responsibility post-pass setting ${key}: expected a non-negative integer`,
+    );
+  }
+  return parsed;
 }
 
 async function buildReferentPack(db: OracleDb): Promise<string> {
@@ -1061,7 +1097,14 @@ async function runResponsibilityReadModel(args: {
   mapId: string;
   segment: SourceStructureSegment;
   budget: SourceReaderBudget;
-}): Promise<{ output: ResponsibilityReadOutput; modelRunId: string; contextPackId: string }> {
+  focusedSpans?: string[];
+  quoteRepairRecords?: ResponsibilityReadOutput['responsibilities'];
+}): Promise<{
+  output: ResponsibilityReadOutput;
+  modelRunId: string;
+  contextPackId: string;
+  execution: { outputTokens: number | null; finishReason: string | null; truncated: boolean };
+}> {
   const resolved = await resolveRouteCandidates(args.db, 'workflow_read');
   for (const skipped of resolved.skipped) {
     console.warn('[source-workflow-read] skipped responsibility route candidate', skipped);
@@ -1102,7 +1145,11 @@ async function runResponsibilityReadModel(args: {
       label: 'Responsibility read request',
       kind: 'dynamic_input',
       content: [
-        'Extract every distinct responsibility record from this segment.',
+        args.quoteRepairRecords?.length
+          ? `Quote-copy repair only. Return these same records with every non-quote field unchanged and evidenceQuote copied exactly from its existing chunk:\n${JSON.stringify(args.quoteRepairRecords)}`
+          : args.focusedSpans?.length
+          ? `Focused omission retry. Extract duties only from these source spans:\n${args.focusedSpans.join('\n---\n')}`
+          : 'Extract every distinct responsibility record from this segment.',
         'Use the exact source-owner role label and one short action verb phrase per record.',
         'Split adjacent verbs and duties. Split distinct destinations or systems into separate records.',
         'Keep every stated target, system, destination, portal, server, form, deadline, cadence, and timing qualifier in object; trigger may repeat but never replace them.',
@@ -1184,7 +1231,23 @@ async function runResponsibilityReadModel(args: {
       `[source-workflow-read] responsibility schema failed: ${result.validation.error.message}`,
     );
   }
-  return { output: result.object, modelRunId: modelRun.id, contextPackId: contextPack.id };
+  const rawUsage = result.usage.rawUsageJson as Record<string, unknown> | null | undefined;
+  const finishReason =
+    typeof rawUsage?.finishReason === 'string'
+      ? rawUsage.finishReason
+      : typeof rawUsage?.finish_reason === 'string'
+        ? rawUsage.finish_reason
+        : null;
+  return {
+    output: result.object,
+    modelRunId: modelRun.id,
+    contextPackId: contextPack.id,
+    execution: {
+      outputTokens: result.usage.outputTokens ?? null,
+      finishReason,
+      truncated: finishReason ? /length|max[_ -]?tokens|trunc/i.test(finishReason) : false,
+    },
+  };
 }
 
 async function runWorkflowQuoteRepairModel(args: {
@@ -1458,6 +1521,33 @@ async function loadSourceReaderBudgetLimits(db: OracleDb): Promise<SourceReaderB
   };
 }
 
+async function loadResponsibilityPostPassBudgetLimits(
+  db: OracleDb,
+): Promise<ResponsibilityPostPassBudgetLimits> {
+  const [maxQuoteRepairs, maxOmissionRetries, maxOmissionRetriesPerChunk] = await Promise.all([
+    readResponsibilityPostPassSetting(
+      db,
+      'responsibility_postpass_max_quote_repairs_per_source',
+      1,
+    ),
+    readResponsibilityPostPassSetting(
+      db,
+      'responsibility_postpass_max_omission_retries_per_source',
+      5,
+    ),
+    readResponsibilityPostPassSetting(
+      db,
+      'responsibility_postpass_max_omission_retries_per_chunk',
+      1,
+    ),
+  ]);
+  return {
+    maxQuoteRepairsPerSource: Math.trunc(maxQuoteRepairs),
+    maxOmissionRetriesPerSource: Math.trunc(maxOmissionRetries),
+    maxOmissionRetriesPerChunk: Math.trunc(maxOmissionRetriesPerChunk),
+  };
+}
+
 export function validateMapElementRefMembership(args: {
   mapElementRef: string;
   activeMap: ActiveWorkflowMapContext | null;
@@ -1685,6 +1775,9 @@ export async function generateSourceWorkflowMap(args: {
   let readerBudget: SourceReaderBudget | null = null;
   try {
     readerBudget = new SourceReaderBudget(await loadSourceReaderBudgetLimits(db));
+    const responsibilityPostPassBudget = new ResponsibilityPostPassBudget(
+      await loadResponsibilityPostPassBudgetLimits(db),
+    );
     const referentPack = await buildReferentPack(db);
     const firstSegmentationModel = await runSegmentationModel({
       db,
@@ -1724,6 +1817,10 @@ export async function generateSourceWorkflowMap(args: {
     const processSegments = segmentation.segments.filter((segment) => segment.shape === 'process');
     const responsibilitySegments = segmentation.segments.filter(
       (segment) => segment.shape === 'responsibilities',
+    );
+    const responsibilityShards = shardResponsibilitySegments(
+      responsibilitySegments,
+      chunks.map((chunk) => ({ id: chunk.id })),
     );
     const processReads = await mapWithConcurrency<
       SourceStructureSegment,
@@ -1862,10 +1959,10 @@ export async function generateSourceWorkflowMap(args: {
       }
     }
 
-    const responsibilityReads = await mapWithConcurrency({
-      inputs: responsibilitySegments,
+    let responsibilityReads = mergeResponsibilityValidationResults(await mapWithConcurrency({
+      inputs: responsibilityShards,
       concurrency: readerBudget.limits.maxConcurrency,
-      run: async (segment) => {
+      run: async (segment, shardIndex) => {
         const segmentChunkIds = new Set(segment.chunkIds);
         const segmentChunks = chunks.filter((chunk) => segmentChunkIds.has(chunk.id));
         const model = await runResponsibilityReadModel({
@@ -1878,10 +1975,11 @@ export async function generateSourceWorkflowMap(args: {
           segment,
           budget: readerBudget!,
         });
+        model.output = prefixResponsibilityOutput(model.output, shardIndex);
         const validation = validateResponsibilityRead({
           output: model.output,
           documentId: args.documentId,
-          segment,
+          segment: responsibilityParentSegment(segment),
           fileType: doc.fileType,
           fileName: doc.fileName,
           allCoveredChunkIds: new Set(segmentation.segments.flatMap((item) => item.chunkIds)),
@@ -1891,9 +1989,197 @@ export async function generateSourceWorkflowMap(args: {
             rawText: chunk.rawText,
           })),
         });
-        return { segment, model, validation };
+        return {
+          segment,
+          model,
+          validation,
+          modelRunIds: [model.modelRunId],
+          contextPackIds: [model.contextPackId],
+          executions: [model.execution],
+        };
       },
+    }));
+
+    const omissions = findResponsibilityOmissions({
+      chunks: chunks.map((chunk) => ({
+        id: chunk.id,
+        documentId: args.documentId,
+        rawText: chunk.rawText,
+      })),
+      elements: responsibilityReads.flatMap((read) => read.validation.elements),
+      fileType: doc.fileType,
+      fileName: doc.fileName,
     });
+    const omissionsByChunk = new Map<string, typeof omissions>();
+    for (const omission of omissions) {
+      const list = omissionsByChunk.get(omission.chunkId) ?? [];
+      list.push(omission);
+      omissionsByChunk.set(omission.chunkId, list);
+    }
+    const omissionRetries: Array<{
+      chunkId: string;
+      selectedSpanCount: number;
+      acceptedCount: number;
+      skipped: string | null;
+    }> = [];
+    const omissionRetryAttemptsByShard = new Map<string, number>();
+    for (const [chunkId, chunkOmissions] of omissionsByChunk) {
+      const sourceRead = responsibilityReads.find((read) => read.segment.chunkIds[0] === chunkId);
+      const chunk = chunkById.get(chunkId);
+      if (!sourceRead || !chunk) continue;
+      try {
+        responsibilityPostPassBudget.reserveOmissionRetry(chunkId);
+        const shardIndex = responsibilityShards.findIndex(
+          (segment) => segment.segmentId === sourceRead.segment.segmentId,
+        );
+        if (shardIndex < 0) {
+          throw new Error(`Responsibility retry shard is not registered: ${sourceRead.segment.segmentId}`);
+        }
+        const retryAttempt =
+          (omissionRetryAttemptsByShard.get(sourceRead.segment.segmentId) ?? 0) + 1;
+        omissionRetryAttemptsByShard.set(sourceRead.segment.segmentId, retryAttempt);
+        const retryModel = await runResponsibilityReadModel({
+          db,
+          client,
+          doc,
+          chunks: [chunk],
+          triggerRunId: args.triggerRunId,
+          mapId: pending.mapId,
+          segment: sourceRead.segment,
+          budget: readerBudget,
+          focusedSpans: chunkOmissions.map((item) => item.sourceSpan),
+        });
+        retryModel.output = prefixResponsibilityRetryOutput(
+          retryModel.output,
+          shardIndex,
+          retryAttempt,
+        );
+        const retryValidation = validateResponsibilityRead({
+          output: retryModel.output,
+          documentId: args.documentId,
+          segment: responsibilityParentSegment(sourceRead.segment),
+          fileType: doc.fileType,
+          fileName: doc.fileName,
+          allCoveredChunkIds: coveredChunkIds,
+          chunks: [{ id: chunk.id, documentId: args.documentId, rawText: chunk.rawText }],
+        });
+        const mergedRetry = mergeResponsibilityRetryValidation(
+          sourceRead.validation,
+          retryValidation,
+        );
+        sourceRead.model.output = {
+          ...sourceRead.model.output,
+          responsibilities: [
+            ...sourceRead.model.output.responsibilities,
+            ...retryModel.output.responsibilities,
+          ],
+        };
+        sourceRead.validation = mergedRetry.validation;
+        sourceRead.modelRunIds.push(retryModel.modelRunId);
+        sourceRead.contextPackIds.push(retryModel.contextPackId);
+        sourceRead.executions.push(retryModel.execution);
+        omissionRetries.push({
+          chunkId,
+          selectedSpanCount: chunkOmissions.length,
+          acceptedCount: mergedRetry.acceptedCount,
+          skipped: null,
+        });
+      } catch (error) {
+        const budgetExhausted =
+          error instanceof SourceReaderBudgetExceededError ||
+          (error instanceof Error && error.message.includes('responsibility-post-pass-budget'));
+        omissionRetries.push({
+          chunkId,
+          selectedSpanCount: chunkOmissions.length,
+          acceptedCount: 0,
+          skipped: budgetExhausted ? 'budget_exhausted' : 'retry_failed',
+        });
+        if (budgetExhausted) break;
+      }
+    }
+
+    const responsibilityQuoteRepair = {
+      attempted: false,
+      selectedSegmentId: null as string | null,
+      eligibleCount: 0,
+      accepted: false,
+      skipped: 'no_eligible_root_quote_failure' as string | null,
+    };
+    const quoteRepairRead = [...responsibilityReads]
+      .filter((read) =>
+        read.validation.diagnostics.some((item) => item.failureClass === 'quote_mismatch'),
+      )
+      .sort(
+        (a, b) =>
+          b.validation.diagnostics.filter((item) => item.failureClass === 'quote_mismatch').length -
+            a.validation.diagnostics.filter((item) => item.failureClass === 'quote_mismatch').length ||
+          a.segment.segmentId.localeCompare(b.segment.segmentId),
+      )[0];
+    if (quoteRepairRead) {
+      const eligibleDiagnostics = quoteRepairRead.validation.diagnostics.filter(
+        (item) => item.failureClass === 'quote_mismatch',
+      );
+      responsibilityQuoteRepair.selectedSegmentId = quoteRepairRead.segment.segmentId;
+      responsibilityQuoteRepair.eligibleCount = eligibleDiagnostics.length;
+      try {
+        responsibilityPostPassBudget.reserveQuoteRepair();
+        responsibilityQuoteRepair.attempted = true;
+        const chunkId = quoteRepairRead.segment.chunkIds[0]!;
+        const chunk = chunkById.get(chunkId)!;
+        const eligibleIds = new Set(eligibleDiagnostics.map((item) => item.responsibilityId));
+        const repairModel = await runResponsibilityReadModel({
+          db,
+          client,
+          doc,
+          chunks: [chunk],
+          triggerRunId: args.triggerRunId,
+          mapId: pending.mapId,
+          segment: quoteRepairRead.segment,
+          budget: readerBudget,
+          quoteRepairRecords: quoteRepairRead.model.output.responsibilities.filter((record) =>
+            eligibleIds.has(record.responsibilityId),
+          ),
+        });
+        quoteRepairRead.modelRunIds.push(repairModel.modelRunId);
+        quoteRepairRead.contextPackIds.push(repairModel.contextPackId);
+        quoteRepairRead.executions.push(repairModel.execution);
+        const patched = patchResponsibilityQuoteRepairs({
+          original: quoteRepairRead.model.output,
+          diagnostics: eligibleDiagnostics,
+          repaired: repairModel.output,
+        });
+        if (!patched.ok) {
+          responsibilityQuoteRepair.skipped = patched.reason;
+        } else {
+          const repairedValidation = validateResponsibilityRead({
+            output: patched.output,
+            documentId: args.documentId,
+            segment: responsibilityParentSegment(quoteRepairRead.segment),
+            fileType: doc.fileType,
+            fileName: doc.fileName,
+            allCoveredChunkIds: coveredChunkIds,
+            chunks: [{ id: chunk.id, documentId: args.documentId, rawText: chunk.rawText }],
+          });
+          if (
+            repairedValidation.diagnostics.filter((item) => item.failureClass === 'quote_mismatch')
+              .length < eligibleDiagnostics.length
+          ) {
+            quoteRepairRead.model.output = patched.output;
+            quoteRepairRead.validation = repairedValidation;
+            responsibilityQuoteRepair.accepted = true;
+            responsibilityQuoteRepair.skipped = null;
+          } else {
+            responsibilityQuoteRepair.skipped = 'no_strict_exact_improvement';
+          }
+        }
+      } catch (error) {
+        responsibilityQuoteRepair.skipped = /budget|allowance/i.test(
+          error instanceof Error ? error.message : '',
+        )
+          ? 'budget_exhausted'
+          : 'repair_failed';
+      }
+    }
 
     const finalizedProcessReads = processReads.map((read) => ({
       ...read,
@@ -1919,6 +2205,7 @@ export async function generateSourceWorkflowMap(args: {
       lanes: finalizedProcessReads.flatMap((read) => read.map.lanes),
       paths: finalizedProcessReads.flatMap((read) => read.map.paths),
     };
+    assertUniqueResponsibilityElementIds(structureMap.elements);
     const workflowOutputs = processReads.map((read) => read.validation.map);
     const droppedCount =
       processReads.reduce((sum, read) => sum + read.validation.droppedCount, 0) +
@@ -1946,12 +2233,12 @@ export async function generateSourceWorkflowMap(args: {
     const modelRunIds = [
       ...segmentationModels.map((model) => model.modelRunId),
       ...processReads.flatMap((read) => read.modelRunIds),
-      ...responsibilityReads.map((read) => read.model.modelRunId),
+      ...responsibilityReads.flatMap((read) => read.modelRunIds),
     ];
     const contextPackIds = [
       ...segmentationModels.map((model) => model.contextPackId),
       ...processReads.flatMap((read) => read.contextPackIds),
-      ...responsibilityReads.map((read) => read.model.contextPackId),
+      ...responsibilityReads.flatMap((read) => read.contextPackIds),
     ];
     const lastModelRunId = modelRunIds.at(-1) ?? null;
     const lastContextPackId = contextPackIds.at(-1) ?? null;
@@ -1966,15 +2253,23 @@ export async function generateSourceWorkflowMap(args: {
         quoteRepair: read.repair,
       })),
       responsibilitySegments: responsibilityReads.map((read) => ({
-        segmentId: read.segment.segmentId,
+        segmentId: responsibilityParentSegment(read.segment).segmentId,
+        executionShardId: read.segment.segmentId,
         promptVersion: RESPONSIBILITY_READ_PROMPT_VERSION,
         keptCount: read.validation.elements.length,
         droppedCount: read.validation.diagnostics.length,
         primaryCount: read.validation.primaryCount,
         crossSegmentCitations: read.validation.crossSegmentCitations,
         rawOutputAudit: responsibilityRawAuditArtifact(read.model.output),
+        executions: read.executions,
         diagnostics: read.validation.diagnostics,
       })),
+      responsibilityOmissionAudit: {
+        uncoveredSpanCount: omissions.length,
+        retries: omissionRetries,
+      },
+      responsibilityQuoteRepair,
+      responsibilityPostPassBudget: responsibilityPostPassBudget.snapshot(),
       droppedCount,
       keptCount,
       readerBudget: readerBudget.snapshot(),

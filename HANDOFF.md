@@ -16,8 +16,9 @@ plus 5 cascades, used 1 repair attempt, and admitted no fuzzy document quote. Th
 costing-segment degradation is an honest threshold signal, not a failed release gate. Later full
 release CI `30312068037` is green; Vercel commit `65d0b7b` is ready and the public app returns HTTP
 200. R0, R0.1, and R1 are green. R2's live fixture produced 98 responsibility records with zero
-drops, but its exclusive answer-key score is 18/30 (60%), below the 90% gate. Shadow merge, UI, and
-live regression gates remain blocked.
+drops, but its exclusive answer-key score is 18/30 (60%), below the 90% gate. A second live run on
+prompt v2.1 regressed to 17/30 (56.7%) and five strict quote drops. Shadow merge, UI, and live
+regression gates remain blocked.
 
 ## Prior closeout — 2026-07-26
 
@@ -119,9 +120,8 @@ document `79b0f629-4d42-4c8f-b6ad-e1e1dcf8befe` produced map
 responsibility drops. The old exact-string scorer falsely reported 0/30. Local deterministic
 matcher `field-aware-v3` fixes harmless phrase specialization without fuzzy evidence and assigns
 each actual record to at most one answer row. With the approved explicit approvals/approval
-normalization, the read-only rescore is 18/30 (60%). R2 is blocked
-below its 90% gate. Merge and apply stayed
-false; durable business object/version counts stayed zero.
+normalization, the read-only rescore is 18/30 (60%). R2 is blocked below its 90% gate. Merge and
+apply stayed false; durable business object/version counts stayed zero.
 
 ## Everything we tried that did NOT work
 
@@ -171,14 +171,28 @@ false; durable business object/version counts stayed zero.
   Its 18/30 result exposes 12 real remaining reader misses.
 - Local `responsibility-read-v2.1-thin-source-faithful` prompt rules now require exact source-owner
   labels, one duty and one destination per record, short actions, and complete concrete target,
-  system, portal, server, form, cadence, and timing details. Tests pass, but this prompt has not
-  been reviewed by Grok, deployed, or rerun.
+  system, portal, server, form, cadence, and timing details. It was deployed and rerun in worker
+  `20260728.1`. Trigger run
+  `run_06fqc2v7c8kps1flqtfpjmts01`, document
+  `d5f8ebaa-83bd-49eb-ac2d-9226250960c9`, map
+  `242c84a3-d12b-4ff3-8ef8-35b6ef9245dc`, model run
+  `a3781e5c-18c2-427c-8dc3-60607968ec53`, and context pack
+  `f0deefdb-b0fb-46ed-8059-d999b3dcc1a9` prove a regression: 17/30 (56.7%), 82 kept
+  responsibilities, and 5 strict quote mismatches. Full evidence is in
+  `evals/r2-responsibilities.md`.
+- Local Batch C now shards responsibility reads to one chunk, audits source duty spans for
+  omissions, retries within separate bounded responsibility allowances plus the shared read/token/cost budget, repairs only root quote-copy mismatches
+  under the unchanged exact validator, and records output/finish/truncation diagnostics. It is not
+  reviewed, committed, deployed, or live-tested.
+- Base reads and retries use collision-proof deterministic ID prefixes, and map persistence now
+  fails loudly if any responsibility element ID is duplicated.
 
 ## Exact next steps
 
 1. Keep every focused local R2 check green and inspect the full diff.
-2. Have Grok review local `responsibility-read-v2.1-thin-source-faithful` and its prompt assertions.
-3. After approval, rerun the pinned gate without weakening evidence
+2. Have Grok review the second live gate regression and full 30-row evidence.
+3. Root-fix reader completeness and verbatim quote copying locally without weakening evidence,
+   then rerun the pinned gate only after approval
    until deterministic recall is at least 90%.
 4. Only after recall passes, prove real shadow create, same-map idempotency, sequential confirm, near-match review, bounded
    refine, namespace collision, and desktop/narrow read-only UI.
