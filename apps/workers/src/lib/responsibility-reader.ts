@@ -26,14 +26,42 @@ export type ResponsibilityOmission = {
   chunkId: string;
   spanIndex: number;
   sourceSpan: string;
+  listStructured?: boolean;
+};
+
+export type ResponsibilitySpanRankFeatures = {
+  verbStartsSpan: boolean;
+  explicitOwner: boolean;
+  listStructured: boolean;
+  concreteTokenCount: number;
+  sourceLength: number;
+  chunkOmissionCount: number;
+  sourceChunkIndex: number;
+};
+
+export type RankedResponsibilityOmission = ResponsibilityOmission & {
+  rankIndex: number;
+  rankFeatures: ResponsibilitySpanRankFeatures;
+  sourceSpanSha256: string;
+};
+
+export type GroundedResponsibilityQuoteCandidate = {
+  candidateIndex: number;
+  sourceText: string;
+  sourceTextSha256: string;
+  tokenOverlap: number;
 };
 
 const DUTY_VERBS =
-  'approve|ask|assign|authorize|call|check|complete|create|download|email|ensure|enter|establish|fill|inform|keep|maintain|organize|prepare|prioritize|provide|reach|receive|record|rename|request|resubmit|review|save|send|submit|update|upload|wait|write';
+  'approve|archive|ask|assign|authorize|call|check|complete|coordinate|create|download|email|ensure|enter|establish|fill|inform|keep|maintain|manage|monitor|organize|prepare|prioritize|provide|publish|reach|receive|record|rename|report|request|resubmit|review|save|send|submit|track|update|upload|verify|wait|write';
 const DUTY_VERB_PATTERN =
   new RegExp(`\\b(?:${DUTY_VERBS})(?:s|es|ed|ing)?\\b`, 'i');
 const DUTY_VERB_START_PATTERN =
   new RegExp(`^(?:${DUTY_VERBS})(?:s|es|ed|ing)?\\b`, 'i');
+const MODAL_OR_DIRECT_OWNER_PATTERN = new RegExp(
+  `^[A-Z][A-Za-z0-9 &/'-]{1,80}?\\s+(?:(?:will|must|should|shall|may)\\s+)?(?:${DUTY_VERBS})(?:s|es|ed|ing)?\\b`,
+  'i',
+);
 const DUTY_SPLIT_PATTERN = new RegExp(
   `\\s+(?:&|and then|and(?=\\s+(?:${DUTY_VERBS})(?:s|es|ed|ing)?\\b))\\s+`,
   'i',
@@ -135,6 +163,73 @@ export function responsibilityParentSegment(
   };
 }
 
+export function buildSyntheticResponsibilitySegments(args: {
+  chunks: readonly ResponsibilityChunk[];
+  existingSegments: readonly SourceStructureSegment[];
+}): SourceStructureSegment[] {
+  const baseReadChunkIds = new Set(args.existingSegments.flatMap((segment) => segment.chunkIds));
+  return args.chunks.flatMap((chunk, index) => {
+    if (baseReadChunkIds.has(chunk.id) || sourceDutySpans(chunk.rawText).length === 0) return [];
+    return [{
+      segmentId: `responsibility_duty_chunk_${String(index + 1).padStart(3, '0')}`,
+      title: 'Deterministic duty-bearing source chunk',
+      summary: 'Synthetic responsibility base read created from deterministic duty-span evidence.',
+      shape: 'responsibilities' as const,
+      chunkIds: [chunk.id],
+    }];
+  });
+}
+
+export function assertResponsibilityDutyChunksHaveBaseReads(args: {
+  chunks: readonly ResponsibilityChunk[];
+  baseReadSegments: readonly SourceStructureSegment[];
+}): void {
+  const baseReadChunkIds = new Set(args.baseReadSegments.flatMap((segment) => segment.chunkIds));
+  const missing = args.chunks
+    .filter((chunk) => sourceDutySpans(chunk.rawText).length > 0 && !baseReadChunkIds.has(chunk.id))
+    .map((chunk) => chunk.id);
+  if (missing.length > 0) {
+    throw new Error(
+      `Responsibility duty chunks missing base reads: ${missing.sort().join(', ')}`,
+    );
+  }
+}
+
+export function buildResponsibilityBaseReadPlan(args: {
+  chunks: readonly ResponsibilityChunk[];
+  responsibilitySegments: readonly SourceStructureSegment[];
+}): {
+  responsibilityShards: SourceStructureSegment[];
+  syntheticSegments: SourceStructureSegment[];
+  durableSegments: SourceStructureSegment[];
+  syntheticBaseReadCount: number;
+} {
+  const segmented = shardResponsibilitySegments(args.responsibilitySegments, args.chunks);
+  const syntheticSegments = buildSyntheticResponsibilitySegments({
+    chunks: args.chunks,
+    existingSegments: segmented,
+  });
+  const responsibilityShards = [...segmented, ...syntheticSegments];
+  assertResponsibilityDutyChunksHaveBaseReads({
+    chunks: args.chunks,
+    baseReadSegments: responsibilityShards,
+  });
+  const seen = new Set<string>();
+  const durableSegments = [...args.responsibilitySegments, ...syntheticSegments].filter(
+    (segment) => {
+      if (seen.has(segment.segmentId)) return false;
+      seen.add(segment.segmentId);
+      return true;
+    },
+  );
+  return {
+    responsibilityShards,
+    syntheticSegments,
+    durableSegments,
+    syntheticBaseReadCount: syntheticSegments.length,
+  };
+}
+
 export function prefixResponsibilityOutput(
   output: ResponsibilityReadOutput,
   shardIndex: number,
@@ -213,8 +308,11 @@ function logicalSourceSpans(rawText: string): string[] {
   return spans;
 }
 
-function sourceDutySpans(rawText: string): string[] {
-  const output: string[] = [];
+function sourceDutySpanDetails(rawText: string): Array<{
+  sourceSpan: string;
+  listStructured: boolean;
+}> {
+  const output: Array<{ sourceSpan: string; listStructured: boolean }> = [];
   let ownerHeading: string | null = null;
   for (const rawSpan of logicalSourceSpans(rawText)) {
     const trimmed = rawSpan.trim();
@@ -227,22 +325,124 @@ function sourceDutySpans(rawText: string): string[] {
     const listLike = /^(?:[-*•]|\d+[.)])\s*/.test(trimmed);
     const span = trimmed.replace(/^(?:[-*•]|\d+[.)])\s*/, '');
     const inlineOwner = /^\[[^\]]{2,80}\]\s+/.test(span);
+    const proseOwner = MODAL_OR_DIRECT_OWNER_PATTERN.test(span);
     for (const part of span.split(DUTY_SPLIT_PATTERN).map((item) => item.trim())) {
       if (part.length < 12) continue;
-      const narrative = /^(?:background|note|overview|purpose|this section)\b/i.test(part);
+      const narrative = /^(?:background|note|overview|purpose|this (?:section|review|document|summary))\b/i.test(part);
       const hasDutyVerb = DUTY_VERB_PATTERN.test(part);
       if (
         !narrative &&
         ((listLike && hasDutyVerb) ||
           DUTY_VERB_START_PATTERN.test(part) ||
           (inlineOwner && hasDutyVerb) ||
+          (proseOwner && hasDutyVerb) ||
           (ownerHeading !== null && hasDutyVerb))
       ) {
-        output.push(ownerHeading && !inlineOwner ? `[${ownerHeading}] ${part}` : part);
+        output.push({
+          sourceSpan: ownerHeading && !inlineOwner ? `[${ownerHeading}] ${part}` : part,
+          listStructured: listLike,
+        });
       }
     }
   }
   return output;
+}
+
+export function sourceDutySpans(rawText: string): string[] {
+  return sourceDutySpanDetails(rawText).map((item) => item.sourceSpan);
+}
+
+export function responsibilitySpanRankFeatures(
+  omission: ResponsibilityOmission,
+): ResponsibilitySpanRankFeatures {
+  const dutyText = dutyTextWithoutOwner(omission.sourceSpan);
+  return {
+    verbStartsSpan: DUTY_VERB_START_PATTERN.test(dutyText),
+    explicitOwner:
+      /^\s*\[[^\]]{2,80}\]/.test(omission.sourceSpan) ||
+      /^[A-Z][A-Za-z0-9 &/'-]{1,80}?\s+(?:will|must|should|shall|may)\b/.test(dutyText),
+    listStructured: omission.listStructured ?? false,
+    concreteTokenCount: fieldTokens(dutyText).length,
+    sourceLength: omission.sourceSpan.length,
+    chunkOmissionCount: 0,
+    sourceChunkIndex: -1,
+  };
+}
+
+export function responsibilitySpanSha256(sourceSpan: string): string {
+  return createHash('sha256').update(sourceSpan).digest('hex');
+}
+
+export function buildGroundedResponsibilityQuoteCandidates(args: {
+  rawText: string;
+  failedQuote: string;
+  maxCandidates?: number;
+}): GroundedResponsibilityQuoteCandidate[] {
+  const maxCandidates = args.maxCandidates ?? 12;
+  if (!Number.isInteger(maxCandidates) || maxCandidates < 1 || maxCandidates > 30) {
+    throw new Error('Grounded responsibility quote candidate limit must be between 1 and 30.');
+  }
+  const failedTokens = new Set(fieldTokens(args.failedQuote));
+  const seen = new Set<string>();
+  const logical = logicalSourceSpans(args.rawText);
+  const candidateSpans = logical.flatMap((sourceText, sourceIndex) => {
+    const failedTerms = [...failedTokens];
+    const lower = sourceText.toLowerCase();
+    const hit = failedTerms.map((term) => lower.indexOf(term)).find((index) => index >= 0);
+    const nearby =
+      hit === undefined
+        ? []
+        : [sourceText.slice(Math.max(0, hit - 240), Math.min(sourceText.length, hit + 760)).trim()];
+    return [sourceText, ...sourceDutySpans(sourceText), ...nearby].map((text, localIndex) => ({
+      sourceText: text,
+      sourceIndex: sourceIndex * 100 + localIndex,
+    }));
+  });
+  return candidateSpans
+    .map(({ sourceText, sourceIndex }) => {
+      const bounded = sourceText.slice(0, 2000);
+      const tokens = new Set(fieldTokens(bounded));
+      const tokenOverlap = [...failedTokens].filter((token) => tokens.has(token)).length;
+      return { sourceText: bounded, sourceIndex, tokenOverlap };
+    })
+    .filter((item) => item.sourceText.length >= 3 && item.tokenOverlap > 0)
+    .sort((a, b) => b.tokenOverlap - a.tokenOverlap || a.sourceIndex - b.sourceIndex)
+    .filter((item) => {
+      if (seen.has(item.sourceText)) return false;
+      seen.add(item.sourceText);
+      return true;
+    })
+    .slice(0, maxCandidates)
+    .map((item, candidateIndex) => ({
+      candidateIndex,
+      sourceText: item.sourceText,
+      sourceTextSha256: responsibilitySpanSha256(item.sourceText),
+      tokenOverlap: item.tokenOverlap,
+    }));
+}
+
+export function validateGroundedResponsibilityQuoteSelections(args: {
+  repairs: readonly Pick<
+    ResponsibilityReadOutput['responsibilities'][number],
+    'responsibilityId' | 'evidenceQuote'
+  >[];
+  offered: readonly {
+    responsibilityId: string;
+    candidates: readonly GroundedResponsibilityQuoteCandidate[];
+  }[];
+}): { ok: true } | { ok: false; responsibilityId: string } {
+  const candidatesById = new Map(
+    args.offered.map((item) => [
+      item.responsibilityId,
+      new Set(item.candidates.map((candidate) => candidate.sourceText)),
+    ]),
+  );
+  const ungrounded = args.repairs.find(
+    (repair) => !candidatesById.get(repair.responsibilityId)?.has(repair.evidenceQuote),
+  );
+  return ungrounded
+    ? { ok: false, responsibilityId: ungrounded.responsibilityId }
+    : { ok: true };
 }
 
 export function findResponsibilityOmissions(args: {
@@ -263,7 +463,7 @@ export function findResponsibilityOmissions(args: {
     byChunk.set(element.chunkId, list);
   }
   return args.chunks.flatMap((chunk) =>
-    sourceDutySpans(chunk.rawText).flatMap((sourceSpan, spanIndex) => {
+    sourceDutySpanDetails(chunk.rawText).flatMap(({ sourceSpan, listStructured }, spanIndex) => {
       const covered = (byChunk.get(chunk.id) ?? []).some((element) => {
         const quoteWithinSpan = validateQuote({
           sourceText: sourceSpan,
@@ -280,7 +480,7 @@ export function findResponsibilityOmissions(args: {
         );
         return quoteCovered && fieldAwareSpanCovered(sourceSpan, element);
       });
-      return covered ? [] : [{ chunkId: chunk.id, spanIndex, sourceSpan }];
+      return covered ? [] : [{ chunkId: chunk.id, spanIndex, sourceSpan, listStructured }];
     }),
   );
 }
@@ -418,32 +618,40 @@ export function rankResponsibilityOmissionChunks(
 export function selectFocusedResponsibilityOmissions(
   omissions: readonly ResponsibilityOmission[],
   limit = RESPONSIBILITY_FOCUSED_OMISSION_LIMIT,
-): ResponsibilityOmission[] {
+): RankedResponsibilityOmission[] {
   if (!Number.isInteger(limit) || limit < 1) {
     throw new Error('Focused responsibility omission limit must be a positive integer.');
   }
   return [...omissions]
+    .map((omission) => ({ omission, features: responsibilitySpanRankFeatures(omission) }))
     .sort(
       (a, b) =>
-        Number(DUTY_VERB_START_PATTERN.test(dutyTextWithoutOwner(b.sourceSpan))) -
-          Number(DUTY_VERB_START_PATTERN.test(dutyTextWithoutOwner(a.sourceSpan))) ||
-        b.sourceSpan.length - a.sourceSpan.length ||
-        a.spanIndex - b.spanIndex,
+        Number(b.features.verbStartsSpan) - Number(a.features.verbStartsSpan) ||
+        Number(b.features.explicitOwner) - Number(a.features.explicitOwner) ||
+        b.features.concreteTokenCount - a.features.concreteTokenCount ||
+        a.features.sourceLength - b.features.sourceLength ||
+        a.omission.spanIndex - b.omission.spanIndex,
     )
-    .slice(0, limit);
+    .slice(0, limit)
+    .map(({ omission, features }, rankIndex) => ({
+      ...omission,
+      rankIndex,
+      rankFeatures: features,
+      sourceSpanSha256: responsibilitySpanSha256(omission.sourceSpan),
+    }));
 }
 
 export type ResponsibilityOmissionRetryDecision =
   | {
       kind: 'attempt';
       chunkId: string;
-      omissions: ResponsibilityOmission[];
+      omissions: RankedResponsibilityOmission[];
       preOmissionCount: number;
     }
   | {
       kind: 'no_source_read';
       chunkId: string;
-      omissions: ResponsibilityOmission[];
+      omissions: RankedResponsibilityOmission[];
       preOmissionCount: number;
     }
   | { kind: 'done' };
@@ -464,7 +672,14 @@ export class ResponsibilityOmissionRetryScheduler {
     if (!next) return { kind: 'done' };
     const decision = {
       chunkId: next.chunkId,
-      omissions: selectFocusedResponsibilityOmissions(next.omissions),
+      omissions: selectFocusedResponsibilityOmissions(next.omissions).map((item) => ({
+        ...item,
+        rankFeatures: {
+          ...item.rankFeatures,
+          chunkOmissionCount: next.omissions.length,
+          sourceChunkIndex: args.chunks.findIndex((chunk) => chunk.id === next.chunkId),
+        },
+      })),
       preOmissionCount: args.omissions.length,
     };
     if (!args.sourceReadChunkIds.has(next.chunkId)) {
@@ -495,8 +710,86 @@ export function buildResponsibilityOmissionAudit<T extends {
     preOmissionCount: args.initialOmissions.length,
     postOmissionCount: args.finalOmissions.length,
     uncoveredSpanCount: args.finalOmissions.length,
+    finalUncoveredSpanSample: args.finalOmissions.slice(0, 30).map((item) => ({
+      chunkId: item.chunkId,
+      spanIndex: item.spanIndex,
+      sourceSpan: item.sourceSpan.slice(0, 2000),
+      sourceSpanSha256: responsibilitySpanSha256(item.sourceSpan.slice(0, 2000)),
+    })),
     retries: [...args.retries],
   };
+}
+
+export function buildResponsibilityPostPassAudit<T extends {
+  preOmissionCount: number;
+  postOmissionCount: number;
+}>(args: {
+  initialOmissions: readonly ResponsibilityOmission[];
+  finalOmissions: readonly ResponsibilityOmission[];
+  retries: readonly T[];
+  quoteRepair: unknown;
+  postPassBudget: unknown;
+  syntheticBaseReadCount: number;
+}) {
+  return {
+    responsibilityOmissionAudit: buildResponsibilityOmissionAudit({
+      initialOmissions: args.initialOmissions,
+      finalOmissions: args.finalOmissions,
+      retries: args.retries,
+    }),
+    responsibilityQuoteRepair: args.quoteRepair,
+    responsibilityPostPassBudget: args.postPassBudget,
+    syntheticBaseReadCount: args.syntheticBaseReadCount,
+  };
+}
+
+export function selectResponsibilityQuoteRepairRead<T extends {
+  segment: SourceStructureSegment;
+  validation: { diagnostics: readonly ResponsibilityReaderDiagnostic[] };
+}>(reads: readonly T[]): T | undefined {
+  return [...reads]
+    .filter((read) =>
+      read.validation.diagnostics.some((item) => item.failureClass === 'quote_mismatch'),
+    )
+    .sort(
+      (a, b) =>
+        b.validation.diagnostics.filter((item) => item.failureClass === 'quote_mismatch').length -
+          a.validation.diagnostics.filter((item) => item.failureClass === 'quote_mismatch').length ||
+        a.segment.segmentId.localeCompare(b.segment.segmentId),
+    )[0];
+}
+
+export function buildResponsibilitySelectedSpanAudit(args: {
+  selected: readonly RankedResponsibilityOmission[];
+  finalOmissions: readonly ResponsibilityOmission[];
+  preRecordCount: number;
+  postRecordCount: number;
+  skipped: string | null;
+  sourceShapes?: readonly string[];
+  sourceSegmentIds?: readonly string[];
+  inResponsibilityBaseRead: boolean;
+}) {
+  const finalKeys = new Set(
+    args.finalOmissions.map((item) => `${item.chunkId}:${item.spanIndex}`),
+  );
+  return args.selected.map((item) => ({
+    chunkId: item.chunkId,
+    spanIndex: item.spanIndex,
+    sourceSpan: item.sourceSpan.slice(0, 2000),
+    sourceSpanSha256: responsibilitySpanSha256(item.sourceSpan.slice(0, 2000)),
+    rankFeatures: item.rankFeatures,
+    rankIndex: item.rankIndex,
+    preRecordCount: args.preRecordCount,
+    postRecordCount: args.postRecordCount,
+    result: args.skipped
+      ? { accepted: false, skipped: args.skipped }
+      : finalKeys.has(`${item.chunkId}:${item.spanIndex}`)
+        ? { accepted: false, skipped: 'not_covered' }
+        : { accepted: true, skipped: null },
+    sourceShapes: [...(args.sourceShapes ?? [])],
+    sourceSegmentIds: [...(args.sourceSegmentIds ?? [])],
+    inResponsibilityBaseRead: args.inResponsibilityBaseRead,
+  }));
 }
 
 export type ResponsibilityReaderDiagnostic = {

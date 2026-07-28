@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   RESPONSIBILITY_READ_PROMPT_VERSION,
   RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
+  RESPONSIBILITY_QUOTE_REPAIR_SYSTEM_PROMPT,
   RESPONSIBILITY_READ_SYSTEM_PROMPT,
   type ResponsibilityReadOutput,
   type SourceStructureSegment,
@@ -17,6 +18,7 @@ import {
   prefixResponsibilityOutput,
   prefixResponsibilityRetryOutput,
   assertUniqueResponsibilityElementIds,
+  assertResponsibilityDutyChunksHaveBaseReads,
   responsibilityParentSegment,
   responsibilityRawAuditArtifact,
   rankResponsibilityOmissionChunks,
@@ -24,6 +26,15 @@ import {
   RESPONSIBILITY_FOCUSED_OMISSION_LIMIT,
   ResponsibilityOmissionRetryScheduler,
   buildResponsibilityOmissionAudit,
+  buildResponsibilitySelectedSpanAudit,
+  buildGroundedResponsibilityQuoteCandidates,
+  buildSyntheticResponsibilitySegments,
+  buildResponsibilityBaseReadPlan,
+  buildResponsibilityPostPassAudit,
+  responsibilitySpanSha256,
+  selectResponsibilityQuoteRepairRead,
+  sourceDutySpans,
+  validateGroundedResponsibilityQuoteSelections,
   shardResponsibilitySegments,
   validateResponsibilityRead,
 } from '../lib/responsibility-reader';
@@ -174,6 +185,10 @@ assert.ok(omissionAudit.some((item) => /emails the approved package/.test(item.s
 assert.ok(omissionAudit.some((item) => /downloads files/.test(item.sourceSpan)));
 assert.ok(omissionAudit.some((item) => /uploads files/.test(item.sourceSpan)));
 assert.ok(!omissionAudit.some((item) => /review summarizes/.test(item.sourceSpan)));
+assert.ok(
+  omissionAudit.every((item) => item.listStructured),
+  'list structure survives marker stripping for retry ranking',
+);
 const multiChunkOmissions = findResponsibilityOmissions({
   chunks: [
     { id: chunkId, documentId, rawText: '- Finance authorizes invoices.' },
@@ -452,6 +467,16 @@ const firstScheduled = scheduler.next({
 });
 assert.equal(firstScheduled.kind, 'attempt');
 assert.equal(firstScheduled.kind === 'attempt' && firstScheduled.chunkId, chunkId);
+assert.equal(
+  firstScheduled.kind === 'attempt' &&
+    firstScheduled.omissions[0]?.rankFeatures.chunkOmissionCount,
+  2,
+);
+assert.equal(
+  firstScheduled.kind === 'attempt' &&
+    firstScheduled.omissions[0]?.rankFeatures.sourceChunkIndex,
+  0,
+);
 scheduler.recordAttempt(chunkId, 'zero_accept');
 const afterZeroAccept = scheduler.next({
   omissions: schedulerOmissions,
@@ -478,6 +503,213 @@ const afterNoSource = noSourceScheduler.next({
 });
 assert.equal(afterNoSource.kind, 'attempt');
 assert.equal(afterNoSource.kind === 'attempt' && afterNoSource.chunkId, otherChunkId);
+const syntheticSegments = buildSyntheticResponsibilitySegments({
+  chunks: [
+    {
+      id: chunkId,
+      documentId,
+      rawText: '[Finance]\n- Approve invoice totals before close.',
+    },
+    {
+      id: otherChunkId,
+      documentId,
+      rawText: 'Background narrative without a duty.',
+    },
+  ],
+  existingSegments: [],
+});
+assert.equal(syntheticSegments.length, 1, 'orphan duty chunks receive a base read');
+assert.deepEqual(syntheticSegments[0]?.chunkIds, [chunkId]);
+assert.equal(syntheticSegments[0]?.shape, 'responsibilities');
+assert.doesNotThrow(() =>
+  assertResponsibilityDutyChunksHaveBaseReads({
+    chunks: [{
+      id: chunkId,
+      documentId,
+      rawText: '[Finance]\n- Approve invoice totals before close.',
+    }],
+    baseReadSegments: syntheticSegments,
+  }),
+);
+assert.throws(
+  () =>
+    assertResponsibilityDutyChunksHaveBaseReads({
+      chunks: [{
+        id: chunkId,
+        documentId,
+        rawText: '[Finance]\n- Approve invoice totals before close.',
+      }],
+      baseReadSegments: [],
+    }),
+  /missing base reads/,
+  'a ranked duty chunk can never reach retry scheduling without a base read',
+);
+const syntheticCovered = buildSyntheticResponsibilitySegments({
+  chunks: [{ id: chunkId, documentId, rawText: '- Finance approves invoices.' }],
+  existingSegments: [segment],
+});
+assert.equal(syntheticCovered.length, 0, 'existing responsibility base reads are never duplicated');
+const baseReadPlan = buildResponsibilityBaseReadPlan({
+  chunks: [
+    { id: chunkId, documentId, rawText: '- Finance approves invoices.' },
+    { id: otherChunkId, documentId, rawText: 'Sales must send the approved package.' },
+  ],
+  responsibilitySegments: [segment],
+});
+assert.equal(baseReadPlan.syntheticBaseReadCount, 1);
+assert.deepEqual(
+  baseReadPlan.durableSegments.flatMap((item) => item.chunkIds),
+  [chunkId, otherChunkId],
+  'the production base-read seam keeps synthetic responsibility segments durable',
+);
+const seamScheduler = new ResponsibilityOmissionRetryScheduler();
+const seamSkip = seamScheduler.next({
+  omissions: [{
+    chunkId: otherChunkId,
+    spanIndex: 0,
+    sourceSpan: 'Sales must send the approved package.',
+  }],
+  chunks: [{ id: chunkId }, { id: otherChunkId }],
+  sourceReadChunkIds: new Set([chunkId]),
+});
+assert.equal(seamSkip.kind, 'no_source_read');
+assert.equal(
+  seamScheduler.next({
+    omissions: [{
+      chunkId: otherChunkId,
+      spanIndex: 0,
+      sourceSpan: 'Sales must send the approved package.',
+    }],
+    chunks: [{ id: chunkId }, { id: otherChunkId }],
+    sourceReadChunkIds: new Set([chunkId]),
+  }).kind,
+  'done',
+  'the production retry scheduler cannot loop forever after a skipped source read',
+);
+const seamQuoteRepair = { attempted: true, accepted: true };
+const seamAudit = buildResponsibilityPostPassAudit({
+  initialOmissions: [],
+  finalOmissions: [],
+  retries: [{ preOmissionCount: 1, postOmissionCount: 1 }],
+  quoteRepair: seamQuoteRepair,
+  postPassBudget: { used: 1 },
+  syntheticBaseReadCount: baseReadPlan.syntheticBaseReadCount,
+});
+assert.equal(seamAudit.syntheticBaseReadCount, 1);
+assert.equal(seamAudit.responsibilityQuoteRepair, seamQuoteRepair);
+assert.equal(seamAudit.responsibilityOmissionAudit.retries.length, 1);
+const seamRepairRead = selectResponsibilityQuoteRepairRead([
+  {
+    segment,
+    validation: {
+      diagnostics: [{
+        responsibilityId: 'bad_quote',
+        chunkId,
+        failureClass: 'quote_mismatch' as const,
+        detail: 'not exact',
+        boundedQuote: 'Finance approve invoices.',
+        selectedPolicy: 'plain_text',
+        validationMethod: 'none',
+        alternatePoliciesPassing: [],
+        crossSegmentStatus: 'within_segment' as const,
+        failureOrigin: 'root' as const,
+      }],
+    },
+  },
+]);
+assert.equal(seamRepairRead?.segment.segmentId, segment.segmentId);
+const selectedForAudit = selectFocusedResponsibilityOmissions(schedulerOmissions, 1);
+const selectedAudit = buildResponsibilitySelectedSpanAudit({
+  selected: selectedForAudit,
+  finalOmissions: [],
+  preRecordCount: 2,
+  postRecordCount: 3,
+  skipped: null,
+  sourceShapes: ['process'],
+  sourceSegmentIds: ['invoice_process'],
+  inResponsibilityBaseRead: false,
+});
+assert.equal(selectedAudit.length, 1);
+assert.equal(selectedAudit[0]?.sourceSpanSha256.length, 64);
+assert.equal(selectedAudit[0]?.rankIndex, 0);
+assert.equal(selectedAudit[0]?.preRecordCount, 2);
+assert.equal(selectedAudit[0]?.postRecordCount, 3);
+assert.equal(selectedAudit[0]?.result.accepted, true);
+assert.equal(selectedAudit[0]?.inResponsibilityBaseRead, false);
+assert.deepEqual(selectedAudit[0]?.sourceShapes, ['process']);
+const boundedFinalAudit = buildResponsibilityOmissionAudit({
+  initialOmissions: tooManyFocused,
+  finalOmissions: Array.from({ length: 35 }, (_, spanIndex) => ({
+    chunkId,
+    spanIndex,
+    sourceSpan: `Finance reviews invoice ${spanIndex}.`,
+  })),
+  retries: [],
+});
+assert.equal(boundedFinalAudit.finalUncoveredSpanSample.length, 30);
+assert.equal(boundedFinalAudit.finalUncoveredSpanSample[0]?.sourceSpanSha256.length, 64);
+const longSpan = `Finance reviews ${'invoice '.repeat(400)}`;
+const longAudit = buildResponsibilityOmissionAudit({
+  initialOmissions: [],
+  finalOmissions: [{ chunkId, spanIndex: 0, sourceSpan: longSpan }],
+  retries: [],
+});
+assert.equal(
+  longAudit.finalUncoveredSpanSample[0]?.sourceSpanSha256,
+  responsibilitySpanSha256(longSpan.slice(0, 2000)),
+  'the persisted span and its hash describe the same bounded text',
+);
+const groundedCandidates = buildGroundedResponsibilityQuoteCandidates({
+  rawText:
+    'Finance reviews invoices.\nFinance approves invoice totals before close.\nSales sends reports.',
+  failedQuote: 'Finance approve invoice total before close',
+});
+assert.equal(
+  groundedCandidates[0]?.sourceText,
+  'Finance approves invoice totals before close.',
+  'grounded candidates rank strongest token overlap first',
+);
+assert.equal(groundedCandidates[0]?.sourceTextSha256.length, 64);
+assert.ok(
+  buildGroundedResponsibilityQuoteCandidates({
+    rawText: `Long preface ${'context '.repeat(80)} Finance approves invoice totals before close. ${'tail '.repeat(100)}`,
+    failedQuote: 'approves invoice totals',
+  }).some((item) => item.sourceText.length < 1000),
+  'quote repair offers a nearby bounded substring as well as the full logical span',
+);
+assert.deepEqual(
+  validateGroundedResponsibilityQuoteSelections({
+    repairs: [{
+      responsibilityId: 'invoice_approval',
+      evidenceQuote: groundedCandidates[0]!.sourceText,
+    }],
+    offered: [{ responsibilityId: 'invoice_approval', candidates: groundedCandidates }],
+  }),
+  { ok: true },
+);
+assert.deepEqual(
+  validateGroundedResponsibilityQuoteSelections({
+    repairs: [{
+      responsibilityId: 'invoice_approval',
+      evidenceQuote: 'A freely rewritten quote.',
+    }],
+    offered: [{ responsibilityId: 'invoice_approval', candidates: groundedCandidates }],
+  }),
+  { ok: false, responsibilityId: 'invoice_approval' },
+  'grounded repair rejects free rewriting',
+);
+assert.deepEqual(
+  sourceDutySpans('[Finance]\n- Approve invoices.\n- Email approved invoices.'),
+  ['[Finance] Approve invoices.', '[Finance] Email approved invoices.'],
+  'generic thin duty spans preserve owner and source order',
+);
+assert.deepEqual(
+  sourceDutySpans('Finance must approve invoices.\nSales sends the package.'),
+  ['Finance must approve invoices.', 'Sales sends the package.'],
+  'modal and direct-owner prose are discovered without list markers',
+);
+assert.match(RESPONSIBILITY_QUOTE_REPAIR_SYSTEM_PROMPT, /\{"repairs":\[\.\.\.\]\}/);
+assert.match(RESPONSIBILITY_QUOTE_REPAIR_SYSTEM_PROMPT, /Never rewrite/);
 const budgetScheduler = new ResponsibilityOmissionRetryScheduler();
 const budgetDecision = budgetScheduler.next({
   omissions: schedulerOmissions,
@@ -761,6 +993,7 @@ if (auditRepairPatched.ok) {
       preOmissionCount: 1,
       postOmissionCount: 0,
       uncoveredSpanCount: 0,
+      finalUncoveredSpanSample: [],
       retries: [],
     },
     'accepted quote repair updates the durable final omission audit',
@@ -856,7 +1089,7 @@ assert.doesNotThrow(() =>
 assert.equal(answerKey.version, 'licensed-team-responsibilities-v1');
 assert.equal(answerKey.records.length, 30);
 assert.equal(RESPONSIBILITY_ANSWER_KEY_MATCHER_VERSION, 'field-aware-v3');
-assert.equal(RESPONSIBILITY_READ_PROMPT_VERSION, 'responsibility-read-v2.2-field-faithful');
+assert.equal(RESPONSIBILITY_READ_PROMPT_VERSION, 'responsibility-read-v2.3-duty-complete');
 for (const requiredPromptRule of [
   'exact source-owner role label',
   'exactly one duty per record',
@@ -887,6 +1120,25 @@ const responsibilityReaderSource = readFileSync(
   new URL('../lib/responsibility-reader.ts', import.meta.url),
   'utf8',
 );
+const documentIngestionSource = readFileSync(
+  new URL('../trigger/document-ingestion.ts', import.meta.url),
+  'utf8',
+);
+for (const frozenBudgetLiteral of [
+  "readNumberSetting(db, 'source_reader_max_read_calls_per_source', 40)",
+  "readNumberSetting(db, 'source_reader_max_input_tokens_per_source', 500_000)",
+  "readNumberSetting(db, 'source_reader_max_estimated_cost_usd_per_source', 10)",
+  "'responsibility_postpass_max_quote_repairs_per_source',\n      1",
+  "'responsibility_postpass_max_omission_retries_per_source',\n      5",
+  "'responsibility_postpass_max_omission_retries_per_chunk',\n      1",
+]) {
+  assert.ok(
+    workflowReadSource.includes(frozenBudgetLiteral),
+    `frozen Batch E budget changed: ${frozenBudgetLiteral}`,
+  );
+}
+assert.ok(documentIngestionSource.includes('requiredCoverage: 0.9'));
+assert.ok(documentIngestionSource.includes("'business_model_merge_enabled'"));
 for (const forbiddenRuntimeLeak of [
   '__fixtures__',
   'responsibility-answer-key',
@@ -931,15 +1183,15 @@ assert.equal(
 assert.equal(responsibilityReadTaskType(false), 'source-responsibility-read');
 assert.equal(
   responsibilityReadPromptVersion(true),
-  'responsibility-quote-repair-v2.2',
+  'responsibility-quote-repair-v2.3-grounded',
 );
 assert.equal(
   responsibilityReadPromptVersion(false),
-  'responsibility-read-v2.2-field-faithful',
+  'responsibility-read-v2.3-duty-complete',
 );
 assert.equal(
   RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
-  'responsibility-quote-repair-v2.2',
+  'responsibility-quote-repair-v2.3-grounded',
 );
 for (const persistedPromptVersion of [
   RESPONSIBILITY_READ_PROMPT_VERSION,
@@ -952,8 +1204,32 @@ for (const persistedPromptVersion of [
 }
 const quoteOnlyRequest = buildResponsibilityRequestContent({
   quoteRepairRecords: [output.responsibilities[0]!],
+  quoteRepairCandidates: [{
+    responsibilityId: output.responsibilities[0]!.responsibilityId,
+    failedQuote: 'Designer check art files.',
+    immutableFields: {
+      responsibilityId: output.responsibilities[0]!.responsibilityId,
+      label: output.responsibilities[0]!.label,
+      role: output.responsibilities[0]!.role,
+      action: output.responsibilities[0]!.action,
+      object: output.responsibilities[0]!.object,
+      trigger: output.responsibilities[0]!.trigger,
+      requiredSystem: output.responsibilities[0]!.requiredSystem,
+      ownerName: output.responsibilities[0]!.ownerName,
+      department: output.responsibilities[0]!.department,
+      chunkId: output.responsibilities[0]!.chunkId,
+    },
+    candidates: [{
+      candidateIndex: 0,
+      sourceText: output.responsibilities[0]!.evidenceQuote,
+      sourceTextSha256: responsibilitySpanSha256(output.responsibilities[0]!.evidenceQuote),
+      tokenOverlap: 3,
+    }],
+  }],
 });
-assert.match(quoteOnlyRequest, /Quote-copy repair only/);
+assert.match(quoteOnlyRequest, /Grounded quote repair only/);
+assert.match(quoteOnlyRequest, /Designer check art files/);
+assert.match(quoteOnlyRequest, /checks art files for completeness/);
 for (const extractionRule of [
   'Split adjacent verbs',
   'Preserve action direction',

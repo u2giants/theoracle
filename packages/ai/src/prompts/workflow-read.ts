@@ -5,11 +5,11 @@ import {
 } from '@oracle/shared/business-model-shapes';
 
 export const WORKFLOW_READ_PROMPT_VERSION = 'workflow-read-v2-quote-copy-repair';
-export const RESPONSIBILITY_READ_PROMPT_VERSION = 'responsibility-read-v2.2-field-faithful';
-export const RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION = 'responsibility-quote-repair-v2.2';
+export const RESPONSIBILITY_READ_PROMPT_VERSION = 'responsibility-read-v2.3-duty-complete';
+export const RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION = 'responsibility-quote-repair-v2.3-grounded';
 export const SOURCE_SEGMENTATION_PROMPT_VERSION = 'source-segmentation-v1';
 export const SOURCE_READER_PIPELINE_VERSION =
-  'shape-reader-v5-r2-responsibilities';
+  'shape-reader-v6-r2-batch-e';
 
 export const SOURCE_STRUCTURE_SHAPES = BUSINESS_MODEL_SHAPES;
 export const SOURCE_STRUCTURE_SHAPE_REGISTRY = BUSINESS_MODEL_SHAPE_REGISTRY;
@@ -66,6 +66,17 @@ HARD RULES:
 - Keep elementId, elementType, and chunkId exactly as supplied.
 - Never move evidence to another chunk, change map structure, add facts, summarize, paraphrase, or correct source spelling.`;
 
+export const RESPONSIBILITY_QUOTE_REPAIR_SYSTEM_PROMPT = `You select grounded evidence quotes for existing responsibility records.
+
+HARD RULES:
+- Return only JSON in this exact envelope: {"repairs":[...]}.
+- Return only responsibilityId, the unchanged chunkId, and evidenceQuote.
+- Keep responsibilityId and chunkId exactly as supplied.
+- Select evidenceQuote exactly from the offered candidates for that record.
+- Never rewrite, combine, shorten, paraphrase, or invent a candidate.
+- Never add a responsibility or change any field other than evidenceQuote.
+- Return any subset you can prove.`;
+
 export const RESPONSIBILITY_READ_SYSTEM_PROMPT = `You read responsibility-list segments for The Oracle.
 
 Return a flat list. Each record is one concrete owner-action-object responsibility.
@@ -86,6 +97,9 @@ HARD RULES:
 - Form names, systems, destinations, deadlines, and cadence must appear exactly as the source states them in object. trigger may repeat timing or cadence, but it must never be their only location.
 - Do not leave a real target only in requiredSystem. The target and its identity details belong in object.
 - Prefer multiple thin, independently evidenced records over one broad combined record.
+- When focused source spans are supplied, account for every span in source order. Preserve the
+  explicit owner, single duty verb, complete concrete target/system/form, cadence, timing, and
+  polarity. Do not broaden one span with facts from another span.
 - Use the shortest verbatim quote that fully supports the one duty in this record.
 - A handling chain becomes one record per step stated in the source.
 - Do not invent duties, owners, targets, systems, timing, or cadence that are not present in the source.
