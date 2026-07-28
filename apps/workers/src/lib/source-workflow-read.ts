@@ -3,7 +3,9 @@ import { createHash } from 'node:crypto';
 import {
   OracleAIClient,
   RESPONSIBILITY_READ_PROMPT_VERSION,
+  RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
   RESPONSIBILITY_READ_SYSTEM_PROMPT,
+  ResponsibilityQuoteRepairSchema,
   ResponsibilityReadSchema,
   SOURCE_READER_PIPELINE_VERSION,
   SOURCE_STRUCTURE_SHAPE_REGISTRY,
@@ -23,6 +25,7 @@ import {
   resolveRouteCandidates,
   type OraclePromptPlan,
   type ResponsibilityReadOutput,
+  type ResponsibilityQuoteRepairOutput,
   type SourceSegmentationOutput,
   type SourceStructureSegment,
   type SourceStructureShape,
@@ -64,6 +67,7 @@ import {
 } from './workflow-map-validator';
 import {
   findResponsibilityOmissions,
+  buildResponsibilityOmissionAudit,
   mergeResponsibilityValidationResults,
   mergeResponsibilityRetryValidation,
   patchResponsibilityQuoteRepairs,
@@ -72,6 +76,7 @@ import {
   assertUniqueResponsibilityElementIds,
   responsibilityParentSegment,
   responsibilityRawAuditArtifact,
+  ResponsibilityOmissionRetryScheduler,
   shardResponsibilitySegments,
   validateResponsibilityRead,
 } from './responsibility-reader';
@@ -1088,6 +1093,40 @@ async function runWorkflowReadModel(args: {
   return { output: mergeWorkflowOutputs(outputs), modelRunIds, contextPackIds };
 }
 
+export function responsibilityReadTaskType(quoteRepair: boolean): string {
+  return quoteRepair
+    ? 'source-responsibility-quote-repair'
+    : 'source-responsibility-read';
+}
+
+export function responsibilityReadPromptVersion(quoteRepair: boolean): string {
+  return quoteRepair
+    ? RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION
+    : RESPONSIBILITY_READ_PROMPT_VERSION;
+}
+
+export function buildResponsibilityRequestContent(args: {
+  focusedSpans?: string[];
+  quoteRepairRecords?: ResponsibilityReadOutput['responsibilities'];
+}): string {
+  if (args.quoteRepairRecords?.length) {
+    return `Quote-copy repair only. Return any exact repairs you can prove for these records. Return only responsibilityId, unchanged chunkId, and evidenceQuote. Do not return extraction fields or instructions:\n${JSON.stringify(args.quoteRepairRecords)}`;
+  }
+  return [
+    args.focusedSpans?.length
+      ? `Focused omission retry. Extract duties only from these source spans:\n${args.focusedSpans.join('\n---\n')}`
+      : 'Extract every distinct responsibility record from this segment.',
+    'Use the exact source-owner role label and one short action verb phrase per record.',
+    'Use the nearest explicit owner in the same span or active list heading. Never substitute a nearby owner.',
+    'Preserve action direction and polarity exactly.',
+    'Split adjacent verbs and duties. Split distinct destinations or systems into separate records.',
+    'Keep every stated target, system, destination, portal, server, form, deadline, cadence, and timing qualifier in object; trigger may repeat but never replace them.',
+    'If one duty names several targets, systems, forms, portals, cadences, or timing details, split per target or preserve all named details in object.',
+    'Do not leave a real target only in requiredSystem. Do not invent duties not present in the source.',
+    'Prefer multiple thin records. Use the shortest verbatim one-duty quote copied exactly from one chunk.',
+  ].join(' ');
+}
+
 async function runResponsibilityReadModel(args: {
   db: OracleDb;
   client: OracleAIClient;
@@ -1105,6 +1144,9 @@ async function runResponsibilityReadModel(args: {
   contextPackId: string;
   execution: { outputTokens: number | null; finishReason: string | null; truncated: boolean };
 }> {
+  const quoteRepairMode = Boolean(args.quoteRepairRecords?.length);
+  const responsibilityTaskType = responsibilityReadTaskType(quoteRepairMode);
+  const responsibilityPromptVersion = responsibilityReadPromptVersion(quoteRepairMode);
   const resolved = await resolveRouteCandidates(args.db, 'workflow_read');
   for (const skipped of resolved.skipped) {
     console.warn('[source-workflow-read] skipped responsibility route candidate', skipped);
@@ -1115,8 +1157,14 @@ async function runResponsibilityReadModel(args: {
       id: 'responsibility-read-system',
       label: 'Responsibility read system prompt',
       kind: 'stable_system',
-      content: RESPONSIBILITY_READ_SYSTEM_PROMPT,
-      reasonIncluded: RESPONSIBILITY_READ_PROMPT_VERSION,
+      content: args.quoteRepairRecords?.length
+        ? `You repair verbatim evidence quotes for responsibility records.
+Return only responsibilityId, the unchanged chunkId, and the shortest exact evidenceQuote copied from that chunk.
+Return any subset you can repair exactly. Never paraphrase, move a record to another chunk, or return other fields.`
+        : RESPONSIBILITY_READ_SYSTEM_PROMPT,
+      reasonIncluded: quoteRepairMode
+        ? `${RESPONSIBILITY_READ_PROMPT_VERSION}:quote-only`
+        : RESPONSIBILITY_READ_PROMPT_VERSION,
     }),
     makeBlock({
       id: 'responsibility-metadata',
@@ -1144,18 +1192,10 @@ async function runResponsibilityReadModel(args: {
       id: 'responsibility-request',
       label: 'Responsibility read request',
       kind: 'dynamic_input',
-      content: [
-        args.quoteRepairRecords?.length
-          ? `Quote-copy repair only. Return these same records with every non-quote field unchanged and evidenceQuote copied exactly from its existing chunk:\n${JSON.stringify(args.quoteRepairRecords)}`
-          : args.focusedSpans?.length
-          ? `Focused omission retry. Extract duties only from these source spans:\n${args.focusedSpans.join('\n---\n')}`
-          : 'Extract every distinct responsibility record from this segment.',
-        'Use the exact source-owner role label and one short action verb phrase per record.',
-        'Split adjacent verbs and duties. Split distinct destinations or systems into separate records.',
-        'Keep every stated target, system, destination, portal, server, form, deadline, cadence, and timing qualifier in object; trigger may repeat but never replace them.',
-        'Do not leave a real target only in requiredSystem. Do not invent duties not present in the source.',
-        'Prefer multiple thin records. Copy each evidence quote exactly from one chunk.',
-      ].join(' '),
+      content: buildResponsibilityRequestContent({
+        focusedSpans: args.focusedSpans,
+        quoteRepairRecords: args.quoteRepairRecords,
+      }),
       reasonIncluded: 'current responsibilities pass-2 request',
     }),
   ];
@@ -1166,7 +1206,7 @@ async function runResponsibilityReadModel(args: {
   const plan = args.client.compile({
     taskType: 'source_workflow_read',
     routeId: route.routeId,
-    promptVersion: RESPONSIBILITY_READ_PROMPT_VERSION,
+    promptVersion: responsibilityPromptVersion,
     blocks,
     observability: { includedDocumentChunkIds: args.chunks.map((chunk) => chunk.id) },
   });
@@ -1176,23 +1216,34 @@ async function runResponsibilityReadModel(args: {
     .returning({ id: oracleContextPacks.id });
   if (!contextPack) throw new Error('[source-workflow-read] failed responsibility context pack');
   const started = Date.now();
-  const result = await args.client.runObject<ResponsibilityReadOutput>({
-    taskType: 'source_workflow_read',
-    routeId: route.routeId,
-    promptVersion: RESPONSIBILITY_READ_PROMPT_VERSION,
-    blocks,
-    schema: ResponsibilityReadSchema,
-    observability: { includedDocumentChunkIds: args.chunks.map((chunk) => chunk.id) },
-    providerOptions: { maxOutputTokens: 32_000 },
-    routeCandidates: resolved.candidates,
-  });
+  const result = args.quoteRepairRecords?.length
+    ? await args.client.runObject<ResponsibilityQuoteRepairOutput>({
+        taskType: 'source_workflow_read',
+        routeId: route.routeId,
+        promptVersion: responsibilityPromptVersion,
+        blocks,
+        schema: ResponsibilityQuoteRepairSchema,
+        observability: { includedDocumentChunkIds: args.chunks.map((chunk) => chunk.id) },
+        providerOptions: { maxOutputTokens: 8_000 },
+        routeCandidates: resolved.candidates,
+      })
+    : await args.client.runObject<ResponsibilityReadOutput>({
+        taskType: 'source_workflow_read',
+        routeId: route.routeId,
+        promptVersion: responsibilityPromptVersion,
+        blocks,
+        schema: ResponsibilityReadSchema,
+        observability: { includedDocumentChunkIds: args.chunks.map((chunk) => chunk.id) },
+        providerOptions: { maxOutputTokens: 32_000 },
+        routeCandidates: resolved.candidates,
+      });
   const [modelRun] = await args.db
     .insert(modelRuns)
     .values({
-      taskType: 'source-responsibility-read',
+      taskType: responsibilityTaskType,
       model: result.modelId ?? route.modelId,
       provider: result.provider ?? route.provider,
-      promptVersion: RESPONSIBILITY_READ_PROMPT_VERSION,
+      promptVersion: responsibilityPromptVersion,
       inputHash: plan.metadata.stablePrefixHash,
       inputTokens: result.usage.inputTokens ?? null,
       outputTokens: result.usage.outputTokens ?? null,
@@ -1217,7 +1268,7 @@ async function runResponsibilityReadModel(args: {
   await logModelRunAttempts({
     db: args.db,
     metadata: result,
-    taskType: 'source-responsibility-read',
+    taskType: responsibilityTaskType,
     slot: 'workflow_read',
     contextPackId: contextPack.id,
     modelRunId: modelRun.id,
@@ -1231,6 +1282,34 @@ async function runResponsibilityReadModel(args: {
       `[source-workflow-read] responsibility schema failed: ${result.validation.error.message}`,
     );
   }
+  if (args.quoteRepairRecords?.length) {
+    const knownRepairIds = new Set(
+      args.quoteRepairRecords.map((record) => record.responsibilityId),
+    );
+    const unknownRepair = (result.object as ResponsibilityQuoteRepairOutput).repairs.find(
+      (repair) => !knownRepairIds.has(repair.responsibilityId),
+    );
+    if (unknownRepair) {
+      throw new Error(
+        `[source-workflow-read] quote repair returned unknown responsibility ${unknownRepair.responsibilityId}`,
+      );
+    }
+  }
+  const output: ResponsibilityReadOutput = args.quoteRepairRecords?.length
+    ? {
+        summary: 'Quote-only responsibility repairs.',
+        responsibilities: (result.object as ResponsibilityQuoteRepairOutput).repairs.flatMap(
+          (repair) => {
+            const original = args.quoteRepairRecords!.find(
+              (record) => record.responsibilityId === repair.responsibilityId,
+            );
+            return original
+              ? [{ ...original, chunkId: repair.chunkId, evidenceQuote: repair.evidenceQuote }]
+              : [];
+          },
+        ),
+      }
+    : (result.object as ResponsibilityReadOutput);
   const rawUsage = result.usage.rawUsageJson as Record<string, unknown> | null | undefined;
   const finishReason =
     typeof rawUsage?.finishReason === 'string'
@@ -1239,7 +1318,7 @@ async function runResponsibilityReadModel(args: {
         ? rawUsage.finish_reason
         : null;
   return {
-    output: result.object,
+    output,
     modelRunId: modelRun.id,
     contextPackId: contextPack.id,
     execution: {
@@ -2000,33 +2079,54 @@ export async function generateSourceWorkflowMap(args: {
       },
     }));
 
-    const omissions = findResponsibilityOmissions({
-      chunks: chunks.map((chunk) => ({
-        id: chunk.id,
-        documentId: args.documentId,
-        rawText: chunk.rawText,
-      })),
-      elements: responsibilityReads.flatMap((read) => read.validation.elements),
-      fileType: doc.fileType,
-      fileName: doc.fileName,
-    });
-    const omissionsByChunk = new Map<string, typeof omissions>();
-    for (const omission of omissions) {
-      const list = omissionsByChunk.get(omission.chunkId) ?? [];
-      list.push(omission);
-      omissionsByChunk.set(omission.chunkId, list);
-    }
+    const responsibilityAuditChunks = chunks.map((chunk) => ({
+      id: chunk.id,
+      documentId: args.documentId,
+      rawText: chunk.rawText,
+    }));
+    const auditResponsibilityOmissions = () =>
+      findResponsibilityOmissions({
+        chunks: responsibilityAuditChunks,
+        elements: responsibilityReads.flatMap((read) => read.validation.elements),
+        fileType: doc.fileType,
+        fileName: doc.fileName,
+      });
+    const initialOmissions = auditResponsibilityOmissions();
     const omissionRetries: Array<{
       chunkId: string;
       selectedSpanCount: number;
       acceptedCount: number;
       skipped: string | null;
+      preOmissionCount: number;
+      postOmissionCount: number;
     }> = [];
     const omissionRetryAttemptsByShard = new Map<string, number>();
-    for (const [chunkId, chunkOmissions] of omissionsByChunk) {
+    const omissionRetryScheduler = new ResponsibilityOmissionRetryScheduler();
+    while (true) {
+      const currentOmissions = auditResponsibilityOmissions();
+      const decision = omissionRetryScheduler.next({
+        omissions: currentOmissions,
+        chunks: responsibilityAuditChunks,
+        sourceReadChunkIds: new Set(
+          responsibilityReads.flatMap((read) => read.segment.chunkIds),
+        ),
+      });
+      if (decision.kind === 'done') break;
+      const { chunkId } = decision;
+      const focusedOmissions = decision.omissions;
       const sourceRead = responsibilityReads.find((read) => read.segment.chunkIds[0] === chunkId);
       const chunk = chunkById.get(chunkId);
-      if (!sourceRead || !chunk) continue;
+      if (decision.kind === 'no_source_read' || !sourceRead || !chunk) {
+        omissionRetries.push({
+          chunkId,
+          selectedSpanCount: focusedOmissions.length,
+          acceptedCount: 0,
+          skipped: 'no_source_read',
+          preOmissionCount: decision.preOmissionCount,
+          postOmissionCount: decision.preOmissionCount,
+        });
+        continue;
+      }
       try {
         responsibilityPostPassBudget.reserveOmissionRetry(chunkId);
         const shardIndex = responsibilityShards.findIndex(
@@ -2047,7 +2147,7 @@ export async function generateSourceWorkflowMap(args: {
           mapId: pending.mapId,
           segment: sourceRead.segment,
           budget: readerBudget,
-          focusedSpans: chunkOmissions.map((item) => item.sourceSpan),
+          focusedSpans: focusedOmissions.map((item) => item.sourceSpan),
         });
         retryModel.output = prefixResponsibilityRetryOutput(
           retryModel.output,
@@ -2078,23 +2178,36 @@ export async function generateSourceWorkflowMap(args: {
         sourceRead.modelRunIds.push(retryModel.modelRunId);
         sourceRead.contextPackIds.push(retryModel.contextPackId);
         sourceRead.executions.push(retryModel.execution);
+        const postOmissions = auditResponsibilityOmissions();
         omissionRetries.push({
           chunkId,
-          selectedSpanCount: chunkOmissions.length,
+          selectedSpanCount: focusedOmissions.length,
           acceptedCount: mergedRetry.acceptedCount,
-          skipped: null,
+          skipped: mergedRetry.acceptedCount === 0 ? 'zero_accept' : null,
+          preOmissionCount: currentOmissions.length,
+          postOmissionCount: postOmissions.length,
         });
+        omissionRetryScheduler.recordAttempt(
+          chunkId,
+          mergedRetry.acceptedCount === 0 ? 'zero_accept' : 'accepted',
+        );
       } catch (error) {
         const budgetExhausted =
           error instanceof SourceReaderBudgetExceededError ||
           (error instanceof Error && error.message.includes('responsibility-post-pass-budget'));
         omissionRetries.push({
           chunkId,
-          selectedSpanCount: chunkOmissions.length,
+          selectedSpanCount: focusedOmissions.length,
           acceptedCount: 0,
           skipped: budgetExhausted ? 'budget_exhausted' : 'retry_failed',
+          preOmissionCount: currentOmissions.length,
+          postOmissionCount: currentOmissions.length,
         });
-        if (budgetExhausted) break;
+        omissionRetryScheduler.recordAttempt(
+          chunkId,
+          budgetExhausted ? 'budget_exhausted' : 'retry_failed',
+        );
+        if (budgetExhausted) continue;
       }
     }
 
@@ -2180,6 +2293,7 @@ export async function generateSourceWorkflowMap(args: {
           : 'repair_failed';
       }
     }
+    const omissions = auditResponsibilityOmissions();
 
     const finalizedProcessReads = processReads.map((read) => ({
       ...read,
@@ -2264,10 +2378,11 @@ export async function generateSourceWorkflowMap(args: {
         executions: read.executions,
         diagnostics: read.validation.diagnostics,
       })),
-      responsibilityOmissionAudit: {
-        uncoveredSpanCount: omissions.length,
+      responsibilityOmissionAudit: buildResponsibilityOmissionAudit({
+        initialOmissions,
+        finalOmissions: omissions,
         retries: omissionRetries,
-      },
+      }),
       responsibilityQuoteRepair,
       responsibilityPostPassBudget: responsibilityPostPassBudget.snapshot(),
       droppedCount,

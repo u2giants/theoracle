@@ -90,7 +90,7 @@ Pinned fixture manifest:
   request prompts require exact source-owner labels, one duty and one destination per record, short
   action phrases, and preservation of concrete systems, portals, servers, forms, cadence, and timing.
   This prompt was deployed and failed its second live gate. Batch C then shipped and failed the
-  third live gate at 19/30 (63.3%). Batch D is next; merge and apply remain forbidden.
+  third live gate at 19/30 (63.3%). Batch D is now local-only; merge and apply remain forbidden.
 
 ## Field-aware-v3 production audit
 
@@ -215,7 +215,7 @@ and verbatim quote copying without weakening the matcher or evidence validator.
 - Structured list candidates require a duty verb or a generic ownership/responsibility cue.
 - The answer key and `field-aware-v3` scorer remain frozen.
 - Batch C shipped in commit `f31f66a` and failed the third production gate at 19/30 (63.3%).
-  Batch D is next. No shadow merge or apply work is authorized until recall reaches 90%.
+  Batch D is implemented locally below. No shadow merge or apply work is authorized until recall reaches 90%.
 
 The second gate created one disposable production fixture document and its normal ingestion
 artifacts. At that checkpoint, neither merge nor apply was enabled, durable business objects and
@@ -296,3 +296,25 @@ reports, partner assets, or Microsoft Loop. The source audit still reported 28 u
 yet only two focused retries ran and each added one record. Nine quote mismatches all came from the
 first responsibility shard, and the one quote repair could not improve them. The gate remains
 blocked. Do not enable merge or apply.
+
+## Batch D local implementation
+
+Batch D is implemented locally only. It has not been committed, deployed, or run against
+production, so the frozen third-gate score remains 19/30 (63.3%).
+
+- Generic omission coverage now requires strict quote containment plus matching owner, duty action,
+  and concrete object details. A long quote cannot hide an unrepresented duty.
+- Omission retries re-audit after every attempt, rank remaining chunks by omission count and stable
+  source order, and send at most six focused spans per call.
+- Retry audit rows record pre/post omission counts, accepted records, `no_source_read`,
+  `budget_exhausted`, and `zero_accept` instead of silently skipping.
+- Prompt `responsibility-read-v2.2-field-faithful` requires the nearest explicit owner, unchanged
+  direction and polarity, complete named targets and timing, and the shortest verbatim one-duty quote.
+- Responsibility quote repair uses a dedicated quote-only schema. It keeps all non-quote fields and
+  chunk IDs immutable and may accept a partial set only when strict mismatches decrease. Repair
+  runs have distinct durable task/prompt identity, and the final omission count is recomputed after
+  an accepted repair.
+- The answer key, `field-aware-v3`, 90% threshold, merge/apply flags, and R0/R0.1 budgets are unchanged.
+- AI and worker typechecks passed.
+- R2 responsibility, source workflow, R0 validator, R1 cross-shape, macro-first lifecycle, and
+  document-ingestion fallback checks passed.

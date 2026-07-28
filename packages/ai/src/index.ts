@@ -26,6 +26,7 @@ export {
 export {
   WORKFLOW_READ_PROMPT_VERSION,
   RESPONSIBILITY_READ_PROMPT_VERSION,
+  RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
   RESPONSIBILITY_READ_SYSTEM_PROMPT,
   WORKFLOW_READ_SYSTEM_PROMPT,
   WORKFLOW_QUOTE_REPAIR_SYSTEM_PROMPT,
@@ -37,6 +38,7 @@ export {
   WorkflowQuoteRepairSchema,
   ResponsibilityReadSchema,
   ResponsibilityReadRecordSchema,
+  ResponsibilityQuoteRepairSchema,
   RESPONSIBILITY_MERGE_PROMPT_VERSION,
   RESPONSIBILITY_MERGE_SYSTEM_PROMPT,
   ResponsibilityMergeOutputSchema,
@@ -57,6 +59,7 @@ export {
   type WorkflowQuoteRepairOutput,
   type ResponsibilityReadOutput,
   type ResponsibilityReadRecord,
+  type ResponsibilityQuoteRepairOutput,
   type ResponsibilityMergeOutput,
   type SourceSegmentationOutput,
   type WorkflowReadNode,

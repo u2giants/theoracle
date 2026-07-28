@@ -17,7 +17,8 @@ run `run_06fqch0hiaiu9nte5rptja1b01`, document
 omission retries and one unsuccessful quote repair, and stayed within 19 calls, 41,873 input tokens,
 and `$0.209365` estimated input cost. Merge/apply stayed false before and after; all three durable
 business-model tables remained zero. Full 30-row evidence is in `evals/r2-responsibilities.md`.
-Grok reviewed this failure. Batch D is next. Do not enable merge or apply.
+Grok reviewed this failure. Batch D is implemented and verified locally only; it has no live
+result. Do not enable merge or apply.
 
 ## Prior closeout — 2026-07-27
 
@@ -197,9 +198,9 @@ mismatches, and scored 19/30 (63.3%) with frozen `field-aware-v3`. R2 remains bl
 
 ## Exact next steps
 
-1. Implement Batch D against the honest third-gate misses without weakening evidence or scoring.
-2. Keep every focused R2 check green and obtain review before another production rerun.
-3. Rerun the pinned gate only after approval until deterministic recall is at least 90%.
+1. Review the local Batch D reader, retry, prompt, and quote-only repair changes.
+2. After approval, commit and release Batch D through the normal CI and worker path.
+3. Rerun one fresh pinned gate and require deterministic recall of at least 90%.
 4. Only after recall passes, enable shadow merge and prove real shadow create, same-map idempotency, sequential confirm, near-match review, bounded
    refine, namespace collision, and desktop/narrow read-only UI.
 5. Use the existing R0.1 production map as the release baseline; do not weaken exact quote
@@ -226,8 +227,9 @@ never print or persist the value. Trigger project is `proj_wgpzsvhmsopqhvwqaycn`
 ## Open questions and risks
 
 No R0, R0.1, or R1 release blocker remains. R2 has three live fixture runs, but its best frozen
-score is only 19/30 (63.3%). Batch D is next. Bake-off, shadow proposals, merge, apply, and visual
-proof remain blocked. The canonical sequence and evidence-authority decisions remain unchanged.
+score is only 19/30 (63.3%). Batch D is local-only and awaits review. Bake-off, shadow proposals,
+merge, apply, and visual proof remain blocked. The canonical sequence and evidence-authority
+decisions remain unchanged.
 
 ## HISTORICAL PLAN UPDATE — 2026-07-21
 

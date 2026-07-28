@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   RESPONSIBILITY_READ_PROMPT_VERSION,
+  RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
   RESPONSIBILITY_READ_SYSTEM_PROMPT,
   type ResponsibilityReadOutput,
   type SourceStructureSegment,
@@ -18,6 +19,11 @@ import {
   assertUniqueResponsibilityElementIds,
   responsibilityParentSegment,
   responsibilityRawAuditArtifact,
+  rankResponsibilityOmissionChunks,
+  selectFocusedResponsibilityOmissions,
+  RESPONSIBILITY_FOCUSED_OMISSION_LIMIT,
+  ResponsibilityOmissionRetryScheduler,
+  buildResponsibilityOmissionAudit,
   shardResponsibilitySegments,
   validateResponsibilityRead,
 } from '../lib/responsibility-reader';
@@ -37,6 +43,11 @@ import {
   SourceReaderBudget,
   SourceReaderBudgetExceededError,
 } from '../lib/source-reader-budget';
+import {
+  buildResponsibilityRequestContent,
+  responsibilityReadPromptVersion,
+  responsibilityReadTaskType,
+} from '../lib/source-workflow-read';
 const answerKey = JSON.parse(
   readFileSync(
     new URL('../__fixtures__/licensed-team-responsibilities-v1.json', import.meta.url),
@@ -151,6 +162,7 @@ const omissionAudit = findResponsibilityOmissions({
   elements: [
     {
       ...result.elements[0]!,
+      role: 'Licensed Team',
       evidenceQuote: 'Licensed Team checks art files for completeness.',
       chunkId,
     },
@@ -175,7 +187,7 @@ assert.deepEqual(
   [chunkId, otherChunkId],
   'omissions remain bounded and addressable per chunk',
 );
-const bidirectionalCoverage = findResponsibilityOmissions({
+const multiDutyFieldCoverage = findResponsibilityOmissions({
   chunks: [
     {
       id: chunkId,
@@ -188,13 +200,146 @@ const bidirectionalCoverage = findResponsibilityOmissions({
     {
       ...result.elements[0]!,
       chunkId,
+      role: 'Finance Operations',
+      action: 'approves',
+      object: 'invoices',
       evidenceQuote:
         'Finance Operations approves invoices and then records the decision in the ledger.',
     },
   ],
   fileType: 'text/plain',
 });
-assert.equal(bidirectionalCoverage.length, 0, 'longer exact quote covers shorter duty spans');
+assert.equal(
+  multiDutyFieldCoverage.length,
+  1,
+  'a long quote covering two duties leaves the unrepresented duty as an omission',
+);
+const fieldCoveredThinRao = findResponsibilityOmissions({
+  chunks: [
+    {
+      id: chunkId,
+      documentId,
+      rawText: '- Finance Operations approves invoices.',
+    },
+  ],
+  elements: [
+    {
+      ...result.elements[0]!,
+      chunkId,
+      role: 'Finance Operations',
+      action: 'approves',
+      object: 'invoices',
+      evidenceQuote: 'Finance Operations approves invoices.',
+    },
+  ],
+  fileType: 'text/plain',
+});
+assert.equal(fieldCoveredThinRao.length, 0, 'thin role-action-object coverage closes the omission');
+const quoteOverlapWrongFields = findResponsibilityOmissions({
+  chunks: [
+    {
+      id: chunkId,
+      documentId,
+      rawText: '- Finance Operations approves invoices in the billing portal.',
+    },
+  ],
+  elements: [
+    {
+      ...result.elements[0]!,
+      chunkId,
+      role: 'Sales',
+      action: 'receives',
+      object: 'invoices',
+      evidenceQuote: 'Finance Operations approves invoices in the billing portal.',
+    },
+  ],
+  fileType: 'text/plain',
+});
+assert.equal(
+  quoteOverlapWrongFields.length,
+  1,
+  'quote overlap alone cannot hide a field-uncovered duty',
+);
+const phrasalActionCoverage = findResponsibilityOmissions({
+  chunks: [
+    {
+      id: chunkId,
+      documentId,
+      rawText: '[Sales]\n- Reach out to customers in CRM each month.',
+    },
+  ],
+  elements: [
+    {
+      ...result.elements[0]!,
+      chunkId,
+      role: 'Sales',
+      action: 'reach out',
+      object: 'customers in CRM each month',
+      evidenceQuote: 'Reach out to customers in CRM each month.',
+    },
+  ],
+  fileType: 'text/plain',
+});
+assert.equal(
+  phrasalActionCoverage.length,
+  0,
+  'phrasal action particles are not incorrectly required in object',
+);
+const structuralFieldsDoNotReplaceObject = findResponsibilityOmissions({
+  chunks: [
+    {
+      id: chunkId,
+      documentId,
+      rawText: '[Sales]\n- Reach out to customers in CRM each month.',
+    },
+  ],
+  elements: [
+    {
+      ...result.elements[0]!,
+      chunkId,
+      role: 'Sales',
+      action: 'reach out',
+      object: 'customers',
+      trigger: 'each month',
+      system: 'CRM',
+      systems: 'CRM',
+      evidenceQuote: 'Reach out to customers in CRM each month.',
+    },
+  ],
+  fileType: 'text/plain',
+});
+assert.equal(
+  structuralFieldsDoNotReplaceObject.length,
+  1,
+  'trigger and system fields cannot hide concrete object omissions',
+);
+const wrappedObjectCoverage = findResponsibilityOmissions({
+  chunks: [
+    {
+      id: chunkId,
+      documentId,
+      rawText:
+        '[Operations]\n- Submit quarterly reports through\nRoyalty Portal before month end.',
+    },
+  ],
+  elements: [
+    {
+      ...result.elements[0]!,
+      chunkId,
+      role: 'Operations',
+      action: 'submit',
+      object: 'quarterly reports through Royalty Portal before month end',
+      evidenceQuote:
+        'Submit quarterly reports through\nRoyalty Portal before month end.',
+    },
+  ],
+  fileType: 'text/plain',
+});
+assert.equal(
+  wrappedObjectCoverage.length,
+  0,
+  'wrapped target, portal, cadence, and timing text remains part of the duty object contract',
+);
 const nonLicensedOwnerAudit = findResponsibilityOmissions({
   chunks: [
     {
@@ -206,7 +351,37 @@ const nonLicensedOwnerAudit = findResponsibilityOmissions({
   elements: [],
   fileType: 'text/plain',
 });
-assert.equal(nonLicensedOwnerAudit.length, 2);
+assert.equal(
+  nonLicensedOwnerAudit.length,
+  1,
+  'ownership cues without a concrete duty verb are not omissions',
+);
+const ownerPersistsAcrossProse = findResponsibilityOmissions({
+  chunks: [
+    {
+      id: chunkId,
+      documentId,
+      rawText:
+        '[Finance Operations]\nBackground notes for this section.\n- Authorize invoices in LedgerPro.',
+    },
+  ],
+  elements: [
+    {
+      ...result.elements[0]!,
+      chunkId,
+      role: 'Sales',
+      action: 'authorize',
+      object: 'invoices in LedgerPro',
+      evidenceQuote: 'Authorize invoices in LedgerPro.',
+    },
+  ],
+  fileType: 'text/plain',
+});
+assert.equal(
+  ownerPersistsAcrossProse.length,
+  1,
+  'an active owner survives prose and wrong-role output never covers its duty',
+);
 const structuredListFalsePositiveAudit = findResponsibilityOmissions({
   chunks: [
     {
@@ -219,6 +394,135 @@ const structuredListFalsePositiveAudit = findResponsibilityOmissions({
   fileType: 'text/plain',
 });
 assert.equal(structuredListFalsePositiveAudit.length, 0);
+const rankedOmissions = rankResponsibilityOmissionChunks(
+  [
+    { chunkId, spanIndex: 0, sourceSpan: 'Finance checks invoice totals.' },
+    { chunkId, spanIndex: 1, sourceSpan: 'Finance emails approved invoices.' },
+    { chunkId: otherChunkId, spanIndex: 0, sourceSpan: 'Sales receives approved invoices.' },
+  ],
+  [
+    { id: otherChunkId },
+    { id: chunkId },
+  ],
+);
+assert.equal(rankedOmissions[0]?.chunkId, chunkId, 'remaining omission count wins ranking');
+assert.equal(rankedOmissions[1]?.chunkId, otherChunkId, 'source order breaks equal counts');
+const tooManyFocused = Array.from(
+  { length: RESPONSIBILITY_FOCUSED_OMISSION_LIMIT + 3 },
+  (_, index) => ({
+    chunkId,
+    spanIndex: index,
+    sourceSpan: `Finance checks invoice batch ${index} before close.`,
+  }),
+);
+assert.equal(
+  selectFocusedResponsibilityOmissions(tooManyFocused).length,
+  RESPONSIBILITY_FOCUSED_OMISSION_LIMIT,
+  'focused retries never dump every remaining span',
+);
+assert.equal(
+  selectFocusedResponsibilityOmissions(
+    [
+      {
+        chunkId,
+        spanIndex: 0,
+        sourceSpan: 'Context before Finance checks a routine item.',
+      },
+      {
+        chunkId,
+        spanIndex: 1,
+        sourceSpan: '[Finance] Check the urgent invoice total.',
+      },
+    ],
+    1,
+  )[0]?.spanIndex,
+  1,
+  'owner-prefixed verb-start duties keep verb-start priority',
+);
+const scheduler = new ResponsibilityOmissionRetryScheduler();
+const schedulerOmissions = [
+  { chunkId, spanIndex: 0, sourceSpan: 'Finance checks invoice totals.' },
+  { chunkId, spanIndex: 1, sourceSpan: 'Finance emails approved invoices.' },
+  { chunkId: otherChunkId, spanIndex: 0, sourceSpan: 'Sales receives approved invoices.' },
+];
+const firstScheduled = scheduler.next({
+  omissions: schedulerOmissions,
+  chunks: [{ id: chunkId }, { id: otherChunkId }],
+  sourceReadChunkIds: new Set([chunkId, otherChunkId]),
+});
+assert.equal(firstScheduled.kind, 'attempt');
+assert.equal(firstScheduled.kind === 'attempt' && firstScheduled.chunkId, chunkId);
+scheduler.recordAttempt(chunkId, 'zero_accept');
+const afterZeroAccept = scheduler.next({
+  omissions: schedulerOmissions,
+  chunks: [{ id: chunkId }, { id: otherChunkId }],
+  sourceReadChunkIds: new Set([chunkId, otherChunkId]),
+});
+assert.equal(afterZeroAccept.kind, 'attempt');
+assert.equal(
+  afterZeroAccept.kind === 'attempt' && afterZeroAccept.chunkId,
+  otherChunkId,
+  'zero_accept exhausts that chunk and advances to the next ranked chunk',
+);
+const noSourceScheduler = new ResponsibilityOmissionRetryScheduler();
+const noSourceDecision = noSourceScheduler.next({
+  omissions: schedulerOmissions,
+  chunks: [{ id: chunkId }, { id: otherChunkId }],
+  sourceReadChunkIds: new Set([otherChunkId]),
+});
+assert.equal(noSourceDecision.kind, 'no_source_read', 'missing source read is a loud decision');
+const afterNoSource = noSourceScheduler.next({
+  omissions: schedulerOmissions,
+  chunks: [{ id: chunkId }, { id: otherChunkId }],
+  sourceReadChunkIds: new Set([otherChunkId]),
+});
+assert.equal(afterNoSource.kind, 'attempt');
+assert.equal(afterNoSource.kind === 'attempt' && afterNoSource.chunkId, otherChunkId);
+const budgetScheduler = new ResponsibilityOmissionRetryScheduler();
+const budgetDecision = budgetScheduler.next({
+  omissions: schedulerOmissions,
+  chunks: [{ id: chunkId }, { id: otherChunkId }],
+  sourceReadChunkIds: new Set([chunkId, otherChunkId]),
+});
+assert.equal(budgetDecision.kind, 'attempt');
+if (budgetDecision.kind === 'attempt') {
+  budgetScheduler.recordAttempt(budgetDecision.chunkId, 'budget_exhausted');
+}
+assert.deepEqual(
+  budgetScheduler.next({
+    omissions: schedulerOmissions,
+    chunks: [{ id: chunkId }, { id: otherChunkId }],
+    sourceReadChunkIds: new Set([chunkId, otherChunkId]),
+  }),
+  { kind: 'done' },
+  'budget exhaustion terminates scheduling without a loop',
+);
+const reAuditChunk = {
+  id: chunkId,
+  documentId,
+  rawText: '- Finance approves invoices.\n- Finance emails approved invoices.',
+};
+const beforeAcceptedRetry = findResponsibilityOmissions({
+  chunks: [reAuditChunk],
+  elements: [],
+  fileType: 'text/plain',
+});
+const afterAcceptedRetry = findResponsibilityOmissions({
+  chunks: [reAuditChunk],
+  elements: [
+    {
+      ...result.elements[0]!,
+      chunkId,
+      role: 'Finance',
+      action: 'approves',
+      object: 'invoices',
+      evidenceQuote: 'Finance approves invoices.',
+    },
+  ],
+  fileType: 'text/plain',
+});
+assert.equal(beforeAcceptedRetry.length, 2);
+assert.equal(afterAcceptedRetry.length, 1, 'accepted retry records force a fresh omission audit');
 
 const sameLocalIdRetryA = prefixResponsibilityRetryOutput(output, 0, 1);
 const sameLocalIdRetryB = prefixResponsibilityRetryOutput(output, 1, 1);
@@ -337,6 +641,131 @@ if (patchedRepair.ok) {
     1,
   );
 }
+const partialOriginal: ResponsibilityReadOutput = {
+  summary: 'Nine quote mismatches.',
+  responsibilities: Array.from({ length: 9 }, (_, index) => ({
+    ...output.responsibilities[0]!,
+    responsibilityId: `partial_${index}`,
+    label: `Partial ${index}`,
+    evidenceQuote: `paraphrase ${index}`,
+  })),
+};
+const partialDiagnostics = partialOriginal.responsibilities.map((record) => ({
+  responsibilityId: record.responsibilityId,
+  chunkId,
+  failureClass: 'quote_mismatch' as const,
+  detail: 'strict mismatch',
+  boundedQuote: record.evidenceQuote,
+  selectedPolicy: 'strict_verbatim',
+  validationMethod: 'none',
+  alternatePoliciesPassing: [],
+  crossSegmentStatus: 'within_segment' as const,
+  failureOrigin: 'root' as const,
+}));
+const partialRepair = patchResponsibilityQuoteRepairs({
+  original: partialOriginal,
+  diagnostics: partialDiagnostics,
+  repaired: {
+    summary: 'Partial exact repairs.',
+    responsibilities: partialOriginal.responsibilities.slice(0, 3).map((record, index) => ({
+      ...record,
+      evidenceQuote: `Exact duty quote ${index}.`,
+    })),
+  },
+});
+assert.equal(partialRepair.ok, true, 'partial 3-of-9 quote repair is patchable');
+if (partialRepair.ok) {
+  const partialValidation = validateResponsibilityRead({
+    output: partialRepair.output,
+    documentId,
+    segment,
+    chunks: [
+      {
+        id: chunkId,
+        documentId,
+        rawText: 'Exact duty quote 0. Exact duty quote 1. Exact duty quote 2.',
+      },
+    ],
+  });
+  assert.equal(
+    partialValidation.diagnostics.filter((item) => item.failureClass === 'quote_mismatch').length,
+    6,
+    'partial quote-only repair strictly reduces nine root mismatches to six',
+  );
+}
+const auditRepairChunk = {
+  id: chunkId,
+  documentId,
+  rawText: '[Finance]\n- Approve invoices in LedgerPro.',
+};
+const auditRepairOriginal: ResponsibilityReadOutput = {
+  summary: 'Quote repair final audit fixture.',
+  responsibilities: [
+    {
+      responsibilityId: 'audit_repair',
+      label: 'Approve invoices',
+      role: 'Finance',
+      action: 'approve',
+      object: 'invoices in LedgerPro',
+      evidenceQuote: 'Finance handles invoice approval.',
+      chunkId,
+    },
+  ],
+};
+const auditRepairBeforeValidation = validateResponsibilityRead({
+  output: auditRepairOriginal,
+  documentId,
+  segment,
+  chunks: [auditRepairChunk],
+  fileType: 'text/plain',
+});
+const auditRepairInitialOmissions = findResponsibilityOmissions({
+  chunks: [auditRepairChunk],
+  elements: auditRepairBeforeValidation.elements,
+  fileType: 'text/plain',
+});
+const auditRepairPatched = patchResponsibilityQuoteRepairs({
+  original: auditRepairOriginal,
+  diagnostics: auditRepairBeforeValidation.diagnostics,
+  repaired: {
+    summary: 'Exact quote repair.',
+    responsibilities: [
+      {
+        ...auditRepairOriginal.responsibilities[0]!,
+        evidenceQuote: 'Approve invoices in LedgerPro.',
+      },
+    ],
+  },
+});
+assert.equal(auditRepairPatched.ok, true);
+if (auditRepairPatched.ok) {
+  const auditRepairAfterValidation = validateResponsibilityRead({
+    output: auditRepairPatched.output,
+    documentId,
+    segment,
+    chunks: [auditRepairChunk],
+    fileType: 'text/plain',
+  });
+  const auditRepairFinalOmissions = findResponsibilityOmissions({
+    chunks: [auditRepairChunk],
+    elements: auditRepairAfterValidation.elements,
+    fileType: 'text/plain',
+  });
+  assert.deepEqual(
+    buildResponsibilityOmissionAudit({
+      initialOmissions: auditRepairInitialOmissions,
+      finalOmissions: auditRepairFinalOmissions,
+      retries: [],
+    }),
+    {
+      preOmissionCount: 1,
+      postOmissionCount: 0,
+      uncoveredSpanCount: 0,
+      retries: [],
+    },
+    'accepted quote repair updates the durable final omission audit',
+  );
+}
 assert.deepEqual(
   patchResponsibilityQuoteRepairs({
     original: mismatchOutput,
@@ -427,7 +856,7 @@ assert.doesNotThrow(() =>
 assert.equal(answerKey.version, 'licensed-team-responsibilities-v1');
 assert.equal(answerKey.records.length, 30);
 assert.equal(RESPONSIBILITY_ANSWER_KEY_MATCHER_VERSION, 'field-aware-v3');
-assert.equal(RESPONSIBILITY_READ_PROMPT_VERSION, 'responsibility-read-v2.1-thin-source-faithful');
+assert.equal(RESPONSIBILITY_READ_PROMPT_VERSION, 'responsibility-read-v2.2-field-faithful');
 for (const requiredPromptRule of [
   'exact source-owner role label',
   'exactly one duty per record',
@@ -441,6 +870,9 @@ for (const requiredPromptRule of [
   'Prefer multiple thin',
   'handling chain becomes one record per step',
   'Do not invent duties',
+  'nearest explicit owner label',
+  'Preserve duty direction and polarity exactly',
+  'shortest verbatim quote',
 ]) {
   assert.ok(
     RESPONSIBILITY_READ_SYSTEM_PROMPT.includes(requiredPromptRule),
@@ -478,6 +910,9 @@ for (const requiredRequestRule of [
   'Do not leave a real target only in requiredSystem',
   'Do not invent duties not present in the source',
   'Prefer multiple thin records',
+  'nearest explicit owner',
+  'Preserve action direction and polarity exactly',
+  'shortest verbatim one-duty quote',
 ]) {
   assert.ok(
     workflowReadSource.includes(requiredRequestRule),
@@ -487,6 +922,52 @@ for (const requiredRequestRule of [
 assert.equal(
   answerKey.sourceSha256,
   '398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be',
+);
+assert.equal(
+  responsibilityReadTaskType(true),
+  'source-responsibility-quote-repair',
+  'quote-only model calls have distinct durable task identity',
+);
+assert.equal(responsibilityReadTaskType(false), 'source-responsibility-read');
+assert.equal(
+  responsibilityReadPromptVersion(true),
+  'responsibility-quote-repair-v2.2',
+);
+assert.equal(
+  responsibilityReadPromptVersion(false),
+  'responsibility-read-v2.2-field-faithful',
+);
+assert.equal(
+  RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
+  'responsibility-quote-repair-v2.2',
+);
+for (const persistedPromptVersion of [
+  RESPONSIBILITY_READ_PROMPT_VERSION,
+  RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
+]) {
+  assert.ok(
+    persistedPromptVersion.length <= 50,
+    `persisted prompt version exceeds varchar(50): ${persistedPromptVersion}`,
+  );
+}
+const quoteOnlyRequest = buildResponsibilityRequestContent({
+  quoteRepairRecords: [output.responsibilities[0]!],
+});
+assert.match(quoteOnlyRequest, /Quote-copy repair only/);
+for (const extractionRule of [
+  'Split adjacent verbs',
+  'Preserve action direction',
+  'nearest explicit owner',
+  'distinct destinations',
+]) {
+  assert.ok(
+    !quoteOnlyRequest.includes(extractionRule),
+    `quote-only request leaked extraction rule: ${extractionRule}`,
+  );
+}
+assert.match(
+  buildResponsibilityRequestContent({ focusedSpans: ['Finance approves invoices.'] }),
+  /Focused omission retry/,
 );
 assert.equal(
   scoreResponsibilityAnswerKey({

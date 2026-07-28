@@ -28,10 +28,87 @@ export type ResponsibilityOmission = {
   sourceSpan: string;
 };
 
+const DUTY_VERBS =
+  'approve|ask|assign|authorize|call|check|complete|create|download|email|ensure|enter|establish|fill|inform|keep|maintain|organize|prepare|prioritize|provide|reach|receive|record|rename|request|resubmit|review|save|send|submit|update|upload|wait|write';
 const DUTY_VERB_PATTERN =
-  /\b(?:assign|authorize|check|complete|create|download|email|ensure|enter|fill|inform|maintain|organize|prepare|prioritize|provide|reach|receive|rename|request|resubmit|review|save|send|submit|update|upload)(?:s|es|ed|ing)?\b/i;
+  new RegExp(`\\b(?:${DUTY_VERBS})(?:s|es|ed|ing)?\\b`, 'i');
 const DUTY_VERB_START_PATTERN =
-  /^(?:assign|authorize|check|complete|create|download|email|ensure|enter|fill|inform|maintain|organize|prepare|prioritize|provide|reach|receive|rename|request|resubmit|review|save|send|submit|update|upload)(?:s|es|ed|ing)?\b/i;
+  new RegExp(`^(?:${DUTY_VERBS})(?:s|es|ed|ing)?\\b`, 'i');
+const DUTY_SPLIT_PATTERN = new RegExp(
+  `\\s+(?:&|and then|and(?=\\s+(?:${DUTY_VERBS})(?:s|es|ed|ing)?\\b))\\s+`,
+  'i',
+);
+const FIELD_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'if', 'in',
+  'into', 'is', 'it', 'must', 'of', 'off', 'on', 'or', 'out', 'shall', 'should', 'so',
+  'that', 'the', 'their', 'them', 'then', 'this', 'to', 'up', 'will', 'with',
+]);
+const ACTION_PARTICLES = new Set(['ahead', 'away', 'back', 'down', 'forward', 'off', 'on', 'out', 'over', 'through', 'up']);
+
+function fieldTokens(value: string): string[] {
+  return value
+    .normalize('NFKD')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !FIELD_STOP_WORDS.has(token));
+}
+
+function stemDutyVerb(value: string): string {
+  const normalized = value.toLowerCase();
+  return (
+    DUTY_VERBS.split('|').find((base) =>
+      new RegExp(`^${base}(?:s|es|d|ed|ing)?$`, 'i').test(normalized),
+    ) ?? normalized
+  );
+}
+
+function fieldAwareSpanCovered(
+  sourceSpan: string,
+  element: SourceStructureElement,
+): boolean {
+  const verbMatch = sourceSpan.match(DUTY_VERB_PATTERN);
+  if (!verbMatch || verbMatch.index === undefined) return false;
+  const beforeVerb = sourceSpan.slice(0, verbMatch.index);
+  const afterVerb = sourceSpan.slice(verbMatch.index + verbMatch[0].length);
+  const bracketOwner = sourceSpan.match(/^\s*\[([^\]]{2,80})\]/)?.[1] ?? null;
+  const modalOwner =
+    beforeVerb.match(/(?:^|[,;])\s*([A-Z][A-Za-z0-9 &/'-]{1,80}?)\s+(?:will|must|should|shall|may)\s*$/)?.[1] ??
+    null;
+  const directPrefix = beforeVerb.replace(/^(?:[-*•]|\d+[.)])\s*/, '').trim();
+  const directOwner =
+    /^[A-Z]/.test(directPrefix) &&
+    !/^(?:if|when|after|before|at)\b/i.test(directPrefix) &&
+    fieldTokens(directPrefix).length <= 6
+      ? directPrefix
+      : null;
+  const prefixOwner = bracketOwner ?? modalOwner ?? directOwner ?? '';
+  const expectedRole = fieldTokens(prefixOwner);
+  const actualRole = new Set(fieldTokens(element.role ?? ''));
+  if (
+    expectedRole.length > 0 &&
+    (expectedRole.length !== actualRole.size ||
+      !expectedRole.every((token) => actualRole.has(token)))
+  ) {
+    return false;
+  }
+  const expectedAction = stemDutyVerb(verbMatch[0]);
+  const actualActions = fieldTokens(element.action ?? '').map(stemDutyVerb);
+  if (!actualActions.includes(expectedAction)) return false;
+  const afterVerbTokens = fieldTokens(afterVerb);
+  while (afterVerbTokens.length > 0 && ACTION_PARTICLES.has(afterVerbTokens[0]!)) {
+    afterVerbTokens.shift();
+  }
+  const expectedObject = [...new Set(afterVerbTokens)];
+  const actualObject = new Set(fieldTokens(element.object ?? ''));
+  return expectedObject.length > 0 && expectedObject.every((token) => actualObject.has(token));
+}
+
+function dutyTextWithoutOwner(sourceSpan: string): string {
+  return sourceSpan.replace(/^\s*\[[^\]]{2,80}\]\s*/, '').trim();
+}
 
 export function shardResponsibilitySegments(
   segments: readonly SourceStructureSegment[],
@@ -99,10 +176,47 @@ function prefixResponsibilityIds(
   };
 }
 
+function logicalSourceSpans(rawText: string): string[] {
+  const spans: string[] = [];
+  let current = '';
+  const flush = () => {
+    if (current.trim()) spans.push(current.trim());
+    current = '';
+  };
+  for (const rawLine of rawText.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      flush();
+      continue;
+    }
+    const heading = /^(?:\[[^\]]{2,80}\]|[^.!?]{2,80}:)$/.test(line);
+    const explicitStart =
+      heading ||
+      /^(?:[-*•]|\d+[.)])\s*/.test(line) ||
+      /^\[[^\]]{2,80}\]\s+/.test(line) ||
+      DUTY_VERB_START_PATTERN.test(line);
+    const currentIsDuty =
+      /^(?:[-*•]|\d+[.)])\s*/.test(current) ||
+      /^\[[^\]]{2,80}\]\s+/.test(current) ||
+      DUTY_VERB_PATTERN.test(current);
+    if (explicitStart) {
+      flush();
+      current = line;
+    } else if (current && currentIsDuty && !/[.!?]$/.test(current)) {
+      current = `${current} ${line}`;
+    } else {
+      flush();
+      current = line;
+    }
+  }
+  flush();
+  return spans;
+}
+
 function sourceDutySpans(rawText: string): string[] {
   const output: string[] = [];
   let ownerHeading: string | null = null;
-  for (const rawSpan of rawText.split(/\r?\n|(?<=[.!?])\s+(?=[A-Z[\d])/)) {
+  for (const rawSpan of logicalSourceSpans(rawText)) {
     const trimmed = rawSpan.trim();
     if (!trimmed) continue;
     const headingMatch = trimmed.match(/^(?:\[([^\]]{2,80})\]|([^.!?]{2,80}):)$/);
@@ -113,25 +227,20 @@ function sourceDutySpans(rawText: string): string[] {
     const listLike = /^(?:[-*•]|\d+[.)])\s*/.test(trimmed);
     const span = trimmed.replace(/^(?:[-*•]|\d+[.)])\s*/, '');
     const inlineOwner = /^\[[^\]]{2,80}\]\s+/.test(span);
-    for (const part of span.split(/\s+(?:&|and then)\s+/i).map((item) => item.trim())) {
+    for (const part of span.split(DUTY_SPLIT_PATTERN).map((item) => item.trim())) {
       if (part.length < 12) continue;
       const narrative = /^(?:background|note|overview|purpose|this section)\b/i.test(part);
       const hasDutyVerb = DUTY_VERB_PATTERN.test(part);
-      const hasResponsibilityCue =
-        /\b(?:owner(?:ship)?|responsibilit(?:y|ies)|accountab(?:le|ility)|dut(?:y|ies)|tasks?)\b/i.test(
-          part,
-        );
       if (
         !narrative &&
-        ((listLike && (hasDutyVerb || hasResponsibilityCue)) ||
+        ((listLike && hasDutyVerb) ||
           DUTY_VERB_START_PATTERN.test(part) ||
           (inlineOwner && hasDutyVerb) ||
           (ownerHeading !== null && hasDutyVerb))
       ) {
-        output.push(part);
+        output.push(ownerHeading && !inlineOwner ? `[${ownerHeading}] ${part}` : part);
       }
     }
-    if (!listLike) ownerHeading = null;
   }
   return output;
 }
@@ -166,9 +275,10 @@ export function findResponsibilityOmissions(args: {
           exactQuoteProvided: sourceSpan,
           ...quoteValidationOptionsForSource(sourceKind),
         });
-        return [quoteWithinSpan, spanWithinQuote].some((result) =>
+        const quoteCovered = [quoteWithinSpan, spanWithinQuote].some((result) =>
           ['exact_match', 'normalized_match'].includes(result.validationStatus),
         );
+        return quoteCovered && fieldAwareSpanCovered(sourceSpan, element);
       });
       return covered ? [] : [{ chunkId: chunk.id, spanIndex, sourceSpan }];
     }),
@@ -258,16 +368,14 @@ export function patchResponsibilityQuoteRepairs(args: {
     if (!original || original.chunkId !== record.chunkId) {
       return { ok: false, reason: 'chunk_move' };
     }
-    if (
-      original.role !== record.role ||
-      original.action !== record.action ||
-      original.object !== record.object
-    ) {
+    const { evidenceQuote: _originalQuote, ...originalFields } = original;
+    const { evidenceQuote: _repairQuote, ...repairFields } = record;
+    if (JSON.stringify(originalFields) !== JSON.stringify(repairFields)) {
       return { ok: false, reason: 'non_quote_field_change' };
     }
     repairs.set(record.responsibilityId, record.evidenceQuote);
   }
-  if (repairs.size !== eligible.size) return { ok: false, reason: 'missing_repair' };
+  if (repairs.size === 0) return { ok: false, reason: 'empty_repair' };
   return {
     ok: true,
     output: {
@@ -277,6 +385,117 @@ export function patchResponsibilityQuoteRepairs(args: {
         evidenceQuote: repairs.get(record.responsibilityId) ?? record.evidenceQuote,
       })),
     },
+  };
+}
+
+export const RESPONSIBILITY_FOCUSED_OMISSION_LIMIT = 6;
+
+export function rankResponsibilityOmissionChunks(
+  omissions: readonly ResponsibilityOmission[],
+  chunks: readonly Pick<ResponsibilityChunk, 'id'>[],
+): Array<{ chunkId: string; omissions: ResponsibilityOmission[] }> {
+  const sourceOrder = new Map(chunks.map((chunk, index) => [chunk.id, index]));
+  const grouped = new Map<string, ResponsibilityOmission[]>();
+  for (const omission of omissions) {
+    const list = grouped.get(omission.chunkId) ?? [];
+    list.push(omission);
+    grouped.set(omission.chunkId, list);
+  }
+  return [...grouped.entries()]
+    .map(([chunkId, groupedOmissions]) => ({
+      chunkId,
+      omissions: [...groupedOmissions].sort((a, b) => a.spanIndex - b.spanIndex),
+    }))
+    .sort(
+      (a, b) =>
+        b.omissions.length - a.omissions.length ||
+        (sourceOrder.get(a.chunkId) ?? Number.MAX_SAFE_INTEGER) -
+          (sourceOrder.get(b.chunkId) ?? Number.MAX_SAFE_INTEGER) ||
+        a.chunkId.localeCompare(b.chunkId),
+    );
+}
+
+export function selectFocusedResponsibilityOmissions(
+  omissions: readonly ResponsibilityOmission[],
+  limit = RESPONSIBILITY_FOCUSED_OMISSION_LIMIT,
+): ResponsibilityOmission[] {
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new Error('Focused responsibility omission limit must be a positive integer.');
+  }
+  return [...omissions]
+    .sort(
+      (a, b) =>
+        Number(DUTY_VERB_START_PATTERN.test(dutyTextWithoutOwner(b.sourceSpan))) -
+          Number(DUTY_VERB_START_PATTERN.test(dutyTextWithoutOwner(a.sourceSpan))) ||
+        b.sourceSpan.length - a.sourceSpan.length ||
+        a.spanIndex - b.spanIndex,
+    )
+    .slice(0, limit);
+}
+
+export type ResponsibilityOmissionRetryDecision =
+  | {
+      kind: 'attempt';
+      chunkId: string;
+      omissions: ResponsibilityOmission[];
+      preOmissionCount: number;
+    }
+  | {
+      kind: 'no_source_read';
+      chunkId: string;
+      omissions: ResponsibilityOmission[];
+      preOmissionCount: number;
+    }
+  | { kind: 'done' };
+
+export class ResponsibilityOmissionRetryScheduler {
+  private readonly exhaustedChunks = new Set<string>();
+  private stopped = false;
+
+  next(args: {
+    omissions: readonly ResponsibilityOmission[];
+    chunks: readonly Pick<ResponsibilityChunk, 'id'>[];
+    sourceReadChunkIds: ReadonlySet<string>;
+  }): ResponsibilityOmissionRetryDecision {
+    if (this.stopped) return { kind: 'done' };
+    const next = rankResponsibilityOmissionChunks(args.omissions, args.chunks).find(
+      (item) => !this.exhaustedChunks.has(item.chunkId),
+    );
+    if (!next) return { kind: 'done' };
+    const decision = {
+      chunkId: next.chunkId,
+      omissions: selectFocusedResponsibilityOmissions(next.omissions),
+      preOmissionCount: args.omissions.length,
+    };
+    if (!args.sourceReadChunkIds.has(next.chunkId)) {
+      this.exhaustedChunks.add(next.chunkId);
+      return { kind: 'no_source_read', ...decision };
+    }
+    return { kind: 'attempt', ...decision };
+  }
+
+  recordAttempt(
+    chunkId: string,
+    outcome: 'accepted' | 'zero_accept' | 'retry_failed' | 'budget_exhausted',
+  ): void {
+    this.exhaustedChunks.add(chunkId);
+    if (outcome === 'budget_exhausted') this.stopped = true;
+  }
+}
+
+export function buildResponsibilityOmissionAudit<T extends {
+  preOmissionCount: number;
+  postOmissionCount: number;
+}>(args: {
+  initialOmissions: readonly ResponsibilityOmission[];
+  finalOmissions: readonly ResponsibilityOmission[];
+  retries: readonly T[];
+}) {
+  return {
+    preOmissionCount: args.initialOmissions.length,
+    postOmissionCount: args.finalOmissions.length,
+    uncoveredSpanCount: args.finalOmissions.length,
+    retries: [...args.retries],
   };
 }
 
