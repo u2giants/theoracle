@@ -7,6 +7,68 @@ HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed 
 
 ## Latest closeout — 2026-07-28
 
+R2 is **paused for an owner decision**. Batch F shipped in commit `08c2631`, passed GitHub Actions
+run `30385119532`, and ran in Trigger worker `20260728.5`, deployment `f7trr764`. Its sixth and
+only fresh pinned production gate used fixture SHA-256
+`398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be`, Trigger run
+`run_06fqjpv1ci6sbrh4csk56mvd01`, disposable document
+`7001cd1e-fd85-45d3-a8d6-bb5141e200d7`, storage object
+`admin/batch-f-gate/1785261937746-Licensed_Team_Responsibilities_2_tagged.txt`, document-ingestion
+job `2d698f4c-86af-4eaa-872b-c0ec85431d76`, terminal source-workflow job
+`f145614a-e443-4202-bb6e-026a05a267a9`, degraded map
+`85fc772b-92c3-4101-8b2a-288ba9ad6d4a`, final model run
+`88b87385-7ec0-4b8f-b0f9-c7546c291382`, and final context pack
+`ad2a61b9-ce7c-4eb1-88a1-c910d8281d6a`.
+
+The frozen `licensed-team-responsibilities-v1` / `field-aware-v3` score was **14/30 (46.7%)**.
+This binds the precommitted `<=23` hard stop. Do not build Batch G, change the scorer, change the
+fixture, expand budgets, enable merge/apply, start R3, or implement either owner option without
+Albert's explicit approval. R3 through R10 remain blocked.
+
+Batch F regressed from Batch E: score `20 -> 14`, responsibilities kept `179 -> 92`, and full-map
+drops `31 -> 170`. It lost prior matches `5, 7, 8, 9, 10, 13, 25` and gained only row `19`.
+It kept 465 full-map elements, used 23/40 reader calls, 59,279/500,000 input tokens, 1/1 general
+repair, and `$0.296395/$10` estimated input cost. All five omission retries ran, one on each of
+chunks `08f69afa-b43c-433d-a2d6-9573829e552d`,
+`6d617b84-3a2b-4704-8444-bfd89dc47381`,
+`81c1b43e-6b00-4ef4-ae66-d99a099d6274`,
+`cf169035-e94e-4628-876a-b9877d898472`, and
+`f2ab7986-5eaa-407f-8307-53a0c04bdb44`. The one grounded quote repair was accepted and reduced
+root quote failures from 10 to 4. Omission count moved `80 -> 70` across retries and ended at 67
+after repair; 30 selected spans were audited, 10 forced records accepted, and 20 rejected. All
+responsibility calls were non-truncated. Merge and apply
+stayed false, post-pass limits stayed 1/5/1, and `business_objects`,
+`business_object_versions`, and `business_model_changes` stayed at zero.
+
+Grok 4.5's final-text review in
+`.ai/reviews/grok-4.5-r2-batch-f-hard-stop-review.json` recommends **Option B, deeper
+architecture**, because Batch F's stricter field checks drop incomplete records without a field
+repair path. That recommendation is decision support only. **OWNER APPROVAL REQUIRED.**
+
+The only allowed owner choices are:
+
+1. **Option A, bounded model bake-off.** Freeze Batch F code, prompt, fixture, scorer, budgets,
+   flags, and write bans. Isolate one eligible workflow-read model at a time under
+   `MODEL_BAKEOFF_SPEC.md`, run two fresh pinned gates per candidate, restore settings after each
+   candidate, and compare mean score plus drops, repair, cost, and truncation. Mean `>=27` may seat
+   the winner and resume later R2 gates; `24–26` stops seating games and requires architecture;
+   `<=23` fails Option A and requires architecture with no second bake-off.
+2. **Option B, recommended deeper architecture.** After explicit owner approval, split inventory
+   discovery from field completion; add one bounded field-completion repair that may only correct
+   role/action/object/trigger/system from the selected source span; deterministically emit one RAO
+   per explicit destination; make span splitting and multi-verb rejection consistent; persist drop
+   classes; and add regression tests for polarity, cadence, multi-destination output, valid Batch
+   E-style base records, and zero merge/apply writes. No model changes, prompt-only Batch G, scorer
+   changes, fixture code, answer-key leakage, or shadow merge. Independently review one release,
+   then run exactly one fresh pinned gate. `>=27` resumes R2; `24–26` permits a model bake-off only
+   on the redesigned path; `<=23` stops again for a new owner decision. Inventory must not collapse
+   below Batch E's 179 without a documented cause, drops must not remain near 170 when quote roots
+   are four, and rows 7/8/9 must be recoverable without fixture-specific code.
+
+Full sixth-gate evidence and all 30 scorer rows are in `evals/r2-responsibilities.md`.
+
+## Prior closeout — 2026-07-28
+
 R2 Batch E shipped in commit `b761df9`, green CI `30381079154`, and Trigger worker
 `20260728.4` deployment `0xa17r8u`. The fifth fresh pinned production gate completed as run
 `run_06fqjdgqlir7oi1sgdr1tvmj01`, disposable document
@@ -171,12 +233,12 @@ R0.1 is also complete and production-verified. Commit `da1ad5a`, CI `30271360677
 `54cfec32-b428-490f-9e21-ab79c8f3add4` prove the at-most-1-root gate with no fuzzy quote admitted.
 The run reread document `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea`, kept 100, dropped 6, used 5
 read calls, 30,949 estimated input tokens, and `$0.154745` estimated input cost. R1 is complete.
-R2 entry decisions 1, 3, and 4 are recorded. Decision 2 remains deferred to R6. Batch E shipped in
-commit `b761df9`. Its fifth production gate created map
-`94a32c78-6adc-4af0-ae39-f60aa658331b`, kept 179 responsibilities, dropped 11, and scored
-20/30 (66.7%) with frozen `field-aware-v3`. R2 remains blocked below its 90% gate. Merge and apply
-stayed false; all durable business-model table counts stayed zero. Batch D and all earlier gates
-remain recorded below as history.
+R2 entry decisions 1, 3, and 4 are recorded. Decision 2 remains deferred to R6. Batch F shipped in
+commit `08c2631`. Its sixth production gate created map
+`85fc772b-92c3-4101-8b2a-288ba9ad6d4a`, kept 92 responsibilities, dropped 170 full-map
+elements, and scored 14/30 (46.7%) with frozen `field-aware-v3`. R2 is paused for Albert's owner
+decision under the binding hard stop. Merge and apply stayed false; all durable business-model
+table counts stayed zero. Batch E and all earlier gates remain recorded below as history.
 
 ## Everything we tried that did NOT work
 
@@ -238,6 +300,9 @@ remain recorded below as history.
   focused retries, selected-span audits, and grounded quote repair improved exact quote failures
   from 10 to 6, but recall moved only from 19/30 to 20/30. Grok found the remaining failure is
   free-form field fidelity, not discovery, scoring, quote repair, or budget capacity.
+- Batch F shipped and live-tested. Its span-bound checks improved quote roots from 10 to 4, but
+  drop-as-enforcement collapsed responsibilities from 179 to 92, raised full-map drops from 31 to
+  170, and regressed recall from 20/30 to 14/30. The hard stop now binds.
 - Base reads and retries use collision-proof deterministic ID prefixes, and map persistence now
   fails loudly if any responsibility element ID is duplicated.
 - The production migration rerun blocker was fixed in commit `f31f66a`. CI `30318748914` passed
@@ -245,20 +310,15 @@ remain recorded below as history.
 
 ## Exact next steps
 
-1. Implement Batch F only as the reviewed span-anchored field-fidelity change: one selected duty
-   span to one validated RAO, field/polarity checks against the span, short structured-span ranking,
-   deterministic multi-verb splitting, and selected-span-only retry context.
-2. Keep the frozen key, `field-aware-v3` scorer, 90% threshold, strict quote validation, reader
-   budgets, merge/apply flags, and zero durable-write requirement unchanged.
-3. Review Batch F independently, release it once, and run exactly one fresh pinned gate.
-4. Apply the exact decision gate: `>=27/30` proceeds; `24–26/30` stops code churn and runs a bounded
-   model bake-off only on the span-anchored path; `<=23/30` stops completeness batches and requires
-   an owner decision.
-5. Only after recall reaches at least 27/30, enable shadow merge and prove real shadow create, same-map idempotency, sequential confirm, near-match review, bounded
+1. Stop. Do not implement Batch G, Option A, Option B, shadow merge, or R3 work.
+2. Ask Albert to approve exactly one choice: Option A bounded model bake-off, or recommended
+   Option B deeper architecture.
+3. After approval, follow that option's exact brief and stop rules in the latest closeout.
+4. Only after recall reaches at least 27/30, enable shadow merge and prove real shadow create, same-map idempotency, sequential confirm, near-match review, bounded
    refine, namespace collision, and desktop/narrow read-only UI.
-6. Use the existing R0.1 production map as the release baseline; do not weaken exact quote
+5. Use the existing R0.1 production map as the release baseline; do not weaken exact quote
    validation to remove the remaining honest costing-segment degradation.
-7. Reliability and product-gap work may continue without changing macro stage
+6. Reliability and product-gap work may continue without changing macro stage
    order. Each session must update its plan status table and this handoff.
 
 ## Constraints and gotchas
@@ -279,11 +339,24 @@ never print or persist the value. Trigger project is `proj_wgpzsvhmsopqhvwqaycn`
 
 ## Open questions and risks
 
-No R0, R0.1, or R1 release blocker remains. R2 has five live fixture runs. Its best frozen score is
-20/30 (66.7%) on Batch E. Batch F is the final bounded completeness batch under the reviewed
-decision tree. Bake-off is allowed only at 24–26 after Batch F; a result at or below 23 requires an
-owner decision. Shadow proposals, merge, apply, and visual proof remain blocked until at least
-27/30. The canonical sequence and evidence-authority decisions remain unchanged.
+No R0, R0.1, or R1 release blocker remains. R2 has six live fixture gates. Batch E remains the best
+at 20/30; Batch F regressed to 14/30 and bound the hard stop. Albert has not approved Option A or
+Option B. Grok recommends Option B, but no implementation is authorized. Shadow proposals, merge,
+apply, visual proof, and R3 through R10 remain blocked until R2 reaches at least 27/30.
+
+## HANDOFF self-audit — 2026-07-28
+
+- **Can a brand-new developer continue with no session context? Yes.** "What this application is,"
+  "Current state," the latest closeout, and "Exact next steps" identify the product, production
+  systems, release state, binding stop, owner dependency, and next permitted action.
+- **Can that developer continue as effectively as this session? Yes.** The latest closeout records
+  every Batch F release/run/document/job/map/model/context/storage identifier, frozen controls,
+  regression deltas, budget and safety evidence, the two owner options, and exact stop rules.
+- **Is every fact needed for flawless execution present? Yes.** "Everything we tried that did NOT
+  work" and "Root causes and key findings" preserve failed paths and causes; "Constraints and
+  gotchas," "Access and environment," and "Open questions and risks" preserve safety, access,
+  authority, and blocked stages; the complete row score is linked in
+  `evals/r2-responsibilities.md`.
 
 ## HISTORICAL PLAN UPDATE — 2026-07-21
 

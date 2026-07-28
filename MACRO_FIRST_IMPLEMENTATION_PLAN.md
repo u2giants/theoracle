@@ -1,7 +1,8 @@
 # Macro-First Implementation Plan — Canonical Plan of Record
 
 Status: **CANONICAL. R0, R0.1, and R1 are complete and production-verified.
-R2 Batch E shipped, but its fifth production recall gate failed at 20/30 (66.7%).**
+R2 is paused for an owner decision after Batch F's sixth gate regressed to 14/30 (46.7%).
+R3 through R10 are blocked.**
 
 Created: 2026-07-21
 Last reviewed: 2026-07-28
@@ -17,7 +18,7 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
 | R0.1 | ✅ done, 2026-07-27 | Commit `da1ad5a`; CI `30271360677`; worker `20260727.3` (`75jeiusj`, 24 tasks); forced run `run_06fqbf50qn8kvq69h6u3dg7601` produced map `54cfec32-b428-490f-9e21-ab79c8f3add4` with 1 exact root drop, 5 cascades, 1 repair attempt, and no admitted fuzzy quote |
 | R1 | ✅ done, 2026-07-27 | Commits `5f962b5` + `24bbf70`; CI `30269886119` attempt 2 green including empty-DB migration, transactional R1 verifier, and drift; production migration succeeded; drift 11/11; Vercel `24bbf70` deployed with HTTP 200; worker `20260727.2` (`h6ri0rb9`, 24 tasks) |
-| R2 | 🟥 blocked, 2026-07-28 | Batch E shipped in `b761df9`; CI `30381079154`; worker `20260728.4` / `0xa17r8u`; fifth map `94a32c78-6adc-4af0-ae39-f60aa658331b` scored 20/30 (66.7%); reviewed Batch F is span-anchored field fidelity; frozen controls remain unchanged |
+| R2 | ⏸ paused for owner, 2026-07-28 | Batch F commit `08c2631`; CI `30385119532`; worker `20260728.5` / `f7trr764`; sixth map `85fc772b-92c3-4101-8b2a-288ba9ad6d4a` scored 14/30 (46.7%); the `<=23` hard stop binds; Albert must choose bounded bake-off or deeper architecture; Grok recommends architecture |
 | R3 | ⬜ open | Blocked on R2 |
 | R4 | ⬜ open | Blocked on R3 |
 | R5 | ⬜ open | Blocked on R4 |
@@ -27,11 +28,10 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R9 | ⬜ open | Blocked on R8 |
 | R10 | ⬜ open | Blocked on R9 |
 
-Fresh-session starting point: implement reviewed Batch F from `HANDOFF.md` and the fifth-gate
-evidence in `evals/r2-responsibilities.md`. After its one fresh gate: `>=27/30` proceeds,
-`24–26/30` permits only a bounded model bake-off on the span-anchored path, and `<=23/30` stops
-completeness batches for an owner decision. Merge and apply remain forbidden. R0, R0.1, and R1
-are green.
+Fresh-session starting point: stop and ask Albert to choose Option A or Option B from `HANDOFF.md`.
+No Batch G or implementation is authorized. Grok recommends Option B, deeper architecture, but
+that is decision support only. Merge and apply remain forbidden. R0, R0.1, and R1 are green; R3
+through R10 remain blocked on R2.
 
 This is the single forward implementation plan for completing the Oracle's macro-first
 redesign. It reconciles the original process-centric redesign with the later shape-aware
@@ -1275,26 +1275,31 @@ R0, R0.1, and R1 are complete, CI-green, deployed, and production-verified. Thei
 is recorded in the status table and eval logs. The R0.1 production gate passed with 1 exact root
 drop, 5 cascades, 1 repair attempt, and no admitted fuzzy document quote.
 
-Batch E shipped in commit `b761df9`, CI `30381079154`, and worker `20260728.4` deployment
-`0xa17r8u`. Its fifth pinned map `94a32c78-6adc-4af0-ae39-f60aa658331b` scored 20/30 (66.7%).
-It kept 179 responsibilities, dropped 11, moved omissions from 92 to 84 after all five retries,
-and accepted grounded quote repair that reduced root quote failures from 10 to 6. Merge/apply
-stayed false, post-pass limits stayed 1/5/1, and all three durable business-model tables stayed
-zero.
+Batch F shipped in commit `08c2631`, CI `30385119532`, and worker `20260728.5` deployment
+`f7trr764`. The sixth fresh pinned production gate ran as
+`run_06fqjpv1ci6sbrh4csk56mvd01` and produced degraded map
+`85fc772b-92c3-4101-8b2a-288ba9ad6d4a`. It scored 14/30 (46.7%), kept 92 responsibilities and
+465 full-map elements, and dropped 170 full-map elements. Against Batch E, score regressed
+`20 -> 14`, responsibilities `179 -> 92`, and drops `31 -> 170`; prior matches
+`5,7,8,9,10,13,25` were lost and only row `19` was gained. Quote roots improved `10 -> 4`, so
+the failure is inventory loss under drop-as-enforcement, not quote repair.
 
-Grok's verdict is **continue R2 with Batch F**, but only as a bounded span-anchored field-fidelity
-change. One selected duty span must produce one validated RAO. Validate action direction, named
-artifacts, systems, cadence, timing, destinations, and object completeness against that span.
-Prefer short structured duties, split multi-verb chains, and limit retry evidence to selected
-spans. Do not repeat free-form prompt polish or broaden retries. The answer key,
-`field-aware-v3`, 27/30 threshold, strict quote validator, 40/500k/$10 and 1/5/1 budgets,
-merge/apply flags, and zero-write rule stay frozen.
+The locked `<=23` rule now binds. R2 is paused. Albert must choose exactly one option:
 
-After one reviewed Batch F release and one fresh pinned gate: `>=27/30` proceeds to later R2
-shadow-merge work; `24–26/30` stops code churn and runs a bounded model bake-off only on the new
-span-anchored path; `<=23/30` stops completeness batches and requires an owner decision between
-bake-off and deeper architecture. Merge and apply remain forbidden. Do not repeat R0/R0.1 work or
-the completed R1 audit/schema stage.
+- **Option A:** bounded model bake-off on frozen Batch F. Run one isolated eligible model at a
+  time, two gates each, and restore settings. Mean `>=27` may proceed; `24–26` requires
+  architecture; `<=23` fails the bake-off with no second bake-off.
+- **Option B, recommended by Grok:** deeper architecture after owner approval. Separate inventory
+  discovery from field completion, add bounded source-span field repair, emit explicit
+  multi-destinations deterministically, align splitter and multi-verb validation, preserve drop
+  classes, and prove the safety regressions. One reviewed release gets exactly one gate:
+  `>=27` proceeds, `24–26` permits a bake-off only on the redesigned path, and `<=23` stops for
+  another owner decision.
+
+No Batch G, model change, prompt-only completeness work, scorer/key/budget weakening,
+fixture-specific code, answer-key leakage, shadow merge, apply, R3 work, or implementation of
+either option is authorized. Full identifiers, safety evidence, the complete Option B brief, and
+the 30-row score are in `HANDOFF.md` and `evals/r2-responsibilities.md`.
 
 ---
 

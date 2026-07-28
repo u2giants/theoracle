@@ -2,7 +2,8 @@
 
 Date: 2026-07-28
 
-Status: **BLOCKED. The fifth live reader scored 20/30 (66.7%), below the 90% gate. Batch F is next under the stop/go rules below.**
+Status: **PAUSED FOR OWNER DECISION. The sixth live gate scored 14/30 (46.7%); the `<=23`
+hard stop binds. No Batch G or implementation is authorized. R3 and later are blocked.**
 
 Pinned fixture manifest:
 
@@ -504,3 +505,137 @@ After one independently reviewed Batch F release and one fresh gate:
 - `24–26/30`: stop code churn and run a bounded model bake-off only on the span-anchored path.
 - `<=23/30`: stop completeness batches and require an owner decision between bake-off and deeper
   architecture.
+
+## Sixth production reader gate and binding hard stop
+
+Batch F shipped in commit `08c2631`, passed GitHub Actions run `30385119532`, and ran in Trigger
+worker `20260728.5`, deployment `f7trr764`. Exactly one fresh pinned disposable production gate
+ran. The frozen result was **14/30 (46.7%)**, so the precommitted `<=23` hard stop is binding.
+R2 is paused for an owner decision. No Batch G or implementation is authorized.
+
+- Fixture SHA-256:
+  `398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be`.
+- Frozen key: `licensed-team-responsibilities-v1`; matcher: `field-aware-v3`.
+- Trigger run: `run_06fqjpv1ci6sbrh4csk56mvd01`; one attempt on worker `20260728.5`.
+- Disposable document: `7001cd1e-fd85-45d3-a8d6-bb5141e200d7`.
+- Storage object:
+  `admin/batch-f-gate/1785261937746-Licensed_Team_Responsibilities_2_tagged.txt`.
+- Document-ingestion job: `2d698f4c-86af-4eaa-872b-c0ec85431d76`.
+- Source-workflow job: `f145614a-e443-4202-bb6e-026a05a267a9`, terminal `complete`, no error,
+  retry count zero.
+- Map: `85fc772b-92c3-4101-8b2a-288ba9ad6d4a`, terminal `degraded`.
+- Final model run: `88b87385-7ec0-4b8f-b0f9-c7546c291382`.
+- Final context pack: `ad2a61b9-ce7c-4eb1-88a1-c910d8281d6a`.
+- Pipeline: `shape-reader-v7-r2-batch-f`; prompt:
+  `responsibility-read-v2.4-span-bound`.
+- Full map: 465 kept and 170 dropped.
+- Responsibilities: 92 kept; one durable synthetic base read.
+- Reader budget: 23/40 calls, 59,279/500,000 estimated input tokens, 1/1 general repair,
+  `$0.296395/$10` estimated input cost, concurrency four.
+- All responsibility executions reported `truncated=false`.
+- Five omission retries ran, one each on chunks
+  `08f69afa-b43c-433d-a2d6-9573829e552d`,
+  `6d617b84-3a2b-4704-8444-bfd89dc47381`,
+  `81c1b43e-6b00-4ef4-ae66-d99a099d6274`,
+  `cf169035-e94e-4628-876a-b9877d898472`, and
+  `f2ab7986-5eaa-407f-8307-53a0c04bdb44`.
+- Omission count started at 80, ended the retry sequence at 70, and ended at 67 after accepted
+  quote repair. The durable final sample contains the first 30 of 67 uncovered spans.
+- Each retry selected and audited six forced spans, for 30 field audits total. In execution order,
+  accepted counts and omission movement were: `0` (`80 -> 80`, `zero_accept`), `3`
+  (`80 -> 77`), `2` (`77 -> 75`), `3` (`75 -> 72`), and `2` (`72 -> 70`). Ten forced-span
+  records were accepted and twenty were rejected.
+- Forced-span output and validation are durable in the map's
+  `responsibilityOmissionAudit`; selected rows use `forced_span_*` IDs and preserve selected
+  span evidence, rank, source chunk, returned record, exact quote result, field-fidelity result,
+  and rejection reason.
+- The one grounded quote repair was accepted and reduced root quote failures from 10 to 4.
+- Before and after the gate: `business_model_merge_enabled=false`,
+  `business_model_apply_enabled=false`, post-pass limits `1/5/1`, and
+  `business_objects`, `business_object_versions`, and `business_model_changes` all zero.
+- The outer document remained in its later claim-processing phase with no processing error after
+  the R2 job and map were terminal. This is not an R2 failure.
+
+### Batch E to Batch F regression
+
+| Signal | Batch E | Batch F | Change |
+|---|---:|---:|---:|
+| Frozen score | 20/30 | 14/30 | -6 |
+| Responsibilities kept | 179 | 92 | -87 |
+| Full-map drops | 31 | 170 | +139 |
+| Quote root failures after repair | 6 | 4 | -2 |
+| Reader calls | 25 | 23 | -2 |
+| Estimated input cost | $0.3134 | $0.296395 | -$0.017005 |
+
+Batch F lost Batch E matches `5, 7, 8, 9, 10, 13, 25` and gained only row `19`. The same
+fixture, scorer, model family, budgets, and safety flags isolate the regression to the new
+control path. Strict field checks now reject incomplete records, but only quote repair exists.
+There is no field-completion repair. Cleaner surviving fields therefore came with severe
+inventory loss.
+
+### Complete sixth-gate score
+
+Best actual text and coverage are recorded where they were captured by the terminal scorer.
+For matched rows whose full best-actual text was not retained in the session summary, the
+deterministic outcome is still recorded and the production map remains the durable source.
+
+| # | Expected role / action / object | Result | Best actual or failure evidence | Coverage |
+|---:|---|---|---|---:|
+| 1 | Licensed Team / prioritize / rush submissions | match | matched | 100% |
+| 2 | Licensed Team / email / licensor for rush approval | match | matched | 100% |
+| 3 | Lic Manager / request / order value and units from Sales | match | matched | 100% |
+| 4 | Licensed Team / check / legal lines logos and artwork against style guides | match | matched | 100% |
+| 5 | Licensed Team / submit / concepts into licensor systems | miss | best had concepts/systems but negation conflicted | 66.7% |
+| 6 | Licensed Team / save / BA form to SharedLic server | match | matched | 100% |
+| 7 | Licensed Team / save / BA number to MasterData | miss | best used SharedLic, not MasterData | 33.3% |
+| 8 | Licensed Team / save / BA number to DesignFlow | miss | destination not preserved | 33.3% |
+| 9 | Licensed Team / save / BA number to ColdLion | miss | destination not preserved | 33.3% |
+| 10 | Licensed Team / assign / revision to SKU designer | miss, action | best checked revision instead of assigning it | 66.7% |
+| 11 | Licensed Team / update / Microsoft Loop licensor status | match | matched | 100% |
+| 12 | Licensed Team / check / designer revision against licensor feedback | match | matched | 100% |
+| 13 | Licensed Team / resubmit / revised tech pack to licensor systems | miss | object/action details thinned | 40% |
+| 14 | Lic Coordinator / download / PPS photos from factory sample request email | miss, action | best created a folder rather than downloading photos | 16.7% |
+| 15 | Lic Coordinator / rename / PPS files by SKU number | miss | incomplete object | 50% |
+| 16 | Licensed Team / review / PPS photos against tech pack specifications | miss | incomplete object | 33.3% |
+| 17 | Licensed Team / submit / PPS photos in licensor portals | miss | object matched, but polarity/negation conflicted | 100% |
+| 18 | Licensed Team / submit / product safety tests | miss | no compatible actual | 0% |
+| 19 | Lic Manager / fill out / Letter of Guarantee | match | matched; gained from Batch E | 100% |
+| 20 | Lic Manager / request / contractual sample exemption | match | matched | 100% |
+| 21 | Lic Manager / submit / factory audits into submission portal | match | matched | 100% |
+| 22 | Lic Manager / enter / factory information into MasterData vendor tab | match | matched | 100% |
+| 23 | Lic Manager / request / factory audits before approval expiration | miss | timing qualifier thinned | 20% |
+| 24 | Licensed Team / download / style guides to style guide server | miss | no compatible actual | 0% |
+| 25 | Licensed Team / organize / assets by file type | miss, action | best checked rather than organized | 33.3% |
+| 26 | Licensed Team / submit / quarterly royalty reports | miss | cadence and report detail thinned | 33.3% |
+| 27 | Lic Manager / request / trademark authorization forms | match | matched | 100% |
+| 28 | Lic Manager / maintain / contracts by licensor | match | matched | 100% |
+| 29 | Licensed Team / provide / assets to partners | miss, direction | best received partner requests instead of providing assets | 100% |
+| 30 | Licensed Team / maintain / 4 Seasons approval status sheet | match | matched | 100% |
+
+### Owner decision after the hard stop
+
+Grok 4.5's final-text review is saved at
+`.ai/reviews/grok-4.5-r2-batch-f-hard-stop-review.json`. It recommends **Option B, deeper
+architecture**, because the `20 -> 14` regression is primarily control-system inventory
+thrashing. The stable PPS, safety, timing, cadence, and direction misses still contain a model
+field-emission problem. The review is decision support only. **OWNER APPROVAL REQUIRED.**
+
+The only allowed choices are:
+
+- **Option A, bounded model bake-off:** freeze Batch F and follow `MODEL_BAKEOFF_SPEC.md`. Isolate
+  one eligible workflow-read model at a time, run two fresh pinned gates per candidate, and restore
+  settings after each. Mean `>=27` may seat the winner; `24–26` requires architecture; `<=23`
+  fails the bake-off and requires architecture with no second bake-off.
+- **Option B, recommended deeper architecture:** after owner approval only, split inventory
+  discovery from field completion; add one bounded source-span field-completion repair; emit one
+  deterministic RAO for each explicit destination; align splitter and multi-verb rejection;
+  persist quote/field/multi-verb/forced-missing/invalid-detail drop classes; and test polarity,
+  cadence, multi-destination output, valid Batch E-style base acceptance, and zero writes.
+  Freeze the fixture, scorer, 27/30 gate, strict quotes, 40/500k/$10 and 1/5/1 budgets, false
+  merge/apply flags, and zero-write rule. Do not change models, build Batch G, polish prompts as
+  the main fix, weaken scoring, hard-code fixture rows, leak the key, or enable shadow merge.
+  Independently review one release and run exactly one fresh pinned gate. `>=27` proceeds;
+  `24–26` permits a bake-off only on the redesigned path; `<=23` stops again for an owner choice.
+  Responsibility inventory must not collapse below Batch E's 179 without a documented reason,
+  full-map drops must not remain near 170 when quote roots are four, and rows 7/8/9 must recover
+  without fixture-specific code.
