@@ -1,11 +1,25 @@
 # HANDOFF — Prior completed work and remaining historical watchouts
 
-Last updated: 2026-07-27. Delete this file once every plan below is complete, intentionally
+Last updated: 2026-07-28. Delete this file once every plan below is complete, intentionally
 rejected with recorded evidence, or transferred to a named external owner.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
-## Latest closeout — 2026-07-27
+## Latest closeout — 2026-07-28
+
+R2 Batch C shipped in commit `f31f66a`, green CI `30318748914`, Trigger worker `20260728.2`
+deployment `qordtrim`, and READY Vercel deployment `dpl_6RQw8FVgn9X8ueddE2pvAfLzW2z7`.
+Migration 97 applied through the normal runner. The third fresh pinned production gate completed as
+run `run_06fqch0hiaiu9nte5rptja1b01`, document
+`b3fdae48-10a8-4922-b022-26c966511cb2`, and degraded map
+`df81b823-70d2-46fa-b15c-8215de53a1cc`. The frozen `field-aware-v3` score was 19/30
+(63.3%), still below 90%. It kept 138 responsibilities, dropped 9 strict quote mismatches, used two
+omission retries and one unsuccessful quote repair, and stayed within 19 calls, 41,873 input tokens,
+and `$0.209365` estimated input cost. Merge/apply stayed false before and after; all three durable
+business-model tables remained zero. Full 30-row evidence is in `evals/r2-responsibilities.md`.
+Grok reviewed this failure. Batch D is next. Do not enable merge or apply.
+
+## Prior closeout — 2026-07-27
 
 Macro R0.1 is complete. Commit `da1ad5a` passed CI run `30271360677` and shipped in Trigger worker
 `20260727.3`, deployment `75jeiusj`, with 24 tasks. Forced run
@@ -114,14 +128,11 @@ R0.1 is also complete and production-verified. Commit `da1ad5a`, CI `30271360677
 `54cfec32-b428-490f-9e21-ab79c8f3add4` prove the at-most-1-root gate with no fuzzy quote admitted.
 The run reread document `ee1fa682-9e5c-4cf5-89c5-b2f95d047eea`, kept 100, dropped 6, used 5
 read calls, 30,949 estimated input tokens, and `$0.154745` estimated input cost. R1 is complete.
-R2 entry decisions 1, 3, and 4 are recorded. Decision 2 remains deferred to R6. Production fixture
-document `79b0f629-4d42-4c8f-b6ad-e1e1dcf8befe` produced map
-`ebd13d54-215f-4bed-9d3c-14c63df4b624` with 5/5 chunks covered, 98 responsibility records, and zero
-responsibility drops. The old exact-string scorer falsely reported 0/30. Local deterministic
-matcher `field-aware-v3` fixes harmless phrase specialization without fuzzy evidence and assigns
-each actual record to at most one answer row. With the approved explicit approvals/approval
-normalization, the read-only rescore is 18/30 (60%). R2 is blocked below its 90% gate. Merge and
-apply stayed false; durable business object/version counts stayed zero.
+R2 entry decisions 1, 3, and 4 are recorded. Decision 2 remains deferred to R6. Batch C shipped in
+commit `f31f66a`. Its third production gate created map
+`df81b823-70d2-46fa-b15c-8215de53a1cc`, kept 138 responsibilities, dropped 9 strict quote
+mismatches, and scored 19/30 (63.3%) with frozen `field-aware-v3`. R2 remains blocked below its
+90% gate. Merge and apply stayed false; all durable business-model table counts stayed zero.
 
 ## Everything we tried that did NOT work
 
@@ -158,11 +169,8 @@ apply stayed false; durable business object/version counts stayed zero.
 - The current R0.1 baseline has 1 exact root quote drop, 5 deterministic cascades, and exactly 1
   repair attempt. It admitted no `transcript_fuzzy` document quote. Its budget evidence is 5 read
   calls, 30,949 estimated input tokens, and `$0.154745` estimated input cost.
-- The local R2 working tree contains the strict responsibility reader, deterministic evidence and
-  coverage checks, real `model_merge` route call with provenance, deterministic shortlist,
-  version-aware refine validation, entity-proposal staging, concurrency-safe shadow persistence,
-  post-coverage dispatch, dual apply lockout, and read-only proposal rendering. No production data,
-  deployment, commit, or push proves this work yet.
+- The R2 responsibility reader, deterministic evidence and coverage checks, shadow merge machinery,
+  and read-only proposal rendering are shipped. The recall gate still blocks all merge/apply work.
 - The first live R2 map proved the reader runs, but it did not meet the answer-key gate. Exact
   equality was an invalid scoring contract because model wording can safely specialize phrases.
   `field-aware-v3` now requires exact role, compatible action, full expected object-token coverage,
@@ -180,24 +188,19 @@ apply stayed false; durable business object/version counts stayed zero.
   `f0deefdb-b0fb-46ed-8059-d999b3dcc1a9` prove a regression: 17/30 (56.7%), 82 kept
   responsibilities, and 5 strict quote mismatches. Full evidence is in
   `evals/r2-responsibilities.md`.
-- Local Batch C now shards responsibility reads to one chunk, audits source duty spans for
-  omissions, retries within separate bounded responsibility allowances plus the shared read/token/cost budget, repairs only root quote-copy mismatches
-  under the unchanged exact validator, and records output/finish/truncation diagnostics. It is not
-  reviewed, committed, deployed, or live-tested.
+- Batch C shipped and live-tested. Its chunk shards, omission audit, bounded retries, strict quote
+  repair, and finish/truncation diagnostics improved the score to 19/30 but did not pass.
 - Base reads and retries use collision-proof deterministic ID prefixes, and map persistence now
   fails loudly if any responsibility element ID is duplicated.
-- The production migration rerun blocker is fixed locally in raw migration 13 by keeping its
-  strict validation-name whitelist forward-compatible with migration 94. A DB-free chain guard
-  passes locally, and CI now reruns the complete migration command against a populated fresh schema.
+- The production migration rerun blocker was fixed in commit `f31f66a`. CI `30318748914` passed
+  the populated double-migrate gate, then the normal production runner succeeded through migration 97.
 
 ## Exact next steps
 
-1. Keep every focused local R2 check green and inspect the full diff.
-2. Have Grok review the second live gate regression and full 30-row evidence.
-3. Root-fix reader completeness and verbatim quote copying locally without weakening evidence,
-   then rerun the pinned gate only after approval
-   until deterministic recall is at least 90%.
-4. Only after recall passes, prove real shadow create, same-map idempotency, sequential confirm, near-match review, bounded
+1. Implement Batch D against the honest third-gate misses without weakening evidence or scoring.
+2. Keep every focused R2 check green and obtain review before another production rerun.
+3. Rerun the pinned gate only after approval until deterministic recall is at least 90%.
+4. Only after recall passes, enable shadow merge and prove real shadow create, same-map idempotency, sequential confirm, near-match review, bounded
    refine, namespace collision, and desktop/narrow read-only UI.
 5. Use the existing R0.1 production map as the release baseline; do not weaken exact quote
    validation to remove the remaining honest costing-segment degradation.
@@ -222,10 +225,9 @@ never print or persist the value. Trigger project is `proj_wgpzsvhmsopqhvwqaycn`
 
 ## Open questions and risks
 
-No R0, R0.1, or R1 release blocker remains. The localized degraded segment is intentionally
-retained as a quality signal; changing it requires a future prompt/reader decision, not weaker
-quote policy. R2 still lacks live fixture, bake-off, real shadow proposal, and visual proof. The
-canonical sequence and evidence-authority decisions remain unchanged.
+No R0, R0.1, or R1 release blocker remains. R2 has three live fixture runs, but its best frozen
+score is only 19/30 (63.3%). Batch D is next. Bake-off, shadow proposals, merge, apply, and visual
+proof remain blocked. The canonical sequence and evidence-authority decisions remain unchanged.
 
 ## HISTORICAL PLAN UPDATE — 2026-07-21
 

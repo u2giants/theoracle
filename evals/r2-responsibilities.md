@@ -2,7 +2,7 @@
 
 Date: 2026-07-28
 
-Status: **BLOCKED. The latest live reader scored 56.7%, below the 90% gate.**
+Status: **BLOCKED. The third live reader scored 19/30 (63.3%), below the 90% gate.**
 
 Pinned fixture manifest:
 
@@ -71,7 +71,7 @@ Pinned fixture manifest:
 - `pnpm --filter @oracle/engines verify:macro-first`: pass.
 - `pnpm --filter @oracle/workers verify:document-ingestion-fallback`: pass.
 
-## Unproven release gates
+## Earlier release gate evidence
 
 - Production fixture document `79b0f629-4d42-4c8f-b6ad-e1e1dcf8befe` produced validated map
   `ebd13d54-215f-4bed-9d3c-14c63df4b624`, model run
@@ -89,8 +89,8 @@ Pinned fixture manifest:
 - Local Batch B bumps the reader to `responsibility-read-v2.1-thin-source-faithful`. Its system and
   request prompts require exact source-owner labels, one duty and one destination per record, short
   action phrases, and preservation of concrete systems, portals, servers, forms, cadence, and timing.
-  This prompt was deployed and failed its second live gate. Batch C local hardening now awaits Grok
-  review before any further deployment or rerun.
+  This prompt was deployed and failed its second live gate. Batch C then shipped and failed the
+  third live gate at 19/30 (63.3%). Batch D is next; merge and apply remain forbidden.
 
 ## Field-aware-v3 production audit
 
@@ -198,9 +198,9 @@ and verbatim quote copying without weakening the matcher or evidence validator.
 - The read-only admin rendering typechecks, but its desktop and narrow-width visual gate has not run
   against a real shadow proposal.
 - The swimlane regression is green locally. The responsibilities reader has been deployed and
-  tested twice, but both live answer-key gates failed.
+  tested three times, but all three live answer-key gates failed.
 
-## Batch C local hardening
+## Batch C shipped hardening
 
 - Responsibility reads are sharded into deterministic single-chunk calls and merged in stable
   segment/chunk order. Base reads and every retry use separate deterministic prefixes, and a
@@ -214,8 +214,85 @@ and verbatim quote copying without weakening the matcher or evidence validator.
   and a derived truncation flag.
 - Structured list candidates require a duty verb or a generic ownership/responsibility cue.
 - The answer key and `field-aware-v3` scorer remain frozen.
-- Batch C is local and unreviewed. No production rerun is authorized until Grok approves it.
+- Batch C shipped in commit `f31f66a` and failed the third production gate at 19/30 (63.3%).
+  Batch D is next. No shadow merge or apply work is authorized until recall reaches 90%.
 
-One disposable production fixture document and its normal ingestion artifacts were created for the
-authorized gate. Neither merge nor apply was enabled. Durable business objects and versions remain
-zero. No commit, push, deployment, or durable business-model write was made.
+The second gate created one disposable production fixture document and its normal ingestion
+artifacts. At that checkpoint, neither merge nor apply was enabled, durable business objects and
+versions remained zero, and no additional commit, push, deployment, or durable business-model write
+was made.
+
+## Third production reader gate
+
+Commit `f31f66a` passed CI `30318748914`, including the populated double-migration test. Migration
+97 applied through the normal runner. Trigger worker `20260728.2` deployment `qordtrim` registered
+25 tasks; Vercel deployment `dpl_6RQw8FVgn9X8ueddE2pvAfLzW2z7` was READY and the live URL returned
+HTTP 200. The third fresh gate still failed recall and is blocked.
+
+- Pinned local source SHA-256 was rechecked before upload:
+  `398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be`.
+- Trigger run: `run_06fqch0hiaiu9nte5rptja1b01`, completed normally on worker `20260728.2`.
+- Disposable document: `b3fdae48-10a8-4922-b022-26c966511cb2`.
+- Map: `df81b823-70d2-46fa-b15c-8215de53a1cc`, status `degraded`.
+- Final workflow model run: `016126b8-fe3e-4e74-8925-061f21cace54`.
+- Final context pack: `4e9d16eb-3f1d-4352-a924-09204ff71a7c`.
+- Five source chunks were read. The responsibility layer kept 138 records and dropped 9 strict
+  `markdown_document` quote mismatches.
+- Omission audit found 28 uncovered spans. It used two retries, one each on C0 and C3, and accepted
+  one new record from each retry.
+- Quote repair used its one allowed attempt against 9 root mismatches. It was rejected because it
+  produced no strict exact-quote improvement.
+- Reader budget: 19/40 calls, 41,873/500,000 estimated input tokens, 1/1 general repair attempt,
+  and estimated input cost `$0.209365` under the `$10` cap.
+- Responsibility post-pass budget: 2/5 omission retries, at most 1 per chunk, and 1/1 quote repair.
+- No responsibility call reported truncation. Recorded responsibility output tokens by execution
+  were 4,449, 709, 1,144, 3,458, 2,908, 200, 4,020, and 3,301.
+- Frozen `field-aware-v3` score: **19/30, or 63.3%**. This is below the 90% gate.
+- Before and after the run, merge and apply were both `false`; post-pass settings remained `1/5/1`;
+  `business_objects`, `business_object_versions`, and `business_model_changes` all remained zero.
+
+Chunk aliases: C0 `bb2e226d-3cbf-489f-aa14-3eb1cc8cabeb`; C1
+`958aa572-45b6-4c86-9925-1955e8e0e62f`; C2 `624d3164-5ab1-43ba-a3a7-cac5524ae72d`; C3
+`4a0173c4-09f3-4d50-97ac-3e89ee5dbf45`; C4
+`4d043ad7-0ac8-4089-87ef-c3d3eac41cdf`.
+
+| # | Expected role / action / object | Result | Best actual role / action / object | Quote excerpt | Chunk |
+|---:|---|---|---|---|---|
+| 1 | Licensed Team / prioritize / rush submissions | match | Licensed Team / prioritize / submissions that are rush requests | prioritize submissions that are rush requests | C0 |
+| 2 | Licensed Team / email / licensor for rush approval | match | Licensed Team / email / licensor to request rush approval in system | email the licensor to request a rush approval | C0 |
+| 3 | Lic Manager / request / order value and units from Sales | match | Lic Manager / reach out / Sales team for order value and units | reach out to Sales team to get the value | C0 |
+| 4 | Licensed Team / check / legal lines logos and artwork against style guides | match | Licensed Team / check / all legal lines logos and artwork against Licensor Style Guides | MUST check all legal lines | C0 |
+| 5 | Licensed Team / submit / concepts into licensor systems | match | Licensed Team / submit / concepts into different Licensor Systems | submits concepts into the different Licensor Systems | C4 |
+| 6 | Licensed Team / save / BA form to SharedLic server | match | Licensed Team / save / BA form to SharedLic server “SKU#_CRS” | Save BA form to SharedLic server | C0 |
+| 7 | Licensed Team / save / BA number to MasterData | match | Licensed Team / save / BA number to MasterData | Save BA number to MasterData | C0 |
+| 8 | Licensed Team / save / BA number to DesignFlow | match | Licensed Team / save / BA number to DesignFlow | Save BA number to DesignFlow | C0 |
+| 9 | Licensed Team / save / BA number to ColdLion | match | Licensed Team / save / BA number to ColdLion | Save BA number to ColdLion | C0 |
+| 10 | Licensed Team / assign / revision to SKU designer | match | Licensed Team / assign / Revision to Designer of SKU | Assign Revision to the Designer | C0 |
+| 11 | Licensed Team / update / Microsoft Loop licensor status | miss | Licensed Team / update / DesignFlow status | Update DesignFlow status | C0 |
+| 12 | Licensed Team / check / designer revision against licensor feedback | match | Licensed Team / check / Designer revision against licensor feedback | Check the Revision | C0 |
+| 13 | Licensed Team / resubmit / revised tech pack to licensor systems | match | Licensed Team / resubmit / revised tech pack to Licensor Systems | Resubmit the revised tech pack | C0 |
+| 14 | Lic Coordinator / download / PPS photos from factory sample request email | miss | Lic Coordinator / provide / assets to partners | provides assets to partners | C4 |
+| 15 | Lic Coordinator / rename / PPS files by SKU number | miss | Lic Coordinator / provide / assets to partners | provides assets to partners | C4 |
+| 16 | Licensed Team / review / PPS photos against tech pack specifications | miss | Licensed Team / enter / tech pack submission date in MasterData | Enter the date when tech pack is submitted | C0 |
+| 17 | Licensed Team / submit / PPS photos in licensor portals | miss | Licensed Team / submit improved production photos / improved photos after PPS comments | Submit improved production photos | C2 |
+| 18 | Licensed Team / submit / product safety tests | miss | Licensed Team / submit improved production photos / improved photos after PPS comments | Submit improved production photos | C2 |
+| 19 | Lic Manager / fill out / Letter of Guarantee | miss | Lic Manager / fill out / Factory Authorization Request form | Fill out Factory Authorization Request form | C3 |
+| 20 | Lic Manager / request / contractual sample exemption | match | Lic Manager / request Contractual Sample Exemption / exemption from licensors | Request Contractual Sample Exemption | C2 |
+| 21 | Lic Manager / submit / factory audits into submission portal | match | Lic Manager / submit Factory Audits / audits into Submission Portal | Submit Factory Audits into the Submission Portal | C2 |
+| 22 | Lic Manager / enter / factory information into MasterData vendor tab | match | Lic Manager / enter Factory Information / Vendor tab in MasterData | Enter Factory Information from the Audits | C2 |
+| 23 | Lic Manager / request / factory audits before approval expiration | miss, object 80% | Lic Manager / reach out to Factories to request audits / audits three months before FAMA or NBC expiry | Request audits AT LEAST 3 months before expiration | C2 |
+| 24 | Licensed Team / download / style guides to style guide server | miss | Licensed Team / download / techpacks or linesheets | downloads techpacks or linesheets | C4 |
+| 25 | Licensed Team / organize / assets by file type | match | Licensed Team / organize / Assets by File Type | Organizes the Assets by the File Type | C3 |
+| 26 | Licensed Team / submit / quarterly royalty reports | miss, object 67% | Licensed Team / submit / Reports for Royalty Reporting | Submit the Reports | C3 |
+| 27 | Lic Manager / request / trademark authorization forms | match | Lic Manager / request / Trademark Authorization forms from each licensor | Request Trademark Authorization forms | C3 |
+| 28 | Lic Manager / maintain / contracts by licensor | match | Lic Manager / ensure / Contracts by Licensor are up to date | Ensure Contracts by Licensor are up to date | C4 |
+| 29 | Licensed Team / provide / assets to partners | miss | Licensed Team / provide information / contract information | licensor will ask for this information | C2 |
+| 30 | Licensed Team / maintain / 4 Seasons approval status sheet | match | Licensed Team / maintain / Status Approvals Google Sheet for 4 Seasons | Maintains Status Approvals on a Separate Google Sheet | C4 |
+
+Diagnosis, without changing code or settings: Batch C improved the second gate from 17 to 19
+matches and restored asset organization plus trademark forms, but it did not solve owner-aware
+coverage for the PPS duties, style-guide download, safety tests, Letter of Guarantee, royalty
+reports, partner assets, or Microsoft Loop. The source audit still reported 28 uncovered spans,
+yet only two focused retries ran and each added one record. Nine quote mismatches all came from the
+first responsibility shard, and the one quote repair could not improve them. The gate remains
+blocked. Do not enable merge or apply.
