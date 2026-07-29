@@ -7,8 +7,9 @@ HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed 
 
 ## Current resume point after completion audit and Grok 4.5 review, 2026-07-29
 
-Repository `main` is at `a7637f7`; GitHub Actions run `30445659590` is green and Vercel production
-serves that exact build. GAP-11 is released through `a7637f7`. Its signed-in draft, cancel,
+The production application release is `a7637f7`; GitHub Actions run `30445659590` is green.
+Repository `main` also contains the later documentation-only closeout commit. GAP-11 is released
+through `a7637f7`. Its signed-in draft, cancel,
 redraft, recipient-isolation, and append-only audit proof passed. One replacement draft addressed
 only to Albert remains unsent. Only action-time send approval, send audit, and double-submit proof
 remain.
