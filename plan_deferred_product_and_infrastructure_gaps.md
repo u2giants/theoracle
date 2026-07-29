@@ -18,7 +18,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-5 Multi-attachment and cross-provider cache safety   | ✅ complete and released                                | Released in `3dee535`. Canonical messages retain every attachment; Vertex removes only its cached PDF; all offline fixtures pass. The live gate proved Anthropic read both generated PDFs after forced Vertex failure. GitHub Actions run `30420138187` passed every guard, including the new chat attachment guard.                                  |
 | GAP-6 Vertex cache and batch storage                     | ⬜ open                                                 | Production cloud mutation requires exact owner approval                                                                                                                                                                                                                                                                                                |
 | GAP-7 Eval-results dashboard                             | ✅ complete and released                                | Released through `3b96669`. Clean CLI eval run `extraction-2026-07-29T04-03-41-967Z` passed 4/4 and is tied to code commit `656785e`. Grok approved. CI run `30421488336` passed, Vercel deployment `dpl_3KF4J76s9shZBHugy4xNR9rktBCo` was promoted, and signed-in production list/detail checks passed. |
-| GAP-8 Provider capability parity                         | 🟨 local capability truth complete; release proof pending | DeepSeek and Qwen remain sync-only and non-strict in Oracle. Qwen explicit/session cache controls were removed because no measured Oracle fixture proved savings. Admin UI now blocks Batch for unsupported extraction providers. Local guards and docs are updated; review, CI, push, deploy, and signed-in UI proof remain. |
+| GAP-8 Provider capability parity                         | ✅ complete and released                                | Released in `4d56ad5`. DeepSeek, Qwen, and Google Gemini API remain sync-only for tracked extraction Batch. Unsupported settings are blocked and stale settings fail loudly. Grok approved, CI run `30422669789` passed, Vercel deployment `dpl_7JQoF119e4DVnNHtRE73xxDWUqoX` was promoted, and signed-in production Settings proof passed. |
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
 | GAP-10 Deprecated identity-column cleanup                | ⬜ open                                                 | Must prove every reader uses `employee_identities` first                                                                                                                                                                                                                                                                                               |
 | GAP-11 Model-coverage finding conversion                 | ⬜ open                                                 | Administrative findings are isolated correctly but lack the audited convert-to-question flow                                                                                                                                                                                                                                                           |
@@ -427,6 +427,14 @@ Implementation decision (2026-07-29):
   unsupported provider. Both extraction workers fail loudly on stale invalid configuration and
   name the required admin action; neither silently skips, auto-flips the setting, nor runs an
   unapproved sync fallback.
+- Grok 4.5 session `019fac1a-fb96-77b3-b6cd-0fc1001e3c11` approved the final diff with no
+  actionable findings. Commit `4d56ad57c96a71eaf420c52cd43e9536a0a8f779` passed GitHub
+  Actions run `30422669789`. Production deployment `dpl_7JQoF119e4DVnNHtRE73xxDWUqoX` was
+  ready and promoted to `https://oracle.designflow.app`.
+- The signed-in production Settings page showed build `4d56ad5`, the current Google extraction
+  provider, Sync selected, Batch disabled, and plain-language support text naming Anthropic,
+  OpenAI, and Vertex as the tracked Batch providers. The layout was readable with no overlap or
+  clipping. GAP-8 is closed.
 
 ### GAP-9: secret rotation
 

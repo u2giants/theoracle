@@ -14,6 +14,13 @@ upload documents. The web app, Trigger.dev workers, and Supabase database turn s
 strictly quoted claims and larger business maps. This repository is the `pnpm` TypeScript monorepo
 at `C:\repos\oracle`; the web app runs at `https://oracle.designflow.app`.
 
+GAP-8 provider capability parity is complete and released. Commit
+`4d56ad57c96a71eaf420c52cd43e9536a0a8f779` passed CI run `30422669789`; Vercel deployment
+`dpl_7JQoF119e4DVnNHtRE73xxDWUqoX` is promoted. Grok 4.5 approved the final diff. A signed-in
+production Settings check showed build `4d56ad5`, Google extraction on Sync, Batch correctly
+disabled, and the supported-provider message rendered cleanly. Qwen, DeepSeek, and Google Gemini
+API remain sync-only for Oracle's tracked extraction Batch path.
+
 ### 2. What this work set out to do, and why
 
 R2 must recover at least 27 of 30 frozen responsibilities from one pinned company document without
