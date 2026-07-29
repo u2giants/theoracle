@@ -1011,7 +1011,7 @@ Six read-only Next.js App Router pages under `/admin/ai`. Server-rendered Drizzl
 | `/admin/ai/runs/[id]`  | One-run detail: summary, usage breakdown, full prompt-plan block list, retrieval diagnostics, linked extraction batches, linked provider caches  | `model_runs_with_usage`, `oracle_context_packs`, `extraction_batches`, `provider_cached_content` |
 | `/admin/ai/cache`      | Cache rows filterable by status + provider hit-ratio, task/route efficiency, and high-cost low-hit tables                                        | `provider_cached_content`, `model_runs_with_usage`                                               |
 | `/admin/ai/candidates` | Extraction candidate review with 8 filter tabs. Sensitive rows are excluded at the SQL level from every tab except the explicit "Sensitive" tab. | `extraction_candidates`, `extraction_validation_results`                                         |
-| `/admin/ai/evals`      | Placeholder. Documents the CLI smoke gates.                                                                                                      | —                                                                                                |
+| `/admin/ai/evals`      | Read-only saved CLI eval gates with stage, commit, date, and result filters; run detail ties the fixture hash and aggregate metrics to an exact commit. Raw prompts and source-derived artifacts stay local. | Versioned JSON summaries under `packages/ai/evals/published/`; CLI remains the only execution owner. |
 
 The sensitive-candidate exclusion is structural: the SQL `WHERE` clause prevents any UI toggle from leaking sensitive material into the standard queue.
 

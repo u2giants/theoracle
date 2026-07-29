@@ -236,8 +236,8 @@ export default async function AdminAIPage() {
           <div className="text-muted-foreground">Active / deleted / orphaned caches.</div>
         </Link>
         <Link href="/admin/ai/evals" className="rounded border bg-card p-3 hover:bg-muted">
-          <div className="font-semibold">Evals (placeholder) →</div>
-          <div className="text-muted-foreground">Eval results will land here.</div>
+          <div className="font-semibold">Eval results →</div>
+          <div className="text-muted-foreground">Tie saved CLI gates to exact releases.</div>
         </Link>
         <Link href="/admin/ai/claim-lessons" className="rounded border bg-card p-3 hover:bg-muted">
           <div className="font-semibold">Claim lessons →</div>

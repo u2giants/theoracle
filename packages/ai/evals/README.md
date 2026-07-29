@@ -1,7 +1,7 @@
 # Oracle CLI evals
 
-Per `docs/oracle/06-evaluation-framework.md`. Evaluation runs entirely from
-CLI scripts — there is intentionally no web UI during the initial retrofit.
+Per `docs/oracle/06-evaluation-framework.md`. Evaluation execution remains
+CLI-only. The read-only admin dashboard displays safe summaries after a run.
 
 ## Why CLI-only
 
@@ -29,15 +29,18 @@ packages/ai/evals/
       metrics.ts
       report.ts
   runs/                     (gitignored) Per-run output artifacts
-    <timestamp>/
+    extraction-<UTC-timestamp>/
       summary.json
       per-fixture.json
+  published/                Safe, reviewable release summaries
+    index.json
+    extraction-<UTC-timestamp>.json
 ```
 
 ## Running
 
 ```bash
-pnpm eval:extraction          # extraction eval over all fixtures, mock mode
+pnpm --filter @oracle/ai eval:extraction  # extraction eval over all fixtures, mock mode
 ```
 
 Mock mode (the default) uses canned LLM outputs from `mocks/canned-*-outputs/`
@@ -63,7 +66,7 @@ Adding a new fixture:
 2. Drop a matching `mocks/canned-extraction-outputs/<id-prefix>.json` with the
    canned `ExtractionOutput` (matching `packages/ai/src/prompts/extraction-system.ts`
    `ExtractionOutputSchema`) the LLM would produce on this transcript.
-3. Run `pnpm eval:extraction` — the new fixture is picked up automatically.
+3. Run `pnpm --filter @oracle/ai eval:extraction` — the new fixture is picked up automatically.
 
 ## What's covered today
 
@@ -85,10 +88,20 @@ deepest stack: extraction prompt output → `validateSourcePointer` → `validat
 Each run writes:
 
 ```
-runs/<UTC-timestamp>/
+runs/extraction-<UTC-timestamp>/
   summary.json        Aggregate metrics across all fixtures
   per-fixture.json    Per-fixture pass/fail breakdown with failure details
 ```
 
-`runs/` is gitignored. Compare runs by diffing the JSON files or piping
-through `jq`.
+`runs/` is gitignored. It may contain source-derived failure details and must
+never be published. The runner also writes a deliberately small summary to
+`published/`: run time, exact commit SHA, fixture-set hash, route, gate result,
+prompt version, counts, aggregate metrics, optional execution cost/usage, and a
+safe summary link. It never includes prompts,
+source text, per-fixture failure notes, provider payloads, or credentials.
+Commit the safe summaries with the code only when they are intended as release
+evidence. The admin dashboard is read-only; it never starts an eval.
+
+Safe publishing is skipped when any tracked work outside `published/` is dirty.
+This keeps the stored commit SHA truthful. Existing safe summary files are all
+validated against the current allowlist before `index.json` is rebuilt.

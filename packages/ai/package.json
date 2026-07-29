@@ -18,7 +18,8 @@
     "./usage": "./src/usage/usage-normalizer.ts",
     "./validation": "./src/validation/structured-output-validator.ts",
     "./embeddings": "./src/embeddings.ts",
-    "./retrieval": "./src/retrieval.ts"
+    "./retrieval": "./src/retrieval.ts",
+    "./eval-results": "./src/eval-results.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

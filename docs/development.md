@@ -79,6 +79,9 @@ pnpm --filter @oracle/ai verify:vertex-file-cache
 # Admin-only translation review, history, stale state, and concurrency tokens
 pnpm --filter @oracle/web verify:claim-translation-review
 
+# Eval dashboard authorization, filters, safe-summary contract, and data exclusion
+pnpm --filter @oracle/web verify:eval-results-dashboard
+
 # Remote MCP registry contract
 pnpm --filter @oracle/web verify:mcp
 
@@ -95,9 +98,10 @@ pnpm --filter @oracle/engines verify:r9
 pnpm --filter @oracle/engines verify:r11.1
 ```
 
-The five network-free guards (`verify:retrieval-filter-parity`,
+The network-free guards (`verify:retrieval-filter-parity`,
 `verify:chinese-retrieval`, `verify:vertex-file-cache`,
-`verify:claim-translation-review`, and `verify:mcp`) also run inside Vercel's
+`verify:chat-attachment-safety`, `verify:claim-translation-review`,
+`verify:eval-results-dashboard`, and `verify:mcp`) also run inside Vercel's
 production `build:vercel` script. The live Chinese vector measurement does not.
 Run `pnpm verify:vercel-contract` after changing `vercel.json` or the delegated
 scripts; it enforces Vercel's 256-character command limit and the required guard list.

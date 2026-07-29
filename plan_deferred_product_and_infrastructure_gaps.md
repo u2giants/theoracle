@@ -17,7 +17,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-4 China translation review and search hardening      | 🟨 local implementation complete; live vector gate remains | Side-by-side English/Chinese review, model/version/status/stale display, append-only generation and review history, approve/reject/retranslate actions, and CI guards are implemented. `simple` search is measured by the offline fixture; run the credentialed live vector fixture before closing. No Chinese search extension was added. |
 | GAP-5 Multi-attachment and cross-provider cache safety   | ✅ complete and released                                | Released in `3dee535`. Canonical messages retain every attachment; Vertex removes only its cached PDF; all offline fixtures pass. The live gate proved Anthropic read both generated PDFs after forced Vertex failure. GitHub Actions run `30420138187` passed every guard, including the new chat attachment guard.                                  |
 | GAP-6 Vertex cache and batch storage                     | ⬜ open                                                 | Production cloud mutation requires exact owner approval                                                                                                                                                                                                                                                                                                |
-| GAP-7 Eval-results dashboard                             | ⬜ open                                                 | CLI evals work; UI remains a deliberate placeholder                                                                                                                                                                                                                                                                                                    |
+| GAP-7 Eval-results dashboard                             | 🟨 local implementation complete; release proof remains | CLI evals publish a minimal safe summary with exact commit and fixture hashes. The read-only admin list/detail pages provide stage, commit, date, and pass/fail filters. Static authorization and confidential-data exclusion guards are included. Commit, CI, deployment, and production admin proof remain. |
 | GAP-8 Provider capability parity                         | ⬜ open                                                 | Batch, Qwen explicit cache, and DeepSeek beta strict-schema paths remain limited                                                                                                                                                                                                                                                                       |
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
 | GAP-10 Deprecated identity-column cleanup                | ⬜ open                                                 | Must prove every reader uses `employee_identities` first                                                                                                                                                                                                                                                                                               |
@@ -363,6 +363,21 @@ not retain source material beyond the documented policy.
 5. Add filters for stage, commit, date, and pass/fail.
 
 Gate: an admin can tie a release to its exact eval gates, while CLI remains the execution owner.
+
+Implementation evidence (2026-07-28):
+
+- The extraction CLI remains the only execution path. It writes detailed, source-derived output
+  only to ignored `runs/`, plus a versioned safe summary under `published/`.
+- The safe contract stores timestamps, exact commit SHA, a deterministic fixture-set hash, route,
+  mode, stage gate, counts, aggregate metrics, and allowlisted safe artifact paths. It rejects
+  unknown versions, malformed counts or metrics, duplicate run IDs, and unsafe artifact paths.
+- `/admin/ai/evals` is read-only and inherits the server-side admin guard. It filters by stage,
+  commit prefix, UTC completion date, and pass/fail. `/admin/ai/evals/[runId]` displays the exact
+  release and fixture identity, stage counts and metrics, and safe links.
+- Empty, no-match, invalid-store, unknown-run, and confidential-artifact states are explicit.
+  `verify:eval-results-dashboard` guards admin authorization, every required filter, the safe
+  summary contract, path allowlisting, and exclusion of prompts, source text, per-fixture failure
+  notes, and credentials.
 
 ### GAP-8: provider capability parity
 
