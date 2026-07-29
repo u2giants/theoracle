@@ -9,6 +9,7 @@ import { shouldEnforceCapabilities } from '../routes/candidates';
 import type { OraclePromptPlan } from '../client/types';
 import type { OracleModelRoute } from '../routes';
 import type { ModelCapability } from '../model-capabilities';
+import { calculateCatalogTokenCost } from '../entity-planner-model';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -300,6 +301,10 @@ async function main(): Promise<void> {
   await verifyDeepSeekJsonMode();
   await verifyQwenUsage();
   verifyCapabilityGates();
+  assert(
+    calculateCatalogTokenCost(10, 20, 5, 1, 2) === 0.00005,
+    'Qwen reasoning tokens are already inside completion_tokens and must not be billed twice',
+  );
   console.log('PASS adapter request shapes');
 }
 

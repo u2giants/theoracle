@@ -283,3 +283,8 @@ export {
   type RetrievalPlan,
   type RetrievalPlanSearchScope,
 } from './retrieval-plan';
+export {
+  selectEntitiesWithConfiguredModel,
+  type EntityPlannerModelAttempt,
+  type EntityPlannerModelOptions,
+} from './entity-planner-model';

@@ -28,6 +28,7 @@
     "verify:retrieval-plan-domain-boundaries": "tsx src/__verify__/retrieval-plan-domain-boundaries.ts",
     "verify:retrieval-filter-parity": "tsx src/__verify__/retrieval-filter-parity.ts",
     "verify:entity-aware-retrieval": "tsx src/__verify__/entity-aware-retrieval.ts",
+    "verify:entity-aware-retrieval-live": "tsx src/__verify__/entity-aware-retrieval-live.ts",
     "verify:chinese-retrieval": "tsx src/__verify__/chinese-retrieval-fixture.ts",
     "verify:chinese-retrieval-live": "tsx src/__verify__/chinese-retrieval-fixture.ts --require-live",
     "verify:vertex-file-cache": "tsx src/__verify__/vertex-file-cache-multiturn.ts",
