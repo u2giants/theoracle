@@ -158,6 +158,7 @@ Operational settings the Oracle reads at runtime live in the `settings` Postgres
 | Key | Default | Purpose |
 |---|---|---|
 | `lull_window_seconds` | `60` | Seconds of silence before the Oracle may consider a "lull" interjection. |
+| `lull_gap_minimum_relevance` | `0.35` | Minimum cosine similarity between recent channel messages and an eligible open gap. Below this, the Oracle asks nothing. Gap vectors are search aids, not claim evidence. |
 | `oracle_cooldown_minutes` | `10` | Minimum minutes between Oracle interjections in the same channel. |
 | `max_oracle_interjections_per_hour` | `3` | Hard cap per channel per hour. |
 | `teams_live_recall_min_confidence_to_post` | `70` | Minimum model confidence required before the Recall live worker posts an Oracle question. Set to `101` to clamp live posting off without a deploy. |

@@ -6,7 +6,7 @@
   "scripts": {
     "build": "turbo run build",
     "build:vercel": "pnpm run verify:vercel-guards && pnpm --filter @oracle/web build",
-    "verify:vercel-guards": "pnpm --filter @oracle/ai verify:retrieval-filter-parity && pnpm --filter @oracle/ai verify:chinese-retrieval && pnpm --filter @oracle/ai verify:vertex-file-cache && pnpm --filter @oracle/web verify:chat-attachment-safety && pnpm --filter @oracle/web verify:claim-translation-review && pnpm --filter @oracle/web verify:eval-results-dashboard && pnpm --filter @oracle/web verify:provider-capability-parity && pnpm --filter @oracle/web verify:model-coverage-conversion && pnpm --filter @oracle/web verify:mcp",
+    "verify:vercel-guards": "pnpm --filter @oracle/ai verify:retrieval-filter-parity && pnpm --filter @oracle/ai verify:chinese-retrieval && pnpm --filter @oracle/ai verify:vertex-file-cache && pnpm --filter @oracle/web verify:chat-attachment-safety && pnpm --filter @oracle/web verify:claim-translation-review && pnpm --filter @oracle/web verify:eval-results-dashboard && pnpm --filter @oracle/web verify:provider-capability-parity && pnpm --filter @oracle/web verify:model-coverage-conversion && pnpm --filter @oracle/engines verify:lull-topical && pnpm --filter @oracle/web verify:mcp",
     "verify:vercel-contract": "node scripts/verify-vercel-contract.mjs",
     "dev": "turbo run dev --filter=@oracle/web",
     "dev:all": "turbo run dev",

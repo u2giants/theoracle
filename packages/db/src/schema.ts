@@ -1803,6 +1803,11 @@ export const gaps = pgTable(
     resolvedByClaimId: uuid('resolved_by_claim_id').references(() => claims.id),
     createdByModelRunId: uuid('created_by_model_run_id').references(() => modelRuns.id),
     sourceContext: jsonb('source_context'),
+    // Search aid for lull-question topic matching. This does not represent
+    // claim evidence and is never used for claim validation or approval.
+    embedding: vector('embedding', { dimensions: EMBEDDING_DIM }),
+    embeddingModel: varchar('embedding_model', { length: 255 }),
+    embeddingSourceHash: varchar('embedding_source_hash', { length: 64 }),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
     resolvedAt: timestamp('resolved_at'),

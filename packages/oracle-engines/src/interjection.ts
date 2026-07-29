@@ -36,6 +36,106 @@ export interface RelevantOpenGap {
   questionToAsk: string;
   /** `gaps.why_it_matters` — context for the asker that draft prompts can lean on. */
   whyItMatters: string;
+  /** Cosine similarity to the recent channel messages, when selected for a lull. */
+  relevanceScore?: number;
+}
+
+export interface TopicalGapCandidate extends RelevantOpenGap {
+  embedding: number[];
+  createdAtMs: number;
+}
+
+export function isGapEligibleForChannel(
+  targetEmployeeId: string | null,
+  participantEmployeeIds: readonly string[],
+): boolean {
+  return targetEmployeeId === null || participantEmployeeIds.includes(targetEmployeeId);
+}
+
+export function gapEmbeddingNeedsRefresh(input: {
+  embedding: number[] | null;
+  embeddingModel: string | null;
+  embeddingSourceHash: string | null;
+  requiredModel: string;
+  requiredSourceHash: string;
+}): boolean {
+  return (
+    !input.embedding ||
+    input.embedding.length === 0 ||
+    input.embeddingModel !== input.requiredModel ||
+    input.embeddingSourceHash !== input.requiredSourceHash
+  );
+}
+
+export function assertRealTopicalEmbeddings(result: {
+  fallback: boolean;
+  model: string;
+  vectors: number[][];
+}): void {
+  if (result.fallback || result.model === 'zero-stub') {
+    throw new Error('Real embeddings are required for topical lull-gap selection.');
+  }
+}
+
+const PRIORITY_RANK: Record<RelevantOpenGap['priority'], number> = {
+  urgent: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+export function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length === 0 || a.length !== b.length) {
+    throw new Error('Topical gap vectors must be non-empty and have matching dimensions.');
+  }
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    const av = a[i]!;
+    const bv = b[i]!;
+    if (!Number.isFinite(av) || !Number.isFinite(bv)) {
+      throw new Error('Topical gap vectors must contain only finite numbers.');
+    }
+    dot += av * bv;
+    normA += av * av;
+    normB += bv * bv;
+  }
+  if (normA === 0 || normB === 0) {
+    throw new Error('Topical gap vectors must not be zero vectors.');
+  }
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+/**
+ * Choose only a gap related to the recent channel discussion. Relevance wins;
+ * existing priority and recency ordering break ties without bypassing the
+ * worker's status, assignment, participant, and gap-type filters.
+ */
+export function selectTopicalGap(
+  recentMessageEmbedding: number[],
+  candidates: TopicalGapCandidate[],
+  minimumRelevance: number,
+): RelevantOpenGap | null {
+  if (!Number.isFinite(minimumRelevance) || minimumRelevance < -1 || minimumRelevance > 1) {
+    throw new Error('Lull gap minimum relevance must be between -1 and 1.');
+  }
+  const scored = candidates
+    .map((candidate) => ({
+      candidate,
+      score: cosineSimilarity(recentMessageEmbedding, candidate.embedding),
+    }))
+    .filter(({ score }) => score >= minimumRelevance)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        PRIORITY_RANK[b.candidate.priority] - PRIORITY_RANK[a.candidate.priority] ||
+        b.candidate.createdAtMs - a.candidate.createdAtMs,
+    );
+  const winner = scored[0];
+  if (!winner) return null;
+  const { embedding: _embedding, createdAtMs: _createdAtMs, ...gap } = winner.candidate;
+  return { ...gap, relevanceScore: winner.score };
 }
 
 export interface LullInterjectionInput {
@@ -159,7 +259,7 @@ export function decideLullInterjection(
   return {
     decision: 'ask',
     gapId: input.topRelevantOpenGap.id,
-    reason: `Lull window elapsed (${input.secondsSinceLastUserMessage}s ≥ ${input.lullWindowSeconds}s), cooldown clear, ${input.interjectionsInLastHour}/${input.maxOracleInterjectionsPerHour} interjections this hour, asking ${input.topRelevantOpenGap.priority}-priority gap ${input.topRelevantOpenGap.id}.`,
+    reason: `Lull window elapsed (${input.secondsSinceLastUserMessage}s ≥ ${input.lullWindowSeconds}s), cooldown clear, ${input.interjectionsInLastHour}/${input.maxOracleInterjectionsPerHour} interjections this hour, asking ${input.topRelevantOpenGap.priority}-priority gap ${input.topRelevantOpenGap.id}${input.topRelevantOpenGap.relevanceScore == null ? '' : ` at topical relevance ${input.topRelevantOpenGap.relevanceScore.toFixed(3)}`}.`,
   };
 }
 

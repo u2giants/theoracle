@@ -29,6 +29,7 @@ const DEFAULT_SETTINGS: Array<{
   description: string;
 }> = [
   { key: 'lull_window_seconds', value: 60, description: 'Seconds of human silence before Oracle may interject (spec 5.1).' },
+  { key: 'lull_gap_minimum_relevance', value: 0.35, description: 'Minimum cosine similarity between recent channel messages and an eligible open gap.' },
   { key: 'oracle_cooldown_minutes', value: 10, description: 'Minimum minutes between Oracle interjections in a single channel.' },
   { key: 'max_oracle_interjections_per_hour', value: 3, description: 'Per-channel cap on proactive interjections.' },
   // Legacy OpenRouter model id keys — kept during R1 migration, do not use for new code.

@@ -22,6 +22,7 @@
     "verify:identity-cleanup": "tsx src/verify-identities.ts",
     "verify:identity-cleanup-contract": "tsx src/verify-identity-cleanup-contract.ts",
     "verify:document-context-schema": "tsx src/verify-document-context-migration.ts",
+    "verify:gap-topical-schema": "tsx src/verify-gap-topical-schema.ts",
     "verify:fresh-source-workflow-schema": "tsx src/verify-fresh-source-workflow-schema.ts",
     "verify:r1-cross-shape-schema": "tsx src/verify-r1-cross-shape-schema.ts",
     "verify:r1-generated-order": "tsx src/verify-r1-generated-order.ts",

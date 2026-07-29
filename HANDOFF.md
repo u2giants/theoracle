@@ -318,7 +318,7 @@ must read the named plan's status table first and must not re-plan the work from
 | Deferred credential rotation | [Product plan GAP-9](plan_deferred_product_and_infrastructure_gaps.md#gap-9-secret-rotation), blocked on Albert |
 | Deprecated employee identity columns, closed and released 2026-07-29 | [Product plan GAP-10](plan_deferred_product_and_infrastructure_gaps.md#gap-10-deprecated-identity-columns) |
 | No audited conversion from model-quality finding to human question | [Product plan GAP-11](plan_deferred_product_and_infrastructure_gaps.md#gap-11-audited-model-coverage-conversion) |
-| Lull questions lack semantic topical relevance | [Product plan GAP-12](plan_deferred_product_and_infrastructure_gaps.md#gap-12-topical-gap-selection-for-lull-questions) |
+| Lull topical selection is locally implemented; migration, CI, worker deploy, and live proof remain | [Product plan GAP-12](plan_deferred_product_and_infrastructure_gaps.md#gap-12-topical-gap-selection-for-lull-questions) |
 | Oversized conversations lack bounded windowing | [Product plan GAP-13](plan_deferred_product_and_infrastructure_gaps.md#gap-13-oversized-conversation-windowing) |
 
 `bug_d_ungating_plan.md` is historical and superseded. Its remaining ideas are owned by the macro

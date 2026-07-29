@@ -22,7 +22,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
 | GAP-10 Deprecated identity-column cleanup                | ✅ complete and released                              | Released in `30eed14`. Migration 98 applied successfully, a second full migration run proved rerun safety, CI and Vercel passed, and protected post-drop authentication succeeded. |
 | GAP-11 Model-coverage finding conversion                 | 🟨 local implementation complete; release proof pending | Admin-reviewed drafts, stable map provenance, recipient validation, row-locked idempotent sending, cancellation and redrafting before send, and append-only audit events are implemented. Local code checks passed; visual proof is deferred until the reviewed migration is applied. Migration, CI, deployment, and production proof remain. |
-| GAP-12 Topical gap selection for lull questions          | ⬜ open                                                 | Typing presence is implemented; semantic relevance is not                                                                                                                                                                                                                                                                                              |
+| GAP-12 Topical gap selection for lull questions          | 🟨 local implementation complete; release proof pending | Eligible gaps now require semantic relevance after the existing safety filters. Bounded keyset pages scan every eligible gap; the fixture proves more than 50 unrelated urgent gaps cannot hide one topical low-priority gap. Network-free guards cover schema/migration/snapshot ownership, vector freshness, zero-stub refusal, typing, locking, and claim order. Migration 101, CI, worker deployment, and live proof remain. |
 | GAP-13 Oversized conversation windowing                  | ⬜ open                                                 | Current behavior processes an oversized conversation whole and logs it                                                                                                                                                                                                                                                                                 |
 | GAP-14 Final documentation closure                       | ⬜ open                                                 | Depends on the relevant earlier steps                                                                                                                                                                                                                                                                                                                  |
 
@@ -541,6 +541,23 @@ Local implementation evidence (2026-07-29):
 
 Gate: the fixture selects the relevant gap, refuses unrelated gaps, and never posts while someone
 is actively typing.
+
+Local implementation evidence (2026-07-29):
+
+- The worker keeps the existing open-status, `model_coverage` exclusion, assignment, participant,
+  live-typing, cooldown, hourly-limit, advisory-lock, and final rate-state checks. It scans every
+  eligible gap in bounded 200-row keyset pages; priority and recency break only relevance-score ties.
+- It embeds only the recent user-message window and eligible gaps. Missing gap vectors are stored
+  on `gaps.embedding` as a search aid. Claim embeddings and claim evidence are unchanged.
+- `lull_gap_minimum_relevance` defaults to `0.35` and is validated at startup. No relevant gap
+  means no draft and no post. Missing real embeddings fail clearly instead of using zero vectors.
+- `verify:lull-topical` is network-free and proves a matching gap beats more than 50 unrelated
+  urgent gaps, unrelated-only candidates yield no question, stale vectors refresh, zero-stub
+  embeddings fail closed, filters precede embedding, priority breaks equal-score ties, and the
+  advisory-lock/final-typing/claim order remains intact. `verify:gap-topical-schema` protects the
+  raw-migration/schema/latest-snapshot ownership contract.
+- Release remains open until migration 101 is reviewed and applied through the journal, checks pass,
+  the worker is deployed, and a live channel proves both a related ask and an unrelated no-post.
 
 ### GAP-13: oversized conversation windowing
 

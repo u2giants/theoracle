@@ -14,6 +14,7 @@
     "verify:r7": "tsx src/__verify__/r7-cache-smoke.ts",
     "verify:r9": "tsx src/__verify__/r9-synthesis-smoke.ts",
     "verify:r11.1": "tsx src/__verify__/r11-1-interjection-decision-smoke.ts",
+    "verify:lull-topical": "tsx src/__verify__/lull-topical-gap-selection.ts",
     "verify:macro": "tsx src/__verify__/macro-validation-smoke.ts",
     "verify:macro-first": "tsx src/__verify__/macro-first-lifecycle-smoke.ts",
     "verify:r1-cross-shape": "tsx src/__verify__/r1-cross-shape-contract.ts",

@@ -436,23 +436,24 @@ All four read via `getDirectDb()` (service role) and use `'use server'` actions 
 
 Both paths from spec Part 5.1 are live:
 
-- **Lull-driven** — `apps/workers/src/trigger/lull-interjection.ts` (R11.2). Cron `* * * * *`. Per active channel: query `secondsSinceLastUserMessage`, `minutesSinceLastOracleInterjection`, count of interventions in last hour, top open gap whose target is null or a channel participant. Call `decideLullInterjection` (pure, in `packages/oracle-engines/src/interjection.ts`). On `'ask'`: draft the natural-language question via `OracleAIClient.runText` on the interview route (Anthropic Claude Haiku 4.5), insert the assistant message into `messages`, record `oracle_interventions` with `trigger_type='lull_gap'` + `was_live_interjection=true` + `interjection_message_id` + `related_gap_id`, update the gap `status='asked'` + `askedInMessageId`.
+- **Lull-driven** — `apps/workers/src/trigger/lull-interjection.ts` (R11.2). Cron `* * * * *`. Per active channel: query `secondsSinceLastUserMessage`, `minutesSinceLastOracleInterjection`, count of interventions in the last hour, recent user messages, and open non-`model_coverage` gaps whose target is null or a channel participant. Search-only gap embeddings are compared with the recent-message embedding after those filters. Similarity must meet `lull_gap_minimum_relevance`; otherwise nothing is drafted or posted. Gap vectors never serve as claim evidence. Call `decideLullInterjection` (pure, in `packages/oracle-engines/src/interjection.ts`). On `'ask'`: draft the natural-language question via the configured interview route, insert the assistant message into `messages`, record `oracle_interventions` with `trigger_type='lull_gap'` + `was_live_interjection=true` + `interjection_message_id` + `related_gap_id`, update the gap `status='asked'` + `askedInMessageId`.
 
 - **Contradiction-driven** — `apps/workers/src/trigger/contradiction-watcher.ts` (R11.0 + R11.3 + retrieval enforcement). Per-claim and sweep-cron tasks build a `RetrievalPlan` via `buildDomainScopedPlan` (when the claim has `claim_top_domains` rows) or `buildGlobalRetrievalPlan` (with a structured warning when domain tags are absent), then call `searchWithRetrievalPlan` for ANN. Semantic pairs are adjudicated via `OracleAIClient.runObject` on the extraction route (Vertex Gemini Flash). For each detected contradiction: resolve the most-recent message-sourced channel from `claim_evidence → messages`, compute cooldown + rate-cap inputs for that channel, call `decideContradictionInterjection`. On `'live'`: draft a chat-shaped surfacing question via the interview route (Anthropic Haiku 4.5) and post it; the `oracle_interventions` row carries the real `channelId` + `interjection_message_id` + `was_live_interjection=true`. On `'queue'` (or live drafting failure): create a `contradiction_gap` so the question still gets asked through the normal gap pipeline.
 
 Both paths log every decision (skip / queue / ask / live) to `oracle_interventions` with the stable `reasonCode` from the pure deciders, so admin can audit miss rates and tune the settings:
 
 - `lull_window_seconds` (default 60)
+- `lull_gap_minimum_relevance` (default 0.35)
 - `oracle_cooldown_minutes` (default 10)
 - `max_oracle_interjections_per_hour` (default 3)
 - `enable_group_chat_lull_questions` (default true)
 - `enable_live_contradiction_interjections` (default true after R11; was false pre-R11)
 - `CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD` (constant, default 80 — adjust in code for next-phase tuning)
 
-Round-1 history and current limits in `lull-interjection.ts` (per `DECISIONS.md` D11):
+Round-1 history and current behavior in `lull-interjection.ts` (per `DECISIONS.md` D11):
 
 - Typing presence was deferred in round 1, then implemented through short-lived `typing_indicators` heartbeats. The worker skips posting while any unexpired heartbeat exists for the channel.
-- Top relevant gap is still chosen by priority + channel participation, not by embedding similarity to recent messages. Embedding-based topical-relevance scoring remains open.
+- Topic scoring runs only after open-status, employee-facing gap type, assignment, and participant eligibility. Relevance wins; existing priority and recency order break score ties. Missing real embeddings fail clearly instead of letting zero vectors choose a question.
 
 See spec Part 5.1, `DECISIONS.md` D10 + D11, and `docs/oracle/05-ai-retrofit-phase-packet.md` "Phase R11".
 

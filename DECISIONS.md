@@ -429,18 +429,22 @@ This file is the running log of every assumption, stub, and resolution made by t
   - `max_oracle_interjections_per_hour` (default 3).
   - `CONTRADICTION_LIVE_CONFIDENCE_THRESHOLD` (constant in `packages/oracle-engines/src/interjection.ts`, default 80). Adjustable for the next phase if confidence-vs-misfire trade off needs shifting.
 
-## D11.lull-interjection-round-1-simplifications — Topical relevance remains open; presence landed later
+## D11.lull-interjection-topical-selection — Presence and relevance gates
 
-- **Decision**: R11.2 ships with two known simplifications that the user's HANDOFF decisions explicitly accepted as round-1 trade-offs:
+- **Historical decision**: R11.2 shipped with two accepted round-1 trade-offs:
   - **Historical round-1 presence limit:** `isAnyoneTyping` was hardcoded to `false` because a reliable server-readable presence path was out of scope for R11. That limit was later removed: the chat client now writes short-lived `typing_indicators` heartbeats and the lull worker checks for an unexpired row before posting.
-  - **Top-relevant-open-gap = highest-priority gap with targetEmployeeId null or a channel participant.** Embedding-based topical relevance (gap embeddings vs recent message embeddings) is out of scope for R11. The risk: the gap chosen may be in a domain the channel wasn't discussing.
-- **Why both are acceptable round 1**:
+  - **Historical topical limit:** the worker picked the highest-priority eligible gap without comparing it to the discussion.
+- **Why both were acceptable round 1**:
   - The rate-limiting + cooldown stack ensures any single misfire is at most 3/hour and at least 10 minutes apart per channel.
   - The first batch of approved claims (just 2 from the wet-test) doesn't yet justify the engineering of embedding-similarity scoring against a sparse gap corpus.
   - Admin sees every interjection via `oracle_interventions` + `/admin/ai/runs?taskType=lull-interjection` and can identify both classes of misfire and feed that into the round-2 prioritization.
-- **Remaining round 2 work**:
-  - Add a `gaps.embedding` column + populate it at gap-creation time, then score by cosine similarity against the mean embedding of the channel's recent messages.
-- **Current code**: presence is implemented in `apps/workers/src/trigger/lull-interjection.ts`; only embedding-based topical gap selection remains a round-2 shortcut.
+- **Current decision (GAP-12)**:
+  - Open status, employee-facing gap type, assignment, and channel participation remain hard filters.
+  - The worker scans every eligible gap through bounded 200-row keyset pages. A priority-first row cap is forbidden because it can hide the only topical gap.
+  - Cosine relevance to the five recent user messages chooses the gap. Priority and recency break only equal-score ties.
+  - `lull_gap_minimum_relevance` defaults to `0.35`; below it the Oracle asks nothing.
+  - `gaps.embedding` is a search aid with model and source-text hash freshness fields. It is never claim evidence.
+  - Missing real embeddings fail closed. Live typing is checked before scoring and again under the advisory lock before claiming the gap.
 
 ## D12.deepseek-and-qwen-adapters — Two new direct-provider adapters added (2026-05-27)
 

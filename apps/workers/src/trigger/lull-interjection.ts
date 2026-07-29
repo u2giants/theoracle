@@ -25,12 +25,12 @@
 // Typing presence is live through short-lived `typing_indicators` heartbeats.
 // Round 1 deferred presence because no durable heartbeat path existed yet.
 //
-// Topical relevance of the chosen gap: round 1 picks highest-priority open
-// gap whose targetEmployeeId is null or is a channel participant. Embedding-
-// based topical relevance vs recent message embeddings remains open.
+// Gap candidates first pass the existing status, type, assignment, and
+// participant filters. Search-only embeddings then choose a gap related to
+// the recent channel messages. Claim evidence is untouched.
 
 import { schedules } from '@trigger.dev/sdk/v3';
-import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
 import {
@@ -49,6 +49,7 @@ import {
 import {
   OracleAIClient,
   buildStandardAdapters,
+  embedMany,
   logAllCandidatesFailedAttempts,
   logModelRunAttempts,
   makeBlock,
@@ -58,6 +59,10 @@ import {
 } from '@oracle/ai';
 import {
   decideLullInterjection,
+  assertRealTopicalEmbeddings,
+  gapEmbeddingNeedsRefresh,
+  isGapEligibleForChannel,
+  selectTopicalGap,
   type LullInterjectionInput,
   type RelevantOpenGap,
 } from '@oracle/engines';
@@ -66,12 +71,19 @@ const LULL_INTERJECTION_PROMPT_VERSION = 'lull-interjection-1.0.0';
 
 // Recent user messages to thread into the drafting prompt for tone/topical context.
 const RECENT_MESSAGE_CONTEXT_COUNT = 5;
+// Read candidates in bounded keyset pages. We must inspect every eligible gap
+// for correctness, but never materialize an unbounded database result at once.
+const GAP_CANDIDATE_PAGE_SIZE = 200;
 
 // Default setting values if the row is missing — match the seed in packages/db/src/seed.ts.
 const DEFAULT_LULL_WINDOW_SECONDS = 60;
 const DEFAULT_ORACLE_COOLDOWN_MINUTES = 10;
 const DEFAULT_MAX_ORACLE_INTERJECTIONS_PER_HOUR = 3;
 const DEFAULT_ENABLE_GROUP_CHAT_LULL_QUESTIONS = true;
+// A conservative positive-similarity floor rejects orthogonal fixture topics.
+// The database setting can tune it against measured data without a code or
+// model change.
+const DEFAULT_LULL_GAP_MINIMUM_RELEVANCE = 0.35;
 
 const LULL_DRAFT_SYSTEM = `You are the Oracle — an evidence-backed knowledge assistant for POP Creations / Spruce Line.
 
@@ -113,6 +125,7 @@ interface LullSettings {
   oracleCooldownMinutes: number;
   maxOracleInterjectionsPerHour: number;
   enableGroupChatLullQuestions: boolean;
+  lullGapMinimumRelevance: number;
 }
 
 async function loadLullSettings(db: ReturnType<typeof getDirectDb>): Promise<LullSettings> {
@@ -125,6 +138,7 @@ async function loadLullSettings(db: ReturnType<typeof getDirectDb>): Promise<Lul
         'oracle_cooldown_minutes',
         'max_oracle_interjections_per_hour',
         'enable_group_chat_lull_questions',
+        'lull_gap_minimum_relevance',
       ]),
     );
   const map = new Map(rows.map((r) => [r.key, r.value]));
@@ -136,6 +150,15 @@ async function loadLullSettings(db: ReturnType<typeof getDirectDb>): Promise<Lul
     const v = map.get(k);
     return typeof v === 'boolean' ? v : fallback;
   };
+  const lullGapMinimumRelevance = num(
+    'lull_gap_minimum_relevance',
+    DEFAULT_LULL_GAP_MINIMUM_RELEVANCE,
+  );
+  if (lullGapMinimumRelevance < 0 || lullGapMinimumRelevance > 1) {
+    throw new Error(
+      `[lull-interjection] lull_gap_minimum_relevance must be between 0 and 1; received ${lullGapMinimumRelevance}`,
+    );
+  }
   return {
     lullWindowSeconds: num('lull_window_seconds', DEFAULT_LULL_WINDOW_SECONDS),
     oracleCooldownMinutes: num('oracle_cooldown_minutes', DEFAULT_ORACLE_COOLDOWN_MINUTES),
@@ -147,6 +170,7 @@ async function loadLullSettings(db: ReturnType<typeof getDirectDb>): Promise<Lul
       'enable_group_chat_lull_questions',
       DEFAULT_ENABLE_GROUP_CHAT_LULL_QUESTIONS,
     ),
+    lullGapMinimumRelevance,
   };
 }
 
@@ -167,6 +191,7 @@ async function loadChannelContext(
   channelId: string,
   isGroupChat: boolean,
   now: Date,
+  lullSettings: LullSettings,
 ): Promise<ChannelContext> {
   // Last user message
   const lastUserMsgRows = await db
@@ -212,59 +237,8 @@ async function loadChannelContext(
     );
   const interjectionsInLastHour = countRows[0]?.c ?? 0;
 
-  // Top relevant open gap. Round 1: prioritize urgent > high > medium > low,
-  // then prefer gaps whose targetEmployeeId is a channel participant (more
-  // likely to land on someone present), then prefer most-recently-created.
-  // No embedding-based topical relevance yet.
-  const participantIds = await db
-    .select({ id: channelParticipants.employeeId })
-    .from(channelParticipants)
-    .where(eq(channelParticipants.channelId, channelId));
-  const participantIdList = participantIds.map((p) => p.id);
-
-  // Priority ordering: gap_priority enum is ('low','medium','high','urgent').
-  // We need urgent first → use CASE.
-  const candidates = await db
-    .select({
-      id: gaps.id,
-      priority: gaps.priority,
-      questionToAsk: gaps.questionToAsk,
-      whyItMatters: gaps.whyItMatters,
-      targetEmployeeId: gaps.targetEmployeeId,
-      createdAt: gaps.createdAt,
-    })
-    .from(gaps)
-    .where(and(eq(gaps.status, 'open'), ne(gaps.gapType, 'model_coverage')))
-    .orderBy(
-      sql`CASE ${gaps.priority}
-            WHEN 'urgent' THEN 1
-            WHEN 'high'   THEN 2
-            WHEN 'medium' THEN 3
-            WHEN 'low'    THEN 4
-            ELSE 5
-          END`,
-      desc(gaps.createdAt),
-    )
-    .limit(50);
-
-  // Filter: targetEmployeeId is null (channel-agnostic) OR a participant.
-  const eligible = candidates.find((g) => {
-    if (g.targetEmployeeId === null) return true;
-    return participantIdList.includes(g.targetEmployeeId);
-  });
-
-  const topRelevantOpenGap: RelevantOpenGap | null = eligible
-    ? {
-        id: eligible.id,
-        priority: eligible.priority as RelevantOpenGap['priority'],
-        questionToAsk: eligible.questionToAsk,
-        whyItMatters: eligible.whyItMatters,
-      }
-    : null;
-
-  // Check whether any employee is currently typing in this channel.
-  // The client upserts a typing_indicators row on keystrokes with expires_at = now+5s;
-  // stale rows (disconnected clients) are excluded by the expires_at filter.
+  // Check live typing before doing embedding work. The decider remains the
+  // authority and still returns someone_typing before inspecting a gap.
   const typingRow = await db
     .select({ channelId: typingIndicators.channelId })
     .from(typingIndicators)
@@ -273,6 +247,137 @@ async function loadChannelContext(
     )
     .limit(1);
   const isAnyoneTyping = typingRow.length > 0;
+
+  // Existing eligibility rules run before semantic scoring.
+  const participantIds = await db
+    .select({ id: channelParticipants.employeeId })
+    .from(channelParticipants)
+    .where(eq(channelParticipants.channelId, channelId));
+  const participantIdList = participantIds.map((p) => p.id);
+
+  type Candidate = {
+    id: string;
+    priority: RelevantOpenGap['priority'];
+    questionToAsk: string;
+    whyItMatters: string;
+    targetEmployeeId: string | null;
+    embedding: number[] | null;
+    embeddingModel: string | null;
+    embeddingSourceHash: string | null;
+    createdAt: Date;
+  };
+  const eligible: Candidate[] = [];
+  let afterGapId: string | null = null;
+  do {
+    const assignmentFilter =
+      participantIdList.length === 0
+        ? isNull(gaps.targetEmployeeId)
+        : or(isNull(gaps.targetEmployeeId), inArray(gaps.targetEmployeeId, participantIdList));
+    const page: Candidate[] = await db
+      .select({
+        id: gaps.id,
+        priority: gaps.priority,
+        questionToAsk: gaps.questionToAsk,
+        whyItMatters: gaps.whyItMatters,
+        targetEmployeeId: gaps.targetEmployeeId,
+        embedding: gaps.embedding,
+        embeddingModel: gaps.embeddingModel,
+        embeddingSourceHash: gaps.embeddingSourceHash,
+        createdAt: gaps.createdAt,
+      })
+      .from(gaps)
+      .where(
+        and(
+          eq(gaps.status, 'open'),
+          ne(gaps.gapType, 'model_coverage'),
+          assignmentFilter,
+          afterGapId === null ? undefined : gt(gaps.id, afterGapId),
+        ),
+      )
+      .orderBy(gaps.id)
+      .limit(GAP_CANDIDATE_PAGE_SIZE);
+    eligible.push(
+      ...page.filter((gap) => isGapEligibleForChannel(gap.targetEmployeeId, participantIdList)),
+    );
+    afterGapId = page.length === GAP_CANDIDATE_PAGE_SIZE ? page.at(-1)!.id : null;
+  } while (afterGapId !== null);
+
+  let topRelevantOpenGap: RelevantOpenGap | null = null;
+  const nonGapGatesPass =
+    (!isGroupChat || lullSettings.enableGroupChatLullQuestions) &&
+    secondsSinceLastUserMessage !== null &&
+    secondsSinceLastUserMessage >= lullSettings.lullWindowSeconds &&
+    !isAnyoneTyping &&
+    (minutesSinceLastOracleInterjection === null ||
+      minutesSinceLastOracleInterjection >= lullSettings.oracleCooldownMinutes) &&
+    interjectionsInLastHour < lullSettings.maxOracleInterjectionsPerHour;
+  if (nonGapGatesPass && recentMessageExcerpts.length > 0 && eligible.length > 0) {
+    const recent = await embedMany([recentMessageExcerpts.join('\n')]);
+    assertRealTopicalEmbeddings(recent);
+    const recentMessageEmbedding = recent.vectors[0];
+    if (!recentMessageEmbedding) {
+      throw new Error('[lull-interjection] recent-message embedding was not returned');
+    }
+    const gapText = (gap: (typeof eligible)[number]) =>
+      `${gap.questionToAsk}\n${gap.whyItMatters}`;
+    const missing = eligible.filter((gap) =>
+      gapEmbeddingNeedsRefresh({
+        embedding: gap.embedding,
+        embeddingModel: gap.embeddingModel,
+        embeddingSourceHash: gap.embeddingSourceHash,
+        requiredModel: recent.model,
+        requiredSourceHash: hashString(gapText(gap)),
+      }),
+    );
+    const embedded =
+      missing.length > 0
+        ? await embedMany(missing.map(gapText))
+        : { vectors: [] as number[][], model: recent.model, fallback: false };
+    assertRealTopicalEmbeddings(embedded);
+    if (embedded.model !== recent.model) {
+      throw new Error('[lull-interjection] gap and recent-message embeddings must use one real model');
+    }
+    for (let index = 0; index < missing.length; index += 1) {
+      const gap = missing[index]!;
+      const embedding = embedded.vectors[index];
+      if (!embedding) {
+        throw new Error(`[lull-interjection] embedding was not returned for gap ${gap.id}`);
+      }
+      gap.embedding = embedding;
+      gap.embeddingModel = embedded.model;
+      gap.embeddingSourceHash = hashString(gapText(gap));
+      const persisted = await db
+        .update(gaps)
+        .set({
+          embedding,
+          embeddingModel: embedded.model,
+          embeddingSourceHash: gap.embeddingSourceHash,
+        })
+        .where(
+          and(
+            eq(gaps.id, gap.id),
+            eq(gaps.questionToAsk, gap.questionToAsk),
+            eq(gaps.whyItMatters, gap.whyItMatters),
+          ),
+        )
+        .returning({ id: gaps.id });
+      if (persisted.length === 0) {
+        throw new Error(`[lull-interjection] gap ${gap.id} changed during topical scoring`);
+      }
+    }
+    topRelevantOpenGap = selectTopicalGap(
+      recentMessageEmbedding,
+      eligible.map((gap) => ({
+        id: gap.id,
+        priority: gap.priority as RelevantOpenGap['priority'],
+        questionToAsk: gap.questionToAsk,
+        whyItMatters: gap.whyItMatters,
+        embedding: gap.embedding!,
+        createdAtMs: gap.createdAt.getTime(),
+      })),
+      lullSettings.lullGapMinimumRelevance,
+    );
+  }
 
   return {
     channelId,
@@ -494,7 +599,13 @@ async function processChannel(
   settings: LullSettings,
   now: Date,
 ): Promise<ChannelOutcome> {
-  const ctx = await loadChannelContext(db, channel.id, channel.isGroupChat, now);
+  const ctx = await loadChannelContext(
+    db,
+    channel.id,
+    channel.isGroupChat,
+    now,
+    settings,
+  );
 
   // No user messages ever → nothing to interrupt; treat as long lull but skip
   // because the channel hasn't started a conversation yet.
@@ -578,6 +689,26 @@ async function processChannel(
           channelId: channel.id,
           decision: 'skip' as const,
           reasonCode: recheckDecision.reasonCode,
+        };
+      }
+
+      // Presence can change while the question is being drafted. Re-read it
+      // under the same channel lock so a fresh heartbeat still prevents a post.
+      const liveTyping = await tx
+        .select({ channelId: typingIndicators.channelId })
+        .from(typingIndicators)
+        .where(
+          and(
+            eq(typingIndicators.channelId, channel.id),
+            sql`${typingIndicators.expiresAt} > NOW()`,
+          ),
+        )
+        .limit(1);
+      if (liveTyping.length > 0) {
+        return {
+          channelId: channel.id,
+          decision: 'skip' as const,
+          reasonCode: 'someone_typing',
         };
       }
 

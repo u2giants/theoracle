@@ -107,8 +107,9 @@ pnpm --filter @oracle/engines verify:r11.1
 The network-free guards (`verify:retrieval-filter-parity`,
 `verify:chinese-retrieval`, `verify:vertex-file-cache`,
 `verify:chat-attachment-safety`, `verify:claim-translation-review`,
-`verify:eval-results-dashboard`, `verify:provider-capability-parity`, and
-`verify:mcp`) are the eight guards that run inside Vercel's
+`verify:eval-results-dashboard`, `verify:provider-capability-parity`,
+`verify:model-coverage-conversion`, `verify:lull-topical`, and `verify:mcp`)
+are the ten guards, in that exact order, that run inside Vercel's
 production `build:vercel` script. The live Chinese vector measurement does not.
 Run `pnpm verify:vercel-contract` after changing `vercel.json` or the delegated
 scripts; it enforces Vercel's 256-character command limit and the required guard list.
@@ -176,6 +177,12 @@ Routine expectations:
 - workers insert `job_runs`
 - model calls insert `model_runs` and `model_run_usage_details`
 - prompt plans insert `oracle_context_packs`
+
+Topical lull-question checks:
+
+- `pnpm --filter @oracle/engines verify:lull-topical` covers relevance, more than 50 higher-priority unrelated gaps, embedding freshness, zero-vector refusal, filter order, and the lock/typing/claim order.
+- `pnpm --filter @oracle/db verify:gap-topical-schema` protects schema, raw migration 101, setting seed, and the latest generated-snapshot ownership boundary.
+- `pnpm verify:vercel-contract` checks the exact ten-guard production build chain.
 
 ## Useful inspection scripts
 
