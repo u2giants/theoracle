@@ -4,7 +4,7 @@ Status: **CANONICAL for known open product features, runtime limitations, option
 and owner-deferred security work outside the macro-first and reliability plans.**
 
 Created: 2026-07-26
-Last corrected: 2026-07-28 during GAP-5 release
+Last corrected: 2026-07-29 during GAP-7 release
 Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 
 ## Status table
@@ -17,7 +17,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-4 China translation review and search hardening      | 🟨 local implementation complete; live vector gate remains | Side-by-side English/Chinese review, model/version/status/stale display, append-only generation and review history, approve/reject/retranslate actions, and CI guards are implemented. `simple` search is measured by the offline fixture; run the credentialed live vector fixture before closing. No Chinese search extension was added. |
 | GAP-5 Multi-attachment and cross-provider cache safety   | ✅ complete and released                                | Released in `3dee535`. Canonical messages retain every attachment; Vertex removes only its cached PDF; all offline fixtures pass. The live gate proved Anthropic read both generated PDFs after forced Vertex failure. GitHub Actions run `30420138187` passed every guard, including the new chat attachment guard.                                  |
 | GAP-6 Vertex cache and batch storage                     | ⬜ open                                                 | Production cloud mutation requires exact owner approval                                                                                                                                                                                                                                                                                                |
-| GAP-7 Eval-results dashboard                             | 🟨 local implementation complete; release proof remains | CLI evals publish a minimal safe summary with exact commit and fixture hashes. The read-only admin list/detail pages provide stage, commit, date, and pass/fail filters. Static authorization and confidential-data exclusion guards are included. Commit, CI, deployment, and production admin proof remain. |
+| GAP-7 Eval-results dashboard                             | ✅ complete and released                                | Released through `3b96669`. Clean CLI eval run `extraction-2026-07-29T04-03-41-967Z` passed 4/4 and is tied to code commit `656785e`. Grok approved. CI run `30421488336` passed, Vercel deployment `dpl_3KF4J76s9shZBHugy4xNR9rktBCo` was promoted, and signed-in production list/detail checks passed. |
 | GAP-8 Provider capability parity                         | ⬜ open                                                 | Batch, Qwen explicit cache, and DeepSeek beta strict-schema paths remain limited                                                                                                                                                                                                                                                                       |
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
 | GAP-10 Deprecated identity-column cleanup                | ⬜ open                                                 | Must prove every reader uses `employee_identities` first                                                                                                                                                                                                                                                                                               |
@@ -60,7 +60,8 @@ The 2026-07-26 known-problem audit found open or deferred items in `AGENTS.md` s
 - China translation lacks side-by-side admin review; true Chinese keyword segmentation is deferred.
 - Vertex file cache supports one PDF per turn and a cross-provider fallback can lose the document.
 - Oversized Vertex cache and Vertex Batch need separate GCS buckets and service-account access.
-- The eval-results admin page is intentionally a placeholder.
+- The eval-results admin page was a placeholder; GAP-7 replaced it with a safe read-only dashboard
+  and closed on 2026-07-29.
 - Qwen Batch requires a native DashScope implementation; DeepSeek has no public Batch API.
 - Earlier exposed credentials still have an owner-deferred rotation task.
 - Deprecated identity columns remain on `employees` during the multi-identity transition.
@@ -378,6 +379,17 @@ Implementation evidence (2026-07-28):
   `verify:eval-results-dashboard` guards admin authorization, every required filter, the safe
   summary contract, path allowlisting, and exclusion of prompts, source text, per-fixture failure
   notes, and credentials.
+- Grok 4.5 approved the implementation and the later table-layout correction with no P0/P1
+  findings. Clean CLI run `extraction-2026-07-29T04-03-41-967Z` passed 4/4 fixtures and published
+  a safe summary tied to code commit `656785e357a29751c6f5f32330b6adde80ec275e`.
+- Commits `656785e`, `7deb2fd`, and `3b96669` are pushed to `origin/main`. GitHub Actions run
+  `30421488336` passed the production build and all guards. Vercel deployment
+  `dpl_3KF4J76s9shZBHugy4xNR9rktBCo` promoted exact commit
+  `3b9666928ad21b762113a0e0b3da2d97e1d06aeb` to `oracle.designflow.app`.
+- A signed-in production admin check showed the list and detail pages, exact commit, fixture hash,
+  prompt version, route, aggregate gates, and safe artifact link. The first screenshot exposed a
+  cramped list table; `3b96669` added fixed readable columns and narrow-screen horizontal scrolling,
+  and the repeated production screenshot verified the correction. GAP-7 is closed.
 
 ### GAP-8: provider capability parity
 

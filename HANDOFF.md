@@ -287,7 +287,7 @@ must read the named plan's status table first and must not re-plan the work from
 | China side-by-side review and measured search hardening | [Product plan GAP-4](plan_deferred_product_and_infrastructure_gaps.md#gap-4-china-review-and-search-hardening) |
 | One-PDF cache and cross-provider attachment loss, closed and released 2026-07-28 | [Product plan GAP-5](plan_deferred_product_and_infrastructure_gaps.md#gap-5-attachment-and-cache-safety) |
 | Vertex cache and batch GCS are not provisioned | [Product plan GAP-6](plan_deferred_product_and_infrastructure_gaps.md#gap-6-vertex-cache-and-batch-storage) |
-| Admin eval results page is a placeholder | [Product plan GAP-7](plan_deferred_product_and_infrastructure_gaps.md#gap-7-eval-results-dashboard) |
+| Admin eval results dashboard, closed and released 2026-07-29 | [Product plan GAP-7](plan_deferred_product_and_infrastructure_gaps.md#gap-7-eval-results-dashboard) |
 | Qwen/DeepSeek batch parity limitations | [Product plan GAP-8](plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
 | Qwen explicit cache and DeepSeek beta strict-schema limitations | [Product plan GAP-8](plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
 | Deferred credential rotation | [Product plan GAP-9](plan_deferred_product_and_infrastructure_gaps.md#gap-9-secret-rotation), blocked on Albert |
