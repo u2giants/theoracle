@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "runId": "extraction-2026-07-29T04-03-41-967Z",
+  "startedAt": "2026-07-29T04:03:41.967Z",
+  "completedAt": "2026-07-29T04:03:42.064Z",
+  "commitSha": "656785e357a29751c6f5f32330b6adde80ec275e",
+  "fixtureVersion": "d759d77b39b2648add9af650fc165cb079895e644634bc3f1a105472440d6edf",
+  "promptVersion": "2.4.2",
+  "mode": "mock",
+  "routeId": "vertex_gemini_flash_lite_extraction_primary",
+  "modelId": null,
+  "gateStatus": "PASS",
+  "stages": [
+    {
+      "stage": "extraction",
+      "gateStatus": "PASS",
+      "fixtureCount": 4,
+      "passedCount": 4,
+      "failedCount": 0,
+      "metrics": {
+        "expectedClaims": 4,
+        "extractedClaims": 4,
+        "validExtractedClaims": 2,
+        "precision": 0.5,
+        "recall": 0.5,
+        "f1": 0.5,
+        "quoteValidity": 0.75,
+        "wrongDomainRate": 0.25,
+        "sensitiveQuarantinePassRate": 1
+      }
+    }
+  ],
+  "execution": {
+    "latencyMs": 97,
+    "inputTokens": null,
+    "outputTokens": null,
+    "costUsd": null
+  },
+  "artifacts": [
+    {
+      "label": "Safe stored summary",
+      "path": "packages/ai/evals/published/extraction-2026-07-29T04-03-41-967Z.json"
+    }
+  ]
+}
