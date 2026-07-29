@@ -8,6 +8,19 @@ export type ModelCoverageSource = {
   mapElementLocalId: string;
 };
 
+export const MODEL_COVERAGE_PAGE_SIZE = 25;
+
+export function parseModelCoveragePage(value: string | undefined): number {
+  if (!value || !/^\d+$/.test(value)) return 1;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 1;
+}
+
+export function clampModelCoveragePage(page: number, totalRows: number): number {
+  const totalPages = Math.max(1, Math.ceil(totalRows / MODEL_COVERAGE_PAGE_SIZE));
+  return Math.min(Math.max(1, page), totalPages);
+}
+
 export function requireModelCoverageSource(value: unknown): ModelCoverageSource {
   if (!value || typeof value !== 'object') {
     throw new Error('This finding has no stable source details and cannot be converted.');

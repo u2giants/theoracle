@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   assertCoverageFindingEligible,
+  clampModelCoveragePage,
+  MODEL_COVERAGE_PAGE_SIZE,
   modelCoverageSourcesEqual,
+  parseModelCoveragePage,
   requireModelCoverageSource,
 } from '../model-coverage-conversion';
 
@@ -60,6 +63,14 @@ assert.equal(
   modelCoverageSourcesEqual(source, { ...reorderedSource, mapElementRef: 'map-1:relation:other' }),
   false,
 );
+assert.equal(MODEL_COVERAGE_PAGE_SIZE, 25);
+assert.equal(parseModelCoveragePage(undefined), 1);
+assert.equal(parseModelCoveragePage('0'), 1);
+assert.equal(parseModelCoveragePage('-2'), 1);
+assert.equal(parseModelCoveragePage('2.5'), 1);
+assert.equal(parseModelCoveragePage('3'), 3);
+assert.equal(clampModelCoveragePage(99, 1491), 60);
+assert.equal(clampModelCoveragePage(4, 0), 1);
 
 assert.match(actions, /await requireAdmin\(\)/, 'every conversion action must be admin guarded');
 assert.equal(
@@ -81,6 +92,40 @@ assert.match(
   page,
   /inArray\(modelCoverageConversions\.status, \['draft', 'sent'\]\)/,
   'cancelled drafts must leave an explicit redraft UI path',
+);
+assert.match(page, /\.limit\(MODEL_COVERAGE_PAGE_SIZE\)/, 'coverage findings must be bounded');
+assert.match(
+  page,
+  /\.select\(\{ value: count\(\) \}\)[\s\S]*\.where\(eq\(gaps\.gapType, 'model_coverage'\)\)/,
+  'coverage page count must use the same model-coverage population as the page query',
+);
+assert.match(
+  page,
+  /\.offset\(\(activeCoveragePage - 1\) \* MODEL_COVERAGE_PAGE_SIZE\)/,
+  'every coverage page must remain reachable',
+);
+assert.match(
+  page,
+  /clampModelCoveragePage\(\s*parseModelCoveragePage\(coveragePage\),\s*coverageFindingCount,\s*\)/,
+  'URL page input must be parsed and clamped against the current row count',
+);
+assert.match(page, /WHEN \$\{modelCoverageConversions\.status\} = 'draft' THEN 0/);
+assert.match(page, /WHEN \$\{modelCoverageConversions\.status\} = 'sent' THEN 1/);
+assert.match(
+  page,
+  /ELSE 2[\s\S]*desc\(gaps\.createdAt\),\s*desc\(gaps\.id\)/,
+  'unconverted findings and stable page tie-breakers must remain in the ordering',
+);
+assert.match(
+  page,
+  /href=\{`\/admin\/gaps\?status=\$\{tab\.value\}&coveragePage=\$\{activeCoveragePage\}`\}/,
+  'normal gap tabs must preserve the independent coverage page',
+);
+assert.match(page, /name="returnStatus" value=\{activeStatus\}/);
+assert.match(
+  actions,
+  /redirect\(`\/admin\/gaps\?status=\$\{returnStatus\}&coveragePage=1`\)/,
+  'saving a draft must return to page one where the newly prioritized draft is visible',
 );
 assert.match(migration, /action IN \('draft_created', 'sent', 'cancelled'\)/);
 assert.match(migration, /BEFORE UPDATE OR DELETE/, 'audit events must be database-enforced append-only');

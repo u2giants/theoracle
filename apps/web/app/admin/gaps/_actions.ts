@@ -2,6 +2,7 @@
 
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { requireAdmin } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
 import {
@@ -43,6 +44,10 @@ function refreshCoverage() {
 
 export async function createCoverageConversionDraft(formData: FormData) {
   const me = await requireAdmin();
+  const requestedReturnStatus = String(formData.get('returnStatus') ?? '');
+  const returnStatus = ['open', 'queued', 'asked', 'resolved', 'all'].includes(requestedReturnStatus)
+    ? requestedReturnStatus
+    : 'open';
   const sourceGapId = String(formData.get('sourceGapId') ?? '').trim();
   const questionToAsk = String(formData.get('questionToAsk') ?? '').trim();
   const conversionReason = String(formData.get('conversionReason') ?? '').trim();
@@ -99,6 +104,7 @@ export async function createCoverageConversionDraft(formData: FormData) {
     });
   });
   refreshCoverage();
+  redirect(`/admin/gaps?status=${returnStatus}&coveragePage=1`);
 }
 
 export async function sendCoverageConversion(formData: FormData) {

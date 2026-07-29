@@ -1,12 +1,17 @@
 export const dynamic = 'force-dynamic';
 
 import Link from 'next/link';
-import { and, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
 import { gaps, employees, modelCoverageConversions } from '@oracle/db/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatNYDate } from '@/lib/time';
+import {
+  clampModelCoveragePage,
+  MODEL_COVERAGE_PAGE_SIZE,
+  parseModelCoveragePage,
+} from '@/lib/model-coverage-conversion';
 import {
   cancelCoverageConversion,
   createCoverageConversionDraft,
@@ -47,12 +52,26 @@ function priorityBadge(priority: string) {
 export default async function AdminGapsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; coveragePage?: string }>;
 }) {
-  const { status } = await searchParams;
+  const { status, coveragePage } = await searchParams;
   const activeStatus = status ?? 'open';
 
   const db = getDirectDb();
+  const coverageCountRows = await db
+    .select({ value: count() })
+    .from(gaps)
+    .where(eq(gaps.gapType, 'model_coverage'));
+  const coverageFindingCount = coverageCountRows[0]?.value ?? 0;
+  const activeCoveragePage = clampModelCoveragePage(
+    parseModelCoveragePage(coveragePage),
+    coverageFindingCount,
+  );
+  const coveragePageCount = Math.max(
+    1,
+    Math.ceil(coverageFindingCount / MODEL_COVERAGE_PAGE_SIZE),
+  );
+
   const activeEmployees = await db
     .select({ id: employees.id, name: employees.name, role: employees.role })
     .from(employees)
@@ -82,7 +101,17 @@ export default async function AdminGapsPage({
       ),
     )
     .where(eq(gaps.gapType, 'model_coverage'))
-    .orderBy(desc(gaps.createdAt));
+    .orderBy(
+      asc(sql`CASE
+        WHEN ${modelCoverageConversions.status} = 'draft' THEN 0
+        WHEN ${modelCoverageConversions.status} = 'sent' THEN 1
+        ELSE 2
+      END`),
+      desc(gaps.createdAt),
+      desc(gaps.id),
+    )
+    .limit(MODEL_COVERAGE_PAGE_SIZE)
+    .offset((activeCoveragePage - 1) * MODEL_COVERAGE_PAGE_SIZE);
 
   const rows = await db
     .select({
@@ -124,7 +153,7 @@ export default async function AdminGapsPage({
           return (
             <Link
               key={tab.value}
-              href={`/admin/gaps?status=${tab.value}`}
+              href={`/admin/gaps?status=${tab.value}&coveragePage=${activeCoveragePage}`}
               className={`rounded px-3 py-1 ${
                 isActive
                   ? 'bg-foreground text-background'
@@ -139,7 +168,9 @@ export default async function AdminGapsPage({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Model coverage findings</CardTitle>
+          <CardTitle className="text-base">
+            Model coverage findings ({coverageFindingCount})
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {coverageFindings.length === 0 ? (
@@ -159,6 +190,7 @@ export default async function AdminGapsPage({
                 {!finding.conversionId ? (
                   <form action={createCoverageConversionDraft} className="mt-4 grid gap-3 md:grid-cols-2">
                     <input type="hidden" name="sourceGapId" value={finding.id} />
+                    <input type="hidden" name="returnStatus" value={activeStatus} />
                     <label className="text-xs font-medium">
                       Employee-facing question
                       <textarea name="questionToAsk" required rows={3} className="mt-1 w-full rounded border bg-background p-2 font-normal" />
@@ -202,6 +234,34 @@ export default async function AdminGapsPage({
               </div>
             );
           })}
+          {coveragePageCount > 1 ? (
+            <nav
+              className="flex items-center justify-between border-t pt-4 text-sm"
+              aria-label="Model coverage finding pages"
+            >
+              <span className="text-muted-foreground">
+                Page {activeCoveragePage} of {coveragePageCount}
+              </span>
+              <div className="flex gap-2">
+                {activeCoveragePage > 1 ? (
+                  <Link
+                    className="rounded border px-3 py-1 hover:bg-muted"
+                    href={`/admin/gaps?status=${activeStatus}&coveragePage=${activeCoveragePage - 1}`}
+                  >
+                    Previous
+                  </Link>
+                ) : null}
+                {activeCoveragePage < coveragePageCount ? (
+                  <Link
+                    className="rounded border px-3 py-1 hover:bg-muted"
+                    href={`/admin/gaps?status=${activeStatus}&coveragePage=${activeCoveragePage + 1}`}
+                  >
+                    Next
+                  </Link>
+                ) : null}
+              </div>
+            </nav>
+          ) : null}
         </CardContent>
       </Card>
 
