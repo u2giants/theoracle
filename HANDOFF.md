@@ -285,7 +285,7 @@ must read the named plan's status table first and must not re-plan the work from
 | Retrieval entity filter has no production populator | [Product plan GAP-2](plan_deferred_product_and_infrastructure_gaps.md#gap-2-entity-aware-retrieval-planning) |
 | Authentik is documented but not built | [Product plan GAP-3](plan_deferred_product_and_infrastructure_gaps.md#gap-3-authentik-disposition) |
 | China side-by-side review and measured search hardening | [Product plan GAP-4](plan_deferred_product_and_infrastructure_gaps.md#gap-4-china-review-and-search-hardening) |
-| One-PDF cache and cross-provider attachment loss | [Product plan GAP-5](plan_deferred_product_and_infrastructure_gaps.md#gap-5-attachment-and-cache-safety) |
+| One-PDF cache and cross-provider attachment loss, closed and released 2026-07-28 | [Product plan GAP-5](plan_deferred_product_and_infrastructure_gaps.md#gap-5-attachment-and-cache-safety) |
 | Vertex cache and batch GCS are not provisioned | [Product plan GAP-6](plan_deferred_product_and_infrastructure_gaps.md#gap-6-vertex-cache-and-batch-storage) |
 | Admin eval results page is a placeholder | [Product plan GAP-7](plan_deferred_product_and_infrastructure_gaps.md#gap-7-eval-results-dashboard) |
 | Qwen/DeepSeek batch parity limitations | [Product plan GAP-8](plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
