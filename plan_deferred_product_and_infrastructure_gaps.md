@@ -11,8 +11,8 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 
 | Step                                                     | Status                                                  | Evidence or blocker                                                                                                                                                                                                                                                                                                                                    |
 | -------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GAP-1 Finish the existing taxonomy reclassification path | 🟨 local implementation complete; release proof blocked | Admin dispatch, visible failure/retry states, row-locked terminal idempotency, stale-base checks, run-ID audit, and post-commit Brain follow-up are implemented. Static checks pass; the DB concurrency/rollback guard is wired into fresh-database CI. Production SELECT audit, deployment, real run proof, and CI execution remain. |
-| GAP-2 Entity-aware retrieval planning                    | 🟨 local implementation complete; default stays off     | Registry-only resolution, model selection, loud deterministic fallback, and offline fixtures are implemented. Fixture recall is 100%, wrong-entity rate is 0%, and unresolved names invent 0 IDs. Enabling by default remains blocked until a live provider run records added latency and cost. |
+| GAP-1 Finish the existing taxonomy reclassification path | 🟨 released; natural production apply proof remains | Released through `4efdbdf`. Grok approved; CI run `30430493360` passed the five-type fresh-DB mutation/idempotency gate; Vercel and Trigger worker `20260729.4` deployed. The SELECT-only production audit found 59 pending `create_sub_topic` proposals and no approved/actionable work. Do not invent or approve business taxonomy data solely for a release test; capture the first natural approved apply as the final production proof. |
+| GAP-2 Entity-aware retrieval planning                    | 🟨 live gate released; default stays off                | Released through `1f0c0ce`; Grok approved; CI run `30432098788` passed and Vercel deployed the exact commit. Pinned-production Qwen `qwen3.7-max` proof achieved 100% recall, 0% wrong entities, 0 invented IDs, and $0.000379 average cost, but p95 added latency was 2,963 ms against the 2,500 ms limit. Production setting remains off. |
 | GAP-3 Authentik disposition                              | ⬜ open                                                 | Owner must confirm whether Authentik is still a wanted login method                                                                                                                                                                                                                                                                                    |
 | GAP-4 China translation review and search hardening      | 🟨 local implementation complete; live vector gate remains | Side-by-side English/Chinese review, model/version/status/stale display, append-only generation and review history, approve/reject/retranslate actions, and CI guards are implemented. `simple` search is measured by the offline fixture; run the credentialed live vector fixture before closing. No Chinese search extension was added. |
 | GAP-5 Multi-attachment and cross-provider cache safety   | ✅ complete and released                                | Released in `3dee535`. Canonical messages retain every attachment; Vertex removes only its cached PDF; all offline fixtures pass. The live gate proved Anthropic read both generated PDFs after forced Vertex failure. GitHub Actions run `30420138187` passed every guard, including the new chat attachment guard.                                  |
@@ -258,6 +258,22 @@ Implementation evidence (2026-07-27):
 - The local deterministic portion completed in under 100 ms. Provider latency and dollar cost
   remain intentionally unmeasured until an approved live gate, so the setting is not seeded or
   enabled by default.
+
+Release-gate evidence (2026-07-29):
+
+- `packages/ai/src/entity-planner-model.ts` is the one production selector shared by chat and the
+  credentialed live verifier. It uses the configured primary `general` route, structured JSON,
+  strict registry-only output, visible attempt telemetry, and catalog-priced token cost.
+- The pinned-production verifier confirmed project `eqccjfbyrywsqkxxpjvg` and confirmed
+  `entity_aware_retrieval_enabled` was not true. Qwen `qwen3.7-max` completed four calls with no
+  failure or fallback, 100% recall, 0% wrong-entity selection, 0 invented registry IDs, and average
+  cost `$0.00037870625`.
+- P95 added latency was `2,963 ms`, above the frozen `2,500 ms` limit. The gate therefore failed
+  closed and the production default remains off. Re-run the same pinned verifier after a route or
+  latency improvement; do not enable from the quality and cost numbers alone.
+- Grok 4.5 approved the final helper and verifier in session
+  `019facbb-8e3a-7800-9ad5-fdcdaa2f5cb8`. CI run `30432098788` passed and Vercel deployed exact
+  commit `1f0c0ce286488dbdc73dbe31ee36dd1f2620157a`.
 
 ### GAP-3: Authentik disposition
 

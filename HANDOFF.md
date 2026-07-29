@@ -5,6 +5,41 @@ rejected with recorded evidence, or transferred to a named external owner.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
+## GAP-2 live gate released, default intentionally off, 2026-07-29
+
+GAP-2's production planner and credentialed live gate are released in commit
+`1f0c0ce286488dbdc73dbe31ee36dd1f2620157a`. Grok 4.5 approved the final implementation in
+session `019facbb-8e3a-7800-9ad5-fdcdaa2f5cb8`. CI run `30432098788` passed, and Vercel deployed
+the exact commit.
+
+The pinned live proof used current Supabase project `eqccjfbyrywsqkxxpjvg`, confirmed the
+`entity_aware_retrieval_enabled` setting was off, and called Qwen `qwen3.7-max` four times through
+the exact helper used by chat. Recall was 100%, wrong-entity selection was 0%, invented registry
+IDs were 0, all calls were catalog-priced, and average cost was `$0.00037870625`. P95 added
+latency was `2,963 ms`, above the frozen `2,500 ms` limit. The default therefore remains off.
+
+Do not enable GAP-2 from its quality and cost numbers alone. Re-run
+`pnpm --filter @oracle/ai verify:entity-aware-retrieval-live` with a fresh explicit
+`.env.gap2.live` after a route or latency improvement. The verifier refuses ambient credentials,
+pins the current production project, requires the setting to still be off, performs database
+reads plus provider calls only, and fails until every gate passes.
+
+## GAP-1 release state, 2026-07-29
+
+GAP-1 taxonomy reclassification is released through commit
+`4efdbdfff635fedb1c9a54665f84b6ec6a940b40`. Grok 4.5 approved the final audit and five-handler
+database proof in session `019faca6-851a-7222-abbb-c6348ba502da`. CI run `30430493360` passed,
+Vercel deployed the exact commit, and Trigger.dev deployed worker `20260729.4` in deployment
+`ooql8wfw`.
+
+The SELECT-only production audit found 59 pending `create_sub_topic` proposals, no actionable
+approved proposal, and no taxonomy worker job. No business taxonomy was changed. The fresh-DB
+gate executed all five supported handlers, proved each exact mutation and one terminal audit,
+then proved retry made no second change. The only remaining production proof is the first natural
+admin-approved supported proposal. Do not invent or approve taxonomy business data only to create
+that proof. When a real proposal is approved, capture its Trigger run ID, applied audit row, exact
+mutation, Brain follow-up, and no-op retry.
+
 ## GAP-13 released, 2026-07-29
 
 ### 1. What this application is
