@@ -272,9 +272,8 @@ Verified directly against the production session pooler after the send:
   `['e2aa9061-2757-430b-befb-a0d384002ed3']`, length exactly 1.
 - Audit events, in order: `draft_created` (fd0c9987), `cancelled` (fd0c9987), `draft_created`
   (3b22e8cc), `sent` (3b22e8cc at 13:02:37Z). Exactly one `sent` event.
-- Source finding `66fc69be-4da4-5d2c-9571-84caaa1e67a8` is now `resolved`. Note: `resolved_at` is
-  NULL — `sendCoverageConversion` sets `status` and `updatedAt` but never `resolvedAt`. Cosmetic
-  today; fix if any consumer starts reading `resolved_at`.
+- Source finding `66fc69be-4da4-5d2c-9571-84caaa1e67a8` is now `resolved`, with `resolved_at` NULL.
+  This is a THREE-WRITER inconsistency, not a GAP-11 bug — see the deferred-debt note in §6.
 - Production-wide `coverage_question` count is exactly 1, targeting Albert H. only. No other
   employee received anything.
 - `model_coverage` totals moved exactly 1,491 open → 1,490 open + 1 resolved. No unrelated legacy
@@ -379,11 +378,24 @@ only Albert; and raw model-coverage findings remain separate from employee gaps.
 double-submit no-op proven at runtime (§3a), test gap resolved (§3b), downstream GAP-12/13/14 and
 REL-1 through REL-9 re-read with the one interaction finding recorded (§3b).
 
-Only one optional item is left, and it is cosmetic:
+Only one item is left, and it is deferred debt rather than GAP-11 work:
 
-1. `sendCoverageConversion` resolves the source finding without setting `gaps.resolved_at`
-   (`_actions.ts` ~L182-185); `brain-synthesis` does set it. Harmless today because no consumer
-   reads `resolved_at`, but the write path is incomplete. Fix opportunistically.
+1. **`gaps` terminal-status writers are inconsistent across THREE call sites.** Verified
+   2026-07-29, and confirmed independently by Grok 4.5:
+   - `sendCoverageConversion` (`apps/web/app/admin/gaps/_actions.ts` ~L182-185) — sets `status` +
+     `updatedAt`, never `resolvedAt`.
+   - `updateGapStatus` (`apps/web/app/admin/gaps/_actions.ts:37`) — sets `status` ONLY.
+   - `brain-synthesis` (`apps/workers/src/trigger/brain-synthesis.ts:662`) — sets `status` +
+     `resolvedAt`, never `updatedAt` (the inverse omission).
+   A repo-wide search found **no consumer that reads `gaps.resolved_at`**, so there is zero product
+   impact today.
+   **Do NOT patch only `sendCoverageConversion` — that is a band-aid and leaves the tree more
+   inconsistent than it is now.** The correct fix, when someone next touches gap-status writing:
+   introduce one shared helper that all three writers call, where any terminal status sets
+   `updatedAt` and `resolved` additionally sets `resolvedAt`; then extend
+   `verify:model-coverage-conversion` (and any brain-synthesis guard) to assert it.
+   **No backfill** of `66fc69be` — pointless with no readers, and `status` plus the append-only
+   audit events already prove the send.
 
 Do NOT re-send, re-draft, or create another conversion for finding `66fc69be`. Do NOT create a
 second draft to "test uniqueness" — that proves a different guarantee and changes the fixture.

@@ -592,8 +592,11 @@ Implementation and release evidence (2026-07-29):
   (`apps/web/app/admin/gaps/_actions.ts:134`). Note `verify:model-coverage-conversion` asserts that
   line exists but is a STATIC source match — never cite it alone as runtime proof. Never cite the
   partial unique index either: it blocks a second *conversion* per source gap, not a second *send*.
-- Known small defect: the send resolves the source finding without setting `gaps.resolved_at`.
-  `brain-synthesis` does set it. No consumer reads it today.
+- Deferred debt, NOT a GAP-11 defect: `gaps` terminal-status writes are inconsistent across three
+  call sites — `sendCoverageConversion` sets `status`+`updatedAt`, `updateGapStatus`
+  (`_actions.ts:37`) sets `status` only, and `brain-synthesis` (`brain-synthesis.ts:662`) sets
+  `status`+`resolvedAt`. No consumer reads `gaps.resolved_at`. Fix all three behind one shared
+  helper when gap-status writing is next touched; do not patch a single site, and do not backfill.
 - Cross-plan interaction, recorded 2026-07-29: GAP-11 sends produce `coverage_question` gaps, and
   the GAP-12 lull worker excludes only `model_coverage`
   (`apps/workers/src/trigger/lull-interjection.ts:291`), so these gaps are eligible to be posted to
