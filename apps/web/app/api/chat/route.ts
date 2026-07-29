@@ -25,7 +25,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { eq, and, inArray } from 'drizzle-orm';
 import { desc } from 'drizzle-orm';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -47,7 +47,6 @@ import {
   buildRetrievalPlanFromQuery,
   buildRetrievalPlanWithModel,
   lookupRegistryEntityCandidates,
-  type OracleModelRoute,
   type RouteCandidate,
   type OraclePromptPlan,
   type RetrievalPlanSearchScope,
@@ -70,6 +69,13 @@ import {
 } from '@oracle/db';
 import { getApprovedMacroRelationships } from '@oracle/engines';
 import { getServerSupabase } from '@/lib/supabase/server';
+import {
+  ChatAttachmentSafetyError,
+  isAttachmentCapableRoute,
+  selectAttachmentSafeCandidates,
+  toCanonicalAttachmentPart,
+  type ChatAttachmentPart,
+} from '@/lib/chat-attachment-safety';
 
 const BodySchema = z.object({
   channelId: z.uuid(),
@@ -273,9 +279,9 @@ export async function POST(req: NextRequest) {
       : [];
 
   // ── 4. Resolve curated interview route ───────────────────────────────
-  const routeCandidates = await resolveInterviewCandidates(db);
+  let routeCandidates = await resolveInterviewCandidates(db);
   const route = routeCandidates[0]!.route;
-  const visionCapable = isVisionCapableRoute(route);
+  const visionCapable = isAttachmentCapableRoute(route);
 
   // ── 5. Compile prompt blocks (stable system + dynamic context) ───────
   const contextLines: string[] = [];
@@ -372,7 +378,7 @@ export async function POST(req: NextRequest) {
   // ── 7. Build multi-turn conversation (with attachments for vision routes) ─
   const recentIds = recent.map((m) => m.id);
   const attachmentRows =
-    visionCapable && recentIds.length > 0
+    recentIds.length > 0
       ? await db
           .select({
             messageId: messageAttachments.messageId,
@@ -402,18 +408,18 @@ export async function POST(req: NextRequest) {
   // cachedContent prefix (gs:// fileData) instead of re-sending it as base64
   // on every turn. The conversation turns ride on top of the cache as live
   // text contents (the adapter preserves multi-turn history on the file-cache
-  // path). When this activates we EXCLUDE inline attachment parts so the doc
-  // is not double-sent; v1 limitation: only this single cached document is
-  // provided to the model, other attachments are not separately inlined.
+  // path). The canonical conversation still keeps every attachment. The Vertex
+  // adapter removes only the cached PDF from its own live request. This is
+  // required so a later provider can receive the complete message on fallback.
   //
-  // Gated on the bucket env: without it the adapter no-ops the file path, so
-  // excluding the inline copy would leave the model with no document at all.
+  // Gated on the bucket env. Without it, every attachment stays inline.
   const fileCacheEnabled =
     route.provider === 'vertex' && !!process.env.GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET;
   let vertexFileCacheSource:
     | { localPath: string; mimeType: string; fileName: string; sourceHash: string }
     | undefined;
   let cachedTempPath: string | undefined;
+  let cachedPdfBytes = 0;
   if (fileCacheEnabled) {
     const candidate = pickCacheablePdf(recent, attachmentMap);
     if (candidate) {
@@ -426,6 +432,7 @@ export async function POST(req: NextRequest) {
         } else {
           const buf = Buffer.from(await blob.arrayBuffer());
           if (buf.length >= VERTEX_CHAT_FILE_CACHE_MIN_BYTES) {
+            cachedPdfBytes = buf.length;
             cachedTempPath = await materializeVertexCacheTempFile(buf, candidate.fileName);
             vertexFileCacheSource = {
               localPath: cachedTempPath,
@@ -442,71 +449,95 @@ export async function POST(req: NextRequest) {
       }
     }
   }
-  // Only exclude inline attachment parts once we are certain the file cache
-  // will carry the document; otherwise keep the existing inline behavior.
-  const excludeInlineAttachments = !!vertexFileCacheSource;
 
   // Image parts use the PROVIDER-NEUTRAL shape `{ type:'image', mimeType, data }`
   // — the ONLY shape every hardened adapter translates (Gemini→inlineData,
   // OpenAI/Qwen→image_url, Anthropic→base64 block). The old `{ image: dataUrl }`
   // shape was unrecognized: Gemini stringified it to garbage and OpenAI/Anthropic
   // got an invalid part, so chat image attachments were silently broken.
-  type ChatContentPart =
-    | { type: 'text'; text: string }
-    | { type: 'image'; mimeType: string; data: string }
-    | { type: 'file'; data: string; mimeType: string; fileName?: string };
+  type ChatContentPart = { type: 'text'; text: string } | ChatAttachmentPart;
   type ConversationMessage = {
     role: 'user' | 'assistant';
     content: string | ChatContentPart[];
   };
 
-  const conversationMessages: ConversationMessage[] = await Promise.all(
-    recent
-      .filter((m) => m.role !== 'system')
-      .map(async (m) => {
-        const role = m.role === 'assistant' ? ('assistant' as const) : ('user' as const);
-        const textContent =
-          m.role === 'user' && m.authorName ? `[${m.authorName}] ${m.content}` : m.content;
-        const atts = attachmentMap.get(m.id) ?? [];
-        if (atts.length === 0 || excludeInlineAttachments) return { role, content: textContent };
+  let totalBinaryAttachmentBytes = 0;
+  let hasPdfAttachments = false;
+  let requireVertexFileCache = false;
+  let conversationMessages: ConversationMessage[];
+  try {
+    conversationMessages = await Promise.all(
+      recent
+        .filter((m) => m.role !== 'system')
+        .map(async (m) => {
+          const role = m.role === 'assistant' ? ('assistant' as const) : ('user' as const);
+          const textContent =
+            m.role === 'user' && m.authorName ? `[${m.authorName}] ${m.content}` : m.content;
+          const atts = attachmentMap.get(m.id) ?? [];
+          if (atts.length === 0) return { role, content: textContent };
 
-        const parts: ChatContentPart[] = [{ type: 'text', text: textContent }];
-        for (const att of atts) {
-          try {
+          const parts: ChatContentPart[] = [{ type: 'text', text: textContent }];
+          for (const att of atts) {
             const { data: blob, error } = await serviceSupabase.storage
               .from(att.storageBucket)
               .download(att.storagePath);
             if (error || !blob) {
-              console.warn('[chat] could not download attachment', att.storagePath, error?.message);
-              continue;
+              throw new ChatAttachmentSafetyError(
+                'attachment_download_failed',
+                `The attached file "${att.fileName}" could not be loaded. No answer was generated because it might have omitted that file.`,
+              );
             }
-            const buf = Buffer.from(await blob.arrayBuffer());
-            const b64 = buf.toString('base64');
-            if (att.fileType.startsWith('image/')) {
-              parts.push({ type: 'image', mimeType: att.fileType, data: b64 });
-            } else if (att.fileType === 'application/pdf') {
-              // Provider-neutral FILE part. Every hardened adapter now translates
-              // it at dispatch (Gemini → inlineData, OpenAI → file/file_data,
-              // Anthropic → document block); large PDFs may instead be served via
-              // the Vertex file-cache path above. fileName is carried because the
-              // OpenAI `file` part requires a filename.
-              parts.push({
-                type: 'file',
-                data: b64,
-                mimeType: 'application/pdf',
-                fileName: att.fileName,
-              });
-            } else if (att.fileType.startsWith('text/')) {
-              const text = buf.toString('utf8');
-              parts.push({ type: 'text', text: `\n\n[File: ${att.fileName}]\n${text}\n[/File]` });
+            const buffer = Buffer.from(await blob.arrayBuffer());
+            const part = toCanonicalAttachmentPart({
+              fileType: att.fileType,
+              fileName: att.fileName,
+              buffer,
+            });
+            if (part.type === 'image' || part.type === 'file') {
+              totalBinaryAttachmentBytes += buffer.length;
             }
-          } catch (err) {
-            console.error('[chat] attachment fetch failed', att.storagePath, err);
+            if (part.type === 'file' && part.mimeType === 'application/pdf') {
+              hasPdfAttachments = true;
+            }
+            parts.push(part);
           }
-        }
-        return { role, content: parts.length === 1 ? textContent : parts };
-      }),
-  );
+          return { role, content: parts };
+        }),
+    );
+  } catch (error) {
+    if (cachedTempPath) await unlink(cachedTempPath).catch(() => undefined);
+    const detail =
+      error instanceof ChatAttachmentSafetyError
+        ? error.message
+        : 'An attachment could not be prepared safely. No answer was generated.';
+    console.error('[chat] attachment assembly failed', error);
+    return NextResponse.json({ error: 'attachment_delivery_failed', detail }, { status: 422 });
+  }
+
+  try {
+    const selection = selectAttachmentSafeCandidates({
+      candidates: routeCandidates,
+      hasBinaryAttachments: totalBinaryAttachmentBytes > 0,
+      hasPdfAttachments,
+      totalBinaryBytes: totalBinaryAttachmentBytes,
+      cachedPdfBytes: vertexFileCacheSource ? cachedPdfBytes : undefined,
+    });
+    routeCandidates = selection.candidates;
+    requireVertexFileCache = selection.constrainedToVertex;
+    if (selection.constrainedToVertex) {
+      console.warn(
+        '[chat] attachment fallback pool constrained to Vertex because the complete inline payload is too large for safe cross-provider fallback',
+      );
+    }
+  } catch (error) {
+    if (cachedTempPath) await unlink(cachedTempPath).catch(() => undefined);
+    const detail =
+      error instanceof ChatAttachmentSafetyError
+        ? error.message
+        : 'The selected models cannot receive every attachment safely.';
+    console.error('[chat] attachment route safety check failed', error);
+    return NextResponse.json({ error: 'attachment_delivery_failed', detail }, { status: 422 });
+  }
 
   const safeMessages: ConversationMessage[] = visionCapable
     ? conversationMessages
@@ -596,6 +627,7 @@ export async function POST(req: NextRequest) {
           cleanupOwner: 'chat-route',
           latestPlannedReuseStep: 'interview_chat',
           vertexFileCacheSource,
+          requireVertexFileCache,
           sessionCacheKey:
             qwenSessionKey ?? undefined,
           previousResponseId:
@@ -788,18 +820,12 @@ function pickCacheablePdf<T extends { fileType: string }>(
 
 async function materializeVertexCacheTempFile(buffer: Buffer, fileName: string): Promise<string> {
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const tempPath = join(tmpdir(), `oracle-chat-vertex-cache-${Date.now()}-${safeName}`);
+  const tempPath = join(
+    tmpdir(),
+    `oracle-chat-vertex-cache-${Date.now()}-${randomUUID()}-${safeName}`,
+  );
   await writeFile(tempPath, buffer);
   return tempPath;
-}
-
-function isVisionCapableRoute(route: OracleModelRoute): boolean {
-  // Vision detection from the route's flags + a name regex fallback. The
-  // curated catalog already encodes supportsVision on each route; the
-  // regex is a defensive belt-and-suspenders in case a catalog entry
-  // gets misconfigured.
-  if (route.supportsVision) return true;
-  return /claude|gpt-4o|gemini|llava|pixtral|qwen.*vl|minicpm/i.test(route.modelId);
 }
 
 function buildContextPackInsert(plan: OraclePromptPlan) {

@@ -20,6 +20,7 @@ const expectedGuards = [
   'pnpm --filter @oracle/ai verify:retrieval-filter-parity',
   'pnpm --filter @oracle/ai verify:chinese-retrieval',
   'pnpm --filter @oracle/ai verify:vertex-file-cache',
+  'pnpm --filter @oracle/web verify:chat-attachment-safety',
   'pnpm --filter @oracle/web verify:claim-translation-review',
   'pnpm --filter @oracle/web verify:mcp',
 ];
@@ -38,5 +39,5 @@ if (
 }
 
 console.log(
-  `PASS: Vercel buildCommand is ${command.length}/256 characters and delegates to all five network-free guards.`,
+  `PASS: Vercel buildCommand is ${command.length}/256 characters and delegates to all six network-free guards.`,
 );

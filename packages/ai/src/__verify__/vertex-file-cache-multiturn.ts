@@ -26,6 +26,7 @@
 import { VertexGeminiAdapter, getOracleRoute, type OracleModelRoute } from '../index';
 import { getContextCompiler } from '../context/context-compiler';
 import { makeBlock } from '../index';
+import { createHash } from 'node:crypto';
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) {
@@ -72,11 +73,37 @@ async function main() {
   });
 
   // Multi-turn conversation (the document is in the cache, so turns are text).
+  const cachedPdf = Buffer.from('cached pdf fixture');
+  const secondPdf = Buffer.from('second pdf fixture');
+  const image = Buffer.from('image fixture');
+  const cachedPdfHash = createHash('sha256').update(cachedPdf).digest('hex');
   const messages = [
     { role: 'user' as const, content: '[Oracle runtime context]\nCONTEXT: speaking with Albert.' },
     { role: 'user' as const, content: 'What does the spec say about returns?' },
     { role: 'assistant' as const, content: 'Let me check the document.' },
-    { role: 'user' as const, content: 'SECOND_TURN_MARKER: summarize section 4 of the PDF.' },
+    {
+      role: 'user' as const,
+      content: [
+        { type: 'text', text: 'SECOND_TURN_MARKER: compare both PDFs and the image.' },
+        {
+          type: 'file',
+          mimeType: 'application/pdf',
+          data: cachedPdf.toString('base64'),
+          fileName: 'cached.pdf',
+        },
+        {
+          type: 'file',
+          mimeType: 'application/pdf',
+          data: secondPdf.toString('base64'),
+          fileName: 'second.pdf',
+        },
+        {
+          type: 'image',
+          mimeType: 'image/png',
+          data: image.toString('base64'),
+        },
+      ],
+    },
   ];
 
   // ── Stub the provider client + storage; neutralize DB sweepers ──────────
@@ -124,7 +151,7 @@ async function main() {
           localPath: '/tmp/verify-fake.pdf',
           mimeType: 'application/pdf',
           fileName: 'verify-fake.pdf',
-          sourceHash: 'deadbeef',
+          sourceHash: cachedPdfHash,
         },
       },
     },
@@ -165,6 +192,108 @@ async function main() {
   assert(flatText.includes('Let me check the document.'), 'prior assistant turn present in live contents');
   // The cached document must NOT be re-sent inline in the live contents.
   assert(!flatText.includes('gs://'), 'document not duplicated into live contents (cache-only)');
+  assert(
+    !flatText.includes(cachedPdf.toString('base64')),
+    'the one cached PDF is removed from Vertex live contents',
+  );
+  assert(
+    flatText.includes(secondPdf.toString('base64')),
+    'the second PDF remains in Vertex live contents',
+  );
+  assert(
+    flatText.includes(image.toString('base64')),
+    'the image remains in Vertex live contents',
+  );
+
+  // ── 4. Oversized requests fail closed when the required upload fails ──
+  const failedUploadGenerateCalls: Array<Record<string, any>> = [];
+  const failedUploadAdapter = new VertexGeminiAdapter();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyFailedUploadAdapter = failedUploadAdapter as any;
+  anyFailedUploadAdapter.client = {
+    caches: {
+      create: async () => {
+        throw new Error('cache create must not run after upload failure');
+      },
+      get: async () => ({}),
+      delete: async () => ({}),
+    },
+    models: {
+      generateContent: async (request: Record<string, any>) => {
+        failedUploadGenerateCalls.push(request);
+        return { text: 'inline answer', usageMetadata: {} };
+      },
+    },
+  };
+  anyFailedUploadAdapter.storageClient = {
+    bucket: () => ({
+      upload: async () => {
+        throw new Error('forced GCS upload failure');
+      },
+      file: () => ({ delete: async () => {} }),
+    }),
+  };
+  anyFailedUploadAdapter.cleanupExpiredExplicitCaches = async () => {};
+  anyFailedUploadAdapter.cleanupExpiredPersistentCaches = async () => {};
+
+  let requiredCacheError = '';
+  try {
+    await failedUploadAdapter.generateText({
+      plan,
+      route,
+      providerOptions: {
+        messages,
+        cache: {
+          preferExplicitCache: true,
+          requireVertexFileCache: true,
+          persistProviderCacheRecord: false,
+          vertexFileCacheSource: {
+            localPath: '/tmp/verify-fake.pdf',
+            mimeType: 'application/pdf',
+            fileName: 'verify-fake.pdf',
+            sourceHash: cachedPdfHash,
+          },
+        },
+      },
+    });
+  } catch (error) {
+    requiredCacheError = error instanceof Error ? error.message : String(error);
+  }
+  assert(
+    requiredCacheError.includes('required') && requiredCacheError.includes('could not be prepared'),
+    'required oversized file-cache upload failure returns a clear error',
+  );
+  assert(
+    failedUploadGenerateCalls.length === 0,
+    'required cache failure never falls through to an unsafe oversized inline Vertex request',
+  );
+
+  const optionalCacheResult = await failedUploadAdapter.generateText({
+    plan,
+    route,
+    providerOptions: {
+      messages,
+      cache: {
+        preferExplicitCache: true,
+        requireVertexFileCache: false,
+        persistProviderCacheRecord: false,
+        vertexFileCacheSource: {
+          localPath: '/tmp/verify-fake.pdf',
+          mimeType: 'application/pdf',
+          fileName: 'verify-fake.pdf',
+          sourceHash: cachedPdfHash,
+        },
+      },
+    },
+  });
+  assert(
+    optionalCacheResult.text === 'inline answer',
+    'optional cache upload failure safely continues through the inline request',
+  );
+  assert(
+    JSON.stringify(failedUploadGenerateCalls[0]?.contents).includes(cachedPdf.toString('base64')),
+    'safe inline continuation retains the PDF that could not be cached',
+  );
 
   console.log('\nVertex file-cache multi-turn gate: PASS');
 }

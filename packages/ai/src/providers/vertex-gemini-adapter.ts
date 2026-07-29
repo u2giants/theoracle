@@ -34,7 +34,7 @@
 import { writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { and, desc, eq, gt, isNotNull, lte } from 'drizzle-orm';
 import { Storage } from '@google-cloud/storage';
 import { GoogleGenAI } from '@google/genai';
@@ -269,6 +269,11 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
   } | null> {
     const hints = getCacheHints(providerOptions);
     const fileCache = await this.prepareExplicitFileCache(plan, modelId, systemPrompt, providerOptions);
+    if (!fileCache && hints?.requireVertexFileCache === true) {
+      throw new Error(
+        'Vertex file-backed cache was required for this oversized attachment request but could not be prepared. No model answer was generated.',
+      );
+    }
     if (fileCache) {
       // The cached prefix already carries systemInstruction + the file artifact.
       // For multi-turn chat (interview route), send the FULL conversation as the
@@ -277,7 +282,10 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
       // single-shot text call whose document corpus is the whole input.
       const liveContents =
         contents.length > 0
-          ? contents
+          ? deduplicateCachedInlineFile(
+              contents,
+              hints?.vertexFileCacheSource,
+            )
           : [{ role: 'user' as const, parts: [{ text: fileCache.dynamicInput }] }];
       return {
         cacheName: fileCache.name,
@@ -496,7 +504,17 @@ export class VertexGeminiAdapter implements OracleProviderAdapter {
     if (!fileSource || hints?.preferExplicitCache !== true) return null;
 
     const { dynamicInput } = splitPlanForCaching(plan);
-    const gcsUpload = await this.ensureVertexCacheFileUri(fileSource);
+    let gcsUpload: Awaited<ReturnType<VertexGeminiAdapter['ensureVertexCacheFileUri']>>;
+    try {
+      gcsUpload = await this.ensureVertexCacheFileUri(fileSource);
+    } catch (error) {
+      console.warn(
+        `[VertexGeminiAdapter] file-backed cache source upload failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
     if (!gcsUpload?.fileUri) return null;
 
     const explicitCache = await this.getOrCreateExplicitCache({
@@ -1030,6 +1048,35 @@ function toVertexParts(content: unknown): Part[] {
     parts.push({ text: String(raw) });
   }
   return parts;
+}
+
+/**
+ * A file-backed cache is a Vertex-only optimization. The caller's canonical
+ * messages retain every inline attachment for provider fallback. Once Vertex
+ * has successfully prepared the cache, remove exactly one matching inline copy
+ * from this Vertex request. Every other PDF and image remains live.
+ */
+function deduplicateCachedInlineFile(
+  contents: Content[],
+  fileSource?: VertexFileCacheSource,
+): Content[] {
+  if (!fileSource?.sourceHash) return contents;
+
+  let removed = false;
+  return contents.map((content) => ({
+    ...content,
+    parts: (content.parts ?? []).filter((part) => {
+      if (removed || !('inlineData' in part) || !part.inlineData) return true;
+      if (part.inlineData.mimeType !== fileSource.mimeType) return true;
+      if (typeof part.inlineData.data !== 'string') return true;
+      const inlineHash = createHash('sha256')
+        .update(part.inlineData.data, 'base64')
+        .digest('hex');
+      if (inlineHash !== fileSource.sourceHash) return true;
+      removed = true;
+      return false;
+    }),
+  }));
 }
 
 /**

@@ -15,7 +15,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-2 Entity-aware retrieval planning                    | 🟨 local implementation complete; default stays off     | Registry-only resolution, model selection, loud deterministic fallback, and offline fixtures are implemented. Fixture recall is 100%, wrong-entity rate is 0%, and unresolved names invent 0 IDs. Enabling by default remains blocked until a live provider run records added latency and cost. |
 | GAP-3 Authentik disposition                              | ⬜ open                                                 | Owner must confirm whether Authentik is still a wanted login method                                                                                                                                                                                                                                                                                    |
 | GAP-4 China translation review and search hardening      | 🟨 local implementation complete; live vector gate remains | Side-by-side English/Chinese review, model/version/status/stale display, append-only generation and review history, approve/reject/retranslate actions, and CI guards are implemented. `simple` search is measured by the offline fixture; run the credentialed live vector fixture before closing. No Chinese search extension was added. |
-| GAP-5 Multi-attachment and cross-provider cache safety   | ⬜ open                                                 | Needs provider-shape design and live fallback fixture                                                                                                                                                                                                                                                                                                  |
+| GAP-5 Multi-attachment and cross-provider cache safety   | 🟨 implementation and live gate complete; release open  | Canonical messages retain every attachment; Vertex removes only its cached PDF; all offline fixtures pass. The credentialed live gate passed on 2026-07-28: forced Vertex failure fell back to Anthropic, which read both generated PDFs. Commit, push, and fresh CI proof remain before closure.                                                               |
 | GAP-6 Vertex cache and batch storage                     | ⬜ open                                                 | Production cloud mutation requires exact owner approval                                                                                                                                                                                                                                                                                                |
 | GAP-7 Eval-results dashboard                             | ⬜ open                                                 | CLI evals work; UI remains a deliberate placeholder                                                                                                                                                                                                                                                                                                    |
 | GAP-8 Provider capability parity                         | ⬜ open                                                 | Batch, Qwen explicit cache, and DeepSeek beta strict-schema paths remain limited                                                                                                                                                                                                                                                                       |
@@ -312,6 +312,31 @@ Implementation evidence (2026-07-27):
 
 Gate: every fixture either delivers all attachments to the selected provider or fails clearly;
 no degraded answer silently loses a document.
+
+Implementation evidence (2026-07-28):
+
+- Chat now assembles one provider-neutral canonical conversation that retains every PDF, image,
+  and text attachment. A failed download or unsupported file stops the answer with a clear
+  `attachment_delivery_failed` response instead of continuing without that file.
+- The Vertex adapter hashes inline PDF bytes and removes exactly one matching PDF only after its
+  file-backed cache was created. Other PDFs, images, and the full conversation remain live.
+- Attachment-capable fallback candidates receive the unchanged canonical message. PDF fallback is
+  limited to the providers with a native PDF request shape. Payloads above the conservative
+  14 MiB decoded inline budget are constrained to a safe Vertex file-cache chain when possible,
+  or fail clearly before model dispatch. In that oversized mode the adapter requires successful
+  GCS upload and cache preparation before model dispatch. Upload failure stops before
+  `generateContent`; smaller requests catch the same failure and safely continue with the complete
+  inline message.
+- `verify:chat-attachment-safety` covers two PDFs, PDF plus image, forced Vertex-to-Anthropic
+  fallback, oversized Vertex-only constraint, and explicit oversized failure.
+  `verify:vertex-file-cache` proves the cached PDF is removed while the second PDF and image remain.
+  The existing file-part translation guard proves Anthropic, OpenAI-compatible, and Gemini request
+  conversion. Both GAP-5 network-free guards run in GitHub CI and the Vercel pre-build guard set.
+- The credentialed `verify:attachment-fallback-live` gate passed on 2026-07-28. It forced the
+  Vertex attempt to fail before network I/O, then live Anthropic read both generated marker PDFs
+  from the unchanged fallback message. The run used Vercel's approved development credential and
+  touched no database, GCS bucket, production data, or shared-cloud resource. Commit, push, and a
+  fresh green CI run remain before GAP-5 is closed.
 
 ### GAP-6: Vertex cache and batch storage
 

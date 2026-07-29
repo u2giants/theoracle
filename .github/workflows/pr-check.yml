@@ -66,7 +66,7 @@ jobs:
       - name: Vercel build contract guard
         # Vercel rejects buildCommand values longer than 256 characters.
         # Keep vercel.json short and prove its delegated script retains all
-        # five network-free production guards before the web build.
+        # six network-free production guards before the web build.
         run: pnpm verify:vercel-contract
 
       - name: Build apps/web (production tsc gate)
@@ -115,6 +115,11 @@ jobs:
         # multi-turn conversation as live contents instead of collapsing to a
         # single turn — which would silently erase chat history.
         run: pnpm --filter @oracle/ai verify:vertex-file-cache
+
+      - name: Chat attachment fallback safety guard
+        # Network-free fixture for two PDFs, PDF + image, forced provider
+        # fallback, and oversized clear-failure/constrained-cache behavior.
+        run: pnpm --filter @oracle/web verify:chat-attachment-safety
 
       - name: MCP registry guard
         # Static, DB-free check of the Oracle MCP lazy-loaded registry: tools/list

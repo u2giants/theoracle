@@ -23,6 +23,12 @@ export interface CacheHints {
   sessionCacheKey?: string;
   previousResponseId?: string;
   vertexFileCacheSource?: VertexFileCacheSource;
+  /**
+   * Fail the Vertex attempt if its file-backed cache cannot be prepared.
+   * Used only when the complete inline fallback payload exceeds the safe
+   * cross-provider budget.
+   */
+  requireVertexFileCache?: boolean;
 }
 
 export interface ProviderCacheOptions {
