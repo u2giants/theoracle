@@ -5,6 +5,26 @@ rejected with recorded evidence, or transferred to a named external owner.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
+## GAP-4 live gate released, production sample blocked, 2026-07-29
+
+GAP-4's trustworthy Chinese retrieval gate is released in commit
+`4245f2d9b90ae90a49e0e78994c9f8808c3213bb`. Grok 4.5 approved the final verifier in session
+`019facd2-f387-7b52-b704-f4b53acc76c1`. CI run `30433191204` passed, and Vercel deployed the
+exact commit.
+
+The pinned read-only audit found one approved/current zh-CN translation with an embedding. A
+representative live gate requires five distinct eligible target claims with independently authored
+Chinese user questions plus one unrelated negative control. Production currently has zero such
+labeled fixtures. The gate correctly reports `insufficient_production_sample` and
+`extensionNeeded='unproven'`; it does not turn a circular self-query into a false pass.
+
+Do not add a Chinese Postgres search extension yet. First allow normal translation review to
+produce at least five eligible translations. Have a human independently author one Chinese
+question for each target plus an unrelated negative question, store that temporary fixture
+contract outside git, and rerun `pnpm --filter @oracle/ai verify:chinese-retrieval-live`. The
+verifier pins the current production project, checks exact localized serving, rank and recall,
+rejects fake or duplicate labels, logs hashes instead of business text, and performs zero writes.
+
 ## GAP-2 live gate released, default intentionally off, 2026-07-29
 
 GAP-2's production planner and credentialed live gate are released in commit

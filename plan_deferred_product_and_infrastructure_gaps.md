@@ -14,7 +14,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-1 Finish the existing taxonomy reclassification path | 🟨 released; natural production apply proof remains | Released through `4efdbdf`. Grok approved; CI run `30430493360` passed the five-type fresh-DB mutation/idempotency gate; Vercel and Trigger worker `20260729.4` deployed. The SELECT-only production audit found 59 pending `create_sub_topic` proposals and no approved/actionable work. Do not invent or approve business taxonomy data solely for a release test; capture the first natural approved apply as the final production proof. |
 | GAP-2 Entity-aware retrieval planning                    | 🟨 live gate released; default stays off                | Released through `1f0c0ce`; Grok approved; CI run `30432098788` passed and Vercel deployed the exact commit. Pinned-production Qwen `qwen3.7-max` proof achieved 100% recall, 0% wrong entities, 0 invented IDs, and $0.000379 average cost, but p95 added latency was 2,963 ms against the 2,500 ms limit. Production setting remains off. |
 | GAP-3 Authentik disposition                              | ⬜ open                                                 | Owner must confirm whether Authentik is still a wanted login method                                                                                                                                                                                                                                                                                    |
-| GAP-4 China translation review and search hardening      | 🟨 local implementation complete; live vector gate remains | Side-by-side English/Chinese review, model/version/status/stale display, append-only generation and review history, approve/reject/retranslate actions, and CI guards are implemented. `simple` search is measured by the offline fixture; run the credentialed live vector fixture before closing. No Chinese search extension was added. |
+| GAP-4 China translation review and search hardening      | 🟨 trustworthy live gate released; sample blocked | Released through `4245f2d`; Grok approved; CI run `30433191204` passed and Vercel deployed the exact commit. The pinned read-only audit found one exact-current eligible zh-CN translation but zero of five required independently labeled positive queries and no negative control, so it fails closed as `insufficient_production_sample`; extension need remains unproven. |
 | GAP-5 Multi-attachment and cross-provider cache safety   | ✅ complete and released                                | Released in `3dee535`. Canonical messages retain every attachment; Vertex removes only its cached PDF; all offline fixtures pass. The live gate proved Anthropic read both generated PDFs after forced Vertex failure. GitHub Actions run `30420138187` passed every guard, including the new chat attachment guard.                                  |
 | GAP-6 Vertex cache and batch storage                     | ⬜ open                                                 | Production cloud mutation requires exact owner approval                                                                                                                                                                                                                                                                                                |
 | GAP-7 Eval-results dashboard                             | ✅ complete and released                                | Released through `3b96669`. Clean CLI eval run `extraction-2026-07-29T04-03-41-967Z` passed 4/4 and is tied to code commit `656785e`. Grok approved. CI run `30421488336` passed, Vercel deployment `dpl_3KF4J76s9shZBHugy4xNR9rktBCo` was promoted, and signed-in production list/detail checks passed. |
@@ -320,6 +320,24 @@ Implementation evidence (2026-07-27):
   recall@3 with the real embedding model and must reach 80% before this gap is marked complete.
 - No `zhparser`, `pg_jieba`, or other hosted extension was added. Extension work remains conditional
   on a failing live vector-plus-simple fixture and a separate availability/rollback review.
+
+Release-gate evidence (2026-07-29):
+
+- The live verifier pins project `eqccjfbyrywsqkxxpjvg`, uses the real
+  `searchWithRetrievalPlan(..., 'zh-CN')` path, performs no writes, and accepts only independently
+  authored labeled fixtures. It rejects circular or duplicate queries, duplicate target claims,
+  fake negative-control IDs, stale translations, and claims outside the production `current`
+  filter. Logs contain labels, hashes, ranks, and metrics, not business query or claim text.
+- Synthetic multilingual embedding recall remained 5/5. Production contained only one eligible
+  approved/current zh-CN translation and no independent fixture contract. The audit therefore
+  failed closed with zero of five required positives, zero negative controls,
+  `insufficient_production_sample`, and `extensionNeeded='unproven'`.
+- Do not add `zhparser` or `pg_jieba`, and do not claim vector coverage, until five distinct
+  eligible translations have independently authored Chinese questions plus one valid unrelated
+  negative control and the same live gate reaches at least 80% recall@3.
+- Grok 4.5 approved the final fail-closed verifier in session
+  `019facd2-f387-7b52-b704-f4b53acc76c1`. CI run `30433191204` passed and Vercel deployed exact
+  commit `4245f2d9b90ae90a49e0e78994c9f8808c3213bb`.
 
 ### GAP-5: attachment and cache safety
 
