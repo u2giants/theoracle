@@ -1,9 +1,102 @@
 # HANDOFF — Prior completed work and remaining historical watchouts
 
-Last updated: 2026-07-28. Delete this file once every plan below is complete, intentionally
+Last updated: 2026-07-29. Delete this file once every plan below is complete, intentionally
 rejected with recorded evidence, or transferred to a named external owner.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
+
+## Authoritative latest closeout — 2026-07-29
+
+### 1. What this application is
+
+The Oracle is POP Creations' evidence-backed company knowledge system. Employees ask questions and
+upload documents. The web app, Trigger.dev workers, and Supabase database turn source text into
+strictly quoted claims and larger business maps. This repository is the `pnpm` TypeScript monorepo
+at `C:\repos\oracle`; the web app runs at `https://oracle.designflow.app`.
+
+### 2. What this work set out to do, and why
+
+R2 must recover at least 27 of 30 frozen responsibilities from one pinned company document without
+weakening exact quotes, leaking the answer key, enabling merge/apply, or writing business-model
+tables. Batch F scored 14/30. Albert chose the deeper-reader architecture. That implementation was
+independently approved, released once, and given exactly one pinned production gate.
+
+### 3. Current state
+
+Implementation commit `dc1317f7f04bd23f3693ea04a4a23ae52044897b` passed CI run
+`30417301245`. Trigger worker `20260729.1`, deployment `g1jq296j`, ran gate
+`run_06fqnh151dmai294bc2uble701` on document `c4ba034f-fb6c-40ee-a98e-fd20166a438b`.
+Grok session `019fabb5-5e45-73a3-a885-e1146746948f` approved the release for CI and live regate
+with no P0/P1 findings.
+
+The frozen fixture SHA remained
+`398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be`; key
+`licensed-team-responsibilities-v1`; matcher `field-aware-v3`. The gate scored **12/30 (40%)**.
+Map `193376a7-848e-48e8-b5ec-8cca51285b3f` was `degraded`. It retained 83 responsibility records,
+225 total elements, dropped 170, and moved omissions from 80 to 72. Source-workflow job
+`a8146ec8-4e25-4317-b220-356fb459b12b` completed with retry zero. Final model run was
+`687df936-2a0c-4e5f-86e5-70cd0077bfd9`; context pack
+`292560c5-2007-4a9f-bc76-30005abfc5ac`; production route `openai/gpt-4.1`.
+
+Document-ingestion job `27dfc7fb-316d-4ad4-9479-60fe19200bcf` was still running later downstream
+without error when measured. Its R2 map and source-workflow job were already terminal, so this is
+not an R2 execution failure.
+
+### 4. What did not work
+
+The one combined repair call failed atomically with `repair_failed`. It selected six field repairs,
+but field failures stayed 6 to 6 and root quote failures stayed 15 to 15. No partial result applied.
+Five allowed omission retries, one per chunk, improved omissions only from 80 to 72. The deeper
+architecture therefore scored worse than Batch F's 14/30 and Batch E's 20/30.
+
+### 5. Root causes and key findings
+
+The gate used 24/40 calls, 59,973/500,000 input tokens, 1/1 general repair,
+`$0.299865/$10` estimated input cost, and concurrency four. Capacity was not exhausted. The failed
+atomic repair and weak retry gain left too little complete inventory. Full evidence is in
+`evals/r2-responsibilities.md`; implementation and decision rules are in
+`plan_r2_deeper_responsibility_architecture.md`.
+
+### 6. Exact next steps
+
+1. Albert chooses one path: bounded model bake-off, or another deeper-architecture step.
+2. Record that choice in the R2 plan before changing code or settings.
+3. Follow only the selected path's bounded procedure and verification gates.
+
+You will know this handoff was followed correctly when no second gate or new R2 code begins before
+the owner decision is recorded.
+
+### 7. Constraints and gotchas
+
+- The `<=23` score rule is binding. Do not run a second gate now.
+- Merge and apply remain false.
+- `business_objects`, `business_object_versions`, and `business_model_changes` were zero before
+  and after the gate.
+- Keep the fixture, matcher, 27/30 threshold, strict quotes, 40/500k/$10 reader limits, and 1/5/1
+  post-pass limits frozen unless a future owner-approved plan explicitly changes them.
+
+### 8. Access and environment
+
+GitHub, Trigger.dev, Vercel, Supabase, and 1Password access used by prior release work are described
+in `AGENTS.md` and project docs. Secrets remain in the `vibe_coding` 1Password vault. This
+documentation-only closeout made no external changes.
+
+### 9. Open questions and risks
+
+The only immediate decision is Albert's choice between bounded model bake-off and another
+deeper-architecture step. A bake-off tests whether the architecture is sound but the seated model
+is wrong. Another architecture step accepts that the current control path still loses inventory.
+R3 through R10 remain blocked on R2.
+
+### HANDOFF completeness self-audit — 2026-07-29
+
+1. **Can a brand-new developer continue with no questions? Yes.** Sections 1–3 define the product,
+   repository, goal, release, exact production resources, score, and terminal state.
+2. **Can they continue as effectively as this session? Yes.** Sections 4–7 preserve the failed
+   repair, retry result, budgets, binding decision rule, frozen controls, and exact next steps.
+3. **Is every relevant execution detail present? Yes.** Sections 3–9 cover background, intended
+   outcome, current state, failures, findings, constraints, access, risks, owner decision, and a
+   verification gate. `evals/r2-responsibilities.md` carries the complete durable gate evidence.
 
 ## Latest closeout — 2026-07-28
 

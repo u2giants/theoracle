@@ -928,13 +928,13 @@ The macro-first layer starts with a shape-aware source read. During document ing
 
 Pass 2 runs the workflow reader for `process` segments and, beginning with R2, a flat strict reader for `responsibilities` segments. Other non-process shapes remain element-less until their vertical slices. Each accepted responsibility is one role-action-object record with optional trigger and required system, one same-document covered chunk, and one deterministically validated quote. The reader writes one immutable `source_workflow_maps` row with generic `segments_json`, `elements_json`, and `relations_json`, while retaining the process `nodes_json`, `edges_json`, `lanes_json`, and `paths_json` compatibility columns. Process validation remains deterministic: endpoints must resolve, each node/edge quote must validate against the cited chunk, paths can only reference existing nodes, and dropped elements are recorded in `validation_json`. The shared source-kind policy resolver chooses named Markdown, PDF/OCR, strict vision-transcription, transcript-fuzzy, or strict-verbatim behavior for both map and claim validation, so call sites cannot silently drift. Covered chunks from another segment of the same document are allowed and counted as a quality signal; unknown, foreign-document, and segmentation-uncovered chunks are hard failures.
 
-R2's selected deeper responsibility-reader redesign is specified in
+R2's implemented deeper responsibility-reader redesign is specified in
 `plan_r2_deeper_responsibility_architecture.md`; read its STATUS table first. It separates
 exact-quote inventory acceptance from field completeness, keeps incomplete inventory quarantined
 from merge eligibility, uses one bounded combined field/quote repair call, and expands explicit
-multi-destination lists deterministically. The plan is authoritative for this unfinished R2 path;
-the current deployed Batch F reader remains the production state until those steps are implemented,
-reviewed, released, and proven by one pinned gate.
+multi-destination lists deterministically. Its one approved production gate scored 12/30 on
+2026-07-29. R2 is hard-stopped for an owner choice between a bounded model bake-off and another
+deeper-architecture step; no second gate is authorized. The plan is authoritative for this state.
 
 Responsibility diagnostics follow the same R0 audit boundary: selected policy, validation method,
 alternate policies that would pass, cross-segment status, root failure origin, bounded quote, and a

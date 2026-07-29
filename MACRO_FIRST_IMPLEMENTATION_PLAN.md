@@ -1,8 +1,7 @@
 # Macro-First Implementation Plan — Canonical Plan of Record
 
 Status: **CANONICAL. R0, R0.1, and R1 are complete and production-verified.
-R2 deeper-architecture planning is complete after Batch F's sixth gate regressed to 14/30 (46.7%);
-implementation has not started.
+R2's approved deeper release completed one gate at 12/30 (40%) and is hard-stopped for owner choice.
 R3 through R10 are blocked.**
 
 Created: 2026-07-21
@@ -19,7 +18,7 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R0 | ✅ done, 2026-07-22 | CI run `29885537017`, migration 94, worker `20260722.1`, and production map `a2f38158-063f-4fcb-96e8-3e595766e6df` |
 | R0.1 | ✅ done, 2026-07-27 | Commit `da1ad5a`; CI `30271360677`; worker `20260727.3` (`75jeiusj`, 24 tasks); forced run `run_06fqbf50qn8kvq69h6u3dg7601` produced map `54cfec32-b428-490f-9e21-ab79c8f3add4` with 1 exact root drop, 5 cascades, 1 repair attempt, and no admitted fuzzy quote |
 | R1 | ✅ done, 2026-07-27 | Commits `5f962b5` + `24bbf70`; CI `30269886119` attempt 2 green including empty-DB migration, transactional R1 verifier, and drift; production migration succeeded; drift 11/11; Vercel `24bbf70` deployed with HTTP 200; worker `20260727.2` (`h6ri0rb9`, 24 tasks) |
-| R2 | 🟨 deeper-reader plan ready, 2026-07-28 | Batch F commit `08c2631`; sixth map `85fc772b-92c3-4101-8b2a-288ba9ad6d4a` scored 14/30; Albert selected deeper-architecture planning; implementation starts at P0 in `plan_r2_deeper_responsibility_architecture.md` |
+| R2 | 🛑 owner decision, 2026-07-29 | Release `dc1317f7`; CI `30417301245`; worker `20260729.1`; map `193376a7-848e-48e8-b5ec-8cca51285b3f` scored 12/30. No second gate |
 | R3 | ⬜ open | Blocked on R2 |
 | R4 | ⬜ open | Blocked on R3 |
 | R5 | ⬜ open | Blocked on R4 |
@@ -29,8 +28,8 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R9 | ⬜ open | Blocked on R8 |
 | R10 | ⬜ open | Blocked on R9 |
 
-Fresh-session starting point: stop before code until Albert separately asks to implement
-`plan_r2_deeper_responsibility_architecture.md`. Then read its STATUS table and begin P0. The plan
+Fresh-session starting point: read `plan_r2_deeper_responsibility_architecture.md`, then stop for
+Albert's choice between bounded model bake-off and another deeper-architecture step. The plan
 preserves the binding hard-stop controls and forbids Batch G prompt polish. Merge and apply remain
 forbidden. R0, R0.1, and R1 are green; R3 through R10 remain blocked on R2.
 

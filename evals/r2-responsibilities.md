@@ -639,3 +639,32 @@ The only allowed choices are:
   Responsibility inventory must not collapse below Batch E's 179 without a documented reason,
   full-map drops must not remain near 170 when quote roots are four, and rows 7/8/9 must recover
   without fixture-specific code.
+
+## Seventh production gate: deeper architecture, binding hard stop
+
+The independently approved deeper-reader release ran exactly one pinned production gate on
+2026-07-29 and scored **12/30 (40%)**. The `<=23` rule is binding. R2 is stopped; Albert must choose
+a bounded model bake-off or another deeper-architecture step. Do not run a second gate.
+
+- Commit `dc1317f7f04bd23f3693ea04a4a23ae52044897b`; green CI `30417301245`.
+- Worker `20260729.1`, deployment `g1jq296j`; production route `openai/gpt-4.1`.
+- Grok approval session `019fabb5-5e45-73a3-a885-e1146746948f`: `APPROVED FOR CI AND LIVE
+  REGATE`, no P0/P1.
+- Frozen SHA `398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be`;
+  key `licensed-team-responsibilities-v1`; matcher `field-aware-v3`.
+- Run `run_06fqnh151dmai294bc2uble701`; document `c4ba034f-fb6c-40ee-a98e-fd20166a438b`;
+  storage `admin/r2-deeper-gate/1785293185660-Licensed_Team_Responsibilities_2_-_tagged.txt`.
+- Document-ingestion job `27dfc7fb-316d-4ad4-9479-60fe19200bcf` was still running downstream
+  without error when measured. Source-workflow job `a8146ec8-4e25-4317-b220-356fb459b12b`
+  completed with retry zero.
+- Map `193376a7-848e-48e8-b5ec-8cca51285b3f` was `degraded`; final model run
+  `687df936-2a0c-4e5f-86e5-70cd0077bfd9`; context pack
+  `292560c5-2007-4a9f-bc76-30005abfc5ac`.
+- 83 responsibility records; 225 total kept; 170 dropped; omissions `80 -> 72`.
+- Budget: 24/40 calls, 59,973/500,000 input tokens, 1/1 general repair,
+  `$0.299865/$10`, concurrency four. Post-pass used one combined repair and five omission retries,
+  one per chunk.
+- Combined repair failed atomically: accepted false, `repair_failed`; six selected field repairs;
+  field failures `6 -> 6`; root quote failures `15 -> 15`.
+- Merge/apply stayed false. `business_objects`, `business_object_versions`, and
+  `business_model_changes` stayed zero before and after.

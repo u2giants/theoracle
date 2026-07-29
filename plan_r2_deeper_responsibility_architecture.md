@@ -1,6 +1,6 @@
 # R2 Deeper Responsibility Architecture Implementation Plan
 
-Status: **P0-P6 COMPLETE. P7 RELEASE AND ONE PINNED PRODUCTION GATE ARE NEXT.**
+Status: **ONE PRODUCTION GATE COMPLETE. R2 HARD-STOPPED AT 12/30 FOR OWNER DECISION.**
 
 Created: 2026-07-28
 Owner direction: Albert selected the deeper-architecture path by requesting this plan.
@@ -21,12 +21,11 @@ were incorporated on 2026-07-28 before implementation.
 | P4. Rebuild omission, audit, and merge-eligibility rules around complete records | ✅ local complete | 2026-07-28 | The production-used seam covers the full lifecycle with production helpers. Final structure-map assembly now calls `responsibilityMergeEligibleElements`, which fails loudly when a complete ID is absent from inventory; incomplete inventory remains audit-only and forces degraded status. |
 | P5. Complete local regression and invariant verification | ✅ local complete | 2026-07-28 | After P3-P4 completion, all 13 exact commands in §10 passed in one fail-fast run: three typechecks; workers R2/source-workflow/R0/document fallback; AI R2/workflow; engines macro/macro-first/R1/R2. `git diff --check` also passed. |
 | P6. Independent Grok 4.5 review and same-agent correction loop | ✅ complete | 2026-07-28 | Grok session `019fabb5-5e45-73a3-a885-e1146746948f` returned `APPROVED FOR CI AND LIVE REGATE` with no P0/P1 findings after the same implementation agent fixed full-span field binding, ambiguous destination expansion, expanded-ID repair-slot loss, and the production merge-eligibility guard. Parent reran all 13 §10 commands plus `git diff --check`; all passed. |
-| P7. Commit, push, CI, deploy, and run one pinned production gate | ⬜ open | — | CI green, one worker release, one disposable gate, full evidence recorded |
-| P8. Apply the score decision and update durable documentation | ⬜ open | — | `>=27` continues R2; `24–26` permits bake-off; `<=23` stops for owner |
+| P7. Commit, push, CI, deploy, and run one pinned production gate | ✅ complete | 2026-07-29 | Commit `dc1317f7f04bd23f3693ea04a4a23ae52044897b`; CI `30417301245` green; worker `20260729.1` deployment `g1jq296j`; exactly one gate `run_06fqnh151dmai294bc2uble701` scored 12/30 |
+| P8. Apply the score decision and update durable documentation | 🛑 blocked on owner | 2026-07-29 | Score 12/30 is `<=23`: no second gate. Albert must choose bounded model bake-off or another deeper-architecture step |
 
-Fresh-session starting point: begin at **P7 release and one pinned production gate**. Re-read this
-entire plan, `HANDOFF.md`, and the R2 section of `evals/r2-responsibilities.md` before taking release
-action. P6 has a clean Grok 4.5 approval recorded above; repeat the review only if code changes.
+Fresh-session starting point: **owner decision only**. Do not run another gate or continue R2 code
+until Albert chooses bounded model bake-off or another deeper-architecture step.
 
 ---
 
