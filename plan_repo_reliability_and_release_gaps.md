@@ -368,6 +368,8 @@ reconciliation migration or generated SQL change was needed.
   12 rows, latest id/timestamp marker `12` / `1785158867458`.
 - Corrected the stale `AGENTS.md`, `DECISIONS.md`, and historical `HANDOFF.md` warnings. They now
   distinguish the generated Drizzle journal from the raw migration chain and forbid duplicate DDL.
+- Release commit `9357220` passed GitHub Actions run `30418908276`, including the newly added
+  `verify:document-context-schema` step against the fresh database.
 
 ### REL-6: live image upload proof
 
