@@ -1802,6 +1802,7 @@ export const gaps = pgTable(
     askedInMessageId: uuid('asked_in_message_id').references(() => messages.id),
     resolvedByClaimId: uuid('resolved_by_claim_id').references(() => claims.id),
     createdByModelRunId: uuid('created_by_model_run_id').references(() => modelRuns.id),
+    sourceContext: jsonb('source_context'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
     resolvedAt: timestamp('resolved_at'),
@@ -1809,6 +1810,51 @@ export const gaps = pgTable(
   (t) => ({
     statusPriorityIdx: index('gaps_status_priority_idx').on(t.status, t.priority),
     targetStatusIdx: index('gaps_target_status_idx').on(t.targetEmployeeId, t.status),
+  }),
+);
+
+export const modelCoverageConversions = pgTable(
+  'model_coverage_conversions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceGapId: uuid('source_gap_id').references(() => gaps.id, { onDelete: 'restrict' }).notNull(),
+    questionToAsk: text('question_to_ask').notNull(),
+    conversionReason: text('conversion_reason').notNull(),
+    targetEmployeeIds: jsonb('target_employee_ids').notNull(),
+    sourceSnapshot: jsonb('source_snapshot').notNull(),
+    status: varchar('status', { length: 30 }).notNull().default('draft'),
+    createdGapIds: jsonb('created_gap_ids').default([]).notNull(),
+    createdByEmployeeId: uuid('created_by_employee_id').references(() => employees.id).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    activeSourceGapUnique: uniqueIndex('model_coverage_conversions_active_source_gap_unique')
+      .on(t.sourceGapId)
+      .where(sql`${t.status} IN ('draft', 'sent')`),
+    statusCreatedIdx: index('model_coverage_conversions_status_created_idx').on(t.status, t.createdAt),
+  }),
+);
+
+export const modelCoverageConversionEvents = pgTable(
+  'model_coverage_conversion_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    conversionId: uuid('conversion_id')
+      .references(() => modelCoverageConversions.id, { onDelete: 'restrict' })
+      .notNull(),
+    sourceGapId: uuid('source_gap_id').references(() => gaps.id, { onDelete: 'restrict' }).notNull(),
+    action: varchar('action', { length: 30 }).notNull(),
+    actedByEmployeeId: uuid('acted_by_employee_id').references(() => employees.id).notNull(),
+    sourceSnapshot: jsonb('source_snapshot').notNull(),
+    afterState: jsonb('after_state'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    conversionCreatedIdx: index('model_coverage_conversion_events_conversion_created_idx').on(
+      t.conversionId,
+      t.createdAt,
+    ),
   }),
 );
 

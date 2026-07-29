@@ -59,6 +59,15 @@ export async function reconcileAndWriteMapCoverageGaps(args: {
 
   for (const omission of reconciliation.omissions) {
     const gapId = idsByRef.get(omission.ref)!;
+    const sourceContext = {
+      sourceType: args.sourceType,
+      sourceId: args.sourceId,
+      mapId: args.activeMap.mapId,
+      mapElementRef: omission.ref,
+      mapElementKind: omission.elementKind,
+      mapShape: omission.shape,
+      mapElementLocalId: omission.localId,
+    };
     await args.db
       .insert(gaps)
       .values({
@@ -68,14 +77,22 @@ export async function reconcileAndWriteMapCoverageGaps(args: {
         whyItMatters: `Source ${args.sourceType} ${args.sourceId}, map ${args.activeMap.mapId}, ${omission.shape} ${omission.elementKind} ${omission.ref} has no current evidence claim. This is model-quality work and must not be asked directly to an employee.`,
         priority: 'medium',
         status: 'open',
+        sourceContext,
       })
       .onConflictDoUpdate({
         target: gaps.id,
         set: {
-          status: 'open',
+          status: sql`CASE
+            WHEN ${gaps.status} = 'resolved' THEN ${gaps.status}
+            ELSE 'open'::gap_status
+          END`,
           questionToAsk: `Administrative coverage finding: create or link an evidence claim for ${omission.kind} ${omission.localId}.`,
           whyItMatters: `Source ${args.sourceType} ${args.sourceId}, map ${args.activeMap.mapId}, ${omission.shape} ${omission.elementKind} ${omission.ref} has no current evidence claim. This is model-quality work and must not be asked directly to an employee.`,
           updatedAt: new Date(),
+          sourceContext: sql`CASE
+            WHEN ${gaps.status} = 'resolved' THEN ${gaps.sourceContext}
+            ELSE ${JSON.stringify(sourceContext)}::jsonb
+          END`,
         },
       });
   }

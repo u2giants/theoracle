@@ -5,6 +5,24 @@ rejected with recorded evidence, or transferred to a named external owner.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
+## GAP-11 local handoff, 2026-07-29
+
+GAP-11 audited model-coverage conversion is implemented locally but is not released. Migration
+`100_model_coverage_conversions.sql` adds stable finding provenance, one active or sent conversion
+per administrative `model_coverage` gap, and database-enforced append-only audit events. `/admin/gaps`
+requires an admin to write a human question and reason and choose active recipients. The draft can
+be cancelled and replaced with a new draft before sending. Sending is row-locked and atomic: it creates one normal
+`coverage_question` gap per recipient, records the created ids and source map element, and resolves
+the administrative source row. Retries cannot create a second active conversion or second send.
+
+Local verification passed: `verify:model-coverage-conversion`; web, DB, and worker typechecks and
+lint; the production web build; and `git diff --check`. Visual proof is intentionally pending
+because migration 100 was not applied to the local database and this task forbids database
+mutation. Next release steps are: review and commit the diff, apply migration 100 through
+`pnpm db:migrate`, run CI, deploy the exact commit, then use a signed-in admin to prove draft,
+cancel, send, append-only audit, and double-submit behavior. Do not mark GAP-11 complete until
+those gates pass.
+
 ## Authoritative latest closeout — 2026-07-29
 
 ### 1. What this application is

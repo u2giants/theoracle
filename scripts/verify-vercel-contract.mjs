@@ -24,6 +24,7 @@ const expectedGuards = [
   'pnpm --filter @oracle/web verify:claim-translation-review',
   'pnpm --filter @oracle/web verify:eval-results-dashboard',
   'pnpm --filter @oracle/web verify:provider-capability-parity',
+  'pnpm --filter @oracle/web verify:model-coverage-conversion',
   'pnpm --filter @oracle/web verify:mcp',
 ];
 const guardScript = pkg.scripts?.['verify:vercel-guards'];
@@ -41,5 +42,5 @@ if (
 }
 
 console.log(
-  `PASS: Vercel buildCommand is ${command.length}/256 characters and delegates to all eight network-free guards.`,
+  `PASS: Vercel buildCommand is ${command.length}/256 characters and delegates to all nine network-free guards.`,
 );

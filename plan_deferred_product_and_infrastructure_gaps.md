@@ -21,7 +21,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-8 Provider capability parity                         | ✅ complete and released                                | Released in `4d56ad5`. DeepSeek, Qwen, and Google Gemini API remain sync-only for tracked extraction Batch. Unsupported settings are blocked and stale settings fail loudly. Grok approved, CI run `30422669789` passed, Vercel deployment `dpl_7JQoF119e4DVnNHtRE73xxDWUqoX` was promoted, and signed-in production Settings proof passed. |
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
 | GAP-10 Deprecated identity-column cleanup                | ✅ complete and released                              | Released in `30eed14`. Migration 98 applied successfully, a second full migration run proved rerun safety, CI and Vercel passed, and protected post-drop authentication succeeded. |
-| GAP-11 Model-coverage finding conversion                 | ⬜ open                                                 | Administrative findings are isolated correctly but lack the audited convert-to-question flow                                                                                                                                                                                                                                                           |
+| GAP-11 Model-coverage finding conversion                 | 🟨 local implementation complete; release proof pending | Admin-reviewed drafts, stable map provenance, recipient validation, row-locked idempotent sending, cancellation and redrafting before send, and append-only audit events are implemented. Local code checks passed; visual proof is deferred until the reviewed migration is applied. Migration, CI, deployment, and production proof remain. |
 | GAP-12 Topical gap selection for lull questions          | ⬜ open                                                 | Typing presence is implemented; semantic relevance is not                                                                                                                                                                                                                                                                                              |
 | GAP-13 Oversized conversation windowing                  | ⬜ open                                                 | Current behavior processes an oversized conversation whole and logs it                                                                                                                                                                                                                                                                                 |
 | GAP-14 Final documentation closure                       | ⬜ open                                                 | Depends on the relevant earlier steps                                                                                                                                                                                                                                                                                                                  |
@@ -506,6 +506,28 @@ on build `30eed14`.
 
 Gate: conversion is explicit, idempotent, auditable, reversible before sending, and no employee
 consumer ever reads a raw `model_coverage` row.
+
+Local implementation evidence (2026-07-29):
+
+- `/admin/gaps` keeps raw `model_coverage` findings in a separate administrative panel. The normal
+  employee-gap table, chat retrieval, and lull-question worker continue to exclude those rows.
+- The map-coverage writer now stores the source type/id, active map id, exact map-element ref,
+  element kind/local id, and map shape in `gaps.source_context`.
+- An admin must write the employee-facing question and conversion reason and select active
+  recipients. Saving creates a reversible draft. Sending creates one normal `coverage_question`
+  gap per recipient; cancelling a draft creates no employee gaps.
+- A partial unique source-finding key, row locks, terminal-state checks, and one database
+  transaction make draft creation and sending safe against retries and double-clicks. Cancelling
+  releases the active-draft constraint so a corrected draft can be created. Disabled or missing
+  recipients stop the send clearly.
+- `model_coverage_conversion_events` is append-only and records the admin, timestamp, action,
+  immutable source snapshot, recipient ids, and created gap ids. The administrative source row is
+  marked resolved only in the same transaction that creates the employee gaps and the send audit.
+- `verify:model-coverage-conversion` guards authorization, idempotency, source provenance, audit
+  writes, terminal-state rejection, and employee-consumer exclusion without network access.
+- Release remains open until migration 100 is applied through the normal journal, CI passes, the
+  exact commit is deployed, and a signed-in production admin proves draft, cancel, send, audit,
+  and double-submit behavior.
 
 ### GAP-12: topical gap selection for lull questions
 

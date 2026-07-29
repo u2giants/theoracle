@@ -6,7 +6,6 @@ import { requireAdmin } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
 import {
   claims,
-  gaps,
   macroRelationshipClaims,
   macroRelationshipReviewEvents,
   macroRelationships,
@@ -116,35 +115,6 @@ export async function sweepMacroStaleness() {
   await requireAdmin();
   const db = getDirectDb();
   await sweepStaleMacroRelationships(db);
-  refresh();
-}
-
-export async function convertCoverageFindingToGap(formData: FormData) {
-  await requireAdmin();
-  const id = String(formData.get('id') ?? '');
-  if (!id) return;
-  const db = getDirectDb();
-  const [finding] = await db
-    .select()
-    .from(sourceCoverageFindings)
-    .where(eq(sourceCoverageFindings.id, id))
-    .limit(1);
-  if (!finding) throw new Error('Coverage finding not found.');
-  const [gap] = await db
-    .insert(gaps)
-    .values({
-      gapType: 'coverage_finding',
-      questionToAsk: finding.suggestedQuestion ?? finding.summary,
-      whyItMatters: 'A macro coverage audit found that source material is not represented by approved claims or relationships.',
-      relatedClaimIds: finding.relatedClaimIds,
-      priority: finding.severity >= 8 ? 'high' : 'medium',
-      status: 'open',
-    })
-    .returning({ id: gaps.id });
-  await db
-    .update(sourceCoverageFindings)
-    .set({ status: 'converted_to_gap', createdGapId: gap?.id ?? null })
-    .where(eq(sourceCoverageFindings.id, id));
   refresh();
 }
 

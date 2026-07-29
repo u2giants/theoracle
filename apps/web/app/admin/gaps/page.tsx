@@ -1,12 +1,18 @@
 export const dynamic = 'force-dynamic';
 
 import Link from 'next/link';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { getDirectDb } from '@oracle/db/client';
-import { gaps, employees } from '@oracle/db/schema';
+import { gaps, employees, modelCoverageConversions } from '@oracle/db/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { formatNYDate } from '@/lib/time';
-import { updateGapStatus } from './_actions';
+import {
+  cancelCoverageConversion,
+  createCoverageConversionDraft,
+  sendCoverageConversion,
+  updateGapStatus,
+} from './_actions';
 
 const STATUS_TABS = [
   { label: 'Open', value: 'open' },
@@ -47,6 +53,36 @@ export default async function AdminGapsPage({
   const activeStatus = status ?? 'open';
 
   const db = getDirectDb();
+  const activeEmployees = await db
+    .select({ id: employees.id, name: employees.name, role: employees.role })
+    .from(employees)
+    .where(isNull(employees.disabledAt))
+    .orderBy(employees.name);
+
+  const coverageFindings = await db
+    .select({
+      id: gaps.id,
+      questionToAsk: gaps.questionToAsk,
+      whyItMatters: gaps.whyItMatters,
+      status: gaps.status,
+      sourceContext: gaps.sourceContext,
+      conversionId: modelCoverageConversions.id,
+      conversionStatus: modelCoverageConversions.status,
+      conversionQuestion: modelCoverageConversions.questionToAsk,
+      conversionReason: modelCoverageConversions.conversionReason,
+      targetEmployeeIds: modelCoverageConversions.targetEmployeeIds,
+      createdGapIds: modelCoverageConversions.createdGapIds,
+    })
+    .from(gaps)
+    .leftJoin(
+      modelCoverageConversions,
+      and(
+        eq(modelCoverageConversions.sourceGapId, gaps.id),
+        inArray(modelCoverageConversions.status, ['draft', 'sent']),
+      ),
+    )
+    .where(eq(gaps.gapType, 'model_coverage'))
+    .orderBy(desc(gaps.createdAt));
 
   const rows = await db
     .select({
@@ -63,9 +99,12 @@ export default async function AdminGapsPage({
     .from(gaps)
     .leftJoin(employees, eq(employees.id, gaps.targetEmployeeId))
     .where(
-      activeStatus !== 'all'
-        ? eq(gaps.status, activeStatus as 'open' | 'queued' | 'asked' | 'resolved' | 'stale' | 'rejected')
-        : undefined,
+      and(
+        ne(gaps.gapType, 'model_coverage'),
+        activeStatus !== 'all'
+          ? eq(gaps.status, activeStatus as 'open' | 'queued' | 'asked' | 'resolved' | 'stale' | 'rejected')
+          : undefined,
+      ),
     )
     .orderBy(desc(gaps.createdAt));
 
@@ -97,6 +136,74 @@ export default async function AdminGapsPage({
           );
         })}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Model coverage findings</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {coverageFindings.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No model coverage findings.</p>
+          ) : coverageFindings.map((finding) => {
+            const source = finding.sourceContext as Record<string, string> | null;
+            const targetIds = Array.isArray(finding.targetEmployeeIds)
+              ? finding.targetEmployeeIds as string[]
+              : [];
+            return (
+              <div key={finding.id} className="rounded border p-4 text-sm">
+                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <span>{finding.status}</span>
+                  <span>{source?.mapElementKind ?? 'unknown element'}: {source?.mapElementRef ?? 'missing source details'}</span>
+                </div>
+                <p className="mt-2">{finding.questionToAsk}</p>
+                {!finding.conversionId ? (
+                  <form action={createCoverageConversionDraft} className="mt-4 grid gap-3 md:grid-cols-2">
+                    <input type="hidden" name="sourceGapId" value={finding.id} />
+                    <label className="text-xs font-medium">
+                      Employee-facing question
+                      <textarea name="questionToAsk" required rows={3} className="mt-1 w-full rounded border bg-background p-2 font-normal" />
+                    </label>
+                    <label className="text-xs font-medium">
+                      Why should a person answer this?
+                      <textarea name="conversionReason" required rows={3} className="mt-1 w-full rounded border bg-background p-2 font-normal" />
+                    </label>
+                    <label className="text-xs font-medium md:col-span-2">
+                      Recipients
+                      <select name="targetEmployeeIds" required multiple size={5} className="mt-1 w-full rounded border bg-background p-2 font-normal">
+                        {activeEmployees.map((employee) => (
+                          <option key={employee.id} value={employee.id}>{employee.name} - {employee.role}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <Button type="submit" size="sm" className="w-fit">Save draft</Button>
+                  </form>
+                ) : (
+                  <div className="mt-4 rounded bg-muted p-3">
+                    <p className="font-medium">Conversion {finding.conversionStatus}</p>
+                    <p className="mt-1">{finding.conversionQuestion}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{finding.conversionReason}</p>
+                    <p className="mt-1 text-xs">{targetIds.length} recipient{targetIds.length === 1 ? '' : 's'}</p>
+                    {finding.conversionStatus === 'draft' ? (
+                      <div className="mt-3 flex gap-2">
+                        <form action={sendCoverageConversion}>
+                          <input type="hidden" name="conversionId" value={finding.conversionId} />
+                          <Button type="submit" size="sm">Send questions</Button>
+                        </form>
+                        <form action={cancelCoverageConversion}>
+                          <input type="hidden" name="conversionId" value={finding.conversionId} />
+                          <Button type="submit" size="sm" variant="outline">Cancel draft</Button>
+                        </form>
+                      </div>
+                    ) : finding.conversionStatus === 'sent' ? (
+                      <p className="mt-2 text-xs">{Array.isArray(finding.createdGapIds) ? finding.createdGapIds.length : 0} employee gap(s) created.</p>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

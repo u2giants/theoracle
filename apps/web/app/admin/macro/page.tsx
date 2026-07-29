@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatNYDateTime } from '@/lib/time';
 import {
-  convertCoverageFindingToGap,
   createManualMacroRelationship,
   dismissCoverageFinding,
   dropMacroSupportAndRevalidate,
@@ -245,10 +244,6 @@ export default async function AdminMacroPage() {
                 ) : null}
                 {finding.status === 'open' ? (
                   <div className="mt-3 flex gap-2">
-                    <form action={convertCoverageFindingToGap}>
-                      <input type="hidden" name="id" value={finding.id} />
-                      <Button size="sm" type="submit">Create gap</Button>
-                    </form>
                     <form action={dismissCoverageFinding}>
                       <input type="hidden" name="id" value={finding.id} />
                       <Button size="sm" variant="outline" type="submit">Dismiss</Button>
