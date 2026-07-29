@@ -90,25 +90,36 @@ export default async function AdminAIEvalsPage({
         <Card>
           <CardHeader><CardTitle className="text-base">{runs.length} saved run{runs.length === 1 ? '' : 's'}</CardTitle></CardHeader>
           <CardContent className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full min-w-[1120px] table-fixed text-xs">
               <caption className="sr-only">Saved CLI evaluation runs and release gate results</caption>
+              <colgroup>
+                <col className="w-[15%]" />
+                <col className="w-[10%]" />
+                <col className="w-[28%]" />
+                <col className="w-[18%]" />
+                <col className="w-[20%]" />
+                <col className="w-[9%]" />
+              </colgroup>
               <thead className="border-b text-left"><tr>
-                <th scope="col" className="py-2">Completed</th><th scope="col">Stage</th>
-                <th scope="col">Route / prompt</th><th scope="col">Commit / fixtures</th>
-                <th scope="col" className="text-right">Gate metrics</th><th scope="col">Result</th>
+                <th scope="col" className="px-3 py-2">Completed</th>
+                <th scope="col" className="px-3 py-2">Stage</th>
+                <th scope="col" className="px-3 py-2">Route / prompt</th>
+                <th scope="col" className="px-3 py-2">Commit / fixtures</th>
+                <th scope="col" className="px-3 py-2 text-right">Gate metrics</th>
+                <th scope="col" className="px-3 py-2 text-center">Result</th>
               </tr></thead>
               <tbody>{runs.map((run) => {
                 const passed = run.stages.reduce((sum, item) => sum + item.passedCount, 0);
                 const failed = run.stages.reduce((sum, item) => sum + item.failedCount, 0);
                 return <tr key={run.runId} className="border-b">
-                  <td className="py-2"><Link href={`/admin/ai/evals/${encodeURIComponent(run.runId)}`} className="font-medium hover:underline">{formatNYDateTime(run.completedAt)}</Link></td>
-                  <td>{run.stages.map((item) => item.stage).join(', ')}</td>
-                  <td><div className="font-mono">{run.routeId}</div><div className="font-mono text-muted-foreground">{run.modelId ?? 'model not recorded'}</div><div className="text-muted-foreground">prompt {run.promptVersion}</div></td>
-                  <td><div className="font-mono">{run.commitSha.slice(0, 7)}</div><div className="font-mono text-muted-foreground">{run.fixtureVersion.slice(0, 8)}</div></td>
-                  <td className="text-right"><div>{passed} passed · {failed} failed</div><div className="text-muted-foreground">
+                  <td className="px-3 py-3 align-top"><Link href={`/admin/ai/evals/${encodeURIComponent(run.runId)}`} className="font-medium hover:underline">{formatNYDateTime(run.completedAt)}</Link></td>
+                  <td className="px-3 py-3 align-top">{run.stages.map((item) => item.stage).join(', ')}</td>
+                  <td className="px-3 py-3 align-top"><div className="break-words font-mono leading-5">{run.routeId}</div><div className="break-words font-mono leading-5 text-muted-foreground">{run.modelId ?? 'model not recorded'}</div><div className="leading-5 text-muted-foreground">prompt {run.promptVersion}</div></td>
+                  <td className="px-3 py-3 align-top"><div className="font-mono leading-5">{run.commitSha.slice(0, 7)}</div><div className="font-mono leading-5 text-muted-foreground">{run.fixtureVersion.slice(0, 8)}</div></td>
+                  <td className="px-3 py-3 text-right align-top leading-5"><div>{passed} passed · {failed} failed</div><div className="text-muted-foreground">
                     {run.stages[0]?.metrics.quoteValidity != null ? `${(run.stages[0].metrics.quoteValidity * 100).toFixed(1)}% quotes` : 'No quote metric'}
                   </div><div className="text-muted-foreground">{run.execution.latencyMs == null ? 'latency not measured' : `${run.execution.latencyMs} ms`}{run.execution.inputTokens == null ? '' : ` · ${run.execution.inputTokens} input tokens`}{run.execution.costUsd == null ? '' : ` · $${run.execution.costUsd.toFixed(4)}`}</div></td>
-                  <td><span className={run.gateStatus === 'PASS' ? 'text-green-700' : 'text-red-700'}>{run.gateStatus}</span></td>
+                  <td className="px-3 py-3 text-center align-top"><span className={run.gateStatus === 'PASS' ? 'font-semibold text-green-700' : 'font-semibold text-red-700'}>{run.gateStatus}</span></td>
                 </tr>;
               })}</tbody>
             </table>

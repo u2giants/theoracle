@@ -21,6 +21,9 @@ assert.match(layout, /requireAdmin\(\)/, 'The eval route must remain inside the 
 for (const field of ['stage', 'commit', 'status', 'from', 'to']) {
   assert.match(listPage, new RegExp(`name="${field}"`), `Missing ${field} filter.`);
 }
+assert.match(listPage, /overflow-x-auto/, 'Narrow eval tables must scroll horizontally.');
+assert.match(listPage, /min-w-\[1120px\]/, 'The eval table needs a readable desktop minimum width.');
+assert.match(listPage, /<colgroup>/, 'The eval table must retain explicit column widths.');
 assert.match(detailPage, /Raw CLI files stay local/, 'Detail must explain raw-artifact exclusion.');
 assert.match(detailPage, /notFound\(\)/, 'Unknown run IDs must return the framework 404.');
 assert.doesNotMatch(
