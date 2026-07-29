@@ -98,20 +98,27 @@ more ERR-003 work.
   coverage directly, and the old chain used a one-time follow-up latch. Stage 3 later removed this
   entire writer chain. Do not rerun a diagram outline or verify the retired task sequence.
 
-### ERR-004 — Workflow structure was not first-class; macro graph stayed invisible behind pending claims — OWNER-AUTHORIZED FIXTURE REQUIRED
+### ERR-004 — Workflow structure was not first-class; macro graph stayed invisible behind pending claims — FIXED
 
-**Current disposition (2026-07-26):** the outline/lens/macro writers named below are historical and
+**Current disposition (2026-07-29):** the outline/lens/macro writers named below are historical and
 were removed. The remaining business problem is verified through the current map-directed path:
 `source-workflow-read`, `source_workflow_maps`, active-map `mapElementRef` membership in document
-candidates, and deterministic `model_coverage` gaps. Reliability REL-2 owns that proof. Do not
-rebuild the deleted writer chain.
+candidates, and deterministic `model_coverage` gaps. The owner-approved current-path proof passed.
+Do not rebuild the deleted writer chain.
 
-**Read-only inventory (2026-07-27, not fixture proof):** production has 3 validated/degraded
+**Historical read-only inventory (2026-07-27, before fixture proof):** production had 3 validated/degraded
 non-empty maps, 74 candidate rows referencing those map IDs, and 0 current `model_coverage` gaps.
 A strict latest-active-map membership audit counted 54 of 75 historical referenced candidates as
-current members and 21 as older or otherwise non-current. Keep this incident open until an
-owner-authorized source-ID-and-hash fixture proves the current run's map, candidate membership, and
-omission-gap behavior together.
+current members and 21 as older or otherwise non-current.
+
+**Owner-approved fixture proof (2026-07-29):** disposable document
+`35421497-9216-4a88-a61c-14d1838a44a4`, current map
+`89a06288-ce59-4ec4-b439-6293b21f4c28`, and Trigger run
+`run_06fqkqtteit1hn6aguvbbbsm01` proved 176 primary references, 7 covered references, and 169
+genuine omissions. One deterministic reconcile updated exactly those 169 pre-existing omission
+rows with all seven stable provenance keys, created zero rows, staled zero rows, and changed no
+unrelated legacy row. Production now has 1,491 open model-coverage rows: 169 with current valid
+provenance and 1,322 legacy rows with null source context. ERR-004 is closed.
 
 - **Symptom:** diagram/SOP sources could still explode into many atomic claims without preserving the underlying process graph. Macro relationships were also born `blocked_pending_support`, so the holistic layer stayed hidden until a noisy claim queue was approved.
 - **Fix applied/deployed:** added `source_workflow_maps` with nodes, edges, paths, and coverage metadata; source-outline now persists the graph; document ingestion runs the outline/workflow-map pass before broad extraction; candidates store `workflowTrace` when their quote matches a workflow edge; candidate hashes can use a stable graph edge key for edge-level dedup; macro extraction inserts deterministic path relationships from workflow-map paths; coverage audit inserts missing-edge findings; and generated macro relationships with pending support now enter `pending_review` while read-time Brain/chat helpers still require approved support. Migration `86_source_workflow_maps.sql` applied to prod and Trigger worker `20260704.2` deployed on 2026-07-04.

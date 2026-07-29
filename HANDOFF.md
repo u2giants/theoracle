@@ -7,13 +7,14 @@ HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed 
 
 ## Current resume point after completion audit and Grok 4.5 review, 2026-07-29
 
-Repository `main` is at `de9550b`; GitHub Actions run `30433400108` is green. GAP-11 is released
-at `e1d16f5`: migration 100 applied twice, CI run `30426093402` passed, Vercel deployed the exact
-commit, and Grok session `019fac5e-d70f-7eb1-b6ee-d542152289b8` approved it. Only its signed-in
-production draft, cancel, redraft, send, append-only audit, and double-submit proof remains.
+Repository `main` is at `a7637f7`; GitHub Actions run `30445659590` is green and Vercel production
+serves that exact build. GAP-11 is released through `a7637f7`. Its signed-in draft, cancel,
+redraft, recipient-isolation, and append-only audit proof passed. One replacement draft addressed
+only to Albert remains unsent. Only action-time send approval, send audit, and double-submit proof
+remain.
 
-The fresh audit found REL-1, REL-3, REL-4, and REL-5 complete. REL-2 is partial only because
-ERR-004 and ERR-005 need owner-authorized fixtures. REL-6 needs an owner-approved non-sensitive
+The fresh audit found REL-1, REL-3, REL-4, REL-5, and ERR-004 complete. REL-2 is partial only
+because ERR-005 needs its owner-authorized contradiction fixture. REL-6 needs an owner-approved non-sensitive
 image. REL-7 waits on REL-2. REL-8 waits for macro R10. REL-9 and GAP-14 record the current docs
 truth but cannot close the blocked and deferred work.
 
@@ -31,8 +32,12 @@ Exact next actions:
 4. Albert decides whether Authentik is wanted for GAP-3.
 5. Wait for five independent Chinese positive labels plus one negative control for GAP-4.
 6. Obtain exact owner approval before GAP-6 cloud mutation or GAP-9 secret rotation.
-7. Obtain owner-approved fixtures for REL-2 and REL-6.
-8. Run GAP-11's signed-in production lifecycle proof.
+7. REL-2 ERR-004's current map and deterministic coverage proof passed on the approved disposable
+   fixture below. ERR-005 still needs its separate owner-approved contradiction fixture. REL-6
+   still needs an owner-approved non-sensitive image.
+8. Ask Albert for action-time confirmation to send GAP-11 replacement conversion
+   `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5` to Albert H. only. If yes, send once, verify the audit
+   and created gap, then test a second submit cannot duplicate it. If no, cancel the draft.
 
 ## GAP-4 live gate released, production sample blocked, 2026-07-29
 
@@ -193,7 +198,25 @@ gap scored `0.7493`, an unrelated urgent design-color gap scored `0.1004`, and t
 low-priority gap won. The unrelated-only case returned no question, so no synthetic message was
 posted to employees. GAP-12 has no remaining implementation or release work.
 
-## GAP-11 released, signed-in lifecycle proof remains, 2026-07-29
+## GAP-11 production lifecycle handoff, 2026-07-29
+
+### 1. What this application is
+
+The Oracle is POP Creations' evidence-backed company knowledge system. Employees ask questions and
+upload documents; admins review claims, gaps, maps, and model behavior. The TypeScript `pnpm`
+monorepo is `C:\repos\oracle`, GitHub is `u2giants/theoracle` on `main`, the web app runs at
+`https://oracle.designflow.app`, Trigger.dev runs background workers, and Supabase stores production
+data and authentication.
+
+### 2. What we set out to do this session, and why
+
+GAP-11 adds an audited bridge from an administrative model-coverage omission to a normal employee
+question. This session had to finish the signed-in production lifecycle proof. Production had
+1,491 legacy findings and no row that could safely pass the new stable-provenance guard, so the
+session also had to create one genuine current-map test case without inventing source details or
+sending an employee message.
+
+### 3. Current state
 
 GAP-11 audited model-coverage conversion is released in commit
 `e1d16f5cba7b9db03199b1d29e798bc5d2dff783`. Migration
@@ -204,12 +227,114 @@ be cancelled and replaced with a new draft before sending. Sending is row-locked
 `coverage_question` gap per recipient, records the created ids and source map element, and resolves
 the administrative source row. Retries cannot create a second active conversion or second send.
 
-Grok 4.5 approved the final diff in session `019fac5e-d70f-7eb1-b6ee-d542152289b8`.
-Migration 100 applied successfully twice. CI run `30426093402` passed, and Vercel deployed the
-exact commit successfully. The remaining gate is a signed-in production admin proof of draft,
-cancel, redraft, send, append-only audit, and double-submit behavior. The saved browser login had
-expired during release verification, so do not mark GAP-11 complete until that functional proof
-passes.
+The production-scale follow-up is released through commit
+`a7637f789eebb8d8d52712ee975ec69392084e9b`. The page loads 25 findings at a time, orders active
+drafts and sent conversions first, and labels rows with missing stable source details instead of
+showing unsafe forms. CI run `30445659590` passed, Vercel production serves build `a7637f7`, and
+Grok 4.5 session `019fad77-ae94-72a0-b6d8-c8c81c7fc4cd` approved the final behavior.
+
+The approved production fixture used disposable document
+`35421497-9216-4a88-a61c-14d1838a44a4`, current unsuperseded map
+`89a06288-ce59-4ec4-b439-6293b21f4c28`, and exact current pipeline hash
+`a82e5655af639ef409fa2be476509897828e5a03d4b86550a2dd815cdf826543`. Existing reader job
+`90b32439-b039-4124-b145-128cea1712f8` belongs to Trigger run
+`run_06fqkqtteit1hn6aguvbbbsm01`. The map has 176 primary references, 7 covered references, and
+169 genuine omissions. One deterministic reconcile updated only those same 169 existing rows with
+all seven stable provenance keys. It created zero rows, staled zero rows, changed no unrelated
+legacy row, and created no employee question. The global 1,491 total stayed unchanged; null-context
+legacy rows fell from 1,491 to 1,322.
+
+Signed-in lifecycle proof used finding `66fc69be-4da4-5d2c-9571-84caaa1e67a8`. First conversion
+`fd0c9987-5cfb-40b6-ab2d-6d5946fdd367` was created as a draft and cancelled. Replacement
+conversion `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5` is an active draft addressed only to Albert H.
+The append-only event order is exactly `draft_created`, `cancelled`, `draft_created`. Both
+conversions have empty `created_gap_ids`; no `coverage_question` gap exists for the source finding.
+The source finding remains open.
+
+Code, release, fixture provenance, draft, cancel, redraft, and audit checks are done. The active
+draft has not been sent. No tracked source file is dirty from the fixture or browser proof.
+
+### 4. Everything we tried that did not work
+
+The first proposed fixture was mistakenly labeled `business-process.md`; production proved document
+`9d09fa89-3a46-465e-a98b-837287c9e22a` is actually `Pop Creations Flow 12112025 (1).png`. Its
+stored map hash did not match the hash recomputed by the current reader. Running coverage against
+that stale map could have mixed old and current truth, so the attempt stopped before mutation.
+
+The first production inventory also disproved an older handoff count of zero model-coverage rows.
+Production already had 1,491 open legacy rows, all with `source_context IS NULL`. Do not treat that
+older zero as current evidence and do not invent provenance for the remaining 1,322 rows.
+
+Immediately after clicking Cancel, the browser's returned page still showed the old draft because
+the client view was stale. A deliberate reload showed the authoritative database state: zero
+active draft, zero Cancel buttons, and all 25 eligible forms restored. Do not mistake the first
+post-action paint for a failed cancellation.
+
+### 5. Root causes and key findings
+
+The feature guard is correct: legacy coverage rows cannot be converted because they lack source
+type, source ID, map ID, map-element reference, element kind, element local ID, and shape. The
+deterministic coverage IDs let the current writer safely repair only the 169 omissions owned by one
+exact current map without scanning or staling the other legacy rows.
+
+The current signed-in page proves the released UI contract. Eligible rows show draft forms;
+ineligible rows show a warning; cancelled drafts can be replaced; the active replacement targets
+only Albert; and raw model-coverage findings remain separate from employee gaps.
+
+### 6. Exact next steps
+
+1. Ask Albert for action-time confirmation to send replacement conversion
+   `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5` to `Albert H. - Lead Architect` only. You will know
+   authorization is sufficient when Albert explicitly says yes to that exact send.
+2. If approved, click `Send questions` once on
+   `https://oracle.designflow.app/admin/gaps?status=open&coveragePage=1`. You will know it worked
+   when the conversion shows sent, exactly one created employee gap ID, and the source finding is
+   resolved.
+3. Read the production conversion, audit events, source finding, and created gap. Verify the event
+   sequence adds one `sent` event, `created_gap_ids` contains exactly one ID, that gap targets
+   Albert only, and no other employee received a question. You will know it worked when all counts
+   are exactly one and the source snapshot still matches map
+   `89a06288-ce59-4ec4-b439-6293b21f4c28`.
+4. Exercise the double-submit guard without creating a second question. Prefer a direct repeat of
+   the same server action only if its exact immutable conversion ID is available; otherwise verify
+   the UI no longer exposes Send and use the database uniqueness and event counts as the safe
+   retry proof. You will know it worked when employee-gap and sent-event counts remain one.
+5. Update the GAP-11 status row and this section with the final IDs and evidence. Re-read GAP-12
+   through GAP-14 and report any downstream drift before closing this phase. You will know it
+   worked when GAP-11 is marked complete and no downstream assumption changed silently.
+6. If Albert declines the send, click `Cancel draft`, verify no employee gap exists, and leave
+   GAP-11 honestly blocked on the send proof.
+
+### 7. Constraints and gotchas
+
+Do not send without action-time confirmation. Do not change the recipient from Albert, add another
+recipient, create a second draft, or send any employee message outside this exact proof. Do not
+backfill the remaining 1,322 legacy rows without a current matching map. Production infrastructure
+is read-only by default; this approved fixture did not grant wider mutation authority. Keep all
+unrelated `.ai`, `.playwright-cli`, and image files untouched.
+
+### 8. Access and environment
+
+The in-app Codex browser is signed in as Albert H., Lead Architect, and the live GAP-11 page was
+left open with the replacement draft. `gh`, `vercel`, `op`, and the production session-pooler path
+are authenticated on this machine. Database credentials live in 1Password vault `vibe_coding`;
+never print or commit their values. Repository branch is `main`; Git author is
+`Albert Hazan <u2giants@users.noreply.github.com>`.
+
+### 9. Open questions and risks
+
+The only GAP-11 decision is whether Albert authorizes the exact self-targeted send. Sending creates
+one real production `coverage_question` gap for Albert, so it requires current-chat confirmation.
+The double-submit test must prove idempotency without broadening recipients or creating a duplicate.
+The other 1,322 legacy rows remain intentionally ineligible until a current reader supplies genuine
+provenance.
+
+Self-audit passed on 2026-07-29. Sections 1-3 explain the application, goal, release, production
+fixture, identifiers, and exact state. Section 4 records every failed path and why. Section 5
+captures the non-obvious provenance and deterministic-ID findings. Section 6 gives ordered actions
+with a verification gate for each. Sections 7-9 define constraints, access, the one owner decision,
+and risks. A street-new developer can continue without this chat, as effectively as this session,
+with every relevant detail present.
 
 ## Authoritative latest closeout — 2026-07-29
 
@@ -484,7 +609,7 @@ must read the named plan's status table first and must not re-plan the work from
 | Stale workflow production script | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
 | False Teams transcript TODO comments | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
 | ERR-003 retired fan-out, closed by repository removal and deployed task inventory | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
-| ERR-004 current map-directed path needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
+| ERR-004 current map-directed path, fixed by owner-approved production proof on 2026-07-29 | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
 | ERR-005 document contradiction fix needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
 | ERR-002 obsolete SQL smoke, resolved by zero-caller proof and retirement on 2026-07-27 | [Reliability plan REL-3](plan_repo_reliability_and_release_gaps.md#rel-3-retire-or-retarget-the-obsolete-macro-support-sql-smoke) |
 | Old DeepSeek phantom-fallback instruction, closed and released 2026-07-27 | [Reliability plan REL-4](plan_repo_reliability_and_release_gaps.md#rel-4-model-pool-fallback-truth) |
@@ -505,7 +630,7 @@ must read the named plan's status table first and must not re-plan the work from
 | Qwen explicit cache and DeepSeek beta strict-schema limitations | [Product plan GAP-8](plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
 | Deferred credential rotation | [Product plan GAP-9](plan_deferred_product_and_infrastructure_gaps.md#gap-9-secret-rotation), blocked on Albert |
 | Deprecated employee identity columns, closed and released 2026-07-29 | [Product plan GAP-10](plan_deferred_product_and_infrastructure_gaps.md#gap-10-deprecated-identity-columns) |
-| GAP-11 released; signed-in production lifecycle proof remains | [Product plan GAP-11](plan_deferred_product_and_infrastructure_gaps.md#gap-11-audited-model-coverage-conversion) |
+| GAP-11 released; self-targeted send confirmation, send audit, and double-submit proof remain | [Product plan GAP-11](plan_deferred_product_and_infrastructure_gaps.md#gap-11-audited-model-coverage-conversion) |
 | Lull topical selection, closed and released 2026-07-29 | [Product plan GAP-12](plan_deferred_product_and_infrastructure_gaps.md#gap-12-topical-gap-selection-for-lull-questions) |
 | Oversized conversation windowing, closed and released 2026-07-29 | [Product plan GAP-13](plan_deferred_product_and_infrastructure_gaps.md#gap-13-oversized-conversation-windowing) |
 

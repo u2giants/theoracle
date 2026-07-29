@@ -4,7 +4,7 @@ Status: **CANONICAL for known open product features, runtime limitations, option
 and owner-deferred security work outside the macro-first and reliability plans.**
 
 Created: 2026-07-26
-Last corrected: 2026-07-29 during GAP-7 release
+Last corrected: 2026-07-29 during GAP-11 production lifecycle proof
 Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 
 ## Status table
@@ -21,7 +21,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-8 Provider capability parity                         | ✅ complete and released                                | Released in `4d56ad5`. DeepSeek, Qwen, and Google Gemini API remain sync-only for tracked extraction Batch. Unsupported settings are blocked and stale settings fail loudly. Grok approved, CI run `30422669789` passed, Vercel deployment `dpl_7JQoF119e4DVnNHtRE73xxDWUqoX` was promoted, and signed-in production Settings proof passed. |
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
 | GAP-10 Deprecated identity-column cleanup                | ✅ complete and released                              | Released in `30eed14`. Migration 98 applied successfully, a second full migration run proved rerun safety, CI and Vercel passed, and protected post-drop authentication succeeded. |
-| GAP-11 Model-coverage finding conversion                 | 🟨 released; signed-in lifecycle proof remains | Released in `e1d16f5`. Migration 100 applied twice, CI run `30426093402` passed, Vercel deployed the exact commit, and Grok session `019fac5e-d70f-7eb1-b6ee-d542152289b8` approved. Only the signed-in production draft/cancel/redraft/send/audit/double-submit proof remains. |
+| GAP-11 Model-coverage finding conversion                 | 🟨 released; send confirmation remains | Core conversion released in `e1d16f5`; pagination and legacy-provenance UX released through `a7637f7` with CI run `30445659590` green and signed-in production proof. A scoped production fixture restored valid provenance on 169 genuine omissions. Draft, cancel, redraft, recipient isolation, and append-only audit passed. The replacement draft targets Albert only and has not been sent. Only action-time approval, send, audit, and double-submit proof remain. |
 | GAP-12 Topical gap selection for lull questions          | ✅ complete and released                                | Released in `3c13fdc`. Migration 101 applied twice, CI run `30427353184` passed, Vercel deployed the exact commit, and Trigger.dev promoted worker `20260729.2` (`u5e3t6ql`). A live `text-embedding-3-small` proof chose the related low-priority gap at `0.7493` over an unrelated urgent gap at `0.1004`; the unrelated-only case produced no post. |
 | GAP-13 Oversized conversation windowing                  | ✅ complete and released                                | Released in `19859e0`. Migration 102 applied twice, CI run `30428842450` passed, Vercel deployed the exact commit, and Trigger.dev promoted worker `20260729.3` (`qx5wrwna`). A production-route fixture split 250 messages into six windows under the live 24,000-character cap, preserved all 250 identities, and collapsed overlap to one permanent candidate identity. |
 | GAP-14 Final documentation closure                       | 🟨 current audit recorded                              | Current completion and Grok-review facts are aligned. Final closure remains blocked by the honestly open owner choices, fixtures, approvals, and deferred macro work. |
@@ -114,8 +114,12 @@ Not in this plan:
   tracked Batch providers; unsupported settings are blocked and stale settings fail loudly.
 - Raw migration 98 removed the deprecated employee identity columns in release `30eed14`;
   `employee_identities` is now the only production identity source.
-- GAP-11 is released in `e1d16f5`; migration 100, CI, Vercel, and Grok review passed. Only the
-  signed-in draft/cancel/redraft/send/audit/double-submit lifecycle proof remains.
+- GAP-11 is released through `a7637f7`. The production admin page now paginates 1,491 findings and
+  labels the 1,322 remaining legacy rows that lack safe provenance. A scoped current-map fixture
+  restored all seven provenance keys on 169 genuine omissions. Draft, cancel, redraft, recipient
+  isolation, and append-only audit passed. The one active replacement draft targets Albert only
+  and has created no employee gap. Only action-time send approval, send audit, and double-submit
+  proof remain.
 - GAP-12 is complete and released in `3c13fdc`; the live embedding proof selected the related gap
   and refused the unrelated-only case.
 - GAP-13 is complete and released in `19859e0`; migration 102, CI, Vercel, Trigger worker, and the
@@ -568,8 +572,12 @@ Implementation and release evidence (2026-07-29):
 - Commit `e1d16f5cba7b9db03199b1d29e798bc5d2dff783` is released. Migration 100 applied
   successfully twice, CI run `30426093402` passed, Vercel deployed the exact commit, and Grok 4.5
   session `019fac5e-d70f-7eb1-b6ee-d542152289b8` approved the final diff.
-- Only the signed-in production admin proof remains: draft, cancel, redraft, send, append-only
-  audit, and double-submit behavior.
+- Signed-in production proof now passes draft, cancel, redraft, active-recipient isolation, and
+  append-only event ordering. Finding `66fc69be-4da4-5d2c-9571-84caaa1e67a8` has cancelled
+  conversion `fd0c9987-5cfb-40b6-ab2d-6d5946fdd367` and active replacement draft
+  `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5`, addressed only to Albert. No `coverage_question` gap
+  exists for the finding. Only action-time send approval, send audit, and double-submit behavior
+  remain.
 
 ### GAP-12: topical gap selection for lull questions
 
@@ -656,10 +664,15 @@ Local implementation evidence (2026-07-29):
 Gate: every known gap is done, explicitly rejected with evidence, or blocked on a named external
 decision. No vague "build later" row remains.
 
-Current audit result (2026-07-29): documentation is aligned with commit `de9550b` and green CI run
-`30433400108`. GAP-14 remains partial because owner choices, approved fixtures, exact mutation
+Current audit result (2026-07-29): implementation and production evidence are aligned through
+commit `a7637f7` and green CI run `30445659590`. GAP-14 remains partial because owner choices, approved fixtures, exact mutation
 approvals, natural production samples, GAP-11 lifecycle proof, and deferred macro work remain
 open. This is an honest closure record, not a claim that those items are complete.
+
+End-of-phase rule: after completing any remaining GAP phase, re-read every later GAP phase through
+GAP-14 and report any assumption, identifier, schema, file, interface, decision, or verification
+gate that the completed work changed. Update this plan before handing the next phase to a fresh
+session. Do not carry downstream drift only in chat.
 
 ## 10. Tests required
 

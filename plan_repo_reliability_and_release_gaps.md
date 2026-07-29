@@ -15,7 +15,7 @@ Database: Supabase project `eqccjfbyrywsqkxxpjvg`
 | Step | Status | Evidence or blocker |
 |---|---|---|
 | REL-1 Stale verification script and false comments | ✅ done, 2026-07-26 | Deleted the obsolete pre-migration-89 workflow audit; corrected Teams, typing-presence, storage-bucket, and retrofit-status notes; REL-1 search/diff gates passed (full worker gate is temporarily blocked by a concurrent out-of-scope taxonomy test edit) |
-| REL-2 Reconcile ERR-003, ERR-004, ERR-005 with the current reader | 🟨 partial, 2026-07-27 | ERR-003 is closed by source removal plus deployed worker `20260722.1`; ERR-004 and ERR-005 still require owner-authorized fixture reruns |
+| REL-2 Reconcile ERR-003, ERR-004, ERR-005 with the current reader | 🟨 partial, 2026-07-29 | ERR-003 is closed by source removal plus deployed worker `20260722.1`; ERR-004 passed on the owner-approved current-map fixture documented below; ERR-005 still requires its separate owner-authorized contradiction fixture |
 | REL-3 Retire or retarget the obsolete macro-support SQL smoke | ✅ done, 2026-07-27 | Zero-caller search proved the three query contracts and package command had no runtime or CI owner; deleted the smoke and package script without restoring retired writers |
 | REL-4 Model-pool phantom fallback audit | ✅ done, 2026-07-27 | Released in `5f962b5`/`24bbf70`; CI `30269886119` attempt 2 green, migration/drift green, Vercel HTTP 200, and Trigger worker `20260727.2` deployment `h6ri0rb9` |
 | REL-5 Migration 65 and generated-snapshot drift | ✅ done, 2026-07-29 | R1's fresh/rerun gates already proved raw migration replay; focused verifier now checks migration 65, latest snapshot, and applied columns; current production columns and the 12-row generated journal agree |
@@ -25,8 +25,8 @@ Database: Supabase project `eqccjfbyrywsqkxxpjvg`
 | REL-9 Close logs and documentation | 🟨 current audit recorded | Current facts and decisions are aligned; final closure still depends on the open, blocked, and deferred rows above |
 | Grok 4.5 conditional-review queue | ✅ resolved, 2026-07-29 | Session `019face6-c464-7ff1-9500-1647a2eec8e6` closed or narrowed all four suggestions; none became new required reliability work |
 
-Fresh-session starting point: REL-2 is partial and needs only owner-authorized ERR-004 and ERR-005
-fixtures. REL-6 needs an owner-approved non-sensitive image. REL-7 waits on REL-2. REL-8 waits for
+Fresh-session starting point: REL-2 is partial and needs only the owner-authorized ERR-005
+contradiction fixture. REL-6 needs an owner-approved non-sensitive image. REL-7 waits on REL-2. REL-8 waits for
 macro R10. Do not reopen REL-1, REL-3, REL-4, REL-5, ERR-003, the old backbone-claims slice, or
 Teams AAD matching as reliability implementation work.
 
@@ -248,8 +248,29 @@ Read-only evidence captured 2026-07-27:
 - Production currently has 0 `model_coverage` gaps and 0 interventions with the all-zero channel
   ID. Those zero counts do not replace the omitted-element and document-only contradiction fixtures.
 
+Owner-approved ERR-004 production proof (2026-07-29):
+
+- Disposable document `35421497-9216-4a88-a61c-14d1838a44a4` used current unsuperseded map
+  `89a06288-ce59-4ec4-b439-6293b21f4c28` with exact current pipeline hash
+  `a82e5655af639ef409fa2be476509897828e5a03d4b86550a2dd815cdf826543`.
+- Existing reader job `90b32439-b039-4124-b145-128cea1712f8`, parent Trigger run
+  `run_06fqkqtteit1hn6aguvbbbsm01`, was complete. The map contained 176 primary references,
+  7 covered references, and 169 genuine omissions.
+- One deterministic coverage reconcile updated the same 169 pre-existing omission IDs with all
+  seven stable provenance keys. It created zero rows, staled zero rows, and changed no unrelated
+  legacy row. Every updated `mapElementRef` belonged to the exact active map. This closes ERR-004.
+- The historical zero-count note above is retained only as earlier inventory evidence. Production
+  now has 1,491 open model-coverage rows; 169 have current valid provenance and 1,322 remain legacy
+  rows with null source context.
+
 Gate: ERR-003 is `FIXED BY ARCHITECTURE REMOVAL` with repo and deployed task-inventory evidence.
-ERR-004 and ERR-005 are `FIXED` only with run IDs, row counts, worker version, and date.
+ERR-004 is `FIXED` with the current-map IDs, row counts, Trigger run, and date above. ERR-005
+becomes `FIXED` only with its own contradiction run ID, row counts, worker version, and date.
+
+End-of-phase rule: after completing any remaining REL phase, re-read every later REL phase through
+REL-9 and report any assumption, identifier, schema, file, interface, decision, or verification
+gate that the completed work changed. Update this plan before handing the next phase to a fresh
+session. Do not carry downstream drift only in chat.
 
 ### REL-3: retire or retarget the obsolete macro-support SQL smoke
 
