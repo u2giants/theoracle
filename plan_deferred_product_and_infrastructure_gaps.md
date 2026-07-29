@@ -23,7 +23,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-10 Deprecated identity-column cleanup                | ✅ complete and released                              | Released in `30eed14`. Migration 98 applied successfully, a second full migration run proved rerun safety, CI and Vercel passed, and protected post-drop authentication succeeded. |
 | GAP-11 Model-coverage finding conversion                 | 🟨 local implementation complete; release proof pending | Admin-reviewed drafts, stable map provenance, recipient validation, row-locked idempotent sending, cancellation and redrafting before send, and append-only audit events are implemented. Local code checks passed; visual proof is deferred until the reviewed migration is applied. Migration, CI, deployment, and production proof remain. |
 | GAP-12 Topical gap selection for lull questions          | ✅ complete and released                                | Released in `3c13fdc`. Migration 101 applied twice, CI run `30427353184` passed, Vercel deployed the exact commit, and Trigger.dev promoted worker `20260729.2` (`u5e3t6ql`). A live `text-embedding-3-small` proof chose the related low-priority gap at `0.7493` over an unrelated urgent gap at `0.1004`; the unrelated-only case produced no post. |
-| GAP-13 Oversized conversation windowing                  | 🟨 local implementation complete; release proof pending | Shared sync/Batch message-boundary windows are model-bounded, preserve evidence identity/time, use configurable overlap and non-quotable carry-in, deduplicate through existing candidate identity, and fail without truncating one unfit message. Migration 102, CI, worker deploy, and live oversized proof remain. |
+| GAP-13 Oversized conversation windowing                  | ✅ complete and released                                | Released in `19859e0`. Migration 102 applied twice, CI run `30428842450` passed, Vercel deployed the exact commit, and Trigger.dev promoted worker `20260729.3` (`qx5wrwna`). A production-route fixture split 250 messages into six windows under the live 24,000-character cap, preserved all 250 identities, and collapsed overlap to one permanent candidate identity. |
 | GAP-14 Final documentation closure                       | ⬜ open                                                 | Depends on the relevant earlier steps                                                                                                                                                                                                                                                                                                                  |
 
 Fresh-session starting point: GAP-1 is the first product gap with an unsafe partial behavior.
@@ -595,9 +595,14 @@ Local implementation evidence (2026-07-29):
   conversation, exact budget compliance, complete quotable coverage, overlap, evidence ID and
   timestamp preservation, carry-in labeling, stable candidate identity, unknown model context,
   and one-message hard failure without truncation.
-- Release remains open until rerun-safe migration 102 is applied through the normal journal, CI
-  passes, the Trigger worker is deployed, and an oversized production-safe fixture proves the
-  smallest configured extraction route completes without missing messages or duplicate claims.
+- Release proof passed on 2026-07-29. Migration 102 applied twice through the normal journal; CI
+  run `30428842450` passed; Vercel deployed exact commit `19859e0`; and Trigger.dev promoted worker
+  `20260729.3` in deployment `qx5wrwna`.
+- The production-route proof resolved all three configured extraction candidates. Their smallest
+  verified context was 1,047,576 tokens, so the live 24,000-character setting remained the tighter
+  cap at ratio `0.7`. A 250-message synthetic conversation split into six windows, covered all 250
+  source IDs, stayed under the cap, exercised two-message overlap, and produced one candidate hash
+  for the repeated evidence rather than a second permanent claim identity.
 
 ### GAP-14: close documentation
 

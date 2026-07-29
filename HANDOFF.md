@@ -5,7 +5,7 @@ rejected with recorded evidence, or transferred to a named external owner.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
-## GAP-13 local handoff, 2026-07-29
+## GAP-13 released, 2026-07-29
 
 ### 1. What this application is
 
@@ -23,8 +23,8 @@ silent truncation or model fallback.
 
 ### 3. Current state
 
-The implementation is local on `main` and is not committed, pushed, migrated, deployed, or
-production-tested. Both dispatch paths call
+The implementation is released in commit
+`19859e0b1b4a92959e149ca76b8db2ba9cb3077f`. Both dispatch paths call
 `apps/workers/src/lib/conversation-windowing.ts`. It splits only between complete messages,
 repeats configurable active messages, preserves original IDs/timestamps/authors/content, and keeps
 older carry-in in the existing explicit non-quotable block. Existing candidate hashes and the
@@ -33,8 +33,15 @@ the configured safe share of the smallest verified context length in the full ex
 pool. Unknown context metadata and one unfit message stop clearly; nothing is truncated.
 
 Migration `packages/db/migrations/sql/102_conversation_window_settings.sql` seeds the overlap and
-context-ratio settings with `ON CONFLICT DO NOTHING`. No table or column changed. The migration has
-not been applied.
+context-ratio settings with `ON CONFLICT DO NOTHING`. No table or column changed. It applied
+successfully twice. CI run `30428842450` passed, Vercel deployed the exact commit, and Trigger.dev
+promoted production worker `20260729.3` in deployment `qx5wrwna`.
+
+The production-route fixture resolved three configured extraction routes. The smallest verified
+context length was 1,047,576 tokens, so `extraction_char_budget=24000` remained the tighter cap at
+ratio `0.7`. A 250-message synthetic conversation split into six windows, covered all 250 source
+IDs, stayed within the live cap, exercised two-message overlap, and produced one stable candidate
+identity for repeated evidence.
 
 ### 4. Everything tried that did not work
 
@@ -67,17 +74,7 @@ for the primary.
 
 ### 6. Exact next steps
 
-1. Review the local GAP-13 diff. It is ready when no unrelated file is included.
-2. Commit and push to `main` using Albert's required identity. It is ready when `origin/main`
-   contains the exact commit.
-3. Apply migration 102 through `pnpm db:migrate`, then run the same command again. It is ready when
-   both runs finish and the two setting rows exist once.
-4. Let GitHub Actions run the new `verify:conversation-windowing` step and all existing gates. It
-   is ready when CI is green for the exact commit.
-5. Deploy the Trigger.dev worker. It is ready when production reports the new worker version.
-6. Run a production-safe oversized conversation fixture against the smallest configured
-   extraction context. It is ready when every message completes, every source ID/time is intact,
-   and overlap creates no second permanent claim.
+N/A. GAP-13 has no remaining implementation or release step.
 
 ### 7. Constraints and gotchas
 
@@ -87,15 +84,13 @@ one large message. Migration 102 is settings-only and must go through the normal
 
 ### 8. Access and environment
 
-No secrets, database, cloud, GitHub, Vercel, or Trigger.dev access was used. Work is local in
-`C:\repos\oracle` on `main`. Future credentials remain in 1Password vault `vibe_coding`; never copy
-their values into this file.
+Release used the production database settings from Vercel and the Trigger.dev management token
+from 1Password vault `vibe_coding` without exposing either. The final code is on `main`.
 
 ### 9. Open questions and risks
 
-No product decision is open. Release proof remains the only blocker. The live fixture should use
-non-confidential synthetic content because the purpose is window and evidence behavior, not model
-quality.
+No product decision or GAP-13 risk remains open. The live fixture used non-confidential synthetic
+content and made no permanent database writes.
 
 Self-audit passed: a new developer can identify the application, goal, exact local state, failed
 attempts, root cause, concrete release gates, constraints, access, and remaining risk without this
