@@ -20,7 +20,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-7 Eval-results dashboard                             | ✅ complete and released                                | Released through `3b96669`. Clean CLI eval run `extraction-2026-07-29T04-03-41-967Z` passed 4/4 and is tied to code commit `656785e`. Grok approved. CI run `30421488336` passed, Vercel deployment `dpl_3KF4J76s9shZBHugy4xNR9rktBCo` was promoted, and signed-in production list/detail checks passed. |
 | GAP-8 Provider capability parity                         | ✅ complete and released                                | Released in `4d56ad5`. DeepSeek, Qwen, and Google Gemini API remain sync-only for tracked extraction Batch. Unsupported settings are blocked and stale settings fail loudly. Grok approved, CI run `30422669789` passed, Vercel deployment `dpl_7JQoF119e4DVnNHtRE73xxDWUqoX` was promoted, and signed-in production Settings proof passed. |
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
-| GAP-10 Deprecated identity-column cleanup                | 🟨 final removal implemented locally; release pending | Live audit and rollback authentication proof passed. Schema cleanup and rerun-safe raw migration `98_drop_deprecated_employee_identity_columns.sql` are implemented locally. Production migration, CI, deployment, and post-drop authentication proof remain pending. |
+| GAP-10 Deprecated identity-column cleanup                | ✅ complete and released                              | Released in `30eed14`. Migration 98 applied successfully, a second full migration run proved rerun safety, CI and Vercel passed, and protected post-drop authentication succeeded. |
 | GAP-11 Model-coverage finding conversion                 | ⬜ open                                                 | Administrative findings are isolated correctly but lack the audited convert-to-question flow                                                                                                                                                                                                                                                           |
 | GAP-12 Topical gap selection for lull questions          | ⬜ open                                                 | Typing presence is implemented; semantic relevance is not                                                                                                                                                                                                                                                                                              |
 | GAP-13 Oversized conversation windowing                  | ⬜ open                                                 | Current behavior processes an oversized conversation whole and logs it                                                                                                                                                                                                                                                                                 |
@@ -65,7 +65,8 @@ The 2026-07-26 known-problem audit found open or deferred items in `AGENTS.md` s
 - Alibaba now documents OpenAI-compatible Qwen Batch, but Oracle has no safe tracked non-strict
   batch caller; DeepSeek has no native adapter Batch path.
 - Earlier exposed credentials still have an owner-deferred rotation task.
-- Deprecated identity columns remain on `employees` during the multi-identity transition.
+- Deprecated identity columns previously remained on `employees` during the multi-identity
+  transition; migration 98 removed them in release `30eed14`.
 - R0 creates administrative `model_coverage` gaps and excludes them from employee questions, but
   there is no audited action that converts one into a human question.
 - Lull interjections now respect active typing, but select gaps by priority and participant rather
@@ -110,7 +111,8 @@ Not in this plan:
 - `apps/web/app/admin/ai/evals/page.tsx` lists CLI gates but does not display stored eval results.
 - OpenAI, Vertex, and Anthropic implement the optional batch adapter methods. Qwen and DeepSeek do
   not.
-- New identity code uses `employee_identities`; deprecated columns remain for compatibility.
+- Raw migration 98 removed the deprecated employee identity columns in release `30eed14`;
+  `employee_identities` is now the only production identity source.
 - `model_coverage` gaps are written idempotently and excluded from employee-facing consumers.
 - `lull-interjection.ts` queries live typing indicators, but its gap choice has no embedding score.
 - Conversation extraction preserves whole conversations and logs oversized ones instead of
@@ -478,11 +480,19 @@ Local status (2026-07-29):
 - The authorized local removal is implemented in the new rerun-safe forward-only raw migration
   `98_drop_deprecated_employee_identity_columns.sql`, after migration 40 and before the reserved
   migration 99. `packages/db/src/schema.ts` no longer exposes the three deprecated fields.
-- Production migration execution, release proof, and post-drop protected authentication proof
-  remain pending. Do not mark GAP-10 complete until all three pass.
+- Final rollout passed on 2026-07-29: commit
+  `30eed149ef89c2ab5f68390cde704daba63d2f69`, CI run `30424618491`, and promoted READY Vercel
+  deployment `dpl_DeZNsq6RduGKZs2dQhw2RtmJMEHs`.
+- The first production `pnpm db:migrate` applied migration 98. A second full run skipped exactly
+  migration 40 because the legacy column was absent, reran migration 98 safely through its
+  `IF EXISTS` clauses, and completed seed and RLS checks.
+- Protected `/admin/settings` loaded after the drop on build `30eed14` as Albert H.
+  (`Lead Architect`). GAP-10 is complete.
 
-Gate: no runtime reader uses the columns, live dependency counts are zero, auth tests pass, and a
-rollback release can still authenticate before the final drop.
+Closed gate evidence: migration 98 applied in production; a second full `pnpm db:migrate` skipped
+only migration 40 and reran migration 98 safely; CI run `30424618491` passed; Vercel deployment
+`dpl_DeZNsq6RduGKZs2dQhw2RtmJMEHs` was READY and promoted; protected Settings loaded after the drop
+on build `30eed14`.
 
 ### GAP-11: audited model-coverage conversion
 

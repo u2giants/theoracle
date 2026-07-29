@@ -16,7 +16,9 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import './verify-identity-cleanup-contract';
 import {
+  classifyLegacyIdentityColumnState,
   describeBlockedDropMigration,
+  GAP10_FINAL_RELEASE_PROOF,
   hasDeprecatedEmployeeReader,
   isIgnoredOwnedPath,
   repoRelative,
@@ -108,7 +110,33 @@ if (!url) {
 
 const sql = postgres(url, { max: 1, prepare: false });
 try {
-  await sql.begin('read only', async (tx) => {
+  const liveState = await sql.begin('read only', async (tx) => {
+    const legacyColumnRows = await tx<{ attname: string }[]>`
+      SELECT attname
+      FROM pg_attribute
+      WHERE attrelid = 'public.employees'::regclass
+        AND attname IN ('auth_user_id', 'auth_provider', 'auth_provider_subject')
+        AND NOT attisdropped
+      ORDER BY attname
+    `;
+    const columnState = classifyLegacyIdentityColumnState(
+      legacyColumnRows.map((row) => row.attname),
+    );
+    if (columnState === 'post-drop') {
+      console.log(
+        JSON.stringify(
+          {
+            postDrop: true,
+            deprecatedColumnsPresent: [],
+            finalReleaseCommit: GAP10_FINAL_RELEASE_PROOF.commit,
+          },
+          null,
+          2,
+        ),
+      );
+      return columnState;
+    }
+
     const countRows = await tx<{
       employees_total: number;
       auth_user_id_non_null: number;
@@ -296,8 +324,13 @@ try {
         `Identity cleanup gate failed: deprecated data or ${blockingDependencies.length} external/inbound dependencies remain.`,
       );
     }
+    return columnState;
   });
-  console.log('Live identity cleanup gate: PASS');
+  console.log(
+    liveState === 'post-drop'
+      ? 'Post-drop identity cleanup gate: PASS'
+      : 'Live pre-drop identity cleanup gate: PASS',
+  );
 } finally {
   await sql.end({ timeout: 5 });
 }

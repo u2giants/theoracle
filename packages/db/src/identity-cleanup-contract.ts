@@ -12,6 +12,29 @@ export const GAP10_ROLLBACK_PROOF = {
   ciRun: '30424102001',
   deployment: 'dpl_7MVqENiyLL3FeQCiB9f4vmTiMCQq',
 } as const;
+export const GAP10_FINAL_RELEASE_PROOF = {
+  commit: '30eed149ef89c2ab5f68390cde704daba63d2f69',
+  ciRun: '30424618491',
+  deployment: 'dpl_DeZNsq6RduGKZs2dQhw2RtmJMEHs',
+} as const;
+
+export function classifyLegacyIdentityColumnState(
+  presentColumns: readonly string[],
+): 'pre-drop' | 'post-drop' {
+  const expected = new Set<string>(DEPRECATED_SQL_COLUMNS);
+  const present = new Set(presentColumns);
+  const unknown = [...present].filter((column) => !expected.has(column));
+  if (unknown.length > 0) {
+    throw new Error(`Unknown legacy identity columns reported: ${unknown.join(', ')}`);
+  }
+  if (present.size === 0) return 'post-drop';
+  if (present.size === expected.size && [...expected].every((column) => present.has(column))) {
+    return 'pre-drop';
+  }
+  throw new Error(
+    `Partial legacy identity-column state: found ${[...present].sort().join(', ') || 'none'}; expected all three or none.`,
+  );
+}
 
 export function shouldSkipRawMigration(
   fileName: string,

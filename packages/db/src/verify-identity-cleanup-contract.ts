@@ -4,6 +4,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   AUTHORIZED_IDENTITY_DROP_MIGRATION,
+  classifyLegacyIdentityColumnState,
+  GAP10_FINAL_RELEASE_PROOF,
   GAP10_ROLLBACK_PROOF,
   describeBlockedDropMigration,
   findDeprecatedDropColumns,
@@ -20,8 +22,42 @@ assert.deepEqual(GAP10_ROLLBACK_PROOF, {
   ciRun: '30424102001',
   deployment: 'dpl_7MVqENiyLL3FeQCiB9f4vmTiMCQq',
 });
+assert.deepEqual(GAP10_FINAL_RELEASE_PROOF, {
+  commit: '30eed149ef89c2ab5f68390cde704daba63d2f69',
+  ciRun: '30424618491',
+  deployment: 'dpl_DeZNsq6RduGKZs2dQhw2RtmJMEHs',
+});
+assert.equal(classifyLegacyIdentityColumnState([]), 'post-drop');
+assert.equal(
+  classifyLegacyIdentityColumnState([
+    'auth_provider_subject',
+    'auth_user_id',
+    'auth_provider',
+  ]),
+  'pre-drop',
+);
+assert.throws(
+  () => classifyLegacyIdentityColumnState(['auth_user_id']),
+  /Partial legacy identity-column state/,
+);
+assert.throws(
+  () => classifyLegacyIdentityColumnState(['auth_user_id', 'unexpected']),
+  /Unknown legacy identity columns/,
+);
 const fixtureDir = dirname(fileURLToPath(import.meta.url));
 const liveVerifierSource = readFileSync(resolve(fixtureDir, 'verify-identities.ts'), 'utf8');
+assert.match(
+  liveVerifierSource,
+  /classifyLegacyIdentityColumnState\([\s\S]*?if \(columnState === 'post-drop'\)[\s\S]*?return columnState/,
+);
+assert.match(
+  liveVerifierSource,
+  /finalReleaseCommit:\s*GAP10_FINAL_RELEASE_PROOF\.commit/,
+);
+assert.doesNotMatch(
+  liveVerifierSource,
+  /finalReleaseCommit:\s*['"][0-9a-f]{40}['"]/,
+);
 assert.match(
   liveVerifierSource,
   /const dependencies = await tx\.unsafe<[\s\S]*?>\(String\.raw`[\s\S]*?\\m[\s\S]*?`\);/,
