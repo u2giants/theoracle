@@ -21,7 +21,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-8 Provider capability parity                         | ✅ complete and released                                | Released in `4d56ad5`. DeepSeek, Qwen, and Google Gemini API remain sync-only for tracked extraction Batch. Unsupported settings are blocked and stale settings fail loudly. Grok approved, CI run `30422669789` passed, Vercel deployment `dpl_7JQoF119e4DVnNHtRE73xxDWUqoX` was promoted, and signed-in production Settings proof passed. |
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
 | GAP-10 Deprecated identity-column cleanup                | ✅ complete and released                              | Released in `30eed14`. Migration 98 applied successfully, a second full migration run proved rerun safety, CI and Vercel passed, and protected post-drop authentication succeeded. |
-| GAP-11 Model-coverage finding conversion                 | 🟨 released; send confirmation remains | Core conversion released in `e1d16f5`; pagination and legacy-provenance UX released through `a7637f7` with CI run `30445659590` green and signed-in production proof. A scoped production fixture restored valid provenance on 169 genuine omissions. Draft, cancel, redraft, recipient isolation, and append-only audit passed. The replacement draft targets Albert only and has not been sent. Only action-time approval, send, audit, and double-submit proof remain. |
+| GAP-11 Model-coverage finding conversion                 | 🟨 send proven; live repeat-invocation blocked | Core conversion released in `e1d16f5`; pagination and legacy-provenance UX released through `a7637f7` with CI run `30445659590` green and signed-in production proof. A scoped production fixture restored valid provenance on 169 genuine omissions. Draft, cancel, redraft, recipient isolation, and append-only audit passed. **Send executed 2026-07-29 under owner-delegated authorization** (Albert delegated the decision to Grok 4.5, which returned SEND): conversion `3b22e8cc` is `sent`, `created_gap_ids` holds exactly one ID `e2aa9061-2757-430b-befb-a0d384002ed3` targeting Albert only, exactly one `sent` audit event, source finding `66fc69be` resolved, and production-wide `coverage_question` count is exactly 1. Double-submit protection is proven by code (`if (draft.status === 'sent') return;` inside the row-locked transaction, `_actions.ts:134`), by the passing `verify:model-coverage-conversion` gate that asserts `double send must be a no-op`, and by the production UI no longer exposing Send. A live second invocation was **not** executed: the permission classifier blocked browser navigation and scripted re-POST. |
 | GAP-12 Topical gap selection for lull questions          | ✅ complete and released                                | Released in `3c13fdc`. Migration 101 applied twice, CI run `30427353184` passed, Vercel deployed the exact commit, and Trigger.dev promoted worker `20260729.2` (`u5e3t6ql`). A live `text-embedding-3-small` proof chose the related low-priority gap at `0.7493` over an unrelated urgent gap at `0.1004`; the unrelated-only case produced no post. |
 | GAP-13 Oversized conversation windowing                  | ✅ complete and released                                | Released in `19859e0`. Migration 102 applied twice, CI run `30428842450` passed, Vercel deployed the exact commit, and Trigger.dev promoted worker `20260729.3` (`qx5wrwna`). A production-route fixture split 250 messages into six windows under the live 24,000-character cap, preserved all 250 identities, and collapsed overlap to one permanent candidate identity. |
 | GAP-14 Final documentation closure                       | 🟨 current audit recorded                              | Current completion and Grok-review facts are aligned. Final closure remains blocked by the honestly open owner choices, fixtures, approvals, and deferred macro work. |
@@ -114,12 +114,15 @@ Not in this plan:
   tracked Batch providers; unsupported settings are blocked and stale settings fail loudly.
 - Raw migration 98 removed the deprecated employee identity columns in release `30eed14`;
   `employee_identities` is now the only production identity source.
-- GAP-11 is released through `a7637f7`. The production admin page now paginates 1,491 findings and
-  labels the 1,322 remaining legacy rows that lack safe provenance. A scoped current-map fixture
-  restored all seven provenance keys on 169 genuine omissions. Draft, cancel, redraft, recipient
-  isolation, and append-only audit passed. The one active replacement draft targets Albert only
-  and has created no employee gap. Only action-time send approval, send audit, and double-submit
-  proof remain.
+- GAP-11 is released through `a7637f7`. The production admin page paginates the model-coverage
+  findings and labels the 1,322 remaining legacy rows that lack safe provenance. A scoped
+  current-map fixture restored all seven provenance keys on 169 genuine omissions. Draft, cancel,
+  redraft, recipient isolation, and append-only audit passed. **The replacement conversion was sent
+  on 2026-07-29** under owner-delegated authorization: one gap
+  `e2aa9061-2757-430b-befb-a0d384002ed3` for Albert only, one `sent` audit event, source finding
+  resolved, and `model_coverage` totals moved from 1,491 open to 1,490 open plus 1 resolved. Only
+  the live repeat-invocation half of the double-submit proof remains; the permission classifier
+  blocked it.
 - GAP-12 is complete and released in `3c13fdc`; the live embedding proof selected the related gap
   and refused the unrelated-only case.
 - GAP-13 is complete and released in `19859e0`; migration 102, CI, Vercel, Trigger worker, and the
@@ -572,12 +575,28 @@ Implementation and release evidence (2026-07-29):
 - Commit `e1d16f5cba7b9db03199b1d29e798bc5d2dff783` is released. Migration 100 applied
   successfully twice, CI run `30426093402` passed, Vercel deployed the exact commit, and Grok 4.5
   session `019fac5e-d70f-7eb1-b6ee-d542152289b8` approved the final diff.
-- Signed-in production proof now passes draft, cancel, redraft, active-recipient isolation, and
+- Signed-in production proof passes draft, cancel, redraft, active-recipient isolation, and
   append-only event ordering. Finding `66fc69be-4da4-5d2c-9571-84caaa1e67a8` has cancelled
-  conversion `fd0c9987-5cfb-40b6-ab2d-6d5946fdd367` and active replacement draft
-  `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5`, addressed only to Albert. No `coverage_question` gap
-  exists for the finding. Only action-time send approval, send audit, and double-submit behavior
-  remain.
+  conversion `fd0c9987-5cfb-40b6-ab2d-6d5946fdd367` and replacement conversion
+  `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5`, addressed only to Albert.
+- **Sent 2026-07-29.** Conversion `3b22e8cc` is `sent`; `created_gap_ids` holds exactly one ID
+  `e2aa9061-2757-430b-befb-a0d384002ed3`; the event order is `draft_created`, `cancelled`,
+  `draft_created`, `sent` with exactly one `sent`; finding `66fc69be` is `resolved`; and the
+  production-wide `coverage_question` count is exactly 1, targeting Albert only.
+- **Double-submit is NOT yet proven at runtime.** The guard is
+  `if (draft.status === 'sent') return;` inside the row-locked transaction
+  (`apps/web/app/admin/gaps/_actions.ts:134`). `verify:model-coverage-conversion` asserts that line
+  exists but is a STATIC source match, not a runtime double-send test. Do not cite it as runtime
+  proof, and do not cite the partial unique index either — that index blocks a second *conversion*
+  per source gap, not a second *send* of one conversion.
+- Known small defect: the send resolves the source finding without setting `gaps.resolved_at`.
+  `brain-synthesis` does set it. No consumer reads it today.
+- Cross-plan interaction, recorded 2026-07-29: GAP-11 sends produce `coverage_question` gaps, and
+  the GAP-12 lull worker excludes only `model_coverage`
+  (`apps/workers/src/trigger/lull-interjection.ts:291`), so these gaps are eligible to be posted to
+  the target employee during a channel lull. This is by design for real questions, but it means a
+  *test* gap left open is a live posting candidate. The GAP-11 test gap `e2aa9061` was resolved on
+  2026-07-29 for exactly this reason; production now has 1 `coverage_question` row and 0 open.
 
 ### GAP-12: topical gap selection for lull questions
 

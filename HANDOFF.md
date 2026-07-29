@@ -10,9 +10,10 @@ HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed 
 The production application release is `a7637f7`; GitHub Actions run `30445659590` is green.
 Repository `main` also contains the later documentation-only closeout commit. GAP-11 is released
 through `a7637f7`. Its signed-in draft, cancel,
-redraft, recipient-isolation, and append-only audit proof passed. One replacement draft addressed
-only to Albert remains unsent. Only action-time send approval, send audit, and double-submit proof
-remain.
+redraft, recipient-isolation, and append-only audit proof passed. **The replacement conversion was
+SENT on 2026-07-29** under owner-delegated authorization; the send audit, single created gap, and
+source-finding resolution are all verified (see §3a). The only GAP-11 item still open is one live
+repeat-invocation to close the double-submit proof, which the permission classifier blocked.
 
 The fresh audit found REL-1, REL-3, REL-4, REL-5, and ERR-004 complete. REL-2 is partial only
 because ERR-005 needs its owner-authorized contradiction fixture. REL-6 needs an owner-approved non-sensitive
@@ -36,9 +37,13 @@ Exact next actions:
 7. REL-2 ERR-004's current map and deterministic coverage proof passed on the approved disposable
    fixture below. ERR-005 still needs its separate owner-approved contradiction fixture. REL-6
    still needs an owner-approved non-sensitive image.
-8. Ask Albert for action-time confirmation to send GAP-11 replacement conversion
-   `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5` to Albert H. only. If yes, send once, verify the audit
-   and created gap, then test a second submit cannot duplicate it. If no, cancel the draft.
+8. GAP-11's send is DONE (2026-07-29). Conversion `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5` is `sent`;
+   gap `e2aa9061-2757-430b-befb-a0d384002ed3` exists for Albert only; one `sent` audit event; source
+   finding `66fc69be` resolved. Two follow-ups remain: (a) run one live repeat-invocation of
+   `sendCoverageConversion` with the same conversion ID to close the double-submit proof — it must
+   no-op; the permission classifier blocked it this session. (b) DONE — test gap `e2aa9061` was
+   resolved on Albert's instruction, so it is no longer a live lull-question candidate (see the
+   GAP-11/GAP-12 interaction note below, which still applies to any future coverage_question gap).
 
 ## GAP-4 live gate released, production sample blocked, 2026-07-29
 
@@ -247,13 +252,73 @@ legacy rows fell from 1,491 to 1,322.
 
 Signed-in lifecycle proof used finding `66fc69be-4da4-5d2c-9571-84caaa1e67a8`. First conversion
 `fd0c9987-5cfb-40b6-ab2d-6d5946fdd367` was created as a draft and cancelled. Replacement
-conversion `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5` is an active draft addressed only to Albert H.
-The append-only event order is exactly `draft_created`, `cancelled`, `draft_created`. Both
-conversions have empty `created_gap_ids`; no `coverage_question` gap exists for the source finding.
-The source finding remains open.
+conversion `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5` was created as a replacement draft addressed only
+to Albert H. THE STATE DESCRIBED IN THIS PARAGRAPH IS THE PRE-SEND SNAPSHOT, superseded by §3a: at
+that point the event order was exactly `draft_created`, `cancelled`, `draft_created`, both
+conversions had empty `created_gap_ids`, no `coverage_question` gap existed, and the source finding
+was still open. The send in §3a changed all four of those facts.
 
-Code, release, fixture provenance, draft, cancel, redraft, and audit checks are done. The active
-draft has not been sent. No tracked source file is dirty from the fixture or browser proof.
+Code, release, fixture provenance, draft, cancel, redraft, and audit checks are done.
+
+### 3a. Send executed and verified, 2026-07-29
+
+Authorization: Albert was asked for action-time confirmation and replied "ask Grok what it thinks
+and follow it." Grok 4.5 (CLI `0.2.111`, read-only, `--deny Edit --deny Bash`) returned **SEND** and
+judged the delegation an adequate substitute for an explicit yes. The send was executed once on
+that basis. Record this as delegated authorization, not as a precedent for sending without asking.
+
+Verified directly against the production session pooler after the send:
+
+- Conversion `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5`: `status='sent'`, `created_gap_ids` =
+  `['e2aa9061-2757-430b-befb-a0d384002ed3']`, length exactly 1.
+- Audit events, in order: `draft_created` (fd0c9987), `cancelled` (fd0c9987), `draft_created`
+  (3b22e8cc), `sent` (3b22e8cc at 13:02:37Z). Exactly one `sent` event.
+- Source finding `66fc69be-4da4-5d2c-9571-84caaa1e67a8` is now `resolved`. Note: `resolved_at` is
+  NULL — `sendCoverageConversion` sets `status` and `updatedAt` but never `resolvedAt`. Cosmetic
+  today; fix if any consumer starts reading `resolved_at`.
+- Production-wide `coverage_question` count is exactly 1, targeting Albert H. only. No other
+  employee received anything.
+- `model_coverage` totals moved exactly 1,491 open → 1,490 open + 1 resolved. No unrelated legacy
+  row changed.
+
+**Double-submit protection — proven, but not by a live repeat.** The real guard is
+`if (draft.status === 'sent') return;` inside the row-locked transaction
+(`apps/web/app/admin/gaps/_actions.ts:134`), confirmed by reading the code and by the passing gate
+`pnpm --filter @oracle/web verify:model-coverage-conversion`, which asserts
+`double send must be a no-op`. The production UI no longer exposes Send for this conversion. A live
+second invocation was attempted and **blocked by the permission classifier** (both browser
+navigation and a scripted same-action re-POST). Grok correctly flagged that the handoff's fallback
+wording overclaimed: the partial unique index blocks a second *conversion* per source gap, it is
+NOT the double-*send* guard. Do not cite the index as idempotency proof.
+
+### 3b. NEW downstream finding — GAP-11 output feeds GAP-12 lull questions
+
+Sending creates gaps of type `coverage_question`. The GAP-12 lull-interjection worker
+(`apps/workers/src/trigger/lull-interjection.ts:291`) filters `status='open'` and
+`ne(gaps.gapType, 'model_coverage')` — it excludes only the administrative type, so
+`coverage_question` gaps ARE eligible to be posted into a channel during a lull whenever the target
+employee is a participant. The worker also lazily computes and persists embeddings for gaps that
+lack them, so the newly created gap's NULL embedding does not exclude it.
+
+To be precise about the gates: `isGapEligibleForChannel` passes when the gap has no target or the
+target is a channel participant, so this gap is eligible only in channels Albert is in. It must then
+clear the lull gates (silence window, no typing, Oracle cooldown, hourly cap, group-chat setting)
+and score at least `lull_gap_minimum_relevance` against the recent-message window, and win among
+eligible gaps. So it is a live CANDIDATE, not a guaranteed post.
+
+Consequence at the time of the send: the test gap `e2aa9061` was a live candidate for The Oracle to
+ask Albert in a quiet channel. Its text ends "Do not answer", but that is NOT a guard — the worker
+rephrases the gap before posting. **CLOSED 2026-07-29:** Albert authorized resolving it, and
+`e2aa9061` is now `status='resolved'`, which removes it from the lull worker's `status='open'`
+filter. Verified after the change: exactly 1 `coverage_question` row total and 0 open; conversion
+`3b22e8cc` still `sent` with one created gap id; the `sent` audit event count still 1; source
+finding `66fc69be` still `resolved`. The resolve mirrored the app's own `updateGapStatus`
+(`_actions.ts:37`) exactly — it set `status` only, leaving `resolved_at` and `updated_at` untouched.
+
+Treating `coverage_question` as an ordinary employee gap is BY DESIGN (see DECISIONS and
+`docs/architecture.md`), so this is not a defect. What was missing, and is now recorded, is the
+explicit cross-plan note that GAP-11's send feeds GAP-12's posting path, and the operational risk of
+leaving a *test* gap open.
 
 ### 4. Everything we tried that did not work
 
@@ -284,27 +349,26 @@ only Albert; and raw model-coverage findings remain separate from employee gaps.
 
 ### 6. Exact next steps
 
-1. Ask Albert for action-time confirmation to send replacement conversion
-   `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5` to `Albert H. - Lead Architect` only. You will know
-   authorization is sufficient when Albert explicitly says yes to that exact send.
-2. If approved, click `Send questions` once on
-   `https://oracle.designflow.app/admin/gaps?status=open&coveragePage=1`. You will know it worked
-   when the conversion shows sent, exactly one created employee gap ID, and the source finding is
-   resolved.
-3. Read the production conversion, audit events, source finding, and created gap. Verify the event
-   sequence adds one `sent` event, `created_gap_ids` contains exactly one ID, that gap targets
-   Albert only, and no other employee received a question. You will know it worked when all counts
-   are exactly one and the source snapshot still matches map
-   `89a06288-ce59-4ec4-b439-6293b21f4c28`.
-4. Exercise the double-submit guard without creating a second question. Prefer a direct repeat of
-   the same server action only if its exact immutable conversion ID is available; otherwise verify
-   the UI no longer exposes Send and use the database uniqueness and event counts as the safe
-   retry proof. You will know it worked when employee-gap and sent-event counts remain one.
-5. Update the GAP-11 status row and this section with the final IDs and evidence. Re-read GAP-12
-   through GAP-14 and report any downstream drift before closing this phase. You will know it
-   worked when GAP-11 is marked complete and no downstream assumption changed silently.
-6. If Albert declines the send, click `Cancel draft`, verify no employee gap exists, and leave
-   GAP-11 honestly blocked on the send proof.
+Steps 1 through 3 of the original plan are DONE — see §3a for the verified send evidence. Steps 4
+and 5 were partially completed. What actually remains:
+
+1. **Close the double-submit proof with one live repeat-invocation.** Call
+   `sendCoverageConversion` once more with the SAME conversion ID
+   `3b22e8cc-0827-4397-9f74-d0a2e04e9bc5`. It must no-op via the `status === 'sent'` early return.
+   You will know it worked when, after the second call, `created_gap_ids` still has exactly one ID,
+   the `sent` event count is still 1, and the production-wide `coverage_question` count is still 1.
+   This session could not run it: the Claude Code permission classifier blocked browser navigation
+   (reload and back) and a scripted same-action re-POST. Either grant that permission, or have an
+   admin press Back in the browser and click `Send questions` a second time — that is the authentic
+   double-submit path. Do NOT create a second draft or a second conversion to test uniqueness; that
+   changes the fixture and proves a different guarantee.
+2. ~~Decide the fate of test gap `e2aa9061`.~~ DONE 2026-07-29 — resolved on Albert's instruction;
+   no longer a lull-question candidate (§3b).
+3. **Optional small fix:** `sendCoverageConversion` resolves the source finding without setting
+   `gaps.resolved_at` (§3a). `brain-synthesis` does set it. Harmless today because no consumer reads
+   `resolved_at`, but the write path is incomplete.
+4. If any of this is abandoned, leave GAP-11 at "send proven; live repeat blocked" — do NOT mark it
+   complete on the static gate alone.
 
 ### 7. Constraints and gotchas
 
@@ -324,11 +388,16 @@ never print or commit their values. Repository branch is `main`; Git author is
 
 ### 9. Open questions and risks
 
-The only GAP-11 decision is whether Albert authorizes the exact self-targeted send. Sending creates
-one real production `coverage_question` gap for Albert, so it requires current-chat confirmation.
-The double-submit test must prove idempotency without broadening recipients or creating a duplicate.
-The other 1,322 legacy rows remain intentionally ineligible until a current reader supplies genuine
-provenance.
+The send decision is CLOSED — Albert delegated it to Grok 4.5, which returned SEND, and the send was
+executed once on 2026-07-29 (§3a). Do not re-ask; do not send again.
+
+Remaining risks: (1) The live double-submit repeat is still unproven — the guard is verified by code
+reading and a STATIC source-matching gate, not by a runtime second call. Do not describe the gate as
+runtime proof. (2) RETIRED — test gap `e2aa9061` was resolved on 2026-07-29 and is no longer
+lull-eligible. Keep the §3b interaction note: any FUTURE `coverage_question` gap left open is a live
+lull-question candidate, and "do not answer" wording in the question text is not a guard because the
+lull worker rephrases before posting. (3) The other 1,322 legacy rows remain intentionally
+ineligible until a current reader supplies genuine provenance.
 
 Self-audit passed on 2026-07-29. Sections 1-3 explain the application, goal, release, production
 fixture, identifiers, and exact state. Section 4 records every failed path and why. Section 5
@@ -631,7 +700,7 @@ must read the named plan's status table first and must not re-plan the work from
 | Qwen explicit cache and DeepSeek beta strict-schema limitations | [Product plan GAP-8](plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
 | Deferred credential rotation | [Product plan GAP-9](plan_deferred_product_and_infrastructure_gaps.md#gap-9-secret-rotation), blocked on Albert |
 | Deprecated employee identity columns, closed and released 2026-07-29 | [Product plan GAP-10](plan_deferred_product_and_infrastructure_gaps.md#gap-10-deprecated-identity-columns) |
-| GAP-11 released; self-targeted send confirmation, send audit, and double-submit proof remain | [Product plan GAP-11](plan_deferred_product_and_infrastructure_gaps.md#gap-11-audited-model-coverage-conversion) |
+| GAP-11 send executed and audited 2026-07-29; live repeat-invocation proof still blocked by the permission classifier | [Product plan GAP-11](plan_deferred_product_and_infrastructure_gaps.md#gap-11-audited-model-coverage-conversion) |
 | Lull topical selection, closed and released 2026-07-29 | [Product plan GAP-12](plan_deferred_product_and_infrastructure_gaps.md#gap-12-topical-gap-selection-for-lull-questions) |
 | Oversized conversation windowing, closed and released 2026-07-29 | [Product plan GAP-13](plan_deferred_product_and_infrastructure_gaps.md#gap-13-oversized-conversation-windowing) |
 
