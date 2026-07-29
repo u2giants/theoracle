@@ -1,16 +1,19 @@
 {
   "mcpServers": {
     "supabase-oracle": {
-      "command": "npx",
+      "command": "cmd",
       "args": [
+        "/c",
+        "${USERPROFILE}\\.config\\ai-devops\\mcp-launch.cmd",
+        "cmd",
+        "/c",
+        "npx",
         "-y",
         "@supabase/mcp-server-supabase@latest",
         "--read-only",
-        "--project-ref=eqccjfbyrywsqkxxpjvg"
-      ],
-      "env": {
-        "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
-      }
+        "--project-ref",
+        "eqccjfbyrywsqkxxpjvg"
+      ]
     }
   }
 }
