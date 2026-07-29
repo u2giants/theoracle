@@ -20,7 +20,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-7 Eval-results dashboard                             | ✅ complete and released                                | Released through `3b96669`. Clean CLI eval run `extraction-2026-07-29T04-03-41-967Z` passed 4/4 and is tied to code commit `656785e`. Grok approved. CI run `30421488336` passed, Vercel deployment `dpl_3KF4J76s9shZBHugy4xNR9rktBCo` was promoted, and signed-in production list/detail checks passed. |
 | GAP-8 Provider capability parity                         | ✅ complete and released                                | Released in `4d56ad5`. DeepSeek, Qwen, and Google Gemini API remain sync-only for tracked extraction Batch. Unsupported settings are blocked and stale settings fail loudly. Grok approved, CI run `30422669789` passed, Vercel deployment `dpl_7JQoF119e4DVnNHtRE73xxDWUqoX` was promoted, and signed-in production Settings proof passed. |
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
-| GAP-10 Deprecated identity-column cleanup                | ⬜ open                                                 | Must prove every reader uses `employee_identities` first                                                                                                                                                                                                                                                                                               |
+| GAP-10 Deprecated identity-column cleanup                | 🟨 live audit passed; rollback release gate remains    | All owned runtime readers use `employee_identities`; offline guards pass. The 2026-07-29 read-only production audit found 38 employees, zero non-null deprecated values, and only the expected local unique constraint/index. Final drop remains blocked until a rollback-compatible release authenticates successfully. |
 | GAP-11 Model-coverage finding conversion                 | ⬜ open                                                 | Administrative findings are isolated correctly but lack the audited convert-to-question flow                                                                                                                                                                                                                                                           |
 | GAP-12 Topical gap selection for lull questions          | ⬜ open                                                 | Typing presence is implemented; semantic relevance is not                                                                                                                                                                                                                                                                                              |
 | GAP-13 Oversized conversation windowing                  | ⬜ open                                                 | Current behavior processes an oversized conversation whole and logs it                                                                                                                                                                                                                                                                                 |
@@ -457,6 +457,26 @@ Gate: each consumer passes a real authenticated check and the old value is revok
 3. Migrate any remaining reader to `employee_identities`.
 4. Keep rollback compatibility for one release.
 5. Drop deprecated columns only through the normal forward migration after all gates pass.
+
+Local status (2026-07-29):
+
+- The offline owned-source scan found no application or script reader of the deprecated
+  `employees` columns. Auth resolution, chat authorization, and checked-in RLS SQL join through
+  `employee_identities`. Live policies, functions, triggers, rules, views, indexes, and constraints
+  still require the separate credentialed catalog audit below.
+- `pnpm --filter @oracle/db verify:identity-cleanup -- --contract-only` fails loudly if an owned
+  reader returns and checks that any future drop migration sorts after the identity backfill.
+- The credentialed read-only production audit passed on 2026-07-29: `employeesTotal=38`;
+  `auth_user_id`, `auth_provider`, and `auth_provider_subject` each had zero non-null values. The
+  only reported dependencies were the expected local
+  `employees_auth_user_id_unique` constraint and `public.employees_auth_user_id_unique` index.
+  There were no external or inbound blockers.
+- The final drop migration is intentionally not authored. The rollback-compatible release must
+  authenticate successfully while the old columns still exist.
+- Any deprecated-column drop remains blocked until that rollback-authentication proof passes.
+  Only then may a new forward-only raw migration after
+  `40_employee_identities_data.sql` remove the columns. Never use a generated migration for this
+  drop and never edit migration 40.
 
 Gate: no runtime reader uses the columns, live dependency counts are zero, auth tests pass, and a
 rollback release can still authenticate before the final drop.

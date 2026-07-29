@@ -181,7 +181,7 @@ Routine expectations:
 
 - `scripts/verify-catalog.ts` — inspects provider model-list fetching and OpenRouter enrichment
 - `scripts/refresh-catalog.ts` — refreshes `model_capabilities` in the real DB
-- `packages/db/src/verify-identities.ts` — employee/identity inspection
+- `packages/db/src/verify-identities.ts` — GAP-10 identity cleanup gate. Run `pnpm --filter @oracle/db verify:identity-cleanup -- --contract-only` for the network-free fixtures, owned-reader scan, and migration-order checks. Run `pnpm --filter @oracle/db verify:identity-cleanup` only with a production database URL to add aggregate null counts and catalog dependency checks inside a read-only transaction; it prints no employee or identity values. Local indexes and constraints are reported but are not inbound blockers. The live gate passed on 2026-07-29. Any deprecated-column drop remains blocked until the rollback-compatible release authenticates successfully; then use a new forward-only raw migration after `40_employee_identities_data.sql`.
 - `packages/db/src/inspect-auth-users.ts` — Supabase auth user inspection
 - `scripts/test-teams-transcript-access.ps1` — PowerShell probe (no deps); checks whether the tenant grants the app transcript access (token → directory read → transcript read). Reads `AZURE_*` from `.env.local`.
 - `scripts/diagnose-transcripts.ps1` — tries several `getAllTranscripts` variants for a given organizer (proves scheduled-meeting transcripts work; ad-hoc calls won't appear here — that's why ingestion uses a subscription).

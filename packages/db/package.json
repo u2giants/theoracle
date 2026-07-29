@@ -19,6 +19,8 @@
     "prepare:fresh-supabase-test-db": "tsx src/prepare-fresh-supabase-test-db.ts",
     "seed": "tsx src/seed.ts",
     "verify:document-context-contract": "tsx src/verify-document-context-migration.ts --contract-only",
+    "verify:identity-cleanup": "tsx src/verify-identities.ts",
+    "verify:identity-cleanup-contract": "tsx src/verify-identity-cleanup-contract.ts",
     "verify:document-context-schema": "tsx src/verify-document-context-migration.ts",
     "verify:fresh-source-workflow-schema": "tsx src/verify-fresh-source-workflow-schema.ts",
     "verify:r1-cross-shape-schema": "tsx src/verify-r1-cross-shape-schema.ts",
