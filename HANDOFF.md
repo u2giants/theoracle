@@ -5,9 +5,23 @@ rejected with recorded evidence, or transferred to a named external owner.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
+## GAP-12 released, 2026-07-29
+
+GAP-12 topical lull-question selection is complete and released in commit
+`3c13fdcc55a187c22aae00962a7c7c2bc8615c88`. Grok 4.5 approved the final diff in session
+`019fac74-9419-7b90-abb1-e761c6c96618`. Migration 101 applied successfully twice. CI run
+`30427353184` passed, Vercel deployed the exact commit, and Trigger.dev production worker
+`20260729.2` was promoted in deployment `u5e3t6ql`.
+
+The live embedding proof used `text-embedding-3-small` with no fallback. A related vendor-invoice
+gap scored `0.7493`, an unrelated urgent design-color gap scored `0.1004`, and the related
+low-priority gap won. The unrelated-only case returned no question, so no synthetic message was
+posted to employees. GAP-12 has no remaining implementation or release work.
+
 ## GAP-11 local handoff, 2026-07-29
 
-GAP-11 audited model-coverage conversion is implemented locally but is not released. Migration
+GAP-11 audited model-coverage conversion is released in commit
+`e1d16f5cba7b9db03199b1d29e798bc5d2dff783`. Migration
 `100_model_coverage_conversions.sql` adds stable finding provenance, one active or sent conversion
 per administrative `model_coverage` gap, and database-enforced append-only audit events. `/admin/gaps`
 requires an admin to write a human question and reason and choose active recipients. The draft can
@@ -15,13 +29,12 @@ be cancelled and replaced with a new draft before sending. Sending is row-locked
 `coverage_question` gap per recipient, records the created ids and source map element, and resolves
 the administrative source row. Retries cannot create a second active conversion or second send.
 
-Local verification passed: `verify:model-coverage-conversion`; web, DB, and worker typechecks and
-lint; the production web build; and `git diff --check`. Visual proof is intentionally pending
-because migration 100 was not applied to the local database and this task forbids database
-mutation. Next release steps are: review and commit the diff, apply migration 100 through
-`pnpm db:migrate`, run CI, deploy the exact commit, then use a signed-in admin to prove draft,
-cancel, send, append-only audit, and double-submit behavior. Do not mark GAP-11 complete until
-those gates pass.
+Grok 4.5 approved the final diff in session `019fac5e-d70f-7eb1-b6ee-d542152289b8`.
+Migration 100 applied successfully twice. CI run `30426093402` passed, and Vercel deployed the
+exact commit successfully. The remaining gate is a signed-in production admin proof of draft,
+cancel, redraft, send, append-only audit, and double-submit behavior. The saved browser login had
+expired during release verification, so do not mark GAP-11 complete until that functional proof
+passes.
 
 ## Authoritative latest closeout — 2026-07-29
 

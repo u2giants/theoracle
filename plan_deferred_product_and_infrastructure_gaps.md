@@ -22,7 +22,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
 | GAP-10 Deprecated identity-column cleanup                | ✅ complete and released                              | Released in `30eed14`. Migration 98 applied successfully, a second full migration run proved rerun safety, CI and Vercel passed, and protected post-drop authentication succeeded. |
 | GAP-11 Model-coverage finding conversion                 | 🟨 local implementation complete; release proof pending | Admin-reviewed drafts, stable map provenance, recipient validation, row-locked idempotent sending, cancellation and redrafting before send, and append-only audit events are implemented. Local code checks passed; visual proof is deferred until the reviewed migration is applied. Migration, CI, deployment, and production proof remain. |
-| GAP-12 Topical gap selection for lull questions          | 🟨 local implementation complete; release proof pending | Eligible gaps now require semantic relevance after the existing safety filters. Bounded keyset pages scan every eligible gap; the fixture proves more than 50 unrelated urgent gaps cannot hide one topical low-priority gap. Network-free guards cover schema/migration/snapshot ownership, vector freshness, zero-stub refusal, typing, locking, and claim order. Migration 101, CI, worker deployment, and live proof remain. |
+| GAP-12 Topical gap selection for lull questions          | ✅ complete and released                                | Released in `3c13fdc`. Migration 101 applied twice, CI run `30427353184` passed, Vercel deployed the exact commit, and Trigger.dev promoted worker `20260729.2` (`u5e3t6ql`). A live `text-embedding-3-small` proof chose the related low-priority gap at `0.7493` over an unrelated urgent gap at `0.1004`; the unrelated-only case produced no post. |
 | GAP-13 Oversized conversation windowing                  | ⬜ open                                                 | Current behavior processes an oversized conversation whole and logs it                                                                                                                                                                                                                                                                                 |
 | GAP-14 Final documentation closure                       | ⬜ open                                                 | Depends on the relevant earlier steps                                                                                                                                                                                                                                                                                                                  |
 
@@ -556,8 +556,13 @@ Local implementation evidence (2026-07-29):
   embeddings fail closed, filters precede embedding, priority breaks equal-score ties, and the
   advisory-lock/final-typing/claim order remains intact. `verify:gap-topical-schema` protects the
   raw-migration/schema/latest-snapshot ownership contract.
-- Release remains open until migration 101 is reviewed and applied through the journal, checks pass,
-  the worker is deployed, and a live channel proves both a related ask and an unrelated no-post.
+- Release proof passed on 2026-07-29. Migration 101 applied successfully twice through
+  `pnpm db:migrate`; CI run `30427353184` passed; Vercel deployed exact commit `3c13fdc`; and
+  Trigger.dev promoted worker `20260729.2` in deployment `u5e3t6ql`.
+- A live provider proof used `text-embedding-3-small` with no fallback. The related
+  vendor-invoice gap scored `0.7493` and beat an unrelated urgent design-color gap at `0.1004`.
+  When the unrelated candidate was tested alone against the same production threshold, selection
+  returned null, proving the no-post branch without sending a synthetic question to employees.
 
 ### GAP-13: oversized conversation windowing
 
