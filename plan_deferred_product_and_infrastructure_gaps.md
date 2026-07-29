@@ -23,7 +23,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-10 Deprecated identity-column cleanup                | ✅ complete and released                              | Released in `30eed14`. Migration 98 applied successfully, a second full migration run proved rerun safety, CI and Vercel passed, and protected post-drop authentication succeeded. |
 | GAP-11 Model-coverage finding conversion                 | 🟨 local implementation complete; release proof pending | Admin-reviewed drafts, stable map provenance, recipient validation, row-locked idempotent sending, cancellation and redrafting before send, and append-only audit events are implemented. Local code checks passed; visual proof is deferred until the reviewed migration is applied. Migration, CI, deployment, and production proof remain. |
 | GAP-12 Topical gap selection for lull questions          | ✅ complete and released                                | Released in `3c13fdc`. Migration 101 applied twice, CI run `30427353184` passed, Vercel deployed the exact commit, and Trigger.dev promoted worker `20260729.2` (`u5e3t6ql`). A live `text-embedding-3-small` proof chose the related low-priority gap at `0.7493` over an unrelated urgent gap at `0.1004`; the unrelated-only case produced no post. |
-| GAP-13 Oversized conversation windowing                  | ⬜ open                                                 | Current behavior processes an oversized conversation whole and logs it                                                                                                                                                                                                                                                                                 |
+| GAP-13 Oversized conversation windowing                  | 🟨 local implementation complete; release proof pending | Shared sync/Batch message-boundary windows are model-bounded, preserve evidence identity/time, use configurable overlap and non-quotable carry-in, deduplicate through existing candidate identity, and fail without truncating one unfit message. Migration 102, CI, worker deploy, and live oversized proof remain. |
 | GAP-14 Final documentation closure                       | ⬜ open                                                 | Depends on the relevant earlier steps                                                                                                                                                                                                                                                                                                                  |
 
 Fresh-session starting point: GAP-1 is the first product gap with an unsafe partial behavior.
@@ -574,6 +574,30 @@ Local implementation evidence (2026-07-29):
 
 Gate: an oversized fixture completes within budget, loses no quotable message, and produces no
 overlap duplicates.
+
+Local implementation evidence (2026-07-29):
+
+- Sync and provider-Batch extraction use the same pure window builder. Windows split only between
+  complete messages and repeat `extraction_window_overlap_messages` active messages across a
+  boundary. Original IDs, timestamps, authors, and content are reused unchanged.
+- Prior complete/skipped carry-in stays in the prompt's explicit non-quotable block. It may be
+  reduced from the oldest end only when needed to leave room for one complete active message.
+- The effective formatted-text cap is the lower of `extraction_char_budget` and
+  `extraction_window_context_ratio` of the smallest verified context length across the complete
+  configured route pool, using a conservative character/token estimate. Missing route context
+  metadata fails loudly. There is no hard-coded model choice or unapproved fallback.
+- Repeated active evidence goes through the unchanged candidate-before-claim validator and
+  `computeCandidateHash`/promotion lock, so overlap cannot create a second permanent claim.
+- Message terminal state is reconciled across every owning window in the extraction job. Any
+  successful owner is sticky in either completion order; failed-first plus pending stays
+  processing; `failed` is written only when every owner failed.
+- `verify:conversation-windowing` is network-free and covers a synthetic 80-message oversized
+  conversation, exact budget compliance, complete quotable coverage, overlap, evidence ID and
+  timestamp preservation, carry-in labeling, stable candidate identity, unknown model context,
+  and one-message hard failure without truncation.
+- Release remains open until rerun-safe migration 102 is applied through the normal journal, CI
+  passes, the Trigger worker is deployed, and an oversized production-safe fixture proves the
+  smallest configured extraction route completes without missing messages or duplicate claims.
 
 ### GAP-14: close documentation
 

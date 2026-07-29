@@ -54,6 +54,7 @@ import {
   resolveExtractionCandidates,
   selectPendingConversations,
 } from './claim-extraction';
+import { contextBoundedConversationChars } from '../lib/conversation-windowing';
 
 export interface BatchSubmitTotals {
   ok: boolean;
@@ -146,13 +147,20 @@ export async function runClaimExtractionBatchSubmitOnce(
       );
     }
 
-    // 3. Pull whole pending conversations. Never split a conversation just
-    // because the per-tick budget is reached.
+    // 3. Pull pending conversations. Oversized conversations become bounded
+    // message-only windows shared with the sync path.
     const selectionSettings = await loadExtractionSelectionSettings(db);
+    const windowCharBudget = contextBoundedConversationChars({
+      configuredCharBudget: selectionSettings.charBudget,
+      contextLengths: routeCandidates.map((candidate) => candidate.contextLength ?? Number.NaN),
+      usableContextRatio: selectionSettings.windowContextRatio,
+    });
     const conversations = await selectPendingConversations(db, {
       charBudget: selectionSettings.charBudget,
       maxMessages: BATCH_SIZE,
       carryInCount: selectionSettings.carryInCount,
+      windowOverlapCount: selectionSettings.windowOverlapCount,
+      windowCharBudget,
     });
 
     if (conversations.length === 0) {
@@ -180,14 +188,6 @@ export async function runClaimExtractionBatchSubmitOnce(
       const segment = conversation.segment;
       const segmentIds = segment.map((m) => m.id);
       allMessageIdsForFailure.push(...segmentIds);
-      if (conversation.isOversized) {
-        console.warn('[claim-extraction-batch-submit] submitting oversized conversation without truncation', {
-          channelId: conversation.channelId,
-          messages: segment.length,
-          charCount: conversation.charCount,
-          charBudget: selectionSettings.charBudget,
-        });
-      }
       const userMessages = segment.filter((m) => m.role === 'user');
       if (userMessages.length === 0) {
         // Skip empty segments at submit time — mark messages as 'skipped'.

@@ -15,7 +15,8 @@
     "verify:r0-production-replay": "tsx src/__verify__/r0-production-replay.ts",
     "verify:r2-responsibilities": "tsx src/__verify__/r2-responsibility-reader.ts",
     "verify:taxonomy-reclassification": "tsx src/__verify__/taxonomy-reclassification-contract.ts",
-    "verify:taxonomy-reclassification-db": "tsx src/__verify__/taxonomy-reclassification-db.ts"
+    "verify:taxonomy-reclassification-db": "tsx src/__verify__/taxonomy-reclassification-db.ts",
+    "verify:conversation-windowing": "tsx src/__verify__/conversation-windowing.ts"
   },
   "dependencies": {
     "@oracle/ai": "workspace:*",

@@ -133,6 +133,12 @@ jobs:
       - name: Topical lull-gap schema parity guard
         run: pnpm --filter @oracle/db verify:gap-topical-schema
 
+      - name: Oversized conversation windowing safety guard
+        # Network-free. Proves model-bounded message windows, overlap dedup,
+        # evidence/timestamp preservation, non-quotable carry-in, and the
+        # no-truncation hard failure for one unfit message.
+        run: pnpm --filter @oracle/workers verify:conversation-windowing
+
       - name: MCP registry guard
         # Static, DB-free check of the Oracle MCP lazy-loaded registry: tools/list
         # stays limited to the five always-on tools, capability metadata/tiers are

@@ -221,6 +221,18 @@ Worker integration landed 2026-05-28. Three Trigger.dev tasks coordinate via the
 
 Sync and batch paths share `processSegmentOutput` (exported from `claim-extraction.ts`), so candidate-before-claim validation, taxonomy validation, sensitivity gating, and `executePromotion` behave identically regardless of which model dispatch the segment came from. Flip dispatch mode via the **Settings → Extraction dispatch mode** toggle on `/admin/settings` (DispatchModeToggle client component, posts to `/api/admin/settings`) or by direct SQL: `UPDATE settings SET value = '"batch"'::jsonb WHERE key = 'extraction_dispatch_mode';`. Read every cron tick, no redeploy needed.
 
+Both dispatch paths also share `conversation-windowing.ts`. A conversation larger than one request
+is split only between complete messages. Adjacent windows repeat a configurable number of active
+messages, keeping their original message IDs and timestamps; the existing candidate hash and
+promotion lock deduplicate any repeated extraction. Older carry-in messages remain in the explicit
+non-quotable block. The effective character cap is the lower of `extraction_char_budget` and a
+configurable safe share of the smallest verified context length in the whole extraction route pool.
+Missing context metadata or one message that cannot fit stops the run clearly. No message is
+truncated and no hard-coded model is selected.
+For overlapping messages, terminal state is owner-aware within the extraction job: any completed
+window makes the message complete in either result order, while failed is written only after every
+window containing that message has failed. A still-pending owner keeps the message processing.
+
 ### Adding a new provider
 
 Adding a sixth provider (e.g. Mistral, xAI) is a contained change:

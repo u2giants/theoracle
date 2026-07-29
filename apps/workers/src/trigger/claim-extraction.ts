@@ -73,15 +73,24 @@ import {
   type RegistryEntity,
 } from '@oracle/engines';
 import type { EntityType, KnowledgeDomain, TopLevelDomainId } from '@oracle/shared';
+import {
+  buildConversationWindows,
+  contextBoundedConversationChars,
+} from '../lib/conversation-windowing';
+import { reconcileMessageExtractionStatuses } from '../lib/message-extraction-status';
 
 export const BATCH_SIZE = 100;
 export const SEGMENT_GAP_MS = 60 * 60 * 1000;
 export const DEFAULT_EXTRACTION_CHAR_BUDGET = 24_000;
 export const DEFAULT_EXTRACTION_CARRY_IN_COUNT = 12;
+export const DEFAULT_EXTRACTION_WINDOW_OVERLAP_COUNT = 2;
+export const DEFAULT_EXTRACTION_WINDOW_CONTEXT_RATIO = 0.7;
 
 export interface ExtractionSelectionSettings {
   charBudget: number;
   carryInCount: number;
+  windowOverlapCount: number;
+  windowContextRatio: number;
 }
 
 export interface PendingConversationSegment {
@@ -89,7 +98,6 @@ export interface PendingConversationSegment {
   segment: FormattedMessage[];
   carryIn: FormattedMessage[];
   charCount: number;
-  isOversized: boolean;
 }
 
 // ── Module-singletons ─────────────────────────────────────────────────────
@@ -220,13 +228,20 @@ export async function runClaimExtractionOnce(
     const entityRegistry = await loadEntityRegistry(db);
     const correctionLessons = await loadClaimCorrectionLessonPack(db);
     const selectionSettings = await loadExtractionSelectionSettings(db);
+    const windowCharBudget = contextBoundedConversationChars({
+      configuredCharBudget: selectionSettings.charBudget,
+      contextLengths: routeCandidates.map((candidate) => candidate.contextLength ?? Number.NaN),
+      usableContextRatio: selectionSettings.windowContextRatio,
+    });
 
-    // 2. Pull whole pending conversations. The selector may stop at the
-    // per-tick budget, but it never cuts a conversation mid-segment.
+    // 2. Pull pending conversations. Oversized conversations become bounded
+    // message-only windows; no message content is cut.
     const conversations = await selectPendingConversations(db, {
       charBudget: selectionSettings.charBudget,
       maxMessages: BATCH_SIZE,
       carryInCount: selectionSettings.carryInCount,
+      windowOverlapCount: selectionSettings.windowOverlapCount,
+      windowCharBudget,
     });
 
     if (conversations.length === 0) {
@@ -247,16 +262,8 @@ export async function runClaimExtractionOnce(
       .set({ extractionStatus: 'processing' })
       .where(inArray(messages.id, messageIds));
 
-    // 4. Process each whole conversation segment as an extraction_batches row.
+    // 4. Process each bounded conversation window as an extraction_batches row.
     for (const conversation of conversations) {
-      if (conversation.isOversized) {
-        console.warn('[claim-extraction] processing oversized conversation without truncation', {
-          channelId: conversation.channelId,
-          messages: conversation.segment.length,
-          charCount: conversation.charCount,
-          charBudget: selectionSettings.charBudget,
-        });
-      }
       try {
         const outcome = await processSegment({
           db,
@@ -284,6 +291,15 @@ export async function runClaimExtractionOnce(
         // to 'failed'; nothing more to do here.
       }
     }
+
+    // Failed windows deliberately leave messages processing until every
+    // overlapping owner in this run is known. One successful owner wins in
+    // either completion order; only an all-failed owner set becomes failed.
+    await reconcileMessageExtractionStatuses({
+      db,
+      jobRunId: jobRun.id,
+      messageIds,
+    });
 
     await db
       .update(jobRuns)
@@ -567,13 +583,6 @@ async function processSegment(args: ProcessSegmentArgs): Promise<SegmentOutcome>
         finishedAt: new Date(),
       })
       .where(eq(extractionBatches.id, batch.id));
-    await db
-      .update(messages)
-      .set({
-        extractionStatus: 'failed',
-        extractionError: err instanceof Error ? err.message : String(err),
-      })
-      .where(inArray(messages.id, segmentIds));
     outcome.messagesProcessed = segmentIds.length;
     return outcome;
   }
@@ -1005,7 +1014,7 @@ export async function processSegmentOutput(
   // admin review separately.
   await db
     .update(messages)
-    .set({ extractionStatus: 'complete', extractedAt: new Date() })
+    .set({ extractionStatus: 'complete', extractionError: null, extractedAt: new Date() })
     .where(inArray(messages.id, segmentIds));
   outcome.messagesProcessed = segmentIds.length;
 
@@ -1038,7 +1047,14 @@ export async function loadExtractionSelectionSettings(
   const rows = await db
     .select({ key: settings.key, value: settings.value })
     .from(settings)
-    .where(inArray(settings.key, ['extraction_char_budget', 'extraction_carry_in_count']));
+    .where(
+      inArray(settings.key, [
+        'extraction_char_budget',
+        'extraction_carry_in_count',
+        'extraction_window_overlap_messages',
+        'extraction_window_context_ratio',
+      ]),
+    );
   const map = new Map(rows.map((row) => [row.key, row.value]));
   return {
     charBudget: numberSetting(
@@ -1053,6 +1069,20 @@ export async function loadExtractionSelectionSettings(
       0,
       50,
     ),
+    windowOverlapCount: numberSetting(
+      map.get('extraction_window_overlap_messages'),
+      DEFAULT_EXTRACTION_WINDOW_OVERLAP_COUNT,
+      0,
+      20,
+    ),
+    windowContextRatio:
+      Math.max(
+        0.1,
+        Math.min(
+          0.9,
+          Number(map.get('extraction_window_context_ratio') ?? DEFAULT_EXTRACTION_WINDOW_CONTEXT_RATIO),
+        ),
+      ),
   };
 }
 
@@ -1153,6 +1183,8 @@ export async function selectPendingConversations(
     charBudget: number;
     maxMessages: number;
     carryInCount: number;
+    windowOverlapCount?: number;
+    windowCharBudget?: number;
   },
 ): Promise<PendingConversationSegment[]> {
   const channelRows = await db
@@ -1199,7 +1231,6 @@ export async function selectPendingConversations(
           selectedChars + charCount > opts.charBudget);
       if (wouldExceedBudget) return selected;
 
-      const isOversized = segment.length > opts.maxMessages || charCount > opts.charBudget;
       const firstMessage = segment[0];
       const carryIn = firstMessage
         ? await loadCarryInMessages(
@@ -1209,17 +1240,24 @@ export async function selectPendingConversations(
             opts.carryInCount,
           )
         : [];
-      selected.push({
-        channelId: channelRow.channelId,
+      const windows = buildConversationWindows({
         segment,
         carryIn,
-        charCount,
-        isOversized,
+        maxChars: opts.windowCharBudget ?? opts.charBudget,
+        overlapCount: opts.windowOverlapCount ?? 0,
       });
+      for (const window of windows) {
+        selected.push({
+          channelId: channelRow.channelId,
+          segment: window.segment,
+          carryIn: window.carryIn,
+          charCount: window.formattedCharCount,
+        });
+      }
       selectedMessages += segment.length;
       selectedChars += charCount;
 
-      if (isOversized) {
+      if (windows.length > 1) {
         return selected;
       }
     }

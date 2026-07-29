@@ -5,6 +5,102 @@ rejected with recorded evidence, or transferred to a named external owner.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
+## GAP-13 local handoff, 2026-07-29
+
+### 1. What this application is
+
+The Oracle is POP Creations' evidence-backed company knowledge system. Employees chat and upload
+documents. Trigger.dev workers turn source messages into candidates, validate exact evidence, and
+only then promote safe claims. This `pnpm` TypeScript monorepo is at `C:\repos\oracle`; the web app
+runs at `https://oracle.designflow.app`.
+
+### 2. What this work set out to do, and why
+
+GAP-13 existed because sync and provider-Batch claim extraction sent a same-channel conversation
+whole when it exceeded `extraction_char_budget`. A long meeting could exceed a configured model's
+context. The goal was complete message-only windows with safe overlap, unchanged evidence, and no
+silent truncation or model fallback.
+
+### 3. Current state
+
+The implementation is local on `main` and is not committed, pushed, migrated, deployed, or
+production-tested. Both dispatch paths call
+`apps/workers/src/lib/conversation-windowing.ts`. It splits only between complete messages,
+repeats configurable active messages, preserves original IDs/timestamps/authors/content, and keeps
+older carry-in in the existing explicit non-quotable block. Existing candidate hashes and the
+promotion lock deduplicate overlap results. The cap is the lower of `extraction_char_budget` and
+the configured safe share of the smallest verified context length in the full extraction route
+pool. Unknown context metadata and one unfit message stop clearly; nothing is truncated.
+
+Migration `packages/db/migrations/sql/102_conversation_window_settings.sql` seeds the overlap and
+context-ratio settings with `ON CONFLICT DO NOTHING`. No table or column changed. The migration has
+not been applied.
+
+### 4. Everything tried that did not work
+
+The first fixture showed the initial packer could remove all older carry-in while maximizing active
+messages. That met the hard cap but weakened boundary interpretation. The builder now first keeps
+all carry-in that fits beside one complete active message, then grows the active window without
+discarding that reserved context. Only oldest carry-in is removed when one complete active message
+otherwise cannot fit.
+
+The first typecheck made `RouteCandidate.contextLength` required and broke older manual test and
+utility candidates that do not use windowing. The field is now optional for general callers.
+GAP-13 alone rejects a missing value in any configured extraction candidate, so it stays fail-loud
+without forcing unrelated callers to invent metadata.
+
+Grok 4.5 review session `019fac8f-7fa2-7051-83ec-a8adb5efa656` correctly rejected the first
+review-ready diff because overlapping active messages could be marked complete by one window and
+then demoted to failed by a later failed window. Sync now leaves failed-window messages processing
+until every window in that run is staged, then reconciles all owners. Batch already stages every
+window before draining and reconciles after each failure. In both paths any successful owner is
+sticky, a failed-first/pending-second message stays processing, and only an all-failed owner set
+becomes failed. The network-free guard covers both orderings and the all-failed case.
+
+### 5. Root causes and key findings
+
+`selectPendingConversations()` intentionally returned an oversized segment whole and both dispatch
+workers only logged a warning. The route resolver already reads `model_capabilities.context_length`
+but did not expose that verified value to callers. GAP-13 exposes it on each resolved candidate and
+sizes against the smallest full-pool value so provider fallback cannot receive a window sized only
+for the primary.
+
+### 6. Exact next steps
+
+1. Review the local GAP-13 diff. It is ready when no unrelated file is included.
+2. Commit and push to `main` using Albert's required identity. It is ready when `origin/main`
+   contains the exact commit.
+3. Apply migration 102 through `pnpm db:migrate`, then run the same command again. It is ready when
+   both runs finish and the two setting rows exist once.
+4. Let GitHub Actions run the new `verify:conversation-windowing` step and all existing gates. It
+   is ready when CI is green for the exact commit.
+5. Deploy the Trigger.dev worker. It is ready when production reports the new worker version.
+6. Run a production-safe oversized conversation fixture against the smallest configured
+   extraction context. It is ready when every message completes, every source ID/time is intact,
+   and overlap creates no second permanent claim.
+
+### 7. Constraints and gotchas
+
+Do not weaken candidate-before-claim validation, quote evidence, provider routing, batch tracking,
+or promotion locking. Do not replace model-derived sizing with a hard-coded model. Do not truncate
+one large message. Migration 102 is settings-only and must go through the normal journal.
+
+### 8. Access and environment
+
+No secrets, database, cloud, GitHub, Vercel, or Trigger.dev access was used. Work is local in
+`C:\repos\oracle` on `main`. Future credentials remain in 1Password vault `vibe_coding`; never copy
+their values into this file.
+
+### 9. Open questions and risks
+
+No product decision is open. Release proof remains the only blocker. The live fixture should use
+non-confidential synthetic content because the purpose is window and evidence behavior, not model
+quality.
+
+Self-audit passed: a new developer can identify the application, goal, exact local state, failed
+attempts, root cause, concrete release gates, constraints, access, and remaining risk without this
+chat.
+
 ## GAP-12 released, 2026-07-29
 
 GAP-12 topical lull-question selection is complete and released in commit

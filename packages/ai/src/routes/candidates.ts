@@ -19,6 +19,8 @@ export interface RouteCandidate {
   slot: ModelSlot;
   isPrimary: boolean;
   approvedModelId: string;
+  /** Verified provider/model input context. Null is unsafe for window sizing. */
+  contextLength?: number | null;
 }
 
 export interface SkippedRouteCandidate {
@@ -297,6 +299,7 @@ export async function resolveRouteCandidates(
       slot,
       isPrimary: index === 0,
       approvedModelId: poolKey ? id : capMatch?.id ?? concrete,
+      contextLength: capMatch?.cap.contextLength ?? null,
     });
   }
 

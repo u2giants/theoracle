@@ -103,6 +103,7 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 | `94_r0_validator_coverage_limits.sql`               | Seeds deterministic R0 reader/coverage limits and diagnostics. |
 | `95_r1_cross_shape_constraints.sql`                 | Completes R1 after generated 0010: adds raw-owned department/entity/domain and legacy proposal/recommendation columns/FKs, circular FKs, shape/detail/identity constraints, namespace uniqueness, default-deny RLS, and fail-safe merge/apply/serving settings. It copies no legacy content. |
 | `99_vector_indexes.sql`                             | HNSW indexes on `claims.embedding` and `document_chunks.embedding`. Opt-in via `ORACLE_RUN_VECTOR_INDEXES=1`.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `102_conversation_window_settings.sql`              | Seeds rerun-safe GAP-13 overlap and model-context reserve settings for oversized message extraction windows. |
 
 ## Anti-patterns
 

@@ -50,6 +50,7 @@ import {
   loadEntityRegistry,
   processSegmentOutput,
 } from './claim-extraction';
+import { reconcileMessageExtractionStatuses } from '../lib/message-extraction-status';
 
 export interface BatchDrainTotals {
   ok: boolean;
@@ -277,7 +278,13 @@ async function processBatchResultItem(
 
   // Per-request failure path (provider returned non-success for this customId).
   if (!item.success) {
-    await markBatchFailed(db, extractionBatchId, segmentMessageIds, item.error ?? 'batch result error');
+    await markBatchFailed(
+      db,
+      extractionBatchId,
+      batchRow.jobRunId,
+      segmentMessageIds,
+      item.error ?? 'batch result error',
+    );
     totals.errors += 1;
     return;
   }
@@ -290,6 +297,7 @@ async function processBatchResultItem(
     await markBatchFailed(
       db,
       extractionBatchId,
+      batchRow.jobRunId,
       segmentMessageIds,
       `output failed schema validation: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
     );
@@ -360,6 +368,7 @@ async function processBatchResultItem(
 async function markBatchFailed(
   db: OracleDb,
   extractionBatchId: string,
+  jobRunId: string | null,
   segmentMessageIds: string[],
   errorMsg: string,
 ): Promise<void> {
@@ -368,10 +377,18 @@ async function markBatchFailed(
     .set({ status: 'failed', error: errorMsg, finishedAt: new Date() })
     .where(eq(extractionBatches.id, extractionBatchId));
   if (segmentMessageIds.length > 0) {
-    await db
-      .update(messages)
-      .set({ extractionStatus: 'failed', extractionError: errorMsg })
-      .where(inArray(messages.id, segmentMessageIds));
+    if (!jobRunId) {
+      console.error(
+        '[claim-extraction-batch-drain] failed batch has no job_run_id; message statuses remain processing because overlapping ownership cannot be reconciled safely',
+        { extractionBatchId, segmentMessageIds },
+      );
+      return;
+    }
+    await reconcileMessageExtractionStatuses({
+      db,
+      jobRunId,
+      messageIds: segmentMessageIds,
+    });
   }
 }
 

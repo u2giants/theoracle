@@ -74,8 +74,10 @@ const DEFAULT_SETTINGS: Array<{
   { key: 'responsibility_postpass_max_quote_repairs_per_source', value: 1, description: 'Separate fail-loud R2 allowance for at most one strict responsibility quote-copy repair per source.' },
   { key: 'responsibility_postpass_max_omission_retries_per_source', value: 5, description: 'Separate fail-loud R2 cap on source-driven responsibility omission retries across one source.' },
   { key: 'responsibility_postpass_max_omission_retries_per_chunk', value: 1, description: 'Separate fail-loud R2 cap on source-driven responsibility omission retries for one chunk.' },
-  { key: 'extraction_char_budget', value: 24000, description: 'Approximate max characters of active conversation text selected per extraction run before stopping at a conversation boundary.' },
+  { key: 'extraction_char_budget', value: 24000, description: 'Maximum formatted active-conversation characters per extraction window, further capped by the smallest configured model context.' },
   { key: 'extraction_carry_in_count', value: 12, description: 'Prior complete/skipped same-channel messages included as non-quotable context for message extraction.' },
+  { key: 'extraction_window_overlap_messages', value: 2, description: 'Complete active messages repeated across adjacent oversized-conversation extraction windows; original evidence IDs remain unchanged.' },
+  { key: 'extraction_window_context_ratio', value: 0.7, description: 'Share of the smallest configured extraction model context available to formatted conversation text; the rest is reserved for prompts, schema, and output.' },
   { key: 'enable_live_contradiction_interjections', value: false, description: 'When false, possible contradictions queue silently (spec 5.1 Rule 1).' },
   { key: 'enable_group_chat_lull_questions', value: true, description: 'When true, Oracle may ask a high-priority gap question during a lull (spec 5.1 Rule 2).' },
   // D14 — provider Batch API dispatch mode for claim extraction.
