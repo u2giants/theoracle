@@ -329,10 +329,10 @@ See fix `e6a5e07` for the pattern.
 ### One employee can have many auth identities
 
 Looks like:
-`employees` still has deprecated auth columns, so `employee_identities` looks redundant.
+Raw migration 98 and the local schema removal are ready, so `employee_identities` may look like a replacement that is not fully released yet.
 
 Actually:
-`employee_identities` is the real auth-link table. The deprecated columns remain only as transition leftovers.
+`employee_identities` is the real auth-link table. Production migration 98 and post-drop protected-login proof are still pending.
 
 Why:
 One person may log in through Google and Microsoft 365 and still be the same employee.

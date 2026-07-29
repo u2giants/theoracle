@@ -171,13 +171,6 @@ export const employees = pgTable('employees', {
   // employee row that has not yet been linked to any identity).
   email: varchar('email', { length: 320 }).notNull().unique(),
 
-  // DEPRECATED — kept nullable for transitional reads from old code paths.
-  // Authoritative source is now employee_identities. Will be removed once all
-  // consumers are migrated. See DECISIONS.md D2.multi-identity.
-  authUserId: uuid('auth_user_id').unique(),
-  authProvider: authProviderEnum('auth_provider'),
-  authProviderSubject: varchar('auth_provider_subject', { length: 255 }),
-
   name: varchar('name', { length: 255 }).notNull(),
   role: varchar('role', { length: 255 }).notNull(),
   // DEPRECATED: single-value legacy field. Kept for backward compat during

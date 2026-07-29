@@ -5,6 +5,24 @@ export const DEPRECATED_SQL_COLUMNS = [
   'auth_provider',
   'auth_provider_subject',
 ] as const;
+export const AUTHORIZED_IDENTITY_DROP_MIGRATION =
+  'packages/db/migrations/sql/98_drop_deprecated_employee_identity_columns.sql';
+export const GAP10_ROLLBACK_PROOF = {
+  commit: '53047981e2580bbba56451aaf4aeb034d9a92b3b',
+  ciRun: '30424102001',
+  deployment: 'dpl_7MVqENiyLL3FeQCiB9f4vmTiMCQq',
+} as const;
+
+export function shouldSkipRawMigration(
+  fileName: string,
+  legacyAuthUserIdColumnExists: boolean | undefined,
+): boolean {
+  if (fileName !== '40_employee_identities_data.sql') return false;
+  if (legacyAuthUserIdColumnExists === undefined) {
+    throw new Error('Legacy identity-column state is unknown; refusing to skip migration 40.');
+  }
+  return !legacyAuthUserIdColumnExists;
+}
 
 const DEPRECATED_TS_PROPERTIES = 'authUserId|authProvider|authProviderSubject';
 const DEPRECATED_SQL_PATTERN = 'auth_user_id|auth_provider|auth_provider_subject';
@@ -145,6 +163,10 @@ export function describeBlockedDropMigration(
   const columns = findDeprecatedDropColumns(sql);
   if (columns.length === 0) return null;
   const normalized = normalizeRepoPath(path);
+  if (normalized === AUTHORIZED_IDENTITY_DROP_MIGRATION) {
+    const errors = validateAuthorizedIdentityDropMigration(sql);
+    return errors.length === 0 ? null : `authorized GAP-10 migration is invalid: ${errors.join('; ')}`;
+  }
   const name = normalized.split('/').at(-1) ?? normalized;
   if (/^packages\/db\/migrations\/[^/]+\.sql$/.test(normalized)) {
     return `generated ${name} drops ${columns.join(', ')} before raw migration 40 can run`;
@@ -155,4 +177,71 @@ export function describeBlockedDropMigration(
     return `${name} drops ${columns.join(', ')} before migration 40`;
   }
   return `${name} drops ${columns.join(', ')} before the live GAP-10 proof is recorded`;
+}
+
+export function validateAuthorizedIdentityDropMigration(sql: string): string[] {
+  const errors: string[] = [];
+  const dropped = new Set(findDeprecatedDropColumns(sql));
+  for (const column of DEPRECATED_SQL_COLUMNS) {
+    if (!dropped.has(column)) errors.push(`missing DROP COLUMN ${column}`);
+    if (
+      !new RegExp(`\\bdrop\\s+column\\s+if\\s+exists\\s+"?${column}"?\\b`, 'i').test(sql)
+    ) {
+      errors.push(`${column} drop is not rerun-safe`);
+    }
+  }
+  if (dropped.size !== DEPRECATED_SQL_COLUMNS.length) {
+    errors.push('migration drops unexpected deprecated columns');
+  }
+  const employeeDropColumns = new Set<string>();
+  const withoutComments = sql.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  for (const statement of withoutComments.split(';')) {
+    if (
+      !/\balter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(?:"?public"?\s*\.\s*)?"?employees"?\b/i.test(
+        statement,
+      )
+    ) {
+      continue;
+    }
+    for (const match of statement.matchAll(
+      /\bdrop\s+column\s+(?:if\s+exists\s+)?["']?([A-Za-z_][\w$]*)["']?/gi,
+    )) {
+      if (match[1]) employeeDropColumns.add(match[1].toLowerCase());
+    }
+  }
+  const extraColumns = [...employeeDropColumns].filter(
+    (column) => !DEPRECATED_SQL_COLUMNS.includes(column as (typeof DEPRECATED_SQL_COLUMNS)[number]),
+  );
+  if (extraColumns.length > 0) {
+    errors.push(`migration drops unrelated employees columns: ${extraColumns.join(', ')}`);
+  }
+  if (
+    !/\balter\s+table\s+(?:only\s+)?public\.employees\s+drop\s+constraint\s+if\s+exists\s+employees_auth_user_id_unique\b/i.test(
+      sql,
+    )
+  ) {
+    errors.push('missing rerun-safe local unique constraint drop');
+  }
+  if (
+    !/\bdrop\s+index\s+if\s+exists\s+public\.employees_auth_user_id_unique\b/i.test(sql)
+  ) {
+    errors.push('missing rerun-safe local unique index drop');
+  }
+  if (!/\bbegin\s*;/i.test(sql) || !/\bcommit\s*;/i.test(sql)) {
+    errors.push('migration must be transactional');
+  }
+  if (/\b(drop\s+table|truncate|delete\s+from|update\s+|insert\s+into)\b/i.test(sql)) {
+    errors.push('migration contains an unrelated destructive statement');
+  }
+  const constraintPosition = sql.search(/\bdrop\s+constraint\b/i);
+  const indexPosition = sql.search(/\bdrop\s+index\b/i);
+  const columnPosition = sql.search(/\bdrop\s+column\b/i);
+  if (
+    constraintPosition < 0 ||
+    indexPosition < constraintPosition ||
+    columnPosition < indexPosition
+  ) {
+    errors.push('constraint, index, and columns must be dropped in that order');
+  }
+  return errors;
 }

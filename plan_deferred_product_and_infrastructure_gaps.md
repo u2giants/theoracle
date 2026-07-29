@@ -20,7 +20,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-7 Eval-results dashboard                             | ✅ complete and released                                | Released through `3b96669`. Clean CLI eval run `extraction-2026-07-29T04-03-41-967Z` passed 4/4 and is tied to code commit `656785e`. Grok approved. CI run `30421488336` passed, Vercel deployment `dpl_3KF4J76s9shZBHugy4xNR9rktBCo` was promoted, and signed-in production list/detail checks passed. |
 | GAP-8 Provider capability parity                         | ✅ complete and released                                | Released in `4d56ad5`. DeepSeek, Qwen, and Google Gemini API remain sync-only for tracked extraction Batch. Unsupported settings are blocked and stale settings fail loudly. Grok approved, CI run `30422669789` passed, Vercel deployment `dpl_7JQoF119e4DVnNHtRE73xxDWUqoX` was promoted, and signed-in production Settings proof passed. |
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
-| GAP-10 Deprecated identity-column cleanup                | 🟨 live audit passed; rollback release gate remains    | All owned runtime readers use `employee_identities`; offline guards pass. The 2026-07-29 read-only production audit found 38 employees, zero non-null deprecated values, and only the expected local unique constraint/index. Final drop remains blocked until a rollback-compatible release authenticates successfully. |
+| GAP-10 Deprecated identity-column cleanup                | 🟨 final removal implemented locally; release pending | Live audit and rollback authentication proof passed. Schema cleanup and rerun-safe raw migration `98_drop_deprecated_employee_identity_columns.sql` are implemented locally. Production migration, CI, deployment, and post-drop authentication proof remain pending. |
 | GAP-11 Model-coverage finding conversion                 | ⬜ open                                                 | Administrative findings are isolated correctly but lack the audited convert-to-question flow                                                                                                                                                                                                                                                           |
 | GAP-12 Topical gap selection for lull questions          | ⬜ open                                                 | Typing presence is implemented; semantic relevance is not                                                                                                                                                                                                                                                                                              |
 | GAP-13 Oversized conversation windowing                  | ⬜ open                                                 | Current behavior processes an oversized conversation whole and logs it                                                                                                                                                                                                                                                                                 |
@@ -471,12 +471,15 @@ Local status (2026-07-29):
   only reported dependencies were the expected local
   `employees_auth_user_id_unique` constraint and `public.employees_auth_user_id_unique` index.
   There were no external or inbound blockers.
-- The final drop migration is intentionally not authored. The rollback-compatible release must
-  authenticate successfully while the old columns still exist.
-- Any deprecated-column drop remains blocked until that rollback-authentication proof passes.
-  Only then may a new forward-only raw migration after
-  `40_employee_identities_data.sql` remove the columns. Never use a generated migration for this
-  drop and never edit migration 40.
+- Rollback compatibility passed on 2026-07-29: commit
+  `53047981e2580bbba56451aaf4aeb034d9a92b3b`, CI run `30424102001`, promoted Vercel deployment
+  `dpl_7MVqENiyLL3FeQCiB9f4vmTiMCQq`, and a signed-in protected `/admin/settings` check showing
+  build `5304798` for Albert H. (`Lead Architect`).
+- The authorized local removal is implemented in the new rerun-safe forward-only raw migration
+  `98_drop_deprecated_employee_identity_columns.sql`, after migration 40 and before the reserved
+  migration 99. `packages/db/src/schema.ts` no longer exposes the three deprecated fields.
+- Production migration execution, release proof, and post-drop protected authentication proof
+  remain pending. Do not mark GAP-10 complete until all three pass.
 
 Gate: no runtime reader uses the columns, live dependency counts are zero, auth tests pass, and a
 rollback release can still authenticate before the final drop.

@@ -21,6 +21,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import { runSeed } from './seed';
+import { shouldSkipRawMigration } from './identity-cleanup-contract';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..', '..', '..');
@@ -59,6 +60,25 @@ async function listSqlFiles(dir: string): Promise<string[]> {
   }
 }
 
+async function legacyAuthUserIdColumnExists(
+  client: ReturnType<typeof postgres>,
+): Promise<boolean> {
+  const rows = await client<{ exists: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_attribute
+      WHERE attrelid = 'public.employees'::regclass
+        AND attname = 'auth_user_id'
+        AND NOT attisdropped
+    ) AS exists
+  `;
+  const exists = rows[0]?.exists;
+  if (typeof exists !== 'boolean') {
+    throw new Error('Could not determine whether employees.auth_user_id exists.');
+  }
+  return exists;
+}
+
 async function main(): Promise<void> {
   const url = getMigrationsUrl();
   console.log('Connecting to Postgres for migrations...');
@@ -94,6 +114,13 @@ async function main(): Promise<void> {
     const files = await listSqlFiles(rawSqlDir);
     for (const f of files) {
       if (f === '01_extensions.sql' || f === '99_vector_indexes.sql') continue;
+      if (f === '40_employee_identities_data.sql') {
+        const columnExists = await legacyAuthUserIdColumnExists(client);
+        if (shouldSkipRawMigration(f, columnExists)) {
+          console.log('  skipped: 40_employee_identities_data.sql (legacy columns already removed)');
+          continue;
+        }
+      }
       await applySqlFile(client, join(rawSqlDir, f));
     }
 
