@@ -21,13 +21,14 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-8 Provider capability parity                         | ✅ complete and released                                | Released in `4d56ad5`. DeepSeek, Qwen, and Google Gemini API remain sync-only for tracked extraction Batch. Unsupported settings are blocked and stale settings fail loudly. Grok approved, CI run `30422669789` passed, Vercel deployment `dpl_7JQoF119e4DVnNHtRE73xxDWUqoX` was promoted, and signed-in production Settings proof passed. |
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
 | GAP-10 Deprecated identity-column cleanup                | ✅ complete and released                              | Released in `30eed14`. Migration 98 applied successfully, a second full migration run proved rerun safety, CI and Vercel passed, and protected post-drop authentication succeeded. |
-| GAP-11 Model-coverage finding conversion                 | 🟨 local implementation complete; release proof pending | Admin-reviewed drafts, stable map provenance, recipient validation, row-locked idempotent sending, cancellation and redrafting before send, and append-only audit events are implemented. Local code checks passed; visual proof is deferred until the reviewed migration is applied. Migration, CI, deployment, and production proof remain. |
+| GAP-11 Model-coverage finding conversion                 | 🟨 released; signed-in lifecycle proof remains | Released in `e1d16f5`. Migration 100 applied twice, CI run `30426093402` passed, Vercel deployed the exact commit, and Grok session `019fac5e-d70f-7eb1-b6ee-d542152289b8` approved. Only the signed-in production draft/cancel/redraft/send/audit/double-submit proof remains. |
 | GAP-12 Topical gap selection for lull questions          | ✅ complete and released                                | Released in `3c13fdc`. Migration 101 applied twice, CI run `30427353184` passed, Vercel deployed the exact commit, and Trigger.dev promoted worker `20260729.2` (`u5e3t6ql`). A live `text-embedding-3-small` proof chose the related low-priority gap at `0.7493` over an unrelated urgent gap at `0.1004`; the unrelated-only case produced no post. |
 | GAP-13 Oversized conversation windowing                  | ✅ complete and released                                | Released in `19859e0`. Migration 102 applied twice, CI run `30428842450` passed, Vercel deployed the exact commit, and Trigger.dev promoted worker `20260729.3` (`qx5wrwna`). A production-route fixture split 250 messages into six windows under the live 24,000-character cap, preserved all 250 identities, and collapsed overlap to one permanent candidate identity. |
-| GAP-14 Final documentation closure                       | ⬜ open                                                 | Depends on the relevant earlier steps                                                                                                                                                                                                                                                                                                                  |
+| GAP-14 Final documentation closure                       | 🟨 current audit recorded                              | Current completion and Grok-review facts are aligned. Final closure remains blocked by the honestly open owner choices, fixtures, approvals, and deferred macro work. |
 
-Fresh-session starting point: GAP-1 is the first product gap with an unsafe partial behavior.
-GAP-2 and the read-only design portions of GAP-4, GAP-5, GAP-7, and GAP-10 can run independently.
+Fresh-session starting point: no broad implementation sweep is authorized. Capture GAP-1's first
+natural apply; keep GAP-2 off; obtain the GAP-3 owner choice; wait for GAP-4's independent sample;
+obtain exact approval for GAP-6 or GAP-9; and complete GAP-11's signed-in lifecycle proof.
 
 ## 1. Ultimate goal
 
@@ -50,15 +51,17 @@ The repo is a TypeScript `pnpm` monorepo. GitHub `main` is code truth. Productio
 
 ## 3. What triggered this work
 
-The 2026-07-26 known-problem audit found open or deferred items in `AGENTS.md` section 15,
-`DECISIONS.md`, `docs/architecture.md`, `docs/configuration.md`, `china_imp.md`, and source code:
+The 2026-07-26 known-problem audit originally found the items below. This is trigger history, not
+the current task list. Each line records its present disposition:
 
-- Taxonomy proposals other than `create_top_domain` can be marked approved and queued in the audit
-  log, but the existing `taxonomy-reclassification` worker is not triggered by the approval path.
-- `RetrievalPlan.requiredEntities` is enforced but no production planner populates it.
+- Taxonomy approval did not dispatch the existing worker. GAP-1 is now released through `4efdbdf`;
+  only the first natural approved production apply proof remains.
+- No production planner populated `RetrievalPlan.requiredEntities`. GAP-2 is released through
+  `1f0c0ce`, but remains default-off because its 2,963 ms p95 missed the 2,500 ms latency gate.
 - Docs mention Authentik, but no Authentik login flow exists.
-- China translation lacks side-by-side admin review; true Chinese keyword segmentation is deferred.
-- Vertex file cache supports one PDF per turn and a cross-provider fallback can lose the document.
+- China translation lacked side-by-side review and measured search evidence. GAP-4's gate is
+  released; the independent production sample remains unavailable.
+- Vertex cache could couple one PDF to one provider. GAP-5 is complete and released in `3dee535`.
 - Oversized Vertex cache and Vertex Batch need separate GCS buckets and service-account access.
 - The eval-results admin page was a placeholder; GAP-7 replaced it with a safe read-only dashboard
   and closed on 2026-07-29.
@@ -67,12 +70,11 @@ The 2026-07-26 known-problem audit found open or deferred items in `AGENTS.md` s
 - Earlier exposed credentials still have an owner-deferred rotation task.
 - Deprecated identity columns previously remained on `employees` during the multi-identity
   transition; migration 98 removed them in release `30eed14`.
-- R0 creates administrative `model_coverage` gaps and excludes them from employee questions, but
-  there is no audited action that converts one into a human question.
-- Lull interjections now respect active typing, but select gaps by priority and participant rather
-  than semantic relevance to recent messages.
-- An oversized conversation is processed whole even when it exceeds the configured extraction
-  budget; a sliding-window strategy remains deferred.
+- Administrative `model_coverage` gaps had no audited bridge to employee questions. GAP-11 is
+  released in `e1d16f5`; only the signed-in production lifecycle proof remains.
+- Lull interjections lacked semantic gap selection. GAP-12 is complete and released in `3c13fdc`.
+- Oversized conversations lacked bounded extraction windows. GAP-13 is complete and released in
+  `19859e0`.
 
 ## 4. Scope
 
@@ -93,52 +95,56 @@ Not in this plan:
 
 ## 5. Current code state
 
-- `approveTaxonomyProposal` in `apps/web/app/admin/taxonomy/_actions.ts` applies only
-  `create_top_domain`; other proposal types write `approve_pending_reclassification_*`.
-- `apps/workers/src/trigger/taxonomy-reclassification.ts` already implements transactional handlers
-  for create sub-topic, reassign claims, merge/retire sub-topic, and merge top domains. It logs
-  split proposals as manual intervention and skips unknown or invalid payloads.
-- No call from the taxonomy approval action triggers that worker, so approved proposals can remain
-  queued indefinitely.
-- `packages/ai/src/retrieval-plan.ts` declares a future model-backed plan builder direction, while
-  `buildRetrievalPlanFromQuery()` remains keyword-based.
-- `RetrievalPlan.requiredEntities` is applied as any-of filtering in
-  `packages/ai/src/retrieval.ts`, but production callers leave it empty.
+- GAP-1 is released through `4efdbdf`. Taxonomy approval dispatches the existing worker, all five
+  supported handlers passed fresh-database mutation and retry gates, and only the first natural
+  approved production apply proof remains.
+- GAP-2's model-backed entity recognition and registry resolution are released through `1f0c0ce`.
+  The default remains off because live p95 added latency was 2,963 ms against the 2,500 ms gate.
 - Supabase email and Microsoft login are live. Authentik is only a documented TODO.
-- The China claim layer, `zh-CN` locale, translation worker, and locale-aware retrieval are live.
-- `apps/web/app/api/chat/route.ts` explicitly documents the one-cached-PDF limitation.
+- GAP-4's side-by-side review and trustworthy live retrieval gate are released. The measured
+  production sample is blocked until five independently labeled positive queries and one negative
+  control exist.
+- GAP-5 is complete and released in `3dee535`. Canonical messages retain all attachments, Vertex
+  removes only its exact cached PDF, and the forced-fallback live gate proved both PDFs reached
+  Anthropic.
 - Vertex cache and batch adapters already read their respective bucket settings when configured.
-- `apps/web/app/admin/ai/evals/page.tsx` lists CLI gates but does not display stored eval results.
-- OpenAI, Vertex, and Anthropic implement the optional batch adapter methods. Qwen and DeepSeek do
-  not.
+- GAP-7 is complete and released through `3b96669`. The admin eval list and detail pages display
+  safe published CLI results and passed signed-in production checks.
+- GAP-8 is complete and released in `4d56ad5`. Anthropic, OpenAI, and Vertex are the supported
+  tracked Batch providers; unsupported settings are blocked and stale settings fail loudly.
 - Raw migration 98 removed the deprecated employee identity columns in release `30eed14`;
   `employee_identities` is now the only production identity source.
-- `model_coverage` gaps are written idempotently and excluded from employee-facing consumers.
-- `lull-interjection.ts` queries live typing indicators, but its gap choice has no embedding score.
-- Conversation extraction preserves whole conversations and logs oversized ones instead of
-  truncating them.
-- No implementation work in this plan was performed by the planning session.
+- GAP-11 is released in `e1d16f5`; migration 100, CI, Vercel, and Grok review passed. Only the
+  signed-in draft/cancel/redraft/send/audit/double-submit lifecycle proof remains.
+- GAP-12 is complete and released in `3c13fdc`; the live embedding proof selected the related gap
+  and refused the unrelated-only case.
+- GAP-13 is complete and released in `19859e0`; migration 102, CI, Vercel, Trigger worker, and the
+  250-message production-route fixture passed.
 
-## 6. Root causes and key findings
+## 6. Historical root causes and current resolutions
 
-- Taxonomy approval state and mutation state were separated. A durable worker exists, but the
-  approval path records only a queue note and never dispatches the worker, so "approved" can mean
-  "accepted but not applied."
-- Entity-aware retrieval needs named-entity recognition plus registry resolution, not a change to
-  the settled any-of filter.
+- Taxonomy approval and mutation were separated. GAP-1 now dispatches the durable worker after
+  admin approval and keeps mutation plus terminal audit transactional and idempotent.
+- Entity-aware retrieval needed named-entity recognition plus registry resolution, not a change to
+  the settled any-of filter. GAP-2 added that path behind a default-off latency gate.
 - Authentik is documentation residue unless the business still wants a third login path.
 - Chinese vector retrieval works, but Postgres `simple` text search is not true Chinese word
-  segmentation.
+  segmentation. GAP-4 now refuses to recommend an extension without an independent measured sample.
 - Vertex cache optimization coupled attachment availability to one provider-specific cached copy.
+  GAP-5 now keeps every attachment in the canonical message and removes only the exact cached PDF
+  from Vertex's provider-specific request.
 - GCS-backed features are correctly disabled without buckets, but the setup task lacks an executed
   infrastructure plan.
-- CLI evals were intentionally prioritized; no stored result contract was designed for the UI.
+- CLI evals were intentionally prioritized and the UI had no safe result contract. GAP-7 now
+  publishes allowlisted summaries and displays them through read-only admin list and detail pages.
 - Provider batch parity is limited by real provider APIs, not only missing local code.
 - Secret rotation is delayed by an explicit owner decision, not forgotten work.
-- Model-coverage isolation is safe, but there is no controlled bridge from a model-quality finding
-  to an employee question.
-- Whole-conversation preservation avoids context loss, but a source larger than a model's true
-  limit still needs bounded overlapping windows.
+- Model-coverage isolation was safe but lacked a controlled bridge. GAP-11 added admin-authored
+  drafts, stable provenance, row-locked sending, normal employee gaps, and append-only audit.
+- Priority-only lull selection could choose an unrelated question. GAP-12 added embedding relevance
+  while retaining assignment, typing, cooldown, and locking controls.
+- Whole-conversation preservation avoided context loss but could exceed the model budget. GAP-13
+  added bounded complete-message windows, non-quotable carry-in, safe overlap, and stable dedup.
 
 ## 7. Rejected approaches
 
@@ -541,7 +547,7 @@ on build `30eed14`.
 Gate: conversion is explicit, idempotent, auditable, reversible before sending, and no employee
 consumer ever reads a raw `model_coverage` row.
 
-Local implementation evidence (2026-07-29):
+Implementation and release evidence (2026-07-29):
 
 - `/admin/gaps` keeps raw `model_coverage` findings in a separate administrative panel. The normal
   employee-gap table, chat retrieval, and lull-question worker continue to exclude those rows.
@@ -559,9 +565,11 @@ Local implementation evidence (2026-07-29):
   marked resolved only in the same transaction that creates the employee gaps and the send audit.
 - `verify:model-coverage-conversion` guards authorization, idempotency, source provenance, audit
   writes, terminal-state rejection, and employee-consumer exclusion without network access.
-- Release remains open until migration 100 is applied through the normal journal, CI passes, the
-  exact commit is deployed, and a signed-in production admin proves draft, cancel, send, audit,
-  and double-submit behavior.
+- Commit `e1d16f5cba7b9db03199b1d29e798bc5d2dff783` is released. Migration 100 applied
+  successfully twice, CI run `30426093402` passed, Vercel deployed the exact commit, and Grok 4.5
+  session `019fac5e-d70f-7eb1-b6ee-d542152289b8` approved the final diff.
+- Only the signed-in production admin proof remains: draft, cancel, redraft, send, append-only
+  audit, and double-submit behavior.
 
 ### GAP-12: topical gap selection for lull questions
 
@@ -647,6 +655,11 @@ Local implementation evidence (2026-07-29):
 
 Gate: every known gap is done, explicitly rejected with evidence, or blocked on a named external
 decision. No vague "build later" row remains.
+
+Current audit result (2026-07-29): documentation is aligned with commit `de9550b` and green CI run
+`30433400108`. GAP-14 remains partial because owner choices, approved fixtures, exact mutation
+approvals, natural production samples, GAP-11 lifecycle proof, and deferred macro work remain
+open. This is an honest closure record, not a claim that those items are complete.
 
 ## 10. Tests required
 

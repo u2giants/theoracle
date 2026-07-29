@@ -82,19 +82,23 @@ This is also the proof that the fallback-pool design (below) is load-bearing, no
 
 ### ERR-003 — Followup fan-out: each lens job re-triggers macro + coverage — ✅ FIXED BY ARCHITECTURE REMOVAL (2026-07-27)
 
-**Current disposition (2026-07-27):** `source-outline`, `document-lens-extraction`,
+**Current disposition (2026-07-29):** CLOSED. `source-outline`, `document-lens-extraction`,
 `macro-relationship-extraction`, and `source-coverage-audit` no longer exist in the repository.
 Migration 89 removed the retired outline/lens path. The old "one macro plus one coverage run per
 outline" verification is invalid and must not be run. Read-only Trigger.dev inventory confirmed
 that deployed worker `20260722.1` (deployment `deployment_hm4hhngt6jnit96rd1huc`) advertises none
 of those four tasks; it does advertise the replacement `source-workflow-read` task. This closes the
-fan-out incident without recreating or rerunning the retired architecture.
+fan-out incident without recreating or rerunning the retired architecture. Grok 4.5 session
+`019face6-c464-7ff1-9500-1647a2eec8e6` confirmed that this evidence is sufficient and rejected
+more ERR-003 work.
 
 - **Symptom:** one `source-outline` run produced **~49 macro + ~50 coverage** runs in ~15 min (`job_runs`). Pre-fix those were failures; post-fix they'd be redundant *successes* over the same claims.
 - **Cause:** both `source-outline` AND every `document-lens-extraction` job trigger the two followups on completion. With coverage-first fan-out dispatching up to 16 lens jobs, that's up to ~16× redundant macro/coverage passes (the near-duplicate guard prevents duplicate rows, but the model calls are wasted spend + noise, and they leave `macro_health='degraded'` from any transient failure).
-- **Fix applied/deployed:** `document-lens-extraction` no longer triggers macro + coverage directly. Lens jobs now record completed/skipped-existing work, and the final completed lens job claims a one-time `source_outlines.budget_json.macroFollowupsDispatchedAt` latch before triggering `macro-relationship-extraction`. `macro-relationship-extraction` triggers `source-coverage-audit` only after the macro pass finishes, so coverage no longer races ahead of relationship insertion. Deployed in Trigger worker `20260704.2`; verify by rerunning a diagram outline and checking for one macro run plus one coverage run per outline.
+- **Historical fix before retirement:** `document-lens-extraction` stopped triggering macro and
+  coverage directly, and the old chain used a one-time follow-up latch. Stage 3 later removed this
+  entire writer chain. Do not rerun a diagram outline or verify the retired task sequence.
 
-### ERR-004 — Workflow structure was not first-class; macro graph stayed invisible behind pending claims — OPEN CURRENT-PATH VERIFICATION
+### ERR-004 — Workflow structure was not first-class; macro graph stayed invisible behind pending claims — OWNER-AUTHORIZED FIXTURE REQUIRED
 
 **Current disposition (2026-07-26):** the outline/lens/macro writers named below are historical and
 were removed. The remaining business problem is verified through the current map-directed path:
@@ -115,7 +119,7 @@ omission-gap behavior together.
   writers were removed; `source_workflow_maps` exists in prod. The current-path proof is owned by
   ERR-004 and REL-2, not by the deleted macro-support query smoke.
 
-### ERR-005 — Document-only contradiction watcher inserts fake channel id — DEPLOYED (needs rerun verification)
+### ERR-005 — Document-only contradiction watcher inserts fake channel id — OWNER-AUTHORIZED FIXTURE REQUIRED
 
 - **Symptom:** `scripts/export-worker-failures.mjs` found recent `contradiction-watcher` failures inserting `oracle_interventions` with `channel_id=00000000-0000-0000-0000-000000000000`.
 - **Root cause:** `oracle_interventions.channel_id` is an FK to `channels.id`; document-only contradictions have no real chat channel, so the fake all-zero placeholder violates the FK.
@@ -133,7 +137,9 @@ These are tracked in detail in `fix_enhancement.md` §5 (Bugs C, D, G) and its f
 
 - **Macro/coverage workers did not write `job_runs` rows** → FIXED 2026-07-03: both now write `job_runs`. (source-outline already did.)
 - **No document-level `macro_health`** → FIXED: `documents.macro_health` is written by the workers (`not_applicable | pending | complete | degraded | failed`) and rendered in Admin → Documents.
-- **Followups are fire-and-forget** (`source-outline.ts` `.trigger(...).catch(warn)`) → parent job succeeds regardless. Failure now propagates into `macro_health` (race-tolerant precedence). Coverage is sequenced after macro in source; verify in prod after deploy.
+- **Historical retired-path note:** `source-outline.ts` used fire-and-forget follow-ups, and the
+  old fix sequenced coverage after macro. Those tasks no longer exist. Current verification belongs
+  to `source-workflow-read`, active workflow maps, and deterministic `model_coverage` gaps.
 
 ---
 

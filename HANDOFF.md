@@ -5,6 +5,35 @@ rejected with recorded evidence, or transferred to a named external owner.
 
 HOW TO TRUST THIS DOC: the 2026-07-02 macro-understanding block below is closed out. Older dated sections are retained only for history and implementation context; do not treat them as next actions when they conflict with current code or deployment state.
 
+## Current resume point after completion audit and Grok 4.5 review, 2026-07-29
+
+Repository `main` is at `de9550b`; GitHub Actions run `30433400108` is green. GAP-11 is released
+at `e1d16f5`: migration 100 applied twice, CI run `30426093402` passed, Vercel deployed the exact
+commit, and Grok session `019fac5e-d70f-7eb1-b6ee-d542152289b8` approved it. Only its signed-in
+production draft, cancel, redraft, send, append-only audit, and double-submit proof remains.
+
+The fresh audit found REL-1, REL-3, REL-4, and REL-5 complete. REL-2 is partial only because
+ERR-004 and ERR-005 need owner-authorized fixtures. REL-6 needs an owner-approved non-sensitive
+image. REL-7 waits on REL-2. REL-8 waits for macro R10. REL-9 and GAP-14 record the current docs
+truth but cannot close the blocked and deferred work.
+
+Grok 4.5 session `019face6-c464-7ff1-9500-1647a2eec8e6` closed ERR-003 and rejected more work;
+narrowed the local environment question to an optional non-secret mutate-path target label and a
+business choice about keeping local mutation off production; rejected the old backbone-claims
+slice because macro R6 replaces it; and rejected Teams AAD matching as required reliability work.
+Keep the documented v1 attribution limit unless the business later asks for full attribution.
+
+Exact next actions:
+
+1. Albert chooses the R2 path after the 12/30 deeper-reader gate.
+2. Wait for the first natural approved GAP-1 taxonomy apply and capture its proof.
+3. Keep GAP-2 off until a rerun meets the 2,500 ms p95 gate; the last result was 2,963 ms.
+4. Albert decides whether Authentik is wanted for GAP-3.
+5. Wait for five independent Chinese positive labels plus one negative control for GAP-4.
+6. Obtain exact owner approval before GAP-6 cloud mutation or GAP-9 secret rotation.
+7. Obtain owner-approved fixtures for REL-2 and REL-6.
+8. Run GAP-11's signed-in production lifecycle proof.
+
 ## GAP-4 live gate released, production sample blocked, 2026-07-29
 
 GAP-4's trustworthy Chinese retrieval gate is released in commit
@@ -164,7 +193,7 @@ gap scored `0.7493`, an unrelated urgent design-color gap scored `0.1004`, and t
 low-priority gap won. The unrelated-only case returned no question, so no synthetic message was
 posted to employees. GAP-12 has no remaining implementation or release work.
 
-## GAP-11 local handoff, 2026-07-29
+## GAP-11 released, signed-in lifecycle proof remains, 2026-07-29
 
 GAP-11 audited model-coverage conversion is released in commit
 `e1d16f5cba7b9db03199b1d29e798bc5d2dff783`. Migration
@@ -430,9 +459,9 @@ files, require R0.1 before R2, retire or retarget the obsolete SQL smoke based o
 finish the existing taxonomy worker path instead of creating a second worker, and clearly mark the
 old R1-only next step as historical.
 
-Four smaller Grok suggestions remain conditional. They are listed in
-`plan_repo_reliability_and_release_gaps.md` §9 and must be sent to Claude for review before any are
-promoted into implementation work. Curated Qwen/GLM review notes are saved under `.ai/reviews/`;
+Four smaller Grok suggestions were resolved by Grok 4.5 session
+`019face6-c464-7ff1-9500-1647a2eec8e6`; none became required reliability work. See
+`plan_repo_reliability_and_release_gaps.md` §9. Curated review notes are saved under `.ai/reviews/`;
 raw model output and scratch probes remain local and gitignored. The user-owned untracked files
 `detail-current.png` and `rfq-before.png` remain untouched.
 
@@ -454,7 +483,7 @@ must read the named plan's status table first and must not re-plan the work from
 | Completed bounded quote-copy repair and production proof | [Macro-first plan R0.1](MACRO_FIRST_IMPLEMENTATION_PLAN.md#r01--bounded-quote-copy-repair) |
 | Stale workflow production script | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
 | False Teams transcript TODO comments | [Reliability plan REL-1](plan_repo_reliability_and_release_gaps.md#rel-1-stale-verification-code-and-false-notes) |
-| ERR-003 retired fan-out needs a deployed task-inventory check | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
+| ERR-003 retired fan-out, closed by repository removal and deployed task inventory | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
 | ERR-004 current map-directed path needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
 | ERR-005 document contradiction fix needs production proof | [Reliability plan REL-2](plan_repo_reliability_and_release_gaps.md#rel-2-reconcile-err-003-err-004-and-err-005-with-the-current-reader) |
 | ERR-002 obsolete SQL smoke, resolved by zero-caller proof and retirement on 2026-07-27 | [Reliability plan REL-3](plan_repo_reliability_and_release_gaps.md#rel-3-retire-or-retarget-the-obsolete-macro-support-sql-smoke) |
@@ -476,9 +505,9 @@ must read the named plan's status table first and must not re-plan the work from
 | Qwen explicit cache and DeepSeek beta strict-schema limitations | [Product plan GAP-8](plan_deferred_product_and_infrastructure_gaps.md#gap-8-provider-capability-parity) |
 | Deferred credential rotation | [Product plan GAP-9](plan_deferred_product_and_infrastructure_gaps.md#gap-9-secret-rotation), blocked on Albert |
 | Deprecated employee identity columns, closed and released 2026-07-29 | [Product plan GAP-10](plan_deferred_product_and_infrastructure_gaps.md#gap-10-deprecated-identity-columns) |
-| No audited conversion from model-quality finding to human question | [Product plan GAP-11](plan_deferred_product_and_infrastructure_gaps.md#gap-11-audited-model-coverage-conversion) |
-| Lull topical selection is locally implemented; migration, CI, worker deploy, and live proof remain | [Product plan GAP-12](plan_deferred_product_and_infrastructure_gaps.md#gap-12-topical-gap-selection-for-lull-questions) |
-| Oversized conversations lack bounded windowing | [Product plan GAP-13](plan_deferred_product_and_infrastructure_gaps.md#gap-13-oversized-conversation-windowing) |
+| GAP-11 released; signed-in production lifecycle proof remains | [Product plan GAP-11](plan_deferred_product_and_infrastructure_gaps.md#gap-11-audited-model-coverage-conversion) |
+| Lull topical selection, closed and released 2026-07-29 | [Product plan GAP-12](plan_deferred_product_and_infrastructure_gaps.md#gap-12-topical-gap-selection-for-lull-questions) |
+| Oversized conversation windowing, closed and released 2026-07-29 | [Product plan GAP-13](plan_deferred_product_and_infrastructure_gaps.md#gap-13-oversized-conversation-windowing) |
 
 `bug_d_ungating_plan.md` is historical and superseded. Its remaining ideas are owned by the macro
 plan and reliability REL-2. `docs/macro-understanding-implementation-plan.md` is also historical.
@@ -769,14 +798,15 @@ automatically. The live Business Process run exposed high downstream graph-item 
 do not misread its overall `degraded` status as a segmentation failure or weaken evidence
 checks to make the number green.
 
-### ⚠️ Active runtime failures — see `AGENT_ERROR_LOG.md` (2026-07-03)
+### Historical runtime failures, closed or moved to current plans (2026-07-03 record)
 
-`AGENT_ERROR_LOG.md` is the designated in-repo log of runtime worker failures, written so a coding agent can fix them. It is REQUIRED reading. Open right now:
+This block preserves the 2026-07-03 failure history. It is not a current action list. Read the
+current resume section and canonical plan registry above before acting.
 - **ERR-001 + ERR-002 — ✅ FIXED & VERIFIED IN PROD (2026-07-03, worker `20260703.4`).** The macro/holistic layer (`source-outline`, `macro-relationship-extraction`, `source-coverage-audit`) had hard-failed on every run. Two root causes, both fixed and verified live:
   - **Model route:** it borrowed the `general` slot (Qwen, no strict schema, no fallback). Now a dedicated **`macro` slot** with an admin picker (`default_macro_route`) + **fallback pool** (`model_pool_macro`). **Key discovery from the fallback logs: Gemini 2.5 flash *and* pro also reject the nested macro schemas (`400 too-complex`)** — so the primary is now **`openai/gpt-4.1-mini`** (Gemini is fallback only). The pool is what made the layer survive both the Qwen and Gemini failures — it is load-bearing.
   - **SQL:** three support-claim queries hit `42P10 (SELECT DISTINCT / ORDER BY)` — fixed.
   - **Verified:** migrations `83/84/85` applied to prod; workers deployed `20260703.4`; `macro_relationships` inserted, `source_coverage_findings=4`, `documents.macro_health=complete` on a clean run (`run_cmr5h0izj…`, attempt `openai/gpt-4.1-mini primary=true success`). Observability now real: `job_runs` + `documents.macro_health` are written by all macro workers.
-  - **Structural workflow-map follow-up deployed (2026-07-04, worker `20260704.2`, migration `86_source_workflow_maps.sql`).** `model_pool_macro` is exposed in the model-pool-editor UI; `macro_health` renders in Admin → Documents; **ERR-003** followup fan-out is debounced so lens fan-out claims a one-time macro dispatch latch, and coverage now runs after macro. The deeper structural fix is also deployed: `source_workflow_maps` persists first-class workflow nodes/edges/paths, document ingestion runs a before-extraction outline/workflow-map read, extraction candidates trace matched workflow edges and dedupe by stable edge key, macro extraction derives deterministic relationships from the graph, coverage emits missing-edge findings, and Bug D is fixed so pending-support macro relationships enter `pending_review` instead of staying invisible as `blocked_pending_support`. Optional hardening now includes one-shot schema repair for macro/coverage validation failures, `scripts/export-worker-failures.mjs`, and a DB smoke for macro support queries. The same worker also fixes ERR-005, where document-only contradiction watcher runs inserted a fake all-zero channel id into `oracle_interventions`. **Still open:** rerun a real swimlane/Pop-style document and verify rows/relationships/findings end-to-end. See `AGENT_ERROR_LOG.md` + `fix_enhancement.md`.
+  - **Historical structural workflow-map follow-up (2026-07-04, worker `20260704.2`, migration `86_source_workflow_maps.sql`).** This deployed an intermediate workflow-map and macro chain, including the first ERR-003 debounce and ERR-005 fix. Stage 3 later retired the outline/lens/macro/coverage writers and their smoke test. ERR-003 is closed. Do not rerun the retired swimlane path. ERR-004 and ERR-005 now require only the owner-authorized current-path fixtures defined by REL-2.
 - **Verified clean:** `@oracle/{ai,db,workers}` typecheck; `verify:r2` + `verify:auxiliary-defaults` pass. Web typecheck has a pre-existing `@oracle/engines` workspace-link issue unrelated to these changes. **Code changes are NOT committed/pushed** (per repo rule — push only when asked). Prod DB + Trigger workers ARE updated. `default_general_purpose_route` was left on Qwen (correct — `general` is still the utility slot).
 
 The full holistic-understanding diagnosis + fix plan for the swimlane-diagram class of document lives in `fix_enhancement.md`.
@@ -793,7 +823,8 @@ Why this matters:
 Future sessions should:
 - Before committing, exclude junk in the tree that is NOT part of this work: `sql.unsafe(s)` (accidental filename), `itemdetail-main-default.png` (stray screenshot), and `.cache/*`.
 - **Do not blindly commit `M packages/db/migrations/sql/13_extraction_constraints.sql`.** It edits an already-applied migration to add batch_type `document_lens_group` and status `complete`. That is needed by the shipped lens/Bug-C code, but editing an applied migration violates the repo convention (should be a new migration ≥87). Confirm with Albert how prod got these constraints (manual apply vs. new migration) before committing that file.
-- Next action for the Bug D tier: Codex wrote `bug_d_ungating_plan.md` (a hardening/backfill/verification plan — Bug D itself is already fixed). PR 1 in that plan is a Pop-flow verification harness; it was kicked off this session. Still open (per the block above): rerun a real swimlane document and verify workflow-map rows / relationships / findings end-to-end.
+- Historical Bug D note: `bug_d_ungating_plan.md` is superseded. Macro R6 owns any replacement
+  review experience. Do not restart its Pop-flow harness or the retired swimlane rerun.
 
 ---
 

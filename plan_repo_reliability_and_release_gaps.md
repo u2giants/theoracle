@@ -4,7 +4,7 @@ Status: **CANONICAL for known reliability, verification, migration-drift, releas
 and misleading-code-note problems that are outside the macro-first feature sequence.**
 
 Created: 2026-07-26
-Last corrected: 2026-07-26 after Grok 4.5 repository review
+Last corrected: 2026-07-29 after the completion audit and Grok 4.5 disposition review
 Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 Production web: `https://oracle.designflow.app`
 Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
@@ -19,15 +19,16 @@ Database: Supabase project `eqccjfbyrywsqkxxpjvg`
 | REL-3 Retire or retarget the obsolete macro-support SQL smoke | ✅ done, 2026-07-27 | Zero-caller search proved the three query contracts and package command had no runtime or CI owner; deleted the smoke and package script without restoring retired writers |
 | REL-4 Model-pool phantom fallback audit | ✅ done, 2026-07-27 | Released in `5f962b5`/`24bbf70`; CI `30269886119` attempt 2 green, migration/drift green, Vercel HTTP 200, and Trigger worker `20260727.2` deployment `h6ri0rb9` |
 | REL-5 Migration 65 and generated-snapshot drift | ✅ done, 2026-07-29 | R1's fresh/rerun gates already proved raw migration replay; focused verifier now checks migration 65, latest snapshot, and applied columns; current production columns and the 12-row generated journal agree |
-| REL-6 Live image upload verification | ⬜ open | Requires an owner-approved non-sensitive image fixture |
-| REL-7 Database and Trigger.dev release automation | ⬜ open | Starts after REL-2 through REL-5 establish the current release contract |
-| REL-8 Dead schema-repair helper removal | ⬜ open | Wait until macro R10 unless a current caller is introduced |
-| REL-9 Close logs and documentation | ⬜ open | Depends on all earlier applicable steps |
-| Claude conditional-review queue | ⏸ blocked | Four unresolved conditional suggestions remain in §9; the former ERR-002 smoke question was resolved by REL-3 and removed |
+| REL-6 Live image upload verification | ⏸ blocked by owner fixture | Requires an owner-approved non-sensitive image |
+| REL-7 Database and Trigger.dev release automation | ⏸ blocked on REL-2 | Starts only after the owner-authorized ERR-004/ERR-005 fixtures define the remaining release contract |
+| REL-8 Dead schema-repair helper removal | ⏸ deferred to macro R10 | Repeat the caller search and decide removal at macro R10 |
+| REL-9 Close logs and documentation | 🟨 current audit recorded | Current facts and decisions are aligned; final closure still depends on the open, blocked, and deferred rows above |
+| Grok 4.5 conditional-review queue | ✅ resolved, 2026-07-29 | Session `019face6-c464-7ff1-9500-1647a2eec8e6` closed or narrowed all four suggestions; none became new required reliability work |
 
-Fresh-session starting point: REL-2 must use only the current map-directed reader files named
-below. REL-3 starts with a zero-caller proof before deciding whether the old smoke script should
-be deleted or retargeted. Coordinate REL-5 with macro R1.
+Fresh-session starting point: REL-2 is partial and needs only owner-authorized ERR-004 and ERR-005
+fixtures. REL-6 needs an owner-approved non-sensitive image. REL-7 waits on REL-2. REL-8 waits for
+macro R10. Do not reopen REL-1, REL-3, REL-4, REL-5, ERR-003, the old backbone-claims slice, or
+Teams AAD matching as reliability implementation work.
 
 ## 1. Ultimate goal
 
@@ -118,7 +119,8 @@ Not in this plan:
   `source-coverage-audit.ts` no longer exist. Migration 89 removed the retired outline/lens path.
 - The current reader path is `source-workflow-read.ts` plus map-directed
   `document-ingestion.ts`, with deterministic map omissions in `map-coverage-gaps.ts`.
-- `AGENT_ERROR_LOG.md` still describes ERR-003 and ERR-004 using the deleted architecture.
+- `AGENT_ERROR_LOG.md` retains the deleted architecture only as labeled incident history.
+  ERR-003 is closed; ERR-004's remaining proof uses only the current map-directed path.
 - ERR-002's former support-query smoke and package command were deleted in REL-3 after a
   repository-wide zero-caller search found no runtime or CI owner. The current map-coverage path
   queries `claims.map_element_ref` directly and does not share any of the retired SQL contracts.
@@ -418,28 +420,25 @@ Gate: no hard-coded schema-repair route remains and all worker gates stay green.
 Gate: every reliability item is done, intentionally rejected with reason, or blocked on a named
 owner action. No bare open item remains.
 
-### Conditional suggestions pending Claude review
+### Grok 4.5 conditional-review dispositions
 
-These are not accepted implementation steps yet. Send all four remaining items to Claude with the
-current plans and code, then record Claude's evidence-based accept, reject, or narrow decision
-before moving one into a numbered plan step:
+Grok 4.5 session `019face6-c464-7ff1-9500-1647a2eec8e6` resolved the four former conditional
+suggestions:
 
-1. **ERR-003 deployment proof:** confirm whether repository deletion plus the deployed Trigger.dev
-   task inventory is sufficient to close the old fan-out incident.
-2. **Local environment warning:** check whether `.env.local` can still point at `oracle.old`.
-   This is unverified and must not be called a known defect without evidence. Never read secret
-   values into the review transcript.
-3. **Bug D backbone review UI:** decide whether the old "backbone claims" review slice is still a
-   wanted product feature under macro R6 or should remain intentionally unsupported.
-4. **Teams AAD speaker matching:** decide whether resolving unmatched transcript speakers from
-   participant AAD IDs is required work or an acceptable documented v1 limitation.
+1. **ERR-003:** closed. Repository removal plus deployed task inventory is sufficient. Reject more
+   incident work.
+2. **Local environment warning:** narrowed to an optional, non-secret mutate-path target label.
+   There is no known defect. Whether local mutation should remain off production is a business
+   choice, not required reliability work.
+3. **Bug D backbone review UI:** rejected as an old slice. Macro R6 replaces it.
+4. **Teams AAD speaker matching:** rejected as required reliability work. Keep the documented v1
+   limitation unless the business later requires full attribution.
 
 The former ERR-002 smoke-disposition question is resolved, not pending review: REL-3 proved the
 query contracts and package command had no current runtime or CI owner, then deleted the obsolete
 smoke and command.
 
-Gate: Claude's critique is saved under `.ai/reviews/`, Codex verifies each accepted point against
-the repo, and only accepted items are added to the canonical plan registry.
+Gate: resolved. No conditional item adds a numbered reliability step.
 
 ## 10. Tests required
 
@@ -487,8 +486,8 @@ Done means:
 - Any changed web/worker/database runtime is deployed through the normal path.
 - Deployment IDs, worker version, migration state, and production run IDs are recorded.
 - `AGENT_ERROR_LOG.md`, `AGENTS.md`, this plan, and `HANDOFF.md` agree.
-- Claude's conditional-review queue is resolved or remains explicitly blocked without being treated
-  as accepted work.
+- Grok 4.5's conditional-review queue is resolved and none of its rejected or narrowed items is
+  treated as required reliability work.
 
 Risks:
 
