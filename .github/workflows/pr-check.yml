@@ -66,7 +66,7 @@ jobs:
       - name: Vercel build contract guard
         # Vercel rejects buildCommand values longer than 256 characters.
         # Keep vercel.json short and prove its delegated script retains all
-        # six network-free production guards before the web build.
+        # eight network-free production guards before the web build.
         run: pnpm verify:vercel-contract
 
       - name: Build apps/web (production tsc gate)

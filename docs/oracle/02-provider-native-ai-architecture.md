@@ -15,7 +15,7 @@ The system relies exclusively on direct-provider APIs to guarantee access to nat
 - **AnthropicAdapter:** Manages explicit cache breakpoints (`cache_control: "ephemeral"`) on stable prompt segments and reusable conversation prefixes.
 - **OpenAIAdapter:** Manages strict JSON schema injection plus automatic prefix caching with retention controls.
 - **DeepSeekAdapter:** Manages DeepSeek's automatic disk-backed prefix cache.
-- **QwenAdapter:** Manages DashScope OpenAI-compatible explicit prompt caching on Chat Completions plus Responses-API session cache on the text path, with `previous_response_id` persisted per channel.
+- **QwenAdapter:** Uses DashScope OpenAI-compatible Chat Completions and observes provider-reported implicit cache tokens. Explicit markers and Responses session state are disabled until a measured Oracle fixture proves net savings.
 - *OpenRouter is strictly deprecated for production operations and must not be used.*
 
 ---

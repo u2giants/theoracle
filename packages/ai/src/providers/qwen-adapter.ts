@@ -8,16 +8,11 @@
  * - Authenticates via `DASHSCOPE_API_KEY` env var.
  *
  * Caching strategy:
- * - DashScope's OpenAI-compatible Chat Completions endpoint supports explicit
- *   prompt caching via per-content-block `cache_control` markers.
- * - This adapter marks the reusable prefix explicitly:
- *   - for multi-turn chat, the prefix ends at the penultimate message so the
- *     latest user turn stays dynamic
- *   - for one-shot calls, the stable system prompt is marked cacheable
- * - For text calls, the adapter can switch to the Responses API session-cache
- *   path when the caller supplies a stable `sessionCacheKey`. The chat route
- *   persists `previous_response_id` in Postgres so the cache survives across
- *   requests and processes.
+ * - The current OpenAI-compatible Chat Completions path relies only on
+ *   provider-managed implicit prefix caching.
+ * - Explicit cache markers and the Responses session-cache path stay disabled
+ *   until a credentialed fixture proves repeat hits and net cost savings for
+ *   Oracle's real prompt shapes.
  *
  * Structured output:
  * - Qwen supports OpenAI-compatible `response_format: { type: 'json_object' }`.
@@ -33,11 +28,6 @@
 import OpenAI from 'openai';
 import type { ChatCompletion, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import type {
-  EasyInputMessage,
-  Response as OpenAIResponse,
-  ResponseUsage,
-} from 'openai/resources/responses/responses';
-import type {
   OracleObjectResult,
   OracleTextResult,
   OracleUsage,
@@ -49,12 +39,7 @@ import type {
   OracleProviderAdapter,
 } from './types';
 import {
-  getCacheHints,
-  markLastTextPartCacheable,
   normalizeMessageContentArray,
-  pickAnthropicCacheTtl,
-  pickOpenAICacheRetention,
-  shouldDisableCache,
   toOpenAIContent,
 } from './cache-utils';
 import { flattenPlan, parseJsonOrRaw, tryZodParse } from './vertex-gemini-adapter';
@@ -105,16 +90,6 @@ export class QwenAdapter implements OracleProviderAdapter {
   async generateText(args: GenerateTextArgs): Promise<OracleTextResult> {
     const { plan, route, providerOptions } = args;
     const { systemPrompt, userMessage } = flattenPlan(plan);
-    const hints = getCacheHints(providerOptions);
-    if (hints?.sessionCacheKey || hints?.previousResponseId) {
-      return this.generateTextViaResponsesApi(
-        plan.taskType,
-        route,
-        systemPrompt,
-        userMessage,
-        providerOptions,
-      );
-    }
     const messages = this.buildMessages(plan.taskType, route.modelId, systemPrompt, userMessage, providerOptions);
     const callStartedAt = Date.now();
     const completion = await this.client.chat.completions.create({
@@ -145,43 +120,6 @@ export class QwenAdapter implements OracleProviderAdapter {
       text: choice?.message?.content ?? '',
       usage: this.normalizeUsage(completion, latencyMs),
       rawResponse: completion,
-    };
-  }
-
-  private async generateTextViaResponsesApi(
-    taskType: GenerateTextArgs['plan']['taskType'],
-    route: GenerateTextArgs['route'],
-    systemPrompt: string,
-    userMessage: string,
-    providerOptions?: Record<string, unknown>,
-  ): Promise<OracleTextResult> {
-    const hints = getCacheHints(providerOptions);
-    const callStartedAt = Date.now();
-    const response = await this.client.responses.create(
-      {
-        model: route.modelId,
-        instructions: systemPrompt || undefined,
-        input: this.buildResponseInput(userMessage, providerOptions),
-        temperature:
-          typeof providerOptions?.temperature === 'number'
-            ? providerOptions.temperature
-            : undefined,
-        prompt_cache_key: hints?.sessionCacheKey,
-        previous_response_id: hints?.previousResponseId,
-        prompt_cache_retention: pickOpenAICacheRetention(taskType, providerOptions),
-        ...qwenThinkingExtras(route.reasoningEffort),
-      },
-      {
-        headers: {
-          'x-dashscope-session-cache': 'enable',
-        },
-      },
-    );
-    const latencyMs = Date.now() - callStartedAt;
-    return {
-      text: response.output_text ?? '',
-      usage: this.normalizeResponseUsage(response, latencyMs),
-      rawResponse: response,
     };
   }
 
@@ -245,7 +183,7 @@ export class QwenAdapter implements OracleProviderAdapter {
       if (!systemRoleAllowed) {
         normalized = this.foldSystemMessagesIntoFirstUser(systemPrompt, normalized);
       }
-      return this.applyExplicitCacheMarkers(taskType, normalized, providerOptions);
+      return normalized;
     }
     const msgs: ChatCompletionMessageParam[] = [];
     if (systemPrompt && systemRoleAllowed) msgs.push({ role: 'system', content: systemPrompt });
@@ -255,7 +193,7 @@ export class QwenAdapter implements OracleProviderAdapter {
         ? `${systemPrompt}\n\n${userMessage}`
         : userMessage,
     });
-    return this.applyExplicitCacheMarkers(taskType, msgs, providerOptions);
+    return msgs;
   }
 
   /**
@@ -341,76 +279,6 @@ export class QwenAdapter implements OracleProviderAdapter {
       providerRequestId: completion.id,
       rawUsageJson: u,
     };
-  }
-
-  private normalizeResponseUsage(
-    response: OpenAIResponse,
-    latencyMs: number,
-  ): OracleUsage {
-    const u = response.usage as ResponseUsage | undefined;
-    return {
-      inputTokens: u?.input_tokens,
-      outputTokens: u?.output_tokens,
-      cachedInputTokens: u?.input_tokens_details?.cached_tokens,
-      reasoningTokens: u?.output_tokens_details?.reasoning_tokens,
-      latencyMs,
-      providerRequestId: response.id,
-      rawUsageJson: u,
-    };
-  }
-
-  private applyExplicitCacheMarkers(
-    taskType: GenerateTextArgs['plan']['taskType'],
-    messages: ChatCompletionMessageParam[],
-    providerOptions?: Record<string, unknown>,
-  ): ChatCompletionMessageParam[] {
-    if (shouldDisableCache(providerOptions)) return messages;
-    const ttl = pickAnthropicCacheTtl(taskType, providerOptions);
-    const next = messages.map((message) => ({ ...message }));
-
-    if (next.length > 1) {
-      const target = next[next.length - 2] as ChatCompletionMessageParam & { content?: unknown };
-      target.content = markLastTextPartCacheable(
-        normalizeMessageContentArray(target.content),
-        ttl,
-      ) as unknown as ChatCompletionMessageParam['content'];
-      return next;
-    }
-
-    const system = next.find((message) => message.role === 'system') as
-      | (ChatCompletionMessageParam & { content?: unknown })
-      | undefined;
-    if (system) {
-      system.content = markLastTextPartCacheable(
-        normalizeMessageContentArray(system.content),
-        ttl,
-      ) as unknown as ChatCompletionMessageParam['content'];
-    }
-    return next;
-  }
-
-  private buildResponseInput(
-    userMessage: string,
-    providerOptions?: Record<string, unknown>,
-  ): EasyInputMessage[] {
-    const override = providerOptions?.messages as
-      | Array<{ role: string; content: unknown }>
-      | undefined;
-    const messages = Array.isArray(override) && override.length > 0
-      ? override
-      : [{ role: 'user', content: userMessage }];
-
-    return messages
-      .filter((message) =>
-        message.role === 'user' ||
-        message.role === 'assistant' ||
-        message.role === 'system',
-      )
-      .map((message) => ({
-        role: message.role as EasyInputMessage['role'],
-        content: this.stringifyResponseContent(message.content),
-        type: 'message',
-      }));
   }
 
   private stringifyResponseContent(content: unknown): string {

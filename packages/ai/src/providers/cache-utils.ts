@@ -20,8 +20,6 @@ export interface CacheHints {
   cleanupOwner?: string;
   createdByJobRunId?: string;
   latestPlannedReuseStep?: string;
-  sessionCacheKey?: string;
-  previousResponseId?: string;
   vertexFileCacheSource?: VertexFileCacheSource;
   /**
    * Fail the Vertex attempt if its file-backed cache cannot be prepared.

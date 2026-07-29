@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AnthropicAdapter } from '../providers/anthropic-adapter';
 import { DeepSeekAdapter } from '../providers/deepseek-adapter';
 import { QwenAdapter } from '../providers/qwen-adapter';
+import { providerSupportsTrackedBatch, supportsBatch } from '../providers/types';
 import { normalizeDirectProviderCapabilities } from '../model-capabilities';
 import { missingRequirements } from '../routes/capability-requirements';
 import { shouldEnforceCapabilities } from '../routes/candidates';
@@ -162,6 +163,10 @@ async function verifyQwenUsage(): Promise<void> {
   assert(result.usage.cachedInputTokens === 3, 'Qwen cached token reads should be normalized');
   assert(result.usage.cacheWriteTokens === 7, 'Qwen cache creation tokens should be normalized');
   assert(result.usage.reasoningTokens === 5, 'Qwen reasoning tokens should be normalized');
+  assert(
+    !JSON.stringify(calls[0]!.messages).includes('cache_control'),
+    'Qwen must not send explicit cache markers before the measured cache gate passes',
+  );
 
   await adapter.generateObject({
     plan,
@@ -170,6 +175,20 @@ async function verifyQwenUsage(): Promise<void> {
   });
   assert(calls[1]!.enable_thinking === false, 'Qwen structured-output calls must force thinking off');
   assert(!('thinking_budget' in calls[1]!), 'Qwen structured-output calls must not send thinking_budget');
+  assert(!supportsBatch(adapter), 'Qwen must not advertise batch until a tracked native path passes live proof');
+  assert(
+    !supportsBatch(new DeepSeekAdapter({ apiKey: 'test-key' })),
+    'DeepSeek must remain marked unsupported for native batch',
+  );
+  assert(
+    providerSupportsTrackedBatch('anthropic') &&
+      providerSupportsTrackedBatch('openai') &&
+      providerSupportsTrackedBatch('vertex') &&
+      !providerSupportsTrackedBatch('google') &&
+      !providerSupportsTrackedBatch('qwen') &&
+      !providerSupportsTrackedBatch('deepseek'),
+    'tracked batch support must match the three complete adapters',
+  );
 }
 
 function verifyCapabilityGates(): void {
@@ -246,6 +265,15 @@ function verifyCapabilityGates(): void {
       structuredOutputs: true,
     }).structuredOutputs === false,
     'Qwen stale catalog rows must be normalized away from strict structured output',
+  );
+  assert(
+    normalizeDirectProviderCapabilities({
+      ...base,
+      id: 'qwen/qwen3.7-plus-us',
+      provider: 'qwen',
+      promptCaching: true,
+    }).promptCaching === false,
+    'Qwen must not advertise an explicit cache capability before measured proof',
   );
   assert(
     normalizeDirectProviderCapabilities({

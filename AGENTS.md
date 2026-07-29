@@ -213,7 +213,7 @@ Specific boundaries:
 | Prompt/context audit table | `oracle_context_packs` | `packages/db/src/schema.ts` | One row per AI call plan |
 | Usage detail table | `model_run_usage_details` | `packages/db/src/schema.ts` | Provider token/cache details |
 | Provider cache table | `provider_cached_content` | `packages/db/src/schema.ts` | Explicit Vertex cache lifecycle + provider metadata |
-| Provider response session table | `provider_response_sessions` | `packages/db/src/schema.ts` | Qwen Responses `previous_response_id` persistence |
+| Provider response session table | `provider_response_sessions` | `packages/db/src/schema.ts` | Reserved and currently unused. Qwen Responses persistence is disabled pending measured proof. |
 | Model catalog table | `model_capabilities` | schema + model-capability refresh code | Populated from direct providers + OpenRouter enrichment |
 | Auxiliary-model registry | `AUXILIARY_MODELS` | `packages/ai/src/routes/auxiliary.ts` | Admin-selectable models that are NOT one of the 3 strict `OracleModelRole`s (which stay frozen): currently includes `vision`, `workflow_read`, `model_merge`, `macro`, `translation`, `transcript_summary`, and `general`. Each entry = `{ id, routeSettingKey, poolSettingKey?, reasoningEffortSettingKey?, requiredCapability? }`. Resolved through `resolveRouteCandidates(db, id)`; unset/empty slots fail loud unless the caller explicitly documents a compatibility fallback. The picker, `/api/admin/models`, and the settings page all iterate it. |
 | Image-vision route setting | `default_vision_route` | `settings` row + `auxiliary.ts` (`VISION_AUXILIARY_MODEL`) | Primary vision model used by `document-ingestion` to transcribe uploaded images to text (Pass 1) before extraction. Resolution may continue through `model_pool_vision` in approved order. Chosen at Admin → Settings → "Image vision model" (no redeploy); an unset primary fails loudly. |
@@ -550,19 +550,19 @@ Workers and web requests run in different processes and time windows. Cache acco
 Do not change because:
 Process-local cache tracking leaks money and makes cache reuse/cleanup invisible. Do not add a generic "delete every cache for this document" cleanup; use the lifecycle row scope so another run's active cache is not removed.
 
-### Qwen chat cache state is persisted separately from run usage
+### Qwen explicit chat cache state is intentionally not persisted
 
 Looks like:
-`provider_response_sessions` duplicates data already in `model_runs`.
+`provider_response_sessions` exists, but the Qwen chat path does not currently write it.
 
 Actually:
-`model_runs` is audit history; `provider_response_sessions` stores the latest reusable `previous_response_id` keyed by logical session.
+The table remains available for a future provider session feature. Current Qwen calls use Chat Completions and provider-managed implicit prefix caching only.
 
 Why:
-Responses API session cache needs a stable conversation handle across requests and processes.
+The prior explicit-marker and Responses session-cache path had no recorded Oracle-shaped proof of repeat hits or net savings.
 
 Do not change because:
-Without it, Qwen session cache resets every turn and the savings disappear.
+Do not write Qwen session handles or advertise explicit Qwen cache control until a credentialed fixture proves repeat hits, usage accounting, and net savings.
 
 ### Batch API methods on the adapter contract are optional
 
@@ -570,7 +570,7 @@ Looks like:
 `OracleProviderAdapter.submitBatch` and `retrieveBatch` are marked `?` (optional). Existing adapters (Anthropic, DeepSeek, Qwen) don't implement them. The interface looks half-finished.
 
 Actually:
-The methods are optional on purpose. DeepSeek has no public Batch API. Qwen's batch surface is non-OpenAI-compatible (DECISIONS.md D12 deferred the native DashScope SDK swap). OpenAI, Vertex, and Anthropic implement both methods today; future adapters opt in by implementing both.
+The methods are optional on purpose. DeepSeek has no native adapter batch path. Alibaba now documents an OpenAI-compatible Qwen Batch API, but Oracle's only tracked batch caller requires strict schema and Qwen supplies loose JSON mode. OpenAI, Vertex, and Anthropic implement both methods today; future adapters opt in only when they have a safe tracked caller and live proof.
 
 Why:
 Forcing every adapter to implement batch would either block adding new providers behind a 50%-discount feature, or paper over it with stub `submitBatch` methods that throw — both worse than the optional pattern. The runtime helper `supportsBatch(adapter)` is the feature-detection contract. See DECISIONS.md D14.
@@ -1122,7 +1122,7 @@ This repo is a **managed-platform** deployment — Vercel (web) + Trigger.dev (w
 - **Single-branch model: work on `main` only.** Do **not** create feature, staging, or release branches, and do not open PRs as a routine workflow — this repo has no promotion model. Commit straight to `main`. (Push to `main` only when Albert says push — see CLAUDE.md.)
 - **One release path, repo-driven:** push to `main` → Vercel builds/deploys the web app from `vercel.json`; workers ship via `pnpm --filter @oracle/workers run deploy`; DB via `pnpm db:migrate`. No alternate routine deploy method.
 - **CI verifies, never deploys.** `pr-check.yml` only builds + runs the static verify guards + checks migration drift. It must not deploy, SSH, mutate production, or publish artifacts.
-- **The deploy gate is native to Vercel's build.** `vercel.json` uses the short `pnpm run build:vercel` command because Vercel caps `buildCommand` at 256 characters. That root script runs the six network-free guards (`verify:retrieval-filter-parity`, `verify:chinese-retrieval`, `verify:vertex-file-cache`, `verify:chat-attachment-safety`, `verify:claim-translation-review`, `verify:mcp`) **before** `@oracle/web build`; `verify:vercel-contract` protects the length and delegation contract in CI. The credentialed `verify:chinese-retrieval-live` and `verify:attachment-fallback-live` commands are separate and never run in Vercel.
+- **The deploy gate is native to Vercel's build.** `vercel.json` uses the short `pnpm run build:vercel` command because Vercel caps `buildCommand` at 256 characters. That root script runs these eight network-free guards before `@oracle/web build`: `verify:retrieval-filter-parity`, `verify:chinese-retrieval`, `verify:vertex-file-cache`, `verify:chat-attachment-safety`, `verify:claim-translation-review`, `verify:eval-results-dashboard`, `verify:provider-capability-parity`, and `verify:mcp`. `verify:vercel-contract` protects the length and exact delegation contract in CI. The credentialed `verify:chinese-retrieval-live` and `verify:attachment-fallback-live` commands are separate and never run in Vercel.
 - **Repo is authoritative; the platform owns runtime.** Runtime env vars / secrets / domains live in Vercel / Trigger.dev / Supabase — never baked into CI shell commands, images, or committed `.env*` (except `.env.example`).
 - **Schema changes only through the approved migration path** (`pnpm db:migrate` for generated `0NNN_*.sql`; Supabase MCP `apply_migration` for hand-written `sql/*.sql`). Never ad-hoc production schema edits as the normal path.
 - **Traceability:** every production change is auditable from repo commit history + Vercel / Trigger.dev / Supabase deployment history.

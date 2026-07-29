@@ -123,6 +123,7 @@ export {
 export {
   ProviderAdapterNotImplementedError,
   supportsBatch,
+  providerSupportsTrackedBatch,
   type OracleProviderAdapter,
   type GenerateObjectArgs,
   type GenerateTextArgs,

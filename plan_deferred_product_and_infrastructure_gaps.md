@@ -18,7 +18,7 @@ Repository: `C:\repos\oracle`, GitHub `u2giants/theoracle`, branch `main`
 | GAP-5 Multi-attachment and cross-provider cache safety   | ✅ complete and released                                | Released in `3dee535`. Canonical messages retain every attachment; Vertex removes only its cached PDF; all offline fixtures pass. The live gate proved Anthropic read both generated PDFs after forced Vertex failure. GitHub Actions run `30420138187` passed every guard, including the new chat attachment guard.                                  |
 | GAP-6 Vertex cache and batch storage                     | ⬜ open                                                 | Production cloud mutation requires exact owner approval                                                                                                                                                                                                                                                                                                |
 | GAP-7 Eval-results dashboard                             | ✅ complete and released                                | Released through `3b96669`. Clean CLI eval run `extraction-2026-07-29T04-03-41-967Z` passed 4/4 and is tied to code commit `656785e`. Grok approved. CI run `30421488336` passed, Vercel deployment `dpl_3KF4J76s9shZBHugy4xNR9rktBCo` was promoted, and signed-in production list/detail checks passed. |
-| GAP-8 Provider capability parity                         | ⬜ open                                                 | Batch, Qwen explicit cache, and DeepSeek beta strict-schema paths remain limited                                                                                                                                                                                                                                                                       |
+| GAP-8 Provider capability parity                         | 🟨 local capability truth complete; release proof pending | DeepSeek and Qwen remain sync-only and non-strict in Oracle. Qwen explicit/session cache controls were removed because no measured Oracle fixture proved savings. Admin UI now blocks Batch for unsupported extraction providers. Local guards and docs are updated; review, CI, push, deploy, and signed-in UI proof remain. |
 | GAP-9 Deferred secret rotation                           | ⏸ blocked by owner                                      | Rotate only when Albert explicitly authorizes it                                                                                                                                                                                                                                                                                                       |
 | GAP-10 Deprecated identity-column cleanup                | ⬜ open                                                 | Must prove every reader uses `employee_identities` first                                                                                                                                                                                                                                                                                               |
 | GAP-11 Model-coverage finding conversion                 | ⬜ open                                                 | Administrative findings are isolated correctly but lack the audited convert-to-question flow                                                                                                                                                                                                                                                           |
@@ -62,7 +62,8 @@ The 2026-07-26 known-problem audit found open or deferred items in `AGENTS.md` s
 - Oversized Vertex cache and Vertex Batch need separate GCS buckets and service-account access.
 - The eval-results admin page was a placeholder; GAP-7 replaced it with a safe read-only dashboard
   and closed on 2026-07-29.
-- Qwen Batch requires a native DashScope implementation; DeepSeek has no public Batch API.
+- Alibaba now documents OpenAI-compatible Qwen Batch, but Oracle has no safe tracked non-strict
+  batch caller; DeepSeek has no native adapter Batch path.
 - Earlier exposed credentials still have an owner-deferred rotation task.
 - Deprecated identity columns remain on `employees` during the multi-identity transition.
 - R0 creates administrative `model_coverage` gaps and excludes them from employee questions, but
@@ -405,6 +406,27 @@ Implementation evidence (2026-07-28):
 
 Gate: UI and docs accurately show provider support; any new Qwen path passes a real small batch
 without bypassing attempt and usage records.
+
+Implementation decision (2026-07-29):
+
+- No Qwen batch adapter was added. Alibaba now documents an OpenAI-compatible Batch API, but
+  Oracle's only tracked batch caller is strict-schema claim extraction. Qwen's current adapter is
+  deliberately loose `json_object` plus Zod validation and is excluded from extraction and other
+  strict-schema slots. Advertising adapter batch support would therefore have no safe tracked
+  caller. Revisit only with a non-strict batch workload or proven strict schema support.
+- DeepSeek remains batch-unsupported and excluded from strict-schema slots. Its beta strict
+  function-call surface is not implemented or advertised.
+- Qwen explicit markers and Responses session-cache persistence were removed. The adapter keeps
+  provider-reported cache-token normalization for observation, but routes use `qwen_none` and the
+  catalog does not claim prompt-cache control until a repeated real-prompt fixture proves net cost
+  savings.
+- The extraction dispatch card names the current provider, lists the three supported native batch
+  adapters (Anthropic, OpenAI, Vertex), disables Batch for Google, Qwen, and DeepSeek, and warns if
+  an old incompatible setting is already active.
+- The settings API rejects unsupported Batch mode and rejects changing an active Batch route to an
+  unsupported provider. Both extraction workers fail loudly on stale invalid configuration and
+  name the required admin action; neither silently skips, auto-flips the setting, nor runs an
+  unapproved sync fallback.
 
 ### GAP-9: secret rotation
 

@@ -35,6 +35,7 @@ import {
 import {
   buildStandardAdapters,
   OracleAIClient,
+  providerSupportsTrackedBatch,
   supportsBatch,
   zodToJsonSchema,
   makeBlock,
@@ -119,16 +120,30 @@ export async function runClaimExtractionBatchSubmitOnce(
     // 2. Resolve route + check adapter capability.
     const routeCandidates = await resolveExtractionCandidates(db);
     const route = routeCandidates[0]!.route;
+    if (!providerSupportsTrackedBatch(route.provider)) {
+      throw new Error(
+        `[claim-extraction-batch-submit] INVALID BATCH CONFIGURATION: ${route.provider} is not ` +
+          `an approved tracked Batch provider. An admin must switch extraction dispatch mode ` +
+          `to sync or select Anthropic, OpenAI, or Vertex. Oracle will not auto-flip the setting ` +
+          `or run an unapproved sync fallback.`,
+      );
+    }
     const correctionLessons = await loadClaimCorrectionLessonPack(db);
     const adapters = buildStandardAdapters();
     const adapter = adapters[route.provider];
     if (!adapter) {
-      await finish({ skipped: true, reason: `no adapter registered for provider ${route.provider}` });
-      return { ok: true, skipped: true, reason: `no adapter for ${route.provider}`, segmentsSubmitted: 0 };
+      throw new Error(
+        `[claim-extraction-batch-submit] BATCH PROVIDER UNAVAILABLE: no adapter is registered ` +
+          `for ${route.provider}. Restore its credentials, or have an admin switch extraction ` +
+          `dispatch mode to sync or select another supported provider.`,
+      );
     }
     if (!supportsBatch(adapter)) {
-      await finish({ skipped: true, reason: `adapter ${route.provider} does not implement Batch API` });
-      return { ok: true, skipped: true, reason: `adapter ${route.provider} does not support batch`, segmentsSubmitted: 0 };
+      throw new Error(
+        `[claim-extraction-batch-submit] INVALID BATCH CONFIGURATION: ${route.provider} does not ` +
+          `implement Oracle's tracked Batch API. An admin must switch extraction dispatch mode ` +
+          `to sync or select Anthropic, OpenAI, or Vertex.`,
+      );
     }
 
     // 3. Pull whole pending conversations. Never split a conversation just

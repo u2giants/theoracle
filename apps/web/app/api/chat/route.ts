@@ -24,7 +24,6 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import { eq, and, inArray } from 'drizzle-orm';
-import { desc } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { writeFile, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -63,7 +62,6 @@ import {
   modelRunUsageDetails,
   modelRuns,
   oracleContextPacks,
-  providerResponseSessions,
   settings,
   type OracleDb,
 } from '@oracle/db';
@@ -552,24 +550,6 @@ export async function POST(req: NextRequest) {
 
   // ── 8. Dispatch through OracleAIClient ───────────────────────────────
   const startedAt = Date.now();
-  const qwenSessionKey = route.provider === 'qwen' ? `interview-chat:${body.channelId}` : null;
-  const previousQwenSession =
-    qwenSessionKey
-      ? await db
-          .select({
-            latestResponseId: providerResponseSessions.latestResponseId,
-            modelId: providerResponseSessions.modelId,
-          })
-          .from(providerResponseSessions)
-          .where(
-            and(
-              eq(providerResponseSessions.provider, 'qwen'),
-              eq(providerResponseSessions.sessionKey, qwenSessionKey),
-            ),
-          )
-          .orderBy(desc(providerResponseSessions.updatedAt))
-          .limit(1)
-      : [];
   let oracleText = '';
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
@@ -628,14 +608,6 @@ export async function POST(req: NextRequest) {
           latestPlannedReuseStep: 'interview_chat',
           vertexFileCacheSource,
           requireVertexFileCache,
-          sessionCacheKey:
-            qwenSessionKey ?? undefined,
-          previousResponseId:
-            route.provider === 'qwen'
-              ? previousQwenSession[0]?.modelId === route.modelId
-                ? previousQwenSession[0]?.latestResponseId
-                : undefined
-              : undefined,
         },
       },
       routeCandidates,
@@ -711,40 +683,6 @@ export async function POST(req: NextRequest) {
       .update(oracleContextPacks)
       .set({ modelRunId: modelRun.id })
       .where(eq(oracleContextPacks.id, contextPack.id));
-
-    if (actualProvider === 'qwen' && providerRequestId && qwenSessionKey) {
-      await db
-        .insert(providerResponseSessions)
-        .values({
-          provider: 'qwen',
-          sessionKey: qwenSessionKey,
-          scopeKind: 'channel',
-          scopeId: body.channelId,
-          modelId: actualModelId,
-          latestResponseId: providerRequestId,
-          lastContextPackId: contextPack.id,
-          lastModelRunId: modelRun.id,
-          metadataJson: {
-            routeId: actualRouteId,
-          },
-        })
-        .onConflictDoUpdate({
-          target: [
-            providerResponseSessions.provider,
-            providerResponseSessions.sessionKey,
-          ],
-          set: {
-            modelId: actualModelId,
-            latestResponseId: providerRequestId,
-            lastContextPackId: contextPack.id,
-            lastModelRunId: modelRun.id,
-            metadataJson: {
-              routeId: actualRouteId,
-            },
-            updatedAt: new Date(),
-          },
-        });
-    }
   }
 
   if (!success || !oracleText.trim()) {

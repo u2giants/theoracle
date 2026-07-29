@@ -260,7 +260,7 @@ export const qwen_3_7_max_extraction_eval: OracleModelRoute = {
   recommendedUse:
     'Manual A/B/C extraction comparison against approved human claim revisions. Not a production default route.',
   costTier: 'balanced_default',
-  cacheStrategy: 'qwen_explicit_context_cache',
+  cacheStrategy: 'qwen_none',
   structuredOutputStrategy: 'tool_call',
   supportsVision: true,
   supportsStreaming: false,

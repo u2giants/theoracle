@@ -43,6 +43,7 @@ import {
 import {
   OracleAIClient,
   buildStandardAdapters,
+  providerSupportsTrackedBatch,
   resolveRouteCandidates,
   logAllCandidatesFailedAttempts,
   logModelRunAttempts,
@@ -164,6 +165,16 @@ export async function runClaimExtractionOnce(
       .limit(1);
     const dispatchMode = (dispatchModeRow[0]?.value as string | undefined) ?? 'sync';
     if (dispatchMode === 'batch') {
+      const batchCandidates = await resolveExtractionCandidates(db);
+      const batchProvider = batchCandidates[0]?.route.provider;
+      if (!batchProvider || !providerSupportsTrackedBatch(batchProvider)) {
+        throw new Error(
+          `[claim-extraction] INVALID BATCH CONFIGURATION: extraction_dispatch_mode=batch ` +
+            `but the selected extraction provider is ${batchProvider ?? 'unresolved'}. ` +
+            `Batch is supported only for Anthropic, OpenAI, and Vertex. ` +
+            `An admin must switch extraction dispatch mode to sync or select a supported provider.`,
+        );
+      }
       await db
         .update(jobRuns)
         .set({

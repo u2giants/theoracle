@@ -95,7 +95,7 @@ function makeSyntheticRoute(
           : provider === 'deepseek'
             ? 'deepseek_automatic_prefix'
             : provider === 'qwen'
-              ? 'qwen_explicit_context_cache'
+              ? 'qwen_none'
               : 'openai_automatic_with_cache_key';
 
   const structuredOutputStrategy =

@@ -18,9 +18,15 @@ type Status = 'idle' | 'saving' | 'saved' | 'error';
 
 interface DispatchModeToggleProps {
   currentMode: DispatchMode;
+  extractionProvider: string | null;
+  batchSupported: boolean;
 }
 
-export function DispatchModeToggle({ currentMode }: DispatchModeToggleProps) {
+export function DispatchModeToggle({
+  currentMode,
+  extractionProvider,
+  batchSupported,
+}: DispatchModeToggleProps) {
   const [mode, setMode] = useState<DispatchMode>(currentMode);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +34,7 @@ export function DispatchModeToggle({ currentMode }: DispatchModeToggleProps) {
   async function selectMode(next: DispatchMode) {
     if (next === mode) return;
     if (next === 'batch') {
+      if (!batchSupported) return;
       const confirmed = window.confirm(
         'Switching to BATCH mode.\n\n' +
           '• Claim extraction will run via the provider Batch API (~50% off).\n' +
@@ -77,6 +84,7 @@ export function DispatchModeToggle({ currentMode }: DispatchModeToggleProps) {
             'Full sync API pricing',
             'No GCS bucket needed for Vertex',
           ]}
+          disabled={false}
         />
         <ModeOption
           value="batch"
@@ -89,8 +97,22 @@ export function DispatchModeToggle({ currentMode }: DispatchModeToggleProps) {
             '~50% lower input/output token cost',
             'Vertex routes require GOOGLE_VERTEX_BATCH_GCS_BUCKET',
           ]}
+          disabled={!batchSupported}
         />
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        Current extraction provider: <strong className="text-foreground">
+          {extractionProvider ?? 'not set'}
+        </strong>. Native batch is available for Anthropic, OpenAI, and Vertex.
+        Google Gemini API, Qwen, and DeepSeek use sync mode in this app.
+      </p>
+      {!batchSupported && mode === 'batch' && (
+        <p className="text-xs text-destructive">
+          Batch is selected but this provider cannot run it. Switch to Sync so
+          pending extraction work can continue.
+        </p>
+      )}
 
       <div className="flex items-center gap-3 text-sm">
         {status === 'saving' && <span className="text-muted-foreground">Saving…</span>}
@@ -113,6 +135,7 @@ function ModeOption({
   title,
   subtitle,
   bullets,
+  disabled,
 }: {
   value: DispatchMode;
   active: boolean;
@@ -120,17 +143,20 @@ function ModeOption({
   title: string;
   subtitle: string;
   bullets: string[];
+  disabled: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-pressed={active}
       className={cn(
         'text-left rounded-md border p-3 transition-colors',
         active
           ? 'border-primary bg-primary/5 ring-1 ring-primary/40'
           : 'border-input hover:bg-muted/40',
+        disabled && 'cursor-not-allowed opacity-50 hover:bg-transparent',
       )}
     >
       <div className="flex items-start justify-between gap-2">

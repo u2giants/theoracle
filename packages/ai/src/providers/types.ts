@@ -164,8 +164,9 @@ export interface OracleProviderAdapter {
 
   /**
    * Optional — submit a batch of requests to the provider's Batch API.
-   * Adapters that don't implement this aren't usable in batch mode; the
-   * two-phase extraction worker falls back to sync for those providers.
+   * Adapters that don't implement this aren't usable in batch mode. The
+   * extraction workers fail loudly and require an admin to choose sync mode
+   * or a tracked batch provider; they never auto-flip configuration.
    */
   submitBatch?(args: SubmitBatchArgs): Promise<SubmitBatchResult>;
 
@@ -177,6 +178,11 @@ export interface OracleProviderAdapter {
 export function supportsBatch(adapter: OracleProviderAdapter): boolean {
   return typeof adapter.submitBatch === 'function'
     && typeof adapter.retrieveBatch === 'function';
+}
+
+/** Providers with a complete tracked submit/retrieve path in this repository. */
+export function providerSupportsTrackedBatch(provider: OracleProvider): boolean {
+  return provider === 'anthropic' || provider === 'openai' || provider === 'vertex';
 }
 
 /**

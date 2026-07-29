@@ -14,6 +14,7 @@ import {
   ROUTE_SETTING_KEYS,
   AUXILIARY_MODELS,
   resolveModelRoute,
+  providerSupportsTrackedBatch,
   type AuxiliaryCapabilityFilter,
 } from '@oracle/ai';
 import {
@@ -299,7 +300,7 @@ WHAT IT IS FED (input)
 - Recent channel messages and the user's latest message.
 - Deterministically retrieved approved claims, quotes, open gaps, Brain snippets, and metadata when relevant.
 - Optional image/document attachment text or image parts when the selected route supports vision.
-- Provider cache hints and, for Qwen, a reusable session handle.
+- Provider cache hints. Qwen has no reusable session handle in Oracle.
 Typical topics: process questions, shipment routing, product-development decisions, customer exceptions, designer file practices, system workflows, meeting follow-ups, and "is this still true?" recertification questions.
 
 WHAT IS EXPECTED (output)
@@ -858,7 +859,13 @@ export default async function AdminSettingsPage() {
                   </p>
                 </CardHeader>
                 <CardContent>
-                  <DispatchModeToggle currentMode={dispatchMode} />
+                  <DispatchModeToggle
+                    currentMode={dispatchMode}
+                    extractionProvider={resolved?.provider ?? null}
+                    batchSupported={
+                      resolved ? providerSupportsTrackedBatch(resolved.provider) : false
+                    }
+                  />
                 </CardContent>
               </Card>
             </div>

@@ -305,9 +305,10 @@ export function normalizeDirectProviderCapabilities(model: ModelCapability): Mod
       structuredOutputs: false,
       strictJsonSchema: false,
       deepSchemaAccepted: false,
-      // Qwen explicit cache is documented for current Qwen model families even
-      // when third-party enrichment misses the flag.
-      promptCaching: true,
+      // Keep the admin flag tied to adapter behavior. DashScope may implicitly
+      // cache prefixes, but Oracle does not yet have a measured explicit-cache
+      // path that callers can request or rely on.
+      promptCaching: false,
       outputCap: true,
       adapterParamNotes: {
         ...model.adapterParamNotes,

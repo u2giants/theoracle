@@ -35,9 +35,20 @@ This file describes the current deploy and release path that exists in the repo 
 build. Keeping `vercel.json` short is required because Vercel rejects `buildCommand` values over 256
 characters. `verify:vercel-contract` enforces that limit and the exact delegated guard list in CI.
 
-The five verify guards are DB-free and network-free (the Vertex guard stubs its clients, and the
-default Chinese fixture never calls the embedding service), so they run inside the Vercel build
-with no extra secrets. The credentialed Chinese vector measurement is separate:
+The eight deploy guards are DB-free and network-free, so they run inside the Vercel build with no
+extra secrets:
+
+1. `pnpm --filter @oracle/ai verify:retrieval-filter-parity`
+2. `pnpm --filter @oracle/ai verify:chinese-retrieval`
+3. `pnpm --filter @oracle/ai verify:vertex-file-cache`
+4. `pnpm --filter @oracle/web verify:chat-attachment-safety`
+5. `pnpm --filter @oracle/web verify:claim-translation-review`
+6. `pnpm --filter @oracle/web verify:eval-results-dashboard`
+7. `pnpm --filter @oracle/web verify:provider-capability-parity`
+8. `pnpm --filter @oracle/web verify:mcp`
+
+The Vertex guard stubs its clients, and the default Chinese fixture never calls the embedding
+service. The credentialed Chinese vector measurement is separate:
 `pnpm --filter @oracle/ai verify:chinese-retrieval-live`. The migration-drift check is intentionally
 NOT in the Vercel build — it needs prod DB credentials and stays in `pr-check.yml` as an advisory check.
 

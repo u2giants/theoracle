@@ -35,7 +35,6 @@ export type CacheStrategy =
   | 'openai_automatic_with_cache_key'
   | 'openai_automatic_with_retention'
   | 'deepseek_automatic_prefix'
-  | 'qwen_explicit_context_cache'
   | 'qwen_none'
   | 'none';
 
