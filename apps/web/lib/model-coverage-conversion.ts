@@ -21,6 +21,39 @@ export function clampModelCoveragePage(page: number, totalRows: number): number 
   return Math.min(Math.max(1, page), totalPages);
 }
 
+export type ModelCoverageEligibility =
+  | { eligible: true; source: ModelCoverageSource }
+  | { eligible: false; reason: string };
+
+export function getModelCoverageEligibility(row: {
+  gapType: string;
+  status: string;
+  sourceContext: unknown;
+}): ModelCoverageEligibility {
+  try {
+    return { eligible: true, source: assertCoverageFindingEligible(row) };
+  } catch {
+    return {
+      eligible: false,
+      reason: row.status !== 'open'
+        ? 'This finding is no longer open and cannot be converted.'
+        : 'Stable source details are missing. This legacy finding cannot be converted.',
+    };
+  }
+}
+
+export function getModelCoverageConversionDisplay(
+  conversionStatus: string | null,
+  eligible: boolean,
+) {
+  return {
+    showSend: conversionStatus === 'draft' && eligible,
+    showCancel: conversionStatus === 'draft',
+    showSentResult: conversionStatus === 'sent',
+    showBlockedSendReason: conversionStatus === 'draft' && !eligible,
+  };
+}
+
 export function requireModelCoverageSource(value: unknown): ModelCoverageSource {
   if (!value || typeof value !== 'object') {
     throw new Error('This finding has no stable source details and cannot be converted.');

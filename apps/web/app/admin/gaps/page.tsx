@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { formatNYDate } from '@/lib/time';
 import {
   clampModelCoveragePage,
+  getModelCoverageConversionDisplay,
+  getModelCoverageEligibility,
   MODEL_COVERAGE_PAGE_SIZE,
   parseModelCoveragePage,
 } from '@/lib/model-coverage-conversion';
@@ -105,7 +107,23 @@ export default async function AdminGapsPage({
       asc(sql`CASE
         WHEN ${modelCoverageConversions.status} = 'draft' THEN 0
         WHEN ${modelCoverageConversions.status} = 'sent' THEN 1
-        ELSE 2
+        WHEN ${gaps.status} = 'open'
+          AND jsonb_typeof(${gaps.sourceContext}->'sourceType') = 'string'
+          AND btrim(${gaps.sourceContext}->>'sourceType') <> ''
+          AND jsonb_typeof(${gaps.sourceContext}->'sourceId') = 'string'
+          AND btrim(${gaps.sourceContext}->>'sourceId') <> ''
+          AND jsonb_typeof(${gaps.sourceContext}->'mapId') = 'string'
+          AND btrim(${gaps.sourceContext}->>'mapId') <> ''
+          AND jsonb_typeof(${gaps.sourceContext}->'mapElementRef') = 'string'
+          AND btrim(${gaps.sourceContext}->>'mapElementRef') <> ''
+          AND jsonb_typeof(${gaps.sourceContext}->'mapElementKind') = 'string'
+          AND btrim(${gaps.sourceContext}->>'mapElementKind') <> ''
+          AND jsonb_typeof(${gaps.sourceContext}->'mapShape') = 'string'
+          AND btrim(${gaps.sourceContext}->>'mapShape') <> ''
+          AND jsonb_typeof(${gaps.sourceContext}->'mapElementLocalId') = 'string'
+          AND btrim(${gaps.sourceContext}->>'mapElementLocalId') <> ''
+        THEN 2
+        ELSE 3
       END`),
       desc(gaps.createdAt),
       desc(gaps.id),
@@ -180,6 +198,15 @@ export default async function AdminGapsPage({
             const targetIds = Array.isArray(finding.targetEmployeeIds)
               ? finding.targetEmployeeIds as string[]
               : [];
+            const eligibility = getModelCoverageEligibility({
+              gapType: 'model_coverage',
+              status: finding.status,
+              sourceContext: finding.sourceContext,
+            });
+            const conversionDisplay = getModelCoverageConversionDisplay(
+              finding.conversionStatus,
+              eligibility.eligible,
+            );
             return (
               <div key={finding.id} className="rounded border p-4 text-sm">
                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -187,7 +214,42 @@ export default async function AdminGapsPage({
                   <span>{source?.mapElementKind ?? 'unknown element'}: {source?.mapElementRef ?? 'missing source details'}</span>
                 </div>
                 <p className="mt-2">{finding.questionToAsk}</p>
-                {!finding.conversionId ? (
+                {finding.conversionId ? (
+                  <div className="mt-4 rounded bg-muted p-3">
+                    <p className="font-medium">Conversion {finding.conversionStatus}</p>
+                    <p className="mt-1">{finding.conversionQuestion}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{finding.conversionReason}</p>
+                    <p className="mt-1 text-xs">{targetIds.length} recipient{targetIds.length === 1 ? '' : 's'}</p>
+                    {conversionDisplay.showBlockedSendReason ? (
+                      <p className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                        {eligibility.eligible ? null : eligibility.reason} Sending is unavailable.
+                      </p>
+                    ) : null}
+                    {conversionDisplay.showSend || conversionDisplay.showCancel ? (
+                      <div className="mt-3 flex gap-2">
+                        {conversionDisplay.showSend ? (
+                          <form action={sendCoverageConversion}>
+                            <input type="hidden" name="conversionId" value={finding.conversionId} />
+                            <Button type="submit" size="sm">Send questions</Button>
+                          </form>
+                        ) : null}
+                        {conversionDisplay.showCancel ? (
+                          <form action={cancelCoverageConversion}>
+                            <input type="hidden" name="conversionId" value={finding.conversionId} />
+                            <Button type="submit" size="sm" variant="outline">Cancel draft</Button>
+                          </form>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {conversionDisplay.showSentResult ? (
+                      <p className="mt-2 text-xs">{Array.isArray(finding.createdGapIds) ? finding.createdGapIds.length : 0} employee gap(s) created.</p>
+                    ) : null}
+                  </div>
+                ) : !eligibility.eligible ? (
+                  <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                    {eligibility.reason}
+                  </div>
+                ) : (
                   <form action={createCoverageConversionDraft} className="mt-4 grid gap-3 md:grid-cols-2">
                     <input type="hidden" name="sourceGapId" value={finding.id} />
                     <input type="hidden" name="returnStatus" value={activeStatus} />
@@ -209,27 +271,6 @@ export default async function AdminGapsPage({
                     </label>
                     <Button type="submit" size="sm" className="w-fit">Save draft</Button>
                   </form>
-                ) : (
-                  <div className="mt-4 rounded bg-muted p-3">
-                    <p className="font-medium">Conversion {finding.conversionStatus}</p>
-                    <p className="mt-1">{finding.conversionQuestion}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{finding.conversionReason}</p>
-                    <p className="mt-1 text-xs">{targetIds.length} recipient{targetIds.length === 1 ? '' : 's'}</p>
-                    {finding.conversionStatus === 'draft' ? (
-                      <div className="mt-3 flex gap-2">
-                        <form action={sendCoverageConversion}>
-                          <input type="hidden" name="conversionId" value={finding.conversionId} />
-                          <Button type="submit" size="sm">Send questions</Button>
-                        </form>
-                        <form action={cancelCoverageConversion}>
-                          <input type="hidden" name="conversionId" value={finding.conversionId} />
-                          <Button type="submit" size="sm" variant="outline">Cancel draft</Button>
-                        </form>
-                      </div>
-                    ) : finding.conversionStatus === 'sent' ? (
-                      <p className="mt-2 text-xs">{Array.isArray(finding.createdGapIds) ? finding.createdGapIds.length : 0} employee gap(s) created.</p>
-                    ) : null}
-                  </div>
                 )}
               </div>
             );

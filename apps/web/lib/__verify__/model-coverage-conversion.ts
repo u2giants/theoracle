@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import {
   assertCoverageFindingEligible,
   clampModelCoveragePage,
+  getModelCoverageConversionDisplay,
+  getModelCoverageEligibility,
   MODEL_COVERAGE_PAGE_SIZE,
   modelCoverageSourcesEqual,
   parseModelCoveragePage,
@@ -71,6 +73,42 @@ assert.equal(parseModelCoveragePage('2.5'), 1);
 assert.equal(parseModelCoveragePage('3'), 3);
 assert.equal(clampModelCoveragePage(99, 1491), 60);
 assert.equal(clampModelCoveragePage(4, 0), 1);
+assert.deepEqual(
+  getModelCoverageEligibility({ gapType: 'model_coverage', status: 'open', sourceContext: source }),
+  { eligible: true, source },
+);
+assert.deepEqual(
+  getModelCoverageEligibility({ gapType: 'model_coverage', status: 'open', sourceContext: null }),
+  {
+    eligible: false,
+    reason: 'Stable source details are missing. This legacy finding cannot be converted.',
+  },
+);
+assert.deepEqual(
+  getModelCoverageEligibility({ gapType: 'model_coverage', status: 'resolved', sourceContext: source }),
+  {
+    eligible: false,
+    reason: 'This finding is no longer open and cannot be converted.',
+  },
+);
+assert.deepEqual(getModelCoverageConversionDisplay('draft', true), {
+  showSend: true,
+  showCancel: true,
+  showSentResult: false,
+  showBlockedSendReason: false,
+});
+assert.deepEqual(getModelCoverageConversionDisplay('draft', false), {
+  showSend: false,
+  showCancel: true,
+  showSentResult: false,
+  showBlockedSendReason: true,
+});
+assert.deepEqual(getModelCoverageConversionDisplay('sent', false), {
+  showSend: false,
+  showCancel: false,
+  showSentResult: true,
+  showBlockedSendReason: false,
+});
 
 assert.match(actions, /await requireAdmin\(\)/, 'every conversion action must be admin guarded');
 assert.equal(
@@ -113,8 +151,23 @@ assert.match(page, /WHEN \$\{modelCoverageConversions\.status\} = 'draft' THEN 0
 assert.match(page, /WHEN \$\{modelCoverageConversions\.status\} = 'sent' THEN 1/);
 assert.match(
   page,
-  /ELSE 2[\s\S]*desc\(gaps\.createdAt\),\s*desc\(gaps\.id\)/,
-  'unconverted findings and stable page tie-breakers must remain in the ordering',
+  /jsonb_typeof\(\$\{gaps\.sourceContext\}->'mapElementLocalId'\) = 'string'[\s\S]*THEN 2\s*ELSE 3[\s\S]*desc\(gaps\.createdAt\),\s*desc\(gaps\.id\)/,
+  'eligible findings must precede legacy rows while stable page tie-breakers remain',
+);
+assert.match(page, /const eligibility = getModelCoverageEligibility/);
+assert.match(
+  page,
+  /const conversionDisplay = getModelCoverageConversionDisplay/,
+  'conversion lifecycle controls must come from the tested display policy',
+);
+assert.match(page, /conversionDisplay\.showBlockedSendReason[\s\S]*Sending is unavailable/);
+assert.match(page, /conversionDisplay\.showSend[\s\S]*action=\{sendCoverageConversion\}/);
+assert.match(page, /conversionDisplay\.showCancel[\s\S]*action=\{cancelCoverageConversion\}/);
+assert.match(page, /conversionDisplay\.showSentResult[\s\S]*employee gap\(s\) created/);
+assert.match(
+  page,
+  /: !eligibility\.eligible[\s\S]*\{eligibility\.reason\}[\s\S]*\) : \(\s*<form action=\{createCoverageConversionDraft\}/,
+  'only eligible untouched findings may render the create form',
 );
 assert.match(
   page,
