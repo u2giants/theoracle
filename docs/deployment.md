@@ -131,6 +131,12 @@ What it does (in order):
 12. **R0 reader/validator contract** — `pnpm --filter @oracle/workers verify:r0-reader-validator`.
 13. **R1 cross-shape contract** — `pnpm --filter @oracle/engines verify:r1-cross-shape`.
 14. **Taxonomy reclassification contract** — `pnpm --filter @oracle/workers verify:taxonomy-reclassification`.
+    For a credentialed production closeout, run
+    `pnpm --filter @oracle/workers audit:taxonomy-reclassification-production` with `DIRECT_URL`
+    set to the production session-pooler URL. The audit performs only `SELECT` statements. It
+    reports every proposal's effective state, supported and manual handler types, Trigger run IDs,
+    recent `job_runs`, and fails if production contains an unknown type or a manual split marked
+    applied. It never approves, dispatches, retries, or applies a proposal.
 15. **Fresh-database migration gate** — starts isolated pgvector Postgres and runs the generated-order, full migration twice, raw-rerun, document context/hints, source-workflow, R1 schema, and taxonomy DB guards.
 16. **Drizzle journal drift check** — `pnpm -w run db:check-drift`. Requires `PROD_DIRECT_URL`; skips gracefully if absent.
 

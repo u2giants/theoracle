@@ -2,6 +2,19 @@ import { z } from 'zod';
 
 const id = z.string().min(1);
 
+export const SUPPORTED_TAXONOMY_RECLASSIFICATION_TYPES = [
+  'create_sub_topic',
+  'reassign_claims',
+  'merge_sub_topics',
+  'retire_sub_topic',
+  'merge_top_domains',
+] as const;
+
+export const MANUAL_TAXONOMY_RECLASSIFICATION_TYPES = [
+  'split_top_domain',
+  'split_sub_topic',
+] as const;
+
 const schemas = {
   create_sub_topic: z.object({
     topDomainId: id,
@@ -26,13 +39,14 @@ const schemas = {
     .refine((p) => p.sourceTopDomainId !== p.targetTopDomainId, 'source and target must differ'),
 } as const;
 
-export type SupportedTaxonomyReclassification = keyof typeof schemas;
+export type SupportedTaxonomyReclassification =
+  (typeof SUPPORTED_TAXONOMY_RECLASSIFICATION_TYPES)[number];
 
 export function validateTaxonomyReclassificationPayload(
   proposalType: string,
   payload: unknown,
 ): { valid: true } | { valid: false; reason: string } {
-  if (proposalType === 'split_top_domain' || proposalType === 'split_sub_topic') {
+  if ((MANUAL_TAXONOMY_RECLASSIFICATION_TYPES as readonly string[]).includes(proposalType)) {
     return { valid: false, reason: `${proposalType} requires manual admin intervention` };
   }
   const schema = schemas[proposalType as SupportedTaxonomyReclassification];
@@ -51,4 +65,23 @@ export function isTerminalReclassificationChange(changeType: string): boolean {
     changeType.startsWith('reclassification_applied_') ||
     changeType.startsWith('reclassification_skipped_')
   );
+}
+
+export function classifyTaxonomyProposalState(input: {
+  proposalType: string;
+  status: string;
+  latestChangeType: string | null;
+  hasQueuedAudit: boolean;
+}): string {
+  if (input.status !== 'approved') return input.status;
+  if (input.proposalType === 'create_top_domain') return 'applied_inline';
+  if (input.latestChangeType?.startsWith('reclassification_applied_')) return 'applied';
+  if (input.latestChangeType?.startsWith('reclassification_skipped_')) return 'skipped';
+  if (input.latestChangeType === 'reclassification_failed') return 'failed';
+  if (input.latestChangeType === 'reclassification_dispatched') return 'applying';
+  return input.hasQueuedAudit ? 'queued' : 'approved_not_queued';
+}
+
+export function isActionableTaxonomyProposalState(state: string): boolean {
+  return ['approved_not_queued', 'queued', 'applying', 'failed'].includes(state);
 }
