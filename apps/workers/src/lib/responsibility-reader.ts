@@ -65,6 +65,31 @@ export type ResponsibilityFieldFidelityResult = {
   multiVerbReject: boolean;
 };
 
+export type ResponsibilityFailureCategory =
+  | 'field'
+  | 'quote'
+  | 'multi_verb'
+  | 'forced_missing'
+  | 'invalid_detail';
+
+export type ResponsibilityIncompleteAudit = {
+  elementId: string;
+  chunkId: string;
+  failureCategory: ResponsibilityFailureCategory;
+  repairStatus: 'not_selected' | 'selected' | 'repaired' | 'rejected';
+  decisionReason: string;
+  quoteSha256: string;
+  selectedSourceSpan: string;
+};
+
+export type ResponsibilityExpansionAudit = {
+  baseId: string;
+  expandedId: string;
+  destination: string;
+  accepted: boolean;
+  reason: string;
+};
+
 export type GroundedResponsibilityQuoteCandidate = {
   candidateIndex: number;
   sourceText: string;
@@ -950,6 +975,11 @@ export function mergeResponsibilityValidationResults<T extends {
   segment: SourceStructureSegment;
   validation: {
     elements: SourceStructureElement[];
+    inventoryElements: SourceStructureElement[];
+    completeElementIds: string[];
+    fieldDiagnostics: Record<string, ResponsibilityFieldFidelityResult>;
+    incompleteInventoryAudit: ResponsibilityIncompleteAudit[];
+    expansionAudit: ResponsibilityExpansionAudit[];
     diagnostics: ResponsibilityReaderDiagnostic[];
     crossSegmentCitations: Array<{ responsibilityId: string; chunkId: string }>;
     primaryCount: number;
@@ -964,9 +994,14 @@ export function mergeResponsibilityValidationResults<T extends {
 
 type ResponsibilityValidation = ReturnType<typeof validateResponsibilityRead>;
 
+type LegacyResponsibilityValidation = Pick<
+  ResponsibilityValidation,
+  'elements' | 'diagnostics' | 'crossSegmentCitations' | 'primaryCount'
+> & Partial<Omit<ResponsibilityValidation, 'elements' | 'diagnostics' | 'crossSegmentCitations' | 'primaryCount'>>;
+
 export function mergeResponsibilityRetryValidation(
-  base: ResponsibilityValidation,
-  retry: ResponsibilityValidation,
+  base: LegacyResponsibilityValidation,
+  retry: LegacyResponsibilityValidation,
 ): {
   validation: ResponsibilityValidation;
   acceptedCount: number;
@@ -976,6 +1011,12 @@ export function mergeResponsibilityRetryValidation(
     `${item.chunkId}|${item.role}|${item.action}|${item.object}|${item.evidenceQuote}`;
   const existingElements = new Set(base.elements.map(elementKey));
   const accepted = retry.elements.filter((item) => !existingElements.has(elementKey(item)));
+  const baseInventory = base.inventoryElements ?? base.elements;
+  const retryInventory = retry.inventoryElements ?? retry.elements;
+  const existingInventory = new Set(baseInventory.map(elementKey));
+  const acceptedInventory = retryInventory.filter(
+    (item) => !existingInventory.has(elementKey(item)),
+  );
   const diagnosticKey = (item: ResponsibilityReaderDiagnostic) =>
     `${item.responsibilityId}|${item.chunkId}|${item.failureClass}|${item.boundedQuote}`;
   const existingDiagnostics = new Set(base.diagnostics.map(diagnosticKey));
@@ -991,12 +1032,190 @@ export function mergeResponsibilityRetryValidation(
   return {
     validation: {
       elements: [...base.elements, ...accepted],
+      inventoryElements: [...baseInventory, ...acceptedInventory],
+      completeElementIds: [
+        ...new Set([
+          ...(base.completeElementIds ?? base.elements.map((item) => item.elementId)),
+          ...(retry.completeElementIds ?? retry.elements.map((item) => item.elementId)),
+        ]),
+      ],
+      fieldDiagnostics: { ...(base.fieldDiagnostics ?? {}), ...(retry.fieldDiagnostics ?? {}) },
+      incompleteInventoryAudit: [
+        ...new Map(
+          [
+            ...(base.incompleteInventoryAudit ?? []),
+            ...(retry.incompleteInventoryAudit ?? []),
+          ].map((item) => [
+            item.elementId,
+            item,
+          ]),
+        ).values(),
+      ],
+      expansionAudit: [...(base.expansionAudit ?? []), ...(retry.expansionAudit ?? [])],
       diagnostics: [...base.diagnostics, ...diagnostics],
       crossSegmentCitations: [...base.crossSegmentCitations, ...citations],
       primaryCount: base.primaryCount + accepted.length,
     },
     acceptedCount: accepted.length,
     acceptedElementIds: accepted.map((item) => item.elementId),
+  };
+}
+
+export function responsibilityMergeEligibleElements(
+  validation: ResponsibilityValidation,
+): SourceStructureElement[] {
+  const inventoryIds = new Set(validation.inventoryElements.map((item) => item.elementId));
+  for (const id of validation.completeElementIds) {
+    if (!inventoryIds.has(id)) {
+      throw new Error(`Complete responsibility is absent from inventory: ${id}`);
+    }
+  }
+  return validation.elements.filter((item) => validation.completeElementIds.includes(item.elementId));
+}
+
+export function responsibilityFailureTaxonomyCounts(
+  validation: Pick<
+    ResponsibilityValidation,
+    'diagnostics' | 'incompleteInventoryAudit'
+  >,
+): Record<ResponsibilityFailureCategory, number> {
+  const counts: Record<ResponsibilityFailureCategory, number> = {
+    field: 0,
+    quote: 0,
+    multi_verb: 0,
+    forced_missing: 0,
+    invalid_detail: 0,
+  };
+  for (const audit of validation.incompleteInventoryAudit) {
+    counts[audit.failureCategory] += 1;
+  }
+  for (const diagnostic of validation.diagnostics) {
+    if (diagnostic.failureClass === 'quote_mismatch') counts.quote += 1;
+    else if (
+      diagnostic.failureClass === 'invalid_detail' &&
+      !diagnostic.detail.startsWith('Field fidelity failed:')
+    ) counts.invalid_detail += 1;
+  }
+  return counts;
+}
+
+function normalizedDestination(value: string): string {
+  return value.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+const DESTINATION_DIRECTED_ACTIONS = new Set([
+  'archive',
+  'email',
+  'enter',
+  'provide',
+  'publish',
+  'record',
+  'save',
+  'send',
+  'submit',
+  'upload',
+]);
+const WEAK_DESTINATION_PREPOSITIONS = new Set(['in', 'on']);
+const DATE_OR_TIME_MEMBER_PATTERN =
+  /^(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d{1,4}(?:[/-]\d{1,2})*)$/i;
+
+function destinationSpecificResponsibilitySpan(
+  sourceSpan: string,
+  destination: string,
+): string {
+  return sourceSpan.replace(
+    /\b(to|into|in|on|via|through)\s+([^.;:\n]{2,240}?(?:,\s*[^.;:\n]+)+(?:,\s*)?(?:and|or)\s+[^.;:\n]+|[^.;:\n]+,\s*[^.;:\n]+\s+(?:and|or)\s+[^.;:\n]+|[^,.;:\n]+\s+(?:and|or)\s+[^.;:\n]+)([.;]?)(?:\s|$)/i,
+    (_full, preposition: string, _list: string, punctuation: string) =>
+      `${preposition} ${destination}${punctuation}`,
+  );
+}
+
+export function expandResponsibilityDestinations(args: {
+  sourceSpan: string;
+  record: ResponsibilityReadOutput['responsibilities'][number];
+}): {
+  records: ResponsibilityReadOutput['responsibilities'];
+  audit: ResponsibilityExpansionAudit[];
+} {
+  const match = args.sourceSpan.match(
+    /\b(to|into|in|on|via|through)\s+([^.;:\n]{2,240}?(?:,\s*[^.;:\n]+)+(?:,\s*)?(?:and|or)\s+[^.;:\n]+|[^.;:\n]+,\s*[^.;:\n]+\s+(?:and|or)\s+[^.;:\n]+|[^,.;:\n]+\s+(?:and|or)\s+[^.;:\n]+)[.;]?(?:\s|$)/i,
+  );
+  if (!match?.[2]) return { records: [], audit: [] };
+  const rawList = match[2].trim();
+  const destinations = rawList
+    .split(/\s*,\s*|\s+(?:and|or)\s+/i)
+    .map((item) =>
+      item.replace(/^(?:and|or)\s+/i, '').replace(/[.;]+$/, '').trim(),
+    )
+    .filter(Boolean);
+  if (destinations.length < 2) return { records: [], audit: [] };
+  const normalized = destinations.map(normalizedDestination);
+  if (new Set(normalized).size !== normalized.length) {
+    throw new Error(`Duplicate normalized destination for ${args.record.responsibilityId}`);
+  }
+  const preposition = match[1]!.toLowerCase();
+  const action = dutyVerbsInText(args.record.action)[0];
+  const looksLikePersonList = destinations.every((destination) =>
+    /^[A-Z][a-z]{2,}$/.test(destination),
+  );
+  if (
+    !action ||
+    !DESTINATION_DIRECTED_ACTIONS.has(action) ||
+    (WEAK_DESTINATION_PREPOSITIONS.has(preposition) &&
+      !['archive', 'enter', 'publish', 'record', 'save', 'submit', 'upload'].includes(action)) ||
+    destinations.some((destination) => DATE_OR_TIME_MEMBER_PATTERN.test(destination)) ||
+    looksLikePersonList
+  ) {
+    return {
+      records: [],
+      audit: destinations.map((destination) => ({
+        baseId: args.record.responsibilityId,
+        expandedId: '',
+        destination,
+        accepted: false,
+        reason: 'ambiguous_non_destination_list',
+      })),
+    };
+  }
+  const objectHead = args.record.object
+    .replace(new RegExp(`\\s+${preposition}\\s+.+$`, 'i'), '')
+    .trim();
+  if (!objectHead || objectHead === args.record.object.trim()) {
+    return {
+      records: [],
+      audit: destinations.map((destination) => ({
+        baseId: args.record.responsibilityId,
+        expandedId: '',
+        destination,
+        accepted: false,
+        reason: 'object_head_not_source_bound',
+      })),
+    };
+  }
+  const records = destinations.map((destination, index) => {
+    const hash = createHash('sha256')
+      .update(`${args.record.responsibilityId}|${normalized[index]}`)
+      .digest('hex')
+      .slice(0, 16);
+    return {
+      ...args.record,
+      responsibilityId: `${args.record.responsibilityId}_dst_${hash}`,
+      object: `${objectHead} ${preposition} ${destination}`,
+      requiredSystem:
+        ['archive', 'enter', 'publish', 'record', 'save', 'submit', 'upload'].includes(action)
+          ? destination
+          : null,
+    };
+  });
+  return {
+    records,
+    audit: records.map((record, index) => ({
+      baseId: args.record.responsibilityId,
+      expandedId: record.responsibilityId,
+      destination: destinations[index]!,
+      accepted: true,
+      reason: 'explicit_coordinated_destination',
+    })),
   };
 }
 
@@ -1036,6 +1255,82 @@ export function patchResponsibilityQuoteRepairs(args: {
       responsibilities: args.original.responsibilities.map((record) => ({
         ...record,
         evidenceQuote: repairs.get(record.responsibilityId) ?? record.evidenceQuote,
+      })),
+    },
+  };
+}
+
+export function patchCombinedResponsibilityRepairs(args: {
+  original: ResponsibilityReadOutput;
+  fieldRequests: readonly {
+    responsibilityId: string;
+    chunkId: string;
+    evidenceQuote: string;
+    sourceSpan: string;
+    allowedFields: readonly ('role' | 'action' | 'object' | 'trigger' | 'requiredSystem')[];
+  }[];
+  quoteRequests: readonly {
+    responsibilityId: string;
+    candidates: readonly { candidateId: string; sourceText: string }[];
+  }[];
+  repaired: {
+    fieldRepairs: readonly (Partial<Pick<
+      ResponsibilityReadOutput['responsibilities'][number],
+      'role' | 'action' | 'object' | 'trigger' | 'requiredSystem'
+    >> & { responsibilityId: string })[];
+    quoteRepairs: readonly { responsibilityId: string; candidateId: string }[];
+  };
+}): { ok: true; output: ResponsibilityReadOutput } | { ok: false; reason: string } {
+  const fieldRequests = new Map(args.fieldRequests.map((item) => [item.responsibilityId, item]));
+  const quoteRequests = new Map(args.quoteRequests.map((item) => [item.responsibilityId, item]));
+  const fieldRepairs = new Map<string, (typeof args.repaired.fieldRepairs)[number]>();
+  for (const repair of args.repaired.fieldRepairs) {
+    if (fieldRepairs.has(repair.responsibilityId)) return { ok: false, reason: 'duplicate_field_repair' };
+    const request = fieldRequests.get(repair.responsibilityId);
+    if (!request) return { ok: false, reason: 'unrequested_field_repair' };
+    const original = args.original.responsibilities.find(
+      (item) => item.responsibilityId === repair.responsibilityId,
+    );
+    if (
+      !original ||
+      original.chunkId !== request.chunkId ||
+      original.evidenceQuote !== request.evidenceQuote
+    ) return { ok: false, reason: 'immutable_field_binding_changed' };
+    for (const [key, value] of Object.entries(repair)) {
+      if (key === 'responsibilityId') continue;
+      if (!request.allowedFields.includes(key as never)) {
+        return { ok: false, reason: 'field_not_allowed' };
+      }
+      if (value != null && !request.sourceSpan.toLowerCase().includes(String(value).toLowerCase())) {
+        return { ok: false, reason: 'invented_field_content' };
+      }
+    }
+    fieldRepairs.set(repair.responsibilityId, repair);
+  }
+  const quoteRepairs = new Map<string, string>();
+  for (const repair of args.repaired.quoteRepairs) {
+    if (quoteRepairs.has(repair.responsibilityId)) return { ok: false, reason: 'duplicate_quote_repair' };
+    const request = quoteRequests.get(repair.responsibilityId);
+    if (!request) return { ok: false, reason: 'unrequested_quote_repair' };
+    const candidate = request.candidates.find((item) => item.candidateId === repair.candidateId);
+    if (!candidate) return { ok: false, reason: 'quote_not_offered' };
+    quoteRepairs.set(repair.responsibilityId, candidate.sourceText);
+  }
+  if (fieldRepairs.size !== fieldRequests.size) {
+    return { ok: false, reason: 'missing_field_repair' };
+  }
+  if (quoteRepairs.size !== quoteRequests.size) {
+    return { ok: false, reason: 'missing_quote_repair' };
+  }
+  if (fieldRepairs.size + quoteRepairs.size === 0) return { ok: false, reason: 'empty_repair' };
+  return {
+    ok: true,
+    output: {
+      ...args.original,
+      responsibilities: args.original.responsibilities.map((record) => ({
+        ...record,
+        ...(fieldRepairs.get(record.responsibilityId) ?? {}),
+        evidenceQuote: quoteRepairs.get(record.responsibilityId) ?? record.evidenceQuote,
       })),
     },
   };
@@ -1205,16 +1500,22 @@ export function buildResponsibilityPostPassAudit<T extends {
 
 export function selectResponsibilityQuoteRepairRead<T extends {
   segment: SourceStructureSegment;
-  validation: { diagnostics: readonly ResponsibilityReaderDiagnostic[] };
+  validation: {
+    diagnostics: readonly ResponsibilityReaderDiagnostic[];
+    incompleteInventoryAudit?: readonly ResponsibilityIncompleteAudit[];
+  };
 }>(reads: readonly T[]): T | undefined {
   return [...reads]
     .filter((read) =>
-      read.validation.diagnostics.some((item) => item.failureClass === 'quote_mismatch'),
+      read.validation.diagnostics.some((item) => item.failureClass === 'quote_mismatch') ||
+      Boolean(read.validation.incompleteInventoryAudit?.length),
     )
     .sort(
       (a, b) =>
         b.validation.diagnostics.filter((item) => item.failureClass === 'quote_mismatch').length -
           a.validation.diagnostics.filter((item) => item.failureClass === 'quote_mismatch').length ||
+        (b.validation.incompleteInventoryAudit?.length ?? 0) -
+          (a.validation.incompleteInventoryAudit?.length ?? 0) ||
         a.segment.segmentId.localeCompare(b.segment.segmentId),
     )[0];
 }
@@ -1303,6 +1604,30 @@ export type ResponsibilityReaderDiagnostic = {
   failureOrigin: 'root';
 };
 
+function responsibilityElement(
+  record: ResponsibilityReadOutput['responsibilities'][number],
+  segmentId: string,
+  evidenceQuote: string,
+): SourceStructureElement {
+  return {
+    elementId: record.responsibilityId,
+    segmentId,
+    shape: 'responsibilities',
+    elementKind: 'responsibility',
+    label: record.label,
+    ownerName: record.ownerName ?? null,
+    department: record.department ?? null,
+    role: record.role,
+    action: record.action,
+    object: record.object,
+    trigger: record.trigger ?? null,
+    system: record.requiredSystem ?? null,
+    systems: record.requiredSystem ?? null,
+    evidenceQuote,
+    chunkId: record.chunkId,
+  };
+}
+
 export function responsibilityMapElementRef(mapId: string, elementId: string): string {
   return `${mapId}:element:${elementId}`;
 }
@@ -1317,12 +1642,22 @@ export function validateResponsibilityRead(args: {
   allCoveredChunkIds?: ReadonlySet<string>;
 }): {
   elements: SourceStructureElement[];
+  inventoryElements: SourceStructureElement[];
+  completeElementIds: string[];
+  fieldDiagnostics: Record<string, ResponsibilityFieldFidelityResult>;
+  incompleteInventoryAudit: ResponsibilityIncompleteAudit[];
+  expansionAudit: ResponsibilityExpansionAudit[];
   diagnostics: ResponsibilityReaderDiagnostic[];
   crossSegmentCitations: Array<{ responsibilityId: string; chunkId: string }>;
   primaryCount: number;
 } {
   const diagnostics: ResponsibilityReaderDiagnostic[] = [];
   const elements: SourceStructureElement[] = [];
+  const inventoryElements: SourceStructureElement[] = [];
+  const completeElementIds: string[] = [];
+  const fieldDiagnostics: Record<string, ResponsibilityFieldFidelityResult> = {};
+  const incompleteInventoryAudit: ResponsibilityIncompleteAudit[] = [];
+  const expansionAudit: ResponsibilityExpansionAudit[] = [];
   const crossSegmentCitations: Array<{ responsibilityId: string; chunkId: string }> = [];
   const byId = new Map(args.chunks.map((chunk) => [chunk.id, chunk]));
   const covered = new Set(args.segment.chunkIds);
@@ -1431,7 +1766,88 @@ export function validateResponsibilityRead(args: {
     const fieldFidelity = enclosingDutySpan
       ? validateResponsibilityFieldFidelity(enclosingDutySpan, record)
       : null;
+    if (enclosingDutySpan) {
+      const expansion = expandResponsibilityDestinations({
+        sourceSpan: enclosingDutySpan,
+        record,
+      });
+      expansionAudit.push(...expansion.audit);
+      if (expansion.records.length > 0) {
+        inventoryElements.push(
+          responsibilityElement(
+            record,
+            args.segment.segmentId,
+            quote.validatedExactQuote ?? record.evidenceQuote,
+          ),
+        );
+        incompleteInventoryAudit.push({
+          elementId: record.responsibilityId,
+          chunkId: record.chunkId,
+          failureCategory: 'field',
+          repairStatus: 'repaired',
+          decisionReason: 'replaced_by_deterministic_destination_expansion',
+          quoteSha256: createHash('sha256')
+            .update(quote.validatedExactQuote ?? record.evidenceQuote)
+            .digest('hex'),
+          selectedSourceSpan: enclosingDutySpan,
+        });
+        for (const expandedRecord of expansion.records) {
+          const expandedElement = responsibilityElement(
+            expandedRecord,
+            args.segment.segmentId,
+            quote.validatedExactQuote ?? record.evidenceQuote,
+          );
+          inventoryElements.push(expandedElement);
+          const expandedFidelity = validateResponsibilityFieldFidelity(
+            destinationSpecificResponsibilitySpan(
+              enclosingDutySpan,
+              expandedRecord.requiredSystem ?? '',
+            ),
+            expandedRecord,
+          );
+          if (expandedFidelity.passed) {
+            elements.push(expandedElement);
+            completeElementIds.push(expandedElement.elementId);
+          } else {
+            fieldDiagnostics[expandedRecord.responsibilityId] = expandedFidelity;
+            incompleteInventoryAudit.push({
+              elementId: expandedRecord.responsibilityId,
+              chunkId: expandedRecord.chunkId,
+              failureCategory: expandedFidelity.multiVerbReject ? 'multi_verb' : 'field',
+              repairStatus: 'rejected',
+              decisionReason: expandedFidelity.reasons.join('; '),
+              quoteSha256: createHash('sha256')
+                .update(expandedRecord.evidenceQuote)
+                .digest('hex'),
+              selectedSourceSpan: enclosingDutySpan,
+            });
+          }
+        }
+        continue;
+      }
+    }
     if (fieldFidelity && !fieldFidelity.passed) {
+      const inventoryElement = responsibilityElement(
+        record,
+        args.segment.segmentId,
+        quote.validatedExactQuote ?? record.evidenceQuote,
+      );
+      inventoryElements.push(inventoryElement);
+      fieldDiagnostics[record.responsibilityId] = fieldFidelity;
+      const failureCategory: ResponsibilityFailureCategory = fieldFidelity.multiVerbReject
+        ? 'multi_verb'
+        : 'field';
+      incompleteInventoryAudit.push({
+        elementId: record.responsibilityId,
+        chunkId: record.chunkId,
+        failureCategory,
+        repairStatus: 'not_selected',
+        decisionReason: fieldFidelity.reasons.join('; '),
+        quoteSha256: createHash('sha256')
+          .update(quote.validatedExactQuote ?? record.evidenceQuote)
+          .digest('hex'),
+        selectedSourceSpan: enclosingDutySpan ?? record.evidenceQuote,
+      });
       diagnostics.push({
         ...base,
         failureClass: 'invalid_detail',
@@ -1446,26 +1862,22 @@ export function validateResponsibilityRead(args: {
         chunkId: record.chunkId,
       });
     }
-    elements.push({
-      elementId: record.responsibilityId,
-      segmentId: args.segment.segmentId,
-      shape: 'responsibilities',
-      elementKind: 'responsibility',
-      label: record.label,
-      ownerName: record.ownerName ?? null,
-      department: record.department ?? null,
-      role: record.role,
-      action: record.action,
-      object: record.object,
-      trigger: record.trigger ?? null,
-      system: record.requiredSystem ?? null,
-      systems: record.requiredSystem ?? null,
-      evidenceQuote: quote.validatedExactQuote ?? record.evidenceQuote,
-      chunkId: record.chunkId,
-    });
+    const acceptedElement = responsibilityElement(
+      record,
+      args.segment.segmentId,
+      quote.validatedExactQuote ?? record.evidenceQuote,
+    );
+    inventoryElements.push(acceptedElement);
+    elements.push(acceptedElement);
+    completeElementIds.push(acceptedElement.elementId);
   }
   return {
     elements,
+    inventoryElements,
+    completeElementIds,
+    fieldDiagnostics,
+    incompleteInventoryAudit,
+    expansionAudit,
     diagnostics,
     crossSegmentCitations,
     primaryCount: elements.filter((item) =>

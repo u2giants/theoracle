@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   RESPONSIBILITY_READ_PROMPT_VERSION,
+  RESPONSIBILITY_COMBINED_REPAIR_PROMPT_VERSION,
   RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
   RESPONSIBILITY_QUOTE_REPAIR_SYSTEM_PROMPT,
   RESPONSIBILITY_READ_SYSTEM_PROMPT,
@@ -42,6 +43,9 @@ import {
   shardResponsibilitySegments,
   validateResponsibilityRead,
   validateResponsibilityFieldFidelity,
+  responsibilityMergeEligibleElements,
+  expandResponsibilityDestinations,
+  patchCombinedResponsibilityRepairs,
 } from '../lib/responsibility-reader';
 import {
   responsibilityEvidenceCoverage,
@@ -61,6 +65,8 @@ import {
 } from '../lib/source-reader-budget';
 import {
   buildFocusedResponsibilityEvidenceChunks,
+  buildResponsibilityCombinedRepairPlan,
+  mergeCombinedResponsibilityRepairOutput,
   buildResponsibilityRequestContent,
   responsibilityReadPromptVersion,
   responsibilityReadTaskType,
@@ -1574,21 +1580,21 @@ assert.equal(
 );
 assert.equal(
   responsibilityReadTaskType(true),
-  'source-responsibility-quote-repair',
-  'quote-only model calls have distinct durable task identity',
+  'source-responsibility-combined-repair',
+  'combined model calls have distinct durable task identity',
 );
 assert.equal(responsibilityReadTaskType(false), 'source-responsibility-read');
 assert.equal(
   responsibilityReadPromptVersion(true),
-  'responsibility-quote-repair-v2.3-grounded',
+  'responsibility-repair-v3-combined',
 );
 assert.equal(
   responsibilityReadPromptVersion(false),
   'responsibility-read-v2.4-span-bound',
 );
 assert.equal(
-  RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
-  'responsibility-quote-repair-v2.3-grounded',
+  RESPONSIBILITY_COMBINED_REPAIR_PROMPT_VERSION,
+  'responsibility-repair-v3-combined',
 );
 for (const persistedPromptVersion of [
   RESPONSIBILITY_READ_PROMPT_VERSION,
@@ -1624,7 +1630,7 @@ const quoteOnlyRequest = buildResponsibilityRequestContent({
     }],
   }],
 });
-assert.match(quoteOnlyRequest, /Grounded quote repair only/);
+assert.match(quoteOnlyRequest, /Combined responsibility field and quote repair/);
 assert.match(quoteOnlyRequest, /Designer check art files/);
 assert.match(quoteOnlyRequest, /checks art files for completeness/);
 for (const extractionRule of [
@@ -1877,6 +1883,600 @@ assert.equal(
 const lockArgs = {
   sourceMapId: mapId,
 };
+
+const genericChunkId = '77777777-7777-4777-8777-777777777777';
+const genericDocumentId = '88888888-8888-4888-8888-888888888888';
+const genericSegment: SourceStructureSegment = {
+  segmentId: 'generic_finance',
+  shape: 'responsibilities',
+  title: 'Generic finance',
+  chunkIds: [genericChunkId],
+};
+const genericSource = 'The Finance Team submits quarterly compliance reports.';
+const thinned = validateResponsibilityRead({
+  output: {
+    summary: 'Generic responsibility validation.',
+    responsibilities: [{
+      responsibilityId: 'generic_quarterly_report',
+      label: 'Submit reports',
+      role: 'Finance Team',
+      action: 'submits',
+      object: 'reports',
+      evidenceQuote: genericSource,
+      chunkId: genericChunkId,
+    }],
+  },
+  documentId: genericDocumentId,
+  segment: genericSegment,
+  chunks: [{ id: genericChunkId, documentId: genericDocumentId, rawText: genericSource }],
+});
+assert.equal(thinned.inventoryElements.length, 1);
+assert.equal(thinned.elements.length, 0);
+assert.equal(thinned.incompleteInventoryAudit[0]?.failureCategory, 'field');
+assert.deepEqual(responsibilityMergeEligibleElements(thinned), []);
+
+const complete = validateResponsibilityRead({
+  output: {
+    summary: 'Generic responsibility validation.',
+    responsibilities: [{
+      responsibilityId: 'generic_quarterly_report_complete',
+      label: 'Submit quarterly compliance reports',
+      role: 'Finance Team',
+      action: 'submits',
+      object: 'quarterly compliance reports',
+      evidenceQuote: genericSource,
+      chunkId: genericChunkId,
+    }],
+  },
+  documentId: genericDocumentId,
+  segment: genericSegment,
+  chunks: [{ id: genericChunkId, documentId: genericDocumentId, rawText: genericSource }],
+});
+assert.equal(complete.inventoryElements.length, 1);
+assert.equal(complete.elements.length, 1);
+assert.equal(responsibilityMergeEligibleElements(complete).length, 1);
+
+const destinationRecord: ResponsibilityReadOutput['responsibilities'][number] = {
+  responsibilityId: 'generic_save_approval',
+  label: 'Save approval number',
+  role: 'Records Team',
+  action: 'saves',
+  object: 'approval number to LedgerOne, FlowBoard, and ArchiveBox',
+  evidenceQuote:
+    'The Records Team saves the approval number to LedgerOne, FlowBoard, and ArchiveBox.',
+  chunkId: genericChunkId,
+};
+const expansionA = expandResponsibilityDestinations({
+  sourceSpan: destinationRecord.evidenceQuote,
+  record: destinationRecord,
+});
+const expansionB = expandResponsibilityDestinations({
+  sourceSpan: destinationRecord.evidenceQuote,
+  record: destinationRecord,
+});
+assert.equal(expansionA.records.length, 3);
+assert.deepEqual(
+  expansionA.records.map((item) => item.responsibilityId),
+  expansionB.records.map((item) => item.responsibilityId),
+);
+assert.equal(
+  expandResponsibilityDestinations({
+    sourceSpan: 'The Records Team reviews names, addresses, and dates.',
+    record: { ...destinationRecord, object: 'names, addresses, and dates' },
+  }).records.length,
+  0,
+);
+for (const ordinaryList of [
+  {
+    sourceSpan: 'The Review Team reviews changes in names, addresses, and dates.',
+    action: 'reviews',
+    object: 'changes in names, addresses, and dates',
+  },
+  {
+    sourceSpan: 'The Scheduling Team records coverage on Monday, Tuesday, and Wednesday.',
+    action: 'records',
+    object: 'coverage on Monday, Tuesday, and Wednesday',
+  },
+  {
+    sourceSpan: 'The Partner Team provides notices to Alice, Bob, and Carol.',
+    action: 'provides',
+    object: 'notices to Alice, Bob, and Carol',
+  },
+]) {
+  assert.equal(
+    expandResponsibilityDestinations({
+      sourceSpan: ordinaryList.sourceSpan,
+      record: {
+        ...destinationRecord,
+        action: ordinaryList.action,
+        object: ordinaryList.object,
+        evidenceQuote: ordinaryList.sourceSpan,
+      },
+    }).records.length,
+    0,
+    `ordinary coordinated list was expanded: ${ordinaryList.sourceSpan}`,
+  );
+}
+
+const combinedPatch = patchCombinedResponsibilityRepairs({
+  original: {
+    summary: 'Generic repair validation.',
+    responsibilities: [{
+      responsibilityId: 'generic_repair',
+      label: 'Submit reports',
+      role: 'Finance Team',
+      action: 'submits',
+      object: 'reports',
+      evidenceQuote: genericSource,
+      chunkId: genericChunkId,
+    }],
+  },
+  fieldRequests: [{
+    responsibilityId: 'generic_repair',
+    chunkId: genericChunkId,
+    evidenceQuote: genericSource,
+    sourceSpan: genericSource,
+    allowedFields: ['object'],
+  }],
+  quoteRequests: [],
+  repaired: {
+    fieldRepairs: [{
+      responsibilityId: 'generic_repair',
+      object: 'quarterly compliance reports',
+    }],
+    quoteRepairs: [],
+  },
+});
+assert.equal(combinedPatch.ok, true);
+assert.equal(
+  combinedPatch.ok ? combinedPatch.output.responsibilities[0]?.object : null,
+  'quarterly compliance reports',
+);
+
+const enclosingSource =
+  'The Finance Team submits quarterly compliance reports through the compliance portal.';
+const shortQuoteOutput: ResponsibilityReadOutput = {
+  summary: 'Short exact quote with a larger enclosing duty.',
+  responsibilities: [{
+    responsibilityId: 'short_quote_field_repair',
+    label: 'Submit reports',
+    role: 'Finance Team',
+    action: 'submits',
+    object: 'reports',
+    evidenceQuote: 'submits quarterly compliance reports',
+    chunkId: genericChunkId,
+  }],
+};
+const shortQuoteValidation = validateResponsibilityRead({
+  output: shortQuoteOutput,
+  documentId: genericDocumentId,
+  segment: genericSegment,
+  chunks: [{ id: genericChunkId, documentId: genericDocumentId, rawText: enclosingSource }],
+});
+assert.equal(shortQuoteValidation.inventoryElements.length, 1);
+assert.equal(shortQuoteValidation.elements.length, 0);
+assert.equal(
+  shortQuoteValidation.incompleteInventoryAudit[0]?.selectedSourceSpan,
+  enclosingSource,
+);
+const shortQuotePlan = buildResponsibilityCombinedRepairPlan({
+  reads: [{
+    segment: genericSegment,
+    model: { output: shortQuoteOutput },
+    validation: shortQuoteValidation,
+  }],
+  chunks: [{ id: genericChunkId, rawText: enclosingSource }],
+});
+assert.equal(shortQuotePlan.fieldRepairRequests[0]?.sourceSpan, enclosingSource);
+const shortQuotePatch = patchCombinedResponsibilityRepairs({
+  original: shortQuoteOutput,
+  fieldRequests: shortQuotePlan.fieldRepairRequests,
+  quoteRequests: [],
+  repaired: {
+    fieldRepairs: [{
+      responsibilityId: 'short_quote_field_repair',
+      object: 'quarterly compliance reports through the compliance portal',
+    }],
+    quoteRepairs: [],
+  },
+});
+assert.equal(shortQuotePatch.ok, true);
+assert.equal(
+  shortQuotePatch.ok ? shortQuotePatch.output.responsibilities[0]?.evidenceQuote : null,
+  'submits quarterly compliance reports',
+);
+assert.deepEqual(
+  patchCombinedResponsibilityRepairs({
+    original: shortQuoteOutput,
+    fieldRequests: shortQuotePlan.fieldRepairRequests,
+    quoteRequests: [],
+    repaired: { fieldRepairs: [], quoteRepairs: [] },
+  }),
+  { ok: false, reason: 'missing_field_repair' },
+);
+assert.ok(
+  workflowReadSource.includes(": 'repair_failed'"),
+  'combined repair failures must persist as repair_failed without partial apply',
+);
+
+const repairableRecords: ResponsibilityReadOutput['responsibilities'] = Array.from(
+  { length: 7 },
+  (_, index) => ({
+    responsibilityId: `repairable_base_${index}`,
+    label: `Submit report ${index}`,
+    role: 'Finance Team',
+    action: 'submits',
+    object: 'reports',
+    evidenceQuote: genericSource,
+    chunkId: genericChunkId,
+  }),
+);
+const baseIncompleteAudit = thinned.incompleteInventoryAudit[0]!;
+const mixedSlotValidation = {
+  ...thinned,
+  incompleteInventoryAudit: [
+    {
+      ...baseIncompleteAudit,
+      elementId: 'derived_expansion_a',
+      repairStatus: 'rejected' as const,
+    },
+    {
+      ...baseIncompleteAudit,
+      elementId: 'derived_expansion_b',
+      repairStatus: 'rejected' as const,
+    },
+    ...repairableRecords.map((record) => ({
+      ...baseIncompleteAudit,
+      elementId: record.responsibilityId,
+      repairStatus: 'not_selected' as const,
+    })),
+  ],
+};
+const mixedSlotPlan = buildResponsibilityCombinedRepairPlan({
+  reads: [{
+    segment: genericSegment,
+    model: {
+      output: {
+        summary: 'Mixed expanded and base repair candidates.',
+        responsibilities: repairableRecords,
+      },
+    },
+    validation: mixedSlotValidation,
+  }],
+  chunks: [{ id: genericChunkId, rawText: genericSource }],
+});
+assert.equal(mixedSlotPlan.fieldRepairRequests.length, 6);
+assert.deepEqual(
+  mixedSlotPlan.fieldRepairRequests.map((item) => item.responsibilityId),
+  repairableRecords.slice(0, 6).map((item) => item.responsibilityId),
+);
+assert.deepEqual(
+  patchCombinedResponsibilityRepairs({
+    original: { summary: 'Generic empty repair.', responsibilities: [] },
+    fieldRequests: [],
+    quoteRequests: [],
+    repaired: { fieldRepairs: [], quoteRepairs: [] },
+  }),
+  { ok: false, reason: 'empty_repair' },
+);
+const absentQuote = validateResponsibilityRead({
+  output: {
+    summary: 'Generic missing quote validation.',
+    responsibilities: [{
+      responsibilityId: 'generic_absent_quote',
+      label: 'Submit reports',
+      role: 'Finance Team',
+      action: 'submits',
+      object: 'quarterly compliance reports',
+      evidenceQuote: 'This quote is absent from the source.',
+      chunkId: genericChunkId,
+    }],
+  },
+  documentId: genericDocumentId,
+  segment: genericSegment,
+  chunks: [{ id: genericChunkId, documentId: genericDocumentId, rawText: genericSource }],
+});
+assert.equal(absentQuote.inventoryElements.length, 0);
+assert.equal(absentQuote.diagnostics[0]?.failureClass, 'quote_mismatch');
+assert.throws(
+  () => expandResponsibilityDestinations({
+    sourceSpan: 'The Records Team saves the number to Flow Board, Flow-Board, and Archive Box.',
+    record: {
+      ...destinationRecord,
+      object: 'approval number to Flow Board, Flow-Board, and Archive Box',
+    },
+  }),
+  /Duplicate normalized destination/,
+);
+const inventedRepair = patchCombinedResponsibilityRepairs({
+  original: {
+    summary: 'Generic repair validation.',
+    responsibilities: [{
+      responsibilityId: 'generic_repair',
+      label: 'Submit reports',
+      role: 'Finance Team',
+      action: 'submits',
+      object: 'reports',
+      evidenceQuote: genericSource,
+      chunkId: genericChunkId,
+    }],
+  },
+  fieldRequests: [{
+    responsibilityId: 'generic_repair',
+    chunkId: genericChunkId,
+    evidenceQuote: genericSource,
+    sourceSpan: genericSource,
+    allowedFields: ['object'],
+  }],
+  quoteRequests: [],
+  repaired: {
+    fieldRepairs: [{ responsibilityId: 'generic_repair', object: 'monthly secret reports' }],
+    quoteRepairs: [],
+  },
+});
+assert.deepEqual(inventedRepair, { ok: false, reason: 'invented_field_content' });
+assert.deepEqual(
+  patchCombinedResponsibilityRepairs({
+    original: {
+      summary: 'Generic quote repair.',
+      responsibilities: [{
+        responsibilityId: 'generic_quote_repair',
+        label: 'Submit reports',
+        role: 'Finance Team',
+        action: 'submits',
+        object: 'quarterly compliance reports',
+        evidenceQuote: 'bad quote',
+        chunkId: genericChunkId,
+      }],
+    },
+    fieldRequests: [],
+    quoteRequests: [{
+      responsibilityId: 'generic_quote_repair',
+      candidates: [{ candidateId: 'candidate_0', sourceText: genericSource }],
+    }],
+    repaired: {
+      fieldRepairs: [],
+      quoteRepairs: [{ responsibilityId: 'generic_quote_repair', candidateId: 'candidate_9' }],
+    },
+  }),
+  { ok: false, reason: 'quote_not_offered' },
+);
+const inverseReaderBudget = new SourceReaderBudget({
+  maxReadCalls: 40,
+  maxInputTokens: 500_000,
+  maxEstimatedCostUsd: 10,
+  estimatedInputCostPerMillionTokensUsd: 5,
+  maxRepairAttempts: 1,
+  maxConcurrency: 4,
+});
+const inversePostPassBudget = new ResponsibilityPostPassBudget({
+  maxQuoteRepairsPerSource: 1,
+  maxOmissionRetriesPerSource: 5,
+  maxOmissionRetriesPerChunk: 1,
+});
+inversePostPassBudget.reserveQuoteRepair();
+assert.equal(inversePostPassBudget.snapshot().quoteRepairs, 1);
+assert.equal(inverseReaderBudget.snapshot().repairAttempts, 0);
+assert.ok(workflowReadSource.includes(
+  'read.validation.inventoryElements.length > read.validation.elements.length',
+));
+assert.ok(workflowReadSource.includes(
+  'elements: responsibilityReads.flatMap((read) => read.validation.elements)',
+));
+assert.ok(workflowReadSource.includes(
+  'incompleteInventoryAudit: read.validation.incompleteInventoryAudit',
+));
+assert.ok(
+  workflowReadSource.includes('responsibilityMergeEligibleElements(read.validation)'),
+  'production structure-map assembly must use the fail-loud merge eligibility helper',
+);
+assert.throws(
+  () => responsibilityMergeEligibleElements({
+    ...complete,
+    inventoryElements: [],
+  }),
+  /absent from inventory/,
+);
+
+// Production-used orchestration seam: the plan builder, patcher, validator,
+// expansion, omission, retry merge, eligibility, and durable audit are the same
+// helpers used by generateSourceWorkflowMap.
+const seamChunkA = '99999999-9999-4999-8999-999999999991';
+const seamChunkB = '99999999-9999-4999-8999-999999999992';
+const seamSourceA =
+  'The Finance Team submits quarterly compliance reports to LedgerOne and ArchiveBox.';
+const seamSourceB = 'The Operations Team submits signed approval forms.';
+const seamSegmentA: SourceStructureSegment = {
+  segmentId: 'seam_a',
+  shape: 'responsibilities',
+  title: 'Seam A',
+  chunkIds: [seamChunkA],
+};
+const seamSegmentB: SourceStructureSegment = {
+  segmentId: 'seam_b',
+  shape: 'responsibilities',
+  title: 'Seam B',
+  chunkIds: [seamChunkB],
+};
+const seamOutputA: ResponsibilityReadOutput = {
+  summary: 'Cross-shard seam responsibility A.',
+  responsibilities: [{
+    responsibilityId: 'seam_submit_reports',
+    label: 'Submit reports',
+    role: 'Finance Team',
+    action: 'submits',
+    object: 'reports',
+    evidenceQuote: seamSourceA,
+    chunkId: seamChunkA,
+  }],
+};
+const seamOutputB: ResponsibilityReadOutput = {
+  summary: 'Cross-shard seam responsibility B.',
+  responsibilities: [{
+    responsibilityId: 'seam_archive_forms',
+    label: 'Submit forms',
+    role: 'Operations Team',
+    action: 'submits',
+    object: 'signed approval forms',
+    evidenceQuote: 'Operations submit forms.',
+    chunkId: seamChunkB,
+  }],
+};
+const seamChunks = [
+  { id: seamChunkA, documentId: genericDocumentId, rawText: seamSourceA },
+  { id: seamChunkB, documentId: genericDocumentId, rawText: seamSourceB },
+];
+const seamBaseA = validateResponsibilityRead({
+  output: seamOutputA,
+  documentId: genericDocumentId,
+  segment: seamSegmentA,
+  chunks: seamChunks,
+  allCoveredChunkIds: new Set([seamChunkA, seamChunkB]),
+});
+const seamBaseB = validateResponsibilityRead({
+  output: seamOutputB,
+  documentId: genericDocumentId,
+  segment: seamSegmentB,
+  chunks: seamChunks,
+  allCoveredChunkIds: new Set([seamChunkA, seamChunkB]),
+});
+const seamInitialOmissions = findResponsibilityOmissions({
+  chunks: seamChunks,
+  elements: [...seamBaseA.elements, ...seamBaseB.elements],
+});
+assert.ok(seamInitialOmissions.length >= 2);
+const seamRetryOutput: ResponsibilityReadOutput = {
+  summary: 'Cross-shard seam retry.',
+  responsibilities: [{
+    responsibilityId: 'seam_archive_forms_retry',
+    label: 'Submit signed approval forms',
+    role: 'Operations Team',
+    action: 'submits',
+    object: 'signed approval forms',
+    evidenceQuote: seamSourceB,
+    chunkId: seamChunkB,
+  }],
+};
+const seamRetryValidation = validateResponsibilityRead({
+  output: seamRetryOutput,
+  documentId: genericDocumentId,
+  segment: seamSegmentB,
+  chunks: seamChunks,
+  allCoveredChunkIds: new Set([seamChunkA, seamChunkB]),
+});
+const seamMergedB = mergeResponsibilityRetryValidation(seamBaseB, seamRetryValidation).validation;
+const seamReads = [
+  { segment: seamSegmentA, model: { output: seamOutputA }, validation: seamBaseA },
+  {
+    segment: seamSegmentB,
+    model: {
+      output: {
+        ...seamOutputB,
+        responsibilities: [
+          ...seamOutputB.responsibilities,
+          ...seamRetryOutput.responsibilities,
+        ],
+      },
+    },
+    validation: seamMergedB,
+  },
+];
+const seamPlan = buildResponsibilityCombinedRepairPlan({
+  reads: seamReads,
+  chunks: seamChunks,
+});
+assert.deepEqual(seamPlan.selectedSegmentIds, ['seam_a', 'seam_b']);
+const seamPatched = patchCombinedResponsibilityRepairs({
+  original: {
+    summary: 'Cross-shard combined repair.',
+    responsibilities: seamPlan.records,
+  },
+  fieldRequests: seamPlan.fieldRepairRequests,
+  quoteRequests: seamPlan.quoteRepairCandidates.map((item) => ({
+    responsibilityId: item.responsibilityId,
+    candidates: item.candidates.map((candidate) => ({
+      candidateId: `candidate_${candidate.candidateIndex}`,
+      sourceText: candidate.sourceText,
+    })),
+  })),
+  repaired: {
+    fieldRepairs: [{
+      responsibilityId: 'seam_submit_reports',
+      object: 'quarterly compliance reports to LedgerOne and ArchiveBox',
+    }],
+    quoteRepairs: [{
+      responsibilityId: 'seam_archive_forms',
+      candidateId: `candidate_${seamPlan.quoteRepairCandidates[0]!.candidates[0]!.candidateIndex}`,
+    }],
+  },
+});
+assert.equal(seamPatched.ok, true);
+const seamRepairOutput = seamPatched.ok
+  ? seamPatched.output
+  : { summary: 'unreachable seam repair', responsibilities: [] };
+const seamFinalAOutput = mergeCombinedResponsibilityRepairOutput({
+  original: seamOutputA,
+  repaired: seamRepairOutput,
+});
+const seamFinalBOutput = mergeCombinedResponsibilityRepairOutput({
+  original: seamReads[1]!.model.output,
+  repaired: seamRepairOutput,
+});
+const seamFinalA = validateResponsibilityRead({
+  output: seamFinalAOutput,
+  documentId: genericDocumentId,
+  segment: seamSegmentA,
+  chunks: seamChunks,
+  allCoveredChunkIds: new Set([seamChunkA, seamChunkB]),
+});
+const seamFinalB = validateResponsibilityRead({
+  output: seamFinalBOutput,
+  documentId: genericDocumentId,
+  segment: seamSegmentB,
+  chunks: seamChunks,
+  allCoveredChunkIds: new Set([seamChunkA, seamChunkB]),
+});
+assert.ok(seamFinalA.expansionAudit.length >= 2);
+assert.ok(
+  responsibilityMergeEligibleElements(seamFinalA).length >= 2,
+  JSON.stringify(seamFinalA),
+);
+assert.ok(
+  responsibilityMergeEligibleElements(seamFinalB).length >= 1,
+  JSON.stringify({ seamPlan, seamFinalB }),
+);
+const seamFinalOmissions = findResponsibilityOmissions({
+  chunks: seamChunks,
+  elements: [...seamFinalA.elements, ...seamFinalB.elements],
+});
+assert.ok(seamFinalOmissions.length < seamInitialOmissions.length);
+const seamDurableAudit = buildResponsibilityPostPassAudit({
+  initialOmissions: seamInitialOmissions,
+  finalOmissions: seamFinalOmissions,
+  retries: [{
+    preOmissionCount: seamInitialOmissions.length,
+    postOmissionCount: seamFinalOmissions.length,
+  }],
+  quoteRepair: { attempted: true, selectedSegmentIds: seamPlan.selectedSegmentIds },
+  postPassBudget: inversePostPassBudget.snapshot(),
+  syntheticBaseReadCount: 0,
+});
+assert.deepEqual(
+  seamDurableAudit.responsibilityQuoteRepair,
+  { attempted: true, selectedSegmentIds: ['seam_a', 'seam_b'] },
+);
+
+const fixtureDerivedProperTerms = new Set(
+  answerKey.records.flatMap((record) =>
+    `${record.role} ${record.object}`.match(/\b[A-Z][A-Za-z0-9]{5,}\b/g) ?? [],
+  ),
+);
+for (const term of fixtureDerivedProperTerms) {
+  assert.ok(
+    !responsibilityReaderSource.includes(term),
+    `runtime responsibility reader leaked fixture-derived term: ${term}`,
+  );
+}
 assert.equal(
   responsibilityShadowLockKey(lockArgs),
   responsibilityShadowLockKey(lockArgs),

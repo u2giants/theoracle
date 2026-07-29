@@ -3,10 +3,10 @@ import { createHash } from 'node:crypto';
 import {
   OracleAIClient,
   RESPONSIBILITY_READ_PROMPT_VERSION,
-  RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
-  RESPONSIBILITY_QUOTE_REPAIR_SYSTEM_PROMPT,
   RESPONSIBILITY_READ_SYSTEM_PROMPT,
-  ResponsibilityQuoteRepairSchema,
+  ResponsibilityCombinedRepairSchema,
+  RESPONSIBILITY_COMBINED_REPAIR_PROMPT_VERSION,
+  RESPONSIBILITY_COMBINED_REPAIR_SYSTEM_PROMPT,
   ResponsibilityReadSchema,
   SOURCE_READER_PIPELINE_VERSION,
   SOURCE_STRUCTURE_SHAPE_REGISTRY,
@@ -26,7 +26,7 @@ import {
   resolveRouteCandidates,
   type OraclePromptPlan,
   type ResponsibilityReadOutput,
-  type ResponsibilityQuoteRepairOutput,
+  type ResponsibilityCombinedRepairOutput,
   type SourceSegmentationOutput,
   type SourceStructureSegment,
   type SourceStructureShape,
@@ -77,16 +77,17 @@ import {
   finalizeForcedResponsibilityAudits,
   mergeResponsibilityValidationResults,
   mergeResponsibilityRetryValidation,
-  patchResponsibilityQuoteRepairs,
+  patchCombinedResponsibilityRepairs,
   prefixResponsibilityOutput,
   assertUniqueResponsibilityElementIds,
   responsibilityParentSegment,
+  responsibilityFailureTaxonomyCounts,
+  responsibilityMergeEligibleElements,
   responsibilityRawAuditArtifact,
   selectResponsibilityQuoteRepairRead,
   ResponsibilityOmissionRetryScheduler,
   shardResponsibilitySegments,
   validateResponsibilityRead,
-  validateGroundedResponsibilityQuoteSelections,
   type GroundedResponsibilityQuoteCandidate,
   type ForcedResponsibilitySpan,
 } from './responsibility-reader';
@@ -1105,19 +1106,26 @@ async function runWorkflowReadModel(args: {
 
 export function responsibilityReadTaskType(quoteRepair: boolean): string {
   return quoteRepair
-    ? 'source-responsibility-quote-repair'
+    ? 'source-responsibility-combined-repair'
     : 'source-responsibility-read';
 }
 
 export function responsibilityReadPromptVersion(quoteRepair: boolean): string {
   return quoteRepair
-    ? RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION
+    ? RESPONSIBILITY_COMBINED_REPAIR_PROMPT_VERSION
     : RESPONSIBILITY_READ_PROMPT_VERSION;
 }
 
 export function buildResponsibilityRequestContent(args: {
   focusedSpans?: ForcedResponsibilitySpan[];
   quoteRepairRecords?: ResponsibilityReadOutput['responsibilities'];
+  fieldRepairRequests?: Array<{
+    responsibilityId: string;
+    chunkId: string;
+    evidenceQuote: string;
+    sourceSpan: string;
+    allowedFields: Array<'role' | 'action' | 'object' | 'trigger' | 'requiredSystem'>;
+  }>;
   quoteRepairCandidates?: Array<{
     responsibilityId: string;
     failedQuote: string;
@@ -1128,13 +1136,23 @@ export function buildResponsibilityRequestContent(args: {
     candidates: GroundedResponsibilityQuoteCandidate[];
   }>;
 }): string {
-  if (args.quoteRepairRecords?.length) {
+  if (args.quoteRepairRecords?.length || args.fieldRepairRequests?.length) {
     return [
-      'Grounded quote repair only.',
-      'For each record, select evidenceQuote exactly from one offered candidate. Never rewrite.',
-      'Return only responsibilityId, unchanged chunkId, and the selected exact evidenceQuote.',
-      'The failed quote and all immutable fields are audit context and must not be changed.',
-      JSON.stringify(args.quoteRepairCandidates ?? []),
+      'Combined responsibility field and quote repair.',
+      'Field repairs may change only offered fields using exact text from the selected source span.',
+      'Quote repairs must select only an offered candidateId.',
+      'Never change IDs, chunks, or evidence in field mode. Never change fields in quote mode.',
+      JSON.stringify({
+        fieldRequests: args.fieldRepairRequests ?? [],
+        quoteRequests: (args.quoteRepairCandidates ?? []).map((item) => ({
+          responsibilityId: item.responsibilityId,
+          failedQuote: item.failedQuote,
+          candidates: item.candidates.map((candidate) => ({
+            candidateId: `candidate_${candidate.candidateIndex}`,
+            sourceText: candidate.sourceText,
+          })),
+        })),
+      }),
     ].join('\n');
   }
   return [
@@ -1167,6 +1185,130 @@ export function buildResponsibilityRequestContent(args: {
   ].join(' ');
 }
 
+export function buildResponsibilityCombinedRepairPlan(args: {
+  reads: readonly {
+    segment: SourceStructureSegment;
+    model: { output: ResponsibilityReadOutput };
+    validation: ReturnType<typeof validateResponsibilityRead>;
+  }[];
+  chunks: readonly { id: string; rawText: string }[];
+  maxFieldRepairs?: number;
+  maxQuoteRepairs?: number;
+}) {
+  const chunkById = new Map(args.chunks.map((chunk) => [chunk.id, chunk]));
+  const orderedReads = [...args.reads].sort((a, b) =>
+    a.segment.segmentId.localeCompare(b.segment.segmentId),
+  );
+  const allModelRecords = new Map(
+    orderedReads
+      .flatMap((read) => read.model.output.responsibilities)
+      .map((record) => [record.responsibilityId, record] as const),
+  );
+  const fieldSelections = orderedReads
+    .flatMap((read) =>
+      read.validation.incompleteInventoryAudit.map((audit) => ({ read, audit })),
+    )
+    .filter(({ audit }) =>
+      (audit.failureCategory === 'field' || audit.failureCategory === 'multi_verb') &&
+      audit.repairStatus !== 'repaired' &&
+      allModelRecords.has(audit.elementId),
+    )
+    .sort(
+      (a, b) =>
+        Number(a.audit.failureCategory === 'multi_verb') -
+          Number(b.audit.failureCategory === 'multi_verb') ||
+        a.audit.chunkId.localeCompare(b.audit.chunkId) ||
+        a.audit.elementId.localeCompare(b.audit.elementId),
+    )
+    .slice(0, args.maxFieldRepairs ?? 6);
+  const quoteSelections = orderedReads
+    .flatMap((read) =>
+      read.validation.diagnostics
+        .filter((diagnostic) => diagnostic.failureClass === 'quote_mismatch')
+        .map((diagnostic) => ({ read, diagnostic })),
+    )
+    .sort(
+      (a, b) =>
+        a.diagnostic.chunkId.localeCompare(b.diagnostic.chunkId) ||
+        a.diagnostic.responsibilityId.localeCompare(b.diagnostic.responsibilityId),
+    )
+    .slice(0, args.maxQuoteRepairs ?? 12);
+  const selectedIds = new Set([
+    ...fieldSelections.map(({ audit }) => audit.elementId),
+    ...quoteSelections.map(({ diagnostic }) => diagnostic.responsibilityId),
+  ]);
+  const records = orderedReads.flatMap((read) =>
+    read.model.output.responsibilities.filter((record) =>
+      selectedIds.has(record.responsibilityId),
+    ),
+  );
+  const uniqueRecords = [
+    ...new Map(records.map((record) => [record.responsibilityId, record])).values(),
+  ];
+  const byRecordId = new Map(uniqueRecords.map((record) => [record.responsibilityId, record]));
+  const fieldRepairRequests = fieldSelections.flatMap(({ audit }) => {
+    const record = byRecordId.get(audit.elementId);
+    return record
+      ? [{
+          responsibilityId: record.responsibilityId,
+          chunkId: record.chunkId,
+          evidenceQuote: record.evidenceQuote,
+          sourceSpan: audit.selectedSourceSpan,
+          allowedFields: [
+            'role',
+            'action',
+            'object',
+            'trigger',
+            'requiredSystem',
+          ] as Array<'role' | 'action' | 'object' | 'trigger' | 'requiredSystem'>,
+        }]
+      : [];
+  });
+  const quoteRepairCandidates = quoteSelections.flatMap(({ diagnostic }) => {
+    const record = byRecordId.get(diagnostic.responsibilityId);
+    const chunk = chunkById.get(diagnostic.chunkId);
+    if (!record || !chunk) return [];
+    const { evidenceQuote: _evidenceQuote, ...immutableFields } = record;
+    return [{
+      responsibilityId: record.responsibilityId,
+      failedQuote: record.evidenceQuote,
+      immutableFields,
+      candidates: buildGroundedResponsibilityQuoteCandidates({
+        rawText: chunk.rawText,
+        failedQuote: record.evidenceQuote,
+      }),
+    }];
+  });
+  return {
+    records: uniqueRecords,
+    fieldRepairRequests,
+    quoteRepairCandidates,
+    selectedSegmentIds: orderedReads
+      .filter((read) =>
+        read.model.output.responsibilities.some((record) =>
+          selectedIds.has(record.responsibilityId),
+        ),
+      )
+      .map((read) => read.segment.segmentId),
+    chunkIds: [...new Set(uniqueRecords.map((record) => record.chunkId))],
+  };
+}
+
+export function mergeCombinedResponsibilityRepairOutput(args: {
+  original: ResponsibilityReadOutput;
+  repaired: ResponsibilityReadOutput;
+}): ResponsibilityReadOutput {
+  const repairedById = new Map(
+    args.repaired.responsibilities.map((record) => [record.responsibilityId, record]),
+  );
+  return {
+    ...args.original,
+    responsibilities: args.original.responsibilities.map(
+      (record) => repairedById.get(record.responsibilityId) ?? record,
+    ),
+  };
+}
+
 export function buildFocusedResponsibilityEvidenceChunks<T extends {
   id: string;
   rawText: string;
@@ -1192,6 +1334,13 @@ async function runResponsibilityReadModel(args: {
   budget: SourceReaderBudget;
   focusedSpans?: ForcedResponsibilitySpan[];
   quoteRepairRecords?: ResponsibilityReadOutput['responsibilities'];
+  fieldRepairRequests?: Array<{
+    responsibilityId: string;
+    chunkId: string;
+    evidenceQuote: string;
+    sourceSpan: string;
+    allowedFields: Array<'role' | 'action' | 'object' | 'trigger' | 'requiredSystem'>;
+  }>;
   quoteRepairCandidates?: Array<{
     responsibilityId: string;
     failedQuote: string;
@@ -1208,7 +1357,9 @@ async function runResponsibilityReadModel(args: {
   execution: { outputTokens: number | null; finishReason: string | null; truncated: boolean };
   forcedSpanAudits: ReturnType<typeof canonicalizeForcedResponsibilityOutput>['audits'];
 }> {
-  const quoteRepairMode = Boolean(args.quoteRepairRecords?.length);
+  const quoteRepairMode = Boolean(
+    args.quoteRepairRecords?.length || args.fieldRepairRequests?.length,
+  );
   const responsibilityTaskType = responsibilityReadTaskType(quoteRepairMode);
   const responsibilityPromptVersion = responsibilityReadPromptVersion(quoteRepairMode);
   const resolved = await resolveRouteCandidates(args.db, 'workflow_read');
@@ -1224,11 +1375,11 @@ async function runResponsibilityReadModel(args: {
       id: 'responsibility-read-system',
       label: 'Responsibility read system prompt',
       kind: 'stable_system',
-      content: args.quoteRepairRecords?.length
-        ? RESPONSIBILITY_QUOTE_REPAIR_SYSTEM_PROMPT
+      content: quoteRepairMode
+        ? RESPONSIBILITY_COMBINED_REPAIR_SYSTEM_PROMPT
         : RESPONSIBILITY_READ_SYSTEM_PROMPT,
       reasonIncluded: quoteRepairMode
-        ? `${RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION}:quote-only`
+        ? `${RESPONSIBILITY_COMBINED_REPAIR_PROMPT_VERSION}:combined`
         : RESPONSIBILITY_READ_PROMPT_VERSION,
     }),
     makeBlock({
@@ -1264,6 +1415,7 @@ async function runResponsibilityReadModel(args: {
       content: buildResponsibilityRequestContent({
         focusedSpans: args.focusedSpans,
         quoteRepairRecords: args.quoteRepairRecords,
+        fieldRepairRequests: args.fieldRepairRequests,
         quoteRepairCandidates: args.quoteRepairCandidates,
       }),
       reasonIncluded: 'current responsibilities pass-2 request',
@@ -1286,13 +1438,13 @@ async function runResponsibilityReadModel(args: {
     .returning({ id: oracleContextPacks.id });
   if (!contextPack) throw new Error('[source-workflow-read] failed responsibility context pack');
   const started = Date.now();
-  const result = args.quoteRepairRecords?.length
-    ? await args.client.runObject<ResponsibilityQuoteRepairOutput>({
+  const result = quoteRepairMode
+    ? await args.client.runObject<ResponsibilityCombinedRepairOutput>({
         taskType: 'source_workflow_read',
         routeId: route.routeId,
         promptVersion: responsibilityPromptVersion,
         blocks,
-        schema: ResponsibilityQuoteRepairSchema,
+        schema: ResponsibilityCombinedRepairSchema,
         observability: { includedDocumentChunkIds: args.chunks.map((chunk) => chunk.id) },
         providerOptions: { maxOutputTokens: 8_000 },
         routeCandidates: resolved.candidates,
@@ -1352,11 +1504,12 @@ async function runResponsibilityReadModel(args: {
       `[source-workflow-read] responsibility schema failed: ${result.validation.error.message}`,
     );
   }
-  if (args.quoteRepairRecords?.length) {
-    const knownRepairIds = new Set(
-      args.quoteRepairRecords.map((record) => record.responsibilityId),
-    );
-    const unknownRepair = (result.object as ResponsibilityQuoteRepairOutput).repairs.find(
+  if (quoteRepairMode) {
+    const knownRepairIds = new Set([
+      ...(args.quoteRepairRecords ?? []).map((record) => record.responsibilityId),
+      ...(args.fieldRepairRequests ?? []).map((request) => request.responsibilityId),
+    ]);
+    const unknownRepair = (result.object as ResponsibilityCombinedRepairOutput).quoteRepairs.find(
       (repair) => !knownRepairIds.has(repair.responsibilityId),
     );
     if (unknownRepair) {
@@ -1364,30 +1517,49 @@ async function runResponsibilityReadModel(args: {
         `[source-workflow-read] quote repair returned unknown responsibility ${unknownRepair.responsibilityId}`,
       );
     }
-    const groundedSelection = validateGroundedResponsibilityQuoteSelections({
-      repairs: (result.object as ResponsibilityQuoteRepairOutput).repairs,
-      offered: args.quoteRepairCandidates ?? [],
-    });
-    if (!groundedSelection.ok) {
-      throw new Error(
-        `[source-workflow-read] quote repair returned a quote outside grounded candidates for ${groundedSelection.responsibilityId}`,
+    for (const repair of (result.object as ResponsibilityCombinedRepairOutput).quoteRepairs) {
+      const offered = args.quoteRepairCandidates?.find(
+        (item) => item.responsibilityId === repair.responsibilityId,
       );
+      const index = Number(repair.candidateId.replace(/^candidate_/, ''));
+      if (!offered?.candidates.some((candidate) => candidate.candidateIndex === index)) {
+        throw new Error(
+          `[source-workflow-read] combined repair returned a quote outside grounded candidates for ${repair.responsibilityId}`,
+        );
+      }
     }
   }
-  let output: ResponsibilityReadOutput = args.quoteRepairRecords?.length
-    ? {
-        summary: 'Quote-only responsibility repairs.',
-        responsibilities: (result.object as ResponsibilityQuoteRepairOutput).repairs.flatMap(
-          (repair) => {
-            const original = args.quoteRepairRecords!.find(
-              (record) => record.responsibilityId === repair.responsibilityId,
+  let output: ResponsibilityReadOutput = quoteRepairMode
+    ? (() => {
+        const originals = [
+          ...(args.quoteRepairRecords ?? []),
+          ...(args.fieldRepairRequests ?? []).flatMap((request) => {
+            const original = args.quoteRepairRecords?.find(
+              (record) => record.responsibilityId === request.responsibilityId,
             );
-            return original
-              ? [{ ...original, chunkId: repair.chunkId, evidenceQuote: repair.evidenceQuote }]
-              : [];
+            return original ? [original] : [];
+          }),
+        ];
+        const patched = patchCombinedResponsibilityRepairs({
+          original: {
+            summary: 'Combined responsibility repairs.',
+            responsibilities: [...new Map(originals.map((item) => [item.responsibilityId, item])).values()],
           },
-        ),
-      }
+          fieldRequests: args.fieldRepairRequests ?? [],
+          quoteRequests: (args.quoteRepairCandidates ?? []).map((item) => ({
+            responsibilityId: item.responsibilityId,
+            candidates: item.candidates.map((candidate) => ({
+              candidateId: `candidate_${candidate.candidateIndex}`,
+              sourceText: candidate.sourceText,
+            })),
+          })),
+          repaired: result.object as ResponsibilityCombinedRepairOutput,
+        });
+        if (!patched.ok) {
+          throw new Error(`[source-workflow-read] combined repair rejected: ${patched.reason}`);
+        }
+        return patched.output;
+      })()
     : (result.object as ResponsibilityReadOutput);
   const forcedResult = args.focusedSpans?.length
     ? canonicalizeForcedResponsibilityOutput({
@@ -2401,11 +2573,21 @@ export async function generateSourceWorkflowMap(args: {
     const responsibilityQuoteRepair = {
       attempted: false,
       selectedSegmentId: null as string | null,
+      selectedSegmentIds: [] as string[],
       eligibleCount: 0,
       accepted: false,
       skipped: 'no_eligible_root_quote_failure' as string | null,
       rootQuoteFailuresBefore: 0,
       rootQuoteFailuresAfter: 0,
+      fieldFailuresBefore: 0,
+      fieldFailuresAfter: 0,
+      fieldRepairs: [] as Array<{
+        responsibilityId: string;
+        chunkId: string;
+        quoteSha256: string;
+        repairStatus: 'selected' | 'repaired' | 'rejected';
+        decisionReason: string;
+      }>,
       groundedCandidates: [] as Array<{
         responsibilityId: string;
         failedQuote: string;
@@ -2416,36 +2598,43 @@ export async function generateSourceWorkflowMap(args: {
         decisionReason: string | null;
       }>,
     };
+    const combinedRepairPlan = buildResponsibilityCombinedRepairPlan({
+      reads: responsibilityReads,
+      chunks,
+    });
     const quoteRepairRead = selectResponsibilityQuoteRepairRead(responsibilityReads);
-    if (quoteRepairRead) {
-      const eligibleDiagnostics = quoteRepairRead.validation.diagnostics.filter(
-        (item) => item.failureClass === 'quote_mismatch',
+    if (quoteRepairRead && combinedRepairPlan.records.length > 0) {
+      const eligibleDiagnostics = responsibilityReads.flatMap((read) =>
+        read.validation.diagnostics.filter((item) => item.failureClass === 'quote_mismatch'),
       );
-      responsibilityQuoteRepair.selectedSegmentId = quoteRepairRead.segment.segmentId;
+      responsibilityQuoteRepair.selectedSegmentId =
+        combinedRepairPlan.selectedSegmentIds[0] ?? null;
+      responsibilityQuoteRepair.selectedSegmentIds =
+        combinedRepairPlan.selectedSegmentIds;
       responsibilityQuoteRepair.eligibleCount = eligibleDiagnostics.length;
+      const fieldRepairIds = combinedRepairPlan.fieldRepairRequests.map(
+        (item) => item.responsibilityId,
+      );
+      responsibilityQuoteRepair.fieldFailuresBefore = fieldRepairIds.length;
+      responsibilityQuoteRepair.fieldFailuresAfter = fieldRepairIds.length;
+      responsibilityQuoteRepair.fieldRepairs = responsibilityReads
+        .flatMap((read) => read.validation.incompleteInventoryAudit)
+        .filter((item) => fieldRepairIds.includes(item.elementId))
+        .map((item) => ({
+          responsibilityId: item.elementId,
+          chunkId: item.chunkId,
+          quoteSha256: item.quoteSha256,
+          repairStatus: 'selected' as const,
+          decisionReason: item.decisionReason,
+        }));
       responsibilityQuoteRepair.rootQuoteFailuresBefore = eligibleDiagnostics.length;
       responsibilityQuoteRepair.rootQuoteFailuresAfter = eligibleDiagnostics.length;
       try {
         responsibilityPostPassBudget.reserveQuoteRepair();
         responsibilityQuoteRepair.attempted = true;
-        const chunkId = quoteRepairRead.segment.chunkIds[0]!;
-        const chunk = chunkById.get(chunkId)!;
-        const eligibleIds = new Set(eligibleDiagnostics.map((item) => item.responsibilityId));
-        const quoteRepairRecords = quoteRepairRead.model.output.responsibilities.filter((record) =>
-          eligibleIds.has(record.responsibilityId),
-        );
-        const quoteRepairCandidates = quoteRepairRecords.map((record) => {
-          const { evidenceQuote: _evidenceQuote, ...immutableFields } = record;
-          return {
-            responsibilityId: record.responsibilityId,
-            failedQuote: record.evidenceQuote,
-            immutableFields,
-            candidates: buildGroundedResponsibilityQuoteCandidates({
-              rawText: chunk.rawText,
-              failedQuote: record.evidenceQuote,
-            }),
-          };
-        });
+        const quoteRepairRecords = combinedRepairPlan.records;
+        const quoteRepairCandidates = combinedRepairPlan.quoteRepairCandidates;
+        const fieldRepairRequests = combinedRepairPlan.fieldRepairRequests;
         responsibilityQuoteRepair.groundedCandidates = quoteRepairCandidates.map((item) => ({
           ...item,
           immutableFields: item.immutableFields as Record<string, unknown>,
@@ -2457,13 +2646,22 @@ export async function generateSourceWorkflowMap(args: {
           db,
           client,
           doc,
-          chunks: [chunk],
+          chunks: combinedRepairPlan.chunkIds.flatMap((chunkId) => {
+            const chunk = chunkById.get(chunkId);
+            return chunk ? [chunk] : [];
+          }),
           triggerRunId: args.triggerRunId,
           mapId: pending.mapId,
-          segment: quoteRepairRead.segment,
+          segment: {
+            ...responsibilityParentSegment(quoteRepairRead.segment),
+            segmentId: 'responsibility_combined_repair',
+            title: 'Combined responsibility repair',
+            chunkIds: combinedRepairPlan.chunkIds,
+          },
           budget: readerBudget,
           quoteRepairRecords,
           quoteRepairCandidates,
+          fieldRepairRequests,
         });
         for (const repaired of repairModel.output.responsibilities) {
           const audit = responsibilityQuoteRepair.groundedCandidates.find(
@@ -2476,36 +2674,78 @@ export async function generateSourceWorkflowMap(args: {
               .digest('hex');
           }
         }
-        quoteRepairRead.modelRunIds.push(repairModel.modelRunId);
-        quoteRepairRead.contextPackIds.push(repairModel.contextPackId);
-        quoteRepairRead.executions.push(repairModel.execution);
-        const patched = patchResponsibilityQuoteRepairs({
-          original: quoteRepairRead.model.output,
-          diagnostics: eligibleDiagnostics,
-          repaired: repairModel.output,
-        });
-        if (!patched.ok) {
-          responsibilityQuoteRepair.skipped = patched.reason;
-          for (const audit of responsibilityQuoteRepair.groundedCandidates) {
-            audit.decisionReason = patched.reason;
-          }
-        } else {
-          const repairedValidation = validateResponsibilityRead({
-            output: patched.output,
-            documentId: args.documentId,
-            segment: responsibilityParentSegment(quoteRepairRead.segment),
-            fileType: doc.fileType,
-            fileName: doc.fileName,
-            allCoveredChunkIds: coveredChunkIds,
-            chunks: [{ id: chunk.id, documentId: args.documentId, rawText: chunk.rawText }],
+        for (const read of responsibilityReads) {
+          if (!combinedRepairPlan.selectedSegmentIds.includes(read.segment.segmentId)) continue;
+          read.modelRunIds.push(repairModel.modelRunId);
+          read.contextPackIds.push(repairModel.contextPackId);
+          read.executions.push(repairModel.execution);
+        }
+        {
+          const repairedReads = responsibilityReads.map((read) => {
+            const output = mergeCombinedResponsibilityRepairOutput({
+              original: read.model.output,
+              repaired: repairModel.output,
+            });
+            return {
+              read,
+              output,
+              validation: validateResponsibilityRead({
+                output,
+                documentId: args.documentId,
+                segment: responsibilityParentSegment(read.segment),
+                fileType: doc.fileType,
+                fileName: doc.fileName,
+                allCoveredChunkIds: coveredChunkIds,
+                chunks: chunks.map((chunk) => ({
+                  id: chunk.id,
+                  documentId: args.documentId,
+                  rawText: chunk.rawText,
+                })),
+              }),
+            };
           });
-          const failuresAfter = repairedValidation.diagnostics.filter(
-            (item) => item.failureClass === 'quote_mismatch',
-          ).length;
+          const failuresAfter = repairedReads.reduce(
+            (sum, item) =>
+              sum +
+              item.validation.diagnostics.filter(
+                (diagnostic) => diagnostic.failureClass === 'quote_mismatch',
+              ).length,
+            0,
+          );
           responsibilityQuoteRepair.rootQuoteFailuresAfter = failuresAfter;
-          if (failuresAfter < eligibleDiagnostics.length) {
-            quoteRepairRead.model.output = patched.output;
-            quoteRepairRead.validation = repairedValidation;
+          responsibilityQuoteRepair.fieldFailuresAfter =
+            repairedReads.reduce(
+              (sum, item) => sum + item.validation.incompleteInventoryAudit.length,
+              0,
+            );
+          const remainingIncomplete = new Set(
+            repairedReads.flatMap((item) =>
+              item.validation.incompleteInventoryAudit.map((audit) => audit.elementId),
+            ),
+          );
+          responsibilityQuoteRepair.fieldRepairs = responsibilityQuoteRepair.fieldRepairs.map(
+            (item) => ({
+              ...item,
+              repairStatus: remainingIncomplete.has(item.responsibilityId)
+                ? 'rejected'
+                : 'repaired',
+              decisionReason: remainingIncomplete.has(item.responsibilityId)
+                ? 'combined_repair_remained_incomplete'
+                : 'combined_repair_completed',
+            }),
+          );
+          if (
+            failuresAfter < eligibleDiagnostics.length ||
+            repairedReads.reduce((sum, item) => sum + item.validation.elements.length, 0) >
+              responsibilityReads.reduce(
+                (sum, read) => sum + read.validation.elements.length,
+                0,
+              )
+          ) {
+            for (const repairedRead of repairedReads) {
+              repairedRead.read.model.output = repairedRead.output;
+              repairedRead.read.validation = repairedRead.validation;
+            }
             responsibilityQuoteRepair.accepted = true;
             responsibilityQuoteRepair.skipped = null;
             for (const audit of responsibilityQuoteRepair.groundedCandidates) {
@@ -2567,7 +2807,9 @@ export async function generateSourceWorkflowMap(args: {
       }),
       elements: [
         ...finalizedProcessReads.flatMap((read) => read.map.elements),
-        ...responsibilityReads.flatMap((read) => read.validation.elements),
+        ...responsibilityReads.flatMap((read) =>
+          responsibilityMergeEligibleElements(read.validation),
+        ),
       ],
       relations: finalizedProcessReads.flatMap((read) => read.map.relations),
       lanes: finalizedProcessReads.flatMap((read) => read.map.lanes),
@@ -2586,6 +2828,7 @@ export async function generateSourceWorkflowMap(args: {
       processReads.some((read) => read.validation.status === 'degraded') ||
       responsibilityReads.some(
         (read) =>
+          read.validation.inventoryElements.length > read.validation.elements.length ||
           read.validation.diagnostics.length > 0 ||
           read.validation.crossSegmentCitations.length /
             Math.max(1, read.validation.elements.length) >
@@ -2625,12 +2868,18 @@ export async function generateSourceWorkflowMap(args: {
         executionShardId: read.segment.segmentId,
         promptVersion: RESPONSIBILITY_READ_PROMPT_VERSION,
         keptCount: read.validation.elements.length,
+        inventoryCount: read.validation.inventoryElements.length,
+        completeCount: read.validation.elements.length,
+        mergeEligibleCount: read.validation.completeElementIds.length,
         droppedCount: read.validation.diagnostics.length,
         primaryCount: read.validation.primaryCount,
         crossSegmentCitations: read.validation.crossSegmentCitations,
         rawOutputAudit: responsibilityRawAuditArtifact(read.model.output),
         executions: read.executions,
         diagnostics: read.validation.diagnostics,
+        incompleteInventoryAudit: read.validation.incompleteInventoryAudit,
+        deterministicExpansionAudit: read.validation.expansionAudit,
+        failureTaxonomyCounts: responsibilityFailureTaxonomyCounts(read.validation),
       })),
       ...buildResponsibilityPostPassAudit({
         initialOmissions,

@@ -1,6 +1,6 @@
 # R2 Deeper Responsibility Architecture Implementation Plan
 
-Status: **PLAN COMPLETE. IMPLEMENTATION NOT YET AUTHORIZED OR STARTED.**
+Status: **P0-P6 COMPLETE. P7 RELEASE AND ONE PINNED PRODUCTION GATE ARE NEXT.**
 
 Created: 2026-07-28
 Owner direction: Albert selected the deeper-architecture path by requesting this plan.
@@ -14,21 +14,19 @@ were incorporated on 2026-07-28 before implementation.
 
 | Step | Status | Date | Evidence / next gate |
 |---|---|---|---|
-| P0. Freeze baseline and prove the starting state | ⬜ open | — | Record commit, current tests, fixture hash, flags, budgets, and table counts before editing |
-| P1. Separate inventory validation from field-completeness validation | ⬜ open | — | Complete quoted records survive inventory even when fields need repair |
-| P2. Add deterministic multi-destination expansion | ⬜ open | — | Generic list fixtures emit one record per explicit destination |
-| P3. Add one bounded combined responsibility-repair call | ⬜ open | — | One repair call fixes fields and/or quotes without exceeding the frozen repair budget |
-| P4. Rebuild omission, audit, and merge-eligibility rules around complete records | ⬜ open | — | Inventory is retained, only complete records close omissions or become merge-eligible |
-| P5. Complete local regression and invariant verification | ⬜ open | — | All named unit, type, workflow, R0, R1, R2, and ingestion checks pass |
-| P6. Independent Grok 4.5 review and same-agent correction loop | ⬜ open | — | Grok returns `APPROVED FOR CI AND LIVE REGATE` with no P0/P1 findings |
+| P0. Freeze baseline and prove the starting state | ✅ local complete | 2026-07-28 | Baseline `main` at `fae69ef`; `git var GIT_COMMITTER_IDENT` was `Albert Hazan <u2giants@users.noreply.github.com>`; tracked tree was clean; the frozen fixture SHA, `field-aware-v3`, 27/30 gate, 40/500k/$10 reader budget, 1/5/1 post-pass budget, false merge/apply defaults, and prior zero-write table evidence remain asserted by the R2 verifier and durable Batch F evidence. No new production read was made because P0-P5 explicitly forbid production access. |
+| P1. Separate inventory validation from field-completeness validation | ✅ local complete | 2026-07-28 | `validateResponsibilityRead` returns inventory, complete IDs/elements, field diagnostics, and per-record incomplete audit with the exact enclosing source span. The verifier proves a short exact quote can be field-repaired only from additional words in that enclosing span. |
+| P2. Add deterministic multi-destination expansion | ✅ local complete | 2026-07-28 | Generic LedgerOne/FlowBoard/ArchiveBox grammar emits stable thin records. Source-bound action/preposition and ambiguity guards reject attribute, date/time, and person lists; duplicate normalized destinations fail loudly. Expansion runs inside every validation pass. |
+| P3. Add one bounded combined responsibility-repair call | ✅ local complete | 2026-07-28 | `buildResponsibilityCombinedRepairPlan` assembles one bounded request across every base/retry shard, filters validation-derived IDs before the six-slot limit, and binds fields to enclosing spans while quotes remain immutable. Missing or invalid combined responses fail the whole call as durable `repair_failed`; no partial result applies. |
+| P4. Rebuild omission, audit, and merge-eligibility rules around complete records | ✅ local complete | 2026-07-28 | The production-used seam covers the full lifecycle with production helpers. Final structure-map assembly now calls `responsibilityMergeEligibleElements`, which fails loudly when a complete ID is absent from inventory; incomplete inventory remains audit-only and forces degraded status. |
+| P5. Complete local regression and invariant verification | ✅ local complete | 2026-07-28 | After P3-P4 completion, all 13 exact commands in §10 passed in one fail-fast run: three typechecks; workers R2/source-workflow/R0/document fallback; AI R2/workflow; engines macro/macro-first/R1/R2. `git diff --check` also passed. |
+| P6. Independent Grok 4.5 review and same-agent correction loop | ✅ complete | 2026-07-28 | Grok session `019fabb5-5e45-73a3-a885-e1146746948f` returned `APPROVED FOR CI AND LIVE REGATE` with no P0/P1 findings after the same implementation agent fixed full-span field binding, ambiguous destination expansion, expanded-ID repair-slot loss, and the production merge-eligibility guard. Parent reran all 13 §10 commands plus `git diff --check`; all passed. |
 | P7. Commit, push, CI, deploy, and run one pinned production gate | ⬜ open | — | CI green, one worker release, one disposable gate, full evidence recorded |
 | P8. Apply the score decision and update durable documentation | ⬜ open | — | `>=27` continues R2; `24–26` permits bake-off; `<=23` stops for owner |
 
-Fresh-session starting point after Albert separately asks to implement this plan: begin at **P0**.
-Re-read this entire plan, `HANDOFF.md`, and the R2 section of
-`evals/r2-responsibilities.md` before touching code. Update this STATUS table as each step
-changes. At the marked context cut points, start a clean session and re-read every remaining phase
-before continuing.
+Fresh-session starting point: begin at **P7 release and one pinned production gate**. Re-read this
+entire plan, `HANDOFF.md`, and the R2 section of `evals/r2-responsibilities.md` before taking release
+action. P6 has a clean Grok 4.5 approval recorded above; repeat the review only if code changes.
 
 ---
 

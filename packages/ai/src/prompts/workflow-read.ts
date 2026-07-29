@@ -219,6 +219,27 @@ export const ResponsibilityQuoteRepairSchema = z.object({
     .max(300),
 });
 
+export const RESPONSIBILITY_COMBINED_REPAIR_PROMPT_VERSION =
+  'responsibility-repair-v3-combined';
+export const ResponsibilityCombinedRepairSchema = z.object({
+  fieldRepairs: z.array(z.object({
+    responsibilityId: workflowId,
+    role: z.string().min(1).max(160).optional(),
+    action: z.string().min(1).max(500).optional(),
+    object: z.string().min(1).max(500).optional(),
+    trigger: z.string().max(500).nullish().optional(),
+    requiredSystem: z.string().max(160).nullish().optional(),
+  })).max(6),
+  quoteRepairs: z.array(z.object({
+    responsibilityId: workflowId,
+    candidateId: workflowId,
+  })).max(12),
+});
+export const RESPONSIBILITY_COMBINED_REPAIR_SYSTEM_PROMPT = `Repair only the requested responsibility fields and grounded quotes.
+For field repairs, use exact words present in the selected source span. Never change IDs, chunks, or quotes.
+For quote repairs, select only an offered candidate ID. Never change role, action, object, trigger, or system.
+Return each requested ID at most once and do not return unrequested IDs.`;
+
 export const RESPONSIBILITY_MERGE_PROMPT_VERSION = 'responsibility-merge-v1';
 export const RESPONSIBILITY_MERGE_SYSTEM_PROMPT = `You align an evidenced responsibility source map to existing durable responsibility models.
 
@@ -345,6 +366,7 @@ export type WorkflowQuoteRepairOutput = z.infer<typeof WorkflowQuoteRepairSchema
 export type ResponsibilityReadOutput = z.infer<typeof ResponsibilityReadSchema>;
 export type ResponsibilityReadRecord = z.infer<typeof ResponsibilityReadRecordSchema>;
 export type ResponsibilityQuoteRepairOutput = z.infer<typeof ResponsibilityQuoteRepairSchema>;
+export type ResponsibilityCombinedRepairOutput = z.infer<typeof ResponsibilityCombinedRepairSchema>;
 export type ResponsibilityMergeOutput = z.infer<typeof ResponsibilityMergeOutputSchema>;
 export type SourceSegmentationOutput = z.infer<typeof SourceSegmentationSchema>;
 export type WorkflowReadNode = z.infer<typeof WorkflowReadNodeSchema>;
