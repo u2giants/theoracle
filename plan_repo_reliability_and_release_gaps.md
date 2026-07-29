@@ -18,7 +18,7 @@ Database: Supabase project `eqccjfbyrywsqkxxpjvg`
 | REL-2 Reconcile ERR-003, ERR-004, ERR-005 with the current reader | 🟨 partial, 2026-07-27 | ERR-003 is closed by source removal plus deployed worker `20260722.1`; ERR-004 and ERR-005 still require owner-authorized fixture reruns |
 | REL-3 Retire or retarget the obsolete macro-support SQL smoke | ✅ done, 2026-07-27 | Zero-caller search proved the three query contracts and package command had no runtime or CI owner; deleted the smoke and package script without restoring retired writers |
 | REL-4 Model-pool phantom fallback audit | ✅ done, 2026-07-27 | Released in `5f962b5`/`24bbf70`; CI `30269886119` attempt 2 green, migration/drift green, Vercel HTTP 200, and Trigger worker `20260727.2` deployment `h6ri0rb9` |
-| REL-5 Migration 65 and generated-snapshot drift | ⬜ open | Coordinate with macro R1 drift audit to avoid duplicate migration work |
+| REL-5 Migration 65 and generated-snapshot drift | ✅ done, 2026-07-29 | R1's fresh/rerun gates already proved raw migration replay; focused verifier now checks migration 65, latest snapshot, and applied columns; current production columns and the 12-row generated journal agree |
 | REL-6 Live image upload verification | ⬜ open | Requires an owner-approved non-sensitive image fixture |
 | REL-7 Database and Trigger.dev release automation | ⬜ open | Starts after REL-2 through REL-5 establish the current release contract |
 | REL-8 Dead schema-repair helper removal | ⬜ open | Wait until macro R10 unless a current caller is introduced |
@@ -64,8 +64,9 @@ Kimi K3's 2026-07-26 full-repo review, and old handoff history:
   contains those queries, is exposed by a package script, and is not wired into CI.
 - ERR-001 still contains an old instruction to add a DeepSeek key or remove a phantom fallback.
   Current pool state must be checked before that instruction is acted on.
-- Migration 65 is hand-written only, while an old pending-work row warns that generated drift or
-  fresh database creation may disagree.
+- Migration 65 is intentionally raw-SQL-owned. The former warning that generated drift or fresh
+  database creation may disagree was stale and is closed by REL-5's snapshot, fresh-DB, live-schema,
+  and generated-journal evidence.
 - The Teams transcript worker's top comment said speaker email resolution and meeting-time
   anchoring were TODOs, but the same file already implemented both.
 - The lull-interjection header and `DECISIONS.md` said typing presence was hard-coded false,
@@ -178,8 +179,8 @@ Open within stated criteria:
 
 - Fix `verify-workflow-map-prod.mjs` if it provides checks absent from the current audit; otherwise
   delete it and point callers to the maintained audit.
-- Keep migration 65 hand-written if fresh-db and drift gates prove it reproducible; otherwise add
-  the smallest journaled/generated reconciliation allowed by the migration runner.
+- REL-5 resolved the migration 65 choice: keep it hand-written because fresh-db, snapshot, live
+  schema, and generated-journal drift gates agree. Do not add duplicate generated DDL.
 - Choose workflow-dispatch or a documented manual approval job for database and Trigger releases
   based on least privilege and rollback clarity.
 
@@ -342,6 +343,32 @@ or its audited configured use moves outside `transcript_summary`.
 
 Gate: fresh DB, drift, and live SELECT-only schema checks agree with no unexplained journal change.
 
+**Completed 2026-07-29.** Migration 65 remains the smallest correct owner. No forward
+reconciliation migration or generated SQL change was needed.
+
+- The existing R1 CI workflow already runs the complete migration runner twice against an empty
+  pgvector Postgres fixture. Because `migrate.ts` applies every raw SQL file in lexical order, this
+  proves migration 65 creates both columns and is safe to rerun. GitHub Actions run `30417301245`
+  passed both full runs and the populated raw-rerun fixture.
+- Added `verify:document-context-contract` and `verify:document-context-schema`. The verifier
+  requires migration 65 to idempotently own nullable `documents.context text` and
+  `documents.domain_hints jsonb`, requires the latest journal snapshot to record the same shape,
+  and uses only `information_schema` SELECTs to check the applied database. The applied-schema
+  form is wired into the fresh-database CI gate.
+- Local `pnpm --filter @oracle/db typecheck` and
+  `pnpm --filter @oracle/db verify:document-context-contract` passed against snapshot
+  `0011_pink_titanium_man`.
+- The latest landed drift proof, GitHub Actions run `30417301245`, reported exactly 12 on-disk
+  generated migrations and 12 production journal rows with matching hashes. Raw migration 65 is
+  intentionally outside that generated-only journal and is covered by the full-run and schema
+  contracts instead.
+- A protected SELECT-only production check against current Supabase project
+  `eqccjfbyrywsqkxxpjvg` confirmed `public.documents.context` is nullable `text` and
+  `public.documents.domain_hints` is nullable `jsonb`. The production Drizzle journal contained
+  12 rows, latest id/timestamp marker `12` / `1785158867458`.
+- Corrected the stale `AGENTS.md`, `DECISIONS.md`, and historical `HANDOFF.md` warnings. They now
+  distinguish the generated Drizzle journal from the raw migration chain and forbid duplicate DDL.
+
 ### REL-6: live image upload proof
 
 1. Use a non-sensitive image fixture with a known text and diagram answer key.
@@ -479,7 +506,8 @@ Open questions have predetermined gates:
 
 - Old workflow script: keep only if it has a unique maintained check.
 - DeepSeek: configure only if current slot requirements and real probe pass.
-- Migration 65: preserve hand-written ownership if fresh-db and drift agree.
+- Migration 65: resolved. Preserve hand-written ownership; fresh DB, snapshot, live schema, and
+  generated-journal drift checks agree.
 
 ## Plan self-audit
 

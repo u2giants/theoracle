@@ -632,7 +632,7 @@ This file is the running log of every assumption, stub, and resolution made by t
 ## D-document-context-and-hints — uploader context as a soft signal
 
 - **Decision**: `documents` gains nullable `context` (text) and `domain_hints` (jsonb of `knowledge_top_domains.id`). `context` is injected into both the extraction prompt and the Pass-1 image-vision prompt; `domain_hints` are rendered as a non-binding prior. Per-claim `domain_valid` stays authoritative — hints never force or override classification, which stays per-claim (a document legitimately spans multiple domains).
-- **Migration nuance**: shipped via hand-written `migrations/sql/65_document_context_and_domain_hints.sql` (idempotent `ADD COLUMN IF NOT EXISTS`) AND added to `schema.ts`, but with no Drizzle-generated migration. So `db:check-drift` may flag it and a fresh-DB `db:migrate` won't recreate the columns unless `sql/65` is applied. Consistent with the `raw_transcripts` hand-written precedent; fold into a generated migration if drift is undesirable.
+- **Migration ownership, verified 2026-07-29**: `migrations/sql/65_document_context_and_domain_hints.sql` is the authoritative raw-SQL owner and uses idempotent `ADD COLUMN IF NOT EXISTS`. The full `db:migrate` runner applies raw SQL after generated migrations, so a fresh database does recreate both columns. The latest Drizzle snapshot records the same nullable `text` / `jsonb` shape without requiring a duplicate generated migration. `verify:document-context-schema` now enforces this contract on the fresh-database CI fixture. `db:check-drift` correctly audits the separate generated-migration journal and does not report raw migration 65 as drift.
 
 ## D-business-process-domain — cross-functional process knowledge (2026-06-14)
 

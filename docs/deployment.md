@@ -120,7 +120,7 @@ What it does (in order):
 12. **R0 reader/validator contract** — `pnpm --filter @oracle/workers verify:r0-reader-validator`.
 13. **R1 cross-shape contract** — `pnpm --filter @oracle/engines verify:r1-cross-shape`.
 14. **Taxonomy reclassification contract** — `pnpm --filter @oracle/workers verify:taxonomy-reclassification`.
-15. **Fresh-database migration gate** — starts isolated pgvector Postgres and runs the generated-order, full migration, source-workflow, R1 schema, and taxonomy DB guards.
+15. **Fresh-database migration gate** — starts isolated pgvector Postgres and runs the generated-order, full migration twice, raw-rerun, document context/hints, source-workflow, R1 schema, and taxonomy DB guards.
 16. **Drizzle journal drift check** — `pnpm -w run db:check-drift`. Requires `PROD_DIRECT_URL`; skips gracefully if absent.
 
 There is no checked-in workflow for DB migrations or worker deploys.

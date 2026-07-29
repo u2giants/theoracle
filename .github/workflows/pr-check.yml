@@ -163,6 +163,7 @@ jobs:
           pnpm --filter @oracle/db prepare:raw-migration-rerun-test
           pnpm --filter @oracle/db migrate
           pnpm --filter @oracle/db verify:raw-migration-rerun-test
+          pnpm --filter @oracle/db verify:document-context-schema
           pnpm --filter @oracle/db verify:fresh-source-workflow-schema
           pnpm --filter @oracle/db verify:r1-cross-shape-schema
           pnpm --filter @oracle/workers verify:taxonomy-reclassification-db
