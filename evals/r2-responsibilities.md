@@ -668,3 +668,15 @@ a bounded model bake-off or another deeper-architecture step. Do not run a secon
   field failures `6 -> 6`; root quote failures `15 -> 15`.
 - Merge/apply stayed false. `business_objects`, `business_object_versions`, and
   `business_model_changes` stayed zero before and after.
+
+## Owner-approved bounded model bake-off — 2026-08-06
+
+Albert selected the bounded model bake-off. Production capability data made Claude Sonnet 5 and
+Gemini 2.5 Pro ineligible for the deep workflow schema, so only GPT-4.1 ran. Two serialized fresh
+maps over the frozen document scored **11/30** and **12/30**, mean **11.5/30**, under unchanged
+`field-aware-v3`. The detailed runs, maps, budgets, restoration proof, and deviation log are in
+`evals/bakeoffs/workflow-read.md`.
+
+The precommitted `<=23` rule is binding: the bake-off failed, no second bake-off is allowed, and R2
+requires another deeper-architecture step. Merge/apply remained false and the durable business-
+model tables remained empty.
