@@ -24,10 +24,10 @@ were incorporated on 2026-07-28 before implementation.
 | P7. Commit, push, CI, deploy, and run one pinned production gate | ✅ complete | 2026-07-29 | Commit `dc1317f7f04bd23f3693ea04a4a23ae52044897b`; CI `30417301245` green; worker `20260729.1` deployment `g1jq296j`; exactly one gate `run_06fqnh151dmai294bc2uble701` scored 12/30 |
 | P8. Apply the score decision and update durable documentation | ✅ bake-off decision complete | 2026-08-06 | Albert chose the bounded bake-off. GPT-4.1 scored 11/30 and 12/30 (mean 11.5); Sonnet 5 and Gemini 2.5 Pro were deep-schema-ineligible. The frozen rule requires deeper architecture and forbids a second bake-off. See `evals/bakeoffs/workflow-read.md` |
 
-Fresh-session starting point: **design the next deeper-architecture step**. The owner-approved
-bake-off is complete and failed. Do not run another bake-off, another production gate, or continue
-R2 code without a reviewed deeper-architecture plan that preserves every frozen gate and safety
-control.
+Fresh-session starting point: **implement P0 of `plan_r2_source_span_inventory_reader.md` after
+review**. The owner-approved bake-off is complete and failed. The successor plan replaces the
+model-first repair queue with a source-span-first inventory and exhaustive budget-packed field
+completion. Do not run another bake-off or production gate outside that plan.
 
 ---
 

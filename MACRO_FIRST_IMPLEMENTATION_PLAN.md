@@ -29,10 +29,10 @@ Workers: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 | R9 | ⬜ open | Blocked on R8 |
 | R10 | ⬜ open | Blocked on R9 |
 
-Fresh-session starting point: read `plan_r2_deeper_responsibility_architecture.md` and
-`evals/bakeoffs/workflow-read.md`, then design the next deeper-architecture step. The bounded
-model bake-off is finished and failed; do not run another bake-off or Batch G prompt polish.
-Merge and apply remain forbidden. R0, R0.1, and R1 are green; R3 through R10 remain blocked on R2.
+Fresh-session starting point: read `plan_r2_source_span_inventory_reader.md` and
+`evals/bakeoffs/workflow-read.md`, then begin P0 after plan review. The bounded model bake-off is
+finished and failed; do not run another bake-off or Batch G prompt polish. Merge and apply remain
+forbidden. R0, R0.1, and R1 are green; R3 through R10 remain blocked on R2.
 
 This is the single forward implementation plan for completing the Oracle's macro-first
 redesign. It reconciles the original process-centric redesign with the later shape-aware
