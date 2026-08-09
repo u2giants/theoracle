@@ -2,10 +2,14 @@
 
 Status: **REVIEW REQUIRED. IMPLEMENTATION AND PRODUCTION GATE NOT STARTED.**
 
-Created: 2026-08-09  
-Owner direction: Albert approved proceeding with the deeper reader design.  
-Canonical parent plan: `MACRO_FIRST_IMPLEMENTATION_PLAN.md`  
-Predecessor plan: `plan_r2_deeper_responsibility_architecture.md`  
+Created: 2026-08-09
+
+Owner direction: Albert approved proceeding with the deeper reader design.
+
+Canonical parent plan: `MACRO_FIRST_IMPLEMENTATION_PLAN.md`
+
+Predecessor plan: `plan_r2_deeper_responsibility_architecture.md`
+
 Failure evidence: `evals/r2-responsibilities.md` and `evals/bakeoffs/workflow-read.md`
 
 ## STATUS table
