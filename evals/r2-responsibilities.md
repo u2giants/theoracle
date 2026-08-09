@@ -682,3 +682,58 @@ maps over the frozen document scored **11/30** and **12/30**, mean **11.5/30**, 
 The precommitted `<=23` rule is binding: the bake-off failed, no second bake-off is allowed, and R2
 requires another deeper-architecture step. Merge/apply remained false and the durable business-
 model tables remained empty.
+
+## P0 residual failure matrix for source-span inventory reader — 2026-08-09
+
+P0 re-scored the three immutable maps with the unchanged `field-aware-v3` matcher. The baseline
+checks also reasserted fixture SHA
+`398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be`, answer key
+`licensed-team-responsibilities-v1`, threshold 27/30, reader budget 40 calls / 500,000 input tokens /
+$10, post-pass limits 1 quote repair / 5 omission retries / 1 retry per chunk, and false merge/apply
+defaults. The three worker and AI package typechecks and both current R2 responsibility verifiers
+passed before this analysis.
+
+Run labels: `D` = deeper map `193376a7-848e-48e8-b5ec-8cca51285b3f` (12/30), `B1` = GPT-4.1
+map `5f1491c7-e38b-4c07-a063-121244215dda` (11/30), and `B2` = GPT-4.1 map
+`14724714-edc1-4012-a932-44cfd6c8ed23` (12/30). `M` means matched and `X` means missed. Every miss
+has exactly one primary class. Secondary concerns are separate so they do not hide the owner of the
+failure.
+
+| # | D | B1 | B2 | Primary class when missed | Secondary class | Credible architecture mechanism |
+|---:|:---:|:---:|:---:|---|---|---|
+| 1 | X | X | X | `multi_verb_miss` | `inventory_miss` | source inventory plus source-only multi-verb split |
+| 2 | M | M | M | `multi_verb_miss` | none | source inventory plus source-only multi-verb split |
+| 3 | M | M | M | `inventory_miss` | none | source inventory and deterministic completion |
+| 4 | M | M | M | `inventory_miss` | none | source inventory and deterministic completion |
+| 5 | X | X | X | `inventory_miss` | `object_thin` | source inventory and deterministic completion |
+| 6 | M | M | M | `inventory_miss` | none | source inventory and deterministic completion |
+| 7 | X | X | X | `inventory_miss` | `multi_destination_miss` | source inventory and deterministic completion |
+| 8 | X | X | X | `inventory_miss` | `multi_destination_miss` | source inventory and deterministic completion |
+| 9 | X | X | X | `inventory_miss` | `multi_destination_miss` | source inventory and deterministic completion |
+| 10 | X | X | X | `multi_verb_miss` | `inventory_miss` | source-only multi-verb split then deterministic completion |
+| 11 | X | X | X | `multi_verb_miss` | `object_thin` | source-only multi-verb split then deterministic completion |
+| 12 | M | M | M | `inventory_miss` | none | source inventory and deterministic completion |
+| 13 | X | X | X | `object_thin` | none | deterministic completion, then residual model completion if needed |
+| 14 | X | X | X | `inventory_miss` | `owner_action_or_direction` | direct-owner source inventory and deterministic completion |
+| 15 | X | X | X | `object_thin` | none | deterministic completion from the full numbered span |
+| 16 | X | X | X | `object_thin` | `inventory_miss` | inherited-owner source inventory and deterministic completion |
+| 17 | X | X | X | `owner_action_or_direction` | `object_thin` | deterministic completion isolates the duty fields while evidence stays exact |
+| 18 | X | X | X | `inventory_miss` | none | source inventory and deterministic completion |
+| 19 | M | X | M | `inventory_miss` | `object_thin` | source inventory plus deterministic or residual completion |
+| 20 | M | M | M | `inventory_miss` | none | source inventory and deterministic completion |
+| 21 | M | M | M | `object_thin` | none | deterministic completion retains destination/system words |
+| 22 | M | M | M | `object_thin` | none | deterministic completion retains destination/system words |
+| 23 | X | X | X | `object_thin` | `inventory_miss` | source inventory plus deterministic completion of timing and object |
+| 24 | X | X | X | `inventory_miss` | none | source inventory and deterministic completion |
+| 25 | X | X | X | `inventory_miss` | none | source inventory and deterministic completion |
+| 26 | X | X | X | `object_thin` | none | deterministic completion retains quarterly cadence |
+| 27 | M | M | M | `inventory_miss` | none | source inventory and deterministic completion |
+| 28 | M | M | M | `inventory_miss` | none | source inventory and deterministic completion |
+| 29 | X | X | X | `owner_action_or_direction` | `inventory_miss` | exact-span inventory plus residual completion resolves heading/direct-owner tension |
+| 30 | M | M | M | `inventory_miss` | none | source inventory and deterministic completion |
+
+Mechanism gate result: **30/30 rows have a credible non-scorer architecture mechanism.** The matrix
+does not suspect `scorer_mismatch`; the misses are explained by missing inventory, unsplit compound
+duties, incomplete objects, or owner/action/direction fidelity. P0 therefore passes its required
+27-row stop gate. This finding authorizes P1 only. It does not authorize a scorer change, a second
+bake-off, Batch G, or a production run.
