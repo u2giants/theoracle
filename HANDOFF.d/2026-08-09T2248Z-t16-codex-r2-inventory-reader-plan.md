@@ -37,6 +37,10 @@ inventory first, then schedules field completion for every incomplete duty in to
   exclusive proposal matching, explicit budget math, provider-failure behavior, and stale-doc fixes.
 - Grok session `019fe8db-eef0-7f83-b974-a372bd6330da` approved the design for implementation on its
   third pass after the destination-child fidelity and object-boundary contracts were frozen.
+- The implementation-plan-writer self-audit is now preserved at the end of the plan. Commit
+  `17dfb1920b7a4de92f674afc3cf418c540167a58` is pushed to `main`, and GitHub Actions run
+  `31342667504` passed. The working tree was clean and matched `origin/main` before this final
+  handoff-only closeout update.
 
 ## 4. Everything we tried that did not work
 
@@ -72,9 +76,10 @@ inventory first, then schedules field completion for every incomplete duty in to
 
 ## 6. Exact next steps
 
-1. Read `plan_r2_source_span_inventory_reader.md` in full and start at P0 only after the Grok
-   correction review approves it. You will know P0 worked when the clean baseline passes and every
-   latest-gate/bake-off miss is assigned a failure class and closing mechanism.
+1. Read `plan_r2_source_span_inventory_reader.md` in full and start at P0. Grok 4.5 approved the
+   design and the implementation-plan self-audit passed. You will know P0 worked when the clean
+   baseline passes and every latest-gate/bake-off miss is assigned a failure class and closing
+   mechanism.
 2. Implement P1 in `apps/workers/src/lib/responsibility-reader.ts`, adding stable exact source-span
    inventory seeds. You will know it worked when generic local fixtures produce stable IDs, offsets,
    quotes, and loud duplicate/binding failures without a model call.
