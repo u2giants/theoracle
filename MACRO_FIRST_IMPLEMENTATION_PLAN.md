@@ -1285,24 +1285,20 @@ Batch F shipped in commit `08c2631`, CI `30385119532`, and worker `20260728.5` d
 `5,7,8,9,10,13,25` were lost and only row `19` was gained. Quote roots improved `10 -> 4`, so
 the failure is inventory loss under drop-as-enforcement, not quote repair.
 
-The locked `<=23` rule now binds. Albert selected the recommended deeper-architecture planning
-path on 2026-07-28. The standalone implementation specification is
-`plan_r2_deeper_responsibility_architecture.md`; all steps are still open.
+The locked `<=23` rule bound. Albert selected deeper architecture on 2026-07-28, then approved the
+bounded model bake-off after its first implementation scored 12/30. The bake-off completed on
+2026-08-06: GPT-4.1 scored 11/30 and 12/30 (mean 11.5), while Sonnet 5 and Gemini 2.5 Pro were
+deep-schema-ineligible. No second bake-off is allowed.
 
-- **Option A:** bounded model bake-off on frozen Batch F. Run one isolated eligible model at a
-  time, two gates each, and restore settings. Mean `>=27` may proceed; `24–26` requires
-  architecture; `<=23` fails the bake-off with no second bake-off.
-- **Option B, recommended by Grok:** deeper architecture after owner approval. Separate inventory
-  discovery from field completion, add bounded source-span field repair, emit explicit
-  multi-destinations deterministically, align splitter and multi-verb validation, preserve drop
-  classes, and prove the safety regressions. One reviewed release gets exactly one gate:
-  `>=27` proceeds, `24–26` permits a bake-off only on the redesigned path, and `<=23` stops for
-  another owner decision.
+The current standalone specification is `plan_r2_source_span_inventory_reader.md`. It replaces
+model-defined duty inventory with exact source-span seeds, deterministic completion for clear list
+duties, source-only destination/multi-verb splitting, and budget-proven model completion only for
+residual ambiguity. All implementation steps remain open pending Grok re-review.
 
 No Batch G, model change, prompt-only completeness work, scorer/key/budget weakening,
 fixture-specific code, answer-key leakage, shadow merge, apply, or R3 work is authorized. Execute
-the selected deeper path only through `plan_r2_deeper_responsibility_architecture.md`. Full
-identifiers, safety evidence, and the 30-row score are in `HANDOFF.md` and
+the selected deeper path only through `plan_r2_source_span_inventory_reader.md`. Full
+identifiers, safety evidence, and the 30-row score are in `HANDOFF.d/` and
 `evals/r2-responsibilities.md`.
 
 ---

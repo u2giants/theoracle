@@ -2,8 +2,10 @@
 
 Date: 2026-07-28
 
-Status: **PAUSED FOR OWNER DECISION. The sixth live gate scored 14/30 (46.7%); the `<=23`
-hard stop binds. No Batch G or implementation is authorized. R3 and later are blocked.**
+Status: **DEEPER READER REDESIGN PLANNED. The latest deeper gate scored 12/30 and the approved
+GPT-4.1 bake-off averaged 11.5/30. No second bake-off or Batch G is authorized. Implementation must
+follow `plan_r2_source_span_inventory_reader.md` after independent approval. R3 and later remain
+blocked.**
 
 Pinned fixture manifest:
 

@@ -31,8 +31,12 @@ inventory first, then schedules field completion for every incomplete duty in to
   session to the new plan.
 - No reader code, tests, database, production worker, production fixture, or deployment changed in
   this planning session.
-- These documentation edits still need commit, push, and CI verification at the time this handoff
-  was drafted.
+- The first plan was committed and pushed at `a78fafc`; CI run `31340678699` passed.
+- Grok 4.5's first review returned `CHANGES REQUIRED BEFORE IMPLEMENTATION`. The corrected plan adds
+  deterministic completion, exact destination/multi-verb rules, residual failure classification,
+  exclusive proposal matching, explicit budget math, provider-failure behavior, and stale-doc fixes.
+- Grok session `019fe8db-eef0-7f83-b974-a372bd6330da` approved the design for implementation on its
+  third pass after the destination-child fidelity and object-boundary contracts were frozen.
 
 ## 4. Everything we tried that did not work
 
@@ -45,6 +49,9 @@ inventory first, then schedules field completion for every incomplete duty in to
    response schema was not qualified. Re-qualifying them would still leave the model-first queue.
 4. Raising retry slots, loosening field rules, or using incomplete records as map evidence were
    rejected. They would hide omissions, accept wrong data, or move bad records downstream.
+5. Grok rejected the first source-span plan as build-ready because exhaustive model completion still
+   repeated the known weak field-fill step and split/budget/matching rules were vague. Those findings
+   were valid and are incorporated in the current plan.
 
 ## 5. Root causes and key findings
 
@@ -60,11 +67,14 @@ inventory first, then schedules field completion for every incomplete duty in to
   consumes complete records only. Preserve this boundary.
 - The failed bake-off left budget available, so the primary problem is scheduling and inventory
   ownership, not context size or model price.
+- Inventory accounting alone is insufficient. Clear list duties must complete deterministically,
+  while residual model work is justified row-by-row by P0's failure matrix.
 
 ## 6. Exact next steps
 
-1. Read `plan_r2_source_span_inventory_reader.md` in full and start at P0. You will know it worked
-   when the clean baseline and every frozen invariant are recorded and current R2 checks pass.
+1. Read `plan_r2_source_span_inventory_reader.md` in full and start at P0 only after the Grok
+   correction review approves it. You will know P0 worked when the clean baseline passes and every
+   latest-gate/bake-off miss is assigned a failure class and closing mechanism.
 2. Implement P1 in `apps/workers/src/lib/responsibility-reader.ts`, adding stable exact source-span
    inventory seeds. You will know it worked when generic local fixtures produce stable IDs, offsets,
    quotes, and loud duplicate/binding failures without a model call.
@@ -110,14 +120,16 @@ vault. Secret values must never appear in files, logs, or process arguments.
 
 ## 9. Open questions and risks
 
-- Decision, 2026-08-09: use a dedicated shallow completion schema unless implementation proves reuse
-  is clearer and equally strict. This lowers schema depth and separates field work from quote repair.
+- Decision, 2026-08-09: use a dedicated shallow completion schema. This is frozen and separates
+  residual field work from candidate-bound quote repair.
 - Risk: deterministic parsing may miss free prose. Keep model proposals and the five retries only for
   true inventory-detection gaps, then measure them separately.
 - Risk: exhaustive completion may reach the frozen budget. Token-pack batches and report unscheduled
   IDs loudly rather than truncating silently.
 - Risk: inventory can rise without quality. Publish source, discovery, and merge-ready coverage as
   three separate measures.
+- Grok review total: $1.127844, 2,510,800 reported tokens, 2,334,080 cached, 21 turns across three
+  passes, model `grok-4.5-build`; final verdict `APPROVED FOR IMPLEMENTATION`.
 - No owner question is open before P0.
 
 ## Self-audit

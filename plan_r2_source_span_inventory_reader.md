@@ -1,6 +1,6 @@
 # R2 Source-Span Inventory Reader Implementation Plan
 
-Status: **REVIEW REQUIRED. IMPLEMENTATION AND PRODUCTION GATE NOT STARTED.**
+Status: **GROK 4.5 DESIGN REVIEW APPROVED. IMPLEMENTATION AND PRODUCTION GATE NOT STARTED.**
 
 Created: 2026-08-09
 
@@ -12,21 +12,26 @@ Predecessor plan: `plan_r2_deeper_responsibility_architecture.md`
 
 Failure evidence: `evals/r2-responsibilities.md` and `evals/bakeoffs/workflow-read.md`
 
+Independent design review: Grok 4.5 session `019fe8db-eef0-7f83-b974-a372bd6330da`
+returned `APPROVED FOR IMPLEMENTATION` on 2026-08-09 after two correction rounds. Total review cost
+was $1.127844 across 2,510,800 reported tokens, including 2,334,080 cached tokens.
+
 ## STATUS table
 
 | Step | Status | Evidence / next gate |
 |---|---|---|
-| P0. Reconfirm the frozen contract and clean baseline | ⬜ open | Start from current `main`; all frozen fixture, score, budget, evidence, and safety assertions pass before edits. |
+| P0. Reconfirm the frozen contract and classify residual failures | ⬜ open | Frozen assertions pass and every latest-gate/bake-off miss has a mechanism-owned failure class. |
 | P1. Build a deterministic source-span inventory | ⬜ open | Every recognized duty span receives one stable inventory seed before any model output is considered. |
-| P2. Separate discovery coverage from field completion | ⬜ open | Validation reports source inventory, model discovery, and merge-ready coverage independently. |
-| P3. Add exhaustive, budget-packed field completion | ⬜ open | Every incomplete inventory seed is scheduled once, or the map records a loud budget failure. |
+| P2. Add deterministic seed completion and exclusive proposal matching | ⬜ open | Clear list duties complete without a model; proposals attach only to one existing seed. |
+| P3. Add exhaustive, budget-proven residual completion | ⬜ open | Every residual seed is scheduled once within a forecasted budget, or records a loud failure. |
 | P4. Rebuild omission and merge assembly around the inventory | ⬜ open | No duty disappears because it missed a retry slot; only complete records enter `elementsJson`. |
 | P5. Complete local verification | ⬜ open | Every command in section 10 passes and fixture leakage is absent. |
 | P6. Independent read-only design and implementation review | ⬜ open | Reviewer returns approval with no open P0/P1 findings. |
 | P7. Commit, push, CI, deploy, and run one production gate | ⬜ open | One pinned production run reaches a terminal state with full audit evidence. |
 | P8. Apply the frozen score rule and update durable records | ⬜ open | Result and next decision are committed, pushed, and CI green. |
 
-Fresh-session starting point: **P0**. Read this file in full, inspect the current source, and do not
+Fresh-session starting point: **P0**. The design review is approved. Read this file in full, inspect
+the current source, and do not
 run another model bake-off or production gate before P1 through P6 are complete.
 
 ---
@@ -161,9 +166,10 @@ read and is used to rank scarcity, rather than establishing the complete work qu
 
 ### Design conclusion
 
-Invert control. The source defines the duty inventory first. Models fill and normalize one known
-source span at a time, in packed batches. Validation decides whether each seed is complete, but a
-failed completion can no longer erase the fact that the duty exists.
+Invert control. The source defines the duty inventory first. Pure rules complete clear list duties
+and split explicit destination or multi-verb structures. Packed model calls fill only the residual
+ambiguous seeds. Validation decides whether each seed is complete, but no failed completion can erase
+the fact that the duty exists.
 
 ---
 
@@ -198,12 +204,15 @@ failed completion can no longer erase the fact that the duty exists.
    IDs must be stable across identical reruns and must not use answer-key content.
 3. Exact evidence quote, chunk ID, and raw offsets are immutable after inventory creation.
 4. Field completion may only use the exact enclosing source span plus generic document metadata.
-5. Destination expansion runs deterministically from the bound source span before final completion.
-6. Multi-verb spans remain one inventory seed initially, then split into stable child records only
-   when each child has a distinct source-grounded action/object. Unsplit multi-verb seeds remain
-   incomplete and visible.
-7. Every incomplete seed is scheduled exactly once for field completion unless it was completed by
-   a validated model proposal first.
+5. Multi-destination splitting is source-only. Parse a terminal conjunction/comma list only after a
+   destination preposition (`to`, `into`, `in`, `on`, `within`, or `across`); derive the shared object
+   head from source words between the duty verb and preposition; retain the existing ambiguity guards;
+   replace the parent with one child per normalized destination and retain the parent in audit.
+6. Multi-verb parents never become merge-ready. Inventory-time splitting creates single-verb
+   children only when each clause has exactly one duty verb and a non-empty source-derived object.
+   Otherwise the parent remains incomplete with `ambiguous_multi_verb`.
+7. Every seed still incomplete after validated base proposals and deterministic completion is
+   scheduled exactly once for residual field completion.
 8. Completion batches are packed by estimated input/output tokens, not by an arbitrary record count.
 9. If all batches cannot fit the frozen total budget, stop scheduling and record every unscheduled ID
    as `budget_exhausted`. Never treat it as coverage.
@@ -217,18 +226,28 @@ failed completion can no longer erase the fact that the duty exists.
     `degraded`.
 14. The configured `workflow_read` route remains the model source. No model is hard-coded.
 15. Frozen limits, matcher, fixture SHA, merge/apply flags, and one-gate rule remain unchanged.
+16. Introduce a dedicated `ResponsibilityInventorySeed` type. Do not reuse retry-only
+    `ForcedResponsibilitySpan` fields.
+17. Keep pure inventory, splitting, deterministic completion, matching, and token packing in
+    `responsibility-reader.ts`; keep provider dispatch and durable writes in `source-workflow-read.ts`.
+18. Use a dedicated shallow completion schema. Do not extend the combined quote-repair schema.
+19. Unmatched model proposals are audit-only. They become usable only if the pure inventory builder
+    creates a seed from the same exact raw span and the exclusive matcher attaches the proposal.
+20. A base-model complete record skips residual completion. An incomplete record may be replaced only
+    by a strictly better deterministic or residual completion.
+21. List-structured, single-verb seeds use deterministic completion first. The model is reserved for
+    fields the source grammar cannot determine safely.
+22. Destination children keep the exact parent quote as immutable evidence, but field fidelity uses
+    the existing destination-specific rewritten span. A child object is exactly the shared source
+    object head plus source preposition plus one destination. Set `requiredSystem` only under the
+    existing action/preposition rules in `expandResponsibilityDestinations`. After a successful split,
+    the parent is audit-only and never merge-ready.
+23. For a non-destination seed, deterministic `object` is the complete post-verb source text,
+    including destination, system, cadence, and timing tokens required by fidelity. Optional `trigger`
+    may repeat explicit timing/cadence, but must never remove those tokens from `object`.
 
-### Open implementation details that do not change the design
-
-1. Reuse `ForcedResponsibilitySpan` or introduce a clearer `ResponsibilityInventorySeed` type. Prefer
-   the new type if reuse would blur retry-only fields.
-2. Place token packing in `responsibility-reader.ts` if it is pure and testable; keep actual model
-   dispatch in `source-workflow-read.ts`.
-3. Extend the existing combined repair schema or add a smaller completion schema. Prefer a dedicated
-   completion schema because it removes quote-repair branches and lowers strict-schema depth.
-
-The implementation review must resolve these three details before landing, without changing locked
-decisions.
+These choices are frozen before implementation. The shallow schema separates duties from quote
+repair, but it is not a provider-eligibility claim or the reason the score should improve.
 
 ---
 
@@ -236,9 +255,13 @@ decisions.
 
 ### Phase A: Freeze and inventory
 
-#### P0. Reconfirm baseline
+#### P0. Reconfirm baseline and build the residual matrix
 
-Files: no edits.
+Files:
+
+- no runtime edits
+- verifier-only analysis under `apps/workers/src/__verify__/` if needed
+- `evals/r2-responsibilities.md` for the durable matrix
 
 Actions:
 
@@ -247,9 +270,17 @@ Actions:
 3. Run the three typechecks and both current R2 responsibility verifiers from section 10.
 4. Record the frozen fixture SHA, matcher, 27/30 threshold, 40/500k/$10 reader budget, 1/5/1
    post-pass budget, and false merge/apply defaults in the test output.
+5. Re-score the latest 12/30 production map and both 11/30 and 12/30 GPT-4.1 maps offline from their
+   durable artifacts. Give every answer-key row exactly one primary class: `inventory_miss`,
+   `multi_destination_miss`, `multi_verb_miss`, `object_thin`, `owner_action_or_direction`,
+   `quote_error`, or `scorer_mismatch`. Retain secondary classes separately.
+6. Add a mechanism column: source inventory, source-only destination split, source-only multi-verb
+   split, deterministic completion, residual model completion, quote repair, or scorer investigation.
+7. Stop before P1 if fewer than 27 rows have a credible non-scorer mechanism, or if scorer mismatch
+   is suspected. Do not change the frozen scorer without a separate owner decision.
 
-Verification gate: the baseline is clean, the existing verifier passes, and every frozen value is
-asserted before implementation begins.
+Verification gate: the baseline is clean, frozen assertions pass, all 30 rows in each relevant run
+are classified, and at least 27 pinned rows have a credible architecture mechanism.
 
 #### P1. Build the source-span inventory
 
@@ -267,9 +298,13 @@ Actions:
    offsets, or quote/offset mismatch.
 4. Preserve owner-heading inheritance in the normalized source span while keeping the evidence quote
    an exact raw slice.
-5. Add deterministic child IDs for valid multi-destination and multi-verb splits. Keep parent-child
-   audit links.
-6. Make `buildResponsibilityBaseReadPlan` expose inventory seeds for every duty-bearing chunk, not
+5. Add source-only multi-destination splitting using locked decision 5. Child evidence remains the
+   exact parent quote; IDs add the normalized destination hash.
+6. Add source-only multi-verb splitting using locked decision 6. Each child binds its exact raw clause;
+   inherited owner text may normalize the span but never the quote.
+7. Successful split children replace the parent in active inventory while the parent and decision
+   remain in audit. A failed split keeps only the incomplete parent.
+8. Make `buildResponsibilityBaseReadPlan` expose inventory seeds for every duty-bearing chunk, not
    merely synthetic segments.
 
 Verification gate: generic list, heading-owned, prose-owned, multi-destination, multi-verb, repeated-
@@ -282,7 +317,7 @@ no pinned role, company, system, or answer-key strings.
 
 ### Phase B: Validation and completion
 
-#### P2. Split coverage into three stages
+#### P2. Add deterministic completion, exclusive matching, and staged coverage
 
 Files:
 
@@ -292,11 +327,13 @@ Files:
 
 Actions:
 
-1. Add a deterministic matcher from model proposals to inventory seeds using exact chunk/quote
-   binding first, then the existing enclosing-span rules. Reject one proposal claiming multiple
-   unrelated seeds.
-2. Preserve unmatched valid model proposals in a separate audit. They may become complete elements
-   only if they bind to a real source span and do not duplicate a seed.
+1. Add a deterministic matcher using exact chunk/quote binding and raw offset identity before the
+   enclosing-span rules. Assignment is exclusive: one proposal to one seed and one seed to at most
+   one accepted proposal. Reject partial overlap, one proposal enclosing multiple active children,
+   parent/child cross-assignment, and ambiguous repeated-text matches.
+2. Preserve unmatched proposals as audit-only. If an exact quote exposes a previously unseeded duty,
+   rerun the same pure inventory builder on that raw span; only a newly created seed may enter the
+   normal matcher. A proposal alone never creates a merge-ready element.
 3. Report three independent counts and ID lists:
    - `sourceInventory`: all deterministic seeds;
    - `modelDiscoveredInventory`: seeds matched by base model output;
@@ -305,9 +342,19 @@ Actions:
 5. Keep existing quote, field, polarity, object, system, cadence, direction, and destination checks.
 6. Change omission logic to report two classes: `inventory_detection_gap` for duty-like text not
    seeded, and `completion_gap` for seeded duties without a complete element.
+7. Add a pure deterministic completer for list-structured, single-verb seeds. Derive owner from the
+   recorded inline/heading/modal owner and action from `sourceDutyVerbMatch`. For an ordinary seed,
+   object is the full post-verb source text, including destination, system, cadence, and timing. For a
+   destination child, object is shared head plus preposition plus that destination and fidelity uses
+   `destinationSpecificResponsibilitySpan`, while evidence remains the exact parent quote. Optional
+   trigger may repeat explicit timing/cadence; it never removes object tokens. Set `requiredSystem`
+   only under the existing action/preposition rules. Ambiguity leaves the seed incomplete.
+8. Validate deterministic records through the same `validateResponsibilityRead` and fidelity checks
+   as model records. Do not create a privileged validation path.
 
-Verification gate: deleting all model output leaves source inventory intact, discovery coverage at
-zero, completion coverage at zero, degraded status true, and map elements empty.
+Verification gate: deleting all model output leaves source inventory intact; clear list-structured
+single-verb seeds complete deterministically; ambiguous seeds stay incomplete; discovery coverage is
+zero; and no unmatched proposal reaches merge-ready state.
 
 #### P3. Add exhaustive budget-packed field completion
 
@@ -317,7 +364,7 @@ Files:
 - `apps/workers/src/lib/responsibility-reader.ts`
 - `apps/workers/src/lib/source-workflow-read.ts`
 - `apps/workers/src/__verify__/r2-responsibility-reader.ts`
-- `packages/ai/src/__verify__/workflow-read.ts`
+- `packages/ai/src/__verify__/workflow-read-smoke.ts`
 
 Actions:
 
@@ -327,18 +374,26 @@ Actions:
 2. Add a completion prompt that says the model is filling known duties, not discovering duties.
    Fields must use only source-span words except harmless grammatical normalization already allowed
    by validators.
-3. Add a pure token estimator and stable packer. Sort by source order, pack all incomplete seeds into
-   the largest batches that fit the existing per-call context/output limits, and reserve against the
-   existing total reader budget before dispatch.
-4. Do not impose a six-record or five-chunk selection limit. The queue is exhaustive.
-5. Run batches with existing reader concurrency. Keep deterministic result order after concurrency.
-6. Canonicalize returned IDs, quotes, chunk IDs, and offsets from the seed, then validate every field.
-7. Accept only strict improvement for each seed. A bad record stays incomplete with its reasons.
-8. A missing, duplicate, extra, invented, or cross-seed response fails that batch loudly. Do not
+3. Add a pure token estimator and stable packer. Inputs are remaining call/token/cost budget after
+   segmentation, process reads, base responsibility reads, and one reserved candidate-bound quote
+   repair; per-seed prompt estimate; fixed prompt/schema overhead; configured model price; and
+   per-call input/output ceilings. Output is an ordered batch manifest plus unscheduled IDs.
+4. Before dispatch, produce a pinned-fixture forecast for low, expected, and high inventory counts.
+   The expected case must fit the remaining calls, 500,000 input tokens, and $10. Stop before review
+   if it does not fit rather than relying on production truncation.
+5. Do not impose a six-record or five-chunk selection limit. The residual queue is exhaustive.
+6. Reserve completion through `SourceReaderBudget.reserveRead`, not `reserveRepair`, before concurrent
+   dispatch. Apply results in original batch and source-seed order regardless of completion timing.
+7. Canonicalize returned IDs, quotes, chunk IDs, and offsets from the seed, then validate every field.
+8. Accept only strict improvement for each seed. A bad record stays incomplete with its reasons.
+9. A missing, duplicate, extra, invented, or cross-seed response fails that batch loudly. Do not
    partially apply a malformed batch.
-9. If the frozen budget cannot schedule every batch, mark remaining seeds `budget_exhausted`, record
+10. A timeout, schema failure, or `AllCandidatesFailedError` may receive one retry only if the same
+    batch fits the remaining frozen read budget. Otherwise retain every seed as incomplete with the
+    exact provider failure. Never record successful coverage for a failed batch.
+11. If the frozen budget cannot schedule every batch, mark remaining seeds `budget_exhausted`, record
    estimated calls/tokens/cost, and leave the map degraded.
-10. Keep model-run IDs, context-pack IDs, route, prompt version, usage, cache data, and execution
+12. Keep model-run IDs, context-pack IDs, route, prompt version, usage, cache data, and execution
     diagnostics in the existing audit.
 
 Verification gate: a generic 40-duty fixture with intentionally empty base output schedules every
@@ -358,7 +413,8 @@ Actions:
 1. At the orchestration seam near `source-workflow-read.ts:2159`, build the full inventory before
    responsibility model reads.
 2. Keep base reads because they can complete many seeds cheaply and can discover ambiguous prose.
-3. After base validation, create the exhaustive completion queue from all incomplete seeds.
+3. Apply deterministic completion, then create the exhaustive residual queue from all still-incomplete
+   seeds. Base-complete and deterministic-complete seeds skip model completion.
 4. Run completion batches before the legacy five omission retries.
 5. Use legacy omission retries only for `inventory_detection_gap`; do not spend them on normal seeded
    completion gaps.
@@ -371,6 +427,8 @@ Actions:
 10. Calculate status, kept count, dropped count, primary count, and coverage from explicit named
     stages. Incomplete inventory must never inflate map quality.
 11. Preserve merge/apply false and do not dispatch shadow merge.
+12. On identical reruns, assert stable seed/child IDs, batch order, final element order, and audit
+    assignment. Concurrent completion timing must not affect persistence.
 
 Verification gate: one production-used orchestration test executes inventory creation, base model
 matching, exhaustive completion, strict validation, optional detection retry, quote repair, final
@@ -388,7 +446,7 @@ implementation is an inventory-first control-flow change, not a prompt-only vari
 Files:
 
 - `apps/workers/src/__verify__/r2-responsibility-reader.ts`
-- `packages/ai/src/__verify__/workflow-read.ts`
+- `packages/ai/src/__verify__/workflow-read-smoke.ts`
 - existing verifier files only where a real contract changed
 
 Actions:
@@ -397,8 +455,12 @@ Actions:
 2. Run every exact command in section 10 in one fail-fast sequence.
 3. Search production reader and prompt files for fixture-derived role, system, destination, and object
    terms generated from the verifier fixture.
-4. Run `git diff --check`.
-5. Confirm every new pure helper is covered directly and through the production orchestration seam.
+4. Run the pure inventory builder against the pinned fixture in verifier-only code. Report which of
+   the 30 answer-key rows have a supportable seed. Stop before P6 if fewer than 27 do.
+5. Compare actual local batch forecasts with P3's low/expected/high model and stop if the expected
+   case cannot fit the frozen limits.
+6. Run `git diff --check`.
+7. Confirm every new pure helper is covered directly and through the production orchestration seam.
 
 Verification gate: all commands pass, anti-leak checks pass, and the diff contains only in-scope
 files.
@@ -507,6 +569,14 @@ unambiguous next action.
 21. Runtime anti-leak guard derives fixture terms at test time and proves none occur in production
    reader or prompt code.
 22. Production-used seam covers the whole pipeline without a test-only copy.
+23. Pure multi-destination expansion derives its object head and destinations without model fields.
+24. Pinned fixture inventory coverage is reported in verifier-only code and supports at least 27 rows.
+25. Deterministic completion handles clear list-structured single-verb duties without a model.
+26. Exclusive proposal matching rejects repeated-text ambiguity, partial overlap, and parent/child
+    cross-assignment.
+27. Timeout/provider/schema failure follows the one-budgeted-retry contract and never partially
+    applies a batch.
+28. Concurrent completion produces stable applied and persisted order.
 
 ### Exact commands
 
@@ -617,8 +687,6 @@ This plan is complete only when:
 
 ### Open questions
 
-- Whether a new dedicated completion schema is shallower and safer than extending combined repair.
-  Recommended answer: dedicated schema, decided during P3 implementation review.
 - Whether deterministic prose recognition is broad enough on non-list documents. This must be
   measured with invented local fixtures before the one production gate, not guessed from the pinned
   answer key.
