@@ -692,3 +692,29 @@ This plan is complete only when:
   answer key.
 
 No owner decision is required before P0. The next implementing session should begin there.
+
+### Implementation-plan self-audit
+
+1. **Could a brand-new AI session execute this plan without asking the planning session anything?**
+   Yes. Sections 1 through 4 define the business goal, application, trigger, frozen production gate,
+   and exact scope. Sections 5 through 8 provide line-level current state, root cause, failed paths,
+   and locked design decisions. Section 9 gives ordered file/function actions, dependencies, context
+   cut points, and a verification gate for every phase. Sections 10 through 13 provide exact tests,
+   operating constraints, access locations, landing steps, stop rules, and completion evidence.
+2. **Does the plan carry the full background, nuance, and reasoning, including rejected work?**
+   Yes. Section 3 records the 12/30 production gate, 11.5/30 GPT-4.1 bake-off mean, deep-schema model
+   exclusions, frozen fixture/hash/matcher, and ban on a second bake-off. Sections 6 and 7 explain why
+   model-first reads, scarce retries, prompt-only work, weaker validation, incomplete persistence,
+   model substitution, and a new database table are rejected. Section 8 freezes source inventory,
+   deterministic completion/splitting, exclusive matching, budget handling, evidence, and merge rules.
+3. **Is the goal clear enough to make the right decision if a step proves wrong?**
+   Yes. Section 1 says the business outcome is retaining every real duty with accurate owner, action,
+   object, system, timing, cadence, direction, and exact evidence, measured by the unchanged 27/30
+   gate. It explicitly says the goal wins over any conflicting step and forbids score gains through
+   answer-key leakage, weaker evidence, silent deletion, or incomplete downstream records.
+
+All implementation-plan-writer checklist items pass: all 13 sections exist; the goal and conflict
+rule lead; scope and rejected approaches are explicit; current code has file/line evidence; locked
+decisions are labeled; each P0-P8 step names files/functions and a verification gate; tests are named
+by behavior and exact command; secrets are location-only; and done includes commit, push, CI, worker
+deployment, the one production gate, durable evidence, and the next score decision.
