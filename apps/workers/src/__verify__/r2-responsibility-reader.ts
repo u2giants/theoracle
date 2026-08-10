@@ -49,6 +49,8 @@ import {
   responsibilityMergeEligibleElements,
   expandResponsibilityDestinations,
   patchCombinedResponsibilityRepairs,
+  packResponsibilityCompletions,
+  canonicalizeResponsibilityCompletionBatch,
 } from '../lib/responsibility-reader';
 import {
   responsibilityEvidenceCoverage,
@@ -73,6 +75,10 @@ import {
   buildResponsibilityRequestContent,
   responsibilityReadPromptVersion,
   responsibilityReadTaskType,
+  buildResponsibilityCompletionRequestContent,
+  reserveResponsibilityCompletionBatches,
+  forecastResponsibilityCompletionScenarios,
+  executeResponsibilityCompletionBatches,
 } from '../lib/source-workflow-read';
 const answerKey = JSON.parse(
   readFileSync(
@@ -88,6 +94,164 @@ const answerKey = JSON.parse(
 const documentId = '11111111-1111-4111-8111-111111111111';
 const chunkId = '22222222-2222-4222-8222-222222222222';
 const otherChunkId = '44444444-4444-4444-8444-444444444444';
+
+const completionSeeds = Array.from({ length: 40 }, (_, index) => ({
+  inventorySeedId: `inventory_seed_generic_${String(index + 1).padStart(3, '0')}`,
+  parentSeedId: null,
+  chunkId,
+  spanIndex: index,
+  sourceSpan: `[Finance Team] submits report ${index + 1} to the records portal each month`,
+  evidenceQuote: `submits report ${index + 1} to the records portal each month`,
+  sourceStart: index * 80,
+  sourceEnd: index * 80 + 55,
+  listStructured: true,
+  sourceSpanSha256: `hash_${index}`,
+  splitKind: 'none' as const,
+  splitValue: null,
+  parseDiagnostics: [],
+}));
+const completionPackArgs = {
+  seeds: completionSeeds,
+  remainingCalls: 40,
+  remainingInputTokens: 500_000,
+  remainingCostUsd: 10,
+  fixedInputTokensPerCall: 500,
+  fixedOutputTokensPerCall: 100,
+  maxInputTokensPerCall: 2_400,
+  maxOutputTokensPerCall: 2_400,
+  inputCostPerMillionTokensUsd: 2,
+  outputCostPerMillionTokensUsd: 8,
+};
+const completionPack = packResponsibilityCompletions(completionPackArgs);
+assert.equal(completionPack.unscheduledIds.length, 0);
+assert.equal(completionPack.batches.flatMap((batch) => batch.seedIds).length, 40);
+assert.deepEqual(completionPack, packResponsibilityCompletions(completionPackArgs));
+const forecasts = forecastResponsibilityCompletionScenarios({
+  scenarios: {
+    low: completionSeeds.slice(0, 20),
+    expected: completionSeeds,
+    high: [...completionSeeds, ...completionSeeds.map((seed, index) => ({
+      ...seed,
+      inventorySeedId: `${seed.inventorySeedId}_high_${index}`,
+    }))],
+  },
+  pack: completionPackArgs,
+});
+assert.equal(forecasts.expected.unscheduledIds.length, 0);
+assert.ok(forecasts.low.estimatedCalls <= forecasts.expected.estimatedCalls);
+assert.ok(forecasts.high.estimatedCalls >= forecasts.expected.estimatedCalls);
+assert.match(buildResponsibilityCompletionRequestContent(completionPack.batches[0]!), /known duty/i);
+const completionBudget = new SourceReaderBudget({
+  maxReadCalls: 40,
+  maxInputTokens: 500_000,
+  maxEstimatedCostUsd: 10,
+  estimatedInputCostPerMillionTokensUsd: 2,
+  maxRepairAttempts: 1,
+  maxConcurrency: 4,
+});
+reserveResponsibilityCompletionBatches({ budget: completionBudget, batches: completionPack.batches });
+assert.equal(completionBudget.snapshot().readCalls, completionPack.estimatedCalls);
+const firstCompletionBatch = completionPack.batches[0]!;
+const validCompletion = canonicalizeResponsibilityCompletionBatch({
+  batch: firstCompletionBatch,
+  output: {
+    completions: firstCompletionBatch.requests.map((request) => ({
+      responsibilityId: request.responsibilityId,
+      label: 'Submit monthly report',
+      role: 'Finance Team',
+      action: 'submit',
+      object: 'monthly report to the records portal each month',
+      trigger: 'each month',
+      requiredSystem: 'records portal',
+      ownerName: null,
+      department: null,
+    })),
+  },
+});
+assert.deepEqual(validCompletion.map((item) => item.responsibilityId), firstCompletionBatch.seedIds);
+assert.equal(validCompletion[0]!.evidenceQuote, firstCompletionBatch.requests[0]!.evidenceQuote);
+assert.throws(() => canonicalizeResponsibilityCompletionBatch({
+  batch: firstCompletionBatch,
+  output: { completions: [] },
+}), /omitted seeds/);
+assert.throws(() => canonicalizeResponsibilityCompletionBatch({
+  batch: firstCompletionBatch,
+  output: { completions: [{
+    responsibilityId: 'inventory_seed_extra', label: 'Extra', role: 'Team', action: 'do', object: 'work',
+  }] },
+}), /extra seed/);
+const shortage = packResponsibilityCompletions({
+  ...completionPackArgs,
+  remainingCalls: 1,
+  maxInputTokensPerCall: 900,
+});
+assert.ok(shortage.unscheduledIds.length > 0);
+assert.deepEqual(
+  [...shortage.batches.flatMap((batch) => batch.seedIds), ...shortage.unscheduledIds],
+  completionSeeds.map((seed) => seed.inventorySeedId),
+);
+const executionBudget = new SourceReaderBudget({
+  maxReadCalls: completionPack.batches.length + 1,
+  maxInputTokens: 500_000,
+  maxEstimatedCostUsd: 10,
+  estimatedInputCostPerMillionTokensUsd: 2,
+  maxRepairAttempts: 0,
+  maxConcurrency: 4,
+});
+const execution = await executeResponsibilityCompletionBatches({
+  budget: executionBudget,
+  batches: completionPack.batches,
+  concurrency: 4,
+  runBatch: async (batch) => ({
+    completions: batch.requests.map((request) => ({
+      responsibilityId: request.responsibilityId,
+      label: 'Submit monthly report', role: 'Finance Team', action: 'submit',
+      object: 'monthly report to the records portal each month',
+    })),
+  }),
+  selectStrictImprovements: (records) => records,
+});
+assert.deepEqual(execution.flatMap((item) => item.seedIds), completionSeeds.map((seed) => seed.inventorySeedId));
+assert.ok(execution.every((item) => item.failure === null && item.attempts === 1));
+const malformedBudget = new SourceReaderBudget({
+  maxReadCalls: 2,
+  maxInputTokens: 500_000,
+  maxEstimatedCostUsd: 10,
+  estimatedInputCostPerMillionTokensUsd: 2,
+  maxRepairAttempts: 0,
+  maxConcurrency: 1,
+});
+const malformed = await executeResponsibilityCompletionBatches({
+  budget: malformedBudget,
+  batches: [firstCompletionBatch],
+  concurrency: 1,
+  runBatch: async () => ({ completions: [] }),
+  selectStrictImprovements: (records) => records,
+});
+assert.equal(malformed[0]!.records.length, 0);
+assert.equal(malformed[0]!.attempts, 1);
+assert.match(malformed[0]!.failure!, /omitted seeds/);
+const retryBudget = new SourceReaderBudget({
+  maxReadCalls: 2, maxInputTokens: 500_000, maxEstimatedCostUsd: 10,
+  estimatedInputCostPerMillionTokensUsd: 2, maxRepairAttempts: 0, maxConcurrency: 1,
+});
+let retryCalls = 0;
+const retried = await executeResponsibilityCompletionBatches({
+  budget: retryBudget,
+  batches: [firstCompletionBatch],
+  concurrency: 1,
+  runBatch: async (batch) => {
+    retryCalls += 1;
+    if (retryCalls === 1) throw new Error('provider timeout');
+    return { completions: batch.requests.map((request) => ({
+      responsibilityId: request.responsibilityId,
+      label: 'Submit monthly report', role: 'Finance Team', action: 'submit', object: 'monthly report',
+    })) };
+  },
+  selectStrictImprovements: (records) => records,
+});
+assert.equal(retried[0]!.attempts, 2);
+assert.equal(retried[0]!.failure, null);
 const segment: SourceStructureSegment = {
   segmentId: 'licensed_team',
   shape: 'responsibilities',

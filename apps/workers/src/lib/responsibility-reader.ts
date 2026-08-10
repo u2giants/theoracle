@@ -1,4 +1,5 @@
 import type {
+  ResponsibilityCompletionOutput,
   ResponsibilityReadOutput,
   SourceStructureElement,
   SourceStructureSegment,
@@ -89,6 +90,192 @@ export type ResponsibilityInventoryMatchAudit = {
   modelDiscoveredInventoryCount: number;
   mergeReadyInventoryCount: number;
 };
+
+export type ResponsibilityCompletionRequest = {
+  responsibilityId: string;
+  chunkId: string;
+  evidenceQuote: string;
+  sourceSpan: string;
+  sourceStart: number;
+  sourceEnd: number;
+  allowedMutableFields: readonly [
+    'label', 'role', 'action', 'object', 'trigger', 'requiredSystem', 'ownerName', 'department',
+  ];
+};
+
+export type ResponsibilityCompletionBatch = {
+  batchIndex: number;
+  seedIds: string[];
+  requests: ResponsibilityCompletionRequest[];
+  estimatedInputTokens: number;
+  estimatedOutputTokens: number;
+  estimatedCostUsd: number;
+};
+
+export type ResponsibilityCompletionPack = {
+  batches: ResponsibilityCompletionBatch[];
+  unscheduledIds: string[];
+  estimatedCalls: number;
+  estimatedInputTokens: number;
+  estimatedOutputTokens: number;
+  estimatedCostUsd: number;
+};
+
+const COMPLETION_MUTABLE_FIELDS = [
+  'label', 'role', 'action', 'object', 'trigger', 'requiredSystem', 'ownerName', 'department',
+] as const;
+
+export function responsibilityCompletionRequest(
+  seed: ResponsibilityInventorySeed,
+): ResponsibilityCompletionRequest {
+  return {
+    responsibilityId: seed.inventorySeedId,
+    chunkId: seed.chunkId,
+    evidenceQuote: seed.evidenceQuote,
+    sourceSpan: seed.sourceSpan,
+    sourceStart: seed.sourceStart,
+    sourceEnd: seed.sourceEnd,
+    allowedMutableFields: COMPLETION_MUTABLE_FIELDS,
+  };
+}
+
+export function estimateResponsibilityCompletionTokens(
+  request: ResponsibilityCompletionRequest,
+): { inputTokens: number; outputTokens: number } {
+  const inputChars = JSON.stringify(request).length;
+  const sourceWords = request.sourceSpan.trim().split(/\s+/).filter(Boolean).length;
+  return {
+    inputTokens: Math.ceil(inputChars / 3.5) + 24,
+    outputTokens: Math.max(96, Math.ceil(sourceWords * 2.5) + 64),
+  };
+}
+
+export function packResponsibilityCompletions(args: {
+  seeds: readonly ResponsibilityInventorySeed[];
+  remainingCalls: number;
+  remainingInputTokens: number;
+  remainingCostUsd: number;
+  fixedInputTokensPerCall: number;
+  fixedOutputTokensPerCall: number;
+  maxInputTokensPerCall: number;
+  maxOutputTokensPerCall: number;
+  inputCostPerMillionTokensUsd: number;
+  outputCostPerMillionTokensUsd: number;
+}): ResponsibilityCompletionPack {
+  const nonNegative = [
+    args.remainingCalls, args.remainingInputTokens, args.remainingCostUsd,
+    args.fixedInputTokensPerCall, args.fixedOutputTokensPerCall,
+    args.maxInputTokensPerCall, args.maxOutputTokensPerCall,
+    args.inputCostPerMillionTokensUsd, args.outputCostPerMillionTokensUsd,
+  ];
+  if (nonNegative.some((value) => !Number.isFinite(value) || value < 0)) {
+    throw new Error('Responsibility completion packer inputs must be finite and non-negative.');
+  }
+  if (!Number.isInteger(args.remainingCalls)) {
+    throw new Error('Responsibility completion remainingCalls must be an integer.');
+  }
+  const seen = new Set<string>();
+  const requests = args.seeds.map((seed) => {
+    if (seen.has(seed.inventorySeedId)) {
+      throw new Error(`Duplicate residual completion seed: ${seed.inventorySeedId}`);
+    }
+    seen.add(seed.inventorySeedId);
+    return responsibilityCompletionRequest(seed);
+  });
+  const batches: ResponsibilityCompletionBatch[] = [];
+  const unscheduledIds: string[] = [];
+  let current: ResponsibilityCompletionBatch | null = null;
+  let totalInput = 0;
+  let totalOutput = 0;
+  let totalCost = 0;
+  const startBatch = (): ResponsibilityCompletionBatch => ({
+    batchIndex: batches.length,
+    seedIds: [],
+    requests: [],
+    estimatedInputTokens: args.fixedInputTokensPerCall,
+    estimatedOutputTokens: args.fixedOutputTokensPerCall,
+    estimatedCostUsd:
+      (args.fixedInputTokensPerCall / 1_000_000) * args.inputCostPerMillionTokensUsd +
+      (args.fixedOutputTokensPerCall / 1_000_000) * args.outputCostPerMillionTokensUsd,
+  });
+  for (let index = 0; index < requests.length; index += 1) {
+    const request = requests[index]!;
+    const estimate = estimateResponsibilityCompletionTokens(request);
+    if (!current) current = startBatch();
+    const fitsCall =
+      current.estimatedInputTokens + estimate.inputTokens <= args.maxInputTokensPerCall &&
+      current.estimatedOutputTokens + estimate.outputTokens <= args.maxOutputTokensPerCall;
+    if (!fitsCall && current.requests.length > 0) {
+      batches.push(current);
+      totalInput += current.estimatedInputTokens;
+      totalOutput += current.estimatedOutputTokens;
+      totalCost += current.estimatedCostUsd;
+      current = startBatch();
+    }
+    const itemCost =
+      (estimate.inputTokens / 1_000_000) * args.inputCostPerMillionTokensUsd +
+      (estimate.outputTokens / 1_000_000) * args.outputCostPerMillionTokensUsd;
+    const prospectiveInput = totalInput + current.estimatedInputTokens + estimate.inputTokens;
+    const prospectiveCost = totalCost + current.estimatedCostUsd + itemCost;
+    const cannotFit =
+      batches.length >= args.remainingCalls ||
+      current.estimatedInputTokens + estimate.inputTokens > args.maxInputTokensPerCall ||
+      current.estimatedOutputTokens + estimate.outputTokens > args.maxOutputTokensPerCall ||
+      prospectiveInput > args.remainingInputTokens ||
+      prospectiveCost > args.remainingCostUsd;
+    if (cannotFit) {
+      unscheduledIds.push(...requests.slice(index).map((item) => item.responsibilityId));
+      current = current.requests.length > 0 ? current : null;
+      break;
+    }
+    current.requests.push(request);
+    current.seedIds.push(request.responsibilityId);
+    current.estimatedInputTokens += estimate.inputTokens;
+    current.estimatedOutputTokens += estimate.outputTokens;
+    current.estimatedCostUsd += itemCost;
+  }
+  if (current?.requests.length) {
+    batches.push(current);
+    totalInput += current.estimatedInputTokens;
+    totalOutput += current.estimatedOutputTokens;
+    totalCost += current.estimatedCostUsd;
+  }
+  return {
+    batches,
+    unscheduledIds,
+    estimatedCalls: batches.length,
+    estimatedInputTokens: totalInput,
+    estimatedOutputTokens: totalOutput,
+    estimatedCostUsd: totalCost,
+  };
+}
+
+export function canonicalizeResponsibilityCompletionBatch(args: {
+  batch: ResponsibilityCompletionBatch;
+  output: ResponsibilityCompletionOutput;
+}): ResponsibilityReadOutput['responsibilities'] {
+  const requested = new Map(args.batch.requests.map((item) => [item.responsibilityId, item]));
+  const returned = new Map<string, ResponsibilityCompletionOutput['completions'][number]>();
+  for (const completion of args.output.completions) {
+    if (!requested.has(completion.responsibilityId)) {
+      throw new Error(`Responsibility completion returned extra seed: ${completion.responsibilityId}`);
+    }
+    if (returned.has(completion.responsibilityId)) {
+      throw new Error(`Responsibility completion returned duplicate seed: ${completion.responsibilityId}`);
+    }
+    returned.set(completion.responsibilityId, completion);
+  }
+  const missing = args.batch.seedIds.filter((id) => !returned.has(id));
+  if (missing.length > 0) {
+    throw new Error(`Responsibility completion omitted seeds: ${missing.join(', ')}`);
+  }
+  return args.batch.requests.map((request) => ({
+    ...returned.get(request.responsibilityId)!,
+    responsibilityId: request.responsibilityId,
+    chunkId: request.chunkId,
+    evidenceQuote: request.evidenceQuote,
+  }));
+}
 
 export type ResponsibilityFieldFidelityResult = {
   passed: boolean;

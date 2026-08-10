@@ -6,11 +6,34 @@ import {
   SourceStructureMapSchema,
   WorkflowReadSchema,
   WorkflowQuoteRepairSchema,
+  ResponsibilityCompletionSchema,
+  RESPONSIBILITY_COMPLETION_SYSTEM_PROMPT,
   WORKFLOW_QUOTE_REPAIR_SYSTEM_PROMPT,
 } from '..';
 
 const chunkId = '11111111-1111-4111-8111-111111111111';
 const mapId = '22222222-2222-4222-8222-222222222222';
+
+const completion = ResponsibilityCompletionSchema.parse({
+  completions: [{
+    responsibilityId: 'known_seed_1',
+    label: 'Submit monthly report',
+    role: 'Finance Team',
+    action: 'submit',
+    object: 'monthly report',
+    trigger: null,
+    requiredSystem: null,
+    ownerName: null,
+    department: null,
+  }],
+});
+if (
+  completion.completions.length !== 1 ||
+  !RESPONSIBILITY_COMPLETION_SYSTEM_PROMPT.includes('completion, not discovery') ||
+  ResponsibilityCompletionSchema.safeParse({ completions: [{ responsibilityId: 'known_seed_1' }] }).success
+) {
+  throw new Error('responsibility completion schema or prompt contract drifted');
+}
 
 const segmentation = SourceSegmentationSchema.parse({
   documentShape: 'process',

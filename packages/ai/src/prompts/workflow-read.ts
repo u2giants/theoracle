@@ -6,6 +6,7 @@ import {
 
 export const WORKFLOW_READ_PROMPT_VERSION = 'workflow-read-v2-quote-copy-repair';
 export const RESPONSIBILITY_READ_PROMPT_VERSION = 'responsibility-read-v2.4-span-bound';
+export const RESPONSIBILITY_COMPLETION_PROMPT_VERSION = 'responsibility-completion-v1';
 export const RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION = 'responsibility-quote-repair-v2.3-grounded';
 export const SOURCE_SEGMENTATION_PROMPT_VERSION = 'source-segmentation-v1';
 export const SOURCE_READER_PIPELINE_VERSION =
@@ -111,6 +112,19 @@ HARD RULES:
 - IDs use lowercase letters, numbers, underscores, and hyphens only and are unique.
 - Source-map summaries and segment titles are guidance only and are never evidence.`;
 
+export const RESPONSIBILITY_COMPLETION_SYSTEM_PROMPT = `You fill missing fields for known responsibility duties.
+
+HARD RULES:
+- Return only JSON matching the schema.
+- This is completion, not discovery. Return exactly one record for every requested seed ID and no other records.
+- Keep every responsibilityId exactly as supplied. Never invent, omit, duplicate, combine, or split an ID.
+- Use only words from that seed's normalized sourceSpan, except harmless grammatical normalization such as verb stemming.
+- Never use facts from another seed, document context, or prior knowledge.
+- role, action, object, trigger, requiredSystem, ownerName, and department are the only fields you may fill.
+- role, action, and object are required. Optional fields must be null when the source span does not state them.
+- Preserve direction, polarity, concrete targets, systems, forms, cadence, and timing exactly.
+- The supplied chunkId, evidenceQuote, and offsets are immutable evidence. They are context only and must not be returned.`;
+
 export const WORKFLOW_NODE_TYPES = [
   'step',
   'decision',
@@ -206,6 +220,22 @@ export const ResponsibilityReadSchema = z.object({
   summary: z.string().min(10).max(3000),
   responsibilities: z.array(ResponsibilityReadRecordSchema).max(300),
 });
+
+export const ResponsibilityCompletionRecordSchema = z.object({
+  responsibilityId: workflowId,
+  label: z.string().min(1).max(240),
+  role: z.string().min(1).max(160),
+  action: z.string().min(1).max(500),
+  object: z.string().min(1).max(500),
+  trigger: z.string().max(500).nullish(),
+  requiredSystem: z.string().max(160).nullish(),
+  ownerName: z.string().max(160).nullish(),
+  department: z.string().max(160).nullish(),
+}).strict();
+
+export const ResponsibilityCompletionSchema = z.object({
+  completions: z.array(ResponsibilityCompletionRecordSchema).max(300),
+}).strict();
 
 export const ResponsibilityQuoteRepairSchema = z.object({
   repairs: z
@@ -364,6 +394,7 @@ export const SourceStructureMapSchema = z.object({
 export type WorkflowReadOutput = z.infer<typeof WorkflowReadSchema>;
 export type WorkflowQuoteRepairOutput = z.infer<typeof WorkflowQuoteRepairSchema>;
 export type ResponsibilityReadOutput = z.infer<typeof ResponsibilityReadSchema>;
+export type ResponsibilityCompletionOutput = z.infer<typeof ResponsibilityCompletionSchema>;
 export type ResponsibilityReadRecord = z.infer<typeof ResponsibilityReadRecordSchema>;
 export type ResponsibilityQuoteRepairOutput = z.infer<typeof ResponsibilityQuoteRepairSchema>;
 export type ResponsibilityCombinedRepairOutput = z.infer<typeof ResponsibilityCombinedRepairSchema>;

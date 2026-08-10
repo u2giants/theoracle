@@ -26,6 +26,7 @@ import {
   resolveRouteCandidates,
   type OraclePromptPlan,
   type ResponsibilityReadOutput,
+  type ResponsibilityCompletionOutput,
   type ResponsibilityCombinedRepairOutput,
   type SourceSegmentationOutput,
   type SourceStructureSegment,
@@ -75,6 +76,8 @@ import {
   bindForcedResponsibilitySpans,
   canonicalizeForcedResponsibilityOutput,
   completeAndMatchResponsibilityInventory,
+  canonicalizeResponsibilityCompletionBatch,
+  packResponsibilityCompletions,
   finalizeForcedResponsibilityAudits,
   mergeResponsibilityValidationResults,
   mergeResponsibilityRetryValidation,
@@ -91,6 +94,9 @@ import {
   validateResponsibilityRead,
   type GroundedResponsibilityQuoteCandidate,
   type ForcedResponsibilitySpan,
+  type ResponsibilityCompletionBatch,
+  type ResponsibilityCompletionPack,
+  type ResponsibilityInventorySeed,
 } from './responsibility-reader';
 import {
   mapWithConcurrency,
@@ -114,6 +120,129 @@ type ChunkRow = {
 };
 
 type ReusableWorkflowMapStatus = 'validated' | 'degraded';
+
+export function buildResponsibilityCompletionRequestContent(
+  batch: ResponsibilityCompletionBatch,
+): string {
+  return JSON.stringify({
+    instruction: 'Fill each known duty exactly once. Do not discover duties.',
+    seeds: batch.requests,
+  });
+}
+
+export function reserveResponsibilityCompletionBatches(args: {
+  budget: SourceReaderBudget;
+  batches: readonly ResponsibilityCompletionBatch[];
+}): void {
+  for (const batch of args.batches) {
+    args.budget.reserveRead({
+      estimatedInputTokens: batch.estimatedInputTokens,
+      label: `responsibility completion batch ${batch.batchIndex + 1}`,
+    });
+  }
+}
+
+export function forecastResponsibilityCompletionScenarios(args: {
+  scenarios: Record<'low' | 'expected' | 'high', readonly ResponsibilityInventorySeed[]>;
+  pack: Omit<Parameters<typeof packResponsibilityCompletions>[0], 'seeds'>;
+}): Record<'low' | 'expected' | 'high', ResponsibilityCompletionPack> {
+  return {
+    low: packResponsibilityCompletions({ ...args.pack, seeds: args.scenarios.low }),
+    expected: packResponsibilityCompletions({ ...args.pack, seeds: args.scenarios.expected }),
+    high: packResponsibilityCompletions({ ...args.pack, seeds: args.scenarios.high }),
+  };
+}
+
+export async function executeResponsibilityCompletionBatches(args: {
+  budget: SourceReaderBudget;
+  batches: readonly ResponsibilityCompletionBatch[];
+  concurrency: number;
+  runBatch: (
+    batch: ResponsibilityCompletionBatch,
+    attempt: 1 | 2,
+  ) => Promise<ResponsibilityCompletionOutput>;
+  selectStrictImprovements: (
+    records: ResponsibilityReadOutput['responsibilities'],
+    batch: ResponsibilityCompletionBatch,
+  ) => ResponsibilityReadOutput['responsibilities'];
+  isRetryableFailure?: (error: unknown) => boolean;
+}): Promise<Array<{
+  batchIndex: number;
+  seedIds: string[];
+  attempts: number;
+  records: ResponsibilityReadOutput['responsibilities'];
+  failure: string | null;
+}>> {
+  reserveResponsibilityCompletionBatches({ budget: args.budget, batches: args.batches });
+  return mapWithConcurrency({
+    inputs: args.batches,
+    concurrency: args.concurrency,
+    run: async (batch) => {
+      let firstFailure: string | null = null;
+      for (const attempt of [1, 2] as const) {
+        if (attempt === 2) {
+          try {
+            args.budget.reserveRead({
+              estimatedInputTokens: batch.estimatedInputTokens,
+              label: `responsibility completion batch ${batch.batchIndex + 1} retry`,
+            });
+          } catch (error) {
+            return {
+              batchIndex: batch.batchIndex,
+              seedIds: batch.seedIds,
+              attempts: 1,
+              records: [],
+              failure: `${firstFailure ?? 'completion_failed'}; retry_not_budgeted: ${error instanceof Error ? error.message : String(error)}`,
+            };
+          }
+        }
+        try {
+          const output = await args.runBatch(batch, attempt);
+          const canonical = canonicalizeResponsibilityCompletionBatch({ batch, output });
+          const selected = args.selectStrictImprovements(canonical, batch);
+          const requestedIds = new Set(batch.seedIds);
+          const selectedIds = new Set<string>();
+          for (const record of selected) {
+            if (!requestedIds.has(record.responsibilityId) || selectedIds.has(record.responsibilityId)) {
+              throw new Error(`Responsibility completion strict-improvement selector returned an invalid seed: ${record.responsibilityId}`);
+            }
+            selectedIds.add(record.responsibilityId);
+          }
+          return {
+            batchIndex: batch.batchIndex,
+            seedIds: batch.seedIds,
+            attempts: attempt,
+            records: selected,
+            failure: null,
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (attempt === 1) {
+            firstFailure = message;
+            const retryable = args.isRetryableFailure
+              ? args.isRetryableFailure(error)
+              : /timeout|schema|all\s*candidates\s*failed/i.test(message);
+            if (!retryable) return {
+              batchIndex: batch.batchIndex,
+              seedIds: batch.seedIds,
+              attempts: 1,
+              records: [],
+              failure: message,
+            };
+          }
+          else return {
+            batchIndex: batch.batchIndex,
+            seedIds: batch.seedIds,
+            attempts: 2,
+            records: [],
+            failure: `${firstFailure}; retry_failed: ${message}`,
+          };
+        }
+      }
+      throw new Error('Unreachable responsibility completion attempt state.');
+    },
+  });
+}
 
 export type WorkflowQuoteRepairMetadata = {
   repairAttempts: number;
