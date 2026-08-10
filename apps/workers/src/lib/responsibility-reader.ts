@@ -56,6 +56,28 @@ export type ForcedResponsibilitySpan = RankedResponsibilityOmission & {
   sourceEnd: number;
 };
 
+export type ResponsibilityInventorySeed = {
+  inventorySeedId: string;
+  parentSeedId: string | null;
+  chunkId: string;
+  spanIndex: number;
+  sourceSpan: string;
+  evidenceQuote: string;
+  sourceStart: number;
+  sourceEnd: number;
+  listStructured: boolean;
+  sourceSpanSha256: string;
+  splitKind: 'none' | 'destination' | 'multi_verb';
+  splitValue: string | null;
+  parseDiagnostics: string[];
+};
+
+export type ResponsibilityInventoryAuditParent = ResponsibilityInventorySeed & {
+  active: false;
+  decision: 'split_destination' | 'split_multi_verb' | 'ambiguous_multi_verb';
+  childSeedIds: string[];
+};
+
 export type ResponsibilityFieldFidelityResult = {
   passed: boolean;
   reasons: string[];
@@ -379,6 +401,8 @@ export function buildResponsibilityBaseReadPlan(args: {
   responsibilityShards: SourceStructureSegment[];
   syntheticSegments: SourceStructureSegment[];
   durableSegments: SourceStructureSegment[];
+  inventorySeeds: ResponsibilityInventorySeed[];
+  inventoryAuditParents: ResponsibilityInventoryAuditParent[];
   syntheticBaseReadCount: number;
 } {
   const segmented = shardResponsibilitySegments(args.responsibilitySegments, args.chunks);
@@ -399,10 +423,13 @@ export function buildResponsibilityBaseReadPlan(args: {
       return true;
     },
   );
+  const inventory = buildResponsibilitySourceInventory(args.chunks);
   return {
     responsibilityShards,
     syntheticSegments,
     durableSegments,
+    inventorySeeds: inventory.seeds,
+    inventoryAuditParents: inventory.auditParents,
     syntheticBaseReadCount: syntheticSegments.length,
   };
 }
@@ -523,6 +550,12 @@ function sourceDutySpanDetails(rawText: string): Array<{
   sourceEnd?: number;
   sourceLocationFailure?: string;
   listStructured: boolean;
+  splitParent?: {
+    sourceSpan: string;
+    evidenceQuote: string;
+    sourceStart: number;
+    sourceEnd: number;
+  };
 }> {
   const output: Array<{
     sourceSpan: string;
@@ -531,6 +564,12 @@ function sourceDutySpanDetails(rawText: string): Array<{
     sourceEnd?: number;
     sourceLocationFailure?: string;
     listStructured: boolean;
+    splitParent?: {
+      sourceSpan: string;
+      evidenceQuote: string;
+      sourceStart: number;
+      sourceEnd: number;
+    };
   }> = [];
   let rawSearchCursor = 0;
   const locateRawSlice = (value: string): {
@@ -570,6 +609,7 @@ function sourceDutySpanDetails(rawText: string): Array<{
         ? span.slice(0, proseDuty.index).replace(/\b(?:will|must|should|shall|may)\s*$/i, '').trim()
         : null;
     const inheritedOwner = inlineOwnerLabel ?? proseOwnerLabel ?? ownerHeading;
+    const spanOutputStart = output.length;
     for (const [partIndex, rawPart] of span.split(DUTY_SPLIT_PATTERN).entries()) {
       const part = rawPart.trim();
       const narrative = /^(?:background|note|overview|purpose|this (?:section|review|document|summary))\b/i.test(part);
@@ -594,12 +634,303 @@ function sourceDutySpanDetails(rawText: string): Array<{
           });
       }
     }
+    const spanDetails = output.slice(spanOutputStart);
+    if (spanDetails.length > 1 && spanDetails.every((item) =>
+      item.evidenceQuote && item.sourceStart !== undefined && item.sourceEnd !== undefined
+    )) {
+      const sourceStart = spanDetails[0]!.sourceStart!;
+      const sourceEnd = spanDetails.at(-1)!.sourceEnd!;
+      const parent = {
+        sourceSpan:
+          inheritedOwner && !inlineOwner && ownerHeading
+            ? `[${inheritedOwner}] ${span}`
+            : span,
+        evidenceQuote: rawText.slice(sourceStart, sourceEnd),
+        sourceStart,
+        sourceEnd,
+      };
+      for (const item of spanDetails) item.splitParent = parent;
+    }
   }
   return output;
 }
 
 export function sourceDutySpans(rawText: string): string[] {
   return sourceDutySpanDetails(rawText).map((item) => item.sourceSpan);
+}
+
+function responsibilityInventorySeedId(args: {
+  chunkId: string;
+  sourceStart: number;
+  sourceEnd: number;
+  sourceSpanSha256: string;
+  suffix?: string;
+}): string {
+  const identity = [
+    args.chunkId,
+    args.sourceStart,
+    args.sourceEnd,
+    args.sourceSpanSha256,
+    args.suffix ?? '',
+  ].join(':');
+  return `inventory_seed_${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`;
+}
+
+function assertResponsibilityInventorySeeds(
+  chunks: readonly ResponsibilityChunk[],
+  seeds: readonly ResponsibilityInventorySeed[],
+): void {
+  const rawByChunk = new Map<string, string>();
+  for (const chunk of chunks) {
+    if (rawByChunk.has(chunk.id)) {
+      throw new Error(`Duplicate responsibility inventory chunk ID: ${chunk.id}`);
+    }
+    rawByChunk.set(chunk.id, chunk.rawText);
+  }
+  const ids = new Set<string>();
+  for (const seed of seeds) {
+    if (ids.has(seed.inventorySeedId)) {
+      throw new Error(`Duplicate responsibility inventory seed ID: ${seed.inventorySeedId}`);
+    }
+    ids.add(seed.inventorySeedId);
+    const rawText = rawByChunk.get(seed.chunkId);
+    if (rawText === undefined) {
+      throw new Error(`Responsibility inventory seed has no source chunk: ${seed.inventorySeedId}`);
+    }
+    if (
+      seed.sourceStart < 0 ||
+      seed.sourceEnd <= seed.sourceStart ||
+      seed.sourceEnd > rawText.length
+    ) {
+      throw new Error(`Responsibility inventory seed has invalid offsets: ${seed.inventorySeedId}`);
+    }
+    if (rawText.slice(seed.sourceStart, seed.sourceEnd) !== seed.evidenceQuote) {
+      throw new Error(`Responsibility inventory quote/offset mismatch: ${seed.inventorySeedId}`);
+    }
+  }
+  const ordered = [...seeds].sort(
+    (a, b) => a.chunkId.localeCompare(b.chunkId) || a.sourceStart - b.sourceStart || a.sourceEnd - b.sourceEnd,
+  );
+  for (let index = 1; index < ordered.length; index += 1) {
+    const previous = ordered[index - 1]!;
+    const current = ordered[index]!;
+    if (
+      previous.chunkId === current.chunkId &&
+      current.sourceStart < previous.sourceEnd &&
+      previous.parentSeedId !== current.parentSeedId &&
+      previous.parentSeedId !== current.inventorySeedId &&
+      current.parentSeedId !== previous.inventorySeedId
+    ) {
+      throw new Error(
+        `Overlapping responsibility inventory recognition: ${previous.inventorySeedId}, ${current.inventorySeedId}`,
+      );
+    }
+  }
+}
+
+function inventoryDestinationSplit(seed: ResponsibilityInventorySeed): {
+  children: ResponsibilityInventorySeed[];
+  decision: 'split_destination' | null;
+} {
+  const verb = sourceDutyVerbMatch(seed.sourceSpan);
+  if (!verb || dutyVerbsInSourceSpan(seed.sourceSpan).length !== 1) {
+    return { children: [], decision: null };
+  }
+  const afterVerb = seed.sourceSpan.slice(verb.index + verb.text.length);
+  const match = afterVerb.match(
+    /\b(to|into|in|on|within|across)\s+([^.;:\n]{2,240}?(?:,\s*[^.;:\n]+)+(?:,\s*)?(?:and|or)\s+[^.;:\n]+|[^.;:\n]+,\s*[^.;:\n]+\s+(?:and|or)\s+[^.;:\n]+|[^,.;:\n]+\s+(?:and|or)\s+[^.;:\n]+)[.;]?(?:\s|$)/i,
+  );
+  if (!match?.[2] || match.index === undefined) return { children: [], decision: null };
+  const action = stemDutyVerb(verb.text);
+  const preposition = match[1]!.toLowerCase();
+  const objectHead = afterVerb.slice(0, match.index).trim();
+  const destinations = match[2]
+    .split(/\s*,\s*|\s+(?:and|or)\s+/i)
+    .map((value) => value.replace(/^(?:and|or)\s+/i, '').replace(/[.;]+$/, '').trim())
+    .filter(Boolean);
+  const normalized = destinations.map(normalizedDestination);
+  const looksLikePersonList = destinations.every((destination) => /^[A-Z][a-z]{2,}$/.test(destination));
+  if (
+    !objectHead ||
+    destinations.length < 2 ||
+    new Set(normalized).size !== normalized.length ||
+    !DESTINATION_DIRECTED_ACTIONS.has(action) ||
+    (WEAK_DESTINATION_PREPOSITIONS.has(preposition) &&
+      !['archive', 'enter', 'publish', 'record', 'save', 'submit', 'upload'].includes(action)) ||
+    destinations.some((destination) => DATE_OR_TIME_MEMBER_PATTERN.test(destination)) ||
+    looksLikePersonList
+  ) {
+    return { children: [], decision: null };
+  }
+  return {
+    decision: 'split_destination',
+    children: destinations.map((destination, index) => {
+      const suffix = `destination:${normalized[index]}`;
+      return {
+        ...seed,
+        inventorySeedId: responsibilityInventorySeedId({
+          chunkId: seed.chunkId,
+          sourceStart: seed.sourceStart,
+          sourceEnd: seed.sourceEnd,
+          sourceSpanSha256: seed.sourceSpanSha256,
+          suffix,
+        }),
+        parentSeedId: seed.inventorySeedId,
+        splitKind: 'destination',
+        splitValue: destination,
+        parseDiagnostics: [...seed.parseDiagnostics, `destination:${preposition}:${destination}`],
+      };
+    }),
+  };
+}
+
+export function buildResponsibilitySourceInventory(
+  chunks: readonly ResponsibilityChunk[],
+): { seeds: ResponsibilityInventorySeed[]; auditParents: ResponsibilityInventoryAuditParent[] } {
+  const seeds: ResponsibilityInventorySeed[] = [];
+  const auditParents: ResponsibilityInventoryAuditParent[] = [];
+  const auditedSplitParents = new Set<string>();
+  const ambiguousSplitParents = new Set<string>();
+  for (const chunk of chunks) {
+    const details = sourceDutySpanDetails(chunk.rawText);
+    for (const [spanIndex, detail] of details.entries()) {
+      if (
+        !detail.evidenceQuote ||
+        detail.sourceStart === undefined ||
+        detail.sourceEnd === undefined
+      ) {
+        throw new Error(
+          `Responsibility inventory source binding failed: ${chunk.id}:${spanIndex}: ${detail.sourceLocationFailure ?? 'unknown error'}`,
+        );
+      }
+      if (chunk.rawText.slice(detail.sourceStart, detail.sourceEnd) !== detail.evidenceQuote) {
+        throw new Error(`Responsibility inventory quote/offset mismatch: ${chunk.id}:${spanIndex}`);
+      }
+      if (detail.splitParent) {
+        const groupKey = `${chunk.id}:${detail.splitParent.sourceStart}:${detail.splitParent.sourceEnd}`;
+        const siblings = details.filter((item) =>
+          item.splitParent?.sourceStart === detail.splitParent?.sourceStart &&
+          item.splitParent?.sourceEnd === detail.splitParent?.sourceEnd
+        );
+        const validChildren = siblings.every((item) =>
+          dutyVerbsInSourceSpan(item.sourceSpan).length === 1 &&
+          sourceObjectText(item.sourceSpan).trim().replace(/[.;]+$/, '').trim().length > 0
+        );
+        if (!validChildren) {
+          if (!ambiguousSplitParents.has(groupKey)) {
+            const sourceSpanSha256 = responsibilitySpanSha256(detail.splitParent.sourceSpan);
+            seeds.push({
+              inventorySeedId: responsibilityInventorySeedId({
+                chunkId: chunk.id,
+                sourceStart: detail.splitParent.sourceStart,
+                sourceEnd: detail.splitParent.sourceEnd,
+                sourceSpanSha256,
+              }),
+              parentSeedId: null,
+              chunkId: chunk.id,
+              spanIndex,
+              sourceSpan: detail.splitParent.sourceSpan,
+              evidenceQuote: detail.splitParent.evidenceQuote,
+              sourceStart: detail.splitParent.sourceStart,
+              sourceEnd: detail.splitParent.sourceEnd,
+              listStructured: detail.listStructured,
+              sourceSpanSha256,
+              splitKind: 'none',
+              splitValue: null,
+              parseDiagnostics: ['ambiguous_multi_verb'],
+            });
+            ambiguousSplitParents.add(groupKey);
+          }
+          continue;
+        }
+      }
+      const sourceSpanSha256 = responsibilitySpanSha256(detail.sourceSpan);
+      const parent: ResponsibilityInventorySeed = {
+        inventorySeedId: responsibilityInventorySeedId({
+          chunkId: chunk.id,
+          sourceStart: detail.sourceStart,
+          sourceEnd: detail.sourceEnd,
+          sourceSpanSha256,
+        }),
+        parentSeedId: null,
+        chunkId: chunk.id,
+        spanIndex,
+        sourceSpan: detail.sourceSpan,
+        evidenceQuote: detail.evidenceQuote,
+        sourceStart: detail.sourceStart,
+        sourceEnd: detail.sourceEnd,
+        listStructured: detail.listStructured,
+        sourceSpanSha256,
+        splitKind: 'none',
+        splitValue: null,
+        parseDiagnostics: detail.sourceSpan === detail.evidenceQuote ? [] : ['normalized_owner_inherited'],
+      };
+      if (detail.splitParent) {
+        const splitParentHash = responsibilitySpanSha256(detail.splitParent.sourceSpan);
+        const splitParentId = responsibilityInventorySeedId({
+          chunkId: chunk.id,
+          sourceStart: detail.splitParent.sourceStart,
+          sourceEnd: detail.splitParent.sourceEnd,
+          sourceSpanSha256: splitParentHash,
+        });
+        parent.parentSeedId = splitParentId;
+        parent.splitKind = 'multi_verb';
+        parent.splitValue = sourceDutyVerbMatch(parent.sourceSpan)?.text.toLowerCase() ?? null;
+        parent.parseDiagnostics.push('source_multi_verb_child');
+        if (!auditedSplitParents.has(splitParentId)) {
+          const siblings = details.filter((item) =>
+            item.splitParent?.sourceStart === detail.splitParent?.sourceStart &&
+            item.splitParent?.sourceEnd === detail.splitParent?.sourceEnd
+          );
+          auditParents.push({
+            inventorySeedId: splitParentId,
+            parentSeedId: null,
+            chunkId: chunk.id,
+            spanIndex,
+            sourceSpan: detail.splitParent.sourceSpan,
+            evidenceQuote: detail.splitParent.evidenceQuote,
+            sourceStart: detail.splitParent.sourceStart,
+            sourceEnd: detail.splitParent.sourceEnd,
+            listStructured: detail.listStructured,
+            sourceSpanSha256: splitParentHash,
+            splitKind: 'none',
+            splitValue: null,
+            parseDiagnostics: ['split_into_single_verb_children'],
+            active: false,
+            decision: 'split_multi_verb',
+            childSeedIds: siblings.map((item) => {
+              const childHash = responsibilitySpanSha256(item.sourceSpan);
+              return responsibilityInventorySeedId({
+                chunkId: chunk.id,
+                sourceStart: item.sourceStart!,
+                sourceEnd: item.sourceEnd!,
+                sourceSpanSha256: childHash,
+              });
+            }),
+          });
+          auditedSplitParents.add(splitParentId);
+        }
+      }
+      const destinationSplit = inventoryDestinationSplit(parent);
+      if (destinationSplit.children.length > 0) {
+        seeds.push(...destinationSplit.children);
+        auditParents.push({
+          ...parent,
+          active: false,
+          decision: 'split_destination',
+          childSeedIds: destinationSplit.children.map((child) => child.inventorySeedId),
+        });
+        continue;
+      }
+      const verbCount = dutyVerbsInSourceSpan(parent.sourceSpan).length;
+      if (verbCount > 1) {
+        parent.parseDiagnostics.push('ambiguous_multi_verb');
+      }
+      seeds.push(parent);
+    }
+  }
+  assertResponsibilityInventorySeeds(chunks, [...seeds, ...auditParents]);
+  return { seeds, auditParents };
 }
 
 export function responsibilitySpanRankFeatures(

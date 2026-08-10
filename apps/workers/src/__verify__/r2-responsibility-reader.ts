@@ -31,6 +31,7 @@ import {
   buildGroundedResponsibilityQuoteCandidates,
   buildSyntheticResponsibilitySegments,
   buildResponsibilityBaseReadPlan,
+  buildResponsibilitySourceInventory,
   buildResponsibilityPostPassAudit,
   bindForcedResponsibilitySpans,
   canonicalizeForcedResponsibilityOutput,
@@ -959,7 +960,73 @@ const baseReadPlan = buildResponsibilityBaseReadPlan({
   ],
   responsibilitySegments: [segment],
 });
+const genericInventoryChunks = [{
+  id: 'generic_inventory_chunk',
+  documentId,
+  rawText:
+    '[Service Desk]\n' +
+    '- Review intake packets.\n' +
+    '2. Upload signed notices into Hub North, Hub South, and Hub West.\n' +
+    '- Prepare summaries and then send confirmations.\n' +
+    'Service Lead must monitor the shared queue.\n' +
+    '- Review intake packets.',
+}];
+const genericInventoryA = buildResponsibilitySourceInventory(genericInventoryChunks);
+const genericInventoryB = buildResponsibilitySourceInventory(genericInventoryChunks);
+assert.deepEqual(genericInventoryA, genericInventoryB, 'identical inventory reruns are byte-stable');
+assert.equal(genericInventoryA.seeds.length, 8, 'all generic duties and destination children are active');
+assert.equal(
+  genericInventoryA.seeds.filter((seed) => seed.splitKind === 'destination').length,
+  3,
+  'a source-only destination list creates one child per destination',
+);
+assert.equal(
+  genericInventoryA.seeds.filter((seed) => seed.splitKind === 'multi_verb').length,
+  2,
+  'a clear compound duty creates one exact child per action and object clause',
+);
+assert.ok(
+  genericInventoryA.seeds.every((seed) =>
+    genericInventoryChunks[0]!.rawText.slice(seed.sourceStart, seed.sourceEnd) === seed.evidenceQuote
+  ),
+  'every active seed keeps an exact raw quote and offset binding',
+);
+const repeatedInventory = genericInventoryA.seeds.filter((seed) => /Review intake packets/.test(seed.sourceSpan));
+assert.equal(repeatedInventory.length, 2);
+assert.notEqual(repeatedInventory[0]?.inventorySeedId, repeatedInventory[1]?.inventorySeedId);
+assert.notEqual(repeatedInventory[0]?.sourceStart, repeatedInventory[1]?.sourceStart);
+assert.equal(
+  genericInventoryA.auditParents.filter((parent) => parent.decision === 'split_destination').length,
+  1,
+);
+assert.equal(
+  genericInventoryA.auditParents.filter((parent) => parent.decision === 'split_multi_verb').length,
+  1,
+);
+const ambiguousInventory = buildResponsibilitySourceInventory([{
+  id: 'ambiguous_inventory_chunk',
+  documentId,
+  rawText: '- Review and then send confirmations.',
+}]);
+assert.equal(ambiguousInventory.seeds.length, 1);
+assert.deepEqual(ambiguousInventory.seeds[0]?.parseDiagnostics, ['ambiguous_multi_verb']);
+const attributeInventory = buildResponsibilitySourceInventory([{
+  id: 'attribute_inventory_chunk',
+  documentId,
+  rawText: '- Review color, size, and material fields.',
+}]);
+assert.equal(attributeInventory.seeds.length, 1, 'an attribute list is not split as destinations');
+assert.equal(attributeInventory.auditParents.length, 0);
+assert.throws(
+  () => buildResponsibilitySourceInventory([
+    { id: 'duplicate_inventory_chunk', documentId, rawText: '- Review open requests.' },
+    { id: 'duplicate_inventory_chunk', documentId, rawText: '- Review open requests.' },
+  ]),
+  /Duplicate responsibility inventory chunk ID/,
+  'duplicate stable identities fail loudly',
+);
 assert.equal(baseReadPlan.syntheticBaseReadCount, 1);
+assert.equal(baseReadPlan.inventorySeeds.length, 2, 'the production base-read seam exposes inventory seeds');
 assert.deepEqual(
   baseReadPlan.durableSegments.flatMap((item) => item.chunkIds),
   [chunkId, otherChunkId],
