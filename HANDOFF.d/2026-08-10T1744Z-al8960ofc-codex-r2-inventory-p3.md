@@ -60,10 +60,16 @@ retry queue or because the model returned an incomplete list.
   completion-only prompt contract.
 - Verification passed: AI workflow-read smoke, worker R2 responsibility verifier, AI typecheck,
   worker typecheck, worker lint, and `git diff --check`.
+- Grok 4.5 session `r2-inventory-p3-review` first returned `CHANGES REQUIRED BEFORE P4`. Its
+  findings were corrected in the same session: real provider retry classification, the shared
+  300-record schema/packer ceiling, non-bypassable strict-improvement selection, and ordered
+  per-seed terminal outcomes. The follow-up verdict was `APPROVED FOR P4`. The two turns cost
+  $1.0243416 total and reported 2,114,454 tokens, including 1,935,232 cached.
 - Local `main` and `origin/main` both began at `89feb096e2ab85ec7463a12da693b2228eed59e8`.
 - P3 code and plan are committed on `main` as `014f971` (`feat: complete R2 inventory reader P3`).
-  This handoff is in the following closeout commit. Both commits are pushed to `origin/main` in this
-  session. P3 was not deployed or run against production; P7 owns deploy and the one production gate.
+  Grok corrections are committed as `4f1a76e` (`fix: harden R2 completion scheduling`). This handoff
+  is in separate closeout commits. All are pushed to `origin/main` in this session. P3 was not
+  deployed or run against production; P7 owns deploy and the one production gate.
 
 ## 4. Everything we tried that did NOT work
 
@@ -80,6 +86,11 @@ retry queue or because the model returned an incomplete list.
    validator and current seed state.
 4. The first schema used normal Zod objects, which may strip unknown fields. P3 calls for a strict
    shallow schema, so both the record and envelope now use `.strict()` and reject invented fields.
+5. Grok's first review found that the default regex did not match the real
+   `AllCandidatesFailedError` message, the packer could exceed the schema's 300-record ceiling, and
+   a selector callback could drop rejected seeds without terminal audit. The correction uses typed
+   retry checks, one shared ceiling, a pure complete-only improvement helper, and one ordered outcome
+   for every seed. Grok re-read the corrected files and approved P4.
 
 ## 5. Root causes and key findings
 
@@ -162,7 +173,8 @@ retry queue or because the model returned an incomplete list.
 - No owner question is open before P4.
 - Risk: P4 must avoid double-reserving initial completion batches when it adds the provider callback.
 - Risk: production adapter failures should supply an explicit `isRetryableFailure` predicate so the
-  one-retry rule uses real error types instead of message matching.
+  one-retry rule can add provider-specific cases. The default now recognizes the real
+  `AllCandidatesFailedError`, `AbortError`, `TimeoutError`, and known message forms.
 - Risk: the P3 forecast accepts configured input/output prices. P4 must source them from the resolved
   route/catalog and fail loudly if pricing needed for the forecast is absent.
 - Risk: P4 must reserve one candidate-bound quote-repair allowance in its remaining-budget inputs as
