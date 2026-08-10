@@ -2762,6 +2762,37 @@ assert.ok(
   workflowReadSource.includes('responsibilityMergeEligibleElements(read.validation)'),
   'production structure-map assembly must use the fail-loud merge eligibility helper',
 );
+const productionCompletionIndex = workflowReadSource.indexOf(
+  'executeResponsibilityCompletionBatches({',
+);
+const productionDetectionRetryIndex = workflowReadSource.indexOf(
+  'const omissionRetryScheduler = new ResponsibilityOmissionRetryScheduler()',
+);
+const productionQuoteRepairIndex = workflowReadSource.indexOf(
+  'const combinedRepairPlan = buildResponsibilityCombinedRepairPlan({',
+);
+const productionAssemblyIndex = workflowReadSource.indexOf(
+  'const mergeReadyInventory = responsibilityReads',
+);
+assert.ok(
+  productionCompletionIndex > 0 &&
+    productionCompletionIndex < productionDetectionRetryIndex &&
+    productionDetectionRetryIndex < productionQuoteRepairIndex &&
+    productionQuoteRepairIndex < productionAssemblyIndex,
+  'production orchestration must run exhaustive completion, detection-only retries, quote repair, and merge-ready assembly in order',
+);
+assert.ok(
+  workflowReadSource.includes("omission.omissionClass === 'inventory_detection_gap'"),
+  'legacy retry slots must be reserved for inventory detection gaps',
+);
+assert.ok(
+  workflowReadSource.includes('maxFieldRepairs: 0'),
+  'candidate-bound quote repair must not repeat residual field completion',
+);
+assert.ok(
+  workflowReadSource.includes('responsibilityCompletion: responsibilityCompletionAudit'),
+  'production validationJson must persist completion manifests, outcomes, and execution facts',
+);
 assert.throws(
   () => responsibilityMergeEligibleElements({
     ...complete,
