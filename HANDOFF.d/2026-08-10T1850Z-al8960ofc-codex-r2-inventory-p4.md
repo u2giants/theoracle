@@ -75,8 +75,8 @@ batch, failure, unscheduled duty, and final gap remains visible in saved audit d
   worker lint, and `git diff --check`.
 - P4 has not been deployed or run against production. P7 owns the only allowed deployment and
   production gate. P5 local verification and P6 independent review have not started.
-- The work is ready to commit and push on `main`. The final commit SHA and CI result must be added
-  by the closeout that performs that action.
+- P4 and the audited handoff cleanup are committed and pushed on `main` as `fce082d`. GitHub Actions
+  run `31421233372` passed every check. No deployment or production fixture was run.
 
 ## 4. Everything tried that did not work
 
