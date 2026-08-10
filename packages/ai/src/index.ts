@@ -63,6 +63,7 @@ export {
   type WorkflowQuoteRepairOutput,
   type ResponsibilityReadOutput,
   RESPONSIBILITY_COMPLETION_PROMPT_VERSION,
+  RESPONSIBILITY_COMPLETION_MAX_RECORDS_PER_BATCH,
   RESPONSIBILITY_COMPLETION_SYSTEM_PROMPT,
   ResponsibilityCompletionSchema,
   type ResponsibilityCompletionOutput,

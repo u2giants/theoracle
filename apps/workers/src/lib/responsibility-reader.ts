@@ -4,6 +4,7 @@ import type {
   SourceStructureElement,
   SourceStructureSegment,
 } from '@oracle/ai';
+import { RESPONSIBILITY_COMPLETION_MAX_RECORDS_PER_BATCH } from '@oracle/ai';
 import { createHash } from 'node:crypto';
 import {
   alternateSourceQuotePolicies,
@@ -121,6 +122,54 @@ export type ResponsibilityCompletionPack = {
   estimatedCostUsd: number;
 };
 
+export type ResponsibilityCompletionBaseline = {
+  responsibilityId: string;
+  complete: boolean;
+};
+
+export type ResponsibilityCompletionRejection = {
+  responsibilityId: string;
+  reasons: string[];
+};
+
+export function selectStrictResponsibilityCompletionImprovements(args: {
+  records: readonly ResponsibilityReadOutput['responsibilities'][number][];
+  baselines: readonly ResponsibilityCompletionBaseline[];
+  validate: (
+    record: ResponsibilityReadOutput['responsibilities'][number],
+  ) => { complete: boolean; reasons: readonly string[] };
+}): {
+  acceptedRecords: ResponsibilityReadOutput['responsibilities'];
+  rejected: ResponsibilityCompletionRejection[];
+} {
+  const baselineById = new Map(args.baselines.map((item) => [item.responsibilityId, item]));
+  if (baselineById.size !== args.baselines.length) {
+    throw new Error('Duplicate responsibility completion baseline ID.');
+  }
+  const acceptedRecords: ResponsibilityReadOutput['responsibilities'] = [];
+  const rejected: ResponsibilityCompletionRejection[] = [];
+  for (const record of args.records) {
+    const baseline = baselineById.get(record.responsibilityId);
+    if (!baseline) {
+      throw new Error(`Responsibility completion has no baseline: ${record.responsibilityId}`);
+    }
+    const validation = args.validate(record);
+    if (!baseline.complete && validation.complete) {
+      acceptedRecords.push(record);
+    } else {
+      rejected.push({
+        responsibilityId: record.responsibilityId,
+        reasons: baseline.complete
+          ? ['baseline_already_complete']
+          : validation.reasons.length > 0
+            ? [...validation.reasons]
+            : ['completion_not_strict_improvement'],
+      });
+    }
+  }
+  return { acceptedRecords, rejected };
+}
+
 const COMPLETION_MUTABLE_FIELDS = [
   'label', 'role', 'action', 'object', 'trigger', 'requiredSystem', 'ownerName', 'department',
 ] as const;
@@ -203,6 +252,7 @@ export function packResponsibilityCompletions(args: {
     const estimate = estimateResponsibilityCompletionTokens(request);
     if (!current) current = startBatch();
     const fitsCall =
+      current.requests.length < RESPONSIBILITY_COMPLETION_MAX_RECORDS_PER_BATCH &&
       current.estimatedInputTokens + estimate.inputTokens <= args.maxInputTokensPerCall &&
       current.estimatedOutputTokens + estimate.outputTokens <= args.maxOutputTokensPerCall;
     if (!fitsCall && current.requests.length > 0) {
@@ -219,6 +269,7 @@ export function packResponsibilityCompletions(args: {
     const prospectiveCost = totalCost + current.estimatedCostUsd + itemCost;
     const cannotFit =
       batches.length >= args.remainingCalls ||
+      current.requests.length >= RESPONSIBILITY_COMPLETION_MAX_RECORDS_PER_BATCH ||
       current.estimatedInputTokens + estimate.inputTokens > args.maxInputTokensPerCall ||
       current.estimatedOutputTokens + estimate.outputTokens > args.maxOutputTokensPerCall ||
       prospectiveInput > args.remainingInputTokens ||

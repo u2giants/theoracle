@@ -6,6 +6,7 @@ import {
   RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
   RESPONSIBILITY_QUOTE_REPAIR_SYSTEM_PROMPT,
   RESPONSIBILITY_READ_SYSTEM_PROMPT,
+  AllCandidatesFailedError,
   type ResponsibilityReadOutput,
   type SourceStructureSegment,
 } from '@oracle/ai';
@@ -79,6 +80,7 @@ import {
   reserveResponsibilityCompletionBatches,
   forecastResponsibilityCompletionScenarios,
   executeResponsibilityCompletionBatches,
+  isRetryableResponsibilityCompletionFailure,
 } from '../lib/source-workflow-read';
 const answerKey = JSON.parse(
   readFileSync(
@@ -180,6 +182,33 @@ assert.throws(() => canonicalizeResponsibilityCompletionBatch({
     responsibilityId: 'inventory_seed_extra', label: 'Extra', role: 'Team', action: 'do', object: 'work',
   }] },
 }), /extra seed/);
+assert.throws(() => canonicalizeResponsibilityCompletionBatch({
+  batch: firstCompletionBatch,
+  output: { completions: [
+    ...firstCompletionBatch.requests.map((request) => ({
+      responsibilityId: request.responsibilityId,
+      label: 'Submit monthly report', role: 'Finance Team', action: 'submit', object: 'monthly report',
+    })),
+    {
+      responsibilityId: firstCompletionBatch.seedIds[0]!,
+      label: 'Duplicate', role: 'Finance Team', action: 'submit', object: 'monthly report',
+    },
+  ] },
+}), /duplicate seed/);
+const tinySeeds = Array.from({ length: 601 }, (_, index) => ({
+  ...completionSeeds[0]!,
+  inventorySeedId: `inventory_seed_tiny_${String(index).padStart(3, '0')}`,
+  spanIndex: index,
+  sourceSpan: '[Team] files report',
+  evidenceQuote: 'files report',
+}));
+const schemaBoundPack = packResponsibilityCompletions({
+  ...completionPackArgs,
+  seeds: tinySeeds,
+  maxInputTokensPerCall: 1_000_000,
+  maxOutputTokensPerCall: 1_000_000,
+});
+assert.deepEqual(schemaBoundPack.batches.map((batch) => batch.seedIds.length), [300, 300, 1]);
 const shortage = packResponsibilityCompletions({
   ...completionPackArgs,
   remainingCalls: 1,
@@ -209,10 +238,12 @@ const execution = await executeResponsibilityCompletionBatches({
       object: 'monthly report to the records portal each month',
     })),
   }),
-  selectStrictImprovements: (records) => records,
+  baselines: completionSeeds.map((seed) => ({ responsibilityId: seed.inventorySeedId, complete: false })),
+  validateCompletion: () => ({ complete: true, reasons: [] }),
 });
 assert.deepEqual(execution.flatMap((item) => item.seedIds), completionSeeds.map((seed) => seed.inventorySeedId));
 assert.ok(execution.every((item) => item.failure === null && item.attempts === 1));
+assert.ok(execution.flatMap((item) => item.outcomes).every((item) => item.status === 'accepted'));
 const malformedBudget = new SourceReaderBudget({
   maxReadCalls: 2,
   maxInputTokens: 500_000,
@@ -226,7 +257,8 @@ const malformed = await executeResponsibilityCompletionBatches({
   batches: [firstCompletionBatch],
   concurrency: 1,
   runBatch: async () => ({ completions: [] }),
-  selectStrictImprovements: (records) => records,
+  baselines: firstCompletionBatch.seedIds.map((responsibilityId) => ({ responsibilityId, complete: false })),
+  validateCompletion: () => ({ complete: true, reasons: [] }),
 });
 assert.equal(malformed[0]!.records.length, 0);
 assert.equal(malformed[0]!.attempts, 1);
@@ -248,10 +280,77 @@ const retried = await executeResponsibilityCompletionBatches({
       label: 'Submit monthly report', role: 'Finance Team', action: 'submit', object: 'monthly report',
     })) };
   },
-  selectStrictImprovements: (records) => records,
+  baselines: firstCompletionBatch.seedIds.map((responsibilityId) => ({ responsibilityId, complete: false })),
+  validateCompletion: () => ({ complete: true, reasons: [] }),
 });
 assert.equal(retried[0]!.attempts, 2);
 assert.equal(retried[0]!.failure, null);
+const allCandidatesBudget = new SourceReaderBudget({
+  maxReadCalls: 2, maxInputTokens: 500_000, maxEstimatedCostUsd: 10,
+  estimatedInputCostPerMillionTokensUsd: 2, maxRepairAttempts: 0, maxConcurrency: 1,
+});
+let allCandidatesCalls = 0;
+const allCandidatesRetried = await executeResponsibilityCompletionBatches({
+  budget: allCandidatesBudget,
+  batches: [firstCompletionBatch],
+  concurrency: 1,
+  runBatch: async (batch) => {
+    allCandidatesCalls += 1;
+    if (allCandidatesCalls === 1) throw new AllCandidatesFailedError('workflow_read', [{
+      routeId: 'generic_route', provider: 'generic_provider', modelId: 'generic_model', error: 'temporary',
+    }]);
+    return { completions: batch.requests.map((request) => ({
+      responsibilityId: request.responsibilityId,
+      label: 'Submit monthly report', role: 'Finance Team', action: 'submit', object: 'monthly report',
+    })) };
+  },
+  baselines: firstCompletionBatch.seedIds.map((responsibilityId) => ({ responsibilityId, complete: false })),
+  validateCompletion: () => ({ complete: true, reasons: [] }),
+});
+assert.equal(allCandidatesRetried[0]!.attempts, 2);
+assert.equal(allCandidatesRetried[0]!.failure, null);
+const noRetryBudget = new SourceReaderBudget({
+  maxReadCalls: 1, maxInputTokens: 500_000, maxEstimatedCostUsd: 10,
+  estimatedInputCostPerMillionTokensUsd: 2, maxRepairAttempts: 0, maxConcurrency: 1,
+});
+const notBudgeted = await executeResponsibilityCompletionBatches({
+  budget: noRetryBudget,
+  batches: [firstCompletionBatch],
+  concurrency: 1,
+  runBatch: async () => {
+    throw Object.assign(new Error('All model candidates failed for workflow_read'), {
+      name: 'AllCandidatesFailedError',
+    });
+  },
+  baselines: firstCompletionBatch.seedIds.map((responsibilityId) => ({ responsibilityId, complete: false })),
+  validateCompletion: () => ({ complete: true, reasons: [] }),
+});
+assert.equal(notBudgeted[0]!.attempts, 1);
+assert.ok(notBudgeted[0]!.outcomes.every((item) => item.status === 'retry_not_budgeted'));
+assert.match(notBudgeted[0]!.failure!, /retry_not_budgeted/);
+assert.equal(isRetryableResponsibilityCompletionFailure(Object.assign(new Error('aborted'), { name: 'AbortError' })), true);
+const mixedBudget = new SourceReaderBudget({
+  maxReadCalls: 1, maxInputTokens: 500_000, maxEstimatedCostUsd: 10,
+  estimatedInputCostPerMillionTokensUsd: 2, maxRepairAttempts: 0, maxConcurrency: 1,
+});
+const mixed = await executeResponsibilityCompletionBatches({
+  budget: mixedBudget,
+  batches: [firstCompletionBatch],
+  concurrency: 1,
+  runBatch: async (batch) => ({ completions: batch.requests.map((request) => ({
+    responsibilityId: request.responsibilityId,
+    label: 'Submit monthly report', role: 'Finance Team', action: 'submit', object: 'monthly report',
+  })) }),
+  baselines: firstCompletionBatch.seedIds.map((responsibilityId) => ({ responsibilityId, complete: false })),
+  validateCompletion: (record) => record.responsibilityId === firstCompletionBatch.seedIds[0]
+    ? { complete: true, reasons: [] }
+    : { complete: false, reasons: ['object_missing_required_timing'] },
+});
+assert.equal(mixed[0]!.records.length, 1);
+assert.equal(mixed[0]!.outcomes[0]!.status, 'accepted');
+assert.ok(mixed[0]!.outcomes.slice(1).every((item) =>
+  item.status === 'validation_rejected' && item.reasons.includes('object_missing_required_timing')
+));
 const segment: SourceStructureSegment = {
   segmentId: 'licensed_team',
   shape: 'responsibilities',

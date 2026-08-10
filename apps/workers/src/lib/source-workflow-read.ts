@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import {
   OracleAIClient,
+  AllCandidatesFailedError,
   RESPONSIBILITY_READ_PROMPT_VERSION,
   RESPONSIBILITY_READ_SYSTEM_PROMPT,
   ResponsibilityCombinedRepairSchema,
@@ -78,6 +79,7 @@ import {
   completeAndMatchResponsibilityInventory,
   canonicalizeResponsibilityCompletionBatch,
   packResponsibilityCompletions,
+  selectStrictResponsibilityCompletionImprovements,
   finalizeForcedResponsibilityAudits,
   mergeResponsibilityValidationResults,
   mergeResponsibilityRetryValidation,
@@ -97,6 +99,7 @@ import {
   type ResponsibilityCompletionBatch,
   type ResponsibilityCompletionPack,
   type ResponsibilityInventorySeed,
+  type ResponsibilityCompletionBaseline,
 } from './responsibility-reader';
 import {
   mapWithConcurrency,
@@ -153,6 +156,20 @@ export function forecastResponsibilityCompletionScenarios(args: {
   };
 }
 
+export function isRetryableResponsibilityCompletionFailure(error: unknown): boolean {
+  if (error instanceof AllCandidatesFailedError) return true;
+  const name = error instanceof Error ? error.name : '';
+  if (['AllCandidatesFailedError', 'AbortError', 'TimeoutError'].includes(name)) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout|timed out|schema|structured output|all model candidates failed/i.test(message);
+}
+
+export type ResponsibilityCompletionTerminalOutcome = {
+  responsibilityId: string;
+  status: 'accepted' | 'validation_rejected' | 'provider_failed' | 'retry_not_budgeted';
+  reasons: string[];
+};
+
 export async function executeResponsibilityCompletionBatches(args: {
   budget: SourceReaderBudget;
   batches: readonly ResponsibilityCompletionBatch[];
@@ -161,16 +178,17 @@ export async function executeResponsibilityCompletionBatches(args: {
     batch: ResponsibilityCompletionBatch,
     attempt: 1 | 2,
   ) => Promise<ResponsibilityCompletionOutput>;
-  selectStrictImprovements: (
-    records: ResponsibilityReadOutput['responsibilities'],
-    batch: ResponsibilityCompletionBatch,
-  ) => ResponsibilityReadOutput['responsibilities'];
+  baselines: readonly ResponsibilityCompletionBaseline[];
+  validateCompletion: (
+    record: ResponsibilityReadOutput['responsibilities'][number],
+  ) => { complete: boolean; reasons: readonly string[] };
   isRetryableFailure?: (error: unknown) => boolean;
 }): Promise<Array<{
   batchIndex: number;
   seedIds: string[];
   attempts: number;
   records: ResponsibilityReadOutput['responsibilities'];
+  outcomes: ResponsibilityCompletionTerminalOutcome[];
   failure: string | null;
 }>> {
   reserveResponsibilityCompletionBatches({ budget: args.budget, batches: args.batches });
@@ -192,6 +210,11 @@ export async function executeResponsibilityCompletionBatches(args: {
               seedIds: batch.seedIds,
               attempts: 1,
               records: [],
+              outcomes: batch.seedIds.map((responsibilityId) => ({
+                responsibilityId,
+                status: 'retry_not_budgeted' as const,
+                reasons: [firstFailure ?? 'completion_failed', error instanceof Error ? error.message : String(error)],
+              })),
               failure: `${firstFailure ?? 'completion_failed'}; retry_not_budgeted: ${error instanceof Error ? error.message : String(error)}`,
             };
           }
@@ -199,20 +222,44 @@ export async function executeResponsibilityCompletionBatches(args: {
         try {
           const output = await args.runBatch(batch, attempt);
           const canonical = canonicalizeResponsibilityCompletionBatch({ batch, output });
-          const selected = args.selectStrictImprovements(canonical, batch);
+          const selection = selectStrictResponsibilityCompletionImprovements({
+            records: canonical,
+            baselines: args.baselines.filter((item) => batch.seedIds.includes(item.responsibilityId)),
+            validate: args.validateCompletion,
+          });
           const requestedIds = new Set(batch.seedIds);
           const selectedIds = new Set<string>();
-          for (const record of selected) {
+          const rejectedIds = new Set<string>();
+          for (const record of selection.acceptedRecords) {
             if (!requestedIds.has(record.responsibilityId) || selectedIds.has(record.responsibilityId)) {
-              throw new Error(`Responsibility completion strict-improvement selector returned an invalid seed: ${record.responsibilityId}`);
+              throw new Error(`Responsibility completion strict-improvement selection returned an invalid seed: ${record.responsibilityId}`);
             }
             selectedIds.add(record.responsibilityId);
+          }
+          for (const rejection of selection.rejected) {
+            if (
+              !requestedIds.has(rejection.responsibilityId) ||
+              selectedIds.has(rejection.responsibilityId) ||
+              rejectedIds.has(rejection.responsibilityId)
+            ) {
+              throw new Error(`Responsibility completion rejection returned an invalid seed: ${rejection.responsibilityId}`);
+            }
+            rejectedIds.add(rejection.responsibilityId);
+          }
+          if (selectedIds.size + rejectedIds.size !== batch.seedIds.length) {
+            throw new Error('Responsibility completion selection did not account for every seed.');
           }
           return {
             batchIndex: batch.batchIndex,
             seedIds: batch.seedIds,
             attempts: attempt,
-            records: selected,
+            records: selection.acceptedRecords,
+            outcomes: batch.seedIds.map((responsibilityId) => {
+              const rejection = selection.rejected.find((item) => item.responsibilityId === responsibilityId);
+              return rejection
+                ? { responsibilityId, status: 'validation_rejected' as const, reasons: rejection.reasons }
+                : { responsibilityId, status: 'accepted' as const, reasons: [] };
+            }),
             failure: null,
           };
         } catch (error) {
@@ -221,12 +268,17 @@ export async function executeResponsibilityCompletionBatches(args: {
             firstFailure = message;
             const retryable = args.isRetryableFailure
               ? args.isRetryableFailure(error)
-              : /timeout|schema|all\s*candidates\s*failed/i.test(message);
+              : isRetryableResponsibilityCompletionFailure(error);
             if (!retryable) return {
               batchIndex: batch.batchIndex,
               seedIds: batch.seedIds,
               attempts: 1,
               records: [],
+              outcomes: batch.seedIds.map((responsibilityId) => ({
+                responsibilityId,
+                status: 'provider_failed' as const,
+                reasons: [message],
+              })),
               failure: message,
             };
           }
@@ -235,6 +287,11 @@ export async function executeResponsibilityCompletionBatches(args: {
             seedIds: batch.seedIds,
             attempts: 2,
             records: [],
+            outcomes: batch.seedIds.map((responsibilityId) => ({
+              responsibilityId,
+              status: 'provider_failed' as const,
+              reasons: [firstFailure ?? 'completion_failed', message],
+            })),
             failure: `${firstFailure}; retry_failed: ${message}`,
           };
         }

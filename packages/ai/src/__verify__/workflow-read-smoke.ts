@@ -34,6 +34,14 @@ if (
 ) {
   throw new Error('responsibility completion schema or prompt contract drifted');
 }
+if (ResponsibilityCompletionSchema.safeParse({
+  completions: [{
+    responsibilityId: 'known_seed_1', label: 'Submit report', role: 'Finance Team',
+    action: 'submit', object: 'report', chunkId,
+  }],
+}).success) {
+  throw new Error('responsibility completion accepted an immutable or unknown response field');
+}
 
 const segmentation = SourceSegmentationSchema.parse({
   documentShape: 'process',

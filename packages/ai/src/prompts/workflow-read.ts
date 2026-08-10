@@ -7,6 +7,7 @@ import {
 export const WORKFLOW_READ_PROMPT_VERSION = 'workflow-read-v2-quote-copy-repair';
 export const RESPONSIBILITY_READ_PROMPT_VERSION = 'responsibility-read-v2.4-span-bound';
 export const RESPONSIBILITY_COMPLETION_PROMPT_VERSION = 'responsibility-completion-v1';
+export const RESPONSIBILITY_COMPLETION_MAX_RECORDS_PER_BATCH = 300;
 export const RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION = 'responsibility-quote-repair-v2.3-grounded';
 export const SOURCE_SEGMENTATION_PROMPT_VERSION = 'source-segmentation-v1';
 export const SOURCE_READER_PIPELINE_VERSION =
@@ -234,7 +235,8 @@ export const ResponsibilityCompletionRecordSchema = z.object({
 }).strict();
 
 export const ResponsibilityCompletionSchema = z.object({
-  completions: z.array(ResponsibilityCompletionRecordSchema).max(300),
+  completions: z.array(ResponsibilityCompletionRecordSchema)
+    .max(RESPONSIBILITY_COMPLETION_MAX_RECORDS_PER_BATCH),
 }).strict();
 
 export const ResponsibilityQuoteRepairSchema = z.object({
