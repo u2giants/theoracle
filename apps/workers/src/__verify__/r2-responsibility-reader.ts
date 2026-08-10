@@ -32,6 +32,8 @@ import {
   buildSyntheticResponsibilitySegments,
   buildResponsibilityBaseReadPlan,
   buildResponsibilitySourceInventory,
+  completeAndMatchResponsibilityInventory,
+  assertResponsibilityInventorySeeds,
   buildResponsibilityPostPassAudit,
   bindForcedResponsibilitySpans,
   canonicalizeForcedResponsibilityOutput,
@@ -1017,6 +1019,166 @@ const attributeInventory = buildResponsibilitySourceInventory([{
 }]);
 assert.equal(attributeInventory.seeds.length, 1, 'an attribute list is not split as destinations');
 assert.equal(attributeInventory.auditParents.length, 0);
+const deterministicInventory = completeAndMatchResponsibilityInventory({
+  inventorySeeds: genericInventoryA.seeds,
+  proposals: { summary: 'No model discoveries were returned.', responsibilities: [] },
+  chunks: genericInventoryChunks,
+});
+assert.equal(deterministicInventory.audit.modelDiscoveredInventoryCount, 0);
+assert.ok(
+  deterministicInventory.output.responsibilities.some((record) =>
+    record.object === 'signed notices into Hub North'
+  ),
+  'destination completion keeps the shared object head and only its destination',
+);
+assert.ok(
+  deterministicInventory.audit.mergeReadyInventoryCount > 0,
+  'clear list duties complete without model output',
+);
+const deterministicValidation = validateResponsibilityRead({
+  output: deterministicInventory.output,
+  documentId,
+  segment: {
+    segmentId: 'generic_inventory_segment',
+    title: 'Generic inventory',
+    shape: 'responsibilities',
+    summary: 'Generic inventory validation segment.',
+    chunkIds: ['generic_inventory_chunk'],
+  },
+  chunks: genericInventoryChunks,
+  allCoveredChunkIds: new Set(['generic_inventory_chunk']),
+  inventorySeeds: genericInventoryA.seeds,
+});
+const destinationSeedIds = genericInventoryA.seeds
+  .filter((seed) => seed.splitKind === 'destination')
+  .map((seed) => seed.inventorySeedId);
+assert.equal(
+  deterministicValidation.elements.filter((element) => destinationSeedIds.includes(element.elementId)).length,
+  3,
+  'pre-split destination children validate once each instead of expanding again',
+);
+assert.equal(
+  deterministicValidation.elements.length,
+  5,
+  'deterministic validation emits only the five clear seeds',
+);
+assert.ok(
+  deterministicValidation.elements.every((element) => !element.elementId.includes('_dst_')),
+  'pre-split destination validation creates no hidden expansion artifacts',
+);
+assert.ok(
+  destinationSeedIds.every((id) => deterministicValidation.completeElementIds.includes(id)),
+  'destination merge-ready IDs remain inventory seed IDs',
+);
+assert.equal(
+  findResponsibilityOmissions({
+    chunks: genericInventoryChunks,
+    elements: deterministicValidation.elements,
+    inventorySeeds: genericInventoryA.seeds,
+  }).filter((item) => /Hub North/.test(item.sourceSpan)).length,
+  0,
+  'a destination parent is covered when all inventory children are complete',
+);
+const destinationParent = genericInventoryA.auditParents.find(
+  (parent) => parent.decision === 'split_destination',
+)!;
+const shortenedQuote = destinationParent.evidenceQuote.replace(/\.$/, '');
+const partialOverlapProposal = completeAndMatchResponsibilityInventory({
+  inventorySeeds: genericInventoryA.seeds,
+  proposals: {
+    summary: 'A shortened overlapping quote must remain audit only.',
+    responsibilities: [{
+      responsibilityId: 'partial_overlap_proposal',
+      label: 'Upload signed notices',
+      role: 'Service Desk',
+      action: 'upload',
+      object: 'signed notices into Hub North, Hub South, and Hub West',
+      trigger: null,
+      requiredSystem: null,
+      ownerName: null,
+      department: null,
+      evidenceQuote: shortenedQuote,
+      chunkId: 'generic_inventory_chunk',
+    }],
+  },
+  chunks: genericInventoryChunks,
+});
+assert.deepEqual(
+  partialOverlapProposal.audit.unmatchedProposalIds,
+  ['partial_overlap_proposal'],
+  'partial-overlap proposals are rejected without creating overlapping seeds',
+);
+const ambiguousCompletion = completeAndMatchResponsibilityInventory({
+  inventorySeeds: ambiguousInventory.seeds,
+  proposals: { summary: 'No model discoveries were returned.', responsibilities: [] },
+  chunks: [{
+    id: 'ambiguous_inventory_chunk',
+    documentId,
+    rawText: '- Review and then send confirmations.',
+  }],
+});
+assert.equal(ambiguousCompletion.output.responsibilities.length, 0);
+assert.deepEqual(ambiguousCompletion.audit.incompleteSeedIds, [ambiguousInventory.seeds[0]!.inventorySeedId]);
+const unmatchedProposal = completeAndMatchResponsibilityInventory({
+  inventorySeeds: attributeInventory.seeds,
+  proposals: {
+    summary: 'One unmatched proposal is retained only in audit.',
+    responsibilities: [{
+      responsibilityId: 'proposal_unmatched',
+      label: 'Invented duty',
+      role: 'Service Desk',
+      action: 'send',
+      object: 'an invented report',
+      trigger: null,
+      requiredSystem: null,
+      ownerName: null,
+      department: null,
+      evidenceQuote: 'Invented source text.',
+      chunkId: 'attribute_inventory_chunk',
+    }],
+  },
+  chunks: [{
+    id: 'attribute_inventory_chunk',
+    documentId,
+    rawText: '- Review color, size, and material fields.',
+  }],
+});
+assert.deepEqual(unmatchedProposal.audit.unmatchedProposalIds, ['proposal_unmatched']);
+assert.ok(!unmatchedProposal.output.responsibilities.some((record) => record.responsibilityId === 'proposal_unmatched'));
+const validSeed = attributeInventory.seeds[0]!;
+assert.throws(
+  () => assertResponsibilityInventorySeeds(
+    [{ id: 'attribute_inventory_chunk', documentId, rawText: '- Review color, size, and material fields.' }],
+    [{ ...validSeed, evidenceQuote: 'wrong quote' }],
+  ),
+  /quote\/offset mismatch/,
+);
+assert.throws(
+  () => assertResponsibilityInventorySeeds(
+    [{ id: 'attribute_inventory_chunk', documentId, rawText: '- Review color, size, and material fields.' }],
+    [{ ...validSeed, sourceStart: -1 }],
+  ),
+  /invalid offsets/,
+);
+assert.throws(
+  () => assertResponsibilityInventorySeeds([], [validSeed]),
+  /has no source chunk/,
+);
+assert.throws(
+  () => assertResponsibilityInventorySeeds(
+    [{ id: 'attribute_inventory_chunk', documentId, rawText: '- Review color, size, and material fields.' }],
+    [validSeed, {
+      ...validSeed,
+      inventorySeedId: `${validSeed.inventorySeedId}_overlap`,
+      sourceStart: validSeed.sourceStart + 1,
+      evidenceQuote: '- Review color, size, and material fields.'.slice(
+        validSeed.sourceStart + 1,
+        validSeed.sourceEnd,
+      ),
+    }],
+  ),
+  /Overlapping responsibility inventory recognition/,
+);
 assert.throws(
   () => buildResponsibilitySourceInventory([
     { id: 'duplicate_inventory_chunk', documentId, rawText: '- Review open requests.' },

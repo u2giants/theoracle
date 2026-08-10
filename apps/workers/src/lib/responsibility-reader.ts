@@ -31,6 +31,7 @@ export type ResponsibilityOmission = {
   sourceEnd?: number;
   sourceLocationFailure?: string;
   listStructured?: boolean;
+  omissionClass?: 'inventory_detection_gap' | 'completion_gap';
 };
 
 export type ResponsibilitySpanRankFeatures = {
@@ -76,6 +77,17 @@ export type ResponsibilityInventoryAuditParent = ResponsibilityInventorySeed & {
   active: false;
   decision: 'split_destination' | 'split_multi_verb' | 'ambiguous_multi_verb';
   childSeedIds: string[];
+};
+
+export type ResponsibilityInventoryMatchAudit = {
+  sourceInventoryIds: string[];
+  modelDiscoveredInventoryIds: string[];
+  mergeReadyInventoryIds: string[];
+  unmatchedProposalIds: string[];
+  incompleteSeedIds: string[];
+  sourceInventoryCount: number;
+  modelDiscoveredInventoryCount: number;
+  mergeReadyInventoryCount: number;
 };
 
 export type ResponsibilityFieldFidelityResult = {
@@ -676,7 +688,7 @@ function responsibilityInventorySeedId(args: {
   return `inventory_seed_${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`;
 }
 
-function assertResponsibilityInventorySeeds(
+export function assertResponsibilityInventorySeeds(
   chunks: readonly ResponsibilityChunk[],
   seeds: readonly ResponsibilityInventorySeed[],
 ): void {
@@ -717,7 +729,10 @@ function assertResponsibilityInventorySeeds(
     if (
       previous.chunkId === current.chunkId &&
       current.sourceStart < previous.sourceEnd &&
-      previous.parentSeedId !== current.parentSeedId &&
+      !(
+        previous.parentSeedId !== null &&
+        previous.parentSeedId === current.parentSeedId
+      ) &&
       previous.parentSeedId !== current.inventorySeedId &&
       current.parentSeedId !== previous.inventorySeedId
     ) {
@@ -726,6 +741,166 @@ function assertResponsibilityInventorySeeds(
       );
     }
   }
+}
+
+function inventorySeedOwner(seed: ResponsibilityInventorySeed): string | null {
+  const verb = sourceDutyVerbMatch(seed.sourceSpan);
+  if (!verb) return null;
+  const bracket = seed.sourceSpan.match(/^\s*\[([^\]]{2,80})\]/)?.[1]?.trim();
+  if (bracket) return bracket;
+  const prefix = seed.sourceSpan.slice(0, verb.index)
+    .replace(/^(?:[-*•]|\d+[.)])\s*/, '')
+    .replace(/\b(?:will|must|should|shall|may)\s*$/i, '')
+    .trim();
+  return prefix && /^[A-Z]/.test(prefix) && fieldTokens(prefix).length <= 6 ? prefix : null;
+}
+
+function deterministicInventoryRecord(
+  seed: ResponsibilityInventorySeed,
+): ResponsibilityReadOutput['responsibilities'][number] | null {
+  if (
+    !seed.listStructured ||
+    seed.parseDiagnostics.includes('ambiguous_multi_verb') ||
+    dutyVerbsInSourceSpan(seed.sourceSpan).length !== 1
+  ) return null;
+  const verb = sourceDutyVerbMatch(seed.sourceSpan);
+  const role = inventorySeedOwner(seed);
+  if (!verb || !role) return null;
+  const fidelitySpan = seed.splitKind === 'destination' && seed.splitValue
+    ? destinationSpecificResponsibilitySpan(seed.sourceSpan, seed.splitValue)
+    : seed.sourceSpan;
+  const object = sourceObjectText(fidelitySpan).trim().replace(/[.;]+$/, '').trim();
+  if (!object) return null;
+  return {
+    responsibilityId: seed.inventorySeedId,
+    label: `${role}: ${stemDutyVerb(verb.text)} ${object}`.slice(0, 240),
+    role,
+    action: stemDutyVerb(verb.text),
+    object,
+    trigger: null,
+    requiredSystem:
+      seed.splitKind === 'destination' &&
+      seed.splitValue &&
+      ['archive', 'enter', 'publish', 'record', 'save', 'submit', 'upload'].includes(
+        stemDutyVerb(verb.text),
+      )
+        ? seed.splitValue
+        : null,
+    ownerName: null,
+    department: null,
+    evidenceQuote: seed.evidenceQuote,
+    chunkId: seed.chunkId,
+  };
+}
+
+export function completeAndMatchResponsibilityInventory(args: {
+  inventorySeeds: readonly ResponsibilityInventorySeed[];
+  proposals: ResponsibilityReadOutput;
+  chunks: readonly ResponsibilityChunk[];
+}): { output: ResponsibilityReadOutput; audit: ResponsibilityInventoryMatchAudit } {
+  assertResponsibilityInventorySeeds(args.chunks, args.inventorySeeds);
+  const inventorySeeds = [...args.inventorySeeds];
+  const seedById = new Map(inventorySeeds.map((seed) => [seed.inventorySeedId, seed]));
+  const chunkById = new Map(args.chunks.map((chunk) => [chunk.id, chunk]));
+  const claimedSeeds = new Set<string>();
+  const unmatchedProposalIds: string[] = [];
+  const accepted: ResponsibilityReadOutput['responsibilities'] = [];
+  const discovered = new Set<string>();
+
+  for (const proposal of args.proposals.responsibilities) {
+    const explicit = seedById.get(proposal.responsibilityId);
+    let exactCandidates = inventorySeeds.filter((seed) =>
+      seed.chunkId === proposal.chunkId && seed.evidenceQuote === proposal.evidenceQuote
+    );
+    if (exactCandidates.length === 0) {
+      const chunk = chunkById.get(proposal.chunkId);
+      const first = chunk?.rawText.indexOf(proposal.evidenceQuote) ?? -1;
+      const repeated = first >= 0 && chunk!.rawText.indexOf(proposal.evidenceQuote, first + 1) >= 0;
+      if (chunk && first >= 0 && !repeated) {
+        const discovered = buildResponsibilitySourceInventory([{
+          ...chunk,
+          rawText: proposal.evidenceQuote,
+        }]).seeds.map((seed) => {
+          const sourceStart = seed.sourceStart + first;
+          const sourceEnd = seed.sourceEnd + first;
+          const inventorySeedId = responsibilityInventorySeedId({
+            chunkId: seed.chunkId,
+            sourceStart,
+            sourceEnd,
+            sourceSpanSha256: seed.sourceSpanSha256,
+            suffix: seed.splitKind === 'destination' && seed.splitValue
+              ? `destination:${normalizedDestination(seed.splitValue)}`
+              : undefined,
+          });
+          return { ...seed, inventorySeedId, sourceStart, sourceEnd };
+        });
+        const nonOverlapping = discovered.filter((seed) =>
+          !inventorySeeds.some((existing) =>
+            existing.chunkId === seed.chunkId &&
+            seed.sourceStart < existing.sourceEnd &&
+            existing.sourceStart < seed.sourceEnd
+          ),
+        );
+        for (const seed of nonOverlapping) {
+          if (seedById.has(seed.inventorySeedId)) continue;
+          inventorySeeds.push(seed);
+          seedById.set(seed.inventorySeedId, seed);
+        }
+        assertResponsibilityInventorySeeds(args.chunks, inventorySeeds);
+        exactCandidates = inventorySeeds.filter((seed) =>
+          seed.chunkId === proposal.chunkId && seed.evidenceQuote === proposal.evidenceQuote
+        );
+      }
+    }
+    let candidates = explicit && exactCandidates.includes(explicit) ? [explicit] : exactCandidates;
+    if (candidates.length > 1) {
+      const fieldCandidates = candidates.filter((seed) => {
+        const span = seed.splitKind === 'destination' && seed.splitValue
+          ? destinationSpecificResponsibilitySpan(seed.sourceSpan, seed.splitValue)
+          : seed.sourceSpan;
+        return validateResponsibilityFieldFidelity(span, proposal).passed;
+      });
+      candidates = fieldCandidates;
+    }
+    const seed = candidates.length === 1 ? candidates[0]! : null;
+    if (!seed || claimedSeeds.has(seed.inventorySeedId)) {
+      unmatchedProposalIds.push(proposal.responsibilityId);
+      continue;
+    }
+    claimedSeeds.add(seed.inventorySeedId);
+    discovered.add(seed.inventorySeedId);
+    accepted.push({
+      ...proposal,
+      responsibilityId: seed.inventorySeedId,
+      chunkId: seed.chunkId,
+      evidenceQuote: seed.evidenceQuote,
+    });
+  }
+
+  const deterministic = inventorySeeds
+    .filter((seed) => !claimedSeeds.has(seed.inventorySeedId))
+    .flatMap((seed) => {
+      const record = deterministicInventoryRecord(seed);
+      if (!record) return [];
+      claimedSeeds.add(seed.inventorySeedId);
+      return [record];
+    });
+  const output = { ...args.proposals, responsibilities: [...accepted, ...deterministic] };
+  const mergeReadyIds = output.responsibilities.map((record) => record.responsibilityId);
+  const sourceIds = inventorySeeds.map((seed) => seed.inventorySeedId);
+  return {
+    output,
+    audit: {
+      sourceInventoryIds: sourceIds,
+      modelDiscoveredInventoryIds: sourceIds.filter((id) => discovered.has(id)),
+      mergeReadyInventoryIds: mergeReadyIds,
+      unmatchedProposalIds,
+      incompleteSeedIds: sourceIds.filter((id) => !claimedSeeds.has(id)),
+      sourceInventoryCount: sourceIds.length,
+      modelDiscoveredInventoryCount: discovered.size,
+      mergeReadyInventoryCount: mergeReadyIds.length,
+    },
+  };
 }
 
 function inventoryDestinationSplit(seed: ResponsibilityInventorySeed): {
@@ -1224,6 +1399,7 @@ export function resolveEnclosingResponsibilityDutySpan(args: {
 export function findResponsibilityOmissions(args: {
   chunks: readonly ResponsibilityChunk[];
   elements: readonly SourceStructureElement[];
+  inventorySeeds?: readonly ResponsibilityInventorySeed[];
   fileType?: string | null;
   fileName?: string | null;
 }): ResponsibilityOmission[] {
@@ -1248,16 +1424,36 @@ export function findResponsibilityOmissions(args: {
         sourceLocationFailure,
         listStructured,
       } = span;
+      const seeded = (args.inventorySeeds ?? []).some((seed) =>
+        seed.chunkId === chunk.id &&
+        sourceStart !== undefined &&
+        sourceEnd !== undefined &&
+        seed.sourceStart >= sourceStart &&
+        seed.sourceEnd <= sourceEnd
+      );
+      const omissionClass = seeded ? 'completion_gap' : 'inventory_detection_gap';
       if (!evidenceQuote || sourceStart === undefined || sourceEnd === undefined) {
         return [{
           chunkId: chunk.id,
           spanIndex,
           sourceSpan,
           listStructured,
+          omissionClass,
           sourceLocationFailure: sourceLocationFailure ?? 'Responsibility raw source binding failed.',
         }];
       }
-      const covered = (byChunk.get(chunk.id) ?? []).some((element) => {
+      const chunkElements = byChunk.get(chunk.id) ?? [];
+      const containedSeedIds = (args.inventorySeeds ?? [])
+        .filter((seed) =>
+          seed.chunkId === chunk.id &&
+          seed.sourceStart >= sourceStart &&
+          seed.sourceEnd <= sourceEnd
+        )
+        .map((seed) => seed.inventorySeedId);
+      const coveredByAllInventoryChildren =
+        containedSeedIds.length > 0 &&
+        containedSeedIds.every((id) => chunkElements.some((element) => element.elementId === id));
+      const covered = coveredByAllInventoryChildren || chunkElements.some((element) => {
         const quoteWithinSpan = validateQuote({
           sourceText: evidenceQuote,
           exactQuoteProvided: element.evidenceQuote!,
@@ -1284,6 +1480,7 @@ export function findResponsibilityOmissions(args: {
             sourceEnd,
             sourceLocationFailure,
             listStructured,
+            omissionClass,
           }];
     }),
   );
@@ -1971,6 +2168,7 @@ export function validateResponsibilityRead(args: {
   fileType?: string | null;
   fileName?: string | null;
   allCoveredChunkIds?: ReadonlySet<string>;
+  inventorySeeds?: readonly ResponsibilityInventorySeed[];
 }): {
   elements: SourceStructureElement[];
   inventoryElements: SourceStructureElement[];
@@ -1999,6 +2197,9 @@ export function validateResponsibilityRead(args: {
     fileName: args.fileName ?? '',
   });
   const policy = resolveSourceQuotePolicy(sourceKind);
+  const inventorySeedById = new Map(
+    (args.inventorySeeds ?? []).map((seed) => [seed.inventorySeedId, seed]),
+  );
 
   for (const record of args.output.responsibilities) {
     const base = {
@@ -2094,10 +2295,14 @@ export function validateResponsibilityRead(args: {
       fileType: args.fileType,
       fileName: args.fileName,
     });
-    const fieldFidelity = enclosingDutySpan
-      ? validateResponsibilityFieldFidelity(enclosingDutySpan, record)
+    const matchedSeed = inventorySeedById.get(record.responsibilityId);
+    const validationSpan = matchedSeed?.splitKind === 'destination' && matchedSeed.splitValue
+      ? destinationSpecificResponsibilitySpan(matchedSeed.sourceSpan, matchedSeed.splitValue)
+      : enclosingDutySpan;
+    const fieldFidelity = validationSpan
+      ? validateResponsibilityFieldFidelity(validationSpan, record)
       : null;
-    if (enclosingDutySpan) {
+    if (enclosingDutySpan && matchedSeed?.splitKind !== 'destination') {
       const expansion = expandResponsibilityDestinations({
         sourceSpan: enclosingDutySpan,
         record,

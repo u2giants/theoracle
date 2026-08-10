@@ -1,6 +1,6 @@
 # R2 Source-Span Inventory Reader Implementation Plan
 
-Status: **P0 AND P1 COMPLETE AND GROK 4.5 REVIEWED. P2 IS NEXT. PRODUCTION GATE NOT STARTED.**
+Status: **P0 THROUGH P2 COMPLETE. P3 IS NEXT. PRODUCTION GATE NOT STARTED.**
 
 Created: 2026-08-09
 
@@ -22,7 +22,7 @@ was $1.127844 across 2,510,800 reported tokens, including 2,334,080 cached token
 |---|---|---|
 | P0. Reconfirm the frozen contract and classify residual failures | ✅ complete | Five baseline checks passed; `evals/r2-responsibilities.md` classifies all 30 rows for all three maps and finds credible non-scorer mechanisms for 30/30. |
 | P1. Build a deterministic source-span inventory | ✅ complete | Pure stable inventory seeds, exact raw bindings, inherited owners, locked destination and multi-verb children, audit-only parents, loud integrity checks, and generic tests pass. Grok 4.5 independently returned `APPROVED FOR P2 WITH NON-BLOCKING NOTES`; P2 must preserve seed-aware destination matching, and P5 must close the overlap and direct integrity-test notes below. |
-| P2. Add deterministic seed completion and exclusive proposal matching | ⬜ open | Clear list duties complete without a model; proposals attach only to one existing seed. |
+| P2. Add deterministic seed completion and exclusive proposal matching | ✅ complete | Exact source-bound exclusive matching, audit-only unmatched proposals, deterministic clear-list completion, three staged inventory counts/ID lists, split omission classes, overlap hardening, and direct integrity tests pass locally. GLM 5.2 independently found two blockers; both were fixed and its follow-up verdict was `APPROVED FOR P3`. |
 | P3. Add exhaustive, budget-proven residual completion | ⬜ open | Every residual seed is scheduled once within a forecasted budget, or records a loud failure. |
 | P4. Rebuild omission and merge assembly around the inventory | ⬜ open | No duty disappears because it missed a retry slot; only complete records enter `elementsJson`. |
 | P5. Complete local verification | ⬜ open | Every command in section 10 passes and fixture leakage is absent. |
@@ -30,8 +30,8 @@ was $1.127844 across 2,510,800 reported tokens, including 2,334,080 cached token
 | P7. Commit, push, CI, deploy, and run one production gate | ⬜ open | One pinned production run reaches a terminal state with full audit evidence. |
 | P8. Apply the frozen score rule and update durable records | ⬜ open | Result and next decision are committed, pushed, and CI green. |
 
-Fresh-session starting point: **P2**. P0 and P1 passed. Read this file in full, inspect the committed
-P1 inventory seam, and do not run another model bake-off or production gate before P2 through P6
+Fresh-session starting point: **P3**. P0 through P2 passed. Read this file in full, inspect the local
+P2 completion/matching seam, and do not run another model bake-off or production gate before P3 through P6
 are complete.
 
 Independent P0/P1 implementation review, 2026-08-10: Grok 4.5 session

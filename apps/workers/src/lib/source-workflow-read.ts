@@ -74,6 +74,7 @@ import {
   buildResponsibilityBaseReadPlan,
   bindForcedResponsibilitySpans,
   canonicalizeForcedResponsibilityOutput,
+  completeAndMatchResponsibilityInventory,
   finalizeForcedResponsibilityAudits,
   mergeResponsibilityValidationResults,
   mergeResponsibilityRetryValidation,
@@ -2319,6 +2320,18 @@ export async function generateSourceWorkflowMap(args: {
           budget: readerBudget!,
         });
         model.output = prefixResponsibilityOutput(model.output, shardIndex);
+        const inventoryMatch = completeAndMatchResponsibilityInventory({
+          inventorySeeds: responsibilityBaseReadPlan.inventorySeeds.filter((seed) =>
+            segmentChunkIds.has(seed.chunkId),
+          ),
+          proposals: model.output,
+          chunks: segmentChunks.map((chunk) => ({
+            id: chunk.id,
+            documentId: args.documentId,
+            rawText: chunk.rawText,
+          })),
+        });
+        model.output = inventoryMatch.output;
         const validation = validateResponsibilityRead({
           output: model.output,
           documentId: args.documentId,
@@ -2326,6 +2339,9 @@ export async function generateSourceWorkflowMap(args: {
           fileType: doc.fileType,
           fileName: doc.fileName,
           allCoveredChunkIds: new Set(segmentation.segments.flatMap((item) => item.chunkIds)),
+          inventorySeeds: responsibilityBaseReadPlan.inventorySeeds.filter((seed) =>
+            segmentChunkIds.has(seed.chunkId),
+          ),
           chunks: chunks.map((chunk) => ({
             id: chunk.id,
             documentId: args.documentId,
@@ -2339,6 +2355,14 @@ export async function generateSourceWorkflowMap(args: {
           modelRunIds: [model.modelRunId],
           contextPackIds: [model.contextPackId],
           executions: [model.execution],
+          inventoryMatchAudit: {
+            ...inventoryMatch.audit,
+            mergeReadyInventoryIds: validation.completeElementIds,
+            mergeReadyInventoryCount: validation.completeElementIds.length,
+            incompleteSeedIds: inventoryMatch.audit.sourceInventoryIds.filter(
+              (id) => !validation.completeElementIds.includes(id),
+            ),
+          },
         };
       },
     }));
@@ -2352,6 +2376,7 @@ export async function generateSourceWorkflowMap(args: {
       findResponsibilityOmissions({
         chunks: responsibilityAuditChunks,
         elements: responsibilityReads.flatMap((read) => read.validation.elements),
+        inventorySeeds: responsibilityBaseReadPlan.inventorySeeds,
         fileType: doc.fileType,
         fileName: doc.fileName,
       });
@@ -2696,6 +2721,9 @@ export async function generateSourceWorkflowMap(args: {
                 fileType: doc.fileType,
                 fileName: doc.fileName,
                 allCoveredChunkIds: coveredChunkIds,
+                inventorySeeds: responsibilityBaseReadPlan.inventorySeeds.filter((seed) =>
+                  read.segment.chunkIds.includes(seed.chunkId),
+                ),
                 chunks: chunks.map((chunk) => ({
                   id: chunk.id,
                   documentId: args.documentId,
@@ -2868,7 +2896,14 @@ export async function generateSourceWorkflowMap(args: {
         executionShardId: read.segment.segmentId,
         promptVersion: RESPONSIBILITY_READ_PROMPT_VERSION,
         keptCount: read.validation.elements.length,
-        inventoryCount: read.validation.inventoryElements.length,
+        sourceInventoryCount: read.inventoryMatchAudit.sourceInventoryCount,
+        sourceInventoryIds: read.inventoryMatchAudit.sourceInventoryIds,
+        modelDiscoveredInventoryCount: read.inventoryMatchAudit.modelDiscoveredInventoryCount,
+        modelDiscoveredInventoryIds: read.inventoryMatchAudit.modelDiscoveredInventoryIds,
+        mergeReadyInventoryCount: read.inventoryMatchAudit.mergeReadyInventoryCount,
+        mergeReadyInventoryIds: read.inventoryMatchAudit.mergeReadyInventoryIds,
+        unmatchedProposalIds: read.inventoryMatchAudit.unmatchedProposalIds,
+        incompleteSeedIds: read.inventoryMatchAudit.incompleteSeedIds,
         completeCount: read.validation.elements.length,
         mergeEligibleCount: read.validation.completeElementIds.length,
         droppedCount: read.validation.diagnostics.length,
