@@ -1,6 +1,6 @@
 # R2 Numbered Inner-Actor Correction Plan
 
-Status: **LOCAL CORRECTION PASSED AT 28/30. LANDING IN PROGRESS. PRODUCTION FORBIDDEN.**
+Status: **LOCAL CORRECTION PASSED AT 28/30 AND LANDED. PRODUCTION FORBIDDEN.**
 
 Parent plans: [`plan_r2_local_owner_context_correction.md`](plan_r2_local_owner_context_correction.md) and [`plan_r2_source_span_inventory_reader.md`](plan_r2_source_span_inventory_reader.md)
 
@@ -15,9 +15,9 @@ Handoff: [`HANDOFF.d/2026-08-11T1522Z-al8960ofc-codex-r2-numbered-inner-actor.md
 | N2. Correct source owner parsing | ✅ complete | One marker is skipped only for direct-actor testing; full-span verb indexes remain unchanged. Review also found and prompted a general stale-reset fix. |
 | N3. Run the unchanged score gate | ✅ complete | 28/30 from 139 seeds. Rows 14 and 29 recovered; all prior 26 rows remain supported; only 16 and 26 remain unsupported. |
 | N4. Full local suite and fresh review | ✅ complete | All 15 commands pass after the fix. Codex and GLM 5.2 follow-ups both returned `APPROVED FOR CI` with no P0/P1. |
-| N5. Land local work | ⬜ open | Exact files committed/pushed and CI green; no deploy or production. |
+| N5. Land local work | ✅ complete | Commit `62330bdb0b477abb373fa1d155b104cee45a8b66` is pushed to `main`; CI run `31508223778` passed. No deploy or production action occurred. |
 
-Fresh-session start: land N5 only. Never deploy or run production.
+Fresh-session start: the local correction is complete. Any production or live-gate work requires a separate owner decision.
 
 ## 1. Ultimate goal
 

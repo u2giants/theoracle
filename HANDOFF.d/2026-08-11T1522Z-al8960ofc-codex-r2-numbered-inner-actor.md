@@ -14,7 +14,7 @@ Execute [`../plan_r2_numbered_inner_actor_correction.md`](../plan_r2_numbered_in
 
 ## 3. Current state
 
-Pushed main is `85dab98`. The combined local correction passes the unchanged gate at 28/30 from 139 seeds. Supported rows are 1-15 except 16, plus 17-25, 27-30 except 26. Only rows 16 and 26 remain unsupported. Every full local command passed after the review fix. Codex session `019ff16e-013e-7900-bd0d-bd01e7758e1d` and GLM 5.2 report `.ai/reviews/glm-r2-inventory-p6-final-20260811T153842Z.md` both say `APPROVED FOR CI` with no P0/P1. Commit, push, and CI remain. Nothing is deployed.
+Commit `62330bdb0b477abb373fa1d155b104cee45a8b66` is pushed to `main`, and CI run `31508223778` passed. The combined local correction passes the unchanged gate at 28/30 from 139 seeds. Supported rows are 1-15 except 16, plus 17-25, 27-30 except 26. Only rows 16 and 26 remain unsupported. Every full local command passed after the review fix. Codex session `019ff16e-013e-7900-bd0d-bd01e7758e1d` and GLM 5.2 report `.ai/reviews/glm-r2-inventory-p6-final-20260811T153842Z.md` both say `APPROVED FOR CI` with no P0/P1. Nothing is deployed.
 
 ## 4. What did not work
 
@@ -26,7 +26,7 @@ The prior helper handled outer label plus direct actor, but not outer label plus
 
 ## 6. Exact next steps
 
-Stage exact files, verify Albert's identity, commit/push main, and wait for green CI. Record the SHA and CI run in the plan. Stop before deployment or production.
+Do nothing further without Albert's separate decision. Deployment and the frozen production gate remain forbidden in this workstream.
 
 ## 7. Constraints
 
