@@ -46,8 +46,10 @@ It does not authorize implementation.
 - No application code, deployment, production, model, budget, matcher, DB, merge, or apply change has
   occurred under this plan.
 - GLM 5.2 approved the corrected plan for Albert's implementation decision with no P0/P1 findings.
-- Plan and handoff were committed and pushed at `8679a0513d13cb06d251e0865292cb04910687d8`.
-- GitHub Actions run `31522563523` passed.
+- Plan and first handoff version were committed at `8679a0513d13cb06d251e0865292cb04910687d8`.
+- Fresh-session audit fixes were committed and pushed at
+  `7b9c0fc92e4d9bb3050903b76510916272b52c9b` on `main`.
+- GitHub Actions run `31532357283` passed for the final handoff commit.
 
 ## 4. Everything tried that did not work
 
