@@ -11,7 +11,7 @@ export const RESPONSIBILITY_COMPLETION_MAX_RECORDS_PER_BATCH = 300;
 export const RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION = 'responsibility-quote-repair-v2.3-grounded';
 export const SOURCE_SEGMENTATION_PROMPT_VERSION = 'source-segmentation-v1';
 export const SOURCE_READER_PIPELINE_VERSION =
-  'shape-reader-v7-r2-batch-f';
+  'shape-reader-v8-r2-source-inventory';
 
 export const SOURCE_STRUCTURE_SHAPES = BUSINESS_MODEL_SHAPES;
 export const SOURCE_STRUCTURE_SHAPE_REGISTRY = BUSINESS_MODEL_SHAPE_REGISTRY;

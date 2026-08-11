@@ -1,6 +1,6 @@
 # R2 Source-Span Inventory Reader Implementation Plan
 
-Status: **P0 THROUGH P4 COMPLETE. P5 PROOF AND P6 REVIEW ARE BLOCKED. PRODUCTION GATE NOT STARTED.**
+Status: **P0 THROUGH P4 COMPLETE. P5 FAILED HONESTLY AT 16/30. PRODUCTION GATE FORBIDDEN.**
 
 Created: 2026-08-09
 
@@ -25,14 +25,12 @@ was $1.127844 across 2,510,800 reported tokens, including 2,334,080 cached token
 | P2. Add deterministic seed completion and exclusive proposal matching | ✅ complete | Exact source-bound exclusive matching, audit-only unmatched proposals, deterministic clear-list completion, three staged inventory counts/ID lists, split omission classes, overlap hardening, and direct integrity tests pass locally. GLM 5.2 independently found two blockers; both were fixed and its follow-up verdict was `APPROVED FOR P3`. |
 | P3. Add exhaustive, budget-proven residual completion | ✅ complete | Shallow strict completion contract, immutable seed canonicalization, stable input/output token packing with the shared 300-record schema ceiling, low/expected/high forecasts, full pre-dispatch read-budget reservation, typed bounded retry rules, strict-improvement validation, ordered per-seed terminal outcomes, and loud missing/duplicate/extra/unscheduled failures pass locally. Grok 4.5 found and verified corrections for retry classification, schema-sized packing, strict improvement, and outcome audit, then returned `APPROVED FOR P4`. |
 | P4. Rebuild omission and merge assembly around the inventory | ✅ complete | The production worker now runs budget-packed exhaustive residual completion before detection-only legacy retries and candidate-bound quote repair. Final responsibility elements are source-seed ordered, complete-only, one-to-one asserted, and the inventory, manifests, outcomes, executions, unscheduled IDs, final gaps, and failure facts persist in `validationJson`. Worker typecheck, lint, AI typecheck, the R2 production-seam verifier, and `git diff --check` pass. |
-| P5. Complete local verification | ⚠️ commands pass, proof blocked | Every section 10 command passes and the pinned verifier reports 27/30 from 144 seeds, but the final independent review found that the verifier can borrow owner context unavailable to production. The 27-row stop gate is not accepted until that fallback is removed and the honest score is rerun. |
-| P6. Independent read-only design and implementation review | ⛔ blocked | Final Codex review `20260810-183652` found three P1 proof gaps: remove the pinned verifier's source-prefix owner fallback, repair a real quote from the top-level test's own fixture, and prove a genuinely new retry-discovered seed receives late completion and a saved outcome. No production action is allowed until a corrected diff is approved. |
+| P5. Complete local verification | ❌ failed honestly | The invalid source-prefix owner fallback is removed. Fourteen of fifteen section 10 checks pass; the honest pinned verifier reports 16/30 from 144 source-bound seeds, below the frozen 27/30 gate. Do not weaken the verifier or run production. |
+| P6. Independent read-only design and implementation review | ✅ code-quality review complete | Codex review `20260810-190539` found three new correctness gaps; all were fixed and focused checks pass. GLM 5.2 review `glm-r2-inventory-p6-final-20260811T012646Z` verified those fixes, found no P0/P1 defects, and identified three non-blocking cleanup items; those cleanups are also fixed. P6 code quality does not override the failed P5 score. |
 | P7. Commit, push, CI, deploy, and run one production gate | ⬜ open | One pinned production run reaches a terminal state with full audit evidence. |
 | P8. Apply the frozen score rule and update durable records | ⬜ open | Result and next decision are committed, pushed, and CI green. |
 
-Fresh-session starting point: **finish P5 proof, then repeat P6**. P0 through P4 passed. Read this file in full, inspect the live
-P4 completion/orchestration seam, and do not run another model bake-off or production gate before P5 and P6
-are complete.
+Fresh-session starting point: **diagnose the honest 16/30 P5 result without production runs or verifier weakening**. P0 through P4 and the P6 code-quality corrections are complete. Do not deploy, run the pinned production fixture, or advance P7/P8 unless a source-grounded local correction restores at least 27/30 and a fresh independent review approves it.
 
 Independent P0/P1 implementation review, 2026-08-10: Grok 4.5 session
 `019fe9a5-2324-7601-a7d1-f50f8dd31d8b` returned

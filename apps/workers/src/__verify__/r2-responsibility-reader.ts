@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   RESPONSIBILITY_READ_PROMPT_VERSION,
+  RESPONSIBILITY_COMPLETION_PROMPT_VERSION,
   RESPONSIBILITY_COMBINED_REPAIR_PROMPT_VERSION,
   RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
   RESPONSIBILITY_QUOTE_REPAIR_SYSTEM_PROMPT,
@@ -52,6 +53,9 @@ import {
   patchCombinedResponsibilityRepairs,
   packResponsibilityCompletions,
   canonicalizeResponsibilityCompletionBatch,
+  responsibilityCompletionRequest,
+  lateResidualResponsibilitySeeds,
+  mergeResponsibilityRecordsByInventoryId,
 } from '../lib/responsibility-reader';
 import {
   responsibilityEvidenceCoverage,
@@ -79,8 +83,13 @@ import {
   buildResponsibilityCompletionRequestContent,
   reserveResponsibilityCompletionBatches,
   forecastResponsibilityCompletionScenarios,
+  responsibilityInventoryRequiresDegradedStatus,
+  canonicalResponsibilityInventory,
+  finalizeLateResponsibilityCompletion,
+  runLateResponsibilityCompletion,
   executeResponsibilityCompletionBatches,
   isRetryableResponsibilityCompletionFailure,
+  generateSourceWorkflowMap,
 } from '../lib/source-workflow-read';
 const answerKey = JSON.parse(
   readFileSync(
@@ -140,6 +149,50 @@ const forecasts = forecastResponsibilityCompletionScenarios({
   pack: completionPackArgs,
 });
 assert.equal(forecasts.expected.unscheduledIds.length, 0);
+const twoPassCostBudget = new SourceReaderBudget({
+  maxReadCalls: 40,
+  maxInputTokens: 500_000,
+  maxEstimatedCostUsd: 0.01,
+  estimatedInputCostPerMillionTokensUsd: 0,
+  maxRepairAttempts: 1,
+  maxConcurrency: 4,
+});
+const costedBatch = { ...completionPack.batches[0]!, estimatedCostUsd: 0.006 };
+reserveResponsibilityCompletionBatches({ budget: twoPassCostBudget, batches: [costedBatch] });
+assert.throws(
+  () => reserveResponsibilityCompletionBatches({
+    budget: twoPassCostBudget,
+    batches: [{ ...costedBatch, batchIndex: costedBatch.batchIndex + 1 }],
+  }),
+  /max_estimated_cost_usd/,
+  'initial and late completion passes share the same full input-plus-output cost ledger',
+);
+assert.equal(
+  responsibilityInventoryRequiresDegradedStatus({
+    sourceInventoryCount: 40,
+    mergeReadyInventoryCount: 39,
+    unscheduledCount: 0,
+  }),
+  true,
+  'one incomplete source seed forces degraded status',
+);
+assert.equal(
+  responsibilityInventoryRequiresDegradedStatus({
+    sourceInventoryCount: 40,
+    mergeReadyInventoryCount: 40,
+    unscheduledCount: 1,
+  }),
+  true,
+  'one unscheduled completion forces degraded status',
+);
+assert.equal(
+  responsibilityInventoryRequiresDegradedStatus({
+    sourceInventoryCount: 40,
+    mergeReadyInventoryCount: 40,
+    unscheduledCount: 0,
+  }),
+  false,
+);
 assert.ok(forecasts.low.estimatedCalls <= forecasts.expected.estimatedCalls);
 assert.ok(forecasts.high.estimatedCalls >= forecasts.expected.estimatedCalls);
 assert.match(buildResponsibilityCompletionRequestContent(completionPack.batches[0]!), /known duty/i);
@@ -328,6 +381,79 @@ const notBudgeted = await executeResponsibilityCompletionBatches({
 assert.equal(notBudgeted[0]!.attempts, 1);
 assert.ok(notBudgeted[0]!.outcomes.every((item) => item.status === 'retry_not_budgeted'));
 assert.match(notBudgeted[0]!.failure!, /retry_not_budgeted/);
+const noRetryCostBudget = new SourceReaderBudget({
+  maxReadCalls: 2,
+  maxInputTokens: 500_000,
+  maxEstimatedCostUsd: firstCompletionBatch.estimatedCostUsd * 1.5,
+  estimatedInputCostPerMillionTokensUsd: 0,
+  maxRepairAttempts: 0,
+  maxConcurrency: 1,
+});
+const costBlockedRetry = await executeResponsibilityCompletionBatches({
+  budget: noRetryCostBudget,
+  batches: [firstCompletionBatch],
+  concurrency: 1,
+  runBatch: async () => {
+    throw Object.assign(new Error('schema response failed'), { name: 'TimeoutError' });
+  },
+  baselines: firstCompletionBatch.seedIds.map((responsibilityId) => ({
+    responsibilityId,
+    complete: false,
+  })),
+  validateCompletion: () => ({ complete: true, reasons: [] }),
+});
+assert.ok(costBlockedRetry[0]!.outcomes.every((item) => item.status === 'retry_not_budgeted'));
+assert.match(costBlockedRetry[0]!.failure!, /max_estimated_cost_usd/);
+assert.equal(
+  responsibilityInventoryRequiresDegradedStatus({
+    sourceInventoryCount: 1,
+    mergeReadyInventoryCount: 1,
+    unscheduledCount: 0,
+    finalGapCount: 1,
+  }),
+  true,
+  'a duty still found after a failed budgeted retry forces degraded status even when known inventory is complete',
+);
+const acceptedLateFinal = finalizeLateResponsibilityCompletion({
+  seedIds: firstCompletionBatch.seedIds,
+  results: execution.filter((item) => item.batchIndex === firstCompletionBatch.batchIndex),
+  unscheduledIds: [],
+  batchOffset: 7,
+});
+assert.equal(acceptedLateFinal.records.length, firstCompletionBatch.seedIds.length);
+assert.equal(new Set(acceptedLateFinal.records.map((item) => item.responsibilityId)).size, acceptedLateFinal.records.length);
+assert.ok(acceptedLateFinal.outcomes.every((item) => item.batchIndex === 7));
+assert.equal(acceptedLateFinal.degraded, false);
+const rejectedLateFinal = finalizeLateResponsibilityCompletion({
+  seedIds: firstCompletionBatch.seedIds,
+  results: [{
+    batchIndex: 0,
+    seedIds: firstCompletionBatch.seedIds,
+    attempts: 1,
+    records: [],
+    outcomes: firstCompletionBatch.seedIds.map((responsibilityId) => ({
+      responsibilityId,
+      status: 'validation_rejected' as const,
+      reasons: ['required field missing'],
+    })),
+    failure: null,
+  }],
+  unscheduledIds: [],
+  batchOffset: 8,
+});
+assert.equal(rejectedLateFinal.records.length, 0);
+assert.equal(rejectedLateFinal.incompleteIds.length, firstCompletionBatch.seedIds.length);
+assert.ok(rejectedLateFinal.outcomes.every((item) => item.batchIndex === 8));
+assert.equal(rejectedLateFinal.degraded, true);
+const blockedLateFinal = finalizeLateResponsibilityCompletion({
+  seedIds: firstCompletionBatch.seedIds,
+  results: [],
+  unscheduledIds: firstCompletionBatch.seedIds,
+  batchOffset: 9,
+});
+assert.equal(blockedLateFinal.records.length, 0);
+assert.ok(blockedLateFinal.outcomes.every((item) => item.status === 'budget_exhausted'));
+assert.equal(blockedLateFinal.degraded, true);
 assert.equal(isRetryableResponsibilityCompletionFailure(Object.assign(new Error('aborted'), { name: 'AbortError' })), true);
 const mixedBudget = new SourceReaderBudget({
   maxReadCalls: 1, maxInputTokens: 500_000, maxEstimatedCostUsd: 10,
@@ -919,6 +1045,70 @@ const finalForcedAudit = finalizeForcedResponsibilityAudits({
 });
 assert.equal(finalForcedAudit[0]?.accepted, true);
 assert.equal(finalForcedAudit[0]?.exactQuoteBinding, true);
+const remappedForcedAudit = finalizeForcedResponsibilityAudits({
+  audits: forcedResult.audits,
+  selected: forcedSpans,
+  durableAcceptedElementIds: new Set(['mapped_inventory_seed']),
+  durableIdByForcedId: new Map([[forcedId, 'mapped_inventory_seed']]),
+  validation: {
+    ...forcedValidation,
+    elements: forcedValidation.elements.map((element) => ({
+      ...element,
+      elementId: 'mapped_inventory_seed',
+    })),
+    completeElementIds: ['mapped_inventory_seed'],
+  },
+  chunks: [{
+    id: chunkId,
+    documentId,
+    rawText: '[Support] Send access notice to Portal X.',
+  }],
+  fileType: 'text/plain',
+});
+assert.equal(
+  remappedForcedAudit[0]?.accepted,
+  true,
+  'forced retry audit follows the canonical inventory ID assigned after matching',
+);
+const rejectedRemappedAudit = finalizeForcedResponsibilityAudits({
+  audits: forcedResult.audits.map((audit) => ({ ...audit, rejectionReasons: [] })),
+  selected: forcedSpans,
+  durableAcceptedElementIds: new Set(),
+  durableIdByForcedId: new Map([[forcedId, 'mapped_inventory_seed']]),
+  validation: {
+    ...forcedValidation,
+    elements: [],
+    completeElementIds: [],
+    diagnostics: [{
+      responsibilityId: 'mapped_inventory_seed',
+      chunkId,
+      failureClass: 'invalid_detail',
+      detail: 'Mapped field validation failed.',
+      boundedQuote: '[Support] Send access notice to Portal X.',
+      selectedPolicy: 'strict',
+      validationMethod: 'exact',
+      alternatePoliciesPassing: [],
+      crossSegmentStatus: 'within_segment',
+      failureOrigin: 'root',
+    }],
+  },
+  chunks: [{
+    id: chunkId,
+    documentId,
+    rawText: '[Support] Send access notice to Portal X.',
+  }],
+  fileType: 'text/plain',
+});
+assert.equal(rejectedRemappedAudit[0]?.accepted, false);
+assert.ok(
+  rejectedRemappedAudit[0]?.rejectionReasons.some((reason) =>
+    reason.includes('Mapped field validation failed.')
+  ),
+  'remapped retry rejection keeps the durable inventory ID diagnostic',
+);
+assert.ok(
+  !rejectedRemappedAudit[0]?.rejectionReasons.includes('not_durably_accepted'),
+);
 const realContinuationText = '[Support]\n- Review requests and then send approvals.';
 const continuationOmissions = findResponsibilityOmissions({
   chunks: [{ id: chunkId, documentId, rawText: realContinuationText }],
@@ -1408,6 +1598,309 @@ const unmatchedProposal = completeAndMatchResponsibilityInventory({
 });
 assert.deepEqual(unmatchedProposal.audit.unmatchedProposalIds, ['proposal_unmatched']);
 assert.ok(!unmatchedProposal.output.responsibilities.some((record) => record.responsibilityId === 'proposal_unmatched'));
+const discoveryChunks = [{
+  id: 'discovery_inventory_chunk',
+  documentId,
+  rawText: '- Service Desk reviews intake packets.\n- Service Desk sends notices.',
+}];
+const discoveryFullInventory = buildResponsibilitySourceInventory(discoveryChunks);
+const discoveryInitialSeed = discoveryFullInventory.seeds[0]!;
+const discoveryMissingSeed = discoveryFullInventory.seeds[1]!;
+const reverseUuidOrderInventory = canonicalResponsibilityInventory({
+  seeds: [
+    { ...discoveryInitialSeed, inventorySeedId: 'seed_first', chunkId: 'z_uuid' },
+    { ...discoveryMissingSeed, inventorySeedId: 'seed_second', chunkId: 'a_uuid' },
+  ],
+  chunks: [{ id: 'z_uuid' }, { id: 'a_uuid' }],
+});
+assert.deepEqual(
+  reverseUuidOrderInventory.map((seed) => seed.inventorySeedId),
+  ['seed_first', 'seed_second'],
+  'inventory follows document chunk order rather than UUID order',
+);
+const orderedDestinationInventory = buildResponsibilitySourceInventory([{
+  id: 'ordered_destination_chunk',
+  documentId,
+  rawText: '- Service Desk uploads packets into Hub Zebra, Hub Alpha, and Hub Middle.',
+}]);
+assert.deepEqual(
+  canonicalResponsibilityInventory({
+    seeds: orderedDestinationInventory.seeds,
+    chunks: [{ id: 'ordered_destination_chunk' }],
+  }).map((seed) => seed.splitValue),
+  ['Hub Zebra', 'Hub Alpha', 'Hub Middle'],
+  'same-offset destination children preserve their order in the source document',
+);
+assert.equal(
+  canonicalResponsibilityInventory({
+    seeds: [discoveryInitialSeed, { ...discoveryInitialSeed }],
+    chunks: discoveryChunks,
+  }).length,
+  1,
+  'overlapping segments deduplicate identical inventory seeds',
+);
+assert.throws(
+  () => canonicalResponsibilityInventory({
+    seeds: [discoveryInitialSeed, { ...discoveryInitialSeed, sourceEnd: discoveryInitialSeed.sourceEnd + 1 }],
+    chunks: discoveryChunks,
+  }),
+  /Conflicting responsibility inventory seed/,
+);
+const sourceBoundDiscovery = completeAndMatchResponsibilityInventory({
+  inventorySeeds: [discoveryInitialSeed],
+  proposals: {
+    summary: 'Exact missed duty proposal.',
+    responsibilities: [{
+      responsibilityId: 'model_proposal_for_missed_duty',
+      label: 'Service Desk: send notices',
+      role: 'Service Desk',
+      action: 'send',
+      object: 'notices',
+      trigger: null,
+      requiredSystem: null,
+      ownerName: null,
+      department: null,
+      evidenceQuote: discoveryMissingSeed.evidenceQuote,
+      chunkId: discoveryMissingSeed.chunkId,
+    }],
+  },
+  chunks: discoveryChunks,
+});
+const inheritedOwnerChunk = {
+  id: 'inherited_owner_discovery_chunk',
+  documentId,
+  rawText: '[Service Desk]\n- Reviews intake packets.',
+};
+const inheritedOwnerDiscovery = completeAndMatchResponsibilityInventory({
+  inventorySeeds: [],
+  proposals: {
+    summary: 'Inherited owner retry discovery.',
+    responsibilities: [{
+      responsibilityId: 'inherited_owner_proposal',
+      label: 'Review intake packets',
+      role: 'Service Desk', action: 'review', object: 'intake packets', trigger: null,
+      requiredSystem: null, ownerName: null, department: null,
+      evidenceQuote: 'Reviews intake packets.',
+      chunkId: inheritedOwnerChunk.id,
+    }],
+  },
+  chunks: [inheritedOwnerChunk],
+});
+assert.equal(inheritedOwnerDiscovery.inventorySeeds.length, 1);
+assert.match(inheritedOwnerDiscovery.inventorySeeds[0]!.sourceSpan, /^\[Service Desk\]/);
+assert.match(
+  responsibilityCompletionRequest(inheritedOwnerDiscovery.inventorySeeds[0]!).sourceSpan,
+  /^\[Service Desk\]/,
+  'late completion receives the inherited owner context',
+);
+const partialQuoteDiscovery = completeAndMatchResponsibilityInventory({
+  inventorySeeds: [],
+  proposals: {
+    summary: 'Partial quote must not claim a full duty.',
+    responsibilities: [{
+      responsibilityId: 'partial_quote_proposal', label: 'Packets', role: 'Service Desk',
+      action: 'review', object: 'packets', trigger: null, requiredSystem: null,
+      ownerName: null, department: null, evidenceQuote: 'intake packets',
+      chunkId: inheritedOwnerChunk.id,
+    }],
+  },
+  chunks: [inheritedOwnerChunk],
+});
+assert.equal(partialQuoteDiscovery.output.responsibilities.length, 0);
+assert.deepEqual(partialQuoteDiscovery.audit.unmatchedProposalIds, ['partial_quote_proposal']);
+const multiChunkFirst = buildResponsibilitySourceInventory([{
+  id: 'z_first_chunk', documentId, rawText: '- Service Desk reviews packets.',
+}]).seeds[0]!;
+const multiChunkSecondChunk = {
+  id: 'a_second_chunk', documentId, rawText: '- Service Desk sends notices.',
+};
+const multiChunkSecond = buildResponsibilitySourceInventory([multiChunkSecondChunk]).seeds[0]!;
+const multiChunkRetry = completeAndMatchResponsibilityInventory({
+  inventorySeeds: [],
+  proposals: {
+    summary: 'Second chunk retry.',
+    responsibilities: [{
+      responsibilityId: 'second_chunk_proposal',
+      label: 'Service Desk sends notices',
+      role: 'Service Desk', action: 'send', object: 'notices', trigger: null,
+      requiredSystem: null, ownerName: null, department: null,
+      evidenceQuote: multiChunkSecond.evidenceQuote,
+      chunkId: multiChunkSecond.chunkId,
+    }],
+  },
+  chunks: [multiChunkSecondChunk],
+});
+const multiChunkMerged = canonicalResponsibilityInventory({
+  seeds: [multiChunkFirst, ...multiChunkRetry.inventorySeeds],
+  chunks: [{ id: 'z_first_chunk' }, { id: 'a_second_chunk' }],
+});
+assert.deepEqual(
+  multiChunkMerged.map((seed) => seed.inventorySeedId),
+  [multiChunkFirst.inventorySeedId, multiChunkSecond.inventorySeedId],
+  'a one-chunk retry preserves the other chunk and discovers the targeted duty',
+);
+assert.equal(sourceBoundDiscovery.inventorySeeds.length, 2);
+assert.ok(
+  sourceBoundDiscovery.inventorySeeds.some(
+    (seed) => seed.inventorySeedId === discoveryMissingSeed.inventorySeedId,
+  ),
+  'an exact missed duty is promoted only through the pure inventory builder',
+);
+assert.equal(
+  sourceBoundDiscovery.output.responsibilities[0]?.responsibilityId,
+  discoveryMissingSeed.inventorySeedId,
+);
+const mergedRetryRecords = mergeResponsibilityRecordsByInventoryId(
+  sourceBoundDiscovery.output.responsibilities,
+  [{
+    ...sourceBoundDiscovery.output.responsibilities.find(
+      (record) => record.responsibilityId === discoveryMissingSeed.inventorySeedId,
+    )!,
+    label: 'Service Desk: send corrected notices',
+  }],
+);
+assert.equal(
+  mergedRetryRecords.length,
+  sourceBoundDiscovery.output.responsibilities.length,
+  'retry merge cannot duplicate an inventory identity',
+);
+assert.equal(
+  mergedRetryRecords.find(
+    (record) => record.responsibilityId === discoveryMissingSeed.inventorySeedId,
+  )?.label,
+  sourceBoundDiscovery.output.responsibilities.find(
+    (record) => record.responsibilityId === discoveryMissingSeed.inventorySeedId,
+  )?.label,
+);
+assert.deepEqual(
+  lateResidualResponsibilitySeeds({
+    seeds: sourceBoundDiscovery.inventorySeeds,
+    handledIds: new Set([discoveryInitialSeed.inventorySeedId]),
+    completeIds: new Set(),
+  }).map((seed) => seed.inventorySeedId),
+  [discoveryMissingSeed.inventorySeedId],
+  'a late discovered incomplete seed receives a completion pass',
+);
+assert.deepEqual(
+  lateResidualResponsibilitySeeds({
+    seeds: sourceBoundDiscovery.inventorySeeds,
+    handledIds: new Set([discoveryInitialSeed.inventorySeedId]),
+    completeIds: new Set([discoveryMissingSeed.inventorySeedId]),
+  }),
+  [],
+  'a late discovered complete seed skips duplicate completion',
+);
+const lateDiscoverySeed = sourceBoundDiscovery.inventorySeeds.find(
+  (seed) => seed.inventorySeedId === discoveryMissingSeed.inventorySeedId,
+)!;
+const lateDiscoveryRecord = sourceBoundDiscovery.output.responsibilities.find(
+  (record) => record.responsibilityId === discoveryMissingSeed.inventorySeedId,
+)!;
+const lateOrchestrationPack = {
+  remainingCalls: 1,
+  remainingInputTokens: 500_000,
+  remainingCostUsd: 10,
+  fixedInputTokensPerCall: 10,
+  fixedOutputTokensPerCall: 10,
+  maxInputTokensPerCall: 20_000,
+  maxOutputTokensPerCall: 20_000,
+  inputCostPerMillionTokensUsd: 1,
+  outputCostPerMillionTokensUsd: 1,
+};
+const acceptedLateOrchestration = await runLateResponsibilityCompletion({
+  seeds: sourceBoundDiscovery.inventorySeeds,
+  handledIds: new Set([discoveryInitialSeed.inventorySeedId]),
+  completeIds: new Set(),
+  pack: lateOrchestrationPack,
+  budget: new SourceReaderBudget({
+    maxReadCalls: 1, maxInputTokens: 500_000, maxEstimatedCostUsd: 10,
+    estimatedInputCostPerMillionTokensUsd: 1, maxRepairAttempts: 0, maxConcurrency: 1,
+  }),
+  concurrency: 1,
+  batchOffset: 5,
+  runBatch: async () => ({ completions: [lateDiscoveryRecord] }),
+  validateCompletion: () => ({ complete: true, reasons: [] }),
+});
+assert.deepEqual(acceptedLateOrchestration.residualSeeds, [lateDiscoverySeed]);
+assert.deepEqual(acceptedLateOrchestration.final.records.map((record) => record.responsibilityId), [
+  discoveryMissingSeed.inventorySeedId,
+]);
+assert.equal(acceptedLateOrchestration.final.outcomes[0]?.batchIndex, 5);
+assert.equal(acceptedLateOrchestration.final.degraded, false);
+const rejectedLateOrchestration = await runLateResponsibilityCompletion({
+  seeds: sourceBoundDiscovery.inventorySeeds,
+  handledIds: new Set([discoveryInitialSeed.inventorySeedId]),
+  completeIds: new Set(),
+  pack: lateOrchestrationPack,
+  budget: new SourceReaderBudget({
+    maxReadCalls: 1, maxInputTokens: 500_000, maxEstimatedCostUsd: 10,
+    estimatedInputCostPerMillionTokensUsd: 1, maxRepairAttempts: 0, maxConcurrency: 1,
+  }),
+  concurrency: 1,
+  batchOffset: 6,
+  runBatch: async () => ({ completions: [lateDiscoveryRecord] }),
+  validateCompletion: () => ({ complete: false, reasons: ['rejected_by_validator'] }),
+});
+assert.equal(rejectedLateOrchestration.final.records.length, 0);
+assert.equal(rejectedLateOrchestration.final.outcomes[0]?.status, 'validation_rejected');
+assert.equal(rejectedLateOrchestration.final.degraded, true);
+const blockedLateOrchestration = await runLateResponsibilityCompletion({
+  seeds: sourceBoundDiscovery.inventorySeeds,
+  handledIds: new Set([discoveryInitialSeed.inventorySeedId]),
+  completeIds: new Set(),
+  pack: { ...lateOrchestrationPack, remainingCalls: 0 },
+  budget: new SourceReaderBudget({
+    maxReadCalls: 1, maxInputTokens: 500_000, maxEstimatedCostUsd: 10,
+    estimatedInputCostPerMillionTokensUsd: 1, maxRepairAttempts: 0, maxConcurrency: 1,
+  }),
+  concurrency: 1,
+  batchOffset: 7,
+  runBatch: async () => { throw new Error('unscheduled batch must not run'); },
+  validateCompletion: () => ({ complete: true, reasons: [] }),
+});
+assert.deepEqual(blockedLateOrchestration.pack.unscheduledIds, [discoveryMissingSeed.inventorySeedId]);
+assert.equal(blockedLateOrchestration.final.outcomes[0]?.status, 'budget_exhausted');
+assert.equal(blockedLateOrchestration.final.degraded, true);
+const splitDiscoveryQuote =
+  '[Service Desk] Service Desk reviews packets and then sends notices.';
+const splitDiscoveryPrefix = 'Reference introduction.\n';
+const splitDiscovery = completeAndMatchResponsibilityInventory({
+  inventorySeeds: [],
+  proposals: {
+    summary: 'Nonzero-offset split discovery.',
+    responsibilities: [{
+      responsibilityId: 'split_discovery_proposal',
+      label: 'Service Desk duties',
+      role: 'Service Desk',
+      action: 'review',
+      object: 'packets and send notices',
+      trigger: null,
+      requiredSystem: null,
+      ownerName: null,
+      department: null,
+      evidenceQuote: splitDiscoveryQuote,
+      chunkId: 'split_discovery_chunk',
+    }],
+  },
+  chunks: [{
+    id: 'split_discovery_chunk',
+    documentId,
+    rawText: `${splitDiscoveryPrefix}${splitDiscoveryQuote}`,
+  }],
+});
+assert.ok(splitDiscovery.inventorySeeds.length >= 2);
+assert.equal(splitDiscovery.inventoryAuditParents.length, 1);
+const relocatedSplitParent = splitDiscovery.inventoryAuditParents[0]!;
+assert.ok(relocatedSplitParent.sourceStart >= splitDiscoveryPrefix.length);
+assert.deepEqual(
+  new Set(relocatedSplitParent.childSeedIds),
+  new Set(splitDiscovery.inventorySeeds.map((seed) => seed.inventorySeedId)),
+);
+assert.ok(
+  splitDiscovery.inventorySeeds.every(
+    (seed) => seed.parentSeedId === relocatedSplitParent.inventorySeedId,
+  ),
+);
 const validSeed = attributeInventory.seeds[0]!;
 assert.throws(
   () => assertResponsibilityInventorySeeds(
@@ -2019,6 +2512,10 @@ const documentIngestionSource = readFileSync(
   new URL('../trigger/document-ingestion.ts', import.meta.url),
   'utf8',
 );
+const responsibilityPromptSource = readFileSync(
+  new URL('../../../../packages/ai/src/prompts/workflow-read.ts', import.meta.url),
+  'utf8',
+);
 for (const frozenBudgetLiteral of [
   "readNumberSetting(db, 'source_reader_max_read_calls_per_source', 40)",
   "readNumberSetting(db, 'source_reader_max_input_tokens_per_source', 500_000)",
@@ -2044,7 +2541,8 @@ for (const forbiddenRuntimeLeak of [
 ]) {
   assert.ok(
     !workflowReadSource.includes(forbiddenRuntimeLeak) &&
-      !responsibilityReaderSource.includes(forbiddenRuntimeLeak),
+      !responsibilityReaderSource.includes(forbiddenRuntimeLeak) &&
+      !responsibilityPromptSource.includes(forbiddenRuntimeLeak),
     `runtime responsibility reader leaked fixture-specific knowledge: ${forbiddenRuntimeLeak}`,
   );
 }
@@ -2769,7 +3267,7 @@ const productionDetectionRetryIndex = workflowReadSource.indexOf(
   'const omissionRetryScheduler = new ResponsibilityOmissionRetryScheduler()',
 );
 const productionQuoteRepairIndex = workflowReadSource.indexOf(
-  'const combinedRepairPlan = buildResponsibilityCombinedRepairPlan({',
+  'const combinedRepairPlan = (args.orchestrationDependencies?.buildCombinedRepairPlan ?? buildResponsibilityCombinedRepairPlan)({',
 );
 const productionAssemblyIndex = workflowReadSource.indexOf(
   'const mergeReadyInventory = responsibilityReads',
@@ -2792,6 +3290,15 @@ assert.ok(
 assert.ok(
   workflowReadSource.includes('responsibilityCompletion: responsibilityCompletionAudit'),
   'production validationJson must persist completion manifests, outcomes, and execution facts',
+);
+assert.ok(
+  workflowReadSource.includes('const lateResidualSeeds = lateResidualResponsibilitySeeds({') &&
+    workflowReadSource.includes('responsibilityCompletionAudit.outcomes.push('),
+  'late detection-retry seeds must receive durable completion outcomes',
+);
+assert.ok(
+  workflowReadSource.includes('auditOnlyParents: [...responsibilityInventoryAuditParents.reduce('),
+  'discovered split parents must remain in durable audit',
 );
 assert.throws(
   () => responsibilityMergeEligibleElements({
@@ -2996,14 +3503,404 @@ const fixtureDerivedProperTerms = new Set(
 );
 for (const term of fixtureDerivedProperTerms) {
   assert.ok(
-    !responsibilityReaderSource.includes(term),
+    !responsibilityReaderSource.includes(term) &&
+      !workflowReadSource.includes(term) &&
+      !responsibilityPromptSource.includes(term),
     `runtime responsibility reader leaked fixture-derived term: ${term}`,
   );
 }
+const inventoryBoundDestinationChunks = [{
+  id: 'inventory_bound_destination_chunk',
+  documentId,
+  rawText: '- Service Desk sends notices via Hub North and Hub South.',
+}];
+const inventoryBoundDestinationSeed =
+  buildResponsibilitySourceInventory(inventoryBoundDestinationChunks).seeds[0]!;
+const inventoryBoundValidation = validateResponsibilityRead({
+  output: {
+    summary: 'Inventory-bound destination validation fixture.',
+    responsibilities: [{
+      responsibilityId: inventoryBoundDestinationSeed.inventorySeedId,
+      label: 'Service Desk: send notices via Hub North and Hub South',
+      role: 'Service Desk',
+      action: 'send',
+      object: 'notices via Hub North and Hub South',
+      trigger: null,
+      requiredSystem: null,
+      ownerName: null,
+      department: null,
+      evidenceQuote: inventoryBoundDestinationSeed.evidenceQuote,
+      chunkId: inventoryBoundDestinationSeed.chunkId,
+    }],
+  },
+  documentId,
+  segment: {
+    segmentId: 'inventory_bound_destination_segment',
+    title: 'Inventory bound destination segment',
+    shape: 'responsibilities',
+    chunkIds: [inventoryBoundDestinationSeed.chunkId],
+  },
+  chunks: inventoryBoundDestinationChunks,
+  inventorySeeds: [inventoryBoundDestinationSeed],
+});
+assert.equal(
+  inventoryBoundValidation.expansionAudit.length,
+  0,
+  'validation cannot mint destination child IDs outside the authoritative inventory',
+);
+const unknownInventoryIdentityValidation = validateResponsibilityRead({
+  output: {
+    summary: 'Unknown inventory identity fixture.',
+    responsibilities: [{
+      responsibilityId: 'invented_inventory_identity',
+      label: 'Service Desk: send notices',
+      role: 'Service Desk',
+      action: 'send',
+      object: 'notices',
+      trigger: null,
+      requiredSystem: null,
+      ownerName: null,
+      department: null,
+      evidenceQuote: inventoryBoundDestinationSeed.evidenceQuote,
+      chunkId: inventoryBoundDestinationSeed.chunkId,
+    }],
+  },
+  documentId,
+  segment: {
+    segmentId: 'unknown_inventory_identity_segment',
+    title: 'Unknown inventory identity segment',
+    shape: 'responsibilities',
+    chunkIds: [inventoryBoundDestinationSeed.chunkId],
+  },
+  chunks: inventoryBoundDestinationChunks,
+  inventorySeeds: [inventoryBoundDestinationSeed],
+});
+assert.equal(unknownInventoryIdentityValidation.elements.length, 0);
+assert.match(
+  unknownInventoryIdentityValidation.diagnostics[0]?.detail ?? '',
+  /no authoritative source inventory seed/,
+);
 assert.equal(
   responsibilityShadowLockKey(lockArgs),
   responsibilityShadowLockKey(lockArgs),
   'concurrent same-input dispatches must serialize on one advisory lock',
+);
+
+// Top-level production orchestration with injected DB/model dependencies. This executes the
+// real generateSourceWorkflowMap path without network, production data, or durable writes.
+const orchestrationDocumentId = '77777777-7777-4777-8777-777777777777';
+const orchestrationChunkId = '88888888-8888-4888-8888-888888888888';
+const orchestrationLateDuty = '[Service Desk] When closed, archives requests.';
+const orchestrationText =
+  `[Service Desk]\n- Reviews intake packets.\n- Sends access notices.\n- ${orchestrationLateDuty}`;
+const orchestrationUpdates: Array<Record<string, unknown>> = [];
+let orchestrationId = 0;
+let orchestrationCompletionCalls = 0;
+let orchestrationResponsibilityCalls = 0;
+let orchestrationCombinedRepairCalls = 0;
+let orchestrationOmissionCalls = 0;
+let orchestrationLateSeedId: string | null = null;
+let orchestrationRepairSeedId: string | null = null;
+const orchestrationInitialInventoryIds = new Set<string>();
+const settingsRows = [
+  { key: 'default_workflow_read_route', value: 'openai/gpt-4.1' },
+  { key: 'model_pool_workflow_read', value: ['openai/gpt-4.1'] },
+  { key: 'workflow_read_reasoning_effort', value: 'low' },
+  { key: 'enforce_model_capabilities', value: false },
+];
+const queryBuilder = (result: unknown, capture?: (value: unknown) => void): any => {
+  const builder: any = {
+    from: () => builder,
+    where: () => builder,
+    orderBy: () => builder,
+    limit: () => builder,
+    groupBy: () => builder,
+    onConflictDoNothing: () => builder,
+    onConflictDoUpdate: () => builder,
+    values: (value: unknown) => { capture?.(value); return builder; },
+    set: (value: unknown) => { capture?.(value); return builder; },
+    returning: () => queryBuilder([{ id: `orchestration_${++orchestrationId}` }]),
+    then: (resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) =>
+      Promise.resolve(result).then(resolve, reject),
+  };
+  return builder;
+};
+const orchestrationDb: any = {
+  execute: async () => [],
+  transaction: async (run: (tx: any) => Promise<unknown>) => run(orchestrationDb),
+  select: (shape?: Record<string, unknown>) => {
+    if (!shape) return queryBuilder([{
+      id: 'openai/gpt-4.1', provider: 'openai', displayName: 'Generic test model',
+      structuredOutputs: true, strictJsonSchema: true, deepSchemaAccepted: true,
+      adapterParamsSafe: true, toolCalling: true, thinking: true, vision: false,
+      pdf: false, promptCaching: true, outputCap: true, contextLength: 1_000_000,
+      maxOutputTokens: 65_000, promptPer1mUsd: 1, completionPer1mUsd: 1,
+      adapterParamNotes: {}, knowledgeCutoff: null, source: 'openai_api',
+    }]);
+    const keys = Object.keys(shape ?? {});
+    if (keys.includes('fileName')) return queryBuilder([{
+      id: orchestrationDocumentId,
+      fileName: 'generic-responsibilities.txt',
+      fileType: 'text/plain',
+      context: null,
+    }]);
+    if (keys.includes('chunkIndex')) return queryBuilder([{
+      id: orchestrationChunkId,
+      chunkIndex: 0,
+      pageNumber: null,
+      rawText: orchestrationText,
+      contentHash: 'orchestration-content-hash',
+    }]);
+    if (keys.includes('key') && keys.includes('value')) return queryBuilder(settingsRows);
+    if (keys.includes('promptPer1mUsd') || keys.includes('completionPer1mUsd')) {
+      return queryBuilder([{
+        id: 'openai/gpt-4.1', promptPer1mUsd: 1, completionPer1mUsd: 1,
+      }]);
+    }
+    return queryBuilder([]);
+  },
+  insert: () => queryBuilder([], () => undefined),
+  update: () => queryBuilder([], (value) => {
+    if (value && typeof value === 'object') orchestrationUpdates.push(value as Record<string, unknown>);
+  }),
+  delete: () => queryBuilder([]),
+};
+const orchestrationClient: any = {
+  compile: (args: any) => ({
+    blocks: args.blocks,
+    metadata: {
+      taskType: args.taskType,
+      routeId: args.routeId,
+      promptVersion: args.promptVersion,
+      stablePrefixHash: 'a'.repeat(64),
+      dynamicHash: 'b'.repeat(64),
+      blockHashes: [],
+      totalTokenEstimate: 100,
+      observability: args.observability,
+    },
+  }),
+  runObject: async (args: any) => {
+    let object: unknown;
+    if (args.taskType === 'source_segmentation') {
+      object = {
+        documentShape: 'reference',
+        summary: 'Shared responsibility sections.',
+        segments: [
+          { segmentId: 'owner_a', shape: 'responsibilities', title: 'Owner A', chunkIds: [orchestrationChunkId] },
+          { segmentId: 'owner_b', shape: 'responsibilities', title: 'Owner B', chunkIds: [orchestrationChunkId] },
+        ],
+      };
+    } else if (args.promptVersion === RESPONSIBILITY_COMPLETION_PROMPT_VERSION) {
+      orchestrationCompletionCalls += 1;
+      const requestBlock = args.blocks.find((block: any) => block.id === 'responsibility-completion-request');
+      const parsed = JSON.parse(requestBlock.content) as {
+        seeds: Array<{ responsibilityId: string; sourceSpan?: string }>;
+      };
+      object = {
+        completions: parsed.seeds.map((request) => ({
+          responsibilityId: request.responsibilityId,
+          label: request.sourceSpan?.toLowerCase().includes('archives requests')
+            ? 'Archive requests when closed'
+            : 'Send access notices',
+          role: 'Service Desk',
+          action: request.sourceSpan?.toLowerCase().includes('archives requests') ? 'archive' : 'send',
+          object: request.sourceSpan?.toLowerCase().includes('archives requests')
+            ? 'requests'
+            : 'access notices',
+          trigger: request.sourceSpan?.toLowerCase().includes('archives requests') ? 'when closed' : null,
+          requiredSystem: null,
+          ownerName: null,
+          department: null,
+        })),
+      };
+    } else if (args.promptVersion === RESPONSIBILITY_COMBINED_REPAIR_PROMPT_VERSION) {
+      orchestrationCombinedRepairCalls += 1;
+      const repairRequest = args.blocks.find((block: any) => block.id === 'responsibility-request');
+      const parsed = JSON.parse(repairRequest.content.split('\n').at(-1)) as {
+        quoteRequests: Array<{
+          responsibilityId: string;
+          candidates: Array<{ candidateId: string }>;
+        }>;
+      };
+      const repair = parsed.quoteRequests[0]!;
+      object = {
+        fieldRepairs: [],
+        quoteRepairs: [{
+          responsibilityId: repair.responsibilityId,
+          candidateId: repair.candidates.at(-1)!.candidateId,
+        }],
+      };
+    } else {
+      orchestrationResponsibilityCalls += 1;
+      const retry = orchestrationResponsibilityCalls > 2;
+      const retryContent = retry
+        ? args.blocks.find((block: any) => block.id === 'responsibility-request').content as string
+        : '';
+      const retryJsonStart = retryContent.indexOf('[{"forcedResponsibilityId"');
+      const retryJsonEnd = retryContent.indexOf('}]', retryJsonStart);
+      const retryRequest = retry
+        ? JSON.parse(retryContent.slice(retryJsonStart, retryJsonEnd + 2)) as Array<{
+            forcedResponsibilityId: string;
+          }>
+        : [];
+      object = {
+        summary: retry ? 'Detection retry duty.' : 'One base duty.',
+        responsibilities: [{
+          responsibilityId: retry ? retryRequest[0]!.forcedResponsibilityId : 'base_review_packets',
+          label: retry ? 'Archive requests' : 'Review intake packets',
+          role: 'Service Desk',
+          action: retry ? 'archive' : 'review',
+          object: retry ? 'requests' : 'intake packets',
+          trigger: null,
+          requiredSystem: null,
+          ownerName: null,
+          department: null,
+          evidenceQuote: retry ? orchestrationLateDuty : 'Reviews intake packets.',
+          chunkId: orchestrationChunkId,
+        }],
+      };
+    }
+    return {
+      object,
+      validation: { ok: true },
+      usage: { inputTokens: 10, outputTokens: 10, latencyMs: 1, rawUsageJson: {} },
+      routeId: 'openai/gpt-4.1',
+      provider: 'openai',
+      modelId: 'gpt-4.1',
+      attempts: [],
+    };
+  },
+};
+const orchestrationResult = await generateSourceWorkflowMap({
+  documentId: orchestrationDocumentId,
+  triggerRunId: 'r2-local-orchestration',
+  force: true,
+  db: orchestrationDb,
+  client: orchestrationClient,
+  orchestrationDependencies: {
+    buildBaseReadPlan: (planArgs) => {
+      const plan = buildResponsibilityBaseReadPlan(planArgs);
+      const initialSeeds = plan.inventorySeeds.filter(
+        (seed) => !seed.sourceSpan.toLowerCase().includes('archives requests'),
+      );
+      for (const seed of initialSeeds) orchestrationInitialInventoryIds.add(seed.inventorySeedId);
+      return {
+        ...plan,
+        inventorySeeds: initialSeeds,
+      };
+    },
+    selectResidualSeeds: (seeds) => seeds.slice(-1),
+    findOmissions: () => {
+      orchestrationOmissionCalls += 1;
+      if (orchestrationOmissionCalls > 2) return [];
+      const sourceStart = orchestrationText.indexOf(orchestrationLateDuty);
+      return [{
+        chunkId: orchestrationChunkId,
+        spanIndex: 2,
+        sourceSpan: orchestrationLateDuty,
+        evidenceQuote: orchestrationLateDuty,
+        sourceStart,
+        sourceEnd: sourceStart + orchestrationLateDuty.length,
+        listStructured: false,
+        omissionClass: 'inventory_detection_gap' as const,
+      }];
+    },
+    buildCombinedRepairPlan: (repairArgs) => {
+      const preparedReads = repairArgs.reads.map((read) => ({
+        ...read,
+        model: {
+          ...read.model,
+          output: {
+            ...read.model.output,
+            responsibilities: read.model.output.responsibilities.map((record) => ({ ...record })),
+          },
+        },
+      })) as any[];
+      const read = preparedReads[0] as any;
+      const reviewRecord = read.model.output.responsibilities.find(
+        (record: any) => record.action === 'review',
+      );
+      assert.ok(reviewRecord, 'same-document repair fixture has a review duty');
+      orchestrationRepairSeedId = reviewRecord.responsibilityId;
+      reviewRecord.evidenceQuote = 'Reviews intake packet.';
+      read.validation = validateResponsibilityRead({
+        output: read.model.output,
+        documentId: orchestrationDocumentId,
+        segment: read.segment,
+        inventorySeeds: read.inventorySeeds,
+        chunks: [{
+          id: orchestrationChunkId,
+          documentId: orchestrationDocumentId,
+          rawText: orchestrationText,
+        }],
+      });
+      assert.ok(
+        read.validation.diagnostics.some((item: any) =>
+          item.responsibilityId === orchestrationRepairSeedId && item.failureClass === 'quote_mismatch'
+        ),
+        'same-document duty first fails quote validation',
+      );
+      return {
+        ...buildResponsibilityCombinedRepairPlan({ ...repairArgs, reads: preparedReads }),
+        preparedReads,
+      };
+    },
+    selectQuoteRepairRead: (reads) => reads[0],
+  },
+});
+assert.equal(orchestrationResult.status, 'validated');
+const savedOrchestration = orchestrationUpdates.find((update) => 'validationJson' in update);
+assert.ok(savedOrchestration, 'top-level orchestration saves durable validation audit');
+const savedValidation = savedOrchestration!.validationJson as any;
+assert.equal(savedValidation.responsibilityInventory.mergeReadyInventoryIds.length, 3);
+assert.equal(new Set(savedValidation.responsibilityInventory.mergeReadyInventoryIds).size, 3);
+assert.ok(savedValidation.responsibilityCompletion, 'top-level path saves completion audit');
+assert.ok(orchestrationCompletionCalls > 0, 'top-level path executes residual model completion');
+assert.ok(orchestrationResponsibilityCalls > 2, 'top-level path executes detection retry');
+assert.ok(orchestrationCombinedRepairCalls > 0, 'top-level path executes combined quote repair');
+assert.ok(savedValidation.responsibilityCompletion.outcomes.length > 0);
+assert.ok(savedValidation.responsibilityOmissionAudit.retries.length > 0);
+assert.equal(savedValidation.responsibilityQuoteRepair.attempted, true);
+const savedInventoryIds = savedValidation.responsibilityInventory.sourceInventoryIds as string[];
+const lateIds = savedInventoryIds.filter((id) => !orchestrationInitialInventoryIds.has(id));
+assert.equal(lateIds.length, 1, 'retry discovers exactly one genuinely new source-bound duty');
+orchestrationLateSeedId = lateIds[0]!;
+assert.ok(
+  savedValidation.responsibilityInventory.sourceInventoryIds.includes(orchestrationLateSeedId),
+  'retry-discovered source identity is present in the saved inventory',
+);
+assert.ok(
+  savedValidation.responsibilityCompletion.outcomes.some((outcome: any) =>
+    outcome.responsibilityId === orchestrationLateSeedId && outcome.status === 'accepted'
+  ),
+  'new retry-discovered duty receives an accepted late completion outcome',
+);
+assert.ok(
+  savedValidation.responsibilityInventory.mergeReadyInventoryIds.includes(orchestrationLateSeedId),
+  'new retry-discovered duty is saved as merge-ready',
+);
+assert.equal(savedValidation.responsibilityQuoteRepair.accepted, true);
+assert.equal(savedValidation.responsibilityQuoteRepair.rootQuoteFailuresBefore, 1);
+assert.equal(savedValidation.responsibilityQuoteRepair.rootQuoteFailuresAfter, 0);
+const repairedSegmentAudit = savedValidation.responsibilitySegments.find(
+  (segment: any) => segment.mergeReadyInventoryIds.includes(orchestrationRepairSeedId),
+);
+assert.ok(repairedSegmentAudit, 'accepted repair refreshes its saved segment inventory audit');
+assert.equal(repairedSegmentAudit.mergeReadyInventoryCount, repairedSegmentAudit.mergeEligibleCount);
+assert.deepEqual(
+  repairedSegmentAudit.mergeReadyInventoryIds,
+  repairedSegmentAudit.sourceInventoryIds,
+  'saved inventory IDs agree after accepted quote repair completes every source seed',
+);
+assert.deepEqual(repairedSegmentAudit.incompleteSeedIds, []);
+assert.ok(
+  savedValidation.responsibilityQuoteRepair.groundedCandidates.some((candidate: any) =>
+    candidate.responsibilityId === orchestrationRepairSeedId &&
+    candidate.failedQuote === 'Reviews intake packet.' &&
+    candidate.returnedSelection === 'Reviews intake packets.' &&
+    candidate.decisionReason === 'accepted_strict_exact_improvement'
+  ),
+  'same-document quote failure is repaired, accepted, and saved',
 );
 
 console.log('R2 responsibility strict reader, persistence shape, quote, and coverage contract passed');

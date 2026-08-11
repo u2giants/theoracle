@@ -87,6 +87,7 @@ export type ResponsibilityInventoryMatchAudit = {
   mergeReadyInventoryIds: string[];
   unmatchedProposalIds: string[];
   incompleteSeedIds: string[];
+  matchedProposalInventoryIds: Record<string, string>;
   sourceInventoryCount: number;
   modelDiscoveredInventoryCount: number;
   mergeReadyInventoryCount: number;
@@ -126,6 +127,29 @@ export type ResponsibilityCompletionBaseline = {
   responsibilityId: string;
   complete: boolean;
 };
+
+export function mergeResponsibilityRecordsByInventoryId(
+  base: ResponsibilityReadOutput['responsibilities'],
+  incoming: ResponsibilityReadOutput['responsibilities'],
+): ResponsibilityReadOutput['responsibilities'] {
+  const merged = new Map(base.map((record) => [record.responsibilityId, record]));
+  for (const record of incoming) {
+    if (!merged.has(record.responsibilityId)) merged.set(record.responsibilityId, record);
+  }
+  return [...merged.values()];
+}
+
+export function lateResidualResponsibilitySeeds(args: {
+  seeds: readonly ResponsibilityInventorySeed[];
+  handledIds: ReadonlySet<string>;
+  completeIds: ReadonlySet<string>;
+}): ResponsibilityInventorySeed[] {
+  return args.seeds.filter(
+    (seed) =>
+      !args.handledIds.has(seed.inventorySeedId) &&
+      !args.completeIds.has(seed.inventorySeedId),
+  );
+}
 
 export type ResponsibilityCompletionRejection = {
   responsibilityId: string;
@@ -1035,7 +1059,12 @@ export function completeAndMatchResponsibilityInventory(args: {
   inventorySeeds: readonly ResponsibilityInventorySeed[];
   proposals: ResponsibilityReadOutput;
   chunks: readonly ResponsibilityChunk[];
-}): { output: ResponsibilityReadOutput; audit: ResponsibilityInventoryMatchAudit } {
+}): {
+  output: ResponsibilityReadOutput;
+  audit: ResponsibilityInventoryMatchAudit;
+  inventorySeeds: ResponsibilityInventorySeed[];
+  inventoryAuditParents: ResponsibilityInventoryAuditParent[];
+} {
   assertResponsibilityInventorySeeds(args.chunks, args.inventorySeeds);
   const inventorySeeds = [...args.inventorySeeds];
   const seedById = new Map(inventorySeeds.map((seed) => [seed.inventorySeedId, seed]));
@@ -1044,6 +1073,8 @@ export function completeAndMatchResponsibilityInventory(args: {
   const unmatchedProposalIds: string[] = [];
   const accepted: ResponsibilityReadOutput['responsibilities'] = [];
   const discovered = new Set<string>();
+  const matchedProposalInventoryIds: Record<string, string> = {};
+  const inventoryAuditParents: ResponsibilityInventoryAuditParent[] = [];
 
   for (const proposal of args.proposals.responsibilities) {
     const explicit = seedById.get(proposal.responsibilityId);
@@ -1054,36 +1085,91 @@ export function completeAndMatchResponsibilityInventory(args: {
       const chunk = chunkById.get(proposal.chunkId);
       const first = chunk?.rawText.indexOf(proposal.evidenceQuote) ?? -1;
       const repeated = first >= 0 && chunk!.rawText.indexOf(proposal.evidenceQuote, first + 1) >= 0;
-      if (chunk && first >= 0 && !repeated) {
-        const discovered = buildResponsibilitySourceInventory([{
+      const canonicalRawSpan = chunk
+        ? logicalSourceSpans(chunk.rawText).some((span) =>
+            span.replace(/^(?:[-*•]|\d+[.)])\s*/, '').trim() === proposal.evidenceQuote.trim()
+          )
+        : false;
+      if (chunk && first >= 0 && !repeated && canonicalRawSpan) {
+        const inheritedOwner = proposal.evidenceQuote.trimStart().startsWith('[')
+          ? null
+          : [...chunk.rawText.slice(0, first).matchAll(/^\s*\[([^\]]{2,80})\]\s*$/gm)].at(-1)?.[1]?.trim() ?? null;
+        const discoveredInventory = buildResponsibilitySourceInventory([{
           ...chunk,
           rawText: proposal.evidenceQuote,
-        }]).seeds.map((seed) => {
+        }]);
+        const parentIds = new Map<string, string>();
+        const relocatedParents = discoveredInventory.auditParents.map((parent) => {
+          const sourceSpan = inheritedOwner ? `[${inheritedOwner}] ${parent.sourceSpan}` : parent.sourceSpan;
+          const sourceSpanSha256 = responsibilitySpanSha256(sourceSpan);
+          const inventorySeedId = responsibilityInventorySeedId({
+            chunkId: parent.chunkId,
+            sourceStart: parent.sourceStart + first,
+            sourceEnd: parent.sourceEnd + first,
+            sourceSpanSha256,
+          });
+          parentIds.set(parent.inventorySeedId, inventorySeedId);
+          return {
+            ...parent,
+            inventorySeedId,
+            sourceSpan,
+            sourceSpanSha256,
+            sourceStart: parent.sourceStart + first,
+            sourceEnd: parent.sourceEnd + first,
+          };
+        });
+        const seedIds = new Map<string, string>();
+        const relocatedSeeds = discoveredInventory.seeds.map((seed) => {
+          const sourceSpan = inheritedOwner ? `[${inheritedOwner}] ${seed.sourceSpan}` : seed.sourceSpan;
+          const sourceSpanSha256 = responsibilitySpanSha256(sourceSpan);
           const sourceStart = seed.sourceStart + first;
           const sourceEnd = seed.sourceEnd + first;
           const inventorySeedId = responsibilityInventorySeedId({
             chunkId: seed.chunkId,
             sourceStart,
             sourceEnd,
-            sourceSpanSha256: seed.sourceSpanSha256,
+            sourceSpanSha256,
             suffix: seed.splitKind === 'destination' && seed.splitValue
               ? `destination:${normalizedDestination(seed.splitValue)}`
               : undefined,
           });
-          return { ...seed, inventorySeedId, sourceStart, sourceEnd };
+          seedIds.set(seed.inventorySeedId, inventorySeedId);
+          return {
+            ...seed,
+            inventorySeedId,
+            parentSeedId: seed.parentSeedId ? parentIds.get(seed.parentSeedId) ?? null : null,
+            sourceSpan,
+            sourceSpanSha256,
+            sourceStart,
+            sourceEnd,
+          };
         });
-        const nonOverlapping = discovered.filter((seed) =>
+        const nonOverlapping = relocatedSeeds.filter((seed) =>
           !inventorySeeds.some((existing) =>
             existing.chunkId === seed.chunkId &&
             seed.sourceStart < existing.sourceEnd &&
             existing.sourceStart < seed.sourceEnd
           ),
         );
+        const acceptedDiscoveredIds = new Set<string>();
         for (const seed of nonOverlapping) {
           if (seedById.has(seed.inventorySeedId)) continue;
           inventorySeeds.push(seed);
           seedById.set(seed.inventorySeedId, seed);
+          acceptedDiscoveredIds.add(seed.inventorySeedId);
         }
+        inventoryAuditParents.push(
+          ...relocatedParents.flatMap((parent) => {
+            const childSeedIds = parent.childSeedIds
+              .map((id) => seedIds.get(id))
+              .filter((id): id is string => !!id && acceptedDiscoveredIds.has(id));
+            if (childSeedIds.length === 0) return [];
+            return [{
+              ...parent,
+              childSeedIds,
+            }];
+          }),
+        );
         assertResponsibilityInventorySeeds(args.chunks, inventorySeeds);
         exactCandidates = inventorySeeds.filter((seed) =>
           seed.chunkId === proposal.chunkId && seed.evidenceQuote === proposal.evidenceQuote
@@ -1107,6 +1193,7 @@ export function completeAndMatchResponsibilityInventory(args: {
     }
     claimedSeeds.add(seed.inventorySeedId);
     discovered.add(seed.inventorySeedId);
+    matchedProposalInventoryIds[proposal.responsibilityId] = seed.inventorySeedId;
     accepted.push({
       ...proposal,
       responsibilityId: seed.inventorySeedId,
@@ -1128,12 +1215,15 @@ export function completeAndMatchResponsibilityInventory(args: {
   const sourceIds = inventorySeeds.map((seed) => seed.inventorySeedId);
   return {
     output,
+    inventorySeeds,
+    inventoryAuditParents,
     audit: {
       sourceInventoryIds: sourceIds,
       modelDiscoveredInventoryIds: sourceIds.filter((id) => discovered.has(id)),
       mergeReadyInventoryIds: mergeReadyIds,
       unmatchedProposalIds,
       incompleteSeedIds: sourceIds.filter((id) => !claimedSeeds.has(id)),
+      matchedProposalInventoryIds,
       sourceInventoryCount: sourceIds.length,
       modelDiscoveredInventoryCount: discovered.size,
       mergeReadyInventoryCount: mergeReadyIds.length,
@@ -1481,6 +1571,7 @@ export function finalizeForcedResponsibilityAudits(args: {
   audits: ReturnType<typeof canonicalizeForcedResponsibilityOutput>['audits'];
   selected: readonly ForcedResponsibilitySpan[];
   durableAcceptedElementIds: ReadonlySet<string>;
+  durableIdByForcedId?: ReadonlyMap<string, string>;
   validation: ResponsibilityValidation;
   chunks: readonly ResponsibilityChunk[];
   fileType?: string | null;
@@ -1493,6 +1584,8 @@ export function finalizeForcedResponsibilityAudits(args: {
     fileName: args.fileName ?? '',
   });
   return args.audits.map((audit) => {
+    const durableId = args.durableIdByForcedId?.get(audit.forcedResponsibilityId) ??
+      audit.forcedResponsibilityId;
     const span = selectedById.get(audit.forcedResponsibilityId);
     const chunk = chunksById.get(audit.chunkId);
     const strictQuote = span && chunk
@@ -1503,9 +1596,9 @@ export function finalizeForcedResponsibilityAudits(args: {
         })
       : null;
     const accepted =
-      args.durableAcceptedElementIds.has(audit.forcedResponsibilityId) &&
+      args.durableAcceptedElementIds.has(durableId) &&
       !args.validation.diagnostics.some(
-        (item) => item.responsibilityId === audit.forcedResponsibilityId,
+        (item) => item.responsibilityId === durableId,
       );
     return {
       ...audit,
@@ -1519,11 +1612,11 @@ export function finalizeForcedResponsibilityAudits(args: {
         : [
             ...audit.rejectionReasons,
             ...args.validation.diagnostics
-              .filter((item) => item.responsibilityId === audit.forcedResponsibilityId)
+              .filter((item) => item.responsibilityId === durableId)
               .map((item) => `${item.failureClass}:${item.detail}`),
             ...(audit.rejectionReasons.length === 0 &&
             !args.validation.diagnostics.some(
-              (item) => item.responsibilityId === audit.forcedResponsibilityId,
+              (item) => item.responsibilityId === durableId,
             )
               ? ['not_durably_accepted']
               : []),
@@ -2455,6 +2548,15 @@ export function validateResponsibilityRead(args: {
       continue;
     }
     seen.add(record.responsibilityId);
+    const matchedSeed = inventorySeedById.get(record.responsibilityId);
+    if (args.inventorySeeds !== undefined && !matchedSeed) {
+      diagnostics.push({
+        ...base,
+        failureClass: 'invalid_detail',
+        detail: 'Responsibility ID has no authoritative source inventory seed.',
+      });
+      continue;
+    }
     const chunk = byId.get(record.chunkId);
     if (!chunk) {
       diagnostics.push({ ...base, failureClass: 'unknown_chunk', detail: 'Chunk does not exist.' });
@@ -2533,14 +2635,17 @@ export function validateResponsibilityRead(args: {
       fileType: args.fileType,
       fileName: args.fileName,
     });
-    const matchedSeed = inventorySeedById.get(record.responsibilityId);
     const validationSpan = matchedSeed?.splitKind === 'destination' && matchedSeed.splitValue
       ? destinationSpecificResponsibilitySpan(matchedSeed.sourceSpan, matchedSeed.splitValue)
       : enclosingDutySpan;
     const fieldFidelity = validationSpan
       ? validateResponsibilityFieldFidelity(validationSpan, record)
       : null;
-    if (enclosingDutySpan && matchedSeed?.splitKind !== 'destination') {
+    if (
+      enclosingDutySpan &&
+      args.inventorySeeds === undefined &&
+      matchedSeed?.splitKind !== 'destination'
+    ) {
       const expansion = expandResponsibilityDestinations({
         sourceSpan: enclosingDutySpan,
         record,

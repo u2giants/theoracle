@@ -78,13 +78,23 @@ export class SourceReaderBudget {
     }
   }
 
-  reserveRead(args: { estimatedInputTokens: number; label: string }): void {
+  reserveRead(args: {
+    estimatedInputTokens: number;
+    estimatedCostUsd?: number;
+    label: string;
+  }): void {
     const tokens = Math.max(0, Math.ceil(args.estimatedInputTokens));
     const nextReadCalls = this.readCalls + 1;
     const nextInputTokens = this.inputTokens + tokens;
-    const nextCost =
-      this.estimatedCostUsd +
-      (tokens / 1_000_000) * this.limits.estimatedInputCostPerMillionTokensUsd;
+    const explicitCost = args.estimatedCostUsd;
+    if (explicitCost !== undefined && (!Number.isFinite(explicitCost) || explicitCost < 0)) {
+      throw new SourceReaderBudgetExceededError(
+        'max_estimated_cost_usd',
+        `${args.label} supplied invalid estimated cost ${explicitCost}.`,
+      );
+    }
+    const nextCost = this.estimatedCostUsd + (explicitCost ??
+      (tokens / 1_000_000) * this.limits.estimatedInputCostPerMillionTokensUsd);
     if (nextReadCalls > this.limits.maxReadCalls) {
       throw new SourceReaderBudgetExceededError(
         'max_read_calls',

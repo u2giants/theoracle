@@ -81,6 +81,8 @@ import {
   bindForcedResponsibilitySpans,
   canonicalizeForcedResponsibilityOutput,
   completeAndMatchResponsibilityInventory,
+  lateResidualResponsibilitySeeds,
+  mergeResponsibilityRecordsByInventoryId,
   canonicalizeResponsibilityCompletionBatch,
   packResponsibilityCompletions,
   selectStrictResponsibilityCompletionImprovements,
@@ -96,6 +98,7 @@ import {
   responsibilityRawAuditArtifact,
   selectResponsibilityQuoteRepairRead,
   ResponsibilityOmissionRetryScheduler,
+  type ResponsibilityInventoryMatchAudit,
   shardResponsibilitySegments,
   validateResponsibilityRead,
   type GroundedResponsibilityQuoteCandidate,
@@ -301,6 +304,7 @@ export function reserveResponsibilityCompletionBatches(args: {
   for (const batch of args.batches) {
     args.budget.reserveRead({
       estimatedInputTokens: batch.estimatedInputTokens,
+      estimatedCostUsd: batch.estimatedCostUsd,
       label: `responsibility completion batch ${batch.batchIndex + 1}`,
     });
   }
@@ -317,6 +321,59 @@ export function forecastResponsibilityCompletionScenarios(args: {
   };
 }
 
+export function responsibilityInventoryRequiresDegradedStatus(args: {
+  sourceInventoryCount: number;
+  mergeReadyInventoryCount: number;
+  unscheduledCount: number;
+  finalGapCount?: number;
+}): boolean {
+  return (
+    args.sourceInventoryCount > args.mergeReadyInventoryCount ||
+    args.unscheduledCount > 0 ||
+    (args.finalGapCount ?? 0) > 0
+  );
+}
+
+export function refreshResponsibilityInventoryMatchAudit(args: {
+  audit: ResponsibilityInventoryMatchAudit;
+  completeElementIds: readonly string[];
+}): ResponsibilityInventoryMatchAudit {
+  const completeIds = new Set(args.completeElementIds);
+  const mergeReadyInventoryIds = args.audit.sourceInventoryIds.filter((id) => completeIds.has(id));
+  return {
+    ...args.audit,
+    mergeReadyInventoryIds,
+    mergeReadyInventoryCount: mergeReadyInventoryIds.length,
+    incompleteSeedIds: args.audit.sourceInventoryIds.filter((id) => !completeIds.has(id)),
+  };
+}
+
+export function canonicalResponsibilityInventory(args: {
+  seeds: readonly ResponsibilityInventorySeed[];
+  chunks: readonly { id: string }[];
+}): ResponsibilityInventorySeed[] {
+  const chunkOrder = new Map(args.chunks.map((chunk, index) => [chunk.id, index]));
+  const unique = new Map<string, ResponsibilityInventorySeed>();
+  const sourceOrder = new Map<string, number>();
+  for (const seed of args.seeds) {
+    const prior = unique.get(seed.inventorySeedId);
+    if (prior && JSON.stringify(prior) !== JSON.stringify(seed)) {
+      throw new Error(`Conflicting responsibility inventory seed: ${seed.inventorySeedId}`);
+    }
+    if (!prior) {
+      sourceOrder.set(seed.inventorySeedId, sourceOrder.size);
+      unique.set(seed.inventorySeedId, seed);
+    }
+  }
+  return [...unique.values()].sort((a, b) =>
+    (chunkOrder.get(a.chunkId) ?? Number.MAX_SAFE_INTEGER) -
+      (chunkOrder.get(b.chunkId) ?? Number.MAX_SAFE_INTEGER) ||
+    a.sourceStart - b.sourceStart ||
+    (sourceOrder.get(a.inventorySeedId) ?? Number.MAX_SAFE_INTEGER) -
+      (sourceOrder.get(b.inventorySeedId) ?? Number.MAX_SAFE_INTEGER)
+  );
+}
+
 export function isRetryableResponsibilityCompletionFailure(error: unknown): boolean {
   if (error instanceof AllCandidatesFailedError) return true;
   const name = error instanceof Error ? error.name : '';
@@ -331,6 +388,101 @@ export type ResponsibilityCompletionTerminalOutcome = {
   reasons: string[];
 };
 
+type ResponsibilityCompletionBatchResult = {
+  batchIndex: number;
+  seedIds: string[];
+  attempts: number;
+  records: ResponsibilityReadOutput['responsibilities'];
+  outcomes: ResponsibilityCompletionTerminalOutcome[];
+  failure: string | null;
+};
+
+export function finalizeLateResponsibilityCompletion(args: {
+  seedIds: readonly string[];
+  results: readonly ResponsibilityCompletionBatchResult[];
+  unscheduledIds: readonly string[];
+  batchOffset: number;
+}) {
+  const seedIds = new Set(args.seedIds);
+  const records = new Map<string, ResponsibilityReadOutput['responsibilities'][number]>();
+  for (const result of args.results) {
+    for (const record of result.records) {
+      if (!seedIds.has(record.responsibilityId) || records.has(record.responsibilityId)) continue;
+      records.set(record.responsibilityId, record);
+    }
+  }
+  const outcomes = [
+    ...args.results.flatMap((result) => result.outcomes.map((outcome) => ({
+      ...outcome,
+      batchIndex: result.batchIndex + args.batchOffset,
+      attempts: result.attempts,
+      failure: result.failure,
+    }))),
+    ...args.unscheduledIds.map((responsibilityId) => ({
+      responsibilityId,
+      status: 'budget_exhausted' as const,
+      reasons: ['late_completion_not_scheduled_within_frozen_budget'],
+      batchIndex: null,
+      attempts: 0,
+      failure: 'budget_exhausted',
+    })),
+  ];
+  const acceptedIds = new Set(records.keys());
+  const incompleteIds = args.seedIds.filter((id) => !acceptedIds.has(id));
+  return {
+    records: [...records.values()],
+    outcomes,
+    incompleteIds,
+    degraded: incompleteIds.length > 0 || args.unscheduledIds.length > 0,
+  };
+}
+
+export async function runLateResponsibilityCompletion(args: {
+  seeds: readonly ResponsibilityInventorySeed[];
+  handledIds: ReadonlySet<string>;
+  completeIds: ReadonlySet<string>;
+  pack: Omit<Parameters<typeof packResponsibilityCompletions>[0], 'seeds'>;
+  budget: SourceReaderBudget;
+  concurrency: number;
+  batchOffset: number;
+  runBatch: (
+    batch: ResponsibilityCompletionBatch,
+    attempt: 1 | 2,
+  ) => Promise<ResponsibilityCompletionOutput>;
+  validateCompletion: (
+    record: ResponsibilityReadOutput['responsibilities'][number],
+  ) => { complete: boolean; reasons: readonly string[] };
+}) {
+  const residualSeeds = lateResidualResponsibilitySeeds({
+    seeds: args.seeds,
+    handledIds: args.handledIds,
+    completeIds: args.completeIds,
+  });
+  const pack = packResponsibilityCompletions({ seeds: residualSeeds, ...args.pack });
+  const results = await executeResponsibilityCompletionBatches({
+    budget: args.budget,
+    batches: pack.batches,
+    concurrency: args.concurrency,
+    baselines: residualSeeds.map((seed) => ({
+      responsibilityId: seed.inventorySeedId,
+      complete: false,
+    })),
+    runBatch: args.runBatch,
+    validateCompletion: args.validateCompletion,
+  });
+  return {
+    residualSeeds,
+    pack,
+    results,
+    final: finalizeLateResponsibilityCompletion({
+      seedIds: residualSeeds.map((seed) => seed.inventorySeedId),
+      results,
+      unscheduledIds: pack.unscheduledIds,
+      batchOffset: args.batchOffset,
+    }),
+  };
+}
+
 export async function executeResponsibilityCompletionBatches(args: {
   budget: SourceReaderBudget;
   batches: readonly ResponsibilityCompletionBatch[];
@@ -344,14 +496,7 @@ export async function executeResponsibilityCompletionBatches(args: {
     record: ResponsibilityReadOutput['responsibilities'][number],
   ) => { complete: boolean; reasons: readonly string[] };
   isRetryableFailure?: (error: unknown) => boolean;
-}): Promise<Array<{
-  batchIndex: number;
-  seedIds: string[];
-  attempts: number;
-  records: ResponsibilityReadOutput['responsibilities'];
-  outcomes: ResponsibilityCompletionTerminalOutcome[];
-  failure: string | null;
-}>> {
+}): Promise<ResponsibilityCompletionBatchResult[]> {
   reserveResponsibilityCompletionBatches({ budget: args.budget, batches: args.batches });
   return mapWithConcurrency({
     inputs: args.batches,
@@ -363,6 +508,7 @@ export async function executeResponsibilityCompletionBatches(args: {
           try {
             args.budget.reserveRead({
               estimatedInputTokens: batch.estimatedInputTokens,
+              estimatedCostUsd: batch.estimatedCostUsd,
               label: `responsibility completion batch ${batch.batchIndex + 1} retry`,
             });
           } catch (error) {
@@ -2397,6 +2543,16 @@ export async function generateSourceWorkflowMap(args: {
   force?: boolean;
   db?: OracleDb;
   client?: OracleAIClient;
+  orchestrationDependencies?: {
+    selectResidualSeeds?: (
+      seeds: readonly ResponsibilityInventorySeed[],
+      completeIds: ReadonlySet<string>,
+    ) => ResponsibilityInventorySeed[];
+    findOmissions?: typeof findResponsibilityOmissions;
+    buildBaseReadPlan?: typeof buildResponsibilityBaseReadPlan;
+    buildCombinedRepairPlan?: typeof buildResponsibilityCombinedRepairPlan;
+    selectQuoteRepairRead?: typeof selectResponsibilityQuoteRepairRead;
+  };
 }): Promise<SourceWorkflowReadResult> {
   const db = args.db ?? getDirectDb();
   const client = args.client ?? new OracleAIClient({ adapters: buildStandardAdapters() });
@@ -2504,7 +2660,9 @@ export async function generateSourceWorkflowMap(args: {
     const responsibilitySegments = segmentation.segments.filter(
       (segment) => segment.shape === 'responsibilities',
     );
-    const responsibilityBaseReadPlan = buildResponsibilityBaseReadPlan({
+    const responsibilityBaseReadPlan = (
+      args.orchestrationDependencies?.buildBaseReadPlan ?? buildResponsibilityBaseReadPlan
+    )({
       responsibilitySegments,
       chunks: chunks.map((chunk) => ({
         id: chunk.id,
@@ -2686,9 +2844,7 @@ export async function generateSourceWorkflowMap(args: {
           fileType: doc.fileType,
           fileName: doc.fileName,
           allCoveredChunkIds: new Set(segmentation.segments.flatMap((item) => item.chunkIds)),
-          inventorySeeds: responsibilityBaseReadPlan.inventorySeeds.filter((seed) =>
-            segmentChunkIds.has(seed.chunkId),
-          ),
+          inventorySeeds: inventoryMatch.inventorySeeds,
           chunks: chunks.map((chunk) => ({
             id: chunk.id,
             documentId: args.documentId,
@@ -2710,16 +2866,87 @@ export async function generateSourceWorkflowMap(args: {
               (id) => !validation.completeElementIds.includes(id),
             ),
           },
+          inventorySeeds: inventoryMatch.inventorySeeds,
+          inventoryAuditParents: inventoryMatch.inventoryAuditParents,
         };
       },
     }));
 
+    const ownedResponsibilitySeedIds = new Set<string>();
+    responsibilityReads = responsibilityReads.map((read) => {
+      const ownedSeeds = read.inventorySeeds.filter((seed) => {
+        if (ownedResponsibilitySeedIds.has(seed.inventorySeedId)) return false;
+        ownedResponsibilitySeedIds.add(seed.inventorySeedId);
+        return true;
+      });
+      if (ownedSeeds.length === read.inventorySeeds.length) return read;
+      const ownedIds = new Set(ownedSeeds.map((seed) => seed.inventorySeedId));
+      const ownedDiscoveredIds = read.inventoryMatchAudit.modelDiscoveredInventoryIds.filter((id) =>
+        ownedIds.has(id)
+      );
+      const output = {
+        ...read.model.output,
+        responsibilities: read.model.output.responsibilities.filter((record) =>
+          ownedIds.has(record.responsibilityId)
+        ),
+      };
+      const validation = validateResponsibilityRead({
+        output,
+        documentId: args.documentId,
+        segment: responsibilityParentSegment(read.segment),
+        fileType: doc.fileType,
+        fileName: doc.fileName,
+        allCoveredChunkIds: coveredChunkIds,
+        inventorySeeds: ownedSeeds,
+        chunks: chunks.map((chunk) => ({
+          id: chunk.id, documentId: args.documentId, rawText: chunk.rawText,
+        })),
+      });
+      return {
+        ...read,
+        model: { ...read.model, output },
+        validation,
+        inventorySeeds: ownedSeeds,
+        inventoryMatchAudit: {
+          ...read.inventoryMatchAudit,
+          sourceInventoryIds: ownedSeeds.map((seed) => seed.inventorySeedId),
+          sourceInventoryCount: ownedSeeds.length,
+          modelDiscoveredInventoryIds: ownedDiscoveredIds,
+          modelDiscoveredInventoryCount: ownedDiscoveredIds.length,
+          matchedProposalInventoryIds: Object.fromEntries(
+            Object.entries(read.inventoryMatchAudit.matchedProposalInventoryIds).filter(([, id]) =>
+              ownedIds.has(id)
+            ),
+          ),
+          mergeReadyInventoryIds: validation.completeElementIds,
+          mergeReadyInventoryCount: validation.completeElementIds.length,
+          incompleteSeedIds: ownedSeeds
+            .map((seed) => seed.inventorySeedId)
+            .filter((id) => !validation.completeElementIds.includes(id)),
+        },
+      };
+    });
+
+    let responsibilityInventorySeeds = canonicalResponsibilityInventory({
+      seeds: responsibilityReads.flatMap((read) => read.inventorySeeds),
+      chunks,
+    });
+    const responsibilityInventoryAuditParents = [
+      ...responsibilityBaseReadPlan.inventoryAuditParents,
+      ...responsibilityReads.flatMap((read) => read.inventoryAuditParents),
+    ];
+
     const completeBeforeResidual = new Set(
       responsibilityReads.flatMap((read) => read.validation.completeElementIds),
     );
-    const residualSeeds = responsibilityBaseReadPlan.inventorySeeds.filter(
-      (seed) => !completeBeforeResidual.has(seed.inventorySeedId),
-    );
+    const residualSeeds = args.orchestrationDependencies?.selectResidualSeeds
+      ? args.orchestrationDependencies.selectResidualSeeds(
+          responsibilityInventorySeeds,
+          completeBeforeResidual,
+        )
+      : responsibilityInventorySeeds.filter(
+          (seed) => !completeBeforeResidual.has(seed.inventorySeedId),
+        );
     const completionPacking = await loadResponsibilityCompletionPackingConfig({
       db,
       budget: readerBudget,
@@ -2753,7 +2980,7 @@ export async function generateSourceWorkflowMap(args: {
         return execution.output;
       },
       validateCompletion: (record) => {
-        const seed = responsibilityBaseReadPlan.inventorySeeds.find(
+        const seed = responsibilityInventorySeeds.find(
           (item) => item.inventorySeedId === record.responsibilityId,
         );
         const read = seed
@@ -2788,11 +3015,7 @@ export async function generateSourceWorkflowMap(args: {
       acceptedCompletionRecords.map((record) => [record.responsibilityId, record]),
     );
     responsibilityReads = responsibilityReads.map((read) => {
-      const readSeedIds = new Set(
-        responsibilityBaseReadPlan.inventorySeeds
-          .filter((seed) => read.segment.chunkIds.includes(seed.chunkId))
-          .map((seed) => seed.inventorySeedId),
-      );
+      const readSeedIds = new Set(read.inventorySeeds.map((seed) => seed.inventorySeedId));
       const existingIds = new Set(read.model.output.responsibilities.map((item) => item.responsibilityId));
       const responsibilities = read.model.output.responsibilities.map(
         (item) => acceptedCompletionById.get(item.responsibilityId) ?? item,
@@ -2808,9 +3031,7 @@ export async function generateSourceWorkflowMap(args: {
         fileType: doc.fileType,
         fileName: doc.fileName,
         allCoveredChunkIds: coveredChunkIds,
-        inventorySeeds: responsibilityBaseReadPlan.inventorySeeds.filter((seed) =>
-          read.segment.chunkIds.includes(seed.chunkId),
-        ),
+        inventorySeeds: read.inventorySeeds,
         chunks: chunks.map((chunk) => ({ id: chunk.id, documentId: args.documentId, rawText: chunk.rawText })),
       });
       const relevantExecutions = completionResults
@@ -2883,10 +3104,10 @@ export async function generateSourceWorkflowMap(args: {
       rawText: chunk.rawText,
     }));
     const auditResponsibilityOmissions = () =>
-      findResponsibilityOmissions({
+      (args.orchestrationDependencies?.findOmissions ?? findResponsibilityOmissions)({
         chunks: responsibilityAuditChunks,
         elements: responsibilityReads.flatMap((read) => read.validation.elements),
-        inventorySeeds: responsibilityBaseReadPlan.inventorySeeds,
+        inventorySeeds: responsibilityInventorySeeds,
         fileType: doc.fileType,
         fileName: doc.fileName,
       });
@@ -3006,6 +3227,25 @@ export async function generateSourceWorkflowMap(args: {
           budget: readerBudget,
           focusedSpans: forcedSpans,
         });
+        const retryInventoryMatch = completeAndMatchResponsibilityInventory({
+          inventorySeeds: sourceRead.inventorySeeds.filter((seed) => seed.chunkId === chunk.id),
+          proposals: retryModel.output,
+          chunks: [{ id: chunk.id, documentId: args.documentId, rawText: chunk.rawText }],
+        });
+        retryModel.output = retryInventoryMatch.output;
+        sourceRead.inventorySeeds = canonicalResponsibilityInventory({
+          seeds: [
+            ...sourceRead.inventorySeeds.filter((seed) => seed.chunkId !== chunk.id),
+            ...retryInventoryMatch.inventorySeeds,
+          ],
+          chunks: sourceRead.segment.chunkIds.map((id) => ({ id })),
+        });
+        sourceRead.inventoryAuditParents.push(...retryInventoryMatch.inventoryAuditParents);
+        responsibilityInventoryAuditParents.push(...retryInventoryMatch.inventoryAuditParents);
+        responsibilityInventorySeeds = canonicalResponsibilityInventory({
+          seeds: responsibilityReads.flatMap((read) => read.inventorySeeds),
+          chunks,
+        });
         const retryValidation = validateResponsibilityRead({
           output: retryModel.output,
           documentId: args.documentId,
@@ -3013,29 +3253,80 @@ export async function generateSourceWorkflowMap(args: {
           fileType: doc.fileType,
           fileName: doc.fileName,
           allCoveredChunkIds: coveredChunkIds,
+          inventorySeeds: sourceRead.inventorySeeds.filter((seed) => seed.chunkId === chunk.id),
           chunks: [{ id: chunk.id, documentId: args.documentId, rawText: chunk.rawText }],
         });
-        const mergedRetry = mergeResponsibilityRetryValidation(
-          sourceRead.validation,
-          retryValidation,
-        );
+        const mergedRetryOutput = {
+          ...sourceRead.model.output,
+          responsibilities: mergeResponsibilityRecordsByInventoryId(
+            sourceRead.model.output.responsibilities,
+            retryModel.output.responsibilities,
+          ),
+        };
+        const baseCompleteIds = new Set(sourceRead.validation.completeElementIds);
+        const mergedRetryValidation = validateResponsibilityRead({
+          output: mergedRetryOutput,
+          documentId: args.documentId,
+          segment: responsibilityParentSegment(sourceRead.segment),
+          fileType: doc.fileType,
+          fileName: doc.fileName,
+          allCoveredChunkIds: coveredChunkIds,
+          inventorySeeds: sourceRead.inventorySeeds,
+          chunks: responsibilityAuditChunks,
+        });
+        const mergedRetry = {
+          validation: mergedRetryValidation,
+          acceptedElementIds: mergedRetryValidation.completeElementIds.filter(
+            (id) => !baseCompleteIds.has(id),
+          ),
+          acceptedCount: mergedRetryValidation.completeElementIds.filter(
+            (id) => !baseCompleteIds.has(id),
+          ).length,
+        };
         const finalFieldAudits = finalizeForcedResponsibilityAudits({
           audits: retryModel.forcedSpanAudits,
           selected: forcedSpans,
           durableAcceptedElementIds: new Set(mergedRetry.acceptedElementIds),
+          durableIdByForcedId: new Map(
+            Object.entries(retryInventoryMatch.audit.matchedProposalInventoryIds),
+          ),
           validation: retryValidation,
           chunks: [{ id: chunk.id, documentId: args.documentId, rawText: chunk.rawText }],
           fileType: doc.fileType,
           fileName: doc.fileName,
         });
-        sourceRead.model.output = {
-          ...sourceRead.model.output,
-          responsibilities: [
-            ...sourceRead.model.output.responsibilities,
-            ...retryModel.output.responsibilities,
-          ],
-        };
+        sourceRead.model.output = mergedRetryOutput;
         sourceRead.validation = mergedRetry.validation;
+        sourceRead.inventoryMatchAudit = {
+          ...sourceRead.inventoryMatchAudit,
+          sourceInventoryIds: sourceRead.inventorySeeds.map((seed) => seed.inventorySeedId),
+          sourceInventoryCount: sourceRead.inventorySeeds.length,
+          modelDiscoveredInventoryIds: [
+            ...new Set([
+              ...sourceRead.inventoryMatchAudit.modelDiscoveredInventoryIds,
+              ...retryInventoryMatch.audit.modelDiscoveredInventoryIds,
+            ]),
+          ],
+          modelDiscoveredInventoryCount: new Set([
+            ...sourceRead.inventoryMatchAudit.modelDiscoveredInventoryIds,
+            ...retryInventoryMatch.audit.modelDiscoveredInventoryIds,
+          ]).size,
+          unmatchedProposalIds: [
+            ...new Set([
+              ...sourceRead.inventoryMatchAudit.unmatchedProposalIds,
+              ...retryInventoryMatch.audit.unmatchedProposalIds,
+            ]),
+          ],
+          matchedProposalInventoryIds: {
+            ...sourceRead.inventoryMatchAudit.matchedProposalInventoryIds,
+            ...retryInventoryMatch.audit.matchedProposalInventoryIds,
+          },
+          mergeReadyInventoryIds: mergedRetry.validation.completeElementIds,
+          mergeReadyInventoryCount: mergedRetry.validation.completeElementIds.length,
+          incompleteSeedIds: sourceRead.inventorySeeds
+            .map((seed) => seed.inventorySeedId)
+            .filter((id) => !mergedRetry.validation.completeElementIds.includes(id)),
+        };
         sourceRead.modelRunIds.push(retryModel.modelRunId);
         sourceRead.contextPackIds.push(retryModel.contextPackId);
         sourceRead.executions.push(retryModel.execution);
@@ -3107,6 +3398,151 @@ export async function generateSourceWorkflowMap(args: {
       }
     }
 
+    const completionHandledIds = new Set(responsibilityCompletionAudit.residualSeedIds);
+    const lateResidualSeeds = lateResidualResponsibilitySeeds({
+      seeds: responsibilityInventorySeeds,
+      handledIds: completionHandledIds,
+      completeIds: new Set(
+        responsibilityReads.flatMap((read) => read.validation.completeElementIds),
+      ),
+    });
+    if (lateResidualSeeds.length > 0) {
+      const latePackingConfig = await loadResponsibilityCompletionPackingConfig({
+        db,
+        budget: readerBudget,
+        reserveQuoteRepair: responsibilityPostPassBudget.limits.maxQuoteRepairsPerSource > 0,
+      });
+      const batchOffset = responsibilityCompletionAudit.batchManifest.length;
+      const lateExecutions = new Map<number, ResponsibilityCompletionExecution[]>();
+      const lateRun = await runLateResponsibilityCompletion({
+        seeds: responsibilityInventorySeeds,
+        handledIds: completionHandledIds,
+        completeIds: new Set(
+          responsibilityReads.flatMap((read) => read.validation.completeElementIds),
+        ),
+        pack: latePackingConfig.pack,
+        budget: readerBudget,
+        concurrency: readerBudget.limits.maxConcurrency,
+        batchOffset,
+        runBatch: async (batch) => {
+          const execution = await runResponsibilityCompletionModel({
+            db,
+            client,
+            doc,
+            mapId: pending.mapId,
+            triggerRunId: args.triggerRunId,
+            batch,
+          });
+          const list = lateExecutions.get(batch.batchIndex) ?? [];
+          list.push(execution);
+          lateExecutions.set(batch.batchIndex, list);
+          return execution.output;
+        },
+        validateCompletion: (record) => {
+          const seed = lateResidualSeeds.find(
+            (item) => item.inventorySeedId === record.responsibilityId,
+          );
+          const read = seed
+            ? responsibilityReads.find((item) => item.segment.chunkIds.includes(seed.chunkId))
+            : undefined;
+          if (!seed || !read) return { complete: false, reasons: ['seed_or_source_read_missing'] };
+          const validation = validateResponsibilityRead({
+            output: { summary: 'Late detected responsibility completion.', responsibilities: [record] },
+            documentId: args.documentId,
+            segment: responsibilityParentSegment(read.segment),
+            fileType: doc.fileType,
+            fileName: doc.fileName,
+            allCoveredChunkIds: coveredChunkIds,
+            inventorySeeds: [seed],
+            chunks: responsibilityAuditChunks,
+          });
+          return {
+            complete: validation.completeElementIds.includes(record.responsibilityId),
+            reasons: [
+              ...validation.diagnostics.map((item) => item.detail),
+              ...validation.incompleteInventoryAudit.map((item) => item.decisionReason),
+            ],
+          };
+        },
+      });
+      const { pack: latePack, results: lateResults, final: lateFinal } = lateRun;
+      const lateAcceptedById = new Map(
+        lateFinal.records.map((record) => [record.responsibilityId, record]),
+      );
+      responsibilityReads = responsibilityReads.map((read) => {
+        const readSeedIds = new Set(read.inventorySeeds.map((seed) => seed.inventorySeedId));
+        const byId = new Map(
+          read.model.output.responsibilities.map((record) => [record.responsibilityId, record]),
+        );
+        for (const [id, record] of lateAcceptedById) {
+          if (readSeedIds.has(id)) byId.set(id, record);
+        }
+        const output = { ...read.model.output, responsibilities: [...byId.values()] };
+        const validation = validateResponsibilityRead({
+          output,
+          documentId: args.documentId,
+          segment: responsibilityParentSegment(read.segment),
+          fileType: doc.fileType,
+          fileName: doc.fileName,
+          allCoveredChunkIds: coveredChunkIds,
+          inventorySeeds: read.inventorySeeds,
+          chunks: responsibilityAuditChunks,
+        });
+        const executions = lateResults
+          .filter((result) => result.seedIds.some((id) => readSeedIds.has(id)))
+          .flatMap((result) => lateExecutions.get(result.batchIndex) ?? []);
+        return {
+          ...read,
+          model: { ...read.model, output },
+          validation,
+          modelRunIds: [...read.modelRunIds, ...executions.map((item) => item.modelRunId)],
+          contextPackIds: [...read.contextPackIds, ...executions.map((item) => item.contextPackId)],
+          executions: [...read.executions, ...executions.map((item) => item.execution)],
+          inventoryMatchAudit: {
+            ...read.inventoryMatchAudit,
+            mergeReadyInventoryIds: validation.completeElementIds,
+            mergeReadyInventoryCount: validation.completeElementIds.length,
+            incompleteSeedIds: [...readSeedIds].filter(
+              (id) => !validation.completeElementIds.includes(id),
+            ),
+          },
+        };
+      });
+      responsibilityCompletionAudit.residualSeedIds.push(
+        ...lateResidualSeeds.map((seed) => seed.inventorySeedId),
+      );
+      responsibilityCompletionAudit.residualSeedCount += lateResidualSeeds.length;
+      responsibilityCompletionAudit.batchManifest.push(
+        ...latePack.batches.map((batch) => ({
+          batchIndex: batch.batchIndex + batchOffset,
+          seedIds: batch.seedIds,
+          estimatedInputTokens: batch.estimatedInputTokens,
+          estimatedOutputTokens: batch.estimatedOutputTokens,
+          estimatedCostUsd: batch.estimatedCostUsd,
+        })),
+      );
+      responsibilityCompletionAudit.estimatedCalls += latePack.estimatedCalls;
+      responsibilityCompletionAudit.estimatedInputTokens += latePack.estimatedInputTokens;
+      responsibilityCompletionAudit.estimatedOutputTokens += latePack.estimatedOutputTokens;
+      responsibilityCompletionAudit.estimatedCostUsd += latePack.estimatedCostUsd;
+      responsibilityCompletionAudit.unscheduledIds.push(...latePack.unscheduledIds);
+      responsibilityCompletionAudit.outcomes.push(...lateFinal.outcomes);
+      responsibilityCompletionAudit.executions.push(
+        ...[...lateExecutions.entries()]
+          .sort(([a], [b]) => a - b)
+          .flatMap(([batchIndex, executions]) => executions.map((execution, attemptIndex) => ({
+            batchIndex: batchIndex + batchOffset,
+            attempt: attemptIndex + 1,
+            modelRunId: execution.modelRunId,
+            contextPackId: execution.contextPackId,
+            routeId: execution.routeId,
+            provider: execution.provider,
+            model: execution.model,
+            ...execution.execution,
+          }))),
+      );
+    }
+
     const responsibilityQuoteRepair = {
       attempted: false,
       selectedSegmentId: null as string | null,
@@ -3135,12 +3571,15 @@ export async function generateSourceWorkflowMap(args: {
         decisionReason: string | null;
       }>,
     };
-    const combinedRepairPlan = buildResponsibilityCombinedRepairPlan({
+    const combinedRepairPlan = (args.orchestrationDependencies?.buildCombinedRepairPlan ?? buildResponsibilityCombinedRepairPlan)({
       reads: responsibilityReads,
       chunks,
       maxFieldRepairs: 0,
     });
-    const quoteRepairRead = selectResponsibilityQuoteRepairRead(responsibilityReads);
+    if ('preparedReads' in combinedRepairPlan && Array.isArray(combinedRepairPlan.preparedReads)) {
+      responsibilityReads = combinedRepairPlan.preparedReads as typeof responsibilityReads;
+    }
+    const quoteRepairRead = (args.orchestrationDependencies?.selectQuoteRepairRead ?? selectResponsibilityQuoteRepairRead)(responsibilityReads);
     if (quoteRepairRead && combinedRepairPlan.records.length > 0) {
       const eligibleDiagnostics = responsibilityReads.flatMap((read) =>
         read.validation.diagnostics.filter((item) => item.failureClass === 'quote_mismatch'),
@@ -3234,9 +3673,7 @@ export async function generateSourceWorkflowMap(args: {
                 fileType: doc.fileType,
                 fileName: doc.fileName,
                 allCoveredChunkIds: coveredChunkIds,
-                inventorySeeds: responsibilityBaseReadPlan.inventorySeeds.filter((seed) =>
-                  read.segment.chunkIds.includes(seed.chunkId),
-                ),
+                inventorySeeds: read.inventorySeeds,
                 chunks: chunks.map((chunk) => ({
                   id: chunk.id,
                   documentId: args.documentId,
@@ -3286,6 +3723,10 @@ export async function generateSourceWorkflowMap(args: {
             for (const repairedRead of repairedReads) {
               repairedRead.read.model.output = repairedRead.output;
               repairedRead.read.validation = repairedRead.validation;
+              repairedRead.read.inventoryMatchAudit = refreshResponsibilityInventoryMatchAudit({
+                audit: repairedRead.read.inventoryMatchAudit,
+                completeElementIds: repairedRead.validation.completeElementIds,
+              });
             }
             responsibilityQuoteRepair.accepted = true;
             responsibilityQuoteRepair.skipped = null;
@@ -3328,7 +3769,7 @@ export async function generateSourceWorkflowMap(args: {
       }),
     }));
     const sourceInventoryOrder = new Map(
-      responsibilityBaseReadPlan.inventorySeeds.map((seed, index) => [seed.inventorySeedId, index]),
+      responsibilityInventorySeeds.map((seed, index) => [seed.inventorySeedId, index]),
     );
     const mergeReadyInventory = responsibilityReads
       .flatMap((read) => responsibilityMergeEligibleElements(read.validation))
@@ -3379,13 +3820,19 @@ export async function generateSourceWorkflowMap(args: {
     const workflowOutputs = processReads.map((read) => read.validation.map);
     const droppedCount =
       processReads.reduce((sum, read) => sum + read.validation.droppedCount, 0) +
-      Math.max(0, responsibilityBaseReadPlan.inventorySeeds.length - mergeReadyInventory.length);
+      Math.max(0, responsibilityInventorySeeds.length - mergeReadyInventory.length);
     const keptCount =
       processReads.reduce((sum, read) => sum + read.validation.keptCount, 0) +
       mergeReadyInventory.length;
     const status: WorkflowMapStatus =
       segmentation.status === 'degraded' ||
       processReads.some((read) => read.validation.status === 'degraded') ||
+      responsibilityInventoryRequiresDegradedStatus({
+        sourceInventoryCount: responsibilityInventorySeeds.length,
+        mergeReadyInventoryCount: mergeReadyInventory.length,
+        unscheduledCount: responsibilityCompletionAudit.unscheduledIds.length,
+        finalGapCount: omissions.length,
+      }) ||
       responsibilityReads.some(
         (read) =>
           read.validation.inventoryElements.length > read.validation.elements.length ||
@@ -3435,6 +3882,7 @@ export async function generateSourceWorkflowMap(args: {
         mergeReadyInventoryCount: read.inventoryMatchAudit.mergeReadyInventoryCount,
         mergeReadyInventoryIds: read.inventoryMatchAudit.mergeReadyInventoryIds,
         unmatchedProposalIds: read.inventoryMatchAudit.unmatchedProposalIds,
+        matchedProposalInventoryIds: read.inventoryMatchAudit.matchedProposalInventoryIds,
         incompleteSeedIds: read.inventoryMatchAudit.incompleteSeedIds,
         completeCount: read.validation.elements.length,
         mergeEligibleCount: read.validation.completeElementIds.length,
@@ -3449,12 +3897,19 @@ export async function generateSourceWorkflowMap(args: {
         failureTaxonomyCounts: responsibilityFailureTaxonomyCounts(read.validation),
       })),
       responsibilityInventory: {
-        sourceInventoryCount: responsibilityBaseReadPlan.inventorySeeds.length,
-        sourceInventoryIds: responsibilityBaseReadPlan.inventorySeeds.map((seed) => seed.inventorySeedId),
-        auditOnlyParents: responsibilityBaseReadPlan.inventoryAuditParents,
+        sourceInventoryCount: responsibilityInventorySeeds.length,
+        sourceInventoryIds: responsibilityInventorySeeds.map((seed) => seed.inventorySeedId),
+        auditOnlyParents: [...responsibilityInventoryAuditParents.reduce((byId, parent) => {
+          const prior = byId.get(parent.inventorySeedId);
+          if (prior && JSON.stringify(prior) !== JSON.stringify(parent)) {
+            throw new Error(`Conflicting responsibility audit parent: ${parent.inventorySeedId}`);
+          }
+          if (!prior) byId.set(parent.inventorySeedId, parent);
+          return byId;
+        }, new Map<string, (typeof responsibilityInventoryAuditParents)[number]>()).values()],
         mergeReadyInventoryCount: mergeReadyInventory.length,
         mergeReadyInventoryIds: mergeReadyInventory.map((element) => element.elementId),
-        incompleteSeedIds: responsibilityBaseReadPlan.inventorySeeds
+        incompleteSeedIds: responsibilityInventorySeeds
           .map((seed) => seed.inventorySeedId)
           .filter((id) => !mergeReadySeen.has(id)),
         finalGaps: omissions.map((omission) => ({
