@@ -32,6 +32,8 @@ was $1.127844 across 2,510,800 reported tokens, including 2,334,080 cached token
 
 Fresh-session starting point: **diagnose the honest 16/30 P5 result without production runs or verifier weakening**. P0 through P4 and the P6 code-quality corrections are complete. Do not deploy, run the pinned production fixture, or advance P7/P8 unless a source-grounded local correction restores at least 27/30 and a fresh independent review approves it.
 
+Bounded correction plan created 2026-08-11: [`plan_r2_local_owner_context_correction.md`](plan_r2_local_owner_context_correction.md). Read its STATUS table first. It owns the local source-span owner propagation, visible actor-conflict, and split-coherence correction. It does not authorize implementation, deployment, or production.
+
 Independent P0/P1 implementation review, 2026-08-10: Grok 4.5 session
 `019fe9a5-2324-7601-a7d1-f50f8dd31d8b` returned
 `APPROVED FOR P2 WITH NON-BLOCKING NOTES`. It found no blocking P0 or P1 defect. Preserve these four
