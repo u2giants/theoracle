@@ -34,6 +34,11 @@ production handoff. The only production gate for the source-span inventory relea
 Do not run another gate, bake-off, or prompt-polish pass. Merge and apply remain forbidden. R0,
 R0.1, and R1 are green; R3 through R10 remain blocked on R2.
 
+Owner-authorized planning created
+[`plan_r2_source_bound_final_record_correction.md`](plan_r2_source_bound_final_record_correction.md)
+on 2026-08-11. It is the current local-only R2 correction plan. Its creation does not authorize
+implementation, deployment, or another production gate. Read its STATUS table first.
+
 This is the single forward implementation plan for completing the Oracle's macro-first
 redesign. It reconciles the original process-centric redesign with the later shape-aware
 reader pivot and supersedes their implementation-stage sequences where they conflict.
