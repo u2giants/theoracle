@@ -1429,6 +1429,288 @@ const genericInventoryChunks = [{
 const genericInventoryA = buildResponsibilitySourceInventory(genericInventoryChunks);
 const genericInventoryB = buildResponsibilitySourceInventory(genericInventoryChunks);
 assert.deepEqual(genericInventoryA, genericInventoryB, 'identical inventory reruns are byte-stable');
+
+const actorContextChunk = {
+  id: 'actor_context_chunk',
+  documentId,
+  rawText:
+    '[Fleet Office]\n' +
+    '1. Review route packets.\n' +
+    '2. Upload signed notices.\n' +
+    '[the following notes]\n' +
+    '3. Archive delivery records.\n' +
+    'Special handling scenarios:\n' +
+    '4. Update the dispatch board.',
+};
+const actorContextInventory = buildResponsibilitySourceInventory([actorContextChunk]);
+assert.equal(actorContextInventory.seeds.length, 4);
+assert.ok(
+  actorContextInventory.seeds.every((seed) => seed.sourceSpan.startsWith('[Fleet Office] ')),
+  'a proven actor persists across sibling duties and inert descriptive headings',
+);
+assert.ok(
+  actorContextInventory.seeds.every((seed) =>
+    !/\[(?:the following notes|Special handling scenarios)\]/i.test(seed.sourceSpan)
+  ),
+  'descriptive bracket and colon labels never become owners',
+);
+
+const descriptiveOnlyInventory = buildResponsibilitySourceInventory([{
+  id: 'descriptive_only_chunk',
+  documentId,
+  rawText:
+    '[These scenarios]\n' +
+    '1. Review route packets.\n' +
+    '2. Archive delivery records.',
+}]);
+assert.ok(
+  descriptiveOnlyInventory.seeds.every((seed) => !seed.sourceSpan.startsWith('[These scenarios] ')),
+  'a descriptive heading cannot invent an actor when no actor was proven',
+);
+
+const actorResetInventory = buildResponsibilitySourceInventory([{
+  id: 'actor_reset_boundary_chunk',
+  documentId,
+  rawText:
+    '[Fleet Office]\n' +
+    '- Review route packets\n' +
+    '  before dispatch.\n\n' +
+    'This paragraph explains an unrelated policy.\n\n' +
+    '- Archive delivery records.\n' +
+    '# Returns\n' +
+    '- Update the return ledger.',
+}]);
+assert.match(
+  actorResetInventory.seeds[0]!.sourceSpan,
+  /^\[Fleet Office\]\s+Review route packets before dispatch\./,
+  'ordinary prose continuation inside a duty preserves actor context',
+);
+assert.ok(
+  !actorResetInventory.seeds[1]!.sourceSpan.startsWith('[Fleet Office] '),
+  'unrelated narrative followed by a fresh list resets actor context',
+);
+assert.ok(
+  !actorResetInventory.seeds[2]!.sourceSpan.startsWith('[Fleet Office] '),
+  'a markdown section heading resets actor context',
+);
+
+const resetActorInventory = buildResponsibilitySourceInventory([{
+  id: 'reset_actor_chunk',
+  documentId,
+  rawText:
+    '[Fleet Office]\n' +
+    '- Review route packets.\n' +
+    '[Returns Office]\n' +
+    '- Archive return slips.',
+}]);
+assert.deepEqual(
+  resetActorInventory.seeds.map((seed) => seed.sourceSpan.match(/^\[([^\]]+)\]/)?.[1]),
+  ['Fleet Office', 'Returns Office'],
+  'a new proven actor replaces the prior actor',
+);
+
+const resetActorAfterNarrativeInventory = buildResponsibilitySourceInventory([{
+  id: 'reset_actor_after_narrative_chunk',
+  documentId,
+  rawText:
+    '[Fleet Office]\n' +
+    '- Review route packets.\n\n' +
+    'This paragraph closes the old section.\n\n' +
+    '[Returns Office]\n' +
+    '- Archive return slips.',
+}]);
+assert.match(
+  resetActorAfterNarrativeInventory.seeds[1]!.sourceSpan,
+  /^\[Returns Office\]\s+Archive return slips\./,
+  'a new proven actor after unrelated narrative clears the pending old-actor reset',
+);
+
+const directActorConflictInventory = buildResponsibilitySourceInventory([{
+  id: 'direct_actor_conflict_chunk',
+  documentId,
+  rawText: '[Warehouse Team] Compliance Lead reviews audit packets.',
+}]);
+assert.equal(directActorConflictInventory.seeds.length, 1);
+assert.match(
+  directActorConflictInventory.seeds[0]!.sourceSpan,
+  /^\[Compliance Lead\]\s+reviews audit packets\./,
+  'a direct duty subject overrides a conflicting outer formatting tag',
+);
+assert.ok(
+  directActorConflictInventory.seeds[0]!.parseDiagnostics.includes('outer_actor_overridden'),
+  'an outer actor override remains visible in the inventory audit',
+);
+
+const markedDirectActorCases = [
+  ['1.', 'reviews route packets'],
+  ['1)', 'downloads delivery records'],
+  ['12.', 'updates the dispatch board'],
+  ['12)', 'archives approved notices'],
+  ['-', 'submits compliance forms'],
+  ['*', 'emails approved packets'],
+  ['•', 'publishes the final notice'],
+] as const;
+for (const [marker, duty] of markedDirectActorCases) {
+  const rawText = `[Warehouse Team] ${marker} Compliance Lead ${duty}.`;
+  const markedInventory = buildResponsibilitySourceInventory([{
+    id: `marked_direct_actor_${marker.replace(/[^a-z0-9]/gi, 'marker')}`,
+    documentId,
+    rawText,
+  }]);
+  assert.equal(markedInventory.seeds.length, 1);
+  assert.match(
+    markedInventory.seeds[0]!.sourceSpan,
+    new RegExp(`^\\[Compliance Lead\\]\\s+${duty.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.`),
+    `one ${marker} source list marker may precede a direct inner actor`,
+  );
+  assert.equal(markedInventory.seeds[0]!.evidenceQuote, rawText);
+  assert.equal(rawText.slice(
+    markedInventory.seeds[0]!.sourceStart,
+    markedInventory.seeds[0]!.sourceEnd,
+  ), rawText, 'marker handling preserves raw quote offsets');
+}
+
+for (const rawText of [
+  '[Warehouse Team] 2024 records show compliance.',
+  '[Warehouse Team] A. Submit compliance forms.',
+  '[Warehouse Team] 1. - Compliance Lead submits forms.',
+]) {
+  const markerNegative = buildResponsibilitySourceInventory([{
+    id: `marker_negative_${rawText.length}`,
+    documentId,
+    rawText,
+  }]);
+  assert.ok(
+    markerNegative.seeds.every((seed) => !/^\[Compliance Lead\]/.test(seed.sourceSpan)),
+    'years, alphabetic markers, and multiple markers cannot create an inner actor override',
+  );
+}
+
+const markedBareVerbInventory = buildResponsibilitySourceInventory([{
+  id: 'marked_bare_verb_chunk',
+  documentId,
+  rawText: '[Warehouse Team] 1. download delivery records.',
+}]);
+assert.ok(
+  markedBareVerbInventory.seeds.every((seed) => !/^\[download\]/i.test(seed.sourceSpan)),
+  'a marker followed by a bare duty verb does not invent an inner actor',
+);
+
+const markedPrepositionalActorInventory = buildResponsibilitySourceInventory([{
+  id: 'marked_prepositional_actor_chunk',
+  documentId,
+  rawText: '[Warehouse Team] 1. Warehouse Team assists Dispatch Office in downloading route packets.',
+}]);
+assert.match(
+  markedPrepositionalActorInventory.seeds[0]!.sourceSpan,
+  /^\[Warehouse Team\]/,
+  'a phrase ending in a preposition cannot override the outer actor',
+);
+assert.ok(
+  !/^\[Warehouse Team assists Dispatch Office in\]/.test(
+    markedPrepositionalActorInventory.seeds[0]!.sourceSpan,
+  ),
+  'an intervening helper phrase is not misclassified as a direct actor',
+);
+
+const recipientControlInventory = buildResponsibilitySourceInventory([{
+  id: 'recipient_control_chunk',
+  documentId,
+  rawText: '[Warehouse Team] Send audit packets to Compliance Lead.',
+}]);
+assert.match(
+  recipientControlInventory.seeds[0]!.sourceSpan,
+  /^\[Warehouse Team\]\s+Send audit packets to Compliance Lead\./,
+  'a recipient mention does not override the governing actor',
+);
+
+const conditionLabelInventory = buildResponsibilitySourceInventory([{
+  id: 'condition_label_chunk',
+  documentId,
+  rawText: '[When Compliance Lead responds]\n- Submit the audit packet.',
+}]);
+assert.ok(
+  conditionLabelInventory.seeds.every((seed) =>
+    !seed.sourceSpan.startsWith('[When Compliance Lead responds] ')
+  ),
+  'a condition label remains descriptive and cannot become an actor',
+);
+const conditionLabelCompletion = completeAndMatchResponsibilityInventory({
+  inventorySeeds: conditionLabelInventory.seeds,
+  proposals: { summary: 'No model discoveries were returned.', responsibilities: [] },
+  chunks: [{
+    id: 'condition_label_chunk',
+    documentId,
+    rawText: '[When Compliance Lead responds]\n- Submit the audit packet.',
+  }],
+});
+assert.equal(
+  conditionLabelCompletion.audit.mergeReadyInventoryCount,
+  0,
+  'ambiguous actor syntax remains incomplete instead of guessing an owner',
+);
+
+const systemLabelConflictInventory = buildResponsibilitySourceInventory([{
+  id: 'system_label_conflict_chunk',
+  documentId,
+  rawText: '[Dispatch Portal] Fleet Lead reviews route packets.',
+}]);
+assert.match(
+  systemLabelConflictInventory.seeds[0]!.sourceSpan,
+  /^\[Fleet Lead\]\s+reviews route packets\./,
+  'a system-like outer label does not outrank a direct duty subject',
+);
+
+const coordinatedDutyChunk = {
+  id: 'coordinated_duty_chunk',
+  documentId,
+  rawText:
+    '[Quality Office]\n' +
+    '- Review sample packets and ensure technical requirements match approved standards.',
+};
+const coordinatedDutyInventory = buildResponsibilitySourceInventory([coordinatedDutyChunk]);
+const coordinatedDutyRepeat = buildResponsibilitySourceInventory([coordinatedDutyChunk]);
+assert.deepEqual(
+  coordinatedDutyInventory,
+  coordinatedDutyRepeat,
+  'coordinated duty reruns preserve child IDs, source order, and audit order',
+);
+assert.equal(
+  coordinatedDutyInventory.seeds.length,
+  2,
+  'a coordinated duty splits only when each child has its own action and object',
+);
+assert.ok(
+  coordinatedDutyInventory.seeds.every((seed) =>
+    seed.sourceSpan.startsWith('[Quality Office] ') &&
+    /\b(?:review\s+sample packets|ensure\s+technical requirements)\b/i.test(seed.sourceSpan)
+  ),
+  'coherent split children retain the proven actor, action, and source-derived object',
+);
+assert.ok(
+  coordinatedDutyInventory.seeds.every((seed) =>
+    coordinatedDutyChunk.rawText.slice(seed.sourceStart, seed.sourceEnd) === seed.evidenceQuote
+  ),
+  'actor normalization never changes exact evidence quote or offsets',
+);
+
+const incoherentSplitInventory = buildResponsibilitySourceInventory([{
+  id: 'incoherent_split_chunk',
+  documentId,
+  rawText: '[Quality Office]\n- Review and ensure technical requirements match approved standards.',
+}]);
+assert.equal(incoherentSplitInventory.seeds.length, 1);
+assert.deepEqual(
+  incoherentSplitInventory.seeds[0]!.parseDiagnostics,
+  ['ambiguous_multi_verb'],
+  'an incoherent split stays as one explicit incomplete parent',
+);
+assert.equal(
+  incoherentSplitInventory.auditParents.length,
+  0,
+  'an incoherent split never creates misleading active children or an accepted split audit',
+);
+
 assert.equal(genericInventoryA.seeds.length, 8, 'all generic duties and destination children are active');
 assert.equal(
   genericInventoryA.seeds.filter((seed) => seed.splitKind === 'destination').length,

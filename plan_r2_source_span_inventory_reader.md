@@ -1,6 +1,6 @@
 # R2 Source-Span Inventory Reader Implementation Plan
 
-Status: **P0 THROUGH P4 COMPLETE. P5 FAILED HONESTLY AT 16/30. PRODUCTION GATE FORBIDDEN.**
+Status: **P0 THROUGH P5 COMPLETE LOCALLY AT 28/30. PRODUCTION GATE FORBIDDEN.**
 
 Created: 2026-08-09
 
@@ -25,12 +25,12 @@ was $1.127844 across 2,510,800 reported tokens, including 2,334,080 cached token
 | P2. Add deterministic seed completion and exclusive proposal matching | ✅ complete | Exact source-bound exclusive matching, audit-only unmatched proposals, deterministic clear-list completion, three staged inventory counts/ID lists, split omission classes, overlap hardening, and direct integrity tests pass locally. GLM 5.2 independently found two blockers; both were fixed and its follow-up verdict was `APPROVED FOR P3`. |
 | P3. Add exhaustive, budget-proven residual completion | ✅ complete | Shallow strict completion contract, immutable seed canonicalization, stable input/output token packing with the shared 300-record schema ceiling, low/expected/high forecasts, full pre-dispatch read-budget reservation, typed bounded retry rules, strict-improvement validation, ordered per-seed terminal outcomes, and loud missing/duplicate/extra/unscheduled failures pass locally. Grok 4.5 found and verified corrections for retry classification, schema-sized packing, strict improvement, and outcome audit, then returned `APPROVED FOR P4`. |
 | P4. Rebuild omission and merge assembly around the inventory | ✅ complete | The production worker now runs budget-packed exhaustive residual completion before detection-only legacy retries and candidate-bound quote repair. Final responsibility elements are source-seed ordered, complete-only, one-to-one asserted, and the inventory, manifests, outcomes, executions, unscheduled IDs, final gaps, and failure facts persist in `validationJson`. Worker typecheck, lint, AI typecheck, the R2 production-seam verifier, and `git diff --check` pass. |
-| P5. Complete local verification | ❌ failed honestly | The invalid source-prefix owner fallback is removed. Fourteen of fifteen section 10 checks pass; the honest pinned verifier reports 16/30 from 144 source-bound seeds, below the frozen 27/30 gate. Do not weaken the verifier or run production. |
-| P6. Independent read-only design and implementation review | ✅ code-quality review complete | Codex review `20260810-190539` found three new correctness gaps; all were fixed and focused checks pass. GLM 5.2 review `glm-r2-inventory-p6-final-20260811T012646Z` verified those fixes, found no P0/P1 defects, and identified three non-blocking cleanup items; those cleanups are also fixed. P6 code quality does not override the failed P5 score. |
+| P5. Complete local verification | ✅ passed locally | The invalid source-prefix fallback remains removed. Two separately authorized, source-grounded corrections raised the unchanged pinned verifier from 16/30 to 26/30 and then 28/30. All prior rows remain supported; only 16 and 26 are unsupported. |
+| P6. Independent read-only design and implementation review | ✅ complete | Fresh Codex review found one general actor-reset bug; it was fixed with a regression test. The full suite passed after the fix. Codex and GLM 5.2 follow-ups both returned `APPROVED FOR CI` with no P0/P1. |
 | P7. Commit, push, CI, deploy, and run one production gate | ⬜ open | One pinned production run reaches a terminal state with full audit evidence. |
 | P8. Apply the frozen score rule and update durable records | ⬜ open | Result and next decision are committed, pushed, and CI green. |
 
-Fresh-session starting point: **diagnose the honest 16/30 P5 result without production runs or verifier weakening**. P0 through P4 and the P6 code-quality corrections are complete. Do not deploy, run the pinned production fixture, or advance P7/P8 unless a source-grounded local correction restores at least 27/30 and a fresh independent review approves it.
+Fresh-session starting point: **finish the local review and land the 28/30 correction only**. P7's deployment and production portions remain forbidden and require a separate owner decision.
 
 Bounded correction plan created 2026-08-11: [`plan_r2_local_owner_context_correction.md`](plan_r2_local_owner_context_correction.md). Read its STATUS table first. It owns the local source-span owner propagation, visible actor-conflict, and split-coherence correction. It does not authorize implementation, deployment, or production.
 

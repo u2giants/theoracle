@@ -517,11 +517,57 @@ function sourceDutyVerbMatch(sourceSpan: string): { text: string; index: number 
       };
 }
 
+function looksLikeActorLabel(value: string): boolean {
+  const label = value.trim().replace(/:$/, '').trim();
+  if (
+    label.length < 2 ||
+    label.length > 80 ||
+    !/^[A-Z][A-Za-z0-9 &/'-]*$/.test(label) ||
+    label.split(/\s+/).length > 8 ||
+    DUTY_VERB_PATTERN.test(label) ||
+    /^(?:if|when|after|before|unless)\b/i.test(label) ||
+    /^(?:the following|these|those|this section|note|overview|purpose|scenarios?)\b/i.test(label) ||
+    /\bscenarios?\b/i.test(label)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function directDutySubject(sourceSpan: string): {
+  actor: string;
+  verbIndex: number;
+} | null {
+  const bracketPrefix = sourceSpan.match(/^\s*\[[^\]]{2,80}\]\s*/)?.[0] ?? '';
+  const markerPrefix = bracketPrefix
+    ? sourceSpan.slice(bracketPrefix.length).match(/^(?:(?:\d+[.)])|[-*•])\s*/)?.[0] ?? ''
+    : '';
+  const actorStart = bracketPrefix.length + markerPrefix.length;
+  const body = sourceSpan.slice(actorStart);
+  if (!MODAL_OR_DIRECT_OWNER_PATTERN.test(body)) return null;
+  const verb = sourceDutyVerbMatch(sourceSpan);
+  if (!verb || verb.index <= actorStart) return null;
+  const actor = sourceSpan
+    .slice(actorStart, verb.index)
+    .replace(/\b(?:will|must|should|shall|may)\s*$/i, '')
+    .trim();
+  if (/\b(?:to|for|from|by|with|in|on|at|into|across|within)$/i.test(actor)) return null;
+  return looksLikeActorLabel(actor) ? { actor, verbIndex: verb.index } : null;
+}
+
 function sourceObjectText(sourceSpan: string): string {
   const verbMatch = sourceDutyVerbMatch(sourceSpan);
   return !verbMatch
     ? ''
     : sourceSpan.slice(verbMatch.index + verbMatch.text.length);
+}
+
+function sourceSpanHasProvenActor(sourceSpan: string): boolean {
+  const bracketActor = sourceSpan.match(/^\s*\[([^\]]{2,80})\]/)?.[1] ?? null;
+  return Boolean(
+    (bracketActor && looksLikeActorLabel(bracketActor)) ||
+    directDutySubject(sourceSpan),
+  );
 }
 
 export function validateResponsibilityFieldFidelity(
@@ -749,20 +795,36 @@ function prefixResponsibilityIds(
   };
 }
 
-function logicalSourceSpans(rawText: string): string[] {
-  const spans: string[] = [];
+type LogicalSourceSpan = {
+  text: string;
+  precededByBlank: boolean;
+  followedByBlank: boolean;
+};
+
+function logicalSourceSpanDetails(rawText: string): LogicalSourceSpan[] {
+  const spans: LogicalSourceSpan[] = [];
   let current = '';
-  const flush = () => {
-    if (current.trim()) spans.push(current.trim());
+  let currentPrecededByBlank = false;
+  let afterBlank = false;
+  const flush = (followedByBlank = false) => {
+    if (current.trim()) {
+      spans.push({
+        text: current.trim(),
+        precededByBlank: currentPrecededByBlank,
+        followedByBlank,
+      });
+    }
     current = '';
+    currentPrecededByBlank = false;
   };
   for (const rawLine of rawText.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) {
-      flush();
+      flush(true);
+      afterBlank = true;
       continue;
     }
-    const heading = /^(?:\[[^\]]{2,80}\]|[^.!?]{2,80}:)$/.test(line);
+    const heading = /^(?:#{1,6}\s+\S.*|\[[^\]]{2,80}\]|[^.!?]{2,80}:)$/.test(line);
     const explicitStart =
       heading ||
       /^(?:[-*•]|\d+[.)])\s*/.test(line) ||
@@ -775,15 +837,22 @@ function logicalSourceSpans(rawText: string): string[] {
     if (explicitStart) {
       flush();
       current = line;
+      currentPrecededByBlank = afterBlank;
     } else if (current && currentIsDuty && !/[.!?]$/.test(current)) {
       current = `${current} ${line}`;
     } else {
       flush();
       current = line;
+      currentPrecededByBlank = afterBlank;
     }
+    afterBlank = false;
   }
   flush();
   return spans;
+}
+
+function logicalSourceSpans(rawText: string): string[] {
+  return logicalSourceSpanDetails(rawText).map((span) => span.text);
 }
 
 export function locateResponsibilityRawSlice(
@@ -824,6 +893,7 @@ function sourceDutySpanDetails(rawText: string): Array<{
   sourceEnd?: number;
   sourceLocationFailure?: string;
   listStructured: boolean;
+  parseDiagnostics?: string[];
   splitParent?: {
     sourceSpan: string;
     evidenceQuote: string;
@@ -838,6 +908,7 @@ function sourceDutySpanDetails(rawText: string): Array<{
     sourceEnd?: number;
     sourceLocationFailure?: string;
     listStructured: boolean;
+    parseDiagnostics?: string[];
     splitParent?: {
       sourceSpan: string;
       evidenceQuote: string;
@@ -863,26 +934,50 @@ function sourceDutySpanDetails(rawText: string): Array<{
       };
     }
   };
-  let ownerHeading: string | null = null;
-  for (const rawSpan of logicalSourceSpans(rawText)) {
+  let provenActor: string | null = null;
+  let unrelatedNarrativeBeforeFreshList = false;
+  for (const logicalSpan of logicalSourceSpanDetails(rawText)) {
+    const rawSpan = logicalSpan.text;
     const trimmed = rawSpan.trim();
     if (!trimmed) continue;
+    if (/^#{1,6}\s+\S/.test(trimmed)) {
+      provenActor = null;
+      unrelatedNarrativeBeforeFreshList = false;
+      continue;
+    }
     const headingMatch = trimmed.match(/^(?:\[([^\]]{2,80})\]|([^.!?]{2,80}):)$/);
     if (headingMatch) {
-      ownerHeading = (headingMatch[1] ?? headingMatch[2] ?? '').trim();
+      const label = (headingMatch[1] ?? headingMatch[2] ?? '').trim();
+      if (looksLikeActorLabel(label)) {
+        provenActor = label;
+        unrelatedNarrativeBeforeFreshList = false;
+      }
       continue;
     }
     const listLike = /^(?:[-*•]|\d+[.)])\s*/.test(trimmed);
     const span = trimmed.replace(/^(?:[-*•]|\d+[.)])\s*/, '');
+    if (!DUTY_VERB_PATTERN.test(span)) {
+      if (!listLike && logicalSpan.followedByBlank) unrelatedNarrativeBeforeFreshList = true;
+      continue;
+    }
+    if (listLike && unrelatedNarrativeBeforeFreshList) provenActor = null;
+    unrelatedNarrativeBeforeFreshList = false;
     const inlineOwner = /^\[[^\]]{2,80}\]\s+/.test(span);
-    const proseOwner = MODAL_OR_DIRECT_OWNER_PATTERN.test(span);
     const inlineOwnerLabel = span.match(/^\[([^\]]{2,80})\]/)?.[1]?.trim() ?? null;
-    const proseDuty = proseOwner ? sourceDutyVerbMatch(span) : null;
-    const proseOwnerLabel =
-      proseDuty && proseDuty.index > 0
-        ? span.slice(0, proseDuty.index).replace(/\b(?:will|must|should|shall|may)\s*$/i, '').trim()
-        : null;
-    const inheritedOwner = inlineOwnerLabel ?? proseOwnerLabel ?? ownerHeading;
+    const directActor = directDutySubject(span);
+    const provenInlineOwner = inlineOwnerLabel && looksLikeActorLabel(inlineOwnerLabel)
+      ? inlineOwnerLabel
+      : null;
+    const provenProseOwner = directActor?.actor ?? null;
+    const outerActorOverridden = Boolean(
+      provenInlineOwner &&
+      provenProseOwner &&
+      provenInlineOwner.toLowerCase() !== provenProseOwner.toLowerCase()
+    );
+    const inheritedOwner = provenProseOwner ?? provenInlineOwner ?? provenActor;
+    if (provenProseOwner ?? provenInlineOwner) {
+      provenActor = provenProseOwner ?? provenInlineOwner;
+    }
     const spanOutputStart = output.length;
     for (const [partIndex, rawPart] of span.split(DUTY_SPLIT_PATTERN).entries()) {
       const part = rawPart.trim();
@@ -894,17 +989,25 @@ function sourceDutySpanDetails(rawText: string): Array<{
         ((listLike && hasDutyVerb) ||
           DUTY_VERB_START_PATTERN.test(part) ||
           (inlineOwner && hasDutyVerb) ||
-          (proseOwner && hasDutyVerb) ||
-          (ownerHeading !== null && hasDutyVerb))
+          (directActor !== null && hasDutyVerb) ||
+          (provenActor !== null && hasDutyVerb))
       ) {
         const rawSlice = locateRawSlice(part);
+        const normalizedDirectPart =
+          outerActorOverridden && partIndex === 0 && directActor
+            ? `[${directActor.actor}] ${part.slice(directActor.verbIndex).trim()}`
+            : null;
         output.push({
             sourceSpan:
-              inheritedOwner && (partIndex > 0 || (!inlineOwner && ownerHeading))
+              normalizedDirectPart ??
+              (inheritedOwner && (partIndex > 0 || (!provenInlineOwner && !provenProseOwner))
                 ? `[${inheritedOwner}] ${part}`
-                : part,
+                : part),
             ...rawSlice,
             listStructured: listLike,
+            parseDiagnostics: outerActorOverridden && partIndex === 0
+              ? ['outer_actor_overridden']
+              : [],
           });
       }
     }
@@ -916,7 +1019,9 @@ function sourceDutySpanDetails(rawText: string): Array<{
       const sourceEnd = spanDetails.at(-1)!.sourceEnd!;
       const parent = {
         sourceSpan:
-          inheritedOwner && !inlineOwner && ownerHeading
+          outerActorOverridden && directActor
+            ? `[${directActor.actor}] ${span.slice(directActor.verbIndex).trim()}`
+            : inheritedOwner && !provenInlineOwner && !provenProseOwner
             ? `[${inheritedOwner}] ${span}`
             : span,
         evidenceQuote: rawText.slice(sourceStart, sourceEnd),
@@ -1316,6 +1421,7 @@ export function buildResponsibilitySourceInventory(
           item.splitParent?.sourceEnd === detail.splitParent?.sourceEnd
         );
         const validChildren = siblings.every((item) =>
+          sourceSpanHasProvenActor(item.sourceSpan) &&
           dutyVerbsInSourceSpan(item.sourceSpan).length === 1 &&
           sourceObjectText(item.sourceSpan).trim().replace(/[.;]+$/, '').trim().length > 0
         );
@@ -1366,7 +1472,10 @@ export function buildResponsibilitySourceInventory(
         sourceSpanSha256,
         splitKind: 'none',
         splitValue: null,
-        parseDiagnostics: detail.sourceSpan === detail.evidenceQuote ? [] : ['normalized_owner_inherited'],
+        parseDiagnostics: [
+          ...(detail.sourceSpan === detail.evidenceQuote ? [] : ['normalized_owner_inherited']),
+          ...(detail.parseDiagnostics ?? []),
+        ],
       };
       if (detail.splitParent) {
         const splitParentHash = responsibilitySpanSha256(detail.splitParent.sourceSpan);

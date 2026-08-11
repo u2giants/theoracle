@@ -1,6 +1,6 @@
 # R2 Local Source-Span Owner Correction Plan
 
-Status: **GLM 5.2 APPROVED FOR IMPLEMENTATION. OWNER IMPLEMENTATION AUTHORIZATION STILL REQUIRED.**
+Status: **AUTHORIZED FOLLOW-UP PASSED LOCALLY AT 28/30. PRODUCTION FORBIDDEN.**
 
 Created: 2026-08-11
 
@@ -13,14 +13,16 @@ Session handoff: [`HANDOFF.d/2026-08-11T1306Z-al8960ofc-codex-r2-owner-correctio
 | Step | Status | Evidence / next gate |
 |---|---|---|
 | Plan review. GLM 5.2 independent challenge | ✅ approved | Initial verdict `CHANGES REQUIRED BEFORE IMPLEMENTATION`; four P1 findings were corrected. Follow-up verdict `APPROVED FOR IMPLEMENTATION`, report `.ai/reviews/glm-r2-inventory-p6-final-20260811T132032Z.md`; no P0/P1 findings remain. |
-| C0. Freeze the correction contract and residual matrix | ⬜ open | Reproduce the honest 16/30 verifier result and pin all 14 failure reasons below. |
-| C1. Correct source-bound owner propagation | ⬜ open | Generic tests prove list siblings inherit only a real actor and never a descriptive heading. |
-| C2. Resolve model-visible actor conflicts | ⬜ open | Generic tests prove an explicit duty subject wins over a conflicting outer tag without using nearby text. |
-| C3. Preserve owner and coherent assignment through source splitting | ⬜ open | Generic tests prove children carry the same legitimate owner and do not fragment one expected duty across unusable children. |
-| C4. Run the complete local gate and anti-leak audit | ⬜ open | All parent-plan section 10 checks pass and the unchanged pinned verifier reaches at least 27/30. |
-| C5. Independent review and landing decision | ⬜ open | A fresh read-only review finds no P0/P1 issue. Only then may the owner decide whether release work can resume. |
+| C0. Freeze the correction contract and residual matrix | ✅ complete | 2026-08-11: unchanged verifier reproduced 16/30 with unsupported rows 3, 6, 7, 8, 9, 10, 11, 13, 14, 16, 21, 22, 26, and 29. Generic invented regression tests now fail on the known actor-context defect. |
+| C1. Correct source-bound owner propagation | ✅ complete | Generic tests prove actor carry-through, inert descriptive bracket/colon labels, prose continuation, unrelated-narrative reset, markdown-section reset, new-actor replacement, and exact quote/offset integrity. |
+| C2. Resolve model-visible actor conflicts | ✅ complete | The original correction plus the separately authorized numbered-inner-actor follow-up cover direct subjects, exact list markers, recipient/system safety, and ambiguous no-guess behavior. |
+| C3. Preserve owner and coherent assignment through source splitting | ✅ complete | Generic tests prove coherent children retain actor/action/object and exact evidence, incoherent children collapse to one degraded parent, and identical reruns preserve IDs and order. |
+| C4. Run the complete local gate and anti-leak audit | ✅ passed by authorized follow-up | The unchanged verifier reached 28/30 from 139 seeds. Every prior supported row remains supported. Only rows 16 and 26 remain unsupported. |
+| C5. Independent review and landing decision | ✅ approved for CI | Full suite passed after the fix. Codex and GLM 5.2 follow-ups both returned `APPROVED FOR CI` with no P0/P1. Landing remains; production is forbidden. |
 
-Fresh-session starting point: **C0 only**. Re-read this whole plan and the parent plan before changing code. Do not deploy, run production, consume the frozen production gate, enable merge/apply, change the verifier, or raise a budget.
+Fresh-session starting point: **finish review and land the honest 28/30 local correction**. Do not deploy, run production, consume the production gate, enable merge/apply, change the verifier, or raise a budget.
+
+Owner authorization: Albert explicitly authorized implementation on 2026-08-11 through the clean-context implementing-agent instruction. This authorization covers C0-C5 only and does not authorize release or production work.
 
 GLM 5.2 review record: the initial full-context turn returned `CHANGES REQUIRED BEFORE IMPLEMENTATION` and found four P1 plan gaps. The corrected follow-up returned `APPROVED FOR IMPLEMENTATION` with no remaining P0/P1 finding. The follow-up reported 204,864 cached input tokens, 668 new input tokens, and 1,312 output tokens. Its only P2 notes are to verify markdown-heading resets against real parser behavior, keep the typed-context representation choice local, ensure standalone actor headings do not conflict with duty-bearing prose paths, and update this status before C0. None changes the frozen contract.
 
@@ -84,6 +86,26 @@ pnpm --filter @oracle/workers run verify:r2-pinned-inventory
 ```
 
 Expected pre-fix outcome: exit 1, 16/30, with exactly the unsupported rows above.
+
+### C4 measured result, 2026-08-11
+
+The unchanged verifier reached **26/30** from 139 source-bound seeds. All sixteen rows supported at
+baseline remained supported. Newly supported rows were 3, 6, 7, 8, 9, 10, 11, 13, 21, and 22.
+The four residuals are:
+
+| Row | Exact model-visible residual after C1-C3 |
+|---:|---|
+| 14 | The seed remains `[Licensed Team] 1. Lic Coordinator Download the photos from the Factory Sample Request email.` The direct-actor helper handles an inner actor after an outer tag, but not the intervening numbered-list marker. |
+| 16 | The source still becomes two children: `[Lic Coordinator] Review PPS photos` and `[Lic Coordinator] ensure that the photos match the tech pack specifications & can be submitted to the licensors.` No one unique seed contains the expected review action plus all required object anchors. |
+| 26 | The exact request remains `[Licensed Team] Submit the Reports`; it still lacks source-bound `quarterly royalty` object words. |
+| 29 | The seed remains `[Lic Coordinator] 2. Licensed team provides assets to partners so they can create their concepts.` The direct-actor helper again does not pass the numbered-list marker between the outer tag and inner actor. |
+
+Per C4 step 17, no additional parser bridge, alias, wider span, heading rule, or extra context was
+added. C5 was not started.
+
+Albert later authorized the separate bounded plan `plan_r2_numbered_inner_actor_correction.md`.
+That exact-span correction recovered rows 14 and 29. The unchanged verifier now reports **28/30**
+from 139 seeds, with only rows 16 and 26 unsupported and no loss from the prior 26-row set.
 
 ## 4. Scope
 
