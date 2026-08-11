@@ -1,6 +1,6 @@
 # R2 Numbered Inner-Actor Correction Plan
 
-Status: **LOCAL CORRECTION PASSED AT 28/30 AND LANDED. PRODUCTION FORBIDDEN.**
+Status: **LOCAL CORRECTION PASSED AT 28/30 AND LANDED. LATER PRODUCTION GATE SCORED 19/30.**
 
 Parent plans: [`plan_r2_local_owner_context_correction.md`](plan_r2_local_owner_context_correction.md) and [`plan_r2_source_span_inventory_reader.md`](plan_r2_source_span_inventory_reader.md)
 
@@ -17,7 +17,7 @@ Handoff: [`HANDOFF.d/2026-08-11T1522Z-al8960ofc-codex-r2-numbered-inner-actor.md
 | N4. Full local suite and fresh review | ✅ complete | All 15 commands pass after the fix. Codex and GLM 5.2 follow-ups both returned `APPROVED FOR CI` with no P0/P1. |
 | N5. Land local work | ✅ complete | Commit `62330bdb0b477abb373fa1d155b104cee45a8b66` is pushed to `main`; CI run `31508223778` passed. No deploy or production action occurred. |
 
-Fresh-session start: the local correction is complete. Any production or live-gate work requires a separate owner decision.
+Fresh-session start: the local correction is complete. Albert later authorized the parent plan's one production gate. It scored 19/30 on map `37a8fc62-23e4-46b7-8464-d1c784dc73cd`, so the parent plan's hard stop now controls. Do not run another gate.
 
 ## 1. Ultimate goal
 

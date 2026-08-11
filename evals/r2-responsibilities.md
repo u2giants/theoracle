@@ -737,3 +737,42 @@ does not suspect `scorer_mismatch`; the misses are explained by missing inventor
 duties, incomplete objects, or owner/action/direction fidelity. P0 therefore passes its required
 27-row stop gate. This finding authorizes P1 only. It does not authorize a scorer change, a second
 bake-off, Batch G, or a production run.
+
+## Eighth production gate: source-span inventory release, binding hard stop
+
+Albert authorized exactly one production gate on 2026-08-11 after the unchanged local source-support
+verifier reached 28/30 and both Codex and GLM 5.2 approved the release for CI. The released worker
+completed the source-workflow read, but the unchanged frozen production score was **19/30 (63.3%)**.
+The precommitted `<=23` rule is binding. Do not run a second gate or change the reader without a new
+owner decision.
+
+- Code commit `62330bdb0b477abb373fa1d155b104cee45a8b66`; final pre-release docs commit
+  `9dcfd6072677b9a12e8a320f48e5c316d1099b6b`; both pushed to `main` with green CI.
+- Worker `20260811.1`, deployment `725f1ru9`, 25 tasks, worker id
+  `worker_cmsox4rmu41v50klhk5g84pdy`, content hash
+  `f3d9149938c31bcb7a3d334ede276137`.
+- Frozen fixture SHA
+  `398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be`, answer key
+  `licensed-team-responsibilities-v1`, matcher `field-aware-v3`, threshold 27/30.
+- Trigger run `run_06fv3keiq77bp0gpum352rls01`; document
+  `cc005035-2251-4dbe-ba1a-8913ad3ea912`; source-workflow job
+  `df7e8cd3-988d-499d-a831-9c04390e4a94` completed with no error or retry.
+- Map `37a8fc62-23e4-46b7-8464-d1c784dc73cd` finalized `degraded`; model run
+  `71fd16eb-2519-4f65-ba4a-34a087b92ae7`; context pack
+  `6fc5d3c9-d08b-476c-9444-057be7711ca3`.
+- The map contained 93 responsibility records. The matcher accepted 19 and missed 11: submit
+  concepts into licensor systems; download PPS photos; rename PPS files by SKU; review PPS photos
+  against tech packs; submit PPS photos in licensor portals; fill out a Letter of Guarantee; request
+  a contractual sample exemption; request factory audits before approval expiration; download style
+  guides to the server; submit quarterly royalty reports; and provide assets to partners.
+- The live reader kept 404 elements and dropped 74. It used 21/40 read calls, 63,015/500,000 input
+  tokens, 1/1 general repair, and $0.350742/$10. The responsibility post-pass used 1/1 quote repair
+  and 2/5 omission retries, each within the one-per-chunk limit.
+- Segmentation reported 14 segments, five supplied and covered chunks, and zero integrity repairs.
+- Before and after the gate, merge, apply, and serving were false. `business_objects`,
+  `business_object_versions`, and `business_model_changes` all remained zero.
+
+The local 28/30 check proved that exact model-visible source spans could support 28 expected answers.
+It did not prove that the production model would produce those answers. The 19/30 live result shows
+the remaining failure is in production completion and field wording, not basic source visibility
+alone. That gap must be diagnosed read-only before anyone proposes another architecture change.

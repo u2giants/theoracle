@@ -1,6 +1,6 @@
 # R2 Source-Span Inventory Reader Implementation Plan
 
-Status: **P0 THROUGH P5 COMPLETE LOCALLY AT 28/30. PRODUCTION GATE FORBIDDEN.**
+Status: **P0 THROUGH P8 COMPLETE. SOLE PRODUCTION GATE FAILED AT 19/30. HARD STOP.**
 
 Created: 2026-08-09
 
@@ -27,10 +27,10 @@ was $1.127844 across 2,510,800 reported tokens, including 2,334,080 cached token
 | P4. Rebuild omission and merge assembly around the inventory | ✅ complete | The production worker now runs budget-packed exhaustive residual completion before detection-only legacy retries and candidate-bound quote repair. Final responsibility elements are source-seed ordered, complete-only, one-to-one asserted, and the inventory, manifests, outcomes, executions, unscheduled IDs, final gaps, and failure facts persist in `validationJson`. Worker typecheck, lint, AI typecheck, the R2 production-seam verifier, and `git diff --check` pass. |
 | P5. Complete local verification | ✅ passed locally | The invalid source-prefix fallback remains removed. Two separately authorized, source-grounded corrections raised the unchanged pinned verifier from 16/30 to 26/30 and then 28/30. All prior rows remain supported; only 16 and 26 are unsupported. |
 | P6. Independent read-only design and implementation review | ✅ complete | Fresh Codex review found one general actor-reset bug; it was fixed with a regression test. The full suite passed after the fix. Codex and GLM 5.2 follow-ups both returned `APPROVED FOR CI` with no P0/P1. |
-| P7. Commit, push, CI, deploy, and run one production gate | ⚠️ local landing complete; production forbidden | Local correction commit `62330bdb0b477abb373fa1d155b104cee45a8b66` is pushed and CI run `31508223778` passed. Deployment and the one production gate remain unstarted and require separate owner authorization. |
-| P8. Apply the frozen score rule and update durable records | ⬜ open | Result and next decision are committed, pushed, and CI green. |
+| P7. Commit, push, CI, deploy, and run one production gate | ✅ complete | Albert authorized the release on 2026-08-11. Commit `62330bdb0b477abb373fa1d155b104cee45a8b66` and docs commit `9dcfd6072677b9a12e8a320f48e5c316d1099b6b` were already pushed with green CI. Worker `20260811.1`, deployment `725f1ru9`, ran exactly one pinned production gate. Map `37a8fc62-23e4-46b7-8464-d1c784dc73cd` scored 19/30 with unchanged `field-aware-v3`. |
+| P8. Apply the frozen score rule and update durable records | ✅ hard-stop decision applied | The 19/30 result is at or below 23. No second gate, reader change, scorer change, budget change, merge, or apply is allowed without a new owner decision. Durable evidence is in `evals/r2-responsibilities.md` and the newest R2 production handoff. |
 
-Fresh-session starting point: **finish the local review and land the 28/30 correction only**. P7's deployment and production portions remain forbidden and require a separate owner decision.
+Fresh-session starting point: **the sole production gate failed at 19/30 and the frozen hard stop is binding**. Do not run another gate or change the reader. The next safe step is a read-only comparison of the 11 live misses against the 28/30 local source-support result, followed by a new owner decision.
 
 Bounded correction plan created 2026-08-11: [`plan_r2_local_owner_context_correction.md`](plan_r2_local_owner_context_correction.md). Read its STATUS table first. It owns the local source-span owner propagation, visible actor-conflict, and split-coherence correction. It does not authorize implementation, deployment, or production.
 
