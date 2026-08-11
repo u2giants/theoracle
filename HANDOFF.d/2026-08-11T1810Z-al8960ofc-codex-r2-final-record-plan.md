@@ -4,6 +4,23 @@ Status: **OPEN PLAN. IMPLEMENTATION, DEPLOYMENT, AND PRODUCTION ARE NOT AUTHORIZ
 
 Plan: [`../plan_r2_source_bound_final_record_correction.md`](../plan_r2_source_bound_final_record_correction.md)
 
+## 0. Decisions only Albert can make
+
+### Blocking
+
+- Decide whether to authorize local implementation of F0-F6. Recommendation: authorize it because
+  the plan is source-only, GLM 5.2 found no serious issue, and every unsafe or dishonest result stops
+  the work. This blocks all application-code changes.
+
+### Already settled, do not re-ask
+
+- 2026-08-11: do not deploy, run production, consume another production gate, weaken the verifier,
+  restore hidden owner lookup, raise budgets, or enable merge/apply.
+- 2026-08-11: rows 16, 24, and 26 are honest negative controls and must remain unsupported.
+
+The next session must put the one blocking decision above to Albert in one message before editing
+application code.
+
 ## 1. What this application is
 
 The Oracle is POP Creations and Spruce Line's evidence-backed business knowledge system. Employees
@@ -29,7 +46,8 @@ It does not authorize implementation.
 - No application code, deployment, production, model, budget, matcher, DB, merge, or apply change has
   occurred under this plan.
 - GLM 5.2 approved the corrected plan for Albert's implementation decision with no P0/P1 findings.
-- Plan and handoff still need commit, push, and green CI.
+- Plan and handoff were committed and pushed at `8679a0513d13cb06d251e0865292cb04910687d8`.
+- GitHub Actions run `31522563523` passed.
 
 ## 4. Everything tried that did not work
 
@@ -52,13 +70,11 @@ It does not authorize implementation.
 
 ## 6. Exact next steps
 
-1. Preserve the GLM 5.2 read-only approval in the session evidence. Success: final verdict is
-   `APPROVED FOR OWNER IMPLEMENTATION DECISION` with no P0/P1 findings.
-2. Commit only plan, handoff, router/status links; push `main`; wait for exact CI. Success: SHA and
-   green Actions URL recorded.
-3. Present Albert one decision: authorize local implementation or stop. Success: no code begins
+1. Present Albert one decision: authorize local implementation or stop. Success: no code begins
    before explicit approval.
-4. If later authorized, a fresh session reads the plan and starts F0. Success: first diff is tests only.
+2. If authorized, a fresh session reads the plan and starts F0. Success: first diff is tests only.
+3. At the end of each phase, re-read all later phases through F6 and report drift. Success: changed
+   assumptions are written into the plan or that session's own handoff before the next phase.
 
 ## 7. Constraints and gotchas
 
@@ -89,5 +105,8 @@ It does not authorize implementation.
 
 ## Handoff self-audit
 
-Passed. A new developer can identify the app, failure, row boundary, plan, dead ends, next steps,
-safety rules, environment, and owner decision without this chat. Every next step has a success gate.
+Passed. Section 0 contains the only owner decision and all settled limits. Sections 1-3 identify the
+app, goal, evidence, commit, push, CI, and unfinished state. Sections 4-5 preserve failures and root
+causes. Section 6 gives exact gated steps through F6 and the downstream drift check. Sections 7-9
+cover safety, access, and risks. A new developer can continue as effectively as this session without
+this chat, and no sentence in sections 1-9 needs Albert's judgment unless it is also in section 0.

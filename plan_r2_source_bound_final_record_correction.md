@@ -23,6 +23,10 @@ Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](
 Fresh-session starting point: **read this file in full, then stop**. Albert must separately authorize
 implementation before F0 or any application edit.
 
+End-of-phase rule: after every completed phase, re-read every remaining phase through F6 and report
+any new fact, code change, or failed assumption that affects later work. Update this plan or the
+current session's own handoff before continuing when drift is found.
+
 ## 1. Ultimate goal
 
 The Oracle must turn clear duties in company documents into short, accurate responsibility records
@@ -306,8 +310,9 @@ pnpm --filter @oracle/engines run verify:r2-responsibilities
 git diff --check
 ```
 
-Also require unchanged pinned support 28/30 with rows 16/24/26 unsupported under this correction;
-verifier-only recovery of all 8/8 eligible shapes, because 19 + 8 = the frozen 27/30 minimum;
+Also require unchanged pinned support 28/30 with rows 16/26 unsupported; require the separate
+final-record replay to keep row 24 unsupported and recover all 8/8 eligible shapes, because 19 + 8
+= the frozen 27/30 minimum;
 preservation of 19/19 prior matches; anti-leak pass; and no changes to
 limits, model, matcher, answer key, threshold, flags, schema, migrations, or deploy files.
 
