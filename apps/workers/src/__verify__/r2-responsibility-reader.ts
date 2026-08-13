@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import {
   RESPONSIBILITY_READ_PROMPT_VERSION,
@@ -56,6 +57,7 @@ import {
   responsibilityCompletionRequest,
   lateResidualResponsibilitySeeds,
   mergeResponsibilityRecordsByInventoryId,
+  type ResponsibilityInventorySeed,
 } from '../lib/responsibility-reader';
 import {
   responsibilityEvidenceCoverage,
@@ -4186,3 +4188,687 @@ assert.ok(
 );
 
 console.log('R2 responsibility strict reader, persistence shape, quote, and coverage contract passed');
+
+// ---------------------------------------------------------------------------
+// F0. Freeze the 19/30 production residual boundary.
+//
+// Plan: plan_r2_source_bound_final_record_correction.md, phase F0.
+// Evidence: evals/r2-responsibilities.md, "Eighth production gate", map
+// 37a8fc62-23e4-46b7-8464-d1c784dc73cd, Trigger run run_06fv3keiq77bp0gpum352rls01.
+//
+// The production map held 93 responsibility records. The records below are a
+// VERIFIER-ONLY distillation: one representative record per answer-key row,
+// reproducing the exact documented failure SHAPE of each of the eleven misses.
+// They are not a copy of the 93 stored records, and nothing here may be used by
+// production code. Their only job is to pin the residual boundary — which rows
+// are eligible for source-bound correction and which are honest refusals — so a
+// later phase cannot quietly move that line.
+// ---------------------------------------------------------------------------
+
+const R2_FROZEN_FIXTURE_SHA256 =
+  '398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be';
+const R2_FROZEN_ANSWER_KEY_VERSION = 'licensed-team-responsibilities-v1';
+const R2_FROZEN_MATCHER_VERSION = 'field-aware-v3';
+const R2_FROZEN_PASS_THRESHOLD = 27;
+const R2_FROZEN_EXPECTED_ROWS = 30;
+const R2_PRODUCTION_RESIDUAL_SCORE = 19;
+
+const r2FrozenAnswerKey = JSON.parse(
+  readFileSync(
+    new URL('../__fixtures__/licensed-team-responsibilities-v1.json', import.meta.url),
+    'utf8',
+  ),
+) as {
+  version: string;
+  sourceSha256: string;
+  records: Array<{ role: string; action: string; object: string }>;
+};
+
+assert.equal(r2FrozenAnswerKey.version, R2_FROZEN_ANSWER_KEY_VERSION, 'answer key version is frozen');
+assert.equal(r2FrozenAnswerKey.sourceSha256, R2_FROZEN_FIXTURE_SHA256, 'fixture SHA-256 is frozen');
+assert.equal(r2FrozenAnswerKey.records.length, R2_FROZEN_EXPECTED_ROWS, 'answer key still has 30 rows');
+assert.equal(
+  RESPONSIBILITY_ANSWER_KEY_MATCHER_VERSION,
+  R2_FROZEN_MATCHER_VERSION,
+  'frozen matcher version is unchanged',
+);
+
+// When the licensed pinned source is reachable on this machine, prove the frozen
+// SHA still describes the real file. Absence is not a failure: this suite must
+// stay runnable in CI, which has no access to the licensed path.
+const r2PinnedFixturePath =
+  process.env.R2_PINNED_FIXTURE_PATH ??
+  'Z:/Documentation/company process - Oracle/Licensed Team Responsibilities 2 - tagged.txt';
+let r2PinnedFixtureText: string | null = null;
+try {
+  r2PinnedFixtureText = readFileSync(r2PinnedFixturePath, 'utf8');
+} catch {
+  r2PinnedFixtureText = null;
+}
+if (r2PinnedFixtureText !== null) {
+  assert.equal(
+    createHash('sha256').update(r2PinnedFixtureText).digest('hex'),
+    R2_FROZEN_FIXTURE_SHA256,
+    'reachable pinned fixture still hashes to the frozen SHA-256',
+  );
+}
+
+// One-based answer-key rows that the 2026-08-11 production gate missed.
+const R2_PRODUCTION_MISSED_ROWS = [5, 14, 15, 16, 17, 19, 20, 23, 24, 26, 29] as const;
+// Misses whose exact model-visible source span DOES support the expected record.
+// These eight are the only rows any correction may target: 19 + 8 = 27.
+const R2_CORRECTION_ELIGIBLE_ROWS = [5, 14, 15, 17, 19, 20, 23, 29] as const;
+// Honest refusals. Their spans do not support the expected owner/action/object
+// without borrowing outside context or changing the action family. A correction
+// that "recovers" any of these has cheated and must fail this suite.
+const R2_NEGATIVE_CONTROL_ROWS = [16, 24, 26] as const;
+
+assert.equal(
+  R2_CORRECTION_ELIGIBLE_ROWS.length + R2_NEGATIVE_CONTROL_ROWS.length,
+  R2_PRODUCTION_MISSED_ROWS.length,
+  'every production miss is classified exactly once as eligible or as a negative control',
+);
+assert.deepEqual(
+  [...R2_CORRECTION_ELIGIBLE_ROWS, ...R2_NEGATIVE_CONTROL_ROWS].sort((a, b) => a - b),
+  [...R2_PRODUCTION_MISSED_ROWS],
+  'eligible rows and negative controls partition the eleven misses',
+);
+assert.equal(
+  R2_PRODUCTION_RESIDUAL_SCORE + R2_CORRECTION_ELIGIBLE_ROWS.length,
+  R2_FROZEN_PASS_THRESHOLD,
+  'the eight eligible recoveries are exactly what the frozen 27/30 gate needs',
+);
+assert.equal(
+  R2_PRODUCTION_RESIDUAL_SCORE,
+  R2_FROZEN_EXPECTED_ROWS - R2_PRODUCTION_MISSED_ROWS.length,
+  'nineteen matches plus eleven misses accounts for all thirty rows',
+);
+
+// Verifier-only reproduction of the production residual. Rows not named here are
+// reproduced as an exact copy of the expected record, because production matched
+// them. Each entry below carries the documented reason it failed.
+const r2ProductionShapedOverrides = new Map<
+  number,
+  { role: string; action: string; object: string } | null
+>([
+  // Row 5: object drops the required `concepts` token and absorbs unrelated detail.
+  [5, {
+    role: 'Licensed Team',
+    action: 'submit',
+    object: 'designs and tech packs into licensor systems for review',
+  }],
+  // Row 14: object drops the required named artifact token `PPS` (5 of 6 tokens).
+  [14, {
+    role: 'Lic Coordinator',
+    action: 'download',
+    object: 'photos from factory sample request email',
+  }],
+  // Row 15: no usable rename record survived the read.
+  [15, null],
+  // Row 16 (negative control): completion child names a different owner and only a
+  // partial object; the required owner and object are not both source-visible.
+  [16, { role: 'Lic Coordinator', action: 'review', object: 'PPS photos' }],
+  // Row 17: the correct duty absorbed a following exception sentence, so its
+  // `do not` creates a false negation conflict against an affirmative expectation.
+  [17, {
+    role: 'Licensed Team',
+    action: 'submit',
+    object: 'PPS photos in licensor portals, but do not submit before comments are resolved',
+  }],
+  // Row 19: final fields keep the inflected source action instead of the base verb.
+  [19, { role: 'Lic Manager', action: 'Fills out', object: 'Letter of Guarantee' }],
+  // Row 20: exact span contains the duty, but the seed stayed a final completion_gap.
+  [20, null],
+  // Row 23: exact span contains role, action, object and timing, but stayed a completion_gap.
+  [23, null],
+  // Row 24 (negative control): the span says the Licensed Team ASSISTS the Design
+  // Team in downloading. Rewriting assistance as direct download changes the
+  // action family and would misstate the duty.
+  [24, {
+    role: 'Licensed Team',
+    action: 'assists',
+    object: 'the Design Team in downloading style guides to the style guide server',
+  }],
+  // Row 26 (negative control): the visible span says only that forecast reports are
+  // quarterly. It carries no owner and no submit action.
+  [26, null],
+  // Row 29: the base action is not retained; the record keeps the inflected `provides`.
+  [29, { role: 'Licensed Team', action: 'provides', object: 'assets to partners' }],
+]);
+
+for (const row of r2ProductionShapedOverrides.keys()) {
+  assert.ok(
+    (R2_PRODUCTION_MISSED_ROWS as readonly number[]).includes(row),
+    `row ${row} is overridden but is not a documented production miss`,
+  );
+}
+assert.equal(
+  r2ProductionShapedOverrides.size,
+  R2_PRODUCTION_MISSED_ROWS.length,
+  'every documented production miss has a reproduced failure shape',
+);
+
+const r2ProductionShapedActuals = r2FrozenAnswerKey.records.flatMap((record, index) => {
+  const row = index + 1;
+  if (!r2ProductionShapedOverrides.has(row)) return [record];
+  const override = r2ProductionShapedOverrides.get(row)!;
+  return override === null ? [] : [override];
+});
+
+const r2ProductionResidualScore = scoreResponsibilityAnswerKey({
+  expected: r2FrozenAnswerKey.records,
+  actual: r2ProductionShapedActuals,
+});
+
+assert.equal(
+  r2ProductionResidualScore.matcherVersion,
+  R2_FROZEN_MATCHER_VERSION,
+  'the residual boundary is measured by the unchanged matcher',
+);
+assert.equal(
+  r2ProductionResidualScore.matched,
+  R2_PRODUCTION_RESIDUAL_SCORE,
+  'reproduced production shapes score exactly 19/30 under field-aware-v3',
+);
+assert.ok(
+  r2ProductionResidualScore.matched < R2_FROZEN_PASS_THRESHOLD,
+  'the frozen 27/30 gate remains unmet by the production residual',
+);
+
+const r2ResidualMissedRows = r2ProductionResidualScore.evidence
+  .map((item, index) => (item.matched ? null : index + 1))
+  .filter((row): row is number => row !== null);
+assert.deepEqual(
+  r2ResidualMissedRows,
+  [...R2_PRODUCTION_MISSED_ROWS],
+  'the reproduced misses are exactly the eleven documented production misses',
+);
+
+// Each reproduced miss must fail for its OWN documented reason. Scoring the whole
+// residual only proves the row is missing; the evidence it reports for a missing
+// row is the best of every candidate, which can belong to a different duty. So
+// score each expected row against its own reproduced record in isolation.
+const r2RowFailureEvidence = (row: number) => {
+  const expected = r2FrozenAnswerKey.records[row - 1]!;
+  const actual = r2ProductionShapedOverrides.get(row);
+  assert.ok(actual, `row ${row} has no reproduced record to explain`);
+  const isolated = scoreResponsibilityAnswerKey({ expected: [expected], actual: [actual!] });
+  const evidence = isolated.evidence[0]!;
+  assert.equal(evidence.matched, false, `row ${row} must not match its own reproduced record`);
+  return evidence;
+};
+
+// Row 16, negative control: the completion child names a different owner.
+assert.equal(
+  r2RowFailureEvidence(16).roleExact,
+  false,
+  'row 16 fails because the required owner is not source-visible',
+);
+// Row 24, negative control: assistance is a different action family than download.
+assert.equal(
+  r2RowFailureEvidence(24).actionMatched,
+  false,
+  'row 24 fails because assistance is a different action family than direct download',
+);
+// Row 17: absorbed exception text, not missing object tokens.
+const r2Row17 = r2RowFailureEvidence(17);
+assert.equal(r2Row17.negationConflict, true, 'row 17 fails on absorbed exception text');
+assert.equal(r2Row17.objectTokenCoverage, 1, 'row 17 already carries every required object token');
+// Row 14: exactly one lost named artifact token.
+const r2Row14 = r2RowFailureEvidence(14);
+assert.equal(r2Row14.actionMatched, true, 'row 14 has the right action');
+assert.ok(
+  r2Row14.objectTokenCoverage > 0.8 && r2Row14.objectTokenCoverage < 1,
+  'row 14 fails on exactly one lost named artifact token',
+);
+// Row 5: the object drops a required token and absorbs unrelated detail.
+const r2Row5 = r2RowFailureEvidence(5);
+assert.equal(r2Row5.actionMatched, true, 'row 5 has the right action');
+assert.ok(r2Row5.objectTokenCoverage < 1, 'row 5 fails on an incomplete object');
+// Rows 19 and 29: inflected action only; the object is already complete.
+for (const row of [19, 29]) {
+  const evidence = r2RowFailureEvidence(row);
+  assert.equal(evidence.roleExact, true, `row ${row} already has the right owner`);
+  assert.equal(evidence.actionMatched, false, `row ${row} fails on the inflected action alone`);
+  assert.equal(evidence.objectTokenCoverage, 1, `row ${row} already carries the full expected object`);
+  assert.equal(evidence.negationConflict, false, `row ${row} has no polarity problem`);
+}
+// Rows 15, 20, 23 and 26 produced no usable record at all.
+for (const row of [15, 20, 23, 26]) {
+  assert.equal(
+    r2ProductionShapedOverrides.get(row),
+    null,
+    `row ${row} is reproduced as a seed that stayed incomplete, with no final record`,
+  );
+}
+
+// Frozen operating limits. These are the production defaults the correction plan
+// forbids changing. They are asserted against the real declaration sites so a
+// silent edit to a budget or a fail-safe flag breaks this gate.
+const r2SourceWorkflowSource = readFileSync(
+  new URL('../lib/source-workflow-read.ts', import.meta.url),
+  'utf8',
+);
+for (const frozenLimit of [
+  "readNumberSetting(db, 'source_reader_max_read_calls_per_source', 40)",
+  "readNumberSetting(db, 'source_reader_max_input_tokens_per_source', 500_000)",
+  "readNumberSetting(db, 'source_reader_max_estimated_cost_usd_per_source', 10)",
+  "readNumberSetting(db, 'source_reader_max_repair_attempts_per_source', 1)",
+  "readNumberSetting(db, 'source_reader_max_concurrency_per_source', 4)",
+  "'responsibility_postpass_max_quote_repairs_per_source',\n      1,",
+  "'responsibility_postpass_max_omission_retries_per_source',\n      5,",
+  "'responsibility_postpass_max_omission_retries_per_chunk',\n      1,",
+]) {
+  assert.ok(
+    r2SourceWorkflowSource.includes(frozenLimit),
+    `frozen reader budget default changed: ${frozenLimit.replace(/\n\s*/g, ' ')}`,
+  );
+}
+
+const r2SeedSource = readFileSync(new URL('../../../../packages/db/src/seed.ts', import.meta.url), 'utf8');
+for (const failSafeFlag of [
+  'business_model_merge_enabled',
+  'business_model_apply_enabled',
+  'business_model_serving_enabled',
+]) {
+  assert.ok(
+    new RegExp(`\\{ key: '${failSafeFlag}', value: false,`).test(r2SeedSource),
+    `fail-safe flag ${failSafeFlag} must still default to false`,
+  );
+}
+
+console.log(
+  `R2 frozen residual boundary: ${r2ProductionResidualScore.matched}/${R2_FROZEN_EXPECTED_ROWS} ` +
+    `reproduced under ${R2_FROZEN_MATCHER_VERSION}; ` +
+    `eligible rows ${R2_CORRECTION_ELIGIBLE_ROWS.join(', ')}; ` +
+    `negative controls ${R2_NEGATIVE_CONTROL_ROWS.join(', ')}`,
+);
+
+// ---------------------------------------------------------------------------
+// F1. Generic failing tests for the source-bound final-record correction.
+//
+// Plan: plan_r2_source_bound_final_record_correction.md, phase F1.
+//
+// These cases are RED until F2 lands. That is deliberate: they define the exact
+// contract F2 must satisfy before any production line is written. Everything
+// here uses INVENTED source text. No licensed wording, no answer-key phrase, and
+// no fixture term appears below, so passing these cases can never be achieved by
+// tuning to the pinned document.
+//
+// The helper is resolved dynamically so this file keeps compiling and every case
+// above stays green while F2 does not exist yet. Each case then reports its own
+// intended failure instead of the whole suite dying at an unresolved import.
+// ---------------------------------------------------------------------------
+
+type R2FinalRecordFields = {
+  role: string;
+  action: string;
+  object: string;
+  trigger: string | null;
+};
+
+type R2FinalRecordCorrection = {
+  seedId: string;
+  sourceSpanSha256: string;
+  accepted: boolean;
+  reasons: string[];
+  before: R2FinalRecordFields;
+  after: R2FinalRecordFields | null;
+};
+
+type R2CorrectFinalRecord = (args: {
+  seed: ResponsibilityInventorySeed;
+  candidate: R2FinalRecordFields;
+}) => R2FinalRecordCorrection;
+
+const r2ReaderModule = (await import('../lib/responsibility-reader')) as unknown as Record<
+  string,
+  unknown
+>;
+const r2CorrectFinalRecord = r2ReaderModule.correctResponsibilityFinalRecord as
+  | R2CorrectFinalRecord
+  | undefined;
+
+const r2SeedFrom = (rawText: string, matcher: RegExp): ResponsibilityInventorySeed => {
+  const inventory = buildResponsibilitySourceInventory([{
+    id: `f1_chunk_${Math.abs(hashF1(rawText))}`,
+    documentId: 'f1_generic_document',
+    rawText,
+  }]);
+  const seed = inventory.seeds.find((candidate) => matcher.test(candidate.sourceSpan));
+  assert.ok(seed, `F1 fixture did not produce a seed matching ${matcher}`);
+  return seed!;
+};
+
+function hashF1(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return hash;
+}
+
+const r2CorrectOrThrow: R2CorrectFinalRecord = (args) => {
+  if (!r2CorrectFinalRecord) {
+    throw new Error(
+      'correctResponsibilityFinalRecord is not exported from responsibility-reader yet (F2 not implemented)',
+    );
+  }
+  return r2CorrectFinalRecord(args);
+};
+
+const r2F1Cases: Array<{ name: string; run: () => void }> = [];
+const r2F1Case = (name: string, run: () => void) => r2F1Cases.push({ name, run });
+
+// 1. Ordinary verb inflection is reduced to the base duty verb.
+r2F1Case('regular verb inflection is normalized to the base duty verb', () => {
+  const seed = r2SeedFrom('- Fleet Office provides route packets to depot partners.', /route packets/);
+  const result = r2CorrectOrThrow({
+    seed,
+    candidate: {
+      role: 'Fleet Office',
+      action: 'provides',
+      object: 'route packets to depot partners',
+      trigger: null,
+    },
+  });
+  assert.equal(result.accepted, true, 'an inflected action with a complete object is correctable');
+  assert.equal(result.after?.action, 'provide');
+  assert.equal(result.after?.object, 'route packets to depot partners');
+  assert.ok(result.reasons.includes('action_inflection_normalized'));
+});
+
+// 2. A multi-word action keeps its particle while the verb is normalized.
+r2F1Case('multi-word verb inflection keeps its particle', () => {
+  const seed = r2SeedFrom('- Depot Lead fills out the Letter of Compliance.', /Letter of Compliance/);
+  const result = r2CorrectOrThrow({
+    seed,
+    candidate: {
+      role: 'Depot Lead',
+      action: 'Fills out',
+      object: 'Letter of Compliance',
+      trigger: null,
+    },
+  });
+  assert.equal(result.accepted, true);
+  assert.equal(result.after?.action, 'fill out', 'the particle survives verb normalization');
+});
+
+// 3. Nouns are never verb-stemmed. Only the action is normalized.
+r2F1Case('object nouns are not stemmed', () => {
+  const seed = r2SeedFrom('- Fleet Office records depot readings in the ledger.', /depot readings/);
+  const result = r2CorrectOrThrow({
+    seed,
+    candidate: {
+      role: 'Fleet Office',
+      action: 'records',
+      object: 'depot readings in the ledger',
+      trigger: null,
+    },
+  });
+  assert.equal(result.after?.action, 'record');
+  assert.ok(
+    /readings/.test(result.after?.object ?? ''),
+    'a noun that looks like a verb form is left alone in the object',
+  );
+});
+
+// 4. A separate exception leaves the affirmative object and is kept in trigger.
+r2F1Case('a separate exception moves to trigger and out of the object', () => {
+  const seed = r2SeedFrom(
+    '- Depot Lead submits inspection photos in partner portals. Do not submit before the depot review closes.',
+    /inspection photos/,
+  );
+  const result = r2CorrectOrThrow({
+    seed,
+    candidate: {
+      role: 'Depot Lead',
+      action: 'submit',
+      object: 'inspection photos in partner portals. Do not submit before the depot review closes',
+      trigger: null,
+    },
+  });
+  assert.equal(result.accepted, true);
+  assert.ok(
+    !/\bdo not\b/i.test(result.after?.object ?? ''),
+    'the affirmative object no longer carries the exception polarity',
+  );
+  assert.ok(
+    /do not submit before the depot review closes/i.test(result.after?.trigger ?? ''),
+    'the exception is preserved verbatim in trigger, never discarded',
+  );
+  assert.ok(result.reasons.includes('condition_moved_to_trigger'));
+});
+
+// 5. An over-wide list object is cut back to the one duty clause.
+r2F1Case('an over-wide list object is narrowed to its own clause', () => {
+  const seed = r2SeedFrom(
+    '- Depot Lead submits concept sketches into partner portals.\n- Depot Lead archives depot manifests.',
+    /concept sketches/,
+  );
+  const result = r2CorrectOrThrow({
+    seed,
+    candidate: {
+      role: 'Depot Lead',
+      action: 'submit',
+      object: 'concept sketches into partner portals and archives depot manifests',
+      trigger: null,
+    },
+  });
+  assert.equal(result.accepted, true);
+  assert.equal(result.after?.object, 'concept sketches into partner portals');
+  assert.ok(
+    !/manifest/i.test(result.after?.object ?? ''),
+    'a later sibling clause can never leak into an earlier clause object',
+  );
+  assert.ok(result.reasons.includes('object_boundary_isolated'));
+});
+
+// 6. A named artifact token dropped by the candidate is restored from the span.
+r2F1Case('a dropped named artifact token is restored from the exact span', () => {
+  const seed = r2SeedFrom(
+    '- Depot Lead downloads QA1 photos from the depot intake email.',
+    /QA1 photos/,
+  );
+  const result = r2CorrectOrThrow({
+    seed,
+    candidate: {
+      role: 'Depot Lead',
+      action: 'download',
+      object: 'photos from the depot intake email',
+      trigger: null,
+    },
+  });
+  assert.equal(result.accepted, true);
+  assert.ok(
+    /QA1/.test(result.after?.object ?? ''),
+    'a required named artifact present in the exact span cannot be silently lost',
+  );
+  assert.ok(result.reasons.includes('named_artifact_restored'));
+});
+
+// 7. An ambiguous object boundary is refused, not guessed.
+r2F1Case('an ambiguous object boundary is refused', () => {
+  const seed = r2SeedFrom(
+    '- Depot Lead reviews and updates depot manifests and route packets.',
+    /depot manifests/,
+  );
+  const result = r2CorrectOrThrow({
+    seed,
+    candidate: {
+      role: 'Depot Lead',
+      action: 'review',
+      object: 'depot manifests and route packets',
+      trigger: null,
+    },
+  });
+  assert.equal(result.accepted, false, 'an ambiguous boundary fails loudly rather than guessing');
+  assert.equal(result.after, null);
+  assert.ok(result.reasons.includes('ambiguous_object_boundary'));
+});
+
+// 8. A missing owner or action is refused, never invented.
+r2F1Case('a missing owner or action is refused', () => {
+  const seed = r2SeedFrom('- Fleet Office provides route packets to depot partners.', /route packets/);
+  for (const [field, candidate] of [
+    ['owner', { role: '', action: 'provide', object: 'route packets to depot partners', trigger: null }],
+    ['action', { role: 'Fleet Office', action: '', object: 'route packets to depot partners', trigger: null }],
+  ] as const) {
+    const result = r2CorrectOrThrow({ seed, candidate });
+    assert.equal(result.accepted, false, `a missing ${field} is not correctable`);
+    assert.equal(result.after, null);
+    assert.ok(
+      result.reasons.some((reason) => /^missing_(?:owner|action)$/.test(reason)),
+      `a missing ${field} reports its own reason`,
+    );
+  }
+});
+
+// 9. A reversed direction is refused. Correction may not change the action family.
+r2F1Case('a polarity reversal is refused', () => {
+  const seed = r2SeedFrom('- Fleet Office provides route packets to depot partners.', /route packets/);
+  const result = r2CorrectOrThrow({
+    seed,
+    candidate: {
+      role: 'Fleet Office',
+      action: 'downloads',
+      object: 'route packets to depot partners',
+      trigger: null,
+    },
+  });
+  assert.equal(result.accepted, false, 'an inbound action cannot be normalized onto an outbound duty');
+  assert.ok(result.reasons.includes('polarity_reversal'));
+});
+
+// 10. Correction is accepted only as a strict improvement.
+r2F1Case('an already-faithful record is not rewritten', () => {
+  const seed = r2SeedFrom('- Fleet Office provides route packets to depot partners.', /route packets/);
+  const candidate = {
+    role: 'Fleet Office',
+    action: 'provide',
+    object: 'route packets to depot partners',
+    trigger: null,
+  };
+  const result = r2CorrectOrThrow({ seed, candidate });
+  assert.equal(result.accepted, false, 'a record that already passes is left untouched');
+  assert.ok(result.reasons.includes('no_strict_improvement'));
+});
+
+// 11. Source binding is immutable through correction.
+r2F1Case('source binding is immutable', () => {
+  const seed = r2SeedFrom('- Fleet Office provides route packets to depot partners.', /route packets/);
+  const frozenSeed = JSON.parse(JSON.stringify(seed)) as ResponsibilityInventorySeed;
+  const result = r2CorrectOrThrow({
+    seed,
+    candidate: {
+      role: 'Fleet Office',
+      action: 'provides',
+      object: 'route packets to depot partners',
+      trigger: null,
+    },
+  });
+  assert.deepEqual(seed, frozenSeed, 'correction never mutates the seed it was given');
+  assert.equal(result.seedId, seed.inventorySeedId);
+  assert.equal(result.sourceSpanSha256, seed.sourceSpanSha256);
+});
+
+// 12. The audit is deterministic and carries the before state on every outcome.
+r2F1Case('the correction audit is deterministic and complete', () => {
+  const seed = r2SeedFrom('- Fleet Office provides route packets to depot partners.', /route packets/);
+  const candidate = {
+    role: 'Fleet Office',
+    action: 'provides',
+    object: 'route packets to depot partners',
+    trigger: null,
+  };
+  const first = r2CorrectOrThrow({ seed, candidate });
+  const second = r2CorrectOrThrow({ seed, candidate });
+  assert.deepEqual(first, second, 'the same seed and candidate always produce the same audit');
+  assert.deepEqual(first.before, candidate, 'the audit records the untouched original fields');
+  assert.deepEqual(
+    [...first.reasons].sort(),
+    first.reasons,
+    'reason codes are emitted in a stable sorted order',
+  );
+});
+
+// 13. Correction may never regress the unchanged field-fidelity validator.
+//
+// Note the boundary this case pins. `validateResponsibilityFieldFidelity` already
+// stems the returned action, so an inflected `provides` passes fidelity today —
+// the inflection only breaks the frozen answer-key matcher. So F2's acceptance
+// test cannot be "fidelity now passes"; it must be "fidelity does not regress AND
+// the named defect is gone". The absorbed-condition case is the one that fails
+// fidelity today, and it must pass afterwards.
+r2F1Case('correction never regresses unchanged field fidelity', () => {
+  const inflectedSeed = r2SeedFrom(
+    '- Fleet Office provides route packets to depot partners.',
+    /route packets/,
+  );
+  const inflected = {
+    role: 'Fleet Office',
+    action: 'provides',
+    object: 'route packets to depot partners',
+    trigger: null,
+  };
+  assert.equal(
+    validateResponsibilityFieldFidelity(inflectedSeed.sourceSpan, inflected).passed,
+    true,
+    'fidelity already tolerates an inflected action; only the frozen matcher rejects it',
+  );
+  const inflectedResult = r2CorrectOrThrow({ seed: inflectedSeed, candidate: inflected });
+  assert.equal(inflectedResult.accepted, true);
+  assert.equal(
+    validateResponsibilityFieldFidelity(inflectedSeed.sourceSpan, inflectedResult.after!).passed,
+    true,
+    'a correction may never turn a fidelity-passing record into a failing one',
+  );
+
+  const absorbedSeed = r2SeedFrom(
+    '- Depot Lead submits inspection photos in partner portals. Do not submit before the depot review closes.',
+    /inspection photos/,
+  );
+  const absorbed = {
+    role: 'Depot Lead',
+    action: 'submit',
+    object: 'inspection photos in partner portals. Do not submit before the depot review closes',
+    trigger: null,
+  };
+  assert.equal(
+    validateResponsibilityFieldFidelity(absorbedSeed.sourceSpan, absorbed).passed,
+    false,
+    'the absorbed-condition shape is what fidelity rejects today',
+  );
+  const absorbedResult = r2CorrectOrThrow({ seed: absorbedSeed, candidate: absorbed });
+  assert.equal(absorbedResult.accepted, true);
+  assert.equal(
+    validateResponsibilityFieldFidelity(absorbedSeed.sourceSpan, absorbedResult.after!).passed,
+    true,
+    'correction is judged by the unchanged validator, which is never weakened',
+  );
+});
+
+const r2F1Failures: Array<{ name: string; message: string }> = [];
+for (const testCase of r2F1Cases) {
+  try {
+    testCase.run();
+  } catch (error) {
+    r2F1Failures.push({
+      name: testCase.name,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+if (r2F1Failures.length > 0) {
+  console.error(`\nF1 red gate: ${r2F1Failures.length}/${r2F1Cases.length} correction cases failing:`);
+  for (const failure of r2F1Failures) {
+    console.error(`  - ${failure.name}\n      ${failure.message.split('\n')[0]}`);
+  }
+  assert.fail(
+    `F1 correction contract is not satisfied: ${r2F1Failures.length}/${r2F1Cases.length} cases failing. ` +
+      'This is the expected state until F2 lands.',
+  );
+}
+
+console.log(`R2 final-record correction contract: ${r2F1Cases.length}/${r2F1Cases.length} cases passed`);

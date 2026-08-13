@@ -1,8 +1,43 @@
 # R2 Source-Bound Final Record Correction Plan
 
-Status: **PLAN ONLY. LOCAL IMPLEMENTATION NOT AUTHORIZED. PRODUCTION HARD STOP REMAINS.**
+Status: **LOCAL IMPLEMENTATION AUTHORIZED BY ALBERT 2026-08-12. PRODUCTION HARD STOP REMAINS.
+NO DEPLOY, NO SECOND GATE, NO DB CHANGE, NO LANDING WITHOUT A SEPARATE OWNER DECISION.**
 
 Created: 2026-08-11
+
+## Drift log
+
+- **2026-08-12, after F0.** The reader budget defaults (40 / 500,000 / $10 / 1 repair / 4 concurrency
+  and post-pass 1 / 5 / 1) and the three fail-safe flags are not exported constants; they are inline
+  defaults inside `loadSourceReaderBudgetLimits`, `loadResponsibilityPostPassBudgetLimits`, and
+  `packages/db/src/seed.ts`. F0 therefore freezes them by asserting their exact declaration sites in
+  source text rather than by importing a constant. No production code was changed to make this
+  possible. Later phases must keep that freeze intact.
+- **2026-08-12, after F0.** F0's production-shaped records are a verifier-only distillation — one
+  representative record per answer-key row — not a copy of the 93 stored production records. They
+  reproduce the documented failure shape of each miss and score exactly 19/30. Reading the live map
+  was neither needed nor performed.
+- **2026-08-12, after F1. Changes what F2 must do.** `validateResponsibilityFieldFidelity` already
+  stems the returned action through `dutyVerbsInText`, so an inflected record such as
+  `provides / route packets to depot partners` **passes fidelity today**. The inflection is rejected
+  only by the frozen `field-aware-v3` matcher. Therefore F2's acceptance rule stated in section 9
+  ("re-run existing fidelity validation, accept only strict improvement") cannot mean "fidelity now
+  passes" — for rows 19 and 29 fidelity never failed. F2 must accept when fidelity **does not
+  regress** AND the named defect (inflected action, absorbed condition, lost artifact token,
+  over-wide object) is provably gone. Only the absorbed-condition shape fails fidelity today. F1
+  case 13 pins both halves of this rule.
+- **2026-08-12, after F1.** F1 resolves the F2 helper dynamically (`await import`) so the suite keeps
+  compiling and every pre-existing case stays green while F2 is unwritten. F2 must export
+  `correctResponsibilityFinalRecord` from `apps/workers/src/lib/responsibility-reader.ts` with the
+  signature and reason codes pinned by F1: `action_inflection_normalized`,
+  `object_boundary_isolated`, `condition_moved_to_trigger`, `named_artifact_restored`,
+  `ambiguous_object_boundary`, `missing_owner`, `missing_action`, `polarity_reversal`,
+  `no_strict_improvement`. Reasons are emitted sorted; the audit carries `seedId`,
+  `sourceSpanSha256`, `accepted`, `before`, and `after`. Once F2 exists, F1 may switch to a static
+  import. This resolves the plan's "open judgment" on the helper name.
+- **2026-08-12, after F0.** The `verify:r2-responsibilities` suite still runs without the licensed
+  pinned source. F0 verifies the frozen SHA against the real file only when that path is reachable,
+  so CI stays green and the licensed text is never copied into the repo.
 
 Parent: [`plan_r2_source_span_inventory_reader.md`](plan_r2_source_span_inventory_reader.md)
 Evidence: [`evals/r2-responsibilities.md`](evals/r2-responsibilities.md)
@@ -12,8 +47,8 @@ Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](
 
 | Step | Status | Evidence / next gate |
 |---|---|---|
-| F0. Freeze the 19/30 evidence and correction boundary | ⬜ open | Re-score saved map `37a8fc62-23e4-46b7-8464-d1c784dc73cd` read-only; freeze eight eligible rows and three negative controls. |
-| F1. Add generic failing final-record tests | ⬜ open | Invented cases reproduce inflected actions, condition leakage, wide objects, and incomplete exact-span duties. |
+| F0. Freeze the 19/30 evidence and correction boundary | ✅ done 2026-08-12 | `verify:r2-responsibilities` reproduces 19/30 under unchanged `field-aware-v3`, pins the eleven misses, the eight eligible rows (5,14,15,17,19,20,23,29) and the three negative controls (16,24,26), and freezes fixture SHA, answer-key version, matcher version, threshold, reader/post-pass budget defaults, and the three fail-safe flags. |
+| F1. Add generic failing final-record tests | ✅ done 2026-08-12 | 13 invented-source cases define the F2 contract and are RED for exactly one reason: `correctResponsibilityFinalRecord` does not exist yet. Every pre-existing case in the suite still passes and `pnpm --filter @oracle/workers typecheck` is clean. |
 | F2. Add source-bound action and object normalization | ⬜ open | One pure helper returns source-supported canonical fields or fails loudly. |
 | F3. Repair the existing late-completion acceptance seam | ⬜ open | Existing late candidates pass through F2 before existing validation; no new pass, dispatch, reservation, call, or retry is added. |
 | F4. Integrate before final validation and assembly | ⬜ open | The production seam stays complete-only, source-ordered, one-to-one, and fully audited. |
