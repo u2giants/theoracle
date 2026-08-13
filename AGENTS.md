@@ -95,6 +95,14 @@ finished files are removed, so removal is part of the work, not paperwork:
   one handoff per phase. Without the successor rule that is nine open files for
   ONE workstream. The plan document is the durable record; the handoff is only
   the baton. Retire the baton you just took.
+- **Standing exception — the legacy archive.**
+  `HANDOFF.d/2026-08-06T1510Z-t16-codex-legacy-migrated-handoff.md` (~185 KB) is NOT a session
+  baton and no successor session will ever retire it. It is pre-2026-08-06 history, and it is kept
+  for exactly one reason: it holds the only full text of the open `GAP-1`…`GAP-14` and
+  `REL-1`…`REL-9` register. **The moment that register is moved into a real plan document with a
+  STATUS table, delete this archive file in the same commit that lands the plan.** Git history
+  keeps it. Do not leave both — a duplicated register is how a stale copy silently wins. Until then
+  it stays, and it does not count toward the threshold below.
 - **Threshold:** more than 5 files in `HANDOFF.d/` is a defect. Say so loudly at
   session start, list them oldest-first, and retire the ones the successor rule
   clears before starting new work.
