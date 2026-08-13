@@ -1,8 +1,8 @@
 # HANDOFF.d retention: 9 superseded files retired, root cause fixed in AGENTS.md
 
-Status: **CLOSED unless the two open questions in §0 change something.** The cleanup and the
-documentation fix are complete. This file exists so the next session knows what was retired and
-why; retire it once you have read it and the AGENTS.md §3a rule is holding.
+Status: **DONE and pushed. This file is kept for ONE reason — see §0b.** The cleanup and the
+documentation fix are complete and on `origin/main` at `fcb839d`. Nothing here is waiting on
+anybody.
 
 ## 0. Decisions only Albert can make
 
@@ -12,33 +12,40 @@ None. Nothing in the Oracle product was touched.
 
 ### Recoverable
 
-1. Should the 185 KB `2026-08-06T1510Z-t16-codex-legacy-migrated-handoff.md` stay in `HANDOFF.d/`?
-   It is a historical archive, not a live workstream, but it still carries the only full text of the
-   open GAP-1…GAP-14 / REL-1…REL-9 register. Recommendation: **keep it for now**, and retire it only
-   after that register is moved into a real plan document with a STATUS table. A session-start
-   instruction that says "read the open files newest-first" pointed at a 185 KB file is a real cost.
-2. Push this cleanup commit to `origin/main`? Recommendation: **yes**, it is documentation-only.
-   `CLAUDE.md` says commit to `main` only when Albert asks, so it is committed locally and waiting.
+None. Both questions this file originally carried were answered by Albert on 2026-08-13:
+
+1. Keep the 185 KB legacy archive for now — **decided, and the deletion trigger is now recorded
+   durably in `AGENTS.md` §3a** as a standing exception, not here. Delete the archive in the same
+   commit that lands a plan document holding its GAP/REL register.
+2. Push — **done.** `origin/main` is `fcb839d`.
+
+## 0b. Why this file still exists — read this, then retire it
+
+The predecessor handoff `2026-08-13T1940Z-al8960ofc-claude-r2-bounded-object-f2b.md` is still OPEN
+(its F3 work is unfinished), so it was correctly NOT deleted. But **its §0 asks two blocking
+questions that are already answered**, and editing another session's handoff is forbidden. If this
+file disappears, the next R2 session will read that stale §0 and put two settled questions to Albert
+for no reason.
+
+So this file's only remaining job is to carry those two answers, plus the retired-file index in
+§3a:
+
+1. "Commit the F0–F2b work locally?" — **already committed AND pushed.** `c6dbf81`
+   ("fix(r2): bound the expected object to the locked field-boundary rule") is on `origin/main`.
+   That work is not at risk in a working tree.
+2. "Add `.ai/reviews/` to `.gitignore`?" — **already done.** `.gitignore:72`. 344 untracked review
+   artifacts are there and cannot be swept up by `git add -A`. Ten review files were committed
+   before that line was added and remain tracked; leave them, they are already in history.
+
+**Retire this file when the F2b workstream's successor lands** — i.e. the session that finishes R2
+F3 deletes BOTH the F2b file and this one in the same commit. At that point the stale §0 is gone
+and nothing here is load-bearing.
 
 ### Already settled, do NOT re-ask
 
 - The R2 production hard stop is unchanged: no deploy, no second production gate, no database or
   schema change, no bake-off. This session changed none of that.
 - Rows 16, 24 and 26 of the R2 fixture remain honest negative controls.
-
-### Questions answered since the previous handoff (do not re-ask them either)
-
-The predecessor file `2026-08-13T1940Z-al8960ofc-claude-r2-bounded-object-f2b.md` asks two blocking
-questions in its §0. Both are now resolved by facts on disk — **that file is still OPEN for its F3
-work, so it was NOT deleted, and its §0 was NOT edited.** Verified state:
-
-1. "Commit the F0–F2b work locally?" — **done and pushed.** `main` is at `c6dbf81`
-   ("fix(r2): bound the expected object to the locked field-boundary rule"), and `origin/main` is at
-   the same SHA. The work is no longer at risk in the working tree.
-2. "Add `.ai/reviews/` to `.gitignore`?" — **already done.** `.gitignore:72` contains
-   `.ai/reviews/`. 344 untracked review artifacts sit there and cannot be swept up by `git add -A`.
-   Note that 10 review files were committed before that line was added and remain tracked; leave
-   them, they are already in history.
 
 ## 1. What this application is
 
@@ -70,7 +77,7 @@ nine-section essays before it may start. Nine of those twelve were the same sing
 
 | File | Why it stays |
 | --- | --- |
-| `2026-08-06T1510Z-t16-codex-legacy-migrated-handoff.md` | Historical archive; sole full text of the open GAP/REL register. See §0 recoverable item 1. |
+| `2026-08-06T1510Z-t16-codex-legacy-migrated-handoff.md` | Historical archive; sole full text of the open GAP/REL register. Its deletion trigger is a standing exception in `AGENTS.md` §3a. |
 | `2026-08-06T1510Z-t16-codex-project-status-closeout.md` | Project-wide status and the owner-gated GAP/REL decisions. Not part of the R2 chain. |
 | `2026-08-13T1940Z-al8960ofc-claude-r2-bounded-object-f2b.md` | The live R2 workstream. F0–F2b are green; **F3 is the next step.** |
 | `2026-08-13T1946Z-al8960ofc-claude-handoff-retention-fix.md` | This file. |
@@ -85,7 +92,12 @@ Documentation changes made (all documentation-only, no product code):
   — that instruction was retired months ago by the `HANDOFF.d/` migration and is now corrected.
 - `CLAUDE.md` line 11 — same correction, plus a pointer to §3a.
 
-Nothing was deployed. No production run, no database change, no secret used, no push.
+Both commits are pushed; `origin/main` is `fcb839d` and the tracked tree is clean. Pre-existing
+untracked scratch was left alone: `.playwright-cli/`, two root `.png` files, six
+`.ai/gap*-*.err|.out` logs, and two `.ai/run-gap10-*.ps1` scripts. None of it is from this session
+and none of it is tracked; a `.gitignore` sweep for it is a reasonable small follow-up.
+
+Nothing was deployed. No production run, no database change, no secret used.
 
 ## 3a. The nine retired files, and how to read any of them
 
@@ -122,7 +134,7 @@ the live F2b handoff is now executing.
 Every one of the nine is cleared by the three-part successor test:
 
 1. **Committed and pushed?** Yes. Each file's own status line names its commit, and every SHA in
-   the table above is an ancestor of `origin/main` (`c6dbf81`).
+   the table above is an ancestor of `origin/main` (`fcb839d`).
 2. **Open obligations carried forward?** Yes. The R2 technical state lives in the two plan documents
    and in the live F2b handoff. The legacy GAP/REL decisions that the P4 file re-listed are recorded
    in full in the two kept `2026-08-06` files.
@@ -143,7 +155,7 @@ Every one of the nine is cleared by the three-part successor test:
   the *only* signal. Git history is already the archive.
 - **Considered editing the stale §0 questions inside the F2b file** once it was clear both had been
   answered. Rejected — editing another session's handoff is the concurrency data-loss bug the whole
-  `HANDOFF.d/` layout exists to prevent. The answers went in §0 of THIS file instead.
+  `HANDOFF.d/` layout exists to prevent. The answers went in §0b of THIS file instead.
 - **Considered fixing only the shared skill in `ai-devops`.** Insufficient. The rule was already
   correct there (see §5) and it still did not fire, because sessions in this repo are routed by
   `AGENTS.md` and most never load that skill.
@@ -183,15 +195,13 @@ tool that does not run on this repo, is not a rule that this repo has.**
 
 ## 6. Exact next steps
 
-1. **Confirm the two §0 recoverable decisions** (keep or retire the 185 KB legacy archive; push this
-   commit). Success: Albert answers both in one message.
-2. **Resume the live R2 workstream at F3** per
+1. **Resume the live R2 workstream at F3** per
    `2026-08-13T1940Z-al8960ofc-claude-r2-bounded-object-f2b.md` and the plan's `## Drift log`.
-   Do NOT re-ask its two §0 questions — see §0 of this file. Success: F3 gates green.
-3. **When you finish F3, delete the F2b file** in the same commit, and delete THIS file too. That is
-   the successor rule working. If it does not happen, the fix in §5 did not take and the mechanical
-   check in §9 is needed.
-4. **Optional, recommended:** move the GAP/REL register out of the 185 KB archive into a real plan
+   Do NOT re-ask its two §0 questions — see §0b of this file. Success: F3 gates green.
+2. **When you finish F3, delete the F2b file AND this file** in the same commit. That is the
+   successor rule working, and it is what clears the stale §0 described in §0b. If it does not
+   happen, the fix in §5 did not take and the mechanical check in §9 is needed.
+3. **Optional, recommended:** move the GAP/REL register out of the 185 KB archive into a real plan
    document with a STATUS table, then retire the archive. Success: `HANDOFF.d/` holds only live
    session batons.
 
@@ -205,10 +215,16 @@ tool that does not run on this repo, is not a rule that this repo has.**
 - **`git rm`, not a plain delete**, so the removal is staged in the same commit as the work.
 - Prefer `git add <specific-paths>`. `.ai/reviews/` is gitignored but 344 untracked files live
   there; a careless `git add -A` is still a bad habit in this repo.
-- This session ran from the worktree `C:\repos\oracle-worktrees\handoff-file-cleanup-0e58c7`
-  (branch `claude/handoff-file-cleanup-0e58c7`), but all edits were made in the primary checkout
-  `C:\repos\oracle` on `main`, because this repo is main-only. **That worktree branch is now stale
-  and should be removed** — see the `cleanup-worktree` skill.
+- **Worktrees are a live trap in this repo, and they cost real time in this session.** The session
+  opened in `C:\repos\oracle-worktrees\handoff-file-cleanup-0e58c7`, but this repo is main-only, so
+  every edit was made in the primary checkout `C:\repos\oracle`. Several verification `grep`s then
+  silently ran against the WORKTREE — an older commit — and appeared to prove the edits had been
+  lost. They had not. **Always `cd` to the repo you mean, and print `pwd` and `git log -1` before
+  trusting verification output.** Both stale worktrees (`handoff-file-cleanup-0e58c7` and the
+  abandoned `repo-handoff-docs-c87db2`) and their branches were removed at the end of this session;
+  `git worktree list` now shows only `C:\repos\oracle`. Windows kept two empty directory shells
+  under `C:\repos\oracle-worktrees\` because the session was running inside one; they are
+  unregistered from git and safe to `rm -rf` once no session is open there.
 
 ## 8. Access needed
 
