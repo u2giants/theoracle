@@ -50,7 +50,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 Rules:
 - MUST be task-based.
 - MUST NOT become a flat list of every Markdown file.
-- Read `HANDOFF.md` whenever it exists — it captures what is in-progress or unfinished.
+- Read `HANDOFF.md` whenever it exists. It is a static pointer: the real handoffs are the files in `HANDOFF.d/`. Read them newest-first and follow the retention rules in §3a.
 - Update this documentation map when documentation files are added, removed, renamed, or repurposed.
 - `docs/oracle/` — deeper AI-retrofit reference material; only read when the task touches the AI-retrofit spec directly.
 - `oracle_master_spec.md` and `oracle_ai_architecture_prompt caching.md` are historical/spec reference files, not default orientation docs.
@@ -61,10 +61,43 @@ If you are new to this repo, read only this path first:
 
 1. `README.md` for the repo shape.
 2. This file through §10 for operating rules, what to touch, external IDs, services, and ignore rules.
-3. `HANDOFF.md` if it exists.
+3. The files in `HANDOFF.d/`, newest first (`HANDOFF.md` is only a pointer to that folder).
 4. The single topic doc named by the table above.
 
 Do not open every Markdown file. Most tasks need `AGENTS.md` plus one topic doc and the affected source files.
+
+## 3a. Handoffs — `HANDOFF.d/` and the successor rule
+
+Handoffs live as one write-once file per session under `HANDOFF.d/`, named
+`<UTC-timestamp>-<machine>-<agent>-<slug>.md`. Root `HANDOFF.md` is a static
+pointer and is never rewritten. The full standard is
+`templates/system/handoff-standard.md` in `u2giants/ai-devops`.
+
+**A file's presence means the workstream is OPEN.** That only stays true if
+finished files are removed, so removal is part of the work, not paperwork:
+
+- **Write:** each session creates exactly ONE new file. Never edit or delete
+  another session's file for any reason other than the successor rule below.
+- **Successor rule (this is what stops the pile-up).** The session that finishes
+  the NEXT step of a workstream deletes the PREVIOUS step's file, in the same
+  commit that finishes that step. A session almost never retires its own file,
+  because it writes the handoff precisely when the work continues past it.
+  Delete only when all three hold, and say so in the closing report:
+  1. the predecessor's status line says its work was committed and pushed, and
+     you verified those commits are on `main`;
+  2. every still-open obligation it names is carried forward — into the plan's
+     STATUS table or drift log, or into YOUR new file;
+  3. nothing in it is a decision or dead end recorded nowhere else.
+
+  If any one fails, keep the file and say which one failed. Git history preserves
+  every deleted handoff, so nothing is ever lost.
+- **Multi-phase plans are the trap.** A plan executed as P0…P8 or F0…F6 produces
+  one handoff per phase. Without the successor rule that is nine open files for
+  ONE workstream. The plan document is the durable record; the handoff is only
+  the baton. Retire the baton you just took.
+- **Threshold:** more than 5 files in `HANDOFF.d/` is a defect. Say so loudly at
+  session start, list them oldest-first, and retire the ones the successor rule
+  clears before starting new work.
 
 ## 4. Repository structure
 
@@ -1259,7 +1292,7 @@ When creating or rotating a client secret on the shared Entra app, use `az ad ap
 
 ## 15. Pending work
 
-Canonical ownership: read `HANDOFF.md`'s plan registry, then the relevant plan's STATUS table.
+Canonical ownership: read the open files in `HANDOFF.d/` (newest first), then the relevant plan's STATUS table.
 `plan_repo_reliability_and_release_gaps.md` owns reliability and release gaps.
 `plan_deferred_product_and_infrastructure_gaps.md` owns product, infrastructure, and deferred
 security gaps. Do not re-plan these rows from this summary table.
@@ -1304,7 +1337,7 @@ security gaps. Do not re-plan these rows from this summary table.
 | done | **Worker deploy state verified.** Verified 2026-06-29 via Trigger.dev MCP: current prod worker is `20260629.1` with 21 tasks. This deploy includes the R9 synthesis validator false-positive fix. | No action. |
 | done | **Repository documentation audit from pasted charter (2026-06-25).** Second run of the same Markdown-maintenance spec. | Brought the pending-work section current (entity registry seeded, synthesis unblocked, extraction/fallback workstreams added), updated the diagram quirk + added a silent-fallback quirk, listed the `fix_*.md` plan docs + `scripts/reevaluate-document.mjs`, added `DASHSCOPE_BASE_URL`. |
 
-If work is incomplete in a future session, create `HANDOFF.md` at the repo root and delete it once the work is finished.
+If work is incomplete in a future session, add your own file under `HANDOFF.d/` per §3a, and retire it (or let the successor session retire it) once the work is finished. Do not create or rewrite a root `HANDOFF.md` — it is a static pointer.
 <!-- ansible-host-policy: managed rollout from u2giants/ansible -->
 ## Host / server changes — do NOT make them here
 

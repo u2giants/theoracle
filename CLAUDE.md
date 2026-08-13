@@ -8,7 +8,7 @@ This file contains Claude Code-specific notes only. If guidance applies to all d
 
 - `.claudeignore` is the Claude Code ignore file. Keep it aligned with `AGENTS.md` "What to ignore" and the other AI ignore files.
 - Do not bulk-read `docs/oracle/`, root historical specs, generated Drizzle SQL, `pnpm-lock.yaml`, or build artifacts. Load only the docs named by the AGENTS documentation map for the task.
-- `HANDOFF.md` is required reading whenever it exists.
+- `HANDOFF.d/` is required reading at session start: list it, read the open files newest-first, and apply the successor-delete rule in `AGENTS.md` §3a. Root `HANDOFF.md` is a static pointer — never rewrite it.
 
 ## Claude-specific tools
 
