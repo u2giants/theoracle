@@ -64,10 +64,12 @@ coverage/
 # MCP tool session artifacts (Playwright screenshots, console logs, etc.)
 .playwright-mcp/
 
-# Raw local AI review transcripts and scratch probes
-.ai/reviews/*-result.json
-.ai/reviews/*-result.jsonl
-.ai/reviews/inspect-*.ts
+# Raw local AI review transcripts, delegate patches, and scratch probes.
+# The whole directory is ignored, not selected patterns. These files quote source
+# — including the licensed licensor document — and must never reach a commit, a
+# push, or GitHub. Delegate wrappers also refuse to save a review while this path
+# is committable. Replaces three narrower patterns that left ~300 files exposed.
+.ai/reviews/
 
 .vercel
 .env*.local

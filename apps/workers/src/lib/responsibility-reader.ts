@@ -562,6 +562,101 @@ function sourceObjectText(sourceSpan: string): string {
     : sourceSpan.slice(verbMatch.index + verbMatch.text.length);
 }
 
+// F2b. THE single definition of where a duty's object ends.
+//
+// `sourceObjectText` returns the whole tail of the span, from the first duty verb
+// to the end. That is the right EVIDENCE bound but the wrong ANSWER bound: it makes
+// the expected object swallow following sentences, exceptions and neighbouring
+// duties. It contradicts the goal of the smallest complete record and it is why a
+// duty that absorbed a trailing exception scored better than the corrected one.
+//
+// This helper applies the locked field-boundary rule: start after the matching duty
+// verb, then end at the first real boundary AFTER a complete object. The cut text is
+// returned, never discarded, so callers can preserve it.
+//
+// `cutKind` decides who owns the cut text, and that distinction is load-bearing:
+//   'condition' — the tail is an exception or condition for THIS duty. It belongs in
+//                 this record's `trigger`, verbatim, and fidelity requires it there.
+//   'clause'    — the tail is a different duty or a new list item. It belongs to a
+//                 DIFFERENT seed. It must NOT be dumped into this record's trigger.
+// Collapsing these two would turn `trigger` into a junk drawer, which is exactly the
+// failure mode that sank the record-level-completeness alternative.
+//
+// Only the cue words locked in the plan are treated as condition cues, plus the
+// contraction spellings of those same cues. Do not widen this list casually.
+const OBJECT_CONDITION_CUE_PATTERN =
+  /^(?:except|unless|only\s+if|if|does\s+not|doesn['’]t|do\s+not|don['’]t)\b/i;
+const OBJECT_CONDITION_CUE_AT_CLAUSE_START =
+  /(?:^|[\s,;])(?:except|unless|only\s+if|if|does\s+not|doesn['’]t|do\s+not|don['’]t)\b/gi;
+const OBJECT_NEW_DUTY_PATTERN = new RegExp(
+  `(?:^|\\s)(?:and|then|or)\\s+(?:${DUTY_VERBS})(?:s|es|d|ed|ing)?\\b`,
+  'gi',
+);
+
+export type BoundedSourceObject = {
+  object: string;
+  cutTail: string | null;
+  cutKind: 'none' | 'condition' | 'clause';
+};
+
+function boundedSourceObject(sourceSpan: string): BoundedSourceObject {
+  const tail = sourceObjectText(sourceSpan);
+  if (!tail.trim()) return { object: '', cutTail: null, cutKind: 'none' };
+
+  // A boundary only counts once a complete object exists before it. Without this a
+  // span like "submits if approved" would cut to an empty object.
+  const completeObjectBefore = (index: number): boolean =>
+    fidelityTokens(tail.slice(0, index)).filter((token) => !ACTION_PARTICLES.has(token)).length > 0;
+
+  const boundaries: number[] = [];
+  const pushBoundary = (index: number) => {
+    if (index > 0 && completeObjectBefore(index)) boundaries.push(index);
+  };
+
+  for (const match of tail.matchAll(/[.!?](?=\s|$)/g)) pushBoundary(match.index!);
+  const newlineIndex = tail.indexOf('\n');
+  if (newlineIndex >= 0) pushBoundary(newlineIndex);
+  for (const match of tail.matchAll(OBJECT_NEW_DUTY_PATTERN)) {
+    pushBoundary(match.index! + (/^\s/.test(match[0]!) ? 1 : 0));
+  }
+  for (const match of tail.matchAll(OBJECT_CONDITION_CUE_AT_CLAUSE_START)) {
+    pushBoundary(match.index! + (/^[\s,;]/.test(match[0]!) ? 1 : 0));
+  }
+
+  if (boundaries.length === 0) {
+    return {
+      object: tail.trim().replace(/[.;,]+$/, '').trim(),
+      cutTail: null,
+      cutKind: 'none',
+    };
+  }
+
+  const cut = Math.min(...boundaries);
+  const object = tail.slice(0, cut).trim().replace(/[.;,]+$/, '').trim();
+  const rawTail = tail.slice(cut).replace(/^[\s.!?;,]+/, '').trim();
+  if (!object || !rawTail) {
+    return {
+      object: object || tail.trim().replace(/[.;,]+$/, '').trim(),
+      cutTail: null,
+      cutKind: 'none',
+    };
+  }
+  return {
+    object,
+    cutTail: rawTail,
+    cutKind: OBJECT_CONDITION_CUE_PATTERN.test(rawTail) ? 'condition' : 'clause',
+  };
+}
+
+// A cut condition must survive verbatim. Whitespace and case are normalized and
+// trailing sentence punctuation is ignored; nothing else is forgiven.
+function triggerPreservesCutCondition(trigger: string | null | undefined, cutTail: string): boolean {
+  const normalize = (value: string) =>
+    value.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?;,]+$/, '').trim();
+  const needle = normalize(cutTail);
+  return needle.length > 0 && normalize(trigger ?? '').includes(needle);
+}
+
 function sourceSpanHasProvenActor(sourceSpan: string): boolean {
   const bracketActor = sourceSpan.match(/^\s*\[([^\]]{2,80})\]/)?.[1] ?? null;
   return Boolean(
@@ -572,7 +667,11 @@ function sourceSpanHasProvenActor(sourceSpan: string): boolean {
 
 export function validateResponsibilityFieldFidelity(
   sourceSpan: string,
-  element: Pick<SourceStructureElement, 'role' | 'action' | 'object'>,
+  // `trigger` is optional so every existing caller still compiles. It is read only
+  // to confirm a cut condition was preserved; it is never used to satisfy the object.
+  element: Pick<SourceStructureElement, 'role' | 'action' | 'object'> & {
+    trigger?: string | null;
+  },
 ): ResponsibilityFieldFidelityResult {
   const reasons: string[] = [];
   const verbMatch = sourceDutyVerbMatch(sourceSpan);
@@ -618,7 +717,11 @@ export function validateResponsibilityFieldFidelity(
     (INBOUND_DUTY_VERBS.has(expectedAction) &&
       returnedActionVerbs.some((verb) => OUTBOUND_DUTY_VERBS.has(verb)));
   if (polarityFailure) reasons.push('polarity_reversal');
-  const afterVerbTokens = fidelityTokens(sourceObjectText(sourceSpan));
+  // F2b: the expected object is the BOUNDED object, not the whole span tail. Nothing
+  // else about this validator changed. Anti-invention below still measures against the
+  // FULL span, so cutting the expected object can never let invented words through.
+  const boundedObject = boundedSourceObject(sourceSpan);
+  const afterVerbTokens = fidelityTokens(boundedObject.object);
   while (afterVerbTokens.length > 0 && ACTION_PARTICLES.has(afterVerbTokens[0]!)) {
     afterVerbTokens.shift();
   }
@@ -633,6 +736,19 @@ export function validateResponsibilityFieldFidelity(
   const inventedObjectTokens = [...new Set(actualObjectTokens.filter((token) => !sourceTokens.has(token)))];
   if (inventedObjectTokens.length > 0) {
     reasons.push(`invented_object_content:${inventedObjectTokens.join(',')}`);
+  }
+  // F2b, the rule that makes the bounded object a CORRECTION and not a loosening.
+  // Narrowing the expected object would let a condition vanish silently. It cannot:
+  // if a condition was cut, the record must carry it verbatim in `trigger`. A tail cut
+  // because it belongs to a DIFFERENT duty ('clause') is deliberately not demanded
+  // here — that text belongs to another seed, and requiring it would turn `trigger`
+  // into a junk drawer.
+  if (
+    boundedObject.cutKind === 'condition' &&
+    boundedObject.cutTail &&
+    !triggerPreservesCutCondition(element.trigger, boundedObject.cutTail)
+  ) {
+    reasons.push('condition_not_preserved_in_trigger');
   }
   const multiVerbReject = sourceDutyVerbs.length > 1;
   if (multiVerbReject) reasons.push('unrepresented_multi_verb_duty');
@@ -1136,7 +1252,12 @@ function deterministicInventoryRecord(
   const fidelitySpan = seed.splitKind === 'destination' && seed.splitValue
     ? destinationSpecificResponsibilitySpan(seed.sourceSpan, seed.splitValue)
     : seed.sourceSpan;
-  const object = sourceObjectText(fidelitySpan).trim().replace(/[.;]+$/, '').trim();
+  // F2b: build with the SAME bounded-object rule the validator now checks against.
+  // This path used to copy the whole span tail, so it both produced and enforced the
+  // wrong definition of an object. A cut condition is carried into `trigger` verbatim,
+  // which is what `validateResponsibilityFieldFidelity` now requires.
+  const bounded = boundedSourceObject(fidelitySpan);
+  const object = bounded.object;
   if (!object) return null;
   return {
     responsibilityId: seed.inventorySeedId,
@@ -1144,7 +1265,7 @@ function deterministicInventoryRecord(
     role,
     action: stemDutyVerb(verb.text),
     object,
-    trigger: null,
+    trigger: bounded.cutKind === 'condition' ? bounded.cutTail : null,
     requiredSystem:
       seed.splitKind === 'destination' &&
       seed.splitValue &&
@@ -2906,5 +3027,256 @@ export function responsibilityCoverage(args: {
     evidenced,
     ratio: primary.length === 0 ? 1 : evidenced / primary.length,
     missingRefs,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Source-bound final-record correction (plan_r2_source_bound_final_record_correction.md, F2).
+//
+// Takes one subtly-wrong stored record plus the seed that carries its exact source
+// snippet, and returns a corrected version — or an honest refusal. The ONLY text
+// this may read semantically is the seed's own `sourceSpan`. If a needed word is
+// not in that snippet, it refuses; it never invents. It never changes the action
+// family, never verb-stems a noun, and fails loudly on an ambiguous object
+// boundary. Deterministic: same input, identical output, with `reasons` sorted.
+//
+// Four defects it can repair (each provably against the bound span):
+//   1. action_inflection_normalized — `provides`→`provide`, `Fills out`→`fill out`.
+//   2. condition_moved_to_trigger   — an absorbed trailing exception sentence is
+//                                      moved verbatim into `trigger`, never deleted.
+//   3. named_artifact_restored      — a required token dropped from the object but
+//                                      present in the span (acronym/system/destination).
+//   4. object_boundary_isolated     — an over-wide object that swallowed a sibling
+//                                      duty is cut back to its own clause.
+// ---------------------------------------------------------------------------
+
+export type CorrectedFinalRecordFields = {
+  role: string;
+  action: string;
+  object: string;
+  trigger: string | null;
+};
+
+export type FinalRecordCorrection = {
+  seedId: string;
+  sourceSpanSha256: string;
+  accepted: boolean;
+  reasons: string[];
+  before: CorrectedFinalRecordFields;
+  after: CorrectedFinalRecordFields | null;
+};
+
+// The set of recognized duty-verb base forms, reused so we never re-derive it.
+const FINAL_RECORD_DUTY_VERB_SET = new Set(DUTY_VERBS.split('|'));
+
+// Reduces a candidate action to its base duty verb while preserving any particle.
+// `provides`→`provide`, `Fills out`→`fill out`, `records`→`record`. Only the head
+// word is stemmed; nouns/particles are never touched. Reuses `stemDutyVerb`.
+function normalizeCandidateAction(action: string): string {
+  const parts = action.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '';
+  const head = stemDutyVerb(parts[0]!);
+  return [head, ...parts.slice(1)].join(' ');
+}
+
+// Defect 2: detects an object that swallowed a following negated exception
+// sentence (e.g. "...portals. Do not submit before the review closes"). Splits
+// verbatim — head stays affirmative, tail becomes the trigger. Never deletes.
+function splitAbsorbedCondition(object: string): { head: string; tail: string } | null {
+  const match = object.match(/^(.*?[.!?])\s+(.+)$/s);
+  if (!match) return null;
+  const head = match[1]!.replace(/[.!?]+$/, '').trim();
+  const tail = match[2]!.trim();
+  if (!head || !tail) return null;
+  if (!/^(?:do\s+not|don['']t|cannot|can['']t|never|no\s)/i.test(tail)) return null;
+  return { head, tail };
+}
+
+// Defect 4: detects an over-wide object that ran past its own clause and swallowed
+// a neighbouring duty. Fires only when the candidate object is a prefix-extension
+// of the source's own-clause object AND the swallowed remainder carries a duty
+// verb — so it never trims arbitrary text. Cuts back to the own clause verbatim.
+function isolateOverWideObject(
+  object: string,
+  ownClauseObject: string,
+): { value: string; truncated: boolean } {
+  const ownClause = ownClauseObject.trim().replace(/[.!?]+$/, '').trim();
+  if (!ownClause) return { value: object, truncated: false };
+  const lowerObject = object.toLowerCase();
+  const lowerOwn = ownClause.toLowerCase();
+  if (!lowerObject.startsWith(lowerOwn)) return { value: object, truncated: false };
+  const remainder = object.slice(ownClause.length).trim();
+  if (!remainder) return { value: object, truncated: false };
+  const remainderStems = remainder.toLowerCase().match(/[a-z]+/g)?.map(stemDutyVerb) ?? [];
+  if (!remainderStems.some((token) => FINAL_RECORD_DUTY_VERB_SET.has(token))) {
+    return { value: object, truncated: false };
+  }
+  return { value: ownClause, truncated: true };
+}
+
+// Defect 3: restores a required leading token dropped from the object but present
+// in the bound span (e.g. the acronym "QA1"). Fires only when the candidate object
+// is a strict token-suffix of the source own-clause object and the missing prefix
+// carries a non-stopword artifact — the verbatim source prefix is prepended.
+function restoreNamedArtifact(
+  object: string,
+  ownClauseObject: string,
+): { value: string; restored: boolean } {
+  const ownClause = ownClauseObject.trim().replace(/[.!?]+$/, '').trim();
+  if (!ownClause) return { value: object, restored: false };
+  const srcTokens = ownClause.match(/[A-Za-z0-9]+/g) ?? [];
+  const objTokens = object.trim().match(/[A-Za-z0-9]+/g) ?? [];
+  if (srcTokens.length === 0 || objTokens.length === 0) return { value: object, restored: false };
+  if (objTokens.length >= srcTokens.length) return { value: object, restored: false };
+  const lowerSrc = srcTokens.map((token) => token.toLowerCase());
+  const lowerObj = objTokens.map((token) => token.toLowerCase());
+  const offset = lowerSrc.length - lowerObj.length;
+  for (let index = 0; index < lowerObj.length; index += 1) {
+    if (lowerSrc[offset + index] !== lowerObj[index]) return { value: object, restored: false };
+  }
+  const missing = srcTokens.slice(0, offset);
+  if (!missing.some((token) => token.length > 1 && !FIELD_STOP_WORDS.has(token.toLowerCase()))) {
+    return { value: object, restored: false };
+  }
+  // Reconstruct verbatim from the source own-clause: everything before the
+  // candidate suffix becomes the restored prefix.
+  const lowerOwnClause = ownClause.toLowerCase();
+  const lowerObject = object.trim().toLowerCase();
+  if (!lowerOwnClause.endsWith(lowerObject)) return { value: object, restored: false };
+  const prefix = ownClause.slice(0, ownClause.length - object.trim().length);
+  return { value: (prefix + object.trim()).trim(), restored: true };
+}
+
+export function correctResponsibilityFinalRecord(args: {
+  seed: ResponsibilityInventorySeed;
+  candidate: CorrectedFinalRecordFields;
+}): FinalRecordCorrection {
+  const { seed } = args;
+  // Snapshot the untouched original fields; the seed is never mutated.
+  const before: CorrectedFinalRecordFields = {
+    role: args.candidate.role,
+    action: args.candidate.action,
+    object: args.candidate.object,
+    trigger: args.candidate.trigger,
+  };
+  const seedId = seed.inventorySeedId;
+  const sourceSpanSha256 = seed.sourceSpanSha256;
+
+  const refuse = (reasons: string[]): FinalRecordCorrection => ({
+    seedId,
+    sourceSpanSha256,
+    accepted: false,
+    reasons: [...reasons].sort(),
+    before,
+    after: null,
+  });
+
+  // Missing owner/action are never invented.
+  if (!before.role.trim()) return refuse(['missing_owner']);
+  if (!before.action.trim()) return refuse(['missing_action']);
+
+  // The ONLY semantic text this may read.
+  const sourceSpan = responsibilityCompletionRequest(seed).sourceSpan;
+  const verbMatch = sourceDutyVerbMatch(sourceSpan);
+  if (!verbMatch) return refuse(['seed_has_no_duty_verb']);
+  const sourceVerbStem = stemDutyVerb(verbMatch.text);
+
+  // Polarity reversal: an inbound action may never be normalized onto an outbound
+  // duty (or vice versa). The action family is immutable.
+  const candidateActionStem = stemDutyVerb(before.action.trim().split(/\s+/)[0] ?? '');
+  const polarityReversal =
+    (OUTBOUND_DUTY_VERBS.has(sourceVerbStem) && INBOUND_DUTY_VERBS.has(candidateActionStem)) ||
+    (INBOUND_DUTY_VERBS.has(sourceVerbStem) && OUTBOUND_DUTY_VERBS.has(candidateActionStem));
+  if (polarityReversal) return refuse(['polarity_reversal']);
+
+  // Ambiguous object boundary: the bound span itself carries more than one duty
+  // verb (unsplit multi-verb). Failing loudly is correct here, not a bug.
+  if (dutyVerbsInSourceSpan(sourceSpan).length > 1) return refuse(['ambiguous_object_boundary']);
+
+  // F2b: the corrector reads the SAME bounded object as the validator and the builder.
+  // There is exactly one boundary definition in this file. The cut tail is kept so an
+  // absorbed condition can be moved into `trigger` verbatim rather than guessed at.
+  const boundedSource = boundedSourceObject(sourceSpan);
+  const fullSourceObject = boundedSource.object;
+
+  const reasons: string[] = [];
+
+  // Defect 1: normalize action inflection, particle preserved, noun never stemmed.
+  const action = normalizeCandidateAction(before.action);
+
+  // Defect 2: move an absorbed trailing exception into trigger verbatim.
+  let object = before.object;
+  let trigger = before.trigger;
+  const absorbed = splitAbsorbedCondition(object);
+  if (absorbed) {
+    object = absorbed.head;
+    trigger = absorbed.tail;
+    reasons.push('condition_moved_to_trigger');
+  }
+
+  // Defect 4: cut an over-wide object back to its own clause.
+  const overWide = isolateOverWideObject(object, fullSourceObject);
+  if (overWide.truncated) {
+    object = overWide.value;
+    reasons.push('object_boundary_isolated');
+  }
+
+  // Defect 3: restore a dropped named artifact from the bound span.
+  const restored = restoreNamedArtifact(object, fullSourceObject);
+  if (restored.restored) {
+    object = restored.value;
+    reasons.push('named_artifact_restored');
+  }
+
+  if (action.toLowerCase() !== before.action.trim().toLowerCase()) {
+    reasons.push('action_inflection_normalized');
+  }
+
+  const after: CorrectedFinalRecordFields = {
+    role: before.role,
+    action,
+    object: object.trim(),
+    trigger,
+  };
+
+  // Acceptance: a correction is taken only as a strict improvement, judged by the
+  // UNCHANGED field-fidelity validator. `validateResponsibilityFieldFidelity` already
+  // stems the action, so an inflected record passes it today — acceptance therefore
+  // cannot be "fidelity now passes"; it is "fidelity does not regress AND the named
+  // defect is provably gone". A record that passes today may never be turned into one
+  // that fails. There is no exemption. An earlier draft exempted the
+  // condition-moved case; that was removed on 2026-08-13 because it accepted records
+  // the unchanged validator rejects, and `validateResponsibilityRead` would reject
+  // them again downstream — the failure only moved.
+  const beforeFidelity = validateResponsibilityFieldFidelity(sourceSpan, before);
+  const afterFidelity = validateResponsibilityFieldFidelity(sourceSpan, after);
+
+  const changed =
+    after.action.toLowerCase() !== before.action.trim().toLowerCase() ||
+    after.object !== before.object.trim() ||
+    (after.trigger ?? '') !== (before.trigger ?? '');
+
+  const fidelityRegressed = beforeFidelity.passed && !afterFidelity.passed;
+
+  // Named refusal for the one known open conflict: moving an exception out of the
+  // object makes the CURRENT expected-object rule report `object_qualifier_loss`,
+  // because `sourceObjectText` runs to the end of the span. Refusing loudly with a
+  // specific reason is correct until the expected object is aligned with the plan's
+  // locked field-boundary rule. Never paper over this.
+  if (fidelityRegressed && reasons.includes('condition_moved_to_trigger')) {
+    return refuse(['condition_conflicts_with_field_fidelity']);
+  }
+
+  if (!changed || fidelityRegressed) {
+    return refuse(['no_strict_improvement']);
+  }
+
+  return {
+    seedId,
+    sourceSpanSha256,
+    accepted: true,
+    reasons: [...new Set(reasons)].sort(),
+    before,
+    after,
   };
 }

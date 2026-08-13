@@ -2784,10 +2784,13 @@ for (const requiredPromptRule of [
     `responsibility prompt is missing hard rule: ${requiredPromptRule}`,
   );
 }
+// Normalized for the CRLF reason documented at the F0 frozen-limits block below:
+// a fresh Windows clone checks this file out with CRLF and the multi-line frozen
+// budget literals would silently stop matching.
 const workflowReadSource = readFileSync(
   new URL('../lib/source-workflow-read.ts', import.meta.url),
   'utf8',
-);
+).replace(/\r\n/g, '\n');
 const responsibilityReaderSource = readFileSync(
   new URL('../lib/responsibility-reader.ts', import.meta.url),
   'utf8',
@@ -4445,10 +4448,16 @@ for (const row of [15, 20, 23, 26]) {
 // Frozen operating limits. These are the production defaults the correction plan
 // forbids changing. They are asserted against the real declaration sites so a
 // silent edit to a budget or a fail-safe flag breaks this gate.
+// Line endings are normalized before matching. `core.autocrlf` is true in this
+// repo and there is no blanket `text eol=lf`, so a FRESH clone on Windows checks
+// these files out with CRLF and every multi-line literal below would miss. That
+// is not hypothetical: it is exactly what broke a delegated agent working in a
+// fresh clone on 2026-08-13. The pre-existing frozen-budget guard earlier in this
+// file has the same fragility and is normalized the same way.
 const r2SourceWorkflowSource = readFileSync(
   new URL('../lib/source-workflow-read.ts', import.meta.url),
   'utf8',
-);
+).replace(/\r\n/g, '\n');
 for (const frozenLimit of [
   "readNumberSetting(db, 'source_reader_max_read_calls_per_source', 40)",
   "readNumberSetting(db, 'source_reader_max_input_tokens_per_source', 500_000)",
@@ -4824,10 +4833,48 @@ r2F1Case('correction never regresses unchanged field fidelity', () => {
     'a correction may never turn a fidelity-passing record into a failing one',
   );
 
-  const absorbedSeed = r2SeedFrom(
+  const artifactSeed = r2SeedFrom(
+    '- Depot Lead downloads QA1 photos from the depot intake email.',
+    /QA1 photos/,
+  );
+  const droppedArtifact = {
+    role: 'Depot Lead',
+    action: 'download',
+    object: 'photos from the depot intake email',
+    trigger: null,
+  };
+  assert.equal(
+    validateResponsibilityFieldFidelity(artifactSeed.sourceSpan, droppedArtifact).passed,
+    false,
+    'a dropped artifact token is a shape fidelity really does reject today',
+  );
+  const artifactResult = r2CorrectOrThrow({ seed: artifactSeed, candidate: droppedArtifact });
+  assert.equal(artifactResult.accepted, true);
+  assert.equal(
+    validateResponsibilityFieldFidelity(artifactSeed.sourceSpan, artifactResult.after!).passed,
+    true,
+    'correction is judged by the unchanged validator, which is never weakened',
+  );
+});
+
+// 14. F2b invariant: a cut condition must be preserved, never silently dropped.
+//
+// This case used to pin an unresolved conflict. It was resolved on 2026-08-13 by
+// aligning the expected object with the locked field-boundary rule, and it now pins
+// the guarantee that makes that alignment a correction rather than a loosening.
+//
+// Narrowing the expected object, on its own, WOULD be a loosening: the exception
+// words would simply stop being required anywhere. The paired rule is what closes
+// that hole. If the boundary cut a condition off the object, the record must carry
+// that condition verbatim in `trigger`, or fidelity fails with
+// `condition_not_preserved_in_trigger`.
+r2F1Case('F2b: a cut condition must be preserved verbatim in trigger', () => {
+  const seed = r2SeedFrom(
     '- Depot Lead submits inspection photos in partner portals. Do not submit before the depot review closes.',
     /inspection photos/,
   );
+
+  // The shape production actually stored: the exception is still inside the object.
   const absorbed = {
     role: 'Depot Lead',
     action: 'submit',
@@ -4835,16 +4882,98 @@ r2F1Case('correction never regresses unchanged field fidelity', () => {
     trigger: null,
   };
   assert.equal(
-    validateResponsibilityFieldFidelity(absorbedSeed.sourceSpan, absorbed).passed,
+    validateResponsibilityFieldFidelity(seed.sourceSpan, absorbed).passed,
     false,
-    'the absorbed-condition shape is what fidelity rejects today',
+    'the absorbed shape is now rejected: the condition is not in trigger',
   );
-  const absorbedResult = r2CorrectOrThrow({ seed: absorbedSeed, candidate: absorbed });
-  assert.equal(absorbedResult.accepted, true);
+
+  // The dangerous shape: condition cut out of the object and preserved NOWHERE.
+  // This is the silent loss the paired rule exists to prevent.
+  const droppedCondition = {
+    role: 'Depot Lead',
+    action: 'submit',
+    object: 'inspection photos in partner portals',
+    trigger: null,
+  };
+  const droppedResult = validateResponsibilityFieldFidelity(seed.sourceSpan, droppedCondition);
+  assert.equal(droppedResult.passed, false, 'dropping a condition entirely must never pass');
+  assert.ok(
+    droppedResult.reasons.includes('condition_not_preserved_in_trigger'),
+    'and it must fail for that exact named reason, not by accident',
+  );
+
+  // The correct shape: minimal object, condition preserved verbatim in trigger.
+  const corrected = {
+    role: 'Depot Lead',
+    action: 'submit',
+    object: 'inspection photos in partner portals',
+    trigger: 'Do not submit before the depot review closes',
+  };
   assert.equal(
-    validateResponsibilityFieldFidelity(absorbedSeed.sourceSpan, absorbedResult.after!).passed,
+    validateResponsibilityFieldFidelity(seed.sourceSpan, corrected).passed,
     true,
-    'correction is judged by the unchanged validator, which is never weakened',
+    'the corrected shape passes the unchanged validator with no exemption',
+  );
+
+  // And the corrector must produce exactly that shape, on merit.
+  const result = r2CorrectOrThrow({ seed, candidate: absorbed });
+  assert.equal(result.accepted, true, 'the repair is accepted without any bypass');
+  assert.equal(
+    validateResponsibilityFieldFidelity(seed.sourceSpan, result.after!).passed,
+    true,
+    'an accepted repair always satisfies the validator; no acceptance-rule exemption exists',
+  );
+});
+
+// 15. The boundary must cut an in-sentence exception, not only a sentence end.
+// This is the case the rejected sentence-boundary-only patch would have missed, and
+// it is the common shape in real documents.
+r2F1Case('F2b: an in-sentence exception cue is a boundary', () => {
+  const seed = r2SeedFrom(
+    '- Depot Lead submits inspection photos in partner portals unless the depot review is open.',
+    /inspection photos/,
+  );
+  const wide = {
+    role: 'Depot Lead',
+    action: 'submit',
+    object: 'inspection photos in partner portals unless the depot review is open',
+    trigger: null,
+  };
+  assert.equal(
+    validateResponsibilityFieldFidelity(seed.sourceSpan, wide).passed,
+    false,
+    'an in-sentence condition left inside the object is rejected',
+  );
+  const corrected = {
+    role: 'Depot Lead',
+    action: 'submit',
+    object: 'inspection photos in partner portals',
+    trigger: 'unless the depot review is open',
+  };
+  assert.equal(
+    validateResponsibilityFieldFidelity(seed.sourceSpan, corrected).passed,
+    true,
+    'the same repair works mid-sentence, which a period-only rule could never do',
+  );
+});
+
+// 16. A tail cut because it belongs to ANOTHER duty must not be demanded in trigger.
+// Collapsing this distinction is what would turn `trigger` into a junk drawer.
+r2F1Case('F2b: a neighbouring duty is not forced into this record trigger', () => {
+  const seed = r2SeedFrom(
+    '- Depot Lead reviews depot manifests. Fleet Office archives route packets.',
+    /depot manifests/,
+  );
+  const record = {
+    role: 'Depot Lead',
+    action: 'review',
+    object: 'depot manifests',
+    trigger: null,
+  };
+  const result = validateResponsibilityFieldFidelity(seed.sourceSpan, record);
+  assert.ok(
+    !result.reasons.includes('condition_not_preserved_in_trigger'),
+    'text belonging to a different duty is never demanded in this record trigger',
   );
 });
 

@@ -7,6 +7,87 @@ Created: 2026-08-11
 
 ## Drift log
 
+- **2026-08-13, after F2b. What was built, and the exact limit of what it proves.** The bounded
+  object rule is live in one helper, `boundedSourceObject` in `responsibility-reader.ts`, used by all
+  three call sites. Green locally: 16/16 F1 cases with no exemption; F0 still 19/30; pinned support
+  still 28/30 with rows 16/26 unsupported; `verify:source-workflow-read`, `verify:r0-reader-validator`,
+  `verify:document-ingestion-fallback`, `@oracle/ai verify:r2`, `@oracle/ai verify:workflow-read`, and
+  all four `@oracle/engines` suites pass; three typechecks clean; `git diff --check` clean.
+  **NOT proven, and nobody may claim otherwise: the 19/19 production-replay preservation gate.** No
+  local replay harness for the 93 stored production records exists yet. Suites passing is supporting
+  evidence, not that proof. Building that replay is F5's first job and it is a hard gate: if any of
+  the 19 regress, stop and report rather than tuning the boundary rule to suit them.
+- **2026-08-13, after F2b. A design detail worth keeping.** `cutKind` distinguishes a condition cut
+  from a clause cut, and that distinction is load-bearing. A condition belongs to THIS duty and is
+  required in `trigger`. A neighbouring duty or new list item belongs to a DIFFERENT seed and must
+  never be pushed into this record's `trigger`. Collapsing the two would recreate the junk-drawer
+  failure that sank the record-level-completeness alternative. F1 case 16 pins it.
+- **2026-08-13, after F2b. Anti-invention is unchanged and still measured against the FULL span.**
+  Narrowing the expected object cannot let invented words through, because the invention check never
+  used the bounded object. Verified by inspection at the `invented_object_content` branch.
+
+- **2026-08-13. OWNER DECISION, unblocks F2. Amends section 11.7.** Albert authorized aligning the
+  **expected object** used by `validateResponsibilityFieldFidelity` with the field-boundary rule this
+  plan already locked in section 8. This is a **correction, not a weakening**: today the validator
+  derives its expected object from `sourceObjectText`, which runs from the first duty verb to the END
+  of the span, so it enforces a definition of "object" that contradicts section 8 and contradicts the
+  section 1 goal of the smallest complete record. Section 11.7 is amended accordingly: fidelity's
+  polarity checks, anti-invention check, owner check and action-family check stay untouched and may
+  never be relaxed; only the expected-object boundary is corrected, and only to the section 8 rule.
+- **2026-08-13. Rejected after independent review: record-level completeness.** An alternative was
+  considered and rejected — replacing "nothing may be missing from `object`" with "object + trigger +
+  audit must jointly cover the span". Grok 4.6 refuted it and the refutation is accepted:
+  `A ⊆ object` is strictly STRONGER than `A ⊆ (object ∪ trigger ∪ audit)`, so this is a weakening
+  described as a broadening. Worse, it is gameable: the frozen matcher never reads `trigger`, so a
+  model could emit a short matchable object and dump the remainder into `trigger` and still look
+  complete. `packages/ai/src/prompts/workflow-read.ts:97-99` already forbids that shape. Do not
+  revive this idea.
+- **2026-08-13. Correction to the previous drift entry. Row 5 does NOT share row 17's cause.** An
+  earlier session inferred that row 5's failure ("object absorbs unrelated details") was the same
+  absorbed-condition mechanism. Independent review refuted it: row 5's stored object carries a
+  different duty's nouns entirely and is missing the required `concepts` token, which is a wrong
+  object or a wrong surviving seed, not an exception tail. **Row 17 is the only row affected by the
+  expected-object conflict.** The other seven eligible rows are inflected action (19, 29), a lost
+  named token (14), an over-wide or wrong object (5), or no final record at all (15, 20, 23).
+- **2026-08-13. New fact found during review, widens the F2 blast radius.**
+  `sourceObjectText` is not only used to CHECK objects. `deterministicInventoryRecord`
+  (`responsibility-reader.ts:1139`) copies it straight into `object`, so the no-model path also
+  stores the whole span tail. The corrected boundary rule must therefore live in ONE shared helper
+  used by the qualifier-loss check, `deterministicInventoryRecord`, and the corrector. That path
+  helped produce the 19 rows that currently pass, so F5 must prove all 19 survive.
+- **2026-08-13. GLM 5.2's acceptance-rule exemption was removed.** The first F2 draft accepted a
+  correction whenever a condition had been moved to `trigger`, even when fidelity regressed. That
+  bypass is deleted. The corrector now refuses with the named reason
+  `condition_conflicts_with_field_fidelity`, which is honest and visible, until the expected-object
+  alignment lands.
+
+- **2026-08-13, after F2. BLOCKING. Needs an owner decision.** The frozen field-fidelity validator
+  derives the object it expects from `sourceObjectText(sourceSpan)`, which is everything after the
+  first duty verb to the END of the span. When a seed's span holds a duty sentence followed by an
+  exception sentence, the exception words are part of the expected object. Measured directly on
+  2026-08-13: the ABSORBED record (object still contains the exception) **passes** fidelity, and the
+  CORRECTED record (exception moved to `trigger`) **fails** with `object_qualifier_loss`. So the
+  repair production row 17 needs makes the unchanged validator go from pass to fail. Row 17 is one of
+  the eight rows required to reach 27/30, so at most 7 of 8 are recoverable today, landing at 26/30.
+  Three ways out, all owner decisions: (a) change span/inventory so an exception sentence is not part
+  of the duty seed's span — out of this plan's scope, touches segmentation; (b) make
+  `sourceObjectText` stop at a sentence terminator — a change to the validator, which section 11
+  currently forbids; (c) accept 7 of 8 and miss the gate. Per section 13 this is a stop-and-ask.
+  Verifier case 14, `KNOWN CONFLICT`, pins it and stays RED until the decision is made.
+- **2026-08-13, after F2.** Plan section 9's F2 wording and F1's original case 13 both had this
+  polarity inverted: they assumed the absorbed-condition shape is what fidelity rejects today. It is
+  not. Case 13 has been rewritten to use the dropped-artifact shape, which fidelity really does
+  reject, and the absorbed shape moved to case 14. GLM 5.2 found this error.
+- **2026-08-13, after F2. Real bug, fixed.** `core.autocrlf` is true in this repo and there is no
+  blanket `text eol=lf` in `.gitattributes`, so a FRESH clone on Windows gets CRLF and every
+  multi-line source-text literal in the verifier silently stops matching. This aborted a delegated
+  agent's run at the pre-existing frozen-budget guard (verifier line ~2803) before it could reach F0
+  or F1 at all. Both that pre-existing guard and the F0 frozen-limits guard now normalize line
+  endings before matching. CI on Linux never saw this because Linux checkouts are LF.
+- **2026-08-13, after F2.** F0's frozen-budget assertions partly duplicate a pre-existing guard at
+  verifier line ~2800 that already froze the reader and post-pass budget literals. The duplication is
+  harmless and the two are now consistent, but a future cleanup could merge them.
+
 - **2026-08-12, after F0.** The reader budget defaults (40 / 500,000 / $10 / 1 repair / 4 concurrency
   and post-pass 1 / 5 / 1) and the three fail-safe flags are not exported constants; they are inline
   defaults inside `loadSourceReaderBudgetLimits`, `loadResponsibilityPostPassBudgetLimits`, and
@@ -49,7 +130,8 @@ Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](
 |---|---|---|
 | F0. Freeze the 19/30 evidence and correction boundary | ✅ done 2026-08-12 | `verify:r2-responsibilities` reproduces 19/30 under unchanged `field-aware-v3`, pins the eleven misses, the eight eligible rows (5,14,15,17,19,20,23,29) and the three negative controls (16,24,26), and freezes fixture SHA, answer-key version, matcher version, threshold, reader/post-pass budget defaults, and the three fail-safe flags. |
 | F1. Add generic failing final-record tests | ✅ done 2026-08-12 | 13 invented-source cases define the F2 contract and are RED for exactly one reason: `correctResponsibilityFinalRecord` does not exist yet. Every pre-existing case in the suite still passes and `pnpm --filter @oracle/workers typecheck` is clean. |
-| F2. Add source-bound action and object normalization | ⬜ open | One pure helper returns source-supported canonical fields or fails loudly. |
+| F2. Add source-bound action and object normalization | ✅ done 2026-08-13 | `correctResponsibilityFinalRecord` (GLM 5.2 draft, reviewed, acceptance-rule exemption removed). All four defect families handled. UNCOMMITTED. |
+| F2b. Align the expected object with the locked section 8 boundary | ✅ done 2026-08-13 | One `boundedSourceObject` helper is now the single boundary definition, used by the qualifier-loss check, `deterministicInventoryRecord` and the corrector. A cut condition must appear verbatim in `trigger` or fidelity fails with `condition_not_preserved_in_trigger`; a cut belonging to a different duty is deliberately not demanded. 16/16 F1 cases pass with no exemption, F0 still reproduces 19/30, and every other local suite is green. **Not yet proven: the 19/19 production-replay preservation gate, which belongs to F5.** UNCOMMITTED. |
 | F3. Repair the existing late-completion acceptance seam | ⬜ open | Existing late candidates pass through F2 before existing validation; no new pass, dispatch, reservation, call, or retry is added. |
 | F4. Integrate before final validation and assembly | ⬜ open | The production seam stays complete-only, source-ordered, one-to-one, and fully audited. |
 | F5. Run unchanged local gates and residual replay | ⬜ open | All suites pass; the pinned source-support verifier stays 28/30 with rows 16/26 unsupported; a separate final-record replay keeps row 24 unsupported and recovers all 8/8 eligible shapes to reach the frozen 27/30 minimum. |
@@ -159,6 +241,15 @@ business-model tables remained empty.
 - Existing code is committed, pushed, deployed, and tested. This plan has no implementation.
 
 ## 6. Key findings and root cause
+
+0. **Added 2026-08-13, the deepest finding so far.** The span is doing two different jobs, and they
+   conflict. It is the correct unit of EVIDENCE, but `sourceObjectText` also makes it the definition
+   of the ANSWER: the expected `object` is everything from the first duty verb to the end of the
+   span. So the code enforces "copy the tail" while section 1 and section 8 ask for the smallest
+   complete object with conditions in `trigger`. Independent review confirmed the mechanism and
+   confirmed it affects exactly one eligible row, row 17 — it is not the cause of the other seven.
+   F2b corrects it. Note the same helper also BUILDS objects at `deterministicInventoryRecord`
+   (`responsibility-reader.ts:1139`), so the wrong definition is stored as well as enforced.
 
 1. Source discovery is not the only problem. Several misses already have complete or near-complete
    records; their final fields cause rejection.
@@ -284,6 +375,52 @@ Dependency: F1.
 
 Verification gate: all F1 tests pass and the production file contains no answer-key terms.
 
+Status 2026-08-13: defects 1, 3 and 4 are done and 13/14 cases pass. Defect 2, the absorbed
+condition, is deferred to F2b below because it cannot be accepted honestly until the expected object
+is corrected. The acceptance rule carries NO exemption; the corrector refuses defect 2 with the named
+reason `condition_conflicts_with_field_fidelity`.
+
+#### F2b. Align the expected object with the locked section 8 boundary
+
+Files: `apps/workers/src/lib/responsibility-reader.ts` and its verifier.
+
+Why: `sourceObjectText` (`responsibility-reader.ts:558-563`) returns everything from the first duty
+verb to the END of the span, and `validateResponsibilityFieldFidelity` (`:573-647`, qualifier-loss at
+`:621-631`) treats that whole tail as the required object. That contradicts section 1 and section 8.
+It is also copied into `object` by `deterministicInventoryRecord` (`:1139`), so the wrong definition
+is both enforced and stored. Row 17 cannot be recovered until this is corrected, and 19 + 7 = 26
+misses the frozen gate.
+
+Actions:
+
+1. Add ONE shared pure helper that computes the section 8 bounded object from a span: start after the
+   matching duty verb; end at the first real boundary after a complete object (terminal punctuation;
+   a newline or list marker starting a new clause; a coordinating conjunction followed by a different
+   duty verb; or an exception cue such as `except`, `unless`, `only if`, `if`, `does not`, `do not`);
+   retain named artifacts, acronyms, destinations, systems, timing, cadence and direction; refuse on
+   an ambiguous cut. It must also return the CUT TAIL so callers can preserve it verbatim.
+2. Use that one helper in all three places: the qualifier-loss check, `deterministicInventoryRecord`,
+   and `correctResponsibilityFinalRecord`. There must be exactly one definition of an object boundary
+   in the codebase when this phase ends.
+3. Add the paired rule that makes this a correction rather than a loosening: **if a tail was cut, the
+   record must carry that tail verbatim in `trigger`.** A cut tail that appears nowhere is a failure,
+   not a pass. This is what stops `trigger` becoming a junk drawer.
+4. Keep every other part of fidelity untouched: anti-invention, polarity, owner match, action family,
+   multi-verb rejection. Do not touch the frozen matcher, the answer key, or the threshold.
+5. Delete nothing from F1. Case 4 must go green on merit and case 14 must stay honest.
+
+Dependency: F2.
+
+Verification gate: `verify:r2-responsibilities` reports 14/14 with no exemption in the acceptance
+rule; the F0 block still reproduces 19/30; a new regression test proves an in-sentence exception cue
+is cut, not only a sentence boundary; a new test proves a cut tail missing from `trigger` is
+REJECTED; and the deterministic no-model path is shown to still produce the objects behind all 19
+currently-passing rows.
+
+Risk to watch: this changes a path that helped produce the 19 passing rows. F5 must prove 19/19 are
+preserved. If any of the 19 regress, stop and report rather than tuning the boundary rule to suit
+them.
+
 #### F3. Repair the existing late-completion acceptance seam
 
 Files: `apps/workers/src/lib/source-workflow-read.ts`, optionally a pure queue helper in
@@ -351,11 +488,20 @@ final-record replay to keep row 24 unsupported and recover all 8/8 eligible shap
 preservation of 19/19 prior matches; anti-leak pass; and no changes to
 limits, model, matcher, answer key, threshold, flags, schema, migrations, or deploy files.
 
+Added 2026-08-13, because F2b changes a path that produced the passing rows: the 19/19 preservation
+check is now a HARD gate, not a formality. It must be run and reported explicitly. If any of the 19
+regress, stop and report; do not tune the boundary rule until they pass again.
+
 Stop on fewer than 8 recoveries, any regression, hidden support for 16/26, or any failed command.
 
 Verification gate: all commands and added gates pass in one fail-fast run.
 
 #### F6. Independent review and owner decision
+
+Added 2026-08-13: F6 must specifically audit the F2b change. A reviewer is to confirm that only the
+expected-object boundary moved, that anti-invention, polarity, owner and action-family checks are
+byte-for-byte unchanged, that exactly one boundary helper exists, that a cut tail missing from
+`trigger` is rejected, and that no acceptance-rule exemption was reintroduced.
 
 Run fresh read-only Codex review; continue the existing GLM 5.2 R2 session; require row-by-row honesty,
 locked-decision audit, and `APPROVED FOR LOCAL LANDING REVIEW` or `CHANGES REQUIRED`; fix findings;
@@ -390,6 +536,14 @@ the check that must keep row 24 unsupported while proving the eight eligible fin
 5. No production read is needed; saved evidence is sufficient.
 6. No second gate, bake-off, deployment, or Vercel action.
 7. Do not weaken evidence, field fidelity, polarity, matcher, key, or threshold.
+   **Amended 2026-08-13 by owner decision.** One narrow exception, and only this one: the
+   **expected-object boundary** inside `validateResponsibilityFieldFidelity` may be corrected to the
+   section 8 rule, because today it enforces a definition of "object" that contradicts sections 1 and
+   8. Everything else in fidelity is still frozen: anti-invention, polarity, owner match, action
+   family and multi-verb rejection may not be relaxed. The correction must be paired with the rule
+   that any cut tail appears verbatim in `trigger`, so nothing is lost. The matcher, the answer key
+   and the 27/30 threshold remain untouchable. Record-level or union completeness is explicitly
+   forbidden; see the drift log.
 8. Use only `responsibilityCompletionRequest(seed).sourceSpan`.
 9. No headings, prefixes, siblings, nearby duties, aliases, or fixture terms.
 10. Frozen limits stay 40/500k/$10 and 1/5/1; no new allowance.
@@ -419,7 +573,12 @@ audit, qualifier tests, existing budget refusal, invented fixtures, and honest l
 Rollback: before landing, remove only reviewed hunks. After a later approved landing, revert the
 single correction commit. No data rollback exists. Never use `git reset --hard`.
 
-Open questions: whether the locked compact-object rule safely covers rows 5/14/17 and whether larger
+Open questions, updated 2026-08-13: row 14 is covered (case 13 green) and row 17 is now understood
+and scheduled as F2b. The live open question is **row 5**, whose stored object carries a different
+duty's nouns and misses the required token. Independent review found no evidence it shares row 17's
+cause, and a boundary fix will not invent a missing token, so row 5 may need a different remedy or
+may not be honestly recoverable at all. If it is not, the ceiling is 26/30 and that is a stop-and-ask,
+not a reason to loosen anything. Also still open: whether larger
 documents fit the remaining frozen budget. Tests decide. Row 24 is no longer an open target. If any
 of the eight eligible shapes fails, stop and ask Albert. Do not lower the eight-row gate.
 
