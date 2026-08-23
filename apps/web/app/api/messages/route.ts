@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { requireEmployee } from '@/lib/auth-guard';
 import { getDirectDb } from '@oracle/db/client';
 import { channels, channelParticipants, messages } from '@oracle/db/schema';
+import { triggerLullCheck } from '@/lib/trigger';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,6 +87,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Insert failed' }, { status: 500 });
   }
 
+  // Debounced per channel: a later message moves this same check forward by
+  // another 60 seconds instead of creating an idle polling workload.
+  const lullCheckScheduled = await triggerLullCheck(msg.channelId, msg.id);
+
   return NextResponse.json(
     {
       id: msg.id,
@@ -94,6 +99,7 @@ export async function POST(request: NextRequest) {
       role: msg.role,
       content: msg.content,
       createdAt: msg.createdAt,
+      lullCheckScheduled,
     },
     { status: 201 },
   );

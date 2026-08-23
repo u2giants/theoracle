@@ -22,7 +22,7 @@ import {
   messages,
   messageAttachments,
 } from '@oracle/db/schema';
-import { triggerTask } from '@/lib/trigger';
+import { triggerLullCheck, triggerTask } from '@/lib/trigger';
 
 export const dynamic = 'force-dynamic';
 
@@ -188,6 +188,10 @@ export async function POST(req: NextRequest) {
           'Immediate ingestion dispatch failed. The scheduled sweep will retry this document automatically.',
       })
       .where(eq(documents.id, docId));
+  }
+
+  if (attachmentMessage) {
+    await triggerLullCheck(attachmentMessage.channelId, attachmentMessage.id);
   }
 
   return NextResponse.json(

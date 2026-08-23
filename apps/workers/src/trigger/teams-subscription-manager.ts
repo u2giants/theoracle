@@ -12,7 +12,7 @@
 //     (reauthorizationRequired / subscriptionRemoved / missed) for prompt repair.
 //
 // NOTE: this deliberately reuses the single existing 30-min schedule for both
-// resources — Trigger.dev is at its 10/10 schedule limit (AGENTS.md §10), so do
+// resources. Oracle currently uses 9/10 Trigger.dev schedule slots, so do
 // NOT add another schedules.task() here.
 //
 // Requires the AZURE_* + TEAMS_* env in the Trigger.dev project (see

@@ -1,9 +1,11 @@
-// R11.2 — Lull-interjection scheduled task.
+// R11.2 — Event-driven lull-interjection task.
 //
 // Per spec Part 5.1 Rule 2 + docs/oracle/05-ai-retrofit-phase-packet.md
 // "Phase R11" + HANDOFF.md R11.2.
 //
-// Every minute, for each active channel:
+// Sixty seconds after the latest user message in one channel:
+//   0. Verify the triggering message is still that channel's latest user
+//      message. A newer message makes this delayed run a no-op.
 //   1. Compute the inputs to decideLullInterjection (R11.1, pure):
 //        - secondsSinceLastUserMessage
 //        - minutesSinceLastOracleInterjection
@@ -29,7 +31,7 @@
 // participant filters. Search-only embeddings then choose a gap related to
 // the recent channel messages. Claim evidence is untouched.
 
-import { schedules } from '@trigger.dev/sdk/v3';
+import { task } from '@trigger.dev/sdk/v3';
 import { and, desc, eq, gt, gte, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { getDirectDb } from '@oracle/db/client';
@@ -598,6 +600,7 @@ async function processChannel(
   channel: { id: string; isGroupChat: boolean },
   settings: LullSettings,
   now: Date,
+  expectedLatestUserMessageId: string,
 ): Promise<ChannelOutcome> {
   const ctx = await loadChannelContext(
     db,
@@ -712,6 +715,29 @@ async function processChannel(
         };
       }
 
+      // A message can arrive while the model is drafting. Re-check immediately
+      // before claiming the gap and posting so an old delayed run never
+      // interrupts a conversation that has resumed.
+      const [latestUserMessage] = await tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.channelId, channel.id),
+            eq(messages.role, 'user'),
+            isNull(messages.deletedAt),
+          ),
+        )
+        .orderBy(desc(messages.createdAt), desc(messages.id))
+        .limit(1);
+      if (latestUserMessage?.id !== expectedLatestUserMessageId) {
+        return {
+          channelId: channel.id,
+          decision: 'skip' as const,
+          reasonCode: 'newer_user_message',
+        };
+      }
+
       // Claim the gap atomically — only if it is still open.
       const claimed = await tx
         .update(gaps)
@@ -787,21 +813,21 @@ async function processChannel(
   }
 }
 
-// ─── Top-level scheduled task ───────────────────────────────────────────────
-export const lullInterjectionTask = schedules.task({
+interface LullInterjectionPayload {
+  channelId: string;
+  messageId: string;
+}
+
+// ─── Top-level event-driven task ───────────────────────────────────────────
+export const lullInterjectionTask = task({
   id: 'lull-interjection',
-  // Every minute. The cooldown + rate-cap gates inside decideLullInterjection
-  // handle the actual interjection frequency; this just makes sure we check
-  // often enough that a 60s lull window can fire promptly.
-  cron: '* * * * *',
   maxDuration: 60 * 2,
-  // Retries disabled: this runs every minute and posts live interjections. A
-  // retry would re-evaluate stale channels and risk a duplicate post; the next
-  // tick is the natural retry. (Per-task override of the global default=3.)
+  // Retries remain disabled because the task can post a live interjection.
+  // Trigger dispatch is debounced by channel and delayed 60 seconds in the web
+  // app; a retry could re-evaluate stale state and risk a duplicate post.
   retry: { maxAttempts: 1 },
-  run: async (_payload, { ctx }) => {
+  run: async (payload: LullInterjectionPayload, { ctx }) => {
     const db = getDirectDb();
-    const client = buildOracleClient();
     const startedAt = new Date();
 
     const [jobRun] = await db
@@ -816,45 +842,74 @@ export const lullInterjectionTask = schedules.task({
     if (!jobRun) throw new Error('[lull-interjection] failed to insert job_runs row');
 
     const totals = {
-      channelsConsidered: 0,
+      channelsConsidered: 1,
       interjectionsAsked: 0,
       skipsByReason: {} as Record<string, number>,
       errors: 0,
     };
 
     try {
+      if (
+        typeof payload?.channelId !== 'string' ||
+        typeof payload?.messageId !== 'string'
+      ) {
+        totals.channelsConsidered = 0;
+        totals.skipsByReason.invalid_event_payload = 1;
+        await db
+          .update(jobRuns)
+          .set({ status: 'complete', finishedAt: new Date(), outputJson: totals })
+          .where(eq(jobRuns.id, jobRun.id));
+        return { ok: true, ...totals };
+      }
+
+      const [channel] = await db
+        .select({ id: channels.id, isGroupChat: channels.isGroupChat })
+        .from(channels)
+        .where(and(eq(channels.id, payload.channelId), eq(channels.status, 'active')))
+        .limit(1);
+
+      const [latestUserMessage] = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.channelId, payload.channelId),
+            eq(messages.role, 'user'),
+            isNull(messages.deletedAt),
+          ),
+        )
+        .orderBy(desc(messages.createdAt), desc(messages.id))
+        .limit(1);
+
+      if (!channel || latestUserMessage?.id !== payload.messageId) {
+        const reason = !channel ? 'channel_not_active' : 'newer_user_message';
+        totals.skipsByReason[reason] = 1;
+        await db
+          .update(jobRuns)
+          .set({ status: 'complete', finishedAt: new Date(), outputJson: totals })
+          .where(eq(jobRuns.id, jobRun.id));
+        return { ok: true, ...totals };
+      }
+
       const lullSettings = await loadLullSettings(db);
       const routeCandidates = await resolveInterviewCandidates(db);
       const route = routeCandidates[0]!.route;
-
-      const activeChannels = await db
-        .select({ id: channels.id, isGroupChat: channels.isGroupChat })
-        .from(channels)
-        .where(eq(channels.status, 'active'));
-
-      for (const channel of activeChannels) {
-        totals.channelsConsidered += 1;
-        try {
-          const outcome = await processChannel(
-            db,
-            client,
-            route,
-            routeCandidates,
-            channel,
-            lullSettings,
-            new Date(),
-          );
-          if (outcome.decision === 'ask') {
-            totals.interjectionsAsked += 1;
-          } else {
-            const code = outcome.reasonCode ?? 'unknown';
-            totals.skipsByReason[code] = (totals.skipsByReason[code] ?? 0) + 1;
-            if (outcome.errorMessage) totals.errors += 1;
-          }
-        } catch (chanErr) {
-          totals.errors += 1;
-          console.error(`[lull-interjection] channel ${channel.id} failed:`, chanErr);
-        }
+      const outcome = await processChannel(
+        db,
+        buildOracleClient(),
+        route,
+        routeCandidates,
+        channel,
+        lullSettings,
+        new Date(),
+        payload.messageId,
+      );
+      if (outcome.decision === 'ask') {
+        totals.interjectionsAsked += 1;
+      } else {
+        const code = outcome.reasonCode ?? 'unknown';
+        totals.skipsByReason[code] = 1;
+        if (outcome.errorMessage) totals.errors += 1;
       }
 
       await db

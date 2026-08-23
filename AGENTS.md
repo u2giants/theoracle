@@ -484,16 +484,16 @@ Gemini 3.1 Flash-Lite (`gemini-3.1-flash-lite`) returned `NOT_FOUND` through the
 Future sessions should:
 Do not map `google/*` back to `vertex` in `packages/ai/src/routes/resolve.ts` unless the exact model has been verified in the configured Vertex region. `GEMINI_API_KEY` is optional; `GoogleGeminiAdapter` can also mint Gemini API OAuth tokens from `GOOGLE_APPLICATION_CREDENTIALS_JSON`.
 
-### Trigger.dev schedule slots are currently full
+### Trigger.dev schedule slots have one reserved opening
 
 What changed:
-The `extraction-ab-eval` worker is an immediate Trigger.dev task with no cron sweep. A cron fallback was attempted on 2026-06-16, but Trigger.dev deploy failed because the project already had 10/10 schedules.
+The `extraction-ab-eval` worker is an immediate Trigger.dev task with no cron sweep. A cron fallback was attempted on 2026-06-16, but Trigger.dev deploy failed because the project had 10/10 schedules. The event-driven lull-interjection change later removed its every-minute schedule, leaving 9/10 schedules.
 
 Why:
-Adding another `schedules.task()` currently blocks worker deployment. The A/B eval page queues rows and dispatches `extraction-ab-eval` immediately from Vercel through `TRIGGER_SECRET_KEY`.
+The A/B eval page queues rows and dispatches `extraction-ab-eval` immediately from Vercel through `TRIGGER_SECRET_KEY`. The one open schedule slot is operational headroom, not an invitation to restore polling.
 
 Future sessions should:
-Do not add new Trigger schedules casually. Reuse/consolidate an existing schedule or increase the Trigger.dev schedule limit before adding another `schedules.task()`. Deploy workers with `corepack pnpm --filter @oracle/workers run deploy`.
+Do not add new Trigger schedules casually. Keep the remaining slot available; reuse/consolidate an existing schedule or increase the Trigger.dev schedule limit before adding another `schedules.task()`. Deploy workers with `corepack pnpm --filter @oracle/workers run deploy`.
 
 ### Teams transcript ids + the getAllTranscripts PULL endpoint (don't reintroduce these bugs)
 

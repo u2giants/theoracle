@@ -12,8 +12,8 @@
 // Idempotent: re-runs upsert on transcript_id and never change an already-
 // 'ingested'/'dismissed' row.
 //
-// On-demand only (NOT a schedule): Trigger.dev is at its 10/10 schedule limit
-// (AGENTS.md §10). Trigger via the picker's "Scan for recent meetings" button or
+// On-demand only (NOT a schedule): keep the remaining Trigger.dev schedule slot
+// available. Trigger via the picker's "Scan for recent meetings" button or
 // the Trigger MCP: trigger_task teams-transcript-discovery-scan { "sinceDays": 14 }
 
 import { task } from '@trigger.dev/sdk/v3';

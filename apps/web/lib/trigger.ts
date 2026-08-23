@@ -42,6 +42,46 @@ export async function triggerTask(
   }
 }
 
+/**
+ * Schedule the lull check for 60 seconds after the most recent user message.
+ *
+ * Trigger.dev's trailing debounce keeps one delayed run per channel and moves
+ * it forward when another message arrives. The message ID in the payload lets
+ * the worker fail closed if a newer message races with the delayed run.
+ */
+export async function triggerLullCheck(
+  channelId: string,
+  messageId: string,
+): Promise<boolean> {
+  const secretKey = process.env.TRIGGER_SECRET_KEY;
+  if (!secretKey) {
+    console.warn(
+      '[trigger] TRIGGER_SECRET_KEY not configured - lull check was not scheduled.',
+    );
+    return false;
+  }
+
+  try {
+    const { tasks } = await import('@trigger.dev/sdk/v3');
+    await tasks.trigger(
+      'lull-interjection',
+      { channelId, messageId },
+      {
+        debounce: {
+          key: `lull-interjection:${channelId}`,
+          delay: '60s',
+          mode: 'trailing',
+        },
+      },
+    );
+    console.log('[trigger] scheduled lull check', { channelId, messageId });
+    return true;
+  } catch (err) {
+    console.warn('[trigger] could not schedule lull check:', err);
+    return false;
+  }
+}
+
 export type TriggerDispatchResult =
   | { dispatched: true; runId: string }
   | { dispatched: false; error: string };
