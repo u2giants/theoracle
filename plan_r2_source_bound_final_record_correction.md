@@ -24,6 +24,16 @@ Created: 2026-08-11
   recovery target is still unmet by the deterministic corrector alone (21, not 27), which is expected,
   because rows 5, 14, 15, 17, 20 and 23 depend on F3/F4 seam work rather than on re-correcting an
   already-stored record.
+- **2026-08-25, after independent review. The replay gate now checks preservation per RECORD, not
+  only per ROW.** `scoreResponsibilityAnswerKey` performs a global best-assignment over all 93
+  actuals, so row-level preservation alone can in principle stay green while the record satisfying a
+  row changes — one record regressing and another taking its place. Gemini 3.7 Flash (read-only
+  review of `b025e65`, verdict APPROVE, no P0/P1/P2) raised the same scenario but dismissed it as
+  circumstantially impossible here. Circumstantial is not proof, so the gate now ALSO scores each
+  stored record in isolation, where no assignment can substitute one record for another, and fails
+  if any record that matched a row on its own no longer matches that same row. Result on the real
+  data: `recordLevelRegressions: []`. Do not remove this check in favour of the row check; the row
+  check is the weaker of the two.
 - **2026-08-25, after F3. The late seam is one optional hook, not a new stage.**
   `executeResponsibilityCompletionBatches` gained an optional `correctRecord` hook applied to each
   canonicalized candidate BEFORE strict-improvement selection, so the record that is judged is the
