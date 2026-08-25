@@ -81,6 +81,7 @@ import {
   bindForcedResponsibilitySpans,
   canonicalizeForcedResponsibilityOutput,
   completeAndMatchResponsibilityInventory,
+  correctResponsibilityFinalRecord,
   lateResidualResponsibilitySeeds,
   mergeResponsibilityRecordsByInventoryId,
   canonicalizeResponsibilityCompletionBatch,
@@ -107,6 +108,7 @@ import {
   type ResponsibilityCompletionPack,
   type ResponsibilityInventorySeed,
   type ResponsibilityCompletionBaseline,
+  type FinalRecordCorrection,
 } from './responsibility-reader';
 import {
   mapWithConcurrency,
@@ -459,6 +461,16 @@ export async function runLateResponsibilityCompletion(args: {
     completeIds: args.completeIds,
   });
   const pack = packResponsibilityCompletions({ seeds: residualSeeds, ...args.pack });
+  // F3. The late path is the ONLY late path, and this is its one correction seam: every
+  // candidate the existing dispatch returns is passed through the pure source-bound
+  // corrector before the existing strict-improvement selection and the caller's existing
+  // `validateResponsibilityRead`. No new seed queue, completion stage, dispatch, budget
+  // reservation, model call or retry is introduced — a rejected correction simply leaves
+  // the candidate exactly as it arrived, and the existing incomplete outcome stands.
+  const residualSeedById = new Map(
+    residualSeeds.map((seed) => [seed.inventorySeedId, seed]),
+  );
+  const corrections: FinalRecordCorrection[] = [];
   const results = await executeResponsibilityCompletionBatches({
     budget: args.budget,
     batches: pack.batches,
@@ -469,11 +481,36 @@ export async function runLateResponsibilityCompletion(args: {
     })),
     runBatch: args.runBatch,
     validateCompletion: args.validateCompletion,
+    correctRecord: (record) => {
+      const seed = residualSeedById.get(record.responsibilityId);
+      if (!seed) return record;
+      const correction = correctResponsibilityFinalRecord({
+        seed,
+        candidate: {
+          role: record.role,
+          action: record.action,
+          object: record.object,
+          trigger: record.trigger ?? null,
+        },
+      });
+      corrections.push(correction);
+      if (!correction.accepted || !correction.after) return record;
+      return {
+        ...record,
+        role: correction.after.role,
+        action: correction.after.action,
+        object: correction.after.object,
+        trigger: correction.after.trigger,
+        label: `${correction.after.role}: ${correction.after.action} ${correction.after.object}`
+          .slice(0, 240),
+      };
+    },
   });
   return {
     residualSeeds,
     pack,
     results,
+    corrections,
     final: finalizeLateResponsibilityCompletion({
       seedIds: residualSeeds.map((seed) => seed.inventorySeedId),
       results,
@@ -496,6 +533,13 @@ export async function executeResponsibilityCompletionBatches(args: {
     record: ResponsibilityReadOutput['responsibilities'][number],
   ) => { complete: boolean; reasons: readonly string[] };
   isRetryableFailure?: (error: unknown) => boolean;
+  // F3 seam. A pure, source-bound rewrite applied to each returned candidate BEFORE
+  // strict-improvement selection and before the caller's existing validation, so the
+  // record that is judged is the record that is kept. It performs no dispatch, model
+  // call, budget reservation or retry. Callers that do not supply it are unchanged.
+  correctRecord?: (
+    record: ResponsibilityReadOutput['responsibilities'][number],
+  ) => ResponsibilityReadOutput['responsibilities'][number];
 }): Promise<ResponsibilityCompletionBatchResult[]> {
   reserveResponsibilityCompletionBatches({ budget: args.budget, batches: args.batches });
   return mapWithConcurrency({
@@ -529,8 +573,11 @@ export async function executeResponsibilityCompletionBatches(args: {
         try {
           const output = await args.runBatch(batch, attempt);
           const canonical = canonicalizeResponsibilityCompletionBatch({ batch, output });
+          const corrected = args.correctRecord
+            ? canonical.map((record) => args.correctRecord!(record))
+            : canonical;
           const selection = selectStrictResponsibilityCompletionImprovements({
-            records: canonical,
+            records: corrected,
             baselines: args.baselines.filter((item) => batch.seedIds.includes(item.responsibilityId)),
             validate: args.validateCompletion,
           });

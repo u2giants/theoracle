@@ -7,6 +7,35 @@ Created: 2026-08-11
 
 ## Drift log
 
+- **2026-08-25, after the production-replay gate and F3. The 19/19 preservation gate is now RUN and
+  PASSED, from the real stored records.** New SELECT-only harness
+  `apps/workers/src/__verify__/r2-production-replay.ts` (`pnpm --filter @oracle/workers
+  verify:r2-production-replay`, requires `R2_REPLAY_DATABASE_URL`) reads all **93** stored
+  responsibility records for the 2026-08-11 map `37a8fc62-23e4-46b7-8464-d1c784dc73cd`, rebuilds the
+  source inventory from the same production chunks, and replays every record through the current
+  fidelity validator and `correctResponsibilityFinalRecord`. Results, reproduced twice:
+  **93/93 seeds re-resolved (0 unresolved); stored baseline scores exactly 19/30 with exactly the
+  eleven documented misses; after correction 21/30; regressed rows: NONE; preserved rows: 19/19;
+  recovered rows: 19 and 29; negative controls 16, 24 and 26 still unmatched.** 18 corrections were
+  accepted (11 `action_inflection_normalized`, 8 `object_boundary_isolated`; 75 records refused with
+  `no_strict_improvement`). This is the first time the 19/30 residual has been proven from the real
+  records rather than from the verifier-only distillation in the F0 block — and the two agree.
+  Consequence for F5: its residual-replay obligation is met for preservation; the remaining eight-row
+  recovery target is still unmet by the deterministic corrector alone (21, not 27), which is expected,
+  because rows 5, 14, 15, 17, 20 and 23 depend on F3/F4 seam work rather than on re-correcting an
+  already-stored record.
+- **2026-08-25, after F3. The late seam is one optional hook, not a new stage.**
+  `executeResponsibilityCompletionBatches` gained an optional `correctRecord` hook applied to each
+  canonicalized candidate BEFORE strict-improvement selection, so the record that is judged is the
+  record that is kept. Only `runLateResponsibilityCompletion` supplies it, so the change is confined
+  to the late path exactly as F3 requires; a caller that omits the hook is byte-for-byte unchanged
+  (pinned by test F3c). `runLateResponsibilityCompletion` now also returns a `corrections`
+  `FinalRecordCorrection[]` audit for F4 to persist. No new seed queue, completion stage, dispatch,
+  budget reservation, model call or retry was added — pinned by dispatch counters in F3a/F3b and by
+  the over-budget case F3d, and by F3e which asserts exactly one production call site each for the
+  corrector and the late path. Environment note: `verify:r2-pinned-inventory` could NOT be run in
+  this session because the licensed pinned fixture path `Z:` is not mounted on this machine; every
+  other local gate was run and passed.
 - **2026-08-13, after F2b. What was built, and the exact limit of what it proves.** The bounded
   object rule is live in one helper, `boundedSourceObject` in `responsibility-reader.ts`, used by all
   three call sites. Green locally: 16/16 F1 cases with no exemption; F0 still 19/30; pinned support
@@ -132,7 +161,8 @@ Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](
 | F1. Add generic failing final-record tests | ✅ done 2026-08-12 | 13 invented-source cases define the F2 contract and are RED for exactly one reason: `correctResponsibilityFinalRecord` does not exist yet. Every pre-existing case in the suite still passes and `pnpm --filter @oracle/workers typecheck` is clean. |
 | F2. Add source-bound action and object normalization | ✅ done 2026-08-13 | `correctResponsibilityFinalRecord` (GLM 5.2 draft, reviewed, acceptance-rule exemption removed). All four defect families handled. UNCOMMITTED. |
 | F2b. Align the expected object with the locked section 8 boundary | ✅ done 2026-08-13 | One `boundedSourceObject` helper is now the single boundary definition, used by the qualifier-loss check, `deterministicInventoryRecord` and the corrector. A cut condition must appear verbatim in `trigger` or fidelity fails with `condition_not_preserved_in_trigger`; a cut belonging to a different duty is deliberately not demanded. 16/16 F1 cases pass with no exemption, F0 still reproduces 19/30, and every other local suite is green. **Not yet proven: the 19/19 production-replay preservation gate, which belongs to F5.** UNCOMMITTED. |
-| F3. Repair the existing late-completion acceptance seam | ⬜ open | Existing late candidates pass through F2 before existing validation; no new pass, dispatch, reservation, call, or retry is added. |
+| F3. Repair the existing late-completion acceptance seam | ✅ done 2026-08-25 | Existing late candidates pass through F2 before existing selection and validation via one optional `correctRecord` hook supplied only by `runLateResponsibilityCompletion`; tests F3a–F3e pin dispatch-once, refusal preserving the existing incomplete outcome, the untouched shared executor, the over-budget case, and one production call site each. `corrections` audit returned for F4. |
+| **Production-replay preservation gate (F5 prerequisite)** | ✅ **RUN and PASSED 2026-08-25** | `verify:r2-production-replay` over the real 93 stored records: baseline 19/30 with the eleven documented misses, after correction 21/30, **0 regressed, 19/19 preserved**, rows 19 and 29 recovered, negative controls 16/24/26 still unmatched. |
 | F4. Integrate before final validation and assembly | ⬜ open | The production seam stays complete-only, source-ordered, one-to-one, and fully audited. |
 | F5. Run unchanged local gates and residual replay | ⬜ open | All suites pass; the pinned source-support verifier stays 28/30 with rows 16/26 unsupported; a separate final-record replay keeps row 24 unsupported and recovers all 8/8 eligible shapes to reach the frozen 27/30 minimum. |
 | F6. Independent review and owner decision | ⬜ open | Codex and GLM 5.2 approve with no P0/P1 before Albert decides on local landing. |

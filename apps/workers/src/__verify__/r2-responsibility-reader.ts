@@ -2145,6 +2145,183 @@ const blockedLateOrchestration = await runLateResponsibilityCompletion({
 assert.deepEqual(blockedLateOrchestration.pack.unscheduledIds, [discoveryMissingSeed.inventorySeedId]);
 assert.equal(blockedLateOrchestration.final.outcomes[0]?.status, 'budget_exhausted');
 assert.equal(blockedLateOrchestration.final.degraded, true);
+
+// ---------------------------------------------------------------------------
+// F3. The late-completion acceptance seam.
+//
+// Plan: plan_r2_source_bound_final_record_correction.md, phase F3.
+// The existing late path stays the ONLY late path. Each candidate it already
+// returns is passed through `correctResponsibilityFinalRecord` BEFORE the
+// existing strict-improvement selection and the caller's existing
+// `validateResponsibilityRead`, so the record that is judged is the record that
+// is kept. No new seed queue, dispatch, budget reservation, model call or retry
+// may appear. All source text here is invented.
+// ---------------------------------------------------------------------------
+
+const lateBudget = () => new SourceReaderBudget({
+  maxReadCalls: 1, maxInputTokens: 500_000, maxEstimatedCostUsd: 10,
+  estimatedInputCostPerMillionTokensUsd: 1, maxRepairAttempts: 0, maxConcurrency: 1,
+});
+
+// F3a. An inflected late candidate is corrected in place, with exactly one dispatch,
+// and the validator sees the CORRECTED record, not the raw one.
+let f3DispatchCount = 0;
+const f3Validated: Array<{ action: string; object: string }> = [];
+const f3CorrectedLate = await runLateResponsibilityCompletion({
+  seeds: sourceBoundDiscovery.inventorySeeds,
+  handledIds: new Set([discoveryInitialSeed.inventorySeedId]),
+  completeIds: new Set(),
+  pack: lateOrchestrationPack,
+  budget: lateBudget(),
+  concurrency: 1,
+  batchOffset: 8,
+  runBatch: async () => {
+    f3DispatchCount += 1;
+    return { completions: [{ ...lateDiscoveryRecord, action: 'sends' }] };
+  },
+  validateCompletion: (record) => {
+    f3Validated.push({ action: record.action, object: record.object });
+    return { complete: true, reasons: [] };
+  },
+});
+assert.equal(f3DispatchCount, 1, 'F3 adds no second dispatch for a corrected late candidate');
+assert.equal(
+  f3CorrectedLate.corrections.length,
+  1,
+  'every late candidate is offered to the corrector exactly once',
+);
+assert.equal(f3CorrectedLate.corrections[0]?.accepted, true, 'the inflected action is correctable');
+assert.deepEqual(
+  f3CorrectedLate.corrections[0]?.reasons,
+  ['action_inflection_normalized'],
+  'the correction reports its own named reason',
+);
+assert.equal(
+  f3CorrectedLate.corrections[0]?.seedId,
+  lateDiscoverySeed.inventorySeedId,
+  'the correction audit is bound to the seed it corrected',
+);
+assert.equal(
+  f3CorrectedLate.corrections[0]?.sourceSpanSha256,
+  lateDiscoverySeed.sourceSpanSha256,
+  'the correction audit carries the source span hash',
+);
+assert.equal(
+  f3Validated[0]?.action,
+  'send',
+  'the existing validator judges the corrected record, not the raw candidate',
+);
+assert.equal(
+  f3CorrectedLate.final.records[0]?.action,
+  'send',
+  'the corrected record is the record the late path keeps',
+);
+assert.equal(
+  f3CorrectedLate.final.records[0]?.responsibilityId,
+  lateDiscoverySeed.inventorySeedId,
+  'correction never changes the seed identity a record is bound to',
+);
+assert.equal(f3CorrectedLate.final.degraded, false);
+
+// F3b. A refused correction leaves the candidate byte-identical and the existing
+// incomplete outcome stands. The refusal reason is still recorded.
+let f3RefusedDispatchCount = 0;
+const f3RefusedLate = await runLateResponsibilityCompletion({
+  seeds: sourceBoundDiscovery.inventorySeeds,
+  handledIds: new Set([discoveryInitialSeed.inventorySeedId]),
+  completeIds: new Set(),
+  pack: lateOrchestrationPack,
+  budget: lateBudget(),
+  concurrency: 1,
+  batchOffset: 9,
+  runBatch: async () => {
+    f3RefusedDispatchCount += 1;
+    // An empty action can never be invented, so the corrector must refuse.
+    return { completions: [{ ...lateDiscoveryRecord, action: '' }] };
+  },
+  validateCompletion: (record) => ({
+    complete: false,
+    reasons: [`late_candidate_incomplete:${record.action === '' ? 'empty_action' : 'other'}`],
+  }),
+});
+assert.equal(f3RefusedDispatchCount, 1, 'a refused correction triggers no extra dispatch or retry');
+assert.equal(f3RefusedLate.corrections[0]?.accepted, false);
+assert.deepEqual(
+  f3RefusedLate.corrections[0]?.reasons,
+  ['missing_action'],
+  'the refusal is named, never silent',
+);
+assert.equal(f3RefusedLate.corrections[0]?.after, null, 'a refused correction proposes nothing');
+assert.equal(f3RefusedLate.final.records.length, 0, 'a refused candidate is not accepted');
+assert.equal(
+  f3RefusedLate.final.outcomes[0]?.status,
+  'validation_rejected',
+  'the existing incomplete outcome is preserved unchanged',
+);
+assert.ok(
+  f3RefusedLate.final.outcomes[0]?.reasons.includes('late_candidate_incomplete:empty_action'),
+  'the existing validator still sees the untouched candidate when correction is refused',
+);
+assert.equal(f3RefusedLate.final.degraded, true);
+
+// F3c. The seam is confined to the late path: the shared batch executor is
+// unchanged for any caller that does not supply the correction hook.
+const f3UncorrectedExecution = await executeResponsibilityCompletionBatches({
+  budget: lateBudget(),
+  batches: packResponsibilityCompletions({
+    seeds: [lateDiscoverySeed],
+    ...lateOrchestrationPack,
+  }).batches,
+  concurrency: 1,
+  baselines: [{ responsibilityId: lateDiscoverySeed.inventorySeedId, complete: false }],
+  runBatch: async () => ({ completions: [{ ...lateDiscoveryRecord, action: 'sends' }] }),
+  validateCompletion: () => ({ complete: true, reasons: [] }),
+});
+assert.equal(
+  f3UncorrectedExecution[0]?.records[0]?.action,
+  'sends',
+  'without the F3 hook the shared executor still returns the raw candidate',
+);
+
+// F3d. Over-budget seeds stay incomplete: the seam never buys a call the existing
+// path refused to make.
+const f3OverBudgetLate = await runLateResponsibilityCompletion({
+  seeds: sourceBoundDiscovery.inventorySeeds,
+  handledIds: new Set([discoveryInitialSeed.inventorySeedId]),
+  completeIds: new Set(),
+  pack: { ...lateOrchestrationPack, remainingCalls: 0 },
+  budget: lateBudget(),
+  concurrency: 1,
+  batchOffset: 10,
+  runBatch: async () => { throw new Error('F3 must not dispatch an unscheduled batch'); },
+  validateCompletion: () => ({ complete: true, reasons: [] }),
+});
+assert.equal(f3OverBudgetLate.corrections.length, 0, 'no candidate means no correction');
+assert.equal(f3OverBudgetLate.final.outcomes[0]?.status, 'budget_exhausted');
+assert.equal(f3OverBudgetLate.final.degraded, true);
+
+// F3e. The production seam is the existing late path only. Prove by reading the
+// production file that the correction is wired through `runLateResponsibilityCompletion`
+// and that no new completion stage was introduced alongside it.
+const f3WorkflowReadSource = readFileSync(
+  new URL('../lib/source-workflow-read.ts', import.meta.url),
+  'utf8',
+).replace(/\r\n/g, '\n');
+assert.equal(
+  (f3WorkflowReadSource.match(/correctResponsibilityFinalRecord\(\{/g) ?? []).length,
+  1,
+  'exactly one production call site applies the final-record correction',
+);
+assert.equal(
+  (f3WorkflowReadSource.match(/runLateResponsibilityCompletion\(\{/g) ?? []).length,
+  1,
+  'the late path still has exactly one production call site',
+);
+assert.ok(
+  f3WorkflowReadSource.indexOf('correctResponsibilityFinalRecord({') >
+    f3WorkflowReadSource.indexOf('export async function runLateResponsibilityCompletion('),
+  'the correction is applied inside the existing late orchestration, not as a new stage',
+);
 const splitDiscoveryQuote =
   '[Service Desk] Service Desk reviews packets and then sends notices.';
 const splitDiscoveryPrefix = 'Reference introduction.\n';
