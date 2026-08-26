@@ -776,3 +776,35 @@ The local 28/30 check proved that exact model-visible source spans could support
 It did not prove that the production model would produce those answers. The 19/30 live result shows
 the remaining failure is in production completion and field wording, not basic source visibility
 alone. That gap must be diagnosed read-only before anyone proposes another architecture change.
+
+## Production replay preservation gate, 2026-08-25
+
+The 19/30 residual had only ever been reproduced from a verifier-only distillation. It is now proven
+from the real stored records, and the F2/F2b/F3/F4 correction work is proven not to have broken them.
+
+- Command: `pnpm --filter @oracle/workers verify:r2-production-replay`. SELECT-only. Requires
+  `R2_REPLAY_DATABASE_URL` (the production Supabase URL; a direct `db.<ref>.supabase.co` URL is
+  rewritten to the session pooler automatically, override the host with `R2_REPLAY_POOLER_HOST`).
+  It performs two SELECTs, writes nothing, calls no model, spends no budget, and prints only counts,
+  row numbers, reason codes and hashes — never source text.
+- Source: the eighth production gate above — map `37a8fc62-23e4-46b7-8464-d1c784dc73cd`, document
+  `cc005035-2251-4dbe-ba1a-8913ad3ea912`, all **93** stored responsibility records.
+- Result, stable across re-runs on 2026-08-25: 93/93 seeds re-resolved from the same production
+  chunks; stored baseline scores exactly **19/30** under the unchanged `field-aware-v3` matcher with
+  exactly the eleven documented misses; after correction **21/30**; **0 regressed rows**; **19/19
+  preserved**; rows 19 and 29 recovered; negative controls 16, 24 and 26 still unmatched;
+  **0 record-level regressions**. 18 corrections accepted (11 `action_inflection_normalized`,
+  8 `object_boundary_isolated`), 75 refused with `no_strict_improvement`.
+- The gate checks preservation twice, and both checks must hold. Row-level preservation alone is the
+  weaker of the two: `scoreResponsibilityAnswerKey` assigns records to rows by global best fit, so a
+  row can stay green while the record satisfying it changes. The gate therefore also scores every
+  stored record in ISOLATION and fails if any record that matched a row on its own stops matching
+  that same row. Do not remove the record-level check in favour of the row check.
+- Independent review: Gemini 3.7 Flash reviewed the harness and the F3 seam read-only at commit
+  `b025e65` and returned APPROVE with no P0/P1/P2. It raised the global-matching scenario but
+  dismissed it as circumstantially impossible; the record-level check replaces that argument with a
+  test.
+- This gate proves PRESERVATION, not readiness. It says the correction work broke nothing that
+  production already got right. It does not predict what a new production run would score, and the
+  production hard stop is unchanged: no second gate without a new written plan and a new explicit
+  owner authorization.
