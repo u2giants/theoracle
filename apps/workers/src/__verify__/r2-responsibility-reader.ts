@@ -57,6 +57,7 @@ import {
   responsibilityCompletionRequest,
   lateResidualResponsibilitySeeds,
   mergeResponsibilityRecordsByInventoryId,
+  resolveEnclosingResponsibilityDutySpan,
   buildResponsibilityFinalRecordCorrectionAudit,
   type ResponsibilityInventorySeed,
 } from '../lib/responsibility-reader';
@@ -5420,4 +5421,90 @@ assert.equal(
   f6IsolatedRows.length,
   2,
   'F6: asking one expected row per call is the only way to recover the full isolated match set',
+);
+
+// ---------------------------------------------------------------------------
+// F6. A record with no resolvable enclosing duty span must still be proved.
+//
+// `resolveEnclosingResponsibilityDutySpan` returns null when no duty span encloses the
+// evidence quote AND the quote itself carries no duty verb. Before this fix that produced
+// `fieldFidelity = null`, and because the rejection branch only fires when fidelity EXISTS
+// and fails, the record was accepted and persisted having passed NO field check at all —
+// not owner match, not polarity, not anti-invention, not multi-verb, and not the condition
+// rule. Both F6 reviewers found it independently.
+//
+// The record below carries an INVENTED object token ('QA1 photos') that does not appear in
+// its source at all, so it must be rejected by anti-invention. Its quote is an exact,
+// verb-less fragment of the chunk, which is what defeats the span resolver. It has a
+// matched inventory seed, so the seed's own immutable source span is available as the
+// fidelity source and is now used.
+//
+// Invented source wording only.
+// ---------------------------------------------------------------------------
+
+const f6SpanlessChunkId = 'f6_spanless_chunk';
+const f6SpanlessChunks = [{
+  id: f6SpanlessChunkId,
+  documentId,
+  rawText: '[Depot Lead]\n- Upload route packets into Hub North.\nHub North is open on weekdays.',
+}];
+const f6SpanlessInventory = buildResponsibilitySourceInventory(f6SpanlessChunks);
+assert.equal(f6SpanlessInventory.seeds.length, 1, 'F6: the spanless case needs exactly one seed');
+const f6SpanlessSeed = f6SpanlessInventory.seeds[0]!;
+
+// Verb-less exact fragment: no duty verb, so the enclosing-span resolver returns null.
+const f6VerblessQuote = 'Hub North is open on weekdays';
+assert.ok(
+  f6SpanlessChunks[0]!.rawText.includes(f6VerblessQuote),
+  'F6: the evidence quote must be an exact substring or the quote gate rejects it first',
+);
+assert.equal(
+  resolveEnclosingResponsibilityDutySpan({
+    rawText: f6SpanlessChunks[0]!.rawText,
+    evidenceQuote: f6VerblessQuote,
+    fileType: 'text/plain',
+    fileName: 'f6.txt',
+  }),
+  null,
+  'F6: this quote must genuinely defeat the span resolver, or the case proves nothing',
+);
+
+const f6SpanlessValidation = validateResponsibilityRead({
+  output: {
+    summary: 'F6 spanless fidelity case.',
+    responsibilities: [{
+      responsibilityId: f6SpanlessSeed.inventorySeedId,
+      chunkId: f6SpanlessChunkId,
+      label: 'Depot Lead: file QA1 photos',
+      role: 'Depot Lead',
+      action: 'file',
+      // Invented: 'QA1 photos' appears nowhere in the source span.
+      object: 'QA1 photos',
+      trigger: null,
+      evidenceQuote: f6VerblessQuote,
+    }],
+  } as any,
+  documentId,
+  segment: {
+    segmentId: 'f6_spanless_segment',
+    title: 'F6 spanless',
+    shape: 'responsibilities',
+    summary: 'F6 spanless validation segment.',
+    chunkIds: [f6SpanlessChunkId],
+  },
+  chunks: f6SpanlessChunks,
+  allCoveredChunkIds: new Set([f6SpanlessChunkId]),
+  inventorySeeds: f6SpanlessInventory.seeds,
+  fileType: 'text/plain',
+  fileName: 'f6.txt',
+} as any);
+
+assert.ok(
+  !f6SpanlessValidation.completeElementIds.includes(f6SpanlessSeed.inventorySeedId),
+  'F6: a record whose enclosing span does not resolve is still proved against its seed span, and an invented object is rejected',
+);
+assert.deepEqual(
+  f6SpanlessValidation.unprovenFieldFidelityElementIds,
+  [],
+  'F6: with a matched seed available, nothing is accepted without a fidelity check',
 );

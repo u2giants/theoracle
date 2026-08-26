@@ -2143,6 +2143,14 @@ export function mergeResponsibilityRetryValidation(
       expansionAudit: [...(base.expansionAudit ?? []), ...(retry.expansionAudit ?? [])],
       diagnostics: [...base.diagnostics, ...diagnostics],
       crossSegmentCitations: [...base.crossSegmentCitations, ...citations],
+      // F6. Union, deduplicated: a record accepted without proof in either the base read or
+      // the retry read is still accepted without proof after the merge.
+      unprovenFieldFidelityElementIds: [
+        ...new Set([
+          ...(base.unprovenFieldFidelityElementIds ?? []),
+          ...(retry.unprovenFieldFidelityElementIds ?? []),
+        ]),
+      ],
       primaryCount: base.primaryCount + accepted.length,
     },
     acceptedCount: accepted.length,
@@ -2739,6 +2747,13 @@ export function validateResponsibilityRead(args: {
   expansionAudit: ResponsibilityExpansionAudit[];
   diagnostics: ResponsibilityReaderDiagnostic[];
   crossSegmentCitations: Array<{ responsibilityId: string; chunkId: string }>;
+  /**
+   * F6. Element ids accepted WITHOUT any field-fidelity check, because neither an enclosing
+   * duty span nor a matched inventory seed span could be resolved for them. Expected to be
+   * empty; it exists so that "accepted without proof" is a countable fact rather than an
+   * invisible one.
+   */
+  unprovenFieldFidelityElementIds: string[];
   primaryCount: number;
 } {
   const diagnostics: ResponsibilityReaderDiagnostic[] = [];
@@ -2749,6 +2764,10 @@ export function validateResponsibilityRead(args: {
   const incompleteInventoryAudit: ResponsibilityIncompleteAudit[] = [];
   const expansionAudit: ResponsibilityExpansionAudit[] = [];
   const crossSegmentCitations: Array<{ responsibilityId: string; chunkId: string }> = [];
+  // F6. Records accepted without ANY field-fidelity check because no span could be resolved
+  // for them. Reported so the condition is countable rather than invisible; see the
+  // validationSpan fallback below.
+  const unprovenFieldFidelityElementIds: string[] = [];
   const byId = new Map(args.chunks.map((chunk) => [chunk.id, chunk]));
   const covered = new Set(args.segment.chunkIds);
   const allCovered = args.allCoveredChunkIds ?? covered;
@@ -2865,12 +2884,30 @@ export function validateResponsibilityRead(args: {
       fileType: args.fileType,
       fileName: args.fileName,
     });
+    // 2026-08-26, F6. A record whose enclosing duty span does not resolve used to get
+    // `fieldFidelity = null`, and because the rejection branch below only fires when
+    // fidelity EXISTS and fails, that record was accepted and persisted having passed NO
+    // field check at all — not owner match, not polarity, not anti-invention, not
+    // multi-verb, and not the condition rule. Both F6 reviewers found it independently.
+    //
+    // When the record has a matched inventory seed, its own immutable `sourceSpan` IS the
+    // proof of where the duty came from, and it was simply not being used for anything
+    // except the destination-split case. Falling back to it removes the bypass wherever
+    // source is actually available, using evidence the record already carries rather than
+    // inventing a new rule.
+    //
+    // The residual case — no matched seed AND no resolvable enclosing span — is left
+    // accepting as before. It is NOT silently ignored: it is counted and returned as
+    // `unprovenFieldFidelityElementIds` so the condition is visible instead of invisible.
+    // Turning that case into a rejection is a separate acceptance-rule change that could
+    // move the frozen baseline, and this plan does not fold that into a review phase.
     const validationSpan = matchedSeed?.splitKind === 'destination' && matchedSeed.splitValue
       ? destinationSpecificResponsibilitySpan(matchedSeed.sourceSpan, matchedSeed.splitValue)
-      : enclosingDutySpan;
+      : (enclosingDutySpan ?? matchedSeed?.sourceSpan ?? null);
     const fieldFidelity = validationSpan
       ? validateResponsibilityFieldFidelity(validationSpan, record)
       : null;
+    if (!validationSpan) unprovenFieldFidelityElementIds.push(record.responsibilityId);
     if (
       enclosingDutySpan &&
       args.inventorySeeds === undefined &&
@@ -2989,6 +3026,7 @@ export function validateResponsibilityRead(args: {
     expansionAudit,
     diagnostics,
     crossSegmentCitations,
+    unprovenFieldFidelityElementIds,
     primaryCount: elements.filter((item) =>
       BUSINESS_MODEL_SHAPE_REGISTRY.responsibilities.primaryElementKinds.includes(
         item.elementKind as 'responsibility',

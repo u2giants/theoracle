@@ -7,6 +7,46 @@ Created: 2026-08-11
 
 ## Drift log
 
+- **2026-08-26, F6 round 3. The `fieldFidelity === null` bypass is CLOSED, on Albert's explicit
+  instruction, and it moved nothing.** Both F6 reviewers found this independently and rated it very
+  differently (Codex P1/blocker, GLM P3/orthogonal). It was put to Albert as an owner decision because
+  closing it changes the ACCEPTANCE rule, and he authorized the fix on 2026-08-26.
+  **The defect.** `resolveEnclosingResponsibilityDutySpan` returns null when no duty span encloses the
+  evidence quote AND the quote carries no duty verb. That produced `fieldFidelity = null`, and because
+  the rejection branch fires only when fidelity EXISTS and fails, such a record was added to `elements`
+  and marked complete having passed NO field check whatsoever — not owner match, not polarity, not
+  anti-invention, not multi-verb, and not the new condition rule. A record could therefore be persisted
+  with an object invented from nothing, which contradicts the system's central promise that every
+  stored answer is provable from its source.
+  **The fix, and why it is the narrow one.** When the record has a matched inventory seed, that seed's
+  own immutable `sourceSpan` IS the proof of where the duty came from, and it was already being used
+  for the destination-split case and nothing else. `validationSpan` now falls back to it
+  (`enclosingDutySpan ?? matchedSeed?.sourceSpan ?? null`). This uses evidence the record already
+  carries rather than inventing a new rule, and it does not touch the fidelity rules themselves.
+  **What is deliberately NOT changed.** The residual case — no matched seed AND no resolvable enclosing
+  span — still accepts, as before. Turning that into a rejection would change acceptance for base reads
+  that legitimately run without inventory seeds. It is no longer invisible: `validateResponsibilityRead`
+  now returns `unprovenFieldFidelityElementIds`, unioned across base and retry reads by
+  `mergeResponsibilityRetryValidation`, so "accepted without any proof" is a countable fact. Expected to
+  be empty; if a future session ever sees it non-empty, that is the remaining tail of this bypass and it
+  should be brought to the owner rather than quietly tolerated.
+  **Proved red before green with a behavioural case, not a source assertion.** New F6 block builds a
+  one-seed inventory from invented text (`[Depot Lead]` / `- Upload route packets into Hub North.` plus
+  a non-duty sentence), gives the record a verb-less exact quote drawn from the NON-duty sentence — the
+  block asserts that quote genuinely defeats the span resolver, so the case cannot silently stop testing
+  what it claims — and an object (`QA1 photos`) invented from nothing. With the fallback removed the
+  record is ACCEPTED and the block fails; with the fallback the record is rejected by anti-invention.
+  Two dead ends recorded so nobody repeats them: the resolver matches any exact fragment CONTAINED IN a
+  duty line, so a fragment of the duty sentence still resolves and proves nothing — the quote must come
+  from text outside every duty span; and a duty line needs an owner header (`[Depot Lead]`) or
+  `buildResponsibilitySourceInventory` yields zero seeds.
+  **Measured impact: none.** All 15 local gates green afterwards, `verify:r2-pinned-inventory` still
+  28/30 with rows 16 and 26 unsupported, the F0 block still reproduces 19/30 with the same eligible rows
+  and negative controls, and `verify:r2-production-replay` is byte-identical to before the change —
+  93 stored records, baseline 19, replay 21, `preservedRows 19`, `regressedRows []`,
+  `recordLevelRegressions []`, `Stored records matching more than one answer-key row in isolation: 0`,
+  same `replaySha256 013e40ca…`. So tightening acceptance rejected nothing production already had right,
+  which is the outcome the preservation gate exists to establish rather than assume.
 - **2026-08-26, F6 review round 2. GLM conceded, Codex cleared both fixes, the first version of one
   fix turned out to be a no-op, and ONE pre-existing blocker is now open for the owner.**
   1. **GLM reversed itself in full and both reviewers now agree.** Given Codex's counter-example, GLM
@@ -356,7 +396,7 @@ Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](
 | **Production-replay preservation gate (F5 prerequisite)** | ✅ **RUN and PASSED 2026-08-25** | `verify:r2-production-replay` over the real 93 stored records: baseline 19/30 with the eleven documented misses, after correction 21/30, **0 regressed, 19/19 preserved**, rows 19 and 29 recovered, negative controls 16/24/26 still unmatched. |
 | F4. Integrate before final validation and assembly | ✅ done 2026-08-25 | One shared `responsibilityFinalRecordCorrectionSeam` is used by BOTH candidate stages (exhaustive and late) before selection, validation and assembly; the corrector now has exactly one call site in the codebase and the orchestrator never calls it directly. `responsibilityFinalRecordCorrection` is persisted in `validationJson` with counts, seed IDs, reason codes, source-span hashes and execution refs. Proven on the real top-level orchestration path, not a test-only copy: inflected completion actions are normalized before assembly, identity stays one-to-one, and the audit carries no source text. |
 | F5. Run unchanged local gates and residual replay | ✅ done 2026-08-25 (locally provable part) | All 15 local gates run in one fail-fast pass on `al8960ofc` at `f997f8e` and all pass, with no file edited to obtain them. `verify:r2-pinned-inventory` finally ran (the licensed `Z:` fixture is mounted on this machine) and prints **28/30 with rows 16 and 26 unsupported**. `verify:r2-production-replay` reproduced on a second machine, byte-identical: 19 baseline, 21 after correction, **19/19 preserved, `regressedRows []`, `recordLevelRegressions []`**, negative controls still failing. **Not proven and not claimed:** the 8/8 recovery to 27/30. Replay reaches 21/30 because six of the eight rows need the F3/F4 seams to run during a FRESH pipeline execution, which is a production run under the standing hard stop. That target is carried to the production decision, not left as local work. See the F5 drift entry. |
-| F6. Independent review and owner decision | 🟨 reviewed 2026-08-26, ONE blocker open for the owner | Both named reviewers ran against `aab134e` and re-reviewed the fixes. Codex: two P1s, BOTH FIXED and cleared by its own re-review (`41f775b` + the round-2 gate fix). GLM 5.3: initially APPROVED, then reversed to CHANGES REQUIRED / P1 on the same replay finding after being shown the counter-example, and that fix is in. Everything F6 was scoped to audit — the F2b expected-object boundary, the list-marker + F3 seam, and the F4 one-seam rule + audit — is confirmed by both reviewers with no remaining P0/P1. **The one open item is PRE-EXISTING and outside those three targets:** a record whose enclosing duty span cannot be resolved reaches `elements` with `fieldFidelity === null`, skipping every fidelity check. Codex rates it P1/blocker, GLM P3/orthogonal. Closing it changes the acceptance rule and could move the frozen 19/30 baseline, so it is Albert's decision and its own scoped change — see the F6 round-2 drift entry. |
+| F6. Independent review and owner decision | ✅ review done 2026-08-26; every review finding fixed. Owner decision on a production run remains. | Both named reviewers ran against `aab134e` and re-reviewed the fixes. Codex: two P1s, both fixed and cleared by its own re-review. GLM 5.3: initially APPROVED, then reversed to CHANGES REQUIRED / P1 on the replay finding once shown the counter-example — that fix, and the round-2 discovery that the first version of it was a no-op, are both landed. The third finding (the `fieldFidelity === null` bypass, Codex P1 / GLM P3, pre-existing) was put to Albert as an acceptance-rule change and he authorized it on 2026-08-26; it is now closed via the inventory-seed span fallback and moved nothing — 19/30 baseline, 28/30 pinned support and the production replay are all byte-identical afterwards. **No P0 or P1 remains open from either reviewer.** All 15 local gates green. What is left is NOT review work: a fresh production run is a separate owner decision, and the 8/8 recovery to 27/30 can only be established by one. |
 
 Fresh-session starting point: **read this file in full, then stop**. Albert must separately authorize
 implementation before F0 or any application edit.
