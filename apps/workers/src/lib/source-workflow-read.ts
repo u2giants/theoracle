@@ -81,7 +81,8 @@ import {
   bindForcedResponsibilitySpans,
   canonicalizeForcedResponsibilityOutput,
   completeAndMatchResponsibilityInventory,
-  correctResponsibilityFinalRecord,
+  responsibilityFinalRecordCorrectionSeam,
+  buildResponsibilityFinalRecordCorrectionAudit,
   lateResidualResponsibilitySeeds,
   mergeResponsibilityRecordsByInventoryId,
   canonicalizeResponsibilityCompletionBatch,
@@ -467,10 +468,9 @@ export async function runLateResponsibilityCompletion(args: {
   // `validateResponsibilityRead`. No new seed queue, completion stage, dispatch, budget
   // reservation, model call or retry is introduced — a rejected correction simply leaves
   // the candidate exactly as it arrived, and the existing incomplete outcome stands.
-  const residualSeedById = new Map(
-    residualSeeds.map((seed) => [seed.inventorySeedId, seed]),
-  );
-  const corrections: FinalRecordCorrection[] = [];
+  // F4: the late path no longer defines its own correction closure. It uses the ONE shared
+  // seam, so both candidate stages correct, refuse and audit identically.
+  const seam = responsibilityFinalRecordCorrectionSeam({ seeds: residualSeeds, stage: 'late' });
   const results = await executeResponsibilityCompletionBatches({
     budget: args.budget,
     batches: pack.batches,
@@ -481,36 +481,14 @@ export async function runLateResponsibilityCompletion(args: {
     })),
     runBatch: args.runBatch,
     validateCompletion: args.validateCompletion,
-    correctRecord: (record) => {
-      const seed = residualSeedById.get(record.responsibilityId);
-      if (!seed) return record;
-      const correction = correctResponsibilityFinalRecord({
-        seed,
-        candidate: {
-          role: record.role,
-          action: record.action,
-          object: record.object,
-          trigger: record.trigger ?? null,
-        },
-      });
-      corrections.push(correction);
-      if (!correction.accepted || !correction.after) return record;
-      return {
-        ...record,
-        role: correction.after.role,
-        action: correction.after.action,
-        object: correction.after.object,
-        trigger: correction.after.trigger,
-        label: `${correction.after.role}: ${correction.after.action} ${correction.after.object}`
-          .slice(0, 240),
-      };
-    },
+    correctRecord: seam.correctRecord,
   });
   return {
     residualSeeds,
     pack,
     results,
-    corrections,
+    corrections: seam.corrections,
+    seam,
     final: finalizeLateResponsibilityCompletion({
       seedIds: residualSeeds.map((seed) => seed.inventorySeedId),
       results,
@@ -3003,8 +2981,20 @@ export async function generateSourceWorkflowMap(args: {
       seeds: residualSeeds,
       ...completionPacking.pack,
     });
+    // The exhaustive stage owns batch indices [0, exhaustiveBatchCount); the late path is
+    // offset past them, which makes this the exact stage boundary in the execution audit.
+    const exhaustiveBatchCount = completionPack.batches.length;
     const completionExecutions = new Map<number, ResponsibilityCompletionExecution[]>();
+    // F4: the exhaustive completion stage uses the SAME shared seam as the late path, so a
+    // candidate is corrected before the strict-improvement selection and before the
+    // `validateResponsibilityRead` call below — the record that is judged is the record that
+    // is assembled. No new stage, dispatch, reservation, model call or retry is introduced.
+    const exhaustiveCorrectionSeam = responsibilityFinalRecordCorrectionSeam({
+      seeds: residualSeeds,
+      stage: 'exhaustive',
+    });
     const completionResults = await executeResponsibilityCompletionBatches({
+      correctRecord: exhaustiveCorrectionSeam.correctRecord,
       budget: readerBudget,
       batches: completionPack.batches,
       concurrency: readerBudget.limits.maxConcurrency,
@@ -3445,6 +3435,11 @@ export async function generateSourceWorkflowMap(args: {
       }
     }
 
+    // F4: every stage's correction seam is collected here so exactly one audit is persisted.
+    const responsibilityCorrectionSeams: Array<{
+      stage: 'exhaustive' | 'late';
+      corrections: readonly FinalRecordCorrection[];
+    }> = [exhaustiveCorrectionSeam];
     const completionHandledIds = new Set(responsibilityCompletionAudit.residualSeedIds);
     const lateResidualSeeds = lateResidualResponsibilitySeeds({
       seeds: responsibilityInventorySeeds,
@@ -3513,6 +3508,7 @@ export async function generateSourceWorkflowMap(args: {
         },
       });
       const { pack: latePack, results: lateResults, final: lateFinal } = lateRun;
+      responsibilityCorrectionSeams.push(lateRun.seam);
       const lateAcceptedById = new Map(
         lateFinal.records.map((record) => [record.responsibilityId, record]),
       );
@@ -3967,6 +3963,21 @@ export async function generateSourceWorkflowMap(args: {
         })),
       },
       responsibilityCompletion: responsibilityCompletionAudit,
+      // F4. One audit for the whole final-record correction seam: counts, seed IDs, reason
+      // codes, source-span hashes and the execution refs of the stages that produced the
+      // corrected candidates. Never source text.
+      responsibilityFinalRecordCorrection: buildResponsibilityFinalRecordCorrectionAudit({
+        seams: responsibilityCorrectionSeams,
+        executionRefs: responsibilityCompletionAudit.executions.map((execution) => ({
+          // Late batches are appended after the exhaustive ones using exactly this offset,
+          // so the batch index is an exact, not heuristic, stage boundary.
+          stage: (execution.batchIndex < exhaustiveBatchCount ? 'exhaustive' : 'late') as
+            | 'exhaustive'
+            | 'late',
+          modelRunId: execution.modelRunId,
+          contextPackId: execution.contextPackId,
+        })),
+      }),
       ...buildResponsibilityPostPassAudit({
         initialOmissions,
         finalOmissions: omissions,

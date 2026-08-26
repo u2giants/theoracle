@@ -3147,6 +3147,116 @@ function restoreNamedArtifact(
   return { value: (prefix + object.trim()).trim(), restored: true };
 }
 
+/**
+ * F4. The ONE shared final-record correction seam.
+ *
+ * Every candidate stage that runs before final validation uses this factory, so there is
+ * exactly one place where a candidate is offered to `correctResponsibilityFinalRecord`,
+ * one rule for what happens when the correction is refused, and one audit trail. It is a
+ * pure closure over the stage's own seeds: it performs no dispatch, model call, budget
+ * reservation or retry, and it never invents a seed it was not given.
+ *
+ * Identity is immutable here by construction. Only `role`, `action`, `object`, `trigger`
+ * and the derived `label` may change; `responsibilityId`, `chunkId` and `evidenceQuote`
+ * are carried through untouched, so a corrected record stays bound to the same source.
+ */
+export function responsibilityFinalRecordCorrectionSeam(args: {
+  seeds: readonly ResponsibilityInventorySeed[];
+  stage: 'exhaustive' | 'late';
+}): {
+  stage: 'exhaustive' | 'late';
+  corrections: FinalRecordCorrection[];
+  correctRecord: (
+    record: ResponsibilityReadOutput['responsibilities'][number],
+  ) => ResponsibilityReadOutput['responsibilities'][number];
+} {
+  const seedById = new Map(args.seeds.map((seed) => [seed.inventorySeedId, seed]));
+  const corrections: FinalRecordCorrection[] = [];
+  return {
+    stage: args.stage,
+    corrections,
+    correctRecord: (record) => {
+      const seed = seedById.get(record.responsibilityId);
+      // A record with no seed in THIS stage is returned untouched. Correction is only ever
+      // applied against the record's own immutable source span.
+      if (!seed) return record;
+      const correction = correctResponsibilityFinalRecord({
+        seed,
+        candidate: {
+          role: record.role,
+          action: record.action,
+          object: record.object,
+          trigger: record.trigger ?? null,
+        },
+      });
+      corrections.push(correction);
+      if (!correction.accepted || !correction.after) return record;
+      return {
+        ...record,
+        role: correction.after.role,
+        action: correction.after.action,
+        object: correction.after.object,
+        trigger: correction.after.trigger,
+        label: `${correction.after.role}: ${correction.after.action} ${correction.after.object}`
+          .slice(0, 240),
+      };
+    },
+  };
+}
+
+/**
+ * F4. Pure audit builder for the persisted `responsibilityFinalRecordCorrection` block.
+ * Counts, seed IDs, reason codes and source-span hashes only — never source text.
+ */
+export function buildResponsibilityFinalRecordCorrectionAudit(args: {
+  seams: ReadonlyArray<{ stage: 'exhaustive' | 'late'; corrections: readonly FinalRecordCorrection[] }>;
+  executionRefs: ReadonlyArray<{ stage: 'exhaustive' | 'late'; modelRunId: string; contextPackId: string }>;
+}): {
+  offeredCount: number;
+  acceptedCount: number;
+  refusedCount: number;
+  acceptedSeedIds: string[];
+  refusedSeedIds: string[];
+  reasonCounts: Record<string, number>;
+  corrections: Array<{
+    stage: 'exhaustive' | 'late';
+    seedId: string;
+    sourceSpanSha256: string;
+    accepted: boolean;
+    reasons: string[];
+  }>;
+  executionRefs: Array<{ stage: 'exhaustive' | 'late'; modelRunId: string; contextPackId: string }>;
+} {
+  const corrections = args.seams.flatMap((seam) =>
+    seam.corrections.map((correction) => ({
+      stage: seam.stage,
+      seedId: correction.seedId,
+      sourceSpanSha256: correction.sourceSpanSha256,
+      accepted: correction.accepted,
+      reasons: [...correction.reasons],
+    })),
+  );
+  const reasonCounts: Record<string, number> = {};
+  for (const correction of corrections) {
+    for (const reason of correction.reasons) {
+      reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
+    }
+  }
+  const accepted = corrections.filter((correction) => correction.accepted);
+  return {
+    offeredCount: corrections.length,
+    acceptedCount: accepted.length,
+    refusedCount: corrections.length - accepted.length,
+    acceptedSeedIds: accepted.map((correction) => correction.seedId),
+    refusedSeedIds: corrections
+      .filter((correction) => !correction.accepted)
+      .map((correction) => correction.seedId),
+    reasonCounts,
+    corrections,
+    executionRefs: [...args.executionRefs],
+  };
+}
+
 export function correctResponsibilityFinalRecord(args: {
   seed: ResponsibilityInventorySeed;
   candidate: CorrectedFinalRecordFields;

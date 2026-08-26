@@ -2307,10 +2307,22 @@ const f3WorkflowReadSource = readFileSync(
   new URL('../lib/source-workflow-read.ts', import.meta.url),
   'utf8',
 ).replace(/\r\n/g, '\n');
+const f3ReaderSource = readFileSync(
+  new URL('../lib/responsibility-reader.ts', import.meta.url),
+  'utf8',
+).replace(/\r\n/g, '\n');
+// F4 moved the call site into the one shared seam. The corrector must be invoked from
+// exactly one place in the whole codebase, and the orchestrator must reach it only
+// through that seam — never by calling the corrector itself.
 assert.equal(
-  (f3WorkflowReadSource.match(/correctResponsibilityFinalRecord\(\{/g) ?? []).length,
+  (f3ReaderSource.match(/correctResponsibilityFinalRecord\(\{/g) ?? []).length,
   1,
-  'exactly one production call site applies the final-record correction',
+  'exactly one call site applies the final-record correction, inside the shared seam',
+);
+assert.equal(
+  (f3WorkflowReadSource.match(/correctResponsibilityFinalRecord\(/g) ?? []).length,
+  0,
+  'the orchestrator never calls the corrector directly, only through the shared seam',
 );
 assert.equal(
   (f3WorkflowReadSource.match(/runLateResponsibilityCompletion\(\{/g) ?? []).length,
@@ -2318,9 +2330,9 @@ assert.equal(
   'the late path still has exactly one production call site',
 );
 assert.ok(
-  f3WorkflowReadSource.indexOf('correctResponsibilityFinalRecord({') >
-    f3WorkflowReadSource.indexOf('export async function runLateResponsibilityCompletion('),
-  'the correction is applied inside the existing late orchestration, not as a new stage',
+  f3WorkflowReadSource.indexOf('responsibilityFinalRecordCorrectionSeam({') <
+    f3WorkflowReadSource.indexOf('executeResponsibilityCompletionBatches({'),
+  'the seam is constructed before the batch executor that consumes it',
 );
 const splitDiscoveryQuote =
   '[Service Desk] Service Desk reviews packets and then sends notices.';
@@ -4167,7 +4179,10 @@ const orchestrationClient: any = {
             ? 'Archive requests when closed'
             : 'Send access notices',
           role: 'Service Desk',
-          action: request.sourceSpan?.toLowerCase().includes('archives requests') ? 'archive' : 'send',
+          // F4: the model returns the INFLECTED source verb here on purpose. The shared
+          // correction seam must normalize it before validation and assembly, so the
+          // production path — not a test-only copy — is what proves the seam works.
+          action: request.sourceSpan?.toLowerCase().includes('archives requests') ? 'archives' : 'sends',
           object: request.sourceSpan?.toLowerCase().includes('archives requests')
             ? 'requests'
             : 'access notices',
@@ -4365,6 +4380,90 @@ assert.ok(
     candidate.decisionReason === 'accepted_strict_exact_improvement'
   ),
   'same-document quote failure is repaired, accepted, and saved',
+);
+
+// ---------------------------------------------------------------------------
+// F4. The production seam and its persisted audit.
+//
+// Plan: plan_r2_source_bound_final_record_correction.md, phase F4. These assertions
+// run against the SAME top-level orchestration above — the real
+// generateSourceWorkflowMap path with injected dependencies — so there is no
+// test-only copy of the seam. The completion stub returns inflected actions, which
+// only the shared seam can normalize before validation and assembly.
+// ---------------------------------------------------------------------------
+
+const savedCorrection = savedValidation.responsibilityFinalRecordCorrection;
+assert.ok(savedCorrection, 'the production path persists a final-record correction audit');
+assert.ok(
+  savedCorrection.offeredCount > 0,
+  'every candidate reaching the seam is recorded, accepted or not',
+);
+assert.equal(
+  savedCorrection.offeredCount,
+  savedCorrection.acceptedCount + savedCorrection.refusedCount,
+  'the audit accounts for every offered candidate exactly once',
+);
+assert.ok(
+  savedCorrection.acceptedCount > 0,
+  'the inflected completion actions are corrected on the production path',
+);
+assert.ok(
+  savedCorrection.reasonCounts.action_inflection_normalized > 0,
+  'the audit names the reason each correction was made',
+);
+assert.deepEqual(
+  savedCorrection.acceptedSeedIds,
+  savedCorrection.corrections
+    .filter((correction: any) => correction.accepted)
+    .map((correction: any) => correction.seedId),
+  'accepted seed IDs agree with the per-correction detail',
+);
+for (const correction of savedCorrection.corrections) {
+  assert.ok(
+    ['exhaustive', 'late'].includes(correction.stage),
+    'every correction names the stage that produced it',
+  );
+  assert.match(
+    correction.sourceSpanSha256,
+    /^[0-9a-f]{64}$/,
+    'every correction carries its source-span hash',
+  );
+  assert.ok(
+    savedInventoryIds.includes(correction.seedId),
+    'a correction can only ever be bound to a real source seed',
+  );
+}
+assert.ok(
+  savedCorrection.executionRefs.length > 0 &&
+    savedCorrection.executionRefs.every((ref: any) =>
+      typeof ref.modelRunId === 'string' && typeof ref.contextPackId === 'string'
+    ),
+  'the audit carries execution refs for the stages that produced the candidates',
+);
+// The corrected record — not the raw one — is what reaches assembly.
+const assembledElements = savedOrchestration!.elementsJson as Array<Record<string, unknown>>;
+const assembledResponsibilities = assembledElements.filter(
+  (element) => element.shape === 'responsibilities' && element.elementKind === 'responsibility',
+);
+assert.ok(
+  assembledResponsibilities.every((element) => !/^(sends|archives|reviews)$/i.test(String(element.action))),
+  'no inflected action survives into the assembled map',
+);
+assert.equal(
+  new Set(assembledResponsibilities.map((element) => element.elementId)).size,
+  assembledResponsibilities.length,
+  'correction never introduces a duplicate assembled identity',
+);
+assert.ok(
+  assembledResponsibilities.every((element) => savedInventoryIds.includes(String(element.elementId))),
+  'assembly stays one-to-one with the source inventory after correction',
+);
+// The audit must never carry source text, only identifiers, counts and hashes.
+const savedCorrectionJson = JSON.stringify(savedCorrection);
+assert.ok(
+  !savedCorrectionJson.includes('intake packets') &&
+    !savedCorrectionJson.includes('access notices'),
+  'the correction audit records hashes and reasons, never source text',
 );
 
 console.log('R2 responsibility strict reader, persistence shape, quote, and coverage contract passed');

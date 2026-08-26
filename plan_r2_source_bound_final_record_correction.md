@@ -24,6 +24,23 @@ Created: 2026-08-11
   recovery target is still unmet by the deterministic corrector alone (21, not 27), which is expected,
   because rows 5, 14, 15, 17, 20 and 23 depend on F3/F4 seam work rather than on re-correcting an
   already-stored record.
+- **2026-08-25, after F4. One seam, two stages, one audit — and one call site.** F3 left the
+  correction closure inline in the late path. F4 replaces it with
+  `responsibilityFinalRecordCorrectionSeam` in `responsibility-reader.ts`, now used by the exhaustive
+  completion stage as well. Consequence worth pinning: `correctResponsibilityFinalRecord` has exactly
+  ONE call site in the whole codebase (inside the seam) and `source-workflow-read.ts` never calls it
+  directly — asserted by test, so a future session cannot quietly add a second correction path.
+  Identity is immutable by construction: only role/action/object/trigger and the derived label can
+  change; `responsibilityId`, `chunkId` and `evidenceQuote` pass through untouched.
+  `buildResponsibilityFinalRecordCorrectionAudit` persists `responsibilityFinalRecordCorrection` into
+  `validationJson` with offered/accepted/refused counts, accepted and refused seed IDs, reason counts,
+  per-correction stage + source-span SHA-256, and execution refs; the stage boundary is the exact
+  batch-index offset the late path already uses, not a guess. Proven on the REAL top-level
+  orchestration test (injected DB/model, no test-only copy) by making the completion stub return
+  inflected actions that only the seam can normalize; assertions also pin one-to-one assembly, no
+  duplicate identities, and that the audit contains no source text. All 13 local gates green;
+  the production replay re-run after F4 is unchanged (19 baseline, 21 after, 0 regressed,
+  0 record-level regressions). Still open: F5's remaining recovery target and F6 review.
 - **2026-08-25, after independent review. The replay gate now checks preservation per RECORD, not
   only per ROW.** `scoreResponsibilityAnswerKey` performs a global best-assignment over all 93
   actuals, so row-level preservation alone can in principle stay green while the record satisfying a
@@ -173,7 +190,7 @@ Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](
 | F2b. Align the expected object with the locked section 8 boundary | ✅ done 2026-08-13 | One `boundedSourceObject` helper is now the single boundary definition, used by the qualifier-loss check, `deterministicInventoryRecord` and the corrector. A cut condition must appear verbatim in `trigger` or fidelity fails with `condition_not_preserved_in_trigger`; a cut belonging to a different duty is deliberately not demanded. 16/16 F1 cases pass with no exemption, F0 still reproduces 19/30, and every other local suite is green. **Not yet proven: the 19/19 production-replay preservation gate, which belongs to F5.** UNCOMMITTED. |
 | F3. Repair the existing late-completion acceptance seam | ✅ done 2026-08-25 | Existing late candidates pass through F2 before existing selection and validation via one optional `correctRecord` hook supplied only by `runLateResponsibilityCompletion`; tests F3a–F3e pin dispatch-once, refusal preserving the existing incomplete outcome, the untouched shared executor, the over-budget case, and one production call site each. `corrections` audit returned for F4. |
 | **Production-replay preservation gate (F5 prerequisite)** | ✅ **RUN and PASSED 2026-08-25** | `verify:r2-production-replay` over the real 93 stored records: baseline 19/30 with the eleven documented misses, after correction 21/30, **0 regressed, 19/19 preserved**, rows 19 and 29 recovered, negative controls 16/24/26 still unmatched. |
-| F4. Integrate before final validation and assembly | ⬜ open | The production seam stays complete-only, source-ordered, one-to-one, and fully audited. |
+| F4. Integrate before final validation and assembly | ✅ done 2026-08-25 | One shared `responsibilityFinalRecordCorrectionSeam` is used by BOTH candidate stages (exhaustive and late) before selection, validation and assembly; the corrector now has exactly one call site in the codebase and the orchestrator never calls it directly. `responsibilityFinalRecordCorrection` is persisted in `validationJson` with counts, seed IDs, reason codes, source-span hashes and execution refs. Proven on the real top-level orchestration path, not a test-only copy: inflected completion actions are normalized before assembly, identity stays one-to-one, and the audit carries no source text. |
 | F5. Run unchanged local gates and residual replay | ⬜ open | All suites pass; the pinned source-support verifier stays 28/30 with rows 16/26 unsupported; a separate final-record replay keeps row 24 unsupported and recovers all 8/8 eligible shapes to reach the frozen 27/30 minimum. |
 | F6. Independent review and owner decision | ⬜ open | Codex and GLM 5.2 approve with no P0/P1 before Albert decides on local landing. |
 
