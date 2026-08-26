@@ -5360,3 +5360,64 @@ for (const seedId of savedCorrection.acceptedSeedIds) {
     'F6: an accepted correction on the production path names a seed that reached the map',
   );
 }
+
+// ---------------------------------------------------------------------------
+// F6. The scorer masks multi-row matches when it is given a single actual.
+//
+// This is the trap that made the first attempt at the replay gate's record-level
+// fix a no-op. `scoreResponsibilityAnswerKey` assigns greedily and guards with
+// `assignedActual.has(actualIndex)`, so ONE actual can only ever be assigned to ONE
+// expected row: its greedy-best. Every other row that same record satisfies is
+// forced to `matched: false` in the returned evidence.
+//
+// Consequence, and the reason this is pinned rather than commented: any code that
+// asks "which rows does this record satisfy on its own?" by scoring the record
+// against ALL rows in one call gets a silently truncated answer, and a count built
+// that way reads as a clean zero no matter what the data holds. The only correct
+// way to ask is one expected row per call.
+//
+// Invented source wording only — Fleet Office / Depot Lead house style.
+// ---------------------------------------------------------------------------
+
+const f6RowA = {
+  role: 'Depot Lead',
+  action: 'file',
+  object: 'route packets',
+} as const;
+const f6RowB = {
+  role: 'Depot Lead',
+  action: 'file',
+  object: 'route packets and QA1 photos',
+} as const;
+const f6RecordBoth = {
+  role: 'Depot Lead',
+  action: 'file',
+  object: 'route packets and QA1 photos',
+};
+
+const f6MatchesAlone = (expected: { role: string; action: string; object: string }) =>
+  scoreResponsibilityAnswerKey({ expected: [expected], actual: [f6RecordBoth] }).evidence[0]
+    ?.matched === true;
+
+assert.ok(
+  f6MatchesAlone(f6RowA) && f6MatchesAlone(f6RowB),
+  'F6: the invented record must genuinely satisfy BOTH rows on its own, or this case proves nothing',
+);
+
+const f6CombinedEvidence = scoreResponsibilityAnswerKey({
+  expected: [f6RowA, f6RowB],
+  actual: [f6RecordBoth],
+}).evidence;
+assert.equal(
+  f6CombinedEvidence.filter((item) => item.matched).length,
+  1,
+  'F6: scoring one actual against many rows reports at most one match — this is the masking trap',
+);
+
+// And the per-row form, which is what the replay gate must use, recovers both.
+const f6IsolatedRows = [f6RowA, f6RowB].filter((row) => f6MatchesAlone(row));
+assert.equal(
+  f6IsolatedRows.length,
+  2,
+  'F6: asking one expected row per call is the only way to recover the full isolated match set',
+);

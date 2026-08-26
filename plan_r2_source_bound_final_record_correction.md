@@ -7,6 +7,62 @@ Created: 2026-08-11
 
 ## Drift log
 
+- **2026-08-26, F6 review round 2. GLM conceded, Codex cleared both fixes, the first version of one
+  fix turned out to be a no-op, and ONE pre-existing blocker is now open for the owner.**
+  1. **GLM reversed itself in full and both reviewers now agree.** Given Codex's counter-example, GLM
+     re-derived it from the scorer and moved from APPROVED to **CHANGES REQUIRED with the finding at
+     P1**, in its own words "you are right, and I was wrong… that's the same class of move as the
+     Gemini review you cited". Its concession added the mechanism this plan did not have written down:
+     in `scoreResponsibilityAnswerKey` the greedy loop guards with `assignedActual.has(actualIndex)`,
+     so with ONE actual the record's single slot is consumed by its greedy-best row and every other
+     row it satisfies is forced to `matched: false`. `findIndex` therefore returned the record's own
+     PREFERENCE, which is exactly the row the global assignment is free to override.
+  2. **That same mechanism made the first version of the F6 fix a no-op, and the "0 multi-row records"
+     it printed was a tautology rather than a measurement.** The first attempt still asked the scorer
+     for all 30 rows in ONE call and collected every `matched` row from the returned evidence. Because
+     of the masking above, that set can never exceed one, so the "fixed" gate was behaviourally
+     identical to the `findIndex` version it replaced, and its multi-row count was structurally
+     incapable of being anything but 0. **This was caught by the reviewer, not by the gate, and that is
+     the lesson: a verification result that CANNOT come out any other way is not evidence.** The gate
+     now asks one expected row per call (`scoreResponsibilityAnswerKey({ expected: [row], actual:
+     [record] })`, 93 × 30 trivial calls), which uses only the frozen public API and touches no frozen
+     file. Pinned by a new F6 case using invented Fleet Office wording that proves the trap directly: a
+     record that genuinely satisfies TWO expected rows is reported as matching only ONE by the combined
+     call, and the per-row form recovers both.
+     **Re-measured with the working implementation: the count is still 0** — no stored record satisfies
+     more than one answer-key row on its own. That conclusion is now backed by a function demonstrably
+     able to return more than one, so it is a fact rather than an artefact. Both reviewers noted they
+     could not establish this from the repository; it is now established from the data.
+  3. **Codex cleared both fixes on re-review** and confirmed the deliberate choice NOT to re-validate
+     inside the seam: `validateResponsibilityRead` is already the single authority that judges
+     completeness after correction and before selection, and a second validation inside the seam would
+     duplicate that authority, which is the kind of second mechanism F4 exists to prevent. Reconciling
+     the audit against the persisted ids is the narrower correct fix.
+  4. **OPEN, and it is the owner's call — the `fieldFidelity === null` bypass.** BOTH reviewers found
+     it independently and rated it very differently: Codex **P1, an outstanding F6 blocker**; GLM
+     **P3, pre-existing and orthogonal**. The fact itself is not in dispute. A responsibility with a
+     valid exact quote but NO resolvable enclosing duty span
+     (`resolveEnclosingResponsibilityDutySpan` → null) gets `fieldFidelity = null`; the rejection
+     branch only fires when fidelity EXISTS and fails, so the record is added to `elements` and marked
+     complete having passed NO field-fidelity check at all — not owner match, not polarity, not
+     anti-invention, not multi-verb, and not the new `condition_not_preserved_in_trigger` rule. It
+     therefore contradicts, as literally written, F6's requirement that a cut condition missing from
+     `trigger` be rejected on every path that can reach persistence. The inventory seed's `sourceSpan`
+     is available and is used as the fidelity source for destination-split records, but non-destination
+     records do not fall back to it.
+     **Not fixed by this session, deliberately.** It is pre-existing — it predates F2b, F3 and F4 and is
+     untouched by them — and closing it means making the acceptance path REJECT records it currently
+     accepts. That is a product-behaviour change to the acceptance rule, outside the three things F6
+     was scoped to audit, and it could move the frozen 19/30 baseline. Under this plan's own standing
+     rule ("if anything regresses, STOP and report it; never tune a rule to make a number agree") a
+     change of that shape gets its own scoped work with its own before/after measurement, not a
+     quiet fold-in at the end of a review phase. Recommendation on the record: **fix it, as its own
+     change, with the replay gate run before and after**, because "every persisted record is proved
+     from its source" is the system's central promise and this is a hole in it.
+  **All 15 local gates re-run after the round-2 fix and all pass**, including `verify:r2-pinned-inventory`
+  at 28/30 with rows 16/26 unsupported and `verify:r2-production-replay` unchanged at 19 baseline / 21
+  after / `preservedRows 19` / `regressedRows []` / `recordLevelRegressions []`, same
+  `replaySha256 013e40ca…`, and `Stored records matching more than one answer-key row in isolation: 0`.
 - **2026-08-26, F6 review round 1. Two independent reviewers, a genuine split on the most important
   question, and two fixes.** Codex (`gpt-5.6-terra`, read-only sandbox, effort `medium`) returned
   **CHANGES REQUIRED** with two P1s. GLM 5.3 (session `r2-f6-correction-audit`, report under
@@ -300,7 +356,7 @@ Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](
 | **Production-replay preservation gate (F5 prerequisite)** | ✅ **RUN and PASSED 2026-08-25** | `verify:r2-production-replay` over the real 93 stored records: baseline 19/30 with the eleven documented misses, after correction 21/30, **0 regressed, 19/19 preserved**, rows 19 and 29 recovered, negative controls 16/24/26 still unmatched. |
 | F4. Integrate before final validation and assembly | ✅ done 2026-08-25 | One shared `responsibilityFinalRecordCorrectionSeam` is used by BOTH candidate stages (exhaustive and late) before selection, validation and assembly; the corrector now has exactly one call site in the codebase and the orchestrator never calls it directly. `responsibilityFinalRecordCorrection` is persisted in `validationJson` with counts, seed IDs, reason codes, source-span hashes and execution refs. Proven on the real top-level orchestration path, not a test-only copy: inflected completion actions are normalized before assembly, identity stays one-to-one, and the audit carries no source text. |
 | F5. Run unchanged local gates and residual replay | ✅ done 2026-08-25 (locally provable part) | All 15 local gates run in one fail-fast pass on `al8960ofc` at `f997f8e` and all pass, with no file edited to obtain them. `verify:r2-pinned-inventory` finally ran (the licensed `Z:` fixture is mounted on this machine) and prints **28/30 with rows 16 and 26 unsupported**. `verify:r2-production-replay` reproduced on a second machine, byte-identical: 19 baseline, 21 after correction, **19/19 preserved, `regressedRows []`, `recordLevelRegressions []`**, negative controls still failing. **Not proven and not claimed:** the 8/8 recovery to 27/30. Replay reaches 21/30 because six of the eight rows need the F3/F4 seams to run during a FRESH pipeline execution, which is a production run under the standing hard stop. That target is carried to the production decision, not left as local work. See the F5 drift entry. |
-| F6. Independent review and owner decision | ⬜ open | Codex and GLM 5.2 approve with no P0/P1 before Albert decides on local landing. |
+| F6. Independent review and owner decision | 🟨 reviewed 2026-08-26, ONE blocker open for the owner | Both named reviewers ran against `aab134e` and re-reviewed the fixes. Codex: two P1s, BOTH FIXED and cleared by its own re-review (`41f775b` + the round-2 gate fix). GLM 5.3: initially APPROVED, then reversed to CHANGES REQUIRED / P1 on the same replay finding after being shown the counter-example, and that fix is in. Everything F6 was scoped to audit — the F2b expected-object boundary, the list-marker + F3 seam, and the F4 one-seam rule + audit — is confirmed by both reviewers with no remaining P0/P1. **The one open item is PRE-EXISTING and outside those three targets:** a record whose enclosing duty span cannot be resolved reaches `elements` with `fieldFidelity === null`, skipping every fidelity check. Codex rates it P1/blocker, GLM P3/orthogonal. Closing it changes the acceptance rule and could move the frozen 19/30 baseline, so it is Albert's decision and its own scoped change — see the F6 round-2 drift entry. |
 
 Fresh-session starting point: **read this file in full, then stop**. Albert must separately authorize
 implementation before F0 or any application edit.
