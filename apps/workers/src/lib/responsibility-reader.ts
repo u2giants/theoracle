@@ -3211,6 +3211,22 @@ export function responsibilityFinalRecordCorrectionSeam(args: {
 export function buildResponsibilityFinalRecordCorrectionAudit(args: {
   seams: ReadonlyArray<{ stage: 'exhaustive' | 'late'; corrections: readonly FinalRecordCorrection[] }>;
   executionRefs: ReadonlyArray<{ stage: 'exhaustive' | 'late'; modelRunId: string; contextPackId: string }>;
+  /**
+   * 2026-08-26, F6. The seed ids that actually reached the persisted map.
+   *
+   * The corrector's own `accepted` flag means only "something changed and fidelity did not
+   * get worse". It does NOT mean the corrected record passed validation, and it does NOT
+   * mean the record was kept: the seam applies the correction without re-validating, the
+   * caller's `validateResponsibilityRead` judges it afterwards, and the batch it lives in
+   * can still fail or be retried. Reporting that raw flag as `accepted` in a PERSISTED
+   * audit overstates what happened — raised as P1 by the F6 reviewer and true as written.
+   *
+   * So every row is reconciled against what was actually persisted. `accepted` now means
+   * "corrected AND present in the final map"; a correction the corrector took but that did
+   * not survive is reported as refused with the added reason `correction_not_persisted`,
+   * so the two populations stay distinguishable instead of being silently merged.
+   */
+  persistedSeedIds: ReadonlySet<string>;
 }): {
   offeredCount: number;
   acceptedCount: number;
@@ -3228,13 +3244,20 @@ export function buildResponsibilityFinalRecordCorrectionAudit(args: {
   executionRefs: Array<{ stage: 'exhaustive' | 'late'; modelRunId: string; contextPackId: string }>;
 } {
   const corrections = args.seams.flatMap((seam) =>
-    seam.corrections.map((correction) => ({
-      stage: seam.stage,
-      seedId: correction.seedId,
-      sourceSpanSha256: correction.sourceSpanSha256,
-      accepted: correction.accepted,
-      reasons: [...correction.reasons],
-    })),
+    seam.corrections.map((correction) => {
+      const persisted = args.persistedSeedIds.has(correction.seedId);
+      const accepted = correction.accepted && persisted;
+      return {
+        stage: seam.stage,
+        seedId: correction.seedId,
+        sourceSpanSha256: correction.sourceSpanSha256,
+        accepted,
+        reasons:
+          correction.accepted && !persisted
+            ? [...new Set([...correction.reasons, 'correction_not_persisted'])].sort()
+            : [...correction.reasons],
+      };
+    }),
   );
   const reasonCounts: Record<string, number> = {};
   for (const correction of corrections) {

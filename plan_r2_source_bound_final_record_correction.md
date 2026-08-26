@@ -7,6 +7,82 @@ Created: 2026-08-11
 
 ## Drift log
 
+- **2026-08-26, F6 review round 1. Two independent reviewers, a genuine split on the most important
+  question, and two fixes.** Codex (`gpt-5.6-terra`, read-only sandbox, effort `medium`) returned
+  **CHANGES REQUIRED** with two P1s. GLM 5.3 (session `r2-f6-correction-audit`, report under
+  `.ai/reviews/`) returned **APPROVED FOR LOCAL LANDING REVIEW** with one P2 and five P3s. They agreed
+  on every structural fact — one `boundedSourceObject`, one `correctResponsibilityFinalRecord` call
+  site inside the seam, the seam genuinely shared by both stages, no acceptance-rule exemption, no
+  widened cue list, no source text in the persisted audit, judged-equals-kept on both stages — and
+  disagreed on exactly the two things that were fixed below. **Both fixes are in verification and
+  audit code; no frozen surface, no product acceptance rule and no scoring behaviour was touched.**
+  1. **The persisted correction audit was overstating, and the fix is reconciliation, not wording.**
+     `correctResponsibilityFinalRecord` returns `accepted: true` whenever something changed and
+     fidelity did not REGRESS (`responsibility-reader.ts`, the `!changed || fidelityRegressed` refusal
+     — note `fidelityRegressed = beforeFidelity.passed && !afterFidelity.passed`). A record that
+     failed fidelity before AND after is therefore "accepted". The seam applies the correction WITHOUT
+     re-validating, and `buildResponsibilityFinalRecordCorrectionAudit` copied that raw flag straight
+     into `validationJson`. So the stored `acceptedCount` / `acceptedSeedIds` meant "the corrector took
+     a correction", NOT "a corrected record passed validation" and NOT "the record was kept". Codex
+     rated this P1 and was right; GLM rated it P3 cosmetic and was wrong, because this audit is the
+     governance artefact the owner decision reads. Such a record still cannot reach `elementsJson` —
+     `validateResponsibilityRead` rejects it downstream, which both reviewers confirmed — so this was
+     an honesty defect in the audit, never a persistence defect. **Fixed:** the builder now takes
+     `persistedSeedIds` and reports `accepted` only when the correction was taken AND the seed reached
+     the persisted map; a correction that was taken but did not survive is reported as refused with the
+     added reason `correction_not_persisted`, so the two populations stay distinguishable instead of
+     being silently merged. Pinned by a new F6 test block, and **proved red before green**: with the
+     pre-fix line restored the block fails and everything else stays green.
+     Historical note worth keeping: the superseded `al8960ofc` F4 branch (parked at
+     `al8960ofc-r2-f4-local-superseded`) had ALREADY found and fixed this same overstatement after its
+     own Qwen review, with the same reconciliation approach. Two independent implementations converged
+     on the same defect and the same remedy, which is the strongest evidence available that the fix is
+     the right shape rather than a preference.
+  2. **The record-level preservation check was insufficient in code, and accidentally sufficient on
+     the data. Both halves matter.** `isolatedRow` used `evidence.findIndex(matched)`, i.e. only the
+     FIRST answer-key row a record matches on its own — not the row the global best-assignment actually
+     gave it. Codex's counter-example is exact: record R matches rows {3, 7} in isolation so the check
+     watches row 3; the baseline assignment gave R row 7; after the replay R matches only {3}, having
+     genuinely lost row 7; the check sees 3 === 3 and stays silent, and CHECK 1's row-set assertion also
+     stays green because a different corrected record Y took over row 7. That is precisely the
+     substitution scenario the isolation check was added to eliminate, surviving the check. GLM argued
+     the compensation was sufficient because every baseline-matched record also matched its row in
+     isolation — true, but it establishes only that the assigned row is SOMEWHERE in the record's
+     isolated match set, not that `findIndex` returns that row, and GLM's "conservative false positive"
+     remark answers the false-alarm direction rather than the missed-detection one.
+     **Fixed:** the gate now takes the whole isolated row SET per record and fails if a record loses ANY
+     row it could satisfy on its own, which removes the dependence on which row the assignment picked.
+     **Then measured, because this plan does not accept arguments from circumstance:** the gate now
+     prints `Stored records matching more than one answer-key row in isolation` on every run, and on the
+     real production data that count is **0**. So the old check was accidentally sufficient today — the
+     masking scenario cannot arise on this data — and the new one is sufficient by construction. The
+     count is printed every run so that if it ever stops being 0, nobody has to re-derive this argument.
+  3. **Recorded at GLM's request (its P2, accepted).** The paired trigger rule as implemented is
+     STRICTER than the plan's locked section 8 wording: fidelity fails when a `condition` tail is absent
+     from `trigger` EVEN IF the condition text is still fully present in `object` (the absorbed shape;
+     pinned by F1 case 14). Locked §8.5 permits object-retention; the implementation demands trigger
+     carriage unconditionally. The stricter form is deliberate and is believed correct — it is what
+     kills row 17's absorbed record, and the frozen matcher would score an `unless`/`except`-absorbed
+     record as a match because there is no negation token, so the locked wording would silently keep
+     junk. **The risk being recorded here is the reverse one:** a future session "restoring the locked
+     wording" would re-legalize the absorbed shape and re-break row 17 with every gate green except the
+     replay score. Do not relax this rule to the literal §8.5 text without re-deriving row 17.
+  4. **Carried, not fixed (agreed by both reviewers and by this session).** The dormant field-repair
+     path `patchCombinedResponsibilityRepairs` CAN rewrite all four duty fields outside the seam and is
+     default-armed at `maxFieldRepairs ?? 6`. It is disabled in the only production wiring by the literal
+     `maxFieldRepairs: 0`, that zero is pinned by a source assertion in the suite, and any repaired output
+     is re-validated. So the one-seam invariant holds today because of the pin, not because the path does
+     not exist. Do not re-enable it to rescue a stubborn row: it would bypass the correction audit by
+     design. Also carried: completion-outcome reason ORDERING is asserted only set-wise, so an ordering
+     change is test-invisible (no functional consumer); and a record whose enclosing duty span cannot be
+     resolved reaches `elements` with `fieldFidelity === null`, skipping ALL fidelity checks including
+     the new condition rule — pre-existing, narrow, unchanged by F2b/F3/F4, and the one honest exception
+     to "every path that can reach persistence is checked".
+  **All 15 local gates re-run after the fixes and all pass**, including `verify:r2-pinned-inventory`
+  at 28/30 with rows 16/26 unsupported, and `verify:r2-production-replay` unchanged at 19 baseline /
+  21 after / `preservedRows 19` / `regressedRows []` / `recordLevelRegressions []` with the same
+  `replaySha256 013e40ca…`. F6 is NOT complete: Codex owes a re-review of these fixes, and the
+  Codex-vs-GLM split on finding 2 was put back to GLM for a direct answer rather than averaged away.
 - **2026-08-25, F5 on `al8960ofc`. Every local gate in the F5 list has now been run in one pass and
   all of them pass, including the one gate no previous session could reach.** The licensed pinned
   fixture IS mounted on this machine, so `verify:r2-pinned-inventory` finally ran, with

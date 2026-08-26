@@ -3968,6 +3968,10 @@ export async function generateSourceWorkflowMap(args: {
       // corrected candidates. Never source text.
       responsibilityFinalRecordCorrection: buildResponsibilityFinalRecordCorrectionAudit({
         seams: responsibilityCorrectionSeams,
+        // F6. Reconcile every correction row against what actually reached the map, so a
+        // correction the corrector took but that failed validation or lost its batch can
+        // never be persisted as `accepted`. See the builder's docblock.
+        persistedSeedIds: new Set(mergeReadyInventory.map((element) => element.elementId)),
         executionRefs: responsibilityCompletionAudit.executions.map((execution) => ({
           // Late batches are appended after the exhaustive ones using exactly this offset,
           // so the batch index is an exact, not heuristic, stage boundary.

@@ -57,6 +57,7 @@ import {
   responsibilityCompletionRequest,
   lateResidualResponsibilitySeeds,
   mergeResponsibilityRecordsByInventoryId,
+  buildResponsibilityFinalRecordCorrectionAudit,
   type ResponsibilityInventorySeed,
 } from '../lib/responsibility-reader';
 import {
@@ -5277,3 +5278,85 @@ if (r2F1Failures.length > 0) {
 }
 
 console.log(`R2 final-record correction contract: ${r2F1Cases.length}/${r2F1Cases.length} cases passed`);
+
+// ---------------------------------------------------------------------------
+// F6. The persisted correction audit may not overstate what actually happened.
+//
+// The corrector's own `accepted` flag means only "something changed and fidelity did
+// not get worse". The seam applies the correction WITHOUT re-validating; the caller's
+// validateResponsibilityRead judges it afterwards, and the batch can still fail or be
+// retried. Reporting that raw flag as `accepted` in a persisted audit therefore claims
+// more than was proven — raised as P1 by the F6 reviewer (Codex, 2026-08-26).
+//
+// The builder now reconciles every row against the seeds that actually reached the map.
+// These cases pin that reconciliation directly, so a future session cannot quietly drop
+// the `persistedSeedIds` argument and restore the overstating audit.
+// ---------------------------------------------------------------------------
+
+const f6CorrectionRow = (seedId: string, accepted: boolean) => ({
+  seedId,
+  sourceSpanSha256: createHash('sha256').update(`f6-span-${seedId}`).digest('hex'),
+  accepted,
+  reasons: accepted ? ['action_inflection_normalized'] : ['no_strict_improvement'],
+  before: { role: 'Depot Lead', action: 'files', object: 'route packets', trigger: null },
+  after: accepted
+    ? { role: 'Depot Lead', action: 'file', object: 'route packets', trigger: null }
+    : null,
+});
+
+const f6Audit = buildResponsibilityFinalRecordCorrectionAudit({
+  seams: [
+    {
+      stage: 'exhaustive' as const,
+      corrections: [
+        f6CorrectionRow('f6-seed-kept', true),
+        f6CorrectionRow('f6-seed-dropped', true),
+        f6CorrectionRow('f6-seed-refused', false),
+      ] as any,
+    },
+  ],
+  executionRefs: [
+    { stage: 'exhaustive' as const, modelRunId: 'f6-run', contextPackId: 'f6-pack' },
+  ],
+  persistedSeedIds: new Set(['f6-seed-kept']),
+});
+
+assert.deepEqual(
+  f6Audit.acceptedSeedIds,
+  ['f6-seed-kept'],
+  'F6: only a correction that actually reached the persisted map may be reported as accepted',
+);
+assert.ok(
+  f6Audit.refusedSeedIds.includes('f6-seed-dropped'),
+  'F6: a correction the corrector took but that did not survive is reported as refused',
+);
+assert.equal(
+  f6Audit.acceptedCount,
+  1,
+  'F6: acceptedCount counts persisted corrections, not corrections merely taken',
+);
+assert.equal(
+  f6Audit.offeredCount,
+  f6Audit.acceptedCount + f6Audit.refusedCount,
+  'F6: reconciliation still accounts for every offered candidate exactly once',
+);
+const f6Dropped = f6Audit.corrections.find((item) => item.seedId === 'f6-seed-dropped');
+assert.ok(
+  f6Dropped && f6Dropped.reasons.includes('correction_not_persisted'),
+  'F6: a downgraded row names why it was downgraded, so it stays distinguishable from a plain refusal',
+);
+const f6Refused = f6Audit.corrections.find((item) => item.seedId === 'f6-seed-refused');
+assert.ok(
+  f6Refused && !f6Refused.reasons.includes('correction_not_persisted'),
+  'F6: a correction the corrector itself refused is not relabelled as a persistence loss',
+);
+
+// The production path must agree: every seed the persisted audit calls accepted is a seed
+// that is actually present in the persisted elements. This is the assertion that would
+// have failed before the F6 fix.
+for (const seedId of savedCorrection.acceptedSeedIds) {
+  assert.ok(
+    savedInventoryIds.includes(seedId),
+    'F6: an accepted correction on the production path names a seed that reached the map',
+  );
+}
