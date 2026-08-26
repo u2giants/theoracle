@@ -14,6 +14,30 @@
         "--project-ref",
         "eqccjfbyrywsqkxxpjvg"
       ]
+    },
+    "trigger": {
+      "args": [
+        "/c",
+        "${USERPROFILE}\\.config\\ai-devops\\mcp-launch.cmd",
+        "cmd",
+        "/c",
+        "npx",
+        "-y",
+        "trigger.dev@4.4.6",
+        "mcp"
+      ],
+      "command": "cmd"
+    },
+    "recall-ai": {
+      "args": [
+        "/c",
+        "${USERPROFILE}\\.config\\ai-devops\\mcp-remote-launch.cmd",
+        "https://us-east-1.recall.ai/mcp",
+        "op://vibe_coding/recall-ai MCP/password",
+        "--transport",
+        "http-first"
+      ],
+      "command": "cmd"
     }
   }
 }
