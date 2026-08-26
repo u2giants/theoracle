@@ -7,6 +7,38 @@ Created: 2026-08-11
 
 ## Drift log
 
+- **2026-08-25, F5 on `al8960ofc`. Every local gate in the F5 list has now been run in one pass and
+  all of them pass, including the one gate no previous session could reach.** The licensed pinned
+  fixture IS mounted on this machine, so `verify:r2-pinned-inventory` finally ran, with
+  `R2_PINNED_FIXTURE_PATH` pointed at
+  `Z:\Documentation\company process - Oracle\Licensed Team Responsibilities 2 - tagged.txt`. Result:
+  **28/30 unique role-aware rows from 139 source-bound seeds, rows 16 and 26 unsupported** — exactly
+  the required number and exactly the required two rows, matching the 2026-08-13 measurement. The
+  other fourteen commands (three typechecks, `verify:r2-responsibilities`, `verify:source-workflow-read`,
+  `verify:r0-reader-validator`, `verify:document-ingestion-fallback`, `verify:lull-event-dispatch`,
+  `verify:conversation-windowing`, `@oracle/ai verify:r2`, `@oracle/ai verify:workflow-read`, and
+  `@oracle/engines verify:macro`, `verify:macro-first`, `verify:r1-cross-shape`) all exited 0.
+  `verify:r2-production-replay` was re-run here against the real production map on a DIFFERENT
+  machine from the one that built it, and reproduced the previous numbers exactly:
+  `storedRecords 93`, `seeds resolved 93 / unresolved 0 / built 139`, `baselineMatched 19`,
+  `replayMatched 21`, `preservedRows 19`, `regressedRows []`, `recordLevelRegressions []`,
+  `recoveredRows [19, 29]`, `correctionsAccepted 18`, reasons
+  `{ no_strict_improvement: 75, action_inflection_normalized: 11, object_boundary_isolated: 8 }`,
+  `replaySha256 013e40ca24070d22a5113b6e788e94ed55a8d1c7eae61c00ab2bc86829f4a468`. Cross-machine
+  reproduction is new information: it rules out a machine-local artefact in the preservation proof.
+  No file was edited to obtain any of this — the tree was exactly `f997f8e` throughout, so no frozen
+  matcher, answer key, fixture, threshold, budget, model, route or flag could have moved, and the F0
+  block re-asserted all of them inside `verify:r2-responsibilities`.
+  **The exact limit of what F5 now proves, stated plainly so nobody overstates it later.** F5's
+  original wording also expected the residual replay to recover 8/8 eligible shapes and reach the
+  frozen 27/30 minimum. It recovers 2 (rows 19 and 29) and reaches 21/30. That is NOT a regression
+  and NOT a gate failure — replaying finished, stored records can only repair defects that live in
+  the wording of a record that was actually produced, and rows 20 and 23 have no stored record at
+  all while row 15 produced no usable one. The remaining six rows depend on the F3/F4 seams running
+  during a FRESH pipeline execution, which is a production run and is forbidden by the standing hard
+  stop. So F5 is complete for everything locally provable, and the 8/8 recovery target is carried
+  forward as a production question, not as unfinished local work. A future session that tunes the
+  corrector until a replay prints 27/30 has almost certainly cheated.
 - **2026-08-25, after the production-replay gate and F3. The 19/19 preservation gate is now RUN and
   PASSED, from the real stored records.** New SELECT-only harness
   `apps/workers/src/__verify__/r2-production-replay.ts` (`pnpm --filter @oracle/workers
@@ -191,7 +223,7 @@ Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](
 | F3. Repair the existing late-completion acceptance seam | ✅ done 2026-08-25 | Existing late candidates pass through F2 before existing selection and validation via one optional `correctRecord` hook supplied only by `runLateResponsibilityCompletion`; tests F3a–F3e pin dispatch-once, refusal preserving the existing incomplete outcome, the untouched shared executor, the over-budget case, and one production call site each. `corrections` audit returned for F4. |
 | **Production-replay preservation gate (F5 prerequisite)** | ✅ **RUN and PASSED 2026-08-25** | `verify:r2-production-replay` over the real 93 stored records: baseline 19/30 with the eleven documented misses, after correction 21/30, **0 regressed, 19/19 preserved**, rows 19 and 29 recovered, negative controls 16/24/26 still unmatched. |
 | F4. Integrate before final validation and assembly | ✅ done 2026-08-25 | One shared `responsibilityFinalRecordCorrectionSeam` is used by BOTH candidate stages (exhaustive and late) before selection, validation and assembly; the corrector now has exactly one call site in the codebase and the orchestrator never calls it directly. `responsibilityFinalRecordCorrection` is persisted in `validationJson` with counts, seed IDs, reason codes, source-span hashes and execution refs. Proven on the real top-level orchestration path, not a test-only copy: inflected completion actions are normalized before assembly, identity stays one-to-one, and the audit carries no source text. |
-| F5. Run unchanged local gates and residual replay | ⬜ open | All suites pass; the pinned source-support verifier stays 28/30 with rows 16/26 unsupported; a separate final-record replay keeps row 24 unsupported and recovers all 8/8 eligible shapes to reach the frozen 27/30 minimum. |
+| F5. Run unchanged local gates and residual replay | ✅ done 2026-08-25 (locally provable part) | All 15 local gates run in one fail-fast pass on `al8960ofc` at `f997f8e` and all pass, with no file edited to obtain them. `verify:r2-pinned-inventory` finally ran (the licensed `Z:` fixture is mounted on this machine) and prints **28/30 with rows 16 and 26 unsupported**. `verify:r2-production-replay` reproduced on a second machine, byte-identical: 19 baseline, 21 after correction, **19/19 preserved, `regressedRows []`, `recordLevelRegressions []`**, negative controls still failing. **Not proven and not claimed:** the 8/8 recovery to 27/30. Replay reaches 21/30 because six of the eight rows need the F3/F4 seams to run during a FRESH pipeline execution, which is a production run under the standing hard stop. That target is carried to the production decision, not left as local work. See the F5 drift entry. |
 | F6. Independent review and owner decision | ⬜ open | Codex and GLM 5.2 approve with no P0/P1 before Albert decides on local landing. |
 
 Fresh-session starting point: **read this file in full, then stop**. Albert must separately authorize
