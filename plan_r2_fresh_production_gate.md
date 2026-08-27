@@ -18,7 +18,7 @@ new written plan and a new explicit owner authorization. Rows 5, 14, 15, 16, 19,
 unmatched; 16 and 26 are unsupported by the source and 16/24/26 are the negative controls, so the
 honest ceiling under this answer key is 28/30 and the real shortfall is rows 5, 14, 15, 19 and 23.
 
-Plan handoff: [`HANDOFF.d/2026-08-27T0410Z-al8960ofc-claude-r2-completion-recovery-cycle.md`](HANDOFF.d/2026-08-27T0410Z-al8960ofc-claude-r2-completion-recovery-cycle.md).
+Plan handoff: [`HANDOFF.d/2026-08-27T1130Z-al8960ofc-claude-r2-late-pass-measured.md`](HANDOFF.d/2026-08-27T1130Z-al8960ofc-claude-r2-late-pass-measured.md).
 
 ## 1. Ultimate goal
 

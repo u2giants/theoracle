@@ -405,6 +405,17 @@ Created: 2026-08-11
   the answer key or the validator — the 40 rejections are the evidence rule working, and rows 5, 14
   and 15 are deliberately left open for their own plan.
 
+- **2026-08-27. The late-pass repair was measured and is worth exactly one row.** The second
+  authorized run (`run_06g45qkld9p9931i6qp4quk501`, worker `20260827.2`, map `224ca68d-...`) scored
+  **23/30**. The late pass ran for the first time — 2 completion batches instead of 1, 47 rejected
+  seeds re-attempted — and row 19 returned, exactly as the diagnosis predicted. Row 23 did not:
+  rejected again on the same fidelity grounds. Preservation held; negative controls held. Record count
+  FELL from 102 to 95 while the score ROSE from 22 to 23, so never treat stored-record count as a
+  proxy for quality. The lesson for the next cycle: 95 of 148 completion outcomes were
+  validation-rejected, and re-asking the same question is not the lever — feeding the already-computed
+  rejection reason codes back into the late-pass prompt is. Not authorized yet. See
+  `plan_r2_completion_recovery_cycle.md` section 6a.
+
 Parent: [`plan_r2_source_span_inventory_reader.md`](plan_r2_source_span_inventory_reader.md)
 Evidence: [`evals/r2-responsibilities.md`](evals/r2-responsibilities.md)
 Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md)

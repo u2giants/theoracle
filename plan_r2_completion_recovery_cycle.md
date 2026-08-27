@@ -8,7 +8,8 @@
 | G1. Diagnose why each missed row is missed, read-only | DONE 2026-08-27 | `verify:r2-missed-row-diagnosis` against map `aa713247-...` splits the five real misses into two distinct causes: rows 19 and 23 `NO_RECORD_PRODUCED_ON_THE_SUPPORTING_SPAN`; rows 5, 14 and 15 `RECORD_PASSES_FIDELITY_BUT_FAILS_THE_MATCHER`. Production audit confirms 40 of 96 completion outcomes were `validation_rejected` and the late pass never ran. |
 | G2. Repair the starved late completion pass | DONE 2026-08-27 | `apps/workers/src/lib/source-workflow-read.ts`: late-pass `handledIds` now come from ACCEPTED completion outcomes, not from every SCHEDULED seed. Two new deterministic cases in `verify:r2-responsibilities` lock both the helper behaviour and the production wiring. All 16 gates pass; replay hash `013e40ca...` unchanged. |
 | G3. Address the object-wording misses (rows 5, 14, 15) | OPEN - NOT STARTED | Separate, riskier work. Evidence gathered but no code change attempted. See section 7. |
-| G4. Measure in production | BLOCKED ON OWNER | Requires a new explicit authorization for one run. No run has been triggered in this cycle. |
+| G4. Measure in production | DONE 2026-08-27 - **23/30, still below the 27 threshold** | Albert authorized one run. Worker `20260827.2` (deployment `a877o1d9`), run `run_06g45qkld9p9931i6qp4quk501`, one attempt, COMPLETED, $0.0054. Map `224ca68d-82c8-4954-ac65-59b02db00546`, 95 stored records. **The repair worked mechanically**: the completion stage ran 2 batches and 2 executions instead of 1 and 1, and re-attempted 47 previously rejected seeds. **Row 19 recovered.** Row 23 did not. Score 23/30, all 19 prior rows still preserved, negative controls 16/24/26 still unmatched. All 16 gates re-pass; replay hash `013e40ca...` unchanged. |
+| G5. Remaining shortfall | OPEN | Rows 5, 14, 15 (object wording) and row 23 (still no record on its span). See sections 6 and 7. |
 
 ## 1. Ultimate goal
 
@@ -67,6 +68,23 @@ Answer rows 19 and 23 are two of the duties lost exactly this way. The fix build
 relaxes no validator, and raises no budget. Every late candidate still passes through the same
 unchanged corrector, strict-improvement selection and `validateResponsibilityRead`.
 
+## 6a. What the measurement changed
+
+The repair did exactly what it was designed to do and it was not enough. On the second run the
+completion stage ran **2 batches and 2 executions** instead of 1 and 1, and re-attempted **47**
+previously rejected seeds. Row 19 came back. Row 23 did not: its candidate was rejected again, on the
+same source-bound fidelity grounds. Stored records moved from 102 to 95 while the score rose from 22
+to 23 — record COUNT is not the objective and must not be used as a proxy for it.
+
+That reframes the remaining work. Of 148 completion outcomes on the second run, **95 were
+validation-rejected**. Giving those candidates another identical attempt does not help, because the
+model is asked the same question and returns a candidate that fails the same rule. The next lever is
+not another retry: it is telling the model WHY its candidate was rejected. The rejection reasons are
+already computed, already audited, and already specific — `condition_not_preserved_in_trigger`,
+`object_qualifier_loss:<tokens>`, `action_family_mismatch`, `owner_mismatch`. Feeding those codes
+back into the late-pass prompt is a genuinely different attempt, keeps the validator authoritative,
+and invents nothing. That is the recommended next cycle, and it is NOT authorized yet.
+
 ## 7. Rejected approaches, and the open work
 
 Rejected outright:
@@ -92,8 +110,8 @@ Locked: answer key `licensed-team-responsibilities-v1`; matcher `field-aware-v3`
 negative controls rows 16, 24 and 26; frozen route and limits; all three `business_model_*_enabled`
 false; no production run without a new explicit owner authorization.
 
-Open as measured outcomes only: how many of the 37 incomplete seeds the repaired late pass actually
-recovers, and whether rows 19 and 23 return. Nothing here may be assumed — it must be measured.
+Measured 2026-08-27: the repaired late pass is worth **one row** on this document (row 19). Row 23
+did not return. The remaining shortfall is four rows and is NOT a retry-wiring problem.
 
 ## 9. Execution plan
 
@@ -101,9 +119,9 @@ recovers, and whether rows 19 and 23 return. Nothing here may be assumed — it 
 2. **Repair the starved late pass.** Done, with the deterministic cases in section 10.
 3. **Prove nothing regressed.** Done. All 16 gates pass and the SELECT-only replay is unchanged.
 4. **Ship the record.** Done: this plan, the drift log, `evals/r2-responsibilities.md`, `main`, CI.
-5. **Measure.** Not started. Requires Albert to authorize exactly one production run. The expected
-   effect is a non-empty late pass and more than 102 stored records; the score is not predicted.
-6. **Then, separately, G3.** Only after step 5 shows what the late pass alone is worth.
+5. **Measure.** Done 2026-08-27 on Albert's authorization. The late pass ran (2 completion batches
+   and 2 executions, 47 rejected seeds re-attempted) and row 19 returned. Score 23/30.
+6. **Then, separately, G3 and row 23.** Now informed by the measurement in section 6a.
 
 ## 10. Tests required
 
@@ -133,9 +151,9 @@ SELECT-only verifiers read `R2_REPLAY_DATABASE_URL` from item `qcuyabwseaptvuzvt
 
 ## 13. Definition of done, risks, rollback, and open questions
 
-This cycle is done when the defect is repaired, locked by deterministic tests, proven not to regress
-any existing gate, and shipped green — all of which now hold. It is NOT done in the business sense
-until a production run measures it, and that is Albert's call.
+This cycle is done: the defect is repaired, locked by deterministic tests, proven not to regress any
+existing gate, shipped green, and measured in production at 23/30. The business goal is NOT met — the
+threshold is 27/30 — and this is an honest partial gain, not a pass.
 
 Risk: the late pass now runs where it previously did not, so a future run will spend more of its
 authorized model calls. That is the intended behaviour and it stays inside the frozen budget.
@@ -150,4 +168,4 @@ recovery, and rows 5, 14 and 15 remain unaddressed by design.
    and the work deliberately left open.
 3. Yes. Section 1 states the business goal and makes it win over any conflicting step.
 
-Cycle handoff: [`HANDOFF.d/2026-08-27T0410Z-al8960ofc-claude-r2-completion-recovery-cycle.md`](HANDOFF.d/2026-08-27T0410Z-al8960ofc-claude-r2-completion-recovery-cycle.md).
+Cycle handoff: [`HANDOFF.d/2026-08-27T1130Z-al8960ofc-claude-r2-late-pass-measured.md`](HANDOFF.d/2026-08-27T1130Z-al8960ofc-claude-r2-late-pass-measured.md).

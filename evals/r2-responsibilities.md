@@ -872,3 +872,38 @@ All 16 local gates pass after the change and `verify:r2-production-replay` is by
 19 baseline / 21 corrected, 19/19 preserved, empty regression lists, hash `013e40ca...`. **This is not
 a measured improvement.** It removes a proven cause of loss; only a production run can say what it
 recovers, and that needs a new owner authorization.
+
+## Tenth production gate — 2026-08-27, the late-pass repair measured: 23/30, still failed
+
+Albert authorized one run to measure the late-pass repair. Worker `20260827.2` (deployment
+`a877o1d9`), run `run_06g45qkld9p9931i6qp4quk501`, one attempt, COMPLETED, $0.0054 of Trigger compute.
+New map `224ca68d-82c8-4954-ac65-59b02db00546`, **95** stored records; `aa713247-...` is now
+`superseded` and remains stored.
+
+**The repair worked mechanically.** The completion stage ran **2 batches and 2 executions** instead of
+1 and 1, and re-attempted **47** previously rejected seeds. The late pass, which had never executed,
+executed.
+
+**It was worth one row.** Score **23/30** against the frozen threshold of 27.
+
+- Matched rows 1-4, 6-13, 17, 18, 19, 20, 21, 22, 25, 27-30. Missed rows 5, 14, 15, 16, 23, 24, 26.
+- **Row 19 recovered** — precisely the row the diagnosis predicted the starved late pass had cost.
+- **Row 23 did not return.** Its candidate was rejected again on the same source-bound fidelity
+  grounds, so its cause is `NO_RECORD_PRODUCED_ON_THE_SUPPORTING_SPAN` for a second time.
+- All 19 rows the 2026-08-11 run matched are still preserved. Negative controls 16, 24 and 26 remain
+  unmatched. All 16 local gates re-pass and `verify:r2-production-replay` is byte-identical at hash
+  `013e40ca...`.
+- Stored records fell from 102 to 95 while the score rose from 22 to 23. Record count is not the
+  objective and must never be used as a proxy for it.
+
+**What this measurement teaches.** Of 148 completion outcomes, **95 were validation-rejected**. A
+second identical attempt does not fix that: the model is asked the same question and returns a
+candidate that fails the same rule. The rejection reasons are already computed and audited, and they
+are specific — `condition_not_preserved_in_trigger`, `object_qualifier_loss:<tokens>`,
+`action_family_mismatch`, `owner_mismatch`. Feeding those codes back into the late-pass prompt is the
+next lever: it is a genuinely different attempt, it keeps the validator authoritative, and it invents
+nothing. Not authorized yet.
+
+The remaining shortfall is four rows: 5, 14 and 15 (a record exists and passes fidelity, but its
+object wording misses the frozen matcher — row 14 carries five of six expected tokens with zero
+unexpected) and 23 (still no record on its supporting span).
