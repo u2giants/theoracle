@@ -380,6 +380,19 @@ Created: 2026-08-11
   pinned source. F0 verifies the frozen SHA against the real file only when that path is reachable,
   so CI stays green and the licensed text is never copied into the repo.
 
+- **2026-08-27. The correction was measured in production and did not reach the bar: 22/30.** The one
+  authorized fresh run (`run_06g423t548pl6pc50ii4e2iv01`, worker `20260827.1`, map
+  `aa713247-e30f-4b0c-9b93-e02fdefd4048`) scored **22/30** under the frozen key and matcher, against a
+  threshold of 27. Preservation held completely: all 19 rows the 2026-08-11 run matched are still
+  matched, and negative controls 16, 24 and 26 stay unmatched. The fresh pipeline recovered rows 17,
+  20 and 29 — so the F3/F4 seams demonstrably do work end to end — but rows 5, 14, 15, 19 and 23 are
+  still not produced. Rows 15, 19 and 23 were predicted recoveries and are the real surprise; row 5
+  remains the honest unknown it was always described as. This is a completed, failed gate, not
+  unfinished work. Do not re-tune the matcher, key, validator or threshold against this number, and do
+  not assume a second run would score differently: a new production run needs a new written plan and a
+  new explicit owner authorization. Full record in `plan_r2_fresh_production_gate.md` and
+  `evals/r2-responsibilities.md`.
+
 Parent: [`plan_r2_source_span_inventory_reader.md`](plan_r2_source_span_inventory_reader.md)
 Evidence: [`evals/r2-responsibilities.md`](evals/r2-responsibilities.md)
 Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md)

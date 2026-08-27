@@ -6,19 +6,19 @@
 |---|---|---|
 | P0. Owner approval of this exact plan | DONE 2026-08-26 | Albert explicitly approved `plan_r2_fresh_production_gate.md` in Codex. |
 | P1. Preflight and deploy corrected worker | DONE 2026-08-27 | Run on `al8960ofc`. `main` = `origin/main` = `42b3404`; `52b308b` is an ancestor; CI run `33031355425` green. Settings verified against section 8 (route `openai/gpt-4.1`, 40 calls, 500,000 tokens, $10, 1 repair, 5 omission retries, 1 quote repair, all three `business_model_*_enabled` false). Document and prior map `37a8fc62-23e4-46b7-8464-d1c784dc73cd` exist. All 16 section-10 gates passed, including pinned fixture 28/30 (16/26 unsupported) and SELECT-only replay 19 baseline / 21 corrected with empty regression lists. Worker deployed once to `prod` as version `20260827.1` (deployment `pdgvxo7p`, 25 tasks). |
-| P2. Trigger exactly one fresh production map | BLOCKED 2026-08-27 | Trigger.dev rejected the single authorized trigger with HTTP 422 `You can't trigger a task because you have run out of credits.` No run id was issued and no new map exists; `source_workflow_maps` for the document still holds only `37a8fc62-...`. Deployed worker `20260827.1` is ready. Resume by re-running the one authorized trigger after Trigger.dev billing/credits are restored. |
-| P3. Score and audit the new map | OPEN | Frozen `licensed-team-responsibilities-v1` answer key, `field-aware-v3` matcher, threshold 27/30. |
-| P4. Re-run preservation and local gates | OPEN | Commands listed in sections 9 and 10; no regression is permitted. |
-| P5. Record, ship documentation, and retire predecessor handoff | OPEN | Plan/eval drift entry, commit, push, CI, and handoff successor check. |
+| P2. Trigger exactly one fresh production map | DONE 2026-08-27 | Exactly one run: `run_06g423t548pl6pc50ii4e2iv01`, task `source-workflow-read`, `prod`, worker `20260827.1`, one attempt, COMPLETED, $0.0047 Trigger compute. An earlier attempt on the same idempotency key was refused by Trigger.dev for lack of account credits and created no run. One new map `aa713247-e30f-4b0c-9b93-e02fdefd4048`; prior map `37a8fc62-...` is now `superseded` and still stored. |
+| P3. Score and audit the new map | DONE 2026-08-27 - **GATE FAILED HONESTLY** | `verify:r2-fresh-map-score` against map `aa713247-...` with the frozen `licensed-team-responsibilities-v1` key and `field-aware-v3` matcher: **22/30**, below the frozen threshold of 27. 102 stored records. Matched rows 1-4, 6-13, 17, 18, 20-22, 25, 27-30. Missed rows 5, 14, 15, 16, 19, 23, 24, 26. All 19 rows the 2026-08-11 run matched are preserved (`lostPriorRows []`). Recovered 17, 20 and 29. Negative controls 16, 24 and 26 remain unmatched. No retry and no tuning was attempted. |
+| P4. Re-run preservation and local gates | DONE 2026-08-27 | All 16 section-10 commands re-run after scoring and all exit 0. Pinned inventory still 28/30 with rows 16/26 unsupported. `verify:r2-production-replay` still 19 baseline / 21 corrected, 19/19 preserved, `regressedRows []`, `recordLevelRegressions []`, replay hash `013e40ca...` unchanged. `git diff --check` clean. |
+| P5. Record, ship documentation, and retire predecessor handoff | DONE 2026-08-27 | This STATUS table, the drift log in `plan_r2_source_bound_final_record_correction.md`, and `evals/r2-responsibilities.md` all record 22/30. Predecessor handoff retired; this session's handoff records the outcome. |
 
-Fresh-session start: preflight, local gates, and the one authorized deployment are complete on
-`al8960ofc`. The single authorized production run has NOT occurred: Trigger.dev refused it for lack of
-account credits. Resume at P2 by re-issuing exactly one trigger for
-`{documentId: "cc005035-2251-4dbe-ba1a-8913ad3ea912", force: true}` with `maxAttempts: 1` and
-idempotency key `plan-r2-fresh-production-gate-2026-08-26-run-1`, once Albert has restored Trigger.dev
-credits. Nothing else in this plan changes.
+**Outcome: the production gate is COMPLETE and FAILED at 22/30 against a frozen threshold of 27/30.**
+This is a measured result, not unfinished work. The single authorized run is spent. No further
+production run, retry, or scorer/matcher/answer-key change is authorized. Any future attempt needs a
+new written plan and a new explicit owner authorization. Rows 5, 14, 15, 16, 19, 23, 24 and 26 remain
+unmatched; 16 and 26 are unsupported by the source and 16/24/26 are the negative controls, so the
+honest ceiling under this answer key is 28/30 and the real shortfall is rows 5, 14, 15, 19 and 23.
 
-Plan handoff: [`HANDOFF.d/2026-08-27T0210Z-al8960ofc-claude-r2-production-run-blocked-on-credits.md`](HANDOFF.d/2026-08-27T0210Z-al8960ofc-claude-r2-production-run-blocked-on-credits.md).
+Plan handoff: [`HANDOFF.d/2026-08-27T0310Z-al8960ofc-claude-r2-production-gate-complete-failed.md`](HANDOFF.d/2026-08-27T0310Z-al8960ofc-claude-r2-production-gate-complete-failed.md).
 
 ## 1. Ultimate goal
 

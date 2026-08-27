@@ -808,3 +808,29 @@ from the real stored records, and the F2/F2b/F3/F4 correction work is proven not
   production already got right. It does not predict what a new production run would score, and the
   production hard stop is unchanged: no second gate without a new written plan and a new explicit
   owner authorization.
+
+## Ninth production gate — 2026-08-27, the one authorized fresh run: 22/30, FAILED
+
+The corrected reader was deployed to `prod` as worker `20260827.1` and given exactly one fresh run of
+`source-workflow-read` for document `cc005035-2251-4dbe-ba1a-8913ad3ea912`. It scored **22/30**
+against the frozen threshold of 27/30. **The gate failed.** Nothing was retried and nothing was tuned.
+
+- Run `run_06g423t548pl6pc50ii4e2iv01`, one attempt, COMPLETED, $0.0047 of Trigger compute. New map
+  `aa713247-e30f-4b0c-9b93-e02fdefd4048` with **102** stored responsibility records; the 2026-08-11
+  map `37a8fc62-23e4-46b7-8464-d1c784dc73cd` is now `superseded` and remains stored and addressable.
+- Command: `pnpm --filter @oracle/workers verify:r2-fresh-map-score`. SELECT-only. Requires
+  `R2_REPLAY_DATABASE_URL` and `R2_FRESH_MAP_ID`; it reads one map, writes nothing, calls no model,
+  and prints only counts and row numbers — never source text. Scored with the unchanged
+  `licensed-team-responsibilities-v1` answer key and `field-aware-v3` matcher.
+- Matched rows 1-4, 6-13, 17, 18, 20-22, 25, 27-30. Missed rows 5, 14, 15, 16, 19, 23, 24, 26.
+- Preservation held: all **19** rows the 2026-08-11 production run matched are still matched
+  (`lostPriorRows []`). Rows 17, 20 and 29 were recovered by the fresh pipeline. Negative controls
+  16, 24 and 26 remain unmatched.
+- Rows 16 and 26 are unsupported by the source, so the honest ceiling under this answer key is 28/30.
+  The real shortfall is rows 5, 14, 15, 19 and 23 — five duties the corrected reader still does not
+  produce in a fresh execution, and three of them (15, 19, 23) were expected recoveries.
+- After scoring, all 16 local gates were re-run and all passed unchanged, including
+  `verify:r2-production-replay` at 19 baseline / 21 corrected with empty regression lists and the same
+  `013e40ca...` replay hash. The correction work broke nothing; it simply did not reach the bar.
+- The single authorized run is spent. A further production run requires a new written plan and a new
+  explicit owner authorization.
