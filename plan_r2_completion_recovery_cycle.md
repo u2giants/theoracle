@@ -171,4 +171,4 @@ recovery, and rows 5, 14 and 15 remain unaddressed by design.
    and the work deliberately left open.
 3. Yes. Section 1 states the business goal and makes it win over any conflicting step.
 
-Cycle handoff: [`HANDOFF.d/2026-08-27T1300Z-al8960ofc-claude-r2-reason-feedback-built.md`](HANDOFF.d/2026-08-27T1300Z-al8960ofc-claude-r2-reason-feedback-built.md).
+Cycle handoff: [`HANDOFF.d/2026-08-27T1600Z-al8960ofc-claude-r2-reason-feedback-regressed.md`](HANDOFF.d/2026-08-27T1600Z-al8960ofc-claude-r2-reason-feedback-regressed.md).
