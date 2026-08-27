@@ -3440,7 +3440,25 @@ export async function generateSourceWorkflowMap(args: {
       stage: 'exhaustive' | 'late';
       corrections: readonly FinalRecordCorrection[];
     }> = [exhaustiveCorrectionSeam];
-    const completionHandledIds = new Set(responsibilityCompletionAudit.residualSeedIds);
+    // F7. A seed is HANDLED only when the exhaustive completion actually produced an
+    // ACCEPTED record for it. Passing every scheduled seed here — which is what
+    // `residualSeedIds` is — conflated "we asked about this seed" with "this seed is
+    // answered", so a seed whose candidate came back `validation_rejected`,
+    // `provider_failed` or `budget_exhausted` was silently retired with no record at all.
+    // The 2026-08-27 production gate measured that: 40 of 96 completion outcomes were
+    // validation-rejected, `lateResidualSeeds` was therefore empty, the late pass never
+    // ran, and the run finished having spent 21 of its 40 authorized model calls. Answer
+    // rows 19 and 23 are two of the duties lost that way. The late pass exists precisely
+    // to give such a seed one more source-bound attempt, so it must see them.
+    // This widens WHICH seeds the existing late pass considers. It does not add a stage,
+    // relax a validator, or raise a budget: every late candidate still passes through the
+    // same unchanged corrector, strict-improvement selection and `validateResponsibilityRead`,
+    // and the existing per-source budget still caps the work.
+    const completionHandledIds = new Set(
+      responsibilityCompletionAudit.outcomes
+        .filter((outcome) => outcome.status === 'accepted')
+        .map((outcome) => outcome.responsibilityId),
+    );
     const lateResidualSeeds = lateResidualResponsibilitySeeds({
       seeds: responsibilityInventorySeeds,
       handledIds: completionHandledIds,

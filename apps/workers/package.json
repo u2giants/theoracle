@@ -17,6 +17,7 @@
     "verify:r2-pinned-inventory": "tsx src/__verify__/r2-pinned-inventory.ts",
     "verify:r2-production-replay": "tsx src/__verify__/r2-production-replay.ts",
     "verify:r2-fresh-map-score": "tsx src/__verify__/r2-fresh-map-score.ts",
+    "verify:r2-missed-row-diagnosis": "tsx src/__verify__/r2-missed-row-diagnosis.ts",
     "verify:taxonomy-reclassification": "tsx src/__verify__/taxonomy-reclassification-contract.ts",
     "verify:taxonomy-reclassification-db": "tsx src/__verify__/taxonomy-reclassification-db.ts",
     "audit:taxonomy-reclassification-production": "tsx src/__verify__/taxonomy-reclassification-production-audit.ts",

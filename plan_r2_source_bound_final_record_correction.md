@@ -393,6 +393,18 @@ Created: 2026-08-11
   new explicit owner authorization. Full record in `plan_r2_fresh_production_gate.md` and
   `evals/r2-responsibilities.md`.
 
+- **2026-08-27. The 22/30 shortfall is two different problems, and one of them was a starved late
+  pass.** Read-only diagnosis of map `aa713247-...` splits the five real misses cleanly: rows 19 and
+  23 had NO record produced on their supporting span, while rows 5, 14 and 15 DO have a record that
+  passes fidelity but whose object wording misses the frozen matcher. The production audit then named
+  the cause of the first group: 40 of 96 completion outcomes were `validation_rejected`, and the late
+  completion pass — the one mechanism built to retry an unresolved seed — was fed every SCHEDULED
+  seed as "handled", so its residual list was empty and it never ran. The run spent 21 of 40
+  authorized model calls. Fixed by building the late pass's handled set from ACCEPTED outcomes only;
+  see `plan_r2_completion_recovery_cycle.md`. Do NOT "fix" the second group by relaxing the matcher,
+  the answer key or the validator — the 40 rejections are the evidence rule working, and rows 5, 14
+  and 15 are deliberately left open for their own plan.
+
 Parent: [`plan_r2_source_span_inventory_reader.md`](plan_r2_source_span_inventory_reader.md)
 Evidence: [`evals/r2-responsibilities.md`](evals/r2-responsibilities.md)
 Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md)

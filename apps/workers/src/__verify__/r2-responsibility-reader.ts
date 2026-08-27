@@ -2076,6 +2076,38 @@ assert.deepEqual(
   [],
   'a late discovered complete seed skips duplicate completion',
 );
+
+// F7. A seed that the exhaustive completion ASKED about but that came back rejected is
+// not "handled". The 2026-08-27 production gate lost answer rows 19 and 23 exactly this
+// way: every scheduled seed id was passed as `handledIds`, so `lateResidualSeeds` was
+// empty, the late pass never ran, and 19 of 40 authorized model calls went unspent.
+// `handledIds` must therefore be built from ACCEPTED outcomes, never from scheduled ones.
+const f7ScheduledOutcomes = [
+  { responsibilityId: discoveryInitialSeed.inventorySeedId, status: 'accepted' as const },
+  { responsibilityId: discoveryMissingSeed.inventorySeedId, status: 'validation_rejected' as const },
+];
+assert.deepEqual(
+  lateResidualResponsibilitySeeds({
+    seeds: sourceBoundDiscovery.inventorySeeds,
+    handledIds: new Set(f7ScheduledOutcomes.map((outcome) => outcome.responsibilityId)),
+    completeIds: new Set(),
+  }),
+  [],
+  'the pre-F7 defect: treating every SCHEDULED seed as handled starves the late pass',
+);
+assert.deepEqual(
+  lateResidualResponsibilitySeeds({
+    seeds: sourceBoundDiscovery.inventorySeeds,
+    handledIds: new Set(
+      f7ScheduledOutcomes
+        .filter((outcome) => outcome.status === 'accepted')
+        .map((outcome) => outcome.responsibilityId),
+    ),
+    completeIds: new Set(),
+  }).map((seed) => seed.inventorySeedId),
+  [discoveryMissingSeed.inventorySeedId],
+  'a validation-rejected seed reaches the late completion pass',
+);
 const lateDiscoverySeed = sourceBoundDiscovery.inventorySeeds.find(
   (seed) => seed.inventorySeedId === discoveryMissingSeed.inventorySeedId,
 )!;
@@ -3773,6 +3805,20 @@ assert.ok(
   workflowReadSource.includes('const lateResidualSeeds = lateResidualResponsibilitySeeds({') &&
     workflowReadSource.includes('responsibilityCompletionAudit.outcomes.push('),
   'late detection-retry seeds must receive durable completion outcomes',
+);
+// F7. Lock the production wiring, not just the helper: the late pass must be fed from
+// ACCEPTED completion outcomes. `residualSeedIds` there is the defect that cost rows 19
+// and 23, so its return is a regression, not a refactor.
+assert.ok(
+  workflowReadSource.includes("responsibilityCompletionAudit.outcomes") &&
+    workflowReadSource.includes(".filter((outcome) => outcome.status === 'accepted')"),
+  'late completion handled-ids must be built from accepted outcomes',
+);
+assert.ok(
+  !workflowReadSource.includes(
+    'const completionHandledIds = new Set(responsibilityCompletionAudit.residualSeedIds)',
+  ),
+  'scheduled seed ids must never again be treated as handled completions',
 );
 assert.ok(
   workflowReadSource.includes('auditOnlyParents: [...responsibilityInventoryAuditParents.reduce('),

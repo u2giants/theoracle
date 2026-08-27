@@ -834,3 +834,41 @@ against the frozen threshold of 27/30. **The gate failed.** Nothing was retried 
   `013e40ca...` replay hash. The correction work broke nothing; it simply did not reach the bar.
 - The single authorized run is spent. A further production run requires a new written plan and a new
   explicit owner authorization.
+
+## Post-gate diagnosis and the starved late pass — 2026-08-27
+
+The 22/30 gate was diagnosed read-only before any code was touched. The five real misses split into
+two causes that need different fixes, and the split is now reproducible:
+
+- Command: `pnpm --filter @oracle/workers verify:r2-missed-row-diagnosis`. SELECT-only, needs
+  `R2_REPLAY_DATABASE_URL` and optionally `R2_FRESH_MAP_ID` / `R2_MISSED_ROWS`. It reads one map and
+  its chunks, writes nothing, calls no model, and prints only row numbers, counts, reason codes and
+  token counts — never source text. Diagnostic, not a CI gate.
+- **Rows 19 and 23 — `NO_RECORD_PRODUCED_ON_THE_SUPPORTING_SPAN`.** The source supports the duty and
+  the inventory detected a seed, but no record reached the map.
+- **Rows 5, 14 and 15 — `RECORD_PASSES_FIDELITY_BUT_FAILS_THE_MATCHER`.** A record exists on the
+  right span and passes fidelity; its object wording does not satisfy `field-aware-v3`. Row 14 carries
+  five of six expected object tokens with zero unexpected ones. Left open on purpose.
+
+The production audit explains rows 19 and 23 exactly. The run detected **139** seeds and stored
+**102**. Of **96** seeds sent to completion, **56** were accepted and **40** were `validation_rejected`
+— 12 involving `condition_not_preserved_in_trigger`, 11 quote-policy failures, the rest
+`action_family_mismatch`, `object_qualifier_loss`, `owner_mismatch` or `invented_object_content`.
+Those rejections are the evidence rule working correctly.
+
+What failed is what came next. The late completion pass — which exists to give an unresolved seed one
+more source-bound attempt — was fed every **scheduled** seed as already "handled". All 40 rejected
+seeds counted as handled, its residual list was empty, and it never ran. The run ended having spent
+**21 of 40** authorized model calls and $0.36 of a $10 budget.
+
+The fix builds the late pass's handled set from **accepted** outcomes only. It widens which seeds the
+existing pass considers and changes nothing else: no new stage, no relaxed validator, no raised
+budget, and every late candidate still passes the same unchanged corrector, strict-improvement
+selection and `validateResponsibilityRead`. Two deterministic cases in `verify:r2-responsibilities`
+reproduce the old defect and lock the new behaviour, and two source assertions stop the old wiring
+from returning.
+
+All 16 local gates pass after the change and `verify:r2-production-replay` is byte-identical —
+19 baseline / 21 corrected, 19/19 preserved, empty regression lists, hash `013e40ca...`. **This is not
+a measured improvement.** It removes a proven cause of loss; only a production run can say what it
+recovers, and that needs a new owner authorization.
