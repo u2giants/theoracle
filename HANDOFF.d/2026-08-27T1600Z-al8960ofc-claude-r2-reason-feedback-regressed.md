@@ -13,10 +13,14 @@ is once again the active map for document `cc005035-2251-4dbe-ba1a-8913ad3ea912`
 with 95 records and all 19 prior rows preserved. The 13/30 map `eadb118c-...` is superseded and still
 stored. Nothing about the served data is outstanding.
 
-Blocking, the one thing left: **store `OPENAI_API_KEY` in the `vibe_coding` vault.** The live
-prompt-contract probe is built and wired but cannot execute without it — the frozen `workflow_read`
-route is `openai/gpt-4.1` and that key exists only in the Trigger.dev production environment. Until
-the probe can run, no prompt change should reach production.
+Blocking, the one thing left: **a WORKING OpenAI API key in the `vibe_coding` vault.** All three
+OpenAI fields on item `3onekcbg3dxnazpnt36d4yzfcq` were tested on 2026-08-27 against
+`GET https://api.openai.com/v1/models` and **all three returned HTTP 401** — `openai` is a well-formed
+`sk-proj-` key that OpenAI rejects, and `openai_chatGPT_Oracle` is not an OpenAI API key at all. That
+item's notes now say so, so nobody repeats the test. Production worker runs against `gpt-4.1` succeed,
+so a valid key DOES exist — in the Trigger.dev production environment for
+`proj_wgpzsvhmsopqhvwqaycn`. Copy it into the item's `openai` field. Until then the live
+prompt-contract probe cannot execute and no prompt change should reach production.
 
 Then his call: whether to continue at all. If yes, the order is fixed — run the probe, then reattempt
 reason-code feedback per-seed with no system-prompt change, then one run. Never a prompt edit and a
@@ -94,8 +98,9 @@ per seed from a live model. That gap is why a broken prompt reached production.
    8 real seeds through `runResponsibilityCompletionModel` and
    `canonicalizeResponsibilityCompletionBatch` and asserts one record per requested seed. Proven as far
    as the model dispatch — DB connects, route resolves, all 8 seeds pack — then stops because
-   `OPENAI_API_KEY` is absent from `vibe_coding`. Store the key, run the probe, confirm it passes on
-   the CURRENT prompt so it has a known-good baseline before it is ever used to judge a change.
+   every OpenAI key in `vibe_coding` is dead (401, all three, verified). Put a working key in, run the
+   probe, and confirm it passes on the CURRENT prompt so it has a known-good baseline before it is ever
+   used to judge a change.
 3. Only then reattempt reason-code feedback, in a form that cannot dilute the seed contract —
    ideally per-seed in the request payload with NO system-prompt change, or with a single short line.
 4. Rows 5, 14 and 15 remain open under their own plan.
