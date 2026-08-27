@@ -5,16 +5,20 @@
 | Step | Status | Evidence |
 |---|---|---|
 | P0. Owner approval of this exact plan | DONE 2026-08-26 | Albert explicitly approved `plan_r2_fresh_production_gate.md` in Codex. |
-| P1. Preflight and deploy corrected worker | BLOCKED 2026-08-26 | Git `1ec4a47` equals `origin/main`, contains `52b308b`, and CI run `33030360877` passed. Production worker is still `20260823.1`. This host is `edge-dev` and has no `Z:` drive, so the mandatory pinned-fixture gate cannot run; no deployment occurred. Resume on `al8960ofc`, where the predecessor proved the fixture is mounted. |
-| P2. Trigger exactly one fresh production map | OPEN | Must record one Trigger run id and one new map id for document `cc005035-2251-4dbe-ba1a-8913ad3ea912`. |
+| P1. Preflight and deploy corrected worker | DONE 2026-08-27 | Run on `al8960ofc`. `main` = `origin/main` = `42b3404`; `52b308b` is an ancestor; CI run `33031355425` green. Settings verified against section 8 (route `openai/gpt-4.1`, 40 calls, 500,000 tokens, $10, 1 repair, 5 omission retries, 1 quote repair, all three `business_model_*_enabled` false). Document and prior map `37a8fc62-23e4-46b7-8464-d1c784dc73cd` exist. All 16 section-10 gates passed, including pinned fixture 28/30 (16/26 unsupported) and SELECT-only replay 19 baseline / 21 corrected with empty regression lists. Worker deployed once to `prod` as version `20260827.1` (deployment `pdgvxo7p`, 25 tasks). |
+| P2. Trigger exactly one fresh production map | BLOCKED 2026-08-27 | Trigger.dev rejected the single authorized trigger with HTTP 422 `You can't trigger a task because you have run out of credits.` No run id was issued and no new map exists; `source_workflow_maps` for the document still holds only `37a8fc62-...`. Deployed worker `20260827.1` is ready. Resume by re-running the one authorized trigger after Trigger.dev billing/credits are restored. |
 | P3. Score and audit the new map | OPEN | Frozen `licensed-team-responsibilities-v1` answer key, `field-aware-v3` matcher, threshold 27/30. |
 | P4. Re-run preservation and local gates | OPEN | Commands listed in sections 9 and 10; no regression is permitted. |
 | P5. Record, ship documentation, and retire predecessor handoff | OPEN | Plan/eval drift entry, commit, push, CI, and handoff successor check. |
 
-Fresh-session start: resume P1 on `al8960ofc`. Re-fetch Git, prove the licensed fixture path, finish the
-read-only settings preflight, then run section 10. No deployment or production run has occurred.
+Fresh-session start: preflight, local gates, and the one authorized deployment are complete on
+`al8960ofc`. The single authorized production run has NOT occurred: Trigger.dev refused it for lack of
+account credits. Resume at P2 by re-issuing exactly one trigger for
+`{documentId: "cc005035-2251-4dbe-ba1a-8913ad3ea912", force: true}` with `maxAttempts: 1` and
+idempotency key `plan-r2-fresh-production-gate-2026-08-26-run-1`, once Albert has restored Trigger.dev
+credits. Nothing else in this plan changes.
 
-Plan handoff: [`HANDOFF.d/2026-08-27T0128Z-edge-dev-codex-r2-fresh-production-gate.md`](HANDOFF.d/2026-08-27T0128Z-edge-dev-codex-r2-fresh-production-gate.md).
+Plan handoff: [`HANDOFF.d/2026-08-27T0210Z-al8960ofc-claude-r2-production-run-blocked-on-credits.md`](HANDOFF.d/2026-08-27T0210Z-al8960ofc-claude-r2-production-run-blocked-on-credits.md).
 
 ## 1. Ultimate goal
 
