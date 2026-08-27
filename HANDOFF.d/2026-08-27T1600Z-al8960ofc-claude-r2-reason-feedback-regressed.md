@@ -1,9 +1,9 @@
-# R2: the reason-code prompt regressed production to 13/30. Reverted. One map decision open.
+# R2: the reason-code prompt regressed production to 13/30. Reverted and the good map restored.
 
-Status: **Regression contained. Two owner decisions remain.** The third cycle was measured and it
-broke the completion stage outright: 13/30, and seven rows the 2026-08-11 run had matched were lost —
-the first preservation failure ever recorded. The feature is fully reverted and production code is
-back to known-good. The map currently SERVED for the document is still the bad one. Plan of record:
+Status: **Regression fully contained. One owner decision remains.** The third cycle was measured and
+it broke the completion stage outright: 13/30, and seven rows the 2026-08-11 run had matched were lost
+— the first preservation failure ever recorded. The feature is reverted, production code is back to
+known-good, and the 23/30 map is served again. Plan of record:
 [`../plan_r2_completion_recovery_cycle.md`](../plan_r2_completion_recovery_cycle.md).
 
 ## 0. Decisions only the owner can make
@@ -16,8 +16,6 @@ stored. Nothing about the served data is outstanding.
 Blocking, the one decision left: whether to continue at all, and if so it must start with the
 live prompt-contract check in section 6 — not with another prompt edit and not with another run.
 
-Also his call: whether to reattempt reason-code feedback at all, and only after the prerequisite in
-section 6 exists.
 
 Already settled and NOT open: the answer key, the `field-aware-v3` matcher, the 27/30 threshold, the
 negative controls, the frozen route and limits, and the business-model flags. Do not re-ask.
@@ -35,7 +33,7 @@ showed. Three runs were authorized and spent: 22/30, 23/30, then 13/30.
 
 ## 3. Current state
 
-`main` is green at `e3f0f23` and carries the revert. Production worker is **`20260827.4`**
+`main` is green at `ff691d2` and carries the revert. Production worker is **`20260827.4`**
 (deployment `y0o93f1b`), which is the reverted, known-good `20260827.2` behaviour. All 16 local gates
 pass and `verify:r2-production-replay` is byte-identical at hash `013e40ca...`.
 
@@ -85,7 +83,7 @@ per seed from a live model. That gap is why a broken prompt reached production.
 
 ## 6. Exact next steps
 
-1. Albert decides the map question in section 0. Nothing about the served data changes without it.
+1. Albert decides whether to continue. Nothing starts without it.
 2. Before ANY further prompt work: build a small live-model contract check — a handful of real seeds
    sent through `runResponsibilityCompletionModel`, asserting one record per requested seed and no
    omissions. It is cheap, it is not a full run, and it would have caught this. Treat it as the
