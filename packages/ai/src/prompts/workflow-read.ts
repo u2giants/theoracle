@@ -6,7 +6,7 @@ import {
 
 export const WORKFLOW_READ_PROMPT_VERSION = 'workflow-read-v2-quote-copy-repair';
 export const RESPONSIBILITY_READ_PROMPT_VERSION = 'responsibility-read-v2.4-span-bound';
-export const RESPONSIBILITY_COMPLETION_PROMPT_VERSION = 'responsibility-completion-v2';
+export const RESPONSIBILITY_COMPLETION_PROMPT_VERSION = 'responsibility-completion-v1';
 export const RESPONSIBILITY_COMPLETION_MAX_RECORDS_PER_BATCH = 300;
 export const RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION = 'responsibility-quote-repair-v2.3-grounded';
 export const SOURCE_SEGMENTATION_PROMPT_VERSION = 'source-segmentation-v1';
@@ -124,18 +124,7 @@ HARD RULES:
 - role, action, object, trigger, requiredSystem, ownerName, and department are the only fields you may fill.
 - role, action, and object are required. Optional fields must be null when the source span does not state them.
 - Preserve direction, polarity, concrete targets, systems, forms, cadence, and timing exactly.
-- The supplied chunkId, evidenceQuote, and offsets are immutable evidence. They are context only and must not be returned.
-
-WHEN A SEED CARRIES priorRejectionReasons:
-- A previous answer for that seed was rejected by a deterministic validator. Each code names what was wrong with it.
-- Treat the codes as a correction brief. Produce a DIFFERENT record that fixes them; repeating the previous answer will be rejected again.
-- condition_not_preserved_in_trigger: the span states a condition or timing that belongs in trigger. Put it in trigger, not in object.
-- object_qualifier_loss:<words>: those words are in the span and qualify the object. Restore them in object.
-- invented_object_content:<words>: those words are NOT in the span. Remove them.
-- action_family_mismatch: action is not the duty verb the span uses. Use the span's verb.
-- owner_mismatch: role is not the actor the span assigns. Use the span's actor.
-- The codes are validator output, never source text and never a proposed answer. Every rule above still binds: use only words from that seed's normalized sourceSpan, and never borrow from another seed.
-- If the span genuinely cannot satisfy a code, return your most source-faithful record rather than inventing content to satisfy it.`;
+- The supplied chunkId, evidenceQuote, and offsets are immutable evidence. They are context only and must not be returned.`;
 
 export const WORKFLOW_NODE_TYPES = [
   'step',
