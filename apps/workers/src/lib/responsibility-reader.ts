@@ -103,6 +103,10 @@ export type ResponsibilityCompletionRequest = {
   allowedMutableFields: readonly [
     'label', 'role', 'action', 'object', 'trigger', 'requiredSystem', 'ownerName', 'department',
   ];
+  // G6. Deterministic reason codes from THIS seed's previously rejected candidate, so a
+  // second attempt is a different question rather than the same one. Absent on a first
+  // attempt. These are validator outputs — never source text, never a suggested answer.
+  priorRejectionReasons?: readonly string[];
 };
 
 export type ResponsibilityCompletionBatch = {
@@ -198,9 +202,31 @@ const COMPLETION_MUTABLE_FIELDS = [
   'label', 'role', 'action', 'object', 'trigger', 'requiredSystem', 'ownerName', 'department',
 ] as const;
 
+// G6. A seed may carry the reason codes its previous candidate was rejected for. They are
+// capped and de-duplicated here so a pathological reason list can never dominate the batch
+// budget, and the cap is applied BEFORE token estimation so the packer still estimates the
+// payload it will actually send.
+export const RESPONSIBILITY_PRIOR_REJECTION_REASON_LIMIT = 6;
+export const RESPONSIBILITY_PRIOR_REJECTION_REASON_MAX_LENGTH = 160;
+
+export function normalizeResponsibilityPriorRejectionReasons(
+  reasons: readonly string[] | undefined,
+): readonly string[] | undefined {
+  if (!reasons || reasons.length === 0) return undefined;
+  const normalized = [...new Set(
+    reasons
+      .map((reason) => reason.trim())
+      .filter((reason) => reason.length > 0)
+      .map((reason) => reason.slice(0, RESPONSIBILITY_PRIOR_REJECTION_REASON_MAX_LENGTH)),
+  )].slice(0, RESPONSIBILITY_PRIOR_REJECTION_REASON_LIMIT);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 export function responsibilityCompletionRequest(
   seed: ResponsibilityInventorySeed,
+  priorRejectionReasons?: readonly string[],
 ): ResponsibilityCompletionRequest {
+  const priorReasons = normalizeResponsibilityPriorRejectionReasons(priorRejectionReasons);
   return {
     responsibilityId: seed.inventorySeedId,
     chunkId: seed.chunkId,
@@ -209,6 +235,7 @@ export function responsibilityCompletionRequest(
     sourceStart: seed.sourceStart,
     sourceEnd: seed.sourceEnd,
     allowedMutableFields: COMPLETION_MUTABLE_FIELDS,
+    ...(priorReasons ? { priorRejectionReasons: priorReasons } : {}),
   };
 }
 
@@ -234,6 +261,9 @@ export function packResponsibilityCompletions(args: {
   maxOutputTokensPerCall: number;
   inputCostPerMillionTokensUsd: number;
   outputCostPerMillionTokensUsd: number;
+  // G6. Optional per-seed reason codes from a previous rejected candidate. Supplying them
+  // changes the request payload, so they are packed and estimated like any other content.
+  priorRejectionsBySeedId?: ReadonlyMap<string, readonly string[]>;
 }): ResponsibilityCompletionPack {
   const nonNegative = [
     args.remainingCalls, args.remainingInputTokens, args.remainingCostUsd,
@@ -253,7 +283,10 @@ export function packResponsibilityCompletions(args: {
       throw new Error(`Duplicate residual completion seed: ${seed.inventorySeedId}`);
     }
     seen.add(seed.inventorySeedId);
-    return responsibilityCompletionRequest(seed);
+    return responsibilityCompletionRequest(
+      seed,
+      args.priorRejectionsBySeedId?.get(seed.inventorySeedId),
+    );
   });
   const batches: ResponsibilityCompletionBatch[] = [];
   const unscheduledIds: string[] = [];

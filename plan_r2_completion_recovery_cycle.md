@@ -10,6 +10,8 @@
 | G3. Address the object-wording misses (rows 5, 14, 15) | OPEN - NOT STARTED | Separate, riskier work. Evidence gathered but no code change attempted. See section 7. |
 | G4. Measure in production | DONE 2026-08-27 - **23/30, still below the 27 threshold** | Albert authorized one run. Worker `20260827.2` (deployment `a877o1d9`), run `run_06g45qkld9p9931i6qp4quk501`, one attempt, COMPLETED, $0.0054. Map `224ca68d-82c8-4954-ac65-59b02db00546`, 95 stored records. **The repair worked mechanically**: the completion stage ran 2 batches and 2 executions instead of 1 and 1, and re-attempted 47 previously rejected seeds. **Row 19 recovered.** Row 23 did not. Score 23/30, all 19 prior rows still preserved, negative controls 16/24/26 still unmatched. All 16 gates re-pass; replay hash `013e40ca...` unchanged. |
 | G5. Remaining shortfall | OPEN | Rows 5, 14, 15 (object wording) and row 23 (still no record on its span). See sections 6 and 7. |
+| G6. Feed rejection reason codes into the late pass | DONE 2026-08-27, NOT YET MEASURED | Albert funded a third cycle. Each residual seed is now re-asked WITH the deterministic reason codes its previous candidate was rejected for, carried in the request payload so the packer estimates it, capped at 6 codes of 160 chars. Completion prompt moved to `responsibility-completion-v2` and explains each code without proposing an answer. Nine deterministic cases plus four source assertions lock it. All 16 gates pass; replay hash `013e40ca...` unchanged. |
+| G7. Measure G6 in production | BLOCKED ON OWNER | Needs a fresh authorization for exactly one run. |
 
 ## 1. Ultimate goal
 

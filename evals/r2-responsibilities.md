@@ -907,3 +907,38 @@ nothing. Not authorized yet.
 The remaining shortfall is four rows: 5, 14 and 15 (a record exists and passes fidelity, but its
 object wording misses the frozen matcher — row 14 carries five of six expected tokens with zero
 unexpected) and 23 (still no record on its supporting span).
+
+## Rejection-reason feedback in the late pass — 2026-08-27, shipped, NOT yet measured
+
+The 23/30 measurement showed that giving a rejected seed another identical attempt is a spent
+strategy: 95 of 148 completion outcomes were validation-rejected, and a repeat of the same question
+returns a candidate that fails the same deterministic rule. Albert funded a third cycle to change the
+question instead.
+
+Each residual seed reaching the late completion pass now carries `priorRejectionReasons` — the
+deterministic codes its previous candidate was rejected for, taken straight from the completion
+outcomes that are already computed and audited. The completion prompt moved to
+`responsibility-completion-v2` and explains what each code means and how to fix it:
+`condition_not_preserved_in_trigger`, `object_qualifier_loss:<words>`,
+`invented_object_content:<words>`, `action_family_mismatch`, `owner_mismatch`.
+
+What this deliberately is not:
+
+- It does not relax anything. Every late candidate still faces the same unchanged corrector, the same
+  strict-improvement selection and the same `validateResponsibilityRead`.
+- The codes are validator output, never source text and never a proposed answer. The prompt says so,
+  and a source assertion pins that wording. The span-only rule still binds, and the prompt instructs
+  the model to return its most source-faithful record rather than invent content to satisfy a code.
+- Feedback rides inside the request payload, so `estimateResponsibilityCompletionTokens` accounts for
+  it and the packer still estimates what it will actually send. Codes are de-duplicated, capped at 6
+  per seed and truncated at 160 characters, so a pathological reason list cannot eat the batch budget.
+- A seed with no recorded reason carries none, and a caller that supplies no map gets exactly the
+  previous behaviour.
+
+Nine deterministic cases in `verify:r2-responsibilities` cover the request builder, normalization,
+de-duplication, the caps, the packer hand-off and the rendered prompt payload; four source assertions
+pin the production wiring and the prompt version. All 16 local gates pass and
+`verify:r2-production-replay` is byte-identical at hash `013e40ca...`.
+
+**This is not a measured improvement.** It is a different question put to the model, backed by the
+measured failure of the previous one. Only a production run can say what it is worth.

@@ -416,6 +416,16 @@ Created: 2026-08-11
   rejection reason codes back into the late-pass prompt is. Not authorized yet. See
   `plan_r2_completion_recovery_cycle.md` section 6a.
 
+- **2026-08-27. Third cycle: the late pass now re-asks WITH the rejection reason codes.** Shipped, not
+  yet measured. Driven by the 23/30 measurement, where 95 of 148 completion outcomes were
+  validation-rejected and an identical retry demonstrably returns a candidate that fails the same
+  rule. Each residual seed now carries `priorRejectionReasons` into the late completion request, and
+  the prompt (`responsibility-completion-v2`) explains each code. The standard did not move: the same
+  corrector, strict-improvement selection and `validateResponsibilityRead` still judge the result, the
+  codes are validator output rather than a proposed answer, and the span-only rule still binds. Do NOT
+  let a future change turn a reason code into suggested content, and do NOT drop the caps — feedback
+  rides in the request payload and is budget-estimated. See `plan_r2_completion_recovery_cycle.md` G6.
+
 Parent: [`plan_r2_source_span_inventory_reader.md`](plan_r2_source_span_inventory_reader.md)
 Evidence: [`evals/r2-responsibilities.md`](evals/r2-responsibilities.md)
 Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md)

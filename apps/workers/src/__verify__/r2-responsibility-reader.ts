@@ -7,6 +7,7 @@ import {
   RESPONSIBILITY_COMBINED_REPAIR_PROMPT_VERSION,
   RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
   RESPONSIBILITY_QUOTE_REPAIR_SYSTEM_PROMPT,
+  RESPONSIBILITY_COMPLETION_SYSTEM_PROMPT,
   RESPONSIBILITY_READ_SYSTEM_PROMPT,
   AllCandidatesFailedError,
   type ResponsibilityReadOutput,
@@ -55,6 +56,9 @@ import {
   packResponsibilityCompletions,
   canonicalizeResponsibilityCompletionBatch,
   responsibilityCompletionRequest,
+  normalizeResponsibilityPriorRejectionReasons,
+  RESPONSIBILITY_PRIOR_REJECTION_REASON_LIMIT,
+  RESPONSIBILITY_PRIOR_REJECTION_REASON_MAX_LENGTH,
   lateResidualResponsibilitySeeds,
   mergeResponsibilityRecordsByInventoryId,
   resolveEnclosingResponsibilityDutySpan,
@@ -2108,6 +2112,73 @@ assert.deepEqual(
   [discoveryMissingSeed.inventorySeedId],
   'a validation-rejected seed reaches the late completion pass',
 );
+
+// G6. Reaching the late pass is not enough. The 2026-08-27 measurement showed an identical
+// second attempt returns a candidate that fails the same deterministic rule — 95 of 148
+// outcomes were rejected. The second attempt must therefore carry the reason codes the
+// first candidate was rejected for, so it is a different question, not a repeat.
+const g6Seed = sourceBoundDiscovery.inventorySeeds[0]!;
+assert.equal(
+  responsibilityCompletionRequest(g6Seed).priorRejectionReasons,
+  undefined,
+  'a first attempt carries no rejection feedback',
+);
+const g6Request = responsibilityCompletionRequest(g6Seed, [
+  'Field fidelity failed: condition_not_preserved_in_trigger',
+  'Field fidelity failed: condition_not_preserved_in_trigger',
+  '   ',
+]);
+assert.deepEqual(
+  g6Request.priorRejectionReasons,
+  ['Field fidelity failed: condition_not_preserved_in_trigger'],
+  'rejection feedback is de-duplicated and blank codes are dropped',
+);
+assert.ok(
+  JSON.stringify(g6Request).length > JSON.stringify(responsibilityCompletionRequest(g6Seed)).length,
+  'feedback is part of the request payload, so the packer estimates the tokens it will send',
+);
+assert.deepEqual(
+  normalizeResponsibilityPriorRejectionReasons([]),
+  undefined,
+  'an empty reason list is absent, not an empty array',
+);
+assert.equal(
+  normalizeResponsibilityPriorRejectionReasons(
+    Array.from({ length: 20 }, (_, index) => `reason_${index}`),
+  )?.length,
+  RESPONSIBILITY_PRIOR_REJECTION_REASON_LIMIT,
+  'a pathological reason list cannot dominate the batch budget',
+);
+assert.ok(
+  (normalizeResponsibilityPriorRejectionReasons(['x'.repeat(500)]) ?? [''])[0]!.length ===
+    RESPONSIBILITY_PRIOR_REJECTION_REASON_MAX_LENGTH,
+  'a single oversized reason code is truncated',
+);
+// The packer must carry the feedback through to the batch the model actually receives.
+const g6Pack = packResponsibilityCompletions({
+  seeds: [g6Seed],
+  remainingCalls: 4,
+  remainingInputTokens: 200_000,
+  remainingCostUsd: 5,
+  fixedInputTokensPerCall: 64,
+  fixedOutputTokensPerCall: 64,
+  maxInputTokensPerCall: 50_000,
+  maxOutputTokensPerCall: 4_000,
+  inputCostPerMillionTokensUsd: 1,
+  outputCostPerMillionTokensUsd: 1,
+  priorRejectionsBySeedId: new Map([
+    [g6Seed.inventorySeedId, ['Field fidelity failed: owner_mismatch']],
+  ]),
+});
+assert.deepEqual(
+  g6Pack.batches[0]?.requests[0]?.priorRejectionReasons,
+  ['Field fidelity failed: owner_mismatch'],
+  'the packed late batch carries each seed rejection feedback',
+);
+assert.ok(
+  buildResponsibilityCompletionRequestContent(g6Pack.batches[0]!).includes('owner_mismatch'),
+  'the prompt payload the model receives contains the rejection feedback',
+);
 const lateDiscoverySeed = sourceBoundDiscovery.inventorySeeds.find(
   (seed) => seed.inventorySeedId === discoveryMissingSeed.inventorySeedId,
 )!;
@@ -3819,6 +3890,26 @@ assert.ok(
     'const completionHandledIds = new Set(responsibilityCompletionAudit.residualSeedIds)',
   ),
   'scheduled seed ids must never again be treated as handled completions',
+);
+// G6. Lock the production wiring for rejection feedback: the late pass must be handed the
+// reasons from every non-accepted exhaustive outcome, or it is just an identical retry.
+assert.ok(
+  workflowReadSource.includes('priorRejectionsBySeedId: latePriorRejections'),
+  'the late completion pass must receive prior rejection reasons',
+);
+assert.ok(
+  workflowReadSource.includes("if (outcome.status === 'accepted') continue;"),
+  'rejection feedback must be built from non-accepted outcomes',
+);
+assert.equal(
+  RESPONSIBILITY_COMPLETION_PROMPT_VERSION,
+  'responsibility-completion-v2',
+  'the completion prompt version must move when the completion prompt changes',
+);
+assert.ok(
+  RESPONSIBILITY_COMPLETION_SYSTEM_PROMPT.includes('priorRejectionReasons') &&
+    RESPONSIBILITY_COMPLETION_SYSTEM_PROMPT.includes('never a proposed answer'),
+  'the prompt must explain the reason codes without turning them into an answer',
 );
 assert.ok(
   workflowReadSource.includes('auditOnlyParents: [...responsibilityInventoryAuditParents.reduce('),

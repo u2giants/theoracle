@@ -84,6 +84,7 @@ import {
   responsibilityFinalRecordCorrectionSeam,
   buildResponsibilityFinalRecordCorrectionAudit,
   lateResidualResponsibilitySeeds,
+  normalizeResponsibilityPriorRejectionReasons,
   mergeResponsibilityRecordsByInventoryId,
   canonicalizeResponsibilityCompletionBatch,
   packResponsibilityCompletions,
@@ -455,13 +456,27 @@ export async function runLateResponsibilityCompletion(args: {
   validateCompletion: (
     record: ResponsibilityReadOutput['responsibilities'][number],
   ) => { complete: boolean; reasons: readonly string[] };
+  // G6. Reason codes from each seed's previously rejected candidate. Optional: a caller
+  // that does not supply them gets exactly the previous behaviour.
+  priorRejectionsBySeedId?: ReadonlyMap<string, readonly string[]>;
 }) {
   const residualSeeds = lateResidualResponsibilitySeeds({
     seeds: args.seeds,
     handledIds: args.handledIds,
     completeIds: args.completeIds,
   });
-  const pack = packResponsibilityCompletions({ seeds: residualSeeds, ...args.pack });
+  // G6. The late pass is the second attempt at a seed the exhaustive stage could not
+  // answer. Re-asking the identical question is spent: the 2026-08-27 measurement showed
+  // 95 of 148 completion outcomes rejected, and an identical retry returns a candidate
+  // that fails the same deterministic rule. So each residual seed is re-asked WITH the
+  // reason codes its previous candidate was rejected for. This changes the QUESTION, not
+  // the standard: the same unchanged corrector, strict-improvement selection and
+  // `validateResponsibilityRead` still judge whatever comes back.
+  const pack = packResponsibilityCompletions({
+    seeds: residualSeeds,
+    ...args.pack,
+    priorRejectionsBySeedId: args.priorRejectionsBySeedId,
+  });
   // F3. The late path is the ONLY late path, and this is its one correction seam: every
   // candidate the existing dispatch returns is passed through the pure source-bound
   // corrector before the existing strict-improvement selection and the caller's existing
@@ -3474,9 +3489,19 @@ export async function generateSourceWorkflowMap(args: {
       });
       const batchOffset = responsibilityCompletionAudit.batchManifest.length;
       const lateExecutions = new Map<number, ResponsibilityCompletionExecution[]>();
+      // G6. Every non-accepted outcome from the exhaustive stage carries the deterministic
+      // reasons its candidate was rejected for. Hand them back to the late pass so the
+      // second attempt is a corrected one. Seeds with no recorded reason simply carry none.
+      const latePriorRejections = new Map<string, readonly string[]>();
+      for (const outcome of responsibilityCompletionAudit.outcomes) {
+        if (outcome.status === 'accepted') continue;
+        const reasons = normalizeResponsibilityPriorRejectionReasons(outcome.reasons);
+        if (reasons) latePriorRejections.set(outcome.responsibilityId, reasons);
+      }
       const lateRun = await runLateResponsibilityCompletion({
         seeds: responsibilityInventorySeeds,
         handledIds: completionHandledIds,
+        priorRejectionsBySeedId: latePriorRejections,
         completeIds: new Set(
           responsibilityReads.flatMap((read) => read.validation.completeElementIds),
         ),
