@@ -148,9 +148,16 @@ console.log(
   ),
 );
 
-assert.deepEqual(
-  failures,
-  [],
-  'the completion prompt must return exactly one record for every requested seed',
-);
+// `getDirectDb()` keeps a live connection pool, and there is no exported close for it, so
+// the process would otherwise sit open forever after the verdict is printed — which reads
+// as a hang and makes the probe look broken when it has actually already answered. Print
+// the verdict, then exit explicitly on the right code.
+if (failures.length > 0) {
+  console.error(
+    `Responsibility completion contract FAILED: ${failures.join('; ')}. ` +
+      'Do not run a production gate with this prompt.',
+  );
+  process.exit(1);
+}
 console.log('Responsibility completion contract holds against a live model.');
+process.exit(0);

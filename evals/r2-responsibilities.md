@@ -1020,9 +1020,24 @@ writes only the ordinary model-run audit rows any completion call writes, and ne
 source text. It is deliberately NOT a CI gate: it needs the production database and spends one real
 model call. Run it before any production run carrying a prompt change.
 
-**Status: built, wired and typechecked, but NOT yet executed end to end.** A local run reaches the
-model call and fails there for one reason: the frozen `workflow_read` route is `openai/gpt-4.1`, and
-`OPENAI_API_KEY` is not in the `vibe_coding` vault — it exists only in the Trigger.dev production
-environment. Everything before the dispatch is proven working: the database connected, the route
-resolved to `openai/gpt-4.1`, and the batch packed with all eight seeds scheduled. Storing the OpenAI
-key in `vibe_coding` is the one outstanding step before the probe can do its job.
+**Status: RUN AND PASSING as of 2026-08-27.** Baseline on the current, reverted prompt: 8 seeds
+requested, 8 returned, zero contract failures, fixture SHA `398927ca...` matching the frozen answer
+key. The probe now has a known-good result to judge future changes against, which is the whole point —
+a check with no baseline proves nothing.
+
+Two things had to be fixed to get there, both worth knowing:
+
+- **The OpenAI key in `vibe_coding` is valid but stored without its `sk-proj-` prefix.** Sent verbatim
+  it returns 401 and looks revoked; sent with the prefix restored it returns 200 and completes real
+  gpt-4.1 calls. Item `3onekcbg3dxnazpnt36d4yzfcq`, field `openai_chatGPT_Oracle`; the item's notes now
+  say so. The other two OpenAI fields on that item are genuinely dead (401 both). Until the field is
+  re-saved with its prefix, callers must prepend it.
+- **The probe hung after printing its verdict.** `getDirectDb()` holds an open connection pool with no
+  exported close, so the process sat open forever and looked broken when it had already answered. It
+  now exits explicitly on the right code. A verifier that never exits is a verifier nobody runs.
+
+Run it before any production gate that carries a prompt change:
+
+```
+R2_PINNED_FIXTURE_PATH=<licensed fixture> DATABASE_URL=<pooler> OPENAI_API_KEY=<sk-proj-...>   pnpm --filter @oracle/workers verify:r2-completion-contract-live
+```
