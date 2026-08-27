@@ -4,14 +4,15 @@
 
 | Step | Status | Evidence |
 |---|---|---|
-| P0. Owner approval of this exact plan | OPEN | Albert authorized one run on 2026-08-26; approval of this written execution contract is still required. |
-| P1. Preflight and deploy corrected worker | OPEN | Must prove `origin/main` at `aae671c` or a descendant containing `52b308b`, green CI, unchanged settings, and the promoted Trigger.dev worker. |
+| P0. Owner approval of this exact plan | DONE 2026-08-26 | Albert explicitly approved `plan_r2_fresh_production_gate.md` in Codex. |
+| P1. Preflight and deploy corrected worker | BLOCKED 2026-08-26 | Git `1ec4a47` equals `origin/main`, contains `52b308b`, and CI run `33030360877` passed. Production worker is still `20260823.1`. This host is `edge-dev` and has no `Z:` drive, so the mandatory pinned-fixture gate cannot run; no deployment occurred. Resume on `al8960ofc`, where the predecessor proved the fixture is mounted. |
 | P2. Trigger exactly one fresh production map | OPEN | Must record one Trigger run id and one new map id for document `cc005035-2251-4dbe-ba1a-8913ad3ea912`. |
 | P3. Score and audit the new map | OPEN | Frozen `licensed-team-responsibilities-v1` answer key, `field-aware-v3` matcher, threshold 27/30. |
 | P4. Re-run preservation and local gates | OPEN | Commands listed in sections 9 and 10; no regression is permitted. |
 | P5. Record, ship documentation, and retire predecessor handoff | OPEN | Plan/eval drift entry, commit, push, CI, and handoff successor check. |
 
-Fresh-session start: read this STATUS table, then section 9. Do not deploy or trigger until P0 is approved.
+Fresh-session start: resume P1 on `al8960ofc`. Re-fetch Git, prove the licensed fixture path, finish the
+read-only settings preflight, then run section 10. No deployment or production run has occurred.
 
 Plan handoff: [`HANDOFF.d/2026-08-27T0128Z-edge-dev-codex-r2-fresh-production-gate.md`](HANDOFF.d/2026-08-27T0128Z-edge-dev-codex-r2-fresh-production-gate.md).
 
