@@ -980,3 +980,23 @@ rollback is a forward deploy of the reverted code.) All 16 gates pass on the rev
   It must be reattempted in a form that cannot dilute the seed contract — a much smaller instruction,
   or feedback carried per-seed in the request payload with no system-prompt change at all — and it
   must be proven against this exact failure mode first.
+
+## Served map restored to the 23/30 result — 2026-08-27
+
+Albert named the exact map and action, so the 13/30 regression map was demoted and
+`224ca68d-82c8-4954-ac65-59b02db00546` was restored as the active map for document
+`cc005035-2251-4dbe-ba1a-8913ad3ea912`. No map was deleted; all four versions remain addressable.
+
+- Before: `224ca68d` superseded by `eadb118c`; `eadb118c` active at `degraded`.
+- After: `eadb118c` superseded by `224ca68d`; `224ca68d` active at `degraded`, its original status.
+- Verified independently after the write: the active map scores **23/30**, 95 stored records, all 19
+  rows the 2026-08-11 run matched preserved, rows 17/19/20/29 recovered, negative controls unmatched.
+
+Two operational facts worth keeping, both learned the hard way here:
+
+- A partial unique index, `source_workflow_maps_active_source_hash_unique`, permits only ONE
+  non-superseded map per document and source content hash. When swapping which map is active, demote
+  the current one FIRST; promoting first makes the index reject the write. The first attempt failed
+  exactly this way and rolled back with no partial write.
+- Trigger.dev refuses to promote a deployment older than the current one, so a worker rollback is a
+  forward deploy of reverted code, not a `promote`.
