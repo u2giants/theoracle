@@ -194,7 +194,11 @@ async function loadResponsibilityCompletionPackingConfig(args: {
   };
 }
 
-async function runResponsibilityCompletionModel(args: {
+// G9. Exported so the live prompt-contract probe can exercise the EXACT production call
+// path. The 2026-08-27 regression reached production because every deterministic gate
+// tests plumbing rather than the model's obedience to the one-record-per-seed contract.
+// A probe that reimplemented this call would not have caught it either.
+export async function runResponsibilityCompletionModel(args: {
   db: OracleDb;
   client: OracleAIClient;
   doc: { fileName: string; fileType: string; context: string | null };

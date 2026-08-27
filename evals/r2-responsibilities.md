@@ -1000,3 +1000,29 @@ Two operational facts worth keeping, both learned the hard way here:
   exactly this way and rolled back with no partial write.
 - Trigger.dev refuses to promote a deployment older than the current one, so a worker rollback is a
   forward deploy of reverted code, not a `promote`.
+
+## Live prompt-contract probe — 2026-08-27, built; needs one credential to execute
+
+`verify:r2-completion-contract-live` closes the gap that let the 13/30 regression reach production.
+Every deterministic gate passed on the change that broke the completion stage, because they test
+plumbing and none of them tests whether a LIVE model still honours the one-record-per-seed contract.
+
+The probe takes eight real seeds, spread across the licensed fixture rather than the first eight, packs
+them with the real packer, and sends them through the EXACT production call path —
+`runResponsibilityCompletionModel` and `canonicalizeResponsibilityCompletionBatch`, which is why that
+function is now exported. It then asserts the contract the regression broke: every requested seed
+comes back exactly once, no omissions, no extras, no duplicates. It reports seed ids and counts rather
+than a stack trace.
+
+It judges obedience only, never answer quality — the frozen scorer and the fidelity validator own that
+and this probe must never grow into a second opinion on either. It creates no map, supersedes nothing,
+writes only the ordinary model-run audit rows any completion call writes, and never prints licensed
+source text. It is deliberately NOT a CI gate: it needs the production database and spends one real
+model call. Run it before any production run carrying a prompt change.
+
+**Status: built, wired and typechecked, but NOT yet executed end to end.** A local run reaches the
+model call and fails there for one reason: the frozen `workflow_read` route is `openai/gpt-4.1`, and
+`OPENAI_API_KEY` is not in the `vibe_coding` vault — it exists only in the Trigger.dev production
+environment. Everything before the dispatch is proven working: the database connected, the route
+resolved to `openai/gpt-4.1`, and the batch packed with all eight seeds scheduled. Storing the OpenAI
+key in `vibe_coding` is the one outstanding step before the probe can do its job.
