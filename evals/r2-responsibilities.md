@@ -942,3 +942,41 @@ pin the production wiring and the prompt version. All 16 local gates pass and
 
 **This is not a measured improvement.** It is a different question put to the model, backed by the
 measured failure of the previous one. Only a production run can say what it is worth.
+
+## Eleventh production gate — 2026-08-27, reason-code feedback: 13/30, REGRESSION, reverted
+
+The reason-code feedback was measured and it **broke the completion stage outright**. Worker
+`20260827.3` (deployment `z6z79fy0`), run `run_06g47pk9u7sceoth3nrvj48501`, one attempt, COMPLETED,
+$0.0051. Map `eadb118c-0635-4ff5-a5fe-26f18865c1ae`, **46** stored records instead of 95.
+
+**Score 13/30, and seven rows the 2026-08-11 production run had matched were LOST** (1, 2, 3, 4, 12,
+18, 28). This is the first time the preservation gate has ever failed. Negative controls stayed clean
+and row 17 still matched, but that is irrelevant next to the loss.
+
+Cause, from the audit and unambiguous: **all 192 completion outcomes were `provider_failed`**, every
+one of them `Responsibility completion omitted seeds: ...`. The model stopped returning exactly one
+record per requested seed, so `canonicalizeResponsibilityCompletionBatch` threw, both attempts of both
+batches failed, and the completion stage contributed nothing. The 46 stored records are what the base
+read produced on its own.
+
+Critically, this happened on the **exhaustive** batch too, where no seed carried any feedback at all.
+That rules out the feedback data and points squarely at the prompt: the added guidance block competed
+with the hard rule that every requested seed gets exactly one record, and the rule lost.
+
+Response: the whole feature — prompt and plumbing — was reverted, and worker `20260827.4` redeploys
+the known-good `20260827.2` behaviour. (Trigger.dev refuses to promote an older deployment, so the
+rollback is a forward deploy of the reverted code.) All 16 gates pass on the reverted tree and
+`verify:r2-production-replay` is byte-identical at hash `013e40ca...`.
+
+**What this teaches, and it is worth more than the run cost.**
+
+- The one-record-per-seed contract is brittle under prompt growth. Any future change to
+  `RESPONSIBILITY_COMPLETION_SYSTEM_PROMPT` must be treated as high-risk, no matter how additive it
+  looks, because its failure mode is total rather than gradual.
+- Local gates cannot catch this. Every deterministic test passed — they exercise the plumbing, not the
+  model's obedience. A prompt change needs a live model check against a handful of seeds BEFORE a
+  full production run, and no such check exists yet. That gap is the real finding.
+- The idea itself is not disproven. Feeding rejection reasons back is still the best-evidenced lever.
+  It must be reattempted in a form that cannot dilute the seed contract — a much smaller instruction,
+  or feedback carried per-seed in the request payload with no system-prompt change at all — and it
+  must be proven against this exact failure mode first.

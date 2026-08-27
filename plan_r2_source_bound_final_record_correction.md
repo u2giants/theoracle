@@ -426,6 +426,18 @@ Created: 2026-08-11
   let a future change turn a reason code into suggested content, and do NOT drop the caps — feedback
   rides in the request payload and is budget-estimated. See `plan_r2_completion_recovery_cycle.md` G6.
 
+- **2026-08-27. The reason-code prompt broke completion outright and was reverted. Read this before
+  touching the completion system prompt again.** Worker `20260827.3` scored 13/30 and LOST seven rows
+  the 2026-08-11 run had matched — the first preservation failure ever recorded. All 192 completion
+  outcomes were `provider_failed` with `Responsibility completion omitted seeds`, including on the
+  EXHAUSTIVE batch where no seed carried feedback. The added guidance block competed with the hard
+  rule that every requested seed returns exactly one record, and the rule lost. Two binding lessons:
+  (1) `RESPONSIBILITY_COMPLETION_SYSTEM_PROMPT` is brittle under growth and its failure mode is TOTAL,
+  not gradual — treat any edit as high-risk; (2) every deterministic gate passed, because they test
+  plumbing and not the model's obedience, so a prompt change needs a live model check against a few
+  seeds BEFORE a production run. That check does not exist yet and is the prerequisite for any retry.
+  The idea is not disproven — reattempt it without a system-prompt change, or with a far smaller one.
+
 Parent: [`plan_r2_source_span_inventory_reader.md`](plan_r2_source_span_inventory_reader.md)
 Evidence: [`evals/r2-responsibilities.md`](evals/r2-responsibilities.md)
 Handoff: [`HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md`](HANDOFF.d/2026-08-11T1810Z-al8960ofc-codex-r2-final-record-plan.md)
