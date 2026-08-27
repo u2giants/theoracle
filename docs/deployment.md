@@ -174,12 +174,25 @@ Unknowns to verify through dashboards when CLI/API cannot expose them: the Supab
 
 ### Workers
 
-- Redeploy from a previous commit or use Trigger.dev version rollback tools.
+- **Revert the code and deploy forward.** `trigger.dev promote <older-version>` FAILS with
+  "Cannot promote a deployment that is older than the current deployment" — Trigger.dev does not roll
+  backwards. Verified 2026-08-27 while rolling back a bad responsibility-reader prompt: the working
+  rollback was `git revert` + `pnpm --filter @oracle/workers run deploy`, which produced a NEW version
+  carrying the OLD behaviour.
+- Deploy from `apps/workers`; the project ref is committed in `trigger.config.ts`.
 
 ### Database
 
 - There is no automatic rollback.
 - Ship a compensating migration if a schema/data change must be reversed.
+- **Source workflow maps are versioned, not overwritten.** A new run supersedes the previous map for a
+  document; nothing is deleted and every version stays addressable by id. To make an older map active
+  again, set the current one to `status = 'superseded'` FIRST, then clear the older one's
+  `superseded_by_map_id` and restore its status. The partial unique index
+  `source_workflow_maps_active_source_hash_unique` allows only ONE non-superseded map per document and
+  source content hash, so promoting before demoting is rejected. Do the swap in one transaction, check
+  preconditions inside it, and assert exactly one active map before committing. This is a production
+  data write: it needs the owner to name the exact map and action.
 
 ## Teams transcript ingestion (Microsoft Graph)
 

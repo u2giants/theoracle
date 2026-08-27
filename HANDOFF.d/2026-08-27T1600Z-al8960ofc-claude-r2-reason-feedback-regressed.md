@@ -13,8 +13,14 @@ is once again the active map for document `cc005035-2251-4dbe-ba1a-8913ad3ea912`
 with 95 records and all 19 prior rows preserved. The 13/30 map `eadb118c-...` is superseded and still
 stored. Nothing about the served data is outstanding.
 
-Blocking, the one decision left: whether to continue at all, and if so it must start with the
-live prompt-contract check in section 6 — not with another prompt edit and not with another run.
+Blocking, the one thing left: **store `OPENAI_API_KEY` in the `vibe_coding` vault.** The live
+prompt-contract probe is built and wired but cannot execute without it — the frozen `workflow_read`
+route is `openai/gpt-4.1` and that key exists only in the Trigger.dev production environment. Until
+the probe can run, no prompt change should reach production.
+
+Then his call: whether to continue at all. If yes, the order is fixed — run the probe, then reattempt
+reason-code feedback per-seed with no system-prompt change, then one run. Never a prompt edit and a
+production run in the same step again.
 
 
 Already settled and NOT open: the answer key, the `field-aware-v3` matcher, the 27/30 threshold, the
@@ -33,7 +39,7 @@ showed. Three runs were authorized and spent: 22/30, 23/30, then 13/30.
 
 ## 3. Current state
 
-`main` is green at `ff691d2` and carries the revert. Production worker is **`20260827.4`**
+`main` is green at `0e19a71` and carries the revert plus the contract probe. Production worker is **`20260827.4`**
 (deployment `y0o93f1b`), which is the reverted, known-good `20260827.2` behaviour. All 16 local gates
 pass and `verify:r2-production-replay` is byte-identical at hash `013e40ca...`.
 
@@ -84,10 +90,12 @@ per seed from a live model. That gap is why a broken prompt reached production.
 ## 6. Exact next steps
 
 1. Albert decides whether to continue. Nothing starts without it.
-2. Before ANY further prompt work: build a small live-model contract check — a handful of real seeds
-   sent through `runResponsibilityCompletionModel`, asserting one record per requested seed and no
-   omissions. It is cheap, it is not a full run, and it would have caught this. Treat it as the
-   prerequisite, not an optional extra.
+2. DONE, except for one credential: `verify:r2-completion-contract-live` is built and wired. It sends
+   8 real seeds through `runResponsibilityCompletionModel` and
+   `canonicalizeResponsibilityCompletionBatch` and asserts one record per requested seed. Proven as far
+   as the model dispatch — DB connects, route resolves, all 8 seeds pack — then stops because
+   `OPENAI_API_KEY` is absent from `vibe_coding`. Store the key, run the probe, confirm it passes on
+   the CURRENT prompt so it has a known-good baseline before it is ever used to judge a change.
 3. Only then reattempt reason-code feedback, in a form that cannot dilute the seed contract —
    ideally per-seed in the request payload with NO system-prompt change, or with a single short line.
 4. Rows 5, 14 and 15 remain open under their own plan.
@@ -117,7 +125,8 @@ path in the production plan's section 10.
 ## 9. Open questions and risks
 
 There is no live risk outstanding: production code is back to known-good on worker `20260827.4`, and
-the served map is the 23/30 one again. Everything is preserved and recoverable — no map was deleted
+the served map is the 23/30 one again. The one standing exposure is procedural: until the contract
+probe can actually run, the repo has no defence against the exact failure that caused the regression. Everything is preserved and recoverable — no map was deleted
 and every version remains addressable by id. The open engineering question is whether reason
 feedback can be delivered without touching the system prompt; until the live contract check exists,
 that question should not be answered in production.
