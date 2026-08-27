@@ -8,12 +8,13 @@ back to known-good. The map currently SERVED for the document is still the bad o
 
 ## 0. Decisions only the owner can make
 
-Blocking, and the more urgent of the two: **the active map for document
-`cc005035-2251-4dbe-ba1a-8913ad3ea912` is the 13/30 map `eadb118c-0635-4ff5-a5fe-26f18865c1ae`.** The
-23/30 map `224ca68d-82c8-4954-ac65-59b02db00546` is intact but marked superseded. Restoring it means
-either (a) Albert naming that exact map and status change so a session can make the production data
-write, or (b) authorizing one more run on the reverted worker, which would cost about half a cent but
-would produce a NEW map rather than the known 23/30 one. Doing nothing leaves the worse map served.
+RESOLVED 2026-08-27: Albert named the map and the action, and it is done. `224ca68d-82c8-4954-ac65-59b02db00546`
+is once again the active map for document `cc005035-2251-4dbe-ba1a-8913ad3ea912`, verified at 23/30
+with 95 records and all 19 prior rows preserved. The 13/30 map `eadb118c-...` is superseded and still
+stored. Nothing about the served data is outstanding.
+
+Blocking, the one decision left: whether to continue at all, and if so it must start with the
+live prompt-contract check in section 6 — not with another prompt edit and not with another run.
 
 Also his call: whether to reattempt reason-code feedback at all, and only after the prerequisite in
 section 6 exists.
@@ -42,10 +43,10 @@ Four maps exist for the document, all stored and addressable:
 
 - `37a8fc62-...` (2026-08-11, 19/30) — superseded.
 - `aa713247-...` (worker `20260827.1`, 22/30) — superseded.
-- `224ca68d-82c8-4954-ac65-59b02db00546` (worker `20260827.2`, **23/30**, 95 records) — superseded,
-  and the best result achieved.
-- `eadb118c-0635-4ff5-a5fe-26f18865c1ae` (worker `20260827.3`, **13/30**, 46 records) — **currently
-  active and `degraded`**. Matches only rows 6-11, 13, 17, 21, 22, 25, 27, 30.
+- `224ca68d-82c8-4954-ac65-59b02db00546` (worker `20260827.2`, **23/30**, 95 records) — **the active
+  map**, restored 2026-08-27, and the best result achieved.
+- `eadb118c-0635-4ff5-a5fe-26f18865c1ae` (worker `20260827.3`, **13/30**, 46 records) — superseded
+  on 2026-08-27 when the good map was restored. Matched only rows 6-11, 13, 17, 21, 22, 25, 27, 30.
 
 ## 4. What did not work
 
@@ -96,7 +97,10 @@ per seed from a live model. That gap is why a broken prompt reached production.
 ## 7. Constraints and gotchas
 
 Never print licensed source text, secrets, model responses or production rows. Never delete a map.
-Never run a migration. Stored-record count is not quality. Trigger.dev cannot promote backwards.
+Never run a migration. Stored-record count is not quality. Trigger.dev cannot promote backwards, so a
+worker rollback is a forward deploy of reverted code. A partial unique index
+(`source_workflow_maps_active_source_hash_unique`) permits only ONE non-superseded map per document
+and content hash: when swapping which map is active, demote the current one FIRST.
 `apps/workers/src/__verify__/r2-responsibility-reader.ts` uses CRLF line endings — match them or its
 source assertions silently stop matching. Work happened in worktree
 `C:\repos\oracle-worktrees\r2-production-plan-2ca7da` on branch `claude/r2-production-plan-2ca7da`,
@@ -114,9 +118,9 @@ path in the production plan's section 10.
 
 ## 9. Open questions and risks
 
-The live risk is the served map, not the code: production code is back to known-good, but the worse
-map is what the application currently reads. Everything else is preserved and recoverable — no map was
-deleted and every version remains addressable by id. The open engineering question is whether reason
+There is no live risk outstanding: production code is back to known-good on worker `20260827.4`, and
+the served map is the 23/30 one again. Everything is preserved and recoverable — no map was deleted
+and every version remains addressable by id. The open engineering question is whether reason
 feedback can be delivered without touching the system prompt; until the live contract check exists,
 that question should not be answered in production.
 
