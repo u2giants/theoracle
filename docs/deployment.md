@@ -7,7 +7,7 @@ This file describes the current deploy and release path that exists in the repo 
 | Target | What runs there | Source of truth |
 |---|---|---|
 | Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | `apps/web` | `vercel.json`, GitHub integration |
-| Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn` | `apps/workers` | `apps/workers/trigger.config.ts` |
+| Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn` | `apps/workers`, Node 24 | `apps/workers/trigger.config.ts` |
 | Supabase project `eqccjfbyrywsqkxxpjvg` (`theoracle`, N. Virginia) | Postgres, Auth, Storage, Realtime | `.env.local` / runtime env + Supabase dashboard |
 
 ## Current release flow
@@ -65,7 +65,7 @@ pnpm --filter @oracle/workers run deploy
 The `run` keyword is required: pnpm reserves the bare `pnpm deploy` form for its own
 package-deployment subcommand, so `pnpm --filter @oracle/workers deploy` fails with
 `ERR_PNPM_INVALID_DEPLOY_TARGET`. The script under the hood is pinned to
-`npx trigger.dev@4.5.2 deploy` so the CLI matches the checked-in `@trigger.dev/*`
+`npx trigger.dev@4.5.15 deploy` so the CLI matches the checked-in `@trigger.dev/*`
 package versions.
 
 ### Database

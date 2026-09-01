@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npx trigger.dev@4.5.2 dev",
-    "deploy": "npx trigger.dev@4.5.2 deploy",
+    "dev": "npx trigger.dev@4.5.15 dev",
+    "deploy": "npx trigger.dev@4.5.15 deploy",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "verify:source-workflow-read": "tsx src/__verify__/source-workflow-read-smoke.ts",
@@ -31,7 +31,7 @@
     "@oracle/db": "workspace:*",
     "@oracle/engines": "workspace:*",
     "@oracle/shared": "workspace:*",
-    "@trigger.dev/sdk": "4.5.2",
+    "@trigger.dev/sdk": "4.5.15",
     "ai": "^6.0.187",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
@@ -41,7 +41,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@trigger.dev/build": "4.5.2",
+    "@trigger.dev/build": "4.5.15",
     "@types/node": "^24.12.4",
     "@types/pdf-parse": "^1.1.4",
     "postgres": "^3.4.5",

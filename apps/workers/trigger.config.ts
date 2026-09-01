@@ -9,7 +9,7 @@ import { defineConfig } from '@trigger.dev/sdk/v3';
 
 export default defineConfig({
   project: process.env.TRIGGER_PROJECT_REF ?? 'proj_wgpzsvhmsopqhvwqaycn',
-  runtime: 'node',
+  runtime: 'node-24',
   logLevel: 'info',
   maxDuration: 60 * 10, // 10 minutes per run
   retries: {
