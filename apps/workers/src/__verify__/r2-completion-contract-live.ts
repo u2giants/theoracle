@@ -75,6 +75,14 @@ const seeds = Array.from({ length: SEED_COUNT }, (_unused, index) =>
 
 const pack = packResponsibilityCompletions({
   seeds,
+  // Exercise the new per-seed correction path, not merely the unchanged first-attempt path.
+  // These are validator codes only; no licensed source text is printed or persisted here.
+  priorRejectionsBySeedId: new Map(seeds.map((seed, index) => [
+    seed.inventorySeedId,
+    [index % 2 === 0
+      ? 'Field fidelity failed: condition_not_preserved_in_trigger'
+      : 'Field fidelity failed: object_qualifier_loss'],
+  ])),
   remainingCalls: 2,
   remainingInputTokens: 200_000,
   remainingCostUsd: 1,

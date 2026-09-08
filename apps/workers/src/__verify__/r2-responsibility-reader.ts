@@ -7,6 +7,7 @@ import {
   RESPONSIBILITY_COMBINED_REPAIR_PROMPT_VERSION,
   RESPONSIBILITY_QUOTE_REPAIR_PROMPT_VERSION,
   RESPONSIBILITY_QUOTE_REPAIR_SYSTEM_PROMPT,
+  RESPONSIBILITY_COMPLETION_SYSTEM_PROMPT,
   RESPONSIBILITY_READ_SYSTEM_PROMPT,
   AllCandidatesFailedError,
   type ResponsibilityReadOutput,
@@ -55,6 +56,9 @@ import {
   packResponsibilityCompletions,
   canonicalizeResponsibilityCompletionBatch,
   responsibilityCompletionRequest,
+  normalizeResponsibilityPriorRejectionReasons,
+  RESPONSIBILITY_PRIOR_REJECTION_REASON_LIMIT,
+  RESPONSIBILITY_PRIOR_REJECTION_REASON_MAX_LENGTH,
   lateResidualResponsibilitySeeds,
   mergeResponsibilityRecordsByInventoryId,
   resolveEnclosingResponsibilityDutySpan,
@@ -2108,6 +2112,57 @@ assert.deepEqual(
   [discoveryMissingSeed.inventorySeedId],
   'a validation-rejected seed reaches the late completion pass',
 );
+
+// G10. The correction brief belongs to the one rejected seed in dynamic input. The global
+// completion system prompt stays unchanged because growing it caused the 13/30 regression.
+const g10Seed = sourceBoundDiscovery.inventorySeeds[0]!;
+assert.equal(responsibilityCompletionRequest(g10Seed).priorRejectionReasons, undefined);
+const g10Request = responsibilityCompletionRequest(g10Seed, [
+  'Field fidelity failed: condition_not_preserved_in_trigger',
+  'Field fidelity failed: condition_not_preserved_in_trigger',
+  ' ',
+]);
+assert.deepEqual(
+  g10Request.priorRejectionReasons,
+  ['Field fidelity failed: condition_not_preserved_in_trigger'],
+);
+assert.deepEqual(
+  g10Request.correctionGuidance,
+  ['Preserve the condition or timing stated in sourceSpan in the trigger field.'],
+);
+assert.equal(normalizeResponsibilityPriorRejectionReasons([]), undefined);
+assert.equal(
+  normalizeResponsibilityPriorRejectionReasons(
+    Array.from({ length: 20 }, (_, index) => `reason_${index}`),
+  )?.length,
+  RESPONSIBILITY_PRIOR_REJECTION_REASON_LIMIT,
+);
+assert.equal(
+  normalizeResponsibilityPriorRejectionReasons(['x'.repeat(500)])?.[0]?.length,
+  RESPONSIBILITY_PRIOR_REJECTION_REASON_MAX_LENGTH,
+);
+const g10Pack = packResponsibilityCompletions({
+  seeds: [g10Seed],
+  remainingCalls: 1,
+  remainingInputTokens: 200_000,
+  remainingCostUsd: 5,
+  fixedInputTokensPerCall: 64,
+  fixedOutputTokensPerCall: 64,
+  maxInputTokensPerCall: 50_000,
+  maxOutputTokensPerCall: 4_000,
+  inputCostPerMillionTokensUsd: 1,
+  outputCostPerMillionTokensUsd: 1,
+  priorRejectionsBySeedId: new Map([
+    [g10Seed.inventorySeedId, ['Field fidelity failed: owner_mismatch']],
+  ]),
+});
+assert.deepEqual(
+  g10Pack.batches[0]?.requests[0]?.correctionGuidance,
+  ['Use only the actor assigned by sourceSpan for the role field.'],
+);
+assert.ok(buildResponsibilityCompletionRequestContent(g10Pack.batches[0]!).includes('owner_mismatch'));
+assert.equal(RESPONSIBILITY_COMPLETION_PROMPT_VERSION, 'responsibility-completion-v1');
+assert.ok(!RESPONSIBILITY_COMPLETION_SYSTEM_PROMPT.includes('priorRejectionReasons'));
 const lateDiscoverySeed = sourceBoundDiscovery.inventorySeeds.find(
   (seed) => seed.inventorySeedId === discoveryMissingSeed.inventorySeedId,
 )!;
@@ -3819,6 +3874,11 @@ assert.ok(
     'const completionHandledIds = new Set(responsibilityCompletionAudit.residualSeedIds)',
   ),
   'scheduled seed ids must never again be treated as handled completions',
+);
+assert.ok(
+  workflowReadSource.includes('priorRejectionsBySeedId: latePriorRejections') &&
+    workflowReadSource.includes("if (outcome.status !== 'validation_rejected') continue;"),
+  'late rejected seeds must carry their own validator feedback',
 );
 assert.ok(
   workflowReadSource.includes('auditOnlyParents: [...responsibilityInventoryAuditParents.reduce('),
