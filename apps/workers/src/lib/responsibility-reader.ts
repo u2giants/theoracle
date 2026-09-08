@@ -103,6 +103,10 @@ export type ResponsibilityCompletionRequest = {
   allowedMutableFields: readonly [
     'label', 'role', 'action', 'object', 'trigger', 'requiredSystem', 'ownerName', 'department',
   ];
+  // Validator feedback for this seed's previous rejected candidate. This stays in the
+  // per-seed dynamic request; the brittle global completion system prompt is unchanged.
+  priorRejectionReasons?: readonly string[];
+  correctionGuidance?: readonly string[];
 };
 
 export type ResponsibilityCompletionBatch = {
@@ -198,9 +202,51 @@ const COMPLETION_MUTABLE_FIELDS = [
   'label', 'role', 'action', 'object', 'trigger', 'requiredSystem', 'ownerName', 'department',
 ] as const;
 
+export const RESPONSIBILITY_PRIOR_REJECTION_REASON_LIMIT = 6;
+export const RESPONSIBILITY_PRIOR_REJECTION_REASON_MAX_LENGTH = 160;
+
+export function normalizeResponsibilityPriorRejectionReasons(
+  reasons: readonly string[] | undefined,
+): readonly string[] | undefined {
+  if (!reasons || reasons.length === 0) return undefined;
+  const normalized = [...new Set(
+    reasons
+      .map((reason) => reason.trim())
+      .filter((reason) => reason.length > 0)
+      .map((reason) => reason.slice(0, RESPONSIBILITY_PRIOR_REJECTION_REASON_MAX_LENGTH)),
+  )].slice(0, RESPONSIBILITY_PRIOR_REJECTION_REASON_LIMIT);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function responsibilityCorrectionGuidance(
+  reasons: readonly string[],
+): readonly string[] {
+  const guidance = reasons.map((reason) => {
+    if (reason.includes('condition_not_preserved_in_trigger')) {
+      return 'Preserve the condition or timing stated in sourceSpan in the trigger field.';
+    }
+    if (reason.includes('object_qualifier_loss')) {
+      return 'Restore the sourceSpan qualifier named by the rejection in the object field.';
+    }
+    if (reason.includes('invented_object_content')) {
+      return 'Remove object words not present in sourceSpan.';
+    }
+    if (reason.includes('action_family_mismatch')) {
+      return 'Use the duty verb stated in sourceSpan for the action field.';
+    }
+    if (reason.includes('owner_mismatch')) {
+      return 'Use only the actor assigned by sourceSpan for the role field.';
+    }
+    return 'Correct the rejected field using only this seed\'s sourceSpan; do not invent content.';
+  });
+  return [...new Set(guidance)];
+}
+
 export function responsibilityCompletionRequest(
   seed: ResponsibilityInventorySeed,
+  priorRejectionReasons?: readonly string[],
 ): ResponsibilityCompletionRequest {
+  const priorReasons = normalizeResponsibilityPriorRejectionReasons(priorRejectionReasons);
   return {
     responsibilityId: seed.inventorySeedId,
     chunkId: seed.chunkId,
@@ -209,6 +255,12 @@ export function responsibilityCompletionRequest(
     sourceStart: seed.sourceStart,
     sourceEnd: seed.sourceEnd,
     allowedMutableFields: COMPLETION_MUTABLE_FIELDS,
+    ...(priorReasons
+      ? {
+          priorRejectionReasons: priorReasons,
+          correctionGuidance: responsibilityCorrectionGuidance(priorReasons),
+        }
+      : {}),
   };
 }
 
@@ -234,6 +286,7 @@ export function packResponsibilityCompletions(args: {
   maxOutputTokensPerCall: number;
   inputCostPerMillionTokensUsd: number;
   outputCostPerMillionTokensUsd: number;
+  priorRejectionsBySeedId?: ReadonlyMap<string, readonly string[]>;
 }): ResponsibilityCompletionPack {
   const nonNegative = [
     args.remainingCalls, args.remainingInputTokens, args.remainingCostUsd,
@@ -253,7 +306,10 @@ export function packResponsibilityCompletions(args: {
       throw new Error(`Duplicate residual completion seed: ${seed.inventorySeedId}`);
     }
     seen.add(seed.inventorySeedId);
-    return responsibilityCompletionRequest(seed);
+    return responsibilityCompletionRequest(
+      seed,
+      args.priorRejectionsBySeedId?.get(seed.inventorySeedId),
+    );
   });
   const batches: ResponsibilityCompletionBatch[] = [];
   const unscheduledIds: string[] = [];

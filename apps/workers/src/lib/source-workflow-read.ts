@@ -84,6 +84,7 @@ import {
   responsibilityFinalRecordCorrectionSeam,
   buildResponsibilityFinalRecordCorrectionAudit,
   lateResidualResponsibilitySeeds,
+  normalizeResponsibilityPriorRejectionReasons,
   mergeResponsibilityRecordsByInventoryId,
   canonicalizeResponsibilityCompletionBatch,
   packResponsibilityCompletions,
@@ -459,13 +460,18 @@ export async function runLateResponsibilityCompletion(args: {
   validateCompletion: (
     record: ResponsibilityReadOutput['responsibilities'][number],
   ) => { complete: boolean; reasons: readonly string[] };
+  priorRejectionsBySeedId?: ReadonlyMap<string, readonly string[]>;
 }) {
   const residualSeeds = lateResidualResponsibilitySeeds({
     seeds: args.seeds,
     handledIds: args.handledIds,
     completeIds: args.completeIds,
   });
-  const pack = packResponsibilityCompletions({ seeds: residualSeeds, ...args.pack });
+  const pack = packResponsibilityCompletions({
+    seeds: residualSeeds,
+    ...args.pack,
+    priorRejectionsBySeedId: args.priorRejectionsBySeedId,
+  });
   // F3. The late path is the ONLY late path, and this is its one correction seam: every
   // candidate the existing dispatch returns is passed through the pure source-bound
   // corrector before the existing strict-improvement selection and the caller's existing
@@ -3478,9 +3484,22 @@ export async function generateSourceWorkflowMap(args: {
       });
       const batchOffset = responsibilityCompletionAudit.batchManifest.length;
       const lateExecutions = new Map<number, ResponsibilityCompletionExecution[]>();
+      // Keep feedback local to each rejected seed. The 2026-08-27 regression proved that
+      // expanding the global completion system prompt can destroy the one-record-per-seed
+      // contract; this cycle therefore leaves that prompt byte-for-byte unchanged.
+      const latePriorRejections = new Map<string, readonly string[]>();
+      for (const outcome of responsibilityCompletionAudit.outcomes) {
+        if (outcome.status !== 'validation_rejected') continue;
+        const reasons = normalizeResponsibilityPriorRejectionReasons([
+          ...(latePriorRejections.get(outcome.responsibilityId) ?? []),
+          ...outcome.reasons,
+        ]);
+        if (reasons) latePriorRejections.set(outcome.responsibilityId, reasons);
+      }
       const lateRun = await runLateResponsibilityCompletion({
         seeds: responsibilityInventorySeeds,
         handledIds: completionHandledIds,
+        priorRejectionsBySeedId: latePriorRejections,
         completeIds: new Set(
           responsibilityReads.flatMap((read) => read.validation.completeElementIds),
         ),
