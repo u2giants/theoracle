@@ -1041,3 +1041,22 @@ Run it before any production gate that carries a prompt change:
 ```
 R2_PINNED_FIXTURE_PATH=<licensed fixture> DATABASE_URL=<pooler> OPENAI_API_KEY=<sk-proj-...>   pnpm --filter @oracle/workers verify:r2-completion-contract-live
 ```
+
+## Bounded seed-local feedback production result — 2026-09-08
+
+The merged seed-local validator-feedback correction was deployed once as production worker
+`20260908.1`. Exactly one authorized `source-workflow-read` run executed with `maxAttempts: 1` and no
+retry: `run_06g856791rotomf2a1hu7vrd01`. It created map
+`905e0626-d9a2-4014-a6a3-97e572214896`, which is active with status `degraded`.
+
+The unchanged `licensed-team-responsibilities-v1` answer key and `field-aware-v3` matcher scored the
+map **23/30**, below the frozen 27/30 acceptance threshold. Matched rows were 1-4, 6-13, 17-22, 25,
+and 27-30 except rows 23 and 24. Missed rows were 5, 14, 15, 16, 23, 24 and 26. All 19 rows from the
+prior production baseline were preserved; rows 17, 19, 20 and 29 were recovered; negative controls
+16, 24 and 26 remained unmatched. The result equals the prior active map's 23/30 score, so it is not
+a regression and the guarded restore condition did not apply. No map was deleted.
+
+All 14 non-credentialed gates, the pinned 28/30 inventory gate, the unchanged production replay
+(19 baseline / 21 corrected, no regressions, hash `013e40ca...`), and `git diff --check` passed after
+scoring. The production quality gate nevertheless failed honestly. There is no retry authorization,
+and issue #4 remains open.
