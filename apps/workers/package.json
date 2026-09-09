@@ -19,6 +19,7 @@
     "verify:r2-fresh-map-score": "tsx src/__verify__/r2-fresh-map-score.ts",
     "verify:r2-missed-row-diagnosis": "tsx src/__verify__/r2-missed-row-diagnosis.ts",
     "verify:r2-first-divergence": "tsx src/__verify__/r2-first-divergence.ts",
+    "verify:r2-support-contract": "tsx src/__verify__/r2-support-contract.ts",
     "verify:r2-completion-contract-live": "tsx src/__verify__/r2-completion-contract-live.ts",
     "verify:taxonomy-reclassification": "tsx src/__verify__/taxonomy-reclassification-contract.ts",
     "verify:taxonomy-reclassification-db": "tsx src/__verify__/taxonomy-reclassification-db.ts",

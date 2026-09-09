@@ -1120,3 +1120,21 @@ simultaneously. The next owner decision is an evaluation-contract review: make s
 complete expected row passes the unchanged fidelity rule (including any explicitly approved composite-
 span policy), then recalibrate the answer key or threshold only from that result. Another unchanged
 production run has no evidentiary value.
+
+## Support-contract audit — 2026-09-09
+
+Albert authorized the evaluation-contract review. `verify:r2-support-contract` now compares three
+deterministic definitions on the same licensed fixture and emits only hashes, versions, row numbers and
+counts. The historical partial-overlap rule reproduces 28/30. Requiring the literal answer row to pass
+the unchanged source-fidelity validator produces only 2/30, showing that this seemingly strict repair is
+invalid because the frozen answer key intentionally paraphrases many source phrases. Building one
+canonical source-faithful record per seed and judging it with the actual `field-aware-v3` matcher produces
+23/30.
+
+The 23/30 canonical result is a reproducible lower bound, not a claimed mathematical ceiling: a model may
+make another source-faithful wording choice. The important result is that neither 28, 2 nor 23 justifies
+the frozen 27 threshold. The first is too permissive, the second rejects allowed paraphrase, and the third
+tests only the canonical bounded form. The old pinned gate remains unchanged, and no answer row, matcher
+rule, negative control or threshold was altered. A valid successor contract must first state whether one
+answer may combine multiple source spans and what paraphrase equivalence is allowed; only then can its
+eligible-row count and threshold be approved. No production action occurred.
