@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "_comment": "Oracle strengthens repository rulebooks, managed-platform release surfaces, and its canonical migration path while preserving its normal single-main workflow.",
+  "paths": [
+    { "glob": "AGENTS.md", "class": "reviewer-safety" },
+    { "glob": "CLAUDE.md", "class": "reviewer-safety" },
+    { "glob": "HANDOFF.md", "class": "reviewer-safety" },
+    { "glob": "plan_*.md", "class": "reviewer-safety" },
+    { "glob": ".github/workflows/**", "class": "deployment" },
+    { "glob": "vercel.json", "class": "deployment" },
+    { "glob": "apps/workers/trigger.config.ts", "class": "deployment" },
+    { "glob": "packages/db/migrations/**", "class": "shared-db" },
+    { "glob": "packages/db/src/schema.ts", "class": "shared-db" },
+    { "glob": "packages/db/src/migrate.ts", "class": "shared-db" },
+    { "glob": "packages/db/src/check-migration-drift.ts", "class": "shared-db" },
+    { "glob": "packages/db/drizzle.config.ts", "class": "shared-db" }
+  ],
+  "gates": {
+    "prose": { "required": ["repository-workflow-compliance"], "forbidden_actions": [] },
+    "code": { "required": ["repository-workflow-compliance", "existing-verification-gates"], "forbidden_actions": [] },
+    "reviewer-safety": { "required": ["repository-workflow-compliance", "repository-rulebook-full-treatment"], "forbidden_actions": [] },
+    "deployment": { "required": ["repository-workflow-compliance", "managed-platform-release-review", "exact-owner-action-authorization"], "forbidden_actions": [] },
+    "shared-db": { "required": ["repository-workflow-compliance", "canonical-oracle-migration-runner", "migration-before-dependent-release", "drizzle-journal-drift-proof"], "forbidden_actions": [] }
+  }
+}

@@ -67,6 +67,14 @@ If you are new to this repo, read only this path first:
 
 Do not open every Markdown file. Most tasks need `AGENTS.md` plus one topic doc and the affected source files.
 
+## Task declaration
+
+Before changing files, run `ai-task-gates start --class <class>`. Before a
+protected action, use `ai-task-gates check --before <action>`. The repository
+declaration keeps rulebooks, managed-platform release files, and the canonical
+Oracle migration path under their existing stronger controls; it does not
+replace the workflow, migration, review, or owner-authorization rules below.
+
 ## 3a. Handoffs — `HANDOFF.d/` and the successor rule
 
 Handoffs live as one write-once file per session under `HANDOFF.d/`, named
