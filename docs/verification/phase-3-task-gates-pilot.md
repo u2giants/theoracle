@@ -30,9 +30,12 @@ Unassigned headings: **0**. Removed or unreachable instructions: **0**.
 ## Policy, trigger, and enforcement evidence
 
 - Ordinary Markdown resolves to `prose`; ordinary application source resolves
-  to `code`; repository rulebooks resolve to protected `reviewer-safety`.
+  to `code`. Rulebooks, handoffs, canonical plans, the declaration, and its
+  assertion script resolve to protected `reviewer-safety`.
 - `vercel.json`, every GitHub workflow, and the Trigger.dev worker config
-  resolve to protected `deployment` work.
+  resolve to protected `deployment` work. The root package file and delegated
+  Vercel contract guard receive the same class, so the actual build command
+  cannot bypass release treatment.
 - The Drizzle schema, canonical runner, drift checker, and every migration file
   resolve to protected `shared-db` work. The class name is the central engine's
   structural-database class; Oracle retains ownership of its own schema.
@@ -40,7 +43,8 @@ Unassigned headings: **0**. Removed or unreachable instructions: **0**.
   `--owner-request` bypasses it. A valid code flow proceeds.
 - The pull-request workflow installs the commands from accepted ai-devops commit
   `4d83f9a5dc400f87408663eddac872b9074c18ed`, verifies the system-path command,
-  and runs the focused fixture as a blocking assertion. GitHub Actions run
+  and runs the focused fixture on every pull request as a blocking assertion.
+  GitHub Actions run
   `34376222705` proved that workflow green on the first pilot head.
 - This pilot changes repository policy and tests only. It performs no database,
   application-row, Vercel, Trigger.dev, cloud, infrastructure, or production

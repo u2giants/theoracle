@@ -2,17 +2,13 @@ name: task gates
 
 on:
   pull_request:
-    paths:
-      - '.ai-devops/**'
-      - '.github/workflows/task-gates.yml'
-      - 'scripts/test-task-gates.sh'
   push:
     branches: [main]
-    paths:
-      - '.ai-devops/**'
-      - '.github/workflows/task-gates.yml'
-      - 'scripts/test-task-gates.sh'
   workflow_dispatch:
+
+concurrency:
+  group: task-gates-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -20,6 +16,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Check out Oracle
         uses: actions/checkout@v4

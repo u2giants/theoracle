@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+cd "$ROOT"
 
 failures=0
 pass(){ printf 'PASS: %s\n' "$1"; }
@@ -19,7 +20,12 @@ expect_class(){
 expect_class README.md prose 'ordinary documentation uses the prose fast path'
 expect_class apps/web/app/page.tsx code 'ordinary source uses the code path'
 expect_class AGENTS.md reviewer-safety 'agent rulebook receives protected full treatment'
+expect_class .ai-devops/task-gates.json reviewer-safety 'task-gate policy protects itself'
+expect_class scripts/test-task-gates.sh reviewer-safety 'task-gate assertion protects itself'
+expect_class MACRO_FIRST_IMPLEMENTATION_PLAN.md reviewer-safety 'canonical forward plan receives protected full treatment'
 expect_class vercel.json deployment 'Vercel release contract is protected deployment work'
+expect_class package.json deployment 'delegated Vercel build command is protected deployment work'
+expect_class scripts/verify-vercel-contract.mjs deployment 'Vercel contract guard is protected deployment work'
 expect_class apps/workers/trigger.config.ts deployment 'Trigger worker configuration is protected deployment work'
 expect_class packages/db/migrations/20990101000000_fixture.sql shared-db 'migration is protected database work'
 
@@ -85,4 +91,4 @@ if [ "$failures" -ne 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1
 fi
-printf '11 passed / 0 failed\n'
+printf '16 passed / 0 failed\n'
