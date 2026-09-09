@@ -1060,3 +1060,17 @@ All 14 non-credentialed gates, the pinned 28/30 inventory gate, the unchanged pr
 (19 baseline / 21 corrected, no regressions, hash `013e40ca...`), and `git diff --check` passed after
 scoring. The production quality gate nevertheless failed honestly. There is no retry authorization,
 and issue #4 remains open.
+
+## Source-bound canonical correction — local result, 2026-09-08
+
+Read-only diagnosis of the 23/30 map classified supported misses 5, 14, 15 and 23 identically: each
+had a fidelity-passing record whose action/object shape did not satisfy the frozen matcher. The local
+correction now returns such completion records to the exact action and bounded object in their own
+single-duty source span. It cannot run on an ambiguous multi-duty span, cannot change the role or
+evidence binding, and the unchanged fidelity validator must accept the result.
+
+The correction contract passes 17/17. All 14 non-credentialed gates pass; pinned inventory remains
+28/30; the live model contract remains 8 requested / 8 returned / zero failures. SELECT-only
+production replay improves from 21 to 22, preserves all 19 baseline rows, introduces no record-level
+regression, and keeps the frozen negative controls unchanged. This is local proof only: no deployment
+or production map run is authorized by this result.
