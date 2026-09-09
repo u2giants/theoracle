@@ -1092,3 +1092,31 @@ All 16 post-score gates passed. Read-only miss diagnosis found the same four sup
 frozen matcher; rows 5/14/23 report no strict correction improvement. This demonstrates that exact
 source-bound canonicalization is not the lever that closes the remaining four-point gap. No retry,
 tuning, migration, rollback, or second run occurred.
+
+## First-divergence audit — 2026-09-09
+
+`verify:r2-first-divergence` traced missed rows 5, 14, 15 and 23 through the active map using only
+identifiers, booleans, counts, ratios and sanitized reason families. It is SELECT-only and prints no
+licensed source, answer-key text, model output or production row content.
+
+All four rows first diverge before model extraction. The pinned inventory test marks them supported
+from partial role/action/object-token overlap, yet the complete expected record for every supporting
+seed fails the unchanged source-fidelity validator. Counts were: row 5, four heuristic-support seeds
+and zero source-faithful expected-row seeds; rows 14, 15 and 23, one and zero respectively. Final
+records that exist on those seeds pass source fidelity, but cannot reach full matcher coverage without
+adding expected detail that the same fidelity rule rejects as absent or differently qualified.
+
+This corrects two earlier interpretations. First, `28/30 supported` did not prove that 28 complete
+answer-key records were recoverable; it proved only the looser overlap heuristic. Second,
+`verify:r2-missed-row-diagnosis` reapplies the corrector hypothetically during diagnosis, while this
+audit reads the persisted correction evidence separately. Therefore a post-hoc accepted correction is
+not evidence that production persisted that correction. The actual frozen matcher also considers row
+23's action compatible; its remaining gap is object coverage, not the older diagnostic's simplified
+action check.
+
+The evidence does not authorize changing a frozen contract. It establishes that 27/30 is not proven
+feasible while the current support heuristic, answer key, matcher and source-fidelity rule are all held
+simultaneously. The next owner decision is an evaluation-contract review: make support mean that the
+complete expected row passes the unchanged fidelity rule (including any explicitly approved composite-
+span policy), then recalibrate the answer key or threshold only from that result. Another unchanged
+production run has no evidentiary value.
