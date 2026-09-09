@@ -1294,11 +1294,10 @@ function inventorySeedOwner(seed: ResponsibilityInventorySeed): string | null {
   return prefix && /^[A-Z]/.test(prefix) && fieldTokens(prefix).length <= 6 ? prefix : null;
 }
 
-function deterministicInventoryRecord(
+export function buildResponsibilitySourceSupportRecord(
   seed: ResponsibilityInventorySeed,
-): ResponsibilityReadOutput['responsibilities'][number] | null {
+): Pick<ResponsibilityReadOutput['responsibilities'][number], 'role' | 'action' | 'object' | 'trigger'> | null {
   if (
-    !seed.listStructured ||
     seed.parseDiagnostics.includes('ambiguous_multi_verb') ||
     dutyVerbsInSourceSpan(seed.sourceSpan).length !== 1
   ) return null;
@@ -1313,20 +1312,31 @@ function deterministicInventoryRecord(
   // wrong definition of an object. A cut condition is carried into `trigger` verbatim,
   // which is what `validateResponsibilityFieldFidelity` now requires.
   const bounded = boundedSourceObject(fidelitySpan);
-  const object = bounded.object;
-  if (!object) return null;
-  return {
-    responsibilityId: seed.inventorySeedId,
-    label: `${role}: ${stemDutyVerb(verb.text)} ${object}`.slice(0, 240),
+  if (!bounded.object) return null;
+  const record = {
     role,
     action: stemDutyVerb(verb.text),
-    object,
+    object: bounded.object,
     trigger: bounded.cutKind === 'condition' ? bounded.cutTail : null,
+  };
+  return validateResponsibilityFieldFidelity(fidelitySpan, record).passed ? record : null;
+}
+
+function deterministicInventoryRecord(
+  seed: ResponsibilityInventorySeed,
+): ResponsibilityReadOutput['responsibilities'][number] | null {
+  if (!seed.listStructured) return null;
+  const record = buildResponsibilitySourceSupportRecord(seed);
+  if (!record) return null;
+  return {
+    responsibilityId: seed.inventorySeedId,
+    label: `${record.role}: ${record.action} ${record.object}`.slice(0, 240),
+    ...record,
     requiredSystem:
       seed.splitKind === 'destination' &&
       seed.splitValue &&
       ['archive', 'enter', 'publish', 'record', 'save', 'submit', 'upload'].includes(
-        stemDutyVerb(verb.text),
+        record.action,
       )
         ? seed.splitValue
         : null,
