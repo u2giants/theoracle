@@ -3425,11 +3425,12 @@ export function correctResponsibilityFinalRecord(args: {
   // absorbed condition can be moved into `trigger` verbatim rather than guessed at.
   const boundedSource = boundedSourceObject(sourceSpan);
   const fullSourceObject = boundedSource.object;
+  const beforeFidelity = validateResponsibilityFieldFidelity(sourceSpan, before);
 
   const reasons: string[] = [];
 
   // Defect 1: normalize action inflection, particle preserved, noun never stemmed.
-  const action = normalizeCandidateAction(before.action);
+  let action = normalizeCandidateAction(before.action);
 
   // Defect 2: move an absorbed trailing exception into trigger verbatim.
   let object = before.object;
@@ -3455,6 +3456,32 @@ export function correctResponsibilityFinalRecord(args: {
     reasons.push('named_artifact_restored');
   }
 
+  // A completion can be faithful to its source yet still paraphrase the one source-bound
+  // action/object into a shape that the frozen answer contract cannot recognize. When the
+  // untouched candidate already passes fidelity, canonicalize only those two fields back to
+  // the exact bounded source clause. This is not discovery or matcher tuning: the seed's own
+  // span remains the sole authority, and final validation below must still pass unchanged.
+  if (beforeFidelity.passed) {
+    const actionParticles = action.trim().toLowerCase().split(/\s+/).slice(1);
+    let sourceObject = fullSourceObject.trim();
+    const retainedParticles: string[] = [];
+    for (const particle of actionParticles) {
+      if (ACTION_PARTICLES.has(particle) && sourceObject.toLowerCase().startsWith(`${particle} `)) {
+        retainedParticles.push(particle);
+        sourceObject = sourceObject.slice(particle.length).trimStart();
+      }
+    }
+    const sourceAction = [sourceVerbStem, ...retainedParticles].join(' ');
+    if (sourceObject && sourceObject.toLowerCase() !== object.trim().toLowerCase()) {
+      object = sourceObject;
+      reasons.push('source_bound_object_canonicalized');
+    }
+    if (sourceAction !== action.trim().toLowerCase()) {
+      action = sourceAction;
+      reasons.push('source_bound_action_canonicalized');
+    }
+  }
+
   if (action.toLowerCase() !== before.action.trim().toLowerCase()) {
     reasons.push('action_inflection_normalized');
   }
@@ -3475,7 +3502,6 @@ export function correctResponsibilityFinalRecord(args: {
   // condition-moved case; that was removed on 2026-08-13 because it accepted records
   // the unchanged validator rejects, and `validateResponsibilityRead` would reject
   // them again downstream — the failure only moved.
-  const beforeFidelity = validateResponsibilityFieldFidelity(sourceSpan, before);
   const afterFidelity = validateResponsibilityFieldFidelity(sourceSpan, after);
 
   const changed =

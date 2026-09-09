@@ -5147,6 +5147,30 @@ r2F1Case('an already-faithful record is not rewritten', () => {
   assert.ok(result.reasons.includes('no_strict_improvement'));
 });
 
+r2F1Case('a faithful paraphrase is restored to the exact source-bound fields', () => {
+  const seed = r2SeedFrom(
+    '- Fleet Office provides route packets to depot partners.',
+    /route packets/,
+  );
+  const candidate = {
+    role: 'Fleet Office',
+    action: 'provide packets',
+    object: 'depot partners route packets',
+    trigger: null,
+  };
+  assert.equal(
+    validateResponsibilityFieldFidelity(seed.sourceSpan, candidate).passed,
+    true,
+    'the input is already source-faithful, so this is canonicalization rather than repair',
+  );
+  const result = r2CorrectOrThrow({ seed, candidate });
+  assert.equal(result.accepted, true);
+  assert.equal(result.after?.action, 'provide');
+  assert.equal(result.after?.object, 'route packets to depot partners');
+  assert.ok(result.reasons.includes('source_bound_action_canonicalized'));
+  assert.ok(result.reasons.includes('source_bound_object_canonicalized'));
+});
+
 // 11. Source binding is immutable through correction.
 r2F1Case('source binding is immutable', () => {
   const seed = r2SeedFrom('- Fleet Office provides route packets to depot partners.', /route packets/);
