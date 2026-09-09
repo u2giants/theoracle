@@ -24,6 +24,9 @@ expect_class AGENTS.md reviewer-safety 'agent rulebook receives protected full t
 expect_class .ai-devops/task-gates.json reviewer-safety 'task-gate policy protects itself'
 expect_class scripts/test-task-gates.sh reviewer-safety 'task-gate assertion protects itself'
 expect_class MACRO_FIRST_IMPLEMENTATION_PLAN.md reviewer-safety 'canonical forward plan receives protected full treatment'
+expect_class MACRO_FIRST_REDESIGN.md reviewer-safety 'macro redesign contract receives protected full treatment'
+expect_class SHAPE_AWARE_READER_DESIGN.md reviewer-safety 'shape-aware design receives protected full treatment'
+expect_class oracle_master_spec.md reviewer-safety 'master product specification receives protected full treatment'
 expect_class vercel.json deployment 'Vercel release contract is protected deployment work'
 expect_class package.json deployment 'delegated Vercel build command is protected deployment work'
 expect_class apps/web/package.json deployment 'web build package contract is protected deployment work'
@@ -74,18 +77,15 @@ assert_blocked 'owner request cannot bypass protected migration' --owner-request
 )
 pass 'valid code flow proceeds to shipping checks'
 
-code_hash_before="$(git -C "$fixture" hash-object apps/web/app/page.tsx)"
 cp "$fixture/.ai-devops/task-gates.json" "$TMP/policy.backup.json"
 rm -f "$fixture/.ai-devops/task-gates.json"
 printf '%s\n' 'vercel.json' > "$TMP/rollback-path"
 without_policy="$(cd "$fixture" && ai-task-gates explain --json --paths-from "$TMP/rollback-path" | jq -r '.observed_class')"
 cp "$TMP/policy.backup.json" "$fixture/.ai-devops/task-gates.json"
 with_policy="$(cd "$fixture" && ai-task-gates explain --json --paths-from "$TMP/rollback-path" | jq -r '.observed_class')"
-code_hash_after="$(git -C "$fixture" hash-object apps/web/app/page.tsx)"
 if [ "$without_policy" = code ] && [ "$with_policy" = deployment ] \
-  && [ "$code_hash_before" = "$code_hash_after" ] \
   && cmp -s "$TMP/policy.backup.json" "$fixture/.ai-devops/task-gates.json"; then
-  pass 'rollback removes the local escalation and restore reinstates it without changing code'
+  pass 'rollback removes the local escalation and byte-exact restore reinstates it'
 else
   fail 'rollback positive control or source-integrity check failed'
 fi

@@ -7,7 +7,7 @@ short route and does not trim or replace existing instructions.
 
 | Surface | Before | After | Headings | SHA-256 |
 |---|---:|---:|---:|---|
-| `AGENTS.md` | 142,706 bytes / 1,361 lines | 143,586 bytes / 1,374 lines | 77 before / 78 after | before `91b434dc0104c2ddd2ebd824e9c53057376a9ed577f59a76304ee3ae3e041388`; after `19cfb6cd8f9461cd368000e17c5b78a51eb83204f69b27f1b2e709667a9f9608` |
+| `AGENTS.md` | 142,706 bytes / 1,361 lines | 143,639 bytes / 1,374 lines | 77 before / 78 after | before `91b434dc0104c2ddd2ebd824e9c53057376a9ed577f59a76304ee3ae3e041388`; after `1cfa7f638d2aa7795fe73a57272a54302919f3169cd21684957b445c45d43db0` |
 | `CLAUDE.md` | 1,812 bytes / 30 lines | unchanged | 5 | `734f4d6cb4f2e6b759097159d02db0bbed0ebba05bc465d34d8ea10edb967523` |
 | `HANDOFF.md` | 660 bytes / 13 lines | unchanged | 1 | `ee075e4aae83133cb5ed41de36f8c9ffbdcedde5c12dffd1d5a96391b6e3ce90` |
 | `README.md` | 3,006 bytes / 56 lines | unchanged | 5 | `f2aab5b3772ebad5baac4ea0995745bede92884abd8340451a960d03d80b771a` |
@@ -54,7 +54,6 @@ Unassigned headings: **0**. Removed or unreachable instructions: **0**.
 
 The focused test removes the declaration from a disposable Git fixture and
 positively observes `vercel.json` fall from `deployment` to `code`. It restores
-the declaration, observes `deployment` again, compares the policy byte-for-byte,
-and proves an application-source hash did not change. Operational rollback is
-the same bounded action: revert the pilot commit. No live-system rollback is
-involved.
+the declaration byte-for-byte and observes `deployment` again. Operational
+rollback is the same bounded action: revert the pilot commit. No live-system
+rollback is involved.

@@ -43,4 +43,5 @@ jobs:
         shell: bash
         run: |
           ai-task-gates version
+          ai-repo-policy | grep -q '"repository":"u2giants/theoracle"'
           scripts/test-task-gates.sh
