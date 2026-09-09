@@ -124,7 +124,9 @@ Not in this plan:
 - ERR-002's former support-query smoke and package command were deleted in REL-3 after a
   repository-wide zero-caller search found no runtime or CI owner. The current map-coverage path
   queries `claims.map_element_ref` directly and does not share any of the retired SQL contracts.
-- `.github/workflows/pr-check.yml` is the only workflow.
+- `.github/workflows/pr-check.yml` runs the production-build and repository
+  verification gates. `.github/workflows/task-gates.yml` separately verifies
+  task classification and never deploys.
 - The worktree already contains user-owned untracked PNG files. Do not touch them.
 
 The planning session changed only Markdown plans and routers. REL-1 was implemented in the

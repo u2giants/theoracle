@@ -30,6 +30,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 | Add or change configuration, env vars, feature flags, secrets | `AGENTS.md` §12, `docs/configuration.md`, `docs/deployment.md` if prod/runtime env is affected | Unrelated architecture docs |
 | Pull secrets from 1Password via the MCP server or `op` CLI | `AGENTS.md`, `docs/1password.md` | Unrelated architecture docs |
 | Change local setup, dev scripts, test/lint/debug workflow, package scripts, or tooling | `AGENTS.md`, `docs/development.md`, relevant package/config files | `docs/deployment.md` unless CI/CD changes |
+| Change task classification or its Phase 3 pilot | `AGENTS.md`, `docs/verification/phase-3-task-gates-pilot.md`, `.ai-devops/task-gates.json`, `scripts/test-task-gates.sh` | Product, model, and production docs |
 | Change deployment, Docker, CI/CD, hosting, release flow, rollback, or runtime environment | `AGENTS.md` §13, `docs/deployment.md`, `docs/configuration.md`, relevant workflow/deployment files | Local-only development docs unless needed |
 | Change database schema, migrations, models, external IDs, or data flow | `AGENTS.md`, `docs/architecture.md`, `docs/configuration.md` if env/config is affected, `packages/db/src/schema.ts`, relevant migration/model docs | Deployment docs unless rollout/deploy behavior changes |
 | Add or change a worker task | `AGENTS.md` §7 task-to-file, `apps/workers/src/trigger/`, `docs/architecture.md` if data flow changes | Front-end app code unless there is a matching UI/API hook |
@@ -66,6 +67,17 @@ If you are new to this repo, read only this path first:
 4. The single topic doc named by the table above.
 
 Do not open every Markdown file. Most tasks need `AGENTS.md` plus one topic doc and the affected source files.
+
+## Task declaration
+
+Before changing files, run `ai-task-gates start --class <class>`. Before a
+protected action, use `ai-task-gates check --before <action>`. The repository
+declaration keeps rulebooks, managed-platform release files, and the canonical
+Oracle migration path under their existing stronger controls; it does not
+replace the workflow, migration, review, or owner-authorization rules below.
+The command is installed by the public `popcre/ai-devops` recovery toolkit. If
+it is unavailable, restore that toolkit from its `docs/restore-from-zero.md`
+procedure before editing this repository.
 
 ## 3a. Handoffs — `HANDOFF.d/` and the successor rule
 
@@ -183,7 +195,8 @@ Migrations:
 Deployment files:
 
 - `vercel.json` — repo-level Vercel build contract
-- `.github/workflows/pr-check.yml` — current CI gate
+- `.github/workflows/pr-check.yml` — production build and repository verification gate
+- `.github/workflows/task-gates.yml` — task-classification policy gate; never deploys
 - `apps/workers/trigger.config.ts` — Trigger.dev runtime config
 
 ## 5. Prime Directive: custom-code boundary
@@ -227,7 +240,7 @@ Specific boundaries:
 | Add or change model catalog filtering | `packages/ai/src/model-capabilities/sources/<provider>.ts` (per-provider source/blocklist), `packages/ai/src/model-capabilities/index.ts` (write-time post-enrichment filters), **`apps/web/app/api/admin/model-catalog/route.ts` `passesQualityFilter` (mirror filter at read time)**, `scripts/refresh-catalog.ts` to verify, `docs/architecture.md`, `DECISIONS.md` | provider inference adapters, route catalog |
 | Add or change model picker stage requirements / job briefs | `apps/web/lib/stage-requirements.ts` (shared requirement predicates), `apps/web/app/admin/settings/page.tsx` (role descriptions + Copy job brief text), `docs/configuration.md`, `docs/architecture.md` if behavior changes | provider inference adapters unless runtime dispatch changes |
 | Reorder or regroup admin nav | `apps/web/app/admin/_components/admin-nav.tsx` (GROUPS array + isActive helper). Layout wrapper stays server-rendered for auth. | `apps/web/app/admin/layout.tsx` other than the AdminNav import — auth still runs there |
-| Change deployment behavior | `vercel.json`, `.github/workflows/pr-check.yml`, `apps/workers/trigger.config.ts`, `docs/deployment.md` | ad hoc dashboard-only assumptions without documenting them |
+| Change deployment or CI behavior | `vercel.json`, relevant files under `.github/workflows/`, `apps/workers/trigger.config.ts`, `docs/deployment.md` | ad hoc dashboard-only assumptions without documenting them |
 | Change Teams transcript ingestion | webhook: `apps/web/app/api/teams/notifications/route.ts` + `apps/web/lib/graph-notification-crypto.ts` + the subscription helpers in `apps/web/lib/microsoft-graph.ts`; workers: `apps/workers/src/trigger/teams-{subscription-manager,transcript-ingestion,transcript-discovery-scan}.ts` + `apps/workers/src/lib/graph-transcripts.ts`; env in `docs/configuration.md`. Keep the two Graph helper copies in sync (web is reference). The Oracle does NOT auto-ingest — the webhook + discovery scan only RECORD available meetings into `meeting_transcripts`; ingestion runs only when an admin picks a meeting (see the meeting-picker row). `teams-transcript-ingestion` writes `messages` as `extraction_status='pending'`, anchored to the real meeting time. | the candidate-before-claim pipeline (ingestion only writes `messages`; never `claims`) |
 | Change the meeting picker / discovery | `apps/web/app/admin/transcripts/page.tsx` + `_actions.ts` (`ingestMeetings`/`dismissMeeting`/`runDiscoveryScan`, admin-only) over the `meeting_transcripts` table (migration `77_meeting_transcripts.sql`); discovery sources = the webhook (real-time, `discovered_via='subscription'`) and `teams-transcript-discovery-scan` (past meetings, `'scan'`), both metadata-only upserts; picking → `triggerTask('teams-transcript-ingestion', {…, discoveryTranscriptId})` which flips the row to `ingested`. NOTE: the older `awaiting_approval` enum value + `raw_transcripts.approval_status` (migrations 75/76) are now DEPRECATED/unused — see DECISIONS `D-meeting-picker`. | the live Recall path (`teams-live-recall-utterance.ts`); re-introducing auto-ingest in the webhook |
 | Change document ingestion (formats / image vision / prompts / chunking) | `apps/workers/src/trigger/document-ingestion.ts` (`resolveParseKind`, `extractTextFrom*`, `transcribeImageToText`, `IMAGE_TRANSCRIPTION_SYSTEM`, `buildUploaderContextNote`; chunking = `chunkTextStructured`/`computeStructuralBoundaries`; window budgets `MAX_DOCUMENT_TEXT_CHARS`=24k / `MAX_IMAGE_TEXT_CHARS`=32k; diagram prompt switch `looksLikeDiagramTranscription`); image inline support in `packages/ai/src/providers/vertex-gemini-adapter.ts` (`toVertexParts`); admin upload UI `apps/web/app/admin/documents/**` + `apps/web/app/api/admin/documents/route.ts`. Redeploy the worker for parse/prompt changes (CLI deploy needs a PAT; the Trigger MCP `deploy` is authenticated). | the candidate-before-claim pipeline; the channel-based `POST /api/documents` (separate, chat path) |
@@ -1127,7 +1140,7 @@ The Teams transcript app also needs the Graph **Application** permissions `Onlin
 Current deployment path:
 
 - GitHub repo: `u2giants/theoracle`
-- CI workflow: `.github/workflows/pr-check.yml`
+- CI workflows: `.github/workflows/pr-check.yml` and `.github/workflows/task-gates.yml`
 - Web deploy target: Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC`
 - Worker deploy target: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 - Database/auth/storage target: Supabase project configured through env
@@ -1310,7 +1323,7 @@ security gaps. Do not re-plan these rows from this summary table.
 |---|---|---|
 | released; natural proof remains | Taxonomy approval dispatches the existing `taxonomy-reclassification` worker with five guarded, idempotent handlers. | Released through `4efdbdf`; capture the first natural approved production apply. Do not invent business taxonomy data for proof. |
 | done | Macro-understanding implementation (source outlines, claim kinds, macro relationships, coverage findings, admin review, chat/Brain consumption) was migrated and worker-deployed on 2026-07-02. | Migration `79_macro_understanding.sql` applied through `pnpm db:migrate`; follow-up settings live in `80_macro_auto_followup_settings.sql`; macro tables are deliberately hand-SQL-owned and documented in the Drizzle snapshot quirk. Trigger.dev prod worker `20260702.3` deployed with 25 tasks after cache release + staleness guard hardening. |
-| open | Only `.github/workflows/pr-check.yml` exists (web build, deterministic code guards, isolated fresh-database guards, and Drizzle drift check). There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers run deploy` (note: `run` keyword required — `pnpm` reserves the bare `deploy` form for its own subcommand) in the release process until workflows are added. |
+| open | The repository has verification-only `pr-check.yml` and `task-gates.yml` workflows. There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers run deploy` (note: `run` keyword required — `pnpm` reserves the bare `deploy` form for its own subcommand) in the release process until deployment workflows are added. |
 | resolved | `RetrievalPlan.requiredEntities` semantics: **disjunctive (any-of) — decided 2026-05-28, keep as-is.** A claim matches if it carries ANY of the listed entities. Conjunctive (all-of) was rejected because it would require a single claim to mention every listed entity, collapsing recall for multi-entity queries (claims are typically single-entity). Filter lives in `buildPlanMetadataFilters()` in `packages/ai/src/retrieval.ts`. | No action. If a future "facts connecting X and Y" feature is ever wanted, add it as a separate explicit mode — do not flip the default. |
 | done | China bilingual claim layer (schema, locale-aware retrieval, `claim-translation` worker, translate-for-China bulk action, per-`zh-CN`-recipient translation of `claim_review_question`s) is **merged to `main`**, migration `0007` is **applied to prod**, and `claim-translation` is deployed in Trigger.dev worker `20260620.1`. | Set a China employee's `locale='zh-CN'` and pick a translation model at Admin → Settings → "Translation model" when the owner wants to use it. |
 | released; sample blocked | China side-by-side review and the trustworthy live retrieval gate are released. Translation remains opt-in. Production lacks five independently labeled positive queries plus one negative control. | Allow natural reviewed translations to accumulate, then run the read-only GAP-4 live gate. Do not add the Chinese search extension until evidence requires it. |

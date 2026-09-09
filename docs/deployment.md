@@ -111,11 +111,17 @@ Use `corepack pnpm --filter @oracle/db migrate` rather than root
 `corepack pnpm db:migrate` if the elevated/local environment lacks a plain
 `pnpm` binary on `PATH`; the root script delegates to bare `pnpm`.
 
-## CI workflow that currently exists
+## CI workflows that currently exist
 
-Only one workflow is present: `.github/workflows/pr-check.yml`
+Two verification-only workflows are present. Neither deploys:
 
-What it does (in order):
+- `.github/workflows/pr-check.yml` runs the production build and repository
+  verification gates described below.
+- `.github/workflows/task-gates.yml` installs the pinned public task-gate engine
+  and proves Oracle's local classification, no-bypass, valid-flow, and rollback
+  assertions on every pull request and push to `main`.
+
+What `pr-check.yml` does (in order):
 
 1. Checks out the repo, installs pnpm 9.5.0, uses Node 24, runs `pnpm install --frozen-lockfile=false`.
 2. **Vercel build contract guard** — `pnpm verify:vercel-contract`. Enforces the 256-character limit and exact delegated production guard list.
