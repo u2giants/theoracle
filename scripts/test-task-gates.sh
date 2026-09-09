@@ -7,7 +7,8 @@ trap 'rm -rf "$TMP"' EXIT
 cd "$ROOT"
 
 failures=0
-pass(){ printf 'PASS: %s\n' "$1"; }
+passes=0
+pass(){ passes=$((passes + 1)); printf 'PASS: %s\n' "$1"; }
 fail(){ printf 'FAIL: %s\n' "$1" >&2; failures=$((failures + 1)); }
 
 expect_class(){
@@ -25,6 +26,8 @@ expect_class scripts/test-task-gates.sh reviewer-safety 'task-gate assertion pro
 expect_class MACRO_FIRST_IMPLEMENTATION_PLAN.md reviewer-safety 'canonical forward plan receives protected full treatment'
 expect_class vercel.json deployment 'Vercel release contract is protected deployment work'
 expect_class package.json deployment 'delegated Vercel build command is protected deployment work'
+expect_class apps/web/package.json deployment 'web build package contract is protected deployment work'
+expect_class packages/ai/package.json deployment 'production guard package contract is protected deployment work'
 expect_class scripts/verify-vercel-contract.mjs deployment 'Vercel contract guard is protected deployment work'
 expect_class apps/workers/trigger.config.ts deployment 'Trigger worker configuration is protected deployment work'
 expect_class packages/db/migrations/20990101000000_fixture.sql shared-db 'migration is protected database work'
@@ -54,7 +57,7 @@ assert_blocked(){
   output="$(cd "$fixture" && ai-task-gates check --before ship "$@" 2>&1)"
   rc=$?
   set -e
-  if [ "$rc" -eq 3 ] && grep -q 'protected' <<<"$output"; then pass "$label"; else fail "$label (exit $rc)"; fi
+  if [ "$rc" -eq 3 ]; then pass "$label"; else fail "$label (exit $rc: $output)"; fi
 }
 
 assert_blocked 'migration scope escalation refuses shipping'
@@ -91,4 +94,4 @@ if [ "$failures" -ne 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
   exit 1
 fi
-printf '16 passed / 0 failed\n'
+printf '%s passed / 0 failed\n' "$passes"

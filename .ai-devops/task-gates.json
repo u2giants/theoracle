@@ -15,6 +15,8 @@
     { "glob": ".github/workflows/**", "class": "deployment" },
     { "glob": "vercel.json", "class": "deployment" },
     { "glob": "package.json", "class": "deployment" },
+    { "glob": "apps/*/package.json", "class": "deployment" },
+    { "glob": "packages/*/package.json", "class": "deployment" },
     { "glob": "scripts/verify-vercel-contract.mjs", "class": "deployment" },
     { "glob": "apps/workers/trigger.config.ts", "class": "deployment" },
     { "glob": "packages/db/migrations/**", "class": "shared-db" },

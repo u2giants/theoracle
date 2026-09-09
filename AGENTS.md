@@ -195,7 +195,8 @@ Migrations:
 Deployment files:
 
 - `vercel.json` — repo-level Vercel build contract
-- `.github/workflows/pr-check.yml` — current CI gate
+- `.github/workflows/pr-check.yml` — production build and repository verification gate
+- `.github/workflows/task-gates.yml` — task-classification policy gate; never deploys
 - `apps/workers/trigger.config.ts` — Trigger.dev runtime config
 
 ## 5. Prime Directive: custom-code boundary
@@ -1322,7 +1323,7 @@ security gaps. Do not re-plan these rows from this summary table.
 |---|---|---|
 | released; natural proof remains | Taxonomy approval dispatches the existing `taxonomy-reclassification` worker with five guarded, idempotent handlers. | Released through `4efdbdf`; capture the first natural approved production apply. Do not invent business taxonomy data for proof. |
 | done | Macro-understanding implementation (source outlines, claim kinds, macro relationships, coverage findings, admin review, chat/Brain consumption) was migrated and worker-deployed on 2026-07-02. | Migration `79_macro_understanding.sql` applied through `pnpm db:migrate`; follow-up settings live in `80_macro_auto_followup_settings.sql`; macro tables are deliberately hand-SQL-owned and documented in the Drizzle snapshot quirk. Trigger.dev prod worker `20260702.3` deployed with 25 tasks after cache release + staleness guard hardening. |
-| open | Only `.github/workflows/pr-check.yml` exists (web build, deterministic code guards, isolated fresh-database guards, and Drizzle drift check). There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers run deploy` (note: `run` keyword required — `pnpm` reserves the bare `deploy` form for its own subcommand) in the release process until workflows are added. |
+| open | The repository has verification-only `pr-check.yml` and `task-gates.yml` workflows. There is no automated DB migration workflow and no automated Trigger.dev deploy workflow. | Keep manual `pnpm db:migrate` and `pnpm --filter @oracle/workers run deploy` (note: `run` keyword required — `pnpm` reserves the bare `deploy` form for its own subcommand) in the release process until deployment workflows are added. |
 | resolved | `RetrievalPlan.requiredEntities` semantics: **disjunctive (any-of) — decided 2026-05-28, keep as-is.** A claim matches if it carries ANY of the listed entities. Conjunctive (all-of) was rejected because it would require a single claim to mention every listed entity, collapsing recall for multi-entity queries (claims are typically single-entity). Filter lives in `buildPlanMetadataFilters()` in `packages/ai/src/retrieval.ts`. | No action. If a future "facts connecting X and Y" feature is ever wanted, add it as a separate explicit mode — do not flip the default. |
 | done | China bilingual claim layer (schema, locale-aware retrieval, `claim-translation` worker, translate-for-China bulk action, per-`zh-CN`-recipient translation of `claim_review_question`s) is **merged to `main`**, migration `0007` is **applied to prod**, and `claim-translation` is deployed in Trigger.dev worker `20260620.1`. | Set a China employee's `locale='zh-CN'` and pick a translation model at Admin → Settings → "Translation model" when the owner wants to use it. |
 | released; sample blocked | China side-by-side review and the trustworthy live retrieval gate are released. Translation remains opt-in. Production lacks five independently labeled positive queries plus one negative control. | Allow natural reviewed translations to accumulate, then run the read-only GAP-4 live gate. Do not add the Chinese search extension until evidence requires it. |

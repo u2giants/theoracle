@@ -7,7 +7,7 @@ short route and does not trim or replace existing instructions.
 
 | Surface | Before | After | Headings | SHA-256 |
 |---|---:|---:|---:|---|
-| `AGENTS.md` | 142,706 bytes / 1,361 lines | 143,517 bytes / 1,373 lines | 77 before / 78 after | before `91b434dc0104c2ddd2ebd824e9c53057376a9ed577f59a76304ee3ae3e041388`; after `01a711411d67f421a072d646f2751ec0deba911084bc65ae14d7d63bf6cfebca` |
+| `AGENTS.md` | 142,706 bytes / 1,361 lines | 143,586 bytes / 1,374 lines | 77 before / 78 after | before `91b434dc0104c2ddd2ebd824e9c53057376a9ed577f59a76304ee3ae3e041388`; after `19cfb6cd8f9461cd368000e17c5b78a51eb83204f69b27f1b2e709667a9f9608` |
 | `CLAUDE.md` | 1,812 bytes / 30 lines | unchanged | 5 | `734f4d6cb4f2e6b759097159d02db0bbed0ebba05bc465d34d8ea10edb967523` |
 | `HANDOFF.md` | 660 bytes / 13 lines | unchanged | 1 | `ee075e4aae83133cb5ed41de36f8c9ffbdcedde5c12dffd1d5a96391b6e3ce90` |
 | `README.md` | 3,006 bytes / 56 lines | unchanged | 5 | `f2aab5b3772ebad5baac4ea0995745bede92884abd8340451a960d03d80b771a` |
@@ -33,9 +33,9 @@ Unassigned headings: **0**. Removed or unreachable instructions: **0**.
   to `code`. Rulebooks, handoffs, canonical plans, the declaration, and its
   assertion script resolve to protected `reviewer-safety`.
 - `vercel.json`, every GitHub workflow, and the Trigger.dev worker config
-  resolve to protected `deployment` work. The root package file and delegated
-  Vercel contract guard receive the same class, so the actual build command
-  cannot bypass release treatment.
+  resolve to protected `deployment` work. Root and workspace package files plus
+  the delegated Vercel contract guard receive the same class, covering each
+  repository-controlled hop in the production build command.
 - The Drizzle schema, canonical runner, drift checker, and every migration file
   resolve to protected `shared-db` work. The class name is the central engine's
   structural-database class; Oracle retains ownership of its own schema.
