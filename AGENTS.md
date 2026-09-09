@@ -30,6 +30,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 | Add or change configuration, env vars, feature flags, secrets | `AGENTS.md` §12, `docs/configuration.md`, `docs/deployment.md` if prod/runtime env is affected | Unrelated architecture docs |
 | Pull secrets from 1Password via the MCP server or `op` CLI | `AGENTS.md`, `docs/1password.md` | Unrelated architecture docs |
 | Change local setup, dev scripts, test/lint/debug workflow, package scripts, or tooling | `AGENTS.md`, `docs/development.md`, relevant package/config files | `docs/deployment.md` unless CI/CD changes |
+| Change task classification or its Phase 3 pilot | `AGENTS.md`, `docs/verification/phase-3-task-gates-pilot.md`, `.ai-devops/task-gates.json`, `scripts/test-task-gates.sh` | Product, model, and production docs |
 | Change deployment, Docker, CI/CD, hosting, release flow, rollback, or runtime environment | `AGENTS.md` §13, `docs/deployment.md`, `docs/configuration.md`, relevant workflow/deployment files | Local-only development docs unless needed |
 | Change database schema, migrations, models, external IDs, or data flow | `AGENTS.md`, `docs/architecture.md`, `docs/configuration.md` if env/config is affected, `packages/db/src/schema.ts`, relevant migration/model docs | Deployment docs unless rollout/deploy behavior changes |
 | Add or change a worker task | `AGENTS.md` §7 task-to-file, `apps/workers/src/trigger/`, `docs/architecture.md` if data flow changes | Front-end app code unless there is a matching UI/API hook |
@@ -74,6 +75,9 @@ protected action, use `ai-task-gates check --before <action>`. The repository
 declaration keeps rulebooks, managed-platform release files, and the canonical
 Oracle migration path under their existing stronger controls; it does not
 replace the workflow, migration, review, or owner-authorization rules below.
+The command is installed by the public `popcre/ai-devops` recovery toolkit. If
+it is unavailable, restore that toolkit from its `docs/restore-from-zero.md`
+procedure before editing this repository.
 
 ## 3a. Handoffs — `HANDOFF.d/` and the successor rule
 
