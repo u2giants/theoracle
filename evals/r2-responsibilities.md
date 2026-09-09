@@ -1074,3 +1074,21 @@ The correction contract passes 17/17. All 14 non-credentialed gates pass; pinned
 production replay improves from 21 to 22, preserves all 19 baseline rows, introduces no record-level
 regression, and keeps the frozen negative controls unchanged. This is local proof only: no deployment
 or production map run is authorized by this result.
+
+## Source-bound canonical correction — production result, 2026-09-09
+
+Current main `28e8eb7` passed all frozen pre-deploy gates. One authorized deployment
+(`hfnvqrvg`) promoted worker `20260909.1`, and exactly one authorized run with
+`maxAttempts: 1` executed: `run_06g8eqkikc4ch8d54v8ek1jj01`. It created active degraded map
+`339ca8b1-e412-4447-8336-7586f08bd746`.
+
+The unchanged answer key and matcher scored the map **23/30**, below 27/30. It matched the same rows
+as the preceding 23/30 map: all 19 protected baseline rows plus 17, 19, 20 and 29. Rows 5, 14, 15,
+16, 23, 24 and 26 missed; controls 16/24/26 remained unmatched. Because the result tied rather than
+regressed, the guarded rollback condition did not apply and no map was deleted.
+
+All 16 post-score gates passed. Read-only miss diagnosis found the same four supported misses
+5/14/15/23. Only row 15 records the new canonical correction as accepted, but it still fails the
+frozen matcher; rows 5/14/23 report no strict correction improvement. This demonstrates that exact
+source-bound canonicalization is not the lever that closes the remaining four-point gap. No retry,
+tuning, migration, rollback, or second run occurred.
