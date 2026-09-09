@@ -31,13 +31,9 @@ jobs:
           path: .task-gates-toolkit
           persist-credentials: false
 
-      - name: Install task-gate commands on the runner path
+      - name: Add task-gate commands to the runner path
         shell: bash
-        run: |
-          mkdir -p "$HOME/.local/bin"
-          ln -s "$GITHUB_WORKSPACE/.task-gates-toolkit/bin/ai-task-gates" "$HOME/.local/bin/ai-task-gates"
-          ln -s "$GITHUB_WORKSPACE/.task-gates-toolkit/bin/ai-repo-policy" "$HOME/.local/bin/ai-repo-policy"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        run: echo "$GITHUB_WORKSPACE/.task-gates-toolkit/bin" >> "$GITHUB_PATH"
 
       - name: Verify installed command and Oracle policy
         shell: bash
