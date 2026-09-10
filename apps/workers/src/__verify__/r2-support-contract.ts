@@ -26,6 +26,27 @@ const answerKey = JSON.parse(readFileSync(
   new URL('../__fixtures__/licensed-team-responsibilities-v1.json', import.meta.url),
   'utf8',
 )) as { sourceSha256: string; version: string; records: ResponsibilityAnswerKeyRecord[] };
+const contract = JSON.parse(readFileSync(
+  new URL('../__fixtures__/licensed-team-responsibilities-contract-v2.json', import.meta.url),
+  'utf8',
+)) as {
+  version: string;
+  sourceAnswerKeyVersion: string;
+  sourceSha256: string;
+  matcherVersion: string;
+  supportSemantics: {
+    evidenceSpansPerRow: number;
+    actionParaphrases: string;
+    objectParaphrases: string;
+    thresholdRate: number;
+  };
+  canonicalSupportedRows: number[];
+  validatedProductionWitnessRows: number[];
+  eligibleRows: number[];
+  unsupportedRows: number[];
+  passThreshold: number;
+  productionWitnessMapId: string;
+};
 assert.equal(createHash('sha256').update(source).digest('hex'), answerKey.sourceSha256);
 assert.equal(answerKey.version, 'licensed-team-responsibilities-v1');
 assert.equal(RESPONSIBILITY_ANSWER_KEY_MATCHER_VERSION, 'field-aware-v3');
@@ -123,6 +144,29 @@ const canonicalMatcher = assignRows(answerKey.records.map((expected) =>
 assert.equal(legacy.count, 28, 'historical partial-overlap result drifted');
 assert.equal(literalFidelity.count, 2, 'literal answer-row fidelity result drifted');
 assert.equal(canonicalMatcher.count, 23, 'canonical source-record matcher result drifted');
+assert.equal(contract.version, 'licensed-team-responsibilities-contract-v2');
+assert.equal(contract.sourceAnswerKeyVersion, answerKey.version);
+assert.equal(contract.sourceSha256, answerKey.sourceSha256);
+assert.equal(contract.matcherVersion, RESPONSIBILITY_ANSWER_KEY_MATCHER_VERSION);
+assert.deepEqual(contract.canonicalSupportedRows, canonicalMatcher.supportedRows);
+assert.deepEqual(contract.validatedProductionWitnessRows, [3, 19]);
+assert.deepEqual(
+  contract.eligibleRows,
+  [...new Set([...contract.canonicalSupportedRows, ...contract.validatedProductionWitnessRows])]
+    .sort((a, b) => a - b),
+);
+assert.deepEqual(
+  contract.unsupportedRows,
+  answerKey.records.map((_record, index) => index + 1)
+    .filter((row) => !contract.eligibleRows.includes(row)),
+);
+assert.equal(contract.supportSemantics.evidenceSpansPerRow, 1);
+assert.equal(contract.supportSemantics.actionParaphrases, 'matcher-explicit-only');
+assert.equal(contract.supportSemantics.objectParaphrases, 'none');
+assert.equal(
+  contract.passThreshold,
+  Math.ceil(contract.eligibleRows.length * contract.supportSemantics.thresholdRate),
+);
 console.log(JSON.stringify({
   fixtureSha256: answerKey.sourceSha256,
   answerKeyVersion: answerKey.version,
@@ -134,5 +178,13 @@ console.log(JSON.stringify({
     literalAnswerRowFidelity: literalFidelity,
     canonicalSourceRecordThroughMatcher: canonicalMatcher,
   },
-  conclusion: 'NO_CURRENT_SUPPORT_DEFINITION_PROVES_THE_27_OF_30_THRESHOLD_FEASIBLE',
+  approvedContract: {
+    version: contract.version,
+    eligibleCount: contract.eligibleRows.length,
+    eligibleRows: contract.eligibleRows,
+    unsupportedRows: contract.unsupportedRows,
+    passThreshold: contract.passThreshold,
+    thresholdRate: contract.supportSemantics.thresholdRate,
+  },
+  conclusion: 'CONTRACT_V2_BINDS_ONE_SPAN_PER_ROW_AND_REQUIRES_23_OF_25',
 }, null, 2));
