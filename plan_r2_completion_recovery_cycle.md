@@ -23,6 +23,7 @@
 | G16. Deploy once and run one production map for the source-bound correction | DONE 2026-09-09 - **GATE FAILED HONESTLY** | Albert authorized exactly one production deployment and one `source-workflow-read` run with `maxAttempts: 1` and no retry. All frozen pre-deploy gates passed on current main `28e8eb7`; deployment `hfnvqrvg` promoted worker `20260909.1` with SDK `4.5.15`. Run `run_06g8eqkikc4ch8d54v8ek1jj01` completed once and created active degraded map `339ca8b1-e412-4447-8336-7586f08bd746`. The unchanged scorer returned **23/30**, below 27/30, with every protected row preserved and controls 16/24/26 unmatched. The result tied rather than regressed from map `905e0626-...`, so rollback did not apply. All 16 post-score gates passed. Read-only diagnosis showed rows 5/14/15/23 remain matcher misses; only row 15 received the new canonical correction and it still missed. No retry, tuning, migration, deletion, or second run occurred. Issue #4 remains open. |
 | G17. Trace the first divergence for rows 5/14/15/23 | DONE 2026-09-09 - **THE FROZEN SUPPORT TEST AND FIDELITY RULE CONFLICT** | A new SELECT-only diagnostic traced each missed row from pinned inventory through source fidelity, discovery, merge, correction, persistence, isolated matching, and global assignment without printing licensed content. The pinned gate calls all four rows supported using partial role/action/object-token overlap, but **zero** supporting seeds allow the complete answer-key row to pass the unchanged source-fidelity validator. The stored records that reach the map remain source-faithful; their lower matcher coverage is the consequence of not inventing the missing answer-key detail. The earlier missed-row diagnostic also evaluated a hypothetical post-hoc correction and could be mistaken for persisted correction evidence; the new trace separates those states. No production write, deploy, run, retry, tuning, migration, rollback, or map deletion occurred. The 27/30 target is not proven feasible under the simultaneously frozen support heuristic, answer key, matcher, and fidelity rule. Issue #4 remains open pending an owner decision on the evaluation contract. |
 | G18. Audit the support contract against the licensed fixture | DONE 2026-09-09 - **27/30 IS NOT PROVEN FEASIBLE** | Albert authorized a local/read-only evaluation-contract review. A deterministic audit now calculates three definitions over the same frozen fixture without printing licensed text: the historical partial-overlap rule returns 28/30, requiring the literal answer row itself to pass fidelity returns 2/30 because the answer key intentionally paraphrases source wording, and a canonical source-faithful record judged by the real matcher returns 23/30. The audit freezes all three results and concludes that none proves the existing 27/30 threshold feasible. The historical pinned gate remains unchanged so this review does not silently redefine a frozen acceptance condition; the answer key, matcher and threshold also remain unchanged. No production action occurred. Issue #4 remains open for Albert to choose the intended semantic contract before any recalibration or new reader work. |
+| G19. Version and apply the owner-approved evaluation contract | DONE 2026-09-10 - **ACTIVE PRODUCTION MAP PASSES 23/25** | Albert approved one source span per responsibility, only explicit matcher action paraphrases, and recalculation of the answer key denominator and threshold. Contract v2 contains 25 supported rows: 23 have deterministic canonical source witnesses; rows 3/19 have source-faithful production witnesses. Unsupported rows 14/15/16/23/26 are excluded and must remain unmatched. Preserving the original 90% standard yields `ceil(25 * 0.90) = 23`. The new SELECT-only scorer measured active map `339ca8b1-...` at **23/25**, with rows 5/24 missed and zero unsupported-row matches, so every v2 acceptance condition passes. V1, its historical 27/30 result and its frozen files remain unchanged. No deployment, model call, production write, retry, migration, rollback or map mutation occurred. Issue #4 may close after merge and exact-head CI prove this versioned contract. |
 
 ## 1. Ultimate goal
 
@@ -119,9 +120,11 @@ its own regression proof and its own review. It was deliberately not attempted i
 
 ## 8. Locked and open decisions
 
-Locked: answer key `licensed-team-responsibilities-v1`; matcher `field-aware-v3`; threshold 27/30;
-negative controls rows 16, 24 and 26; frozen route and limits; all three `business_model_*_enabled`
-false; no production run without a new explicit owner authorization.
+Historical v1 remains locked: answer key `licensed-team-responsibilities-v1`; matcher `field-aware-v3`;
+threshold 27/30; negative controls rows 16, 24 and 26. Owner-approved contract v2 supersedes v1 only
+for current acceptance: 25 one-span supported rows, threshold 23/25, and unsupported rows
+14/15/16/23/26. The frozen route and limits and all three `business_model_*_enabled` false remain
+unchanged; no production run is authorized or needed for the SELECT-only v2 rescore.
 
 Measured 2026-08-27: the repaired late pass is worth **one row** on this document (row 19). Row 23
 did not return. The remaining shortfall is four rows and is NOT a retry-wiring problem.
@@ -164,14 +167,15 @@ SELECT-only verifiers read `R2_REPLAY_DATABASE_URL` from item `qcuyabwseaptvuzvt
 
 ## 13. Definition of done, risks, rollback, and open questions
 
-This cycle is done: the defect is repaired, locked by deterministic tests, proven not to regress any
-existing gate, shipped green, and measured in production at 23/30. The business goal is NOT met — the
-threshold is 27/30 — and this is an honest partial gain, not a pass.
+The implementation cycle was honestly measured at 23/30 under historical v1. After first-divergence
+analysis proved v1's support gate inconsistent, Albert approved contract v2. The same active production
+map passes v2 at 23/25 with all unsupported rows unmatched. R2 is complete when the v2 contract and
+SELECT-only production proof merge with exact-head CI and issue #4 is closed; no new run is needed.
 
 Risk: the late pass now runs where it previously did not, so a future run will spend more of its
 authorized model calls. That is the intended behaviour and it stays inside the frozen budget.
-Rollback is a one-line revert of the `handledIds` construction. The open question is the measured
-recovery, and rows 5, 14 and 15 remain unaddressed by design.
+Rollback of the historical reader repair is a one-line revert of the `handledIds` construction. Contract
+v2 is independently reversible by removing its manifest and scorer; it does not alter the reader or v1.
 
 ## Self-audit
 

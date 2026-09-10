@@ -609,6 +609,21 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Not decided**: Provisional employee answers remain an R6 decision. This approval does not
   authorize provisional serving.
 
+## D-r2-evaluation-contract-v2 — one-span support and honest denominator (2026-09-10)
+
+- **Decision**: R2 contract v2 evaluates only answer rows with a proven single source-bound duty.
+  Action paraphrases are limited to the explicit `field-aware-v3` equivalences; object paraphrases
+  are not allowed. Composite evidence across source spans is excluded.
+- **Eligible set**: 25 rows are proven: 23 by deterministic canonical source records and rows 3/19
+  by source-faithful records validated in production map `339ca8b1-e412-4447-8336-7586f08bd746`.
+  Rows 14/15/16/23/26 are unsupported under this contract and are excluded from the denominator.
+- **Threshold**: Preserve the original 90% quality standard against the honest denominator:
+  `ceil(25 * 0.90) = 23`, so acceptance is 23/25 with every unsupported row remaining unmatched.
+- **Versioning**: The v1 answer key, historical 27/30 gate and evidence remain immutable. Contract v2
+  is a separate manifest and scorer; it does not rewrite old production results.
+- **Measured result**: The active production map passes v2 at 23/25 with unsupported matches empty.
+  This is a SELECT-only rescore of existing evidence, not a new production run or deployment.
+
 # Document ingestion: Word, image vision, auxiliary models, context (2026-06-14)
 
 ## D-image-vision-two-pass — transcribe images to text before extraction

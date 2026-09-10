@@ -1138,3 +1138,21 @@ tests only the canonical bounded form. The old pinned gate remains unchanged, an
 rule, negative control or threshold was altered. A valid successor contract must first state whether one
 answer may combine multiple source spans and what paraphrase equivalence is allowed; only then can its
 eligible-row count and threshold be approved. No production action occurred.
+
+## Owner-approved evaluation contract v2 — 2026-09-10
+
+Albert approved the recommended semantics: one source span per expected responsibility, action
+paraphrases limited to the explicit `field-aware-v3` equivalences, and no object paraphrases. Contract
+`licensed-team-responsibilities-contract-v2` versions this decision without altering the v1 answer key,
+matcher or historical 27/30 evidence.
+
+The honest denominator is 25. Twenty-three rows have a deterministic canonical source-record witness;
+rows 3 and 19 are added from source-faithful records already validated and persisted by production map
+`339ca8b1-e412-4447-8336-7586f08bd746`. Rows 14/15/16/23/26 have no approved one-span witness and are
+excluded from the denominator while remaining mandatory non-matches. The original 90% quality standard
+becomes `ceil(25 * 0.90) = 23`.
+
+The SELECT-only v2 scorer measured the active map at **23/25**. Only eligible rows 5 and 24 missed; all
+five unsupported rows remained unmatched. The map therefore passes every v2 acceptance condition. This
+was a rescore of existing production evidence: no deployment, model call, production write, retry,
+migration, rollback or map mutation occurred.

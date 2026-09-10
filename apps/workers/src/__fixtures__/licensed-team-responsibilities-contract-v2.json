@@ -1,0 +1,18 @@
+{
+  "version": "licensed-team-responsibilities-contract-v2",
+  "sourceAnswerKeyVersion": "licensed-team-responsibilities-v1",
+  "sourceSha256": "398927caaf945cc313429d70836713980a29ae41d8109bc3592fd146dfca90be",
+  "matcherVersion": "field-aware-v3",
+  "supportSemantics": {
+    "evidenceSpansPerRow": 1,
+    "actionParaphrases": "matcher-explicit-only",
+    "objectParaphrases": "none",
+    "thresholdRate": 0.9
+  },
+  "canonicalSupportedRows": [1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 17, 18, 20, 21, 22, 24, 25, 27, 28, 29, 30],
+  "validatedProductionWitnessRows": [3, 19],
+  "eligibleRows": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 17, 18, 19, 20, 21, 22, 24, 25, 27, 28, 29, 30],
+  "unsupportedRows": [14, 15, 16, 23, 26],
+  "passThreshold": 23,
+  "productionWitnessMapId": "339ca8b1-e412-4447-8336-7586f08bd746"
+}
