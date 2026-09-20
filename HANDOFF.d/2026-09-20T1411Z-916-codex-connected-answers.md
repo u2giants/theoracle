@@ -24,7 +24,7 @@ licensed-product questions spanning owners, handoffs, approval conditions and ex
 Execution specification: [plan](../plan_connected_business_answers.md).
 
 ## 3. Current state
-Implementation locally complete in isolated branch `audit/holistic-understanding-20260920` at
+Implementation locally complete in isolated branch `codex/connected-business-answers-20260920` at
 `D:\repos\oracle-holistic-audit-20260920`, based on upstream `63cdcaa`. Main owns chat
 wiring, bounded orchestration, answer policy, journey tests and docs. No release or live
 proof yet. Independent review APPROVE; 33 helper assertions, journey/domain/filter gates,

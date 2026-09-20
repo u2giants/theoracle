@@ -152,7 +152,7 @@ Only the opener closes issue 15. Preserve other handoffs and the root pointer.
 ## 12. Access/environment
 
 Machine 916-alien; worktree `D:\repos\oracle-holistic-audit-20260920`, branch
-`audit/holistic-understanding-20260920`. `gh` authenticated as u2giants. Dependencies installed
+`codex/connected-business-answers-20260920`. `gh` authenticated as u2giants. Dependencies installed
 locally with frozen lockfile. Production login/provider/DB access not yet exercised for this
 slice; secrets, if needed, only through 1Password `vibe_coding` after reading its skill.
 Never copy the canonical checkout's stale `.env.local`.
