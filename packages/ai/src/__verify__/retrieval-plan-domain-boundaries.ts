@@ -144,4 +144,50 @@ function assertDomains(query: string, expected: string[]) {
   );
 }
 
+for (const [query, domains] of [
+  ['How does Designflow PLM support licensing approvals?', ['operations_systems', 'licensing_approvals']],
+  ['How does PLM support licensing across our overall company workflow?', ['business_process', 'licensing_approvals', 'operations_systems', 'supply_chain', 'logistics_shipping']],
+  ['How do artwork files hand off to the production workflow before production?', ['design_file_operations', 'production_lifecycle']],
+  ['How do design files support tech pack and sample handoffs?', ['design_file_operations', 'product_development']],
+  ['How does PLM track customer purchase orders?', ['operations_systems', 'customer_ops']],
+  ['How does PLM connect the creative brief to packaging design?', ['operations_systems', 'creative_design']],
+  ['Who owns the training checklist and who is responsible for onboarding?', ['training_enablement', 'people_org']],
+  ['How do file naming rules interact with login permission and SSO?', ['design_file_operations', 'it_systems']],
+] as Array<[string, string[]]>) {
+  const plan = buildRetrievalPlanFromQuery(query);
+  for (const domain of domains) {
+    assert.ok(plan.topDomainHints.includes(domain), `${query}: must include ${domain}`);
+    assert.ok(!plan.excludedTopDomains?.includes(domain), `${query}: must not exclude ${domain}`);
+  }
+}
+
+{
+  const plan = buildRetrievalPlanFromQuery('Move OrderList from Google Sheets into Designflow PLM');
+  assert.deepEqual(plan.topDomainHints, ['operations_systems']);
+  assert.deepEqual(plan.excludedTopDomains, ['customer_ops', 'licensing_approvals', 'creative_design']);
+  assert.ok(plan.excludedEntityTypes?.includes('licensor'));
+  assert.ok(plan.excludedEntityTypes?.includes('vendor'));
+}
+
+for (const [query, entityTypes] of [
+  ['How does Designflow PLM support licensing approvals?', ['licensor']],
+  ['How does PLM track supplier evaluation and factory approval?', ['vendor', 'factory']],
+  ['How do Disney approvals affect factory and freight handoffs?', ['factory', 'freight_provider']],
+] as Array<[string, string[]]>) {
+  const plan = buildRetrievalPlanFromQuery(query);
+  for (const entityType of entityTypes) {
+    assert.ok(!plan.excludedEntityTypes?.includes(entityType), `${query}: must not exclude ${entityType}`);
+  }
+}
+
+{
+  const plan = buildRetrievalPlanFromQuery('How does PLM support licensing approvals?', {
+    excludedTopDomains: ['licensing_approvals'],
+    excludedEntityTypes: ['licensor'],
+  });
+  assert.ok(plan.excludedTopDomains?.includes('licensing_approvals'), 'Explicit caller exclusions stay authoritative.');
+  assert.ok(!plan.topDomainHints.includes('licensing_approvals'));
+  assert.ok(plan.excludedEntityTypes?.includes('licensor'), 'Explicit caller entity exclusions stay authoritative.');
+}
+
 console.log('retrieval-plan-domain-boundaries: ok');

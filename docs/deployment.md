@@ -128,6 +128,8 @@ What `pr-check.yml` does (in order):
 3. **Build gate** — `pnpm --filter @oracle/web build`. This is a full production Next.js build (Turbopack); it is the only command that catches Next.js-specific type errors that `pnpm typecheck` alone misses.
 4. **Retrieval filter-parity guard** — `pnpm --filter @oracle/ai verify:retrieval-filter-parity`. DB-free static check that every filter key from `buildPlanMetadataFilters()` is interpolated into both the hybrid and tsvector-fallback SQL branches in `retrieval.ts`.
 5. **Entity-aware retrieval guard** — `pnpm --filter @oracle/ai verify:entity-aware-retrieval`.
+   Connected business answers also run domain-boundary and `@oracle/web verify:business-answer`
+   fixtures in PR CI, including relationship premise eligibility and citation identity.
 6. **Chinese retrieval guard** — `pnpm --filter @oracle/ai verify:chinese-retrieval`. Always network-free; the live vector command is separate.
 7. **China translation review guard** — `pnpm --filter @oracle/web verify:claim-translation-review`.
 8. **Vertex file-cache multi-turn guard** — `pnpm --filter @oracle/ai verify:vertex-file-cache`.
