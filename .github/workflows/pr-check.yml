@@ -99,6 +99,11 @@ jobs:
         # visible keyword-only fallback when the optional model call fails.
         run: pnpm --filter @oracle/ai verify:entity-aware-retrieval
 
+      - name: Connected business answer evidence and domain boundaries
+        run: |
+          pnpm --filter @oracle/ai verify:retrieval-plan-domain-boundaries
+          pnpm --filter @oracle/web verify:business-answer
+
       - name: Chinese retrieval contract and simple-search fixture
         # Network-free in CI. Records `simple` recall and proves rejected
         # pending, and stale translations are excluded by the serving contract.

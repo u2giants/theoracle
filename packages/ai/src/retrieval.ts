@@ -512,6 +512,36 @@ async function _searchFallbackTsvector(
   }));
 }
 
+/** Revalidate relationship premises using every hard retrieval boundary.
+ * Positive domain hints are ranking/seed scope: a relationship may connect domains.
+ * All exclusions, required entities, stages, time and approved translations remain.
+ */
+export async function getEligibleRelationshipClaims(
+  db: Db,
+  plan: RetrievalPlan,
+  claimIds: string[],
+  locale: SupportedLocale = DEFAULT_LOCALE,
+): Promise<Array<{ id: string; summary: string; claimKind: string | null }>> {
+  if (!claimIds.length) return [];
+  const filters = buildPlanMetadataFilters({ ...plan, topDomainHints: [] }, locale);
+  const rows = await db.execute<{ id: string; summary: string; claim_kind: string | null }>(sql`
+    SELECT c.id, ${filters.localizedSummary} AS summary,
+      CASE WHEN c.claim_kind_review_status = 'reviewed' THEN c.claim_kind ELSE NULL END AS claim_kind
+    FROM claims c
+    ${filters.translationJoin}
+    LEFT JOIN claim_metadata cm ON cm.claim_id = c.id
+    WHERE c.status = 'approved'
+      AND c.id IN (SELECT x.value::uuid FROM jsonb_array_elements_text(${JSON.stringify([...new Set(claimIds)])}::jsonb) AS x(value))
+      ${filters.excludedTopDomainFilter}
+      ${filters.docClassFilter}
+      ${filters.timeFilter}
+      ${filters.processStageFilter}
+      ${filters.excludedEntityTypeFilter}
+      ${filters.requiredEntityFilter}
+  `);
+  return rows.map((row) => ({ id: row.id, summary: row.summary, claimKind: row.claim_kind }));
+}
+
 /** Fetch the current Markdown for a small set of brain sections. */
 export async function getBrainSectionSnippets(
   db: Db,

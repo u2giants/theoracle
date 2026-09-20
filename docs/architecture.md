@@ -1,5 +1,22 @@
 # Architecture
 
+## Connected employee answers (2026-09-20)
+
+The chat route now assembles bounded approved evidence before answering. Explicit
+cross-domain questions preserve their named domains; up to two extra domain searches
+prevent one department from consuming all results. Follow-up retrieval carries at
+most two prior user questions, never prior assistant statements as evidence. Reviewed
+relationships travel with the actual supporting claim summaries, not only their IDs.
+The context builder fits each relationship and its premises atomically, reports
+omissions, and records exactly the included claim IDs in the context audit. Generated
+claim citations must reference those IDs before the reply is accepted. This validates
+citation identity, not semantic entailment or complete business understanding.
+
+`plan_connected_business_answers.md` owns the bounded release and live-answer proof.
+This does not enable shadow business-model proposals, broaden ingestion, or replace
+the macro-first redesign. Evidence budget defaults and limits are documented in
+`docs/configuration.md`; network-free journey and adversarial checks run in PR CI.
+
 System design for The Oracle. For business context and the operating philosophy, read `oracle_master_spec.md` Parts 1–2. For the developer-facing map, read `AGENTS.md`.
 
 ## Components

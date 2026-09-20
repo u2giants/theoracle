@@ -6,6 +6,16 @@ The Vercel token shared during overnight setup is in the chat transcript. **Rota
 
 # Decisions log
 
+## 2026-09-20 — Connected explanations from approved evidence
+
+Albert authorized the best next refactor after the holistic-understanding audit. Oracle
+prompt v1.1 answers requested business explanations before continuing an interview, with
+claim citations, labeled interpretations and explicit gaps. This intentionally updates
+the interview-only emphasis of historical spec Part 10; the historical spec is retained.
+Reviewed relationship premises are supplied as actual text, and citation IDs must belong
+to the bounded context. This does not enable shadow business models or relax approval.
+See `plan_connected_business_answers.md` STATUS and issue 15 for acceptance and live proof.
+
 This file is the running log of every assumption, stub, and resolution made by the overnight build agent. Each entry cites the spec section it conforms to (or notes "spec underspecified") and the safer alternative that was ruled out.
 
 ---

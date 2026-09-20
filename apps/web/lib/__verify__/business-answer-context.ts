@@ -49,4 +49,10 @@ assert.equal(buildConversationRetrievalQuery(history, 'What is our warehouse add
 assert.equal(buildConversationRetrievalQuery(history, 'New topic: who owns this payroll process?'), 'Current query: New topic: who owns this payroll process?');
 assert.equal(buildConversationRetrievalQuery(history, 'Why are warehouse shipments late?'), 'Current query: Why are warehouse shipments late?');
 assert.ok(buildConversationRetrievalQuery([{ role: 'user', content: 'a'.repeat(20_000) }], 'Why?').length < 5_200);
-console.log('business-answer-context: 31 assertions passed; 0 skipped; 0 ignored');
+const competing = buildBusinessAnswerContext({
+  claims: [a, b], maxCharacters: 2_000,
+  relationships: [{ id: id(9), impactScore: 100, summary: 'x'.repeat(1_100), supportClaims: [{ id: id(10), summary: 'Unrelated high-impact support.' }] }],
+});
+assert(competing.includedClaimIds.includes(a.id));
+assert(competing.includedClaimIds.includes(b.id));
+console.log('business-answer-context: 33 assertions passed; 0 skipped; 0 ignored');

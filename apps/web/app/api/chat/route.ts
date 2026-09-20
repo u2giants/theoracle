@@ -43,6 +43,7 @@ import {
   getRelevantOpenGaps,
   makeBlock,
   searchWithRetrievalPlan,
+  getEligibleRelationshipClaims,
   buildRetrievalPlanFromQuery,
   buildRetrievalPlanWithModel,
   lookupRegistryEntityCandidates,
@@ -68,6 +69,9 @@ import {
 } from '@oracle/db';
 import { getApprovedMacroRelationships } from '@oracle/engines';
 import { getServerSupabase } from '@/lib/supabase/server';
+import { buildConversationRetrievalQuery } from '@/lib/business-answer-context';
+import { retrieveBusinessAnswerContext } from '@/lib/business-answer-retrieval';
+import { assertKnownBusinessCitations } from '@/lib/business-answer-policy';
 import {
   ChatAttachmentSafetyError,
   isAttachmentCapableRoute,
@@ -177,10 +181,11 @@ export async function POST(req: NextRequest) {
   }
 
   const openGaps = await getRelevantOpenGaps(db, me);
-  // Build a RetrievalPlan from the latest message — applies domain-hint inference,
+  // Build a RetrievalPlan from the question plus bounded user-only follow-up context.
+  // Applies domain-hint inference,
   // entity-type exclusions, and document-class exclusions before vector search
   // (spec docs/oracle/07-knowledge-segmentation.md "Retrieval rule").
-  const queryForClaims = latestUserMessage.content;
+  const queryForClaims = buildConversationRetrievalQuery(recent, latestUserMessage.content);
   // Use the employee's departments as a soft RRF bonus — not a filter.
   // Falls back to legacy single `department` field if `departments` is empty.
   const deptHints =
@@ -208,17 +213,34 @@ export async function POST(req: NextRequest) {
   // Reader locale ('zh-CN' for the manually-routed China group, else 'en').
   // Drives claim/Brain rendering language and the answer-language instruction.
   const locale = coerceLocale(me.locale);
-  const relevantClaims = queryForClaims
-    ? await searchWithRetrievalPlan(db, retrievalPlan, locale)
-    : [];
-  const macroRelationships =
-    relevantClaims.length > 0
-      ? await getApprovedMacroRelationships({
+  const evidenceBudget = z.object({
+    maxCharacters: z.coerce.number().int().min(2000).max(60000).default(18000),
+    maxAdditionalDomainSearches: z.coerce.number().int().min(0).max(6).default(2),
+  }).parse({
+    maxCharacters: process.env.ORACLE_CHAT_EVIDENCE_MAX_CHARACTERS,
+    maxAdditionalDomainSearches: process.env.ORACLE_CHAT_ADDITIONAL_DOMAIN_SEARCHES,
+  });
+  const answerContext = await retrieveBusinessAnswerContext({
+    plan: retrievalPlan,
+    search: (plan) => searchWithRetrievalPlan(db, plan, locale),
+    getRelationships: (claimIds) => getApprovedMacroRelationships({
           db,
-          claimIds: relevantClaims.map((claim) => claim.id),
+          claimIds,
           limit: 8,
-        })
-      : [];
+        }),
+    getEligibleSupports: (claimIds) => getEligibleRelationshipClaims(db, retrievalPlan, claimIds, locale),
+    ...evidenceBudget,
+  });
+  if (answerContext.truncated || answerContext.emptySearches.length || answerContext.unexpandedDomains.length || answerContext.ineligibleRelationshipCount) {
+    console.warn('[chat] bounded business evidence coverage', {
+      includedClaims: answerContext.includedClaimIds.length,
+      omittedClaims: answerContext.omittedClaimIds.length,
+      searchCount: answerContext.searchCount,
+      emptySearches: answerContext.emptySearches,
+      unexpandedDomains: answerContext.unexpandedDomains,
+      ineligibleRelationshipCount: answerContext.ineligibleRelationshipCount,
+    });
+  }
 
   // ── 4. Resolve curated interview route ───────────────────────────────
   let routeCandidates = await resolveInterviewCandidates(db);
@@ -246,24 +268,13 @@ export async function POST(req: NextRequest) {
       contextLines.push(`- [${g.priority}] ${g.questionToAsk}`);
     }
   }
-  if (relevantClaims.length > 0) {
-    if (macroRelationships.length > 0) {
-      contextLines.push(`\nApproved macro relationships (workflow backbone):`);
-      contextLines.push(
-        'Treat these as reviewed structure. Atomic claims below are supporting details, examples, exceptions, or local observations.',
-      );
-      for (const relationship of macroRelationships) {
-        contextLines.push(
-          `- [${relationship.relationshipType}] ${relationship.summary} (impact ${relationship.impactScore}; support claims ${relationship.supportClaims.map((c) => c.id).join(', ')})`,
-        );
-      }
-    }
-    contextLines.push(`\nApproved claims that may be relevant:`);
-    for (const c of relevantClaims) {
-      const reviewedKind = c.claimKindReviewStatus === 'reviewed' ? (c.claimKind ?? 'uncertain') : 'uncertain';
-      contextLines.push(`- ${c.summary} (impact ${c.impactScore}; kind ${reviewedKind})`);
-    }
-  }
+  contextLines.push(answerContext.text);
+  contextLines.push(`Evidence search coverage: ${JSON.stringify({
+    searchCount: answerContext.searchCount,
+    emptySearches: answerContext.emptySearches,
+    unexpandedDomains: answerContext.unexpandedDomains,
+    ineligibleRelationshipCount: answerContext.ineligibleRelationshipCount,
+  })}. This is bounded retrieval, not proof of complete business coverage.`);
   const dynamicContext = contextLines.join('\n');
 
   const blocks = [
@@ -279,7 +290,7 @@ export async function POST(req: NextRequest) {
       label: 'Per-turn retrieval bundle (employee + gaps + relevant claims)',
       kind: 'retrieved_context',
       content: dynamicContext,
-      reasonIncluded: `gaps=${openGaps.length}, claims=${relevantClaims.length}`,
+      reasonIncluded: `gaps=${openGaps.length}, claims=${answerContext.includedClaimIds.length}, relationships=${answerContext.includedRelationshipIds.length}, omitted=${answerContext.omittedClaimIds.length}, searches=${answerContext.searchCount}`,
     }),
   ];
 
@@ -291,14 +302,7 @@ export async function POST(req: NextRequest) {
     observability: {
       includedMessageIds: recent.map((m) => m.id),
       includedGapIds: openGaps.map((g) => g.id),
-      includedClaimIds: Array.from(
-        new Set([
-          ...relevantClaims.map((c) => c.id),
-          ...macroRelationships.flatMap((relationship) =>
-            relationship.supportClaims.map((claim) => claim.id),
-          ),
-        ]),
-      ),
+      includedClaimIds: answerContext.includedClaimIds,
       // Retrieval scope audit — stored in oracle_context_packs.selected_domains.
       // domain_filtered → actual domain IDs used for pre-filtering.
       // global_fallback → '_global_fallback' tag; query
@@ -533,7 +537,7 @@ export async function POST(req: NextRequest) {
       observability: {
         includedMessageIds: recent.map((m) => m.id),
         includedGapIds: openGaps.map((g) => g.id),
-        includedClaimIds: relevantClaims.map((c) => c.id),
+        includedClaimIds: answerContext.includedClaimIds,
       },
       providerOptions: {
         messages: messagesWithContext,
@@ -557,7 +561,6 @@ export async function POST(req: NextRequest) {
       routeCandidates,
     });
     runMetadata = result;
-    oracleText = result.text;
     inputTokens = result.usage.inputTokens;
     outputTokens = result.usage.outputTokens;
     cachedInputTokens = result.usage.cachedInputTokens;
@@ -566,6 +569,8 @@ export async function POST(req: NextRequest) {
     actualRouteId = result.routeId ?? route.routeId;
     actualProvider = (result.provider as typeof route.provider | undefined) ?? route.provider;
     actualModelId = result.modelId ?? route.modelId;
+    assertKnownBusinessCitations(result.text, answerContext.includedClaimIds);
+    oracleText = result.text;
     success = true;
   } catch (err) {
     modelError = err instanceof Error ? err.message : String(err);

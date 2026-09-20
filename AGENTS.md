@@ -231,6 +231,7 @@ Specific boundaries:
 | Task | Files to touch | Files not to touch |
 |---|---|---|
 | Change employee chat behavior | `apps/web/app/api/chat/route.ts`, `packages/ai/src/prompts/oracle-system.ts`, `packages/ai/src/retrieval*.ts`, provider adapters as needed | `node_modules/`, `apps/web/components/ui/**` |
+| Connected employee business explanations / cross-source answer context | `plan_connected_business_answers.md` STATUS, `bugs.md` diagnosis, `apps/web/lib/business-answer-*.ts`, `apps/web/lib/__verify__/business-answer-journey.ts` | Reader/R2 changes, automatic business-model apply, migrations |
 | Add or change an AI provider behavior | `packages/ai/src/providers/*.ts`, `packages/ai/src/client/standard-adapters.ts`, `packages/ai/src/routes/{types,resolve}.ts`, relevant docs | route handlers or workers calling SDKs directly |
 | Add a database field or table | `packages/db/src/schema.ts`, new file under `packages/db/migrations/sql/` if hand-written SQL is needed, generated Drizzle migration if schema changed. Ship through `pnpm db:migrate` only — never via Supabase MCP `apply_migration` or `drizzle-kit push`, both bypass the journal. Run `pnpm db:check-drift` if unsure of state. | previously applied migration files; `drizzle.__drizzle_migrations` directly |
 | Add a worker | `apps/workers/src/trigger/*.ts`, `apps/workers/trigger.config.ts`, docs if operational behavior changes | `apps/web/**` unless there is a matching UI/API hook |

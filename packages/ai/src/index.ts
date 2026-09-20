@@ -266,6 +266,7 @@ export {
   getRecentMessages,
   getRelevantOpenGaps,
   searchWithRetrievalPlan,
+  getEligibleRelationshipClaims,
   getBrainSectionSnippets,
   getOpenGapsForChannel,
   DEFAULT_RECENT_MESSAGES,

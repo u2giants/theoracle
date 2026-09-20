@@ -2,6 +2,15 @@
 
 Every environment variable, where it comes from, and what fails when it's missing.
 
+## Connected employee-answer budgets
+
+`ORACLE_CHAT_EVIDENCE_MAX_CHARACTERS` defaults to 18000 (integer 2000–60000).
+`ORACLE_CHAT_ADDITIONAL_DOMAIN_SEARCHES` defaults to 2 (integer 0–6). Both are optional
+server runtime environment variables; invalid configured values fail loudly. The latter
+bounds extra domain-specific passes for multi-domain questions. Setting it to zero retains
+the initial search and reviewed relationship support expansion. Truncation and omitted
+domain expansion are observable, not represented as complete knowledge. No secret values.
+
 ## Environment variables — required
 
 | Variable | Purpose | Source | Required (dev) | Required (prod) | Notes |

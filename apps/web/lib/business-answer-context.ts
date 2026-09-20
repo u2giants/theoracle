@@ -57,13 +57,20 @@ export function buildBusinessAnswerContext(args: {
     type: 'claim', citation: `[claim:${claim.id}]`, summary: claim.summary,
     ...(claim.claimKindReviewStatus === 'reviewed' && claim.claimKind ? { kind: claim.claimKind } : {}),
   });
-  const admit = (additions: unknown[]): boolean => {
+  const admit = (additions: unknown[], ceiling = budget): boolean => {
     const candidate = HEADER + encode([...records, ...additions]) + FOOTER;
-    if (candidate.length > budget) return false;
+    if (candidate.length > ceiling) return false;
     records.push(...additions);
     text = candidate;
     return true;
   };
+  // Reserve at most half the space for direct query matches in round-robin
+  // domain order. High-impact relationships must not starve the question's seeds.
+  for (const claim of args.claims) {
+    if (!included.has(claim.id) && UUID.test(claim.id) && admit([claimRecord(claim)], Math.floor(budget / 2))) {
+      included.add(claim.id);
+    }
+  }
   for (const relationship of ranked(args.relationships)) {
     if (relationshipIds.has(relationship.id)) continue;
     const supportIds = [...new Set(relationship.supportClaims.map((c) => c.id))];
@@ -83,7 +90,7 @@ export function buildBusinessAnswerContext(args: {
       relationshipIds.add(relationship.id);
     } else omittedRelationship = true;
   }
-  for (const claim of ranked([...allClaims.values()])) {
+  for (const claim of allClaims.values()) {
     if (!included.has(claim.id) && UUID.test(claim.id) && admit([claimRecord(claim)])) included.add(claim.id);
   }
   const omittedClaimIds = [...allClaims.keys()].filter((id) => !included.has(id));
