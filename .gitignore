@@ -70,6 +70,7 @@ coverage/
 # push, or GitHub. Delegate wrappers also refuse to save a review while this path
 # is committable. Replaces three narrower patterns that left ~300 files exposed.
 .ai/reviews/
+.ai/deepseek-sessions/
 
 .vercel
 .env*.local

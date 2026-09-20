@@ -12,7 +12,7 @@
     "verify:mcp": "tsx lib/mcp/__verify__/mcp-registry.ts",
     "verify:claim-translation-review": "tsx lib/__verify__/claim-translation-review.ts",
     "verify:chat-attachment-safety": "tsx lib/__verify__/chat-attachment-safety.ts",
-    "verify:business-answer": "tsx lib/__verify__/business-answer-context.ts && tsx lib/__verify__/business-answer-journey.ts",
+    "verify:business-answer": "tsx lib/__verify__/business-answer-context.ts && tsx lib/__verify__/business-answer-journey.ts && tsx lib/__verify__/business-answer-reconciliation.ts",
     "verify:eval-results-dashboard": "tsx lib/__verify__/eval-results-dashboard.ts",
     "verify:provider-capability-parity": "tsx lib/__verify__/provider-capability-parity.ts",
     "verify:model-coverage-conversion": "tsx lib/__verify__/model-coverage-conversion.ts"

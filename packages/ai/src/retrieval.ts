@@ -193,6 +193,7 @@ export type RelevantClaim = {
   impactScore: number;
   confidenceScore: number;
   distance: number;
+  localized: boolean;
 };
 
 /** Recent messages in a channel, chronological. */
@@ -343,13 +344,15 @@ export async function searchWithRetrievalPlan(
     confidence_score: number;
     distance: number;
     rrf_score: number;
+    localized: boolean;
   }>(sql`
     WITH
     pre_filtered AS (
       -- Bilingual: render summary/embedding in the reader's locale, falling
       -- back to the canonical claim when no translation row exists.
       SELECT DISTINCT
-        c.id, ${localizedSummary} AS summary, c.claim_type, c.claim_kind, c.claim_kind_review_status,
+        c.id, ${localizedSummary} AS summary, (ct.claim_id IS NOT NULL) AS localized,
+        c.claim_type, c.claim_kind, c.claim_kind_review_status,
         c.impact_score, c.confidence_score,
         COALESCE(ct.embedding, c.embedding) AS embedding
       FROM claims c
@@ -370,7 +373,7 @@ export async function searchWithRetrievalPlan(
       -- EMBEDDING_DIM is inlined via sql.raw: a type modifier like vector(N)
       -- cannot be a bind parameter, and the constant is project-owned (1536).
       SELECT
-        id, summary, claim_type, claim_kind, claim_kind_review_status, impact_score, confidence_score,
+        id, summary, localized, claim_type, claim_kind, claim_kind_review_status, impact_score, confidence_score,
         (embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))})) AS vec_dist,
         ROW_NUMBER() OVER (
           ORDER BY embedding <=> ${vec}::vector(${sql.raw(String(EMBEDDING_DIM))})
@@ -394,7 +397,7 @@ export async function searchWithRetrievalPlan(
     ${deptBonusCte}
     rrf AS (
       SELECT
-        vr.id, vr.summary, vr.claim_type, vr.claim_kind, vr.claim_kind_review_status, vr.impact_score, vr.confidence_score,
+        vr.id, vr.summary, vr.localized, vr.claim_type, vr.claim_kind, vr.claim_kind_review_status, vr.impact_score, vr.confidence_score,
         vr.vec_dist,
         1.0 / (60.0 + vr.vrank::float) +
         COALESCE(1.0 / (60.0 + tr.trank::float), 0.0)
@@ -403,7 +406,7 @@ export async function searchWithRetrievalPlan(
       LEFT JOIN txt_ranked tr ON tr.id = vr.id
       ${deptBonusJoin}
     )
-    SELECT id, summary, claim_type, claim_kind, claim_kind_review_status, impact_score, confidence_score,
+    SELECT id, summary, localized, claim_type, claim_kind, claim_kind_review_status, impact_score, confidence_score,
            vec_dist AS distance, rrf_score
     FROM rrf
     ORDER BY rrf_score DESC
@@ -419,6 +422,7 @@ export async function searchWithRetrievalPlan(
     impactScore: r.impact_score,
     confidenceScore: r.confidence_score,
     distance: r.distance,
+    localized: r.localized,
   }));
 }
 
@@ -472,9 +476,11 @@ async function _searchFallbackTsvector(
     impact_score: number;
     confidence_score: number;
     ts_score: number;
+    localized: boolean;
   }>(sql`
     SELECT DISTINCT
-      c.id, ${localizedSummary} AS summary, c.claim_type, c.claim_kind, c.claim_kind_review_status,
+      c.id, ${localizedSummary} AS summary, (ct.claim_id IS NOT NULL) AS localized,
+      c.claim_type, c.claim_kind, c.claim_kind_review_status,
       c.impact_score, c.confidence_score,
       ts_rank(
         to_tsvector(${ftsConfig}, ${localizedSummary}),
@@ -509,6 +515,7 @@ async function _searchFallbackTsvector(
     // 1 - ts_score (clamped to >= 0, since ts_rank can exceed 1 and would
     // otherwise yield a negative distance). Lower ts_score → higher distance.
     distance: Math.max(0, 1 - r.ts_score),
+    localized: r.localized,
   }));
 }
 
@@ -521,11 +528,12 @@ export async function getEligibleRelationshipClaims(
   plan: RetrievalPlan,
   claimIds: string[],
   locale: SupportedLocale = DEFAULT_LOCALE,
-): Promise<Array<{ id: string; summary: string; claimKind: string | null }>> {
+): Promise<Array<{ id: string; summary: string; claimKind: string | null; localized: boolean }>> {
   if (!claimIds.length) return [];
   const filters = buildPlanMetadataFilters({ ...plan, topDomainHints: [] }, locale);
-  const rows = await db.execute<{ id: string; summary: string; claim_kind: string | null }>(sql`
+  const rows = await db.execute<{ id: string; summary: string; claim_kind: string | null; localized: boolean }>(sql`
     SELECT c.id, ${filters.localizedSummary} AS summary,
+      (ct.claim_id IS NOT NULL) AS localized,
       CASE WHEN c.claim_kind_review_status = 'reviewed' THEN c.claim_kind ELSE NULL END AS claim_kind
     FROM claims c
     ${filters.translationJoin}
@@ -539,7 +547,7 @@ export async function getEligibleRelationshipClaims(
       ${filters.excludedEntityTypeFilter}
       ${filters.requiredEntityFilter}
   `);
-  return rows.map((row) => ({ id: row.id, summary: row.summary, claimKind: row.claim_kind }));
+  return rows.map((row) => ({ id: row.id, summary: row.summary, claimKind: row.claim_kind, localized: row.localized }));
 }
 
 /** Fetch the current Markdown for a small set of brain sections. */

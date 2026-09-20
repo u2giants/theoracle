@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildBusinessAnswerContext, buildConversationRetrievalQuery } from '../business-answer-context';
+import { buildBusinessAnswerContext, buildConversationRetrievalQuery, selectRelevantAttachmentMessageIds } from '../business-answer-context';
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const a = { id: id(1), summary: 'Sales sends an approved order.', impactScore: 8 };
@@ -55,4 +55,32 @@ const competing = buildBusinessAnswerContext({
 });
 assert(competing.includedClaimIds.includes(a.id));
 assert(competing.includedClaimIds.includes(b.id));
-console.log('business-answer-context: 33 assertions passed; 0 skipped; 0 ignored');
+const overClaimLimit = buildBusinessAnswerContext({
+  claims: Array.from({ length: 81 }, (_, index) => ({ id: id(index + 100), summary: `Approved fact ${index + 1}.` })),
+  relationships: [],
+  maxCharacters: 60_000,
+});
+assert.equal(overClaimLimit.includedClaimIds.length, 80);
+assert.equal(overClaimLimit.truncated, true);
+const attachmentHistory = [
+  { id: id(200), role: 'user', content: 'Explain this document.' },
+  { id: id(201), role: 'assistant', content: 'Prior answer.' },
+  { id: id(202), role: 'user', content: 'How does that affect China?' },
+  { id: id(203), role: 'assistant', content: 'Another answer.' },
+  { id: id(204), role: 'user', content: 'New topic: explain our reorder policy.' },
+];
+assert.deepEqual([...selectRelevantAttachmentMessageIds(attachmentHistory.slice(0, 3), new Set([id(200)]), id(202))], [id(200)]);
+assert.deepEqual([...selectRelevantAttachmentMessageIds(
+  [...attachmentHistory.slice(0, 2), { id: id(205), role: 'user', content: 'What does the contract say about termination?' }],
+  new Set([id(200)]),
+  id(205),
+)], [id(200)]);
+assert.deepEqual([...selectRelevantAttachmentMessageIds(attachmentHistory, new Set([id(200)]), id(204))], []);
+assert.deepEqual([...selectRelevantAttachmentMessageIds(attachmentHistory, new Set([id(204)]), id(204))], [id(204)]);
+const compareWithNewFile = [...selectRelevantAttachmentMessageIds(
+  [...attachmentHistory.slice(0, 3), { id: id(205), role: 'user', content: 'Compare this with the previous one.' }],
+  new Set([id(200), id(205)]),
+  id(205),
+)];
+assert.deepEqual(compareWithNewFile, [id(205), id(200)]);
+console.log('business-answer-context: 40 assertions passed; 0 skipped; 0 ignored');

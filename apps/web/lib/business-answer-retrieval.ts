@@ -45,9 +45,17 @@ export async function retrieveBusinessAnswerContext(args: {
     .filter((r) => r.supportClaims.length > 0 && r.supportClaims.every((c) => eligible.has(c.id)))
     .map((r) => ({ ...r, supportClaims: r.supportClaims.map((c) => ({ ...c, ...eligible.get(c.id)! })) }));
   const context = buildBusinessAnswerContext({ claims, relationships: eligibleRelationships, maxCharacters: args.maxCharacters });
+  const evidenceById = new Map<string, BusinessAnswerClaim>();
+  for (const claim of [...claims, ...eligibleRelationships.flatMap((relationship) => relationship.supportClaims)]) {
+    if (!evidenceById.has(claim.id)) evidenceById.set(claim.id, claim);
+  }
   return {
     ...context,
     ineligibleRelationshipCount: relationships.length - eligibleRelationships.length,
+    evidenceClaims: context.includedClaimIds.map((id) => evidenceById.get(id)!).filter(Boolean),
+    evidenceRelationships: context.includedRelationshipIds
+      .map((id) => eligibleRelationships.find((relationship) => relationship.id === id)!)
+      .filter(Boolean),
     searchCount: plans.length,
     searchedDomains: domains,
     expandedDomains: additionalDomains,
