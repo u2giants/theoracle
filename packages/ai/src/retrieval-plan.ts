@@ -715,7 +715,12 @@ export function buildRetrievalPlanFromQuery(
     (opts?.requiredEntities ?? []).map((entity) => entity.entityType),
   );
   const reconciledExcludedEntityTypes = excludedEntityTypes.filter(
-    (entityType) => !requiredEntityTypes.has(entityType),
+    (entityType) => !requiredEntityTypes.has(entityType) && (
+      // Caller exclusions remain authoritative. Only inferred noise filters
+      // yield when the question explicitly requests the neighboring domain.
+      (opts?.excludedEntityTypes?.length ?? 0) > 0 ||
+      !(ENTITY_INTENT_DOMAINS[entityType] ?? []).some((domain) => hasExplicitDomainIntent(q, domain))
+    ),
   );
 
   const excludedDocumentClasses: string[] =
@@ -723,15 +728,21 @@ export function buildRetrievalPlanFromQuery(
       ? opts.excludedDocumentClasses
       : inferDocumentClassExclusions(q);
 
+  const inferredExclusions = inferTopDomainExclusions(q, inferredTopDomainHints);
+  const requestedExcludedDomains = inferredExclusions.filter((domain) =>
+    hasExplicitDomainIntent(q, domain),
+  );
   const excludedTopDomains: string[] =
     opts?.excludedTopDomains && opts.excludedTopDomains.length > 0
       ? opts.excludedTopDomains
-      : inferTopDomainExclusions(q, inferredTopDomainHints);
+      : inferredExclusions.filter((domain) => !requestedExcludedDomains.includes(domain));
 
-  const topDomainHints =
-    excludedTopDomains.length > 0
-      ? inferredTopDomainHints.filter((d) => !excludedTopDomains.includes(d)).slice(0, 3)
-      : inferredTopDomainHints;
+  // Do not let ranking's three-domain shortlist discard an explicitly requested
+  // neighbor, or truncate the expanded scope of an end-to-end process question.
+  const topDomainHints = Array.from(new Set([
+    ...inferredTopDomainHints,
+    ...requestedExcludedDomains,
+  ])).filter((domain) => !excludedTopDomains.includes(domain));
 
   const searchScope: RetrievalPlanSearchScope =
     topDomainHints.length > 0 ? 'domain_filtered' : 'global_fallback';
@@ -846,10 +857,10 @@ function inferTopDomains(query: string): string[] {
   if (scores.has('business_process')) {
     return expandBusinessProcessDomains(scores);
   }
-  return Array.from(scores.entries())
+  const ranked = Array.from(scores.entries())
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
     .map(([id]) => id);
+  return ranked.filter((domain, index) => index < 3 || hasExplicitDomainIntent(query, domain));
 }
 
 function expandBusinessProcessDomains(scores: Map<string, number>): string[] {
@@ -890,6 +901,39 @@ function inferDocumentClassExclusions(query: string): string[] {
     }
   }
   return Array.from(excluded);
+}
+
+// Narrow noise suppression must not erase a domain the question actually asks
+// about. Reuse the domain vocabulary, but omit ambiguous terms that occur in
+// file hygiene / systems / training queries without that neighboring intent.
+const DOMAIN_NOISE_TERMS: Record<string, string[]> = {
+  customer_ops: ['account', 'store', 'order', 'new item', 'item number'],
+  licensing_approvals: ['round', 'revision', 'notes', 'feedback', 'brand'],
+  creative_design: [],
+  product_development: ['design', 'artwork', 'creative', 'graphic', 'illustration', 'render', 'color', 'colour', 'print', 'pattern', 'material', 'show'],
+  production_lifecycle: ['pack', 'packing', 'packaging', 'display', 'stage', 'top ', 'timeline', 'deadline', 'schedule'],
+  it_systems: ['system', 'software', 'tool', 'platform', 'image', 'photo', 'template', 'label', 'report', 'document', 'spreadsheet', 'drive', 'where do i'],
+  people_org: ['employee', 'team', 'department', 'division', 'contact', 'assign', 'assigned to', 'role', 'new hire', 'onboard', 'onboarding'],
+};
+
+const ENTITY_INTENT_DOMAINS: Record<string, string[]> = {
+  licensor: ['licensing_approvals'],
+  vendor: ['vendor_management', 'supply_chain'],
+  factory: ['supply_chain'],
+  freight_provider: ['logistics_shipping'],
+};
+
+function hasExplicitDomainIntent(query: string, domain: string): boolean {
+  const keywords = DOMAIN_KEYWORDS.find((entry) => entry.domainId === domain)?.keywords ?? [];
+  const noise = DOMAIN_NOISE_TERMS[domain] ?? [];
+  return keywords.some((keyword) => {
+    if (noise.includes(keyword)) return false;
+    // Token boundaries avoid treating OrderList as an order question, or
+    // Illustrator as illustration; meaningful multiword phrases still match.
+    const escaped = keyword.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const suffix = keyword === 'licens' || keyword === 'automat' ? '[a-z]*' : '';
+    return new RegExp(`\\b${escaped}${suffix}\\b`, 'i').test(query);
+  });
 }
 
 function inferTopDomainExclusions(query: string, topDomainHints: string[]): string[] {
