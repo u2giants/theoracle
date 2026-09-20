@@ -12,6 +12,35 @@ omissions, and records exactly the included claim IDs in the context audit. Gene
 claim citations must reference those IDs before the reply is accepted. This validates
 citation identity, not semantic entailment or complete business understanding.
 
+Every substantive request with at least one retrieved fact takes an additional fail-closed
+path; only clear greetings and acknowledgements are exempt. Without a recent attachment,
+a configured model-merge candidate accounts for every
+supplied claim, identifies the requested facets, exceptions, connections, and bounded
+gaps, and produces a strict reconciliation ledger. The server renders the employee
+answer from the canonical approved claim summaries rather than asking a model to rewrite
+the facts. A documented connection must name an included approved relationship and is
+rendered from that relationship's canonical summary; all other connections are visibly
+interpretive. A second candidate from a different provider, resolved from the configured
+model-merge and macro pools, reviews the ledger and rendered
+answer; one reconciliation repair is allowed, then the request fails without publishing
+an answer. Each reconciliation and review call receives its own context pack and model-run
+audit. Evidence assembly admits at most 80 claims, matching the strict ledger contract.
+When that ceiling or the character budget truncates retrieval, the employee answer carries an
+explicit bounded-evidence notice. If a substantive request has no approved evidence and no
+relevant attachment, the route returns `no_approved_evidence` without generating an answer.
+Simplified Chinese reconciliation fails closed when any included claim lacks a current approved
+Chinese translation. Relationship summaries have no translation table, so Chinese reconciliation
+does not receive them; it retains their localized supporting claims and may publish only a
+different-provider-reviewed interpretation. English relationship wording is never leaked.
+An attachment on the current request, or on the bounded user-question chain for an explicit
+follow-up or file/document reference, keeps the attachment-aware interview generator because an unprocessed file is not
+represented in the approved-claim ledger. A follow-up that adds a new file retains both the new
+and referenced earlier files. A new topic does not inherit stale attachments,
+and the answer is withheld until a different-family reviewer receives the same conversation
+and files and returns a strict semantic pass. Reconciliation context packs retain the retrieval
+scope while recording that employee-question gaps were not supplied; auxiliary packs link back
+to their own model runs.
+
 `plan_connected_business_answers.md` owns the bounded release and live-answer proof.
 This does not enable shadow business-model proposals, broaden ingestion, or replace
 the macro-first redesign. Evidence budget defaults and limits are documented in

@@ -5,6 +5,8 @@ export interface BusinessAnswerClaim {
   impactScore?: number;
   claimKind?: string | null;
   claimKindReviewStatus?: string | null;
+  claimType?: string;
+  localized?: boolean;
 }
 
 export interface BusinessAnswerRelationship {
@@ -34,6 +36,7 @@ export function buildBusinessAnswerContext(args: {
   claims: BusinessAnswerClaim[];
   relationships: BusinessAnswerRelationship[];
   maxCharacters?: number;
+  maxClaims?: number;
 }): {
   text: string;
   includedClaimIds: string[];
@@ -43,6 +46,10 @@ export function buildBusinessAnswerContext(args: {
 } {
   const requested = args.maxCharacters ?? 16_000;
   const budget = Number.isFinite(requested) ? Math.max(0, Math.floor(requested)) : 16_000;
+  const requestedMaxClaims = args.maxClaims ?? 80;
+  const maxClaims = Number.isInteger(requestedMaxClaims)
+    ? Math.max(1, Math.min(80, requestedMaxClaims))
+    : 80;
   const allClaims = new Map<string, BusinessAnswerClaim>();
   // Direct approved results win when a relationship repeats the same fact.
   for (const claim of [...args.claims, ...args.relationships.flatMap((r) => r.supportClaims)]) {
@@ -57,7 +64,8 @@ export function buildBusinessAnswerContext(args: {
     type: 'claim', citation: `[claim:${claim.id}]`, summary: claim.summary,
     ...(claim.claimKindReviewStatus === 'reviewed' && claim.claimKind ? { kind: claim.claimKind } : {}),
   });
-  const admit = (additions: unknown[], ceiling = budget): boolean => {
+  const admit = (additions: unknown[], ceiling = budget, newClaimIds: string[] = []): boolean => {
+    if (included.size + new Set(newClaimIds).size > maxClaims) return false;
     const candidate = HEADER + encode([...records, ...additions]) + FOOTER;
     if (candidate.length > ceiling) return false;
     records.push(...additions);
@@ -67,7 +75,7 @@ export function buildBusinessAnswerContext(args: {
   // Reserve at most half the space for direct query matches in round-robin
   // domain order. High-impact relationships must not starve the question's seeds.
   for (const claim of args.claims) {
-    if (!included.has(claim.id) && UUID.test(claim.id) && admit([claimRecord(claim)], Math.floor(budget / 2))) {
+    if (!included.has(claim.id) && UUID.test(claim.id) && admit([claimRecord(claim)], Math.floor(budget / 2), [claim.id])) {
       included.add(claim.id);
     }
   }
@@ -85,13 +93,13 @@ export function buildBusinessAnswerContext(args: {
         supportingClaims: supportIds.map((id) => `[claim:${id}]`) },
     ];
     // Admit every premise together, or omit the entire relationship.
-    if (admit(additions)) {
+    if (admit(additions, budget, newSupport)) {
       newSupport.forEach((id) => included.add(id));
       relationshipIds.add(relationship.id);
     } else omittedRelationship = true;
   }
   for (const claim of allClaims.values()) {
-    if (!included.has(claim.id) && UUID.test(claim.id) && admit([claimRecord(claim)])) included.add(claim.id);
+    if (!included.has(claim.id) && UUID.test(claim.id) && admit([claimRecord(claim)], budget, [claim.id])) included.add(claim.id);
   }
   const omittedClaimIds = [...allClaims.keys()].filter((id) => !included.has(id));
   return {
@@ -103,12 +111,49 @@ export function buildBusinessAnswerContext(args: {
 }
 
 /** Prior user questions are search hints, not evidence. Assistant output is never reused. */
+export function isConversationFollowup(text: string): boolean {
+  return /\b(it|its|they|them|their|that|those|this|these|same|above|previous|former|latter)\b|^(and|also|what about|how about|tell me more|explain more|go on)\b|^why[?!. ]*$/i.test(text.trim());
+}
+
+export function isConversationTopicChange(text: string): boolean {
+  return /\b(new topic|different topic|switch topics|unrelated|instead|forget (that|the previous))\b/i.test(text.trim());
+}
+
+function explicitlyReferencesPriorAttachment(text: string): boolean {
+  return /\b(?:attached|attachment|file|document|doc|pdf|contract|agreement|policy|manual|guide|presentation|deck|spreadsheet|workbook|image|photo|screenshot|upload(?:ed)?)\b/i.test(text.trim());
+}
+
+export function selectRelevantAttachmentMessageIds(
+  messages: Array<{ id: string; role: string; content: string }>,
+  attachedMessageIds: ReadonlySet<string>,
+  latestUserMessageId: string,
+): Set<string> {
+  const latestIndex = messages.findIndex((message) => message.id === latestUserMessageId);
+  if (latestIndex < 0) return new Set();
+  const latest = messages[latestIndex]!;
+  const latestHasAttachment = attachedMessageIds.has(latestUserMessageId);
+  if (isConversationTopicChange(latest.content)) {
+    return latestHasAttachment ? new Set([latestUserMessageId]) : new Set();
+  }
+  if (!isConversationFollowup(latest.content) && !explicitlyReferencesPriorAttachment(latest.content)) {
+    return latestHasAttachment ? new Set([latestUserMessageId]) : new Set();
+  }
+  const relevant = new Set<string>(latestHasAttachment ? [latestUserMessageId] : []);
+  for (let index = latestIndex - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (message.role !== 'user') continue;
+    if (attachedMessageIds.has(message.id)) relevant.add(message.id);
+    if (!isConversationFollowup(message.content)) break;
+  }
+  return relevant;
+}
+
 export function buildConversationRetrievalQuery(
   messages: { role: string; content: string }[], latest: string,
 ): string {
   const current = latest.trim().slice(0, 4_000);
-  const followup = /\b(it|its|they|them|their|that|those|this|these|same|above|previous|former|latter)\b|^(and|also|what about|how about|tell me more|explain more|go on)\b|^why[?!. ]*$/i.test(current);
-  const topicChange = /\b(new topic|different topic|switch topics|unrelated|instead|forget (that|the previous))\b/i.test(current);
+  const followup = isConversationFollowup(current);
+  const topicChange = isConversationTopicChange(current);
   if (!followup || topicChange) return `Current query: ${current}`;
   const userTurns = messages.filter((m) => m.role === 'user' && m.content.trim());
   if (userTurns.at(-1)?.content.trim() === latest.trim()) userTurns.pop();

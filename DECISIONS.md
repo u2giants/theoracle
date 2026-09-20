@@ -634,6 +634,37 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Measured result**: The active production map passes v2 at 23/25 with unsupported matches empty.
   This is a SELECT-only rescore of existing evidence, not a new production run or deployment.
 
+## D-connected-answer-reconciliation — account for evidence before answering (2026-09-20)
+
+- **Decision**: Every substantive evidence-backed request (excluding only clear greetings and
+  acknowledgements) uses prompt contract
+  `business-answer-reconciliation 1.0.0`. The reconciliation model must classify every
+  retrieved claim exactly once and bind directly relevant facts to requested facets.
+- **Relationship boundary**: A documented connection must reference an included approved
+  relationship and only its supporting claims; the server renders the canonical relationship
+  summary. Any model-derived connection is labeled as interpretation and independently reviewed.
+- **Serving boundary**: Employee prose is rendered by the server from canonical approved
+  claim summaries and exact claim IDs. Models may identify facets and supported connections,
+  but cannot silently rewrite approved facts or declare a company-wide absence from bounded
+  retrieval. Partial or missing facets require a reconciled, visibly bounded gap marker.
+- **Acceptance gate**: A different provider reviews the question, evidence ledger, and
+  rendered answer. One reconciliation repair is allowed; a second failure returns no answer.
+  Reviewer candidates are the de-duplicated configured model-merge plus macro pools; fewer
+  than two distinct providers is rejected before any reconciliation call.
+  Citation membership remains only an identity check—the independent semantic review is the
+  entailment and omission gate. Every model call has its own context pack and run audit.
+- **Boundary**: An attachment on the current request, or the nearest prior attachment when the
+  employee explicitly follows up or names a file/document type, stays on the attachment-aware
+  generator until the file's content has entered approved evidence. An unrelated new request does
+  not silently inherit a stale file.
+  A different model family receives the same conversation and attachments and must approve the
+  proposed answer before it is published.
+  The reconciliation renderer preserves the employee's English or Simplified Chinese locale.
+  Until relationships have approved translations, Chinese reconciliation receives their localized
+  supporting claims but not the canonical English relationship summary; any connection is labeled
+  interpretation and independently reviewed.
+  No claim, approval, schema, or retrieval authorization rule is changed by this decision.
+
 # Document ingestion: Word, image vision, auxiliary models, context (2026-06-14)
 
 ## D-image-vision-two-pass — transcribe images to text before extraction

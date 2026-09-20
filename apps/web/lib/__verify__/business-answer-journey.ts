@@ -53,8 +53,11 @@ for (const claim of claims.slice(0, 3)) {
 }
 assert(!result.includedClaimIds.includes(ids[3]!));
 assert.deepEqual(result.includedRelationshipIds, [relationship.id]);
+assert.deepEqual(result.evidenceRelationships.map((item) => item.id), [relationship.id]);
 assertKnownBusinessCitations(`Licensing owns submission [claim:${ids[1]}]. China waits for approval [claim:${ids[2]}].`, result.includedClaimIds);
 assert.throws(() => assertKnownBusinessCitations(`Unrelated fact [claim:${ids[3]}]`, result.includedClaimIds));
+assert.doesNotThrow(() => assertKnownBusinessCitations('Hello there.', result.includedClaimIds));
+assert.throws(() => assertKnownBusinessCitations('Licensing owns submission.', result.includedClaimIds, { requireAtLeastOne: true }), /without citing any/);
 
 const followup = buildConversationRetrievalQuery([
   { role: 'user', content: query },
@@ -94,7 +97,7 @@ const fakeDb = { execute: async (query: Parameters<PgDialect['sqlToQuery']>[0]) 
   const compiled = new PgDialect().sqlToQuery(query);
   supportSql = compiled.sql;
   supportParams = compiled.params;
-  return [{ id: ids[0]!, summary: 'translated premise', claim_kind: 'rule' }];
+  return [{ id: ids[0]!, summary: 'translated premise', claim_kind: 'rule', localized: true }];
 } } as unknown as OracleDb;
 const eligibleRows = await getEligibleRelationshipClaims(fakeDb, {
   ...plan, topDomainHints: ['operations_systems'], excludedTopDomains: ['licensing_approvals'],
@@ -104,18 +107,38 @@ const eligibleRows = await getEligibleRelationshipClaims(fakeDb, {
 }, [ids[0]!], 'zh-CN');
 for (const predicate of ["c.status = 'approved'", 'effective_until IS NULL', 'cm.document_class NOT IN',
   '_xtd.top_domain_id IN', '_e.entity_type IN', '_e2.canonical_value', 'cm.process_stage IN',
-  "ct.review_status = 'approved'", 'ct.source_hash', 'COALESCE(ct.summary, c.summary)']) {
+  "ct.review_status = 'approved'", 'ct.source_hash', 'COALESCE(ct.summary, c.summary)', 'ct.claim_id IS NOT NULL']) {
   assert(supportSql.includes(predicate), `support eligibility must retain ${predicate}`);
 }
 assert(!supportSql.includes('ctd.top_domain_id IN'), 'only positive domain seed scope may expand');
 assert(supportParams.includes('zh-CN'));
 assert(supportParams.includes(JSON.stringify([ids[0]!])));
 assert.equal(eligibleRows[0]!.summary, 'translated premise');
+assert.equal(eligibleRows[0]!.localized, true);
 
 // Wiring guard: both observability paths and dispatch use the same bounded context.
 const route = readFileSync(new URL('../../app/api/chat/route.ts', import.meta.url), 'utf8');
 assert(route.includes('retrieveBusinessAnswerContext({'));
-assert.equal((route.match(/includedClaimIds: answerContext.includedClaimIds/g) ?? []).length, 2);
-assert(route.includes('assertKnownBusinessCitations(result.text, answerContext.includedClaimIds)'));
-assert(route.indexOf('assertKnownBusinessCitations(result.text') < route.indexOf('oracleText = result.text'));
+assert(route.includes('includedClaimIds: answerContext.includedClaimIds'));
+assert(route.includes('assertKnownBusinessCitations(oracleText, answerContext.includedClaimIds,'));
+assert(route.includes('reconciliationRequiredClaimCount > 0'));
+assert(route.indexOf('oracleText = reconciled.text') < route.indexOf('assertKnownBusinessCitations(oracleText'));
+assert(route.indexOf('const attachmentRows =') < route.indexOf('const requiresReconciliation ='));
+assert(route.includes('const requiresReconciliation = !hasRelevantAttachments'));
+assert(route.includes("const reconciliationRelationships = locale === 'zh-CN'"));
+assert(route.includes('relationships: reconciliationRelationships'));
+assert(route.includes("resolveRouteCandidates(db, 'macro')"));
+assert(route.includes('independentProviderCount < 2'));
+assert(route.includes('ATTACHMENT_ANSWER_REVIEW_SYSTEM'));
+assert(route.includes('const generatorProvider = resolveRunProvider(result, routeCandidates)'));
+assert(route.includes('hasBusinessAnswerIntent(latestUserMessage.content)'));
+assert(route.includes('selectedDomains: scopeTag(retrievalPlan.topDomainHints'));
+assert(route.includes("error: 'no_approved_evidence'"));
+assert(route.includes('answerIntegrityRequired && hasRelevantAttachments'));
+assert(route.includes('const answerIntegrityRequired = businessAnswerIntent || hasRelevantAttachments'));
+assert(route.includes('if (answerIntegrityRequired) assertEvidenceLocale'));
+assert(route.includes('finalPlan = reconciliationPlan'));
+assert(route.includes('persistFailedAuxiliaryChatRun'));
+assert(route.includes('everyInterviewRouteHasIndependentReviewer'));
+assert(route.includes("failureCode = 'answer_reconciliation_route_unavailable'"));
 console.log('PASS connected business journey: evidence assembly, held-out topic, follow-up, missing evidence, citation integrity, route wiring (0 skipped). Live model comprehension is a separate gate.');

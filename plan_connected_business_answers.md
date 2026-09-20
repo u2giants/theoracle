@@ -5,11 +5,11 @@
 | Step | State | Evidence |
 |---|---|---|
 | Diagnose | Done | `bugs.md`, audited upstream `63cdcaa` |
-| Evidence assembly and retrieval | Implemented, locally verified | 33 helper assertions; journey, hard-filter SQL and domain-boundary checks pass |
-| Route and answer contract | Implemented, locally verified | AI/web typechecks, production web build, all existing Vercel guards and entity-aware guard pass |
-| Independent review | APPROVE | Independent ingestion reviewer; scope/time objection and seed-starvation P2 corrected and retested |
-| Release | Ready for PR | Normal CI and automatic Vercel web release; no worker/schema/env writes |
-| Live acceptance | Blocked on authentication | Test browser reaches Microsoft login; no authenticated employee, no test rows inserted. Issue [15](https://github.com/u2giants/theoracle/issues/15) owns this sole outcome |
+| Evidence assembly and retrieval | Released | PR 16; production revision `824c1ff`; exact included-claim audit passed |
+| First live acceptance | Partial | Three isolated production questions proved retrieval but exposed false gaps and omitted exceptions/responsibilities; evidence is recorded on issue [15](https://github.com/u2giants/theoracle/issues/15) |
+| Evidence reconciliation and canonical rendering | Implemented, locally verified | Every retrieved claim is classified; relevant claims must appear; gaps are bounded; server renders approved summaries; 80-claim ceiling; bilingual evidence fails closed; web typecheck/lint and business-answer suite pass |
+| Independent semantic gate | Implemented, locally verified | Different-provider review, one repair maximum, then fail closed; each call has its own context pack |
+| Second release and live acceptance | In progress | Normal PR/CI/Vercel release followed by a new isolated production replay; issue 15 stays open until PASS |
 
 Fresh sessions start with this STATUS and [the handoff](HANDOFF.d/2026-09-20T1411Z-916-codex-connected-answers.md).
 
@@ -119,7 +119,7 @@ after verified release and the single live proof, reassess the next macro-first 
 
 ## 10. Tests
 
-Verified locally 2026-09-20: helper 33 assertions (0 skipped/ignored), journey and
+Verified locally 2026-09-20: helper 40 assertions (0 skipped/ignored), journey and
 compiled support-filter SQL, retrieval domain boundaries, entity-aware retrieval,
 AI/web typechecks, complete existing Vercel guard suite, production Next.js build.
 The build used CI placeholders and no production credentials. Reviewer independently
