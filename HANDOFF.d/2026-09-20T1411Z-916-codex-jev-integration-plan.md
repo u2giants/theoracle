@@ -45,15 +45,15 @@ The plan is issue #14 and lives at `plan_typesafe_jev_decision_layer.md`.
 
 ## 3. Current state — what is true right now
 
-- The primary read-only audit used upstream `63cdcaa`; before publication the plan was rebased and reconciled against current `origin/main` `824c1ff9f2caa47428c63df038d229a44e2db515`, including the newly merged connected-business-answer chat/retrieval path.
+- The primary audit began on `63cdcaa`, was first reconciled on `824c1ff`, and on 2026-09-22 was rebased/re-audited against current `origin/main` `499d8b0dc3a726ea59dc93114cbb165e1f96f9d3`, including PR #17's evidence reconciliation, canonical rendering, and independent semantic review.
 - No TypeSafe/Jev package, code, secret, setting, schema, deployment, or production call exists.
 - The plan is written with all steps open and links back to this handoff.
 - Issue #14 exists, is assigned, and tracks implementation.
 - The publication branch is `codex/jev-integration-plan-final`; this handoff and plan are documentation only.
-- Publication is **not approved or merged**. Exact-head review `20260920T175500-962763-18364` rejected commit `7d11af286f7823d43ac0ddf1f0d62d30c21f0711`. The worktree is `C:\Users\ahazan2\.codex\worktrees\jev-plan-final\oracle`; the branch must be preserved. A partial prose repair is being committed at wrap-up, but it has not been re-reviewed and is not implementation authority.
+- Publication is **not yet approved or merged**. Exact-head review `20260920T175500-962763-18364` rejected pre-rebase commit `7d11af286f7823d43ac0ddf1f0d62d30c21f0711`. The worktree is `C:\Users\ahazan2\.codex\worktrees\jev-plan-final\oracle`; the branch is rebased on `499d8b0` and now contains source-backed repairs for all fifteen findings, but this new exact head still requires independent APPROVE and is not implementation authority.
 - The shared canonical checkout at `D:\repos\oracle` had six unrelated uncommitted pipeline files and was 141 commits behind when the audit began. It was preserved untouched. Implementation must use new current-upstream worktrees.
 - The newest R2 responsibility handoff is still open and production is restored to its known-good 23/30 map. Jev's responsibility quote-selection work is evaluation-only and may not change that live path.
-- Issue #15 closed on 2026-09-20 with **partial**, not holistic, live acceptance: evidence delivery/citation identity passed, while coherent rule/exception/handoff reconciliation did not. The plan now treats that result as the Step 9A/9B baseline. `HANDOFF.d/2026-09-20T1411Z-916-codex-connected-answers.md` is therefore a **SUCCESSOR REVIEW candidate**, owned by `codex/019f5f18-a461-7861-a0ec-be5ba1f7bb6c`; this session did not edit or delete another owner's file.
+- Issue #15 closed after partial first acceptance; PR #17 subsequently landed its evidence-reconciliation correction on main. The Jev plan now treats the actual `499d8b0` ledger/render/review topology as the Step 9 baseline and does not invent the old draft/retry path. `HANDOFF.d/2026-09-20T1411Z-916-codex-connected-answers.md` remains a **SUCCESSOR REVIEW candidate**, owned by `codex/019f5f18-a461-7861-a0ec-be5ba1f7bb6c`; this session did not edit/delete it or claim unverified second live acceptance.
 
 ## 4. Everything tried that did NOT work
 
@@ -79,7 +79,7 @@ The plan is issue #14 and lives at `plan_typesafe_jev_decision_layer.md`.
 - Exact-head review `20260920T172342-836712-30169` rejected commit `8ba1369` because spend reservation omitted SDK retries/crash settlement, approved resolved-model identity was not durable, extraction replay had no replacement batch status, `invalid_response` was absent from discard reasons, and the handoff retained obsolete five-minute wording. The plan now pins two retries/reserves three attempts with idempotent stale settlement, stores the approved resolved model per use case, transitions replayed owners to explicit `replay_queued`, completes the discard enum, and consistently uses the existing ten-minute scheduler.
 - Exact-head review `20260920T173343-867093-19084` rejected commit `7b28c8f` because creating a 1Password item did not provision the separate Vercel and Trigger.dev production environments. The plan now adds protected, names-only verified secret injection plus a fresh merged-SHA redeploy and public-synthetic target-path proof for Vercel before Step 3 and Trigger `prod` before Step 6.
 - Exact-head review `20260920T174018-896298-20623` rejected commit `cd06a41` because an arbitrary MCP request could not safely qualify as synthetic, entity candidate labels/aliases lacked typed provenance and erasure, and Jev probability could outrank an exact capability name. The plan now uses a code-owned byte/hash-locked MCP probe, links and conservatively classifies every supplied entity candidate with whole-run invalidation, and pins enabled exact-name matches before all Jev ranking.
-- Exact-head review `20260920T175500-962763-18364` rejected commit `7d11af2` with eight high- and seven medium-severity gaps: generic settings/direct SQL could bypass Jev controls; documents could be marked `public_synthetic`; entity and live-Recall provenance was incomplete; Step 6 lacked a durable capture bypass, schema-first split, and cross-run membership; Step 7 judged support after promotion; Step 8A was not pair-aware; immutable/same-run database promises lacked constraints; MCP lacked real-handler tests/docs; Step 5 used a record-level metric for quote-only work; and Step 9A reranked before evidence/relationship enrichment. The current partial repair covers protected settings/functions/direct-write tests, synthetic document rejection, all entity query messages, real MCP handler verification/README, quote-specific metrics, immutable live snapshots, and post-enrichment reranking. It does **not yet** complete Step 6, Step 7 transactional pre-promotion handling, or Step 8A pair-aware sweep coverage; the successor must finish the entire review, not only those three examples.
+- Exact-head review `20260920T175500-962763-18364` rejected commit `7d11af2` with eight high- and seven medium-severity gaps: generic settings/direct SQL could bypass Jev controls; documents could be marked `public_synthetic`; entity/live-Recall provenance was incomplete; Step 6 lacked durable capture, schema-first split, and cross-run membership; Step 7 judged after promotion; Step 8A was not pair-aware; immutable/same-run promises lacked constraints; MCP lacked handler tests/docs; Step 5 used a record metric for quote-only work; and Step 9A reranked before enrichment. The rebased draft now addresses the entire list: typed owner-only DB functions/constraints, document synthetic rejection, complete subjects, handler/README tests, quote metrics, normalized Step 6A/6B ownership and force directive, Step 7A/7B pre-promotion review hold, pair-aware Step 8A, frozen Step 8B snapshots, and current-main post-enrichment Step 9 with shadow-only reconciled-answer audit. None is accepted until the fresh exact-head review approves it.
 
 ## 5. Root causes and key findings
 
@@ -97,11 +97,10 @@ The plan is issue #14 and lives at `plan_typesafe_jev_decision_layer.md`.
 
 ## 6. Exact next steps
 
-1. Resume `codex/jev-integration-plan-final` in `C:\Users\ahazan2\.codex\worktrees\jev-plan-final\oracle`; fetch without overwriting the branch and read `.ai/reviews/codex-plan-review-20260920T175500-962763-18364.md` plus the current diff.
-2. Finish the entire rejected-review class. In particular: split Step 6 into schema-first production proof and dependent worker delivery; define normalized indexed cross-run extraction-window membership plus a trusted durable force-extraction signal; place Step 7's support disposition transactionally before both new-claim and duplicate-claim promotion/evidence append; and make Step 8A selection exclude only an already-processed exact pair, with mixed old/new-pair regressions. Re-audit all fifteen review findings because the current partial repair is unreviewed.
-3. Update this handoff's review history, run `git diff --check`, amend the docs commit, force-push with lease, run `ai-task-gates check --before review`, and rerun `ai-codex-review plan-review` on the exact pushed head. Repeat until the verdict is APPROVE; do not open a PR on REJECT.
-4. After APPROVE, run the ship gate, open a documentation-only PR linked to issue #14, attach it to the task, verify every changed file is Markdown, and merge immediately with the repository's documentation-only owner override. Verify the merged SHA and update issue #14; keep the issue open for implementation.
-5. Only then may a new implementation session execute Step 0. Continue one STATUS row and one unproven live outcome per session.
+1. Validate the rebased plan/handoff with `git diff --check`, stale-term searches, and the Markdown link check; commit and force-push with lease because rebase rewrote the branch.
+2. Run `ai-task-gates check --before review`, then `ai-codex-review plan-review` on the exact pushed head. Record the run/SHA here. Fix the full class of any rejection and repeat until APPROVE; do not open a PR on REJECT.
+3. After APPROVE, run the ship gate, open a documentation-only PR linked to issue #14, attach it to the task, verify every changed file is prose, and merge immediately with the documentation-only owner override. Verify merged SHA and update issue #14; keep it open for implementation.
+4. Only then may a new implementation session execute Step 0. Continue one STATUS row and one unproven live outcome per session, re-reading downstream phases at each cut.
 
 ## 7. Constraints and gotchas in force
 
@@ -217,6 +216,38 @@ The plan is issue #14 and lives at `plan_typesafe_jev_decision_layer.md`.
 - Worktree/branch: no owned code change to retire.
 - Deliberately did not: edit or invoke MCP behavior.
 
+### `resume_controls`
+
+- Asked: verify findings 1/2/9/10 against current main and the partial repair.
+- Actually did: read-only source/plan audit at `499d8b0`; no edits/commits.
+- Found: settings and document boundaries were mostly repaired; the plan needed exact migration-owner/current-user semantics, per-column/state mutation allowlists, direct service-role tests, and exact same-run composite constraints. All are now drafted.
+- Worktree: clean read-only analysis checkout; safe to retire after process verification.
+- Deliberately did not: implement or approve database changes.
+
+### `resume_step6`
+
+- Asked: resolve durable capture, schema release order, and cross-run ownership.
+- Actually did: read-only trace of worker/schema paths at `499d8b0`; no edits/commits.
+- Found: current reconciliation filters one job run and scans JSON. The plan now adds Step 6A schema proof, indexed normalized membership across all runs, compatibility backfill/trigger, ordered locks, and server-owned `force_extract` from exact command/UI actions.
+- Worktree: clean read-only analysis checkout; safe to retire after process verification.
+- Deliberately did not: alter messages, batches, workers, or production.
+
+### `resume_claims`
+
+- Asked: resolve Step 7 pre-promotion and Step 8A pair selection.
+- Actually did: read-only promotion/watcher trace at `499d8b0`; no edits/commits.
+- Found: both workers currently promote before the proposed check, and the sweep excludes a whole claim when any contradiction exists. The plan now splits a review-hold schema step, fences support inside promotion before all mutation, and uses canonical exact-pair selection/redispatch regressions.
+- Worktree: clean read-only analysis checkout; safe to retire after process verification.
+- Deliberately did not: mutate claims/evidence or worker code.
+
+### `resume_step9`
+
+- Asked: reconcile the plan with PR #17 on current main.
+- Actually did: read-only trace of reconciliation, rendering, review, retrieval, and tests at `499d8b0`; no edits/commits.
+- Found: ordinary chat no longer has the plan's assumed draft/retry topology. Step 9 now reranks only no-attachment reconciled chat after enrichment, and 9B is a shadow audit of the real ledger/rendered answer with no second repair/bypass; attachments are separate.
+- Worktree: clean read-only analysis checkout; safe to retire after process verification.
+- Deliberately did not: change chat behavior or claim second live acceptance.
+
 ## Handoff self-audit
 
 1. **Can a new developer continue without session context? Yes.** §§1–3 define the app, goal, current SHA, branch, issue, dirty-checkout blocker, no-code state, and active R2 collision.
@@ -224,4 +255,4 @@ The plan is issue #14 and lives at `plan_typesafe_jev_decision_layer.md`.
 3. **Is flawless-execution detail present? Yes.** §6 gives ordered next actions with proof gates; §§7–9 give rules, access, risks, and open questions; the linked plan contains exact files, tests, adversarial cases, rollout gates, and rollback.
 4. **Would Albert see every decision by reading only §0? Yes.** The line-by-line sweep of §§1–9 and Part B found two decisions: vendor/data terms and capped spend, both in §0 with recommendations and blocked scope. The unrelated active R2 decision is also surfaced in §0 and explicitly assigned to its existing handoff. All other choices are settled and listed under “do NOT re-ask.”
 
-Checklist result: all sections 0–9 exist, the owner sweep is complete, rejected exact-head state and partial repair are explicit, every remaining finding and next gate is actionable, secrets are location-only, and every sub-agent dispatch is separately accounted for. A new developer can resume from §6 without this chat, understands that no plan PR or implementation is authorized, and can distinguish drafted repairs from still-open review items. **Handoff self-audit re-passed on 2026-09-22.**
+Checklist result: all sections 0–9 exist, the owner sweep is complete, current-main drift and the rejected exact-head history are explicit, every review finding has a source-backed drafted repair, exact next gates are runnable, secrets are location-only, and every sub-agent dispatch is separately accounted for. A new developer can resume from §6 without this chat and knows that no implementation is authorized until a fresh exact-head APPROVE and merged plan PR. **Handoff self-audit re-passed on 2026-09-22.**
