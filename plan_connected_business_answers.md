@@ -1,17 +1,17 @@
 # Connected business answers — first refactor slice
 
-## STATUS (2026-09-20)
+## STATUS (2026-09-22)
 
 | Step | State | Evidence |
 |---|---|---|
 | Diagnose | Done | `bugs.md`, audited upstream `63cdcaa` |
 | Evidence assembly and retrieval | Released | PR 16; production revision `824c1ff`; exact included-claim audit passed |
 | First live acceptance | Partial | Three isolated production questions proved retrieval but exposed false gaps and omitted exceptions/responsibilities; evidence is recorded on issue [15](https://github.com/u2giants/theoracle/issues/15) |
-| Evidence reconciliation and canonical rendering | Implemented, locally verified | Every retrieved claim is classified; relevant claims must appear; gaps are bounded; server renders approved summaries; 80-claim ceiling; bilingual evidence fails closed; web typecheck/lint and business-answer suite pass |
-| Independent semantic gate | Implemented, locally verified | Different-provider review, one repair maximum, then fail closed; each call has its own context pack |
-| Second release and live acceptance | In progress | Normal PR/CI/Vercel release followed by a new isolated production replay; issue 15 stays open until PASS |
+| Evidence reconciliation and canonical rendering | Released | PR [17](https://github.com/u2giants/theoracle/pull/17) merged as `499d8b0`; exact production deployment and CI passed. Every retrieved claim is classified; relevant claims must appear; gaps are bounded; server renders approved summaries; 80-claim ceiling; bilingual evidence fails closed. |
+| Independent semantic gate | Released; one live fallback observed | Different-provider validation/repair and one-repair maximum are live. In the retained Q1 run, Gemini rejected the strict schema as too complex, then Anthropic fallback succeeded; preserve the attempt trail when diagnosing. |
+| Second live acceptance | Partial / OPEN | Q1 completed in isolated channel `15d9ff01-2347-4b03-b308-f6fab0a9de71`; Q2/Q3 were not sent and Q1 was not independently graded. Issue [15](https://github.com/u2giants/theoracle/issues/15) was reopened after PR 17 auto-closed it. Do not claim PASS or retry Q1. |
 
-Fresh sessions start with this STATUS and [the handoff](HANDOFF.d/2026-09-20T1411Z-916-codex-connected-answers.md).
+Fresh sessions start with this STATUS and [the current handoff](HANDOFF.d/2026-09-22T2033Z-916-codex-live-proof-interrupted.md).
 
 ## 1. Ultimate goal
 
@@ -31,8 +31,8 @@ This slice runs in employee chat; workers and schema are unchanged.
 
 Albert requested a fresh whole-codebase diagnosis, then authorized: “do whatever you
 think is the best next step to refactor this application to do what we need.” The
-audit found disconnected source structures and answer contexts. Current upstream is
-`63cdcaa`; the old shared checkout still has unrelated unfinished July edits. Do not use them.
+audit found disconnected source structures and answer contexts. The initial audit baseline was
+`63cdcaa`; the released implementation and current source of truth are identified in STATUS above.
 
 ## 4. Scope
 
@@ -43,13 +43,14 @@ serving, approval bypass, all missing shape readers, ingestion corrections, Brai
 or Jev work owned by issue 14. This slice is necessary groundwork, not completion of the
 entire macro-first redesign. It does not assert live comprehension from canned tests.
 
-## 5. Current code
+## 5. Released code
 
-At baseline chat retrieves latest-message-only top eight claims (`route.ts:183–205`),
-then prints legacy relationship support IDs without their summaries (`:257`). Retrieval
-excludes licensing/creative domains on PLM queries (`retrieval-plan.ts:899–915`).
-The published responsibility gate now passes 23/25 under the approved v2 contract;
-older canonical-plan failure banners are historical. No release of this slice yet.
+The baseline defects were latest-message-only retrieval, missing relationship premises, and
+cross-domain exclusions. PR 16 released bounded context-aware retrieval and complete relationship
+support. PR 17 released evidence reconciliation, canonical rendering, and independent semantic
+validation/repair. The published responsibility gate passes 23/25 under the approved v2 contract;
+older canonical-plan failure banners are historical. STATUS and the current handoff govern the
+remaining live proof.
 
 ## 6. Root cause
 
@@ -78,7 +79,9 @@ All budget overrides are validated. New question topic resets context.
 Interpretation is allowed only as explicitly labeled reasoning from supplied premises.
 Citation membership checking does not prove semantic entailment; human/live evaluation does.
 
-## 9. Ordered implementation
+## 9. Released implementation and remaining proof
+
+Steps 1–5 are released through PRs 16 and 17:
 
 1. Fix heuristic exclusions in `retrieval-plan.ts` and domain-boundary tests, including
    sibling entity exclusions. Preserve narrow noise filtering. Gate: existing and added
@@ -95,15 +98,15 @@ Citation membership checking does not prove semantic entailment; human/live eval
 5. Complete self-audit then independent review. Register tests in CI. Commit owned files,
    branch PR, green checks, reviewer-approved normal merge/deployment. Gate: CI and deployed
    revision agree. Never use admin bypass for this code release.
-6. With exact dispatch approved by independent reviewer, use an authorized test employee
-   and channel to ask one licensed-product journey question and one follow-up. Inspect
-   context pack and answer for supported ownership, gates, exceptions, consequences,
-   citations and honest gaps. Record evidence under issue 15. No new ingestion or changes
-   to approvals are part of this proof. If approved data/session access is absent, keep
-   issue 15 owned and document the exact blocker; do not claim the whole outcome complete.
+6. Finish the three-question second live acceptance defined in the current handoff. Q1 is complete
+   and must not be repeated. After a fresh exact bounded review authorizes the expired production
+   window, send Q2 and Q3 only, inspect their context packs and model-run trails, and obtain an
+   independent PASS/FAIL grade for all three retained answers. Record evidence under issue 15. No
+   new ingestion or approval changes are part of this proof. If access is absent, keep issue 15
+   owned and document the exact blocker; do not claim the outcome complete.
 
-Steps 1 and 2 can run independently in isolated worktrees. Main owns 3–6. Natural boundary:
-after verified release and the single live proof, reassess the next macro-first slice.
+The fresh successor owns step 6. After verified three-answer acceptance, reassess the next
+macro-first slice.
 
 ### Adversarial cases
 
@@ -129,12 +132,14 @@ Relationship premises now reuse all hard retrieval filters and approved translat
 positive domain seed scope alone may broaden. Any failed premise omits the relationship.
 Direct round-robin seeds reserve up to half the text budget before relationships.
 
-Live dispatch approval is conditional: prove production target and existing authenticated
-active employee; one isolated DM test channel/membership, at most three user rows inserted
-explicitly `extraction_status='skipped'`, no `/api/messages` or lull triggers; at most three
-authenticated `/api/chat` calls. Capture row/context IDs and prove no pending test rows.
-No claims/settings/schema writes or cleanup deletion. Ordinary message posting is rejected
-for this test because it would feed fixture text into extraction.
+The first direct-call live-dispatch plan is historical and must not be reused: browser safety
+correctly blocked scripted authenticated POSTs. An independently reviewed replacement used the
+normal UI plus a separate disabled-test-employee typing guard and an immediate status-only update
+to keep test messages out of extraction. Q1 completed with every test row `skipped`, the guard
+expired naturally, and no lull job ran. Q2/Q3 remain open. Because the old two-hour guard and its
+production window have expired, a successor must obtain a fresh exact bounded review before any
+new production write. Do not retry Q1, delete retained evidence, or treat the earlier approval as
+blanket authority.
 
 Run `corepack pnpm --filter @oracle/web verify:business-answer`,
 `corepack pnpm --filter @oracle/ai verify:retrieval-plan-domain-boundaries`,
@@ -147,15 +152,17 @@ Tests must report missing evidence honestly and never count mock generation as m
 Worktree isolation; own files only; no canonical checkout edits; Albert committer identity;
 branch and PR; task gate before review/ship/deploy. CI/package edits raise task class to
 deployment. No schema or worker deployment required. Shared model flags remain unchanged.
-Only the opener closes issue 15. Preserve other handoffs and the root pointer.
+The successor that completes and independently grades Q2/Q3 posts the final evidence but leaves issue
+15 open. Only the original issue-opening Codex chat may close it. Preserve other handoffs and the root
+pointer.
 
 ## 12. Access/environment
 
-Machine 916-alien; worktree `D:\repos\oracle-holistic-audit-20260920`, branch
-`codex/connected-business-answers-20260920`. `gh` authenticated as u2giants. Dependencies installed
-locally with frozen lockfile. Production login/provider/DB access not yet exercised for this
-slice; secrets, if needed, only through 1Password `vibe_coding` after reading its skill.
-Never copy the canonical checkout's stale `.env.local`.
+Machine 916-alien; successor worktree and branch must be created fresh from current `origin/main`.
+`gh` is authenticated as u2giants. Production login, provider, and read-only database access were
+exercised for Q1 on 2026-09-22; no new write is authorized without the fresh bounded review named
+above. Secrets, if needed, must remain in protected local configuration or be obtained through
+1Password `vibe_coding` after reading its skill. Never expose or commit them.
 
 ## 13. Done, rollback, and risks
 
