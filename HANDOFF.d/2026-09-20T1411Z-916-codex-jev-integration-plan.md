@@ -53,7 +53,7 @@ The plan is issue #14 and lives at `plan_typesafe_jev_decision_layer.md`.
 - Publication is **not approved or merged**. Exact-head review `20260920T175500-962763-18364` rejected commit `7d11af286f7823d43ac0ddf1f0d62d30c21f0711`. The worktree is `C:\Users\ahazan2\.codex\worktrees\jev-plan-final\oracle`; the branch must be preserved. A partial prose repair is being committed at wrap-up, but it has not been re-reviewed and is not implementation authority.
 - The shared canonical checkout at `D:\repos\oracle` had six unrelated uncommitted pipeline files and was 141 commits behind when the audit began. It was preserved untouched. Implementation must use new current-upstream worktrees.
 - The newest R2 responsibility handoff is still open and production is restored to its known-good 23/30 map. Jev's responsibility quote-selection work is evaluation-only and may not change that live path.
-- Issue #15 and `HANDOFF.d/2026-09-20T1411Z-916-codex-connected-answers.md` own live proof for the newly merged cross-domain answer path. Jev retrieval/grounding Steps 9A/9B wait for that proof to close or be explicitly handed over.
+- Issue #15 closed on 2026-09-20 with **partial**, not holistic, live acceptance: evidence delivery/citation identity passed, while coherent rule/exception/handoff reconciliation did not. The plan now treats that result as the Step 9A/9B baseline. `HANDOFF.d/2026-09-20T1411Z-916-codex-connected-answers.md` is therefore a **SUCCESSOR REVIEW candidate**, owned by `codex/019f5f18-a461-7861-a0ec-be5ba1f7bb6c`; this session did not edit or delete another owner's file.
 
 ## 4. Everything tried that did NOT work
 
