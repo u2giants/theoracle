@@ -96,6 +96,7 @@ The plan is issue #14 and lives at `plan_typesafe_jev_decision_layer.md`.
 - Exact-head review `20260923T010324-1795-2681` rejected commit `8502ba4` because a strict scanner would fail before staged caller cutover, weak Recall events had no executable task contract, maintenance could starve behind an unbounded extraction backlog, and new contradiction reservation/archive data escaped source erasure. The repaired draft adds monotonic inventory/dual/worker-strict/strict scanner phases, distinct strong-delivery and weak-legacy tasks/inboxes, fixed pre-batch maintenance budgets with bounded cursors, and complete reservation/archive source closure, retention, erasure, and race tests. None is accepted until the next exact-head review approves it.
 - Exact-head review `20260923T012018-1180-16491` rejected commit `292ba19` because `review_held` conflicted with existing promotion/duplicate checks, contradiction dedup simultaneously required assignment mutation and a byte-identical survivor, and credential rotation lacked named files plus PostgreSQL/libpq compatibility gates. The repaired draft replaces both candidate checks and adds typed hold variants plus a deferred cross-row trigger, limits survivor mutation to two deterministic assignment fields with exact tests, and specifies the C helper/build/test paths, libpq 17.11 pin, and PostgreSQL 16+ preflight. None is accepted until the next exact-head review approves it.
 - Exact-head review `20260923T014006-1033-8843` rejected commit `1d08717` because the current lexical raw-SQL runner would execute `100+` before `11–99` and could overwrite later constraints, while nullable decision/subject identity fields made ordinary uniqueness porous. The repaired draft adds a separate M0 numeric-order runner/CI/clean-and-snapshot double-run production prerequisite, reserves ordered `103–107` Jev migrations, uses `NULLS NOT DISTINCT` run identities, and creates one null-safe target-specific subject index with raw concurrent-insert tests. None is accepted until the next exact-head review approves it.
+- Exact-head review `20260923T020743-317-21929` rejected status-only commit `8012eee` because this handoff and the plan still told successors to republish the already merged plan and start at Step 0. The correction now makes M0 the mandatory first implementation outcome and blocks every Jev schema migration until M0's production double-run proof.
 
 ## 5. Root causes and key findings
 
@@ -113,10 +114,10 @@ The plan is issue #14 and lives at `plan_typesafe_jev_decision_layer.md`.
 
 ## 6. Exact next steps
 
-1. Validate the rebased plan/handoff with `git diff --check`, stale-term searches, and the Markdown link check; commit and force-push with lease because rebase rewrote the branch.
-2. Run `ai-task-gates check --before review`, then `ai-codex-review plan-review` on the exact pushed head. Record the run/SHA here. Fix the full class of any rejection and repeat until APPROVE; do not open a PR on REJECT.
-3. After APPROVE, run the ship gate, open a documentation-only PR linked to issue #14, attach it to the task, verify every changed file is prose, and merge immediately with the documentation-only owner override. Verify merged SHA and update issue #14; keep it open for implementation.
-4. Only then may a new implementation session execute Step 0. Continue one STATUS row and one unproven live outcome per session, re-reading downstream phases at each cut.
+1. Create a new current-upstream worktree and read `AGENTS.md`, the approved plan's STATUS/M0 section, `packages/db/src/migrate.ts`, and `packages/db/migrations/sql/README.md`; declare the actual code task class before editing.
+2. Execute **Step M0 only**: repair numeric raw-SQL ordering, land its CI verifier, complete independent review/PR/merge, then run and record the guarded production double-run proof. No Jev schema file belongs in that session.
+3. Update the plan STATUS row, this workstream's successor handoff, and issue #14 with the M0 commit, checks, deployment/migration evidence, and exact production result. Keep issue #14 open.
+4. Only after M0 is proven may separate sessions proceed to the vendor/privacy boundary and Step 1A. Continue one STATUS row and one unproven live outcome per session, re-reading downstream phases at each cut.
 
 ## 7. Constraints and gotchas in force
 

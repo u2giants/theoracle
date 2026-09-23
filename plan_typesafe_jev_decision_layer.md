@@ -40,7 +40,7 @@ Publication gate: **approved and merged**. Exact-head review `20260923T015902-15
 | 9C. Advisory ideas disposition | ⬜ open | 2026-09-20 | Create separately scoped plans/issues or explicitly reject; no bundled implementation here |
 | 10. Documentation, rollout reconciliation, and plan retirement | ⬜ open | 2026-09-20 | Close issue #14 only after every retained scope item is done or explicitly deferred |
 
-Fresh-session rule: first finish the publication-gate repair recorded in the linked handoff and obtain exact-head APPROVE. Only after the plan merges should an implementation session begin with the first open STATUS row, re-read that phase and every downstream phase before editing, and use the `fresh-session` skill at each marked context cut. Whoever executes a step updates this table immediately with a commit, test artifact, CI run, deployment ID, or exact rerunnable command. A bare count or issue number is not proof.
+Fresh-session rule: the plan is approved and merged. The first implementation session must begin with the first open STATUS row, **M0**, and may not start any Jev schema migration until M0's production double-run proof is recorded. Re-read M0 and every downstream phase before editing, and use the `fresh-session` skill at each marked context cut. Whoever executes a step updates this table immediately with a commit, test artifact, CI run, deployment ID, or exact rerunnable command. A bare count or issue number is not proof.
 
 ---
 
