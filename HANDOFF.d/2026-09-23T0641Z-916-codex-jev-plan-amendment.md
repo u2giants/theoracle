@@ -56,6 +56,7 @@ The business outcome remains inexpensive semantic decisions without weakening Or
 - Exact-head review `20260923T094009-564-5245` rejected commit `a12a08d` because M0I-C could not close the reviewer identity before M0E created its workflow, and the plan assumed a nonexistent generic file/stdin reviewer credential contract. The repair moves an identity-probe-only `production-approval.yml` into M0W so M0I can prove and M0I-C can close both identities, then makes M0E transition that proven path. Authentication now uses the observed pinned Codex CLI sequence in an isolated temporary `CODEX_HOME`: token-only stdin to `codex login --with-api-key`, login status, a fixed live model qualification, the separate review prompt, logout, deletion, and leak scan. None is accepted until the next exact-head review approves it.
 - Exact-head review `20260923T095202-1506-24456` rejected commit `6925b84` because M0I still upgraded only the migration workflow even though M0I-C had to prove the reviewer workflow, and M0W/R/I/E lacked exact direct commands. The repair makes the M0I PR transition both governed workflows to mutually exclusive credential probes before infrastructure apply and adds a command/result matrix for every W/R/R-C/I/I-C/E/E-C/F/F-C milestone. None is accepted until the next exact-head review approves it.
 - Exact-head review `20260923T095940-561-14920` rejected commit `ae61c1bef9afc9192428204518f72999dfd64905` because M0I had no permitted path from authoritative 1Password sources to Secret Manager, the reviewer network policy blocked its model call, workflow ownership still contradicted the normative transition, M0P–M0C lacked exact direct commands, and deleting the still-OPEN predecessor violated the successor rule. The repair adds one independently approved anonymous-pipe transfer route on `916-alien`, route-specific reviewer model egress and cross-route tests, consistent M0W/M0I/M0E ownership, a pre-D command matrix, and byte-identical predecessor preservation. None is accepted until the next exact-head review approves it.
+- Exact-head review `20260923T102256-9-3598` rejected commit `d7a1d7b5c9a24523b5a05cfc51256084fd1ebe07` because a repository writer could alter both a privileged workflow and its repository-owned check, §6 still ordered the OPEN predecessor's retirement, and the required oldest-first handoff audit was absent. The repair makes M0R require a no-bypass independent CODEOWNER approval of the exact last push plus a restricted merger and adversarial same-PR tests, removes the retirement instruction, and records the complete inventory below. None is accepted until the next exact-head review approves it.
 - Reading this file on `main` means the amendment PR containing it merged; use the plan's Publication gate and the PR artifact for the authoritative review run/SHA. On the branch, approval/merge remains pending.
 
 ## 4. Everything tried that did not work
@@ -99,7 +100,7 @@ The business outcome remains inexpensive semantic decisions without weakening Or
 
 ## 6. Exact next steps
 
-1. From this branch, run `git diff --check`, verify only the plan, this successor handoff, and retirement of its proven predecessor differ from `origin/main`, and run the Markdown-link check. Success means no errors, no unrelated handoff change, and a clean staged scope.
+1. From this branch, run `git diff --check`, verify only the plan and this successor handoff differ from `origin/main`, prove the predecessor is byte-identical to `origin/main`, and run the Markdown-link check. Success means no errors, no unrelated handoff change, and a clean staged scope.
 2. Commit/push the corrections, run `ai-task-gates check --before review`, then run `ai-codex-review plan-review --base origin/main --assert-head <full-head-sha>`. Success is explicit APPROVE naming that exact SHA; any rejection must be repaired by class and re-reviewed.
 3. After APPROVE, verify remote main has not moved; if it moved, rebase and repeat exact-head review. Then run the ship gate, open a documentation-only PR linked to issue #14, attach it to the Codex task, verify the PR contains only the plan and this successor handoff, and merge immediately with the documentation-only owner override. Success is a merged PR and confirmed main commit.
 4. Post a signed issue #14 comment with the amendment PR, merge SHA, approval run/SHA, and “start M0P only”; keep the issue open. Success is an issue comment that contains no secret/data content and does not claim Jev is enabled.
@@ -131,6 +132,18 @@ The business outcome remains inexpensive semantic decisions without weakening Or
 - The composite gate is intentionally strict. M0P must merge, publish, and install the central class before M0A pins or declares it; any engine/CI version mismatch blocks rather than weakening or simulating the union.
 - GitHub Actions artifact retention is 30 days. M0F must verify a current M0E artifact or rerun the separately approved M0E rehearsal; it may not accept prose or a local substitute.
 - No new subagents were dispatched for this amendment closeout. The preserved predecessor's original audit accounting is carried forward below.
+
+### Oldest-first open-handoff inventory and retirement audit
+
+1. `2026-08-06T1510Z-t16-codex-legacy-migrated-handoff.md` — standing legacy exception; keep until its GAP/REL register moves to the canonical plan.
+2. `2026-08-06T1510Z-t16-codex-project-status-closeout.md` — explicitly OPEN for macro-first work and owner-gated checks; not this session's workstream, so keep.
+3. `2026-08-27T1600Z-al8960ofc-claude-r2-reason-feedback-regressed.md` — contained regression with an owner decision still open; keep under its named R2 owner.
+4. `2026-09-20T1411Z-916-codex-connected-answers.md` — issue #15 OPEN under its named Codex owner; keep.
+5. `2026-09-20T1411Z-916-codex-jev-integration-plan.md` — issue #14 OPEN; keep byte-identical because its status line blocks successor retirement, while this plan/successor supersedes only its route.
+6. `2026-09-22T2033Z-916-codex-live-proof-interrupted.md` — issue #15 OPEN under its original owner; keep.
+7. `2026-09-23T0641Z-916-codex-jev-plan-amendment.md` — this current OPEN successor; keep until M0A's successor proves the amendment landed and carries every obligation.
+
+No file is safely retireable in this session. The six counted files exceed the repository's stated threshold after excluding the legacy exception; the exact owners above, not this amendment, must retire their files when their successor conditions pass.
 
 ## Carried-forward predecessor audit record
 
