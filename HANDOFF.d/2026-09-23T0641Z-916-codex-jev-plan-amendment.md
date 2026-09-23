@@ -192,6 +192,8 @@ All listed work was read-only; no Jev call, implementation, deployment, producti
 
 Exact-head review `20260923T173221-472-8053` rejected commit `ce686ca08aacd2ce554791056e8935c845e9c0c1` because the plan linked a handoff that its closeout deletes, treated the erasure umbrella as one oversized outcome, and omitted an executable resumption path for backup-pending runs. The repair removes the doomed link, splits the umbrella into independently mergeable 1E1–1E9 plus 1E9-C outcomes, and adds a fresh-authorized, idempotent backup-finalization command/workflow/UI path with restart and boundary tests. None of these repairs is accepted until the next exact-head review explicitly approves them.
 
+Exact-head review `20260923T174444-1767-6252` rejected commit `c1c6c083da0769a34d68d17373375fda668201eb` because an external source's stable tombstone key did not durably include its provider/system namespace, so identical record IDs from two systems could collide. The repair adds an immutable canonical namespace column, pair uniqueness and resolver rules, deterministic-or-blocking migration/backfill, a length-delimited namespace in the stable key, and same-ID/different-system no-cross-delete fixtures. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
