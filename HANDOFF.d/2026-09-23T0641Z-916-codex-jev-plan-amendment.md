@@ -198,6 +198,8 @@ Exact-head review `20260923T175346-963-26491` rejected commit `b15f204616d363ecd
 
 Exact-head review `20260923T180908-692-28278` rejected commit `0224ba6a50b217525720b986ab4757edffcc665d` because the guarded migration design rejected Drizzle breakpoints even though every current journal entry uses `breakpoints:true`. The repair accepts both current breakpoint and single-statement formats, defines a quote/comment/dollar-aware separator lexer, binds raw/journal/statement/parser digests, and tests all current plus newly generated migrations against pinned Drizzle and standard-migrator results. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260923T181542-2009-31404` rejected commit `db0290e2e9ee94f47c171a6113f04549f0fcd07b` because backup expiry used the pre-deletion tombstone time, secret-destruction crash checkpoints conflicted, hostile marker tests could not match Drizzle's unconditional splitter, and implicit Vercel/Next/Trigger config was not explicit in the protected closure. The repair uses a separately attested conservative post-database-commit cutoff, durable pre/post-secret-destruction states and crash tests, separate compatibility-versus-rejection parser suites, and explicit mutation-tested deployment-config closure entries. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
