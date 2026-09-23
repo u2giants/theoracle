@@ -8,7 +8,7 @@ Plan created: 2026-09-20
 
 Source baseline: `origin/main` at `b7a7acad0056acbc45c152fe1f2ac4730c107906` (PR #18 changed documentation only; the audited application behavior remains the PR #17 code at `499d8b0`)
 
-Publication gate: **not approved**. Exact-head review `20260923T014006-1033-8843` rejected commit `1d08717`; this documentation-only draft is repairing its one high- and one medium-priority findings and must be committed, pushed, and independently re-reviewed before a PR is opened. No implementation step is authorized from this draft.
+Publication gate: **approved and merged**. Exact-head review `20260923T015902-1579-11000` approved substantive plan commit `fab526bd92546acacb599a13c48824e9595b5a1e` with no findings; documentation-only PR #19 merged it as `c5dc22269305cb7a84463890e00f015df1670df7`. Implementation remains open on issue #14 and must begin with Step M0; the plan merge enabled no Jev runtime or production behavior.
 
 ## STATUS — read this first
 
