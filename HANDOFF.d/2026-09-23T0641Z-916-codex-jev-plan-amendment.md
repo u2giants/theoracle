@@ -204,6 +204,8 @@ Exact-head review `20260923T183050-718-6560` rejected commit `50aae92627591cf589
 
 Exact-head review `20260923T184313-1740-22551` rejected commit `d6a3d8121f8eaecfc412f6d2f912a8648eea835b` because the backup predicate omitted backups completed before deletion and the migration-lock text alternated between session and transaction semantics. The repair blocks on every retained backup with snapshot/capture start at or before the post-commit cutoff or ambiguous metadata, adds completed-before/cross-cutoff fixtures, and standardizes one session-level exclusive lock on a dedicated non-pooled connection with explicit `finally` unlock/session close plus fresh absence and connection-reuse tests; runtime shared locks are transaction-scoped. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260923T185752-1263-12511` rejected commit `550fa0638b86503ec38663b60ddd93cf19a10d90` because ordinary MCP queries and licensed responsibility-evaluation calls had no canonical erasable source anchor for their outbound leases. The repair adds a sixth `query_origin` anchor kind created atomically with every origin, routes expiry through freeze/drain/provider reconciliation, maps each immutable responsibility fixture case to a namespaced external anchor, passes both through `begin_source_outbound`, and adds positive fake-provider lifecycle tests proving erasure without deleting the governed repository fixture. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
