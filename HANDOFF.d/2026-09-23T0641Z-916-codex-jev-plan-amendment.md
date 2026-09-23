@@ -1,6 +1,6 @@
 ---
 issue: 14
-status: OPEN
+status: COMMITTED_AND_PUSHED (merge pending; continuation remains OPEN in the canonical plan)
 owner: codex/jev-plan-approval-status
 ---
 
@@ -64,6 +64,7 @@ The business outcome remains inexpensive semantic decisions without weakening Or
 - Exact-head review `20260923T112242-1596-22319` rejected commit `ef7c1b6f32779bef9d7f4ca9661e9cd6d0583bd1` because PostgreSQL retains DDL lock upgrades to transaction end, revocation/cancellation lacked an executable authoritative registry contract, and neutral-root reviewer isolation had no milestone owner. The repair declares and tests a maximum five-minute read/write outage after the first DDL upgrade, defines M0D3's append-only registry plus immediate exact-run cancellation and fail-closed renewal/abort recovery, and makes M0Q own/test `--untrusted-snapshot-root`. None is accepted until the next exact-head review approves it.
 - Exact-head review `20260923T113213-563-18811` rejected commit `f57be04171338757f79806a88c3f238767b7b5b7` because one old exact command omitted neutral-root isolation, M0Q's direct gate omitted its isolation case, authorization still allowed 15 minutes, and revocation tried to cancel plus open a PR with Actions-only permission. The repair makes the one exact command include both flags, makes both M0Q suites mandatory, removes the 15-minute allowance, and splits immediate Actions-only default-branch cancellation from the separately authenticated protected registry PR. None is accepted until the next exact-head review approves it.
 - Exact-head review `20260923T114137-1023-10689` rejected commit `bd716195ecff7a6e093828806cffb3123975c329` because no typed admin action could create/replace the mandatory spend epoch and no authorized caller could invoke physical source erasure. The repair adds owner-evidence-bound admin spend RPC/actions with real-JWT success/race/fault tests and a separately approved exact-source production workflow as the sole migration-owner erasure caller, with content-free attestation and full rollback/idempotency tests. None is accepted until the next exact-head review approves it.
+- Exact-head review `20260923T115059-356-27970` rejected commit `1eb956fda5ea445eec4cb6fdddf52c6e220debce` because runtime writers were not fenced through postcheck, M0A edited a deployment-class workflow before declaring the composite gate, and this baton remained permanently non-retireable while successor files could exceed the handoff threshold. The repair adds database-enforced shared/exclusive writer fencing with named web/worker files and live races, requires installed M0Q plus `migration-release` before M0A's first edit, marks this already committed/pushed baton as retireable once main is proven, and requires each Oracle successor to retire its immediate predecessor in the same PR rather than accumulate files. None is accepted until the next exact-head review approves it.
 - Reading this file on `main` means the amendment PR containing it merged; use the plan's Publication gate and the PR artifact for the authoritative review run/SHA. On the branch, approval/merge remains pending.
 
 ## 4. Everything tried that did not work
@@ -148,9 +149,9 @@ The business outcome remains inexpensive semantic decisions without weakening Or
 4. `2026-09-20T1411Z-916-codex-connected-answers.md` — issue #15 OPEN under its named Codex owner; keep.
 5. `2026-09-20T1411Z-916-codex-jev-integration-plan.md` — issue #14 OPEN; keep byte-identical because its status line blocks successor retirement, while this plan/successor supersedes only its route.
 6. `2026-09-22T2033Z-916-codex-live-proof-interrupted.md` — issue #15 OPEN under its original owner; keep.
-7. `2026-09-23T0641Z-916-codex-jev-plan-amendment.md` — this current OPEN successor; keep until M0A's successor proves the amendment landed and carries every obligation.
+7. `2026-09-23T0641Z-916-codex-jev-plan-amendment.md` — committed/pushed with merge pending; after merge it is retireable by M0A's successor only when that successor proves main and carries every obligation.
 
-No file is safely retireable in this session. The six counted files exceed the repository's stated threshold after excluding the legacy exception; the exact owners above, not this amendment, must retire their files when their successor conditions pass.
+No file is safely retireable in this session before this amendment merges. The six counted files exceed the repository threshold after excluding the legacy exception. M0P/M0Q may proceed in ai-devops, but M0A is blocked until one named owner/successor above legally retires an eligible completed non-current baton and the count is at most five; thereafter each Oracle successor must add one baton and retire its immediate proven predecessor in the same PR so the count never grows.
 
 ## Carried-forward predecessor audit record
 
