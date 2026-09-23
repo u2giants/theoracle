@@ -196,6 +196,8 @@ Exact-head review `20260923T174444-1767-6252` rejected commit `c1c6c083da0769a34
 
 Exact-head review `20260923T175346-963-26491` rejected commit `b15f204616d363ecd8d3bb073f8839490d8f289c` because live 1E4–1E8 work had no separate post-merge proof closeouts and two identities received permissions before the milestones that own their adapters/finalizer. The repair adds 1E1-C–1E8-C status gates with exact commands and immutable artifact contracts, makes each next step depend on the prior closeout, leaves the 1E3 production/verifier identities inert, grants tombstone access only in 1E4, provider groups only in 1E5/1E6, and finalizer dispatch only in 1E7. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260923T180908-692-28278` rejected commit `0224ba6a50b217525720b986ab4757edffcc665d` because the guarded migration design rejected Drizzle breakpoints even though every current journal entry uses `breakpoints:true`. The repair accepts both current breakpoint and single-statement formats, defines a quote/comment/dollar-aware separator lexer, binds raw/journal/statement/parser digests, and tests all current plus newly generated migrations against pinned Drizzle and standard-migrator results. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
