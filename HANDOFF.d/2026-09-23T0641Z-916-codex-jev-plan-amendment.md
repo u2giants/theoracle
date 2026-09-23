@@ -190,6 +190,8 @@ All listed work was read-only; no Jev call, implementation, deployment, producti
 - `resume_claims` verified support fencing must happen inside promotion before mutation and contradiction sweeps must select canonical exact pairs; both are now carried by the plan.
 - `resume_step9` reconciled current chat behavior: Step 9 reranks only no-attachment reconciled chat after enrichment, while 9B shadows the real ledger/rendered answer without a second repair bypass.
 
+Exact-head review `20260923T173221-472-8053` rejected commit `ce686ca08aacd2ce554791056e8935c845e9c0c1` because the plan linked a handoff that its closeout deletes, treated the erasure umbrella as one oversized outcome, and omitted an executable resumption path for backup-pending runs. The repair removes the doomed link, splits the umbrella into independently mergeable 1E1–1E9 plus 1E9-C outcomes, and adds a fresh-authorized, idempotent backup-finalization command/workflow/UI path with restart and boundary tests. None of these repairs is accepted until the next exact-head review explicitly approves them.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
