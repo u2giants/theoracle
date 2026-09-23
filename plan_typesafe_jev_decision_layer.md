@@ -14,11 +14,11 @@ Publication gate: the substantive Jev plan was approved by exact-head review `20
 
 | Step | Status | Date | Evidence / owner |
 | --- | --- | --- | --- |
-| M0A. Migration inventory, task gates, command/seed closure | ⬜ open | 2026-09-23 | Separate PR; pure ordering/tokenizer/scanner and CI routing, no database write |
-| M0B. Control schema, ledger, target guard, release recovery | ⬜ open | 2026-09-23 | Separate PR plus fresh-only proof; no production bootstrap |
-| M0C. Canonical proof/checkpoint/drift engine | ⬜ open | 2026-09-23 | Separate PR plus fresh/synthetic fault proof; no production bootstrap |
-| M0D. Encrypted rehearsal, secrets, Windows/CI gates | ⬜ open | 2026-09-23 | Separate PR and 916-alien rehearsal artifact; no production write |
-| M0E. Production baseline/bootstrap/idempotency activation | ⬜ open | 2026-09-23 | One final merged-SHA production outcome and strict deployed artifact |
+| M0A. Inventory, task gates, pure order/tokenizer/scanner | ⬜ open | 2026-09-23 | Buildable pure-code PR; `verify:m0a`, no command replacement or database write |
+| M0B. Fresh-only guarded runner, seed split, control/ledger/recovery | ⬜ open | 2026-09-23 | Depends on A; `verify:m0b` against fresh DB; production hard-stops without proof engine |
+| M0C. Canonical proof/checkpoint/drift/compatibility engine | ⬜ open | 2026-09-23 | Depends on B; `verify:m0c` on fresh/synthetic faults; production remains disabled in config |
+| M0D. Encrypted rehearsal, command/docs cutover, Windows/CI gates | ⬜ open | 2026-09-23 | Depends on C; `verify:m0d` plus 916 artifact; production flag remains false |
+| M0E. Reviewed production-enable flag and activation proof | ⬜ open | 2026-09-23 | Depends on D; tiny activation PR, then one merged-SHA production double-run outcome |
 | 0. Vendor, privacy, and test-data boundary | ⬜ open | 2026-09-20 | Issue #14; owner decision in §8 and §13 |
 | 1A. Decision schema, DB roles, and production migration | ⬜ open | 2026-09-22 | Schema/role-only PR; migrate and prove real connection privileges before dependent code |
 | 1B. Decision client and runtime-access verification | ⬜ open | 2026-09-22 | Starts after 1A; code/real-DB role tests only, before production credential removal |
@@ -226,7 +226,7 @@ No Jev code, package, secret, setting, deployment, or production call exists yet
 
 #### Step M0A–M0E — Repair and prove the migration path before adding Jev SQL
 
-M0 is a sequence, not one implementation session. M0A owns inventory/task gates/command and seed closure; M0B owns versioned control DDL, ledger, target guard, and Drizzle/raw recovery; M0C owns canonical roots, complete historical predicates, proof chain/checkpoints, drift modes, and compatibility gates; M0D owns protected secrets, encrypted clone/rehearsal, platform-specific tests, and required-check aggregation; M0E alone performs the merged-SHA production baseline/bootstrap/migrate/idempotency and strict waiter proof. Each milestone gets its own branch, exact-head review, PR, merge, STATUS update, and successor handoff. No milestone borrows unmerged files from the next, and no production write occurs before M0E.
+M0 is a dependency-ordered sequence, not one implementation session. **M0A** ships only pure ordering/tokenizer/inventory/scanner/task-gate modules and their CI; existing migration commands remain untouched. **M0B** consumes A and ships the target guard, seed split, control bootstrap, ledger/release recovery, and a fresh-only runner; any production profile exits `M0_PROOF_ENGINE_NOT_INSTALLED` before connection/write. **M0C** consumes B and ships canonical roots, predicates, proof/checkpoint/drift/compatibility engines; `config/database-targets.json` still has immutable `productionMigrationEnabled:false`, and tests prove flags/CLI/env cannot override it. **M0D** consumes C and ships protected secret/snapshot orchestration, platform CI, retired-command/docs cutover, and required-check aggregation; it runs the full 916 rehearsal while the production flag remains false. **M0E** is a tiny separate PR changing only the reviewed production-enable field/evidence reference plus required docs; after its merge, exact merged-SHA checks permit the one production baseline/bootstrap/migrate/idempotency outcome and strict waiter artifact. Each milestone has its own branch, exact-head review, PR, merge, STATUS update, successor handoff, and no borrowed unmerged files.
 
 **Files/functions**
 
@@ -791,7 +791,7 @@ Every row names a required automated test. This table applies before any product
 
 ### New foundation tests
 
-- M0 owns executable suites rather than prose-only cases: `packages/db/src/__verify__/m0-pure.ts` (ordering/tokenizer/scanner/task-gate/import safety), `m0-baseline-postconditions.ts`, `m0-fresh-integration.ts`, `m0-proof-chain.ts`, `m0-target-secrets.ts`, `m0-expand-contract.ts`, portable `m0-rehearsal-contract.ts`, and `scripts/__verify__/m0-rehearsal-faults.ps1` (real Windows guards). Scripts are `verify:m0:pure`, `verify:m0:baseline`, `verify:m0:fresh`, `verify:m0:proof`, `verify:m0:secrets`, `verify:m0:expand-contract`, `verify:m0:old-app-compat`, `verify:m0:rehearsal-contract`, Windows-only `verify:m0:windows-guards`, and local-real `verify:m0:rehearsal-live`. `pnpm verify:m0:ci` aggregates only portable Ubuntu suites; the required Windows job runs its own suite; `pnpm verify:m0` on 916-alien aggregates portable plus Windows and live rehearsal. Credentialed post-merge proof ends with deployed waiter/drift commands. Every M0 case maps to one file, and a manifest test rejects an unmapped case ID or a platform-only case assigned to the wrong job.
+- Each M0 milestone owns a runnable green gate using only already-merged dependencies. `pnpm verify:m0a` runs pure order/tokenizer/inventory/scanner/task-gate/import tests. After A merges, `pnpm verify:m0b` runs fresh-target guard, seed refusal, control DDL, ledger/release, Drizzle/raw crash recovery, and explicit production-no-proof-engine refusal. After B, `pnpm verify:m0c` runs baseline predicates, canonical catalog/cluster roots, proof chain/checkpoints, drift modes, expand contract, old-app compatibility, and production-disabled override attacks. After C, `pnpm verify:m0d:ci` runs portable rehearsal/secret lifecycle tests; required Windows `verify:m0:windows-guards` and 916-alien `verify:m0:rehearsal-live` produce separate artifacts while proving production remains disabled. M0E runs `pnpm verify:m0e` to require exact M0D artifacts, current main/required checks, and only the approved flag/docs diff, then after merge executes deployed waiter/drift proof. `pnpm verify:m0` becomes available after M0D and aggregates A–D plus live rehearsal. A manifest test rejects any case without a milestone/file/command owner.
 - `packages/ai/src/__verify__/typesafe-decision-contract.ts`
   - validates all three primitives and normalized responses;
   - rejects malformed answers/cardinality/state/data-class violations, mixed unapproved classes, unknown provenance, and caller downgrade attempts;
@@ -897,8 +897,8 @@ Tests must be quiet on success and must report exact failing cases on failure. L
 
 ### Definition of done
 
-- [ ] M0 is merged first: all new DB/proof/config/wrapper paths resolve to `shared-db`, `pnpm verify:m0` and required aggregated `build` pass, every historical raw migration has a complete-effect predicate, and fresh plus encrypted-snapshot bootstrap/migrate/idempotency proofs finish with verified cleanup.
-- [ ] M0 production runs from the merged SHA through target-guarded baseline/bootstrap/migrate/idempotency, the strict deployed waiter artifact validates its exact proof/release chain, the second run changes only its new proof row, no seed runs, and issue #14 records only content-free proof IDs/digests.
+- [ ] M0A–M0D each have their own merged commit, exact-head approval, green milestone command, STATUS evidence, and successor handoff; B refuses production without C, C/D keep the committed production flag false, and D's required Ubuntu/Windows checks plus 916-alien rehearsal pass with verified cleanup.
+- [ ] M0E changes only the reviewed activation field/evidence docs, passes `verify:m0e`, merges through the protected three-job aggregate, then runs target-guarded production baseline/bootstrap/migrate/idempotency from that exact SHA; strict deployed proof validates the chain, the second run changes only its proof row, no seed runs, and issue #14 records only content-free IDs/digests.
 - [ ] Vendor/data decision is recorded, and credentials/data classes match it.
 - [ ] One immutable active runtime data-policy version enforces the approved matrix; decision runs record it, revocation blocks calls/demotes dependent modes, and documents remain blocked until durably classified.
 - [ ] Separate decision client exists with pinned model, redaction, normalized results, and no generation-adapter contamination.
