@@ -218,6 +218,8 @@ Exact-head review `20260923T203417-990-20787` rejected commit `5159f93cb5653b7a6
 
 Exact-head review `20260923T204557-1188-2033` rejected commit `df2eb73416173dbef3807b4efb32db5bed63ea24` because three instructions used the wrong TypeSafe SDK retry configuration shape, which could leave the SDK's default two retries enabled and break the one-lease-per-request, cost, and erasure guarantees. The repair changes every occurrence to the official `retry: { maxRetries: 0 }` configuration while preserving the captured one-request contract test. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260923T205358-1417-20123` rejected commit `f7c6ca7edd40ed2499876237236c3c0d8a062b62` because upload intent idempotency stopped at document/source creation while the channel route also creates a message, attachment, and dispatch, and because the mandatory RLS paragraph retained the old 13+3 count and omitted the new intent table. The repair extends the signed metadata commitment and unique intent FKs across deterministic object creation, document/source/anchor/message/attachment transaction, and idempotent reconciled dispatch with boundary fault tests; it also makes the RLS contract explicitly 13+4 and names `oracle_document_upload_intents`. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
