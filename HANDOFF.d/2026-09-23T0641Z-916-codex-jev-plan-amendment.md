@@ -194,6 +194,8 @@ Exact-head review `20260923T173221-472-8053` rejected commit `ce686ca08aacd2ce55
 
 Exact-head review `20260923T174444-1767-6252` rejected commit `c1c6c083da0769a34d68d17373375fda668201eb` because an external source's stable tombstone key did not durably include its provider/system namespace, so identical record IDs from two systems could collide. The repair adds an immutable canonical namespace column, pair uniqueness and resolver rules, deterministic-or-blocking migration/backfill, a length-delimited namespace in the stable key, and same-ID/different-system no-cross-delete fixtures. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260923T175346-963-26491` rejected commit `b15f204616d363ecd8d3bb073f8839490d8f289c` because live 1E4–1E8 work had no separate post-merge proof closeouts and two identities received permissions before the milestones that own their adapters/finalizer. The repair adds 1E1-C–1E8-C status gates with exact commands and immutable artifact contracts, makes each next step depend on the prior closeout, leaves the 1E3 production/verifier identities inert, grants tombstone access only in 1E4, provider groups only in 1E5/1E6, and finalizer dispatch only in 1E7. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
