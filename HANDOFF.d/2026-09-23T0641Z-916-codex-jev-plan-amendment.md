@@ -216,6 +216,8 @@ Exact-head review `20260923T201927-970-6290` rejected commit `5bd90938b4e9956eeb
 
 Exact-head review `20260923T203417-990-20787` rejected commit `5159f93cb5653b7a69e0898d8d9e23e723ad657e` because one immutable restore record could not be updated under create/read-only authority, the erasure acceptance wording contradicted the permanent tombstone, and upload intents lacked a concrete preflight, registry, client retry, and partial multi-file protocol. The repair splits restore request/result into separate create-once immutable objects; explicitly classifies the permanent access-locked tombstone as the sole approved pseudonymous-control exception; and adds the seventeenth foundation table plus authenticated metadata-only preflight endpoints, signed per-file handles, browser retry persistence, before-multipart verification, and lost-response/partial-batch tests. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260923T204557-1188-2033` rejected commit `df2eb73416173dbef3807b4efb32db5bed63ea24` because three instructions used the wrong TypeSafe SDK retry configuration shape, which could leave the SDK's default two retries enabled and break the one-lease-per-request, cost, and erasure guarantees. The repair changes every occurrence to the official `retry: { maxRetries: 0 }` configuration while preserving the captured one-request contract test. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
