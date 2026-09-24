@@ -262,6 +262,8 @@ Exact-head review `20260924T015155-1903-30971` rejected commit `860a4d92754fc81f
 
 Exact-head review `20260924T020038-414-29938` rejected commit `2347d4a6570fcfa74ef583664f6121d98eb438e4` because the drain assumed queuing while the migration transaction used nonblocking `pg_try` under a four-minute cap, and external effects could start after commit while the five-minute fence remained active. The repair separates an eleven-minute bounded blocking drain transaction that writes a twenty-minute database-clock gate from the four-minute migration transaction; wrappers recheck the gate after their shared lock and refuse before send through the post-commit fence, then `drain_gate_release` clears it. It is not accepted until the next review.
 
+Exact-head review `20260924T021010-1189-13848` rejected commit `5becc7099b343d262128422a0b7f821661e1c350` because a process or connection crash after provider acceptance could release the shared lock before the external result and database postcondition were recorded, leaving Recall, Storage, Trigger, and sibling effects orphaned or duplicated. The repair adds a general content-free write-ahead intent bridge in the existing settings table, a dedicated session lock spanning committed intent through reconciliation, mandatory idempotency/lookup/compensation contracts for every manifested adapter, and a drain-only reconciler that must make every pre-gate intent terminal before baseline. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
