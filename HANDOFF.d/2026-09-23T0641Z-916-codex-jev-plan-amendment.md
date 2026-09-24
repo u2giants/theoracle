@@ -280,6 +280,8 @@ Exact-head review `20260924T032133-1896-12527` rejected commit `be34b0a49772f2d3
 
 Exact-head review `20260924T032832-304-27600` rejected commit `9e6e671df73918b54e0bcc2932e760a3ace0f3d5` because the provider-only stop still depended on a database lease, a hung global emergency could block recovery, the acceptance gate omitted complete orphan-key inventory/concurrent takeover, and handoff cleanup was not a formal prerequisite. The repair makes the global GitHub group—not the database—the cross-outage lock with bounded timeout and safe `cancel-in-progress` takeover, makes database and provider legs independently runnable, expands acceptance to all labels/generations/nonterminal journals and accepted-before-ID crashes, and adds owned P-C STATUS closeout that must reduce the handoff count to five before M0P. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260924T033405-1284-914` rejected commit `2b5c0eb542355bef5da03c8331f7541c36502d51` because the administrator was allowed to write only `planned` even though issuance required it to record `issuing/issued`, and a later acceptance bullet still required nine schedules after M0D4 adds the tenth. The repair defines a narrow temporary issuer-journal capability and immutable two-actor state ranges for M0I1 and every later transfer, with revocation before workflow handoff, and makes schedule acceptance explicitly nine before M0D4 and exactly 10/10 afterward. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
