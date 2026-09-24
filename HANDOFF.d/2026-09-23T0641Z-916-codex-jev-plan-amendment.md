@@ -284,6 +284,8 @@ Exact-head review `20260924T033405-1284-914` rejected commit `2b5c0eb542355bef5d
 
 Exact-head review `20260924T034119-718-22119` rejected commit `3f2eea08478c6259f46cc06d84f4183019fd990b` because one paragraph allowed ten minutes for the Supabase log watermark while M0F's authoritative clock allows only a five-minute external postcheck. The repair makes five minutes after writer-fence release, never beyond T+22, the only success deadline for M0F and later releases; later-arriving logs remain diagnostic and cannot reverse contamination. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260924T034807-1037-4783` rejected commit `981f985fc1e0246db04583d9ee29b2f9ede36afe` because the migration login was simultaneously function-only and expected to run direct schema/role SQL, and M0J could install production write triggers without an immediate real runtime write proof or rollback rule. The repair separates the post-Step-1A executor from NOLOGIN schema/role owners behind closed authorization-bound `SECURITY DEFINER` functions, forbids direct executor elevation/DDL/DML, and adds M0E-predeployed fixed web/worker CRUD canaries, lock-duration/health gates, zero-residue proof, and automatic checksum-pinned 004 compensation before J-C can unlock V0. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
