@@ -288,6 +288,8 @@ Exact-head review `20260924T034807-1037-4783` rejected commit `981f985fc1e0246db
 
 Exact-head review `20260924T035723-530-15727` rejected commit `089f76d1ebb3a70a7ce89a457fdc93c579c05cc0` because an older paragraph still forbade the fixed privileged password function and Step 2A expected the retired bootstrap credential to create two logins. The repair removes the stale design, makes Step 1A create the explicit NOLOGIN role-credential owner and its only two closed functions, keeps the workflow on the NOCREATEROLE executor, and routes Step 2A's literal two-login create/grant/rollback through the sealed authorization-validating function with direct role-DDL/elevation denial tests. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260924T040344-591-9833` rejected commit `45642dd4d2bab109b2dc69fa8a04511fd726b2a3` because PostgreSQL 17 requires the NOLOGIN role owner to hold ADMIN OPTION over each existing role it alters/administers, and the plan's attempted role-catalog lock was not executable. The repair grants that owner ADMIN OPTION with SET/INHERIT disabled on only the two versioned runtime roles and two Jev executor groups, serializes both closed functions with one fixed transaction advisory lock, and adds positive PostgreSQL 17 plus fifth-role/spoof/elevation/concurrency/catalog-drift denials. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
