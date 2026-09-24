@@ -286,6 +286,8 @@ Exact-head review `20260924T034119-718-22119` rejected commit `3f2eea08478c6259f
 
 Exact-head review `20260924T034807-1037-4783` rejected commit `981f985fc1e0246db04583d9ee29b2f9ede36afe` because the migration login was simultaneously function-only and expected to run direct schema/role SQL, and M0J could install production write triggers without an immediate real runtime write proof or rollback rule. The repair separates the post-Step-1A executor from NOLOGIN schema/role owners behind closed authorization-bound `SECURITY DEFINER` functions, forbids direct executor elevation/DDL/DML, and adds M0E-predeployed fixed web/worker CRUD canaries, lock-duration/health gates, zero-residue proof, and automatic checksum-pinned 004 compensation before J-C can unlock V0. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260924T035723-530-15727` rejected commit `089f76d1ebb3a70a7ce89a457fdc93c579c05cc0` because an older paragraph still forbade the fixed privileged password function and Step 2A expected the retired bootstrap credential to create two logins. The repair removes the stale design, makes Step 1A create the explicit NOLOGIN role-credential owner and its only two closed functions, keeps the workflow on the NOCREATEROLE executor, and routes Step 2A's literal two-login create/grant/rollback through the sealed authorization-validating function with direct role-DDL/elevation denial tests. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
