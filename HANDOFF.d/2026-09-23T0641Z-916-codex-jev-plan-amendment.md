@@ -256,6 +256,8 @@ Exact-head review `20260924T013359-1764-8628` rejected commit `f30561db055d519b5
 
 Exact-head review `20260924T013940-1491-803` rejected commit `06386951b535c227840ba5afbf39d64bf384dde6` because the M0G gate retained path-only trust wording, Step 2A had no guarded route to create its two login roles, and the emergency workflow had no scoped ingress for credentials confined to sibling workflows. The repair makes the M0G gate cloud-enforce exact current-main SHA; adds one separately authorized, fixed-SQL, real-PostgreSQL-tested migration action for exactly the two 2A logins without weakening the password-only rotator; and gives emergency recovery a pre-journaled six-bootstrap, exact-source ingress with cleanup and cross-identity denials. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260924T014630-1015-5104` rejected commit `5ec74979669075bec66582ce78bc5920c2eae93a` because later text still named obsolete combined M0X commands and one deployment artifact. The repair makes `verify:m0x0:candidate` the sole candidate/merged-tree rehearsal alias, gives X1 and X2 separately named web and worker artifacts/closeouts, and makes M0F verify both plus X0-C before production credentials or database access. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
