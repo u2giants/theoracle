@@ -282,6 +282,8 @@ Exact-head review `20260924T032832-304-27600` rejected commit `9e6e671df73918b54
 
 Exact-head review `20260924T033405-1284-914` rejected commit `2b5c0eb542355bef5da03c8331f7541c36502d51` because the administrator was allowed to write only `planned` even though issuance required it to record `issuing/issued`, and a later acceptance bullet still required nine schedules after M0D4 adds the tenth. The repair defines a narrow temporary issuer-journal capability and immutable two-actor state ranges for M0I1 and every later transfer, with revocation before workflow handoff, and makes schedule acceptance explicitly nine before M0D4 and exactly 10/10 afterward. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260924T034119-718-22119` rejected commit `3f2eea08478c6259f46cc06d84f4183019fd990b` because one paragraph allowed ten minutes for the Supabase log watermark while M0F's authoritative clock allows only a five-minute external postcheck. The repair makes five minutes after writer-fence release, never beyond T+22, the only success deadline for M0F and later releases; later-arriving logs remain diagnostic and cannot reverse contamination. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
