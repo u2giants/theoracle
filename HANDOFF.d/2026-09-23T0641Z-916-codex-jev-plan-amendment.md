@@ -258,6 +258,8 @@ Exact-head review `20260924T013940-1491-803` rejected commit `06386951b535c22784
 
 Exact-head review `20260924T014630-1015-5104` rejected commit `5ec74979669075bec66582ce78bc5920c2eae93a` because later text still named obsolete combined M0X commands and one deployment artifact. The repair makes `verify:m0x0:candidate` the sole candidate/merged-tree rehearsal alias, gives X1 and X2 separately named web and worker artifacts/closeouts, and makes M0F verify both plus X0-C before production credentials or database access. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260924T015155-1903-30971` rejected commit `860a4d92754fc81f4bd0af6cfdea2442c278e6cf` because the migration fence did not drain in-flight external side effects, X1/X2 artifacts lacked retention/freshness/run identity, and M0 closeouts still named unsafe handoff retirements. The repair wraps every external effect in the shared form of the migration advisory lock through durable postcondition, requires a bounded exclusive-lock drain with whole-repository/barrier tests, versions and uniquely names 30-day run/attempt artifacts with freshness/rerun checks, and removes handoff actions from M0R-C/M0E-C/M0F-C. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
