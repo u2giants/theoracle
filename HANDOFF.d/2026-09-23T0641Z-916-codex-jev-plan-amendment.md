@@ -248,6 +248,8 @@ Exact-head review `20260923T235458-230-12547` rejected commit `947d5813a773df0ee
 
 Exact-head review `20260924T010425-907-5298` rejected commit `a7e84f25cb3bec94f29481deb19b411fea3cfbf9` because provider trust pinned the M0G `workflow_sha` and would block independently reviewed M0I workflow revisions. The repair keeps GCP trust on stable `workflow_ref`, repository, ref, and event claims; maps `workflow_sha` only for action-level sealed exact-SHA checks; and tests the M0G-to-M0I stale/new approval transition. It is not accepted until the next exact-head review explicitly approves it.
 
+Exact-head review `20260924T011054-672-9716` rejected commit `72392c2eafa9fb8097d7cfca35c5d62f2dd42e2c` because stable-path cloud trust still let a defective same-path workflow omit its local SHA check, bootstrap capabilities could precede their journal, early M0I approvals had no executable issuer, and M0I/M0V/M0X bundled distinct live outcomes. The repair restores cloud-enforced exact `workflow_sha` and requires a separately approved clean-Cloud-Shell IAM transition for every revised workflow; makes the journal durable before any capability issuance/upload; adds M0R's credential-free attested infrastructure-approval issuer; and splits M0I into five implementation/closeout pairs, M0V into web and worker pairs, and M0X into manifest, web, and worker pairs. It is not accepted until the next exact-head review explicitly approves it.
+
 ## Self-audit
 
 1. **Can a brand-new developer continue without this chat? Yes.** §§1–3 define the product, goal, exact branch, merged baseline, and unmerged amendment state; §6 gives ordered commands and success gates.
