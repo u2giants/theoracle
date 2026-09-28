@@ -1,6 +1,6 @@
 # S02 dependency and runtime qualification
 
-Status: synthetic offline qualification passed at commit `b2b192b`; preview
+Status: synthetic offline qualification passed at commit `1765bc7`; preview
 qualification is still open. This is not a business-quality claim.
 
 ## Reproducible bundle
@@ -40,8 +40,8 @@ after the failing fixture, without forking Graphiti.
 
 ## Measured offline result
 
-[CI run 36371673763](https://github.com/u2giants/theoracle/actions/runs/36371673763)
-passed 15 Python contract/store checks on isolated Postgres, two authenticated
+[CI run 36372377943](https://github.com/u2giants/theoracle/actions/runs/36372377943)
+passed 16 Python contract/store checks on isolated Postgres, two authenticated
 FalkorDB instances, and LocalStack S3. The same workflow validated S01 from
 full Git history. Its sanitized artifact records the locked hash and outcomes.
 The worker kill/replay test compared the same event ID and revision after a
@@ -51,12 +51,12 @@ not write accepted rows or authenticate to the confirmed graph.
 
 On a GitHub Ubuntu 24.04 runner (4 CPUs, 16 GB RAM), the pilot loaded 10,000
 nodes and 100,000 relations across three partitions with 20 concurrent
-readers: p50 0.0891s, p95 0.2956s, zero forbidden records. The separate 10x
-stress loaded 100,000 nodes and 1,000,000 relations: p50 1.8317s, p95
-2.8172s, zero forbidden records. The 2-second target applies to pilot size.
-After workload, the confirmed Falkor container used 200.8 MiB of its 2 GiB
-limit; this is one snapshot, not a measured peak. Same-volume restart matched
-all counts in 8.972s; snapshot restore in a fresh instance matched in 3.151s.
+readers: p50 0.0771s, p95 0.2675s, zero forbidden records. The separate 10x
+stress loaded 100,000 nodes and 1,000,000 relations: p50 1.8999s, p95
+2.8125s, zero forbidden records. The 2-second target applies to pilot size.
+After workload, the confirmed Falkor container used 213.4 MiB of its
+2 GiB limit; this is one snapshot, not a measured peak. Same-volume restart matched all
+counts in 8.553s; snapshot restore in a fresh instance matched in 3.840s.
 The resource script, report JSON and Docker stats are in the CI artifact.
 
 ## Preview decision required

@@ -23,6 +23,12 @@ def enqueue_accepted(database_url: str, *, workspace_id: UUID, assertion_id: UUI
     event_id = uuid4()
     with psycopg.connect(database_url) as connection:
         with connection.transaction():
+            # Serialize even the first revision, when no accepted row exists yet.
+            # A hash collision only serializes unrelated assertions.
+            connection.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f"{workspace_id}:{assertion_id}",),
+            )
             row = connection.execute(
                 """SELECT revision FROM oracle2.accepted
                    WHERE workspace_id=%s AND assertion_id=%s FOR UPDATE""",
