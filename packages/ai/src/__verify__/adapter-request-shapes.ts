@@ -1,3 +1,4 @@
+import { lookupEnrichment } from '../model-capabilities';
 import { z } from 'zod';
 import { AnthropicAdapter } from '../providers/anthropic-adapter';
 import { DeepSeekAdapter } from '../providers/deepseek-adapter';
@@ -366,7 +367,16 @@ function verifyLenientJson(): void {
   assert(parseLenientJson('no json here') === 'no json here', 'non-JSON text must pass through unchanged');
 }
 
+function verifyEnrichmentAliases(): void {
+  const map = new Map<string, any>([['stepfun/step-5-preview', { id: 'stepfun/step-5-preview' }], ['z-ai/glm-5.3', { id: 'z-ai/glm-5.3' }]]);
+  for (const id of ['stepfun/step-5-preview', 'zai/glm-5.3', 'meta_muse/muse-spark-1.3']) {
+    lookupEnrichment(map as never, id); // must terminate (stepfun aliases to itself)
+  }
+  assert(lookupEnrichment(map as never, 'zai/glm-5.3').matched, 'zai must match via z-ai alias');
+}
+
 async function main(): Promise<void> {
+  verifyEnrichmentAliases();
   verifyLenientJson();
   await verifyAnthropicTemperature();
   await verifyDeepSeekJsonMode();
