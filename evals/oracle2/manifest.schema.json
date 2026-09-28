@@ -321,5 +321,6 @@
     "A18": "db51ee54a5ba183ef04a000256bed3ebda803a9a3f8b92cdbc20442d7aa23c39",
     "A19": "46a05e96160f6b30553cbc211262a419369aad22c2cc0cb04b5830d2a546ffbf",
     "A20": "3a95af44a8e4f1e07c006b721ede91120189b69d7e0ece7882228fb230fd28df"
-  }
+  },
+  "x-manifest-version": 1
 }

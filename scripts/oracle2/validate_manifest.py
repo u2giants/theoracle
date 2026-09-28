@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -62,6 +63,9 @@ def validate_record(record, line):
     covered_sources = {span['source_id'] for span in spans}
     if covered_sources != set(record['source_ids']):
         fail(f'line {line}: declared source without evidence span')
+    span_keys = [(span['source_id'], span['locator'], span['text'].strip().casefold()) for span in spans]
+    if len(span_keys) != len(set(span_keys)):
+        fail(f'line {line}: duplicate evidence span within record')
     if question:
         for field in ('process', 'question', 'time_scope'):
             nonempty(record[field], f'line {line} {field}')
@@ -83,7 +87,7 @@ def validate_record(record, line):
             nonempty(record[field], f'line {line} {field}')
 
 
-def validate(records, schema):
+def validate(records, schema, prior_records=None, prior_version=None):
     expected = schema['x-exact-synthetic-counts']
     frozen = schema['x-frozen-acceptance-sha256']
     counts = Counter()
@@ -131,7 +135,28 @@ def validate(records, schema):
         fail('missing or unexpected manifest IDs')
     if set(frozen) != {f'A{i:02d}' for i in range(1, 21)}:
         fail('frozen acceptance digest list is incomplete')
+    if prior_records is not None:
+        old_acceptance = {row['id']: row for row in prior_records if row.get('split') == 'acceptance'}
+        new_acceptance = {row['id']: row for row in records if row.get('split') == 'acceptance'}
+        if old_acceptance != new_acceptance and schema['x-manifest-version'] == prior_version:
+            fail('acceptance content changed without a manifest version bump from the Git baseline')
     return counts
+
+
+def git_baseline():
+    """Read the accepted base revision, if one exists, without editing the repository."""
+    ref = subprocess.run(['git', 'merge-base', 'HEAD', 'origin/main'], cwd=ROOT, capture_output=True, text=True)
+    if ref.returncode != 0:
+        return None, None
+    commit = ref.stdout.strip()
+    def read(path):
+        result = subprocess.run(['git', 'show', f'{commit}:{path}'], cwd=ROOT, capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else None
+    manifest = read('evals/oracle2/synthetic-cases.jsonl')
+    old_schema = read('evals/oracle2/manifest.schema.json')
+    if manifest is None or old_schema is None:
+        return None, None  # First publication: Git main has no accepted Oracle 2 corpus yet.
+    return [json.loads(line) for line in manifest.splitlines() if line.strip()], json.loads(old_schema)['x-manifest-version']
 
 
 def main():
@@ -142,7 +167,8 @@ def main():
     try:
         schema = json.loads(SCHEMA.read_text())
         records = [json.loads(line) for line in args.manifest.read_text().splitlines() if line.strip()]
-        counts = validate(records, schema)
+        prior_records, prior_version = git_baseline()
+        counts = validate(records, schema, prior_records, prior_version)
     except (ValueError, KeyError, OSError, json.JSONDecodeError) as exc:
         print(f'FAIL: {exc}', file=sys.stderr)
         return 1

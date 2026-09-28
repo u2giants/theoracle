@@ -51,6 +51,20 @@ class ManifestValidationTests(unittest.TestCase):
             rows[1] = copied
         self.assert_rejected(mutate)
 
+    def test_duplicate_span_inside_record(self):
+        self.assert_rejected(lambda rows: rows[0]['evidence_spans'].append(copy.deepcopy(rows[0]['evidence_spans'][0])))
+
+    def test_coordinated_checksum_change_cannot_hide_same_version_edit(self):
+        import hashlib
+        rows = copy.deepcopy(self.records)
+        schema = copy.deepcopy(self.schema)
+        rows[0]['question'] = 'Changed question with same version?'
+        schema['x-frozen-acceptance-sha256']['A01'] = hashlib.sha256(
+            json.dumps(rows[0], sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
+        ).hexdigest()
+        with self.assertRaisesRegex(ValueError, 'version bump'):
+            validate(rows, schema, self.records, self.schema['x-manifest-version'])
+
 
 if __name__ == '__main__':
     unittest.main()
