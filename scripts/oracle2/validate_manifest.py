@@ -144,19 +144,25 @@ def validate(records, schema, prior_records=None, prior_version=None):
 
 
 def git_baseline():
-    """Read the accepted base revision, if one exists, without editing the repository."""
-    ref = subprocess.run(['git', 'merge-base', 'HEAD', 'origin/main'], cwd=ROOT, capture_output=True, text=True)
-    if ref.returncode != 0:
-        return None, None
-    commit = ref.stdout.strip()
+    """Read the first committed manifest; never silently disable the freeze check."""
+    shallow = subprocess.run(['git', 'rev-parse', '--is-shallow-repository'], cwd=ROOT, capture_output=True, text=True)
+    if shallow.returncode != 0 or shallow.stdout.strip() != 'false':
+        fail('full Git history required for acceptance baseline validation')
+    ref = subprocess.run(
+        ['git', 'log', '--diff-filter=A', '--format=%H', '--reverse', 'HEAD', '--', 'evals/oracle2/synthetic-cases.jsonl'],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    if ref.returncode != 0 or not ref.stdout.strip():
+        fail('first committed acceptance manifest unavailable')
+    commit = ref.stdout.splitlines()[0]
     def read(path):
         result = subprocess.run(['git', 'show', f'{commit}:{path}'], cwd=ROOT, capture_output=True, text=True)
-        return result.stdout if result.returncode == 0 else None
+        if result.returncode != 0:
+            fail(f'Git acceptance baseline missing {path}')
+        return result.stdout
     manifest = read('evals/oracle2/synthetic-cases.jsonl')
     old_schema = read('evals/oracle2/manifest.schema.json')
-    if manifest is None or old_schema is None:
-        return None, None  # First publication: Git main has no accepted Oracle 2 corpus yet.
-    return [json.loads(line) for line in manifest.splitlines() if line.strip()], json.loads(old_schema)['x-manifest-version']
+    return [json.loads(line) for line in manifest.splitlines() if line.strip()], json.loads(old_schema).get('x-manifest-version', 1)
 
 
 def main():

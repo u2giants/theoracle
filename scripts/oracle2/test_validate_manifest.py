@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import unittest
 
-from validate_manifest import DEFAULT, SCHEMA, validate
+from validate_manifest import DEFAULT, SCHEMA, git_baseline, validate
 
 
 class ManifestValidationTests(unittest.TestCase):
@@ -64,6 +64,26 @@ class ManifestValidationTests(unittest.TestCase):
         ).hexdigest()
         with self.assertRaisesRegex(ValueError, 'version bump'):
             validate(rows, schema, self.records, self.schema['x-manifest-version'])
+
+    def test_git_baseline_discovers_first_committed_manifest(self):
+        old_rows, old_version = git_baseline()
+        self.assertEqual(old_version, 1)
+        self.assertEqual(old_rows[0]['id'], 'A01')
+
+    def test_missing_git_baseline_fails_closed(self):
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        with patch('validate_manifest.subprocess.run', return_value=CompletedProcess([], 1, '', 'missing')):
+            with self.assertRaisesRegex(ValueError, 'full Git history required'):
+                git_baseline()
+
+    def test_no_manifest_addition_fails_closed(self):
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        results = [CompletedProcess([], 0, 'false\n', ''), CompletedProcess([], 0, '', '')]
+        with patch('validate_manifest.subprocess.run', side_effect=results):
+            with self.assertRaisesRegex(ValueError, 'first committed acceptance manifest unavailable'):
+                git_baseline()
 
 
 if __name__ == '__main__':
