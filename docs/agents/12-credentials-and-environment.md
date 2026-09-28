@@ -34,7 +34,7 @@
 | `TRIGGER_SECRET_KEY` | Trigger.dev auth | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `PROD_DIRECT_URL` | Used by the CI drift-check step to reach production Postgres | GitHub Actions repo secret (`gh secret list`) | no | yes (CI) |
 | `TRIGGER_ACCESS_TOKEN` | Trigger.dev CLI auth for worker deploys (`npx trigger.dev@4.5.15 deploy`) and management-API reads | operator shell only, from 1Password item `ylzcsfbhmjyzjy65mnu6uxw67e` (see `docs/1password.md` §2a) | no | deploy-time only (never stored in an env file) |
-| `META_MUSE_API_KEY` / `ZAI_API_KEY` / `STEPFUN_API_KEY` | Meta Muse / Z.ai GLM / StepFun adapters (details in `docs/configuration.md`) | `.env.local`, Vercel, Trigger.dev | optional | optional; none set in Trigger prod as of 2026-09-28 |
+| `META_MUSE_BASE_URL` / `ZAI_BASE_URL` / `STEPFUN_BASE_URL` | Optional base-URL overrides for the three OpenAI-compatible adapters (defaults in `docs/configuration.md`) | `.env.local` only unless a region override is needed | optional | not set in prod |
 | `TRIGGER_PROJECT_REF` | Trigger.dev project selector | `.env.local`, Vercel | optional | optional |
 | `ORACLE_RUN_VECTOR_INDEXES` | Opt-in switch for expensive `99_vector_indexes.sql` migration step | shell/env when intentionally running vector index creation | optional | optional |
 | `NEXT_PUBLIC_GIT_SHA` | Build metadata injected by `apps/web/next.config.ts` for admin display | generated at build time | no | no |

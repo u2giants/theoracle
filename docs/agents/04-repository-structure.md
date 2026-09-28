@@ -85,5 +85,6 @@ Deployment files:
 - `vercel.json` — repo-level Vercel build contract
 - `.github/workflows/pr-check.yml` — production build and repository verification gate
 - `.github/workflows/task-gates.yml` — task-classification policy gate; never deploys
+- `.github/workflows/oracle2-contracts.yml` — self-hosted Oracle 2 contracts, workers typecheck and legacy worker-bundle guard; never deploys
 - `apps/workers/trigger.config.ts` — Trigger.dev runtime config
 

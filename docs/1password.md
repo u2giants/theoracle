@@ -100,7 +100,7 @@ op://vibe_coding/<item>/<section>/<field>
 
 `op://` references reject titles containing parentheses (this item and the §3 items
 alike), so address such items by item id and field label, e.g. the PAT above or
-`op://vibe_coding/ntr5ln6tnmsmzxzpyv4q6ohxgy/oracle_session_pooler` in
+`op://vibe_coding/qcuyabwseaptvuzvtjejffi2ou/oracle_session_pooler` in
 `docs/deployment.md`; `op item get "<title>"` still works by title.
 
 ## 3. Oracle items created during the 2026-06-26 AI session

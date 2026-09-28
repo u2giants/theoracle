@@ -102,7 +102,7 @@ local shell, override `DIRECT_URL`/`DATABASE_URL` with the 1Password item
 eqccjfbyrywsqkxxpjvg)` field `oracle_session_pooler` before running:
 
 ```powershell
-$env:DIRECT_URL = op read "op://vibe_coding/ntr5ln6tnmsmzxzpyv4q6ohxgy/oracle_session_pooler"
+$env:DIRECT_URL = op read "op://vibe_coding/qcuyabwseaptvuzvtjejffi2ou/oracle_session_pooler"
 $env:DATABASE_URL = $env:DIRECT_URL
 corepack pnpm --filter @oracle/db migrate
 ```
