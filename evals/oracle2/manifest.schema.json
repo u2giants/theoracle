@@ -242,7 +242,8 @@
             "source_ids",
             "evidence_spans",
             "attack_or_shape",
-            "expected_handling"
+            "expected_handling",
+            "input_text"
           ],
           "properties": {
             "kind": {
@@ -273,6 +274,10 @@
               "minLength": 1
             },
             "expected_handling": {
+              "type": "string",
+              "minLength": 1
+            },
+            "input_text": {
               "type": "string",
               "minLength": 1
             }

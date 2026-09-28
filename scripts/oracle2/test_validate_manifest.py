@@ -66,9 +66,21 @@ class ManifestValidationTests(unittest.TestCase):
             validate(rows, schema, self.records, self.schema['x-manifest-version'])
 
     def test_git_baseline_discovers_first_committed_manifest(self):
-        old_rows, old_version = git_baseline(1)
-        self.assertEqual(old_version, 1)
-        self.assertEqual(old_rows[0]['id'], 'A01')
+        from unittest.mock import patch
+        from subprocess import CompletedProcess
+        replies = [
+            CompletedProcess([], 0, 'false\n', ''),
+            CompletedProcess([], 0, 'abc123\n', ''),
+            CompletedProcess([], 0, json.dumps({'x-manifest-version': 1}), ''),
+            CompletedProcess([], 0, json.dumps(self.records[0])+'\n', ''),
+        ]
+        with patch('validate_manifest.subprocess.run', side_effect=replies):
+            old_rows, old_version = git_baseline(1)
+            self.assertEqual(old_version, 1)
+            self.assertEqual(old_rows[0]['id'], 'A01')
+
+    def test_fixture_without_raw_payload_fails(self):
+        self.assert_rejected(lambda rows: rows[-1].update(input_text=rows[-1]['attack_or_shape']))
 
     def test_missing_git_baseline_fails_closed(self):
         from unittest.mock import patch

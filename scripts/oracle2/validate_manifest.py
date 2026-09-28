@@ -33,7 +33,7 @@ def validate_record(record, line):
         fail(f'line {line}: invalid kind')
     common = {'kind', 'id', 'split', 'category', 'source_ids', 'evidence_spans'}
     extra = ({'process', 'question', 'required_facts', 'forbidden_inferences', 'time_scope', 'expectation', 'reviewer_rubric'}
-             if question else {'source_format', 'attack_or_shape', 'expected_handling'})
+             if question else {'source_format', 'input_text', 'attack_or_shape', 'expected_handling'})
     if set(record) != common | extra:
         fail(f'line {line}: missing or unknown fields {sorted(set(record) ^ (common | extra))}')
     for field in ['id', 'split', 'category']:
@@ -83,8 +83,10 @@ def validate_record(record, line):
         for field, value in rubric.items():
             nonempty(value, f'line {line} rubric {field}')
     else:
-        for field in ('source_format', 'attack_or_shape', 'expected_handling'):
+        for field in ('source_format', 'input_text', 'attack_or_shape', 'expected_handling'):
             nonempty(record[field], f'line {line} {field}')
+        if record['input_text'].strip() == record['attack_or_shape'].strip():
+            fail(f'line {line}: fixture requires a concrete payload, not its description')
 
 
 def validate(records, schema, prior_records=None, prior_version=None):

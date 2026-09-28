@@ -5,7 +5,7 @@ Date: 2026-09-27 EDT. Source revision: `7c47319ecf61b52212094cf3232044fdb19c6836
 | Evidence | Result |
 |---|---|
 | Public synthetic manifest | 20 held-out acceptance, 10 separate development, 12 source/adversarial fixtures; validator passed |
-| Missing evidence, uncovered source, relabeled or modified held-out case, split leakage, duplicate content/span, missing case, coordinated checksum edit, missing Git baseline, second-version same-version edit | Fourteen regression checks passed |
+| Missing evidence, uncovered source, relabeled or modified held-out case, split leakage, duplicate content/span, missing case, coordinated checksum edit, missing Git baseline, later same-version edit, missing fixture payload | Fifteen regression checks passed |
 | Current Oracle live quality | Unavailable; authorized flow and private reviewed cases not established |
 | Direct long-context live quality | Unavailable for the same reason |
 | Real answer-key process-owner review | Unavailable; Albert Hazan owns review and process-owner assignment; private manifest is pending before real-data comparison |
