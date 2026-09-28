@@ -31,9 +31,11 @@
   "dependencies": {
     "@oracle/ai": "workspace:*",
     "@oracle/auth": "workspace:*",
+    "@oracle/brain-contracts": "workspace:*",
     "@oracle/db": "workspace:*",
     "@oracle/engines": "workspace:*",
     "@oracle/shared": "workspace:*",
+    "@trigger.dev/python": "4.5.15",
     "@trigger.dev/sdk": "4.5.15",
     "ai": "^6.0.187",
     "dotenv": "^17.4.2",

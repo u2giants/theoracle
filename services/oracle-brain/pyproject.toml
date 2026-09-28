@@ -1,0 +1,39 @@
+[project]
+name = "oracle-brain"
+version = "0.1.0"
+description = "Isolated Oracle consultant foundation"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "pydantic>=2.11,<3",
+  "psycopg[binary]>=3.2,<4",
+  "falkordb>=1.1,<2",
+  "langgraph>=1.0,<2",
+  "langgraph-checkpoint-postgres>=3.0,<4",
+  "graphiti-core[falkordb]==0.30.2",
+  "docling>=2.130,<3",
+  "cryptography>=46,<47",
+  "torch>=2.5,<3",
+  "torchvision>=0.20,<1",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

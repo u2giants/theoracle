@@ -1,0 +1,21 @@
+from uuid import uuid4
+
+import pytest
+
+from oracle_brain.storage import bind_checkpoint, postgres_checkpointer
+
+
+def test_checkpoint_scope_survives_new_connection(admin_url):
+    workspace, user, other = uuid4(), uuid4(), uuid4()
+    thread = str(uuid4())
+    assert bind_checkpoint(admin_url, thread_id=thread, workspace_id=workspace,
+                           user_id=user) == thread
+    with pytest.raises(PermissionError):
+        bind_checkpoint(admin_url, thread_id=thread, workspace_id=workspace,
+                        user_id=other)
+    with pytest.raises(PermissionError):
+        bind_checkpoint(admin_url, thread_id=thread, workspace_id=other,
+                        user_id=user)
+    with postgres_checkpointer(admin_url, thread_id=thread,
+                               workspace_id=workspace, user_id=user) as saver:
+        saver.setup()

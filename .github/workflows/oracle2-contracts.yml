@@ -1,0 +1,57 @@
+name: Oracle 2 contracts
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  oracle2-offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ORACLE2_TEST_ADMIN_URL: postgresql://oracle2_admin:oracle2_local_admin_only@127.0.0.1:55432/oracle2
+      ORACLE2_TEST_CANDIDATE_URL: redis://:oracle2_candidate_local_only@127.0.0.1:56379
+      ORACLE2_TEST_CONFIRMED_URL: redis://:oracle2_confirmed_local_only@127.0.0.1:56380
+      ORACLE2_TEST_BLOB_ENDPOINT: http://127.0.0.1:54566
+      GRAPHITI_TELEMETRY_ENABLED: 'false'
+      ORACLE2_TELEMETRY_MODE: 'off'
+    steps:
+      - name: Full-history checkout for frozen S01 corpus
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate S01 corpus and regression checks
+        run: |
+          python3 scripts/oracle2/validate_manifest.py --synthetic
+          python3 -m unittest discover -s scripts/oracle2 -p test_validate_manifest.py
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.12.19'
+      - name: Install locked CPU dependency bundle
+        run: uv sync --project services/oracle-brain --frozen --extra test
+      - name: Verify exported contracts
+        run: |
+          services/oracle-brain/.venv/bin/python scripts/oracle2/export_contracts.py
+          git diff --exit-code -- packages/brain-contracts/schema
+      - name: Start isolated real stores
+        run: docker compose -f dev/oracle2/compose.yaml up -d --wait
+      - name: S02 offline contract and storage gate
+        run: python3 scripts/oracle2/verify_phase.py S02 --mode offline
+      - name: Check store availability and resource usage
+        run: docker stats --no-stream
+      - name: Upload sanitized result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle2-s02-offline-result
+          path: out/oracle2/S02-result.json
+          if-no-files-found: error
+      - name: Stop isolated stores
+        if: always()
+        run: docker compose -f dev/oracle2/compose.yaml down --volumes

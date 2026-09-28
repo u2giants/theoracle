@@ -1,0 +1,60 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "applied_at": {
+      "format": "date-time",
+      "title": "Applied At",
+      "type": "string"
+    },
+    "assertion_id": {
+      "format": "uuid",
+      "title": "Assertion Id",
+      "type": "string"
+    },
+    "contract_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Contract Version",
+      "type": "integer"
+    },
+    "operation": {
+      "enum": [
+        "project",
+        "withdraw"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "projector_id": {
+      "minLength": 1,
+      "title": "Projector Id",
+      "type": "string"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "signature": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Signature",
+      "type": "string"
+    },
+    "workspace_id": {
+      "format": "uuid",
+      "title": "Workspace Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workspace_id",
+    "assertion_id",
+    "revision",
+    "operation",
+    "projector_id",
+    "applied_at",
+    "signature"
+  ],
+  "title": "ProjectionReceipt",
+  "type": "object"
+}

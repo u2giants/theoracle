@@ -162,6 +162,9 @@ importers:
       '@oracle/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@oracle/brain-contracts':
+        specifier: workspace:*
+        version: link:../../packages/brain-contracts
       '@oracle/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -171,6 +174,9 @@ importers:
       '@oracle/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@trigger.dev/python':
+        specifier: 4.5.15
+        version: 4.5.15(@trigger.dev/build@4.5.15(typescript@5.9.3))(@trigger.dev/sdk@4.5.15(ai@6.0.187(zod@4.4.3))(react@19.2.6)(zod@4.4.3))
       '@trigger.dev/sdk':
         specifier: 4.5.15
         version: 4.5.15(ai@6.0.187(zod@4.4.3))(react@19.2.6)(zod@4.4.3)
@@ -294,6 +300,12 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+
+  packages/brain-contracts:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   packages/db:
     dependencies:
@@ -2320,6 +2332,13 @@ packages:
   '@trigger.dev/core@4.5.15':
     resolution: {integrity: sha512-ejwc3J1VdzNhUfB16gmdis3iu6G9kx4Xlp4W/GKbiZGPzMXFKP9dVqdYxTrtqde0cnmjwo/9ASGQp5taMBfXKA==}
     engines: {node: '>=18.20.0'}
+
+  '@trigger.dev/python@4.5.15':
+    resolution: {integrity: sha512-6vhc0SX02Nw6cXQ7Oql9myNPO/smUOUz47rxhoQigKhCwrKd5OR2zqmvOuaoLAhN08w5FKeZN0Tr/QNSLFo+Fw==}
+    engines: {node: '>=18.20.0'}
+    peerDependencies:
+      '@trigger.dev/build': ^4.5.15
+      '@trigger.dev/sdk': ^4.5.15
 
   '@trigger.dev/sdk@4.4.6':
     resolution: {integrity: sha512-FAC5/oES4dClLWlLGvnuNUlhfzWXDA6ResxB7B6/2UohSdxn3yWt9uOtjEL434JiN0xNUCiSAN8KTP1azpOgBg==}
@@ -7239,6 +7258,17 @@ snapshots:
       uncrypto: 0.1.3
       zod: 3.25.76
       zod-validation-error: 1.5.0(zod@3.25.76)
+    transitivePeerDependencies:
+      - bufferutil
+      - supports-color
+      - utf-8-validate
+
+  '@trigger.dev/python@4.5.15(@trigger.dev/build@4.5.15(typescript@5.9.3))(@trigger.dev/sdk@4.5.15(ai@6.0.187(zod@4.4.3))(react@19.2.6)(zod@4.4.3))':
+    dependencies:
+      '@trigger.dev/build': 4.5.15(typescript@5.9.3)
+      '@trigger.dev/core': 4.5.15
+      '@trigger.dev/sdk': 4.5.15(ai@6.0.187(zod@4.4.3))(react@19.2.6)(zod@4.4.3)
+      tinyexec: 0.3.2
     transitivePeerDependencies:
       - bufferutil
       - supports-color

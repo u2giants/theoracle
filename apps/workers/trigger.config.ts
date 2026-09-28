@@ -23,4 +23,7 @@ export default defineConfig({
     },
   },
   dirs: ['./src/trigger'],
+  // Oracle 2 tasks belong to separately credentialed preview deployments.
+  // Never bundle them into the legacy project's credential-bearing runtime.
+  ignorePatterns: ['**/oracle2-run.ts', '**/oracle2-project.ts'],
 });

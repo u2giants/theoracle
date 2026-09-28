@@ -1,0 +1,54 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "actor_id": {
+      "format": "uuid",
+      "title": "Actor Id",
+      "type": "string"
+    },
+    "contract_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Contract Version",
+      "type": "integer"
+    },
+    "mode": {
+      "default": "synthetic",
+      "enum": [
+        "synthetic",
+        "approved_real"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "source_id": {
+      "format": "uuid",
+      "title": "Source Id",
+      "type": "string"
+    },
+    "source_revision": {
+      "minimum": 1,
+      "title": "Source Revision",
+      "type": "integer"
+    },
+    "workspace_id": {
+      "format": "uuid",
+      "title": "Workspace Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "workspace_id",
+    "actor_id",
+    "source_id",
+    "source_revision"
+  ],
+  "title": "RunRequest",
+  "type": "object"
+}

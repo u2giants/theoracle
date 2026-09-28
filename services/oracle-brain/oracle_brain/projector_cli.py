@@ -1,0 +1,35 @@
+"""One projection attempt. Process supervisor retries after interruption."""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from oracle_brain.config import Settings
+from oracle_brain.graph.falkor import FalkorGraphStore
+from oracle_brain.outbox import lease_next, make_receipt, mark_delivered
+
+
+def run_once() -> bool:
+    settings = Settings.from_env("projector")
+    secret = os.environ["ORACLE2_PROJECTION_SIGNING_KEY"].encode()
+    if len(secret) < 32:
+        raise ValueError("projection signing key too short")
+    event = lease_next(settings.database_url)
+    if event is None:
+        return False
+    graph = FalkorGraphStore(settings.confirmed_graph_url)
+    if event.operation == "project":
+        graph.project(event.workspace_id, event.assertion_id,
+                      event.revision, event.payload)
+    else:
+        graph.withdraw(event.workspace_id, event.assertion_id, event.revision)
+    receipt = make_receipt(event, secret, "oracle2-projector")
+    mark_delivered(settings.database_url, event_id=event.event_id,
+                   receipt=receipt, secret=secret)
+    return True
+
+
+if __name__ == "__main__":
+    run_once()

@@ -22,6 +22,10 @@ build/
 .env.test.local
 .env.production.local
 .env*.local
+services/oracle-brain/.venv/
+services/oracle-brain/**/__pycache__/
+services/oracle-brain/.pytest_cache/
+scripts/oracle2/__pycache__/
 .env.development
 .env.production
 
