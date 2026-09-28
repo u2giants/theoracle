@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/u2giants/theoracle/evals/oracle2/manifest.schema.json",
+  "title": "Oracle 2 synthetic question and source fixture manifest record",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/question"
+    },
+    {
+      "$ref": "#/$defs/fixture"
+    }
+  ],
+  "$defs": {
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "locator",
+        "text"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "base": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "split",
+        "category",
+        "source_ids",
+        "evidence_spans"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[ADF][0-9]{2}$"
+        },
+        "split": {
+          "enum": [
+            "acceptance",
+            "development",
+            "fixture"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "evidence_spans": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/span"
+          }
+        }
+      }
+    },
+    "question": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "if": {
+            "properties": {
+              "split": {
+                "const": "acceptance"
+              }
+            },
+            "required": [
+              "split"
+            ]
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^A[0-9]{2}$"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "id": {
+                "pattern": "^D[0-9]{2}$"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "id",
+            "split",
+            "category",
+            "process",
+            "question",
+            "source_ids",
+            "evidence_spans",
+            "required_facts",
+            "forbidden_inferences",
+            "time_scope",
+            "expectation",
+            "reviewer_rubric"
+          ],
+          "properties": {
+            "kind": {
+              "const": "question"
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[AD][0-9]{2}$"
+            },
+            "split": {
+              "enum": [
+                "acceptance",
+                "development"
+              ]
+            },
+            "category": {
+              "enum": [
+                "procedure_ownership",
+                "conditional_exception",
+                "cross_department",
+                "historical_change",
+                "improvement_decision"
+              ]
+            },
+            "process": {
+              "type": "string",
+              "minLength": 1
+            },
+            "question": {
+              "type": "string",
+              "minLength": 1
+            },
+            "source_ids": {
+              "$ref": "#/$defs/base/properties/source_ids"
+            },
+            "evidence_spans": {
+              "$ref": "#/$defs/base/properties/evidence_spans"
+            },
+            "required_facts": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "forbidden_inferences": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "time_scope": {
+              "type": "string",
+              "minLength": 1
+            },
+            "expectation": {
+              "enum": [
+                "answer",
+                "abstain"
+              ]
+            },
+            "reviewer_rubric": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "fact",
+                "boundary",
+                "evidence",
+                "decision"
+              ],
+              "properties": {
+                "fact": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "boundary": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "evidence": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "decision": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "fixture": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "id",
+            "split",
+            "category",
+            "source_format",
+            "source_ids",
+            "evidence_spans",
+            "attack_or_shape",
+            "expected_handling",
+            "input_text"
+          ],
+          "properties": {
+            "kind": {
+              "const": "source_fixture"
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^F[0-9]{2}$"
+            },
+            "split": {
+              "const": "fixture"
+            },
+            "category": {
+              "const": "source_adversarial"
+            },
+            "source_format": {
+              "type": "string",
+              "minLength": 1
+            },
+            "source_ids": {
+              "$ref": "#/$defs/base/properties/source_ids"
+            },
+            "evidence_spans": {
+              "$ref": "#/$defs/base/properties/evidence_spans"
+            },
+            "attack_or_shape": {
+              "type": "string",
+              "minLength": 1
+            },
+            "expected_handling": {
+              "type": "string",
+              "minLength": 1
+            },
+            "input_text": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    }
+  },
+  "x-exact-synthetic-counts": {
+    "acceptance": {
+      "procedure_ownership": 4,
+      "conditional_exception": 4,
+      "cross_department": 4,
+      "historical_change": 3,
+      "improvement_decision": 5
+    },
+    "development": {
+      "procedure_ownership": 2,
+      "conditional_exception": 2,
+      "cross_department": 2,
+      "historical_change": 2,
+      "improvement_decision": 2
+    },
+    "fixture": {
+      "source_adversarial": 12
+    }
+  },
+  "x-frozen-acceptance-sha256": {
+    "A01": "bcac5388844bbc0b540c0dc536a60bd605016b2079dadafd2d30769566a8043f",
+    "A02": "d11a3e20abc1abca67fca0c24b3366f6a998d5ebad752714d6d2fe5ce62581ba",
+    "A03": "71710e83311bc45c3b72adc8247567fa5fd8e029f0890f86863fd0f32e591a07",
+    "A04": "58befad6368ea044ef179182b77124f501ed519686360907f75605331907c46b",
+    "A05": "5059adec9a61f456e9653a3702d69a4a85f81dff5711b9313ffca2d45df88562",
+    "A06": "bf3c920732bd894ebf7671195193ddc3e4096cfe0af46e1cf08fbf9c843307e6",
+    "A07": "10ee939536c4dc2209193edbe4bdd57b373a680dfa7805f998028b6f54ce8ed0",
+    "A08": "adaa57d80ff1415c5c52d369565f232c0a84aa0ceaa6f13f81e72ec73678bdbb",
+    "A09": "c823e714a1cbe9e837646b0a531c9ad4beedd8762f2ba95136e66da2eef2e92c",
+    "A10": "b6409bd193d3f7f5f2b6179e9e35e306ba6c79d8717a1593f87c25e39b2ca43d",
+    "A11": "274a7e4b2950188adffd2d257d86f8cb440f69f731d5796b9f443dadf2ac686b",
+    "A12": "37ed8ad94633aa1dcfa6e36a17497f040189f1c7bf84821f7b77d9035c6be137",
+    "A13": "94f8bbf5497289507bb67735182317da5b8ea4c03e96ca74bdec30089b4e4bcb",
+    "A14": "e4bfe25614e036e3eac23e778e0d72284a4b96894c320041869784ea75917ce3",
+    "A15": "acb0bd95593dd4701fe1b8f8533bb0943d90fa8bf71a6b0278abd931b31f205f",
+    "A16": "c24c34aa14b35edbe74e3af887745947c44b6383f7d63bdee56d07337b7c5efb",
+    "A17": "2445f388b178dc16799959b35b65d53c659f917eba5873116e270575e9eabf65",
+    "A18": "db51ee54a5ba183ef04a000256bed3ebda803a9a3f8b92cdbc20442d7aa23c39",
+    "A19": "46a05e96160f6b30553cbc211262a419369aad22c2cc0cb04b5830d2a546ffbf",
+    "A20": "3a95af44a8e4f1e07c006b721ede91120189b69d7e0ece7882228fb230fd28df"
+  },
+  "x-manifest-version": 1
+}
