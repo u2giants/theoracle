@@ -5,13 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 import re
 from typing import Literal
-from uuid import UUID
+from uuid import RFC_4122, UUID
 
 from pydantic import (AwareDatetime, BaseModel, ConfigDict, Field,
                       ValidationInfo, field_validator, model_validator)
 
 
-WIRE_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+WIRE_UUID = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+)
 WIRE_DATETIME = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$"
 )
@@ -25,7 +27,10 @@ class StrictModel(BaseModel):
     def canonical_wire_uuid(cls, value: object, info: ValidationInfo) -> object:
         if cls.model_fields[info.field_name].annotation is UUID:
             if isinstance(value, str) and not WIRE_UUID.fullmatch(value):
-                raise ValueError("UUID must use the hyphenated wire form")
+                raise ValueError("UUID must use an RFC variant hyphenated wire form")
+            if isinstance(value, UUID) and (value.version not in range(1, 9)
+                                            or value.variant != RFC_4122):
+                raise ValueError("UUID must use a supported RFC variant")
         return value
 
 

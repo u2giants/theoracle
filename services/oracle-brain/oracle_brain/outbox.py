@@ -83,9 +83,10 @@ def lease_next(database_url: str, *, lease_seconds: int = 60) -> ProjectionEvent
 
 def receipt_signature(secret: bytes, *, event_id: UUID, workspace_id: UUID,
                       assertion_id: UUID, revision: int, operation: str,
-                      projector_id: str) -> str:
+                      projector_id: str, applied_at: datetime) -> str:
     canonical = json.dumps([str(event_id), str(workspace_id), str(assertion_id),
-                            revision, operation, projector_id], separators=(",", ":"))
+                            revision, operation, projector_id,
+                            applied_at.isoformat()], separators=(",", ":"))
     return hmac.new(secret, canonical.encode(), hashlib.sha256).hexdigest()
 
 
@@ -99,7 +100,8 @@ def mark_delivered(database_url: str, *, event_id: UUID, receipt: ProjectionRece
                                  assertion_id=receipt.assertion_id,
                                  revision=receipt.revision,
                                  operation=receipt.operation,
-                                 projector_id=receipt.projector_id)
+                                 projector_id=receipt.projector_id,
+                                 applied_at=receipt.applied_at)
     if not hmac.compare_digest(expected, receipt.signature):
         raise PermissionError("forged projection receipt")
     with psycopg.connect(database_url) as connection:
@@ -121,10 +123,12 @@ def mark_delivered(database_url: str, *, event_id: UUID, receipt: ProjectionRece
                 raise PermissionError("receipt revision exceeds accepted revision")
             connection.execute(
                 """INSERT INTO oracle2.projection_receipts
-                   (event_id,workspace_id,assertion_id,revision,operation,signature)
-                   VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+                   (event_id,workspace_id,assertion_id,revision,operation,
+                    projector_id,signature,applied_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
                 (event_id, receipt.workspace_id, receipt.assertion_id,
-                 receipt.revision, receipt.operation, receipt.signature),
+                 receipt.revision, receipt.operation, receipt.projector_id,
+                 receipt.signature, receipt.applied_at),
             )
             connection.execute(
                 "UPDATE oracle2.outbox SET delivered_at=now(),lease_until=NULL WHERE event_id=%s",
@@ -133,15 +137,17 @@ def mark_delivered(database_url: str, *, event_id: UUID, receipt: ProjectionRece
 
 
 def make_receipt(event: ProjectionEvent, secret: bytes, projector_id: str) -> ProjectionReceipt:
+    applied_at = datetime.now(timezone.utc)
     return ProjectionReceipt(
         contract_version=1,
         workspace_id=event.workspace_id, assertion_id=event.assertion_id,
         revision=event.revision, operation=event.operation, projector_id=projector_id,
-        applied_at=datetime.now(timezone.utc),
+        applied_at=applied_at,
         signature=receipt_signature(secret, event_id=event.event_id,
                                     workspace_id=event.workspace_id,
                                     assertion_id=event.assertion_id,
                                     revision=event.revision,
                                     operation=event.operation,
-                                    projector_id=projector_id),
+                                    projector_id=projector_id,
+                                    applied_at=applied_at),
     )

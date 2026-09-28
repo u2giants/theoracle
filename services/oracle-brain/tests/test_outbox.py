@@ -1,5 +1,6 @@
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from multiprocessing import Event, Process
 import time
 from threading import Barrier
@@ -94,6 +95,17 @@ def test_replay_survives_crash_and_receipt_is_authenticated(admin_url, confirmed
     with pytest.raises(PermissionError):
         mark_delivered(admin_url, event_id=event_id, receipt=forged, secret=good_key)
     receipt = make_receipt(replay, good_key, "oracle2-projector")
+    with pytest.raises(PermissionError):
+        mark_delivered(admin_url, event_id=event_id,
+                       receipt=receipt.model_copy(update={
+                           "applied_at": receipt.applied_at + timedelta(seconds=1)
+                       }), secret=good_key)
     mark_delivered(admin_url, event_id=event_id, receipt=receipt, secret=good_key)
     with psycopg.connect(admin_url) as connection:
         assert connection.execute("SELECT delivered_at IS NOT NULL FROM oracle2.outbox WHERE event_id=%s", (event_id,)).fetchone()[0]
+        projector_id, applied_at = connection.execute(
+            "SELECT projector_id,applied_at FROM oracle2.projection_receipts WHERE event_id=%s",
+            (event_id,),
+        ).fetchone()
+        assert projector_id == receipt.projector_id
+        assert applied_at == receipt.applied_at

@@ -47,8 +47,9 @@ CREATE TABLE IF NOT EXISTS oracle2.projection_receipts (
   assertion_id uuid NOT NULL,
   revision integer NOT NULL,
   operation text NOT NULL,
+  projector_id text NOT NULL,
   signature text NOT NULL,
-  applied_at timestamptz NOT NULL DEFAULT now()
+  applied_at timestamptz NOT NULL
 );
 CREATE TABLE IF NOT EXISTS oracle2.checkpoint_owners (
   thread_id text PRIMARY KEY,

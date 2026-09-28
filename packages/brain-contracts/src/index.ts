@@ -1,7 +1,11 @@
 import { z } from 'zod';
 
+const wireUuid = z.string().regex(
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/,
+).transform((value) => value.toLowerCase());
+
 const sourceSpan = z.strictObject({
-  source_id: z.uuid(),
+  source_id: wireUuid,
   source_revision: z.number().int().positive(),
   start: z.number().int().nonnegative(),
   end: z.number().int().positive(),
@@ -9,7 +13,7 @@ const sourceSpan = z.strictObject({
 }).refine((span) => span.end > span.start);
 
 const candidateAssertion = z.strictObject({
-  assertion_id: z.uuid(),
+  assertion_id: wireUuid,
   subject: z.string().min(1),
   predicate: z.string().min(1),
   object: z.string().min(1),
@@ -19,9 +23,9 @@ const candidateAssertion = z.strictObject({
 
 export const candidateBundle = z.strictObject({
   contract_version: z.literal(1),
-  workspace_id: z.uuid(),
-  run_id: z.uuid(),
-  source_id: z.uuid(),
+  workspace_id: wireUuid,
+  run_id: wireUuid,
+  source_id: wireUuid,
   source_revision: z.number().int().positive(),
   assertions: z.array(candidateAssertion),
 }).refine((bundle) => bundle.assertions.every((assertion) =>
@@ -30,8 +34,8 @@ export const candidateBundle = z.strictObject({
 
 export const projectionReceipt = z.strictObject({
   contract_version: z.literal(1),
-  workspace_id: z.uuid(),
-  assertion_id: z.uuid(),
+  workspace_id: wireUuid,
+  assertion_id: wireUuid,
   revision: z.number().int().positive(),
   operation: z.enum(['project', 'withdraw']),
   projector_id: z.string().min(1),
@@ -41,10 +45,10 @@ export const projectionReceipt = z.strictObject({
 
 export const runRequest = z.strictObject({
   contract_version: z.literal(1),
-  run_id: z.uuid(),
-  workspace_id: z.uuid(),
-  actor_id: z.uuid(),
-  source_id: z.uuid(),
+  run_id: wireUuid,
+  workspace_id: wireUuid,
+  actor_id: wireUuid,
+  source_id: wireUuid,
   source_revision: z.number().int().positive(),
   mode: z.enum(['synthetic', 'approved_real']),
 });
