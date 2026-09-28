@@ -59,13 +59,16 @@ const OPENROUTER_PREFIX_ALIASES: Record<string, string> = {
   meta_muse: 'meta',
 };
 
-function lookupEnrichment(
+export function lookupEnrichment(
   map: Map<string, OpenRouterEnrichment>,
   modelId: string,
 ): { enrichment: OpenRouterEnrichment; matched: boolean } {
   const slash = modelId.indexOf('/');
-  const alias = slash > 0 ? OPENROUTER_PREFIX_ALIASES[modelId.slice(0, slash)] : undefined;
-  if (alias) {
+  const prefix = slash > 0 ? modelId.slice(0, slash) : '';
+  const alias = prefix ? OPENROUTER_PREFIX_ALIASES[prefix] : undefined;
+  // Recurse only when the alias actually changes the prefix (stepfun maps to
+  // itself); otherwise the lookup would call itself forever.
+  if (alias && alias !== prefix) {
     const aliased = lookupEnrichment(map, `${alias}${modelId.slice(slash)}`);
     if (aliased.matched) return aliased;
   }
