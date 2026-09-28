@@ -91,3 +91,24 @@ Sources: [Graphiti v0.30.2](https://github.com/getzep/graphiti/tree/v0.30.2),
 [Trigger Python extension](https://trigger.dev/docs/config/extensions/pythonExtension),
 [FalkorDB durability](https://docs.falkordb.com/operations/durability/persistence),
 [uv CPU index guidance](https://docs.astral.sh/uv/guides/integration/pytorch/).
+
+## Preview result (2026-09-28, dispatch revision 3, commit d879495)
+
+Approved by qwen plan review (`VERDICT APPROVE`); approval record on #26.
+
+| Field | Value |
+|---|---|
+| Extractor project | `dedicated-oracle2-extractor-preview`, `proj_esmuwkezljvasptkbiwr` |
+| Projector project | `dedicated-oracle2-projector-preview`, `proj_jtaztxnmppzfchdsgvea` |
+| Staging env vars | Set per dispatch step 2 (synthetic, 7 and 8 values) |
+| Extractor deploy | Version 20260928.1, **failed** at image build after 81 s |
+| Failure | Base image `triggerdotdev/node:24-bookworm`; the extension installs Debian `python3` = **3.11**. The bundle requires Python >=3.12, so pip found no 3.11 wheel for `lxml` and a source build failed (missing libxml2/libxslt headers). |
+| Projector deploy | Not attempted (stop rule; identical Python bundle) |
+| Runs, cold start, cancel, pause/resume | Not measured; no deployed version |
+
+Outcome: the dispatch stop rule tripped. The Trigger Python extension host with
+the pinned bundle **fails** S02's preview qualification as-is. The plan's
+fallback (qualified container host with Python 3.12, separately reviewed) or a
+separately reviewed change that supplies Python 3.12 on the Trigger image is
+the next decision; no retry with changed pins was made under this approval.
+Pause/resume was never part of the approved measurement set and remains open.

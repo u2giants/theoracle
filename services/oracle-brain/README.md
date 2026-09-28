@@ -40,7 +40,8 @@ uv export --project services/oracle-brain --frozen --format requirements-txt --n
 
 The existing Trigger project must never receive Oracle 2 tasks. Separate
 extractor and projector configs require distinct project references and
-separately scoped credentials before an isolated preview build. These preview
-projects are unprovisioned in S02 until their exact targets receive the
-required independent infrastructure approval. The full dependency bundle is
-not yet qualified for Trigger cold start or cancellation.
+separately scoped credentials before an isolated preview build. Two synthetic-only
+preview projects exist (see `docs/verification/oracle2/S02-dependencies.md`).
+The first build failed: Trigger's Python extension image ships Python 3.11 and
+this bundle requires 3.12+, so the dependency bundle is not qualified for
+Trigger cold start, cancellation or pause/resume.

@@ -27,4 +27,4 @@ checkpoint:
 legacy_trigger_project:
   project_ref: proj_wgpzsvhmsopqhvwqaycn
   oracle2_tasks_allowed: false
-preview_status: not_provisioned
+preview_status: failed_synthetic
