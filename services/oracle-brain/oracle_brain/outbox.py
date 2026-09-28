@@ -63,19 +63,25 @@ def enqueue_accepted(database_url: str, *, workspace_id: UUID, assertion_id: UUI
     return event_id
 
 
+# Events that fail this many leases stop being leased (dead-lettered) and need
+# operator attention instead of being retried forever.
+MAX_ATTEMPTS = 10
+
+
 def lease_next(database_url: str, *, lease_seconds: int = 60,
                allowed_workspaces: frozenset[str] | None = None) -> ProjectionEvent | None:
     if allowed_workspaces is not None and not allowed_workspaces:
         return None
     scope_clause = (" AND workspace_id = ANY(%s::uuid[])"
                     if allowed_workspaces is not None else "")
-    params = (([UUID(value) for value in allowed_workspaces], lease_seconds)
-              if allowed_workspaces is not None else (lease_seconds,))
+    params = ((MAX_ATTEMPTS, [UUID(value) for value in allowed_workspaces], lease_seconds)
+              if allowed_workspaces is not None else (MAX_ATTEMPTS, lease_seconds))
     with psycopg.connect(database_url) as connection:
         row = connection.execute(
             f"""WITH next AS (
                  SELECT event_id FROM oracle2.outbox
                  WHERE delivered_at IS NULL AND (lease_until IS NULL OR lease_until<now())
+                 AND attempts < %s
                  {scope_clause}
                  ORDER BY revision,event_id FOR UPDATE SKIP LOCKED LIMIT 1
                )

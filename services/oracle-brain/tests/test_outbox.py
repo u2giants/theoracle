@@ -95,7 +95,8 @@ def test_replay_survives_crash_and_receipt_is_authenticated(admin_url, confirmed
                          assertion_id=assertion, revision=1,
                          payload={"synthetic": True}, operation="withdraw")
     # Kill a real process after graph write but before receipt.
-    event = lease_next(admin_url, lease_seconds=1)
+    event = lease_next(admin_url, lease_seconds=1,
+                       allowed_workspaces=frozenset({str(workspace)}))
     assert event and event.event_id == event_id
     ready = Event()
     worker = Process(target=_write_then_wait,
@@ -108,7 +109,7 @@ def test_replay_survives_crash_and_receipt_is_authenticated(admin_url, confirmed
     graph = FalkorGraphStore(confirmed_url)
     with psycopg.connect(admin_url) as connection:
         connection.execute("UPDATE oracle2.outbox SET lease_until=now()-interval '1 second' WHERE event_id=%s", (event_id,))
-    replay = lease_next(admin_url)
+    replay = lease_next(admin_url, allowed_workspaces=frozenset({str(workspace)}))
     assert replay and replay.event_id == event_id and replay.attempts == 2
     graph.project(workspace, assertion, 1, replay.payload)
     assert graph.query(workspace)[0]["revision"] == 1
@@ -131,3 +132,18 @@ def test_replay_survives_crash_and_receipt_is_authenticated(admin_url, confirmed
         ).fetchone()
         assert projector_id == receipt.projector_id
         assert applied_at == receipt.applied_at
+
+
+def test_exhausted_event_is_dead_lettered(admin_url):
+    from oracle_brain.outbox import MAX_ATTEMPTS
+    workspace, assertion = uuid4(), uuid4()
+    event_id = enqueue_accepted(admin_url, workspace_id=workspace, assertion_id=assertion,
+                                revision=1, payload={"synthetic": True})
+    scope = frozenset({str(workspace)})
+    with psycopg.connect(admin_url) as connection:
+        connection.execute("UPDATE oracle2.outbox SET attempts=%s WHERE event_id=%s",
+                           (MAX_ATTEMPTS, event_id))
+    assert lease_next(admin_url, allowed_workspaces=scope) is None
+    with psycopg.connect(admin_url) as connection:
+        connection.execute("UPDATE oracle2.outbox SET delivered_at=now() WHERE event_id=%s",
+                           (event_id,))

@@ -1,7 +1,10 @@
 # S02 dependency and runtime qualification
 
-Status: synthetic offline qualification passed at commit `3b94d22`; preview
-qualification is still open. This is not a business-quality claim.
+Status: accepted on synthetic evidence, 2026-09-28 EDT. Offline qualification
+first passed at `3b94d22` and is re-run by CI on every PR #45 head (the final
+head's run is linked from the plan STATUS row); preview qualification passed on
+Trigger staging (see "Preview result — revision 6"). This is not a
+business-quality claim.
 
 ## Reproducible bundle
 
@@ -66,31 +69,18 @@ Same-volume restart matched all counts in 7.203s; snapshot restore in a fresh
 instance matched all counts in 3.161s.
 The resource script, report JSON and Docker stats are in the CI artifact.
 
-## Preview decision required
+## Preview decision (resolved)
 
-Two distinct Trigger.dev preview projects are proposed, one for the extractor
-and one for the projector, both synthetic-only and separate from legacy
-`proj_wgpzsvhmsopqhvwqaycn`. The extractor receives only candidate graph and
-candidate Postgres credentials; the projector receives only confirmed graph,
-projector Postgres and projection-signing credentials. Neither receives the
-legacy Supabase service-role key. The technical reviewer must approve exact
-project creation and deployment boundaries before provisioning. These preview
-projects run no FalkorDB server (only the MIT client, pointed at an unreachable
-host), so the FalkorDB SSPL deployment-fit verdict is required before any
-FalkorDB server is hosted (S03), not before this preview; the qwen plan review
-of 2026-09-28 gave an advisory internal-use opinion recorded in #26. The Python extension cold-start, clean exit and cancel
-behavior must then be measured on those preview hosts. Trigger's extension
-injects project environment variables into scripts, so the shared legacy
-project cannot host these roles safely. No preview resource was provisioned.
-
-The SQL in `services/oracle-brain/sql/001_foundation.sql` applies only to the
-isolated local/CI database. Oracle's Supabase target remains unclassified for
-this replacement; no production or preview schema migration was applied.
-
-Sources: [Graphiti v0.30.2](https://github.com/getzep/graphiti/tree/v0.30.2),
-[Trigger Python extension](https://trigger.dev/docs/config/extensions/pythonExtension),
-[FalkorDB durability](https://docs.falkordb.com/operations/durability/persistence),
-[uv CPU index guidance](https://docs.astral.sh/uv/guides/integration/pytorch/).
+Two distinct synthetic-only Trigger.dev projects, one for the extractor and one
+for the projector, separate from legacy `proj_wgpzsvhmsopqhvwqaycn`, because
+Trigger injects project environment variables into scripts and the shared
+legacy project cannot host these roles safely. The extractor receives only
+candidate credentials; the projector only confirmed, projector and signing
+credentials; neither receives the legacy Supabase service-role key. The exact
+dispatch (`S02-preview-dispatch.md`) was independently approved before each
+execution (records on #26), and the projects were provisioned and measured as
+recorded below. They run no FalkorDB server; the SSPL deployment-fit verdict is
+in `S02-falkordb-license.md`.
 
 ## Preview result (2026-09-28, dispatch revision 3, commit d879495)
 

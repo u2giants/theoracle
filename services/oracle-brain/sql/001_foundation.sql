@@ -41,6 +41,9 @@ CREATE TABLE IF NOT EXISTS oracle2.outbox (
   delivered_at timestamptz,
   UNIQUE (workspace_id, assertion_id, revision)
 );
+-- Pending-work index for lease_next; delivered rows drop out of it.
+CREATE INDEX IF NOT EXISTS outbox_pending ON oracle2.outbox (revision, event_id)
+  WHERE delivered_at IS NULL;
 CREATE TABLE IF NOT EXISTS oracle2.projection_receipts (
   event_id uuid PRIMARY KEY REFERENCES oracle2.outbox(event_id),
   workspace_id uuid NOT NULL,

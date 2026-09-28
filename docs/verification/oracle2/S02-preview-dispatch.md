@@ -1,5 +1,8 @@
 # S02 preview dispatch — exact inputs for independent technical review
 
+Status: **executed** (revision 6, 2026-09-28 EDT); results in
+`S02-dependencies.md`. Any re-run needs a fresh approval for its exact commit.
+
 Owner request (Albert, Claude chat, 2026-09-28): "approve two synthetic-only
 Trigger preview projects for Oracle S02". This file is the exact action set a
 reviewer approves or refuses. Nothing here runs before a `VERDICT APPROVE` whose
@@ -38,8 +41,8 @@ identifiers `ORACLE2_EXTRACT_TRIGGER_PROJECT_REF=proj_esmuwkezljvasptkbiwr` and
 same management API. The guard stays unchanged and is now satisfied inside the
 image. Execute: step 0, this step-2 addition, then steps 3-6.
 
-**What to execute for revision 5:** step 0 (approval record), then steps 3-6
-only. Steps 1-2 are complete and must not be repeated (the projects and staging
+**What was executed for revision 5 (superseded by revision 6 above):** step 0
+(approval record), then steps 3-6 only. Steps 1-2 are complete and must not be repeated (the projects and staging
 variables already exist; creating them again is out of scope). CI precondition:
 the `Oracle 2 contracts` workflow runs on PR #45 (pull_request to main) at the
 reviewed head.

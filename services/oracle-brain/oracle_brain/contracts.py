@@ -15,7 +15,7 @@ WIRE_UUID = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
 )
 WIRE_DATETIME = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$"
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
 )
 
 
@@ -95,7 +95,7 @@ class ProjectionReceipt(StrictModel):
     revision: int = Field(ge=1)
     operation: Literal["project", "withdraw"]
     projector_id: str = Field(min_length=1)
-    applied_at: AwareDatetime
+    applied_at: AwareDatetime = Field(json_schema_extra={"pattern": WIRE_DATETIME.pattern})
     signature: str = Field(pattern=r"^[0-9a-f]{64}$")
 
     @field_validator("applied_at", mode="before")

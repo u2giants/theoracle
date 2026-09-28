@@ -39,7 +39,9 @@ export const projectionReceipt = z.strictObject({
   revision: z.number().int().positive(),
   operation: z.enum(['project', 'withdraw']),
   projector_id: z.string().min(1),
-  applied_at: z.iso.datetime({ offset: true }),
+  // Same wire rule as Python WIRE_DATETIME: seconds required, colonized offset.
+  applied_at: z.iso.datetime({ offset: true })
+    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/),
   signature: z.string().regex(/^[0-9a-f]{64}$/),
 });
 
