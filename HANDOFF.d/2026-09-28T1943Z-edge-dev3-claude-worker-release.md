@@ -13,7 +13,7 @@ for now and use the others." The exact plan is
 
 ## State
 - Prod worker `20260909.1` (`28e8eb7`), 25 tasks. Nothing has been deployed.
-- Deploy target pinned: `5a441199925d0ddb5a76374f44b8c3243a303214` (revision 6).
+- Deploy target pinned: `5a441199925d0ddb5a76374f44b8c3243a303214` (revision 7, approved by grok plan-review 20260928T213007-1737916-15156).
 - The dispatch must carry an APPROVE verdict from the independent reviewer on its exact
   commit before anyone executes it. `.ai/reviews/` is local scratch; the approval record
   (verdict line, review file, reviewed commit) is posted on #50, never written into the
