@@ -1,0 +1,75 @@
+# Local/CI synthetic stores only. Loopback ports and isolated named volumes.
+name: oracle2-s02
+services:
+  postgres:
+    image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+    environment:
+      POSTGRES_DB: oracle2
+      POSTGRES_USER: oracle2_admin
+      POSTGRES_PASSWORD: oracle2_local_admin_only
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-postgres.sql:/docker-entrypoint-initdb.d/001-roles.sql:ro
+      - ../../services/oracle-brain/sql/001_foundation.sql:/docker-entrypoint-initdb.d/002-foundation.sql:ro
+      - ./grant-postgres.sql:/docker-entrypoint-initdb.d/003-grants.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oracle2_admin -d oracle2"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    mem_limit: 1g
+    cpus: 1.0
+  falkor-candidate:
+    image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+    environment:
+      FALKORDB_ARGS: "--dir /data --requirepass oracle2_candidate_local_only --appendonly yes"
+    ports:
+      - "127.0.0.1:56379:6379"
+    volumes:
+      - candidate-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a oracle2_candidate_local_only ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    mem_limit: 2g
+    cpus: 1.0
+  falkor-confirmed:
+    image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+    environment:
+      FALKORDB_ARGS: "--dir /data --requirepass oracle2_confirmed_local_only --appendonly yes"
+    ports:
+      - "127.0.0.1:56380:6379"
+    volumes:
+      - confirmed-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a oracle2_confirmed_local_only ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    mem_limit: 2g
+    cpus: 1.0
+  object-store:
+    image: localstack/localstack:4.9.2@sha256:59373b4a27dba3ec15c4db0b7455f0cb68c8a42300e2cbbe362b440f9a131697
+    environment:
+      SERVICES: s3
+      PERSISTENCE: "1"
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "127.0.0.1:54566:4566"
+    volumes:
+      - object-data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health | grep -q s3"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    mem_limit: 1g
+    cpus: 1.0
+volumes:
+  postgres-data:
+  candidate-data:
+  confirmed-data:
+  object-data:

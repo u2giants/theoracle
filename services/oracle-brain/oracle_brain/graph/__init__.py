@@ -1,0 +1,1 @@
+"""Replaceable graph projection adapters."""

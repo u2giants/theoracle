@@ -6,6 +6,8 @@
 |---|---|---|---|
 | Vercel project | `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | `AGENTS.md`, deployment/config docs | Web app target |
 | Trigger.dev project | `proj_wgpzsvhmsopqhvwqaycn` | `apps/workers/trigger.config.ts` | Worker target. Set PROD worker env vars programmatically (no dashboard) via the Trigger management API + the PAT in 1Password "Trigger.dev Personal Access Token (management)" — `POST /api/v1/projects/<ref>/envvars/prod`, then redeploy. CLI `env` is read-only. See docs/configuration.md "How env vars are managed". |
+| Trigger.dev org POP | `cmpdjy8yg0107n50hqma87hjk` | Trigger dashboard | Owns legacy and Oracle 2 preview projects |
+| Oracle 2 preview projects | `proj_esmuwkezljvasptkbiwr` (extractor), `proj_jtaztxnmppzfchdsgvea` (projector) | `docs/verification/oracle2/S02-dependencies.md` | Synthetic-only staging; delete when #26 closes |
 | Current Supabase project | `eqccjfbyrywsqkxxpjvg` (`theoracle`, N. Virginia / `us-east-1`) | Supabase dashboard + runtime env | Primary DB/Auth/Storage/Realtime after 2026-06-20 cutover. Previous Ohio project `vokucjpanhvqunimlvsp` is `oracle.old`. |
 | Supabase Storage bucket | `company_documents` | schema + worker code + docs | Private document bucket |
 | Interview default route | `anthropic_claude_haiku_4_5_interview_primary` | `packages/ai/src/routes/catalog.ts`, settings row | Employee chat default |

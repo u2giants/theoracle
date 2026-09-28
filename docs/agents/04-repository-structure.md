@@ -13,6 +13,11 @@ Code we own:
 - `packages/db/` — Drizzle schema, client, migrate/seed scripts
 - `packages/oracle-engines/` — deterministic extraction and synthesis logic
 - `packages/shared/` — shared types/constants
+- `packages/brain-contracts/` — Oracle 2 wire contracts (Zod) mirrored from Python
+- `services/oracle-brain/` — Oracle 2 Python foundation (contracts, graph adapter, outbox, authority)
+- `dev/oracle2/` — isolated local/CI stores and runtime identity manifest for Oracle 2
+- `scripts/oracle2/` — Oracle 2 phase gates, contract export, model evaluation
+- `apps/workers/trigger.oracle2-*.config.ts`, `apps/workers/oracle2-python-extension.ts` — Oracle 2 preview Trigger configs and Python 3.12 build layer
 - `docs/` — project documentation
 - root markdown files — `README.md`, `AGENTS.md`, `CLAUDE.md`, `DECISIONS.md`,
   `MACRO_FIRST_IMPLEMENTATION_PLAN.md`, supporting design/history files, and `china_imp.md`

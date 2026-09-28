@@ -2,17 +2,17 @@
 
 Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through [parent issue #24](https://github.com/u2giants/theoracle/issues/24). Research and source inspection baseline: `b3f2377f9b1fd13e1b9abf07cc8f342c180f076e` on `u2giants/theoracle/main`.
 
-**Planning complete; implementation is in progress.** S01 is accepted offline and S02 has an unmerged, partially qualified implementation; see STATUS below. This document specifies the replacement but does not attest that the whole replacement works or authorize production changes. The current application continues to operate under its existing controls until an accepted replacement exists.
+**Planning complete; implementation is in progress.** S01 is accepted offline and S02 is accepted on synthetic evidence; see STATUS below. This document specifies the replacement but does not attest that the whole replacement works or authorize production changes. The current application continues to operate under its existing controls until an accepted replacement exists.
 
 ## STATUS — read this first
 
-S01 has an offline record. S02 has passed its synthetic offline gate but remains open as of 2026-09-28 EDT; later stages remain open. An issue is an owner/discussion pointer, not acceptance evidence. A completed row must link a reproducible result artifact and deployed revision when relevant.
+S01 has an offline record. S02 is accepted on synthetic offline, preview, model and license evidence as of 2026-09-28 EDT; S03 is next and later stages remain open. An issue is an owner/discussion pointer, not acceptance evidence. A completed row must link a reproducible result artifact and deployed revision when relevant.
 
 | Step | Outcome | Status | Dependency | Evidence / owner |
 |---|---|---|---|---|
 | S01 | Acceptance corpus and baseline availability | ✅ offline accepted; live comparison unavailable | None | [S01 record](docs/verification/oracle2/S01-baseline.md), [synthetic manifest](evals/oracle2/synthetic-cases.jsonl); [child #25](https://github.com/u2giants/theoracle/issues/25). No real-quality claim. |
-| S02 | Isolated foundation and database/library qualification | ⬜ open; synthetic offline gate passed; preview gate pending | S01 | Draft [PR #45](https://github.com/u2giants/theoracle/pull/45) at `8dcccea` and [offline CI run 36377293599](https://github.com/u2giants/theoracle/actions/runs/36377293599); [child #26](https://github.com/u2giants/theoracle/issues/26). Model evaluation, technical license verdict and isolated preview proof remain open; no business-quality or preview acceptance claim. |
-| S03 | One usable document-to-consultation journey | ⬜ open | S02 | Not built; [child #27](https://github.com/u2giants/theoracle/issues/27) |
+| S02 | Isolated foundation and database/library qualification | ✅ accepted (synthetic only) | S01 | [S02 record](docs/verification/oracle2/S02-dependencies.md) incl. Trigger preview runs on CPython 3.12.14, [models](docs/verification/oracle2/S02-models.md), [FalkorDB license fit](docs/verification/oracle2/S02-falkordb-license.md); [offline CI run 36450899266](https://github.com/u2giants/theoracle/actions/runs/36450899266) at `da76d0a` (final code; later commits documentation-only), [PR #45](https://github.com/u2giants/theoracle/pull/45), [child #26](https://github.com/u2giants/theoracle/issues/26). No business-quality or real-data claim. |
+| S03 | One usable document-to-consultation journey | ⬜ open — next | S02 | Not built; [child #27](https://github.com/u2giants/theoracle/issues/27) |
 | S04 | Reliable document learning, revisions and withdrawal | ⬜ open | S03 | Not built; [child #28](https://github.com/u2giants/theoracle/issues/28) |
 | S05 | Confirmed temporal operating model and corrections | ⬜ open | S04 | Not built; [child #29](https://github.com/u2giants/theoracle/issues/29) |
 | S06 | Resumable employee interviews and ordinary chat learning | ⬜ open | S05 | Not built; [child #30](https://github.com/u2giants/theoracle/issues/30) |
@@ -53,7 +53,7 @@ Oracle is the POP Creations / Spruce Line company knowledge application. The rep
 - Existing repository components: `apps/web` (interface/API), `apps/workers` (jobs), `packages/ai` (generation/retrieval), `packages/db` (database), `packages/oracle-engines` (validation), `packages/auth` (identity), `packages/shared` (shared contracts).
 - Planned replacement core: `services/oracle-brain` (Python package, not necessarily an HTTP service), driven by thin Trigger tasks. Existing web/auth are reused only where their behavior passes the replacement tests. Company evidence lives in private object storage; canonical acceptance events and workflow state live in Oracle Postgres; FalkorDB serves derived knowledge.
 
-Local planning checkout was `/home/ahazan/repos/oracle-consultant-overhaul`, isolated from `/home/ahazan/repos/oracle`. Future sessions create their own current-upstream worktree. Names in §9 beginning `services/oracle-brain`, `packages/brain-contracts`, `tests/oracle2`, `evals/oracle2` or `apps/web/app/consultant` are **proposed new paths**, not claims that those files exist.
+Local planning checkout was `/home/ahazan/repos/oracle-consultant-overhaul`, isolated from `/home/ahazan/repos/oracle`. Future sessions create their own current-upstream worktree. Paths in §9 are stage deliverables; use the STATUS table and current tree to determine which ones now exist.
 
 ## 3. Trigger and authority
 

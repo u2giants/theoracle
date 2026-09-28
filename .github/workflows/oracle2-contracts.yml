@@ -1,0 +1,137 @@
+name: Oracle 2 contracts
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  oracle2-offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ORACLE2_TEST_ADMIN_URL: postgresql://oracle2_admin:oracle2_local_admin_only@127.0.0.1:55432/oracle2
+      ORACLE2_TEST_CANDIDATE_URL: redis://:oracle2_candidate_local_only@127.0.0.1:56379
+      ORACLE2_TEST_CONFIRMED_URL: redis://:oracle2_confirmed_local_only@127.0.0.1:56380
+      ORACLE2_TEST_BLOB_ENDPOINT: http://127.0.0.1:54566
+      GRAPHITI_TELEMETRY_ENABLED: 'false'
+      ORACLE2_TELEMETRY_MODE: 'off'
+    steps:
+      - name: Full-history checkout for frozen S01 corpus
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate S01 corpus and regression checks
+        run: |
+          python3 scripts/oracle2/validate_manifest.py --synthetic
+          python3 -m unittest discover -s scripts/oracle2 -p 'test_*.py'
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.5.0
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install TypeScript contracts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify TypeScript contract fixtures
+        run: pnpm --filter @oracle/brain-contracts verify:parity
+      - name: Typecheck workers and Oracle 2 Trigger configs
+        run: pnpm --filter @oracle/workers typecheck
+      - name: Verify Oracle 2 worker script bundle paths
+        run: node scripts/oracle2/verify_worker_bundle.mjs
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.12.19'
+      - name: Install locked CPU dependency bundle
+        run: uv sync --project services/oracle-brain --frozen --extra test
+      - name: S02 model evaluation harness offline tests
+        env:
+          ORACLE2_REQUIRE_MODEL_TESTS: '1'
+        run: services/oracle-brain/.venv/bin/python -m unittest discover -s scripts/oracle2 -p 'test_evaluate_models.py'
+      - name: Verify exported contracts
+        run: |
+          services/oracle-brain/.venv/bin/python scripts/oracle2/export_contracts.py
+          git diff --exit-code -- packages/brain-contracts/schema
+          uv export --project services/oracle-brain --frozen --format requirements-txt --no-dev --no-emit-project --emit-index-url --output-file apps/workers/oracle2-requirements.txt
+          git diff --exit-code -- apps/workers/oracle2-requirements.txt
+      - name: Start isolated real stores
+        run: docker compose -f dev/oracle2/compose.yaml up -d --wait
+      - name: Bootstrap isolated LangGraph checkpoint tables
+        run: services/oracle-brain/.venv/bin/python scripts/oracle2/init_local_stores.py
+      - name: S02 offline contract and storage gate
+        run: python3 scripts/oracle2/verify_phase.py S02 --mode offline
+      - name: Pilot graph resource experiment
+        run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 10000 --relations 100000 --output out/oracle2/resource-pilot.json
+      - name: Ten-times graph stress experiment
+        run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 100000 --relations 1000000 --output out/oracle2/resource-stress.json
+      - name: Record graph peak memory before restart
+        run: |
+          confirmed=$(docker compose -f dev/oracle2/compose.yaml ps -q falkor-confirmed)
+          docker exec "$confirmed" cat /sys/fs/cgroup/memory.peak > out/oracle2/confirmed-cgroup-memory-peak-bytes.txt
+          docker exec "$confirmed" redis-cli -a oracle2_confirmed_local_only INFO memory \
+            | grep -E '^(used_memory_peak|used_memory_rss):' > out/oracle2/confirmed-redis-memory.txt
+          peak=$(cat out/oracle2/confirmed-cgroup-memory-peak-bytes.txt)
+          test "$peak" -gt 0
+          test "$peak" -le 2147483648
+      - name: Restart confirmed graph and compare counts
+        run: |
+          started=$(date +%s)
+          docker compose -f dev/oracle2/compose.yaml restart falkor-confirmed
+          for attempt in {1..30}; do
+            if docker compose -f dev/oracle2/compose.yaml exec -T falkor-confirmed redis-cli -a oracle2_confirmed_local_only ping | grep -q PONG; then break; fi
+            sleep 2
+          done
+          ORACLE2_TEST_RESTORED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:56380 \
+            services/oracle-brain/.venv/bin/python scripts/oracle2/restore_experiment.py \
+              --pilot out/oracle2/resource-pilot.json \
+              --stress out/oracle2/resource-stress.json \
+              --kind restart --started-epoch "$started" \
+              --output out/oracle2/restart-result.json
+      - name: Restore graph snapshots in a fresh instance
+        run: |
+          started=$(date +%s)
+          confirmed=$(docker compose -f dev/oracle2/compose.yaml ps -q falkor-confirmed)
+          docker exec "$confirmed" redis-cli -a oracle2_confirmed_local_only SAVE
+          mkdir -p /tmp/oracle2-s02-restore
+          docker cp "$confirmed:/data/dump.rdb" /tmp/oracle2-s02-restore/dump.rdb
+          docker run -d --name oracle2-s02-restored \
+            -e FALKORDB_ARGS='--dir /data --requirepass oracle2_confirmed_local_only --appendonly no' \
+            -p 127.0.0.1:56381:6379 \
+            -v /tmp/oracle2-s02-restore:/data \
+            falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+          for attempt in {1..30}; do
+            if docker exec oracle2-s02-restored redis-cli -a oracle2_confirmed_local_only ping | grep -q PONG; then break; fi
+            sleep 2
+          done
+          ORACLE2_TEST_RESTORED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:56381 \
+            services/oracle-brain/.venv/bin/python scripts/oracle2/restore_experiment.py \
+              --pilot out/oracle2/resource-pilot.json \
+              --stress out/oracle2/resource-stress.json \
+              --kind new-instance --started-epoch "$started" \
+              --output out/oracle2/restore-result.json
+      - name: Record store resource usage
+        if: always()
+        run: |
+          mkdir -p out/oracle2
+          docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}' > out/oracle2/docker-stats.txt
+          cat out/oracle2/docker-stats.txt
+      - name: Upload sanitized result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle2-s02-offline-result
+          path: out/oracle2/
+          if-no-files-found: error
+      - name: Stop isolated stores
+        if: always()
+        run: |
+          docker rm -f oracle2-s02-restored 2>/dev/null || true
+          docker compose -f dev/oracle2/compose.yaml down --volumes

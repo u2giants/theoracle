@@ -9,6 +9,8 @@ There are no Docker containers in this repo. Runtime services are fully managed.
 | Vercel Functions | Next.js web app and API routes | Vercel | `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | `apps/web` build via `vercel.json` |
 | Oracle MCP server | Read-only MCP endpoint exposing approved business knowledge (claims, Brain sections, domain taxonomy) to external AI agents. Streamable HTTP at `/api/mcp/mcp`, bearer-token auth (`ORACLE_MCP_TOKEN`). | Vercel (in-app route) | same web project | `apps/web/app/api/mcp/[transport]/route.ts` + `apps/web/lib/mcp/` |
 | Trigger.dev Cloud | Background workers | Trigger.dev | `proj_wgpzsvhmsopqhvwqaycn` | `apps/workers` |
+| Trigger.dev Oracle 2 extractor preview | Synthetic-only S02 preview; delete when #26 closes | Trigger.dev | `proj_esmuwkezljvasptkbiwr` | `apps/workers/trigger.oracle2-extract.config.ts` |
+| Trigger.dev Oracle 2 projector preview | Synthetic-only S02 preview; delete when #26 closes | Trigger.dev | `proj_jtaztxnmppzfchdsgvea` | `apps/workers/trigger.oracle2-project.config.ts` |
 | Supabase Postgres | Primary database | Supabase | configured by env | managed Postgres + pgvector |
 | Supabase Auth | Login and session identity | Supabase | same project | managed Auth |
 | Supabase Storage | Uploaded documents | Supabase | bucket `company_documents` | managed object storage |
