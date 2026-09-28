@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """Offline checks for the S02 model evaluation harness (no network calls)."""
 import json
+import os
 from datetime import datetime, timedelta, timezone
 import unittest
 
 try:
-    import evaluate_models as em
-except ModuleNotFoundError as exc:  # system python3 without pydantic; CI runs this in the venv step
-    raise unittest.SkipTest(f"oracle-brain dependencies unavailable: {exc.name}")
+    import pydantic  # noqa: F401
+except ImportError as exc:
+    if os.environ.get("ORACLE2_REQUIRE_MODEL_TESTS") == "1":
+        raise
+    # System python3 lacks the oracle-brain venv; the CI venv step requires these tests.
+    raise unittest.SkipTest(f"SKIPPED model-harness tests: pydantic not importable ({exc})")
+import evaluate_models as em
 
 H = {"anthropic": "a" * 64, "openai": "b" * 64}
 ECHO = lambda *a: ("{}", 0)  # noqa: E731
@@ -56,6 +61,21 @@ class EvaluateModelsTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             em.dispatch(self.req(endpoint="https://example.invalid/v1/messages"),
                         em.approvals_for([("anthropic", False)], H), ECHO)
+
+    def test_changed_terms_page_is_denied_through_evaluate(self):
+        good = lambda url: em.TERMS_SHA256[[p for p, u in em.TERMS_URLS.items() if u == url][0]]  # noqa: E731
+        report = em.evaluate(em.PRIMARY_MODEL, em.FALLBACK_MODEL, self.cases[:1], fetch=good, sender=ECHO)
+        self.assertEqual(len(report["primary"]), 1)
+        with self.assertRaises(PermissionError):
+            em.evaluate(em.PRIMARY_MODEL, em.FALLBACK_MODEL, self.cases[:1],
+                        fetch=lambda url: "d" * 64, sender=ECHO)
+
+    def test_summary_fails_on_errors_or_no_rows(self):
+        row = {"model": "m", "pass": True, "tokens": 1, "error": None}
+        self.assertTrue(em.summarize({"primary": [row], "fallback": [row]})[1])
+        self.assertFalse(em.summarize({"primary": [dict(row, error="HTTPError")], "fallback": [row]})[1])
+        self.assertFalse(em.summarize({"primary": [], "fallback": []})[1])
+        self.assertEqual(em.main(["--ids", "ZZZ", "--out", os.devnull]), 2)
 
     def test_scoring(self):
         c = self.cases[0]

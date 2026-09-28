@@ -48,6 +48,12 @@ TERMS_URLS = {
     # page is the retrievable provider statement on API data use.
     "openai": "https://platform.openai.com/docs/guides/your-data",
 }
+# Body hashes retrieved 2026-09-28 10:49 AM EDT. Approvals carry these pinned values; requests
+# carry the freshly fetched hash, so a changed terms page is DENIED until re-reviewed and re-pinned.
+TERMS_SHA256 = {
+    "anthropic": "67a7888aadd67c717f2d09d3958cdfd462d71b712b4fde5ba1301fe636977038",
+    "openai": "fe8fbfae935c5cc881682b8bd929bb915c05cda4134ce9538f38fbaa672843f2",
+}
 SYSTEM = (
     "You answer questions about an invented company using ONLY the numbered source spans given. "
     "Reply with a single JSON object: {\"abstain\": bool, \"answer\": str, \"citations\": "
@@ -95,6 +101,7 @@ def _post(url: str, headers: dict, body: dict) -> dict:
             if attempt == 2 or exc.code not in (408, 429, 500, 502, 503, 529):
                 raise
             time.sleep(10 * (attempt + 1))
+    raise RuntimeError("provider request retries exhausted")
 
 
 def call(provider: str, model: str, prompt: str) -> tuple[str, int]:
@@ -159,28 +166,55 @@ def run(provider: str, model: str, fallback: bool, cases: list[dict],
     return results
 
 
-def main() -> int:
+def evaluate(primary: str, fallback: str, cases: list[dict], fetch=None, sender=call) -> dict:
+    """Admit every call through the policy: pinned terms hash in approvals, fetched hash in requests."""
+    fetch = fetch or fetch_terms_hash
+    (pp, pm), (fp, fm) = primary.split(":", 1), fallback.split(":", 1)
+    fetched = {p: fetch(TERMS_URLS[p]) for p in (pp, fp)}
+    approvals = approvals_for([(pp, False), (fp, True)], TERMS_SHA256)
+    return {"run_at": datetime.now(timezone.utc).isoformat(), "data_classes": sorted(DATA_CLASSES),
+            "purpose": PURPOSE, "terms_urls": {p: TERMS_URLS[p] for p in fetched},
+            "terms_sha256_fetched": fetched,
+            "approvals": [json.loads(x.model_dump_json()) for x in approvals],
+            "primary": run(pp, pm, False, cases, approvals, fetched, sender),
+            "fallback": run(fp, fm, True, cases, approvals, fetched, sender)}
+
+
+def summarize(report: dict) -> tuple[list[str], bool]:
+    """Return summary lines and whether the run is clean (rows present, no call errors)."""
+    lines, ok = [], True
+    for k in ("primary", "fallback"):
+        r = report[k]
+        if not r:
+            lines.append(f"{k}: no rows")
+            ok = False
+            continue
+        errors = sum(bool(x["error"]) for x in r)
+        ok = ok and errors == 0
+        lines.append(f"{k} {r[0]['model']} pass {sum(x['pass'] for x in r)} / {len(r)} "
+                     f"tokens {sum(x['tokens'] for x in r)} errors {errors}")
+    return lines, ok
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--primary", default=PRIMARY_MODEL, help="provider:model")
     ap.add_argument("--fallback", default=FALLBACK_MODEL, help="provider:model")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--ids", default="", help="comma-separated case IDs to rerun (default all)")
-    a = ap.parse_args()
-    (pp, pm), (fp, fm) = a.primary.split(":", 1), a.fallback.split(":", 1)
-    hashes = {p: fetch_terms_hash(TERMS_URLS[p]) for p in {pp, fp}}
-    approvals = approvals_for([(pp, False), (fp, True)], hashes)
+    a = ap.parse_args(argv)
     cases = load_questions()
     if a.ids:
         cases = [c for c in cases if c["id"] in set(a.ids.split(","))]
-    report = {"run_at": datetime.now(timezone.utc).isoformat(), "data_classes": sorted(DATA_CLASSES),
-              "purpose": PURPOSE, "terms_urls": {p: TERMS_URLS[p] for p in hashes}, "approvals": [json.loads(x.model_dump_json()) for x in approvals],
-              "primary": run(pp, pm, False, cases, approvals, hashes), "fallback": run(fp, fm, True, cases, approvals, hashes)}
-    a.out.write_text(json.dumps(report, indent=1))
-    for k in ("primary", "fallback"):
-        r = report[k]
-        print(k, r[0]["model"], "pass", sum(x["pass"] for x in r), "/", len(r),
-              "tokens", sum(x["tokens"] for x in r), "errors", sum(bool(x["error"]) for x in r))
-    return 0
+    if not cases:
+        print("no cases matched --ids", file=sys.stderr)
+        return 2
+    report = evaluate(a.primary, a.fallback, cases)
+    a.out.parent.mkdir(parents=True, exist_ok=True)
+    a.out.write_text(json.dumps(report, indent=1) + "\n")
+    lines, ok = summarize(report)
+    print("\n".join(lines))
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

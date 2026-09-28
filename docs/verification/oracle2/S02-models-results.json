@@ -1,9 +1,17 @@
 {
- "run_at": "2026-09-28T14:03:35.854073+00:00",
+ "run_at": "2026-09-28T15:58:03.161690+00:00",
  "data_classes": [
   "synthetic"
  ],
  "purpose": "s02-model-evaluation",
+ "terms_urls": {
+  "anthropic": "https://www.anthropic.com/legal/commercial-terms",
+  "openai": "https://platform.openai.com/docs/guides/your-data"
+ },
+ "terms_sha256_fetched": {
+  "anthropic": "67a7888aadd67c717f2d09d3958cdfd462d71b712b4fde5ba1301fe636977038",
+  "openai": "fe8fbfae935c5cc881682b8bd929bb915c05cda4134ce9538f38fbaa672843f2"
+ },
  "approvals": [
   {
    "provider": "anthropic",
@@ -13,8 +21,8 @@
     "synthetic"
    ],
    "purpose": "s02-model-evaluation",
-   "terms_hash": "7dea3b226d0f0cafd4b9bfe9d82572d627c5f147a6317a72c0f55a55c8bc2165",
-   "expires_at": "2026-09-28T16:03:35.853487Z",
+   "terms_hash": "67a7888aadd67c717f2d09d3958cdfd462d71b712b4fde5ba1301fe636977038",
+   "expires_at": "2026-09-28T17:58:03.161413Z",
    "register_ref": "docs/verification/oracle2/S02-models.md",
    "fallback": false
   },
@@ -26,8 +34,8 @@
     "synthetic"
    ],
    "purpose": "s02-model-evaluation",
-   "terms_hash": "9f6a7e4e271405ab8ff36ac43f45871f7d5bfd2c630a95413ea3795355707c29",
-   "expires_at": "2026-09-28T16:03:35.853487Z",
+   "terms_hash": "fe8fbfae935c5cc881682b8bd929bb915c05cda4134ce9538f38fbaa672843f2",
+   "expires_at": "2026-09-28T17:58:03.161413Z",
    "register_ref": "docs/verification/oracle2/S02-models.md",
    "fallback": true
   }
@@ -38,12 +46,12 @@
    "category": "procedure_ownership",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 405,
-   "elapsed_ms": 2842,
+   "tokens": 478,
+   "elapsed_ms": 2331,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "According to the provided source, the warehouse lead releases a sample kit after the color proof \u2014 specifically, after the sample coordinator signs the color proof and that signed proof appears in the release queue, the warehouse lead releases the kit.",
+    "answer": "The warehouse lead releases the sample kit, but only after the color proof has been signed by the sample coordinator and that signed proof appears in the release queue.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a01",
@@ -54,7 +62,7 @@
    "parsed": true,
    "citations_resolve": true,
    "expectation_match": true,
-   "fact_coverage": 0.86,
+   "fact_coverage": 0.71,
    "pass": true
   },
   {
@@ -62,12 +70,12 @@
    "category": "procedure_ownership",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 373,
-   "elapsed_ms": 1435,
+   "tokens": 378,
+   "elapsed_ms": 1670,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "After the studio editor marks the image approved, ownership of the approved asset transfers to the catalog producer, who then uploads it to the product page.",
+    "answer": "After the studio editor marks a catalog photo as approved, ownership of the approved asset transfers to the catalog producer, who then uploads it to the product page.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a02",
@@ -86,12 +94,12 @@
    "category": "procedure_ownership",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 463,
-   "elapsed_ms": 3288,
+   "tokens": 386,
+   "elapsed_ms": 1672,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "The sequence that brings a prototype into review has three steps in order: (1) Receiving logs the prototype ID, (2) quality inspection records a condition report, and (3) the design lead schedules the review.",
+    "answer": "For prototypes in the current scope, the sequence is: (1) Receiving logs the prototype ID, (2) quality inspection records a condition report, and (3) the design lead schedules the review.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a03",
@@ -110,12 +118,12 @@
    "category": "procedure_ownership",
    "expectation": "abstain",
    "model": "claude-sonnet-5",
-   "tokens": 436,
-   "elapsed_ms": 2160,
+   "tokens": 418,
+   "elapsed_ms": 2343,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish who holds final approval for packaging artwork. What is supported: Design signs the visual proof (a specific, narrower step), and the approval matrix includes a 'final approval' field, but that field's owner is explicitly left blank. No individual, role, or team is identified as the final approver, so I cannot state who approves final packaging artwork.",
+    "answer": "The sources do not establish who holds final approval for packaging artwork. What is supported: Design signs the visual proof, and the approval matrix contains a 'final approval' field, but that field's owner is explicitly left blank in the source. No other role, title, or individual is named as the final approver.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a04",
@@ -134,12 +142,12 @@
    "category": "conditional_exception",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 536,
-   "elapsed_ms": 2946,
+   "tokens": 558,
+   "elapsed_ms": 3132,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Yes, but only under a specific narrow condition: for sealed damage claims that already have an existing inspection record, the service lead may waive the standard photo check requirement for the replacement shipment. Outside of this specific scenario (sealed damage claim + pre-existing inspection record + service lead authorization), the standard photo check is required for replacements.",
+    "answer": "Yes, but only under a specific condition. Standard replacement shipments require a photo check as the default policy. However, for sealed damage claims that already have an existing inspection record, the service lead has the authority to waive the new photo check requirement. This is a narrow exception, not a general bypass\u2014it applies specifically to sealed damage claims with a prior inspection already on record, and the waiver decision rests with the service lead.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a05",
@@ -150,7 +158,7 @@
    "parsed": true,
    "citations_resolve": true,
    "expectation_match": true,
-   "fact_coverage": 0.64,
+   "fact_coverage": 0.91,
    "pass": true
   },
   {
@@ -158,12 +166,12 @@
    "category": "conditional_exception",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 479,
-   "elapsed_ms": 3584,
+   "tokens": 371,
+   "elapsed_ms": 2590,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "If the print proof differs from the approved swatch by more than the approved swatch tolerance, production is held. It remains on hold until the design team records a revised swatch decision.",
+    "answer": "If the print proof differs from the approved swatch by more than the approved tolerance, production is held until the design team records a revised swatch decision.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a06",
@@ -182,12 +190,12 @@
    "category": "conditional_exception",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 513,
-   "elapsed_ms": 3654,
+   "tokens": 504,
+   "elapsed_ms": 3097,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish that a supplier may substitute a material label during a shortage. What is documented is a procedural sequence for handling a shortage request generally: it is logged, and any substitution requires quality review and customer-specific label approval before the purchase order can be amended. There is no statement identifying who (e.g., a supplier) is authorized to initiate or perform a substitution, no confirmation that this process applies specifically to material labels, and no record of an actual approval being granted. Gap: no source specifies supplier authority to substitute material labels, nor an approval decision covering this scenario.",
+    "answer": "The sources do not establish that this substitution is approved. Source synthetic-acceptance-a07 states that a shortage request has been logged, but a material label substitution during shortage requires both quality review and customer-specific label approval before the purchase order can be amended. Neither the quality review outcome nor the label approval is documented in the given source, so no approval, owner, or decision can be confirmed. The only narrower supported fact is that a shortage request has been logged and that substitution is contingent on the two unmet prerequisites (quality review and customer-specific label approval).",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a07",
@@ -206,12 +214,12 @@
    "category": "conditional_exception",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 486,
-   "elapsed_ms": 3622,
+   "tokens": 387,
+   "elapsed_ms": 1695,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "A returned unit is routed to quarantine when it has a broken safety seal. Returns that are unopened instead proceed to ordinary inspection.",
+    "answer": "According to the provided source, a returned unit is routed to quarantine when it has a broken safety seal. Unopened returns, by contrast, proceed to ordinary inspection rather than quarantine.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a08",
@@ -230,12 +238,12 @@
    "category": "cross_department",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 673,
-   "elapsed_ms": 4348,
+   "tokens": 679,
+   "elapsed_ms": 4064,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "A product page cannot go live until two conditions are met after merchandising sends the approved assortment to catalog: (1) quality must supply the safety image, and (2) operations must confirm inventory status. Catalog only publishes once both of these are satisfied.",
+    "answer": "Based on the available source, a product page cannot go live (be published to catalog) until two conditions are met: (1) quality supplies the safety image, and (2) operations confirms inventory status. The process starts with merchandising sending the approved assortment to catalog, but catalog will only publish after both the safety image (from quality) and inventory confirmation (from operations) are received. No other blocking conditions or exceptions are specified in the source.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a09",
@@ -246,7 +254,7 @@
    "parsed": true,
    "citations_resolve": true,
    "expectation_match": true,
-   "fact_coverage": 0.71,
+   "fact_coverage": 0.86,
    "pass": true
   },
   {
@@ -254,12 +262,12 @@
    "category": "cross_department",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 966,
-   "elapsed_ms": 6594,
+   "tokens": 617,
+   "elapsed_ms": 3363,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Based on the sole source, the path for a trade sample to reach sales is: Design first approves the sample specification, then Warehouse packs the approved unit, and finally Sales receives the tracking ID from logistics before Sales promises a delivery date. The source does not specify the physical handoff mechanism between logistics and Sales (e.g., whether the sample itself is shipped directly to Sales or held elsewhere) - it only states that Sales receives a tracking ID from logistics.",
+    "answer": "A trade sample reaches sales through a sequential process: first, Design approves the sample specification. Then, Warehouse packs the approved unit. Finally, Sales receives the tracking ID from logistics before promising a delivery date to the customer.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a10",
@@ -278,12 +286,12 @@
    "category": "cross_department",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 1105,
-   "elapsed_ms": 8663,
+   "tokens": 638,
+   "elapsed_ms": 4011,
    "error": null,
    "output": {
-    "abstain": false,
-    "answer": "The sources describe the material-change workflow rather than a formal notification policy, but they show three functions that necessarily become aware of a vendor material change: Sourcing (which records the material change notice), Quality (which tests the new sample), and the catalog function (which updates the public specification only after Quality passes it). No other parties or a broader 'must know' list are established.",
+    "abstain": true,
+    "answer": "The source does not establish a notification policy specifying who 'must know' about a vendor material change. It only describes a sequential process: Sourcing records the material change notice, then Quality tests the new sample, and the catalog updates the public specification only after Quality passes it. No explicit requirement that other parties be informed or notified is stated.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a11",
@@ -293,21 +301,21 @@
    },
    "parsed": true,
    "citations_resolve": true,
-   "expectation_match": true,
+   "expectation_match": false,
    "fact_coverage": 0.8,
-   "pass": true
+   "pass": false
   },
   {
    "id": "A12",
    "category": "cross_department",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 484,
-   "elapsed_ms": 3347,
+   "tokens": 516,
+   "elapsed_ms": 3410,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "When an order has a missing insert, packing reports the missing insert to inventory control. Inventory control then checks stock levels and informs customer service whether the order can ship as-is or must wait until the insert is available.",
+    "answer": "When an order has a missing insert, packing reports the missing insert to inventory control. Inventory control then checks stock and tells customer service whether the order can ship or must wait.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a12",
@@ -326,12 +334,12 @@
    "category": "historical_change",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 496,
-   "elapsed_ms": 3202,
+   "tokens": 478,
+   "elapsed_ms": 3469,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "For the item in scope, the reorder threshold was 80 units under Revision 1, effective January through June. Starting July 1, Revision 2 changed the threshold to 120 units for the same item.",
+    "answer": "For the item covered by the reorder card, revision 1 set the reorder threshold at 80 units, effective from January through June. Revision 2 changed the threshold to 120 units, effective July 1 onward. So before July the threshold was 80 units, and from July 1 onward it was 120 units.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a13",
@@ -350,12 +358,12 @@
    "category": "historical_change",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 415,
-   "elapsed_ms": 6524,
+   "tokens": 429,
+   "elapsed_ms": 2923,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Effective August 3, the corrected carton packing limit is 16 units per carton. This corrected figure supersedes the original draft value of 18 units per carton.",
+    "answer": "Effective August 3, the corrected carton limit is 16 units per carton. This correction notice supersedes the original draft, which had listed 18 units per carton.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a14",
@@ -374,12 +382,12 @@
    "category": "historical_change",
    "expectation": "abstain",
    "model": "claude-sonnet-5",
-   "tokens": 446,
-   "elapsed_ms": 2896,
+   "tokens": 451,
+   "elapsed_ms": 2974,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish that the weekend receiving window was approved. They only show that a weekend window was proposed by operations, and a later warehouse note indicates that staffing approval is still pending. No approval decision, approver, or final policy is documented in these sources.",
+    "answer": "The sources do not establish that the weekend receiving window was approved. A meeting note from operations indicates a weekend window was proposed, but a later warehouse note states that staffing approval is still pending. No approval decision, approver, or effective date is documented in the provided sources.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a15",
@@ -398,12 +406,12 @@
    "category": "improvement_decision",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 1045,
-   "elapsed_ms": 7758,
+   "tokens": 906,
+   "elapsed_ms": 7326,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Observed evidence: In last month's sample log of ten handoffs, durations ranged 2-6 days, and 4 of the 10 (40%) stalled specifically because a proof link was missing [synthetic-acceptance-a16, paragraph:1]. No labor-cost data is available for this sample [synthetic-acceptance-a16, paragraph:1].\n\nHypothesis: Since missing proof links account for the largest identified cause of delay in this small sample, a targeted test would be to require the proof link as a mandatory field before a handoff can be marked ready (e.g., a submission gate or checklist item), which may reduce the number of handoffs stalled for this reason.\n\nMeasure: Track, on a comparable sample of handoffs after the change, (a) the proportion of handoffs missing a proof link at submission, and (b) the distribution of handoff durations (days), to see if the missing-link rate and the delay range shrink relative to the 4/10 and 2-6 day baseline.\n\nMissing inputs: The source does not provide labor-cost data, a root-cause breakdown for the other 6 handoffs, sample size/representativeness beyond these ten cases, or any prior approval/decision to implement a mandatory-field gate. These would be needed before treating this as more than a hypothesis to test.",
+    "answer": "Observed evidence: In a sample of ten proof handoffs last month, completion times ranged from 2 to 6 days, and 4 of the 10 (40%) were delayed specifically because they were waiting on a missing proof link. Hypothesis: If the missing-proof-link wait is the dominant driver of delay, then introducing a step that requires the proof link to be attached before a handoff can be marked as sent (e.g., a mandatory field or automated check) should reduce the number of handoffs stalled for this reason and shorten the overall 2\u20136 day range. Measure: Track, for the next sample of handoffs, (a) the count/percentage still delayed due to missing proof links, and (b) the distribution of total handoff days, comparing against the current 2\u20136 day range and 4/10 missing-link rate to see if both drop. Missing inputs: The source provides no labor-cost data, so any cost or effort impact of the change cannot be assessed, and no information is given on who owns or approves changes to the handoff process, so implementation authority is unconfirmed.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a16",
@@ -414,7 +422,7 @@
    "parsed": true,
    "citations_resolve": true,
    "expectation_match": true,
-   "fact_coverage": 0.55,
+   "fact_coverage": 0.64,
    "pass": true
   },
   {
@@ -422,12 +430,12 @@
    "category": "improvement_decision",
    "expectation": "abstain",
    "model": "claude-sonnet-5",
-   "tokens": 738,
-   "elapsed_ms": 5389,
+   "tokens": 722,
+   "elapsed_ms": 5602,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish a basis for deciding to purchase a new scanner. Observed evidence: a rework sheet records seven label mismatches in carton labeling last quarter [synthetic-acceptance-a17]. Hypothesis: a new scanner might reduce mismatches, but this is unverified since the sheet does not break down errors by cause (e.g., whether scanners were responsible). Measure: no metric ties label mismatches to scanner performance or to a cost/benefit of purchasing equipment. Missing inputs: the source explicitly lacks a scanner error breakdown, equipment price, and baseline volume, so there is no way to quantify current scanner-related failure rate, the cost of a new scanner, or the expected reduction in rework. Without these, no purchase approval or recommendation can be made.",
+    "answer": "The sources do not establish a basis for recommending a scanner purchase. Gap: there is no approval authority, cost/benefit data, or root-cause link between scanner errors and the mismatches identified. Observed evidence: the rework sheet for last quarter recorded seven label mismatches on cartons. Hypothesis (unverified): a new scanner could reduce these mismatches if scanner error is a contributing cause. Measure needed: a documented scanner-error breakdown showing what fraction of the seven mismatches are scanner-attributable. Missing inputs: scanner error breakdown, equipment price/cost, and baseline carton volume\u2014none of which are present in the source, so no purchase decision can be supported.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a17",
@@ -438,20 +446,20 @@
    "parsed": true,
    "citations_resolve": true,
    "expectation_match": true,
-   "fact_coverage": 0.44,
-   "pass": false
+   "fact_coverage": 0.56,
+   "pass": true
   },
   {
    "id": "A18",
    "category": "improvement_decision",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 1088,
-   "elapsed_ms": 10076,
+   "tokens": 1332,
+   "elapsed_ms": 11202,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Observed evidence: In the last 20 damage-claim cases, 5 (25%) involved repeat requests for photos, and the claim checklist that lists required documentation (including photos) is only sent to claimants after the first reply, not at intake [synthetic-acceptance-a18 | paragraph:1].\n\nHypothesis: If the checklist were sent at first contact (before or with the initial reply) instead of after it, claimants might supply required photos upfront, reducing the need for repeat photo requests and shortening review time.\n\nProposed small experiment: For a subset of new damage-claim cases (e.g., next 10-20), send the checklist immediately at intake rather than after the first reply, and compare the rate of repeat photo requests and time-to-resolution against the historical baseline (5 of 20 cases with repeat requests).\n\nMeasure: Track (a) proportion of cases requiring a repeat photo request, and (b) elapsed time from intake to claim decision, for the experimental cohort versus the 20-case baseline.\n\nMissing inputs: The source does not specify current average review time, who owns the checklist process, whether changing the send timing has been approved, or any resourcing/cost implications \u2014 these would need to be confirmed before running or scaling the experiment. No savings or approval can be assumed from the available data [synthetic-acceptance-a18 | paragraph:1].",
+    "answer": "Observed evidence: In the last 20 damage-claim cases, 5 required repeat requests for photos, and the claim checklist is only sent after the first reply rather than at initial contact [synthetic-acceptance-a18].\n\nHypothesis: If the checklist (which likely includes photo requirements) were sent at first contact instead of after the first reply, the number of cases needing a follow-up photo request might drop, which could shorten the overall review cycle for those cases.\n\nProposed small experiment: For the next batch of new damage claims, send the checklist immediately upon intake (before the first reply) instead of after it, and compare the rate of repeat photo requests to the current baseline of 5/20 cases.\n\nMeasure: Count of cases requiring a repeat photo request per 20 cases, and time from intake to claim closure, compared before and after the change.\n\nMissing inputs: The source does not provide baseline review-time or cycle-time figures, the specific content of the checklist, reasons behind the other 15/20 cases not needing repeat requests, or any approval/owner for changing when the checklist is sent. No savings or efficiency figures can be inferred from the given data.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a18",
@@ -470,23 +478,14 @@
    "category": "improvement_decision",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 967,
-   "elapsed_ms": 9374,
+   "tokens": 1491,
+   "elapsed_ms": 13685,
    "error": null,
-   "output": {
-    "abstain": true,
-    "answer": "The sources do not establish an approved improvement plan, policy, or owner for showroom sample tracking, so I cannot recommend a validated fix. Narrower supported facts: Observed evidence \u2014 the showroom register records sample checkout and return dates, but 3 of 12 entries are missing a return date, and the register contains no packaging-related data at all [synthetic-acceptance-a19 | paragraph:1]. Hypothesis \u2014 the missing return dates suggest a gap in the check-in/return logging step, but this is not confirmed by any source. Measure \u2014 no metric (e.g., % of entries with complete dates, average days overdue) is defined in the sources to gauge tracking performance. Missing inputs \u2014 there is no data linking packaging to showroom tracking, no stated owner responsible for closing the return-date gap, and no approved process change or decision documented; these would be required before recommending or confirming any improvement.",
-    "citations": [
-     {
-      "source_id": "synthetic-acceptance-a19",
-      "locator": "paragraph:1"
-     }
-    ]
-   },
-   "parsed": true,
-   "citations_resolve": true,
+   "output": null,
+   "parsed": false,
+   "citations_resolve": false,
    "expectation_match": false,
-   "fact_coverage": 0.33,
+   "fact_coverage": 0.0,
    "pass": false
   },
   {
@@ -494,12 +493,12 @@
    "category": "improvement_decision",
    "expectation": "abstain",
    "model": "claude-sonnet-5",
-   "tokens": 664,
-   "elapsed_ms": 4851,
+   "tokens": 702,
+   "elapsed_ms": 5813,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish a decision or approved policy for increasing the seasonal order by 30 percent. The only evidence available is [synthetic-acceptance-a20 | paragraph:1], which notes that Sales expects higher demand and that inventory reports indicate last season's overstock \u2014 but it explicitly states that there is no agreed forecast, margin, lead time, or downside cost supplied. Without these inputs (a validated demand forecast, margin analysis, lead time constraints, and downside/overstock cost exposure), there is no basis to approve or quantify a specific order increase such as 30 percent. Narrower supported facts: (1) Sales anticipates higher demand for the upcoming season; (2) inventory data shows overstock occurred last season. Missing inputs needed to decide: an agreed demand forecast, margin targets, supplier/production lead times, and quantified downside cost of overordering.",
+    "answer": "The sources do not establish a decision or approval to increase the seasonal order by 30 percent, nor do they provide the inputs needed to evaluate such a change. The only supported facts are: (1) Sales expects higher demand for the upcoming season, and (2) inventory reports indicate last season had an overstock situation. The source explicitly states that no agreed forecast, margin, lead time, or downside cost figures are supplied. Without these inputs (a validated demand forecast, margin impact, lead time constraints, and downside/overstock risk cost), there is no basis to approve or quantify a 30 percent order increase. Missing inputs needed: agreed demand forecast for the product line, margin per unit, supplier lead time, and estimated cost of downside (overstock) risk if demand does not materialize as expected.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a20",
@@ -518,12 +517,12 @@
    "category": "procedure_ownership",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 314,
-   "elapsed_ms": 4431,
+   "tokens": 323,
+   "elapsed_ms": 2030,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "The display desk logs sample receipt.",
+    "answer": "According to the source, the display desk logs sample receipt for display samples.",
     "citations": [
      {
       "source_id": "synthetic-development-d01",
@@ -542,12 +541,12 @@
    "category": "procedure_ownership",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 311,
-   "elapsed_ms": 2066,
+   "tokens": 312,
+   "elapsed_ms": 1478,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Document control files the approved care-card proof.",
+    "answer": "Document control files the approved proof for the care card.",
     "citations": [
      {
       "source_id": "synthetic-development-d02",
@@ -566,12 +565,12 @@
    "category": "conditional_exception",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 473,
-   "elapsed_ms": 2642,
+   "tokens": 469,
+   "elapsed_ms": 2261,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "It depends on the size of the scuff and the type of sample being inspected. Based on the sourced policy: (1) a sleeve with a scuff greater than 3 mm fails inspection; (2) smaller scuffs (3 mm or less) are recorded but are only accepted for internal samples. The source does not state whether smaller scuffs are acceptable for non-internal (e.g., customer-facing or production) samples, so that case is not established.",
+    "answer": "Whether a sleeve with scuffing can pass inspection depends on the scuff size and the intended use of the sleeve. According to the source, a sleeve with a scuff greater than 3 mm fails inspection. Smaller scuffs (3 mm or under) are recorded but accepted only for internal samples \u2014 meaning this pass condition applies specifically to internal samples, not necessarily to all sleeves in general.",
     "citations": [
      {
       "source_id": "synthetic-development-d03",
@@ -582,20 +581,20 @@
    "parsed": true,
    "citations_resolve": true,
    "expectation_match": true,
-   "fact_coverage": 0.5,
-   "pass": true
+   "fact_coverage": 0.25,
+   "pass": false
   },
   {
    "id": "D04",
    "category": "conditional_exception",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 503,
-   "elapsed_ms": 3576,
+   "tokens": 528,
+   "elapsed_ms": 3134,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not fully establish what happens when trim arrives after the assembly slot. The only relevant fact provided is a conditional policy: late trim requires a new slot request, unless production signs a same-day recovery note (in which case, presumably, a new slot request is not required). However, the sources do not specify who owns or approves this process, what the 'same-day recovery note' must contain, what happens if no such note is signed and no new slot is requested, or any broader scheduling policy governing this scenario. I cannot confirm the full procedure, approvals, or consequences beyond this narrow conditional rule.",
+    "answer": "The sources do not fully establish this policy. What is confirmed: if late trim arrives after the assembly slot, a new slot request is required \u2014 unless production signs a same-day recovery note, in which case (implicitly) the original slot may be retained without a new request. However, the source does not specify: (1) who owns/approves the recovery note process beyond 'production,' (2) what criteria determine eligibility for a same-day recovery note, (3) what happens if no recovery note is signed and no new slot is requested, or (4) any downstream scheduling impacts or approval chain for the new slot request. I cannot confirm a complete policy or approval workflow beyond this single conditional rule.",
     "citations": [
      {
       "source_id": "synthetic-development-d04",
@@ -614,12 +613,12 @@
    "category": "cross_department",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 446,
-   "elapsed_ms": 2091,
+   "tokens": 406,
+   "elapsed_ms": 1830,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Before a promotion card can print, two approvals must be completed: (1) Marketing drafts the card, and (2) Finance verifies the price. Print production starts only after both of these approvals are obtained.",
+    "answer": "Before a promotion card prints, two approvals must be completed: Marketing drafts the card, and Finance verifies the price. Print production starts only after both of these approvals are in place.",
     "citations": [
      {
       "source_id": "synthetic-development-d05",
@@ -638,12 +637,12 @@
    "category": "cross_department",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 667,
-   "elapsed_ms": 4466,
+   "tokens": 507,
+   "elapsed_ms": 3130,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not specify the actual disposal method used for retired samples (e.g., destruction, recycling, sale, donation). They only describe a process sequence: Design marks a sample as retired, Inventory then removes it from active stock, and Facilities records the disposal afterward \u2014 but the specific manner of disposal itself is not stated.",
+    "answer": "The sources do not establish the actual disposal method or policy for retired samples. What is supported: Design marks a sample as retired, Inventory then removes it from active stock, and Facilities subsequently records the disposal afterward \u2014 but no detail is given on how the physical disposal is carried out (e.g., method, vendor, destruction standard).",
     "citations": [
      {
       "source_id": "synthetic-development-d06",
@@ -662,12 +661,12 @@
    "category": "historical_change",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 364,
-   "elapsed_ms": 1680,
+   "tokens": 507,
+   "elapsed_ms": 2778,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "As of the April revision, binder code B5 is current, replacing B4, which was used only through March.",
+    "answer": "As of April onward, binder code B5 is current. B4 was used through March, and the April revision replaced it with B5.",
     "citations": [
      {
       "source_id": "synthetic-development-d07",
@@ -686,12 +685,12 @@
    "category": "historical_change",
    "expectation": "abstain",
    "model": "claude-sonnet-5",
-   "tokens": 536,
-   "elapsed_ms": 2984,
+   "tokens": 506,
+   "elapsed_ms": 2875,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish whether the evening shift was actually extended. A supervisor proposed extending the shift, but the staffing sheet still reflects the original end time, meaning there is no confirmed approval or documented change to the schedule. Gap: no record of an approved decision, updated staffing sheet, or authorization confirming the extension took effect. Narrower supported fact: a proposal to extend the shift was made, and as of the current record, the staffing sheet has not been updated to reflect any change.",
+    "answer": "The sources do not establish that the evening shift was actually extended. A supervisor proposed extending the shift, but there is no record of an approval decision, and the staffing sheet still reflects the original end time \u2014 suggesting the proposal was not implemented (or at least not yet reflected in official records). The gap: no approval, owner sign-off, or updated staffing document confirming the change took effect.",
     "citations": [
      {
       "source_id": "synthetic-development-d08",
@@ -702,20 +701,20 @@
    "parsed": true,
    "citations_resolve": true,
    "expectation_match": true,
-   "fact_coverage": 1.0,
-   "pass": true
+   "fact_coverage": 0.33,
+   "pass": false
   },
   {
    "id": "D09",
    "category": "improvement_decision",
    "expectation": "answer",
    "model": "claude-sonnet-5",
-   "tokens": 625,
-   "elapsed_ms": 4255,
+   "tokens": 916,
+   "elapsed_ms": 8568,
    "error": null,
    "output": {
-    "abstain": true,
-    "answer": "The source only reports observed evidence: of the last six mockup jobs, three waited for missing dimensions (synthetic-development-d09, paragraph:1). It does not propose or approve any trial, hypothesis, or measurement method for reducing queue time, so I cannot state what trial could help.\n\nObserved evidence: 6 jobs in queue; 3 delayed due to missing dimensions.\nHypothesis: Not stated in source.\nMeasure: Not stated in source.\nMissing inputs: A proposed intervention/trial (e.g., pre-submission dimension checklist), a defined success metric (e.g., average queue time reduction), and an approval or owner for testing such a change.",
+    "abstain": false,
+    "answer": "Observed evidence: Of the last six mockup jobs, three were delayed specifically due to missing dimensions (source shows 3/6 jobs waited on this). Hypothesis: If missing-dimension delays are a primary bottleneck, a trial that requires dimension data to be submitted/verified before a job enters the mockup queue (e.g., a pre-intake checklist or gate) could reduce the queue time, since it targets the exact stall cause identified in half the sample. Measure: Track the proportion of jobs still waiting on missing dimensions after the trial, and compare average queue wait time for the six-job window before vs. after the change. Missing inputs: The source does not specify why dimensions were missing (upstream process, client delay, form design), does not identify who owns the mockup queue or intake process, and there is no recorded approval or existing policy for any such gating trial. Any specific trial design, owner, or expected savings would need to be confirmed beyond what is stated here.",
     "citations": [
      {
       "source_id": "synthetic-development-d09",
@@ -725,21 +724,21 @@
    },
    "parsed": true,
    "citations_resolve": true,
-   "expectation_match": false,
+   "expectation_match": true,
    "fact_coverage": 0.5,
-   "pass": false
+   "pass": true
   },
   {
    "id": "D10",
    "category": "improvement_decision",
    "expectation": "abstain",
    "model": "claude-sonnet-5",
-   "tokens": 543,
-   "elapsed_ms": 7451,
+   "tokens": 656,
+   "elapsed_ms": 4803,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish any policy, approval, or decision regarding outsourcing reshoots. The only relevant information states that two reshoots occurred last month, but no cost or capacity data was recorded, so there is no basis to evaluate whether outsourcing would be beneficial, approved, or who would own such a decision. Narrower supported fact: two reshoots occurred in the scoped period (photos, last month), with no accompanying cost or capacity figures.",
+    "answer": "The sources do not establish a policy, approval, or decision basis for outsourcing all reshoots. Observed evidence: two reshoots occurred last month (photos scope), but no cost or capacity data was recorded [synthetic-development-d10 | paragraph:1]. Hypothesis: outsourcing might reduce internal workload or cost, but this is unverified. Measure: no metric (e.g., cost per reshoot, turnaround time, capacity utilization) is available to compare in-house vs. outsourced performance. Missing inputs: cost data, capacity/resource data, quality outcomes, and any existing sourcing policy or approval authority for reshoot decisions. Without these, no informed recommendation can be made.",
     "citations": [
      {
       "source_id": "synthetic-development-d10",
@@ -761,7 +760,7 @@
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
    "tokens": 232,
-   "elapsed_ms": 3335,
+   "elapsed_ms": 3904,
    "error": null,
    "output": {
     "abstain": false,
@@ -785,7 +784,7 @@
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
    "tokens": 232,
-   "elapsed_ms": 2008,
+   "elapsed_ms": 3234,
    "error": null,
    "output": {
     "abstain": false,
@@ -808,12 +807,12 @@
    "category": "procedure_ownership",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 233,
-   "elapsed_ms": 2043,
+   "tokens": 234,
+   "elapsed_ms": 1482,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "The sequence is: Receiving logs the prototype ID, quality inspection records a condition report, and then the design lead schedules the review.",
+    "answer": "The sequence is: Receiving logs the prototype ID, then quality inspection records a condition report, and then the design lead schedules the review.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a03",
@@ -832,12 +831,12 @@
    "category": "procedure_ownership",
    "expectation": "abstain",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 263,
-   "elapsed_ms": 2604,
+   "tokens": 281,
+   "elapsed_ms": 2092,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish who approves final packaging artwork. The only supported fact is that Design signs the visual proof, while the approval matrix has a final approval field with the owner left blank.",
+    "answer": "The sources do not establish who approves final packaging artwork. The only supported facts are that Design signs the visual proof, and the approval matrix has a final approval field but the owner is blank.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a04",
@@ -856,12 +855,12 @@
    "category": "conditional_exception",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 302,
-   "elapsed_ms": 2240,
+   "tokens": 292,
+   "elapsed_ms": 2769,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Yes, but only for sealed damage claims that already have an inspection record; in that case, the service lead may waive the new photo check. Otherwise, standard replacements require a photo check.",
+    "answer": "Yes, but only in a specific case: standard replacements require a photo check, while sealed damage claims that already have an inspection record may have the new photo check waived by the service lead.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a05",
@@ -880,12 +879,12 @@
    "category": "conditional_exception",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 238,
-   "elapsed_ms": 1837,
+   "tokens": 243,
+   "elapsed_ms": 2098,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "If the print proof delta exceeds the approved swatch tolerance, production is held until Design records a revised swatch decision.",
+    "answer": "If the print proof differs from the approved swatch beyond the approved swatch tolerance, production is held until design records a revised swatch decision.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a06",
@@ -904,12 +903,12 @@
    "category": "conditional_exception",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 286,
-   "elapsed_ms": 2172,
+   "tokens": 303,
+   "elapsed_ms": 3227,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "A supplier may substitute a material label during a shortage only after the substitution receives quality review and customer-specific label approval, and before the purchase order is amended.",
+    "answer": "A supplier may not unilaterally substitute a material label during a shortage. The source states that a substitution requires quality review and customer-specific label approval before the purchase order can be amended.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a07",
@@ -928,12 +927,12 @@
    "category": "conditional_exception",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 228,
-   "elapsed_ms": 1532,
+   "tokens": 227,
+   "elapsed_ms": 1779,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "A returned unit is routed to quarantine when it has a broken safety seal. Unopened returns instead proceed to ordinary inspection.",
+    "answer": "A returned unit is routed to quarantine when it has a broken safety seal. Unopened returns proceed to ordinary inspection.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a08",
@@ -952,12 +951,12 @@
    "category": "cross_department",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 257,
-   "elapsed_ms": 1855,
+   "tokens": 306,
+   "elapsed_ms": 2309,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "A product page is blocked from going live until Catalog has both (1) the safety image from Quality and (2) inventory status confirmation from Operations. The source says Catalog publishes only after those two items are supplied/confirmed.",
+    "answer": "For current online launches, catalog publication is blocked until Quality supplies the safety image and Operations confirms inventory status. The source also indicates Merchandising first sends the approved assortment to Catalog.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a09",
@@ -976,12 +975,12 @@
    "category": "cross_department",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 271,
-   "elapsed_ms": 1942,
+   "tokens": 295,
+   "elapsed_ms": 2427,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "A trade sample reaches sales after Design approves the sample specification, Warehouse packs the approved unit, and Sales receives the tracking ID from Logistics before promising a delivery date.",
+    "answer": "A trade sample reaches sales through this sequence: Design approves the sample specification; Warehouse packs the approved unit; then Sales receives the tracking ID from Logistics before promising a delivery date.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a10",
@@ -1000,12 +999,12 @@
    "category": "cross_department",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 334,
-   "elapsed_ms": 3053,
+   "tokens": 383,
+   "elapsed_ms": 3263,
    "error": null,
    "output": {
-    "abstain": false,
-    "answer": "Sourcing and Quality must be involved: Sourcing records the vendor material change notice, and Quality tests the new sample before any public specification update is made.",
+    "abstain": true,
+    "answer": "The source does not explicitly state who must be notified or must know about a vendor material change. Narrower supported facts: Sourcing records a material change notice; Quality tests the new sample; the catalog updates the public specification only after Quality passes it.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a11",
@@ -1015,9 +1014,9 @@
    },
    "parsed": true,
    "citations_resolve": true,
-   "expectation_match": true,
+   "expectation_match": false,
    "fact_coverage": 0.8,
-   "pass": true
+   "pass": false
   },
   {
    "id": "A12",
@@ -1025,7 +1024,7 @@
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
    "tokens": 250,
-   "elapsed_ms": 1625,
+   "elapsed_ms": 2371,
    "error": null,
    "output": {
     "abstain": false,
@@ -1048,12 +1047,12 @@
    "category": "historical_change",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 263,
-   "elapsed_ms": 1913,
+   "tokens": 259,
+   "elapsed_ms": 1546,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "For the item in scope from January onward: before July (January through June), the reorder threshold was 80 units. After July 1, the reorder threshold was 120 units.",
+    "answer": "Before July, the reorder threshold was 80 units (effective January through June). After July 1, the reorder threshold was 120 units for the same item.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a13",
@@ -1073,7 +1072,7 @@
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
    "tokens": 232,
-   "elapsed_ms": 1374,
+   "elapsed_ms": 1645,
    "error": null,
    "output": {
     "abstain": false,
@@ -1096,12 +1095,12 @@
    "category": "historical_change",
    "expectation": "abstain",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 259,
-   "elapsed_ms": 2030,
+   "tokens": 261,
+   "elapsed_ms": 1885,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish that the weekend receiving window was approved. They state only that a weekend window was proposed and that staffing approval is still pending.",
+    "answer": "The sources do not establish that the weekend receiving window was approved. They only state that a weekend window was proposed and that staffing approval is still pending.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a15",
@@ -1120,12 +1119,12 @@
    "category": "improvement_decision",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 382,
-   "elapsed_ms": 3202,
+   "tokens": 399,
+   "elapsed_ms": 3197,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Observed evidence: In last month's sample, ten proof handoffs took 2 to 6 days, and four were delayed because a proof link was missing. No labor-cost data is available. Hypothesis: test requiring the proof link to be included before handoff, such as a mandatory proof-link field or checklist gate, to reduce handoff delay. Measure: compare handoff cycle time and the count/share of handoffs waiting on missing proof links before vs. after the change. Missing inputs: labor-cost data is not supplied, so cost savings cannot be estimated from the source.",
+    "answer": "Observed evidence: In last month\u2019s sample, ten proof handoffs took 2 to 6 days, and four were delayed while waiting for a missing proof link. No labor-cost data is available.\n\nHypothesis: Test requiring the proof link to be included before handoff, such as a mandatory proof-link field or checklist gate. This may reduce delays caused by missing proof links.\n\nMeasure: Compare proof handoff delay time before and after the change, especially the count and share of handoffs waiting on missing proof links.\n\nMissing inputs: Labor-cost impact cannot be estimated from the supplied source because no labor-cost data is supplied.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a16",
@@ -1144,12 +1143,12 @@
    "category": "improvement_decision",
    "expectation": "abstain",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 368,
-   "elapsed_ms": 2940,
+   "tokens": 401,
+   "elapsed_ms": 3349,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish that we should buy a new scanner. Observed evidence: last quarter's rework sheet records seven carton label mismatches. Hypothesis: a new scanner might reduce carton rework, but the source does not show that scanner errors caused the mismatches. Measure: scanner error breakdown, baseline carton volume, expected mismatch reduction, and scanner cost would be needed to evaluate impact and ROI. Missing inputs: no scanner error breakdown, no equipment price, and no baseline volume are provided.",
+    "answer": "The sources do not establish that buying a new scanner is warranted. Observed evidence: last quarter's rework sheet records seven carton label mismatches. Hypothesis: a new scanner might reduce carton rework, but the source provides no scanner error breakdown tying the mismatches to scanner performance. Measure: the source also lacks baseline volume, so the mismatch rate cannot be calculated, and it lacks equipment price, so cost-effectiveness or payback cannot be assessed. Missing inputs: scanner-attributable error count or rate, baseline carton volume, current process causes, expected reduction from the new scanner, equipment and implementation cost, and approval criteria.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a17",
@@ -1168,12 +1167,12 @@
    "category": "improvement_decision",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 455,
-   "elapsed_ms": 4297,
+   "tokens": 460,
+   "elapsed_ms": 5136,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Observed evidence: In the last 20 damage-claim cases, 5 required repeat requests for photos, and the claim checklist exists but is only sent after the first reply.\n\nHypothesis: Sending the claim checklist at the start of the damage-claim process may reduce repeat photo requests and shorten review time.\n\nSmall experiment: For the next set of damage-claim cases, send the existing checklist with the initial claim intake message instead of waiting until after the first reply.\n\nMeasure: Compare the share of cases needing repeat photo requests against the observed baseline of 5 of 20 cases.\n\nMissing inputs: The source does not provide current review-cycle time, target reduction, staffing impact, approval to change messaging, or the number of cases to include in the experiment.",
+    "answer": "Observed evidence: In the last 20 damage-claim cases, 5 had repeat requests for photos, and the claim checklist is currently sent only after the first reply. Hypothesis: sending the damage-claim checklist immediately at case intake could reduce missing-photo follow-ups and shorten review time. Small experiment: for the next 20 damage-claim cases, send the checklist in the initial acknowledgement instead of waiting until after the first reply. Measure: compare the number of repeat photo requests and time-to-review against the prior 20-case baseline. Missing inputs: the source does not provide current review-cycle time, staffing impact, customer response time, or approval requirements for changing the intake message.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a18",
@@ -1192,12 +1191,12 @@
    "category": "improvement_decision",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 385,
-   "elapsed_ms": 2874,
+   "tokens": 443,
+   "elapsed_ms": 4150,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Observed evidence: the showroom register tracks sample checkout dates and return dates, but 3 of 12 entries lack a return date. Packaging data does not relate to showroom tracking. Hypothesis: showroom sample tracking could improve by requiring return-date completion for every checked-out sample. Measure: reduce missing return dates from 3 of 12 entries to 0 of 12. Missing inputs: the source does not establish any approved process change, owner, tooling, or packaging-related improvement for showroom tracking.",
+    "answer": "Observed evidence: The current showroom register records sample checkout dates and return dates, but 3 of 12 entries lack a return date. Packaging data is not related to showroom tracking in the provided source.\n\nHypothesis: Improving completion of return-date fields\u2014such as by reviewing open checkouts or flagging entries without return dates\u2014could improve showroom sample tracking.\n\nMeasure: Track the number and percentage of showroom register entries missing return dates over time.\n\nMissing inputs: The source does not establish an approved process change, an owner, a target threshold, or any role for packaging data in showroom sample tracking.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a19",
@@ -1216,12 +1215,12 @@
    "category": "improvement_decision",
    "expectation": "abstain",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 329,
-   "elapsed_ms": 2548,
+   "tokens": 312,
+   "elapsed_ms": 2419,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish whether the seasonal order should be increased by 30 percent. Gap: there is no agreed forecast, margin, lead time, or downside cost to support that decision. Narrower supported facts: Sales expects higher demand, while inventory reports last season's overstock.",
+    "answer": "The sources do not establish whether the seasonal order should be increased by 30 percent. Gap: there is no agreed forecast, margin, lead time, or downside cost to support that ordering decision. Narrower supported facts: Sales expects higher demand, while inventory reports last season had overstock.",
     "citations": [
      {
       "source_id": "synthetic-acceptance-a20",
@@ -1241,11 +1240,11 @@
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
    "tokens": 206,
-   "elapsed_ms": 1261,
+   "elapsed_ms": 1148,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "The display desk logs a display sample\u2019s receipt.",
+    "answer": "The display desk logs sample receipt for display samples.",
     "citations": [
      {
       "source_id": "synthetic-development-d01",
@@ -1264,8 +1263,8 @@
    "category": "procedure_ownership",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 217,
-   "elapsed_ms": 1494,
+   "tokens": 204,
+   "elapsed_ms": 1203,
    "error": null,
    "output": {
     "abstain": false,
@@ -1288,12 +1287,12 @@
    "category": "conditional_exception",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 298,
-   "elapsed_ms": 2936,
+   "tokens": 338,
+   "elapsed_ms": 2879,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Yes, but only in a limited case: a sleeve with scuffing under 3 mm can be recorded and accepted for internal samples only. A sleeve with a scuff over 3 mm fails inspection.",
+    "answer": "Yes, but only in a limited case: a sleeve with scuffing under 3 mm may be recorded and accepted for internal samples only. A sleeve with a scuff over 3 mm fails inspection. The source does not establish that scuffed sleeves can pass for non-internal samples.",
     "citations": [
      {
       "source_id": "synthetic-development-d03",
@@ -1312,12 +1311,12 @@
    "category": "conditional_exception",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 225,
-   "elapsed_ms": 1964,
+   "tokens": 241,
+   "elapsed_ms": 2454,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "If trim arrives late (after the assembly slot), a new slot request is required unless production signs a same-day recovery note.",
+    "answer": "If trim arrives after the assembly slot, late trim requires a new slot request unless production signs a same-day recovery note.",
     "citations": [
      {
       "source_id": "synthetic-development-d04",
@@ -1336,12 +1335,12 @@
    "category": "cross_department",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 230,
-   "elapsed_ms": 1463,
+   "tokens": 232,
+   "elapsed_ms": 1919,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Before a promotion card prints, Marketing must approve/draft the card and Finance must verify the price; print production starts only after both approvals.",
+    "answer": "Before a promotion card prints, the card must be drafted by Marketing and the price must be verified by Finance; print production starts only after both approvals.",
     "citations": [
      {
       "source_id": "synthetic-development-d05",
@@ -1352,7 +1351,7 @@
    "parsed": true,
    "citations_resolve": true,
    "expectation_match": true,
-   "fact_coverage": 0.83,
+   "fact_coverage": 0.67,
    "pass": true
   },
   {
@@ -1360,12 +1359,12 @@
    "category": "cross_department",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 271,
-   "elapsed_ms": 2047,
+   "tokens": 298,
+   "elapsed_ms": 2932,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The source does not establish how a retired sample is disposed; it only states that after Design marks a sample retired and Inventory removes it from active stock, Facilities records the disposal afterward.",
+    "answer": "The source does not establish the disposal method for a retired sample. It only states that Design marks a sample as retired, Inventory removes it from active stock, and Facilities records the disposal afterward.",
     "citations": [
      {
       "source_id": "synthetic-development-d06",
@@ -1384,12 +1383,12 @@
    "category": "historical_change",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 236,
-   "elapsed_ms": 1862,
+   "tokens": 210,
+   "elapsed_ms": 1355,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "The current binder code from April onward is B5.",
+    "answer": "The current binder code (April onward) is B5.",
     "citations": [
      {
       "source_id": "synthetic-development-d07",
@@ -1408,12 +1407,12 @@
    "category": "historical_change",
    "expectation": "abstain",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 314,
-   "elapsed_ms": 2527,
+   "tokens": 283,
+   "elapsed_ms": 2215,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish that the evening shift was extended. They only show that a supervisor proposed extending the shift, while the current staffing sheet still shows the original end time.",
+    "answer": "The sources do not establish that the evening shift was extended. They only show that a supervisor proposed extending the shift, while the staffing sheet still shows the original end time.",
     "citations": [
      {
       "source_id": "synthetic-development-d08",
@@ -1432,12 +1431,12 @@
    "category": "improvement_decision",
    "expectation": "answer",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 380,
-   "elapsed_ms": 3415,
+   "tokens": 433,
+   "elapsed_ms": 4897,
    "error": null,
    "output": {
     "abstain": false,
-    "answer": "Observed evidence: In the last six mockup jobs, three waited because dimensions were missing. Hypothesis: requiring complete dimensions before a mockup job enters the queue could reduce queue time. Trial: run a short intake checklist trial for the next mockup jobs that blocks or flags submissions without dimensions before they join the queue. Measure: compare average queue time and the count of jobs waiting for missing dimensions before vs. during the trial. Missing inputs: the source does not provide actual queue-time durations, baseline averages, ownership, approval status, or expected savings.",
+    "answer": "Observed evidence: In the last six mockup jobs, three waited because dimensions were missing. Hypothesis: requiring dimensions before a mockup job enters the queue could reduce queue time by preventing avoidable waits. Trial: for the next batch of mockup requests, use an intake checklist or required dimensions field before queue acceptance. Measure: compare queue time and number of dimension-related waits against the last-six-job baseline. Missing inputs: current queue-time values, target reduction, who owns intake, and whether requesters can reliably provide dimensions upfront.",
     "citations": [
      {
       "source_id": "synthetic-development-d09",
@@ -1448,20 +1447,20 @@
    "parsed": true,
    "citations_resolve": true,
    "expectation_match": true,
-   "fact_coverage": 0.25,
-   "pass": false
+   "fact_coverage": 0.75,
+   "pass": true
   },
   {
    "id": "D10",
    "category": "improvement_decision",
    "expectation": "abstain",
    "model": "gpt-5.5-2026-04-23",
-   "tokens": 307,
-   "elapsed_ms": 2720,
+   "tokens": 314,
+   "elapsed_ms": 2883,
    "error": null,
    "output": {
     "abstain": true,
-    "answer": "The sources do not establish whether all reshoots should be outsourced. Gap: there is no cost, capacity, quality, vendor, SLA, or approval/decision data to support an outsourcing policy. Narrower supported fact: last month, two reshoots occurred, and no cost or capacity data was recorded.",
+    "answer": "The sources do not establish whether all reshoots should be outsourced. Gap: there is no policy, approval, decision, cost data, capacity data, vendor performance data, or comparison of in-house vs. outsourced reshoots for last month\u2019s photos. Narrower supported fact: two reshoots occurred, but no cost or capacity data was recorded.",
     "citations": [
      {
       "source_id": "synthetic-development-d10",
@@ -1472,9 +1471,8 @@
    "parsed": true,
    "citations_resolve": true,
    "expectation_match": true,
-   "fact_coverage": 0.6,
-   "pass": true
+   "fact_coverage": 0.4,
+   "pass": false
   }
- ],
- "note": "Primary A18/A19 replaced by retry run at 2026-09-28T14:07:07.077580+00:00 after transient HTTPError; fallback rows are from the first run only."
+ ]
 }
