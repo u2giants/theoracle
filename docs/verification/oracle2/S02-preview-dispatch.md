@@ -17,6 +17,21 @@ plan's pause/resume proof. Steps 0-2 are already done (approval record on #26;
 projects `proj_esmuwkezljvasptkbiwr`, `proj_jtaztxnmppzfchdsgvea`); step 0 is
 repeated for revision 4 before step 3.
 
+**Revision 5** (revision 4 approved at `544347f`; its build, version
+20260928.2, installed CPython 3.12.14 and then failed dependency resolution
+because uv's first-index rule found `certifi` on the PyTorch CPU index at an
+older version). Changes only: `uv pip install` adds
+`--index-strategy unsafe-best-match` (safe because `--require-hashes` pins every
+artifact, so no substituted package can install); the interpreter is pinned to
+3.12.14 and asserted in the image; tests assert both configs use the pinned
+layer and the `preview_status` vocabulary.
+
+**What to execute for revision 5:** step 0 (approval record), then steps 3-6
+only. Steps 1-2 are complete and must not be repeated (the projects and staging
+variables already exist; creating them again is out of scope). CI precondition:
+the `Oracle 2 contracts` workflow runs on PR #45 (pull_request to main) at the
+reviewed head.
+
 ## Preconditions
 
 - `ai-task-gates check --before infrastructure` passes, then `--before deploy`.
@@ -72,8 +87,9 @@ repeated for revision 4 before step 3.
    of whether the pinned requirements install there. Build-time network: pypi.org,
    download.pytorch.org (CPU index), ghcr.io (uv image), and uv's Python
    download mirror; nothing runtime. **Stop rule:** if pip fails
-   (for example no matching `torch` wheel), the image exceeds 4 GB, or the build
-   exceeds 30 minutes, stop, record the failure, and fall back per the plan
+   (for example no matching `torch` wheel), the uv image pull or the managed
+   CPython download fails, the interpreter assertion fails, the image exceeds
+   4 GB, or the build exceeds 30 minutes, stop, record the failure, and fall back per the plan
    (qualified container host, separately reviewed) — no retry with changed pins
    under this approval. Both configs set `retries.default.maxAttempts: 1`.
 4. Trigger on staging with Trigger MCP, always `projectRef` = the matching new
@@ -90,8 +106,10 @@ repeated for revision 4 before step 3.
      `trigger_task` returns, recording whichever state it reached.
    - Pause/resume: `trigger_task` `oracle2-synthetic-pause-resume` on the
      extractor project, same payload with `run_id` `…a4`. Expected: COMPLETED
-     with `before` and `after` both equal to the extractor output string, and the
-     trace shows a 10-second wait between two Python executions.
+     with `before` and `after` both equal to the extractor output string and a
+     wait of at least 10 seconds in the trace. If Trigger replays the first
+     Python step on resume, that is recorded as observed. This proves platform
+     checkpoint/resume around Python steps, not Python-side state continuity.
    - `trigger_task` `oracle2-synthetic-project` on the projector project, payload
      `{}`. Expected: FAILED after one attempt; stderr last line
      `{"status": "failed", "error": "<ExceptionClass>"}`; no URL or secret.

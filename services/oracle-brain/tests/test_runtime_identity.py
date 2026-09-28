@@ -35,3 +35,19 @@ def test_identity_manifest_forbids_shared_project():
     text = (Path(__file__).resolve().parents[3] / "dev/oracle2/runtime-identities.yaml").read_text()
     assert "oracle2_tasks_allowed: false" in text
     assert "SUPABASE_SERVICE_ROLE_KEY" in text
+
+
+def test_preview_builds_use_pinned_python_layer():
+    root = Path(__file__).resolve().parents[3] / "apps/workers"
+    for name in ("trigger.oracle2-extract.config.ts", "trigger.oracle2-project.config.ts"):
+        text = (root / name).read_text()
+        assert "oracle2Python(" in text and "pythonExtension" not in text, name
+    layer = (root / "oracle2-python-extension.ts").read_text()
+    assert "ORACLE2_PYTHON_VERSION = '3.12.14'" in layer
+    assert "--require-hashes" in layer
+
+
+def test_preview_status_vocabulary():
+    text = (Path(__file__).resolve().parents[3] / "dev/oracle2/runtime-identities.yaml").read_text()
+    status = text.split("preview_status:", 1)[1].split()[0]
+    assert status in {"not_provisioned", "measured_synthetic", "failed_synthetic", "deleted"}
