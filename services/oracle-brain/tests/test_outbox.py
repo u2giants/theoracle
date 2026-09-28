@@ -1,4 +1,6 @@
 from uuid import uuid4
+from multiprocessing import Event, Process
+import time
 
 import psycopg
 import pytest
@@ -7,16 +9,29 @@ from oracle_brain.graph.falkor import FalkorGraphStore
 from oracle_brain.outbox import enqueue_accepted, lease_next, make_receipt, mark_delivered
 
 
+def _write_then_wait(url, workspace, assertion, payload, ready):
+    FalkorGraphStore(url).project(workspace, assertion, 1, payload)
+    ready.set()
+    time.sleep(30)
+
+
 def test_replay_survives_crash_and_receipt_is_authenticated(admin_url, confirmed_url):
     workspace, assertion = uuid4(), uuid4()
     event_id = enqueue_accepted(admin_url, workspace_id=workspace,
                                 assertion_id=assertion, revision=1,
                                 payload={"synthetic": True})
-    # A lease models a worker killed after the graph write but before receipt.
+    # Kill a real process after graph write but before receipt.
     event = lease_next(admin_url, lease_seconds=1)
     assert event and event.event_id == event_id
+    ready = Event()
+    worker = Process(target=_write_then_wait,
+                     args=(confirmed_url, workspace, assertion, event.payload, ready))
+    worker.start()
+    assert ready.wait(10), "child did not write graph before timeout"
+    worker.terminate()
+    worker.join(5)
+    assert worker.exitcode is not None and worker.exitcode != 0
     graph = FalkorGraphStore(confirmed_url)
-    graph.project(workspace, assertion, 1, event.payload)
     with psycopg.connect(admin_url) as connection:
         connection.execute("UPDATE oracle2.outbox SET lease_until=now()-interval '1 second' WHERE event_id=%s", (event_id,))
     replay = lease_next(admin_url)

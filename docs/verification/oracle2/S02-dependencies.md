@@ -6,9 +6,9 @@ not a business-quality or preview acceptance claim.
 ## Reproducible bundle
 
 - Python 3.12.14; uv 0.12.19; `uv.lock` SHA-256
-  `7b55800e44dc662db38aa28b7e0cc0eeeb70bbbdd22cc22bc3e542c14fb05401`.
+  `560ecd6d2a6dd5e565b4b103837e5edb5e1d4ef78768203900c546696f30f63e`.
 - Exported, hash-pinned `requirements.txt` SHA-256
-  `abeb0708b35d70d60d26cce70be931066a53fa25a715b86b08802edee728a7de`.
+  `162170d9b5115454c4fc5a0ec9c2b78f8016ab5e69391b5079db7257a8c45fe4`.
 - Imported locally: graphiti-core 0.30.2, Docling 2.130.0, LangGraph 1.2.12,
   LangGraph Postgres checkpoint 3.1.2, FalkorDB Python 1.7.1,
   Pydantic 2.13.5, Torch 2.14.0+cpu, Torchvision 0.29.0+cpu.

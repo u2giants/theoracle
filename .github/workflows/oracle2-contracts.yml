@@ -43,14 +43,22 @@ jobs:
         run: docker compose -f dev/oracle2/compose.yaml up -d --wait
       - name: S02 offline contract and storage gate
         run: python3 scripts/oracle2/verify_phase.py S02 --mode offline
-      - name: Check store availability and resource usage
-        run: docker stats --no-stream
+      - name: Pilot graph resource experiment
+        run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 10000 --relations 100000 --output out/oracle2/resource-pilot.json
+      - name: Ten-times graph stress experiment
+        run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 100000 --relations 1000000 --output out/oracle2/resource-stress.json
+      - name: Record store resource usage
+        if: always()
+        run: |
+          mkdir -p out/oracle2
+          docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}' > out/oracle2/docker-stats.txt
+          cat out/oracle2/docker-stats.txt
       - name: Upload sanitized result
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: oracle2-s02-offline-result
-          path: out/oracle2/S02-result.json
+          path: out/oracle2/
           if-no-files-found: error
       - name: Stop isolated stores
         if: always()
