@@ -4,6 +4,10 @@ This service is an isolated, synthetic-only foundation. Postgres owns accepted
 assertions, appointments, checkpoints, outbox events and receipts. FalkorDB is
 a replaceable projection. No business procedure is accepted from Graphiti or
 the graph without a separately authorized review transaction.
+The generated JSON Schemas document structural fields and UUID syntax. JSON
+Schema cannot express span order or equality between a bundle's source and
+each assertion's source; callers must run the Python or TypeScript runtime
+validator before admission. Those invariants are marked in the schema.
 
 ## Local / CI setup
 

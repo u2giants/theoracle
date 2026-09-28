@@ -50,6 +50,28 @@ def test_concurrent_first_revisions_never_regress(admin_url):
         )
 
 
+def test_projection_lease_filters_workspace_before_claiming(admin_url):
+    denied_workspace, allowed_workspace = uuid4(), uuid4()
+    denied_event = enqueue_accepted(admin_url, workspace_id=denied_workspace,
+                                    assertion_id=uuid4(), revision=1,
+                                    payload={"synthetic": "denied"})
+    allowed_event = enqueue_accepted(admin_url, workspace_id=allowed_workspace,
+                                     assertion_id=uuid4(), revision=1,
+                                     payload={"synthetic": "allowed"})
+    event = lease_next(admin_url, allowed_workspaces=frozenset({str(allowed_workspace)}))
+    assert event and event.event_id == allowed_event
+    with psycopg.connect(admin_url) as connection:
+        attempts = connection.execute(
+            "SELECT event_id,attempts FROM oracle2.outbox WHERE event_id IN (%s,%s)",
+            (denied_event, allowed_event),
+        ).fetchall()
+        assert dict(attempts) == {denied_event: 0, allowed_event: 1}
+        connection.execute(
+            "UPDATE oracle2.outbox SET delivered_at=now() WHERE event_id IN (%s,%s)",
+            (denied_event, allowed_event),
+        )
+
+
 def _write_then_wait(url, workspace, assertion, payload, ready):
     FalkorGraphStore(url).project(workspace, assertion, 1, payload)
     ready.set()

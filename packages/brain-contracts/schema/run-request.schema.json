@@ -3,6 +3,7 @@
   "properties": {
     "actor_id": {
       "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
       "title": "Actor Id",
       "type": "string"
     },
@@ -21,11 +22,13 @@
     },
     "run_id": {
       "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
       "title": "Run Id",
       "type": "string"
     },
     "source_id": {
       "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
       "title": "Source Id",
       "type": "string"
     },
@@ -36,6 +39,7 @@
     },
     "workspace_id": {
       "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
       "title": "Workspace Id",
       "type": "string"
     }

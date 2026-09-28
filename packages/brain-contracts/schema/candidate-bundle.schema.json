@@ -1,10 +1,12 @@
 {
+  "$comment": "Structural schema only: Oracle runtime enforces matching source IDs and revisions.",
   "$defs": {
     "CandidateAssertion": {
       "additionalProperties": false,
       "properties": {
         "assertion_id": {
           "format": "uuid",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
           "title": "Assertion Id",
           "type": "string"
         },
@@ -45,6 +47,7 @@
       "type": "object"
     },
     "SourceSpan": {
+      "$comment": "Structural schema only: Oracle runtime enforces end > start.",
       "additionalProperties": false,
       "properties": {
         "end": {
@@ -59,6 +62,7 @@
         },
         "source_id": {
           "format": "uuid",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
           "title": "Source Id",
           "type": "string"
         },
@@ -81,7 +85,10 @@
         "quote"
       ],
       "title": "SourceSpan",
-      "type": "object"
+      "type": "object",
+      "x-oracle-runtime-validation-required": [
+        "end > start"
+      ]
     }
   },
   "additionalProperties": false,
@@ -100,11 +107,13 @@
     },
     "run_id": {
       "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
       "title": "Run Id",
       "type": "string"
     },
     "source_id": {
       "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
       "title": "Source Id",
       "type": "string"
     },
@@ -115,6 +124,7 @@
     },
     "workspace_id": {
       "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
       "title": "Workspace Id",
       "type": "string"
     }
@@ -128,5 +138,9 @@
     "assertions"
   ],
   "title": "CandidateBundle",
-  "type": "object"
+  "type": "object",
+  "x-oracle-runtime-validation-required": [
+    "assertions[*].span.source_id == source_id",
+    "assertions[*].span.source_revision == source_revision"
+  ]
 }

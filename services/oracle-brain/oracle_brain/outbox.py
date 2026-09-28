@@ -63,12 +63,20 @@ def enqueue_accepted(database_url: str, *, workspace_id: UUID, assertion_id: UUI
     return event_id
 
 
-def lease_next(database_url: str, *, lease_seconds: int = 60) -> ProjectionEvent | None:
+def lease_next(database_url: str, *, lease_seconds: int = 60,
+               allowed_workspaces: frozenset[str] | None = None) -> ProjectionEvent | None:
+    if allowed_workspaces is not None and not allowed_workspaces:
+        return None
+    scope_clause = (" AND workspace_id = ANY(%s::uuid[])"
+                    if allowed_workspaces is not None else "")
+    params = (([UUID(value) for value in allowed_workspaces], lease_seconds)
+              if allowed_workspaces is not None else (lease_seconds,))
     with psycopg.connect(database_url) as connection:
         row = connection.execute(
-            """WITH next AS (
+            f"""WITH next AS (
                  SELECT event_id FROM oracle2.outbox
                  WHERE delivered_at IS NULL AND (lease_until IS NULL OR lease_until<now())
+                 {scope_clause}
                  ORDER BY revision,event_id FOR UPDATE SKIP LOCKED LIMIT 1
                )
                UPDATE oracle2.outbox o SET attempts=attempts+1,
@@ -76,7 +84,7 @@ def lease_next(database_url: str, *, lease_seconds: int = 60) -> ProjectionEvent
                FROM next WHERE o.event_id=next.event_id
                RETURNING o.event_id,o.workspace_id,o.assertion_id,o.revision,
                          o.operation,o.payload,o.attempts""",
-            (lease_seconds,),
+            params,
         ).fetchone()
     return ProjectionEvent(*row) if row else None
 

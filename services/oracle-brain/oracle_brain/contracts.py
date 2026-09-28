@@ -35,7 +35,12 @@ class StrictModel(BaseModel):
 
 
 class SourceSpan(StrictModel):
-    source_id: UUID
+    model_config = ConfigDict(extra="forbid", strict=True, json_schema_extra={
+        "$comment": "Structural schema only: Oracle runtime enforces end > start.",
+        "x-oracle-runtime-validation-required": ["end > start"],
+    })
+
+    source_id: UUID = Field(json_schema_extra={"pattern": WIRE_UUID.pattern})
     source_revision: int = Field(ge=1)
     start: int = Field(ge=0)
     end: int = Field(gt=0)
@@ -49,7 +54,7 @@ class SourceSpan(StrictModel):
 
 
 class CandidateAssertion(StrictModel):
-    assertion_id: UUID
+    assertion_id: UUID = Field(json_schema_extra={"pattern": WIRE_UUID.pattern})
     subject: str = Field(min_length=1)
     predicate: str = Field(min_length=1)
     object: str = Field(min_length=1)
@@ -58,10 +63,18 @@ class CandidateAssertion(StrictModel):
 
 
 class CandidateBundle(StrictModel):
+    model_config = ConfigDict(extra="forbid", strict=True, json_schema_extra={
+        "$comment": "Structural schema only: Oracle runtime enforces matching source IDs and revisions.",
+        "x-oracle-runtime-validation-required": [
+            "assertions[*].span.source_id == source_id",
+            "assertions[*].span.source_revision == source_revision",
+        ],
+    })
+
     contract_version: Literal[1]
-    workspace_id: UUID
-    run_id: UUID
-    source_id: UUID
+    workspace_id: UUID = Field(json_schema_extra={"pattern": WIRE_UUID.pattern})
+    run_id: UUID = Field(json_schema_extra={"pattern": WIRE_UUID.pattern})
+    source_id: UUID = Field(json_schema_extra={"pattern": WIRE_UUID.pattern})
     source_revision: int = Field(ge=1)
     assertions: list[CandidateAssertion]
 
@@ -77,8 +90,8 @@ class CandidateBundle(StrictModel):
 
 class ProjectionReceipt(StrictModel):
     contract_version: Literal[1]
-    workspace_id: UUID
-    assertion_id: UUID
+    workspace_id: UUID = Field(json_schema_extra={"pattern": WIRE_UUID.pattern})
+    assertion_id: UUID = Field(json_schema_extra={"pattern": WIRE_UUID.pattern})
     revision: int = Field(ge=1)
     operation: Literal["project", "withdraw"]
     projector_id: str = Field(min_length=1)
@@ -99,9 +112,9 @@ class ProjectionReceipt(StrictModel):
 
 class RunRequest(StrictModel):
     contract_version: Literal[1]
-    run_id: UUID
-    workspace_id: UUID
-    actor_id: UUID
-    source_id: UUID
+    run_id: UUID = Field(json_schema_extra={"pattern": WIRE_UUID.pattern})
+    workspace_id: UUID = Field(json_schema_extra={"pattern": WIRE_UUID.pattern})
+    actor_id: UUID = Field(json_schema_extra={"pattern": WIRE_UUID.pattern})
+    source_id: UUID = Field(json_schema_extra={"pattern": WIRE_UUID.pattern})
     source_revision: int = Field(ge=1)
     mode: Literal["synthetic", "approved_real"]

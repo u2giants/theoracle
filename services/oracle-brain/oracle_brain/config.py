@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from urllib.parse import urlparse
+from uuid import UUID
 
 
 @dataclass(frozen=True)
@@ -50,7 +51,12 @@ class Settings:
                     raise ValueError("local/test store points outside isolated network")
             if mode != "synthetic":
                 raise ValueError("local/test mode is synthetic only")
-        allowlist = frozenset(x for x in os.getenv("ORACLE2_WORKSPACE_ALLOWLIST", "").split(",") if x)
+        try:
+            allowlist = frozenset(str(UUID(value.strip())) for value in
+                                  os.getenv("ORACLE2_WORKSPACE_ALLOWLIST", "").split(",")
+                                  if value.strip())
+        except ValueError as exc:
+            raise ValueError("workspace allowlist must contain UUIDs") from exc
         budget_raw = os.getenv("ORACLE2_DAILY_BUDGET")
         budget = int(budget_raw) if budget_raw else None
         if environment not in {"local", "test"} and (not allowlist or not budget or budget <= 0):

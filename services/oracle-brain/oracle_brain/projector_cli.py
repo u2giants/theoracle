@@ -16,9 +16,12 @@ def run_once() -> bool:
     secret = os.environ["ORACLE2_PROJECTION_SIGNING_KEY"].encode()
     if len(secret) < 32:
         raise ValueError("projection signing key too short")
-    event = lease_next(settings.database_url)
+    event = lease_next(settings.database_url,
+                       allowed_workspaces=settings.workspace_allowlist or None)
     if event is None:
         return False
+    if settings.workspace_allowlist and str(event.workspace_id) not in settings.workspace_allowlist:
+        raise PermissionError("projection workspace is outside runtime allowlist")
     graph = FalkorGraphStore(settings.confirmed_graph_url)
     if event.operation == "project":
         graph.project(event.workspace_id, event.assertion_id,

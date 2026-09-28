@@ -17,6 +17,11 @@ def test_generated_schema_is_current():
         stored = json.loads((ROOT / "packages/brain-contracts/schema" /
                              f"{name}.schema.json").read_text())
         assert stored == model.model_json_schema()
+    bundle = json.loads((ROOT / "packages/brain-contracts/schema" /
+                         "candidate-bundle.schema.json").read_text())
+    assert bundle["properties"]["source_id"]["pattern"]
+    assert bundle["x-oracle-runtime-validation-required"]
+    assert bundle["$defs"]["SourceSpan"]["x-oracle-runtime-validation-required"]
 
 
 def test_candidate_source_revision_and_span_must_match():
