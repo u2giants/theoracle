@@ -41,7 +41,9 @@ def test_admin_cannot_self_grant_root_without_owner_appointment(admin_url, monke
 
 
 def test_delegation_chooses_a_valid_complete_lineage(admin_url, monkeypatch):
-    workspace, owner, grantor, recipient = uuid4(), uuid4(), uuid4(), uuid4()
+    workspace, owner, grantor, recipient, recording_admin = (
+        uuid4(), uuid4(), uuid4(), uuid4(), uuid4()
+    )
     owner_key = Ed25519PrivateKey.generate()
     monkeypatch.setenv("ORACLE2_OWNER_PUBLIC_KEY", owner_key.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
@@ -52,7 +54,7 @@ def test_delegation_chooses_a_valid_complete_lineage(admin_url, monkeypatch):
         appointment = uuid4()
         message = f"oracle2-owner-appointment-v1:{workspace}:{owner}:{appointment}".encode()
         appoint_owner(admin_url, workspace_id=workspace, owner_id=owner,
-                      appointed_by=owner, appointment_id=appointment,
+                      appointed_by=recording_admin, appointment_id=appointment,
                       owner_signature_hex=owner_key.sign(message).hex())
         return appointment
 
