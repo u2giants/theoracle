@@ -7,6 +7,7 @@ extractor:
   forbidden:
     - ORACLE2_CONFIRMED_GRAPH_URL
     - ORACLE2_PROJECTION_SIGNING_KEY
+    - ORACLE2_CHECKPOINT_DATABASE_URL
     - SUPABASE_SERVICE_ROLE_KEY
 projector:
   deployment: dedicated-oracle2-projector-preview
@@ -14,6 +15,14 @@ projector:
   graph_credential: confirmed_only
   forbidden:
     - ORACLE2_CANDIDATE_GRAPH_URL
+    - ORACLE2_CHECKPOINT_DATABASE_URL
+    - SUPABASE_SERVICE_ROLE_KEY
+checkpoint:
+  database_role: oracle2_checkpoint
+  deployment: trusted-conversation-gateway-only
+  forbidden:
+    - ORACLE2_CANDIDATE_GRAPH_URL
+    - ORACLE2_CONFIRMED_GRAPH_URL
     - SUPABASE_SERVICE_ROLE_KEY
 legacy_trigger_project:
   project_ref: proj_wgpzsvhmsopqhvwqaycn

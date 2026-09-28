@@ -3,8 +3,11 @@ import { defineConfig } from '@trigger.dev/sdk/v3';
 import { pythonExtension } from '@trigger.dev/python/extension';
 
 const project = process.env.ORACLE2_EXTRACT_TRIGGER_PROJECT_REF;
-if (!project || project === 'proj_wgpzsvhmsopqhvwqaycn') {
-  throw new Error('Dedicated Oracle 2 extractor Trigger project required');
+const projectorProject = process.env.ORACLE2_PROJECT_TRIGGER_PROJECT_REF;
+if (!project || !projectorProject || project === projectorProject
+    || project === 'proj_wgpzsvhmsopqhvwqaycn'
+    || projectorProject === 'proj_wgpzsvhmsopqhvwqaycn') {
+  throw new Error('Two distinct non-legacy Oracle 2 Trigger projects required');
 }
 
 export default defineConfig({

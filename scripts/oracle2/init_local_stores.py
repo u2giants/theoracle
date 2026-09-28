@@ -18,7 +18,7 @@ def main() -> None:
         saver.setup()
     with psycopg.connect(url) as connection:
         for table in ("checkpoints", "checkpoint_blobs", "checkpoint_writes"):
-            connection.execute(f"GRANT SELECT,INSERT,UPDATE,DELETE ON public.{table} TO oracle2_extract")
+            connection.execute(f"GRANT SELECT,INSERT,UPDATE,DELETE ON public.{table} TO oracle2_checkpoint")
 
 
 if __name__ == "__main__":

@@ -38,6 +38,8 @@ class Settings:
             raise ValueError("extractor must never receive confirmed graph credentials")
         if role == "projector" and candidate_graph_url:
             raise ValueError("projector must never receive candidate graph credentials")
+        if role in {"extractor", "projector"} and os.getenv("ORACLE2_CHECKPOINT_DATABASE_URL"):
+            raise ValueError("graph workers must not receive checkpoint credentials")
         if role == "extractor" and not candidate_graph_url:
             raise ValueError("missing candidate graph URL")
         if role == "projector" and not confirmed_graph_url:

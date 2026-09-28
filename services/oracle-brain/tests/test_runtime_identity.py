@@ -20,6 +20,10 @@ def test_extractor_cannot_write_accepted_or_read_projector(admin_url, candidate_
         Settings.from_env("extractor")
     monkeypatch.delenv("ORACLE2_CONFIRMED_GRAPH_URL")
     assert Settings.from_env("extractor").confirmed_graph_url is None
+    monkeypatch.setenv("ORACLE2_CHECKPOINT_DATABASE_URL", extract_db)
+    with pytest.raises(ValueError, match="checkpoint credentials"):
+        Settings.from_env("extractor")
+    monkeypatch.delenv("ORACLE2_CHECKPOINT_DATABASE_URL")
     with pytest.raises(Exception):
         # Candidate password cannot authenticate to the confirmed instance.
         wrong = confirmed_url.replace("oracle2_confirmed_local_only",

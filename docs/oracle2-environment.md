@@ -6,7 +6,7 @@ has been provisioned.
 
 | Environment | Verified target | Credential reference and scope | Status |
 |---|---|---|---|
-| Local/CI synthetic | Loopback Docker Postgres, separate candidate and confirmed FalkorDB, LocalStack S3 | Generated synthetic values in `dev/oracle2/compose.yaml`; candidate and projector roles are distinct | CI proved stores and role denial in run 36373182474 |
+| Local/CI synthetic | Loopback Docker Postgres, separate candidate and confirmed FalkorDB, LocalStack S3 | Generated synthetic values in `dev/oracle2/compose.yaml`; candidate, projector, and checkpoint roles are distinct | CI proved stores and role denial in run 36373182474; updated checkpoint isolation awaits CI |
 | Legacy Trigger | `proj_wgpzsvhmsopqhvwqaycn` | Existing `Trigger.dev Secret Key - The Oracle (local .env.local)` is an unverified historical reference; no Oracle 2 task uses it | Read-only inventory; not an isolated Oracle 2 target |
 | Proposed extractor preview | Not created | Candidate-only graph and Postgres credentials, source object read scope, no confirmed graph or projector signing key | Needs exact reviewed project and credential provisioning |
 | Proposed projector preview | Not created | Confirmed-only graph and projector Postgres credentials, projection signing key, no candidate graph or source object credential | Needs exact reviewed project and credential provisioning |

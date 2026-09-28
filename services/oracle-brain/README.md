@@ -23,6 +23,9 @@ docker compose -f dev/oracle2/compose.yaml down --volumes
 
 These passwords are fixed synthetic test fixtures, valid only for loopback
 services. The compose volumes are isolated from the legacy Oracle database.
+Checkpoint tables use a third local database role (`oracle2_checkpoint`) for
+the trusted conversation gateway. The extraction and projection roles cannot
+read checkpoint rows or receive that role's credential.
 
 The Python lock targets Python 3.12. The Trigger Python extension uses the
 hash-pinned exported worker requirements. Regenerate it after a lock change:
