@@ -18,7 +18,8 @@ export default defineConfig({
   build: {
     extensions: [pythonExtension({
       scripts: ['../../services/oracle-brain/oracle_brain/**/*.py'],
-      requirementsFile: '../../services/oracle-brain/requirements.txt',
+      requirementsFile: './oracle2-requirements.txt',
+      devPythonBinaryPath: '../../services/oracle-brain/.venv/bin/python',
     })],
   },
 });

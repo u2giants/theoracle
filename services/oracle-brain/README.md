@@ -24,10 +24,10 @@ These passwords are fixed synthetic test fixtures, valid only for loopback
 services. The compose volumes are isolated from the legacy Oracle database.
 
 The Python lock targets Python 3.12. The Trigger Python extension uses the
-hash-pinned exported `requirements.txt`. Regenerate it after a lock change:
+hash-pinned exported worker requirements. Regenerate it after a lock change:
 
 ```bash
-uv export --project services/oracle-brain --frozen --format requirements-txt --no-dev --no-emit-project --emit-index-url --output-file services/oracle-brain/requirements.txt
+uv export --project services/oracle-brain --frozen --format requirements-txt --no-dev --no-emit-project --emit-index-url --output-file apps/workers/oracle2-requirements.txt
 ```
 
 The existing Trigger project must never receive Oracle 2 tasks. Separate

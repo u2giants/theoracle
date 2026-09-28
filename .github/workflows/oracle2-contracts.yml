@@ -52,6 +52,8 @@ jobs:
         run: |
           services/oracle-brain/.venv/bin/python scripts/oracle2/export_contracts.py
           git diff --exit-code -- packages/brain-contracts/schema
+          uv export --project services/oracle-brain --frozen --format requirements-txt --no-dev --no-emit-project --emit-index-url --output-file apps/workers/oracle2-requirements.txt
+          git diff --exit-code -- apps/workers/oracle2-requirements.txt
       - name: Start isolated real stores
         run: docker compose -f dev/oracle2/compose.yaml up -d --wait
       - name: S02 offline contract and storage gate

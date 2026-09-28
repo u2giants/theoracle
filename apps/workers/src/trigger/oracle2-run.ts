@@ -11,7 +11,7 @@ export const oracle2Run = task({
         || process.env.SUPABASE_SERVICE_ROLE_KEY) {
       throw new Error('Extractor identity contains forbidden credentials');
     }
-    const result = await python.runScript('./oracle_brain/cli.py', [JSON.stringify(request)]);
+    const result = await python.runScript('./services/oracle-brain/oracle_brain/cli.py', [JSON.stringify(request)]);
     return result.stdout;
   },
 });

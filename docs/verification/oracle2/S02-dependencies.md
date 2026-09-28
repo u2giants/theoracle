@@ -1,14 +1,14 @@
 # S02 dependency and runtime qualification
 
-Status: implementation in progress. This is a synthetic foundation record,
-not a business-quality or preview acceptance claim.
+Status: synthetic offline qualification passed at commit `b2b192b`; preview
+qualification is still open. This is not a business-quality claim.
 
 ## Reproducible bundle
 
 - Python 3.12.14; uv 0.12.19; `uv.lock` SHA-256
   `2c221d882eba1d52cb7a5d088a6647882f6c4054ec5c8ecaecf5346cf54dfbff`.
-- Exported, hash-pinned `requirements.txt` SHA-256
-  `162170d9b5115454c4fc5a0ec9c2b78f8016ab5e69391b5079db7257a8c45fe4`.
+- Exported, hash-pinned worker `oracle2-requirements.txt` SHA-256
+  `7e85bca540d8fd98f3be2f735d7cf1eefeaeb368205c80f95af08807001bebad`.
 - Imported locally: graphiti-core 0.30.2, Docling 2.130.0, LangGraph 1.2.12,
   LangGraph Postgres checkpoint 3.1.2, FalkorDB Python 1.7.1,
   Pydantic 2.13.5, Torch 2.14.0+cpu, Torchvision 0.29.0+cpu.
@@ -38,14 +38,44 @@ lacks accepted-ledger write permission. `GRAPHITI_TELEMETRY_ENABLED=false`
 is set before importing the library. This follows the plan's bounded fallback
 after the failing fixture, without forking Graphiti.
 
-## Evidence still required
+## Measured offline result
 
-The CI-host real-store tests, crash/replay run, 10,000/100,000 graph resource
-experiment plus 10x stress, and isolated Trigger preview cold-start/exit/cancel
-have not passed as of this file version. Preview needs two distinct Trigger
-projects or an independently reviewed bounded container host because the
-Python extension injects project environment variables into scripts. The
-legacy project has secrets and cannot safely host both roles.
+[CI run 36371673763](https://github.com/u2giants/theoracle/actions/runs/36371673763)
+passed 15 Python contract/store checks on isolated Postgres, two authenticated
+FalkorDB instances, and LocalStack S3. The same workflow validated S01 from
+full Git history. Its sanitized artifact records the locked hash and outcomes.
+The worker kill/replay test compared the same event ID and revision after a
+real child process was terminated between graph write and receipt. Graph
+candidate correction left confirmed state intact; the extractor DB role could
+not write accepted rows or authenticate to the confirmed graph.
+
+On a GitHub Ubuntu 24.04 runner (4 CPUs, 16 GB RAM), the pilot loaded 10,000
+nodes and 100,000 relations across three partitions with 20 concurrent
+readers: p50 0.0891s, p95 0.2956s, zero forbidden records. The separate 10x
+stress loaded 100,000 nodes and 1,000,000 relations: p50 1.8317s, p95
+2.8172s, zero forbidden records. The 2-second target applies to pilot size.
+After workload, the confirmed Falkor container used 200.8 MiB of its 2 GiB
+limit; this is one snapshot, not a measured peak. Same-volume restart matched
+all counts in 8.972s; snapshot restore in a fresh instance matched in 3.151s.
+The resource script, report JSON and Docker stats are in the CI artifact.
+
+## Preview decision required
+
+Two distinct Trigger.dev preview projects are proposed, one for the extractor
+and one for the projector, both synthetic-only and separate from legacy
+`proj_wgpzsvhmsopqhvwqaycn`. The extractor receives only candidate graph and
+candidate Postgres credentials; the projector receives only confirmed graph,
+projector Postgres and projection-signing credentials. Neither receives the
+legacy Supabase service-role key. The technical reviewer must approve exact
+project creation, deployment boundaries, and FalkorDB SSPL deployment fit
+before provisioning. The Python extension cold-start, clean exit and cancel
+behavior must then be measured on those preview hosts. Trigger's extension
+injects project environment variables into scripts, so the shared legacy
+project cannot host these roles safely. No preview resource was provisioned.
+
+The SQL in `services/oracle-brain/sql/001_foundation.sql` applies only to the
+isolated local/CI database. Oracle's Supabase target remains unclassified for
+this replacement; no production or preview schema migration was applied.
 
 Sources: [Graphiti v0.30.2](https://github.com/getzep/graphiti/tree/v0.30.2),
 [Trigger Python extension](https://trigger.dev/docs/config/extensions/pythonExtension),

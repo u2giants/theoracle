@@ -10,7 +10,7 @@ export const oracle2Project = task({
     if (!process.env.ORACLE2_CONFIRMED_GRAPH_URL || !process.env.ORACLE2_PROJECTION_SIGNING_KEY) {
       throw new Error('Projector identity incomplete');
     }
-    const result = await python.runScript('./oracle_brain/projector_cli.py');
+    const result = await python.runScript('./services/oracle-brain/oracle_brain/projector_cli.py');
     return result.stdout;
   },
 });
