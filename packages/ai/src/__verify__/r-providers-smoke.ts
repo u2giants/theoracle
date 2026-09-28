@@ -14,6 +14,7 @@
  *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts google
  *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts deepseek
  *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts qwen
+ *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts meta_muse | zai | mimo
  *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts all
  *
  * Costs roughly $0.001 per provider per run.
@@ -28,6 +29,7 @@ import { DeepSeekAdapter } from '../providers/deepseek-adapter';
 import { GoogleGeminiAdapter } from '../providers/google-gemini-adapter';
 import { OpenAIAdapter } from '../providers/openai-adapter';
 import { QwenAdapter } from '../providers/qwen-adapter';
+import { MetaMuseAdapter, XiaomiMimoAdapter, ZaiGlmAdapter } from '../providers/openai-compatible-adapter';
 import { VertexGeminiAdapter } from '../providers/vertex-gemini-adapter';
 import type {
   OracleObjectResult,
@@ -106,11 +108,13 @@ function smokeRoute(
             ? 'deepseek_automatic_prefix'
             : provider === 'qwen'
               ? 'qwen_none'
-              : 'openai_automatic_prefix',
+              : provider === 'meta_muse' || provider === 'zai' || provider === 'mimo'
+                ? 'openai_compatible_automatic_prefix'
+                : 'openai_automatic_prefix',
     structuredOutputStrategy:
       provider === 'anthropic'
         ? 'tool_call'
-        : provider === 'deepseek' || provider === 'qwen'
+        : provider === 'deepseek' || provider === 'qwen' || provider === 'meta_muse' || provider === 'zai' || provider === 'mimo'
           ? 'schema_prompt_plus_validator'
           : 'native_json_schema',
     supportsVision: false,
@@ -199,7 +203,7 @@ async function smokeDeepSeek(): Promise<void> {
     return;
   }
   const adapter = new DeepSeekAdapter();
-  const route = smokeRoute('deepseek', 'deepseek-chat');
+  const route = smokeRoute('deepseek', process.env.DEEPSEEK_SMOKE_MODEL ?? 'deepseek-v4-flash');
 
   await runOne('deepseek.generateText', () =>
     adapter.generateText({ plan: fixturePlan, route }),
@@ -223,6 +227,27 @@ async function smokeQwen(): Promise<void> {
   );
   await runOne('qwen.generateObject', () =>
     adapter.generateObject({ plan: fixturePlan, route, schema: factSchema }),
+  );
+}
+
+async function smokeOpenAICompatible(
+  provider: 'meta_muse' | 'zai' | 'mimo',
+  keyEnv: string,
+  make: () => MetaMuseAdapter | ZaiGlmAdapter | XiaomiMimoAdapter,
+  model: string,
+): Promise<void> {
+  console.log(`\n══ ${provider} ══════════════════════════════════════════════════`);
+  if (!process.env[keyEnv]) {
+    console.warn(`  SKIP: ${keyEnv} not set.`);
+    return;
+  }
+  const adapter = make();
+  const route = smokeRoute(provider, model);
+  // Reasoning models spend output tokens thinking; leave generous headroom.
+  const providerOptions = { maxOutputTokens: 4000 };
+  await runOne(`${provider}.generateText`, () => adapter.generateText({ plan: fixturePlan, route, providerOptions }));
+  await runOne(`${provider}.generateObject`, () =>
+    adapter.generateObject({ plan: fixturePlan, route, schema: factSchema, providerOptions }),
   );
 }
 
@@ -267,6 +292,12 @@ async function main(): Promise<void> {
   if (target === 'google' || target === 'all') await smokeGoogle();
   if (target === 'deepseek' || target === 'all') await smokeDeepSeek();
   if (target === 'qwen' || target === 'all') await smokeQwen();
+  if (target === 'meta_muse' || target === 'all')
+    await smokeOpenAICompatible('meta_muse', 'META_MUSE_API_KEY', () => new MetaMuseAdapter(), process.env.META_MUSE_SMOKE_MODEL ?? 'muse-spark-1.3');
+  if (target === 'zai' || target === 'all')
+    await smokeOpenAICompatible('zai', 'ZAI_API_KEY', () => new ZaiGlmAdapter(), process.env.ZAI_SMOKE_MODEL ?? 'glm-5.3');
+  if (target === 'mimo' || target === 'all')
+    await smokeOpenAICompatible('mimo', 'MIMO_API_KEY', () => new XiaomiMimoAdapter(), process.env.MIMO_SMOKE_MODEL ?? 'mimo-v2-flash');
 
   console.log('\nDone.');
 }

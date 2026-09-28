@@ -2,6 +2,10 @@ import { z } from 'zod';
 import { AnthropicAdapter } from '../providers/anthropic-adapter';
 import { DeepSeekAdapter } from '../providers/deepseek-adapter';
 import { QwenAdapter } from '../providers/qwen-adapter';
+import { MetaMuseAdapter, XiaomiMimoAdapter, ZaiGlmAdapter } from '../providers/openai-compatible-adapter';
+import { buildStandardAdapters } from '../client/standard-adapters';
+import { resolveModelRoute } from '../routes/resolve';
+import { ORACLE_MODEL_ROUTES, PRODUCTION_ROUTE_IDS } from '../routes/catalog';
 import { providerSupportsTrackedBatch, supportsBatch } from '../providers/types';
 import { normalizeDirectProviderCapabilities } from '../model-capabilities';
 import { missingRequirements } from '../routes/capability-requirements';
@@ -296,10 +300,68 @@ function verifyCapabilityGates(): void {
   );
 }
 
+async function verifyOpenAICompatibleVendors(): Promise<void> {
+  const vendors = [
+    { name: 'meta_muse' as const, make: () => new MetaMuseAdapter({ apiKey: 'test-key' }), model: 'muse-spark-1.3', url: 'https://api.meta.ai/v1' },
+    { name: 'zai' as const, make: () => new ZaiGlmAdapter({ apiKey: 'test-key' }), model: 'glm-5.3', url: 'https://api.z.ai/api/paas/v4' },
+    { name: 'mimo' as const, make: () => new XiaomiMimoAdapter({ apiKey: 'test-key' }), model: 'mimo-v2-flash', url: 'https://api.xiaomimimo.com/v1' },
+  ];
+  for (const v of vendors) {
+    const adapter = v.make();
+    assert(adapter.provider === v.name, `${v.name} adapter provider id`);
+    const client = (adapter as unknown as { client: { baseURL: string; chat: { completions: { create: (body: unknown) => Promise<unknown> } } } }).client;
+    assert(client.baseURL === v.url, `${v.name} default base URL must be ${v.url}, got ${client.baseURL}`);
+    const calls: Array<Record<string, unknown>> = [];
+    client.chat.completions.create = async (body: unknown) => {
+      calls.push(body as Record<string, unknown>);
+      return {
+        id: 'chatcmpl_test',
+        choices: [{ message: { content: '{"value":"ok"}' }, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 20,
+          prompt_tokens_details: { cached_tokens: 4 },
+          completion_tokens_details: { reasoning_tokens: 6 },
+        },
+      };
+    };
+    const obj = await adapter.generateObject<unknown, { value: string }>({
+      plan,
+      route: route(v.name, v.model),
+      schema: z.object({ value: z.string() }),
+      providerOptions: { maxOutputTokens: 777 },
+    });
+    assert(obj.object.value === 'ok', `${v.name} generateObject must parse JSON`);
+    assert((calls[0]!.response_format as { type?: string })?.type === 'json_object', `${v.name} must request json_object`);
+    assert(calls[0]!.max_tokens === 777, `${v.name} must honor maxOutputTokens`);
+    assert(calls[0]!.model === v.model, `${v.name} must send the route model id`);
+    assert(obj.usage.cachedInputTokens === 4 && obj.usage.reasoningTokens === 6, `${v.name} usage normalization`);
+    const text = await adapter.generateText({ plan, route: route(v.name, v.model) });
+    assert(text.text === '{"value":"ok"}', `${v.name} generateText returns content`);
+    assert(!('response_format' in calls[1]!), `${v.name} generateText must not force JSON mode`);
+    assert(!supportsBatch(adapter), `${v.name} must not advertise batch`);
+    assert(!providerSupportsTrackedBatch(v.name), `${v.name} tracked batch must stay off`);
+    const resolved = resolveModelRoute(`${v.name}/${v.model}`, 'synthesis', undefined, {});
+    assert(resolved?.provider === v.name && resolved.cacheStrategy === 'openai_compatible_automatic_prefix', `${v.name} provider/model ids must resolve`);
+  }
+  const saved = { m: process.env.META_MUSE_API_KEY, z: process.env.ZAI_API_KEY, x: process.env.MIMO_API_KEY };
+  process.env.META_MUSE_API_KEY = 'k'; process.env.ZAI_API_KEY = 'k'; process.env.MIMO_API_KEY = 'k';
+  const map = buildStandardAdapters();
+  assert(map.meta_muse && map.zai && map.mimo, 'standard adapters must register meta_muse, zai and mimo when keys are set');
+  for (const [k, v] of [['META_MUSE_API_KEY', saved.m], ['ZAI_API_KEY', saved.z], ['MIMO_API_KEY', saved.x]] as const) {
+    if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  }
+  for (const id of PRODUCTION_ROUTE_IDS) {
+    const p = ORACLE_MODEL_ROUTES[id]!.provider;
+    assert(!['meta_muse', 'zai', 'mimo', 'deepseek'].includes(p), `production default ${id} must not switch to a new provider`);
+  }
+}
+
 async function main(): Promise<void> {
   await verifyAnthropicTemperature();
   await verifyDeepSeekJsonMode();
   await verifyQwenUsage();
+  await verifyOpenAICompatibleVendors();
   verifyCapabilityGates();
   assert(
     calculateCatalogTokenCost(10, 20, 5, 1, 2) === 0.00005,

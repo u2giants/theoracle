@@ -20,6 +20,7 @@ import { fetchAnthropicModels } from './sources/anthropic';
 import { fetchOpenAIModels } from './sources/openai';
 import { fetchGoogleModels } from './sources/google';
 import { fetchDeepSeekModels } from './sources/deepseek';
+import { fetchMetaMuseModels, fetchMimoModels, fetchZaiModels } from './sources/openai-compatible';
 import { fetchQwenModels } from './sources/qwen';
 import { fetchOpenRouterEnrichment } from './sources/openrouter';
 
@@ -51,10 +52,23 @@ export interface RefreshModelCatalogResult {
  *
  * Returns { enrichment, matched } so the caller can track which IDs were found.
  */
+// Oracle provider prefix -> OpenRouter vendor slug, where they differ.
+const OPENROUTER_PREFIX_ALIASES: Record<string, string> = {
+  zai: 'z-ai',
+  mimo: 'xiaomi',
+  meta_muse: 'meta',
+};
+
 function lookupEnrichment(
   map: Map<string, OpenRouterEnrichment>,
   modelId: string,
 ): { enrichment: OpenRouterEnrichment; matched: boolean } {
+  const slash = modelId.indexOf('/');
+  const alias = slash > 0 ? OPENROUTER_PREFIX_ALIASES[modelId.slice(0, slash)] : undefined;
+  if (alias) {
+    const aliased = lookupEnrichment(map, `${alias}${modelId.slice(slash)}`);
+    if (aliased.matched) return aliased;
+  }
   const tryKey = (k: string) => map.get(k);
 
   // 1. Exact
@@ -130,6 +144,9 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
     googleResult,
     deepseekResult,
     qwenResult,
+    metaMuseResult,
+    zaiResult,
+    mimoResult,
     enrichmentResult,
   ] = await Promise.allSettled([
     fetchAnthropicModels(),
@@ -137,6 +154,9 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
     fetchGoogleModels(),
     fetchDeepSeekModels(),
     fetchQwenModels(),
+    fetchMetaMuseModels(),
+    fetchZaiModels(),
+    fetchMimoModels(),
     fetchOpenRouterEnrichment(),
   ]);
 
@@ -156,6 +176,15 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
     ...(qwenResult.status === 'fulfilled'
       ? qwenResult.value
       : (errors.push(`Qwen: ${qwenResult.reason}`), [])),
+    ...(metaMuseResult.status === 'fulfilled'
+      ? metaMuseResult.value
+      : (errors.push(`Meta Muse: ${metaMuseResult.reason}`), [])),
+    ...(zaiResult.status === 'fulfilled'
+      ? zaiResult.value
+      : (errors.push(`Z.ai: ${zaiResult.reason}`), [])),
+    ...(mimoResult.status === 'fulfilled'
+      ? mimoResult.value
+      : (errors.push(`Xiaomi MiMo: ${mimoResult.reason}`), [])),
   ];
 
   const enrichmentMap: Map<string, OpenRouterEnrichment> =
@@ -331,6 +360,24 @@ export function normalizeDirectProviderCapabilities(model: ModelCapability): Mod
       adapterParamNotes: {
         ...model.adapterParamNotes,
         strictSchema: 'DeepSeek path uses json_object plus validation, not strict JSON Schema.',
+      },
+    };
+  }
+  if (model.provider === 'meta_muse' || model.provider === 'zai' || model.provider === 'mimo') {
+    return {
+      ...model,
+      // Muse Spark, GLM-5.x and MiMo reason internally; no client budget knob.
+      thinking: true,
+      // Adapter uses json_object plus Zod validation, not strict JSON Schema.
+      structuredOutputs: false,
+      strictJsonSchema: false,
+      deepSchemaAccepted: false,
+      toolCalling: true,
+      promptCaching: true,
+      outputCap: true,
+      adapterParamNotes: {
+        ...model.adapterParamNotes,
+        strictSchema: 'OpenAI-compatible vendor path uses json_object plus validation, not strict JSON Schema.',
       },
     };
   }

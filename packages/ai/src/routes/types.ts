@@ -10,7 +10,7 @@
 
 export type OracleModelRole = 'interview' | 'extraction' | 'synthesis';
 
-export type OracleProvider = 'anthropic' | 'vertex' | 'google' | 'openai' | 'deepseek' | 'qwen';
+export type OracleProvider = 'anthropic' | 'vertex' | 'google' | 'openai' | 'deepseek' | 'qwen' | 'meta_muse' | 'zai' | 'mimo';
 
 export type RouteTier =
   | 'primary'
@@ -36,6 +36,7 @@ export type CacheStrategy =
   | 'openai_automatic_with_retention'
   | 'deepseek_automatic_prefix'
   | 'qwen_none'
+  | 'openai_compatible_automatic_prefix'
   | 'none';
 
 export type StructuredOutputStrategy =

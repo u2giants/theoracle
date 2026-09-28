@@ -271,6 +271,132 @@ export const qwen_3_7_max_extraction_eval: OracleModelRoute = {
   enabled: true,
 };
 
+export const deepseek_v4_flash_extraction_eval: OracleModelRoute = {
+  routeId: 'deepseek_v4_flash_extraction_eval',
+  role: 'extraction',
+  tier: 'manual_only_frontier',
+  internalPurpose: null,
+  provider: 'deepseek',
+  modelId: 'deepseek-v4-flash',
+  displayName: 'DeepSeek V4 Flash (Extraction Eval)',
+  recommendedUse:
+    'Manual extraction comparison on the direct DeepSeek API (json_object + validation). Not a production default route.',
+  costTier: 'cheap_default',
+  cacheStrategy: 'deepseek_automatic_prefix',
+  structuredOutputStrategy: 'schema_prompt_plus_validator',
+  supportsVision: false,
+  supportsStreaming: false,
+  supportsToolCalling: true,
+  supportsStructuredOutput: true,
+  supportsReasoningControls: false,
+  enabled: true,
+};
+
+export const deepseek_v4_pro_synthesis_eval: OracleModelRoute = {
+  routeId: 'deepseek_v4_pro_synthesis_eval',
+  role: 'synthesis',
+  tier: 'manual_only_frontier',
+  internalPurpose: null,
+  provider: 'deepseek',
+  modelId: 'deepseek-v4-pro',
+  displayName: 'DeepSeek V4 Pro (Synthesis Eval)',
+  recommendedUse:
+    'Manual synthesis comparison on the direct DeepSeek API. Not a production default route.',
+  costTier: 'balanced_default',
+  cacheStrategy: 'deepseek_automatic_prefix',
+  structuredOutputStrategy: 'schema_prompt_plus_validator',
+  supportsVision: false,
+  supportsStreaming: false,
+  supportsToolCalling: true,
+  supportsStructuredOutput: true,
+  supportsReasoningControls: false,
+  enabled: true,
+};
+
+export const meta_muse_spark_1_3_synthesis_eval: OracleModelRoute = {
+  routeId: 'meta_muse_spark_1_3_synthesis_eval',
+  role: 'synthesis',
+  tier: 'manual_only_frontier',
+  internalPurpose: null,
+  provider: 'meta_muse',
+  modelId: 'muse-spark-1.3',
+  displayName: 'Meta Muse Spark 1.3 (Synthesis Eval)',
+  recommendedUse:
+    'Manual synthesis comparison on the direct Meta Muse API (api.meta.ai). Not a production default route.',
+  costTier: 'balanced_default',
+  cacheStrategy: 'openai_compatible_automatic_prefix',
+  structuredOutputStrategy: 'schema_prompt_plus_validator',
+  supportsVision: true,
+  supportsStreaming: false,
+  supportsToolCalling: true,
+  supportsStructuredOutput: true,
+  supportsReasoningControls: false,
+  enabled: true,
+};
+
+export const zai_glm_5_3_synthesis_eval: OracleModelRoute = {
+  routeId: 'zai_glm_5_3_synthesis_eval',
+  role: 'synthesis',
+  tier: 'manual_only_frontier',
+  internalPurpose: null,
+  provider: 'zai',
+  modelId: 'glm-5.3',
+  displayName: 'Z.ai GLM-5.3 (Synthesis Eval)',
+  recommendedUse:
+    'Manual synthesis comparison on the direct Z.ai API. Not a production default route.',
+  costTier: 'balanced_default',
+  cacheStrategy: 'openai_compatible_automatic_prefix',
+  structuredOutputStrategy: 'schema_prompt_plus_validator',
+  supportsVision: false,
+  supportsStreaming: false,
+  supportsToolCalling: true,
+  supportsStructuredOutput: true,
+  supportsReasoningControls: false,
+  enabled: true,
+};
+
+export const zai_glm_5_3_flash_extraction_eval: OracleModelRoute = {
+  routeId: 'zai_glm_5_3_flash_extraction_eval',
+  role: 'extraction',
+  tier: 'manual_only_frontier',
+  internalPurpose: null,
+  provider: 'zai',
+  modelId: 'glm-5.3-flash',
+  displayName: 'Z.ai GLM-5.3 Flash (Extraction Eval)',
+  recommendedUse:
+    'Manual extraction comparison on the direct Z.ai API. Not a production default route.',
+  costTier: 'cheap_default',
+  cacheStrategy: 'openai_compatible_automatic_prefix',
+  structuredOutputStrategy: 'schema_prompt_plus_validator',
+  supportsVision: false,
+  supportsStreaming: false,
+  supportsToolCalling: true,
+  supportsStructuredOutput: true,
+  supportsReasoningControls: false,
+  enabled: true,
+};
+
+export const mimo_v2_flash_extraction_eval: OracleModelRoute = {
+  routeId: 'mimo_v2_flash_extraction_eval',
+  role: 'extraction',
+  tier: 'manual_only_frontier',
+  internalPurpose: null,
+  provider: 'mimo',
+  modelId: 'mimo-v2-flash',
+  displayName: 'Xiaomi MiMo V2 Flash (Extraction Eval)',
+  recommendedUse:
+    'Manual extraction comparison on the direct Xiaomi MiMo API. Not a production default route.',
+  costTier: 'cheap_default',
+  cacheStrategy: 'openai_compatible_automatic_prefix',
+  structuredOutputStrategy: 'schema_prompt_plus_validator',
+  supportsVision: false,
+  supportsStreaming: false,
+  supportsToolCalling: true,
+  supportsStructuredOutput: true,
+  supportsReasoningControls: false,
+  enabled: true,
+};
+
 // ============================================================================
 // CATALOG
 // ============================================================================
@@ -296,6 +422,12 @@ export const ORACLE_MODEL_ROUTES: Record<string, OracleModelRoute> = {
   // Manual eval routes
   [google_gemini_3_1_flash_lite_extraction_eval.routeId]: google_gemini_3_1_flash_lite_extraction_eval,
   [qwen_3_7_max_extraction_eval.routeId]: qwen_3_7_max_extraction_eval,
+  [deepseek_v4_flash_extraction_eval.routeId]: deepseek_v4_flash_extraction_eval,
+  [deepseek_v4_pro_synthesis_eval.routeId]: deepseek_v4_pro_synthesis_eval,
+  [meta_muse_spark_1_3_synthesis_eval.routeId]: meta_muse_spark_1_3_synthesis_eval,
+  [zai_glm_5_3_synthesis_eval.routeId]: zai_glm_5_3_synthesis_eval,
+  [zai_glm_5_3_flash_extraction_eval.routeId]: zai_glm_5_3_flash_extraction_eval,
+  [mimo_v2_flash_extraction_eval.routeId]: mimo_v2_flash_extraction_eval,
 };
 
 /** Production routes (admin-selectable). */

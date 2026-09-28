@@ -82,6 +82,9 @@ export function normalizeUsage(args: NormalizeArgs): OracleUsage {
     case 'deepseek':
       return normalizeDeepSeek(raw as DeepSeekUsageRaw, latencyMs, providerRequestId);
     case 'qwen':
+    case 'meta_muse':
+    case 'zai':
+    case 'mimo':
       return normalizeQwen(raw as QwenUsageRaw, latencyMs, providerRequestId);
     default:
       throw new Error(`normalizeUsage: unhandled provider "${provider as string}"`);

@@ -22,7 +22,7 @@ export const dynamic = 'force-dynamic';
 export type ModelCatalogEntry = {
   id: string;
   name: string;
-  provider: 'anthropic' | 'openai' | 'google' | 'deepseek' | 'qwen';
+  provider: 'anthropic' | 'openai' | 'google' | 'deepseek' | 'qwen' | 'meta_muse' | 'zai' | 'mimo';
   contextLength: number | null;
   maxOutputTokens: number | null;
   promptPer1M: number | null;
