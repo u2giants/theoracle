@@ -44,7 +44,7 @@ class Settings:
             raise ValueError("missing confirmed graph URL")
         if environment in {"local", "test"}:
             for value in (database_url, candidate_graph_url, confirmed_graph_url, blob_endpoint):
-                if value and urlparse(value).hostname not in {"localhost", "127.0.0.1", "postgres", "falkor-candidate", "falkor-confirmed", "minio"}:
+                if value and urlparse(value).hostname not in {"localhost", "127.0.0.1", "postgres", "falkor-candidate", "falkor-confirmed", "object-store"}:
                     raise ValueError("local/test store points outside isolated network")
             if mode != "synthetic":
                 raise ValueError("local/test mode is synthetic only")

@@ -47,6 +47,26 @@ jobs:
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 10000 --relations 100000 --output out/oracle2/resource-pilot.json
       - name: Ten-times graph stress experiment
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 100000 --relations 1000000 --output out/oracle2/resource-stress.json
+      - name: Restore graph snapshots in a fresh instance
+        run: |
+          confirmed=$(docker compose -f dev/oracle2/compose.yaml ps -q falkor-confirmed)
+          docker exec "$confirmed" redis-cli -a oracle2_confirmed_local_only SAVE
+          mkdir -p /tmp/oracle2-s02-restore
+          docker cp "$confirmed:/data/dump.rdb" /tmp/oracle2-s02-restore/dump.rdb
+          docker run -d --name oracle2-s02-restored \
+            -e FALKORDB_ARGS='--requirepass oracle2_confirmed_local_only --appendonly no' \
+            -p 127.0.0.1:56381:6379 \
+            -v /tmp/oracle2-s02-restore:/data \
+            falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+          for attempt in {1..30}; do
+            if docker exec oracle2-s02-restored redis-cli -a oracle2_confirmed_local_only ping | grep -q PONG; then break; fi
+            sleep 2
+          done
+          ORACLE2_TEST_RESTORED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:56381 \
+            services/oracle-brain/.venv/bin/python scripts/oracle2/restore_experiment.py \
+              --pilot out/oracle2/resource-pilot.json \
+              --stress out/oracle2/resource-stress.json \
+              --output out/oracle2/restore-result.json
       - name: Record store resource usage
         if: always()
         run: |
@@ -62,4 +82,6 @@ jobs:
           if-no-files-found: error
       - name: Stop isolated stores
         if: always()
-        run: docker compose -f dev/oracle2/compose.yaml down --volumes
+        run: |
+          docker rm -f oracle2-s02-restored 2>/dev/null || true
+          docker compose -f dev/oracle2/compose.yaml down --volumes

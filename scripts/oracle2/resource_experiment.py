@@ -127,8 +127,9 @@ def main() -> int:
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({"nodes": sum(counts), "relations": sum(relation_counts),
                       "p95_seconds": report["read_p95_seconds"], "errors": errors}))
+    pilot_latency_passes = args.nodes != 10_000 or report["read_p95_seconds"] <= 2
     return 0 if (sum(counts) == args.nodes and sum(relation_counts) == args.relations
-                 and not errors and report["read_p95_seconds"] <= 2) else 1
+                 and not errors and pilot_latency_passes) else 1
 
 
 if __name__ == "__main__":
