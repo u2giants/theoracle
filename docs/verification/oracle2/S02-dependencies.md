@@ -6,7 +6,7 @@ not a business-quality or preview acceptance claim.
 ## Reproducible bundle
 
 - Python 3.12.14; uv 0.12.19; `uv.lock` SHA-256
-  `560ecd6d2a6dd5e565b4b103837e5edb5e1d4ef78768203900c546696f30f63e`.
+  `2c221d882eba1d52cb7a5d088a6647882f6c4054ec5c8ecaecf5346cf54dfbff`.
 - Exported, hash-pinned `requirements.txt` SHA-256
   `162170d9b5115454c4fc5a0ec9c2b78f8016ab5e69391b5079db7257a8c45fe4`.
 - Imported locally: graphiti-core 0.30.2, Docling 2.130.0, LangGraph 1.2.12,

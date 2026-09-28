@@ -49,6 +49,7 @@ def main() -> int:
     errors = []
     # Three isolated access partitions and a deliberately high-degree target.
     for partition, graph in enumerate(graphs):
+        graph.query("CREATE INDEX FOR (n:BenchNode) ON (n.id)")
         partition_nodes = [str(i) for i in range(partition, args.nodes, 3)]
         for offset in range(0, len(partition_nodes), 500):
             ids = partition_nodes[offset:offset + 500]

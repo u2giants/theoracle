@@ -1,8 +1,10 @@
 import importlib.metadata as metadata
 import json
 import os
+from uuid import uuid4
 from pathlib import Path
 from urllib.request import urlopen
+from urllib.parse import urlparse
 
 
 def test_pinned_bundle_imports_and_lock_exists():
@@ -37,6 +39,14 @@ def test_graphiti_edge_has_no_exact_source_span_contract():
 def test_local_object_store_is_real_and_healthy():
     endpoint = os.environ.get("ORACLE2_TEST_BLOB_ENDPOINT")
     assert endpoint, "isolated object-store endpoint required"
+    assert urlparse(endpoint).hostname in {"localhost", "127.0.0.1"}
     with urlopen(f"{endpoint}/_localstack/health", timeout=5) as response:
         health = json.load(response)
     assert health["services"]["s3"] in {"available", "running"}
+    import boto3
+    client = boto3.client("s3", endpoint_url=endpoint, region_name="us-east-1",
+                          aws_access_key_id="test", aws_secret_access_key="test")
+    bucket = f"oracle2-s02-{uuid4().hex}"
+    client.create_bucket(Bucket=bucket)
+    client.put_object(Bucket=bucket, Key="synthetic.txt", Body=b"synthetic-only")
+    assert client.get_object(Bucket=bucket, Key="synthetic.txt")["Body"].read() == b"synthetic-only"

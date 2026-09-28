@@ -36,3 +36,15 @@ def test_candidate_exact_span_rejects_graphiti_style_unanchored_fact():
                                                              object="sample", quote="Design approves sample",
                                                              start=0, end=22, confidence=.8)])
     assert accepted.assertions[0].span.quote == "Design approves sample"
+
+
+def test_candidate_correction_cannot_invalidate_confirmed(candidate_url, confirmed_url):
+    workspace, assertion = uuid4(), uuid4()
+    candidate = FalkorGraphStore(candidate_url)
+    confirmed = FalkorGraphStore(confirmed_url)
+    confirmed.project(workspace, assertion, 1, {"fact": "confirmed"})
+    candidate.project(workspace, assertion, 1, {"fact": "unreviewed"})
+    candidate.withdraw(workspace, assertion, 2)
+    assert candidate.query(workspace) == []
+    assert confirmed.query(workspace) == [{"assertion_id": assertion, "revision": 1,
+                                           "payload": {"fact": "confirmed"}}]
