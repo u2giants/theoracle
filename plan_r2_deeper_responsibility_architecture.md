@@ -889,7 +889,7 @@ access. Do not make a local test depend on production.
 
 ## 11. Constraints, standing rules, and gotchas
 
-1. Main-only repo. No branch or PR unless Albert changes the rule.
+1. Branch policy: see `docs/agents/13-deployment.md` (only `main` is long-lived; short-lived branch + PR where a reviewed record or protected check requires it).
 2. Before committing, `git var GIT_COMMITTER_IDENT` must show
    `Albert Hazan <u2giants@users.noreply.github.com>`.
 3. Preserve unrelated untracked `.ai/reviews`, `.playwright-cli`, and image files.

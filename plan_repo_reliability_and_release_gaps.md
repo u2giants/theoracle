@@ -483,7 +483,7 @@ Gate: resolved. No conditional item adds a numbered reliability step.
 - Production and shared cloud infrastructure are read-only unless the owner explicitly authorizes
   the exact mutation in the current task.
 - Verify git identity before the first commit.
-- Main-only repository policy applies.
+- Branch policy: see `docs/agents/13-deployment.md` (only `main` is long-lived; short-lived branch + PR where a reviewed record or protected check requires it).
 - Runtime incident closure requires production evidence.
 
 ## 12. Access and environment

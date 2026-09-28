@@ -5,7 +5,7 @@
 Current deployment path:
 
 - GitHub repo: `u2giants/theoracle`
-- CI workflows: `.github/workflows/pr-check.yml` and `.github/workflows/task-gates.yml`
+- CI workflows: `.github/workflows/pr-check.yml`, `.github/workflows/task-gates.yml`, and `.github/workflows/oracle2-contracts.yml` (self-hosted; includes workers typecheck and the legacy worker-bundle guard)
 - Web deploy target: Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC`
 - Worker deploy target: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 - Database/auth/storage target: Supabase project configured through env
@@ -21,7 +21,7 @@ How deployment works today:
 Rollback:
 
 - Web: promote a previous Vercel deployment.
-- Workers: redeploy from a previous commit or roll back in Trigger.dev.
+- Workers: redeploy the previous commit forward (`git revert` or a clean checkout of the known-good commit, then deploy). Trigger.dev refuses to promote an older deployment — see `docs/deployment.md` §Rollback.
 - DB: ship a compensating SQL migration; there is no automatic rollback layer.
 
 Runtime env vars live in:
@@ -39,7 +39,7 @@ SSH:
 
 This repo is a **managed-platform** deployment — Vercel (web) + Trigger.dev (workers) + Supabase (DB/auth/storage). There are **no containers, no Dockerfiles, no container registry, no Coolify, no production VPS, and no SSH deploy**. Generic container/registry/Coolify/SSH CI-CD rules are therefore **Not Applicable** unless this repo ever adopts a self-hosted containerized model. The rules that DO apply:
 
-- **Single-branch model: work on `main` only.** Do **not** create feature, staging, or release branches, and do not open PRs as a routine workflow — this repo has no promotion model. Commit straight to `main`. (Push to `main` only when Albert says push — see CLAUDE.md.)
+- **Single-branch model: `main` is the only long-lived branch.** There are no staging or release branches and no promotion model. Short-lived branches with a pull request are used when a reviewed record or protected check requires one (for example `docs/operations/` dispatch records); otherwise commit to `main` only when Albert says push — see CLAUDE.md.
 - **One release path, repo-driven:** push to `main` → Vercel builds/deploys the web app from `vercel.json`; workers ship via `pnpm --filter @oracle/workers run deploy`; DB via `pnpm db:migrate`. No alternate routine deploy method.
 - **CI verifies, never deploys.** `pr-check.yml` only builds + runs the static verify guards + checks migration drift. It must not deploy, SSH, mutate production, or publish artifacts.
 - **The deploy gate is native to Vercel's build.** `vercel.json` uses the short `pnpm run build:vercel` command because Vercel caps `buildCommand` at 256 characters. That root script runs these ten network-free guards before `@oracle/web build`: `verify:retrieval-filter-parity`, `verify:chinese-retrieval`, `verify:vertex-file-cache`, `verify:chat-attachment-safety`, `verify:claim-translation-review`, `verify:eval-results-dashboard`, `verify:provider-capability-parity`, `verify:model-coverage-conversion`, `verify:lull-topical`, and `verify:mcp`. `verify:vercel-contract` protects the length and exact delegation contract in CI. The credentialed `verify:chinese-retrieval-live` and `verify:attachment-fallback-live` commands are separate and never run in Vercel.

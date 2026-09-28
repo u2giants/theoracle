@@ -25,6 +25,8 @@
 | `DEEPSEEK_API_KEY` | DeepSeek adapter | `.env.local`, Vercel, Trigger.dev | optional | optional |
 | `META_MUSE_API_KEY` | Meta Muse adapter | `.env.local`, Vercel Production (sensitive), Trigger.dev prod (set 2026-09-28, #49) | optional | optional |
 | `STEPFUN_API_KEY` | StepFun adapter (account limited to 10 requests/minute) | `.env.local`, Vercel Production (sensitive), Trigger.dev prod (set 2026-09-28, #49) | optional | optional |
+| `ZAI_API_KEY` | Z.ai GLM adapter (on hold by owner decision 2026-09-28; stored key lacks general-endpoint balance) | `.env.local` only; not in Vercel or Trigger.dev prod | optional | not set |
+| `META_MUSE_BASE_URL` / `ZAI_BASE_URL` / `STEPFUN_BASE_URL` | Optional base-URL overrides for the three OpenAI-compatible adapters (defaults in `docs/configuration.md`) | `.env.local` only unless a region override is needed | optional | not set in prod |
 | `DASHSCOPE_API_KEY` | Qwen adapter | `.env.local`, Vercel, Trigger.dev | optional | optional (set in prod 2026-06-25 for the Qwen vision model) |
 | `DASHSCOPE_BASE_URL` | Qwen adapter region override (default `dashscope-us`; set to the `dashscope-intl` compat endpoint in prod) | `.env.local`, Trigger.dev | optional | recommended when using `qwen/*` models served only on intl |
 | `OPENROUTER_API_KEY` | model catalog enrichment only | `.env.local`, Vercel if desired | optional | optional |
@@ -33,6 +35,7 @@
 | `ORACLE_MCP_DISABLED_TOOLS` | Optional CSV denylist for remote MCP capabilities; overrides enabled list | Vercel/local env if used | optional | optional |
 | `TRIGGER_SECRET_KEY` | Trigger.dev auth | `.env.local`, Vercel, Trigger.dev | yes | yes |
 | `PROD_DIRECT_URL` | Used by the CI drift-check step to reach production Postgres | GitHub Actions repo secret (`gh secret list`) | no | yes (CI) |
+| `TRIGGER_ACCESS_TOKEN` | Trigger.dev CLI auth for worker deploys (`npx trigger.dev@4.5.15 deploy`) and management-API reads | operator shell only, from 1Password item `ylzcsfbhmjyzjy65mnu6uxw67e` (see `docs/1password.md` §2a) | no | deploy-time only (never stored in an env file) |
 | `TRIGGER_PROJECT_REF` | Trigger.dev project selector | `.env.local`, Vercel | optional | optional |
 | `ORACLE_RUN_VECTOR_INDEXES` | Opt-in switch for expensive `99_vector_indexes.sql` migration step | shell/env when intentionally running vector index creation | optional | optional |
 | `NEXT_PUBLIC_GIT_SHA` | Build metadata injected by `apps/web/next.config.ts` for admin display | generated at build time | no | no |
