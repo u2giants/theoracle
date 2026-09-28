@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { AnthropicAdapter } from '../providers/anthropic-adapter';
 import { DeepSeekAdapter } from '../providers/deepseek-adapter';
 import { QwenAdapter } from '../providers/qwen-adapter';
-import { MetaMuseAdapter, XiaomiMimoAdapter, ZaiGlmAdapter } from '../providers/openai-compatible-adapter';
+import { MetaMuseAdapter, StepFunAdapter, ZaiGlmAdapter } from '../providers/openai-compatible-adapter';
 import { buildStandardAdapters } from '../client/standard-adapters';
 import { resolveModelRoute } from '../routes/resolve';
 import { ORACLE_MODEL_ROUTES, PRODUCTION_ROUTE_IDS } from '../routes/catalog';
@@ -304,7 +304,7 @@ async function verifyOpenAICompatibleVendors(): Promise<void> {
   const vendors = [
     { name: 'meta_muse' as const, make: () => new MetaMuseAdapter({ apiKey: 'test-key' }), model: 'muse-spark-1.3', url: 'https://api.meta.ai/v1' },
     { name: 'zai' as const, make: () => new ZaiGlmAdapter({ apiKey: 'test-key' }), model: 'glm-5.3', url: 'https://api.z.ai/api/paas/v4' },
-    { name: 'mimo' as const, make: () => new XiaomiMimoAdapter({ apiKey: 'test-key' }), model: 'mimo-v2-flash', url: 'https://api.xiaomimimo.com/v1' },
+    { name: 'stepfun' as const, make: () => new StepFunAdapter({ apiKey: 'test-key' }), model: 'step-5-preview', url: 'https://api.stepfun.ai/v1' },
   ];
   for (const v of vendors) {
     const adapter = v.make();
@@ -344,16 +344,16 @@ async function verifyOpenAICompatibleVendors(): Promise<void> {
     const resolved = resolveModelRoute(`${v.name}/${v.model}`, 'synthesis', undefined, {});
     assert(resolved?.provider === v.name && resolved.cacheStrategy === 'openai_compatible_automatic_prefix', `${v.name} provider/model ids must resolve`);
   }
-  const saved = { m: process.env.META_MUSE_API_KEY, z: process.env.ZAI_API_KEY, x: process.env.MIMO_API_KEY };
-  process.env.META_MUSE_API_KEY = 'k'; process.env.ZAI_API_KEY = 'k'; process.env.MIMO_API_KEY = 'k';
+  const saved = { m: process.env.META_MUSE_API_KEY, z: process.env.ZAI_API_KEY, x: process.env.STEPFUN_API_KEY };
+  process.env.META_MUSE_API_KEY = 'k'; process.env.ZAI_API_KEY = 'k'; process.env.STEPFUN_API_KEY = 'k';
   const map = buildStandardAdapters();
-  assert(map.meta_muse && map.zai && map.mimo, 'standard adapters must register meta_muse, zai and mimo when keys are set');
-  for (const [k, v] of [['META_MUSE_API_KEY', saved.m], ['ZAI_API_KEY', saved.z], ['MIMO_API_KEY', saved.x]] as const) {
+  assert(map.meta_muse && map.zai && map.stepfun, 'standard adapters must register meta_muse, zai and stepfun when keys are set');
+  for (const [k, v] of [['META_MUSE_API_KEY', saved.m], ['ZAI_API_KEY', saved.z], ['STEPFUN_API_KEY', saved.x]] as const) {
     if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
   for (const id of PRODUCTION_ROUTE_IDS) {
     const p = ORACLE_MODEL_ROUTES[id]!.provider;
-    assert(!['meta_muse', 'zai', 'mimo', 'deepseek'].includes(p), `production default ${id} must not switch to a new provider`);
+    assert(!['meta_muse', 'zai', 'stepfun', 'deepseek'].includes(p), `production default ${id} must not switch to a new provider`);
   }
 }
 

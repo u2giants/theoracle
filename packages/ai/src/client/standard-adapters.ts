@@ -16,7 +16,7 @@ import { GoogleGeminiAdapter } from '../providers/google-gemini-adapter';
 import { OpenAIAdapter } from '../providers/openai-adapter';
 import { DeepSeekAdapter } from '../providers/deepseek-adapter';
 import { QwenAdapter } from '../providers/qwen-adapter';
-import { MetaMuseAdapter, XiaomiMimoAdapter, ZaiGlmAdapter } from '../providers/openai-compatible-adapter';
+import { MetaMuseAdapter, StepFunAdapter, ZaiGlmAdapter } from '../providers/openai-compatible-adapter';
 import type { ProviderAdapterMap } from '../routing/model-router';
 import type { OracleProvider } from '../routes';
 import type { OracleProviderAdapter } from '../providers/types';
@@ -53,6 +53,6 @@ export function buildStandardAdapters(): ProviderAdapterMap {
   tryAdd(map, 'qwen',      () => new QwenAdapter());
   tryAdd(map, 'meta_muse', () => new MetaMuseAdapter());
   tryAdd(map, 'zai',       () => new ZaiGlmAdapter());
-  tryAdd(map, 'mimo',      () => new XiaomiMimoAdapter());
+  tryAdd(map, 'stepfun',      () => new StepFunAdapter());
   return map;
 }

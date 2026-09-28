@@ -1,4 +1,4 @@
-// Meta Muse, Z.ai GLM and Xiaomi MiMo model list sources.
+// Meta Muse, Z.ai GLM and StepFun model list sources.
 // Each vendor exposes an OpenAI-compatible /models endpoint; we keep only the
 // chat model family and tag rows with the Oracle provider id. Pricing/caps
 // come from OpenRouter enrichment where a slug matches.
@@ -8,7 +8,7 @@ import type { RawProviderModel } from './types';
 import type { ModelCapabilitySource, ModelProvider } from '../types';
 import {
   META_MUSE_BASE_URL,
-  MIMO_BASE_URL,
+  STEPFUN_BASE_URL,
   ZAI_BASE_URL,
 } from '../../providers/openai-compatible-adapter';
 
@@ -44,6 +44,6 @@ export const fetchZaiModels = () =>
   fetchVendorModels('zai', 'zai_api', 'ZAI_API_KEY', 'ZAI_BASE_URL', ZAI_BASE_URL,
     (id) => id.startsWith('glm-'));
 
-export const fetchMimoModels = () =>
-  fetchVendorModels('mimo', 'mimo_api', 'MIMO_API_KEY', 'MIMO_BASE_URL', MIMO_BASE_URL,
-    (id) => id.startsWith('mimo-') && !id.includes('tts') && !id.includes('audio'));
+export const fetchStepFunModels = () =>
+  fetchVendorModels('stepfun', 'stepfun_api', 'STEPFUN_API_KEY', 'STEPFUN_BASE_URL', STEPFUN_BASE_URL,
+    (id) => id.startsWith('step-') && !id.includes('tts') && !id.includes('audio'));

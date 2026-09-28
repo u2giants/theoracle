@@ -1,5 +1,5 @@
 /**
- * OpenAI-compatible direct adapters for Meta Muse, Z.ai GLM and Xiaomi MiMo.
+ * OpenAI-compatible direct adapters for Meta Muse, Z.ai GLM and StepFun.
  *
  * Same pattern as DeepSeekAdapter: the official `openai` SDK pointed at each
  * vendor's own OpenAI-compatible Chat Completions endpoint. No OpenRouter and
@@ -26,7 +26,7 @@ import { flattenPlan, parseJsonOrRaw, tryZodParse } from './vertex-gemini-adapte
 
 export const META_MUSE_BASE_URL = 'https://api.meta.ai/v1';
 export const ZAI_BASE_URL = 'https://api.z.ai/api/paas/v4';
-export const MIMO_BASE_URL = 'https://api.xiaomimimo.com/v1';
+export const STEPFUN_BASE_URL = 'https://api.stepfun.ai/v1';
 
 export interface OpenAICompatibleAdapterOptions {
   apiKey?: string;
@@ -213,12 +213,12 @@ export class ZaiGlmAdapter extends OpenAICompatibleAdapter {
   }
 }
 
-/** Xiaomi MiMo via api.xiaomimimo.com. Env: MIMO_API_KEY, optional MIMO_BASE_URL. */
-export class XiaomiMimoAdapter extends OpenAICompatibleAdapter {
-  readonly provider = 'mimo' as const;
+/** StepFun via api.stepfun.ai. Env: STEPFUN_API_KEY, optional STEPFUN_BASE_URL. */
+export class StepFunAdapter extends OpenAICompatibleAdapter {
+  readonly provider = 'stepfun' as const;
   constructor(opts: OpenAICompatibleAdapterOptions = {}) {
     super(
-      { provider: 'mimo', label: 'XiaomiMimoAdapter', apiKeyEnv: 'MIMO_API_KEY', baseUrlEnv: 'MIMO_BASE_URL', defaultBaseURL: MIMO_BASE_URL },
+      { provider: 'stepfun', label: 'StepFunAdapter', apiKeyEnv: 'STEPFUN_API_KEY', baseUrlEnv: 'STEPFUN_BASE_URL', defaultBaseURL: STEPFUN_BASE_URL },
       opts,
     );
   }

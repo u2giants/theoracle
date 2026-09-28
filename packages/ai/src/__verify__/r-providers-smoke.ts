@@ -14,7 +14,7 @@
  *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts google
  *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts deepseek
  *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts qwen
- *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts meta_muse | zai | mimo
+ *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts meta_muse | zai | stepfun
  *   pnpm --filter @oracle/ai tsx src/__verify__/r-providers-smoke.ts all
  *
  * Costs roughly $0.001 per provider per run.
@@ -29,7 +29,7 @@ import { DeepSeekAdapter } from '../providers/deepseek-adapter';
 import { GoogleGeminiAdapter } from '../providers/google-gemini-adapter';
 import { OpenAIAdapter } from '../providers/openai-adapter';
 import { QwenAdapter } from '../providers/qwen-adapter';
-import { MetaMuseAdapter, XiaomiMimoAdapter, ZaiGlmAdapter } from '../providers/openai-compatible-adapter';
+import { MetaMuseAdapter, StepFunAdapter, ZaiGlmAdapter } from '../providers/openai-compatible-adapter';
 import { VertexGeminiAdapter } from '../providers/vertex-gemini-adapter';
 import type {
   OracleObjectResult,
@@ -108,13 +108,13 @@ function smokeRoute(
             ? 'deepseek_automatic_prefix'
             : provider === 'qwen'
               ? 'qwen_none'
-              : provider === 'meta_muse' || provider === 'zai' || provider === 'mimo'
+              : provider === 'meta_muse' || provider === 'zai' || provider === 'stepfun'
                 ? 'openai_compatible_automatic_prefix'
                 : 'openai_automatic_prefix',
     structuredOutputStrategy:
       provider === 'anthropic'
         ? 'tool_call'
-        : provider === 'deepseek' || provider === 'qwen' || provider === 'meta_muse' || provider === 'zai' || provider === 'mimo'
+        : provider === 'deepseek' || provider === 'qwen' || provider === 'meta_muse' || provider === 'zai' || provider === 'stepfun'
           ? 'schema_prompt_plus_validator'
           : 'native_json_schema',
     supportsVision: false,
@@ -231,9 +231,9 @@ async function smokeQwen(): Promise<void> {
 }
 
 async function smokeOpenAICompatible(
-  provider: 'meta_muse' | 'zai' | 'mimo',
+  provider: 'meta_muse' | 'zai' | 'stepfun',
   keyEnv: string,
-  make: () => MetaMuseAdapter | ZaiGlmAdapter | XiaomiMimoAdapter,
+  make: () => MetaMuseAdapter | ZaiGlmAdapter | StepFunAdapter,
   model: string,
 ): Promise<void> {
   console.log(`\n══ ${provider} ══════════════════════════════════════════════════`);
@@ -296,8 +296,8 @@ async function main(): Promise<void> {
     await smokeOpenAICompatible('meta_muse', 'META_MUSE_API_KEY', () => new MetaMuseAdapter(), process.env.META_MUSE_SMOKE_MODEL ?? 'muse-spark-1.3');
   if (target === 'zai' || target === 'all')
     await smokeOpenAICompatible('zai', 'ZAI_API_KEY', () => new ZaiGlmAdapter(), process.env.ZAI_SMOKE_MODEL ?? 'glm-5.3');
-  if (target === 'mimo' || target === 'all')
-    await smokeOpenAICompatible('mimo', 'MIMO_API_KEY', () => new XiaomiMimoAdapter(), process.env.MIMO_SMOKE_MODEL ?? 'mimo-v2-flash');
+  if (target === 'stepfun' || target === 'all')
+    await smokeOpenAICompatible('stepfun', 'STEPFUN_API_KEY', () => new StepFunAdapter(), process.env.STEPFUN_SMOKE_MODEL ?? 'step-5-preview');
 
   console.log('\nDone.');
 }

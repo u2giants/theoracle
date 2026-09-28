@@ -151,7 +151,7 @@ export { VertexGeminiAdapter } from './providers/vertex-gemini-adapter';
 export { GoogleGeminiAdapter } from './providers/google-gemini-adapter';
 export { OpenAIAdapter } from './providers/openai-adapter';
 export { DeepSeekAdapter } from './providers/deepseek-adapter';
-export { MetaMuseAdapter, ZaiGlmAdapter, XiaomiMimoAdapter } from './providers/openai-compatible-adapter';
+export { MetaMuseAdapter, ZaiGlmAdapter, StepFunAdapter } from './providers/openai-compatible-adapter';
 export { QwenAdapter } from './providers/qwen-adapter';
 export { buildStandardAdapters } from './client/standard-adapters';
 export {

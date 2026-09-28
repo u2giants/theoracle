@@ -376,16 +376,16 @@ export const zai_glm_5_3_flash_extraction_eval: OracleModelRoute = {
   enabled: true,
 };
 
-export const mimo_v2_flash_extraction_eval: OracleModelRoute = {
-  routeId: 'mimo_v2_flash_extraction_eval',
+export const stepfun_step_5_preview_extraction_eval: OracleModelRoute = {
+  routeId: 'stepfun_step_5_preview_extraction_eval',
   role: 'extraction',
   tier: 'manual_only_frontier',
   internalPurpose: null,
-  provider: 'mimo',
-  modelId: 'mimo-v2-flash',
-  displayName: 'Xiaomi MiMo V2 Flash (Extraction Eval)',
+  provider: 'stepfun',
+  modelId: 'step-5-preview',
+  displayName: 'StepFun Step 5 Preview (Extraction Eval)',
   recommendedUse:
-    'Manual extraction comparison on the direct Xiaomi MiMo API. Not a production default route.',
+    'Manual extraction comparison on the direct StepFun API. Not a production default route.',
   costTier: 'cheap_default',
   cacheStrategy: 'openai_compatible_automatic_prefix',
   structuredOutputStrategy: 'schema_prompt_plus_validator',
@@ -427,7 +427,7 @@ export const ORACLE_MODEL_ROUTES: Record<string, OracleModelRoute> = {
   [meta_muse_spark_1_3_synthesis_eval.routeId]: meta_muse_spark_1_3_synthesis_eval,
   [zai_glm_5_3_synthesis_eval.routeId]: zai_glm_5_3_synthesis_eval,
   [zai_glm_5_3_flash_extraction_eval.routeId]: zai_glm_5_3_flash_extraction_eval,
-  [mimo_v2_flash_extraction_eval.routeId]: mimo_v2_flash_extraction_eval,
+  [stepfun_step_5_preview_extraction_eval.routeId]: stepfun_step_5_preview_extraction_eval,
 };
 
 /** Production routes (admin-selectable). */

@@ -20,7 +20,7 @@ import { fetchAnthropicModels } from './sources/anthropic';
 import { fetchOpenAIModels } from './sources/openai';
 import { fetchGoogleModels } from './sources/google';
 import { fetchDeepSeekModels } from './sources/deepseek';
-import { fetchMetaMuseModels, fetchMimoModels, fetchZaiModels } from './sources/openai-compatible';
+import { fetchMetaMuseModels, fetchStepFunModels, fetchZaiModels } from './sources/openai-compatible';
 import { fetchQwenModels } from './sources/qwen';
 import { fetchOpenRouterEnrichment } from './sources/openrouter';
 
@@ -55,7 +55,7 @@ export interface RefreshModelCatalogResult {
 // Oracle provider prefix -> OpenRouter vendor slug, where they differ.
 const OPENROUTER_PREFIX_ALIASES: Record<string, string> = {
   zai: 'z-ai',
-  mimo: 'xiaomi',
+  stepfun: 'stepfun',
   meta_muse: 'meta',
 };
 
@@ -146,7 +146,7 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
     qwenResult,
     metaMuseResult,
     zaiResult,
-    mimoResult,
+    stepfunResult,
     enrichmentResult,
   ] = await Promise.allSettled([
     fetchAnthropicModels(),
@@ -156,7 +156,7 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
     fetchQwenModels(),
     fetchMetaMuseModels(),
     fetchZaiModels(),
-    fetchMimoModels(),
+    fetchStepFunModels(),
     fetchOpenRouterEnrichment(),
   ]);
 
@@ -182,9 +182,9 @@ export async function refreshModelCatalog(db: OracleDb): Promise<RefreshModelCat
     ...(zaiResult.status === 'fulfilled'
       ? zaiResult.value
       : (errors.push(`Z.ai: ${zaiResult.reason}`), [])),
-    ...(mimoResult.status === 'fulfilled'
-      ? mimoResult.value
-      : (errors.push(`Xiaomi MiMo: ${mimoResult.reason}`), [])),
+    ...(stepfunResult.status === 'fulfilled'
+      ? stepfunResult.value
+      : (errors.push(`StepFun: ${stepfunResult.reason}`), [])),
   ];
 
   const enrichmentMap: Map<string, OpenRouterEnrichment> =
@@ -363,10 +363,10 @@ export function normalizeDirectProviderCapabilities(model: ModelCapability): Mod
       },
     };
   }
-  if (model.provider === 'meta_muse' || model.provider === 'zai' || model.provider === 'mimo') {
+  if (model.provider === 'meta_muse' || model.provider === 'zai' || model.provider === 'stepfun') {
     return {
       ...model,
-      // Muse Spark, GLM-5.x and MiMo reason internally; no client budget knob.
+      // Muse Spark, GLM-5.x and StepFun reason internally; no client budget knob.
       thinking: true,
       // Adapter uses json_object plus Zod validation, not strict JSON Schema.
       structuredOutputs: false,

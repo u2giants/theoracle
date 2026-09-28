@@ -6,7 +6,7 @@
  * /v1/models endpoint and joined onto those models before DB persistence.
  */
 
-export type ModelProvider = 'anthropic' | 'openai' | 'google' | 'deepseek' | 'qwen' | 'meta_muse' | 'zai' | 'mimo';
+export type ModelProvider = 'anthropic' | 'openai' | 'google' | 'deepseek' | 'qwen' | 'meta_muse' | 'zai' | 'stepfun';
 
 export type ModelCapabilitySource =
   | 'anthropic_api'   // model listed by Anthropic /v1/models
@@ -16,7 +16,7 @@ export type ModelCapabilitySource =
   | 'qwen_api'        // model listed by DashScope OpenAI-compatible /models
   | 'meta_muse_api'   // model listed by Meta Muse api.meta.ai/v1/models
   | 'zai_api'         // model listed by Z.ai /models
-  | 'mimo_api';       // model listed by Xiaomi MiMo /models
+  | 'stepfun_api';       // model listed by StepFun /models
 
 export interface ModelCapability {
   /** "provider/modelId" — same id format used in settings.model_pool_*. */
