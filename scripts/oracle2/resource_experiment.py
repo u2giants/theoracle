@@ -89,6 +89,18 @@ def main() -> int:
               for graph in graphs]
     relation_counts = [int(graph.query("MATCH ()-[r:BenchLink]->() RETURN count(r)").result_set[0][0])
                        for graph in graphs]
+    high_degree = int(graphs[0].query(
+        "MATCH (n:BenchNode {id:'0'})-[r:BenchLink]->() RETURN count(r)"
+    ).result_set[0][0])
+
+    def serial_writer() -> int:
+        graph = graphs[0]
+        for revision in range(2, 202):
+            graph.query("MATCH (n:BenchNode {id:'0'}) SET n.revision=$revision",
+                        params={"revision": revision})
+        return int(graph.query(
+            "MATCH (n:BenchNode {id:'0'}) RETURN n.revision"
+        ).result_set[0][0])
 
     def read(index: int) -> float:
         graph = graphs[index % 3]
@@ -101,15 +113,25 @@ def main() -> int:
             errors.append("forbidden partition result")
         return time.monotonic() - began
 
-    with ThreadPoolExecutor(max_workers=20) as pool:
+    with ThreadPoolExecutor(max_workers=21) as pool:
+        writer = pool.submit(serial_writer)
         latencies = list(pool.map(read, range(200)))
-    # Duplicate relation insert and historical correction do not increase
-    # record count; source withdrawal removes only its own synthetic node.
+        final_revision = writer.result()
+    # A duplicate must not grow the graph. A correction remains historically
+    # identified by revision; withdrawal disappears from the active view only.
     graph = graphs[0]
     graph.query("MERGE (a:BenchNode {id:'0'})-[r:BenchLink {id:'0'}]->(b:BenchNode {id:'3'})")
-    graph.query("MATCH (n:BenchNode {id:'0'}) SET n.revision=2")
+    duplicate_count = int(graph.query(
+        "MATCH ()-[r:BenchLink]->() RETURN count(r)"
+    ).result_set[0][0])
     graph.query("MATCH (n:BenchNode {id:'0'}) SET n.withdrawn=true")
-    graph.query("MATCH (n:BenchNode {id:'0'}) RETURN n.revision,n.withdrawn")
+    withdrawn_hidden = not graph.query(
+        "MATCH (n:BenchNode {id:'0'}) WHERE coalesce(n.withdrawn,false)=false RETURN n.id"
+    ).result_set
+    other_partition_intact = all(
+        int(other.query("MATCH (n:BenchNode) RETURN count(n)").result_set[0][0]) == count
+        for other, count in zip(graphs[1:], counts[1:])
+    )
     report = {
         "nodes_requested": args.nodes, "relations_requested": args.relations,
         "node_counts": counts, "relation_counts": relation_counts,
@@ -118,6 +140,11 @@ def main() -> int:
         "readers": 20, "reads": len(latencies),
         "read_p50_seconds": round(percentile(latencies, .5), 4),
         "read_p95_seconds": round(percentile(latencies, .95), 4),
+        "high_degree": high_degree,
+        "serial_writer_final_revision": final_revision,
+        "duplicate_preserved_relation_count": duplicate_count == relation_counts[0],
+        "withdrawn_hidden_from_active_view": withdrawn_hidden,
+        "other_partitions_intact_after_withdrawal": other_partition_intact,
         "errors": errors,
         "host": {"platform": platform.platform(), "cpu_count": os.cpu_count(),
                  "memory_bytes": psutil.virtual_memory().total},
@@ -129,7 +156,9 @@ def main() -> int:
                       "p95_seconds": report["read_p95_seconds"], "errors": errors}))
     pilot_latency_passes = args.nodes != 10_000 or report["read_p95_seconds"] <= 2
     return 0 if (sum(counts) == args.nodes and sum(relation_counts) == args.relations
-                 and not errors and pilot_latency_passes) else 1
+                 and not errors and pilot_latency_passes and high_degree > 10
+                 and final_revision == 201 and duplicate_count == relation_counts[0]
+                 and withdrawn_hidden and other_partition_intact) else 1
 
 
 if __name__ == "__main__":

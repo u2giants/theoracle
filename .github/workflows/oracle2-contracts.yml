@@ -64,6 +64,15 @@ jobs:
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 10000 --relations 100000 --output out/oracle2/resource-pilot.json
       - name: Ten-times graph stress experiment
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 100000 --relations 1000000 --output out/oracle2/resource-stress.json
+      - name: Record graph peak memory before restart
+        run: |
+          confirmed=$(docker compose -f dev/oracle2/compose.yaml ps -q falkor-confirmed)
+          docker exec "$confirmed" cat /sys/fs/cgroup/memory.peak > out/oracle2/confirmed-cgroup-memory-peak-bytes.txt
+          docker exec "$confirmed" redis-cli -a oracle2_confirmed_local_only INFO memory \
+            | grep -E '^(used_memory_peak|used_memory_rss):' > out/oracle2/confirmed-redis-memory.txt
+          peak=$(cat out/oracle2/confirmed-cgroup-memory-peak-bytes.txt)
+          test "$peak" -gt 0
+          test "$peak" -le 2147483648
       - name: Restart confirmed graph and compare counts
         run: |
           started=$(date +%s)
