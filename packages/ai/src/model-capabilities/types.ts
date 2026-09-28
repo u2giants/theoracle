@@ -6,14 +6,17 @@
  * /v1/models endpoint and joined onto those models before DB persistence.
  */
 
-export type ModelProvider = 'anthropic' | 'openai' | 'google' | 'deepseek' | 'qwen';
+export type ModelProvider = 'anthropic' | 'openai' | 'google' | 'deepseek' | 'qwen' | 'meta_muse' | 'zai' | 'stepfun';
 
 export type ModelCapabilitySource =
   | 'anthropic_api'   // model listed by Anthropic /v1/models
   | 'openai_api'      // model listed by OpenAI /v1/models
   | 'google_api'      // model listed by Google generativelanguage.googleapis.com/v1beta/models
   | 'deepseek_api'    // model listed by DeepSeek /models
-  | 'qwen_api';       // model listed by DashScope OpenAI-compatible /models
+  | 'qwen_api'        // model listed by DashScope OpenAI-compatible /models
+  | 'meta_muse_api'   // model listed by Meta Muse api.meta.ai/v1/models
+  | 'zai_api'         // model listed by Z.ai /models
+  | 'stepfun_api';       // model listed by StepFun /models
 
 export interface ModelCapability {
   /** "provider/modelId" — same id format used in settings.model_pool_*. */

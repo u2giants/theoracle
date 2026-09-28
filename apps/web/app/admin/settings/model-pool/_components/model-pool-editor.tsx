@@ -50,9 +50,12 @@ const PROVIDER_LABELS: Record<string, string> = {
   google: 'Google (Vertex AI)',
   deepseek: 'DeepSeek',
   qwen: 'Alibaba Qwen',
+  meta_muse: 'Meta Muse',
+  zai: 'Z.ai GLM',
+  stepfun: 'StepFun',
 };
 
-const PROVIDER_ORDER = ['anthropic', 'openai', 'google', 'deepseek', 'qwen'] as const;
+const PROVIDER_ORDER = ['anthropic', 'openai', 'google', 'deepseek', 'qwen', 'meta_muse', 'zai', 'stepfun'] as const;
 
 const STAGE_SETTING_KEYS: Record<Stage, string> = {
   interview: 'model_pool_interview',

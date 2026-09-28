@@ -51,6 +51,9 @@ const OR_PROVIDER_MAP: Record<string, OracleProvider> = {
   google: 'google',
   deepseek: 'deepseek',
   qwen: 'qwen',
+  meta_muse: 'meta_muse',
+  zai: 'zai',
+  stepfun: 'stepfun',
 };
 
 function mapPrefix(prefix: string): OracleProvider | null {
@@ -96,7 +99,9 @@ function makeSyntheticRoute(
             ? 'deepseek_automatic_prefix'
             : provider === 'qwen'
               ? 'qwen_none'
-              : 'openai_automatic_with_cache_key';
+              : provider === 'meta_muse' || provider === 'zai' || provider === 'stepfun'
+                ? 'openai_compatible_automatic_prefix'
+                : 'openai_automatic_with_cache_key';
 
   const structuredOutputStrategy =
     provider === 'vertex' || provider === 'google'
