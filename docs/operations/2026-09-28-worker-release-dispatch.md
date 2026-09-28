@@ -1,8 +1,8 @@
 # Legacy worker production release — exact dispatch for review
 
-Status: **awaiting independent review** (revision 6). Not executed. Tracking issue:
+Status: **awaiting independent review** (revision 7). Not executed. Tracking issue:
 https://github.com/u2giants/theoracle/issues/50. Nothing here runs before a
-`VERDICT APPROVE` whose record names the reviewed commit of this file. The approval
+approving review (a `## Verdict` heading followed by `APPROVE`) whose record names the reviewed commit of this file. The approval
 record and every execution result are posted on #50; this file is never edited
 during execution, so the executed text is exactly the reviewed text.
 
@@ -24,8 +24,8 @@ choice on the admin settings page; this release does not depend on it.
   `origin/main` at review time). This dispatch lives in docs-only commits on branch
   `claude/worker-release-dispatch-2` above that commit and is NOT the deployed tree.
 - Stop and re-request review if `origin/main` has moved in `apps/workers/**` or
-  `packages/**` beyond the pinned commit (step 1), or prod is no longer `20260909.1`
-  (step 0).
+  `packages/**` beyond the pinned commit (§6 step 2), or prod is no longer `20260909.1`
+  (§6 step 1).
 
 ## 2. Live prod state read (read-only, 2026-09-28, 3:25–5:15 PM EDT)
 
@@ -66,7 +66,8 @@ choice on the admin settings page; this release does not depend on it.
   `model-capabilities/index.ts` (3 sources; #53 fixes infinite recursion in
   `lookupEnrichment` for the self-aliased `stepfun` prefix),
   `model-capabilities/sources/openai-compatible.ts`, `routes/catalog.ts` (new routes at
-  tier `manual_only_frontier`; six production routes unchanged), `routes/resolve.ts`,
+  tier `manual_only_frontier`, including two Z.ai eval routes `zai_glm_5_3_synthesis_eval`
+  and `zai_glm_5_3_flash_extraction_eval`; six production routes unchanged), `routes/resolve.ts`,
   `routes/types.ts`, `usage/usage-normalizer.ts`, `model-capabilities/types.ts`,
   `index.ts`.
 - **Retrieval (PRs #16, #17):** `packages/ai/src/retrieval-plan.ts`,
@@ -99,6 +100,10 @@ except the two excluded oracle2 files.
   (§2), so no job changes model until someone selects them on the settings page.
   `buildStandardAdapters()` logs `PROVIDER UNAVAILABLE: "zai" ...` via `console.error`
   — expected.
+- **Z.ai hold:** the two Z.ai eval routes and `zai/*` ids become visible in code but
+  cannot dispatch (no `ZAI_API_KEY`, so no adapter; a stage pointed at one falls back
+  with the `PROVIDER UNAVAILABLE` log). The hold is kept by the key's absence, checked
+  at §6 step 1 and re-checked in the watch (§6 step 7).
 - **Nightly catalog refresh** (07:15 UTC) will list Meta Muse and StepFun `/models`
   and upsert their chat models into `model_capabilities` (now allowed by the CHECK);
   `errors` will contain `Z.ai: Error: ZAI_API_KEY not set`; the run returns `ok: true`.
@@ -146,7 +151,10 @@ proves absent, and writes production audit rows, so it is not run.
 Rules: run each command separately and check its exit status; secrets only in the
 shell environment, never printed, pasted, logged or committed:
 `export TRIGGER_ACCESS_TOKEN="$(op read 'op://vibe_coding/ylzcsfbhmjyzjy65mnu6uxw67e/Personal Access Token - admin level')"`;
-for DB reads `export U="$(op read 'op://vibe_coding/qcuyabwseaptvuzvtjejffi2ou/oracle_session_pooler')"`.
+for DB reads `export U="$(op read 'op://vibe_coding/qcuyabwseaptvuzvtjejffi2ou/oracle_session_pooler')"`,
+consumed by a short Node script run from `packages/db` (which has the `postgres`
+package): `postgres(process.env.U, { max: 1, prepare: false })` and every query inside
+`sql.begin('read only', ...)`, printing only keys, counts and the constraint text.
 Trigger reads use the Trigger MCP (`get_current_worker`, `list_deploys`, `list_runs`,
 `query`) for reads only; its 4.4.6 CLI never deploys. Every result below is posted on
 #50 with run ids.
@@ -155,7 +163,7 @@ Trigger reads use the Trigger MCP (`get_current_worker`, `list_deploys`, `list_r
    `ai-task-gates start --class deployment --base origin/main`, then
    `ai-task-gates check --before deploy`; stop on anything but pass. Post on #50 the
    reviewed commit of this file, the approving review record's file name and its
-   `VERDICT APPROVE` line; `git show <reviewed commit>:docs/operations/2026-09-28-worker-release-dispatch.md`
+   `## Verdict` / `APPROVE` lines; `git show <reviewed commit>:docs/operations/2026-09-28-worker-release-dispatch.md`
    must equal the operator's copy. No APPROVE → stop.
 1. **Prod re-read (read-only).**
    - `get_current_worker` prod: `20260909.1`, the 25 ids in §2.
@@ -202,6 +210,9 @@ Trigger reads use the Trigger MCP (`get_current_worker`, `list_deploys`, `list_r
    - First `document-ingestion` run on the new version (whenever a document arrives):
      map status and whether `[document-ingestion] SOURCE WORKFLOW READ FAILED` was
      logged.
+   - At the 24 h and 07:15 UTC checkpoints, repeat the §6 step 1 env-name and settings
+     reads: still no `ZAI_API_KEY` and no `zai`/`glm-` settings row (else post on #50
+     for Albert; not a rollback trigger).
    - Informational: 2026-10-05 `brain-synthesis-scheduled` (06:00 UTC) and
      `taxonomy-reevaluation` (07:00 UTC).
    - **Rollback trigger (release-attributable only):** a final Failed / Crashed /
@@ -213,6 +224,10 @@ Trigger reads use the Trigger MCP (`get_current_worker`, `list_deploys`, `list_r
    - **Investigate, not rollback:** anything else new (a transient vendor string in
      catalog `errors`, a Muse/StepFun `/models` error, a `written` dip, a degraded map
      without a reader stack).
+   - **Watch ownership:** the executing session owns the watch. If it ends before the
+     #50 conditions below are met, it writes its own `HANDOFF.d` file naming #50 and the
+     remaining checkpoints, and any session that then claims #50 (by comment) owns the
+     watch and the rollback decision.
    - **Watch close-out** when the T+30 min, first 4-hour, 24 h `contradiction-watcher`
      and first 07:15 UTC checkpoints pass. The #50 close-out comment states verbatim:
      "Retrieval in `teams-live-recall-utterance` and the reader in `document-ingestion` /
@@ -222,8 +237,9 @@ Trigger reads use the Trigger MCP (`get_current_worker`, `list_deploys`, `list_r
      and the 2026-10-05 checks are recorded and the release row is added to
      `plan_repo_reliability_and_release_gaps.md` STATUS; then tick #50 and delete the
      handoff (AGENTS.md §3a).
-8. **Records.** In a docs-only PR after execution (squash-merged per repository
-   policy): set this file's `Status:` line to executed with a pointer to the #50
+8. **Records.** In a docs-only PR after execution (squash-merged under Albert's
+   standing instruction for prose-only PRs, as recorded in
+   `plan_oracle_consultant_overhaul.md` §Git): set this file's `Status:` line to executed with a pointer to the #50
    result comment (the only edit ever made to this file), and replace the stale
    "Worker deploy state verified … `20260629.1` with 21 tasks" row in
    `docs/agents/15-pending-work.md` with the new version and 25 tasks.
@@ -233,12 +249,17 @@ Trigger reads use the Trigger MCP (`get_current_worker`, `list_deploys`, `list_r
 `trigger.dev promote 20260909.1` and dashboard "Promote" are **refused** for an older
 deployment (`docs/deployment.md` §Rollback/Workers). The rollback is a forward deploy:
 
-1. `git fetch origin`; `git diff --quiet 5a441199925d0ddb5a76374f44b8c3243a303214 origin/main -- apps/workers packages`
-   exits 0 (else a new review is required). Clean worktree at `28e8eb7` (the exact
+1. `get_current_worker` prod must show the version this release created (posted on #50
+   at §6 step 6) — i.e. no later worker deploy has happened, so deploying `28e8eb7`
+   un-ships exactly this release whatever `origin/main` contains by then. Any other
+   version → a new review is required. Clean worktree at `28e8eb7` (the exact
    tree of `20260909.1`), `corepack pnpm install --frozen-lockfile`.
 2. From `apps/workers`: `npx trigger.dev@4.5.15 deploy --env prod --dry-run`, then
    `npx trigger.dev@4.5.15 deploy --env prod`.
-3. Verify a new version with the 25 ids in §2; watch the next 4-hour cycle as in 7.
+3. Verify a new version with the 25 ids in §2. Post-rollback watch: the next T+30 min
+   and 4-hour-cycle checkpoints of §6 step 7, judged against the §2 baseline only (no
+   §3 attribution applies to the old tree); any new failure → post on #50 and stop for
+   a new review.
 
 **Authorization window.** This one rollback deploy is pre-authorized when a §6 step 7
 rollback trigger fires: within 48 hours of the release deploy for the run-based

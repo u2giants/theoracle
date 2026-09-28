@@ -22,6 +22,8 @@ for now and use the others." The exact plan is
 - Model selection is Albert's on the settings page; the release does not depend on it.
 
 ## Next step
-Once approved: execute dispatch §6 steps 0–7, watch to close-out, fill §Result, comment
-on #50, and keep this file and #50 open until the dispatch §6 "Issue and handoff
-stay open" conditions are met; then tick #50 and delete this file (successor rule, AGENTS.md §3a).
+Once approved: execute dispatch §6 steps 0–8. Post the approval record and every result
+on #50; never edit the dispatch file except the step-8 `Status:` line in the post-
+execution docs PR. Keep this file and #50 open until the dispatch's "#50 and the handoff
+stay open" conditions are met; then tick #50 and delete this file (AGENTS.md §3a). If
+you end before then, write your own handoff naming #50 per §6 step 7 "Watch ownership".

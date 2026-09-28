@@ -725,7 +725,7 @@ session. Do not carry downstream drift only in chat.
 - Serialize 1Password reads.
 - Use forward-only journaled database migrations.
 - Do not install a Chinese search extension until hosted support, need, backup, and rollback pass.
-- Main-only repo policy and correct Albert git identity apply.
+- Branch policy: see `docs/agents/13-deployment.md` (only `main` is long-lived; short-lived branch + PR where a reviewed record or protected check requires it). Correct Albert git identity applies.
 - UI work requires local serving and visual verification.
 
 ## 12. Access and environment
