@@ -6,20 +6,26 @@ Run 2026-09-28, about 10:00 AM EDT (retry of two primary cases shortly after). P
 
 ## Model resolution
 
-Listing APIs called 2026-09-28 (EDT) with keys from 1Password `vibe_coding`:
-- Anthropic `GET https://api.anthropic.com/v1/models` — returned current IDs including `claude-opus-5-5`, `claude-sonnet-5`, `claude-haiku-4-5-20251001`.
-- OpenAI `GET https://api.openai.com/v1/models` — returned dated snapshots including `gpt-5.5-2026-04-23`, `gpt-5.4-2026-03-05`.
+Listing APIs (keys from 1Password `vibe_coding`): Anthropic `GET https://api.anthropic.com/v1/models` and OpenAI `GET https://api.openai.com/v1/models`, first called about 10:00 AM EDT and re-fetched 10:48 AM EDT on 2026-09-28. The raw re-fetched responses (model IDs and metadata only; no keys or headers) are committed as `S02-model-listings.json`.
 
-Choice: the research doc names no generation model; candidates come from `packages/ai/src/routes/catalog.ts` (Anthropic primary routes, OpenAI secondary).
-- **Primary: `claude-sonnet-5`** (Anthropic; a fixed model ID in Anthropic's listing — Anthropic no longer issues a separate dated alias for this generation).
+Provenance: the research doc names no generation model, and none of the modelIds in `packages/ai/src/routes/catalog.ts` (e.g. `claude-sonnet-4-6`, `gpt-4o`) were run. Candidates were chosen from the current listings: the newest general mid-tier Anthropic model as primary (strong instruction following, cost below Opus-tier), and a dated OpenAI flagship snapshot as a cross-provider fallback so a single-provider outage does not stop the service.
+- **Primary: `claude-sonnet-5`.** The Anthropic listing contains only `claude-sonnet-5` for this generation (Sonnet entries: `claude-sonnet-5`, `claude-sonnet-4-6`, `claude-sonnet-4-5-20250929`); no dated Sonnet 5 snapshot exists, so this fixed ID is the pin. Re-resolution: before any production use, re-list and switch to a dated `claude-sonnet-5-*` snapshot if Anthropic publishes one, rerunning this corpus.
 - **Fallback: `gpt-5.5-2026-04-23`** (OpenAI dated snapshot; called with `reasoning_effort=low`).
+
+Both are encoded as `PRIMARY_MODEL` / `FALLBACK_MODEL` in `scripts/oracle2/evaluate_models.py` (CLI may override); a test checks both IDs appear in the committed listing.
 
 Caps: `max_tokens` 1200 (Anthropic), `max_completion_tokens` 2400 (OpenAI). Total tokens: primary 17,560, fallback 8,483.
 
 ## ProcessingApproval scope
 
 Default-deny `oracle_brain.provider_policy.dispatch` admitted every call. Two approvals, created in-process for the run only:
-provider `anthropic` (fallback=false) and `openai` (fallback=true); account `oracle-eval`; endpoint the exact messages/chat-completions URL; `data_classes = {"synthetic"}`; purpose `s02-model-evaluation`; `terms_hash` = SHA-256 of the provider commercial-terms URL; expiry two hours after start (`2026-09-28T16:03:35.853487Z`); register_ref this file. Unit tests prove a non-synthetic data class or unapproved provider is refused.
+provider `anthropic` (fallback=false) and `openai` (fallback=true); account `oracle-eval`; endpoint the exact messages/chat-completions URL; `data_classes = {"synthetic"}`; purpose `s02-model-evaluation`; `terms_hash` = SHA-256 of the provider commercial-terms URL string (evaluation run; superseded — see below); expiry two hours after start (`2026-09-28T16:03:35.853487Z`); register_ref this file. Unit tests prove refusal for a non-synthetic data class, an unapproved provider, an expired approval, a terms-hash mismatch and an endpoint mismatch.
+
+Terms identity (harness as committed): the harness now fetches each terms page at run start, hashes the retrieved body, and records the URL separately in the report. This hash is an identity for this synthetic run only, not a legal review. Hashes retrieved 10:49 AM EDT 2026-09-28:
+- Anthropic `https://www.anthropic.com/legal/commercial-terms` → `67a7888aadd67c717f2d09d3958cdfd462d71b712b4fde5ba1301fe636977038`
+- OpenAI `https://platform.openai.com/docs/guides/your-data` → `fe8fbfae935c5cc881682b8bd929bb915c05cda4134ce9538f38fbaa672843f2` (`openai.com/policies/services-agreement` returns HTTP 403 to non-browser clients, so the platform data-controls page is used).
+
+The recorded evaluation used the earlier URL-string hash; model IDs did not change, so it was not rerun.
 
 ## Scoring (proxy for the S01 rubric)
 
@@ -69,7 +75,6 @@ Both models cited only supplied spans (100% resolution) on every case. Primary m
 
 ```
 op run --env-file <env with ANTHROPIC_API_KEY/OPENAI_API_KEY op:// refs> -- \
-  python scripts/oracle2/evaluate_models.py --primary anthropic:claude-sonnet-5 \
-  --fallback openai:gpt-5.5-2026-04-23 --out results.json
+  services/oracle-brain/.venv/bin/python scripts/oracle2/evaluate_models.py --out results.json
 ```
-Offline tests: `python -m unittest scripts/oracle2/test_evaluate_models.py` (with `services/oracle-brain` on PYTHONPATH).
+Offline tests (no network): `services/oracle-brain/.venv/bin/python -m unittest discover -s scripts/oracle2 -p 'test_evaluate_models.py'`. CI runs this after the locked dependency install; under system `python3` the module skips cleanly.

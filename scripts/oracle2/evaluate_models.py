@@ -36,9 +36,17 @@ ENDPOINTS = {
     "anthropic": "https://api.anthropic.com/v1/messages",
     "openai": "https://api.openai.com/v1/chat/completions",
 }
-TERMS = {  # identifies the published terms page each approval was recorded against
+# Pinned from the 2026-09-28 listing responses (docs/verification/oracle2/S02-model-listings.json).
+PRIMARY_MODEL = "anthropic:claude-sonnet-5"
+FALLBACK_MODEL = "openai:gpt-5.5-2026-04-23"
+LISTINGS = ROOT / "docs" / "verification" / "oracle2" / "S02-model-listings.json"
+# Terms/data-use page whose retrieved body is hashed into the approval. The hash is an
+# identity for this synthetic run only; it is not a legal review of the terms.
+TERMS_URLS = {
     "anthropic": "https://www.anthropic.com/legal/commercial-terms",
-    "openai": "https://openai.com/policies/services-agreement",
+    # openai.com/policies/* answers 403 to non-browser clients; the platform data-controls
+    # page is the retrievable provider statement on API data use.
+    "openai": "https://platform.openai.com/docs/guides/your-data",
 }
 SYSTEM = (
     "You answer questions about an invented company using ONLY the numbered source spans given. "
@@ -51,8 +59,10 @@ SYSTEM = (
 STOP = {"which", "their", "there", "about", "after", "before", "should", "would", "under", "where"}
 
 
-def terms_hash(provider: str) -> str:
-    return hashlib.sha256(TERMS[provider].encode()).hexdigest()
+def fetch_terms_hash(url: str) -> str:
+    req = urllib.request.Request(url, headers={"user-agent": "Mozilla/5.0 oracle2-s02-eval"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return hashlib.sha256(resp.read()).hexdigest()
 
 
 def load_questions(path: Path = CORPUS) -> list[dict]:
@@ -65,10 +75,11 @@ def build_prompt(case: dict) -> str:
     return f"Scope: {case['time_scope']}\nSources:\n{spans}\n\nQuestion: {case['question']}"
 
 
-def approvals_for(pairs: list[tuple[str, bool]], hours: float = 2) -> list[ProcessingApproval]:
+def approvals_for(pairs: list[tuple[str, bool]], hashes: dict[str, str],
+                  hours: float = 2) -> list[ProcessingApproval]:
     exp = datetime.now(timezone.utc) + timedelta(hours=hours)
     return [ProcessingApproval(provider=p, account="oracle-eval", endpoint=ENDPOINTS[p],
-                               data_classes=DATA_CLASSES, purpose=PURPOSE, terms_hash=terms_hash(p),
+                               data_classes=DATA_CLASSES, purpose=PURPOSE, terms_hash=hashes[p],
                                expires_at=exp, register_ref="docs/verification/oracle2/S02-models.md",
                                fallback=fb) for p, fb in pairs]
 
@@ -128,11 +139,11 @@ def score(case: dict, out: dict | None) -> dict:
 
 
 def run(provider: str, model: str, fallback: bool, cases: list[dict],
-        approvals: list[ProcessingApproval], sender=call) -> list[dict]:
+        approvals: list[ProcessingApproval], hashes: dict[str, str], sender=call) -> list[dict]:
     results = []
     for case in cases:
         req = ProcessingRequest(provider=provider, account="oracle-eval", endpoint=ENDPOINTS[provider],
-                                data_classes=DATA_CLASSES, purpose=PURPOSE, terms_hash=terms_hash(provider),
+                                data_classes=DATA_CLASSES, purpose=PURPOSE, terms_hash=hashes[provider],
                                 fallback=fallback)
         t0 = time.monotonic()
         try:
@@ -150,19 +161,20 @@ def run(provider: str, model: str, fallback: bool, cases: list[dict],
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--primary", required=True, help="provider:model")
-    ap.add_argument("--fallback", required=True, help="provider:model")
+    ap.add_argument("--primary", default=PRIMARY_MODEL, help="provider:model")
+    ap.add_argument("--fallback", default=FALLBACK_MODEL, help="provider:model")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--ids", default="", help="comma-separated case IDs to rerun (default all)")
     a = ap.parse_args()
     (pp, pm), (fp, fm) = a.primary.split(":", 1), a.fallback.split(":", 1)
-    approvals = approvals_for([(pp, False), (fp, True)])
+    hashes = {p: fetch_terms_hash(TERMS_URLS[p]) for p in {pp, fp}}
+    approvals = approvals_for([(pp, False), (fp, True)], hashes)
     cases = load_questions()
     if a.ids:
         cases = [c for c in cases if c["id"] in set(a.ids.split(","))]
     report = {"run_at": datetime.now(timezone.utc).isoformat(), "data_classes": sorted(DATA_CLASSES),
-              "purpose": PURPOSE, "approvals": [json.loads(x.model_dump_json()) for x in approvals],
-              "primary": run(pp, pm, False, cases, approvals), "fallback": run(fp, fm, True, cases, approvals)}
+              "purpose": PURPOSE, "terms_urls": {p: TERMS_URLS[p] for p in hashes}, "approvals": [json.loads(x.model_dump_json()) for x in approvals],
+              "primary": run(pp, pm, False, cases, approvals, hashes), "fallback": run(fp, fm, True, cases, approvals, hashes)}
     a.out.write_text(json.dumps(report, indent=1))
     for k in ("primary", "fallback"):
         r = report[k]

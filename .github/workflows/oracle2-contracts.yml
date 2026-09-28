@@ -28,7 +28,7 @@ jobs:
       - name: Validate S01 corpus and regression checks
         run: |
           python3 scripts/oracle2/validate_manifest.py --synthetic
-          python3 -m unittest discover -s scripts/oracle2 -p test_validate_manifest.py
+          python3 -m unittest discover -s scripts/oracle2 -p 'test_*.py'
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -52,6 +52,8 @@ jobs:
           version: '0.12.19'
       - name: Install locked CPU dependency bundle
         run: uv sync --project services/oracle-brain --frozen --extra test
+      - name: S02 model evaluation harness offline tests
+        run: services/oracle-brain/.venv/bin/python -m unittest discover -s scripts/oracle2 -p 'test_evaluate_models.py'
       - name: Verify exported contracts
         run: |
           services/oracle-brain/.venv/bin/python scripts/oracle2/export_contracts.py
