@@ -41,6 +41,12 @@ def test_concurrent_first_revisions_never_regress(admin_url):
     assert results.count("accepted") >= 1
     assert outbox_revisions[-1] == accepted
     assert outbox_revisions in ([2], [1, 2])
+    # This test owns its synthetic events; leave the global lease queue clean.
+    with psycopg.connect(admin_url) as connection:
+        connection.execute(
+            "UPDATE oracle2.outbox SET delivered_at=now() WHERE workspace_id=%s AND assertion_id=%s",
+            (workspace, assertion),
+        )
 
 
 def _write_then_wait(url, workspace, assertion, payload, ready):
