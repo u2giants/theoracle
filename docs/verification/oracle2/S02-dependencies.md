@@ -1,6 +1,6 @@
 # S02 dependency and runtime qualification
 
-Status: synthetic offline qualification passed at commit `37e211c`; preview
+Status: synthetic offline qualification passed at commit `3b94d22`; preview
 qualification is still open. This is not a business-quality claim.
 
 ## Reproducible bundle
@@ -40,8 +40,8 @@ after the failing fixture, without forking Graphiti.
 
 ## Measured offline result
 
-[CI run 36374641163](https://github.com/u2giants/theoracle/actions/runs/36374641163)
-passed 19 Python contract/store checks on isolated Postgres, two authenticated
+[CI run 36377021295](https://github.com/u2giants/theoracle/actions/runs/36377021295)
+passed 20 Python contract/store checks on isolated Postgres, two authenticated
 FalkorDB instances, and LocalStack S3. The same workflow validated S01 from
 full Git history. Its sanitized artifact records the locked hash and outcomes.
 The worker kill/replay test compared the same event ID and revision after a
@@ -50,18 +50,20 @@ candidate correction left confirmed state intact; the extractor DB role could
 not write accepted rows, read checkpoint tables, or authenticate to the
 confirmed graph. The projector also could not read checkpoint tables; a
 third scoped checkpoint role serves the trusted conversation gateway.
+The projector leases only allowlisted workspaces, and receipts bind and store
+the projector identity and applied time; forged timestamps are denied.
 
 On a GitHub Ubuntu 24.04 runner (4 CPUs, 16 GB RAM), the pilot loaded 10,000
 nodes and 100,000 relations across three partitions with 20 concurrent
-readers alongside a serial writer: p50 0.0992s, p95 0.3143s, zero forbidden
+readers alongside a serial writer: p50 0.0578s, p95 0.2279s, zero forbidden
 records. The separate 10x stress loaded 100,000 nodes and 1,000,000 relations:
-p50 1.7338s, p95 3.3541s, zero forbidden records. The 2-second target applies
+p50 1.4765s, p95 2.1672s, zero forbidden records. The 2-second target applies
 to pilot size. Both scales passed duplicate, historical correction, high-degree
 node, source withdrawal, and partition-isolation probes. The confirmed
-container's cgroup memory peak was 255,475,712 bytes against its 2 GiB limit.
+container's cgroup memory peak was 253,280,256 bytes against its 2 GiB limit.
 The cgroup peak includes page cache and is an upper bound on resident memory.
-Same-volume restart matched all counts in 9.362s; snapshot restore in a fresh
-instance matched all counts in 3.618s.
+Same-volume restart matched all counts in 7.203s; snapshot restore in a fresh
+instance matched all counts in 3.161s.
 The resource script, report JSON and Docker stats are in the CI artifact.
 
 ## Preview decision required
