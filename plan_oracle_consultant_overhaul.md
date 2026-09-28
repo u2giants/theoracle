@@ -2,16 +2,16 @@
 
 Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through [parent issue #24](https://github.com/u2giants/theoracle/issues/24). Research and source inspection baseline: `b3f2377f9b1fd13e1b9abf07cc8f342c180f076e` on `u2giants/theoracle/main`.
 
-**Planning complete; implementation has not started.** This document specifies the replacement. It does not attest that new capabilities work or authorize production changes. The current application continues to operate under its existing controls until an accepted replacement exists.
+**Planning complete; implementation is in progress.** S01 is accepted offline and S02 has an unmerged, partially qualified implementation; see STATUS below. This document specifies the replacement but does not attest that the whole replacement works or authorize production changes. The current application continues to operate under its existing controls until an accepted replacement exists.
 
 ## STATUS — read this first
 
-S01 has an offline record; later stages remain open as of 2026-09-27 EDT. An issue is an owner/discussion pointer, not acceptance evidence. A completed row must link a reproducible result artifact and deployed revision when relevant.
+S01 has an offline record. S02 has passed its synthetic offline gate but remains open as of 2026-09-28 EDT; later stages remain open. An issue is an owner/discussion pointer, not acceptance evidence. A completed row must link a reproducible result artifact and deployed revision when relevant.
 
 | Step | Outcome | Status | Dependency | Evidence / owner |
 |---|---|---|---|---|
 | S01 | Acceptance corpus and baseline availability | ✅ offline accepted; live comparison unavailable | None | [S01 record](docs/verification/oracle2/S01-baseline.md), [synthetic manifest](evals/oracle2/synthetic-cases.jsonl); [child #25](https://github.com/u2giants/theoracle/issues/25). No real-quality claim. |
-| S02 | Isolated foundation and database/library qualification | ⬜ open | S01 | Not built; [child #26](https://github.com/u2giants/theoracle/issues/26) |
+| S02 | Isolated foundation and database/library qualification | ⬜ open; synthetic offline gate passed; preview gate pending | S01 | Draft [PR #45](https://github.com/u2giants/theoracle/pull/45) at `8dcccea` and [offline CI run 36377293599](https://github.com/u2giants/theoracle/actions/runs/36377293599); [child #26](https://github.com/u2giants/theoracle/issues/26). Model evaluation, technical license verdict and isolated preview proof remain open; no business-quality or preview acceptance claim. |
 | S03 | One usable document-to-consultation journey | ⬜ open | S02 | Not built; [child #27](https://github.com/u2giants/theoracle/issues/27) |
 | S04 | Reliable document learning, revisions and withdrawal | ⬜ open | S03 | Not built; [child #28](https://github.com/u2giants/theoracle/issues/28) |
 | S05 | Confirmed temporal operating model and corrections | ⬜ open | S04 | Not built; [child #29](https://github.com/u2giants/theoracle/issues/29) |
