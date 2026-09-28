@@ -2,6 +2,7 @@
 """Dependency-free validation of the public Oracle 2 synthetic evaluation manifest."""
 import argparse
 from collections import Counter
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -84,6 +85,7 @@ def validate_record(record, line):
 
 def validate(records, schema):
     expected = schema['x-exact-synthetic-counts']
+    frozen = schema['x-frozen-acceptance-sha256']
     counts = Counter()
     ids = set()
     by_split = {split: {'source_ids': set(), 'processes': set(), 'questions': set(), 'spans': set()} for split in expected}
@@ -96,13 +98,26 @@ def validate(records, schema):
         split, category = record['split'], record['category']
         if category not in expected[split]:
             fail(f'line {line}: invalid category for {split}')
+        if split == 'acceptance':
+            actual = hashlib.sha256(json.dumps(record, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+            if actual != frozen.get(identifier):
+                fail(f'line {line}: held-out case differs from frozen {identifier}; version the set before changing it')
         counts[(split, category)] += 1
         partition = by_split[split]
+        if partition['source_ids'].intersection(record['source_ids']):
+            fail(f'line {line}: source reused within {split}')
+        normalized_spans = {span['text'].strip().casefold() for span in record['evidence_spans']}
+        if partition['spans'].intersection(normalized_spans):
+            fail(f'line {line}: evidence duplicated within {split}')
         partition['source_ids'].update(record['source_ids'])
-        partition['spans'].update(span['text'].strip().casefold() for span in record['evidence_spans'])
+        partition['spans'].update(normalized_spans)
         if record['kind'] == 'question':
-            partition['processes'].add(record['process'].strip().casefold())
-            partition['questions'].add(record['question'].strip().casefold())
+            process = record['process'].strip().casefold()
+            prompt = record['question'].strip().casefold()
+            if process in partition['processes'] or prompt in partition['questions']:
+                fail(f'line {line}: process or question duplicated within {split}')
+            partition['processes'].add(process)
+            partition['questions'].add(prompt)
     for split, categories in expected.items():
         for category, count in categories.items():
             if counts[(split, category)] != count:
@@ -114,6 +129,8 @@ def validate(records, schema):
                 fail(f'split leakage {left}/{right} in {key}: {sorted(overlap)[:2]}')
     if ids != {f'A{i:02d}' for i in range(1, 21)} | {f'D{i:02d}' for i in range(1, 11)} | {f'F{i:02d}' for i in range(1, 13)}:
         fail('missing or unexpected manifest IDs')
+    if set(frozen) != {f'A{i:02d}' for i in range(1, 21)}:
+        fail('frozen acceptance digest list is incomplete')
     return counts
 
 

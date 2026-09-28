@@ -41,6 +41,16 @@ class ManifestValidationTests(unittest.TestCase):
     def test_missing_case(self):
         self.assert_rejected(lambda rows: rows.pop(0))
 
+    def test_held_out_payload_replacement(self):
+        self.assert_rejected(lambda rows: rows[0].update(question='What changed?'))
+
+    def test_same_split_duplicate(self):
+        def mutate(rows):
+            copied = copy.deepcopy(rows[0])
+            copied['id'] = rows[1]['id']
+            rows[1] = copied
+        self.assert_rejected(mutate)
+
 
 if __name__ == '__main__':
     unittest.main()
