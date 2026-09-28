@@ -132,3 +132,11 @@ projector's failure path are unchanged; the outbox change is proven in CI.
 FalkorDB SSPL fit for internal use: see `S02-falkordb-license.md` (grok APPROVE);
 models: see `S02-models.md` (grok APPROVE). Both preview projects are deleted
 after #26 closes.
+
+## Known measurement caveat
+
+The pilot/stress read latencies above include per-row Python isolation checks
+inside the timed window (`scripts/oracle2/resource_experiment.py`), so they
+overstate store latency. The error is conservative for the <=2 s gate. S03
+should hoist the check out of the timed region before reusing these figures
+for capacity planning.

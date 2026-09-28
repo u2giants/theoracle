@@ -2,7 +2,12 @@
 
 ## 9. Container and service inventory
 
-There are no Docker containers in this repo. Runtime services are fully managed.
+Production runtime services are fully managed; no production container is
+self-hosted. Oracle 2 has local/CI-only containers in `dev/oracle2/compose.yaml`
+(digest-pinned Postgres, two FalkorDB instances — candidate and confirmed, SSPL
+server, internal use only per `docs/verification/oracle2/S02-falkordb-license.md`
+— and LocalStack), bound to `127.0.0.1` and started by the `Oracle 2 contracts`
+workflow; CI also starts one ephemeral restore container.
 
 | Container/service | Purpose | Managed by | App/project ID | Image/source |
 |---|---|---|---|---|
