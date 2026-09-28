@@ -1,4 +1,4 @@
-# Provider API keys for production — exact dispatch for review (revision 5)
+# Provider API keys for production — exact dispatch for review (revision 6)
 
 Status: awaiting review. Tracking issue: #49. Nothing here runs before a
 `VERDICT APPROVE` whose record names the reviewed commit of this file; the
@@ -7,8 +7,8 @@ operator executes only from that commit and re-requests review if it changes.
 Owner request (Albert, Claude chat, 2026-09-28), verbatim: "add the keys".
 Also verbatim: "All data can be shared with all Ai providers." and "let's put
 z.ai on hold for now and use the others." The smoke proof below sends only
-synthetic text. Revisions 1-4 were refused (qwen plan reviews); revision 5
-addresses every finding of the revision-4 review.
+synthetic text. Revisions 1-5 were refused (qwen plan reviews); revision 6
+addresses every finding of the revision-5 review.
 
 ## Scope
 
@@ -55,13 +55,25 @@ addresses every finding of the revision-4 review.
    `git log origin/main` to contain `5d5d262` (PR #48 adapters). In it run
    `corepack pnpm install --frozen-lockfile` (no secrets involved).
 2. In it: `test ! -e .env.local` and `test ! -e .env`; `unset META_MUSE_BASE_URL
-   STEPFUN_BASE_URL`; export both keys as above.
+   STEPFUN_BASE_URL META_MUSE_SMOKE_MODEL STEPFUN_SMOKE_MODEL`; export both keys
+   as above. The smoke therefore tests the catalog models `muse-spark-1.3` and
+   `step-5-preview` (the runner's defaults), recorded on #49.
 3. Run `corepack pnpm --filter @oracle/ai exec tsx src/__verify__/r-providers-smoke.ts
    meta_muse`, then the same with `stepfun`. **Pass only if** each output contains
    `✓ <provider>.generateText` and `✓ <provider>.generateObject`, contains no
    `SKIP`, and exits 0. Otherwise stop before any write.
 4. Run `corepack pnpm --filter @oracle/ai run verify:adapter-request-shapes` (asserts no
-   production default route uses a new provider); must pass.
+   code-level production route uses a new provider); must pass.
+5. **Runtime selection gate (read-only, production database).** Runtime model
+   choice comes from `settings` rows, so the operator runs one read-only query
+   (session `default_transaction_read_only=on`, credential from 1Password
+   "Supabase DB Direct URL - The Oracle (CURRENT PROD, theoracle,
+   eqccjfbyrywsqkxxpjvg)" via the shared IPv4 pooler) over every `settings` row
+   whose key matches `model_pool_%`, `default_%` or `%route%`, and prints only
+   key names plus any match of `meta_muse|stepfun|zai|mimo|muse-spark|step-5|glm-`.
+   Pass only with zero matches. At authoring (2026-09-28 ~3:40 PM EDT) this ran:
+   27 rows, zero matches — every slot's primary and fallbacks are existing
+   providers, so registering the new adapters cannot move any live traffic.
 
 ## Step 2 — record current state (execution time)
 
@@ -71,7 +83,8 @@ addresses every finding of the revision-4 review.
    `vercel inspect <it>` gives its source commit, which must equal freshly
    fetched `origin/main` HEAD, else stop. Record it as `PROD_BEFORE`.
 2. `vercel env ls production --scope popcre --project theoracle`: both names must
-   be absent (else stop and re-review). `vercel env add --help` must list
+   be absent (else stop and re-review). Save the full listing (names and
+   last-updated times, no values) as `ENV_BEFORE`. `vercel env add --help` must list
    `--sensitive`.
 3. Trigger: current prod deployment (must still be `20260909.1`, which predates
    the adapters; else stop); `GET
@@ -81,7 +94,11 @@ addresses every finding of the revision-4 review.
 ## Step 3 — writes
 
 1. Trigger: for each key, `POST .../envvars/prod` with body
-   `{"name": "<NAME>", "value": "<value>"}` (documented body, no extra fields),
+   `{"name": "<NAME>", "value": "<value>"}` (documented body, no extra fields;
+   deliberately not a Trigger secret, matching the existing `DEEPSEEK_API_KEY`,
+   so the readback below can prove the value landed intact — the tradeoff is that
+   management-PAT holders can read it, as they already can for every other
+   provider key in this project),
    PAT from item "Trigger.dev Personal Access Token (management)" in the
    environment, sent as described under Operator rules. Expect 200. Then
    `GET .../envvars/prod/<NAME>` (documented Retrieve endpoint) and compare the
@@ -92,7 +109,10 @@ addresses every finding of the revision-4 review.
    read back, so their correctness rests on step 1's smoke of the same
    environment variable plus this newline-free transport.
 3. Vercel: re-check `PROD_BEFORE` is still the newest production deployment
-   (stop if not), then `vercel redeploy PROD_BEFORE --target production`; wait
+   (stop if not) and that `vercel env ls production` equals `ENV_BEFORE` plus
+   exactly the two new names (stop and record on #49 if anything else changed,
+   since a rebuild reads all current env and build settings), then
+   `vercel redeploy PROD_BEFORE --target production`; wait
    for Ready; `vercel inspect` must show the same source commit. If the redeploy
    fails or errors, production keeps serving `PROD_BEFORE` (Vercel promotes only
    a Ready build); treat it as a failure under the rule below.
