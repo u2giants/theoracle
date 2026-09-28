@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from '@trigger.dev/sdk/v3';
-import { pythonExtension } from '@trigger.dev/python/extension';
+import { oracle2Python } from './oracle2-python-extension';
 
 const project = process.env.ORACLE2_PROJECT_TRIGGER_PROJECT_REF;
 const otherProject = process.env.ORACLE2_EXTRACT_TRIGGER_PROJECT_REF;
@@ -26,7 +26,7 @@ export default defineConfig({
     .filter((file) => file !== 'oracle2-project.ts')
     .map((file) => `**/${file}`),
   build: {
-    extensions: [pythonExtension({
+    extensions: [oracle2Python({
       scripts: ['./oracle2-python/oracle_brain/**/*.py'],
       requirementsFile: './oracle2-requirements.txt',
       devPythonBinaryPath: '../../services/oracle-brain/.venv/bin/python',

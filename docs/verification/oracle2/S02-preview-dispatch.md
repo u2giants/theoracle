@@ -5,8 +5,17 @@ Trigger preview projects for Oracle S02". This file is the exact action set a
 reviewer approves or refuses. Nothing here runs before a `VERDICT APPROVE` whose
 record names the reviewed commit; the operator deploys **only that commit**
 (checked with `git rev-parse HEAD`) and re-requests review if it changes.
-Revisions 1 and 2 were refused (qwen plan reviews, 2026-09-28); revision 3
-addresses every finding of both.
+Revisions 1 and 2 were refused; revision 3 was approved and executed at
+`d879495`, where the extractor build failed (Trigger's Python extension installs
+Debian Python 3.11; the bundle needs 3.12). **Revision 4** reuses the two
+already-created projects and their staging variables unchanged and changes only:
+the build layer (`apps/workers/oracle2-python-extension.ts` installs Python 3.12
+with digest-pinned uv 0.12.19 and hash-checked `uv pip install --require-hashes`,
+replacing `@trigger.dev/python`'s apt layer; `runScript` still reads
+`PYTHON_BIN_PATH`), and adds task `oracle2-synthetic-pause-resume` for the
+plan's pause/resume proof. Steps 0-2 are already done (approval record on #26;
+projects `proj_esmuwkezljvasptkbiwr`, `proj_jtaztxnmppzfchdsgvea`); step 0 is
+repeated for revision 4 before step 3.
 
 ## Preconditions
 
@@ -60,7 +69,9 @@ addresses every finding of both.
    `pnpm run deploy:oracle2-extract` and `pnpm run deploy:oracle2-project`
    (sync Python package, then `trigger.dev@4.5.15 deploy --config <file> --env staging`).
    The build image chooses the Python interpreter; this deploy is the measurement
-   of whether the pinned requirements install there. **Stop rule:** if pip fails
+   of whether the pinned requirements install there. Build-time network: pypi.org,
+   download.pytorch.org (CPU index), ghcr.io (uv image), and uv's Python
+   download mirror; nothing runtime. **Stop rule:** if pip fails
    (for example no matching `torch` wheel), the image exceeds 4 GB, or the build
    exceeds 30 minutes, stop, record the failure, and fall back per the plan
    (qualified container host, separately reviewed) — no retry with changed pins
@@ -77,6 +88,10 @@ addresses every finding of both.
      `cancel_run` with its `run_…` id. Expected: CANCELED, zero attempts. Then a
      third run (`…a3`, no delay) cancelled with `cancel_run` immediately after
      `trigger_task` returns, recording whichever state it reached.
+   - Pause/resume: `trigger_task` `oracle2-synthetic-pause-resume` on the
+     extractor project, same payload with `run_id` `…a4`. Expected: COMPLETED
+     with `before` and `after` both equal to the extractor output string, and the
+     trace shows a 10-second wait between two Python executions.
    - `trigger_task` `oracle2-synthetic-project` on the projector project, payload
      `{}`. Expected: FAILED after one attempt; stderr last line
      `{"status": "failed", "error": "<ExceptionClass>"}`; no URL or secret.
