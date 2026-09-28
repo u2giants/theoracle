@@ -126,6 +126,7 @@ def mark_delivered(database_url: str, *, event_id: UUID, receipt: ProjectionRece
 
 def make_receipt(event: ProjectionEvent, secret: bytes, projector_id: str) -> ProjectionReceipt:
     return ProjectionReceipt(
+        contract_version=1,
         workspace_id=event.workspace_id, assertion_id=event.assertion_id,
         revision=event.revision, operation=event.operation, projector_id=projector_id,
         applied_at=datetime.now(timezone.utc),

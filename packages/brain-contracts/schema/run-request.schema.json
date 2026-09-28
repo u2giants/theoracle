@@ -8,12 +8,10 @@
     },
     "contract_version": {
       "const": 1,
-      "default": 1,
       "title": "Contract Version",
       "type": "integer"
     },
     "mode": {
-      "default": "synthetic",
       "enum": [
         "synthetic",
         "approved_real"
@@ -43,11 +41,13 @@
     }
   },
   "required": [
+    "contract_version",
     "run_id",
     "workspace_id",
     "actor_id",
     "source_id",
-    "source_revision"
+    "source_revision",
+    "mode"
   ],
   "title": "RunRequest",
   "type": "object"

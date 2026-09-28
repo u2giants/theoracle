@@ -24,7 +24,7 @@ services:
   falkor-candidate:
     image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
     environment:
-      FALKORDB_ARGS: "--requirepass oracle2_candidate_local_only --appendonly yes"
+      FALKORDB_ARGS: "--dir /data --requirepass oracle2_candidate_local_only --appendonly yes"
     ports:
       - "127.0.0.1:56379:6379"
     volumes:
@@ -39,7 +39,7 @@ services:
   falkor-confirmed:
     image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
     environment:
-      FALKORDB_ARGS: "--requirepass oracle2_confirmed_local_only --appendonly yes"
+      FALKORDB_ARGS: "--dir /data --requirepass oracle2_confirmed_local_only --appendonly yes"
     ports:
       - "127.0.0.1:56380:6379"
     volumes:

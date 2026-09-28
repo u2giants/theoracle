@@ -13,7 +13,6 @@
     },
     "contract_version": {
       "const": 1,
-      "default": 1,
       "title": "Contract Version",
       "type": "integer"
     },
@@ -47,6 +46,7 @@
     }
   },
   "required": [
+    "contract_version",
     "workspace_id",
     "assertion_id",
     "revision",

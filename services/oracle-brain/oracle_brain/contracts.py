@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
 
 class SourceSpan(StrictModel):
@@ -37,7 +36,7 @@ class CandidateAssertion(StrictModel):
 
 
 class CandidateBundle(StrictModel):
-    contract_version: Literal[1] = 1
+    contract_version: Literal[1]
     workspace_id: UUID
     run_id: UUID
     source_id: UUID
@@ -55,21 +54,21 @@ class CandidateBundle(StrictModel):
 
 
 class ProjectionReceipt(StrictModel):
-    contract_version: Literal[1] = 1
+    contract_version: Literal[1]
     workspace_id: UUID
     assertion_id: UUID
     revision: int = Field(ge=1)
     operation: Literal["project", "withdraw"]
     projector_id: str = Field(min_length=1)
-    applied_at: datetime
+    applied_at: AwareDatetime
     signature: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class RunRequest(StrictModel):
-    contract_version: Literal[1] = 1
+    contract_version: Literal[1]
     run_id: UUID
     workspace_id: UUID
     actor_id: UUID
     source_id: UUID
     source_revision: int = Field(ge=1)
-    mode: Literal["synthetic", "approved_real"] = "synthetic"
+    mode: Literal["synthetic", "approved_real"]

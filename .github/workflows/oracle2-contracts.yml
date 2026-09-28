@@ -29,6 +29,19 @@ jobs:
         run: |
           python3 scripts/oracle2/validate_manifest.py --synthetic
           python3 -m unittest discover -s scripts/oracle2 -p test_validate_manifest.py
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.5.0
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install TypeScript contracts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify TypeScript contract fixtures
+        run: pnpm --filter @oracle/brain-contracts verify:parity
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
@@ -47,14 +60,29 @@ jobs:
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 10000 --relations 100000 --output out/oracle2/resource-pilot.json
       - name: Ten-times graph stress experiment
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 100000 --relations 1000000 --output out/oracle2/resource-stress.json
+      - name: Restart confirmed graph and compare counts
+        run: |
+          started=$(date +%s)
+          docker compose -f dev/oracle2/compose.yaml restart falkor-confirmed
+          for attempt in {1..30}; do
+            if docker compose -f dev/oracle2/compose.yaml exec -T falkor-confirmed redis-cli -a oracle2_confirmed_local_only ping | grep -q PONG; then break; fi
+            sleep 2
+          done
+          ORACLE2_TEST_RESTORED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:56380 \
+            services/oracle-brain/.venv/bin/python scripts/oracle2/restore_experiment.py \
+              --pilot out/oracle2/resource-pilot.json \
+              --stress out/oracle2/resource-stress.json \
+              --kind restart --started-epoch "$started" \
+              --output out/oracle2/restart-result.json
       - name: Restore graph snapshots in a fresh instance
         run: |
+          started=$(date +%s)
           confirmed=$(docker compose -f dev/oracle2/compose.yaml ps -q falkor-confirmed)
           docker exec "$confirmed" redis-cli -a oracle2_confirmed_local_only SAVE
           mkdir -p /tmp/oracle2-s02-restore
           docker cp "$confirmed:/data/dump.rdb" /tmp/oracle2-s02-restore/dump.rdb
           docker run -d --name oracle2-s02-restored \
-            -e FALKORDB_ARGS='--requirepass oracle2_confirmed_local_only --appendonly no' \
+            -e FALKORDB_ARGS='--dir /data --requirepass oracle2_confirmed_local_only --appendonly no' \
             -p 127.0.0.1:56381:6379 \
             -v /tmp/oracle2-s02-restore:/data \
             falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
@@ -66,6 +94,7 @@ jobs:
             services/oracle-brain/.venv/bin/python scripts/oracle2/restore_experiment.py \
               --pilot out/oracle2/resource-pilot.json \
               --stress out/oracle2/resource-stress.json \
+              --kind new-instance --started-epoch "$started" \
               --output out/oracle2/restore-result.json
       - name: Record store resource usage
         if: always()

@@ -21,12 +21,13 @@ def main() -> int:
     parser.add_argument("--pilot", type=Path, required=True)
     parser.add_argument("--stress", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--kind", choices=["restart", "new-instance"], required=True)
+    parser.add_argument("--started-epoch", type=float, required=True)
     args = parser.parse_args()
     url = os.environ.get("ORACLE2_TEST_RESTORED_URL", "")
     parsed = urlparse(url)
     if parsed.hostname not in {"127.0.0.1", "localhost"}:
         parser.error("restore check requires a new loopback instance")
-    started = time.monotonic()
     client = FalkorDB(host=parsed.hostname, port=parsed.port or 6379,
                       password=parsed.password)
     results = []
@@ -42,7 +43,7 @@ def main() -> int:
                         "relation_counts_match": actual_relations == expected["relation_counts"],
                         "node_counts": actual_nodes,
                         "relation_counts": actual_relations})
-    result = {"new_instance": True, "restore_seconds": round(time.monotonic() - started, 3),
+    result = {"kind": args.kind, "restore_seconds": round(time.time() - args.started_epoch, 3),
               "scales": results, "passed": all(r["node_counts_match"] and r["relation_counts_match"]
                                               for r in results)}
     args.output.write_text(json.dumps(result, indent=2) + "\n")

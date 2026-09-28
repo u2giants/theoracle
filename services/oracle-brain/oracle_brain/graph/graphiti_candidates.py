@@ -39,6 +39,6 @@ def candidate_bundle(*, workspace_id: UUID, run_id: UUID, source_id: UUID,
             span=SourceSpan(source_id=source_id, source_revision=source_revision,
                             start=relation.start, end=relation.end, quote=relation.quote),
         ))
-    return CandidateBundle(workspace_id=workspace_id, run_id=run_id,
+    return CandidateBundle(contract_version=1, workspace_id=workspace_id, run_id=run_id,
                            source_id=source_id, source_revision=source_revision,
                            assertions=assertions)
