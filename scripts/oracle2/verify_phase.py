@@ -19,6 +19,7 @@ S02_TESTS = [
     "test_contract_parity.py", "test_graph_adapter.py", "test_outbox.py",
     "test_checkpoint_scope.py", "test_dependency_bundle.py",
     "test_runtime_identity.py", "test_provider_policy.py", "test_authority.py",
+    "test_preview_settings.py",
 ]
 
 

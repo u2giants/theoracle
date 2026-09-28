@@ -21,3 +21,22 @@ for (const [config, task] of pairs) {
   if (!existsSync(join(workers, script))) throw new Error(`${task}: ${script} not found after sync`);
   console.log(`ok ${task} -> ${script}`);
 }
+
+// Identity guards must match dev/oracle2/runtime-identities.yaml forbidden lists.
+const forbidden = {
+  'src/trigger/oracle2-run.ts': ['ORACLE2_CONFIRMED_GRAPH_URL', 'ORACLE2_PROJECTION_SIGNING_KEY',
+    'ORACLE2_CHECKPOINT_DATABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
+  'src/trigger/oracle2-project.ts': ['ORACLE2_CANDIDATE_GRAPH_URL',
+    'ORACLE2_CHECKPOINT_DATABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
+};
+for (const [task, names] of Object.entries(forbidden)) {
+  const guard = readFileSync(join(workers, task), 'utf8').split('forbidden credentials')[0];
+  for (const name of names) {
+    if (!guard.includes(`process.env.${name}`)) throw new Error(`${task}: guard misses ${name}`);
+  }
+}
+const legacy = readFileSync(join(workers, 'trigger.config.ts'), 'utf8');
+if (!legacy.includes("'**/oracle2-run.ts'") || !legacy.includes("'**/oracle2-project.ts'")) {
+  throw new Error('legacy trigger.config.ts must exclude Oracle 2 tasks');
+}
+console.log('ok identity guards and legacy exclusion');

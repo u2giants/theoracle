@@ -74,8 +74,11 @@ and one for the projector, both synthetic-only and separate from legacy
 candidate Postgres credentials; the projector receives only confirmed graph,
 projector Postgres and projection-signing credentials. Neither receives the
 legacy Supabase service-role key. The technical reviewer must approve exact
-project creation, deployment boundaries, and FalkorDB SSPL deployment fit
-before provisioning. The Python extension cold-start, clean exit and cancel
+project creation and deployment boundaries before provisioning. These preview
+projects run no FalkorDB server (only the MIT client, pointed at an unreachable
+host), so the FalkorDB SSPL deployment-fit verdict is required before any
+FalkorDB server is hosted (S03), not before this preview; the qwen plan review
+of 2026-09-28 gave an advisory internal-use opinion recorded in #26. The Python extension cold-start, clean exit and cancel
 behavior must then be measured on those preview hosts. Trigger's extension
 injects project environment variables into scripts, so the shared legacy
 project cannot host these roles safely. No preview resource was provisioned.
