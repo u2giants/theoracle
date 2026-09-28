@@ -35,7 +35,7 @@ export const projectionReceipt = z.strictObject({
   revision: z.number().int().positive(),
   operation: z.enum(['project', 'withdraw']),
   projector_id: z.string().min(1),
-  applied_at: z.iso.datetime(),
+  applied_at: z.iso.datetime({ offset: true }),
   signature: z.string().regex(/^[0-9a-f]{64}$/),
 });
 
