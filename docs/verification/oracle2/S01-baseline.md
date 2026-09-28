@@ -5,8 +5,7 @@ Date: 2026-09-27 EDT. Source revision: `7c47319ecf61b52212094cf3232044fdb19c6836
 | Evidence | Result |
 |---|---|
 | Public synthetic manifest | 20 held-out acceptance, 10 separate development, 12 source/adversarial fixtures; validator passed |
-| Missing-evidence rejection | Passed mutation check |
-| Split-leakage rejection | Passed mutation check |
+| Missing evidence, uncovered source, relabeled held-out case, split leakage, missing case | Six regression checks passed |
 | Current Oracle live quality | Unavailable; authorized flow and private reviewed cases not established |
 | Direct long-context live quality | Unavailable for the same reason |
 | Real answer-key process-owner review | Unavailable; owner assignment and private manifest are pending before real-data comparison |

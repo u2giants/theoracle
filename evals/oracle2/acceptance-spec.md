@@ -2,7 +2,7 @@
 
 This public corpus is invented. It does not describe POP Creations policy. Freeze the 20 `A` questions and their answer keys before implementation comparisons. The ten `D` questions use different processes and source IDs and are available for development. The twelve `F` records are source parsing and adversarial fixtures, never business questions.
 
-Run `python3 scripts/oracle2/validate_manifest.py --synthetic`. The validator enforces exact split/category counts, nonempty source spans and answer fields, unique IDs, and disjoint processes, questions, spans and source IDs. An evidence span is the invented source text at its locator; a valid citation must point to that span and support the asserted clause. `abstain` means decline the requested policy, approval or decision while stating any narrower facts the source actually establishes.
+Run `python3 scripts/oracle2/validate_manifest.py --synthetic` and `python3 -m unittest discover -s scripts/oracle2 -p 'test_*.py'`. The validator enforces exact split/category counts, frozen ID prefixes, a span for every declared source, nonempty answer fields, unique IDs, and disjoint processes, questions, spans and source IDs. An evidence span is the invented source text at its locator; a valid citation must point to that span and support the asserted clause. `abstain` means decline the requested policy, approval or decision while stating any narrower facts the source actually establishes.
 
 ## Review procedure
 

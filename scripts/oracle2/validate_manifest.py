@@ -40,6 +40,8 @@ def validate_record(record, line):
         fail(f'line {line}: invalid ID')
     if record['split'] not in (('acceptance', 'development') if question else ('fixture',)):
         fail(f'line {line}: invalid split')
+    if question and record['id'][0] != {'acceptance': 'A', 'development': 'D'}[record['split']]:
+        fail(f'line {line}: ID prefix does not match frozen split')
     if not isinstance(record['source_ids'], list) or not record['source_ids']:
         fail(f'line {line}: source IDs required')
     for source in record['source_ids']:
@@ -56,6 +58,9 @@ def validate_record(record, line):
             nonempty(span[field], f'line {line} span {field}')
         if span['source_id'] not in record['source_ids']:
             fail(f'line {line}: span source absent from source IDs')
+    covered_sources = {span['source_id'] for span in spans}
+    if covered_sources != set(record['source_ids']):
+        fail(f'line {line}: declared source without evidence span')
     if question:
         for field in ('process', 'question', 'time_scope'):
             nonempty(record[field], f'line {line} {field}')

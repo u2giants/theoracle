@@ -32,6 +32,11 @@
       "allOf": [
         { "$ref": "#/$defs/base" },
         {
+          "if": { "properties": { "split": { "const": "acceptance" } }, "required": ["split"] },
+          "then": { "properties": { "id": { "pattern": "^A[0-9]{2}$" } } },
+          "else": { "properties": { "id": { "pattern": "^D[0-9]{2}$" } } }
+        },
+        {
           "type": "object", "additionalProperties": false,
           "required": ["kind", "id", "split", "category", "process", "question", "source_ids", "evidence_spans", "required_facts", "forbidden_inferences", "time_scope", "expectation", "reviewer_rubric"],
           "properties": {
