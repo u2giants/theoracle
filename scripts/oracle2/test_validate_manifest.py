@@ -66,7 +66,7 @@ class ManifestValidationTests(unittest.TestCase):
             validate(rows, schema, self.records, self.schema['x-manifest-version'])
 
     def test_git_baseline_discovers_first_committed_manifest(self):
-        old_rows, old_version = git_baseline()
+        old_rows, old_version = git_baseline(1)
         self.assertEqual(old_version, 1)
         self.assertEqual(old_rows[0]['id'], 'A01')
 
@@ -75,15 +75,29 @@ class ManifestValidationTests(unittest.TestCase):
         from subprocess import CompletedProcess
         with patch('validate_manifest.subprocess.run', return_value=CompletedProcess([], 1, '', 'missing')):
             with self.assertRaisesRegex(ValueError, 'full Git history required'):
-                git_baseline()
+                git_baseline(1)
 
     def test_no_manifest_addition_fails_closed(self):
         from unittest.mock import patch
         from subprocess import CompletedProcess
         results = [CompletedProcess([], 0, 'false\n', ''), CompletedProcess([], 0, '', '')]
         with patch('validate_manifest.subprocess.run', side_effect=results):
-            with self.assertRaisesRegex(ValueError, 'first committed acceptance manifest unavailable'):
-                git_baseline()
+            with self.assertRaisesRegex(ValueError, 'committed acceptance schema history unavailable'):
+                git_baseline(1)
+
+    def test_second_version_cannot_change_without_third_version(self):
+        import hashlib
+        version_two = copy.deepcopy(self.records)
+        version_two[0]['question'] = 'Version two question'
+        changed = copy.deepcopy(version_two)
+        changed[0]['question'] = 'Another change under version two'
+        schema = copy.deepcopy(self.schema)
+        schema['x-manifest-version'] = 2
+        schema['x-frozen-acceptance-sha256']['A01'] = hashlib.sha256(
+            json.dumps(changed[0], sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
+        ).hexdigest()
+        with self.assertRaisesRegex(ValueError, 'version bump'):
+            validate(changed, schema, version_two, 2)
 
 
 if __name__ == '__main__':

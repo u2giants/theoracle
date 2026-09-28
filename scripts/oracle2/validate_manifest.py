@@ -143,26 +143,33 @@ def validate(records, schema, prior_records=None, prior_version=None):
     return counts
 
 
-def git_baseline():
-    """Read the first committed manifest; never silently disable the freeze check."""
+def git_baseline(version):
+    """Read the first committed manifest at this version; fail closed on missing history."""
     shallow = subprocess.run(['git', 'rev-parse', '--is-shallow-repository'], cwd=ROOT, capture_output=True, text=True)
     if shallow.returncode != 0 or shallow.stdout.strip() != 'false':
         fail('full Git history required for acceptance baseline validation')
     ref = subprocess.run(
-        ['git', 'log', '--diff-filter=A', '--format=%H', '--reverse', 'HEAD', '--', 'evals/oracle2/synthetic-cases.jsonl'],
+        ['git', 'log', '--format=%H', '--reverse', 'HEAD', '--', 'evals/oracle2/manifest.schema.json'],
         cwd=ROOT, capture_output=True, text=True,
     )
     if ref.returncode != 0 or not ref.stdout.strip():
-        fail('first committed acceptance manifest unavailable')
-    commit = ref.stdout.splitlines()[0]
-    def read(path):
-        result = subprocess.run(['git', 'show', f'{commit}:{path}'], cwd=ROOT, capture_output=True, text=True)
-        if result.returncode != 0:
-            fail(f'Git acceptance baseline missing {path}')
-        return result.stdout
-    manifest = read('evals/oracle2/synthetic-cases.jsonl')
-    old_schema = read('evals/oracle2/manifest.schema.json')
-    return [json.loads(line) for line in manifest.splitlines() if line.strip()], json.loads(old_schema).get('x-manifest-version', 1)
+        fail('committed acceptance schema history unavailable')
+    for commit in ref.stdout.splitlines():
+        old_schema = subprocess.run(
+            ['git', 'show', f'{commit}:evals/oracle2/manifest.schema.json'], cwd=ROOT, capture_output=True, text=True,
+        )
+        if old_schema.returncode != 0:
+            fail('Git acceptance schema baseline unreadable')
+        committed_version = json.loads(old_schema.stdout).get('x-manifest-version', 1)
+        if committed_version != version:
+            continue
+        manifest = subprocess.run(
+            ['git', 'show', f'{commit}:evals/oracle2/synthetic-cases.jsonl'], cwd=ROOT, capture_output=True, text=True,
+        )
+        if manifest.returncode != 0:
+            fail('Git acceptance manifest baseline unreadable')
+        return [json.loads(line) for line in manifest.stdout.splitlines() if line.strip()], committed_version
+    fail(f'first committed acceptance manifest for version {version} unavailable')
 
 
 def main():
@@ -173,7 +180,7 @@ def main():
     try:
         schema = json.loads(SCHEMA.read_text())
         records = [json.loads(line) for line in args.manifest.read_text().splitlines() if line.strip()]
-        prior_records, prior_version = git_baseline()
+        prior_records, prior_version = git_baseline(schema['x-manifest-version'])
         counts = validate(records, schema, prior_records, prior_version)
     except (ValueError, KeyError, OSError, json.JSONDecodeError) as exc:
         print(f'FAIL: {exc}', file=sys.stderr)
