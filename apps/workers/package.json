@@ -26,7 +26,9 @@
     "verify:taxonomy-reclassification-db": "tsx src/__verify__/taxonomy-reclassification-db.ts",
     "audit:taxonomy-reclassification-production": "tsx src/__verify__/taxonomy-reclassification-production-audit.ts",
     "verify:conversation-windowing": "tsx src/__verify__/conversation-windowing.ts",
-    "verify:lull-event-dispatch": "tsx src/__verify__/lull-event-dispatch.ts"
+    "verify:lull-event-dispatch": "tsx src/__verify__/lull-event-dispatch.ts",
+    "deploy:oracle2-extract": "sh ../../scripts/oracle2/sync_worker_python.sh && npx trigger.dev@4.5.15 deploy --config trigger.oracle2-extract.config.ts --env staging",
+    "deploy:oracle2-project": "sh ../../scripts/oracle2/sync_worker_python.sh && npx trigger.dev@4.5.15 deploy --config trigger.oracle2-project.config.ts --env staging"
   },
   "dependencies": {
     "@oracle/ai": "workspace:*",

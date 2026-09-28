@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -34,5 +35,15 @@ def run_once() -> bool:
     return True
 
 
+def main() -> int:
+    try:
+        delivered = run_once()
+    except Exception as exc:  # report the class only; messages may carry URLs
+        print(json.dumps({"status": "failed", "error": type(exc).__name__}), file=sys.stderr)
+        return 1
+    print(json.dumps({"status": "delivered" if delivered else "idle"}))
+    return 0
+
+
 if __name__ == "__main__":
-    run_once()
+    raise SystemExit(main())

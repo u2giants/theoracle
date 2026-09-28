@@ -5,5 +5,5 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["src/**/*", "trigger.config.ts"]
+  "include": ["src/**/*", "trigger.config.ts", "trigger.oracle2-*.config.ts"]
 }

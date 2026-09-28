@@ -51,6 +51,10 @@ class Settings:
                     raise ValueError("local/test store points outside isolated network")
             if mode != "synthetic":
                 raise ValueError("local/test mode is synthetic only")
+        else:
+            for value in (database_url, candidate_graph_url, confirmed_graph_url):
+                if value and not urlparse(value).password:
+                    raise ValueError("nonlocal store URL must carry its own credential")
         try:
             allowlist = frozenset(str(UUID(value.strip())) for value in
                                   os.getenv("ORACLE2_WORKSPACE_ALLOWLIST", "").split(",")
