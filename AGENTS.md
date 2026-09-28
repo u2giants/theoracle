@@ -14,6 +14,15 @@ There is no universal ignore-file standard across AI coding tools.
 
 When using any other AI tool, paste this file as your first message and follow the instructions in the "What to ignore" section.
 
+## Consultant overhaul discovery
+
+For the company-consultant replacement requested on 2026-09-27 EDT, read
+[`plan_oracle_consultant_overhaul.md`](plan_oracle_consultant_overhaul.md) **STATUS first**
+and follow parent issue #24. This is the durable project-memory pointer: do not
+re-derive the plan or resume old experiments to start the isolated replacement.
+The plan distinguishes future design from current runtime and preserves the
+applicable evidence, access and release controls.
+
 ## 3. Task router — where each section now lives
 
 `AGENTS.md` is kept small because it loads into every AI session. The full text of
@@ -97,9 +106,10 @@ finished files are removed, so removal is part of the work, not paperwork:
   STATUS table, delete this archive file in the same commit that lands the plan.** Git history
   keeps it. Do not leave both — a duplicated register is how a stale copy silently wins. Until then
   it stays, and it does not count toward the threshold below.
-- **Threshold:** more than 5 files in `HANDOFF.d/` is a defect. Say so loudly at
-  session start, list them oldest-first, and retire the ones the successor rule
-  clears before starting new work.
+- **No handoff count cap:** Albert's August 13, 2026 ruling, preserved in the
+  `handoff-writer` skill, supersedes the former five-file threshold. Retire only
+  eligible predecessors under the successor rule; retain unrelated open work.
+  Stale handoffs whose issues are closed must be reconciled by their owners.
 
 ## 5. Prime Directive: custom-code boundary
 
