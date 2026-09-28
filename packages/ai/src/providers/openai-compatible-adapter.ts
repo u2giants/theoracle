@@ -17,7 +17,11 @@
  */
 
 import OpenAI from 'openai';
-import type { ChatCompletion, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
+import type {
+  ChatCompletion,
+  ChatCompletionCreateParamsNonStreaming,
+  ChatCompletionMessageParam,
+} from 'openai/resources/chat/completions';
 import type { OracleObjectResult, OracleTextResult, OracleUsage } from '../client/types';
 import type { GenerateObjectArgs, GenerateTextArgs, OracleProviderAdapter } from './types';
 import type { OracleProvider } from '../routes';
@@ -100,7 +104,7 @@ abstract class OpenAICompatibleAdapter implements OracleProviderAdapter {
     const { plan, route, schema, providerOptions } = args;
     const { systemPrompt, userMessage } = flattenPlan(plan);
     const startedAt = Date.now();
-    const completion = await this.client.chat.completions.create({
+    const request: ChatCompletionCreateParamsNonStreaming = {
       model: route.modelId,
       messages: ensureJsonInstruction(this.buildMessages(systemPrompt, userMessage, providerOptions)),
       temperature:
@@ -109,15 +113,31 @@ abstract class OpenAICompatibleAdapter implements OracleProviderAdapter {
       ...(typeof providerOptions?.maxOutputTokens === 'number'
         ? { max_tokens: providerOptions.maxOutputTokens }
         : {}),
-    });
+    };
+    // json_object mode is not strict on these vendors: an occasional reply is
+    // unparsable or off-schema. Retry once; an unparsable second reply fails with
+    // a snippet of what came back, an off-schema one flows to the caller's
+    // validation as before.
+    let completion = await this.client.chat.completions.create(request);
+    let raw = completion.choices[0]?.message?.content;
+    let parsed = raw ? parseLenientJson(raw) : undefined;
+    if (typeof parsed !== 'object' || parsed === null
+        || !matchesSchema(schema, parsed)) {
+      completion = await this.client.chat.completions.create(request);
+      raw = completion.choices[0]?.message?.content;
+      parsed = raw ? parseLenientJson(raw) : undefined;
+    }
     const choice = completion.choices[0];
-    const raw = choice?.message?.content;
     if (!raw) {
       throw new Error(
         `${this.label}.generateObject: empty response. finish_reason=${choice?.finish_reason}`,
       );
     }
-    const parsed = parseJsonOrRaw(raw);
+    if (typeof parsed !== 'object' || parsed === null) {
+      throw new Error(
+        `${this.label}.generateObject: reply was not JSON after one retry: ${JSON.stringify(raw.slice(0, 200))}`,
+      );
+    }
     const validated = tryZodParse<TOutput>(schema, parsed);
     return {
       object: (validated ?? parsed) as TOutput,
@@ -223,3 +243,29 @@ export class StepFunAdapter extends OpenAICompatibleAdapter {
     );
   }
 }
+
+/**
+ * json_object mode on these vendors is not strict: replies are sometimes wrapped
+ * in ```json fences, double-encoded as a JSON string, or preceded by prose.
+ * Unwrap those shapes before Zod validation; anything else is returned as-is.
+ */
+export function parseLenientJson(text: string): unknown {
+  let value: unknown = parseJsonOrRaw(text.trim());
+  if (typeof value === 'string') {
+    const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const body = fenced ? fenced[1]!.trim() : value;
+    value = parseJsonOrRaw(body);
+    if (typeof value === 'string') {
+      const start = body.indexOf('{');
+      const end = body.lastIndexOf('}');
+      if (start !== -1 && end > start) value = parseJsonOrRaw(body.slice(start, end + 1));
+    }
+  }
+  return value;
+}
+
+function matchesSchema(schema: unknown, value: unknown): boolean {
+  const s = schema as { safeParse?: (v: unknown) => { success: boolean } };
+  return typeof s?.safeParse === 'function' ? s.safeParse(value).success : true;
+}
+

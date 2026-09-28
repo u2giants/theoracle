@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { AnthropicAdapter } from '../providers/anthropic-adapter';
 import { DeepSeekAdapter } from '../providers/deepseek-adapter';
 import { QwenAdapter } from '../providers/qwen-adapter';
-import { MetaMuseAdapter, StepFunAdapter, ZaiGlmAdapter } from '../providers/openai-compatible-adapter';
+import { MetaMuseAdapter, StepFunAdapter, ZaiGlmAdapter, parseLenientJson } from '../providers/openai-compatible-adapter';
 import { buildStandardAdapters } from '../client/standard-adapters';
 import { resolveModelRoute } from '../routes/resolve';
 import { ORACLE_MODEL_ROUTES, PRODUCTION_ROUTE_IDS } from '../routes/catalog';
@@ -357,7 +357,17 @@ async function verifyOpenAICompatibleVendors(): Promise<void> {
   }
 }
 
+function verifyLenientJson(): void {
+  const want = JSON.stringify({ a: 1 });
+  for (const raw of [want, '```json\n' + want + '\n```', JSON.stringify(want), 'Here it is: ' + want + ' done']) {
+    const got = parseLenientJson(raw);
+    assert(typeof got === 'object' && got !== null && (got as { a?: number }).a === 1, `lenient JSON failed for: ${raw}`);
+  }
+  assert(parseLenientJson('no json here') === 'no json here', 'non-JSON text must pass through unchanged');
+}
+
 async function main(): Promise<void> {
+  verifyLenientJson();
   await verifyAnthropicTemperature();
   await verifyDeepSeekJsonMode();
   await verifyQwenUsage();
