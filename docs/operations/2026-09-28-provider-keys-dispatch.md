@@ -1,6 +1,6 @@
 # Provider API keys for production — exact dispatch for review (revision 6)
 
-Status: awaiting review. Tracking issue: #49. Nothing here runs before a
+Status: **executed** 2026-09-28 ~4:30 PM EDT (revision 6, approved); results on #49. Tracking issue: #49. Nothing here runs before a
 `VERDICT APPROVE` whose record names the reviewed commit of this file; the
 operator executes only from that commit and re-requests review if it changes.
 

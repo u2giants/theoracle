@@ -23,6 +23,8 @@
 | `GOOGLE_VERTEX_BATCH_GCS_BUCKET` | GCS bucket for Vertex Batch Prediction JSONL I/O (D14) | env/secret | optional | required if batch mode + Vertex |
 | `GOOGLE_VERTEX_BATCH_GCS_PREFIX` | Object prefix inside the batch bucket | env/secret | optional | optional |
 | `DEEPSEEK_API_KEY` | DeepSeek adapter | `.env.local`, Vercel, Trigger.dev | optional | optional |
+| `META_MUSE_API_KEY` | Meta Muse adapter | `.env.local`, Vercel Production (sensitive), Trigger.dev prod (set 2026-09-28, #49) | optional | optional |
+| `STEPFUN_API_KEY` | StepFun adapter (account limited to 10 requests/minute) | `.env.local`, Vercel Production (sensitive), Trigger.dev prod (set 2026-09-28, #49) | optional | optional |
 | `DASHSCOPE_API_KEY` | Qwen adapter | `.env.local`, Vercel, Trigger.dev | optional | optional (set in prod 2026-06-25 for the Qwen vision model) |
 | `DASHSCOPE_BASE_URL` | Qwen adapter region override (default `dashscope-us`; set to the `dashscope-intl` compat endpoint in prod) | `.env.local`, Trigger.dev | optional | recommended when using `qwen/*` models served only on intl |
 | `OPENROUTER_API_KEY` | model catalog enrichment only | `.env.local`, Vercel if desired | optional | optional |
