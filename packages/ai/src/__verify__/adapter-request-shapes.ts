@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { lookupEnrichment } from '../model-capabilities';
 import { z } from 'zod';
 import { AnthropicAdapter } from '../providers/anthropic-adapter';
@@ -375,7 +378,20 @@ function verifyEnrichmentAliases(): void {
   assert(lookupEnrichment(map as never, 'zai/glm-5.3').matched, 'zai must match via z-ai alias');
 }
 
+function verifyProviderCheckMatchesTypes(): void {
+  // The production CHECK on model_capabilities.provider must allow every
+  // ModelProvider, or Refresh catalog fails on insert (2026-09-28, #49).
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sql = readFileSync(resolve(here, '../../../db/migrations/sql/56_model_capabilities_more_providers.sql'), 'utf8');
+  const types = readFileSync(resolve(here, '../model-capabilities/types.ts'), 'utf8');
+  const allowed = new Set([...(sql.match(/CHECK \(provider IN \(([^)]*)\)/)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((m) => m[1]));
+  const union = [...(types.match(/export type ModelProvider =([^;]*);/)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((m) => m[1]!);
+  assert(union.length > 0 && allowed.size > 0, 'could not parse provider lists');
+  for (const p of union) assert(allowed.has(p), `migration 56 CHECK must allow provider '${p}'`);
+}
+
 async function main(): Promise<void> {
+  verifyProviderCheckMatchesTypes();
   verifyEnrichmentAliases();
   verifyLenientJson();
   await verifyAnthropicTemperature();
