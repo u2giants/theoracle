@@ -13,13 +13,13 @@ for now and use the others." The exact plan is
 
 ## State
 - Prod worker `20260909.1` (`28e8eb7`), 25 tasks. Nothing has been deployed.
-- Deploy target pinned: `a12e25e2db6090776f3c2494bcdd36cc77cbcaac`.
+- Deploy target pinned: `1ab6d0cd1abbba8fb17791364a28e7237c88880f` (revision 5).
 - The dispatch must carry an APPROVE verdict from the independent reviewer on its exact
   commit before anyone executes it. `.ai/reviews/` is local scratch; the verdict line,
   review run id and reviewed commit are posted on #50 and copied into dispatch §Result
   at step 0.
-- No Meta Muse / Z.ai / StepFun key is in Trigger prod, so this release activates no new
-  provider. Activating Meta Muse is a separate env write Albert must name.
+- META_MUSE_API_KEY and STEPFUN_API_KEY are already in Trigger prod (#49); ZAI_API_KEY is not (on hold).
+- Selecting Muse/StepFun in a pool is Albert's call, asked on #50.
 
 ## Next step
 Once approved: execute dispatch §6 steps 0–7, watch to close-out, fill §Result, comment
