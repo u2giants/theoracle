@@ -26,6 +26,18 @@ artifact, so no substituted package can install); the interpreter is pinned to
 3.12.14 and asserted in the image; tests assert both configs use the pinned
 layer and the `preview_status` vocabulary.
 
+**Revision 6** (revision 5 approved at `6ccfe11`; its extractor build,
+version 20260928.3, installed CPython 3.12.14 and 140 hash-checked packages and
+passed the interpreter assertion, then failed at Trigger's in-container
+indexing because the config's two-project guard reads
+`ORACLE2_EXTRACT_TRIGGER_PROJECT_REF` / `ORACLE2_PROJECT_TRIGGER_PROJECT_REF`,
+which exist only in the operator's shell). No code change. Adds to step 2, on
+the **staging** environment of **both** projects, the two non-secret project
+identifiers `ORACLE2_EXTRACT_TRIGGER_PROJECT_REF=proj_esmuwkezljvasptkbiwr` and
+`ORACLE2_PROJECT_TRIGGER_PROJECT_REF=proj_jtaztxnmppzfchdsgvea`, set through the
+same management API. The guard stays unchanged and is now satisfied inside the
+image. Execute: step 0, this step-2 addition, then steps 3-6.
+
 **What to execute for revision 5:** step 0 (approval record), then steps 3-6
 only. Steps 1-2 are complete and must not be repeated (the projects and staging
 variables already exist; creating them again is out of scope). CI precondition:
