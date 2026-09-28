@@ -210,6 +210,9 @@ def main(argv: list[str] | None = None) -> int:
         print("no cases matched --ids", file=sys.stderr)
         return 2
     report = evaluate(a.primary, a.fallback, cases)
+    if a.ids and a.out.exists():
+        print("refusing to overwrite an existing report with a partial --ids run", file=sys.stderr)
+        return 3
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(report, indent=1) + "\n")
     lines, ok = summarize(report)

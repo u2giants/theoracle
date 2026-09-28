@@ -1,8 +1,7 @@
 # S02 dependency and runtime qualification
 
 Status: accepted on synthetic evidence, 2026-09-28 EDT. Offline qualification
-first passed at `3b94d22` and is re-run by CI on every PR #45 head (the final
-head's run is linked from the plan STATUS row); preview qualification passed on
+first passed at `3b94d22` and is re-run by CI on every PR #45 head (latest code-bearing head `b321478`: [CI run 36448118590](https://github.com/u2giants/theoracle/actions/runs/36448118590), 25 Python checks at that time); preview qualification passed on
 Trigger staging (see "Preview result — revision 6"). This is not a
 business-quality claim.
 
@@ -44,7 +43,7 @@ after the failing fixture, without forking Graphiti.
 ## Measured offline result
 
 [CI run 36377021295](https://github.com/u2giants/theoracle/actions/runs/36377021295)
-passed 20 Python contract/store checks on isolated Postgres, two authenticated
+passed 20 Python contract/store checks at `3b94d22` (the suite later grew; see the status line for the latest run) on isolated Postgres, two authenticated
 FalkorDB instances, and LocalStack S3. The same workflow validated S01 from
 full Git history. Its sanitized artifact records the locked hash and outcomes.
 The worker kill/replay test compared the same event ID and revision after a
