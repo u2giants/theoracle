@@ -127,6 +127,9 @@ per trigger. Pause/resume proves platform checkpointing around Python
 subprocesses, not Python-side state continuity. The projector's credential
 boundary holds and it fails closed at the unreachable store; its successful
 projection against a live store stays proven in CI. Runs cost $0.0001 each.
+Later final-check hardening (datetime seconds rule, outbox index/dead-letter
+cap) did not change the measured paths: the extractor contract and CLI and the
+projector's failure path are unchanged; the outbox change is proven in CI.
 FalkorDB SSPL fit for internal use: see `S02-falkordb-license.md` (grok APPROVE);
 models: see `S02-models.md` (grok APPROVE). Both preview projects are deleted
 after #26 closes.
