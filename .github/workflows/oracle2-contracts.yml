@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   oracle2-offline:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, edge-dev3]
     timeout-minutes: 60
     env:
       ORACLE2_TEST_ADMIN_URL: postgresql://oracle2_admin:oracle2_local_admin_only@127.0.0.1:55432/oracle2
