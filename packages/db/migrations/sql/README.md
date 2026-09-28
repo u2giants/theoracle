@@ -108,5 +108,6 @@ If a file is genuinely one-shot and can't be made idempotent (rare), the convent
 ## Anti-patterns
 
 - **Don't edit a prior migration file.** Add a new file with the next free prefix. Old files have already run against production.
+  Exception: a whitelist CHECK that is dropped and re-added by a replayed file (e.g. `56_model_capabilities_more_providers.sql`) must be widened **in that same file** — a later file cannot widen it, because the earlier narrow `ADD CONSTRAINT` would fail on every rerun once a new value exists. `verify:adapter-request-shapes` asserts 56's list covers every `ModelProvider`.
 - **Don't depend on a specific machine's data inside a 40+ file** unless the file is guarded by an existence check on that data (see `41_albert_post_merge_fix.sql`, which only fires if Albert's specific Supabase auth ids exist).
 - **Don't `DROP TABLE` here.** If a table must be removed, add a defensive `DROP TABLE IF EXISTS` and update `packages/db/src/schema.ts` in the same commit, and confirm no application code still references it.
