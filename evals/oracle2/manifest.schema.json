@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/u2giants/theoracle/evals/oracle2/manifest.schema.json",
+  "title": "Oracle 2 synthetic question and source fixture manifest record",
+  "oneOf": [
+    { "$ref": "#/$defs/question" },
+    { "$ref": "#/$defs/fixture" }
+  ],
+  "$defs": {
+    "span": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "locator", "text"],
+      "properties": {
+        "source_id": { "type": "string", "minLength": 1 },
+        "locator": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "base": {
+      "type": "object",
+      "required": ["kind", "id", "split", "category", "source_ids", "evidence_spans"],
+      "properties": {
+        "kind": { "type": "string" },
+        "id": { "type": "string", "pattern": "^[ADF][0-9]{2}$" },
+        "split": { "enum": ["acceptance", "development", "fixture"] },
+        "category": { "type": "string", "minLength": 1 },
+        "source_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "evidence_spans": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/span" } }
+      }
+    },
+    "question": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "id", "split", "category", "process", "question", "source_ids", "evidence_spans", "required_facts", "forbidden_inferences", "time_scope", "expectation", "reviewer_rubric"],
+          "properties": {
+            "kind": { "const": "question" },
+            "id": { "type": "string", "pattern": "^[AD][0-9]{2}$" },
+            "split": { "enum": ["acceptance", "development"] },
+            "category": { "enum": ["procedure_ownership", "conditional_exception", "cross_department", "historical_change", "improvement_decision"] },
+            "process": { "type": "string", "minLength": 1 },
+            "question": { "type": "string", "minLength": 1 },
+            "source_ids": { "$ref": "#/$defs/base/properties/source_ids" },
+            "evidence_spans": { "$ref": "#/$defs/base/properties/evidence_spans" },
+            "required_facts": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            "forbidden_inferences": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            "time_scope": { "type": "string", "minLength": 1 },
+            "expectation": { "enum": ["answer", "abstain"] },
+            "reviewer_rubric": {
+              "type": "object", "additionalProperties": false,
+              "required": ["fact", "boundary", "evidence", "decision"],
+              "properties": {
+                "fact": { "type": "string", "minLength": 1 },
+                "boundary": { "type": "string", "minLength": 1 },
+                "evidence": { "type": "string", "minLength": 1 },
+                "decision": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "fixture": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "id", "split", "category", "source_format", "source_ids", "evidence_spans", "attack_or_shape", "expected_handling"],
+          "properties": {
+            "kind": { "const": "source_fixture" },
+            "id": { "type": "string", "pattern": "^F[0-9]{2}$" },
+            "split": { "const": "fixture" },
+            "category": { "const": "source_adversarial" },
+            "source_format": { "type": "string", "minLength": 1 },
+            "source_ids": { "$ref": "#/$defs/base/properties/source_ids" },
+            "evidence_spans": { "$ref": "#/$defs/base/properties/evidence_spans" },
+            "attack_or_shape": { "type": "string", "minLength": 1 },
+            "expected_handling": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    }
+  },
+  "x-exact-synthetic-counts": {
+    "acceptance": { "procedure_ownership": 4, "conditional_exception": 4, "cross_department": 4, "historical_change": 3, "improvement_decision": 5 },
+    "development": { "procedure_ownership": 2, "conditional_exception": 2, "cross_department": 2, "historical_change": 2, "improvement_decision": 2 },
+    "fixture": { "source_adversarial": 12 }
+  }
+}

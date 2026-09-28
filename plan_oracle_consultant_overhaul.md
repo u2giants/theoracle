@@ -6,11 +6,11 @@ Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through
 
 ## STATUS — read this first
 
-Every implementation row is open as of 2026-09-27 EDT. An issue is an owner/discussion pointer, not acceptance evidence. A completed row must link a reproducible result artifact and deployed revision when relevant.
+S01 has an offline record; later stages remain open as of 2026-09-27 EDT. An issue is an owner/discussion pointer, not acceptance evidence. A completed row must link a reproducible result artifact and deployed revision when relevant.
 
 | Step | Outcome | Status | Dependency | Evidence / owner |
 |---|---|---|---|---|
-| S01 | Acceptance corpus and measured baseline | ⬜ open | None | Not run; [child #25](https://github.com/u2giants/theoracle/issues/25) |
+| S01 | Acceptance corpus and baseline availability | ✅ offline accepted; live comparison unavailable | None | [S01 record](docs/verification/oracle2/S01-baseline.md), [synthetic manifest](evals/oracle2/synthetic-cases.jsonl); [child #25](https://github.com/u2giants/theoracle/issues/25). No real-quality claim. |
 | S02 | Isolated foundation and database/library qualification | ⬜ open | S01 | Not built; [child #26](https://github.com/u2giants/theoracle/issues/26) |
 | S03 | One usable document-to-consultation journey | ⬜ open | S02 | Not built; [child #27](https://github.com/u2giants/theoracle/issues/27) |
 | S04 | Reliable document learning, revisions and withdrawal | ⬜ open | S03 | Not built; [child #28](https://github.com/u2giants/theoracle/issues/28) |
@@ -27,9 +27,9 @@ Every implementation row is open as of 2026-09-27 EDT. An issue is an owner/disc
 | S15 | Controlled production adoption | ⬜ open | S14 | Not released; [child #39](https://github.com/u2giants/theoracle/issues/39) |
 | S16 | Legacy retirement with recoverable history | ⬜ open | S15 | Not started; [child #40](https://github.com/u2giants/theoracle/issues/40) |
 
-**Fresh session starts at S01**, not at a database migration or an old R2 experiment. Read this whole plan, then take the first unticked child on #24. Do only that child; update this STATUS, comment the next child, and stop. All later stages remain in scope for the program, but not for that session. At each natural cut point, apply `fresh-session` and re-read every downstream stage to plan-end for changed assumptions. Record drift before handing over. No floating set of partially proved releases.
+**Next session starts at S02**, not at a database migration or an old R2 experiment. Read this whole plan, then take the first unticked child on #24. Do only that child; update this STATUS, comment the next child, and stop. All later stages remain in scope for the program, but not for that session. At each natural cut point, apply `fresh-session` and re-read every downstream stage to plan-end for changed assumptions. Record drift before handing over. No floating set of partially proved releases.
 
-Research: [technology and strategy review](docs/research/oracle-consultant-technology-review.md). Handoff: [2026-09-28T0044Z-edge-dev3-codex-oracle-consultant-overhaul.md](HANDOFF.d/2026-09-28T0044Z-edge-dev3-codex-oracle-consultant-overhaul.md). These two documents and this plan are the complete planning brief; the planning chat is not required.
+Research: [technology and strategy review](docs/research/oracle-consultant-technology-review.md). S01: [acceptance specification](evals/oracle2/acceptance-spec.md) and [verification record](docs/verification/oracle2/S01-baseline.md). Planning [handoff](HANDOFF.d/2026-09-28T0044Z-edge-dev3-codex-oracle-consultant-overhaul.md) remains until its header records committed and pushed status under the successor rule. This plan and those records are the current brief; the planning chat is not required.
 
 ## 1. Ultimate goal
 
@@ -591,7 +591,7 @@ The following audit applies to **plan completeness**, not to the unbuilt applica
 | Identifiers, paths, versions and references defined | YES | §§2,5,8,12 plus immutable research snapshot |
 | Secrets referenced by location only | YES | §12; no secret values accessed or stored |
 | Commit/push/checks/deploy completion distinction | YES | §13.1 and each phase's acceptance mode |
-| Plan/handoff reciprocal links; root pointer unchanged | YES | Top handoff link and new handoff §6; root pointer is not edited |
+| Plan/evidence links; root pointer unchanged | YES | Top S01 evidence links; root pointer is not edited |
 
 **1. Could a brand-new session execute this plan without project/chat context or planner clarification?** Yes: §§1–4 establish the business mission/scope; §5 names the baseline; §8 defines contracts and default choices; §9 names every file/change/dependency/outcome; §§10–12 give tests and access/authority rules. Actual access and human grading are required inputs with assigned resolution gates, not assumptions of availability. Execution success cannot be guaranteed by any plan; failures have explicit stop/fallback criteria.
 

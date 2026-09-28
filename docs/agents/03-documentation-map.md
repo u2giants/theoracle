@@ -10,7 +10,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 
 | Task / question | Read these docs | Usually do not need |
 |---|---|---|
-| Company-consultant overhaul / FalkorDB / Graphiti / interview and meeting learning / industry advice | `plan_oracle_consultant_overhaul.md` (STATUS first; parent #24), `docs/research/oracle-consultant-technology-review.md`, its linked handoff | Old R2/Jev execution plans unless explicitly changing those paths |
+| Company-consultant overhaul / FalkorDB / Graphiti / interview and meeting learning / industry advice | `plan_oracle_consultant_overhaul.md` (STATUS first; parent #24), `docs/research/oracle-consultant-technology-review.md`; for S01 baselines and future quality comparisons also `evals/oracle2/acceptance-spec.md`, `docs/oracle2-baseline.md`, `docs/verification/oracle2/S01-baseline.md` | Old R2/Jev execution plans unless explicitly changing those paths |
 | Quick repo orientation | `README.md`, `AGENTS.md` | Deep docs under `docs/` unless task requires them |
 | Modify app behavior or project-owned code | `AGENTS.md`, relevant folder-level `README.md` if present, `docs/architecture.md` if system design is affected | `docs/deployment.md` unless deploy behavior changes |
 | Add or change AI provider adapter or model catalog | `AGENTS.md`, `docs/architecture.md` (adapter table + data flow), provider files under `packages/ai/src/providers/`, `DECISIONS.md`; `fix_adapter_quirks.md` when strict/deep schema eligibility or adapter request safety is involved; run/update `packages/ai/src/__verify__/adapter-request-shapes.ts` when request-shaping, strict-schema eligibility, or usage normalization changes | Worker or webhook code |
@@ -44,4 +44,3 @@ Rules:
 - Update this documentation map when documentation files are added, removed, renamed, or repurposed.
 - `docs/oracle/` — deeper AI-retrofit reference material; only read when the task touches the AI-retrofit spec directly.
 - `oracle_master_spec.md` and `oracle_ai_architecture_prompt caching.md` are historical/spec reference files, not default orientation docs.
-
