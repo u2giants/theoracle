@@ -2,14 +2,31 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+import re
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (AwareDatetime, BaseModel, ConfigDict, Field,
+                      ValidationInfo, field_validator, model_validator)
+
+
+WIRE_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+WIRE_DATETIME = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$"
+)
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def canonical_wire_uuid(cls, value: object, info: ValidationInfo) -> object:
+        if cls.model_fields[info.field_name].annotation is UUID:
+            if isinstance(value, str) and not WIRE_UUID.fullmatch(value):
+                raise ValueError("UUID must use the hyphenated wire form")
+        return value
 
 
 class SourceSpan(StrictModel):
@@ -62,6 +79,17 @@ class ProjectionReceipt(StrictModel):
     projector_id: str = Field(min_length=1)
     applied_at: AwareDatetime
     signature: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("applied_at", mode="before")
+    @classmethod
+    def canonical_wire_datetime(cls, value: object) -> object:
+        if isinstance(value, str):
+            if not WIRE_DATETIME.fullmatch(value):
+                raise ValueError("timestamp must use ISO T and colonized offset")
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if not isinstance(value, (str, datetime)):
+            raise ValueError("timestamp must be an aware ISO datetime")
+        return value
 
 
 class RunRequest(StrictModel):

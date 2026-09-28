@@ -2,7 +2,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest, dispatch, safe_telemetry
+from oracle_brain.provider_policy import (ProcessingApproval, ProcessingRequest,
+                                          authorize, dispatch, safe_telemetry)
 
 
 def test_default_deny_exact_scope_and_no_outbound_call():
@@ -22,6 +23,13 @@ def test_default_deny_exact_scope_and_no_outbound_call():
             dispatch(denied, [approval], sender)
     with pytest.raises(PermissionError):
         dispatch(request, [approval.model_copy(update={"expires_at": now-timedelta(seconds=1)})], sender)
+    with pytest.raises(ValueError):
+        ProcessingApproval(**request.model_dump(), expires_at=datetime(2027, 1, 1),
+                           register_ref="invalid-naive-expiry")
+    with pytest.raises(PermissionError):
+        dispatch(request, [approval.model_copy(update={"expires_at": datetime(2027, 1, 1)})], sender)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        authorize(request, [approval], now=datetime(2026, 9, 28))
     assert calls == [1]
     with pytest.raises(ValueError):
         safe_telemetry({"source_text": "private"})

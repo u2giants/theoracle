@@ -53,7 +53,7 @@ Oracle is the POP Creations / Spruce Line company knowledge application. The rep
 - Existing repository components: `apps/web` (interface/API), `apps/workers` (jobs), `packages/ai` (generation/retrieval), `packages/db` (database), `packages/oracle-engines` (validation), `packages/auth` (identity), `packages/shared` (shared contracts).
 - Planned replacement core: `services/oracle-brain` (Python package, not necessarily an HTTP service), driven by thin Trigger tasks. Existing web/auth are reused only where their behavior passes the replacement tests. Company evidence lives in private object storage; canonical acceptance events and workflow state live in Oracle Postgres; FalkorDB serves derived knowledge.
 
-Local planning checkout was `/home/ahazan/repos/oracle-consultant-overhaul`, isolated from `/home/ahazan/repos/oracle`. Future sessions create their own current-upstream worktree. Names in §9 beginning `services/oracle-brain`, `packages/brain-contracts`, `tests/oracle2`, `evals/oracle2` or `apps/web/app/consultant` are **proposed new paths**, not claims that those files exist.
+Local planning checkout was `/home/ahazan/repos/oracle-consultant-overhaul`, isolated from `/home/ahazan/repos/oracle`. Future sessions create their own current-upstream worktree. Paths in §9 are stage deliverables; use the STATUS table and current tree to determine which ones now exist.
 
 ## 3. Trigger and authority
 
