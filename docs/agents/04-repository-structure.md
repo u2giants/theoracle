@@ -48,6 +48,7 @@ Docs:
 - `docs/development.md`
 - `docs/configuration.md`
 - `docs/deployment.md`
+- `docs/operations/` (reviewed production dispatch records, one file per action)
 - `docs/wet-test-walkthrough.md`
 - `docs/macro-understanding-implementation-plan.md` - macro-first source outlines, meaning-based source groups, budgeted document lens fan-out, cross-claim macro relationships, and coverage audits; the first end-to-end implementation is migrated and deployed
 - `docs/oracle/` — deeper AI-retrofit reference material

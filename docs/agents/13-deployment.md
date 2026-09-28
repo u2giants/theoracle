@@ -21,7 +21,7 @@ How deployment works today:
 Rollback:
 
 - Web: promote a previous Vercel deployment.
-- Workers: redeploy from a previous commit or roll back in Trigger.dev.
+- Workers: redeploy the previous commit forward (`git revert` or a clean checkout of the known-good commit, then deploy). Trigger.dev refuses to promote an older deployment — see `docs/deployment.md` §Rollback.
 - DB: ship a compensating SQL migration; there is no automatic rollback layer.
 
 Runtime env vars live in:

@@ -92,6 +92,15 @@ op://vibe_coding/<item>/<field>
 op://vibe_coding/<item>/<section>/<field>
 ```
 
+## 2a. Trigger.dev deploy credential
+
+| Item title | What it is for | Important caution |
+|---|---|---|
+| `Trigger.dev Personal Access Token (management)` (item id `ylzcsfbhmjyzjy65mnu6uxw67e`) | Trigger.dev account PAT for CLI deploys and management-API reads; fields `Personal Access Token - admin level` / `- owner level`. | Read only with `op read` into the command environment (the parentheses in the title break `op://` references, so use the item id); never print, paste, or log it. |
+
+The parentheses in this title are rejected inside `op://` references, so this item is
+the exception to the read-by-title guidance below: address it by item id.
+
 ## 3. Oracle items created during the 2026-06-26 AI session
 
 These item titles are intentionally searchable. They contain notes about where the
@@ -104,7 +113,6 @@ production use. Do not copy values into docs or commits.
 | `Supabase DB Direct URL - The Oracle (oracle.old, vokucjpanhvqunimlvsp)` | Previous Ohio Supabase project DB URL. | Historical / old project. Do not use for current prod migrations. |
 | `Supabase Runtime Keys - The Oracle (oracle.old local .env.local)` | Supabase URL, anon/publishable key, and service-role key currently present in local `.env.local`. | These point at `oracle.old`, not current prod. Useful for reconstructing local env or understanding why local commands target the old project. |
 | `OpenRouter API Key - The Oracle (local .env.local)` | Local OpenRouter key for model catalog/capability and provider-routing work. | Verify whether it is intended for local only or production before relying on it operationally. |
-| `Trigger.dev Personal Access Token (management)` (item id `ylzcsfbhmjyzjy65mnu6uxw67e`) | Trigger.dev account PAT for CLI deploys and management-API reads; fields `Personal Access Token - admin level` / `- owner level`. | Read only with `op read` into the command environment (the parentheses in the title break `op://` references, so use the item id); never print, paste, or log it. |
 | `Trigger.dev Secret Key - The Oracle (local .env.local)` | Local Trigger.dev project/secret values for Oracle worker debugging. | Worker deploys normally use authenticated Trigger tooling; verify dashboard state before assuming this local value is the prod runtime secret. |
 | `Vercel OIDC Token - The Oracle (local .env.local)` | Vercel token found in local `.env.local`, useful for debugging local Vercel auth/status checks. | May be ephemeral. Prefer Git/Vercel integration for normal web deploys. |
 
