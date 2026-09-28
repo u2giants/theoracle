@@ -37,11 +37,13 @@ def enqueue_accepted(database_url: str, *, workspace_id: UUID, assertion_id: UUI
             if row and row[0] >= revision:
                 if row[0] == revision:
                     prior = connection.execute(
-                        """SELECT event_id FROM oracle2.outbox
+                        """SELECT event_id,operation,payload FROM oracle2.outbox
                            WHERE workspace_id=%s AND assertion_id=%s AND revision=%s""",
                         (workspace_id, assertion_id, revision),
                     ).fetchone()
                     if prior:
+                        if prior[1] != operation or prior[2] != payload:
+                            raise ValueError("same revision has different accepted content")
                         return prior[0]
                 raise ValueError("revision must increase")
             connection.execute(

@@ -60,6 +60,17 @@ def test_replay_survives_crash_and_receipt_is_authenticated(admin_url, confirmed
     event_id = enqueue_accepted(admin_url, workspace_id=workspace,
                                 assertion_id=assertion, revision=1,
                                 payload={"synthetic": True})
+    assert enqueue_accepted(admin_url, workspace_id=workspace,
+                            assertion_id=assertion, revision=1,
+                            payload={"synthetic": True}) == event_id
+    with pytest.raises(ValueError, match="different accepted content"):
+        enqueue_accepted(admin_url, workspace_id=workspace,
+                         assertion_id=assertion, revision=1,
+                         payload={"synthetic": False})
+    with pytest.raises(ValueError, match="different accepted content"):
+        enqueue_accepted(admin_url, workspace_id=workspace,
+                         assertion_id=assertion, revision=1,
+                         payload={"synthetic": True}, operation="withdraw")
     # Kill a real process after graph write but before receipt.
     event = lease_next(admin_url, lease_seconds=1)
     assert event and event.event_id == event_id
