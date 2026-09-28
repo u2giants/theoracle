@@ -42,6 +42,6 @@ The existing Trigger project must never receive Oracle 2 tasks. Separate
 extractor and projector configs require distinct project references and
 separately scoped credentials before an isolated preview build. Two synthetic-only
 preview projects exist (see `docs/verification/oracle2/S02-dependencies.md`).
-The first build failed: Trigger's Python extension image ships Python 3.11 and
-this bundle requires 3.12+, so the dependency bundle is not qualified for
-Trigger cold start, cancellation or pause/resume.
+Trigger builds install CPython 3.12.14 through `apps/workers/oracle2-python-extension.ts`
+(the stock Python extension ships 3.11). Cold start, exit, cancellation and
+pause/resume were measured there on synthetic runs.

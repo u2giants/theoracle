@@ -106,9 +106,37 @@ Approved by qwen plan review (`VERDICT APPROVE`); approval record on #26.
 | Projector deploy | Not attempted (stop rule; identical Python bundle) |
 | Runs, cold start, cancel, pause/resume | Not measured; no deployed version |
 
-Outcome: the dispatch stop rule tripped. The Trigger Python extension host with
-the pinned bundle **fails** S02's preview qualification as-is. The plan's
-fallback (qualified container host with Python 3.12, separately reviewed) or a
-separately reviewed change that supplies Python 3.12 on the Trigger image is
-the next decision; no retry with changed pins was made under this approval.
-Pause/resume was never part of the approved measurement set and remains open.
+Outcome of revision 3: stop rule tripped (Python 3.11). Revision 4 (build
+20260928.2) installed CPython 3.12.14 then failed uv first-index resolution;
+revision 5 (build 20260928.3) installed 140 hash-checked packages and passed the
+interpreter assertion, then failed in-container indexing on the config guard's
+project-ref variables; revision 6 added those two non-secret variables. Each
+revision was independently approved before execution (records on #26).
+
+## Preview result — revision 6 (2026-09-28, 11:27 AM–11:31 AM EDT)
+
+| Field | Value |
+|---|---|
+| Deployed commit | `6ccfe11` code (revision 6 changed only staging variables; dispatch doc at `1c02c0f`) |
+| Extractor deploy | Version 20260928.4, build+deploy 97 s, CPython 3.12.14, 140 packages |
+| Projector deploy | Version 20260928.1, build+deploy 102 s, CPython 3.12.14, 140 packages |
+| Image size | Not reported by the Trigger CLI for remote builds; layer push 6.5–6.9 s |
+
+| Run | Task | Result | Attempts | Queue→attempt start | Execution |
+|---|---|---|---|---|---|
+| `run_06geh8qadmd0mesi3ekuct6101` (a1) | synthetic run | COMPLETED, output `{"run_id": "…a1", "status": "accepted_synthetic"}` | 1 | 16.2 s (cold start) | 1.7 s |
+| `run_06geh8qbqnskftmmfdp0ba1b01` (a2) | synthetic run, delayed 10 m | CANCELED while delayed | 0 | — | — |
+| `run_06geh8rob937c1fsua0a31i101` (a3) | synthetic run | CANCELED immediately after trigger | 0 | — | — |
+| `run_06geh8qcqh243oa71gj21avv01` (a4) | pause/resume | COMPLETED; `before` = `after` = extractor output; 30.6 s wall time including the 10 s wait | 1 | 15.4 s | 13.6 s |
+| `run_06geh8qe655hn1i1fd6oc37901` | projector | FAILED closed, exit 1, stderr `{"status": "failed", "error": "OperationalError"}`; no URL or secret | 1 | 50.7 s | 4.2 s |
+
+Findings: the Trigger Python host qualifies for S02 with the custom Python 3.12
+layer: build, cold start, clean exit, cancellation (delayed and immediate) and
+checkpoint/resume around Python steps all behave as specified, with one attempt
+per trigger. Pause/resume proves platform checkpointing around Python
+subprocesses, not Python-side state continuity. The projector's credential
+boundary holds and it fails closed at the unreachable store; its successful
+projection against a live store stays proven in CI. Runs cost $0.0001 each.
+FalkorDB SSPL fit for internal use: see `S02-falkordb-license.md` (grok APPROVE);
+models: see `S02-models.md` (grok APPROVE). Both preview projects are deleted
+after #26 closes.
