@@ -113,7 +113,7 @@ Use `corepack pnpm --filter @oracle/db migrate` rather than root
 
 ## CI workflows that currently exist
 
-Two verification-only workflows are present. Neither deploys:
+Three verification-only workflows are present (`pr-check.yml`, `task-gates.yml`, `oracle2-contracts.yml`). None deploys:
 
 - `.github/workflows/pr-check.yml` runs the production build and repository
   verification gates described below.

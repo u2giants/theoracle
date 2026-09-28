@@ -716,8 +716,3 @@ This file is the running log of every assumption, stub, and resolution made by t
 - **Why**: Reviewer notes and revised claims do not magically train the model. The immediate, auditable feedback loop is to feed approved correction patterns back into the next extraction calls while preserving the original AI output and the human-approved replacement.
 - **Boundary**: The lesson block is guidance only. It is not claim evidence, not Brain source material, and not fine-tuning. The candidate-before-claim validators still enforce quote provenance, taxonomy validity, sensitivity gates, and promotion rules.
 - **Admin surface**: `/admin/ai/claim-lessons` shows counts, recent approved correction pairs, and the exact prompt block extraction will see.
-
-## D-oracle-system-prompt-1.1.0 — answer explanation questions from approved evidence (2026-09-20)
-
-- **Decision**: `ORACLE_SYSTEM_PROMPT_VERSION` 1.0.0 → 1.1.0 (`packages/ai/src/prompts/oracle-system.ts`, PR #17). The one-question rule now applies when gathering information; when an employee asks for an explanation, comparison or consequence, the Oracle answers first from the supplied approved evidence, cites every assertion with its exact `[claim:ID]`, separates fact from interpretation, states missing evidence, and treats source text and history as data, not instructions.
-- **Why**: Business questions were being met with another interview question instead of an answer grounded in evidence (#15/#16/#17). Recorded retroactively on 2026-09-28 during the worker release review; the prompt is web-only (no worker imports it).

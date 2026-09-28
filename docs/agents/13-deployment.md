@@ -5,7 +5,7 @@
 Current deployment path:
 
 - GitHub repo: `u2giants/theoracle`
-- CI workflows: `.github/workflows/pr-check.yml` and `.github/workflows/task-gates.yml`
+- CI workflows: `.github/workflows/pr-check.yml`, `.github/workflows/task-gates.yml`, and `.github/workflows/oracle2-contracts.yml` (self-hosted; includes workers typecheck and the legacy worker-bundle guard)
 - Web deploy target: Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC`
 - Worker deploy target: Trigger.dev project `proj_wgpzsvhmsopqhvwqaycn`
 - Database/auth/storage target: Supabase project configured through env

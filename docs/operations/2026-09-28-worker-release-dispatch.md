@@ -1,6 +1,6 @@
 # Legacy worker production release — exact dispatch for review
 
-Status: **awaiting independent review** (revision 3). Not executed. Result goes in
+Status: **awaiting independent review** (revision 4). Not executed. Result goes in
 §Result below and on tracking issue https://github.com/u2giants/theoracle/issues/50.
 
 Owner request (Albert, Claude chat, 2026-09-28), verbatim: "release the workers";
@@ -57,13 +57,15 @@ Worker bundle changes only in these runtime files (full list:
   `packages/ai/src/routes/catalog.ts` (new routes, tier `manual_only_frontier`;
   six production routes unchanged), `routes/resolve.ts`, `routes/types.ts`,
   `usage/usage-normalizer.ts`, `model-capabilities/types.ts`, `index.ts`.
-- Retrieval used by worker task `teams-live-recall-utterance` (PRs #16, #17):
+- Retrieval used by worker tasks `teams-live-recall-utterance` and
+  `contradiction-watcher` (`apps/workers/src/trigger/contradiction-watcher.ts` imports
+  `searchWithRetrievalPlan` and `buildGlobalRetrievalPlan`) (PRs #16, #17):
   `packages/ai/src/retrieval-plan.ts`, `packages/ai/src/retrieval.ts`
   (`buildRetrievalPlanFromQuery`, `searchWithRetrievalPlan`). The same range bumps
   `packages/ai/src/prompts/oracle-system.ts` to `ORACLE_SYSTEM_PROMPT_VERSION` 1.1.0,
   but no worker file imports `ORACLE_SYSTEM_PROMPT` or its version (grep of
   `apps/workers/src`), so that prompt is web-only; its DECISIONS.md record is
-  `D-oracle-system-prompt-1.1.0`. The Vercel chat has run these modules since
+  "2026-09-20 — Connected explanations from approved evidence" (prompt v1.1). The Vercel chat has run these modules since
   2026-09-20 (#17), so web is already ahead of workers today.
 - Responsibility reader (PR #12): `apps/workers/src/lib/responsibility-reader.ts` —
   the deterministic inventory record is extracted into
@@ -141,12 +143,25 @@ Local, `corepack pnpm@9.5.0 install --frozen-lockfile`, no `.env.local`, no
 | `@oracle/ai verify:retrieval-plan-domain-boundaries` | pass |
 | `npx trigger.dev@4.5.15 deploy --env prod --dry-run` | pass; built bundle `environment: prod`, `cliPackageVersion 4.5.15`, 20 entry files all under `src/trigger/`, none `oracle2-*` |
 
-Not run, with reason: `verify:r2-pinned-inventory`, `verify:r2-support-contract`
-(need the licensed fixture on `Z:`), `verify:r2-production-replay`,
-`verify:r2-contract-v2-score`, `verify:r2-first-divergence` (need a production DB URL
-and fresh map id). **Live probe `verify:r2-completion-contract-live` not run:** it
+`@oracle/ai verify:retrieval-filter-parity` (the static guard over
+`searchWithRetrievalPlan`) also passed locally and in the cited PR check run.
+
+Not run, with reason (this is every remaining worker script in
+`apps/workers/package.json`): `verify:r2-pinned-inventory`, `verify:r2-support-contract`,
+`verify:shape-segmentation-real` (need the licensed fixture / real documents on `Z:`);
+`verify:r2-production-replay`, `verify:r0-production-replay`,
+`verify:r2-contract-v2-score`, `verify:r2-first-divergence`,
+`verify:r2-fresh-map-score`, `verify:r2-missed-row-diagnosis`,
+`verify:taxonomy-reclassification-db`, `audit:taxonomy-reclassification-production`
+(need a production DB URL and/or a fresh map id; none of their code paths changed
+except the reader, covered below).
+
+§4's predictions (adapters omitted when keys are absent; the three exact catalog
+strings; `ok: true`) are verified by code read of `standard-adapters.ts`,
+`model-capabilities/index.ts` and `sources/openai-compatible.ts`, not by a gate —
+`adapter-request-shapes` sets all three keys before building adapters. **Live probe `verify:r2-completion-contract-live` not run:** it
 requires the production database and writes model-run audit rows, and its own rule
-(file header; plan G9) applies to changes in the completion request — which §3 proves
+(file header; gate G9 in `plan_r2_completion_recovery_cycle.md`) applies to changes in the completion request — which §3 proves
 unchanged (`workflow-read.ts`, `source-workflow-read.ts` untouched). The reader change
 that does ship (PR #12) is covered by the passing deterministic
 `verify:r2-responsibilities` and only runs on a manual `source-workflow-read`, which
@@ -159,14 +174,20 @@ Credentials: the PAT is read with
 into `TRIGGER_ACCESS_TOKEN` in the command environment only; never printed, pasted,
 logged or committed.
 
-0. **Re-read prod (read-only).** `get_current_worker` prod must show `20260909.1` with
+0. **Approval and prod re-read (read-only).** First write into §Result the reviewer
+   verdict line, the review run id, and the exact dispatch commit it reviewed (the
+   head of branch `claude/worker-release-dispatch-2` passed to `--assert-head`); the
+   dispatch file at that commit must equal the one being executed. No APPROVE → stop.
+   Trigger reads in steps 0/4/5/6 use the Trigger MCP (`get_current_worker`,
+   `list_deploys`, `list_runs`, `query`) for reads only; its pinned CLI version
+   (4.4.6 in `.mcp.json`) is never used to deploy.
+   Then: `get_current_worker` prod must show `20260909.1` with
    the 25 ids in §2; env names must still lack the three new keys; and the read-only
    settings query
-   `SELECT key, value FROM settings WHERE key LIKE 'model_pool_%' OR key LIKE 'default_%' OR key LIKE '%route%'`
-   (prod DB via the session pooler, password from 1Password "Supabase DB Direct URL -
-   The Oracle (CURRENT PROD, theoracle, eqccjfbyrywsqkxxpjvg)", connection option
-   `default_transaction_read_only=on`) must return zero rows whose value matches
-   `meta_muse|stepfun|zai|mimo`. Any mismatch → stop, record, re-request review.
+   `SELECT key FROM settings WHERE (key LIKE 'model_pool_%' OR key LIKE 'default_%' OR key LIKE '%route%') AND value::text ~ 'meta_muse|stepfun|zai|mimo'`
+   (prod DB via `op read "op://vibe_coding/ntr5ln6tnmsmzxzpyv4q6ohxgy/oracle_session_pooler"`
+   as in `docs/deployment.md`, connection option `default_transaction_read_only=on`)
+   must return zero rows. Any mismatch → stop, record, re-request review.
 1. `git fetch origin` then
    `git diff --quiet a12e25e2db6090776f3c2494bcdd36cc77cbcaac origin/main -- apps/workers packages`
    must exit 0; otherwise stop and re-request review (§1).
@@ -176,13 +197,15 @@ logged or committed.
    --frozen-lockfile`.
 2. From `apps/workers`: `npx trigger.dev@4.5.15 deploy --env prod --dry-run` must
    succeed. Failure → stop; prod unchanged.
-3. From `apps/workers`: `npx trigger.dev@4.5.15 deploy --env prod` (one attempt).
+3. From `apps/workers`: `npx trigger.dev@4.5.15 deploy --env prod` (one attempt). This is
+   the repo's `pnpm --filter @oracle/workers run deploy` script (`npx trigger.dev@4.5.15
+   deploy`) with `--env prod` made explicit.
 4. **Failure branches.** Build failure, or built-then-failed-before-promotion (e.g.
-   the G12 `The "data" argument must be of type string ... Received undefined`):
+   gate G12 in `plan_r2_completion_recovery_cycle.md`, `The "data" argument must be of type string ... Received undefined`):
    prod stays on `20260909.1` (confirm with `get_current_worker`); record and stop.
    No retry, no changed code, no CLI version change.
 5. **Verify.** `get_current_worker` prod shows a new version of the form
-   `2026MMDD.N` dated the deploy day (expected `20260928.1` or later) and not
+   `YYYYMMDD.N` dated the deploy day in UTC and not
    `20260909.1`, SDK `4.5.15`, and
    exactly the 25 task ids in §2. Any id missing, any extra id, or any `oracle2-*`
    id → rollback (§7).
@@ -192,8 +215,11 @@ logged or committed.
      `teams-subscription-renew` (every 30 min) Completed on the new version.
    - Next 4-hour cycle (`0 */4` / `30 */4` UTC): `claim-extraction`,
      `claim-extraction-batch-submit`, `contradiction-watcher-sweep`,
-     `document-ingestion-sweep` Completed; `contradiction-watcher` failures only of
-     the two baseline classes. `macro-relationship-staleness-sweep` has no cron (it
+     `document-ingestion-sweep` Completed. `contradiction-watcher` (a consumer of the
+     changed retrieval code, 60 s `maxDuration`) is judged by rate against §2 over the
+     first 24 h: Timed out ≤ 4 (baseline 2) and `job_runs` insert failures ≤ 10
+     (baseline 5), both with no Failed run whose stack names `retrieval.ts` or
+     `retrieval-plan.ts`. `macro-relationship-staleness-sweep` has no cron (it
      is dispatched by the sweep and its dispatch failure is only logged), so its
      absence is recorded as "investigate", never a rollback trigger.
    - Next 07:15 UTC `model-catalog-refresh-nightly`: Completed, `ok: true`, and
@@ -204,7 +230,9 @@ logged or committed.
      rollback then needs a new review.
    - Run status means the **final** run status; a failed attempt later retried to
      Completed is not a failure.
-   - **Rollback trigger (release-attributable only):** a final Failed / Crashed /
+   - **Rollback trigger (release-attributable only):** `contradiction-watcher`
+     exceeding either 24 h rate bound above, or any of its Failed runs with a stack in
+     `retrieval.ts` / `retrieval-plan.ts`; a final Failed / Crashed /
      System failure / Timed out run on the new version whose error is not one of the
      §2 baseline classes AND whose stack or message points into a §3 changed file or
      a missing/renamed task or module; or the catalog refresh run itself ending
@@ -213,11 +241,21 @@ logged or committed.
      three §4 strings (a key appeared without a reviewed env write), any other new error (e.g. a transient
      `Anthropic:` / `OpenAI:` / `OpenRouter enrichment:` string, a `written` dip
      from a vendor outage), recorded on #50 with run ids.
-   - **Close-out:** the release is closed as successful when the T+30 min, first
-     4-hour-cycle and first 07:15 UTC checkpoints pass. The executing session writes
-     §Result and a #50 comment, ticks #50, and deletes its handoff.
-7. Record result (§Result, #50, and the worker row in
-   `docs/agents/15-pending-work.md`: version, deployment id, task count 25).
+   - **Watch close-out:** the watch closes when the T+30 min, first 4-hour-cycle,
+     first 07:15 UTC and 24 h `contradiction-watcher` rate checkpoints pass. §Result
+     must then state the residual risk verbatim: "`teams-live-recall-utterance` and
+     `source-workflow-read` (the reader change) are unproven in production until natural
+     traffic; no smoke run was authorized." The executing session records the first
+     natural run of each on #50 when it occurs.
+   - **Issue and handoff stay open** after watch close-out until: the 2026-10-05
+     `brain-synthesis-scheduled` / `taxonomy-reevaluation` checks are recorded; the
+     catalog error-string guard follow-up and the "use the others" owner ask (§4) each
+     have their own open issue; and the release row is recorded in
+     `plan_repo_reliability_and_release_gaps.md` STATUS. Only then tick #50 and delete
+     the handoff (AGENTS.md §3a).
+7. Record result in §Result and #50 (version, deployment id, task count 25), and
+   replace the stale "Worker deploy state verified … `20260629.1` with 21 tasks" row in
+   `docs/agents/15-pending-work.md` with the new version and 25 tasks.
 
 ## 7. Rollback (forward deploy of the old tree)
 
@@ -225,9 +263,10 @@ logged or committed.
 for an older deployment (`docs/deployment.md` §Rollback/Workers; verified
 2026-08-27). The rollback is a forward deploy of the known-good tree:
 
-1. Clean worktree at `28e8eb7` (the exact tree of `20260909.1`; equivalent to
-   reverting `28e8eb7..a12e25e` for `apps/workers/**` and `packages/**`),
-   `corepack pnpm install --frozen-lockfile`.
+1. `git fetch origin`; `git diff --quiet a12e25e2db6090776f3c2494bcdd36cc77cbcaac origin/main -- apps/workers packages`
+   must exit 0 (no newer worker code landed, so the old tree un-ships only this
+   release); otherwise a new review is required. Then a clean worktree at `28e8eb7`
+   (the exact tree of `20260909.1`), `corepack pnpm install --frozen-lockfile`.
 2. From `apps/workers`: `npx trigger.dev@4.5.15 deploy --env prod --dry-run`, then
    `npx trigger.dev@4.5.15 deploy --env prod`.
 3. Verify `get_current_worker` shows a new version with the 25 ids in §2, then
@@ -248,4 +287,7 @@ so the database audit trail is unaffected; web stays as is and needs no revert.
 
 ## Result
 
-_Not executed._
+_Not executed._ Fields to fill: reviewer verdict line + review run id + reviewed
+dispatch commit; step 0 reads; dry run; deploy result, version, deployment id; each
+checkpoint with run ids; residual-risk statement; owner answer on "use the others"
+(activate Meta Muse in Trigger prod: yes/no, asked on #50).

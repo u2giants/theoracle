@@ -15,11 +15,13 @@ for now and use the others." The exact plan is
 - Prod worker `20260909.1` (`28e8eb7`), 25 tasks. Nothing has been deployed.
 - Deploy target pinned: `a12e25e2db6090776f3c2494bcdd36cc77cbcaac`.
 - The dispatch must carry an APPROVE verdict from the independent reviewer on its exact
-  commit before anyone executes it. Check the latest review file under `.ai/reviews/`
-  and #50 comments.
+  commit before anyone executes it. `.ai/reviews/` is local scratch; the verdict line,
+  review run id and reviewed commit are posted on #50 and copied into dispatch §Result
+  at step 0.
 - No Meta Muse / Z.ai / StepFun key is in Trigger prod, so this release activates no new
   provider. Activating Meta Muse is a separate env write Albert must name.
 
 ## Next step
 Once approved: execute dispatch §6 steps 0–7, watch to close-out, fill §Result, comment
-on #50, tick it, and delete this file (successor rule, AGENTS.md §3a).
+on #50, and keep this file and #50 open until the dispatch §6 "Issue and handoff
+stay open" conditions are met; then tick #50 and delete this file (successor rule, AGENTS.md §3a).

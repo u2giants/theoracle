@@ -98,8 +98,10 @@ op://vibe_coding/<item>/<section>/<field>
 |---|---|---|
 | `Trigger.dev Personal Access Token (management)` (item id `ylzcsfbhmjyzjy65mnu6uxw67e`) | Trigger.dev account PAT for CLI deploys and management-API reads; fields `Personal Access Token - admin level` / `- owner level`. | Read only with `op read` into the command environment (the parentheses in the title break `op://` references, so use the item id); never print, paste, or log it. |
 
-The parentheses in this title are rejected inside `op://` references, so this item is
-the exception to the read-by-title guidance below: address it by item id.
+`op://` references reject titles containing parentheses (this item and the §3 items
+alike), so address such items by item id and field label, e.g. the PAT above or
+`op://vibe_coding/ntr5ln6tnmsmzxzpyv4q6ohxgy/oracle_session_pooler` in
+`docs/deployment.md`; `op item get "<title>"` still works by title.
 
 ## 3. Oracle items created during the 2026-06-26 AI session
 
