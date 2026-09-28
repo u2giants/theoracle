@@ -35,7 +35,7 @@ This file describes the current deploy and release path that exists in the repo 
 build. Keeping `vercel.json` short is required because Vercel rejects `buildCommand` values over 256
 characters. `verify:vercel-contract` enforces that limit and the exact delegated guard list in CI.
 
-The eight deploy guards are DB-free and network-free, so they run inside the Vercel build with no
+The ten deploy guards are DB-free and network-free, so they run inside the Vercel build with no
 extra secrets:
 
 1. `pnpm --filter @oracle/ai verify:retrieval-filter-parity`
@@ -45,7 +45,9 @@ extra secrets:
 5. `pnpm --filter @oracle/web verify:claim-translation-review`
 6. `pnpm --filter @oracle/web verify:eval-results-dashboard`
 7. `pnpm --filter @oracle/web verify:provider-capability-parity`
-8. `pnpm --filter @oracle/web verify:mcp`
+8. `pnpm --filter @oracle/web verify:model-coverage-conversion`
+9. `pnpm --filter @oracle/engines verify:lull-topical`
+10. `pnpm --filter @oracle/web verify:mcp`
 
 The Vertex guard stubs its clients, and the default Chinese fixture never calls the embedding
 service. The credentialed Chinese vector measurement is separate:
@@ -120,6 +122,10 @@ Three verification-only workflows are present (`pr-check.yml`, `task-gates.yml`,
 - `.github/workflows/task-gates.yml` installs the pinned public task-gate engine
   and proves Oracle's local classification, no-bypass, valid-flow, and rollback
   assertions on every pull request and push to `main`.
+- `.github/workflows/oracle2-contracts.yml` runs on the self-hosted `edge-dev3`
+  runner: Oracle 2 contract checks, `@oracle/workers` typecheck, and
+  `scripts/oracle2/verify_worker_bundle.mjs` (the legacy worker bundle must not
+  contain Oracle 2 tasks).
 
 What `pr-check.yml` does (in order):
 
@@ -218,7 +224,7 @@ Env-var writes to Vercel are done via the Vercel dashboard or the Vercel REST AP
 
 This is separate from the Microsoft Graph transcript subscription above. Graph remains the post-call evidence/backfill path. Live spoken participation uses a Recall.ai meeting bot because Graph does not expose live Teams caption/transcript streams.
 
-Status: **live + validated end-to-end (2026-06-08/09).** The current production worker deployment after cleanup is `20260609.6`, with the temporary test-only bot-create task removed. After testing, live posting was intentionally clamped off through runtime `settings`; reopen it only for a controlled test or after the retrieval-backed-context work lands.
+Status: **live + validated end-to-end (2026-06-08/09).** The worker deployment after that cleanup was `20260609.6`, with the temporary test-only bot-create task removed (for the current prod worker version, read Trigger.dev; see `docs/operations/` release records). After testing, live posting was intentionally clamped off through runtime `settings`; reopen it only for a controlled test or after the retrieval-backed-context work lands.
 
 Deploy pieces:
 

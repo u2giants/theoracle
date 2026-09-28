@@ -13,13 +13,13 @@ for now and use the others." The exact plan is
 
 ## State
 - Prod worker `20260909.1` (`28e8eb7`), 25 tasks. Nothing has been deployed.
-- Deploy target pinned: `1ab6d0cd1abbba8fb17791364a28e7237c88880f` (revision 5).
+- Deploy target pinned: `5a441199925d0ddb5a76374f44b8c3243a303214` (revision 6).
 - The dispatch must carry an APPROVE verdict from the independent reviewer on its exact
-  commit before anyone executes it. `.ai/reviews/` is local scratch; the verdict line,
-  review run id and reviewed commit are posted on #50 and copied into dispatch §Result
-  at step 0.
+  commit before anyone executes it. `.ai/reviews/` is local scratch; the approval record
+  (verdict line, review file, reviewed commit) is posted on #50, never written into the
+  dispatch file.
 - META_MUSE_API_KEY and STEPFUN_API_KEY are already in Trigger prod (#49); ZAI_API_KEY is not (on hold).
-- Selecting Muse/StepFun in a pool is Albert's call, asked on #50.
+- Model selection is Albert's on the settings page; the release does not depend on it.
 
 ## Next step
 Once approved: execute dispatch §6 steps 0–7, watch to close-out, fill §Result, comment
