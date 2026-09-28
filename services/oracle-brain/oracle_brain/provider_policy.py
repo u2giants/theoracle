@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Callable
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -55,4 +57,19 @@ def safe_telemetry(metadata: dict) -> dict:
     allowed = {"run_id", "provider", "model", "status", "elapsed_ms", "token_count"}
     if set(metadata) - allowed:
         raise ValueError("telemetry contains unapproved fields")
+    if "run_id" in metadata:
+        try:
+            UUID(str(metadata["run_id"]))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ValueError("invalid telemetry run ID") from exc
+    for key in ("provider", "model"):
+        if key in metadata and (not isinstance(metadata[key], str)
+                                or not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,100}", metadata[key])):
+            raise ValueError(f"invalid telemetry {key}")
+    if "status" in metadata and metadata["status"] not in {"started", "passed", "failed", "denied"}:
+        raise ValueError("invalid telemetry status")
+    for key in ("elapsed_ms", "token_count"):
+        if key in metadata and (not isinstance(metadata[key], int) or isinstance(metadata[key], bool)
+                                or metadata[key] < 0 or metadata[key] > 1_000_000_000):
+            raise ValueError(f"invalid telemetry {key}")
     return dict(metadata)

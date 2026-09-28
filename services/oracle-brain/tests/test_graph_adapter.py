@@ -1,4 +1,5 @@
 from uuid import uuid4
+from concurrent.futures import ThreadPoolExecutor
 
 from oracle_brain.graph.falkor import FalkorGraphStore
 from oracle_brain.graph.graphiti_candidates import ExtractedRelation, candidate_bundle
@@ -48,3 +49,16 @@ def test_candidate_correction_cannot_invalidate_confirmed(candidate_url, confirm
     assert candidate.query(workspace) == []
     assert confirmed.query(workspace) == [{"assertion_id": assertion, "revision": 1,
                                            "payload": {"fact": "confirmed"}}]
+
+
+def test_concurrent_old_projection_cannot_override_new(confirmed_url):
+    graph = FalkorGraphStore(confirmed_url)
+    workspace, assertion = uuid4(), uuid4()
+    graph.project(workspace, assertion, 1, {"revision": 1})
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(graph.project, workspace, assertion, revision,
+                               {"revision": revision}) for revision in (2, 3, 4, 5, 2, 3, 4, 5)]
+        for future in futures:
+            future.result()
+    assert graph.query(workspace) == [{"assertion_id": assertion, "revision": 5,
+                                       "payload": {"revision": 5}}]

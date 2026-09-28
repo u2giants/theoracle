@@ -18,9 +18,17 @@ def test_checkpoint_scope_survives_new_connection(admin_url):
     with pytest.raises(PermissionError):
         bind_checkpoint(extract_url, thread_id=thread, workspace_id=other,
                         user_id=user)
-    with postgres_checkpointer(admin_url, thread_id=thread,
+    with postgres_checkpointer(extract_url, thread_id=thread,
                                workspace_id=workspace, user_id=user) as saver:
-        saver.setup()
+        with pytest.raises(PermissionError):
+            saver.setup()
         with pytest.raises(PermissionError):
             saver.get_tuple({"configurable": {"thread_id": str(uuid4())}})
+        with pytest.raises(PermissionError):
+            saver.get_delta_channel_history(config={"configurable": {"thread_id": str(uuid4())}},
+                                            channels=["messages"])
+        with pytest.raises(PermissionError):
+            saver.delete_thread(str(uuid4()))
+        with pytest.raises(PermissionError):
+            list(saver.list(None))
         assert list(saver.list({"configurable": {"thread_id": thread}})) == []

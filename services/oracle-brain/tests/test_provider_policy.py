@@ -25,3 +25,9 @@ def test_default_deny_exact_scope_and_no_outbound_call():
     assert calls == [1]
     with pytest.raises(ValueError):
         safe_telemetry({"source_text": "private"})
+    with pytest.raises(ValueError):
+        safe_telemetry({"model": "private company procedure"})
+    with pytest.raises(ValueError):
+        safe_telemetry({"status": "Approval from Alice"})
+    assert safe_telemetry({"run_id": "11111111-1111-4111-8111-111111111111",
+                           "model": "openai/gpt-4o", "status": "passed"})["status"] == "passed"

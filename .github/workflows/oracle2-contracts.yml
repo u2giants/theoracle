@@ -56,6 +56,8 @@ jobs:
           git diff --exit-code -- apps/workers/oracle2-requirements.txt
       - name: Start isolated real stores
         run: docker compose -f dev/oracle2/compose.yaml up -d --wait
+      - name: Bootstrap isolated LangGraph checkpoint tables
+        run: services/oracle-brain/.venv/bin/python scripts/oracle2/init_local_stores.py
       - name: S02 offline contract and storage gate
         run: python3 scripts/oracle2/verify_phase.py S02 --mode offline
       - name: Pilot graph resource experiment

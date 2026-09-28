@@ -16,6 +16,7 @@ export ORACLE2_TEST_ADMIN_URL=postgresql://oracle2_admin:oracle2_local_admin_onl
 export ORACLE2_TEST_CANDIDATE_URL=redis://:oracle2_candidate_local_only@127.0.0.1:56379
 export ORACLE2_TEST_CONFIRMED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:56380
 export ORACLE2_TEST_BLOB_ENDPOINT=http://127.0.0.1:54566
+services/oracle-brain/.venv/bin/python scripts/oracle2/init_local_stores.py
 python3 scripts/oracle2/verify_phase.py S02 --mode offline
 docker compose -f dev/oracle2/compose.yaml down --volumes
 ```

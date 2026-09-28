@@ -30,14 +30,10 @@ class FalkorGraphStore:
         if revision < 1:
             raise ValueError("revision must be positive")
         graph = self._graph(workspace_id)
-        row = graph.query(
-            "MATCH (a:Assertion {id:$id}) RETURN a.revision",
-            params={"id": str(assertion_id)},
-        ).result_set
-        if row and int(row[0][0]) >= revision:
-            return
         graph.query(
             """MERGE (a:Assertion {id:$id})
+               ON CREATE SET a.revision=0
+               WITH a WHERE a.revision < $revision
                SET a.revision=$revision,a.payload=$payload,a.active=true""",
             params={"id": str(assertion_id), "revision": revision,
                     "payload": json.dumps(payload, sort_keys=True)},
@@ -57,12 +53,11 @@ class FalkorGraphStore:
         if revision < 1:
             raise ValueError("revision must be positive")
         graph = self._graph(workspace_id)
-        row = graph.query("MATCH (a:Assertion {id:$id}) RETURN a.revision",
-                          params={"id": str(assertion_id)}).result_set
-        if row and int(row[0][0]) >= revision:
-            return
         graph.query(
-            "MERGE (a:Assertion {id:$id}) SET a.revision=$revision,a.active=false",
+            """MERGE (a:Assertion {id:$id})
+               ON CREATE SET a.revision=0
+               WITH a WHERE a.revision < $revision
+               SET a.revision=$revision,a.active=false""",
             params={"id": str(assertion_id), "revision": revision},
         )
 
