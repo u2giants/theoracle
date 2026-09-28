@@ -1,5 +1,10 @@
 # Architecture
 
+Planned replacement: [company-consultant overhaul](../plan_oracle_consultant_overhaul.md)
+(STATUS first; parent #24), with [technology research](research/oracle-consultant-technology-review.md).
+The replacement has not been implemented. The runtime description below remains the
+existing system; do not treat the proposal as deployed behavior.
+
 ## Connected employee answers (2026-09-20)
 
 The chat route now assembles bounded approved evidence before answering. Explicit

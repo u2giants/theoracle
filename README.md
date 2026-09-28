@@ -5,6 +5,7 @@ The Oracle is an evidence-backed enterprise knowledge graph for POP Creations / 
 Start here:
 
 - `AGENTS.md` — primary developer and AI-session operating guide
+- [`plan_oracle_consultant_overhaul.md`](plan_oracle_consultant_overhaul.md) — company-consultant replacement; read STATUS first and follow parent issue #24
 - `HANDOFF.md` — active unfinished work, when present
 - `MACRO_FIRST_IMPLEMENTATION_PLAN.md` — macro-first refactor status and execution gates
 - `plan_repo_reliability_and_release_gaps.md` — known reliability and release problems

@@ -14,6 +14,15 @@ There is no universal ignore-file standard across AI coding tools.
 
 When using any other AI tool, paste this file as your first message and follow the instructions in the "What to ignore" section.
 
+## Consultant overhaul discovery
+
+For the company-consultant replacement requested on 2026-09-27 EDT, read
+[`plan_oracle_consultant_overhaul.md`](plan_oracle_consultant_overhaul.md) **STATUS first**
+and follow parent issue #24. This is the durable project-memory pointer: do not
+re-derive the plan or resume old experiments to start the isolated replacement.
+The plan distinguishes future design from current runtime and preserves the
+applicable evidence, access and release controls.
+
 ## 3. Task router — where each section now lives
 
 `AGENTS.md` is kept small because it loads into every AI session. The full text of

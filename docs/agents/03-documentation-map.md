@@ -10,6 +10,7 @@ Then load additional docs only when relevant — do not bulk-read every `.md` fi
 
 | Task / question | Read these docs | Usually do not need |
 |---|---|---|
+| Company-consultant overhaul / FalkorDB / Graphiti / interview and meeting learning / industry advice | `plan_oracle_consultant_overhaul.md` (STATUS first; parent #24), `docs/research/oracle-consultant-technology-review.md`, its linked handoff | Old R2/Jev execution plans unless explicitly changing those paths |
 | Quick repo orientation | `README.md`, `AGENTS.md` | Deep docs under `docs/` unless task requires them |
 | Modify app behavior or project-owned code | `AGENTS.md`, relevant folder-level `README.md` if present, `docs/architecture.md` if system design is affected | `docs/deployment.md` unless deploy behavior changes |
 | Add or change AI provider adapter or model catalog | `AGENTS.md`, `docs/architecture.md` (adapter table + data flow), provider files under `packages/ai/src/providers/`, `DECISIONS.md`; `fix_adapter_quirks.md` when strict/deep schema eligibility or adapter request safety is involved; run/update `packages/ai/src/__verify__/adapter-request-shapes.ts` when request-shaping, strict-schema eligibility, or usage normalization changes | Worker or webhook code |
