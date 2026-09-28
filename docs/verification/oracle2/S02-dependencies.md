@@ -1,7 +1,7 @@
 # S02 dependency and runtime qualification
 
 Status: accepted on synthetic evidence, 2026-09-28 EDT. Offline qualification
-first passed at `3b94d22` and is re-run by CI on every PR #45 head (latest code-bearing head `b321478`: [CI run 36448118590](https://github.com/u2giants/theoracle/actions/runs/36448118590), 25 Python checks at that time); preview qualification passed on
+first passed at `3b94d22` and is re-run by CI on every PR #45 head (final code-bearing head `da76d0a`: [CI run 36450899266](https://github.com/u2giants/theoracle/actions/runs/36450899266), 26 Python checks; later commits are documentation-only); preview qualification passed on
 Trigger staging (see "Preview result — revision 6"). This is not a
 business-quality claim.
 
