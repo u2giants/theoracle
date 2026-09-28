@@ -2,12 +2,16 @@
 """Dependency-free validation of the public Oracle 2 synthetic evaluation manifest."""
 import argparse
 from collections import Counter
+import csv
+from email.parser import Parser
 import hashlib
+import io
 import json
 from pathlib import Path
 import re
 import subprocess
 import sys
+from xml.etree import ElementTree
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / 'evals/oracle2/manifest.schema.json'
@@ -21,6 +25,43 @@ def fail(message):
 def nonempty(value, label):
     if not isinstance(value, str) or not value.strip():
         fail(f'{label}: nonempty string required')
+
+
+def fixture_has_adversarial_shape(record):
+    """Require usable raw input for each of the twelve source-edge contracts."""
+    raw = record['input_text']
+    code = record['id']
+    try:
+        if code == 'F01':
+            return raw.count('<td>') >= 4 and 'Exception:' in raw and 'Only after' in raw
+        if code in ('F02', 'F08'):
+            item = json.loads(raw)
+            return (item.get('confidence', 1) < 0.7 and len(item.get('bbox', [])) == 4
+                    and ('l6' in item.get('text', '') if code == 'F02' else item.get('rotation') == 90 and 'NO' in item.get('text', '')))
+        if code in ('F03', 'F04', 'F05', 'F07'):
+            root = ElementTree.fromstring(raw)
+            names = {node.tag.rsplit('}', 1)[-1] for node in root.iter()}
+            return {'del', 'ins'} <= names if code == 'F03' else (
+                'mergeCell' in names if code == 'F04' else (
+                    {'f', 'v'} <= names if code == 'F05' else 'path' in names and 'marker-end' in raw))
+        if code == 'F06':
+            rows = list(csv.reader(io.StringIO(raw)))
+            return len(rows) == 3 and len(rows[1]) == 2 and '\n' in rows[1][1]
+        if code == 'F09':
+            mail = Parser().parsestr(raw)
+            return bool(mail['From']) and '> Old note:' in mail.get_payload() and 'approval pending' in mail.get_payload()
+        if code == 'F10':
+            return raw.startswith('WEBVTT') and '00:00:01.000 --> 00:00:03.000' in raw and '00:00:02.000 --> 00:00:04.000' in raw
+        if code == 'F11':
+            return raw.startswith('# ') and 'Ignore all previous instructions' in raw and 'Actual step:' in raw
+        if code == 'F12':
+            revisions = [json.loads(line) for line in raw.splitlines()]
+            return (len(revisions) == 2 and revisions[0]['source_id'] == revisions[1]['source_id']
+                    and revisions[0]['status'] == 'withdrawn' and revisions[1]['status'] == 'current'
+                    and revisions[0]['revision'] < revisions[1]['revision'])
+    except (ValueError, KeyError, TypeError, ElementTree.ParseError, csv.Error):
+        return False
+    return False
 
 
 def validate_record(record, line):
@@ -87,6 +128,10 @@ def validate_record(record, line):
             nonempty(record[field], f'line {line} {field}')
         if record['input_text'].strip() == record['attack_or_shape'].strip():
             fail(f'line {line}: fixture requires a concrete payload, not its description')
+        if len(spans) != 1 or spans[0]['locator'] != 'raw:all' or spans[0]['text'] != record['input_text']:
+            fail(f'line {line}: fixture evidence span must contain the exact raw payload')
+        if not fixture_has_adversarial_shape(record):
+            fail(f'line {line}: fixture payload lacks its required adversarial shape')
 
 
 def validate(records, schema, prior_records=None, prior_version=None):

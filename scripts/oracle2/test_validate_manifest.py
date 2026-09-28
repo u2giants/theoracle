@@ -82,6 +82,14 @@ class ManifestValidationTests(unittest.TestCase):
     def test_fixture_without_raw_payload_fails(self):
         self.assert_rejected(lambda rows: rows[-1].update(input_text=rows[-1]['attack_or_shape']))
 
+    def test_fixture_placeholder_with_matching_span_fails(self):
+        def mutate(rows):
+            for row in rows:
+                if row['kind'] == 'source_fixture':
+                    row['input_text'] = 'x'
+                    row['evidence_spans'][0]['text'] = 'x'
+        self.assert_rejected(mutate)
+
     def test_missing_git_baseline_fails_closed(self):
         from unittest.mock import patch
         from subprocess import CompletedProcess
