@@ -21,29 +21,38 @@ S02_TESTS = [
     "test_runtime_identity.py", "test_provider_policy.py", "test_authority.py",
     "test_preview_settings.py", "test_worker_guard_parity.py",
 ]
+S03_TESTS = [
+    "test_provider_policy.py", "test_pilot_journey.py", "test_authority.py",
+    "test_review_concurrency.py",
+]
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=["S02"])
+    parser.add_argument("phase", choices=["S02", "S03"])
     parser.add_argument("--mode", choices=["offline", "live"], required=True)
     parser.add_argument("--manifest")
     parser.add_argument("--result", type=Path,
-                        default=ROOT / "out" / "oracle2" / "S02-result.json")
+                        default=None)
     args = parser.parse_args()
+    if args.result is None:
+        args.result = ROOT / "out" / "oracle2" / f"{args.phase}-result.json"
     if args.mode != "offline":
-        parser.error("S02 live gate requires a separately reviewed preview target")
+        parser.error(f"{args.phase} live gate requires a separately reviewed preview target")
     if args.manifest:
         parser.error("offline gate cannot use a private manifest")
-    missing = [name for name in S02_TESTS if not (SERVICE / "tests" / name).is_file()]
+    test_list = S03_TESTS if args.phase == "S03" else S02_TESTS
+    missing = [name for name in test_list if not (SERVICE / "tests" / name).is_file()]
     if missing:
         parser.error(f"missing required tests: {', '.join(missing)}")
     if not os.getenv("ORACLE2_TEST_ADMIN_URL") or not os.getenv("ORACLE2_TEST_CONFIRMED_URL"):
         parser.error("real isolated Postgres and FalkorDB test URLs required")
     python = SERVICE / ".venv" / "bin" / "python"
     if not python.exists():
+        python = SERVICE / ".venv" / "Scripts" / "python.exe"
+    if not python.exists():
         parser.error("frozen Python environment missing; run uv sync --frozen --extra test")
-    tests = [str(SERVICE / "tests" / name) for name in S02_TESTS]
+    tests = [str(SERVICE / "tests" / name) for name in test_list]
     completed = subprocess.run([str(python), "-m", "pytest", "-q", *tests], cwd=ROOT,
                                capture_output=True, text=True, check=False)
     # No test output enters a public artifact; raw logs remain in local CI job.
@@ -52,7 +61,7 @@ def main() -> int:
         "phase": args.phase, "mode": args.mode,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "lock_sha256": lock_hash,
-        "required_test_files": S02_TESTS,
+        "required_test_files": test_list,
         "test_exit_code": completed.returncode,
         "passed": completed.returncode == 0,
         "live_accepted": False,
