@@ -15,7 +15,8 @@
     "verify:business-answer": "tsx lib/__verify__/business-answer-context.ts && tsx lib/__verify__/business-answer-journey.ts && tsx lib/__verify__/business-answer-reconciliation.ts",
     "verify:eval-results-dashboard": "tsx lib/__verify__/eval-results-dashboard.ts",
     "verify:provider-capability-parity": "tsx lib/__verify__/provider-capability-parity.ts",
-    "verify:model-coverage-conversion": "tsx lib/__verify__/model-coverage-conversion.ts"
+    "verify:model-coverage-conversion": "tsx lib/__verify__/model-coverage-conversion.ts",
+    "test:oracle2": "playwright test --config playwright.oracle2.config.ts"
   },
   "dependencies": {
     "@openrouter/ai-sdk-provider": "^2.9.0",
@@ -53,6 +54,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "@tailwindcss/postcss": "^4.3.0",
     "@types/node": "^24.12.4",
     "@types/react": "^19.2.15",

@@ -13,6 +13,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./init-postgres.sql:/docker-entrypoint-initdb.d/001-roles.sql:ro
       - ../../services/oracle-brain/sql/001_foundation.sql:/docker-entrypoint-initdb.d/002-foundation.sql:ro
+      - ../../services/oracle-brain/sql/002_pilot.sql:/docker-entrypoint-initdb.d/002b-pilot.sql:ro
       - ./grant-postgres.sql:/docker-entrypoint-initdb.d/003-grants.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U oracle2_admin -d oracle2"]

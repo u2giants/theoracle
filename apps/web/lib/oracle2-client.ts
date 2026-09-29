@@ -1,0 +1,191 @@
+// Oracle 2 thin pilot client: shared state and helpers for the S03 journey.
+// This is an in-process store for the pilot; S04+ replaces it with the Postgres
+// authority-backed path already proven in the Python tests.
+
+export interface SourceBlock {
+  blockId: string;
+  sourceId: string;
+  blockIndex: number;
+  text: string;
+  spanStart: number;
+  spanEnd: number;
+}
+
+export interface DraftConnection {
+  from: number;
+  to: number;
+}
+
+export interface Draft {
+  draftId: string;
+  sourceId: string;
+  workspaceId: string;
+  createdBy: string;
+  processName: string;
+  connections: DraftConnection[];
+  status: 'draft' | 'confirmed' | 'withdrawn';
+  updatedAt: string;
+}
+
+export interface Citation {
+  sourceId: string;
+  spanStart: number;
+  spanEnd: number;
+  quote: string;
+}
+
+export interface HypotheticalExperiment {
+  label: string;
+  description: string;
+  measure: string;
+  missingInputs: string[];
+}
+
+export interface PilotAnswer {
+  answerText: string;
+  citations: Citation[];
+  hypothetical: HypotheticalExperiment | null;
+  isEstablishedFact: boolean;
+}
+
+export interface Run {
+  runId: string;
+  workspaceId: string;
+  actorId: string;
+  sourceId: string;
+  draftId: string | null;
+  question: string;
+  status: 'pending' | 'processing' | 'completed' | 'cancelled' | 'error';
+  answer: PilotAnswer | null;
+  error: string | null;
+  createdAt: string;
+}
+
+export interface Review {
+  reviewId: string;
+  draftId: string;
+  workspaceId: string;
+  actorId: string;
+  action: 'correct' | 'confirm' | 'reject';
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+// Singleton in-memory stores (pilot only; replaced in S04+).
+const sources = new Map<string, { sourceId: string; workspaceId: string; filename: string; blocks: SourceBlock[]; status: string }>();
+const drafts = new Map<string, Draft>();
+const runs = new Map<string, Run>();
+const reviews: Review[] = [];
+
+export function storeSource(sourceId: string, workspaceId: string, filename: string, blocks: SourceBlock[]): void {
+  sources.set(sourceId, { sourceId, workspaceId, filename, blocks, status: 'draft' });
+}
+
+export function getSource(sourceId: string) {
+  return sources.get(sourceId) ?? null;
+}
+
+export function storeDraft(draft: Draft): void {
+  drafts.set(draft.draftId, draft);
+}
+
+export function getDraft(draftId: string): Draft | null {
+  return drafts.get(draftId) ?? null;
+}
+
+export function storeRun(run: Run): void {
+  runs.set(run.runId, run);
+}
+
+export function getRun(runId: string): Run | null {
+  return runs.get(runId) ?? null;
+}
+
+export function storeReview(review: Review): void {
+  reviews.push(review);
+}
+
+export function getReviewsForDraft(draftId: string): Review[] {
+  return reviews.filter((r) => r.draftId === draftId);
+}
+
+export function hasActiveConfirm(draftId: string): boolean {
+  return reviews.some((r) => r.draftId === draftId && r.action === 'confirm');
+}
+
+export function parseTextToBlocks(text: string, sourceId: string): SourceBlock[] {
+  const blocks: SourceBlock[] = [];
+  let offset = 0;
+  const paragraphs = text.split('\n\n');
+  for (const paragraph of paragraphs) {
+    const stripped = paragraph.trim();
+    if (!stripped) {
+      offset += paragraph.length + 2;
+      continue;
+    }
+    const start = text.indexOf(stripped, offset);
+    const end = start + stripped.length;
+    blocks.push({
+      blockId: `${sourceId}-${blocks.length}`,
+      sourceId,
+      blockIndex: blocks.length,
+      text: stripped,
+      spanStart: start,
+      spanEnd: end,
+    });
+    offset = end;
+  }
+  return blocks;
+}
+
+export function retrieveSpans(question: string, blocks: SourceBlock[], limit = 5): Array<{ block: SourceBlock; score: number }> {
+  const stopWords = new Set(['the', 'a', 'an', 'is', 'are', 'can', 'where', 'how', 'what', 'when', 'does', 'do', 'in', 'on', 'to', 'of', 'for', 'and', 'or', 'be', 'will', 'would', 'could', 'should']);
+  const questionWords = new Set(
+    question
+      .split(/\s+/)
+      .map((w) => w.toLowerCase().replace(/[.,;:!?]/g, ''))
+      .filter((w) => w && !stopWords.has(w)),
+  );
+  const scored = blocks
+    .map((block) => {
+      const textLower = block.text.toLowerCase();
+      let overlap = 0;
+      for (const word of questionWords) {
+        if (textLower.includes(word)) overlap++;
+      }
+      return { block, score: overlap / Math.max(questionWords.size, 1) };
+    })
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit);
+}
+
+export function answerQuestion(question: string, spans: Array<{ block: SourceBlock; score: number }>): PilotAnswer {
+  if (spans.length === 0) {
+    return {
+      answerText: 'No source evidence was found for this question.',
+      citations: [],
+      hypothetical: null,
+      isEstablishedFact: false,
+    };
+  }
+  const citations: Citation[] = spans.map((s) => ({
+    sourceId: s.block.sourceId,
+    spanStart: s.block.spanStart,
+    spanEnd: s.block.spanEnd,
+    quote: s.block.text,
+  }));
+  const factLines = spans.slice(0, 3).map((s) => `According to the source: ${s.block.text}`);
+  return {
+    answerText: factLines.join('\n'),
+    citations,
+    hypothetical: {
+      label: 'Hypothetical improvement experiment (not established fact)',
+      description:
+        'Consider testing whether consolidating sequential handoffs into a single checkpoint reduces cycle time.',
+      measure: 'Measure cycle time before and after the change over two sprints.',
+      missingInputs: ['current cycle-time baseline', 'team capacity data'],
+    },
+    isEstablishedFact: true,
+  };
+}

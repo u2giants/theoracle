@@ -1,0 +1,47 @@
+// POST /api/consultant/sources — upload a document for the pilot journey.
+import { NextResponse, type NextRequest } from 'next/server';
+import { randomUUID } from 'crypto';
+import { parseTextToBlocks, storeDraft, storeSource, type Draft } from '@/lib/oracle2-client';
+
+export const dynamic = 'force-dynamic';
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { text, filename, workspaceId, actorId, processName } = body;
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return NextResponse.json({ error: 'text is required' }, { status: 400 });
+    }
+    const sourceId = randomUUID();
+    const blocks = parseTextToBlocks(text, sourceId);
+    if (blocks.length === 0) {
+      return NextResponse.json({ error: 'no content blocks found' }, { status: 400 });
+    }
+    storeSource(sourceId, workspaceId ?? 'default', filename ?? 'document.txt', blocks);
+    const draftId = randomUUID();
+    const draft: Draft = {
+      draftId,
+      sourceId,
+      workspaceId: workspaceId ?? 'default',
+      createdBy: actorId ?? 'pilot-user',
+      processName: processName ?? 'Process draft',
+      connections: [],
+      status: 'draft',
+      updatedAt: new Date().toISOString(),
+    };
+    storeDraft(draft);
+    return NextResponse.json({
+      sourceId,
+      draftId,
+      blocks: blocks.map((b) => ({
+        blockId: b.blockId,
+        blockIndex: b.blockIndex,
+        text: b.text,
+        spanStart: b.spanStart,
+        spanEnd: b.spanEnd,
+      })),
+    });
+  } catch {
+    return NextResponse.json({ error: 'upload failed' }, { status: 500 });
+  }
+}

@@ -68,6 +68,8 @@ jobs:
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/init_local_stores.py
       - name: S02 offline contract and storage gate
         run: python3 scripts/oracle2/verify_phase.py S02 --mode offline
+      - name: S03 pilot journey offline gate
+        run: python3 scripts/oracle2/verify_phase.py S03 --mode offline
       - name: Pilot graph resource experiment
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 10000 --relations 100000 --output out/oracle2/resource-pilot.json
       - name: Ten-times graph stress experiment
