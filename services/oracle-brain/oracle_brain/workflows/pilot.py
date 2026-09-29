@@ -59,8 +59,8 @@ def create_draft(database_url: str, *, source_id: UUID, workspace_id: UUID,
     with psycopg.connect(database_url) as connection:
         connection.execute(
             """INSERT INTO oracle2.drafts
-               (draft_id,source_id,workspace_id,created_by,process_name,connections)
-               VALUES (%s,%s,%s,%s,%s,%s)""",
+               (draft_id,source_id,workspace_id,created_by,process_name,connections,status)
+               VALUES (%s,%s,%s,%s,%s,%s,'draft')""",
             (draft_id, source_id, workspace_id, actor_id, process_name,
              Jsonb(connections)),
         )
