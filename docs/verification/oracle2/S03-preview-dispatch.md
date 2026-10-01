@@ -53,21 +53,20 @@ called.
 
 ## Authorized real-data source and answer key (settled; do not re-ask)
 
-Source: one sanitized **process table** for the Disney DCP Vault
-artwork-withdrawal confirmation practice **settled from Ilona, 2026-09-25**
-(relayed by Albert; durable rule in `popcre/shared-db`
-`docs/business-rules/licensing-master-data.md`, provenance
-`popcre/shared-db#3347`). Rows cover: monitor style-guide assets; identify
-removal on UPDATED; manual POP removal as confirmation; creation-time sunset
-date as alternate signal; explicit non-inference of legal rights from portal
-absence.
+Source: one sanitized **process table** for a licensing workflow process owned
+by Ilona (process owner). Exact company process steps, private source text, and
+the graded answer key live only in the private processing register / evidence
+directory — never in this public repository (`plan…` public-repo rule;
+`evals/oracle2/acceptance-spec.md` private-equivalent rule).
 
-Answer key (S01 fact correctness / mandatory exceptions): no formal notice in
-the normal path; UPDATED + manual removal; **or** creation-time sunset date;
-portal absence is **not** confirmed withdrawal and **not** legal entitlement.
+Answer-key **location only** (not contents): the private register named above,
+section “S01 answer key”. Ilona’s dated operational practice is already on
+record in a separate private/durable business-rule home and is used only as the
+grading key.
 
-Do **not** copy private contract text, employee identity, or raw DCP asset
-filenames into this public repository, issues, or model logs.
+Do **not** copy private contract text, employee identity, process-step wording,
+answer keys, or raw asset filenames into this public repository, issues, or
+model logs.
 
 ## Actions
 
