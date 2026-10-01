@@ -85,6 +85,10 @@ export function grantAuthority(actorId: string, scope: 'review' | 'confirm'): vo
   authorityGrants.set(actorId, scopes);
 }
 
+export function revokeAuthority(actorId: string): void {
+  authorityGrants.delete(actorId);
+}
+
 export function hasAuthority(actorId: string | undefined, scope: 'review' | 'confirm'): boolean {
   if (!actorId) return false;
   return authorityGrants.get(actorId)?.has(scope) ?? false;

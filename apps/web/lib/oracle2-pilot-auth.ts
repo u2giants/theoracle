@@ -5,7 +5,7 @@
 // missing-scope denial is testable.
 
 import { randomUUID } from 'crypto';
-import { grantAuthority } from '@/lib/oracle2-client';
+import { grantAuthority, revokeAuthority } from '@/lib/oracle2-client';
 
 const SESSION_COOKIE = 'oracle2_pilot_session';
 
@@ -22,7 +22,7 @@ export function pilotToken(): string | undefined {
 }
 
 export function pilotActor(): string {
-  return process.env.ORACLE2_PILOT_ACTOR ?? 'pilot-user';
+  return process.env.ORACLE2_PILOT_ACTOR ?? process.env.ORACLE2_PILOT_ACTORS ?? 'pilot-user';
 }
 
 export function pilotScopes(): Array<'review' | 'confirm'> {
@@ -54,7 +54,13 @@ export function createSession(token: string):
 }
 
 export function destroySession(sessionId: string | undefined): void {
-  if (sessionId) sessions.delete(sessionId);
+  if (!sessionId) return;
+  const session = sessions.get(sessionId);
+  sessions.delete(sessionId);
+  if (session) {
+    // Session-scoped grants: revoking the session drops the actor's scopes.
+    revokeAuthority(session.actorId);
+  }
 }
 
 function parseCookies(header: string | null): Record<string, string> {

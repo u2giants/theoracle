@@ -31,7 +31,7 @@ test.describe('S03 pilot journey', () => {
     await expect(page.getByTestId('block-1')).toBeVisible();
     await expect(page.getByTestId('draft-status')).toContainText('draft');
 
-    // 2. Correct one connection (change the from/to step).
+    // 2. Correct one connection (change the from/to step) and prove it is cited.
     await page.getByTestId('conn-from').selectOption('0');
     await page.getByTestId('conn-to').selectOption('2');
     await page.getByTestId('correct-btn').click();
@@ -41,7 +41,7 @@ test.describe('S03 pilot journey', () => {
     await page.getByTestId('confirm-btn').click();
     await expect(page.getByTestId('draft-status')).toContainText('confirmed');
 
-    // 4. Ask a connected question.
+    // 4. Ask a connected question — answer must include the corrected edge.
     await page.getByTestId('question-input').fill(
       'Where can the handoff between licensing and production fail?',
     );
@@ -49,6 +49,8 @@ test.describe('S03 pilot journey', () => {
     await expect(page.getByTestId('answer-section')).toBeVisible();
     await expect(page.getByTestId('answer-text')).not.toBeEmpty();
     await expect(page.getByTestId('answer-text')).toContainText('Process-map connections');
+    await expect(page.getByTestId('answer-text')).toContainText('0→2');
+    await expect(page.getByTestId('answer-text')).toContainText('Connected process step');
     await expect(page.getByTestId('citations')).toBeVisible();
     await expect(page.getByTestId('hypothetical')).toBeVisible();
     await expect(page.getByTestId('hypothetical')).toContainText('not established fact');

@@ -80,7 +80,9 @@ filenames into this public repository, issues, or model logs.
    no Vercel production change. Set preview-only env:
    - `ORACLE2_PILOT_TOKEN` (random secret, not committed; stored only in the
      private evidence directory)
-   - `ORACLE2_PILOT_ACTORS=pilot-user`
+   - `ORACLE2_PILOT_ACTOR=pilot-user` (single configured actor; body identities
+     are ignored)
+   - `ORACLE2_PILOT_SCOPES=review,confirm`
    The token is **not** browser-bundled. The UI takes it in a password field;
    `POST /api/consultant/session` checks token + allowlist and issues an
    httpOnly session cookie bound to that actor. Scopes `review`/`confirm` are

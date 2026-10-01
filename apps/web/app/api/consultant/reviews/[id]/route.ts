@@ -3,11 +3,13 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { randomUUID } from 'crypto';
 import {
   getDraft,
+  getSource,
   hasActiveConfirm,
   hasAuthority,
   storeDraft,
   storeReview,
   type Draft,
+  type DraftConnection,
   type Review,
 } from '@/lib/oracle2-client';
 import { authorizePilotRequest } from '@/lib/oracle2-pilot-auth';
@@ -38,9 +40,28 @@ export async function POST(
       if (draft.status !== 'draft') {
         return NextResponse.json({ error: 'only draft-status documents can be corrected' }, { status: 400 });
       }
+      const nextConnections = connections ?? draft.connections;
+      if (!Array.isArray(nextConnections)) {
+        return NextResponse.json({ error: 'connections must be an array' }, { status: 400 });
+      }
+      const source = getSource(draft.sourceId);
+      const blockCount = source?.blocks.length ?? 0;
+      for (const connection of nextConnections as DraftConnection[]) {
+        if (
+          !connection ||
+          typeof connection.from !== 'number' ||
+          typeof connection.to !== 'number' ||
+          connection.from < 0 ||
+          connection.to < 0 ||
+          connection.from >= blockCount ||
+          connection.to >= blockCount
+        ) {
+          return NextResponse.json({ error: 'connection endpoints must address source blocks' }, { status: 400 });
+        }
+      }
       const updated: Draft = {
         ...draft,
-        connections: connections ?? draft.connections,
+        connections: nextConnections as DraftConnection[],
         processName: processName ?? draft.processName,
         updatedAt: new Date().toISOString(),
       };
