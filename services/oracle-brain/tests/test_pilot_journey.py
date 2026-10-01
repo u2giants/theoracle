@@ -99,6 +99,10 @@ def test_pilot_journey_answer_without_evidence_says_so(admin_url, monkeypatch):
     _appoint_root(admin_url, workspace, owner, monkeypatch)
     delegate(admin_url, workspace_id=workspace, grantor_id=owner,
              actor_id=pilot_user, scope="intake")
+    delegate(admin_url, workspace_id=workspace, grantor_id=owner,
+             actor_id=pilot_user, scope="review")
+    delegate(admin_url, workspace_id=workspace, grantor_id=owner,
+             actor_id=pilot_user, scope="confirm")
 
     source_id, _ = upload_source(
         admin_url, workspace_id=workspace, actor_id=pilot_user,

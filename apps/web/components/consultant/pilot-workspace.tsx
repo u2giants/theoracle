@@ -93,7 +93,7 @@ export function PilotWorkspace() {
       const res = await fetch('/api/consultant/session', {
         method: 'POST',
         headers: jsonHeaders(),
-        body: JSON.stringify({ token: pilotTokenInput, actorId: 'pilot-user' }),
+        body: JSON.stringify({ token: pilotTokenInput }),
         credentials: 'same-origin',
       });
       const data = await res.json();
@@ -233,7 +233,7 @@ export function PilotWorkspace() {
           data-testid="pilot-login-btn"
           className="mt-2 rounded bg-slate-700 px-4 py-2 text-white disabled:opacity-50"
           onClick={login}
-          disabled={loading || !pilotTokenInput.trim()}
+          disabled={loading}
         >
           Sign in
         </button>
@@ -258,7 +258,6 @@ export function PilotWorkspace() {
           className="mt-2 rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
           onClick={upload}
           disabled={loading || !text.trim() || !actorId}
-          disabled={loading || !text.trim()}
         >
           Upload
         </button>
@@ -319,15 +318,21 @@ export function PilotWorkspace() {
             >
               Apply correction
             </button>
-            <button
-              data-testid="confirm-btn"
-              className="rounded bg-green-600 px-3 py-1 text-white disabled:opacity-50"
-              onClick={confirm}
-              disabled={loading}
-            >
-              Confirm draft
-            </button>
           </div>
+        </section>
+      )}
+
+      {blocks.length > 0 && !confirmed && (
+        <section>
+          <h2 className="mb-2 text-lg font-semibold">4. Confirm scoped draft</h2>
+          <button
+            data-testid="confirm-btn"
+            className="rounded bg-green-600 px-3 py-1 text-white disabled:opacity-50"
+            onClick={confirm}
+            disabled={loading}
+          >
+            Confirm draft
+          </button>
         </section>
       )}
 

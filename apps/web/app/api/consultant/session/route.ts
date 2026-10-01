@@ -14,12 +14,12 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { token, actorId } = body;
+    const { token } = body;
     if (!token || typeof token !== 'string') {
       return NextResponse.json({ error: 'token is required' }, { status: 400 });
     }
-    const actor = typeof actorId === 'string' && actorId.trim() ? actorId.trim() : 'pilot-user';
-    const result = createSession(token, actor);
+    // Body identities are ignored; actor and scopes come from server env only.
+    const result = createSession(token);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }

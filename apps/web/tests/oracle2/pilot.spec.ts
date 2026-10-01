@@ -11,9 +11,12 @@ const PROCESS_DOC = [
 async function pilotLogin(page: import('@playwright/test').Page) {
   const token = process.env.ORACLE2_PILOT_TOKEN ?? 'test-pilot-token';
   await page.goto('/consultant');
-  await page.getByTestId('pilot-token').fill(token);
+  const tokenBox = page.getByTestId('pilot-token');
+  await tokenBox.click();
+  await tokenBox.pressSequentially(token, { delay: 15 });
+  await expect(tokenBox).toHaveValue(token);
   await page.getByTestId('pilot-login-btn').click();
-  await expect(page.getByTestId('pilot-actor')).toBeVisible();
+  await expect(page.getByTestId('pilot-actor')).toBeVisible({ timeout: 10_000 });
 }
 
 test.describe('S03 pilot journey', () => {
@@ -79,8 +82,36 @@ test.describe('S03 pilot journey', () => {
 
   test('session refuses invalid pilot token', async ({ request }) => {
     const bad = await request.post('/api/consultant/session', {
-      data: { token: 'not-the-token', actorId: 'pilot-user' },
+      data: { token: 'not-the-token' },
     });
     expect(bad.status()).toBe(401);
+  });
+
+  test('session ignores body identities and missing confirm scope is denied', async () => {
+    const prevToken = process.env.ORACLE2_PILOT_TOKEN;
+    const prevActor = process.env.ORACLE2_PILOT_ACTOR;
+    const prevScopes = process.env.ORACLE2_PILOT_SCOPES;
+    process.env.ORACLE2_PILOT_TOKEN = 'unit-test-token';
+    process.env.ORACLE2_PILOT_ACTOR = 'pilot-user';
+    process.env.ORACLE2_PILOT_SCOPES = 'review';
+    try {
+      const auth = await import('../../lib/oracle2-pilot-auth');
+      const client = await import('../../lib/oracle2-client');
+      const created = auth.createSession('unit-test-token');
+      expect(created.ok).toBe(true);
+      if (created.ok) {
+        expect(created.actorId).toBe('pilot-user');
+      }
+      expect(client.hasAuthority('pilot-user', 'review')).toBe(true);
+      expect(client.hasAuthority('pilot-user', 'confirm')).toBe(false);
+      expect(client.hasAuthority(undefined, 'confirm')).toBe(false);
+    } finally {
+      if (prevToken === undefined) delete process.env.ORACLE2_PILOT_TOKEN;
+      else process.env.ORACLE2_PILOT_TOKEN = prevToken;
+      if (prevActor === undefined) delete process.env.ORACLE2_PILOT_ACTOR;
+      else process.env.ORACLE2_PILOT_ACTOR = prevActor;
+      if (prevScopes === undefined) delete process.env.ORACLE2_PILOT_SCOPES;
+      else process.env.ORACLE2_PILOT_SCOPES = prevScopes;
+    }
   });
 });

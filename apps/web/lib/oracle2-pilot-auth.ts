@@ -1,7 +1,8 @@
 // Pilot session auth for the isolated S03 preview.
-// Credentials are not browser-bundled: the operator types the pilot token once;
-// the server issues an httpOnly session bound to an allowlisted actor. Body
-// identities are never trusted.
+// The pilot token is typed once into the UI password field; the server issues
+// an httpOnly session bound to the configured pilot actor. Caller-supplied
+// body identities are ignored. Scopes come from ORACLE2_PILOT_SCOPES so a
+// missing-scope denial is testable.
 
 import { randomUUID } from 'crypto';
 import { grantAuthority } from '@/lib/oracle2-client';
@@ -20,17 +21,20 @@ export function pilotToken(): string | undefined {
   return process.env.ORACLE2_PILOT_TOKEN;
 }
 
-export function pilotActors(): Set<string> {
-  const raw = process.env.ORACLE2_PILOT_ACTORS ?? 'pilot-user';
-  return new Set(
-    raw
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
+export function pilotActor(): string {
+  return process.env.ORACLE2_PILOT_ACTOR ?? 'pilot-user';
 }
 
-export function createSession(token: string, actorId: string):
+export function pilotScopes(): Array<'review' | 'confirm'> {
+  const raw = process.env.ORACLE2_PILOT_SCOPES ?? 'review,confirm';
+  const scopes: Array<'review' | 'confirm'> = [];
+  for (const part of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
+    if (part === 'review' || part === 'confirm') scopes.push(part);
+  }
+  return scopes.length > 0 ? scopes : ['review'];
+}
+
+export function createSession(token: string):
   | { ok: true; sessionId: string; actorId: string }
   | { ok: false; error: string; status: number } {
   const expected = pilotToken();
@@ -40,14 +44,12 @@ export function createSession(token: string, actorId: string):
   if (token !== expected) {
     return { ok: false, error: 'invalid pilot token', status: 401 };
   }
-  if (!pilotActors().has(actorId)) {
-    return { ok: false, error: 'actor is not on the pilot allowlist', status: 403 };
-  }
+  const actorId = pilotActor();
   const sessionId = randomUUID();
   sessions.set(sessionId, { sessionId, actorId, createdAt: Date.now() });
-  // Scopes are granted only after token + allowlist succeed (not on upload).
-  grantAuthority(actorId, 'review');
-  grantAuthority(actorId, 'confirm');
+  for (const scope of pilotScopes()) {
+    grantAuthority(actorId, scope);
+  }
   return { ok: true, sessionId, actorId };
 }
 
@@ -83,7 +85,6 @@ export function sessionCookieName(): string {
 }
 
 export function sessionCookie(sessionId: string): string {
-  // httpOnly; Path limited to consultant APIs and UI; no Secure on loopback http.
   return `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; HttpOnly; SameSite=Lax`;
 }
 
