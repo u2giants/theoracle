@@ -1,7 +1,13 @@
 // POST /api/consultant/sources — upload a document for the pilot journey.
 import { NextResponse, type NextRequest } from 'next/server';
 import { randomUUID } from 'crypto';
-import { parseTextToBlocks, storeDraft, storeSource, type Draft } from '@/lib/oracle2-client';
+import {
+  grantAuthority,
+  parseTextToBlocks,
+  storeDraft,
+  storeSource,
+  type Draft,
+} from '@/lib/oracle2-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,12 +24,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'no content blocks found' }, { status: 400 });
     }
     storeSource(sourceId, workspaceId ?? 'default', filename ?? 'document.txt', blocks);
+    const pilotActor = actorId ?? 'pilot-user';
+    // Authorized pilot user: review + confirm scope on this workspace journey.
+    grantAuthority(pilotActor, 'review');
+    grantAuthority(pilotActor, 'confirm');
     const draftId = randomUUID();
     const draft: Draft = {
       draftId,
       sourceId,
       workspaceId: workspaceId ?? 'default',
-      createdBy: actorId ?? 'pilot-user',
+      createdBy: pilotActor,
       processName: processName ?? 'Process draft',
       connections: [],
       status: 'draft',

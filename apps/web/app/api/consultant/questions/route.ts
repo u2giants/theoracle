@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { randomUUID } from 'crypto';
 import {
   answerQuestion,
+  getDraft,
   getSource,
   retrieveSpans,
   storeRun,
@@ -22,8 +23,10 @@ export async function POST(req: NextRequest) {
     if (!source) {
       return NextResponse.json({ error: 'source not found' }, { status: 404 });
     }
-    const spans = retrieveSpans(question, source.blocks);
-    const answer = answerQuestion(question, spans);
+    const draft = draftId ? getDraft(draftId) : null;
+    const connections = draft?.connections ?? [];
+    const spans = retrieveSpans(question, source.blocks, 5, connections);
+    const answer = answerQuestion(question, spans, connections);
     const runId = randomUUID();
     const run: Run = {
       runId,

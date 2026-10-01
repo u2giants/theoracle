@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import {
   getDraft,
   hasActiveConfirm,
+  hasAuthority,
   storeDraft,
   storeReview,
   type Draft,
@@ -24,7 +25,11 @@ export async function POST(
     if (!draft) {
       return NextResponse.json({ error: 'draft not found' }, { status: 404 });
     }
+    const actor = actorId ?? draft.createdBy;
     if (action === 'correct') {
+      if (!hasAuthority(actor, 'review')) {
+        return NextResponse.json({ error: 'actor lacks review authority for draft correction' }, { status: 403 });
+      }
       if (draft.status !== 'draft') {
         return NextResponse.json({ error: 'only draft-status documents can be corrected' }, { status: 400 });
       }
@@ -39,7 +44,7 @@ export async function POST(
         reviewId: randomUUID(),
         draftId: id,
         workspaceId: workspaceId ?? draft.workspaceId,
-        actorId: actorId ?? draft.createdBy,
+        actorId: actor,
         action: 'correct',
         payload: { connections: updated.connections },
         createdAt: new Date().toISOString(),
@@ -48,6 +53,9 @@ export async function POST(
       return NextResponse.json({ draft: updated, reviewId: review.reviewId });
     }
     if (action === 'confirm') {
+      if (!hasAuthority(actor, 'confirm')) {
+        return NextResponse.json({ error: 'actor lacks confirm authority for scoped confirmation' }, { status: 403 });
+      }
       if (draft.status === 'confirmed') {
         return NextResponse.json({ error: 'draft already confirmed' }, { status: 409 });
       }
@@ -60,7 +68,7 @@ export async function POST(
         reviewId: randomUUID(),
         draftId: id,
         workspaceId: workspaceId ?? draft.workspaceId,
-        actorId: actorId ?? draft.createdBy,
+        actorId: actor,
         action: 'confirm',
         payload: { scope: scope ?? 'process-map' },
         createdAt: new Date().toISOString(),

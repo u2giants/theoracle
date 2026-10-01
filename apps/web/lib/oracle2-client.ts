@@ -76,6 +76,19 @@ const sources = new Map<string, { sourceId: string; workspaceId: string; filenam
 const drafts = new Map<string, Draft>();
 const runs = new Map<string, Run>();
 const reviews: Review[] = [];
+/** Pilot authority grants: actorId → scopes (mirrors S02 has_authority for the thin UI). */
+const authorityGrants = new Map<string, Set<string>>();
+
+export function grantAuthority(actorId: string, scope: 'review' | 'confirm'): void {
+  const scopes = authorityGrants.get(actorId) ?? new Set<string>();
+  scopes.add(scope);
+  authorityGrants.set(actorId, scopes);
+}
+
+export function hasAuthority(actorId: string | undefined, scope: 'review' | 'confirm'): boolean {
+  if (!actorId) return false;
+  return authorityGrants.get(actorId)?.has(scope) ?? false;
+}
 
 export function storeSource(sourceId: string, workspaceId: string, filename: string, blocks: SourceBlock[]): void {
   sources.set(sourceId, { sourceId, workspaceId, filename, blocks, status: 'draft' });
@@ -138,7 +151,12 @@ export function parseTextToBlocks(text: string, sourceId: string): SourceBlock[]
   return blocks;
 }
 
-export function retrieveSpans(question: string, blocks: SourceBlock[], limit = 5): Array<{ block: SourceBlock; score: number }> {
+export function retrieveSpans(
+  question: string,
+  blocks: SourceBlock[],
+  limit = 5,
+  processConnections: DraftConnection[] = [],
+): Array<{ block: SourceBlock; score: number }> {
   const stopWords = new Set(['the', 'a', 'an', 'is', 'are', 'can', 'where', 'how', 'what', 'when', 'does', 'do', 'in', 'on', 'to', 'of', 'for', 'and', 'or', 'be', 'will', 'would', 'could', 'should']);
   const questionWords = new Set(
     question
@@ -146,6 +164,12 @@ export function retrieveSpans(question: string, blocks: SourceBlock[], limit = 5
       .map((w) => w.toLowerCase().replace(/[.,;:!?]/g, ''))
       .filter((w) => w && !stopWords.has(w)),
   );
+  const connectedIndexes = new Set<number>();
+  for (const connection of processConnections) {
+    connectedIndexes.add(connection.from);
+    connectedIndexes.add(connection.to);
+  }
+  const connectionBoost = connectedIndexes.size > 0 ? 0.15 : 0;
   const scored = blocks
     .map((block) => {
       const textLower = block.text.toLowerCase();
@@ -153,14 +177,20 @@ export function retrieveSpans(question: string, blocks: SourceBlock[], limit = 5
       for (const word of questionWords) {
         if (textLower.includes(word)) overlap++;
       }
-      return { block, score: overlap / Math.max(questionWords.size, 1) };
+      let score = overlap / Math.max(questionWords.size, 1);
+      if (connectedIndexes.has(block.blockIndex)) score += connectionBoost;
+      return { block, score };
     })
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score);
   return scored.slice(0, limit);
 }
 
-export function answerQuestion(question: string, spans: Array<{ block: SourceBlock; score: number }>): PilotAnswer {
+export function answerQuestion(
+  question: string,
+  spans: Array<{ block: SourceBlock; score: number }>,
+  processConnections: DraftConnection[] = [],
+): PilotAnswer {
   if (spans.length === 0) {
     return {
       answerText: 'No source evidence was found for this question.',
@@ -176,6 +206,12 @@ export function answerQuestion(question: string, spans: Array<{ block: SourceBlo
     quote: s.block.text,
   }));
   const factLines = spans.slice(0, 3).map((s) => `According to the source: ${s.block.text}`);
+  if (processConnections.length > 0) {
+    const edges = processConnections.slice(0, 5).map((c) => `${c.from}→${c.to}`).join(', ');
+    factLines.push(
+      `Process-map connections in scope: ${edges}. The answer follows those corrected process links with the cited spans.`,
+    );
+  }
   return {
     answerText: factLines.join('\n'),
     citations,

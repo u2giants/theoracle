@@ -45,7 +45,7 @@ def upload_source(database_url: str, *, workspace_id: UUID, actor_id: UUID,
                      block.kind, block.text, block.span_start, block.span_end),
                 )
     block_dicts = [
-        {"block_id": b.block_id, "source_id": b.source_id,
+        {"block_id": b.block_id, "source_id": b.source_id, "block_index": b.block_index,
          "span_start": b.span_start, "span_end": b.span_end, "text": b.text}
         for b in blocks
     ]
@@ -74,19 +74,29 @@ def run_question(database_url: str, *, workspace_id: UUID, actor_id: UUID,
         raise ValueError("question must be non-empty")
     with psycopg.connect(database_url) as connection:
         rows = connection.execute(
-            """SELECT block_id,source_id,span_start,span_end,text
+            """SELECT block_id,source_id,block_index,span_start,span_end,text
                FROM oracle2.source_blocks
                WHERE source_id=%s AND workspace_id=%s
                ORDER BY block_index""",
             (source_id, workspace_id),
         ).fetchall()
     blocks = [
-        {"block_id": r[0], "source_id": r[1], "span_start": r[2],
-         "span_end": r[3], "text": r[4]}
+        {"block_id": r[0], "source_id": r[1], "block_index": r[2],
+         "span_start": r[3], "span_end": r[4], "text": r[5]}
         for r in rows
     ]
-    spans = retrieve_spans(question, blocks)
-    answer = answer_question(question, spans)
+    connections: list[dict] = []
+    if draft_id is not None:
+        with psycopg.connect(database_url) as connection:
+            row = connection.execute(
+                """SELECT connections FROM oracle2.drafts
+                   WHERE draft_id=%s AND workspace_id=%s""",
+                (draft_id, workspace_id),
+            ).fetchone()
+            if row is not None and row[0]:
+                connections = list(row[0])
+    spans = retrieve_spans(question, blocks, process_connections=connections)
+    answer = answer_question(question, spans, process_connections=connections)
     run_id = uuid4()
     with psycopg.connect(database_url) as connection:
         connection.execute(

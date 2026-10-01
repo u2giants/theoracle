@@ -57,6 +57,14 @@ def answer_question(
         for s in spans
     ]
     fact_lines = [f"According to the source: {s.quote}" for s in spans[:3]]
+    if process_connections:
+        edges = ", ".join(
+            f"{c.get('from')}→{c.get('to')}" for c in process_connections[:5]
+        )
+        fact_lines.append(
+            f"Process-map connections in scope: {edges}. "
+            "The answer follows those corrected process links with the cited spans."
+        )
     answer_text = "\n".join(fact_lines)
     hypothetical = HypotheticalExperiment(
         label="Hypothetical improvement experiment (not established fact)",
