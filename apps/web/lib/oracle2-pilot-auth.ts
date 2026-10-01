@@ -22,7 +22,17 @@ export function pilotToken(): string | undefined {
 }
 
 export function pilotActor(): string {
-  return process.env.ORACLE2_PILOT_ACTOR ?? process.env.ORACLE2_PILOT_ACTORS ?? 'pilot-user';
+  return pilotActors().values().next().value ?? 'pilot-user';
+}
+
+export function pilotActors(): Set<string> {
+  const raw = process.env.ORACLE2_PILOT_ACTOR ?? process.env.ORACLE2_PILOT_ACTORS ?? 'pilot-user';
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
 }
 
 export function pilotScopes(): Array<'review' | 'confirm'> {

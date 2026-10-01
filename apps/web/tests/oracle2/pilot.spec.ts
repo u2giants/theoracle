@@ -50,7 +50,7 @@ test.describe('S03 pilot journey', () => {
     await expect(page.getByTestId('answer-text')).not.toBeEmpty();
     await expect(page.getByTestId('answer-text')).toContainText('Process-map connections');
     await expect(page.getByTestId('answer-text')).toContainText('0→2');
-    await expect(page.getByTestId('answer-text')).toContainText('Connected process step');
+    await expect(page.getByTestId('answer-text')).toContainText(/Connected process step|Process-map context only/);
     await expect(page.getByTestId('citations')).toBeVisible();
     await expect(page.getByTestId('hypothetical')).toBeVisible();
     await expect(page.getByTestId('hypothetical')).toContainText('not established fact');

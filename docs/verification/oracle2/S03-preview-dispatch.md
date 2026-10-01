@@ -97,13 +97,20 @@ filenames into this public repository, issues, or model logs.
    live before the real journey.
 4. **Authority-backed journey** — process-owner UI must use the S03 authority
    path:
-   - Actor comes from the authenticated request (`x-oracle2-actor-id` must be
-     on `ORACLE2_PILOT_ACTORS`); body-supplied identities are ignored.
-   - Token missing/wrong → 401; unknown actor → 403; `correct` without `review`
-     scope → 403; `confirm` without `confirm` scope → 403.
-   - Capture one rejected unauthenticated confirm (401/403) in private
-     evidence.
-   - Offline companion already green: `test_authority.py`.
+   - Actor comes only from server env (`ORACLE2_PILOT_ACTOR` /
+     `ORACLE2_PILOT_ACTORS` allowlist). Body `actorId` fields are ignored and
+     cannot select a different principal.
+   - Token missing/wrong → 401. Session required on all mutating APIs and run
+     reads → 401 without cookie.
+   - `correct` requires `review` scope; `confirm` requires `confirm` scope;
+     scopes come from `ORACLE2_PILOT_SCOPES` and are dropped on logout.
+   - Capture one rejected unauthenticated request (401) and one missing-scope
+     denial (403) in private evidence.
+   - Offline companion already green: `test_authority.py` (transactional S02
+     tables: forged actors, out-of-scope grants, revoked parents, expired
+     delegates, revocation racing confirmation). The web pilot is a
+     session-scoped preview surface; the Postgres S02 path remains the
+     authority model of record.
 5. **Run one real-data journey** on the process table
    (upload → source-linked draft → **correct one connection** → scoped
    confirm → one **connected** question → cited answer + one explicitly

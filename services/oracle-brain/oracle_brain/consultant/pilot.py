@@ -62,23 +62,19 @@ def answer_question(
         edges = ", ".join(
             f"{c.get('from')}→{c.get('to')}" for c in process_connections[:5]
         )
-        fact_lines.append(
-            f"Process-map connections in scope: {edges}. "
-            "The answer follows those corrected process links with the cited spans."
-        )
+        fact_lines.append(f"Process-map connections in scope: {edges}.")
+        cited_spans = {(c.span_start, c.span_end) for c in citations}
         for block in (connected_blocks or [])[:4]:
-            fact_lines.append(
-                f"Connected process step ({block.get('block_index')}): {block.get('text')}"
-            )
-            existing = {(c.span_start, c.span_end) for c in citations}
             span = (block.get("span_start"), block.get("span_end"))
-            if span not in existing:
-                citations.append(Citation(
-                    source_id=block["source_id"],
-                    span_start=block["span_start"],
-                    span_end=block["span_end"],
-                    quote=block["text"],
-                ))
+            if span in cited_spans:
+                fact_lines.append(
+                    f"Connected process step ({block.get('block_index')}): {block.get('text')}"
+                )
+            else:
+                fact_lines.append(
+                    f"Process-map context only (not established answer evidence) "
+                    f"({block.get('block_index')}): {block.get('text')}"
+                )
     answer_text = "\n".join(fact_lines)
     hypothetical = HypotheticalExperiment(
         label="Hypothetical improvement experiment (not established fact)",

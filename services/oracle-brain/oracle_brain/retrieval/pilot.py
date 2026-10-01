@@ -48,8 +48,9 @@ def retrieve_spans(question: str, blocks: list[dict], *, limit: int = 5,
     for block in blocks:
         text_lower = block["text"].lower()
         overlap = sum(1 for word in question_words if word in text_lower)
-        score = overlap / max(len(question_words), 1)
-        if block.get("block_index") in connected_indexes:
+        relevance = overlap / max(len(question_words), 1)
+        score = relevance
+        if relevance > 0 and block.get("block_index") in connected_indexes:
             score += connection_boost
         if score > 0:
             scored.append((score, block))

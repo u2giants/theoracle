@@ -205,9 +205,14 @@ export function retrieveSpans(
       for (const word of questionWords) {
         if (textLower.includes(word)) overlap++;
       }
-      let score = overlap / Math.max(questionWords.size, 1);
-      if (connectedIndexes.has(block.blockIndex)) score += connectionBoost;
-      return { block, score };
+      const relevance = overlap / Math.max(questionWords.size, 1);
+      // Connection boost only lifts blocks that already match the question;
+      // an unrelated process-map neighbor must not become supporting evidence.
+      let score = relevance;
+      if (relevance > 0 && connectedIndexes.has(block.blockIndex)) {
+        score += connectionBoost;
+      }
+      return { block, score, relevance };
     })
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score);
@@ -234,24 +239,22 @@ export function answerQuestion(
     spanEnd: s.block.spanEnd,
     quote: s.block.text,
   }));
-  for (const block of connectedBlocks) {
-    if (!citations.some((c) => c.spanStart === block.spanStart && c.spanEnd === block.spanEnd)) {
-      citations.push({
-        sourceId: block.sourceId,
-        spanStart: block.spanStart,
-        spanEnd: block.spanEnd,
-        quote: block.text,
-      });
-    }
-  }
+  // Connected process-map neighbors are context, not automatic citations.
   const factLines = spans.slice(0, 3).map((s) => `According to the source: ${s.block.text}`);
   if (processConnections.length > 0) {
     const edges = processConnections.slice(0, 5).map((c) => `${c.from}→${c.to}`).join(', ');
     factLines.push(
-      `Process-map connections in scope: ${edges}. The answer follows those corrected process links with the cited spans.`,
+      `Process-map connections in scope: ${edges}.`,
     );
     for (const block of connectedBlocks.slice(0, 4)) {
-      factLines.push(`Connected process step (${block.blockIndex}): ${block.text}`);
+      const cited = citations.some((c) => c.spanStart === block.spanStart && c.spanEnd === block.spanEnd);
+      if (cited) {
+        factLines.push(`Connected process step (${block.blockIndex}): ${block.text}`);
+      } else {
+        factLines.push(
+          `Process-map context only (not established answer evidence) (${block.blockIndex}): ${block.text}`,
+        );
+      }
     }
   }
   return {
