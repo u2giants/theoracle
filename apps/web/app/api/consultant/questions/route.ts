@@ -29,10 +29,25 @@ export async function POST(req: NextRequest) {
     if (!source) {
       return NextResponse.json({ error: 'source not found' }, { status: 404 });
     }
-    const draft = draftId ? getDraft(draftId) : null;
-    const connections = draft?.connections ?? [];
+    if (!draftId) {
+      return NextResponse.json({ error: 'draftId is required' }, { status: 400 });
+    }
+    const draft = getDraft(draftId);
+    if (!draft) {
+      return NextResponse.json({ error: 'draft not found' }, { status: 404 });
+    }
+    if (draft.sourceId !== sourceId) {
+      return NextResponse.json({ error: 'draft does not belong to source' }, { status: 400 });
+    }
+    if (draft.status !== 'confirmed') {
+      return NextResponse.json({ error: 'draft must be confirmed before questions' }, { status: 409 });
+    }
+    const connections = draft.connections ?? [];
+    const connectedBlocks = source.blocks.filter((b) =>
+      connections.some((c) => c.from === b.blockIndex || c.to === b.blockIndex),
+    );
     const spans = retrieveSpans(question, source.blocks, 5, connections);
-    const answer = answerQuestion(question, spans, connections);
+    const answer = answerQuestion(question, spans, connections, connectedBlocks);
     const runId = randomUUID();
     const run: Run = {
       runId,

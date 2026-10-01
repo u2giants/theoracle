@@ -81,9 +81,12 @@ filenames into this public repository, issues, or model logs.
    - `ORACLE2_PILOT_TOKEN` (random secret, not committed; stored only in the
      private evidence directory)
    - `ORACLE2_PILOT_ACTORS=pilot-user`
-   - `NEXT_PUBLIC_ORACLE2_PILOT_TOKEN` / `NEXT_PUBLIC_ORACLE2_PILOT_ACTOR`
-     matching those values (preview client auth header)
-   The pilot store remains in-process memory; no hosted store is provisioned.
+   The token is **not** browser-bundled. The UI takes it in a password field;
+   `POST /api/consultant/session` checks token + allowlist and issues an
+   httpOnly session cookie bound to that actor. Scopes `review`/`confirm` are
+   granted only after that check. Body-supplied identities are ignored. GET
+   runs and all mutating consultant APIs require the session. The pilot store
+   remains in-process memory; no hosted store is provisioned.
 3. **Browser-test gate (required before real data)** — run
    `tests/oracle2/pilot.spec.ts` against that server (`ORACLE2_PREVIEW_URL`).
    All tests must pass, including the negative test that mutating APIs return

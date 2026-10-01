@@ -1,4 +1,4 @@
-// S03 pilot journey browser test: upload → correct → confirm → answer after refresh.
+// S03 pilot journey browser test: login → upload → correct → confirm → answer after refresh.
 import { test, expect } from '@playwright/test';
 
 const PROCESS_DOC = [
@@ -8,20 +8,29 @@ const PROCESS_DOC = [
   '3 | Production planning | Schedule the manufacturing run | Manufacturing | —',
 ].join('\n');
 
-test.describe('S03 pilot journey', () => {
-  test('upload → correction → confirmation → answer after page refresh', async ({ page }) => {
-    await page.goto('/consultant');
+async function pilotLogin(page: import('@playwright/test').Page) {
+  const token = process.env.ORACLE2_PILOT_TOKEN ?? 'test-pilot-token';
+  await page.goto('/consultant');
+  await page.getByTestId('pilot-token').fill(token);
+  await page.getByTestId('pilot-login-btn').click();
+  await expect(page.getByTestId('pilot-actor')).toBeVisible();
+}
 
-    // 1. Upload the process document.
+test.describe('S03 pilot journey', () => {
+  test('login → upload → correction → confirmation → answer after page refresh', async ({ page }) => {
+    await pilotLogin(page);
+
+    // 1. Upload the process table (each row is its own block).
     await page.getByTestId('document-text').fill(PROCESS_DOC);
     await page.getByTestId('upload-btn').click();
     await expect(page.getByTestId('source-id')).toBeVisible();
     await expect(page.getByTestId('block-0')).toBeVisible();
+    await expect(page.getByTestId('block-1')).toBeVisible();
     await expect(page.getByTestId('draft-status')).toContainText('draft');
 
     // 2. Correct one connection (change the from/to step).
     await page.getByTestId('conn-from').selectOption('0');
-    await page.getByTestId('conn-to').selectOption('3');
+    await page.getByTestId('conn-to').selectOption('2');
     await page.getByTestId('correct-btn').click();
     await expect(page.getByTestId('draft-status')).toContainText('corrected');
 
@@ -36,11 +45,12 @@ test.describe('S03 pilot journey', () => {
     await page.getByTestId('ask-btn').click();
     await expect(page.getByTestId('answer-section')).toBeVisible();
     await expect(page.getByTestId('answer-text')).not.toBeEmpty();
+    await expect(page.getByTestId('answer-text')).toContainText('Process-map connections');
     await expect(page.getByTestId('citations')).toBeVisible();
     await expect(page.getByTestId('hypothetical')).toBeVisible();
     await expect(page.getByTestId('hypothetical')).toContainText('not established fact');
 
-    // 5. Page refresh — the answer is still retrievable.
+    // 5. Page refresh — the answer is still retrievable via session.
     await page.reload();
     await expect(page.getByTestId('answer-section')).toBeVisible();
     await expect(page.getByTestId('answer-text')).not.toBeEmpty();
@@ -48,12 +58,10 @@ test.describe('S03 pilot journey', () => {
   });
 
   test('upload shows missing evidence for unrelated question', async ({ page }) => {
-    await page.goto('/consultant');
+    await pilotLogin(page);
     await page.getByTestId('document-text').fill('The weather is pleasant today.');
     await page.getByTestId('upload-btn').click();
     await expect(page.getByTestId('source-id')).toBeVisible();
-    // Skip correction/confirm and ask directly
-    // Confirm first since ask is gated on confirmed state
     await page.getByTestId('confirm-btn').click();
     await expect(page.getByTestId('draft-status')).toContainText('confirmed');
     await page.getByTestId('question-input').fill('What is the licensing approval threshold?');
@@ -62,20 +70,17 @@ test.describe('S03 pilot journey', () => {
     await expect(page.getByTestId('hypothetical')).not.toBeVisible();
   });
 
-  test('mutating APIs refuse missing or invalid pilot token', async ({ request }) => {
+  test('mutating APIs refuse missing session', async ({ request }) => {
     const noAuth = await request.post('/api/consultant/sources', {
       data: { text: 'Step 1: test', filename: 'x.txt' },
     });
     expect(noAuth.status()).toBe(401);
+  });
 
-    const badToken = await request.post('/api/consultant/sources', {
-      headers: {
-        'content-type': 'application/json',
-        'x-oracle2-pilot-token': 'not-the-token',
-        'x-oracle2-actor-id': 'pilot-user',
-      },
-      data: { text: 'Step 1: test', filename: 'x.txt' },
+  test('session refuses invalid pilot token', async ({ request }) => {
+    const bad = await request.post('/api/consultant/session', {
+      data: { token: 'not-the-token', actorId: 'pilot-user' },
     });
-    expect(badToken.status()).toBe(401);
+    expect(bad.status()).toBe(401);
   });
 });

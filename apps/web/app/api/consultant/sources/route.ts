@@ -2,7 +2,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { randomUUID } from 'crypto';
 import {
-  grantAuthority,
   parseTextToBlocks,
   storeDraft,
   storeSource,
@@ -31,9 +30,6 @@ export async function POST(req: NextRequest) {
     }
     storeSource(sourceId, workspaceId ?? 'default', filename ?? 'document.txt', blocks);
     const pilotActor = actorId;
-    // Authorized pilot user: review + confirm scope on this workspace journey.
-    grantAuthority(pilotActor, 'review');
-    grantAuthority(pilotActor, 'confirm');
     const draftId = randomUUID();
     const draft: Draft = {
       draftId,

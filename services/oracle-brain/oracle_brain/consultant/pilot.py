@@ -37,6 +37,7 @@ def answer_question(
     spans: list[RetrievedSpan],
     *,
     process_connections: list[dict] | None = None,
+    connected_blocks: list[dict] | None = None,
 ) -> PilotAnswer:
     """Produce a cited answer from retrieved spans.
 
@@ -65,6 +66,19 @@ def answer_question(
             f"Process-map connections in scope: {edges}. "
             "The answer follows those corrected process links with the cited spans."
         )
+        for block in (connected_blocks or [])[:4]:
+            fact_lines.append(
+                f"Connected process step ({block.get('block_index')}): {block.get('text')}"
+            )
+            existing = {(c.span_start, c.span_end) for c in citations}
+            span = (block.get("span_start"), block.get("span_end"))
+            if span not in existing:
+                citations.append(Citation(
+                    source_id=block["source_id"],
+                    span_start=block["span_start"],
+                    span_end=block["span_end"],
+                    quote=block["text"],
+                ))
     answer_text = "\n".join(fact_lines)
     hypothetical = HypotheticalExperiment(
         label="Hypothetical improvement experiment (not established fact)",

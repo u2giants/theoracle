@@ -68,11 +68,23 @@ def create_draft(database_url: str, *, source_id: UUID, workspace_id: UUID,
 
 
 def run_question(database_url: str, *, workspace_id: UUID, actor_id: UUID,
-                 source_id: UUID, draft_id: UUID | None, question: str) -> JourneyResult:
-    """Execute a question against confirmed or draft knowledge and return a cited answer."""
+                 source_id: UUID, draft_id: UUID, question: str) -> JourneyResult:
+    """Execute a question against a confirmed draft and return a cited answer."""
     if not question.strip():
         raise ValueError("question must be non-empty")
     with psycopg.connect(database_url) as connection:
+        draft_row = connection.execute(
+            """SELECT source_id, status, connections FROM oracle2.drafts
+               WHERE draft_id=%s AND workspace_id=%s""",
+            (draft_id, workspace_id),
+        ).fetchone()
+        if draft_row is None:
+            raise LookupError("draft not found")
+        if draft_row[0] != source_id:
+            raise ValueError("draft does not belong to source")
+        if draft_row[1] != "confirmed":
+            raise ValueError("draft must be confirmed before questions")
+        connections = list(draft_row[2] or [])
         rows = connection.execute(
             """SELECT block_id,source_id,block_index,span_start,span_end,text
                FROM oracle2.source_blocks
@@ -85,18 +97,11 @@ def run_question(database_url: str, *, workspace_id: UUID, actor_id: UUID,
          "span_start": r[3], "span_end": r[4], "text": r[5]}
         for r in rows
     ]
-    connections: list[dict] = []
-    if draft_id is not None:
-        with psycopg.connect(database_url) as connection:
-            row = connection.execute(
-                """SELECT connections FROM oracle2.drafts
-                   WHERE draft_id=%s AND workspace_id=%s""",
-                (draft_id, workspace_id),
-            ).fetchone()
-            if row is not None and row[0]:
-                connections = list(row[0])
+    connected_indexes = {c.get("from") for c in connections} | {c.get("to") for c in connections}
+    connected_blocks = [b for b in blocks if b.get("block_index") in connected_indexes]
     spans = retrieve_spans(question, blocks, process_connections=connections)
-    answer = answer_question(question, spans, process_connections=connections)
+    answer = answer_question(question, spans, process_connections=connections,
+                             connected_blocks=connected_blocks)
     run_id = uuid4()
     with psycopg.connect(database_url) as connection:
         connection.execute(

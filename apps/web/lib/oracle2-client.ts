@@ -127,27 +127,51 @@ export function hasActiveConfirm(draftId: string): boolean {
 }
 
 export function parseTextToBlocks(text: string, sourceId: string): SourceBlock[] {
+  // Process tables and numbered process steps are line-oriented; blank-line
+  // paragraphs alone would collapse an entire table into one uncorrectable block.
+  const lines = text.split('\n');
   const blocks: SourceBlock[] = [];
   let offset = 0;
-  const paragraphs = text.split('\n\n');
-  for (const paragraph of paragraphs) {
-    const stripped = paragraph.trim();
-    if (!stripped) {
-      offset += paragraph.length + 2;
-      continue;
+  let current: string[] = [];
+  let currentStart = 0;
+  const flush = () => {
+    const raw = current.join('\n');
+    const stripped = raw.trim();
+    if (stripped) {
+      const start = text.indexOf(stripped, currentStart);
+      const end = start + stripped.length;
+      blocks.push({
+        blockId: `${sourceId}-${blocks.length}`,
+        sourceId,
+        blockIndex: blocks.length,
+        text: stripped,
+        spanStart: start,
+        spanEnd: end,
+      });
     }
-    const start = text.indexOf(stripped, offset);
-    const end = start + stripped.length;
-    blocks.push({
-      blockId: `${sourceId}-${blocks.length}`,
-      sourceId,
-      blockIndex: blocks.length,
-      text: stripped,
-      spanStart: start,
-      spanEnd: end,
-    });
-    offset = end;
+    current = [];
+  };
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const isRow =
+      line.includes('|') ||
+      /^\s*(step\s+)?\d+\s*[.)|:\-]/i.test(trimmed) ||
+      /^step[_ ]id/i.test(trimmed);
+    if (current.length === 0) {
+      currentStart = offset;
+    }
+    if (trimmed === '') {
+      flush();
+    } else if (isRow) {
+      flush();
+      currentStart = offset;
+      current = [line];
+    } else {
+      current.push(line);
+    }
+    offset += line.length + 1;
   }
+  flush();
   return blocks;
 }
 
@@ -190,6 +214,7 @@ export function answerQuestion(
   question: string,
   spans: Array<{ block: SourceBlock; score: number }>,
   processConnections: DraftConnection[] = [],
+  connectedBlocks: SourceBlock[] = [],
 ): PilotAnswer {
   if (spans.length === 0) {
     return {
@@ -205,12 +230,25 @@ export function answerQuestion(
     spanEnd: s.block.spanEnd,
     quote: s.block.text,
   }));
+  for (const block of connectedBlocks) {
+    if (!citations.some((c) => c.spanStart === block.spanStart && c.spanEnd === block.spanEnd)) {
+      citations.push({
+        sourceId: block.sourceId,
+        spanStart: block.spanStart,
+        spanEnd: block.spanEnd,
+        quote: block.text,
+      });
+    }
+  }
   const factLines = spans.slice(0, 3).map((s) => `According to the source: ${s.block.text}`);
   if (processConnections.length > 0) {
     const edges = processConnections.slice(0, 5).map((c) => `${c.from}→${c.to}`).join(', ');
     factLines.push(
       `Process-map connections in scope: ${edges}. The answer follows those corrected process links with the cited spans.`,
     );
+    for (const block of connectedBlocks.slice(0, 4)) {
+      factLines.push(`Connected process step (${block.blockIndex}): ${block.text}`);
+    }
   }
   return {
     answerText: factLines.join('\n'),
