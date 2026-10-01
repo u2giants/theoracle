@@ -8,13 +8,19 @@ import {
   storeSource,
   type Draft,
 } from '@/lib/oracle2-client';
+import { authorizePilotRequest } from '@/lib/oracle2-pilot-auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = authorizePilotRequest(req.headers);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
     const body = await req.json();
-    const { text, filename, workspaceId, actorId, processName } = body;
+    const { text, filename, workspaceId, processName } = body;
+    const actorId = auth.actorId;
     if (!text || typeof text !== 'string' || !text.trim()) {
       return NextResponse.json({ error: 'text is required' }, { status: 400 });
     }
@@ -24,7 +30,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'no content blocks found' }, { status: 400 });
     }
     storeSource(sourceId, workspaceId ?? 'default', filename ?? 'document.txt', blocks);
-    const pilotActor = actorId ?? 'pilot-user';
+    const pilotActor = actorId;
     // Authorized pilot user: review + confirm scope on this workspace journey.
     grantAuthority(pilotActor, 'review');
     grantAuthority(pilotActor, 'confirm');

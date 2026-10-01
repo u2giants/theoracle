@@ -2,15 +2,10 @@
 import { test, expect } from '@playwright/test';
 
 const PROCESS_DOC = [
-  'Step 1: Designer submits the product concept to the licensing team.',
-  '',
-  'Step 2: Licensing reviews the concept against brand guidelines within 5 business days.',
-  '',
-  'Step 3: If approved, licensing hands off to production planning.',
-  '',
-  'Step 4: Production planning schedules the manufacturing run.',
-  '',
-  'Exception: If the concept uses a new material, licensing must also obtain an environmental compliance sign-off before the handoff to production.',
+  'step_id | owner | action | handoff_to | exception',
+  '1 | Designer | Submit product concept for licensing review | Licensing | —',
+  '2 | Licensing | Review concept against brand guidelines within 5 business days | Production planning | New material requires environmental compliance sign-off before handoff',
+  '3 | Production planning | Schedule the manufacturing run | Manufacturing | —',
 ].join('\n');
 
 test.describe('S03 pilot journey', () => {
@@ -65,5 +60,22 @@ test.describe('S03 pilot journey', () => {
     await page.getByTestId('ask-btn').click();
     await expect(page.getByTestId('answer-text')).toContainText('No source evidence');
     await expect(page.getByTestId('hypothetical')).not.toBeVisible();
+  });
+
+  test('mutating APIs refuse missing or invalid pilot token', async ({ request }) => {
+    const noAuth = await request.post('/api/consultant/sources', {
+      data: { text: 'Step 1: test', filename: 'x.txt' },
+    });
+    expect(noAuth.status()).toBe(401);
+
+    const badToken = await request.post('/api/consultant/sources', {
+      headers: {
+        'content-type': 'application/json',
+        'x-oracle2-pilot-token': 'not-the-token',
+        'x-oracle2-actor-id': 'pilot-user',
+      },
+      data: { text: 'Step 1: test', filename: 'x.txt' },
+    });
+    expect(badToken.status()).toBe(401);
   });
 });

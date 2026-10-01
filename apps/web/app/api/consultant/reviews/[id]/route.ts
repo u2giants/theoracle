@@ -10,6 +10,7 @@ import {
   type Draft,
   type Review,
 } from '@/lib/oracle2-client';
+import { authorizePilotRequest } from '@/lib/oracle2-pilot-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,14 +19,18 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const auth = authorizePilotRequest(req.headers);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
     const { id } = await params;
     const body = await req.json();
-    const { action, connections, processName, scope, actorId, workspaceId } = body;
+    const { action, connections, processName, scope, workspaceId } = body;
     const draft = getDraft(id);
     if (!draft) {
       return NextResponse.json({ error: 'draft not found' }, { status: 404 });
     }
-    const actor = actorId ?? draft.createdBy;
+    const actor = auth.actorId;
     if (action === 'correct') {
       if (!hasAuthority(actor, 'review')) {
         return NextResponse.json({ error: 'actor lacks review authority for draft correction' }, { status: 403 });

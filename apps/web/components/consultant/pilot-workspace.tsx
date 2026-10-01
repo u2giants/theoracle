@@ -38,6 +38,14 @@ interface RunData {
   status: string;
 }
 
+function pilotHeaders(): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'x-oracle2-pilot-token': process.env.NEXT_PUBLIC_ORACLE2_PILOT_TOKEN ?? '',
+    'x-oracle2-actor-id': process.env.NEXT_PUBLIC_ORACLE2_PILOT_ACTOR ?? 'pilot-user',
+  };
+}
+
 export function PilotWorkspace() {
   const [text, setText] = useState('');
   const [sourceId, setSourceId] = useState<string | null>(null);
@@ -86,8 +94,8 @@ export function PilotWorkspace() {
     try {
       const res = await fetch('/api/consultant/sources', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, filename: 'pilot.txt', processName: 'Pilot process' }),
+        headers: pilotHeaders(),
+        body: JSON.stringify({ text, filename: 'pilot-process-table.txt', processName: 'Pilot process' }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'upload failed');
@@ -110,7 +118,7 @@ export function PilotWorkspace() {
     try {
       const res = await fetch(`/api/consultant/reviews/${draftId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: pilotHeaders(),
         body: JSON.stringify({ action: 'correct', connections }),
       });
       const data = await res.json();
@@ -130,7 +138,7 @@ export function PilotWorkspace() {
     try {
       const res = await fetch(`/api/consultant/reviews/${draftId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: pilotHeaders(),
         body: JSON.stringify({ action: 'confirm', scope: 'process-map' }),
       });
       const data = await res.json();
@@ -151,7 +159,7 @@ export function PilotWorkspace() {
     try {
       const res = await fetch('/api/consultant/questions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: pilotHeaders(),
         body: JSON.stringify({ question, sourceId, draftId }),
       });
       const data = await res.json();
