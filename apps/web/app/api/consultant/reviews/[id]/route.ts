@@ -3,12 +3,16 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { randomUUID } from 'crypto';
 import {
   getDraft,
+  getSource,
   hasActiveConfirm,
+  hasAuthority,
   storeDraft,
   storeReview,
   type Draft,
+  type DraftConnection,
   type Review,
 } from '@/lib/oracle2-client';
+import { authorizePilotRequest } from '@/lib/oracle2-pilot-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,20 +21,47 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const auth = authorizePilotRequest(req.headers);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
     const { id } = await params;
     const body = await req.json();
-    const { action, connections, processName, scope, actorId, workspaceId } = body;
+    const { action, connections, processName, scope, workspaceId } = body;
     const draft = getDraft(id);
     if (!draft) {
       return NextResponse.json({ error: 'draft not found' }, { status: 404 });
     }
+    const actor = auth.actorId;
     if (action === 'correct') {
+      if (!hasAuthority(actor, 'review')) {
+        return NextResponse.json({ error: 'actor lacks review authority for draft correction' }, { status: 403 });
+      }
       if (draft.status !== 'draft') {
         return NextResponse.json({ error: 'only draft-status documents can be corrected' }, { status: 400 });
       }
+      const nextConnections = connections ?? draft.connections;
+      if (!Array.isArray(nextConnections)) {
+        return NextResponse.json({ error: 'connections must be an array' }, { status: 400 });
+      }
+      const source = getSource(draft.sourceId);
+      const blockCount = source?.blocks.length ?? 0;
+      for (const connection of nextConnections as DraftConnection[]) {
+        if (
+          !connection ||
+          typeof connection.from !== 'number' ||
+          typeof connection.to !== 'number' ||
+          connection.from < 0 ||
+          connection.to < 0 ||
+          connection.from >= blockCount ||
+          connection.to >= blockCount
+        ) {
+          return NextResponse.json({ error: 'connection endpoints must address source blocks' }, { status: 400 });
+        }
+      }
       const updated: Draft = {
         ...draft,
-        connections: connections ?? draft.connections,
+        connections: nextConnections as DraftConnection[],
         processName: processName ?? draft.processName,
         updatedAt: new Date().toISOString(),
       };
@@ -39,7 +70,7 @@ export async function POST(
         reviewId: randomUUID(),
         draftId: id,
         workspaceId: workspaceId ?? draft.workspaceId,
-        actorId: actorId ?? draft.createdBy,
+        actorId: actor,
         action: 'correct',
         payload: { connections: updated.connections },
         createdAt: new Date().toISOString(),
@@ -48,6 +79,9 @@ export async function POST(
       return NextResponse.json({ draft: updated, reviewId: review.reviewId });
     }
     if (action === 'confirm') {
+      if (!hasAuthority(actor, 'confirm')) {
+        return NextResponse.json({ error: 'actor lacks confirm authority for scoped confirmation' }, { status: 403 });
+      }
       if (draft.status === 'confirmed') {
         return NextResponse.json({ error: 'draft already confirmed' }, { status: 409 });
       }
@@ -60,7 +94,7 @@ export async function POST(
         reviewId: randomUUID(),
         draftId: id,
         workspaceId: workspaceId ?? draft.workspaceId,
-        actorId: actorId ?? draft.createdBy,
+        actorId: actor,
         action: 'confirm',
         payload: { scope: scope ?? 'process-map' },
         createdAt: new Date().toISOString(),

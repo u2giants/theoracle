@@ -16,9 +16,13 @@ class RetrievedSpan:
     score: float
 
 
-def retrieve_spans(question: str, blocks: list[dict], *, limit: int = 5) -> list[RetrievedSpan]:
+def retrieve_spans(question: str, blocks: list[dict], *, limit: int = 5,
+                   process_connections: list[dict] | None = None) -> list[RetrievedSpan]:
     """Rank blocks by keyword overlap with the question.
 
+    When process_connections are supplied, blocks that participate in a
+    confirmed/corrected connection receive a retrieval boost so a connected
+    question can follow the process map rather than keyword overlap alone.
     This is a deliberately simple retrieval path for the pilot journey; S09
     replaces it with proper embedding-based retrieval.
     """
@@ -31,11 +35,23 @@ def retrieve_spans(question: str, blocks: list[dict], *, limit: int = 5) -> list
         w.lower().strip(".,;:!?") for w in question.split()
         if w.lower().strip(".,;:!?") and w.lower() not in stop_words
     }
+    connected_indexes: set[int] = set()
+    for connection in process_connections or []:
+        for key in ("from", "to"):
+            value = connection.get(key)
+            if isinstance(value, int):
+                connected_indexes.add(value)
+            elif isinstance(value, str) and value.isdigit():
+                connected_indexes.add(int(value))
+    connection_boost = 0.15 if connected_indexes else 0.0
     scored: list[tuple[float, dict]] = []
     for block in blocks:
         text_lower = block["text"].lower()
         overlap = sum(1 for word in question_words if word in text_lower)
-        score = overlap / max(len(question_words), 1)
+        relevance = overlap / max(len(question_words), 1)
+        score = relevance
+        if relevance > 0 and block.get("block_index") in connected_indexes:
+            score += connection_boost
         if score > 0:
             scored.append((score, block))
     scored.sort(key=lambda x: x[0], reverse=True)

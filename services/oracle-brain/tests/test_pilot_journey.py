@@ -99,15 +99,26 @@ def test_pilot_journey_answer_without_evidence_says_so(admin_url, monkeypatch):
     _appoint_root(admin_url, workspace, owner, monkeypatch)
     delegate(admin_url, workspace_id=workspace, grantor_id=owner,
              actor_id=pilot_user, scope="intake")
+    delegate(admin_url, workspace_id=workspace, grantor_id=owner,
+             actor_id=pilot_user, scope="review")
+    delegate(admin_url, workspace_id=workspace, grantor_id=owner,
+             actor_id=pilot_user, scope="confirm")
 
     source_id, _ = upload_source(
         admin_url, workspace_id=workspace, actor_id=pilot_user,
         filename="empty-topic.txt", content_type="text/plain",
         text="The weather is pleasant today.",
     )
+    draft_id = create_draft(
+        admin_url, source_id=source_id, workspace_id=workspace,
+        actor_id=pilot_user, process_name="Weather",
+        connections=[],
+    )
+    confirm_draft(admin_url, draft_id=draft_id, workspace_id=workspace,
+                  actor_id=pilot_user, scope="process-map")
     result = run_question(
         admin_url, workspace_id=workspace, actor_id=pilot_user,
-        source_id=source_id, draft_id=None,
+        source_id=source_id, draft_id=draft_id,
         question="What is the licensing approval threshold for new materials?",
     )
     assert not result.answer.citations

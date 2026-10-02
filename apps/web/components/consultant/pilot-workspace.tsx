@@ -38,6 +38,10 @@ interface RunData {
   status: string;
 }
 
+function jsonHeaders(): Record<string, string> {
+  return { 'Content-Type': 'application/json' };
+}
+
 export function PilotWorkspace() {
   const [text, setText] = useState('');
   const [sourceId, setSourceId] = useState<string | null>(null);
@@ -51,6 +55,8 @@ export function PilotWorkspace() {
   const [runId, setRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pilotTokenInput, setPilotTokenInput] = useState('');
+  const [actorId, setActorId] = useState<string | null>(null);
 
   // Persist run/source so the answer survives a page refresh.
   useEffect(() => {
@@ -80,14 +86,36 @@ export function PilotWorkspace() {
     if (draftId) sessionStorage.setItem('oracle2-draft-id', draftId);
   }, [runId, sourceId, draftId]);
 
+  const login = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch('/api/consultant/session', {
+        method: 'POST',
+        headers: jsonHeaders(),
+        body: JSON.stringify({ token: pilotTokenInput }),
+        credentials: 'same-origin',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'login failed');
+      setActorId(data.actorId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'login failed');
+    } finally {
+      setLoading(false);
+    }
+  }, [pilotTokenInput]);
+
   const upload = useCallback(async () => {
+    if (!actorId) return;
     setError(null);
     setLoading(true);
     try {
       const res = await fetch('/api/consultant/sources', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, filename: 'pilot.txt', processName: 'Pilot process' }),
+        headers: jsonHeaders(),
+        credentials: 'same-origin',
+        body: JSON.stringify({ text, filename: 'pilot-process-table.txt', processName: 'Pilot process' }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'upload failed');
@@ -101,7 +129,7 @@ export function PilotWorkspace() {
     } finally {
       setLoading(false);
     }
-  }, [text]);
+  }, [text, actorId]);
 
   const correct = useCallback(async () => {
     if (!draftId) return;
@@ -110,7 +138,8 @@ export function PilotWorkspace() {
     try {
       const res = await fetch(`/api/consultant/reviews/${draftId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonHeaders(),
+        credentials: 'same-origin',
         body: JSON.stringify({ action: 'correct', connections }),
       });
       const data = await res.json();
@@ -130,7 +159,8 @@ export function PilotWorkspace() {
     try {
       const res = await fetch(`/api/consultant/reviews/${draftId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonHeaders(),
+        credentials: 'same-origin',
         body: JSON.stringify({ action: 'confirm', scope: 'process-map' }),
       });
       const data = await res.json();
@@ -151,7 +181,8 @@ export function PilotWorkspace() {
     try {
       const res = await fetch('/api/consultant/questions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonHeaders(),
+        credentials: 'same-origin',
         body: JSON.stringify({ question, sourceId, draftId }),
       });
       const data = await res.json();
@@ -169,7 +200,7 @@ export function PilotWorkspace() {
     if (!runId) return;
     setError(null);
     try {
-      const res = await fetch(`/api/consultant/runs/${runId}`);
+      const res = await fetch(`/api/consultant/runs/${runId}`, { credentials: 'same-origin' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'run not found');
       setAnswer(data.answer);
@@ -188,12 +219,37 @@ export function PilotWorkspace() {
         </div>
       )}
 
+      <section data-testid="pilot-login">
+        <h2 className="mb-2 text-lg font-semibold">0. Pilot sign-in</h2>
+        <input
+          data-testid="pilot-token"
+          type="password"
+          className="w-full rounded border p-2"
+          placeholder="Pilot token"
+          value={pilotTokenInput}
+          onChange={(e) => setPilotTokenInput(e.target.value)}
+        />
+        <button
+          data-testid="pilot-login-btn"
+          className="mt-2 rounded bg-slate-700 px-4 py-2 text-white disabled:opacity-50"
+          onClick={login}
+          disabled={loading}
+        >
+          Sign in
+        </button>
+        {actorId && (
+          <p data-testid="pilot-actor" className="mt-1 text-sm text-gray-600">
+            Signed in as {actorId}
+          </p>
+        )}
+      </section>
+
       <section>
         <h2 className="mb-2 text-lg font-semibold">1. Upload a process document</h2>
         <textarea
           data-testid="document-text"
           className="h-32 w-full rounded border p-2"
-          placeholder="Paste process document text…"
+          placeholder="Paste process table or document text…"
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
@@ -201,7 +257,7 @@ export function PilotWorkspace() {
           data-testid="upload-btn"
           className="mt-2 rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
           onClick={upload}
-          disabled={loading || !text.trim()}
+          disabled={loading || !text.trim() || !actorId}
         >
           Upload
         </button>
@@ -262,15 +318,21 @@ export function PilotWorkspace() {
             >
               Apply correction
             </button>
-            <button
-              data-testid="confirm-btn"
-              className="rounded bg-green-600 px-3 py-1 text-white disabled:opacity-50"
-              onClick={confirm}
-              disabled={loading}
-            >
-              Confirm draft
-            </button>
           </div>
+        </section>
+      )}
+
+      {blocks.length > 0 && !confirmed && (
+        <section>
+          <h2 className="mb-2 text-lg font-semibold">4. Confirm scoped draft</h2>
+          <button
+            data-testid="confirm-btn"
+            className="rounded bg-green-600 px-3 py-1 text-white disabled:opacity-50"
+            onClick={confirm}
+            disabled={loading}
+          >
+            Confirm draft
+          </button>
         </section>
       )}
 

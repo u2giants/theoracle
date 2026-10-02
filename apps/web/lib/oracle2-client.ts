@@ -76,6 +76,23 @@ const sources = new Map<string, { sourceId: string; workspaceId: string; filenam
 const drafts = new Map<string, Draft>();
 const runs = new Map<string, Run>();
 const reviews: Review[] = [];
+/** Pilot authority grants: actorId → scopes (mirrors S02 has_authority for the thin UI). */
+const authorityGrants = new Map<string, Set<string>>();
+
+export function grantAuthority(actorId: string, scope: 'review' | 'confirm'): void {
+  const scopes = authorityGrants.get(actorId) ?? new Set<string>();
+  scopes.add(scope);
+  authorityGrants.set(actorId, scopes);
+}
+
+export function revokeAuthority(actorId: string): void {
+  authorityGrants.delete(actorId);
+}
+
+export function hasAuthority(actorId: string | undefined, scope: 'review' | 'confirm'): boolean {
+  if (!actorId) return false;
+  return authorityGrants.get(actorId)?.has(scope) ?? false;
+}
 
 export function storeSource(sourceId: string, workspaceId: string, filename: string, blocks: SourceBlock[]): void {
   sources.set(sourceId, { sourceId, workspaceId, filename, blocks, status: 'draft' });
@@ -114,31 +131,60 @@ export function hasActiveConfirm(draftId: string): boolean {
 }
 
 export function parseTextToBlocks(text: string, sourceId: string): SourceBlock[] {
+  // Process tables and numbered process steps are line-oriented; blank-line
+  // paragraphs alone would collapse an entire table into one uncorrectable block.
+  const lines = text.split('\n');
   const blocks: SourceBlock[] = [];
   let offset = 0;
-  const paragraphs = text.split('\n\n');
-  for (const paragraph of paragraphs) {
-    const stripped = paragraph.trim();
-    if (!stripped) {
-      offset += paragraph.length + 2;
-      continue;
+  let current: string[] = [];
+  let currentStart = 0;
+  const flush = () => {
+    const raw = current.join('\n');
+    const stripped = raw.trim();
+    if (stripped) {
+      const start = text.indexOf(stripped, currentStart);
+      const end = start + stripped.length;
+      blocks.push({
+        blockId: `${sourceId}-${blocks.length}`,
+        sourceId,
+        blockIndex: blocks.length,
+        text: stripped,
+        spanStart: start,
+        spanEnd: end,
+      });
     }
-    const start = text.indexOf(stripped, offset);
-    const end = start + stripped.length;
-    blocks.push({
-      blockId: `${sourceId}-${blocks.length}`,
-      sourceId,
-      blockIndex: blocks.length,
-      text: stripped,
-      spanStart: start,
-      spanEnd: end,
-    });
-    offset = end;
+    current = [];
+  };
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const isRow =
+      line.includes('|') ||
+      /^\s*(step\s+)?\d+\s*[.)|:\-]/i.test(trimmed) ||
+      /^step[_ ]id/i.test(trimmed);
+    if (current.length === 0) {
+      currentStart = offset;
+    }
+    if (trimmed === '') {
+      flush();
+    } else if (isRow) {
+      flush();
+      currentStart = offset;
+      current = [line];
+    } else {
+      current.push(line);
+    }
+    offset += line.length + 1;
   }
+  flush();
   return blocks;
 }
 
-export function retrieveSpans(question: string, blocks: SourceBlock[], limit = 5): Array<{ block: SourceBlock; score: number }> {
+export function retrieveSpans(
+  question: string,
+  blocks: SourceBlock[],
+  limit = 5,
+  processConnections: DraftConnection[] = [],
+): Array<{ block: SourceBlock; score: number }> {
   const stopWords = new Set(['the', 'a', 'an', 'is', 'are', 'can', 'where', 'how', 'what', 'when', 'does', 'do', 'in', 'on', 'to', 'of', 'for', 'and', 'or', 'be', 'will', 'would', 'could', 'should']);
   const questionWords = new Set(
     question
@@ -146,6 +192,12 @@ export function retrieveSpans(question: string, blocks: SourceBlock[], limit = 5
       .map((w) => w.toLowerCase().replace(/[.,;:!?]/g, ''))
       .filter((w) => w && !stopWords.has(w)),
   );
+  const connectedIndexes = new Set<number>();
+  for (const connection of processConnections) {
+    connectedIndexes.add(connection.from);
+    connectedIndexes.add(connection.to);
+  }
+  const connectionBoost = connectedIndexes.size > 0 ? 0.15 : 0;
   const scored = blocks
     .map((block) => {
       const textLower = block.text.toLowerCase();
@@ -153,14 +205,26 @@ export function retrieveSpans(question: string, blocks: SourceBlock[], limit = 5
       for (const word of questionWords) {
         if (textLower.includes(word)) overlap++;
       }
-      return { block, score: overlap / Math.max(questionWords.size, 1) };
+      const relevance = overlap / Math.max(questionWords.size, 1);
+      // Connection boost only lifts blocks that already match the question;
+      // an unrelated process-map neighbor must not become supporting evidence.
+      let score = relevance;
+      if (relevance > 0 && connectedIndexes.has(block.blockIndex)) {
+        score += connectionBoost;
+      }
+      return { block, score, relevance };
     })
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score);
   return scored.slice(0, limit);
 }
 
-export function answerQuestion(question: string, spans: Array<{ block: SourceBlock; score: number }>): PilotAnswer {
+export function answerQuestion(
+  question: string,
+  spans: Array<{ block: SourceBlock; score: number }>,
+  processConnections: DraftConnection[] = [],
+  connectedBlocks: SourceBlock[] = [],
+): PilotAnswer {
   if (spans.length === 0) {
     return {
       answerText: 'No source evidence was found for this question.',
@@ -175,7 +239,24 @@ export function answerQuestion(question: string, spans: Array<{ block: SourceBlo
     spanEnd: s.block.spanEnd,
     quote: s.block.text,
   }));
+  // Connected process-map neighbors are context, not automatic citations.
   const factLines = spans.slice(0, 3).map((s) => `According to the source: ${s.block.text}`);
+  if (processConnections.length > 0) {
+    const edges = processConnections.slice(0, 5).map((c) => `${c.from}→${c.to}`).join(', ');
+    factLines.push(
+      `Process-map connections in scope: ${edges}.`,
+    );
+    for (const block of connectedBlocks.slice(0, 4)) {
+      const cited = citations.some((c) => c.spanStart === block.spanStart && c.spanEnd === block.spanEnd);
+      if (cited) {
+        factLines.push(`Connected process step (${block.blockIndex}): ${block.text}`);
+      } else {
+        factLines.push(
+          `Process-map context only (not established answer evidence) (${block.blockIndex}): ${block.text}`,
+        );
+      }
+    }
+  }
   return {
     answerText: factLines.join('\n'),
     citations,
