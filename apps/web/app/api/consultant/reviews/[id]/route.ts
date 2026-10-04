@@ -5,7 +5,6 @@ import {
   getDraft,
   getSource,
   hasActiveConfirm,
-  hasAuthority,
   storeDraft,
   storeReview,
   type Draft,
@@ -13,6 +12,7 @@ import {
   type Review,
 } from '@/lib/oracle2-client';
 import { authorizePilotRequest } from '@/lib/oracle2-pilot-auth';
+import { hasAuthority } from '@/lib/oracle2-authority';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +34,7 @@ export async function POST(
     }
     const actor = auth.actorId;
     if (action === 'correct') {
-      if (!hasAuthority(actor, 'review')) {
+      if (!(await hasAuthority(actor, 'review'))) {
         return NextResponse.json({ error: 'actor lacks review authority for draft correction' }, { status: 403 });
       }
       if (draft.status !== 'draft') {
@@ -79,7 +79,7 @@ export async function POST(
       return NextResponse.json({ draft: updated, reviewId: review.reviewId });
     }
     if (action === 'confirm') {
-      if (!hasAuthority(actor, 'confirm')) {
+      if (!(await hasAuthority(actor, 'confirm'))) {
         return NextResponse.json({ error: 'actor lacks confirm authority for scoped confirmation' }, { status: 403 });
       }
       if (draft.status === 'confirmed') {

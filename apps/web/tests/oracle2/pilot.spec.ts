@@ -89,31 +89,29 @@ test.describe('S03 pilot journey', () => {
     expect(bad.status()).toBe(401);
   });
 
-  test('session ignores body identities and missing confirm scope is denied', async () => {
+  test('store-backed authority fails closed without ORACLE2_DATABASE_URL', async () => {
+    const prevDb = process.env.ORACLE2_DATABASE_URL;
     const prevToken = process.env.ORACLE2_PILOT_TOKEN;
     const prevActor = process.env.ORACLE2_PILOT_ACTOR;
-    const prevScopes = process.env.ORACLE2_PILOT_SCOPES;
+    delete process.env.ORACLE2_DATABASE_URL;
     process.env.ORACLE2_PILOT_TOKEN = 'unit-test-token';
     process.env.ORACLE2_PILOT_ACTOR = 'pilot-user';
-    process.env.ORACLE2_PILOT_SCOPES = 'review';
     try {
       const auth = await import('../../lib/oracle2-pilot-auth');
-      const client = await import('../../lib/oracle2-client');
-      const created = auth.createSession('unit-test-token');
-      expect(created.ok).toBe(true);
-      if (created.ok) {
-        expect(created.actorId).toBe('pilot-user');
+      const authority = await import('../../lib/oracle2-authority');
+      expect(await authority.hasAuthority('pilot-user', 'confirm')).toBe(false);
+      const created = await auth.createSession('unit-test-token');
+      expect(created.ok).toBe(false);
+      if (!created.ok) {
+        expect(created.status).toBe(403);
       }
-      expect(client.hasAuthority('pilot-user', 'review')).toBe(true);
-      expect(client.hasAuthority('pilot-user', 'confirm')).toBe(false);
-      expect(client.hasAuthority(undefined, 'confirm')).toBe(false);
     } finally {
+      if (prevDb === undefined) delete process.env.ORACLE2_DATABASE_URL;
+      else process.env.ORACLE2_DATABASE_URL = prevDb;
       if (prevToken === undefined) delete process.env.ORACLE2_PILOT_TOKEN;
       else process.env.ORACLE2_PILOT_TOKEN = prevToken;
       if (prevActor === undefined) delete process.env.ORACLE2_PILOT_ACTOR;
       else process.env.ORACLE2_PILOT_ACTOR = prevActor;
-      if (prevScopes === undefined) delete process.env.ORACLE2_PILOT_SCOPES;
-      else process.env.ORACLE2_PILOT_SCOPES = prevScopes;
     }
   });
 });

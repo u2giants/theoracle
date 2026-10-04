@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'token is required' }, { status: 400 });
     }
     // Body identities are ignored; actor and scopes come from server env only.
-    const result = createSession(token);
+    const result = await createSession(token);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
