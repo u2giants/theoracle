@@ -1,11 +1,10 @@
 // Pilot session auth for the isolated S03 preview.
-// The pilot token is typed once into the UI password field; the server issues
-// an httpOnly session bound to the configured pilot actor. Caller-supplied
-// body identities are ignored. Scopes come from ORACLE2_PILOT_SCOPES so a
-// missing-scope denial is testable.
+// Token is typed into the UI; the server issues an httpOnly session bound to
+// the configured allowlisted actor. Scopes are proven in oracle2.appointments
+// (S02), not granted in process memory. Body identities are ignored.
 
 import { randomUUID } from 'crypto';
-import { grantAuthority, revokeAuthority } from '@/lib/oracle2-client';
+import { hasAuthority, type PilotScope } from '@/lib/oracle2-authority';
 
 const SESSION_COOKIE = 'oracle2_pilot_session';
 
@@ -35,18 +34,9 @@ export function pilotActors(): Set<string> {
   );
 }
 
-export function pilotScopes(): Array<'review' | 'confirm'> {
-  const raw = process.env.ORACLE2_PILOT_SCOPES ?? 'review,confirm';
-  const scopes: Array<'review' | 'confirm'> = [];
-  for (const part of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
-    if (part === 'review' || part === 'confirm') scopes.push(part);
-  }
-  return scopes.length > 0 ? scopes : ['review'];
-}
-
-export function createSession(token: string):
-  | { ok: true; sessionId: string; actorId: string }
-  | { ok: false; error: string; status: number } {
+export async function createSession(token: string): Promise<
+  { ok: true; sessionId: string; actorId: string } | { ok: false; error: string; status: number }
+> {
   const expected = pilotToken();
   if (!expected) {
     return { ok: false, error: 'pilot token is not configured on this preview', status: 503 };
@@ -55,22 +45,33 @@ export function createSession(token: string):
     return { ok: false, error: 'invalid pilot token', status: 401 };
   }
   const actorId = pilotActor();
+  if (!pilotActors().has(actorId)) {
+    return { ok: false, error: 'actor is not on the pilot allowlist', status: 403 };
+  }
+  // Store-backed gate: the actor must already hold review in oracle2.appointments.
+  const ok = await hasAuthority(actorId, 'review');
+  if (!ok) {
+    return {
+      ok: false,
+      error: 'actor lacks store-backed review authority (oracle2.appointments)',
+      status: 403,
+    };
+  }
   const sessionId = randomUUID();
   sessions.set(sessionId, { sessionId, actorId, createdAt: Date.now() });
-  for (const scope of pilotScopes()) {
-    grantAuthority(actorId, scope);
-  }
   return { ok: true, sessionId, actorId };
+}
+
+export async function sessionHasScope(
+  actorId: string,
+  scope: PilotScope,
+): Promise<boolean> {
+  return hasAuthority(actorId, scope);
 }
 
 export function destroySession(sessionId: string | undefined): void {
   if (!sessionId) return;
-  const session = sessions.get(sessionId);
   sessions.delete(sessionId);
-  if (session) {
-    // Session-scoped grants: revoking the session drops the actor's scopes.
-    revokeAuthority(session.actorId);
-  }
 }
 
 function parseCookies(header: string | null): Record<string, string> {
