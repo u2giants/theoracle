@@ -6,7 +6,7 @@ The bootstrap connection must be an **admin** role that can INSERT into
 production.
 
 Usage (after 001_foundation.sql + grant-postgres.sql):
-  export ORACLE2_DATABASE_URL=postgresql://oracle2_admin:...@127.0.0.1:55432/oracle2
+  export ORACLE2_ADMIN_DATABASE_URL=postgresql://oracle2_admin:...@127.0.0.1:55432/oracle2
   export ORACLE2_OWNER_PUBLIC_KEY=<owner ed25519 raw hex>
   python -m oracle_brain.bootstrap_pilot_authority \\
     --workspace 00000000-0000-4000-8000-000000000002 \\
@@ -25,7 +25,7 @@ Required inputs (all of them):
   - --actor (pilot actor UUID used by ORACLE2_PILOT_ACTOR)
   - --owner-signature-hex (Ed25519 signature over the appointment message)
   - ORACLE2_OWNER_PUBLIC_KEY (raw public key hex)
-  - ORACLE2_DATABASE_URL (admin URL for bootstrap only)
+  - ORACLE2_ADMIN_DATABASE_URL (admin URL for bootstrap only; never the web URL)
 
 All three appointment writes run in one transaction.
 """

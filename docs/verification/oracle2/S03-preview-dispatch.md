@@ -89,7 +89,7 @@ model logs.
    (`oracle2_admin`) — required inputs: `--workspace`, `--owner`,
    `--appointed-by` (≠ owner), `--appointment-id`, `--actor` (pilot UUID),
    `--owner-signature-hex`, `--actor-signature-hex` (owner signature over
-   `oracle2-pilot-delegate-v1:ws:owner:actor`), `ORACLE2_OWNER_PUBLIC_KEY`,
+   `oracle2-pilot-delegate-v1:ws:owner:appointed-by:actor`), `ORACLE2_OWNER_PUBLIC_KEY`,
    and admin `ORACLE2_ADMIN_DATABASE_URL` (separate from the web
    `ORACLE2_DATABASE_URL`) whose host is **loopback only**
    (`127.0.0.1` / `localhost` / `::1`) and whose path is exactly the database

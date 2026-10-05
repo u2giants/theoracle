@@ -249,11 +249,16 @@ export async function confirmDraft(input: {
           FROM oracle2.appointments p
           JOIN used u ON p.appointment_id = u.parent_id
           WHERE u.depth < 16
+            AND p.workspace_id=${input.workspaceId}::uuid
         )
         SELECT appointment_id::text, scope, parent_id::text
         FROM used
         WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
       `;
+      const hasRoot = (lineage as Array<{ scope: string }>).some((r) => r.scope === 'root');
+      if (!hasRoot) {
+        throw new Error('confirm authority lineage missing live root');
+      }
       await tx`
         UPDATE oracle2.drafts SET status='confirmed', updated_at=now()
         WHERE draft_id=${input.draftId}::uuid

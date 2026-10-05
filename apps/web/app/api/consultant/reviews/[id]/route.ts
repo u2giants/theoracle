@@ -84,10 +84,13 @@ export async function POST(
     if (message.includes('lacks')) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     }
-    if (message.includes('already confirmed')) {
+    if (message.includes('already confirmed') || message.includes('unique')) {
       return NextResponse.json({ error: 'draft already confirmed' }, { status: 409 });
     }
-    return NextResponse.json({ error: 'review failed' }, { status: 400 });
+    if (message.includes('not found')) {
+      return NextResponse.json({ error: 'draft not found' }, { status: 404 });
+    }
+    return NextResponse.json({ error: 'review failed' }, { status: 500 });
   }
 }
 
