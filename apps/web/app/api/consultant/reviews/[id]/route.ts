@@ -66,11 +66,15 @@ export async function POST(
       return NextResponse.json({ draftId: id, status: 'draft' });
     }
     if (action === 'confirm') {
+      const confirmScope = scope ?? 'process-map';
+      if (confirmScope !== 'process-map') {
+        return NextResponse.json({ error: 'unsupported confirmation scope' }, { status: 400 });
+      }
       await confirmDraft({
         draftId: id,
         workspaceId,
         actorId: actor,
-        scope: scope ?? 'process-map',
+        scope: confirmScope,
       });
       return NextResponse.json({ draftId: id, status: 'confirmed' });
     }

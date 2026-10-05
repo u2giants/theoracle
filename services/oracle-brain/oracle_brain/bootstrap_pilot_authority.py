@@ -50,20 +50,16 @@ def main() -> int:
                         help="owner signature over oracle2-pilot-delegate-v1:ws:owner:actor")
     args = parser.parse_args()
 
-    # Credentials only via env, never CLI. Isolated host allowlist (loopback or
-    # explicitly named private hosts). Broad RFC1918 ranges are not enough.
+    # Credentials only via env, never CLI. Isolation is hard-coded to loopback —
+    # the same environment cannot redefine what counts as isolated.
     url = os.environ.get("ORACLE2_DATABASE_URL")
     if not url:
         raise SystemExit("ORACLE2_DATABASE_URL (admin) is required via environment")
     from urllib.parse import urlparse
 
     host = (urlparse(url).hostname or "").lower()
-    allow_raw = os.environ.get("ORACLE2_ISOLATED_STORE_HOSTS", "127.0.0.1,localhost,::1")
-    allowed_hosts = {h.strip().lower() for h in allow_raw.split(",") if h.strip()}
-    if host not in allowed_hosts:
-        raise SystemExit(
-            "refusing DATABASE_URL host not in ORACLE2_ISOLATED_STORE_HOSTS allowlist"
-        )
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        raise SystemExit("refusing DATABASE_URL host that is not loopback isolated store")
     workspace = UUID(args.workspace)
     owner = UUID(args.owner)
     appointed_by = UUID(args.appointed_by)
@@ -112,11 +108,12 @@ def main() -> int:
                    VALUES (gen_random_uuid(),%s,%s,'confirm',%s,%s)""",
                 (workspace, actor, owner, appointment),
             )
+            # Validate inside the same transaction so failure rolls everything back.
+            if not has_authority(url, workspace_id=workspace, actor_id=actor, scope="review"):
+                raise RuntimeError("review authority missing after bootstrap")
+            if not has_authority(url, workspace_id=workspace, actor_id=actor, scope="confirm"):
+                raise RuntimeError("confirm authority missing after bootstrap")
 
-    if not has_authority(url, workspace_id=workspace, actor_id=actor, scope="review"):
-        raise SystemExit("review authority missing after bootstrap")
-    if not has_authority(url, workspace_id=workspace, actor_id=actor, scope="confirm"):
-        raise SystemExit("confirm authority missing after bootstrap")
     print("pilot authority ready", actor)
     return 0
 

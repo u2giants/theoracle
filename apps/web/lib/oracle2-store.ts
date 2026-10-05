@@ -51,6 +51,10 @@ function client() {
   return postgres(url, { max: 1, connect_timeout: 5 });
 }
 
+function asJson(value: unknown) {
+  return JSON.stringify(value ?? null);
+}
+
 export async function insertSource(input: {
   workspaceId: string;
   actorId: string;
@@ -82,7 +86,7 @@ export async function insertSource(input: {
         INSERT INTO oracle2.drafts
           (draft_id,source_id,workspace_id,created_by,process_name,connections,status)
         VALUES (${draftId}::uuid,${sourceId}::uuid,${input.workspaceId}::uuid,
-                ${input.actorId}::uuid,${input.processName ?? 'Pilot process'},${sql.json([])},'draft')
+                ${input.actorId}::uuid,${input.processName ?? 'Pilot process'},${asJson([])},'draft')
       `;
     });
     return { sourceId, draftId };
@@ -129,7 +133,7 @@ export async function getDraft(
       WHERE draft_id=${draftId}::uuid AND workspace_id=${workspaceId}::uuid
     `;
     if (rows.length === 0) return null;
-    const r = rows[0];
+    const r = rows[0]!;
     return {
       draftId: r.draft_id as string,
       sourceId: r.source_id as string,
@@ -210,11 +214,11 @@ export async function correctDraft(input: {
         FOR UPDATE
       `;
       if (rows.length === 0) throw new Error('draft not found');
-      if (rows[0].status !== 'draft') throw new Error('only draft-status documents can be corrected');
+      if (rows[0]!.status !== 'draft') throw new Error('only draft-status documents can be corrected');
       await assertAuthorityInTx(tx, input.workspaceId, input.actorId, 'review');
       await tx`
         UPDATE oracle2.drafts
-        SET connections=${sql.json(input.connections)},
+        SET connections=${asJson(input.connections)},
             process_name=COALESCE(${input.processName ?? null}, process_name),
             updated_at=now()
         WHERE draft_id=${input.draftId}::uuid
@@ -222,7 +226,7 @@ export async function correctDraft(input: {
       await tx`
         INSERT INTO oracle2.reviews (review_id,draft_id,workspace_id,actor_id,action,payload)
         VALUES (${randomUUID()}::uuid,${input.draftId}::uuid,${input.workspaceId}::uuid,
-                ${input.actorId}::uuid,'correct',${sql.json({ connections: input.connections })})
+                ${input.actorId}::uuid,'correct',${asJson({ connections: input.connections })})
       `;
     });
   } finally {
@@ -245,14 +249,23 @@ export async function confirmDraft(input: {
         FOR UPDATE
       `;
       if (rows.length === 0) throw new Error('draft not found');
-      if (rows[0].status === 'confirmed') throw new Error('draft already confirmed');
-      if (rows[0].status === 'withdrawn') throw new Error('withdrawn draft cannot be confirmed');
+      if (rows[0]!.status === 'confirmed') throw new Error('draft already confirmed');
+      if (rows[0]!.status === 'withdrawn') throw new Error('withdrawn draft cannot be confirmed');
       await assertAuthorityInTx(tx, input.workspaceId, input.actorId, 'confirm');
       const lineage = await tx`
+        WITH RECURSIVE lineage AS (
+          SELECT appointment_id, scope, parent_id, revoked_at, expires_at
+          FROM oracle2.appointments
+          WHERE workspace_id=${input.workspaceId}::uuid AND actor_id=${input.actorId}::uuid
+          UNION ALL
+          SELECT p.appointment_id, p.scope, p.parent_id, p.revoked_at, p.expires_at
+          FROM oracle2.appointments p
+          JOIN lineage l ON p.appointment_id = l.parent_id
+          WHERE p.workspace_id=${input.workspaceId}::uuid
+        )
         SELECT appointment_id::text, scope, parent_id::text
-        FROM oracle2.appointments
-        WHERE workspace_id=${input.workspaceId}::uuid AND actor_id=${input.actorId}::uuid
-          AND scope IN ('confirm','root') AND revoked_at IS NULL
+        FROM lineage
+        WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
       `;
       await tx`
         UPDATE oracle2.drafts SET status='confirmed', updated_at=now()
@@ -262,7 +275,7 @@ export async function confirmDraft(input: {
         INSERT INTO oracle2.reviews (review_id,draft_id,workspace_id,actor_id,action,payload)
         VALUES (${randomUUID()}::uuid,${input.draftId}::uuid,${input.workspaceId}::uuid,
                 ${input.actorId}::uuid,'confirm',
-                ${sql.json({ scope: input.scope, authority: lineage })})
+                ${asJson({ scope: input.scope, authority: lineage })})
       `;
     });
   } finally {
@@ -286,7 +299,7 @@ export async function storeRun(input: {
         (run_id,workspace_id,actor_id,source_id,draft_id,question,status,answer)
       VALUES (${runId}::uuid,${input.workspaceId}::uuid,${input.actorId}::uuid,
               ${input.sourceId}::uuid,${input.draftId}::uuid,${input.question},
-              'completed',${sql.json(input.answer ?? {})})
+              'completed',${asJson(input.answer ?? {})})
     `;
     return runId;
   } finally {
@@ -309,7 +322,7 @@ export async function getRun(
         AND actor_id=${actorId}::uuid
     `;
     if (rows.length === 0) return null;
-    const r = rows[0];
+    const r = rows[0]!;
     return {
       runId: r.run_id as string,
       workspaceId: r.workspace_id as string,
