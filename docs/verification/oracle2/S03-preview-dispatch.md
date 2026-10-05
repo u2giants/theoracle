@@ -75,18 +75,19 @@ model logs.
 2. **Isolated preview environment** — from the reviewed commit, start
    `@oracle/web` on `http://127.0.0.1` only. Bind loopback. No public hostname,
    no Vercel production change. Set preview-only env:
-   - `ORACLE2_DATABASE_URL` — isolated store with `oracle2` schema
-     (`dev/oracle2/compose.yaml` on CI/edge-dev3 Docker; local scoop Postgres
-     is known-unstable and is **not** an accepted journey store)
+   - `ORACLE2_DATABASE_URL` — isolated store as role `oracle2_pilot_web`
+     (SELECT on `oracle2.appointments`, journey-row writes; **not** admin) from
+     `dev/oracle2/compose.yaml` on CI/edge-dev3 Docker; local scoop Postgres is
+     known-unstable and is **not** an accepted journey store
    - `ORACLE2_PILOT_WORKSPACE_ID` — fixed pilot workspace UUID
+     `00000000-0000-4000-8000-000000000002`
    - `ORACLE2_PILOT_TOKEN` (random secret, not committed; private evidence dir)
-   - `ORACLE2_PILOT_ACTOR=pilot-user` (allowlisted actor; body identities ignored)
-   Bootstrap once on that store (not on production): signed owner appointment
-   (`authz.appoint_owner`), then `delegate` `review` and `confirm` to
-   `pilot-user`. The token is **not** browser-bundled. `POST
-   /api/consultant/session` checks the token and that `pilot-user` holds
-   `review` in `oracle2.appointments`; it does **not** insert grants. GET runs
-   and all mutating consultant APIs require the httpOnly session cookie.
+   - `ORACLE2_PILOT_ACTOR=00000000-0000-4000-8000-000000000003` (UUID matching
+     bootstrap `--actor`; body identities ignored)
+   Bootstrap once on that store (not production) with
+   `oracle_brain.bootstrap_pilot_authority`: signed owner appointment
+   (`appointed-by` ≠ owner), then `review`/`confirm` delegates to that actor
+   UUID in **one transaction**. The web app never uses an admin connection.
 3. **Browser-test gate (required before real data)** — run
    `tests/oracle2/pilot.spec.ts` against that server (`ORACLE2_PREVIEW_URL`).
    All tests must pass, including 401 without session/token and fail-closed

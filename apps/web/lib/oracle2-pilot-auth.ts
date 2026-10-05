@@ -21,11 +21,14 @@ export function pilotToken(): string | undefined {
 }
 
 export function pilotActor(): string {
-  return pilotActors().values().next().value ?? 'pilot-user';
+  return pilotActors().values().next().value ?? '00000000-0000-4000-8000-000000000003';
 }
 
 export function pilotActors(): Set<string> {
-  const raw = process.env.ORACLE2_PILOT_ACTOR ?? process.env.ORACLE2_PILOT_ACTORS ?? 'pilot-user';
+  const raw =
+    process.env.ORACLE2_PILOT_ACTOR ??
+    process.env.ORACLE2_PILOT_ACTORS ??
+    '00000000-0000-4000-8000-000000000003';
   return new Set(
     raw
       .split(',')

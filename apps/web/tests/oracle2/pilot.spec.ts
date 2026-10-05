@@ -89,17 +89,19 @@ test.describe('S03 pilot journey', () => {
     expect(bad.status()).toBe(401);
   });
 
-  test('store-backed authority fails closed without ORACLE2_DATABASE_URL', async () => {
+  test('store-backed authority fails closed on unreachable store', async () => {
     const prevDb = process.env.ORACLE2_DATABASE_URL;
     const prevToken = process.env.ORACLE2_PILOT_TOKEN;
     const prevActor = process.env.ORACLE2_PILOT_ACTOR;
-    delete process.env.ORACLE2_DATABASE_URL;
+    // Unreachable host, not merely an unset variable.
+    process.env.ORACLE2_DATABASE_URL =
+      'postgresql://oracle2_pilot_web:x@127.0.0.1:59999/oracle2?connect_timeout=1';
     process.env.ORACLE2_PILOT_TOKEN = 'unit-test-token';
-    process.env.ORACLE2_PILOT_ACTOR = 'pilot-user';
+    process.env.ORACLE2_PILOT_ACTOR = '00000000-0000-4000-8000-000000000003';
     try {
       const auth = await import('../../lib/oracle2-pilot-auth');
       const authority = await import('../../lib/oracle2-authority');
-      expect(await authority.hasAuthority('pilot-user', 'confirm')).toBe(false);
+      expect(await authority.hasAuthority('00000000-0000-4000-8000-000000000003', 'confirm')).toBe(false);
       const created = await auth.createSession('unit-test-token');
       expect(created.ok).toBe(false);
       if (!created.ok) {
