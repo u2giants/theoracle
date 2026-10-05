@@ -34,9 +34,9 @@ export function pilotActors(): Set<string> {
   );
 }
 
-export async function createSession(token: string):
-  | Promise<{ ok: true; sessionId: string; actorId: string }>
-  | Promise<{ ok: false; error: string; status: number }> {
+export async function createSession(token: string): Promise<
+  { ok: true; sessionId: string; actorId: string } | { ok: false; error: string; status: number }
+> {
   const expected = pilotToken();
   if (!expected) {
     return { ok: false, error: 'pilot token is not configured on this preview', status: 503 };
