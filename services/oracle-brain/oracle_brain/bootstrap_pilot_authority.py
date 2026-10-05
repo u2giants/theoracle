@@ -60,6 +60,9 @@ def main() -> int:
     host = (urlparse(url).hostname or "").lower()
     if host not in {"127.0.0.1", "localhost", "::1"}:
         raise SystemExit("refusing DATABASE_URL host that is not loopback isolated store")
+    path = (urlparse(url).path or "").lstrip("/")
+    if path and path != "oracle2":
+        raise SystemExit("refusing DATABASE_URL database name other than oracle2")
     workspace = UUID(args.workspace)
     owner = UUID(args.owner)
     appointed_by = UUID(args.appointed_by)

@@ -176,8 +176,8 @@ async function assertAuthorityInTx(
   actorId: string,
   scope: 'review' | 'confirm',
 ): Promise<void> {
-  // Transaction-scoped advisory lock (no table UPDATE privilege required).
-  await tx`SELECT pg_advisory_xact_lock(hashtext(${workspaceId} || ':' || ${actorId}))`;
+  // Same advisory lock key as oracle_brain.knowledge.authority revoke path.
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${'oracle2-authz:' + workspaceId + ':' + actorId}))`;
   const rows = await tx.unsafe(HAS_AUTHORITY_SQL, [workspaceId, actorId, scope]);
   if (!rows[0]?.ok) {
     throw new Error(`actor lacks ${scope} authority`);

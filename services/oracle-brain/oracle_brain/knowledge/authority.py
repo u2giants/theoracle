@@ -91,8 +91,17 @@ def revoke_review_authority(database_url: str, *, appointment_id: UUID,
                          actor_id=revoked_by, scope="root"):
         raise PermissionError("only root authority can revoke appointments")
     with psycopg.connect(database_url) as connection:
-        connection.execute(
-            """UPDATE oracle2.appointments SET revoked_at=now()
-               WHERE appointment_id=%s AND workspace_id=%s""",
-            (appointment_id, workspace_id),
-        )
+        with connection.transaction():
+            # Same advisory lock key as the web pilot mutations.
+            connection.execute(
+                """SELECT pg_advisory_xact_lock(
+                     hashtext('oracle2-authz:' || %s::text || ':' ||
+                              (SELECT actor_id::text FROM oracle2.appointments
+                               WHERE appointment_id=%s)))""",
+                (str(workspace_id), appointment_id),
+            )
+            connection.execute(
+                """UPDATE oracle2.appointments SET revoked_at=now()
+                   WHERE appointment_id=%s AND workspace_id=%s""",
+                (appointment_id, workspace_id),
+            )
