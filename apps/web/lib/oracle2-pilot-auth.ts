@@ -99,12 +99,8 @@ export async function authorizePilotRequest(
   if (!session || !sessionId) {
     return { ok: false, error: 'pilot session required', status: 401 };
   }
-  // Re-check store-backed review authority so a revoked actor loses the session.
-  const stillAuthorized = await hasAuthority(session.actorId, 'review');
-  if (!stillAuthorized) {
-    sessions.delete(sessionId);
-    return { ok: false, error: 'pilot session revoked', status: 403 };
-  }
+  // Session identity only; per-action scopes are checked inside the mutation
+  // transaction (review vs confirm).
   return { ok: true, actorId: session.actorId, sessionId: session.sessionId };
 }
 
