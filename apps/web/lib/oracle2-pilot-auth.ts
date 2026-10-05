@@ -52,7 +52,16 @@ export async function createSession(token: string): Promise<
   if (!pilotActors().has(actorId)) {
     return { ok: false, error: 'actor is not on the pilot allowlist', status: 403 };
   }
-  // Login does not require a particular scope; per-action checks run in-tx.
+  // Fail closed if the store cannot prove any live pilot scope for this actor.
+  const live =
+    (await hasAuthority(actorId, 'review')) || (await hasAuthority(actorId, 'confirm'));
+  if (!live) {
+    return {
+      ok: false,
+      error: 'actor lacks store-backed pilot authority (oracle2.appointments)',
+      status: 403,
+    };
+  }
   const sessionId = randomUUID();
   sessions.set(sessionId, { sessionId, actorId, createdAt: Date.now() });
   return { ok: true, sessionId, actorId };

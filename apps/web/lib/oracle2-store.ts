@@ -239,18 +239,19 @@ export async function confirmDraft(input: {
       if (rows[0]!.status === 'confirmed') throw new Error('draft already confirmed');
       if (rows[0]!.status === 'withdrawn') throw new Error('withdrawn draft cannot be confirmed');
       const lineage = await tx`
-        WITH RECURSIVE lineage AS (
-          SELECT appointment_id, scope, parent_id, revoked_at, expires_at
+        WITH RECURSIVE used AS (
+          SELECT appointment_id, scope, parent_id, revoked_at, expires_at, 1 AS depth
           FROM oracle2.appointments
           WHERE workspace_id=${input.workspaceId}::uuid AND actor_id=${input.actorId}::uuid
+            AND scope IN ('confirm','root')
           UNION ALL
-          SELECT p.appointment_id, p.scope, p.parent_id, p.revoked_at, p.expires_at
+          SELECT p.appointment_id, p.scope, p.parent_id, p.revoked_at, p.expires_at, u.depth+1
           FROM oracle2.appointments p
-          JOIN lineage l ON p.appointment_id = l.parent_id
-          WHERE p.workspace_id=${input.workspaceId}::uuid
+          JOIN used u ON p.appointment_id = u.parent_id
+          WHERE u.depth < 16
         )
         SELECT appointment_id::text, scope, parent_id::text
-        FROM lineage
+        FROM used
         WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
       `;
       await tx`

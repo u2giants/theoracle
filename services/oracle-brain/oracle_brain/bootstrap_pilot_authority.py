@@ -15,7 +15,7 @@ Usage (after 001_foundation.sql + grant-postgres.sql):
     --appointment-id <appointment-uuid> \\
     --actor 00000000-0000-4000-8000-000000000003 \\
     --owner-signature-hex <sig of oracle2-owner-appointment-v1:ws:owner:appointment_id> \\
-    --actor-signature-hex <sig of oracle2-pilot-delegate-v1:ws:owner:actor>
+    --actor-signature-hex <sig of oracle2-pilot-delegate-v1:ws:owner:appointed-by:actor>
 
 Required inputs (all of them):
   - --workspace / ORACLE2_PILOT_WORKSPACE_ID
@@ -47,7 +47,7 @@ def main() -> int:
     parser.add_argument("--actor", required=True)
     parser.add_argument("--owner-signature-hex", required=True)
     parser.add_argument("--actor-signature-hex", required=True,
-                        help="owner signature over oracle2-pilot-delegate-v1:ws:owner:actor")
+                        help="owner signature over oracle2-pilot-delegate-v1:ws:owner:appointed-by:actor")
     args = parser.parse_args()
 
     # Admin bootstrap URL only (never the web pilot URL). Credentials via env.
@@ -89,7 +89,7 @@ def main() -> int:
     if not key_hex:
         raise SystemExit("ORACLE2_OWNER_PUBLIC_KEY is required")
     message = f"oracle2-owner-appointment-v1:{workspace}:{owner}:{appointment}".encode()
-    delegate_message = f"oracle2-pilot-delegate-v1:{workspace}:{owner}:{actor}".encode()
+    delegate_message = f"oracle2-pilot-delegate-v1:{workspace}:{owner}:{appointed_by}:{actor}".encode()
     try:
         public = Ed25519PublicKey.from_public_bytes(bytes.fromhex(key_hex))
         public.verify(bytes.fromhex(args.owner_signature_hex), message)
@@ -149,3 +149,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
