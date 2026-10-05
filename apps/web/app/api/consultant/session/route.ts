@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const auth = authorizePilotRequest(req.headers);
+  const auth = await authorizePilotRequest(req.headers);
   if (auth.ok) {
     destroySession(auth.sessionId);
   }

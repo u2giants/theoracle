@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = authorizePilotRequest(req.headers);
+    const auth = await authorizePilotRequest(req.headers);
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }

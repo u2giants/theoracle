@@ -90,8 +90,9 @@ model logs.
    `--appointed-by` (≠ owner), `--appointment-id`, `--actor` (pilot UUID),
    `--owner-signature-hex`, `--actor-signature-hex` (owner signature over
    `oracle2-pilot-delegate-v1:ws:owner:actor`), `ORACLE2_OWNER_PUBLIC_KEY`,
-   and admin `ORACLE2_DATABASE_URL` whose host is on
-   `ORACLE2_ISOLATED_STORE_HOSTS` (default loopback only). All appointment writes are one transaction. The web
+   and admin `ORACLE2_DATABASE_URL` whose host is **loopback only**
+   (`127.0.0.1` / `localhost` / `::1`) — isolation is hard-coded and is not
+   configurable from the same environment. All appointment writes are one transaction. The web
    app connects only as `oracle2_pilot_web` (SELECT appointments). Compose init
    scripts are idempotent for roles; **pilot tables** need a fresh volume or
    applying `001_foundation.sql` + `002_pilot.sql` + `grant-postgres.sql` as

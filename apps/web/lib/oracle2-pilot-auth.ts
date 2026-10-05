@@ -88,14 +88,22 @@ function parseCookies(header: string | null): Record<string, string> {
   return out;
 }
 
-export function authorizePilotRequest(
+export async function authorizePilotRequest(
   headers: Headers,
-): { ok: true; actorId: string; sessionId: string } | { ok: false; error: string; status: number } {
+): Promise<
+  { ok: true; actorId: string; sessionId: string } | { ok: false; error: string; status: number }
+> {
   const cookies = parseCookies(headers.get('cookie'));
   const sessionId = cookies[SESSION_COOKIE];
   const session = sessionId ? sessions.get(sessionId) : undefined;
-  if (!session) {
+  if (!session || !sessionId) {
     return { ok: false, error: 'pilot session required', status: 401 };
+  }
+  // Re-check store-backed review authority so a revoked actor loses the session.
+  const stillAuthorized = await hasAuthority(session.actorId, 'review');
+  if (!stillAuthorized) {
+    sessions.delete(sessionId);
+    return { ok: false, error: 'pilot session revoked', status: 403 };
   }
   return { ok: true, actorId: session.actorId, sessionId: session.sessionId };
 }

@@ -176,22 +176,8 @@ async function assertAuthorityInTx(
   actorId: string,
   scope: 'review' | 'confirm',
 ): Promise<void> {
-  // Lock this actor's grants and their ancestors so parent revocation cannot race.
-  await tx`
-    WITH RECURSIVE lineage AS (
-      SELECT appointment_id, parent_id
-      FROM oracle2.appointments
-      WHERE workspace_id=${workspaceId}::uuid AND actor_id=${actorId}::uuid
-      UNION
-      SELECT p.appointment_id, p.parent_id
-      FROM oracle2.appointments p
-      JOIN lineage l ON p.appointment_id = l.parent_id
-      WHERE p.workspace_id=${workspaceId}::uuid
-    )
-    SELECT appointment_id FROM lineage
-    JOIN oracle2.appointments a USING (appointment_id)
-    FOR UPDATE OF a
-  `;
+  // SHARE lock covers the appointment table without requiring UPDATE.
+  await tx`LOCK TABLE oracle2.appointments IN SHARE MODE`;
   const rows = await tx.unsafe(HAS_AUTHORITY_SQL, [workspaceId, actorId, scope]);
   if (!rows[0]?.ok) {
     throw new Error(`actor lacks ${scope} authority`);
