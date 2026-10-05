@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { hasAuthority, type PilotScope } from '@/lib/oracle2-authority';
 
 const SESSION_COOKIE = 'oracle2_pilot_session';
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
 type Session = {
   sessionId: string;
@@ -51,15 +52,7 @@ export async function createSession(token: string): Promise<
   if (!pilotActors().has(actorId)) {
     return { ok: false, error: 'actor is not on the pilot allowlist', status: 403 };
   }
-  // Store-backed gate: the actor must already hold review in oracle2.appointments.
-  const ok = await hasAuthority(actorId, 'review');
-  if (!ok) {
-    return {
-      ok: false,
-      error: 'actor lacks store-backed review authority (oracle2.appointments)',
-      status: 403,
-    };
-  }
+  // Login does not require a particular scope; per-action checks run in-tx.
   const sessionId = randomUUID();
   sessions.set(sessionId, { sessionId, actorId, createdAt: Date.now() });
   return { ok: true, sessionId, actorId };
@@ -99,8 +92,17 @@ export async function authorizePilotRequest(
   if (!session || !sessionId) {
     return { ok: false, error: 'pilot session required', status: 401 };
   }
-  // Session identity only; per-action scopes are checked inside the mutation
-  // transaction (review vs confirm).
+  if (Date.now() - session.createdAt > SESSION_TTL_MS) {
+    sessions.delete(sessionId);
+    return { ok: false, error: 'pilot session expired', status: 401 };
+  }
+  // Drop the session if the actor no longer holds any live pilot scope.
+  const stillMember = (await hasAuthority(session.actorId, 'review')) ||
+    (await hasAuthority(session.actorId, 'confirm'));
+  if (!stillMember) {
+    sessions.delete(sessionId);
+    return { ok: false, error: 'pilot session revoked', status: 403 };
+  }
   return { ok: true, actorId: session.actorId, sessionId: session.sessionId };
 }
 

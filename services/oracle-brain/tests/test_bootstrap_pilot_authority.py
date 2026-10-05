@@ -30,7 +30,8 @@ class BootstrapArgsTest(unittest.TestCase):
         finally:
             sys.argv = old
 
-    def test_requires_database_url(self):
+    def test_requires_admin_database_url(self):
+        old_admin = os.environ.pop("ORACLE2_ADMIN_DATABASE_URL", None)
         old_url = os.environ.pop("ORACLE2_DATABASE_URL", None)
         old = sys.argv
         sys.argv = [
@@ -48,6 +49,8 @@ class BootstrapArgsTest(unittest.TestCase):
                 mod.main()
         finally:
             sys.argv = old
+            if old_admin is not None:
+                os.environ["ORACLE2_ADMIN_DATABASE_URL"] = old_admin
             if old_url is not None:
                 os.environ["ORACLE2_DATABASE_URL"] = old_url
 
