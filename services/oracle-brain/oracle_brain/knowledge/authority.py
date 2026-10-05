@@ -21,6 +21,11 @@ def correct_draft(database_url: str, *, draft_id: UUID, workspace_id: UUID,
     review_id = uuid4()
     with psycopg.connect(database_url) as connection:
         with connection.transaction():
+            connection.execute(
+                """SELECT pg_advisory_xact_lock(
+                     hashtext('oracle2-authz:' || %s::text || ':' || %s::text))""",
+                (str(workspace_id), str(actor_id)),
+            )
             row = connection.execute(
                 "SELECT status FROM oracle2.drafts WHERE draft_id=%s AND workspace_id=%s",
                 (draft_id, workspace_id),
@@ -60,6 +65,11 @@ def confirm_draft(database_url: str, *, draft_id: UUID, workspace_id: UUID,
     review_id = uuid4()
     with psycopg.connect(database_url) as connection:
         with connection.transaction():
+            connection.execute(
+                """SELECT pg_advisory_xact_lock(
+                     hashtext('oracle2-authz:' || %s::text || ':' || %s::text))""",
+                (str(workspace_id), str(actor_id)),
+            )
             row = connection.execute(
                 "SELECT status FROM oracle2.drafts WHERE draft_id=%s AND workspace_id=%s",
                 (draft_id, workspace_id),

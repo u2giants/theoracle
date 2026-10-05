@@ -60,7 +60,12 @@ def main() -> int:
     host = (urlparse(url).hostname or "").lower()
     if host not in {"127.0.0.1", "localhost", "::1"}:
         raise SystemExit("refusing DATABASE_URL host that is not loopback isolated store")
-    path = (urlparse(url).path or "").lstrip("/")
+    parsed = urlparse(url)
+    if parsed.query:
+        raise SystemExit("refusing DATABASE_URL with query options (hostaddr/dbname bypass)")
+    if parsed.fragment:
+        raise SystemExit("refusing DATABASE_URL with fragment")
+    path = (parsed.path or "").lstrip("/")
     if path and path != "oracle2":
         raise SystemExit("refusing DATABASE_URL database name other than oracle2")
     workspace = UUID(args.workspace)

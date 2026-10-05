@@ -158,11 +158,12 @@ model logs.
 
 ## Rollback
 
-Stop the local server. **Delete the journey Docker volume** (`docker compose -f
-dev/oracle2/compose.yaml down -v`) so company process text does not remain in
-`postgres-data`. Delete private evidence/secret file if the owner directs. No
-cloud resource is created. A failed journey is recorded as failed; plan S03
-stop-rule applies if the process map or answer is materially wrong.
+Stop the local server. **Delete only the journey Postgres volume**
+(`docker volume rm oracle2-s02_postgres-data` or equivalent named volume) so
+company process text does not remain; leave unrelated compose volumes alone if
+they hold no journey data. Delete private evidence/secret file if the owner
+directs. No cloud resource is created. A failed journey is recorded as failed;
+plan S03 stop-rule applies if the process map or answer is materially wrong.
 
 ## Stop rules
 
