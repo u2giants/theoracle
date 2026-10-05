@@ -1,7 +1,6 @@
 // POST /api/consultant/reviews/[id] — draft correction or scoped confirmation.
 import { NextResponse, type NextRequest } from 'next/server';
 import { authorizePilotRequest } from '@/lib/oracle2-pilot-auth';
-import { hasAuthority } from '@/lib/oracle2-authority';
 import {
   confirmDraft,
   correctDraft,
@@ -32,12 +31,7 @@ export async function POST(
       return NextResponse.json({ error: 'draft not found' }, { status: 404 });
     }
     if (action === 'correct') {
-      if (!(await hasAuthority(actor, 'review'))) {
-        return NextResponse.json(
-          { error: 'actor lacks review authority for draft correction' },
-          { status: 403 },
-        );
-      }
+      // Authority is re-checked inside the mutation transaction (no TOCTOU).
       const nextConnections = connections ?? draft.connections;
       if (!Array.isArray(nextConnections)) {
         return NextResponse.json({ error: 'connections must be an array' }, { status: 400 });
@@ -72,12 +66,6 @@ export async function POST(
       return NextResponse.json({ draftId: id, status: 'draft' });
     }
     if (action === 'confirm') {
-      if (!(await hasAuthority(actor, 'confirm'))) {
-        return NextResponse.json(
-          { error: 'actor lacks confirm authority for scoped confirmation' },
-          { status: 403 },
-        );
-      }
       await confirmDraft({
         draftId: id,
         workspaceId,
@@ -89,8 +77,13 @@ export async function POST(
     return NextResponse.json({ error: 'unknown action' }, { status: 400 });
   } catch (e) {
     const message = e instanceof Error ? e.message : 'review failed';
-    const status = message.includes('already confirmed') ? 409 : 400;
-    return NextResponse.json({ error: message }, { status });
+    if (message.includes('lacks')) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+    if (message.includes('already confirmed')) {
+      return NextResponse.json({ error: 'draft already confirmed' }, { status: 409 });
+    }
+    return NextResponse.json({ error: 'review failed' }, { status: 400 });
   }
 }
 

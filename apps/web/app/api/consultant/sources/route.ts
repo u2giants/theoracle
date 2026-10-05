@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
       actorId,
       filename: filename ?? 'document.txt',
       contentType: 'text/plain',
+      processName,
       blocks,
     });
     return NextResponse.json({
@@ -43,10 +44,7 @@ export async function POST(req: NextRequest) {
         spanEnd: b.spanEnd,
       })),
     });
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : 'upload failed' },
-      { status: 500 },
-    );
+  } catch {
+    return NextResponse.json({ error: 'upload failed' }, { status: 500 });
   }
 }

@@ -3,6 +3,7 @@
 // transactional and evidence is durable. Role: oracle2_pilot_web (not admin).
 
 import postgres from 'postgres';
+import type { TransactionSql } from 'postgres';
 import { randomUUID } from 'crypto';
 import type { DraftConnection, SourceBlock } from '@/lib/oracle2-client';
 
@@ -55,6 +56,7 @@ export async function insertSource(input: {
   actorId: string;
   filename: string;
   contentType: string;
+  processName?: string;
   blocks: SourceBlock[];
 }): Promise<{ sourceId: string; draftId: string }> {
   const sql = client();
@@ -80,7 +82,7 @@ export async function insertSource(input: {
         INSERT INTO oracle2.drafts
           (draft_id,source_id,workspace_id,created_by,process_name,connections,status)
         VALUES (${draftId}::uuid,${sourceId}::uuid,${input.workspaceId}::uuid,
-                ${input.actorId}::uuid,${'Pilot process'},${sql.json([])},'draft')
+                ${input.actorId}::uuid,${input.processName ?? 'Pilot process'},${sql.json([])},'draft')
       `;
     });
     return { sourceId, draftId };
@@ -143,6 +145,39 @@ export async function getDraft(
   }
 }
 
+const HAS_AUTHORITY_SQL = `
+WITH RECURSIVE lineage AS (
+  SELECT a.appointment_id AS start_id,a.appointment_id,a.parent_id,
+         a.revoked_at,a.expires_at,a.scope,a.actor_id,a.workspace_id,1 AS depth
+  FROM oracle2.appointments a
+  WHERE a.workspace_id=$1 AND a.actor_id=$2
+    AND a.scope IN ($3,'root')
+  UNION ALL
+  SELECT l.start_id,p.appointment_id,p.parent_id,p.revoked_at,p.expires_at,
+         p.scope,p.actor_id,p.workspace_id,l.depth+1
+  FROM oracle2.appointments p JOIN lineage l ON l.parent_id=p.appointment_id
+  WHERE l.depth<16 AND p.workspace_id=l.workspace_id
+)
+SELECT EXISTS (
+  SELECT 1 FROM lineage GROUP BY start_id
+  HAVING bool_and(revoked_at IS NULL AND
+                  (expires_at IS NULL OR expires_at>now()))
+     AND bool_or(scope='root' AND parent_id IS NULL)
+) AS ok
+`;
+
+async function assertAuthorityInTx(
+  tx: TransactionSql,
+  workspaceId: string,
+  actorId: string,
+  scope: 'review' | 'confirm',
+): Promise<void> {
+  const rows = await tx.unsafe(HAS_AUTHORITY_SQL, [workspaceId, actorId, scope]);
+  if (!rows[0]?.ok) {
+    throw new Error(`actor lacks ${scope} authority`);
+  }
+}
+
 export async function correctDraft(input: {
   draftId: string;
   workspaceId: string;
@@ -153,6 +188,7 @@ export async function correctDraft(input: {
   const sql = client();
   try {
     await sql.begin(async (tx) => {
+      await assertAuthorityInTx(tx, input.workspaceId, input.actorId, 'review');
       const rows = await tx`
         SELECT status FROM oracle2.drafts
         WHERE draft_id=${input.draftId}::uuid AND workspace_id=${input.workspaceId}::uuid
@@ -187,6 +223,7 @@ export async function confirmDraft(input: {
   const sql = client();
   try {
     await sql.begin(async (tx) => {
+      await assertAuthorityInTx(tx, input.workspaceId, input.actorId, 'confirm');
       const rows = await tx`
         SELECT status FROM oracle2.drafts
         WHERE draft_id=${input.draftId}::uuid AND workspace_id=${input.workspaceId}::uuid

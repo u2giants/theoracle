@@ -60,10 +60,7 @@ export async function POST(req: NextRequest) {
       answer,
     });
     return NextResponse.json({ runId, answer });
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : 'question failed' },
-      { status: 500 },
-    );
+  } catch {
+    return NextResponse.json({ error: 'question failed' }, { status: 500 });
   }
 }
