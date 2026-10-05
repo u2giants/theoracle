@@ -50,11 +50,12 @@ def main() -> int:
                         help="owner signature over oracle2-pilot-delegate-v1:ws:owner:actor")
     args = parser.parse_args()
 
-    # Credentials only via env, never CLI. Isolation is hard-coded to loopback —
-    # the same environment cannot redefine what counts as isolated.
-    url = os.environ.get("ORACLE2_DATABASE_URL")
+    # Admin bootstrap URL only (never the web pilot URL). Credentials via env.
+    url = os.environ.get("ORACLE2_ADMIN_DATABASE_URL") or os.environ.get("ORACLE2_DATABASE_URL")
     if not url:
-        raise SystemExit("ORACLE2_DATABASE_URL (admin) is required via environment")
+        raise SystemExit("ORACLE2_ADMIN_DATABASE_URL (admin) is required via environment")
+    if os.environ.get("ORACLE2_ADMIN_DATABASE_URL") is None:
+        raise SystemExit("set ORACLE2_ADMIN_DATABASE_URL explicitly; do not reuse the web URL")
     from urllib.parse import urlparse
 
     host = (urlparse(url).hostname or "").lower()

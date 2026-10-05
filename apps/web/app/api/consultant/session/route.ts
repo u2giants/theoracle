@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { token } = body;
     if (!token || typeof token !== 'string') {
-      return NextResponse.json({ error: 'token is required' }, { status: 400 });
+      return NextResponse.json({ error: 'token is required' }, { status: 401 });
     }
     // Body identities are ignored; actor and scopes come from server env only.
     const result = await createSession(token);
