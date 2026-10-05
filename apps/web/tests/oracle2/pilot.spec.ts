@@ -118,32 +118,28 @@ test.describe('S03 pilot journey', () => {
   });
 
   test('missing review/confirm scopes deny mutations', async () => {
+    const authority = await import('../../lib/oracle2-authority');
     const store = await import('../../lib/oracle2-store');
     const workspace = '00000000-0000-4000-8000-000000000002';
     const actor = '00000000-0000-4000-8000-000000000003';
-    const prevDb = process.env.ORACLE2_DATABASE_URL;
-    process.env.ORACLE2_DATABASE_URL =
-      'postgresql://oracle2_pilot_web:x@127.0.0.1:59999/oracle2?connect_timeout=1';
-    try {
-      await expect(
-        store.correctDraft({
-          draftId: '00000000-0000-4000-8000-0000000000aa',
-          workspaceId: workspace,
-          actorId: actor,
-          connections: [],
-        }),
-      ).rejects.toThrow();
-      await expect(
-        store.confirmDraft({
-          draftId: '00000000-0000-4000-8000-0000000000aa',
-          workspaceId: workspace,
-          actorId: actor,
-          scope: 'process-map',
-        }),
-      ).rejects.toThrow();
-    } finally {
-      if (prevDb === undefined) delete process.env.ORACLE2_DATABASE_URL;
-      else process.env.ORACLE2_DATABASE_URL = prevDb;
-    }
+    // Scope gate: hasAuthority false for both scopes (no store / no grants).
+    expect(await authority.hasAuthority(actor, 'review')).toBe(false);
+    expect(await authority.hasAuthority(actor, 'confirm')).toBe(false);
+    await expect(
+      store.correctDraft({
+        draftId: '00000000-0000-4000-8000-0000000000aa',
+        workspaceId: workspace,
+        actorId: actor,
+        connections: [],
+      }),
+    ).rejects.toThrow();
+    await expect(
+      store.confirmDraft({
+        draftId: '00000000-0000-4000-8000-0000000000aa',
+        workspaceId: workspace,
+        actorId: actor,
+        scope: 'process-map',
+      }),
+    ).rejects.toThrow();
   });
 });
