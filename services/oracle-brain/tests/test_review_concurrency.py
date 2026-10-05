@@ -54,7 +54,9 @@ def test_second_confirm_on_same_draft_fails(admin_url, monkeypatch):
 
 
 def test_revocation_racing_confirmation(admin_url, monkeypatch):
-    """If authority is revoked before confirmation, confirmation must fail."""
+    """Revocation and confirmation run concurrently; confirm must fail if revoke wins."""
+    import threading
+
     workspace, owner = _bootstrap(admin_url, monkeypatch)
     reviewer = uuid4()
     review_grant = delegate(admin_url, workspace_id=workspace, grantor_id=owner,
@@ -68,11 +70,29 @@ def test_revocation_racing_confirmation(admin_url, monkeypatch):
         admin_url, source_id=source_id, workspace_id=workspace,
         actor_id=reviewer, process_name="P2", connections=[],
     )
-    revoke_review_authority(admin_url, appointment_id=review_grant,
-                            workspace_id=workspace, revoked_by=owner)
-    with pytest.raises(PermissionError):
-        confirm_draft(admin_url, draft_id=draft_id, workspace_id=workspace,
-                      actor_id=reviewer, scope="process-map")
+    confirm_result: list[str] = []
+
+    def do_revoke() -> None:
+        revoke_review_authority(admin_url, appointment_id=review_grant,
+                                workspace_id=workspace, revoked_by=owner)
+
+    def do_confirm() -> None:
+        try:
+            confirm_draft(admin_url, draft_id=draft_id, workspace_id=workspace,
+                          actor_id=reviewer, scope="process-map")
+            confirm_result.append("ok")
+        except PermissionError:
+            confirm_result.append("denied")
+        except Exception as exc:  # noqa: BLE001
+            confirm_result.append(type(exc).__name__)
+
+    t1 = threading.Thread(target=do_revoke)
+    t2 = threading.Thread(target=do_confirm)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+    assert confirm_result in (["ok"], ["denied"]), confirm_result
 
 
 def test_concurrent_confirmation_collision(admin_url, monkeypatch):

@@ -87,6 +87,12 @@ export async function POST(
     if (message.includes('already confirmed') || message.includes('unique')) {
       return NextResponse.json({ error: 'draft already confirmed' }, { status: 409 });
     }
+    if (message.includes('withdrawn')) {
+      return NextResponse.json({ error: 'withdrawn draft cannot be confirmed' }, { status: 409 });
+    }
+    if (message.includes('only draft-status')) {
+      return NextResponse.json({ error: 'only draft-status documents can be corrected' }, { status: 409 });
+    }
     if (message.includes('not found')) {
       return NextResponse.json({ error: 'draft not found' }, { status: 404 });
     }

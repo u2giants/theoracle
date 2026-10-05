@@ -30,6 +30,14 @@ class BootstrapArgsTest(unittest.TestCase):
         finally:
             sys.argv = old
 
+    def test_delegate_signature_binds_appointed_by(self):
+        """Old message without appointed-by must not be accepted by help text contract."""
+        import inspect
+
+        src = inspect.getsource(mod)
+        assert "oracle2-pilot-delegate-v1:{workspace}:{owner}:{appointed_by}:{actor}" in src
+        assert "ORACLE2_ADMIN_DATABASE_URL" in src
+
     def test_requires_admin_database_url(self):
         old_admin = os.environ.pop("ORACLE2_ADMIN_DATABASE_URL", None)
         old_url = os.environ.pop("ORACLE2_DATABASE_URL", None)
