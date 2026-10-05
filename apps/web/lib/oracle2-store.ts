@@ -95,7 +95,7 @@ export async function insertSource(input: {
         INSERT INTO oracle2.drafts
           (draft_id,source_id,workspace_id,created_by,process_name,connections,status)
         VALUES (${draftId}::uuid,${sourceId}::uuid,${input.workspaceId}::uuid,
-                ${input.actorId}::uuid,${input.processName ?? 'Pilot process'},${[]},'draft')
+                ${input.actorId}::uuid,${input.processName ?? 'Pilot process'},${sql.json([] as never)},'draft')
       `;
     });
     return { sourceId, draftId };
@@ -213,7 +213,7 @@ export async function correctDraft(input: {
       if (rows[0]!.status !== 'draft') throw new Error('only draft-status documents can be corrected');
       await tx`
         UPDATE oracle2.drafts
-        SET connections=${input.connections},
+        SET connections=${sql.json(input.connections as never)},
             process_name=COALESCE(${input.processName ?? null}, process_name),
             updated_at=now()
         WHERE draft_id=${input.draftId}::uuid
@@ -221,7 +221,7 @@ export async function correctDraft(input: {
       await tx`
         INSERT INTO oracle2.reviews (review_id,draft_id,workspace_id,actor_id,action,payload)
         VALUES (${randomUUID()}::uuid,${input.draftId}::uuid,${input.workspaceId}::uuid,
-                ${input.actorId}::uuid,'correct',${{ connections: input.connections }})
+                ${input.actorId}::uuid,'correct',${sql.json({ connections: input.connections } as never)})
       `;
     });
   } finally {
@@ -278,7 +278,7 @@ export async function confirmDraft(input: {
         INSERT INTO oracle2.reviews (review_id,draft_id,workspace_id,actor_id,action,payload)
         VALUES (${randomUUID()}::uuid,${input.draftId}::uuid,${input.workspaceId}::uuid,
                 ${input.actorId}::uuid,'confirm',
-                ${{ scope: input.scope, authority: lineage }})
+                ${sql.json({ scope: input.scope, authority: lineage } as never)})
       `;
     });
   } finally {
@@ -302,7 +302,7 @@ export async function storeRun(input: {
         (run_id,workspace_id,actor_id,source_id,draft_id,question,status,answer)
       VALUES (${runId}::uuid,${input.workspaceId}::uuid,${input.actorId}::uuid,
               ${input.sourceId}::uuid,${input.draftId}::uuid,${input.question},
-              'completed',${input.answer ?? {}})
+              'completed',${sql.json((input.answer ?? {}) as never)})
     `;
     return runId;
   } finally {
