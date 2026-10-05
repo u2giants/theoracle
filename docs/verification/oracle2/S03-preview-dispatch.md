@@ -89,11 +89,12 @@ model logs.
    (`oracle2_admin`) — required inputs: `--workspace`, `--owner`,
    `--appointed-by` (≠ owner), `--appointment-id`, `--actor` (pilot UUID),
    `--owner-signature-hex`, `ORACLE2_OWNER_PUBLIC_KEY`, and admin
-   `ORACLE2_DATABASE_URL`. All appointment writes are one transaction. The web
+   `ORACLE2_DATABASE_URL` whose host is on `ORACLE2_ISOLATED_STORE_HOSTS`
+   (default loopback only). All appointment writes are one transaction. The web
    app connects only as `oracle2_pilot_web` (SELECT appointments). Compose init
-   scripts run on **first volume init only**; use a fresh volume or apply
-   `init-postgres.sql` + `grant-postgres.sql` as admin on an existing store.
-   The web app never uses an admin connection.
+   scripts are idempotent for roles; **pilot tables** need a fresh volume or
+   applying `001_foundation.sql` + `002_pilot.sql` + `grant-postgres.sql` as
+   admin. The web app never uses an admin connection.
 3. **Browser-test gate (required before real data)** — run
    `tests/oracle2/pilot.spec.ts` against that server (`ORACLE2_PREVIEW_URL`).
    All tests must pass, including 401 without session/token and fail-closed

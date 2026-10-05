@@ -47,18 +47,20 @@ def main() -> int:
     parser.add_argument("--owner-signature-hex", required=True)
     args = parser.parse_args()
 
-    # Credentials only via env, never CLI. Allow only isolated/private hosts.
+    # Credentials only via env, never CLI. Isolated host allowlist (loopback or
+    # explicitly named private hosts). Broad RFC1918 ranges are not enough.
     url = os.environ.get("ORACLE2_DATABASE_URL")
     if not url:
         raise SystemExit("ORACLE2_DATABASE_URL (admin) is required via environment")
     from urllib.parse import urlparse
 
     host = (urlparse(url).hostname or "").lower()
-    allowed = host in {"127.0.0.1", "localhost", "::1"} or host.startswith(
-        ("10.", "192.168.", "172.")
-    )
-    if not allowed:
-        raise SystemExit("refusing DATABASE_URL host that is not loopback/private isolated store")
+    allow_raw = os.environ.get("ORACLE2_ISOLATED_STORE_HOSTS", "127.0.0.1,localhost,::1")
+    allowed_hosts = {h.strip().lower() for h in allow_raw.split(",") if h.strip()}
+    if host not in allowed_hosts:
+        raise SystemExit(
+            "refusing DATABASE_URL host not in ORACLE2_ISOLATED_STORE_HOSTS allowlist"
+        )
     workspace = UUID(args.workspace)
     owner = UUID(args.owner)
     appointed_by = UUID(args.appointed_by)
