@@ -51,8 +51,17 @@ function client() {
   return postgres(url, { max: 1, connect_timeout: 5 });
 }
 
-function asJson(value: unknown) {
-  return JSON.stringify(value ?? null);
+/** jsonb may round-trip as a string when a prior writer double-encoded it. */
+function parseJson<T>(value: unknown, fallback: T): T {
+  if (value == null) return fallback;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return value as T;
 }
 
 export async function insertSource(input: {
@@ -86,7 +95,7 @@ export async function insertSource(input: {
         INSERT INTO oracle2.drafts
           (draft_id,source_id,workspace_id,created_by,process_name,connections,status)
         VALUES (${draftId}::uuid,${sourceId}::uuid,${input.workspaceId}::uuid,
-                ${input.actorId}::uuid,${input.processName ?? 'Pilot process'},${asJson([])},'draft')
+                ${input.actorId}::uuid,${input.processName ?? 'Pilot process'},${[]},'draft')
       `;
     });
     return { sourceId, draftId };
@@ -140,7 +149,7 @@ export async function getDraft(
       workspaceId: r.workspace_id as string,
       createdBy: r.created_by as string,
       processName: r.process_name as string,
-      connections: (r.connections as DraftConnection[]) ?? [],
+      connections: parseJson<DraftConnection[]>(r.connections, []),
       status: r.status as DraftStatus,
       updatedAt: new Date(r.updated_at as string).toISOString(),
     };
@@ -204,7 +213,7 @@ export async function correctDraft(input: {
       if (rows[0]!.status !== 'draft') throw new Error('only draft-status documents can be corrected');
       await tx`
         UPDATE oracle2.drafts
-        SET connections=${asJson(input.connections)},
+        SET connections=${input.connections},
             process_name=COALESCE(${input.processName ?? null}, process_name),
             updated_at=now()
         WHERE draft_id=${input.draftId}::uuid
@@ -212,7 +221,7 @@ export async function correctDraft(input: {
       await tx`
         INSERT INTO oracle2.reviews (review_id,draft_id,workspace_id,actor_id,action,payload)
         VALUES (${randomUUID()}::uuid,${input.draftId}::uuid,${input.workspaceId}::uuid,
-                ${input.actorId}::uuid,'correct',${asJson({ connections: input.connections })})
+                ${input.actorId}::uuid,'correct',${{ connections: input.connections }})
       `;
     });
   } finally {
@@ -269,7 +278,7 @@ export async function confirmDraft(input: {
         INSERT INTO oracle2.reviews (review_id,draft_id,workspace_id,actor_id,action,payload)
         VALUES (${randomUUID()}::uuid,${input.draftId}::uuid,${input.workspaceId}::uuid,
                 ${input.actorId}::uuid,'confirm',
-                ${asJson({ scope: input.scope, authority: lineage })})
+                ${{ scope: input.scope, authority: lineage }})
       `;
     });
   } finally {
@@ -293,7 +302,7 @@ export async function storeRun(input: {
         (run_id,workspace_id,actor_id,source_id,draft_id,question,status,answer)
       VALUES (${runId}::uuid,${input.workspaceId}::uuid,${input.actorId}::uuid,
               ${input.sourceId}::uuid,${input.draftId}::uuid,${input.question},
-              'completed',${asJson(input.answer ?? {})})
+              'completed',${input.answer ?? {}})
     `;
     return runId;
   } finally {
@@ -325,7 +334,7 @@ export async function getRun(
       draftId: (r.draft_id as string | null) ?? null,
       question: r.question as string,
       status: r.status as string,
-      answer: r.answer,
+      answer: parseJson<unknown>(r.answer, null),
       error: (r.error as string | null) ?? null,
       createdAt: new Date(r.created_at as string).toISOString(),
     };
