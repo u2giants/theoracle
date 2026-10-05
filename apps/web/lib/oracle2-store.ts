@@ -172,10 +172,23 @@ async function assertAuthorityInTx(
   actorId: string,
   scope: 'review' | 'confirm',
 ): Promise<void> {
+  // Lock the actor's appointments so revocation cannot race the mutation.
+  await tx`
+    SELECT appointment_id FROM oracle2.appointments
+    WHERE workspace_id=${workspaceId}::uuid AND actor_id=${actorId}::uuid
+    FOR UPDATE
+  `;
   const rows = await tx.unsafe(HAS_AUTHORITY_SQL, [workspaceId, actorId, scope]);
   if (!rows[0]?.ok) {
     throw new Error(`actor lacks ${scope} authority`);
   }
+  const lineage = await tx`
+    SELECT appointment_id::text, scope, parent_id::text, expires_at, revoked_at
+    FROM oracle2.appointments
+    WHERE workspace_id=${workspaceId}::uuid AND actor_id=${actorId}::uuid
+      AND scope IN (${scope},'root')
+  `;
+  return void lineage;
 }
 
 export async function correctDraft(input: {
@@ -232,6 +245,12 @@ export async function confirmDraft(input: {
       if (rows[0].status === 'confirmed') throw new Error('draft already confirmed');
       if (rows[0].status === 'withdrawn') throw new Error('withdrawn draft cannot be confirmed');
       await assertAuthorityInTx(tx, input.workspaceId, input.actorId, 'confirm');
+      const lineage = await tx`
+        SELECT appointment_id::text, scope, parent_id::text
+        FROM oracle2.appointments
+        WHERE workspace_id=${input.workspaceId}::uuid AND actor_id=${input.actorId}::uuid
+          AND scope IN ('confirm','root') AND revoked_at IS NULL
+      `;
       await tx`
         UPDATE oracle2.drafts SET status='confirmed', updated_at=now()
         WHERE draft_id=${input.draftId}::uuid
@@ -239,7 +258,8 @@ export async function confirmDraft(input: {
       await tx`
         INSERT INTO oracle2.reviews (review_id,draft_id,workspace_id,actor_id,action,payload)
         VALUES (${randomUUID()}::uuid,${input.draftId}::uuid,${input.workspaceId}::uuid,
-                ${input.actorId}::uuid,'confirm',${sql.json({ scope: input.scope })})
+                ${input.actorId}::uuid,'confirm',
+                ${sql.json({ scope: input.scope, authority: lineage })})
       `;
     });
   } finally {
@@ -271,7 +291,11 @@ export async function storeRun(input: {
   }
 }
 
-export async function getRun(runId: string, workspaceId: string): Promise<StoredRun | null> {
+export async function getRun(
+  runId: string,
+  workspaceId: string,
+  actorId: string,
+): Promise<StoredRun | null> {
   const sql = client();
   try {
     const rows = await sql`
@@ -279,6 +303,7 @@ export async function getRun(runId: string, workspaceId: string): Promise<Stored
              draft_id::text, question, status, answer, error, created_at
       FROM oracle2.runs
       WHERE run_id=${runId}::uuid AND workspace_id=${workspaceId}::uuid
+        AND actor_id=${actorId}::uuid
     `;
     if (rows.length === 0) return null;
     const r = rows[0];

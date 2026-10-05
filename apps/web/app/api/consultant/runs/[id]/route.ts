@@ -14,7 +14,7 @@ export async function GET(
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
   const { id } = await params;
-  const run = await getRun(id, pilotWorkspaceId());
+  const run = await getRun(id, pilotWorkspaceId(), auth.actorId);
   if (!run) {
     return NextResponse.json({ error: 'run not found' }, { status: 404 });
   }

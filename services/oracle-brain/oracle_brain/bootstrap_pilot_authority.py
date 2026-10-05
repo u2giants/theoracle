@@ -45,6 +45,8 @@ def main() -> int:
     parser.add_argument("--appointment-id", required=True)
     parser.add_argument("--actor", required=True)
     parser.add_argument("--owner-signature-hex", required=True)
+    parser.add_argument("--actor-signature-hex", required=True,
+                        help="owner signature over oracle2-pilot-delegate-v1:ws:owner:actor")
     args = parser.parse_args()
 
     # Credentials only via env, never CLI. Isolated host allowlist (loopback or
@@ -81,12 +83,13 @@ def main() -> int:
     if not key_hex:
         raise SystemExit("ORACLE2_OWNER_PUBLIC_KEY is required")
     message = f"oracle2-owner-appointment-v1:{workspace}:{owner}:{appointment}".encode()
+    delegate_message = f"oracle2-pilot-delegate-v1:{workspace}:{owner}:{actor}".encode()
     try:
-        Ed25519PublicKey.from_public_bytes(bytes.fromhex(key_hex)).verify(
-            bytes.fromhex(args.owner_signature_hex), message
-        )
+        public = Ed25519PublicKey.from_public_bytes(bytes.fromhex(key_hex))
+        public.verify(bytes.fromhex(args.owner_signature_hex), message)
+        public.verify(bytes.fromhex(args.actor_signature_hex), delegate_message)
     except Exception as exc:
-        raise SystemExit(f"owner appointment signature invalid: {exc}") from exc
+        raise SystemExit(f"owner appointment/delegate signature invalid: {exc}") from exc
 
     with psycopg.connect(url) as connection:
         with connection.transaction():
