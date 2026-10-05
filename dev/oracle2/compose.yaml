@@ -3,6 +3,8 @@ name: oracle2-s02
 services:
   postgres:
     image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+    # Init scripts run only on first volume init. For an existing volume either
+    # use a fresh volume or apply grant-postgres.sql / init-postgres.sql as admin.
     environment:
       POSTGRES_DB: oracle2
       POSTGRES_USER: oracle2_admin

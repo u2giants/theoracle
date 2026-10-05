@@ -75,18 +75,31 @@ model logs.
 2. **Isolated preview environment** — from the reviewed commit, start
    `@oracle/web` on `http://127.0.0.1` only. Bind loopback. No public hostname,
    no Vercel production change. Set preview-only env:
-   - `ORACLE2_DATABASE_URL` — isolated store with `oracle2` schema
-     (`dev/oracle2/compose.yaml` on CI/edge-dev3 Docker; local scoop Postgres
-     is known-unstable and is **not** an accepted journey store)
+   - `ORACLE2_DATABASE_URL` — isolated store as role `oracle2_pilot_web`
+     (SELECT on `oracle2.appointments`, journey-row writes; **not** admin) from
+     `dev/oracle2/compose.yaml` on CI/edge-dev3 Docker; local scoop Postgres is
+     known-unstable and is **not** an accepted journey store
    - `ORACLE2_PILOT_WORKSPACE_ID` — fixed pilot workspace UUID
+     `00000000-0000-4000-8000-000000000002`
    - `ORACLE2_PILOT_TOKEN` (random secret, not committed; private evidence dir)
-   - `ORACLE2_PILOT_ACTOR=pilot-user` (allowlisted actor; body identities ignored)
-   Bootstrap once on that store (not on production): signed owner appointment
-   (`authz.appoint_owner`), then `delegate` `review` and `confirm` to
-   `pilot-user`. The token is **not** browser-bundled. `POST
-   /api/consultant/session` checks the token and that `pilot-user` holds
-   `review` in `oracle2.appointments`; it does **not** insert grants. GET runs
-   and all mutating consultant APIs require the httpOnly session cookie.
+   - `ORACLE2_PILOT_ACTOR=00000000-0000-4000-8000-000000000003` (UUID matching
+     bootstrap `--actor`; body identities ignored)
+   Bootstrap once on that store (not production) with
+   `oracle_brain.bootstrap_pilot_authority` using an **admin** connection
+   (`oracle2_admin`) — required inputs: `--workspace`, `--owner`,
+   `--appointed-by` (≠ owner), `--appointment-id`, `--actor` (pilot UUID),
+   `--owner-signature-hex`, `--actor-signature-hex` (owner signature over
+   `oracle2-pilot-delegate-v1:ws:owner:appointed-by:actor`), `ORACLE2_OWNER_PUBLIC_KEY`,
+   and admin `ORACLE2_ADMIN_DATABASE_URL` (separate from the web
+   `ORACLE2_DATABASE_URL`) whose host is **loopback only**
+   (`127.0.0.1` / `localhost` / `::1`) and whose path is exactly the database
+   name `oracle2` with **no query string** — isolation is hard-coded and is not
+   configurable from the same environment. All appointment writes are one transaction. The web
+   app connects only as `oracle2_pilot_web` (SELECT appointments). Compose init
+   requires **roles first** (`init-postgres.sql`), then `001_foundation.sql` +
+   `002_pilot.sql` + `grant-postgres.sql` as admin — use a fresh volume or apply
+   all four in that order on an existing store. The web app never uses an admin
+   connection.
 3. **Browser-test gate (required before real data)** — run
    `tests/oracle2/pilot.spec.ts` against that server (`ORACLE2_PREVIEW_URL`).
    All tests must pass, including 401 without session/token and fail-closed
@@ -147,7 +160,10 @@ model logs.
 
 ## Rollback
 
-Stop the local server. Delete private evidence/secret file if the owner
+Stop the local server. **Delete only the journey Postgres volume**
+(`docker volume rm oracle2-s02_postgres-data` or equivalent named volume) so
+company process text does not remain; leave unrelated compose volumes alone if
+they hold no journey data. Delete private evidence/secret file if the owner
 directs. No cloud resource is created. A failed journey is recorded as failed;
 plan S03 stop-rule applies if the process map or answer is materially wrong.
 

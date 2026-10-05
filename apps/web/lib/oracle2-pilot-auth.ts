@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { hasAuthority, type PilotScope } from '@/lib/oracle2-authority';
 
 const SESSION_COOKIE = 'oracle2_pilot_session';
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 
 type Session = {
   sessionId: string;
@@ -21,11 +22,14 @@ export function pilotToken(): string | undefined {
 }
 
 export function pilotActor(): string {
-  return pilotActors().values().next().value ?? 'pilot-user';
+  return pilotActors().values().next().value ?? '00000000-0000-4000-8000-000000000003';
 }
 
 export function pilotActors(): Set<string> {
-  const raw = process.env.ORACLE2_PILOT_ACTOR ?? process.env.ORACLE2_PILOT_ACTORS ?? 'pilot-user';
+  const raw =
+    process.env.ORACLE2_PILOT_ACTOR ??
+    process.env.ORACLE2_PILOT_ACTORS ??
+    '00000000-0000-4000-8000-000000000003';
   return new Set(
     raw
       .split(',')
@@ -48,12 +52,13 @@ export async function createSession(token: string): Promise<
   if (!pilotActors().has(actorId)) {
     return { ok: false, error: 'actor is not on the pilot allowlist', status: 403 };
   }
-  // Store-backed gate: the actor must already hold review in oracle2.appointments.
-  const ok = await hasAuthority(actorId, 'review');
-  if (!ok) {
+  // Fail closed if the store cannot prove any live pilot scope for this actor.
+  const live =
+    (await hasAuthority(actorId, 'review')) || (await hasAuthority(actorId, 'confirm'));
+  if (!live) {
     return {
       ok: false,
-      error: 'actor lacks store-backed review authority (oracle2.appointments)',
+      error: 'actor lacks store-backed pilot authority (oracle2.appointments)',
       status: 403,
     };
   }
@@ -85,14 +90,27 @@ function parseCookies(header: string | null): Record<string, string> {
   return out;
 }
 
-export function authorizePilotRequest(
+export async function authorizePilotRequest(
   headers: Headers,
-): { ok: true; actorId: string; sessionId: string } | { ok: false; error: string; status: number } {
+): Promise<
+  { ok: true; actorId: string; sessionId: string } | { ok: false; error: string; status: number }
+> {
   const cookies = parseCookies(headers.get('cookie'));
   const sessionId = cookies[SESSION_COOKIE];
   const session = sessionId ? sessions.get(sessionId) : undefined;
-  if (!session) {
+  if (!session || !sessionId) {
     return { ok: false, error: 'pilot session required', status: 401 };
+  }
+  if (Date.now() - session.createdAt > SESSION_TTL_MS) {
+    sessions.delete(sessionId);
+    return { ok: false, error: 'pilot session expired', status: 401 };
+  }
+  // Drop the session if the actor no longer holds any live pilot scope.
+  const stillMember = (await hasAuthority(session.actorId, 'review')) ||
+    (await hasAuthority(session.actorId, 'confirm'));
+  if (!stillMember) {
+    sessions.delete(sessionId);
+    return { ok: false, error: 'pilot session revoked', status: 403 };
   }
   return { ok: true, actorId: session.actorId, sessionId: session.sessionId };
 }
