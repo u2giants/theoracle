@@ -6,13 +6,9 @@ Read this first. It is the canonical operating guide for developers and AI codin
 
 The Oracle is an evidence-backed enterprise knowledge graph for POP Creations / Spruce Line. Employees interact with it through chat and document uploads; workers extract operational claims with quote-level evidence; deterministic validators gate promotion into approved claims; synthesis workers maintain traceable Brain sections; admin screens review runs, caches, claims, gaps, contradictions, and taxonomy proposals. The outcome that matters is explainable business knowledge: every important answer or synthesis artifact must be traceable back to messages, document chunks, or approved claims.
 
-## 2. Multi-model AI note
+## 2. AI tool notes
 
-There is no universal ignore-file standard across AI coding tools.
-
-`.claudeignore` works for Claude Code.
-
-When using any other AI tool, paste this file as your first message and follow the instructions in the "What to ignore" section.
+Claude Code uses .claudeignore. Other tools follow **What to ignore** in this file. Do not bulk-load docs/oracle/, historical specs, or generated SQL.
 
 ## Consultant overhaul discovery
 
