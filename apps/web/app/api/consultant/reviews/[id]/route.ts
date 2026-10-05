@@ -1,18 +1,15 @@
 // POST /api/consultant/reviews/[id] — draft correction or scoped confirmation.
 import { NextResponse, type NextRequest } from 'next/server';
-import { randomUUID } from 'crypto';
-import {
-  getDraft,
-  getSource,
-  hasActiveConfirm,
-  storeDraft,
-  storeReview,
-  type Draft,
-  type DraftConnection,
-  type Review,
-} from '@/lib/oracle2-client';
 import { authorizePilotRequest } from '@/lib/oracle2-pilot-auth';
 import { hasAuthority } from '@/lib/oracle2-authority';
+import {
+  confirmDraft,
+  correctDraft,
+  getDraft,
+  getSourceBlocks,
+  pilotWorkspaceId,
+} from '@/lib/oracle2-store';
+import type { DraftConnection } from '@/lib/oracle2-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,83 +24,74 @@ export async function POST(
     }
     const { id } = await params;
     const body = await req.json();
-    const { action, connections, processName, scope, workspaceId } = body;
-    const draft = getDraft(id);
+    const { action, connections, processName, scope } = body;
+    const workspaceId = pilotWorkspaceId();
+    const actor = auth.actorId;
+    const draft = await getDraft(id, workspaceId);
     if (!draft) {
       return NextResponse.json({ error: 'draft not found' }, { status: 404 });
     }
-    const actor = auth.actorId;
     if (action === 'correct') {
       if (!(await hasAuthority(actor, 'review'))) {
-        return NextResponse.json({ error: 'actor lacks review authority for draft correction' }, { status: 403 });
-      }
-      if (draft.status !== 'draft') {
-        return NextResponse.json({ error: 'only draft-status documents can be corrected' }, { status: 400 });
+        return NextResponse.json(
+          { error: 'actor lacks review authority for draft correction' },
+          { status: 403 },
+        );
       }
       const nextConnections = connections ?? draft.connections;
       if (!Array.isArray(nextConnections)) {
         return NextResponse.json({ error: 'connections must be an array' }, { status: 400 });
       }
-      const source = getSource(draft.sourceId);
-      const blockCount = source?.blocks.length ?? 0;
+      const sourceBlocks = await getSourceBlocks(draft.sourceId, workspaceId);
+      const blockCount = sourceBlocks.length;
       for (const connection of nextConnections as DraftConnection[]) {
         if (
           !connection ||
           typeof connection.from !== 'number' ||
           typeof connection.to !== 'number' ||
+          !Number.isInteger(connection.from) ||
+          !Number.isInteger(connection.to) ||
           connection.from < 0 ||
           connection.to < 0 ||
           connection.from >= blockCount ||
           connection.to >= blockCount
         ) {
-          return NextResponse.json({ error: 'connection endpoints must address source blocks' }, { status: 400 });
+          return NextResponse.json(
+            { error: 'connection endpoints must address source blocks' },
+            { status: 400 },
+          );
         }
       }
-      const updated: Draft = {
-        ...draft,
-        connections: nextConnections as DraftConnection[],
-        processName: processName ?? draft.processName,
-        updatedAt: new Date().toISOString(),
-      };
-      storeDraft(updated);
-      const review: Review = {
-        reviewId: randomUUID(),
+      await correctDraft({
         draftId: id,
-        workspaceId: workspaceId ?? draft.workspaceId,
+        workspaceId,
         actorId: actor,
-        action: 'correct',
-        payload: { connections: updated.connections },
-        createdAt: new Date().toISOString(),
-      };
-      storeReview(review);
-      return NextResponse.json({ draft: updated, reviewId: review.reviewId });
+        connections: nextConnections as DraftConnection[],
+        processName,
+      });
+      return NextResponse.json({ draftId: id, status: 'draft' });
     }
     if (action === 'confirm') {
       if (!(await hasAuthority(actor, 'confirm'))) {
-        return NextResponse.json({ error: 'actor lacks confirm authority for scoped confirmation' }, { status: 403 });
+        return NextResponse.json(
+          { error: 'actor lacks confirm authority for scoped confirmation' },
+          { status: 403 },
+        );
       }
-      if (draft.status === 'confirmed') {
-        return NextResponse.json({ error: 'draft already confirmed' }, { status: 409 });
-      }
-      if (hasActiveConfirm(id)) {
-        return NextResponse.json({ error: 'a confirmation is already in progress' }, { status: 409 });
-      }
-      const updated: Draft = { ...draft, status: 'confirmed', updatedAt: new Date().toISOString() };
-      storeDraft(updated);
-      const review: Review = {
-        reviewId: randomUUID(),
+      await confirmDraft({
         draftId: id,
-        workspaceId: workspaceId ?? draft.workspaceId,
+        workspaceId,
         actorId: actor,
-        action: 'confirm',
-        payload: { scope: scope ?? 'process-map' },
-        createdAt: new Date().toISOString(),
-      };
-      storeReview(review);
-      return NextResponse.json({ draft: updated, reviewId: review.reviewId });
+        scope: scope ?? 'process-map',
+      });
+      return NextResponse.json({ draftId: id, status: 'confirmed' });
     }
     return NextResponse.json({ error: 'unknown action' }, { status: 400 });
-  } catch {
-    return NextResponse.json({ error: 'review failed' }, { status: 500 });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'review failed';
+    const status = message.includes('already confirmed') ? 409 : 400;
+    return NextResponse.json({ error: message }, { status });
   }
 }
+
+

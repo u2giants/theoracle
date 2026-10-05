@@ -1,7 +1,7 @@
 // GET /api/consultant/runs/[id] — retrieve a run by ID (session required).
 import { NextResponse, type NextRequest } from 'next/server';
-import { getRun } from '@/lib/oracle2-client';
 import { authorizePilotRequest } from '@/lib/oracle2-pilot-auth';
+import { getRun, pilotWorkspaceId } from '@/lib/oracle2-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +14,7 @@ export async function GET(
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
   const { id } = await params;
-  const run = getRun(id);
+  const run = await getRun(id, pilotWorkspaceId());
   if (!run) {
     return NextResponse.json({ error: 'run not found' }, { status: 404 });
   }

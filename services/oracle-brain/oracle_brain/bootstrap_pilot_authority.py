@@ -38,7 +38,6 @@ from uuid import UUID
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--database-url", default=None, help="admin URL (INSERT on oracle2.appointments)")
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--owner", required=True)
     parser.add_argument("--appointed-by", required=True,
@@ -48,9 +47,14 @@ def main() -> int:
     parser.add_argument("--owner-signature-hex", required=True)
     args = parser.parse_args()
 
-    url = args.database_url or os.environ.get("ORACLE2_DATABASE_URL")
+    # Credentials only via env, never CLI. Refuse production-looking hosts.
+    url = os.environ.get("ORACLE2_DATABASE_URL")
     if not url:
-        raise SystemExit("ORACLE2_DATABASE_URL (admin) is required")
+        raise SystemExit("ORACLE2_DATABASE_URL (admin) is required via environment")
+    lowered = url.lower()
+    for banned in ("prod", "production", "supabase.co", "eqccjfbyrywsqkxxpjvg"):
+        if banned in lowered:
+            raise SystemExit("refusing non-isolated/production-looking DATABASE_URL")
     workspace = UUID(args.workspace)
     owner = UUID(args.owner)
     appointed_by = UUID(args.appointed_by)
