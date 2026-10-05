@@ -255,7 +255,9 @@ export async function confirmDraft(input: {
         FROM used
         WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
       `;
-      const hasRoot = (lineage as Array<{ scope: string }>).some((r) => r.scope === 'root');
+      const hasRoot = (lineage as unknown as Array<{ scope: string }>).some(
+        (r) => r.scope === 'root',
+      );
       if (!hasRoot) {
         throw new Error('confirm authority lineage missing live root');
       }
