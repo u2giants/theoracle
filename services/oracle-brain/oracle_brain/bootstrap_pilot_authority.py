@@ -1,7 +1,12 @@
 """Bootstrap pilot authority on an isolated oracle2 store (not production).
 
-Usage (after 001_foundation.sql + grants):
-  export ORACLE2_DATABASE_URL=postgresql://oracle2_pilot_web:...@127.0.0.1:55432/oracle2
+The bootstrap connection must be an **admin** role that can INSERT into
+`oracle2.appointments` (e.g. `oracle2_admin`). The web app later connects as
+`oracle2_pilot_web` (SELECT on appointments only). Never run this against
+production.
+
+Usage (after 001_foundation.sql + grant-postgres.sql):
+  export ORACLE2_DATABASE_URL=postgresql://oracle2_admin:...@127.0.0.1:55432/oracle2
   export ORACLE2_OWNER_PUBLIC_KEY=<owner ed25519 raw hex>
   python -m oracle_brain.bootstrap_pilot_authority \\
     --workspace 00000000-0000-4000-8000-000000000002 \\
@@ -11,9 +16,17 @@ Usage (after 001_foundation.sql + grants):
     --actor 00000000-0000-4000-8000-000000000003 \\
     --owner-signature-hex <sig of oracle2-owner-appointment-v1:ws:owner:appointment_id>
 
-Actor default for the web pilot is
-`00000000-0000-4000-8000-000000000003` (ORACLE2_PILOT_ACTOR).
-All three writes run in one transaction.
+Required inputs (all of them):
+  - --workspace / ORACLE2_PILOT_WORKSPACE_ID
+  - --owner (appointed root actor UUID)
+  - --appointed-by (different UUID; CHECK actor_id <> granted_by)
+  - --appointment-id (UUID for the root appointment row)
+  - --actor (pilot actor UUID used by ORACLE2_PILOT_ACTOR)
+  - --owner-signature-hex (Ed25519 signature over the appointment message)
+  - ORACLE2_OWNER_PUBLIC_KEY (raw public key hex)
+  - ORACLE2_DATABASE_URL (admin URL for bootstrap only)
+
+All three appointment writes run in one transaction.
 """
 
 from __future__ import annotations
@@ -22,14 +35,10 @@ import argparse
 import os
 from uuid import UUID
 
-import psycopg
-
-from oracle_brain.authz import has_authority
-
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--database-url", default=None)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--database-url", default=None, help="admin URL (INSERT on oracle2.appointments)")
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--owner", required=True)
     parser.add_argument("--appointed-by", required=True,
@@ -41,7 +50,7 @@ def main() -> int:
 
     url = args.database_url or os.environ.get("ORACLE2_DATABASE_URL")
     if not url:
-        raise SystemExit("ORACLE2_DATABASE_URL is required")
+        raise SystemExit("ORACLE2_DATABASE_URL (admin) is required")
     workspace = UUID(args.workspace)
     owner = UUID(args.owner)
     appointed_by = UUID(args.appointed_by)
@@ -52,15 +61,22 @@ def main() -> int:
     if actor == owner:
         raise SystemExit("actor must differ from owner (delegate CHECK)")
 
+    import psycopg
+
+    from oracle_brain.authz import has_authority
+
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
     key_hex = os.environ.get("ORACLE2_OWNER_PUBLIC_KEY", "")
     if not key_hex:
         raise SystemExit("ORACLE2_OWNER_PUBLIC_KEY is required")
     message = f"oracle2-owner-appointment-v1:{workspace}:{owner}:{appointment}".encode()
-    Ed25519PublicKey.from_public_bytes(bytes.fromhex(key_hex)).verify(
-        bytes.fromhex(args.owner_signature_hex), message
-    )
+    try:
+        Ed25519PublicKey.from_public_bytes(bytes.fromhex(key_hex)).verify(
+            bytes.fromhex(args.owner_signature_hex), message
+        )
+    except Exception as exc:
+        raise SystemExit(f"owner appointment signature invalid: {exc}") from exc
 
     with psycopg.connect(url) as connection:
         with connection.transaction():

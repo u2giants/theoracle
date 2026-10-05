@@ -85,9 +85,15 @@ model logs.
    - `ORACLE2_PILOT_ACTOR=00000000-0000-4000-8000-000000000003` (UUID matching
      bootstrap `--actor`; body identities ignored)
    Bootstrap once on that store (not production) with
-   `oracle_brain.bootstrap_pilot_authority`: signed owner appointment
-   (`appointed-by` ≠ owner), then `review`/`confirm` delegates to that actor
-   UUID in **one transaction**. The web app never uses an admin connection.
+   `oracle_brain.bootstrap_pilot_authority` using an **admin** connection
+   (`oracle2_admin`) — required inputs: `--workspace`, `--owner`,
+   `--appointed-by` (≠ owner), `--appointment-id`, `--actor` (pilot UUID),
+   `--owner-signature-hex`, `ORACLE2_OWNER_PUBLIC_KEY`, and admin
+   `ORACLE2_DATABASE_URL`. All appointment writes are one transaction. The web
+   app connects only as `oracle2_pilot_web` (SELECT appointments). Compose init
+   scripts run on **first volume init only**; use a fresh volume or apply
+   `init-postgres.sql` + `grant-postgres.sql` as admin on an existing store.
+   The web app never uses an admin connection.
 3. **Browser-test gate (required before real data)** — run
    `tests/oracle2/pilot.spec.ts` against that server (`ORACLE2_PREVIEW_URL`).
    All tests must pass, including 401 without session/token and fail-closed
