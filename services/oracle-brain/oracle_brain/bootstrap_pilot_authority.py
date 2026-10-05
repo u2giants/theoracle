@@ -14,7 +14,8 @@ Usage (after 001_foundation.sql + grant-postgres.sql):
     --appointed-by <bootstrap-principal-uuid != owner> \\
     --appointment-id <appointment-uuid> \\
     --actor 00000000-0000-4000-8000-000000000003 \\
-    --owner-signature-hex <sig of oracle2-owner-appointment-v1:ws:owner:appointment_id>
+    --owner-signature-hex <sig of oracle2-owner-appointment-v1:ws:owner:appointment_id> \\
+    --actor-signature-hex <sig of oracle2-pilot-delegate-v1:ws:owner:actor>
 
 Required inputs (all of them):
   - --workspace / ORACLE2_PILOT_WORKSPACE_ID

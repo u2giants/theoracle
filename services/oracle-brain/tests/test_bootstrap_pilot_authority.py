@@ -22,6 +22,7 @@ class BootstrapArgsTest(unittest.TestCase):
             "--appointment-id", str(uuid4()),
             "--actor", str(uuid4()),
             "--owner-signature-hex", "00",
+            "--actor-signature-hex", "00",
         ]
         try:
             with self.assertRaises(SystemExit):
@@ -40,6 +41,7 @@ class BootstrapArgsTest(unittest.TestCase):
             "--appointment-id", str(uuid4()),
             "--actor", str(uuid4()),
             "--owner-signature-hex", "00",
+            "--actor-signature-hex", "00",
         ]
         try:
             with self.assertRaises(SystemExit):

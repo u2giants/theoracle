@@ -172,23 +172,26 @@ async function assertAuthorityInTx(
   actorId: string,
   scope: 'review' | 'confirm',
 ): Promise<void> {
-  // Lock the actor's appointments so revocation cannot race the mutation.
+  // Lock this actor's grants and their ancestors so parent revocation cannot race.
   await tx`
-    SELECT appointment_id FROM oracle2.appointments
-    WHERE workspace_id=${workspaceId}::uuid AND actor_id=${actorId}::uuid
-    FOR UPDATE
+    WITH RECURSIVE lineage AS (
+      SELECT appointment_id, parent_id
+      FROM oracle2.appointments
+      WHERE workspace_id=${workspaceId}::uuid AND actor_id=${actorId}::uuid
+      UNION
+      SELECT p.appointment_id, p.parent_id
+      FROM oracle2.appointments p
+      JOIN lineage l ON p.appointment_id = l.parent_id
+      WHERE p.workspace_id=${workspaceId}::uuid
+    )
+    SELECT appointment_id FROM lineage
+    JOIN oracle2.appointments a USING (appointment_id)
+    FOR UPDATE OF a
   `;
   const rows = await tx.unsafe(HAS_AUTHORITY_SQL, [workspaceId, actorId, scope]);
   if (!rows[0]?.ok) {
     throw new Error(`actor lacks ${scope} authority`);
   }
-  const lineage = await tx`
-    SELECT appointment_id::text, scope, parent_id::text, expires_at, revoked_at
-    FROM oracle2.appointments
-    WHERE workspace_id=${workspaceId}::uuid AND actor_id=${actorId}::uuid
-      AND scope IN (${scope},'root')
-  `;
-  return void lineage;
 }
 
 export async function correctDraft(input: {
