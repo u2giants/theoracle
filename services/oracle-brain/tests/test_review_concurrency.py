@@ -89,10 +89,15 @@ def test_revocation_racing_confirmation(admin_url, monkeypatch):
     t1 = threading.Thread(target=do_revoke)
     t2 = threading.Thread(target=do_confirm)
     t1.start()
+    # Let revoke take the workspace lock first so this proves the deny path.
+    import time
+
+    time.sleep(0.2)
     t2.start()
     t1.join()
     t2.join()
-    assert confirm_result in (["ok"], ["denied"]), confirm_result
+    # When revocation wins the race, confirmation must not succeed.
+    assert confirm_result == ["denied"], confirm_result
 
 
 def test_concurrent_confirmation_collision(admin_url, monkeypatch):
