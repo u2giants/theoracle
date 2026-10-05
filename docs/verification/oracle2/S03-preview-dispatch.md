@@ -94,9 +94,10 @@ model logs.
    (`127.0.0.1` / `localhost` / `::1`) — isolation is hard-coded and is not
    configurable from the same environment. All appointment writes are one transaction. The web
    app connects only as `oracle2_pilot_web` (SELECT appointments). Compose init
-   scripts are idempotent for roles; **pilot tables** need a fresh volume or
-   applying `001_foundation.sql` + `002_pilot.sql` + `grant-postgres.sql` as
-   admin. The web app never uses an admin connection.
+   requires **roles first** (`init-postgres.sql`), then `001_foundation.sql` +
+   `002_pilot.sql` + `grant-postgres.sql` as admin — use a fresh volume or apply
+   all four in that order on an existing store. The web app never uses an admin
+   connection.
 3. **Browser-test gate (required before real data)** — run
    `tests/oracle2/pilot.spec.ts` against that server (`ORACLE2_PREVIEW_URL`).
    All tests must pass, including 401 without session/token and fail-closed
