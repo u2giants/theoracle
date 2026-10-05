@@ -1,14 +1,12 @@
 # S03 real-data preview dispatch — exact inputs for independent technical review
 
-Status: **pending review** (revision 3, 2026-10-01 EDT). Revision 1 was
-REJECTED (`20261001T161933-1000779-31397`). A follow-up snapshot of the old
-head was also REJECTED (`20261001T162959-1042914-14354`) for free-text stand-in
-documents, corrections not affecting answers, caller-supplied identities, loose
-evidence ownership, and no browser gate. This revision is at a new head that
-includes connection-aware answers, pilot token + actor allowlist auth, a
-process-table source, and an explicit browser-test gate. Nothing here runs
-before a `VERDICT APPROVE` whose record names **this** reviewed commit and this
-path.
+Status: **pending review** (revision 4, 2026-10-04 EDT). Revisions 1–3 were
+REJECTED (last: `20261001T182245-1505817-15927`) including a Critical on
+publishing process/answer-key content (now private) and High on substituting
+memory grants for S02 authority. This revision is at a head that uses
+**store-backed** `oracle2.appointments` authority (`apps/web/lib/oracle2-authority.ts`,
+merged in PR #61). Nothing here runs before a `VERDICT APPROVE` whose record
+names **this** reviewed commit and this path.
 
 Purpose: the leftover-proof gate on [#58](https://github.com/u2giants/theoracle/issues/58)
 / [#27](https://github.com/u2giants/theoracle/issues/27) — one isolated,
@@ -77,47 +75,40 @@ model logs.
 2. **Isolated preview environment** — from the reviewed commit, start
    `@oracle/web` on `http://127.0.0.1` only. Bind loopback. No public hostname,
    no Vercel production change. Set preview-only env:
-   - `ORACLE2_PILOT_TOKEN` (random secret, not committed; stored only in the
-     private evidence directory)
-   - `ORACLE2_PILOT_ACTOR=pilot-user` (single configured actor; body identities
-     are ignored)
-   - `ORACLE2_PILOT_SCOPES=review,confirm`
-   The token is **not** browser-bundled. The UI takes it in a password field;
-   `POST /api/consultant/session` checks token + allowlist and issues an
-   httpOnly session cookie bound to that actor. Scopes `review`/`confirm` are
-   granted only after that check. Body-supplied identities are ignored. GET
-   runs and all mutating consultant APIs require the session. The pilot store
-   remains in-process memory; no hosted store is provisioned.
+   - `ORACLE2_DATABASE_URL` — isolated store with `oracle2` schema
+     (`dev/oracle2/compose.yaml` on CI/edge-dev3 Docker; local scoop Postgres
+     is known-unstable and is **not** an accepted journey store)
+   - `ORACLE2_PILOT_WORKSPACE_ID` — fixed pilot workspace UUID
+   - `ORACLE2_PILOT_TOKEN` (random secret, not committed; private evidence dir)
+   - `ORACLE2_PILOT_ACTOR=pilot-user` (allowlisted actor; body identities ignored)
+   Bootstrap once on that store (not on production): signed owner appointment
+   (`authz.appoint_owner`), then `delegate` `review` and `confirm` to
+   `pilot-user`. The token is **not** browser-bundled. `POST
+   /api/consultant/session` checks the token and that `pilot-user` holds
+   `review` in `oracle2.appointments`; it does **not** insert grants. GET runs
+   and all mutating consultant APIs require the httpOnly session cookie.
 3. **Browser-test gate (required before real data)** — run
    `tests/oracle2/pilot.spec.ts` against that server (`ORACLE2_PREVIEW_URL`).
-   All tests must pass, including the negative test that mutating APIs return
-   401 without a valid pilot token. Record the run summary in the private
-   evidence directory. This gate has never been in offline CI; it must pass
-   live before the real journey.
-4. **Authority-backed journey** — process-owner UI must use the S03 authority
-   path:
-   - Actor comes only from server env (`ORACLE2_PILOT_ACTOR` /
-     `ORACLE2_PILOT_ACTORS` allowlist). Body `actorId` fields are ignored and
-     cannot select a different principal.
-   - Token missing/wrong → 401. Session required on all mutating APIs and run
-     reads → 401 without cookie.
-   - `correct` requires `review` scope; `confirm` requires `confirm` scope;
-     scopes come from `ORACLE2_PILOT_SCOPES` and are dropped on logout.
-   - Capture one rejected unauthenticated request (401) and one missing-scope
-     denial (403) in private evidence.
-   - Offline companion already green: `test_authority.py` (transactional S02
-     tables: forged actors, out-of-scope grants, revoked parents, expired
-     delegates, revocation racing confirmation). The web pilot is a
-     session-scoped preview surface; the Postgres S02 path remains the
-     authority model of record.
+   All tests must pass, including 401 without session/token and fail-closed
+   authority when the store is unreachable. Record the summary in the private
+   evidence directory.
+4. **Authority-backed journey** — process-owner UI uses S02-backed checks:
+   - Actor comes only from server env allowlist. Body `actorId` fields are
+     ignored.
+   - Token missing/wrong → 401. Missing session → 401.
+   - `correct` → 403 without store-backed `review`; `confirm` → 403 without
+     store-backed `confirm` (`has_authority` SQL lineage on
+     `oracle2.appointments`, same as `authz.py`).
+   - Capture one 401 and one 403 in private evidence.
+   - Companion: `test_authority.py` (forged actors, out-of-scope grants,
+     revoked parents, expired delegates, revocation racing confirmation).
 5. **Run one real-data journey** on the process table
    (upload → source-linked draft → **correct one connection** → scoped
    confirm → one **connected** question → cited answer + one explicitly
-   hypothetical improvement). The corrected connection must appear in the
-   answer’s “Process-map connections in scope” line and a connected block must
-   be among the citations (connection boost in retrieval).
-   Connected question: *When artwork disappears from the DCP Vault, what do we
-   treat as confirmed withdrawal, and what must we not infer?*
+   hypothetical improvement). The corrected edge appears as
+   “Process-map connections in scope”. Unrelated map neighbors are labeled
+   “Process-map context only (not established answer evidence)” and are **not**
+   cited as facts. Connected question wording lives in the private register.
 6. **Private evidence controls** — only under
    `C:\Users\ahazan\.local\share\mimocode-private\oracle2\S03-evidence\`:
    - Owner: this session’s operator on this machine account.
