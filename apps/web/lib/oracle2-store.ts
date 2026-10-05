@@ -176,8 +176,8 @@ async function assertAuthorityInTx(
   actorId: string,
   scope: 'review' | 'confirm',
 ): Promise<void> {
-  // Same advisory lock key as oracle_brain.knowledge.authority revoke path.
-  await tx`SELECT pg_advisory_xact_lock(hashtext(${'oracle2-authz:' + workspaceId + ':' + actorId}))`;
+  // Workspace-scoped advisory lock shared with Python revoke/confirm.
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${'oracle2-authz:' + workspaceId}))`;
   const rows = await tx.unsafe(HAS_AUTHORITY_SQL, [workspaceId, actorId, scope]);
   if (!rows[0]?.ok) {
     throw new Error(`actor lacks ${scope} authority`);

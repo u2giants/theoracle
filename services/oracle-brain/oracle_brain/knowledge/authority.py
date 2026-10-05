@@ -15,9 +15,6 @@ def correct_draft(database_url: str, *, draft_id: UUID, workspace_id: UUID,
                   actor_id: UUID, connections: list[dict],
                   process_name: str | None = None) -> UUID:
     """Authenticated draft correction. Requires review scope in the workspace."""
-    if not has_authority(database_url, workspace_id=workspace_id,
-                         actor_id=actor_id, scope="review"):
-        raise PermissionError("actor lacks review authority for draft correction")
     review_id = uuid4()
     with psycopg.connect(database_url) as connection:
         with connection.transaction():
@@ -26,6 +23,9 @@ def correct_draft(database_url: str, *, draft_id: UUID, workspace_id: UUID,
                      hashtext('oracle2-authz:' || %s::text || ':' || %s::text))""",
                 (str(workspace_id), str(actor_id)),
             )
+            if not has_authority(database_url, workspace_id=workspace_id,
+                                 actor_id=actor_id, scope="review"):
+                raise PermissionError("actor lacks review authority for draft correction")
             row = connection.execute(
                 "SELECT status FROM oracle2.drafts WHERE draft_id=%s AND workspace_id=%s",
                 (draft_id, workspace_id),
@@ -59,9 +59,6 @@ def confirm_draft(database_url: str, *, draft_id: UUID, workspace_id: UUID,
     The unique partial index on reviews enforces one active confirmation per
     draft; a second concurrent confirmation fails at the database level.
     """
-    if not has_authority(database_url, workspace_id=workspace_id,
-                         actor_id=actor_id, scope="confirm"):
-        raise PermissionError("actor lacks confirm authority for scoped confirmation")
     review_id = uuid4()
     with psycopg.connect(database_url) as connection:
         with connection.transaction():
@@ -70,6 +67,9 @@ def confirm_draft(database_url: str, *, draft_id: UUID, workspace_id: UUID,
                      hashtext('oracle2-authz:' || %s::text || ':' || %s::text))""",
                 (str(workspace_id), str(actor_id)),
             )
+            if not has_authority(database_url, workspace_id=workspace_id,
+                                 actor_id=actor_id, scope="confirm"):
+                raise PermissionError("actor lacks confirm authority for scoped confirmation")
             row = connection.execute(
                 "SELECT status FROM oracle2.drafts WHERE draft_id=%s AND workspace_id=%s",
                 (draft_id, workspace_id),
@@ -105,10 +105,8 @@ def revoke_review_authority(database_url: str, *, appointment_id: UUID,
             # Same advisory lock key as the web pilot mutations.
             connection.execute(
                 """SELECT pg_advisory_xact_lock(
-                     hashtext('oracle2-authz:' || %s::text || ':' ||
-                              (SELECT actor_id::text FROM oracle2.appointments
-                               WHERE appointment_id=%s)))""",
-                (str(workspace_id), appointment_id),
+                     hashtext('oracle2-authz:' || %s::text))""",
+                (str(workspace_id),),
             )
             connection.execute(
                 """UPDATE oracle2.appointments SET revoked_at=now()

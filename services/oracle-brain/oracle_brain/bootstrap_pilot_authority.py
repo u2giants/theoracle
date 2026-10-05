@@ -66,8 +66,8 @@ def main() -> int:
     if parsed.fragment:
         raise SystemExit("refusing DATABASE_URL with fragment")
     path = (parsed.path or "").lstrip("/")
-    if path and path != "oracle2":
-        raise SystemExit("refusing DATABASE_URL database name other than oracle2")
+    if path != "oracle2":
+        raise SystemExit("refusing DATABASE_URL unless database name is exactly oracle2")
     workspace = UUID(args.workspace)
     owner = UUID(args.owner)
     appointed_by = UUID(args.appointed_by)
