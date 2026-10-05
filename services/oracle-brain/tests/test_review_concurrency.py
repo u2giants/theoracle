@@ -47,10 +47,10 @@ def test_second_confirm_on_same_draft_fails(admin_url, monkeypatch):
         actor_id=reviewer, process_name="P", connections=[],
     )
     confirm_draft(admin_url, draft_id=draft_id, workspace_id=workspace,
-                  actor_id=reviewer, scope="map")
+                  actor_id=reviewer, scope="process-map")
     with pytest.raises((ValueError, psycopg.errors.UniqueViolation)):
         confirm_draft(admin_url, draft_id=draft_id, workspace_id=workspace,
-                      actor_id=reviewer, scope="map")
+                      actor_id=reviewer, scope="process-map")
 
 
 def test_revocation_racing_confirmation(admin_url, monkeypatch):
@@ -72,4 +72,4 @@ def test_revocation_racing_confirmation(admin_url, monkeypatch):
                             workspace_id=workspace, revoked_by=owner)
     with pytest.raises(PermissionError):
         confirm_draft(admin_url, draft_id=draft_id, workspace_id=workspace,
-                      actor_id=reviewer, scope="map")
+                      actor_id=reviewer, scope="process-map")

@@ -194,6 +194,7 @@ export async function correctDraft(input: {
   const sql = client();
   try {
     await sql.begin(async (tx) => {
+      await assertAuthorityInTx(tx, input.workspaceId, input.actorId, 'review');
       const rows = await tx`
         SELECT status FROM oracle2.drafts
         WHERE draft_id=${input.draftId}::uuid AND workspace_id=${input.workspaceId}::uuid
@@ -201,7 +202,6 @@ export async function correctDraft(input: {
       `;
       if (rows.length === 0) throw new Error('draft not found');
       if (rows[0]!.status !== 'draft') throw new Error('only draft-status documents can be corrected');
-      await assertAuthorityInTx(tx, input.workspaceId, input.actorId, 'review');
       await tx`
         UPDATE oracle2.drafts
         SET connections=${asJson(input.connections)},
@@ -229,6 +229,7 @@ export async function confirmDraft(input: {
   const sql = client();
   try {
     await sql.begin(async (tx) => {
+      await assertAuthorityInTx(tx, input.workspaceId, input.actorId, 'confirm');
       const rows = await tx`
         SELECT status FROM oracle2.drafts
         WHERE draft_id=${input.draftId}::uuid AND workspace_id=${input.workspaceId}::uuid
@@ -237,7 +238,6 @@ export async function confirmDraft(input: {
       if (rows.length === 0) throw new Error('draft not found');
       if (rows[0]!.status === 'confirmed') throw new Error('draft already confirmed');
       if (rows[0]!.status === 'withdrawn') throw new Error('withdrawn draft cannot be confirmed');
-      await assertAuthorityInTx(tx, input.workspaceId, input.actorId, 'confirm');
       const lineage = await tx`
         WITH RECURSIVE lineage AS (
           SELECT appointment_id, scope, parent_id, revoked_at, expires_at
