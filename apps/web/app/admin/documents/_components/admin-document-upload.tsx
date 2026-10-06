@@ -91,18 +91,35 @@ export function AdminDocumentUpload({
     setErrorMsg(null);
     setResults([]);
     try {
-      const body = new FormData();
-      for (const f of files) body.append('files', f);
-      if (context.trim()) body.append('context', context.trim());
-      if (hintIds.length > 0) body.append('domainHints', JSON.stringify(hintIds));
+      // One file per request: a multi-file body can exceed the platform
+      // request limit and return a non-JSON "Request Entity Too Large".
+      const collected: UploadResult[] = [];
+      for (const f of files) {
+        const body = new FormData();
+        body.append('files', f);
+        if (context.trim()) body.append('context', context.trim());
+        if (hintIds.length > 0) body.append('domainHints', JSON.stringify(hintIds));
 
-      const res = await fetch('/api/admin/documents', { method: 'POST', body });
-      const data = (await res.json()) as { ok: boolean; results?: UploadResult[]; error?: string };
-      if (!res.ok && !data.results) {
-        throw new Error(data.error ?? `Upload failed (${res.status})`);
+        const res = await fetch('/api/admin/documents', { method: 'POST', body });
+        const raw = await res.text();
+        let data: { ok: boolean; results?: UploadResult[]; error?: string } | null = null;
+        try {
+          data = JSON.parse(raw) as typeof data;
+        } catch {
+          if (res.status === 413 || raw.startsWith('Request Entity')) {
+            throw new Error(
+              `“${f.name}” is too large for one upload. Try a smaller file or split it.`,
+            );
+          }
+          throw new Error(`Upload failed (${res.status})`);
+        }
+        if (!res.ok && !data.results) {
+          throw new Error(data.error ?? `Upload failed (${res.status})`);
+        }
+        collected.push(...(data.results ?? []));
       }
-      setResults(data.results ?? []);
-      setStatus(data.ok ? 'done' : 'error');
+      setResults(collected);
+      setStatus(collected.every((r) => r.ok) ? 'done' : 'error');
       setFiles([]);
       setContext('');
       setHintIds([]);

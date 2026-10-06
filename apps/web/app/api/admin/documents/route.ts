@@ -41,7 +41,13 @@ export async function POST(req: NextRequest) {
   try {
     formData = await req.formData();
   } catch {
-    return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 });
+    return NextResponse.json(
+      {
+        error:
+          'Upload body could not be read (it may be larger than the platform request limit). Send files one at a time.',
+      },
+      { status: 413 },
+    );
   }
 
   const files: File[] = [
