@@ -80,10 +80,9 @@ async function extractText(fileName: string): Promise<string> {
   const buffer = await readFile(path);
   if (fileName.endsWith('.md') || fileName.endsWith('.txt')) return buffer.toString('utf8');
   if (fileName.endsWith('.pdf')) {
-    const pdfParse = (await import('pdf-parse')).default as (
-      input: Buffer,
-    ) => Promise<{ text: string }>;
-    return (await pdfParse(buffer)).text;
+    const { extractText } = await import('unpdf');
+    const { text } = await extractText(new Uint8Array(buffer), { mergePages: true });
+    return text;
   }
   if (fileName.endsWith('.docx')) {
     const mammoth = (await import('mammoth')) as unknown as {

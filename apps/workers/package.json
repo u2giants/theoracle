@@ -43,14 +43,13 @@
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "mammoth": "^1.8.0",
-    "pdf-parse": "^1.1.1",
+    "unpdf": "^1.8.1",
     "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@trigger.dev/build": "4.5.15",
     "@types/node": "^24.12.4",
-    "@types/pdf-parse": "^1.1.4",
     "postgres": "^3.4.5",
     "tsx": "^4.19.2",
     "typescript": "^5.9.3"

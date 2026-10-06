@@ -248,12 +248,11 @@ function buildDocumentChunkWindows<TChunk extends { id: string; text: string }>(
 }
 
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pdfParse = (await import('pdf-parse')).default as (
-    buf: Buffer,
-  ) => Promise<{ text: string }>;
-  const result = await pdfParse(buffer);
-  return result.text;
+  // unpdf is serverless-safe (bundles cleanly under Trigger.dev's esbuild);
+  // pdf-parse's bundled pdf.js uses webpack-only require.ensure and breaks.
+  const { extractText } = await import('unpdf');
+  const { text } = await extractText(new Uint8Array(buffer), { mergePages: true });
+  return text;
 }
 
 async function extractTextFromXlsx(buffer: Buffer): Promise<string> {
