@@ -23,17 +23,33 @@ lineage (missing review/confirm scopes and unreachable store both deny).
 
 | Dimension | Result |
 |---|---|
-| Fact correctness | Pass — operational withdrawal path only; no invented policy |
-| Mandatory exceptions | Pass — portal absence and legal rights explicitly not inferred |
+| Fact correctness | **Fail (Ilona)** — email notices omitted from “no formal notice” |
+| Mandatory exceptions | **Fail (Ilona)** — email notices are a real removal signal |
 | Citation support | Pass — 4 citations resolved to source spans |
 | Temporal / customer scope | Pass — process-table steps only; no out-of-scope claims |
-| Usefulness | Pass — states confirmed path and what not to infer |
+| Usefulness | Partial — operational path correct; notice channel incomplete |
 | Clarity | Pass — facts vs hypothetical separated |
 | Improvement contract | Pass — labeled “not established fact”, with measure and missing inputs |
 
-Connection line in the answer: `2→3`. Process-owner (Ilona) outcome:
-**pending** — this record is the journey and rubric score; business acceptance
-by Ilona is still required before plan S03 is marked ✅.
+Connection line in the answer: `2→3`.
+
+## Process-owner outcome (Ilona, licensing) — 2026-10-05 EDT (relayed by Albert)
+
+| Point | Ilona |
+|---|---|
+| Operational withdrawal path (UPDATED + manual POP removal) | Accept |
+| Creation-time sunset date as withdrawal signal | Accept |
+| “Usually no formal vendor notice” | **Reject** — periodically, licensors send **email** communication about removal of assets |
+
+**Outcome: not accepted.** The third clause is materially incomplete. S01
+mandatory-exception / fact-correctness dimensions fail until the source and
+answer include email notices as a real signal. Plan S03 stays open.
+
+**Failed boundary:** source table omitted periodic licensor email notices;
+not a retrieval or UI defect.
+
+**Next:** update the process table and answer key to include email notices;
+re-run one journey; Ilona re-reviews the three points.
 
 ## Not claimed
 
