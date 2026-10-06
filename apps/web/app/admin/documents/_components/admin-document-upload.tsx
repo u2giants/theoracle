@@ -113,8 +113,11 @@ export function AdminDocumentUpload({
           }
           throw new Error(`Upload failed (${res.status})`);
         }
-        if (!data || (!res.ok && !data.results)) {
-          throw new Error(data?.error ?? `Upload failed (${res.status})`);
+        if (!data) {
+          throw new Error(`Upload failed (${res.status})`);
+        }
+        if (!res.ok && !data.results) {
+          throw new Error(data.error ?? `Upload failed (${res.status})`);
         }
         collected.push(...(data.results ?? []));
       }
