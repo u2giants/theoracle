@@ -27,7 +27,7 @@ S01 has an offline record. S02 is accepted on synthetic evidence. S03 code and s
 | S15 | Controlled production adoption | ⬜ open | S14 | Not released; [child #39](https://github.com/u2giants/theoracle/issues/39) |
 | S16 | Legacy retirement with recoverable history | ⬜ open | S15 | Not started; [child #40](https://github.com/u2giants/theoracle/issues/40) |
 
-**Next: S03 business acceptance only** (#58 under #27). Real-doc bank is run; send Ilona L1–15 and Jessica J16–30 review packets (private `…/mimocode-private/oracle2/s03-realdoc-*-review-packet.md`). On both Accept: tick S03, close #27/#58, then name S04 (#28). Still open: Vercel `TRIGGER_SECRET_KEY` (`tr_prod_…` — blocked, no Vercel API token/session); PDF parser fix + re-ingest of 4 SOPs. Read this whole plan STATUS first.
+**Next: S03 business acceptance only** (#58 under #27). Real-doc bank is run; grading tasks are **on-site** via claim-review questions on `/claims` — Ilona 15 (L1–15) + Jessica 15 (J16–30). On both Accept: tick S03, close #27/#58, then name S04 (#28). Still open: Vercel `TRIGGER_SECRET_KEY` (`tr_prod_…` — blocked, no Vercel API token/session); Trigger PAT exposure handled by redaction only (owner 2026-10-06, no rotation). Read this whole plan STATUS first.
 
 Research: [technology and strategy review](docs/research/oracle-consultant-technology-review.md). S01: [acceptance specification](evals/oracle2/acceptance-spec.md) and [verification record](docs/verification/oracle2/S01-baseline.md). Planning [handoff](HANDOFF.d/2026-09-28T0044Z-edge-dev3-codex-oracle-consultant-overhaul.md) remains until its header records committed and pushed status under the successor rule. This plan and those records are the current brief; the planning chat is not required.
 

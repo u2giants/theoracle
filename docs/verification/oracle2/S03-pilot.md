@@ -148,8 +148,12 @@ and `/home/ahazan/oracle-s03-evidence/s03-realdoc-*`.
 
 | Packet | Grader | Result |
 |---|---|---|
-| L1–15 | Ilona | _awaiting grading_ |
-| J16–30 | Jessica | _awaiting grading_ |
+| L1–15 | Ilona Kereki (Licensing Manager) | _on-site `/claims` queue — awaiting grade_ |
+| J16–30 | Jessica Cortazar (PM) | _on-site `/claims` queue — awaiting grade_ |
+
+Delivery: existing `claim_review_question` gaps (product structure), not
+markdown packets. Each item carries the bank question + Oracle answer excerpt
++ Accept/Reject instructions.
 
 Threshold: no Fail on E/A/X; at most one Fail on P/H; I items must label
 hypothesis vs fact. **Plan S03 stays open until both Accept.**
