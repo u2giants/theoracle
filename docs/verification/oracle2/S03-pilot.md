@@ -35,6 +35,47 @@ Connection line in the answer: `2→3`. Process-owner (Ilona) outcome:
 **pending** — this record is the journey and rubric score; business acceptance
 by Ilona is still required before plan S03 is marked ✅.
 
+## Review form for Ilona (process owner — licensing)
+
+Send Ilona this section only (or paste it into email/Teams). She does not need
+GitHub or the pilot UI. She replies **Accept** or **Reject** with a one-line
+reason; that reply is the S03 business stamp.
+
+**Question asked to Oracle**
+
+> When artwork disappears from the DCP Vault, what do we treat as confirmed
+> withdrawal, and what must we not infer?
+
+**Oracle’s answer (facts)**
+
+- Confirmed withdrawal is the **operational** path: notice a style-guide image
+  marked UPDATED, compare to the prior set, see what was removed, then
+  **manually remove** the matching POP item.
+- If the guide carries a **creation-time sunset date**, that date is the
+  withdrawal signal.
+- **Do not treat** portal absence as confirmed withdrawal. **Do not infer**
+  legal entitlement or termination from disappearance. There is usually **no**
+  formal vendor notice.
+
+**Separate hypothetical (not a fact)**
+
+Oracle also offered a labeled improvement experiment (not established fact),
+with a measure and missing inputs. That block is not part of the factual claim.
+
+**What to score (S01 rubric — pass/fail each)**
+
+1. Fact correctness  
+2. Mandatory exceptions (what must not be inferred)  
+3. Citations support the clauses  
+4. Scope (this process only)  
+5. Usefulness  
+6. Clarity  
+7. Hypothetical clearly separated  
+
+**Reply format (one line is enough)**
+
+`Accept` / `Reject` — short reason if reject.
+
 ## Not claimed
 
 No production deploy, no employee messages, no public meeting joins. Company
