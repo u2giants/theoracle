@@ -102,9 +102,10 @@ export function AdminDocumentUpload({
 
         const res = await fetch('/api/admin/documents', { method: 'POST', body });
         const raw = await res.text();
-        let data: { ok: boolean; results?: UploadResult[]; error?: string } | null = null;
+        type UploadPayload = { ok: boolean; results?: UploadResult[]; error?: string };
+        let data: UploadPayload | null = null;
         try {
-          data = JSON.parse(raw) as typeof data;
+          data = JSON.parse(raw) as UploadPayload;
         } catch {
           if (res.status === 413 || raw.startsWith('Request Entity')) {
             throw new Error(
@@ -116,10 +117,11 @@ export function AdminDocumentUpload({
         if (!data) {
           throw new Error(`Upload failed (${res.status})`);
         }
-        if (!res.ok && !data.results) {
-          throw new Error(data.error ?? `Upload failed (${res.status})`);
+        const payload: UploadPayload = data;
+        if (!res.ok && !payload.results) {
+          throw new Error(payload.error ?? `Upload failed (${res.status})`);
         }
-        collected.push(...(data.results ?? []));
+        collected.push(...(payload.results ?? []));
       }
       setResults(collected);
       setStatus(collected.every((r) => r.ok) ? 'done' : 'error');
