@@ -125,7 +125,7 @@ Synthetic/thin-table answers are not S03 proof. Albert required questions built
 | transcript-Book report overview.txt | complete (8 chunks) | yes |
 | Pop Creations Flow 12112025.png | complete (3 chunks, vision) | yes |
 | Licensed Team Responsibilities 2 - tagged.txt | processing / complete twin | yes |
-| SOP Artwork / Packaging / Mockup, Licensing Sheet Automation (PDFs) | **failed** `pdf-parse` (`__require.ensure is not a function`) | text-layer diagnostic only until re-ingest |
+| SOP Artwork / Packaging / Mockup, Licensing Sheet Automation (PDFs) | **re-ingested complete** after `unpdf` fix (PR #79) | bank run used pre-fix text-layer; SOPs now in knowledge base for future runs |
 
 Private inventory + extracted text: `…/mimocode-private/oracle2/s03-doc-text/`
 (not in git). Question bank (questions only):
@@ -154,11 +154,15 @@ and `/home/ahazan/oracle-s03-evidence/s03-realdoc-*`.
 Threshold: no Fail on E/A/X; at most one Fail on P/H; I items must label
 hypothesis vs fact. **Plan S03 stays open until both Accept.**
 
-### Known gap before the run is authoritative
+### PDF ingestion gap — closed 2026-10-06 evening
 
-Four SOP/workflow PDFs never ingested (worker PDF parser crash). Fix + status
-reset + re-ingest is in flight; until then LSA/APS/PPS/MPS items are graded
-against the available text-layer extract only.
+Four SOP/workflow PDFs originally failed worker ingest (`pdf-parse` /
+`__require.ensure is not a function`). Fixed by replacing `pdf-parse` with
+`unpdf` (PR #79), workers deployed (Trigger `20261006.1`), and all four
+re-ingested to `complete` with chunks (plus the stuck Licensed Team
+Responsibilities upload). The graded bank run above used the pre-fix
+text-layer extracts for Q9/Q10; a re-run can use full SOP chunks after
+process-owner feedback if needed.
 
 ## Not claimed
 
