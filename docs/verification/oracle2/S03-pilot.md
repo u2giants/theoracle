@@ -111,6 +111,55 @@ with a measure and missing inputs. That block is not part of the factual claim.
 
 `Accept` / `Reject` — short reason if reject.
 
+## Real-document question bank (Albert direction 2026-10-06) — acceptance run
+
+Synthetic/thin-table answers are not S03 proof. Albert required questions built
+**only** from Admin → Documents production uploads, graded by process owners
+(Ilona + Jessica).
+
+### Source set (production Supabase `eqccjfbyrywsqkxxpjvg`)
+
+| Document | Status 2026-10-06 | Used as source |
+|---|---|---|
+| business-process.md | complete (12 chunks) | yes |
+| transcript-Book report overview.txt | complete (8 chunks) | yes |
+| Pop Creations Flow 12112025.png | complete (3 chunks, vision) | yes |
+| Licensed Team Responsibilities 2 - tagged.txt | processing / complete twin | yes |
+| SOP Artwork / Packaging / Mockup, Licensing Sheet Automation (PDFs) | **failed** `pdf-parse` (`__require.ensure is not a function`) | text-layer diagnostic only until re-ingest |
+
+Private inventory + extracted text: `…/mimocode-private/oracle2/s03-doc-text/`
+(not in git). Question bank (questions only):
+[evals/oracle2/s03-realdoc-question-bank.md](../../../evals/oracle2/s03-realdoc-question-bank.md)
+(PR #77). L1–15 = Ilona (licensing); J16–30 = Jessica (PM / POP pipeline).
+
+### Run (2026-10-06 6:13 PM, edge-dev3 consultant engine)
+
+Engine: `POST /api/consultant/questions` (store-backed pilot authority).
+Sources: per-doc / paired-doc (BP, LTR, FLOW, APS, PPS, BP+LTR, BP+FLOW).
+**30/30 answered; 0 engine-abstained; 0 HTTP failures.** A-category items
+(Q14/15/29/30) returned quotes rather than explicit abstention — process
+owners judge whether the answer still refuses to invent. PDF SOP items
+(Q9/Q10) limited to thin text-layer extracts until re-ingest.
+
+Private answers + packets (not in git): `…/mimocode-private/oracle2/s03-realdoc-*.md`
+and `/home/ahazan/oracle-s03-evidence/s03-realdoc-*`.
+
+### Process-owner score (this section is the S03 business stamp)
+
+| Packet | Grader | Result |
+|---|---|---|
+| L1–15 | Ilona | _awaiting grading_ |
+| J16–30 | Jessica | _awaiting grading_ |
+
+Threshold: no Fail on E/A/X; at most one Fail on P/H; I items must label
+hypothesis vs fact. **Plan S03 stays open until both Accept.**
+
+### Known gap before the run is authoritative
+
+Four SOP/workflow PDFs never ingested (worker PDF parser crash). Fix + status
+reset + re-ingest is in flight; until then LSA/APS/PPS/MPS items are graded
+against the available text-layer extract only.
+
 ## Not claimed
 
 No production deploy, no employee messages, no public meeting joins. Company
