@@ -51,6 +51,25 @@ not a retrieval or UI defect.
 **Next:** update the process table and answer key to include email notices;
 re-run one journey; Ilona re-reviews the three points.
 
+## Journey v2 (after Ilona’s reject) — 2026-10-06 EDT
+
+Corrected process table includes **periodic licensor email about asset removal**
+as a confirmation signal (alongside UPDATED + manual POP removal and creation-time
+sunset date). Portal absence and legal-rights non-inference unchanged.
+
+Re-run on edge-dev3 at `0e6ddce`: connection `2→3`, 3 citations, labeled
+hypothetical, 401 without session. Private evidence:
+`/home/ahazan/oracle-s03-evidence/S03-pilot-v2-sanitized.md`.
+
+### Re-review form for Ilona (three points)
+
+1. Operational path (UPDATED images + manual POP removal) — **Accept?**
+2. Creation-time sunset date as withdrawal signal — **Accept?**
+3. Confirmed signals also include **periodic licensor email** about asset
+   removal (not “usually no notice”) — **Accept?**
+
+Reply `Accept` / `Reject` per point.
+
 ## Review form for Ilona (process owner — licensing)
 
 Send Ilona this section only (or paste it into email/Teams). She does not need
