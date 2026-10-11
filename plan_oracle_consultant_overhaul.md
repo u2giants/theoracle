@@ -1049,21 +1049,10 @@ review and synthetic qualification must pass before the repaired company attempt
 Coverage and hosted acceptance still require their original H7/H8 gates; increased
 output bounds alone establish neither source coverage nor business truth.
 
-Albert's latest conditional instruction is: "was the credential published outside
-this computer? if not, no need to rotate, close the issue and mvoe on". Protected
-comparison confirms the current exposed Tailscale value appears in the older
-Dropbox transcript and the prior chat transcript. Dropbox reports the older file
-fully synced and its daemon up to date: an external private copy is verified.
-No public publication was established. After that verification, root asked whether the instruction also covered the
-private external copy. Albert answered: "Yes—close the credential incident".
-The incident is CLOSED by explicit owner acceptance of residual risk, recorded
-on #27 at issuecomment-6111823232 and in private credential-owner-closure-v1.json.
-No rotation/revocation or full archive sweep is required under this instruction.
-This supersedes the earlier open replacement/audit obligations in this plan and
-the predecessor handoff. No public publication was established; no claim of
-credential invalidation or exhaustive publication search is made. Original
-capability, concealed storage, sanitized notes and separate CI identity remain.
-The application issue remains open for H7/H8; all question work remains paused.
+The credential incident is CLOSED under Albert's explicit instruction, recorded
+on existing #27 at issuecomment-6111823232. The protected disposition receipt
+preserves the evidence and owner ruling. Credential replacement is no longer an
+open dependency. Original capability remains preserved.
 
 
 The repaired-bounds synthetic qualification on October 11, 2026, 1:43 PM EDT
@@ -1076,3 +1065,29 @@ missing-information/applicability commentary to its own fields; unknown and narr
 explicit scopes stay separate. It does not introduce fuzzy merging, broaden rule
 applicability, omit sources, relax readiness, or rewrite failed graphs. Repeat
 synthetic qualification with a new immutable configuration before company dispatch.
+
+
+### Parallel relationship preservation — October 11, 2026, 1:52 PM EDT
+
+The stable-scope prompt passed a fresh admitted-provider synthetic qualification
+with SDK 1.4.0 and FalkorDB, zero questions. A separate fixed synthetic storage
+probe then proved the pinned SDK's endpoint-only RELATES upsert collapses distinct
+reported claims: two expected relation kinds became one stored edge. The custom
+resolver alone did not prevent this storage-level loss. No company graph is
+accepted and no old snapshot is rewritten.
+
+The owned ReportedClaimGraphStore keeps the SDK ingestion, retrieval, embedding,
+finalization and lifecycle paths, but keys each RELATES write by a deterministic
+claim identity binding endpoints, kind, exact fact and supporting quote. Duplicate
+original aliases union chunk provenance; distinct kinds and distinct quoted claims
+of the same kind remain separate. No SDK/vendor file is edited. Exact SDK 1.4.0
+storage consumers use the same app-owned store and connection. Finalization now
+asserts every extracted claim survived and seals its count/digest; loading rejects
+removed or duplicated claims. Existing graphs remain immutable recovery evidence.
+
+The real-store integration now proves distinct claims at shared endpoints survive
+ingestion, duplicate aliases, finalization and reload, and removal invalidates
+readiness. All 29 focused checks pass. Independent exact-head review, a fresh
+synthetic qualification and the new bounded company-only attempt must pass before
+coverage review. H7/H8 and hosted acceptance remain open; all company questions
+and Ilona/Jessica reruns stay paused.

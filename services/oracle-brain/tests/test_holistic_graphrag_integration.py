@@ -23,7 +23,8 @@ from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest
 
 
 LITERAL_TEMPLATE_TEXT = "Template placeholders {context} and {question} are literal source text."
-DOC_ONE = "Intake Lead sends the packet to Review Team. Review Team follows the signed policy. " + LITERAL_TEMPLATE_TEXT
+DOC_ONE = ("Intake Lead sends the packet to Review Team. Review Team follows the signed policy. "
+           "Intake Lead depends on Review Team. Intake Lead sends the policy to Review Team. " + LITERAL_TEMPLATE_TEXT)
 DOC_TWO = "Review Team reviews the packet. If the packet is incomplete, Review Team returns it to Intake Lead."
 
 
@@ -91,7 +92,13 @@ class DeterministicLLM(LLMInterface):
                 ],
                 "links": [{"source": "intake", "target": "review", "kind": "HANDOFF_TO",
                             "description": "intake hands the packet to review",
-                            "quote": "sends the packet to Review Team"}],
+                            "quote": "sends the packet to Review Team"},
+                          {"source": "intake", "target": "review", "kind": "DEPENDS_ON",
+                           "description": "intake depends on review",
+                           "quote": "Intake Lead depends on Review Team"},
+                          {"source": "intake", "target": "review", "kind": "HANDOFF_TO",
+                           "description": "intake hands the policy to review",
+                           "quote": "Intake Lead sends the policy to Review Team"}],
                 "missing_information": [], "conflicts": [],
             }
         return LLMResponse(content=json.dumps(payload))
@@ -203,6 +210,12 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
             llm.grounding_supported = False
             with pytest.raises(ValueError, match="grounding and exception review"):
                 await pilot.answer("How does intake hand off to review, including the exception?", corpus)
+            await pilot.rag._graph_store.query_raw(
+                "MATCH ()-[r:RELATES {claim_id:$claim}]->() DELETE r",
+                params={"claim": relation_rows[0]["claim_id"]})
+            with pytest.raises(RuntimeError, match="relationship claims changed"):
+                await reviewed.load_reviewed_snapshot()
+            assert reviewed.ready is False
             await reviewed.close()
             return built, reused, result, retrieved, stats, graph_rows, relation_rows, mention_rows, snapshot_rows
         finally:
@@ -229,6 +242,14 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
     assert any(DOC_ONE in str(item) for item in properties)
     assert any(DOC_TWO in str(item) for item in properties)
     assert {item["rel_type"] for item in relation_rows} >= {"HANDOFF_TO", "EXCEPTION_TO"}
+    # Distinct types AND distinct quoted claims of one type sharing endpoints
+    # survive SDK ingestion, alias delivery, global finalization and reload.
+    assert len(relation_rows) == 4
+    assert len({item["claim_id"] for item in relation_rows}) == 4
+    assert {item["fact"] for item in relation_rows if item["rel_type"] == "HANDOFF_TO"} == {
+        "intake hands the packet to review", "intake hands the policy to review"}
+    assert all(len(item["source_chunk_ids"]) == 2 for item in relation_rows
+               if item["rel_type"] in {"HANDOFF_TO", "DEPENDS_ON"})
     assert snapshot_rows.result_set == [[True, "holistic-s03-1"]]
     assert retrieved.items
     assert result["source_count"] == 3

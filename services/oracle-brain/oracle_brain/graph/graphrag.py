@@ -19,6 +19,7 @@ from graphrag_sdk.core.models import GraphData, GraphNode, GraphRelationship, En
 from graphrag_sdk.core.providers import LLMInterface, Embedder
 from graphrag_sdk.ingestion.resolution_strategies.base import ResolutionStrategy
 from graphrag_sdk.core.models import ResolutionResult
+from graphrag_sdk.storage.graph_store import GraphStore
 
 from ..provider_policy import ProcessingRequest, ProcessingApproval, authorize
 
@@ -163,10 +164,48 @@ class PreserveReportedRelations(ResolutionStrategy):
         # Canonical IDs already reconcile scoped objects; preserve every reported edge.
         return ResolutionResult(nodes=graph_data.nodes, relationships=graph_data.relationships)
 
+
+def relation_claim_id(relation: GraphRelationship) -> str:
+    data = [relation.start_node_id, relation.end_node_id,
+            relation.properties["rel_type"], relation.properties["fact"],
+            relation.properties["evidence_quote"]]
+    return hashlib.sha256(json.dumps(data, ensure_ascii=False).encode()).hexdigest()
+
+
+class ReportedClaimGraphStore(GraphStore):
+    """SDK-compatible writes that preserve distinct quoted claims sharing endpoints."""
+    async def upsert_relationships(self, relationships):
+        structural = [r for r in relationships if r.type != "RELATES"]
+        count = await super().upsert_relationships(structural)
+        reported = [r for r in relationships if r.type == "RELATES"]
+        for start in range(0, len(reported), self._BATCH_SIZE):
+            batch = []
+            for relation in reported[start:start + self._BATCH_SIZE]:
+                claim_id = relation_claim_id(relation)
+                properties = self._clean_properties(relation.properties)
+                properties["claim_id"] = claim_id
+                batch.append({"start": relation.start_node_id, "end": relation.end_node_id,
+                              "claim": claim_id, "properties": properties})
+            result = await self._conn.query(
+                "UNWIND $batch AS item "
+                "MATCH (a:__Entity__ {id:item.start}),(b:__Entity__ {id:item.end}) "
+                "MERGE (a)-[r:RELATES {claim_id:item.claim}]->(b) "
+                "WITH r,item,coalesce(r.source_chunk_ids,[]) AS old, "
+                "coalesce(item.properties.source_chunk_ids,[]) AS incoming "
+                "SET r += item.properties "
+                "SET r.source_chunk_ids=old+[c IN incoming WHERE NOT c IN old] "
+                "RETURN count(r)", {"batch": batch})
+            written = result.result_set[0][0] if result.result_set else 0
+            if written != len(batch):
+                raise RuntimeError("reported relationship endpoints missing")
+            count += written
+        return count
+
 class ProcessExtraction(ExtractionStrategy):
     def __init__(self, llm):
         self.llm = llm
         self._readings: dict[str, ProcessModel] = {}
+        self.expected_claim_ids: set[str] = set()
     async def extract(self, chunks, ontology, ctx):
         ordered = sorted(chunks.chunks, key=lambda c: c.index)
         if not ordered:
@@ -248,6 +287,7 @@ class ProcessExtraction(ExtractionStrategy):
                         "rel_type": link.kind, "description": link.description,
                         "fact": link.description, "source_chunk_ids": [chunk.uid],
                         "evidence_quote": link.quote, "status": "reported"}))
+        self.expected_claim_ids.update(relation_claim_id(r) for r in relations)
         return GraphData(nodes=nodes, relationships=relations, mentions=mentions)
 
 class EvidenceCitation(StrictModel):
@@ -331,6 +371,12 @@ class HolisticGraphPilot:
             embedder=embedder, embedding_dimension=dimensions,
             ontology=Ontology(entities=[Entity(label=k) for k in ENTITY_TYPES],
                               relations=[Relation(label=k) for k in RELATION_TYPES]))
+        # Qualified SDK 1.4.0 has no public store-injection constructor. All
+        # pinned consumers share the owned subclass; vendor files stay intact.
+        store = ReportedClaimGraphStore(self.rag._conn)
+        self.rag._graph_store = store
+        self.rag._deduplicator._graph = store
+        self.rag._retrieval_strategy._graph = store
 
     async def build(self):
         # Caller supplies only current, authorized source inventory. A new revision gets a new graph.
@@ -355,13 +401,20 @@ class HolisticGraphPilot:
                 params={"id": str(source.source_id), "hash": source.original_hash or source.content_hash,
                         "parser": source.parser_identity})
         finalized = await self.rag.finalize()
+        claims = await self.rag._graph_store.query_raw("MATCH ()-[r:RELATES]->() RETURN r.claim_id")
+        if (len(claims.result_set) != len(extractor.expected_claim_ids)
+            or {row[0] for row in claims.result_set} != extractor.expected_claim_ids):
+            raise RuntimeError("reported relationship claims were lost during indexing")
+        claims_digest = hashlib.sha256(json.dumps(sorted(extractor.expected_claim_ids)).encode()).hexdigest()
         stats = await self.rag.get_statistics()
         if not finalized.indexes or not all(finalized.indexes.values()):
             raise RuntimeError("graph indexing incomplete")
         await self.verify_documents()
         await self.rag._graph_store.query_raw(
-            "MERGE (s:HolisticSnapshot {digest:$digest}) SET s.finalized=true,s.pipeline=$pipeline",
-            params={"digest": self.digest, "pipeline": PIPELINE_VERSION})
+            "MERGE (s:HolisticSnapshot {digest:$digest}) SET s.finalized=true,s.pipeline=$pipeline,"
+            "s.claim_count=$count,s.claim_digest=$claims",
+            params={"digest": self.digest, "pipeline": PIPELINE_VERSION,
+                    "count": len(extractor.expected_claim_ids), "claims": claims_digest})
         self.ready = True
         return {"corpus_digest": self.digest, "graph_name": self.graph_name,
                 "pipeline": PIPELINE_VERSION, "sdk_version": "1.4.0",
@@ -387,12 +440,20 @@ class HolisticGraphPilot:
             raise RuntimeError("no reported process relationships extracted")
 
     async def load_reviewed_snapshot(self):
+        self.ready = False
         await self.verify_documents()
         rows = await self.rag._graph_store.query_raw(
-            "MATCH (s:HolisticSnapshot {digest:$digest}) WHERE s.finalized=true RETURN s.pipeline",
+            "MATCH (s:HolisticSnapshot {digest:$digest}) WHERE s.finalized=true "
+            "RETURN s.pipeline,s.claim_count,s.claim_digest",
             params={"digest": self.digest})
         if not rows.result_set or rows.result_set[0][0] != PIPELINE_VERSION:
             raise RuntimeError("matching finalized snapshot required")
+        claims = await self.rag._graph_store.query_raw("MATCH ()-[r:RELATES]->() RETURN r.claim_id")
+        ids = [row[0] for row in claims.result_set]
+        if (not all(isinstance(x, str) and len(x) == 64 for x in ids)
+            or len(ids) != len(set(ids)) or len(ids) != rows.result_set[0][1]
+            or hashlib.sha256(json.dumps(sorted(ids)).encode()).hexdigest() != rows.result_set[0][2]):
+            raise RuntimeError("reported relationship claims changed after finalization")
         self.ready = True
 
     async def answer(self, question: str, current_corpus: Corpus):
