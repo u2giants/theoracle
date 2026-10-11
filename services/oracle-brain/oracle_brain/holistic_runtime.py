@@ -18,7 +18,8 @@ from psycopg.types.json import Jsonb
 from graphrag_sdk.core.models import LLMResponse
 from graphrag_sdk.core.providers import LLMInterface, Embedder
 from oracle_brain.graph.graphrag import (Corpus, CorpusSource, HolisticGraphPilot,
-                                         AdmittedLLM, AdmittedEmbedder, CallBudget)
+                                         AdmittedLLM, AdmittedEmbedder, CallBudget,
+                                         ExtractionEvidenceError)
 from oracle_brain.provider_policy import ProcessingRequest, ProcessingApproval
 from oracle_brain.provider_transport import transport_options
 from oracle_brain.knowledge.authority import _has_authority_conn, _lock
@@ -40,7 +41,7 @@ class ModelOutputIncomplete(RuntimeError):
 
 def safe_failure_metadata(error: Exception) -> list[dict]:
     """Bounded exception-chain diagnostics with no messages, bodies or source fields."""
-    allowed_classes = {"IngestionError", "ModelOutputIncomplete", "RuntimeError", "ValueError",
+    allowed_classes = {"IngestionError", "ModelOutputIncomplete", "ExtractionEvidenceError", "RuntimeError", "ValueError",
                        "ValidationError", "PermissionError", "APITimeoutError", "APIConnectionError",
                        "BadRequestError", "AuthenticationError", "PermissionDeniedError",
                        "RateLimitError", "InternalServerError", "APIStatusError", "ResponseError"}
@@ -60,6 +61,12 @@ def safe_failure_metadata(error: Exception) -> list[dict]:
         if isinstance(error, ModelOutputIncomplete):
             item.update(finish_reason=error.finish_reason, output_limit=error.output_limit,
                         completion_tokens=error.completion_tokens, reasoning_tokens=error.reasoning_tokens)
+        if isinstance(error, ExtractionEvidenceError):
+            if isinstance(error.category, str) and error.category in {"duplicate_object_key", "object_kind", "object_quote",
+                                  "link_endpoint", "link_kind", "link_quote"}:
+                item["evidence_check"] = error.category
+            if type(error.index) is int and 0 <= error.index <= 1_000_000:
+                item["item_index"] = error.index
         chain.append(item)
         error = error.__cause__ or error.__context__
     return chain

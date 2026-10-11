@@ -69,7 +69,9 @@ class DeterministicLLM(LLMInterface):
                 "hypothetical_improvements": [],
             }
             return LLMResponse(content=json.dumps(answer))
-        if "DOCUMENT DATA" in prompt and "incomplete" in prompt:
+        current_document = (json.loads(prompt.split("\nDOCUMENT DATA:\n", 1)[1]
+            .split("\nCOMPLETE CORPUS IDENTITY CONTEXT", 1)[0]) if "\nDOCUMENT DATA:\n" in prompt else "")
+        if "incomplete" in current_document:
             payload = {
                 "objects": [
                     {"key": "review", "kind": "Role", "name": "Review Team", "scope": "licensed",

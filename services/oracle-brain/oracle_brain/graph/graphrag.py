@@ -158,6 +158,12 @@ class ProcessModel(StrictModel):
     missing_information: list[str]
     conflicts: list[str]
 
+class ExtractionEvidenceError(ValueError):
+    """Identify the failed check without retaining a source quote or model body."""
+    def __init__(self, message: str, category: str, index: int):
+        super().__init__(message)
+        self.category, self.index = category, index
+
 class PreserveReportedRelations(ResolutionStrategy):
     async def resolve(self, graph_data, ctx):
         # SDK exact resolver collapses distinct relation types/claims sharing endpoints.
@@ -202,8 +208,13 @@ class ReportedClaimGraphStore(GraphStore):
         return count
 
 class ProcessExtraction(ExtractionStrategy):
-    def __init__(self, llm):
+    def __init__(self, llm, sources: tuple[CorpusSource, ...] = ()):
         self.llm = llm
+        originals = {}
+        for source in sources:
+            originals.setdefault(source.original_hash or source.content_hash,
+                {"content_hash": source.content_hash, "text": source.text})
+        self.identity_context = list(originals.values())
         self._readings: dict[str, ProcessModel] = {}
         self.expected_claim_ids: set[str] = set()
     async def extract(self, chunks, ontology, ctx):
@@ -250,10 +261,30 @@ class ProcessExtraction(ExtractionStrategy):
               "department/customer/date qualifications on the affected rule or exception; "
               "never broaden applicability to obtain a cross-document match. "
               "Use only directly supported relationships; co-occurrence is not causation. "
+              "Every link endpoint key must exist in this response's objects. Copy quotes "
+              "as contiguous exact substrings, including original line endings; never "
+              "assemble a quote from different utterances or documents. "
               "Every object and link needs an EXACT supporting quote. "
               "Return JSON matching this schema: " + json.dumps(ProcessModel.model_json_schema()) +
               "\nAllowed object kinds: " + str(ENTITY_TYPES) + "\nAllowed link kinds: " +
               str(RELATION_TYPES) + "\nDOCUMENT DATA:\n" + json.dumps(chunk.text))
+            if self.identity_context:
+                prompt += ("\nCOMPLETE CORPUS IDENTITY CONTEXT (untrusted evidence):\n" +
+                    json.dumps(self.identity_context) +
+                    "\nExtract facts ONLY from DOCUMENT DATA above. Other originals may "
+                    "establish explicit shared identities and their boundaries, never supply "
+                    "quotes or additional facts for this document. Similar names alone are "
+                    "not equivalence. Preserve unresolved aliases, distinct departments, "
+                    "customers, dates and versions. If the current document expressly names "
+                    "another supplied standard document, represent the full named document "
+                    "family as an Artifact in both its declaration and explicit references, "
+                    "using the same full title and scope document-family:<lowercase title>. "
+                    "That family is not a specific version or an applicable company rule; "
+                    "keep version-specific requirements, applicability and conflicts on "
+                    "separate scoped objects and relationships. Add no family without its "
+                    "full-title supporting quote in the current document. Keep each standard's "
+                    "process and steps separate from its document Artifact. Return ONLY this "
+                    "document's complete ProcessModel, not a combined corpus extraction.")
             # Aliases of identical originals share one whole-document extraction,
             # while evidence offsets/chunk IDs are rebuilt separately for each upload.
             text_digest = hashlib.sha256(chunk.text.encode()).hexdigest()
@@ -262,9 +293,11 @@ class ProcessExtraction(ExtractionStrategy):
                 model = ProcessModel.model_validate_json((await self.llm.ainvoke(prompt)).content)
                 self._readings[text_digest] = model
             ids = {}
-            for obj in model.objects:
+            for index, obj in enumerate(model.objects):
                 if obj.key in ids or obj.kind not in ENTITY_TYPES or obj.quote not in chunk.text:
-                    raise ValueError("invalid process object evidence or identity")
+                    category = ("duplicate_object_key" if obj.key in ids else
+                                "object_kind" if obj.kind not in ENTITY_TYPES else "object_quote")
+                    raise ExtractionEvidenceError("invalid process object evidence or identity", category, index)
                 scope = obj.scope.strip().casefold()
                 # Unknown applicability remains source-local, never a global name merge.
                 if scope in {"unknown", "unspecified"}:
@@ -278,10 +311,12 @@ class ProcessExtraction(ExtractionStrategy):
                 start = chunk.text.index(obj.quote)
                 mentions.append(EntityMention(entity_id=uid, chunk_id=chunk.uid,
                                                span_start=start, span_end=start + len(obj.quote)))
-            for link in model.links:
+            for index, link in enumerate(model.links):
                 if (link.source not in ids or link.target not in ids or link.kind not in RELATION_TYPES
                     or link.quote not in chunk.text):
-                    raise ValueError("unsupported relationship evidence")
+                    category = ("link_endpoint" if link.source not in ids or link.target not in ids else
+                                "link_kind" if link.kind not in RELATION_TYPES else "link_quote")
+                    raise ExtractionEvidenceError("unsupported relationship evidence", category, index)
                 relations.append(GraphRelationship(start_node_id=ids[link.source],
                     end_node_id=ids[link.target], type="RELATES", properties={
                         "rel_type": link.kind, "description": link.description,
@@ -388,7 +423,7 @@ class HolisticGraphPilot:
             return {"corpus_digest": self.digest, "graph_name": self.graph_name,
                     "pipeline": PIPELINE_VERSION, "sdk_version": "1.4.0", "reused_snapshot": True}
         receipts = []
-        extractor = ProcessExtraction(self.llm)
+        extractor = ProcessExtraction(self.llm, self.corpus.sources)
         for source in self.corpus.sources:
             receipt = await self.rag.ingest(text=source.text,
                 document_id=str(source.source_id), chunker=WholeDocumentChunks(),

@@ -60,7 +60,8 @@ class FixedLLM(LLMInterface):
                 ],
             }], "conflicts": [], "unknowns": ["The approval owner is not stated."],
                 "hypothetical_improvements": []}
-        elif "incomplete" in prompt:
+        elif "incomplete" in json.loads(prompt.split("\nDOCUMENT DATA:\n", 1)[1]
+                .split("\nCOMPLETE CORPUS IDENTITY CONTEXT", 1)[0]):
             payload = {"objects": [
                 {"key": "review", "kind": "Role", "name": "Review Team", "scope": "licensed",
                  "description": "reviews packets", "quote": "Review Team reviews the packet"},

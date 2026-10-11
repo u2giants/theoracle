@@ -692,8 +692,8 @@ Never merge similarly named departments/people or contradictory policies automat
 | H4 process graph + cross-source resolution | implemented; synthetic integration passes | Real FalkorDB SDK integration; process/responsibility/rule/exception/decision/artifact schema, duplicate and scope tests |
 | H5 connected retrieval + explanation | implemented; synthetic browser proof passes | SDK retrieval and synthesis invoked by actual pilot endpoint; multi-source causality and exception tests |
 | H6 lifecycle, permission and grounding | implemented; focused checks pass | Withdrawal/revision/forbidden-source tests; exact citations; unavailable graph visibly fails |
-| H7 independent review + end-to-end proof | source, final review, CI and web delivery complete; dedicated hosted worker proof open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
-| H8 authorized real-corpus readiness | complete originals qualified and imported; reviewed $25 daily key limit verified and fixed embedding passes; company graph failed during ingestion; self-host route preferred, not implemented or qualified | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
+| H7 independent review + end-to-end proof | PR83 source/CI/web delivered; reviewed ingestion repairs pass synthetic SDK/Falkor proof and 68 required local checks; recovery release and dedicated hosted-worker proof open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
+| H8 authorized real-corpus readiness | originals qualified/imported and $25 daily limit verified; generation truncation diagnosed; fresh repaired company attempt rejected unsupported relationship evidence; complete graph and coverage unproved; restricted hosted route blocked on authenticated policy-management access | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
 | H9 new questions / existing rerun | deferred by owner | No question generation before H2–H8 pass; rerun existing questions only on new owner instruction |
 
 Implement H2 in `services/oracle-brain/pyproject.toml`, `uv.lock`, SDK adapter module
@@ -1024,6 +1024,11 @@ identity, failed routes, safeguards and next steps are in the session handoff:
 https://github.com/u2giants/theoracle/blob/codex/oracle-selfhost-readiness/HANDOFF.d/2026-10-11T1641Z-edge-dev3-codex-holistic-original-readiness.md .
 Root owns this platform blocker and H7/H8 on the existing cards; H9 remains deferred.
 
+**Superseded credential disposition:** the incident above is CLOSED under Albert's
+later explicit no-rotation instruction, recorded on #27 at issuecomment-6111823232.
+It is not an open replacement or archive-audit dependency. The independent hosted
+transport qualification remains subject to its own access and isolation gates.
+
 
 ### Ingestion diagnostic recovery — October 11, 2026, 1:37 PM EDT
 
@@ -1091,3 +1096,34 @@ readiness. All 29 focused checks pass. Independent exact-head review, a fresh
 synthetic qualification and the new bounded company-only attempt must pass before
 coverage review. H7/H8 and hosted acceptance remain open; all company questions
 and Ilona/Jessica reruns stay paused.
+
+
+### Complete-corpus identity context — October 11, 2026, 2:28 PM EDT
+
+The repaired company attempt preserved a partial graph and rejected an unsupported
+relationship during extraction. No finalized company snapshot exists. A fresh
+single-original diagnostic produced a fully valid model, but it is a different
+generation and does not identify the rejected attempt's exact bad field. New safe
+validation diagnostics distinguish quote, endpoint, kind and duplicate-key failures
+without exposing source text or response bodies. All 69 required local checks pass
+before the context refinement; required checks and exact-head review follow it.
+
+A separate admitted whole-original identity audit validated exact quote references
+for 19 candidate identities, retained 17 unresolved identity limits and identified
+28 operating-model coverage categories. These counts establish neither identity
+acceptance nor coverage. The audit found explicit document references that isolated
+per-original identity choices had not connected. Extraction now sees all distinct
+originals as identity context while retaining the current original as its sole fact
+and quotation authority. Explicitly named standard-document families use separate
+Artifact identities; version-specific requirements and applicability remain scoped
+source statements. No fuzzy alias merge, source omission, unsupported quote acceptance,
+question generation, policy confirmation or failed-graph rewrite is introduced.
+The complete source corpus and implementation already bind the immutable digest.
+
+Read-only hosting discovery verified the existing control plane over encrypted
+tailnet access. The current network policy has an unrestricted wildcard grant; the
+available MCP client has policy-read access but no policy-write authority. A scoped
+worker route cannot be qualified through that access. Authenticated policy-management
+access is the independent hosted blocker, not credential rotation. No hosting,
+network policy, existing application or alternative client credential was changed.
+Root retains H7/H8 on #24/#27/#58. H9 stays deferred.

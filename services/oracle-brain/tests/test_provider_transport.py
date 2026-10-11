@@ -94,6 +94,15 @@ def test_safe_diagnostics_preserve_nested_cause_and_reject_private_fields():
     assert safe_failure_metadata(inner) == [{"type": "RuntimeError"}, {"type": "ValueError"}]
 
 
+def test_evidence_failure_reports_only_allowlisted_check_and_bounded_index():
+    from oracle_brain.graph.graphrag import ExtractionEvidenceError
+    error = ExtractionEvidenceError("PRIVATE SOURCE RESPONSE", "link_quote", 4)
+    assert safe_failure_metadata(error) == [{"type": "ExtractionEvidenceError",
+                                            "evidence_check": "link_quote", "item_index": 4}]
+    error.category, error.index = {"private": "PRIVATE"}, "PRIVATE"
+    assert safe_failure_metadata(error) == [{"type": "ExtractionEvidenceError"}]
+
+
 @pytest.mark.parametrize("timeout", [9, 301, True])
 def test_invalid_timeout_never_dispatches(timeout):
     client = FakeClient()

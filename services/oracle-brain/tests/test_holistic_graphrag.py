@@ -22,6 +22,7 @@ from oracle_brain.graph.graphrag import (
     EvidenceCitation,
     PreserveReportedRelations,
     ProcessExtraction,
+    ExtractionEvidenceError,
     WholeDocumentChunks,
 )
 from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest
@@ -63,9 +64,11 @@ class FixedLLM(LLMInterface):
         super().__init__("fixed-synthetic", max_concurrency=1)
         self.content = content
         self.calls = 0
+        self.prompts = []
 
     def invoke(self, prompt: str, **kwargs) -> LLMResponse:
         self.calls += 1
+        self.prompts.append(prompt)
         return LLMResponse(content=self.content)
 
 
@@ -231,9 +234,40 @@ def test_process_extraction_uses_sdk_types_scopes_unknowns_and_rejects_unsupport
 
     bad = dict(payload, links=[{"source": "dispatch", "target": "review", "kind": "MADE_UP",
                                 "description": "unsupported", "quote": "sends the packet"}])
-    with pytest.raises(ValueError, match="unsupported relationship"):
+    with pytest.raises(ExtractionEvidenceError, match="unsupported relationship") as failure:
         asyncio.run(ProcessExtraction(FixedLLM(json.dumps(bad))).extract(
             TextChunks(chunks=[chunk]), None, None))
+    assert failure.value.category == "link_kind" and failure.value.index == 0
+
+    for change, category in [({"source": "missing"}, "link_endpoint"),
+                             ({"quote": "PRIVATE unsupported source quote"}, "link_quote")]:
+        link = dict(payload["links"][0], **change)
+        with pytest.raises(ExtractionEvidenceError) as failure:
+            asyncio.run(ProcessExtraction(FixedLLM(json.dumps(dict(payload, links=[link])))).extract(
+                TextChunks(chunks=[chunk]), None, None))
+        assert failure.value.category == category and failure.value.index == 0
+
+
+def test_corpus_identity_context_keeps_every_original_once_and_rejects_foreign_quote():
+    first = source("Alpha Production Standards governs packing.")
+    alias = source(first.text)
+    other = source("Beta Production Standards governs shipping.")
+    payload = {"objects": [{"key": "standard", "kind": "Artifact",
+        "name": "Alpha Production Standards", "scope": "unknown",
+        "description": "named document", "quote": "Alpha Production Standards"}],
+        "links": [], "missing_information": [], "conflicts": []}
+    llm = FixedLLM(json.dumps(payload))
+    extraction = ProcessExtraction(llm, (first, alias, other))
+    chunk = TextChunk(text=first.text, index=0, uid="first")
+    asyncio.run(extraction.extract(TextChunks(chunks=[chunk]), None, None))
+    assert len(extraction.identity_context) == 2
+    assert {x["content_hash"] for x in extraction.identity_context} == {first.content_hash, other.content_hash}
+    assert first.text in llm.prompts[0] and other.text in llm.prompts[0]
+    foreign = dict(payload, objects=[dict(payload["objects"][0], quote="Beta Production Standards")])
+    with pytest.raises(ExtractionEvidenceError) as failure:
+        asyncio.run(ProcessExtraction(FixedLLM(json.dumps(foreign)), (first, other)).extract(
+            TextChunks(chunks=[chunk]), None, None))
+    assert failure.value.category == "object_quote"
 
 
 def test_resolver_preserves_relation_types_and_scoped_same_names():
