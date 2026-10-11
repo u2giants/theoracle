@@ -692,8 +692,8 @@ Never merge similarly named departments/people or contradictory policies automat
 | H4 process graph + cross-source resolution | implemented; synthetic integration passes | Real FalkorDB SDK integration; process/responsibility/rule/exception/decision/artifact schema, duplicate and scope tests |
 | H5 connected retrieval + explanation | implemented; synthetic browser proof passes | SDK retrieval and synthesis invoked by actual pilot endpoint; multi-source causality and exception tests |
 | H6 lifecycle, permission and grounding | implemented; focused checks pass | Withdrawal/revision/forbidden-source tests; exact citations; unavailable graph visibly fails |
-| H7 independent review + end-to-end proof | source independently approved at 7dbe868; final follow-up review and delivery open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
-| H8 authorized real-corpus readiness | complete originals qualified and imported; company graph blocked by OpenRouter daily allowance until 8:00 PM EDT October 11; hosted preview unqualified | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
+| H7 independent review + end-to-end proof | source, final review, CI and web delivery complete; dedicated hosted worker proof open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
+| H8 authorized real-corpus readiness | complete originals qualified and imported; company graph blocked by OpenRouter daily allowance until 8:00 PM EDT October 11; self-hosted preview under qualification | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
 | H9 new questions / existing rerun | deferred by owner | No question generation before H2–H8 pass; rerun existing questions only on new owner instruction |
 
 Implement H2 in `services/oracle-brain/pyproject.toml`, `uv.lock`, SDK adapter module
@@ -930,3 +930,48 @@ qualify the fixed embedding route once before building and independently auditin
 company coverage. Hosted secure FalkorDB budget remains an unanswered owner question;
 separate isolated hosted database and dedicated worker targets remain unqualified.
 H8 and hosted live proof remain open on the same issues. H9 remains owner-deferred.
+
+**Verified correction delivery — October 11, 2026, 12:38 PM EDT:**
+[PR #83](https://github.com/u2giants/theoracle/pull/83) merged as
+[f26ddfaf88e247eadcc4f9ebedd9d21a22857bdd](https://github.com/u2giants/theoracle/commit/f26ddfaf88e247eadcc4f9ebedd9d21a22857bdd).
+Independent GLM final-check APPROVE binds 201da85e0609404cf5b5a153f645dfe319a0f11f
+and the preceding full correction approval binds 7dbe8685dfc9fe17fefdcddbe1fe0967a95616ab.
+Both PR and merged-main contract/build checks pass; the production web deployment
+reports success at that merge SHA. This does not qualify a dedicated holistic
+worker, company graph, or hosted live journey. No company questions have run.
+
+OpenRouter is pay-as-you-go. Fresh read-only account/key checks show $21.236204216
+account credit remaining, but the Oracle key independently has limit=15,
+limit_remaining=0, limit_reset=daily, usage_daily=15.46848864. The key's reset
+is 8:00 PM EDT October 11; no account subscription/reset is involved. The owner
+was asked for a daily business spending budget ($25/day recommended); no limit
+change, purchase, fallback or direct-provider retry has occurred. A direct provider
+remains possible but needs its own admitted endpoint/account and bounded qualification.
+
+Owner asked whether FalkorDB could be self-hosted. Prefer qualification of the
+existing Hetz server over a new $73/month FalkorDB Cloud subscription; the earlier
+cloud-budget question no longer blocks discovery. Read-only live checks found
+31,339 MiB RAM, 21,891 MiB available and 43 GiB disk free. Coolify server
+onwp0kd7w1w74w9yeotnoihp is reachable/usable; no Oracle project exists there yet.
+No hosted resource, host configuration or existing application was changed.
+The pinned SDK ConnectionConfig supports verified TLS and client certificates;
+its URL parser does not propagate certificate query parameters, so custom CA or
+client certificate inputs must be supplied explicitly and tested before release.
+
+Self-host qualification must retain private candidate/confirmed separation,
+persistent storage, protected credential references, independently tested backup
+and fresh-instance restore, TLS with hostname verification, and a proven restricted
+connection from the dedicated Trigger worker. Trigger static outbound IPs require
+a paid plan; verify the existing account's entitlement before relying on them.
+Prefer the supported userspace Tailscale tunnel to the existing Hetz tailnet,
+with a loopback-only TCP forwarder for Python SDK traffic and a narrowly scoped
+ephemeral worker identity. Trigger documents this pattern at
+https://trigger.dev/docs/guides/examples/private-gcp-resource. Qualify it with
+synthetic traffic first, including checkpoint/restore and revoked access. The
+private tunnel must protect transport end-to-end; direct TLS routes must verify
+certificates and hostnames. Never expose the graph publicly or disable verification
+to obtain connectivity. Re-review license/deployment fit on the exact topology. Compose and
+release definitions belong in Oracle GitHub; Coolify owns runtime; any necessary
+host/firewall change belongs in Ansible through its own gates. Preserve existing
+web/worker capability; do not replace it with a bypass. Technical reviewers gate
+the exact release inputs. H8 and live proof remain open on #27/#58 under Codex.
