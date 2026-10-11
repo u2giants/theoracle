@@ -1054,8 +1054,13 @@ this computer? if not, no need to rotate, close the issue and mvoe on". Protecte
 comparison confirms the current exposed Tailscale value appears in the older
 Dropbox transcript and the prior chat transcript. Dropbox reports the older file
 fully synced and its daemon up to date: an external private copy is verified.
-No public publication was established. The conditional no-rotation closure does
-not apply to the verified external copy. The incident remains on this same issue,
-owned by current root; OAuth replacement authority is blocked by administrator
-sign-in, with no stored administrator login or authenticated browser session found.
-No capability is disabled or substituted, and the CI credential is not used.
+No public publication was established. After that verification, root asked whether the instruction also covered the
+private external copy. Albert answered: "Yes—close the credential incident".
+The incident is CLOSED by explicit owner acceptance of residual risk, recorded
+on #27 at issuecomment-6111823232 and in private credential-owner-closure-v1.json.
+No rotation/revocation or full archive sweep is required under this instruction.
+This supersedes the earlier open replacement/audit obligations in this plan and
+the predecessor handoff. No public publication was established; no claim of
+credential invalidation or exhaustive publication search is made. Original
+capability, concealed storage, sanitized notes and separate CI identity remain.
+The application issue remains open for H7/H8; all question work remains paused.
