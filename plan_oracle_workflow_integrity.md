@@ -133,8 +133,11 @@ the entire S04–S16 overhaul; repairing unrelated historical R2 experiments.
 The Tailscale credential incident is CLOSED. Albert explicitly ruled
 “Yes—close the credential incident” on October 11, 2026 EDT; the
 [closure receipt](https://github.com/u2giants/theoracle/issues/27#issuecomment-6111823232)
-supersedes the older October 11 1641Z handoff’s OPEN status. Preserve the accepted
-private external transcript copy and the no-rotation boundary; do not reopen it.
+supersedes the older October 11 1641Z handoff’s OPEN status and the parent plan’s
+historical credential-replacement instruction. Preserve the private external
+Dropbox transcript copy accepted in that receipt and the no-rotation boundary;
+do not reopen it. The receipt is the authority locator, not a public copy of
+private transcript content.
 
 ## 5. Current code and delivery state
 
@@ -473,7 +476,8 @@ requiring a new company-answer call. Gate: new nonempty findings survive actual 
 finalize/restart/retrieval; same-ID tampering fails; unresolved and incomplete
 evidence survive; cross-workspace/withdrawn sources cannot be served. Require
 `test_legacy_findings_import_keeps_needs_evidence` in `test_workflow_findings.py`
-and the §10 `test_artifact_storage.py` checks explicitly at this gate. Save W02.
+and create `tests/test_artifact_storage.py` for its §10 checks explicitly at this
+gate. Save W02.
 
 ### W03 — Build source-backed executable workflow contracts
 
@@ -547,7 +551,7 @@ policy authority. Include loading, empty, stale, blocked and denied states.
 Gate: `apps/web/tests/oracle2/workflow-integrity.spec.ts` proves upload/import →
 SDK → finding/workflow store → restarted retrieval → UI on invented data. Visually
 inspect conflict evidence, partial branches and denied access in the browser.
-Require the §10 `test_workflow_authorization.py` checks at this gate.
+Create `tests/test_workflow_authorization.py` with its §10 checks at this gate.
 No company questions or employee messages. Save W06 with sanitized screenshots.
 
 ### W07 — Import real operational records through a separate path
@@ -652,7 +656,7 @@ revisions with synthetic scenarios first. No company questions are resumed.
 
 Gate: exact hosted revisions match reviewed input; fresh-instance recovery
 reproduces content seals and findings/models/metrics; original capability survives.
-Require the §10 `test_workflow_recovery.py` checks at this gate.
+Create `tests/test_workflow_recovery.py` with its §10 checks at this gate.
 Keep `- [ ] live proof` on #27/#58 until done. Missing policy-management authority
 is a named external technical blocker owned by the recovery implementation session,
 not a request for Albert to do setup. Save W11.

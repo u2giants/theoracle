@@ -20,6 +20,8 @@ the plan, not implement it. Existing company-question/Ilona/Jessica pause, close
 credential incident, no-rotation rulings, funded-route limit and private hosting
 restrictions remain as recorded in the immutable recovery handoff below.
 
+Authority clarification: the [Tailscale incident closure receipt](https://github.com/u2giants/theoracle/issues/27#issuecomment-6111823232) records Albert’s “Yes—close the credential incident” ruling and supersedes the 1641Z handoff and parent plan’s historical OPEN instructions. Preserve its closed/no-rotation scope. The private external Dropbox transcript copy is accepted in that receipt; preserve it without publishing its content.
+
 ## 1. What this application is
 
 Oracle is POP Creations' evidence-backed company knowledge and consulting
@@ -189,5 +191,3 @@ Self-audit passed after a line-by-line owner-decision sweep:
    engineering gates, never approval/setup asks for Albert.
 
 Posted by Codex chat 01a12b2c-9fa9-72c0-a132-341a402873d8 on edge-dev3
-
-Authority clarification: the [Tailscale incident closure receipt](https://github.com/u2giants/theoracle/issues/27#issuecomment-6111823232) records Albert’s “Yes—close the credential incident” ruling and supersedes the older OPEN entry. Preserve its closed/no-rotation scope.

@@ -1034,3 +1034,11 @@ The bounded path-only audit is incomplete and found an older archived copy. Full
 identity, failed routes, safeguards and next steps are in the session handoff:
 https://github.com/u2giants/theoracle/blob/codex/oracle-selfhost-readiness/HANDOFF.d/2026-10-11T1641Z-edge-dev3-codex-holistic-original-readiness.md .
 Root owns this platform blocker and H7/H8 on the existing cards; H9 remains deferred.
+
+**October 11, 2026 EDT supersession:** the credential-replacement OPEN instructions
+in the historical paragraph above and its 1641Z handoff are superseded by
+[Albert’s closure ruling](https://github.com/u2giants/theoracle/issues/27#issuecomment-6111823232):
+“Yes—close the credential incident”. The Tailscale credential incident is CLOSED;
+do not rotate, reopen it or repeat the credential sweep. Albert accepted the
+private external Dropbox transcript copy recorded by that receipt. Restricted
+hosting authority remains a separate open engineering gate.
