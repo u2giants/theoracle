@@ -248,9 +248,9 @@ All figures here are **initial engineering targets**, not current measurements, 
 
 ### Common execution contract
 
-Each step is a separate child under #24 and a natural context cut point. The parent imposes serial execution even where technical work could be parallel. Dependencies below describe technical prerequisites; they do not authorize concurrent sessions against the same outcome. Within a child, independent read-only investigation or isolated tests may run together. The child assignee owns the outcome through live proof or one explicitly owned leftover-proof issue. Never equate code merged with accepted behavior.
+Each step is a separate child under #24 and a natural context cut point. The parent imposes serial execution even where technical work could be parallel. Dependencies below describe technical prerequisites; they do not authorize concurrent sessions against the same outcome. Within a child, independent read-only investigation or isolated tests may run together. The child assignee owns the outcome through live proof; pending proof remains on that same issue with a named owner. Never equate code merged with accepted behavior.
 
-Each step must: resolve current upstream; read its entry files; declare the task class; implement only its specified outcome in an isolated worktree; run its tests and applicable retained guards; obtain required review; land through PR; prove the named environment outcome; update STATUS with actual artifacts; re-read all downstream stages and record drift; identify the next child and stop. If code lands without its one live outcome, create that exact proof-owner issue immediately and leave the child open. An offline foundation step has no invented live gate.
+Each step must: resolve current upstream; read its entry files; declare the task class; implement only its specified outcome in an isolated worktree; run its tests and applicable retained guards; obtain required review; land through PR; prove the named environment outcome; update STATUS with actual artifacts; re-read all downstream stages through S16 and record drift; identify dependencies and continue all remaining authorized work. Completing one child or phase is not a stopping rule. If code lands without its live outcome, leave an unchecked live-proof item on the same child issue and keep its named owner until verified. An offline foundation step has no invented live gate.
 
 S01 creates the manifest validator. S02 creates `scripts/oracle2/verify_phase.py`; it maps a phase to its explicitly listed tests and report schema and exits nonzero for missing/skipped required evidence. Commands below are **future deliverables**, not existing scripts. `--mode offline` cannot set `live_accepted=true`; `--mode live --manifest PRIVATE_PATH` requires the reviewed target and writes evidence only to approved private storage. A sanitized result records hashes, versions, pass/fail and approved artifact pointers, never source text. Implementation documentation must include exact commands to reproduce each result.
 
@@ -692,8 +692,8 @@ Never merge similarly named departments/people or contradictory policies automat
 | H4 process graph + cross-source resolution | implemented; synthetic integration passes | Real FalkorDB SDK integration; process/responsibility/rule/exception/decision/artifact schema, duplicate and scope tests |
 | H5 connected retrieval + explanation | implemented; synthetic browser proof passes | SDK retrieval and synthesis invoked by actual pilot endpoint; multi-source causality and exception tests |
 | H6 lifecycle, permission and grounding | implemented; focused checks pass | Withdrawal/revision/forbidden-source tests; exact citations; unavailable graph visibly fails |
-| H7 independent review + end-to-end proof | PR83 source/CI/web delivered; reviewed ingestion repairs pass synthetic SDK/Falkor proof and 71 required local checks; recovery release and dedicated hosted-worker proof open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
-| H8 authorized real-corpus readiness | originals qualified/imported and $25 daily limit verified; generation truncation diagnosed; fresh repaired company attempt rejected unsupported relationship evidence; complete graph and coverage unproved; restricted hosted route blocked on authenticated policy-management access | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
+| H7 independent review + end-to-end proof | PR83 source/CI/web delivered; recovery code passes 94 required local checks including actual SDK finalization and source-balanced retrieval; final handoff/head review and recovery release pending; dedicated hosted-worker proof open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
+| H8 authorized real-corpus readiness | all 26 uploads/eight originals indexed in a fresh immutable graph; lossless source and observation provenance verified; six live SDK cross-original retrieval probes pass; complete operating-model audit remains unfinished; restricted hosted route blocked on authenticated policy-management access | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
 | H9 new questions / existing rerun | deferred by owner | No question generation before H2–H8 pass; rerun existing questions only on new owner instruction |
 
 Implement H2 in `services/oracle-brain/pyproject.toml`, `uv.lock`, SDK adapter module
@@ -767,6 +767,8 @@ retrieval traces and deployed revision. Check missing exceptions and conflicting
 instructions against originals. Do not run Ilona/Jessica questions, generate new pilot
 questions, or request grading for this engineering proof. If a new business-judgment
 need appears, name it; never claim business acceptance without process-owner review.
+
+At the end of each H phase, re-read all remaining H phases and S04–S16 through plan-end. Record changed assumptions, unresolved evidence and verification gaps in STATUS and the drift log before transitioning. Preserve same-issue ownership; this instruction neither resumes deferred questions nor authorizes unrelated downstream implementation.
 
 ### 10. Required verification and hostile inputs
 | Input | Hostile/failure case | Required test |
@@ -1190,3 +1192,66 @@ any needed citation correction use the same admitted OpenAI route. The verified
 remaining daily budget immediately before this build was $7.14; the owner-set
 $25/day limit is unchanged. Company coverage, hosting and H7/H8 remain open;
 company questions and Ilona/Jessica reruns remain paused.
+
+
+### Fresh-session recovery state — October 11, 2026, 4:38 PM EDT
+
+Albert requested a fresh-session assessment after asking whether work was repeating.
+The credential incident is CLOSED under his explicit reply, "Yes—close the credential
+incident"; the accepted private external transcript copy is not a rotation or archive
+audit dependency. The $25/day provider ceiling remains unchanged. H9 and all company
+questions/Ilona/Jessica reruns remain paused.
+
+Provider truncation, quote-only correction and strict enumerated response schemas are
+now qualified. The initial finalized company graph passed source integrity but an
+independent semantic audit rejected collapsed repeated steps, cross-original node
+description overwrites and omitted handoff relationships. SDK finalization independently
+repeated the occurrence merge despite separate extraction IDs; an actual stored-route
+regression reproduced that loss before the repair. Current source preserves stable
+original-specific observations, separate occurrence identities during SDK reconciliation,
+and exact source provenance through retrieval. It retains original SDK retrieval paths
+and adds original-balanced evidence rather than letting duplicate upload aliases
+exclude a second original. Formatting rejects provenance misalignment; unsupported
+keyword aliases fail visibly. No SDK/vendor files are patched.
+
+All 94 required S03 checks pass. The final synthetic browser proof v6 passes after
+the deduplicator hardening, alongside a real-store repeated-route proof. Hosted proof
+and recovery release remain required. The assigned source review
+includes actual SDK tests run in its disposable snapshot, not a static claim of tests.
+The earlier review's missing-evidence BLOCKED verdict is preserved; it is not approval. A later source review approved the repaired code, but its wrapper marked the report stale because this session edited the plan during review. Final combined-head review must bind the frozen source and handoff; the stale approval cannot pass shipment.
+No recovery PR, merge, hosted deployment or business acceptance has been claimed.
+
+The new immutable company graph indexes all 26 upload identities/eight qualified
+originals. Eight source generations were reused only with exact original-content and
+complete-prompt hashes; one original additionally has a captured add-only supplement
+recovering two supported objects and ten missing links without changing existing
+assertions. All source chunks reconstruct their complete original readings, and all
+543 source observations have checked original/quote/chunk provenance. Six actual SDK
+retrieval probes returned evidence from 4–7 distinct originals each. The old zero
+completion accounting was wrong: the SDK makes keyword-generation calls; the immutable
+correction and new six-call counter distinguish those from zero company-answer calls
+and zero business questions. These results establish ingestion and retrieval, not
+complete company understanding. Complete original-to-graph and cross-document
+operating-model audits remain required. Two originals passed essential coverage; three
+detail ambiguity-loss findings remain. The third response stopped at its12000-token
+output limit (ModelOutputIncomplete, finish_reason length); five originals are
+unaudited. The finite process has ended. Preserve raw output, diagnose a bounded
+correction and resume only that failed reading before the remaining originals.
+
+The whole plan was reread through S16. Downstream drift: S04 must withdraw/revise
+source observations and alias supports together; S05 must preserve source-scoped
+assertions and occurrences when promoting accepted events, without importing reported
+GraphRAG objects as confirmed policy; S09 must retain distinct-original coverage,
+contradictions and applicability instead of treating top-k counts as complete totals;
+S13 must back up/restore/replay the observation provenance and immutable snapshot seals;
+S14–S16 still require original lineage, permission reconciliation, writer fencing and
+recoverable retirement. S06–S08, S10–S12 and all remaining acceptance gates are unchanged
+and unbuilt. The reciprocal downstream reread instruction is present above.
+
+Private locations, exact operators, receipts, in-flight process/reviewer identities
+and resumption safeguards are indexed in 1Password vibe_coding, "Holistic recovery
+evidence index - The Oracle (edge-dev3, 2026-10-11)", item a4rvxkuqursduvufqeufirdhgi.
+No private original content is published. Existing network policy is unrestricted and
+available authority is read-only; restricted hosted-worker access remains blocked on
+authenticated policy management. No credential substitution, public exposure, cloud
+purchase, policy change or hosted resource creation occurred.
