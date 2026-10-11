@@ -1,0 +1,20 @@
+{
+  "activities": [
+    "Intake",
+    "Design",
+    "Rights approval",
+    "Sample",
+    "Production",
+    "tooling"
+  ],
+  "process_ids": [
+    "D-product",
+    "D-supply"
+  ],
+  "schema_version": 1,
+  "source_ids": [
+    "D1",
+    "D2",
+    "D3"
+  ]
+}

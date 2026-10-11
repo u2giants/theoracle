@@ -1,0 +1,36 @@
+{
+  "activities": [
+    "Copy preparation",
+    "Content review",
+    "Safety review",
+    "Shipping release",
+    "inspection",
+    "billing"
+  ],
+  "adverse_cases": [
+    "unsupported inclusive OR",
+    "forged r2 display with integer revision 1",
+    "same-ID payload tamper",
+    "source revocation between pack and serve",
+    "stale review race",
+    "prompt injection",
+    "same label different scopes",
+    "alias not corroboration"
+  ],
+  "process_ids": [
+    "V-packaging",
+    "V-partial",
+    "V-labels",
+    "V-access"
+  ],
+  "schema_version": 1,
+  "source_ids": [
+    "V1",
+    "V2",
+    "V3",
+    "V4",
+    "V5",
+    "V6",
+    "V7"
+  ]
+}

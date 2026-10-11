@@ -1,0 +1,115 @@
+{
+  "baseline_main": "3bad33583787316d9fdddc3fd45a737b1236b4b1",
+  "baseline_recovery": "36e91038ee6b1126f9d9c27adce7583a6b74c654",
+  "callers": [
+    "apps/web/app/api/consultant/questions/route.ts",
+    "apps/workers/src/trigger/oracle2-holistic.ts",
+    "services/oracle-brain/oracle_brain/graph/graphrag.py",
+    "services/oracle-brain/oracle_brain/holistic_runtime.py"
+  ],
+  "helper_allowlist": [
+    "oracle_brain.ingest.originals",
+    "oracle_brain.authz",
+    "oracle_brain.knowledge.authority",
+    "oracle_brain.provider_policy",
+    "oracle_brain.provider_transport",
+    "oracle_brain.storage",
+    "oracle_brain.outbox"
+  ],
+  "ledger_namespace": "oracle2 artifact schema version 1 (additive migration 004)",
+  "legacy_default": false,
+  "legacy_graph_prefix": "oracle_holistic_",
+  "new_graph_prefix": "oracle_operating_model_v1_",
+  "private_owner": "recovery workstream until protected receipts/ownership adopted",
+  "production_activation": false,
+  "recovery_helper_transfers": [],
+  "replace": [
+    "graph/graphrag.py business extraction/schema/assembly/answer",
+    "graph/retrieval.py business packing",
+    "holistic_runtime.py business execution",
+    "consultant/pilot.py",
+    "retrieval/pilot.py",
+    "workflows/pilot.py"
+  ],
+  "retained": [
+    {
+      "invariants": [
+        "original byte/reading hashes and complete page/locator/review receipts",
+        "no unnecessary reread of qualified originals"
+      ],
+      "paths": [
+        "services/oracle-brain/oracle_brain/ingest/originals.py"
+      ],
+      "required_tests": [
+        "test_original_reading.py",
+        "test_original_corpus_import.py",
+        "test_original_corpus_read.py"
+      ]
+    },
+    {
+      "invariants": [
+        "current workspace actor authority lineage; expiry/revocation deny",
+        "source-reading confirmation is not business policy promotion"
+      ],
+      "paths": [
+        "services/oracle-brain/oracle_brain/authz.py",
+        "services/oracle-brain/oracle_brain/knowledge/authority.py"
+      ],
+      "required_tests": [
+        "test_authority.py",
+        "test_review_concurrency.py",
+        "test_holistic_runtime.py"
+      ]
+    },
+    {
+      "invariants": [
+        "exact provider/account/endpoint/data/purpose/expiry admission",
+        "no fallback; funded route; no secret logging"
+      ],
+      "paths": [
+        "services/oracle-brain/oracle_brain/provider_policy.py",
+        "services/oracle-brain/oracle_brain/provider_transport.py"
+      ],
+      "required_tests": [
+        "test_provider_policy.py",
+        "test_provider_transport.py"
+      ]
+    },
+    {
+      "invariants": [
+        "Postgres authority; separate checkpoint identities; signed projection receipts",
+        "transactional outbox and restart/idempotency"
+      ],
+      "paths": [
+        "services/oracle-brain/oracle_brain/storage.py",
+        "services/oracle-brain/oracle_brain/outbox.py"
+      ],
+      "required_tests": [
+        "test_outbox.py",
+        "test_checkpoint_scope.py",
+        "test_runtime_identity.py"
+      ]
+    },
+    {
+      "invariants": [
+        "authenticated opaque run/workspace IDs; no source-bearing job payload",
+        "preview worker has no confirmed/admin/signing/service-role credentials"
+      ],
+      "paths": [
+        "apps/web/lib/oracle2-pilot-auth.ts",
+        "apps/web/lib/oracle2-authority.ts",
+        "apps/web/lib/oracle2-store.ts",
+        "apps/web/app/api/consultant/runs/[id]/route.ts",
+        "apps/workers/src/trigger/oracle2-holistic.ts"
+      ],
+      "required_tests": [
+        "test_worker_guard_parity.py",
+        "test_holistic_runtime.py",
+        "verify_holistic_browser.py"
+      ]
+    }
+  ],
+  "retire_condition": "W11 accepted, exact caller/writer parity and current-source restore proof; no data destruction",
+  "review_status": "pending",
+  "schema_version": 1
+}
