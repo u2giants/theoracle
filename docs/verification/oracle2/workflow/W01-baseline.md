@@ -30,5 +30,19 @@ set BASELINE_ROOT and PYTHONPATH to the archive and provide an exclusively owned
 ORACLE2_TEST_FALKORDB_URL. Run the probe with the frozen installed interpreter.
 Verify the assertion, not merely nonzero exit. Run the archived recovery tests
 `test_holistic_graphrag.py` and `test_holistic_graphrag_integration.py` on that
-store. Never use company stores or default SDK providers. Raw synthetic receipts
-remain local. Lock SHA-256: 9cedb786240ce78dac821f92ea2ddb1caa46125632b185a605ea541244403585
+store. Never use company stores or default SDK providers. Sanitized reproducible receipt: [W01-execution.json](W01-execution.json). Lock SHA-256: 9cedb786240ce78dac821f92ea2ddb1caa46125632b185a605ea541244403585
+
+The owned-store runner `scripts/oracle2/verify_operating_model_baseline.py` creates
+and validates its own pinned synthetic store, archives only the two exact
+baselines, requires the unique expected-loss marker after finalize/reload,
+rejects any infrastructure marker, records log hashes, then removes only its
+newly created ephemeral container. The probe independently validates the Docker
+owner label and exact loopback binding; company/recovery ports are forbidden.
+No caller-supplied graph target can enter the runner.
+
+W01 fixture tests establish source-inventory consistency only. No production
+extractor, quarantine-serving or semantic-coverage proof is claimed until the
+new ledger/model gates exist. The boundary component now exists and enforces
+only the narrow Oracle helper allowlist; parent-package, dynamic-import and
+exec/eval bypasses are denied. SDK/provider/authority contracts remain separately
+required.

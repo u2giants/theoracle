@@ -1,0 +1,44 @@
+{
+  "baselines": {
+    "main": "3bad33583787316d9fdddc3fd45a737b1236b4b1",
+    "recovery": "36e91038ee6b1126f9d9c27adce7583a6b74c654"
+  },
+  "boundary_tests": {
+    "exit": 0,
+    "output": "....                                                                     [100%]\n4 passed in 0.02s",
+    "passed_count": 4,
+    "skipped_count": 0
+  },
+  "image": "falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d",
+  "lock_sha256": "9cedb786240ce78dac821f92ea2ddb1caa46125632b185a605ea541244403585",
+  "paid_calls": 0,
+  "passed": true,
+  "private_state_changed": false,
+  "python": "Python 3.12.14",
+  "results": {
+    "main": {
+      "exit": 1,
+      "expected_loss_verified": true,
+      "output_sha256": "3472d737a1b987869ef284741e3eebb8b639e42f5d7eb8f53ad02b716c637248",
+      "probe_sha256": "b287b9c5e1546e5af39e13d94f4a54f21dcf79fa2986f0b94e3ccb2e0a50167e"
+    },
+    "recovery": {
+      "exit": 1,
+      "expected_loss_verified": true,
+      "output_sha256": "773d64649a36d2411cb16eec6f718a5e14a161083ae7e2f6dac84fc941c48a67",
+      "probe_sha256": "b287b9c5e1546e5af39e13d94f4a54f21dcf79fa2986f0b94e3ccb2e0a50167e"
+    },
+    "recovery_invariants": {
+      "exit": 0,
+      "output_sha256": "f82bb1136d1b36a1eb0fcae1070c9c58eee4f76238f211101531b04ca1d2d679",
+      "passed": true,
+      "passed_count": 34,
+      "skipped_count": 0,
+      "tests": [
+        "test_holistic_graphrag.py",
+        "test_holistic_graphrag_integration.py"
+      ]
+    }
+  },
+  "schema_version": 1
+}

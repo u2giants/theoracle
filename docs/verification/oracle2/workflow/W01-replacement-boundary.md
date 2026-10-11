@@ -24,7 +24,7 @@ paths, required invariants/tests, all source callers and narrow allowed imports.
 Infrastructure is retained provisionally, subject to its tests and new adapter
 negative tests; W01 is not a blanket approval of every legacy interface.
 FalkorDB server and SDK 1.4.0 stay stock. New core never imports legacy business
-classes. No recovery business helper is admitted at this freeze. Real SDK adapter
+classes. No recovery business helper is admitted at this freeze. The protected index was accessed through protected injection; three locators exist locally. No private original or provider key was accessed. Real SDK adapter
 will implement validated ledger-to-GraphData projection, never re-extract or use
 original-text serving fallback. Any later narrow store/dedup transfer requires
 exact source, focused regression and new independent boundary review.
