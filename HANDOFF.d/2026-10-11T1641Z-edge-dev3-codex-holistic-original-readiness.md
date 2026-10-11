@@ -12,10 +12,7 @@ Settled at 12:43 PM EDT October 11: Albert answered "$25 per day" for the Oracle
 The exact key-setting change is specified in the plan for independent technical
 review; do not ask him again. Earlier verification found: The funded OpenRouter account
 has $21.236204216 remaining, but its existing Oracle key independently caps usage
-at $15 daily, with zero remaining today. The business budget is now $25/day; review and execution are still required. Do not change it by inference.
-Retaining $15 permits one new qualification after the October 11 reset at 8:00 PM EDT.
-Raise only this existing key to the settled $25/day budget after exact technical
-review; purchase no credit and substitute no key.
+at $15 daily, with zero remaining today. The business budget is now $25/day; the exact change received independent GLM APPROVE and provider/runtime verification at 1:11 PM EDT. Do not redo the change. One synthetic fixed embedding passed. No credit purchase or key substitution occurred.
 Technical changes require assigned independent AI review, never human approval.
 
 Already settled: all company data may be processed by admitted AI providers
@@ -91,8 +88,7 @@ The local compose project oracle-holistic-s03 is restarted after CI and retains
 Postgres 55432, candidate graph 56379, confirmed graph 56380 and object store 54566,
 all loopback-bound. Existing unrelated Supabase 54322 and recovery containers are
 untouched. These synthetic-local credentials must never be deployed as hosted secrets.
-The actual company SDK graph build has NOT run. One synthetic embedding probe
-received HTTP 403 key_limit with $15.46848864 daily usage/$15 limit. No retries.
+The historical synthetic embedding probe received HTTP 403 key_limit at the old $15 daily limit. The independently reviewed raise to $25 was verified, and one fixed OpenAI-only 256-dimensional embedding passed. Company-only SDK graph construction began at 1:11 PM EDT and failed at 1:13 PM EDT with IngestionError. The receipt proves failure and zero questions, not readiness; coverage remains unproven.
 
 ## 4. Failed attempts and dead ends
 
@@ -119,8 +115,7 @@ self-hosted CI, preserve volumes, restart after CI. Never run down --volumes on 
 company workspace. PR #83's default CI project is distinct from the owned project.
 The Vercel connector lacks permission; authoritative GitHub commit/deployment status
 proved delivery. The system has no global vercel command; do not infer deployment
-failure from that tooling absence. SSH default user/port failed; saved ai user,
-port 1904, existing password via protected injection works for read-only checks.
+failure from that tooling absence. SSH defaults failed; the saved login metadata and existing password via protected injection work for read-only checks. Resolve the exact username/port from the vault item in §8; do not publish them.
 
 ## 5. Root causes and non-obvious findings
 
@@ -138,28 +133,20 @@ processing expiry uses status timestamps, avoiding queue-age false timeouts.
 Worker holds candidate-only and narrowly scoped PostgreSQL run/source permissions;
 never give it confirmed projection, checkpoint, service-role, or owner-signing keys.
 
-Live OpenRouter key metadata: limit 15, remaining 0, reset daily, usage_daily
+Historical pre-ruling OpenRouter key metadata: limit 15, remaining 0, reset daily, usage_daily
 15.46848864. Account total credits 1335, total usage 1313.763795784. Key-specific
 resets occur at midnight UTC, October 11 at 8:00 PM EDT. This is not subscription
 billing. Do not represent account credit as exhausted.
 
 Self-hosting is supported and already works locally. Read-only Hetz checks found
-31,339 MiB RAM, 21,891 MiB available, 43 GiB disk free. Coolify server UUID
-onwp0kd7w1w74w9yeotnoihp is usable; destination dx12tov58uah20vcxpe03e0v uses
-coolify network. No Oracle Coolify project/resource exists yet. No host mutation
+31,339 MiB RAM, 21,891 MiB available, 43 GiB disk free. Coolify server and destination were verified usable on the existing network; resolve their exact identities from protected discovery receipts, not public prose. No Oracle Coolify project/resource exists yet. No host mutation
 has occurred. Preserve existing applications and runtime settings.
 
 ## 6. Exact next steps and success gates
 
-1. Execute the independently reviewed $25/day key-setting change from the plan. Obtain
-   fresh read-only key/credit evidence, not another paid request while blocked.
-   A limit change needs exact-account/action independent technical review and the
-   settled business budget answer; do not create a new key or bypass the cap.
-2. Qualify the fixed OpenRouter embedding route once, using synthetic input,
-   openai/text-embedding-3-small, 256 dimensions, OpenAI-only routing, logging denied,
-   no automatic retries. Success means an actual valid 256-dimensional embedding.
-   Preserve provider-qualified terminal holds if it fails; no provider substitution.
-3. Build only the reported company graph in the isolated workspace using the
+1. DONE: independently reviewed existing-key setting is $25/day; protected before/after receipts prove exact identity and unchanged other keys. Do not repeat the mutation.
+2. DONE: one fixed OpenAI-only, logging-denied, no-retry synthetic embedding passed at 256 dimensions after verification. Direct-provider holds remain independent.
+3. First diagnose the company build failure (IngestionError) using safe exception-chain class/status evidence and a minimal synthetic qualification. The operator retained only the outer class, so underlying cause is unverified; do not infer a timeout or quota block. Preserve the failed graph and create a new immutable config for any repaired company attempt. Then build only the reported company graph in the isolated workspace using the
    reviewed runtime and protected operator register. The private prepared operator
    performs execute('build', workspaceId); it does not generate questions. Verify
    source IDs/hashes again before dispatch. Preserve bounded max calls and immutable
@@ -211,7 +198,7 @@ account remains credit-blocked. Management key item vqk7qypdfdqog6bo7r6f63zz5m
 is not model-call credential and may change only the exact settled key limit after independent technical review.
 Coolify token c44ghscsnug2xvvrzzp3on7mme/credential; use encrypted tailnet control-plane
 access, never plaintext public HTTP. Read-only Hetz login item 5xukphmemjyt6cp67qo5qdawby
-(username ai, password protected), SSH port 1904. Trigger PAT item
+(login metadata and password protected). Trigger PAT item
  ylzcsfbhmjyzjy65mnu6uxw67e/credential remains under no-rotation instruction.
 Use op_run injected secrets, no command-line secret values or full response logs.
 Existing owner Ed25519 key is private on edge-dev3; public index item
@@ -259,3 +246,98 @@ merge or production-data decisions. No unfinished subagent deliverable remains.
 4. Owner-decision sweep: yes, the settled daily spending ruling in §§3,5,6,8,9 is in §0;
    self-hosting preference and deferred question reruns are settled there. Technical
    qualification/reviews remain root-owned and are not human approval requests.
+
+## October 11 wrap-up and credential incident — 1:09 PM EDT
+
+Albert explicitly invoked wrap-up and supplied crash guidance. The guidance concerns
+a different shared-db issue (#3536), not this Oracle workstream. Its repaired helper
+and memory-safe tests are owned by that session; no changes or test reruns were made
+there. Before retrying our interrupted review, root verified the owned Oracle worktree
+was clean, its full HEAD was unchanged, no owned reviewer process remained and no new
+report existed. The replacement review uses the existing guarded harness; do not run
+old-code discrimination tests on a live worktree. Large-payload tests require a 2 GiB
+memory cap and disposable copies, as stated in the supplied guidance.
+
+**Security incident remains OPEN, owned by Codex chat
+01a12b21-2aa9-7f73-b169-65d0602effa5 on edge-dev3.** During self-host discovery, root
+printed a vault note containing the Tailscale MCP OAuth client secret. Client ID
+kxviER1Zi311CNTRL, vault item w6fup5t2cob6sh2khautwktrvu, concealed field
+TAILSCALE_OAUTH_CLIENT_SECRET. The full secret must never appear in this file or
+issues. Root immediately reported the exposure and sanitized the notes, preserving
+the concealed fields, references and capability. That is containment, not remediation.
+The old value still authenticated through the provider on October 11 at 1:06 PM EDT.
+Its scopes include read-only device/policy/DNS/log information and auth_keys/webhooks;
+they do not establish OAuth-client creation/revocation authority. A key lookup returned
+404 for this OAuth client ID, while auth-key inventory returned 200; auth-key management
+is not OAuth-client replacement. Official provider guidance documents trust-credential
+revocation in the authenticated administrator console:
+https://tailscale.com/docs/reference/trust-credentials .
+
+Only two Tailscale vault credentials were found: this MCP client and the separate
+GitHub/Ansible CI client cw66tzdaktocmonxevx47h45k4. Do not broaden or substitute the
+CI credential. Existing browser administrator access was not authenticated. No client
+was created/revoked, no consumer disabled, no tailnet/device/ACL changed. Supported
+administrator authority remains the platform blocker; do not ask Albert for technical
+approval or pretend deletion from notes retired the exposed value. Exact independently
+reviewed replacement must inventory every consumer, preserve the same permitted
+capabilities, update concealed vault storage and consumers, verify the new client,
+then revoke the exposed client and verify its denial plus original MCP acceptance.
+Root owns the incident on the existing Oracle journey card until verified closure.
+
+A protected, time-bounded path-only sweep checked 188,882 files and found the exposed
+value in this session transcript and a July 21 archived transcript. The sweep timed
+out and excluded caches, dependencies, large files and archives; therefore the whole-
+machine/archive audit is NOT complete. No archived evidence was rewritten. The two
+matching paths and exclusions are in protected tailscale-exposure-path-sweep.json on
+edge-dev3 beside the original-reading proof, accessible only through the private
+evidence index. Review that index rather than copying secret-bearing files into GitHub.
+No installed consumer was identified by bounded config-reference searches; that is not
+proof there are none. Finish full consumer/archive inventory with protected injection
+and paths-only output before claiming remediation.
+
+Workspace decision: intentionally retain the owned Oracle worktree and
+codex/oracle-selfhost-readiness branch as the resumable operator/reviewer context.
+Private original evidence, Python environment references, company Postgres backup and
+local company datastore volumes depend on this context. No other checkout, branch,
+claim or recovery file was removed. The finished mechanical subagent has no outstanding
+deliverable. Shared-db structural work/claims were never opened in this session.
+No new background task or recurring automation was created.
+
+The whole company graph and hosted service acceptance remain unfinished; questions
+remain zero. Continue from the existing H7/H8 steps only after provider admission
+and exact deployment review. Self-host qualification is not a completed deployment.
+All original obligations remain on #24/#27/#58, with root as named owner.
+
+Self-audit extension: the new developer now has the interrupted-command checks,
+credential identity, exposure/containment distinction, verified provider access,
+failed routes, incomplete-sweep limitation, named incident owner and exact repair
+acceptance. All 0–9 sections above remain present. No predecessor handoff has been
+retired; the old grading instructions remain superseded by Albert's stop ruling.
+
+**Final company attempt evidence — October 11, 1:15 PM EDT:** The budget change
+passed independent GLM review and task gates, with exact runtime and management
+verification after a brief propagation delay. The existing key is $25/day; no
+other key metadata changed. Fixed OpenAI-only synthetic embedding passed at 256
+dimensions. The company build process ended at 1:13 PM EDT with IngestionError;
+private company-graph-build-proof-v1.json records success=false and questions=0.
+Read-only candidate inspection found two graph keys for this company workspace,
+with Document counts 1 and 0 and zero finalized HolisticSnapshot markers in both.
+The normalized counts receipt is private; an initial compact Redis count envelope
+was preserved separately and is not a scalar count. No graph was declared ready
+and no SDK question path ran. The operator retained only the outer error class,
+so the underlying cause is unknown. The SDK ingestion pipeline chains its cause;
+preserve safe error-class/status diagnostics on the next minimal synthetic
+qualification rather than printing original request bodies or retrying a quota hold.
+The failed partial snapshot is immutable recovery evidence: do not rerun the same
+configuration, rewrite the failed receipt or drop the graph to make it look clean.
+Root owns investigation on #27/#58. Under the requested wrap-up scope freeze, this
+newly observed bug is recorded for continuation rather than starting a new repair.
+Self-hosted resource creation, cold/warm worker proof, corpus coverage review and
+all questions remain unfinished; no cloud subscription was purchased.
+
+Self-audit final check: sections 0 through 9 and the subagent record are present.
+The current budget, successful embedding, failed graph, unknown cause, exact safe
+next step, security blocker, incomplete audit, immutable recovery, same-issue
+ownership and intentional workspace preservation are recorded. Only three owned
+prose files are changed. No superseded grading, quota retry, shared-db mutation,
+background build or employee message remains in progress.
