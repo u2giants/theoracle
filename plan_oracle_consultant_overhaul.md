@@ -1023,3 +1023,39 @@ The bounded path-only audit is incomplete and found an older archived copy. Full
 identity, failed routes, safeguards and next steps are in the session handoff:
 https://github.com/u2giants/theoracle/blob/codex/oracle-selfhost-readiness/HANDOFF.d/2026-10-11T1641Z-edge-dev3-codex-holistic-original-readiness.md .
 Root owns this platform blocker and H7/H8 on the existing cards; H9 remains deferred.
+
+
+### Ingestion diagnostic recovery — October 11, 2026, 1:37 PM EDT
+
+Current root owns #27/#58; company questions and Ilona/Jessica reruns remain paused.
+A fresh, separate synthetic corpus successfully built and finalized through actual
+OpenRouter/OpenAI, pinned GraphRAG SDK and local candidate FalkorDB. A new immutable
+company diagnostic configuration revalidated 26 source identities/eight original
+hashes and failed with IngestionError → RuntimeError: model output incomplete.
+This establishes incomplete model generation, not a quota or graph-connectivity
+diagnosis. The previous and diagnostic partial graphs remain immutable recovery
+evidence. No company question was generated.
+
+The source repair retains default limits and introduces explicitly bounded operator
+settings: ORACLE2_HOLISTIC_MAX_OUTPUT_TOKENS (1000–65536; default 10000), and
+ORACLE2_HOLISTIC_REQUEST_TIMEOUT_SECONDS (10–300; default 90). The exact next
+qualification uses 32768 output tokens and 300 seconds with the existing provider,
+model, admission register, 128-call ceiling, $25/day provider limit, no automatic
+retry or fallback, candidate-only identity and no questions. Generation settings
+are bound into snapshot identity. Incomplete output stays rejected; safe exception
+chains preserve only allowlisted classes/status/codes and generation counts, never
+provider bodies, source excerpts or keys. Independent exact-head source/action
+review and synthetic qualification must pass before the repaired company attempt.
+Coverage and hosted acceptance still require their original H7/H8 gates; increased
+output bounds alone establish neither source coverage nor business truth.
+
+Albert's latest conditional instruction is: "was the credential published outside
+this computer? if not, no need to rotate, close the issue and mvoe on". Protected
+comparison confirms the current exposed Tailscale value appears in the older
+Dropbox transcript and the prior chat transcript. Dropbox reports the older file
+fully synced and its daemon up to date: an external private copy is verified.
+No public publication was established. The conditional no-rotation closure does
+not apply to the verified external copy. The incident remains on this same issue,
+owned by current root; OAuth replacement authority is blocked by administrator
+sign-in, with no stored administrator login or authenticated browser session found.
+No capability is disabled or substituted, and the CI credential is not used.

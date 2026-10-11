@@ -303,6 +303,9 @@ class HolisticGraphPilot:
             "packages": {name: version(name) for name in
                 ("graphrag-sdk", "falkordb", "pydantic", "openai", "psycopg")}},
             "config": config_id, "llm": llm.model_name,
+            "generation_bounds": {
+                "output_limit": getattr(llm.delegate, "output_limit", None),
+                "request_timeout_seconds": getattr(llm.delegate, "request_timeout_seconds", None)},
             "embedding": embedder.model_name, "dimensions": dimensions,
             "sdk": "1.4.0", "implementation": {
                 p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (

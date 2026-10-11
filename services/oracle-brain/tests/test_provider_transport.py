@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from oracle_brain.holistic_runtime import OpenAIEmbedding, OpenAIModel
+from oracle_brain.holistic_runtime import OpenAIEmbedding, OpenAIModel, ModelOutputIncomplete, safe_failure_metadata
 from oracle_brain.ingest.originals import OpenAIVisualReader, OriginalView
 from oracle_brain.provider_policy import ProcessingRequest
 from oracle_brain.provider_transport import transport_options
@@ -50,6 +50,56 @@ class FakeClient:
     def embed_create(self, **kwargs):
         self.calls.append(("embedding", kwargs))
         return SimpleNamespace(data=[SimpleNamespace(index=0, embedding=[0.1]) for _ in kwargs["input"]])
+
+
+@pytest.mark.parametrize("output_limit", [999, 65537, True])
+def test_invalid_output_limit_never_dispatches(output_limit):
+    client = FakeClient()
+    with pytest.raises(ValueError):
+        OpenAIModel("openai/gpt-4o", client, output_limit=output_limit)
+    assert not client.calls
+
+
+def test_truncated_model_output_is_rejected_with_safe_usage_and_no_retry():
+    calls = []
+    def truncated(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(finish_reason="length",
+                message=SimpleNamespace(content="PRIVATE SOURCE TEXT"))],
+            usage=SimpleNamespace(completion_tokens=32768,
+                completion_tokens_details=SimpleNamespace(reasoning_tokens=1500)))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=truncated)))
+    model = OpenAIModel("openai/gpt-4o", client, {"extra_body": {"provider": {}}}, output_limit=32768)
+    with pytest.raises(ModelOutputIncomplete) as error:
+        model.invoke("PRIVATE SOURCE PROMPT")
+    assert len(calls) == 1
+    assert calls[0]["max_tokens"] == 32768
+    assert error.value.finish_reason == "length"
+    assert error.value.completion_tokens == 32768
+    assert error.value.reasoning_tokens == 1500
+    assert "PRIVATE" not in str(error.value) + repr(vars(error.value))
+
+
+def test_safe_diagnostics_preserve_nested_cause_and_reject_private_fields():
+    inner = RuntimeError("PRIVATE source response")
+    inner.status_code = 403
+    inner.code = "key_limit"
+    outer = ValueError("PRIVATE wrapped exception")
+    outer.__cause__ = inner
+    inner.__context__ = outer
+    assert safe_failure_metadata(outer) == [
+        {"type": "ValueError"}, {"type": "RuntimeError", "status": 403, "code": "key_limit"}]
+    inner.code = {"private": "PRIVATE"}
+    inner.status_code = "PRIVATE"
+    assert safe_failure_metadata(inner) == [{"type": "RuntimeError"}, {"type": "ValueError"}]
+
+
+@pytest.mark.parametrize("timeout", [9, 301, True])
+def test_invalid_timeout_never_dispatches(timeout):
+    client = FakeClient()
+    with pytest.raises(ValueError):
+        OpenAIModel("gpt-4o", client, request_timeout_seconds=timeout)
+    assert not client.calls
 
 
 def test_router_options_reach_reader_chat_and_embedding_but_openai_stays_unchanged():
