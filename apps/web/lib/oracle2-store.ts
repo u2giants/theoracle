@@ -296,30 +296,6 @@ export async function confirmDraft(input: {
   }
 }
 
-export async function storeRun(input: {
-  workspaceId: string;
-  actorId: string;
-  sourceId: string;
-  draftId: string | null;
-  question: string;
-  answer: unknown;
-}): Promise<string> {
-  const sql = client();
-  const runId = randomUUID();
-  try {
-    await sql`
-      INSERT INTO oracle2.runs
-        (run_id,workspace_id,actor_id,source_id,draft_id,question,status,answer)
-      VALUES (${runId}::uuid,${input.workspaceId}::uuid,${input.actorId}::uuid,
-              ${input.sourceId}::uuid,${input.draftId}::uuid,${input.question},
-              'completed',${sql.json((input.answer ?? {}) as never)})
-    `;
-    return runId;
-  } finally {
-    await sql.end({ timeout: 1 });
-  }
-}
-
 export async function getRun(
   runId: string,
   workspaceId: string,
@@ -333,7 +309,7 @@ export async function getRun(
       error='Connected answer timed out; original sources retained',updated_at=now()
       WHERE run_id=${runId}::uuid AND workspace_id=${workspaceId}::uuid
         AND actor_id=${actorId}::uuid AND status IN ('pending','processing')
-        AND created_at < now() - interval '12 minutes'`;
+        AND updated_at < now() - interval '12 minutes'`;
     const rows = await sql`
       SELECT run_id::text, workspace_id::text, actor_id::text, source_id::text,
              draft_id::text, question, status, answer, error, created_at

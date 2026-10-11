@@ -110,8 +110,9 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
     if not graph_url:
         pytest.skip("set ORACLE2_TEST_FALKORDB_URL to an approved loopback FalkorDB port")
     first, second = _source(DOC_ONE, "intake.txt"), _source(DOC_TWO, "review.txt")
-    corpus = Corpus(workspace_id=uuid4(), sources=(first, second),
-                    expected_source_ids=frozenset({first.source_id, second.source_id}))
+    alias = _source(DOC_ONE, "intake-alias.txt").model_copy(update={"original_hash": first.content_hash})
+    corpus = Corpus(workspace_id=uuid4(), sources=(first, second, alias),
+                    expected_source_ids=frozenset({first.source_id, second.source_id, alias.source_id}))
     request = ProcessingRequest(provider="local-synthetic", account="loopback", endpoint=graph_url,
                                 data_classes=frozenset({"synthetic"}), purpose="holistic-integration",
                                 terms_hash="a" * 64)
@@ -128,6 +129,8 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
     async def run():
         try:
             built = await pilot.build()
+            extraction_calls = [call for call in llm.calls if "DOCUMENT DATA" in call]
+            assert len(extraction_calls) == 2
             calls_after_first_build = len(llm.calls)
             reused = await pilot.build()
             assert reused["reused_snapshot"] is True
@@ -137,6 +140,9 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
             raw_rows = await pilot.rag._graph_store.query_raw(
                 "MATCH (n) RETURN labels(n) AS labels, n LIMIT 100")
             graph_rows = [(row[0], row[1].properties) for row in raw_rows.result_set]
+            mention_rows = await pilot.rag._graph_store.query_raw(
+                "MATCH (e:__Entity__)-[:MENTIONED_IN]->(c:Chunk)<-[:PART_OF]-(d:Document) "
+                "RETURN DISTINCT d.id,c.id")
             raw_rels = await pilot.rag._graph_store.query_raw(
                 "MATCH ()-[r:RELATES]->() RETURN r LIMIT 100")
             relation_rows = [row[0].properties for row in raw_rels.result_set]
@@ -151,7 +157,7 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
                 config_id="fixed-synthetic-config-v1", dimensions=4)
             await reviewed.load_reviewed_snapshot()
             changed = Corpus(workspace_id=corpus.workspace_id,
-                             sources=(first.model_copy(), second.model_copy(update={"revision": "r2"})),
+                             sources=(first.model_copy(), second.model_copy(update={"revision": "r2"}), alias.model_copy()),
                              expected_source_ids=corpus.expected_source_ids)
             changed_pilot = HolisticGraphPilot(
                 changed, graph_url,
@@ -197,18 +203,21 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
             with pytest.raises(ValueError, match="grounding and exception review"):
                 await pilot.answer("How does intake hand off to review, including the exception?", corpus)
             await reviewed.close()
-            return built, reused, result, retrieved, stats, graph_rows, relation_rows, snapshot_rows
+            return built, reused, result, retrieved, stats, graph_rows, relation_rows, mention_rows, snapshot_rows
         finally:
             await pilot.close()
 
-    built, reused, result, retrieved, stats, graph_rows, relation_rows, snapshot_rows = asyncio.run(run())
+    built, reused, result, retrieved, stats, graph_rows, relation_rows, mention_rows, snapshot_rows = asyncio.run(run())
     assert built["sdk_version"] == "1.4.0"
     assert reused["corpus_digest"] == built["corpus_digest"]
     assert built["receipts"] and all(item["chunks_indexed"] >= 1 for item in built["receipts"])
     assert all(built["finalized"]["indexes"].values())
     labels = [label for row in graph_rows for label in row[0]]
-    assert labels.count("Document") == 2
-    assert labels.count("Chunk") == 2
+    assert labels.count("Document") == 3
+    assert labels.count("Chunk") == 3
+    assert {str(row[0]) for row in mention_rows.result_set} == {
+        str(first.source_id), str(second.source_id), str(alias.source_id)
+    }
     assert sum("Review Team" in str(item.get("name", "")) for _, item in graph_rows) == 1
     assert stats["node_count"] >= 8
     assert stats["edge_count"] >= 8
@@ -221,7 +230,7 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
     assert {item["rel_type"] for item in relation_rows} >= {"HANDOFF_TO", "EXCEPTION_TO"}
     assert snapshot_rows.result_set == [[True, "holistic-s03-1"]]
     assert retrieved.items
-    assert result["source_count"] == 2
+    assert result["source_count"] == 3
     assert {citation["source_id"] for statement in result["answer"]["explanation"]
             for citation in statement["citations"]} == {str(first.source_id), str(second.source_id)}
     assert len(llm.calls) >= 3  # two extraction calls, finalization/retrieval completion

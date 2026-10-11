@@ -142,6 +142,9 @@ def main() -> int:
                 "NEXT_PUBLIC_SUPABASE_ANON_KEY": "synthetic-anon-key",
                 "PYTHONPATH": str(ROOT / "services/oracle-brain"),
             }
+            # The dedicated fourth-argument SDK credential must work by itself.
+            web_env.pop("TRIGGER_ACCESS_TOKEN", None)
+            web_env.pop("TRIGGER_SECRET_KEY", None)
             web_log = (scratch_path / "web.log").open("w", encoding="utf-8")
             web_proc = subprocess.Popen(
                 ["pnpm", "--filter", "@oracle/web", "exec", "next", "dev",

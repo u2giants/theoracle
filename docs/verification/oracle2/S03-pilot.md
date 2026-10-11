@@ -228,3 +228,33 @@ web Trigger key, worker-only processing register/models/candidate graph, complet
 ID inventory and exact reviewed corpus digest are separate from legacy extractor and
 projector identities. The web has no model key or graph credential. Never set the
 readiness digest until H2-H8 pass. No new cloud subscription has been created.
+
+### Corrective review evidence — 2026-10-11 EDT
+
+All eight original documents / 26 aliases now qualify, including all 29 PDF pages.
+The original-byte inventory and independent review receipts are private; sanitized
+proof is posted on the existing issues. No company questions were generated.
+
+GLM review of 72b6b69d5713ee7f5ff739b78e65d578aa1ee59e returned REJECT with a
+noncanonical verdict, so it supplies no gate approval. Its duplicate-delivery, timeout,
+deployment-entry, metadata, error-message, import-precedence, import-time and fixture
+authentication findings were repaired. The unreachable obsolete completed-answer
+writer was removed; diagnostic source reading remains available.
+
+Its high finding about SDK argument count was independently disproved: installed
+web SDK @trigger.dev/sdk 4.4.6, `dist/esm/v3/shared.d.ts:31`, declares
+`trigger(id, payload, options?: TriggerOptions, requestOptions?: TriggerApiRequestOptions)`.
+The fourth argument is the required request-options position. The existing production
+build and fresh web typecheck pass. Retain that correct API usage. The strengthened
+browser fixture requires the dedicated Bearer token and removes generic token env
+fallbacks, so it now tests that actual argument position rather than hiding it.
+
+A real pinned SDK/Falkor integration proves two extraction calls for two distinct
+originals while preserving three separate Documents, Chunks and mention identities
+when one upload is an identical-byte alias. S03 currently passes 60 tests.
+Fresh independent review and intended hosted preview remain open.
+
+The strengthened synthetic browser proof passes with authentication enforced and
+no generic Trigger token env fallback. Fresh `pnpm --filter @oracle/web typecheck`
+and full `pnpm run build:vercel` both pass after the repairs. This specifically
+refutes H1 against the installed pinned SDK; it is not hosted Trigger acceptance.

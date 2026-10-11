@@ -44,8 +44,8 @@ def qualified_sources(manifest, readings, inventory):
             not review.complete_supported or review.unsupported or
             review.omissions or review.uncertainties or
             review.checked_pages != list(range(1, meta.page_count + 1)) or
-            meta.review_receipt != hashlib.sha256(review.model_dump_json().encode()).hexdigest()
-            and meta.evidence_kind != 'native_text'):
+            (meta.review_receipt != hashlib.sha256(review.model_dump_json().encode()).hexdigest()
+             and meta.evidence_kind != 'native_text')):
             raise ValueError('original reading proof does not match manifest')
         if meta.evidence_kind == 'native_text' and (
             meta.original_hash != meta.content_hash or value['text'] != reading.pages[0].text or

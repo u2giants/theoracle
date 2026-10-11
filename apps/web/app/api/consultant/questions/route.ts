@@ -1,6 +1,5 @@
 // POST /api/consultant/questions — ask a question and get a cited answer.
 import { NextResponse, type NextRequest } from 'next/server';
-import { tasks } from '@trigger.dev/sdk/v3';
 import { authorizePilotRequest } from '@/lib/oracle2-pilot-auth';
 import {
   getDraft,
@@ -22,7 +21,7 @@ export async function POST(req: NextRequest) {
     const actorId = auth.actorId;
     const workspaceId = pilotWorkspaceId();
     if (!question || typeof question !== 'string' || !question.trim() || question.length > 4000) {
-      return NextResponse.json({ error: 'question is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Enter a question of 1 to 4000 characters.' }, { status: 400 });
     }
     if (!sourceId || !draftId) {
       return NextResponse.json({ error: 'sourceId and draftId are required' }, { status: 400 });
@@ -54,6 +53,7 @@ export async function POST(req: NextRequest) {
     });
     try {
       // Dedicated preview project credential; no source text or question in task payload/logs.
+      const { tasks } = await import('@trigger.dev/sdk/v3');
       await tasks.trigger('oracle2-holistic-answer', { runId, workspaceId, corpusDigest },
         undefined, { clientConfig: { accessToken: key } });
     } catch {

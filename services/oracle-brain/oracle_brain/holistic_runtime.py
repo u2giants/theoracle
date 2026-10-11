@@ -161,6 +161,7 @@ async def execute(operation: str, request: dict):
     with psycopg.connect(database) as connection:
         corpus = read_corpus(connection, workspace)
     pilot = make_pilot(corpus)
+    claimed = False
     try:
         if operation == "build":
             # Session lock spans provider calls without holding a DB transaction;
@@ -197,6 +198,7 @@ async def execute(operation: str, request: dict):
                     raise PermissionError("actor authority missing")
                 connection.execute("UPDATE oracle2.runs SET status='processing',updated_at=now() WHERE run_id=%s",
                                    (run_id,))
+        claimed = True
         await pilot.load_reviewed_snapshot()
         result = await pilot.answer(question, corpus)
         with psycopg.connect(database) as connection:
@@ -211,6 +213,18 @@ async def execute(operation: str, request: dict):
                 if changed.rowcount != 1:
                     raise PermissionError("run cancelled or changed before publication")
         return {"run_id": str(run_id), "status": "completed", "corpus_digest": pilot.digest}
+    except Exception:
+        # Only the delivery that claimed this run may fail an in-flight answer.
+        if claimed:
+            try:
+                with psycopg.connect(database) as connection:
+                    connection.execute("""UPDATE oracle2.runs SET status='error',
+                        error='Connected corpus answer failed; original sources retained',updated_at=now()
+                        WHERE run_id=%s AND workspace_id=%s AND status='processing'""",
+                        (run_id, workspace))
+            except Exception:
+                pass
+        raise
     finally:
         await pilot.close()
 
@@ -229,7 +243,7 @@ def main():
                 with psycopg.connect(os.environ["ORACLE2_DATABASE_URL"]) as connection:
                     connection.execute("""UPDATE oracle2.runs SET status='error',
                         error='Connected corpus answer failed; original sources retained',updated_at=now()
-                        WHERE run_id=%s AND workspace_id=%s AND status IN ('pending','processing')""",
+                        WHERE run_id=%s AND workspace_id=%s AND status='pending'""",
                         (UUID(request["runId"]), UUID(request["workspaceId"])))
             except Exception:
                 pass

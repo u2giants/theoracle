@@ -330,10 +330,11 @@ class HolisticGraphPilot:
             return {"corpus_digest": self.digest, "graph_name": self.graph_name,
                     "pipeline": PIPELINE_VERSION, "sdk_version": "1.4.0", "reused_snapshot": True}
         receipts = []
+        extractor = ProcessExtraction(self.llm)
         for source in self.corpus.sources:
             receipt = await self.rag.ingest(text=source.text,
                 document_id=str(source.source_id), chunker=WholeDocumentChunks(),
-                extractor=ProcessExtraction(self.llm), resolver=PreserveReportedRelations())
+                extractor=extractor, resolver=PreserveReportedRelations())
             if receipt.chunks_indexed < 1:
                 raise RuntimeError("source was not indexed")
             receipts.append(receipt.model_dump(mode="json"))
@@ -431,7 +432,7 @@ class HolisticGraphPilot:
                 "graph_name": self.graph_name, "pipeline": PIPELINE_VERSION,
                 "sdk_version": "1.4.0", "source_count": len(self.corpus.sources),
                 "distinct_original_count": len(originals),
-                "retrieval_sections": [i.metadata.get("section")
+                "retrieval_sections": [(i.metadata or {}).get("section")
                     for i in result.retriever_result.items] if result.retriever_result else []}
 
     async def close(self):

@@ -688,12 +688,12 @@ Never merge similarly named departments/people or contradictory policies automat
 |---|---|---|
 | H1 plan + ownership correction | complete | This section; same issues #24/#27/#58 updated with paused obsolete grading |
 | H2 pinned SDK + admitted providers | implemented; engineering checks pass | Dependency lock, SDK API compatibility test, forbidden-provider test |
-| H3 complete source corpus + provenance | native originals verified; funded OpenRouter whole-original reading / review active | Source inventory with hashes/revisions/parser completeness; no incomplete PDFs accepted |
+| H3 complete source corpus + provenance | complete: 26 uploads / eight originals, all 29 PDF pages independently verified | Source inventory with hashes/revisions/parser completeness; no incomplete PDFs accepted |
 | H4 process graph + cross-source resolution | implemented; synthetic integration passes | Real FalkorDB SDK integration; process/responsibility/rule/exception/decision/artifact schema, duplicate and scope tests |
 | H5 connected retrieval + explanation | implemented; synthetic browser proof passes | SDK retrieval and synthesis invoked by actual pilot endpoint; multi-source causality and exception tests |
 | H6 lifecycle, permission and grounding | implemented; focused checks pass | Withdrawal/revision/forbidden-source tests; exact citations; unavailable graph visibly fails |
 | H7 independent review + end-to-end proof | open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
-| H8 authorized real-corpus readiness | blocked on complete visual readings; hosted preview still unqualified | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
+| H8 authorized real-corpus readiness | complete originals qualified; company graph build awaits current review; hosted preview unqualified | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
 | H9 new questions / existing rerun | deferred by owner | No question generation before H2–H8 pass; rerun existing questions only on new owner instruction |
 
 Implement H2 in `services/oracle-brain/pyproject.toml`, `uv.lock`, SDK adapter module
@@ -895,3 +895,21 @@ the synthetic browser-to-worker-to-Falkor journey also passes.
 Native-source proof, provisional visual readings, failed-attempt evidence and private
 processing register are retained outside this public repository under the approved
 Oracle evidence directory. Source content and credentials remain private.
+
+**Qualified-original milestone — 2026-10-11 EDT:** All 26 uploads representing
+eight distinct originals now pass complete reading qualification: three native
+text originals and five visual originals, including the original diagram and all
+29 pages of four PDFs. Original byte hashes, alias coverage, complete structured
+readings and independent review receipts were rechecked. Private immutable combined
+reading evidence remains outside the repository; sanitized proof is recorded on
+#24/#27/#58. H3 is complete. No company questions were generated or rerun.
+
+**Review repairs — 2026-10-11 EDT:** Duplicate-original extraction is shared across
+uploads while each upload retains its Document/chunk/mention identity. A duplicate
+worker delivery cannot fail another delivery's processing run; claimed failures are
+recorded by their owner. Processing timeout measures the last state transition, not
+queue age. Dedicated deployment entry, authenticated transport fixture, absent generic
+Trigger credentials, metadata guards, explicit import-receipt precedence and ignored
+browser artifacts are covered. Current S03 contracts pass 60 tests. H7 still requires
+independent exact-current APPROVE; H8 still requires complete company graph and hosted
+preview qualification. H9 stays deferred.

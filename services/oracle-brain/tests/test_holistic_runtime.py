@@ -235,7 +235,7 @@ def test_execute_rechecks_exact_corpus_before_completion(admin_url, monkeypatch)
         asyncio.run(execute("answer", {"workspaceId": str(workspace), "runId": str(run_id),
                                         "corpusDigest": FakePilot.digest}))
     with psycopg.connect(admin_url) as connection:
-        assert connection.execute("SELECT status FROM oracle2.runs WHERE run_id=%s", (run_id,)).fetchone()[0] == "processing"
+        assert connection.execute("SELECT status FROM oracle2.runs WHERE run_id=%s", (run_id,)).fetchone()[0] == "error"
 
 
 def test_holistic_role_can_read_corpus_and_update_only_run_lifecycle(admin_url):
@@ -269,3 +269,22 @@ def test_holistic_role_can_read_corpus_and_update_only_run_lifecycle(admin_url):
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             with psycopg.connect(holistic_url) as connection:
                 connection.execute(statement, parameters)
+
+
+def test_duplicate_delivery_does_not_fail_another_processing_delivery(admin_url, monkeypatch):
+    from oracle_brain import holistic_runtime
+    workspace = uuid4()
+    _, reviewer = _owner_and_reviewer(admin_url, workspace, monkeypatch)
+    rows = _insert_sources(admin_url, workspace, count=2)
+    monkeypatch.setenv("ORACLE2_HOLISTIC_SOURCE_IDS", json.dumps([str(row[0]) for row in rows]))
+    monkeypatch.setenv("ORACLE2_HOLISTIC_WORKSPACE_ID", str(workspace))
+    monkeypatch.setenv("ORACLE2_DATABASE_URL", admin_url)
+    fake = FakePilot()
+    monkeypatch.setattr(holistic_runtime, "make_pilot", lambda corpus: fake)
+    run_id = _insert_run(admin_url, workspace, reviewer, rows[0][0], rows[0][1], status="processing")
+    request = {"workspaceId": str(workspace), "runId": str(run_id), "corpusDigest": fake.digest}
+    monkeypatch.setattr(holistic_runtime.sys, "argv", ["holistic_runtime.py", "answer", json.dumps(request)])
+    assert holistic_runtime.main() == 1
+    assert not fake.loaded
+    with psycopg.connect(admin_url) as connection:
+        assert connection.execute("SELECT status FROM oracle2.runs WHERE run_id=%s", (run_id,)).fetchone()[0] == "processing"

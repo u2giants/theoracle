@@ -39,6 +39,7 @@ DOC_TWO = "Review Team reviews the packet. If the packet is incomplete, Review T
 WORKSPACE = uuid4()
 ACTOR = UUID("00000000-0000-4000-8000-0000000000f2")
 OWNER = UUID("00000000-0000-4000-8000-0000000000f3")
+TRIGGER_AUTH_TOKEN = "synthetic-trigger-secret"
 
 
 class FixedLLM(LLMInterface):
@@ -166,6 +167,9 @@ class TriggerHandler(BaseHTTPRequestHandler):
         if self.path != "/api/v1/tasks/oracle2-holistic-answer/trigger":
             self.send_error(404)
             return
+        if self.headers.get("Authorization") != f"Bearer {TRIGGER_AUTH_TOKEN}":
+            self.send_error(401)
+            return
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("content-length", "0"))))
             payload = body.get("payload") if isinstance(body, dict) else None
@@ -228,11 +232,11 @@ def main() -> int:
                             "oracle2_pilot_web:oracle2_local_pilot_web_only"),
         "ORACLE2_PILOT_TOKEN": "synthetic-browser-token",
         "ORACLE2_PILOT_ACTOR": str(ACTOR), "ORACLE2_PILOT_WORKSPACE_ID": str(WORKSPACE),
-        "ORACLE2_HOLISTIC_TRIGGER_SECRET_KEY": "synthetic-trigger-secret",
+        "ORACLE2_HOLISTIC_TRIGGER_SECRET_KEY": TRIGGER_AUTH_TOKEN,
         "ORACLE2_HOLISTIC_CORPUS_DIGEST": proof["corpus_digest"],
         "ORACLE2_HOLISTIC_WORKSPACE_ID": str(WORKSPACE), "ORACLE2_HOLISTIC_SOURCE_IDS": json.dumps([str(x) for x in source_ids]),
         "ORACLE2_HOLISTIC_CONFIG_ID": "holistic-browser-fixture-v1", "TRIGGER_API_URL": trigger_url,
-        "TRIGGER_ACCESS_TOKEN": "synthetic-trigger-secret", "ORACLE2_HOLISTIC_FIXTURE_SOURCE_ID": str(source_ids[0]),
+        "ORACLE2_HOLISTIC_FIXTURE_SOURCE_ID": str(source_ids[0]),
         "ORACLE2_HOLISTIC_FIXTURE_DRAFT_ID": str(draft_ids[0]), "ORACLE2_HOLISTIC_FIXTURE_SOURCE_IDS": json.dumps([str(x) for x in source_ids]),
     }
     target = Path(args.env_file); target.parent.mkdir(parents=True, exist_ok=True)
