@@ -1064,3 +1064,15 @@ the predecessor handoff. No public publication was established; no claim of
 credential invalidation or exhaustive publication search is made. Original
 capability, concealed storage, sanitized notes and separate CI identity remain.
 The application issue remains open for H7/H8; all question work remains paused.
+
+
+The repaired-bounds synthetic qualification on October 11, 2026, 1:43 PM EDT
+failed closed at cross-document readiness: two documents and 13 reported links
+were ingested, but equivalent explicitly declared identity scopes were decorated
+with different missing-information commentary. No finalized snapshot was written.
+This is a newly measured scope-extraction defect, not a successful qualification.
+The minimal repair makes identity scope a stable explicit boundary and directs
+missing-information/applicability commentary to its own fields; unknown and narrower
+explicit scopes stay separate. It does not introduce fuzzy merging, broaden rule
+applicability, omit sources, relax readiness, or rewrite failed graphs. Repeat
+synthetic qualification with a new immutable configuration before company dispatch.
