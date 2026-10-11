@@ -77,6 +77,10 @@ jobs:
         run: pnpm --filter @oracle/web exec playwright install chromium
       - name: Prove browser through SDK transport and real FalkorDB
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/verify_holistic_browser.py
+      - name: Prove pilot readiness-only browser coverage
+        run: |
+          services/oracle-brain/.venv/bin/python scripts/oracle2/verify_holistic_browser.py \
+            --readiness-only --result out/oracle2/holistic-browser-readiness-result.json
       - name: Pilot graph resource experiment
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 10000 --relations 100000 --output out/oracle2/resource-pilot.json
       - name: Ten-times graph stress experiment

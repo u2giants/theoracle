@@ -22,7 +22,8 @@ from oracle_brain.graph.graphrag import (
 from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest
 
 
-DOC_ONE = "Intake Lead sends the packet to Review Team. Review Team follows the signed policy."
+LITERAL_TEMPLATE_TEXT = "Template placeholders {context} and {question} are literal source text."
+DOC_ONE = "Intake Lead sends the packet to Review Team. Review Team follows the signed policy. " + LITERAL_TEMPLATE_TEXT
 DOC_TWO = "Review Team reviews the packet. If the packet is incomplete, Review Team returns it to Intake Lead."
 
 
@@ -234,3 +235,5 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
     assert {citation["source_id"] for statement in result["answer"]["explanation"]
             for citation in statement["citations"]} == {str(first.source_id), str(second.source_id)}
     assert len(llm.calls) >= 3  # two extraction calls, finalization/retrieval completion
+    completions = [prompt for prompt in llm.calls if "FULL ORIGINAL SOURCE DATA" in prompt]
+    assert completions and all(LITERAL_TEMPLATE_TEXT in prompt for prompt in completions)

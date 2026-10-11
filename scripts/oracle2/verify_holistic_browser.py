@@ -92,6 +92,7 @@ def _wait_http(url: str, proc: subprocess.Popen[str], timeout: float) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--result", default="out/oracle2/holistic-browser-result.json")
+    parser.add_argument("--readiness-only", action="store_true")
     args = parser.parse_args()
     result_path = ROOT / args.result
     fixture_proc = web_proc = None
@@ -145,6 +146,9 @@ def main() -> int:
             # The dedicated fourth-argument SDK credential must work by itself.
             web_env.pop("TRIGGER_ACCESS_TOKEN", None)
             web_env.pop("TRIGGER_SECRET_KEY", None)
+            if args.readiness_only:
+                web_env.pop("ORACLE2_HOLISTIC_TRIGGER_SECRET_KEY", None)
+                web_env.pop("ORACLE2_HOLISTIC_CORPUS_DIGEST", None)
             web_log = (scratch_path / "web.log").open("w", encoding="utf-8")
             web_proc = subprocess.Popen(
                 ["pnpm", "--filter", "@oracle/web", "exec", "next", "dev",
@@ -156,7 +160,9 @@ def main() -> int:
             test_env = {**web_env, "ORACLE2_PREVIEW_URL": f"http://127.0.0.1:{browser_port}"}
             completed = subprocess.run(
                 ["pnpm", "--filter", "@oracle/web", "exec", "playwright", "test",
-                 "--config", "playwright.oracle2.config.ts", "tests/oracle2/holistic-browser.spec.ts"],
+                 "--config", "playwright.oracle2.config.ts",
+                 ("tests/oracle2/pilot.spec.ts" if args.readiness_only
+                  else "tests/oracle2/holistic-browser.spec.ts")],
                 cwd=ROOT, env=test_env, stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=90,
                 check=False)

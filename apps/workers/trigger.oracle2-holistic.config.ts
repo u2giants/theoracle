@@ -21,9 +21,9 @@ export default defineConfig({
   logLevel: 'info',
   retries: { enabledInDev: false, default: { maxAttempts: 1 } },
   dirs: ['./src/trigger'],
-  ignorePatterns: readdirSync(triggerDir)
-    .filter((file) => file !== 'oracle2-holistic.ts')
-    .map((file) => `**/${file}`),
+  ignorePatterns: readdirSync(triggerDir, { withFileTypes: true })
+    .filter((entry) => entry.name !== 'oracle2-holistic.ts' || entry.isDirectory())
+    .map((entry) => entry.isDirectory() ? `**/${entry.name}/**` : `**/${entry.name}`),
   build: {
     extensions: [oracle2Python({
       scripts: ['./oracle2-python/oracle_brain/**/*.py'],

@@ -692,8 +692,8 @@ Never merge similarly named departments/people or contradictory policies automat
 | H4 process graph + cross-source resolution | implemented; synthetic integration passes | Real FalkorDB SDK integration; process/responsibility/rule/exception/decision/artifact schema, duplicate and scope tests |
 | H5 connected retrieval + explanation | implemented; synthetic browser proof passes | SDK retrieval and synthesis invoked by actual pilot endpoint; multi-source causality and exception tests |
 | H6 lifecycle, permission and grounding | implemented; focused checks pass | Withdrawal/revision/forbidden-source tests; exact citations; unavailable graph visibly fails |
-| H7 independent review + end-to-end proof | open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
-| H8 authorized real-corpus readiness | complete originals qualified; company graph build awaits current review; hosted preview unqualified | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
+| H7 independent review + end-to-end proof | source independently approved at 7dbe868; final follow-up review and delivery open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
+| H8 authorized real-corpus readiness | complete originals qualified and imported; company graph blocked by OpenRouter daily allowance until 8:00 PM EDT October 11; hosted preview unqualified | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
 | H9 new questions / existing rerun | deferred by owner | No question generation before H2–H8 pass; rerun existing questions only on new owner instruction |
 
 Implement H2 in `services/oracle-brain/pyproject.toml`, `uv.lock`, SDK adapter module
@@ -913,3 +913,20 @@ Trigger credentials, metadata guards, explicit import-receipt precedence and ign
 browser artifacts are covered. Current S03 contracts pass 60 tests. H7 still requires
 independent exact-current APPROVE; H8 still requires complete company graph and hosted
 preview qualification. H9 stays deferred.
+
+**Current delivery gate — October 11, 2026, 12:02 PM EDT:** GLM independently
+approved source 7dbe8685dfc9fe17fefdcddbe1fe0967a95616ab. Subsequent bounded
+repairs preserve literal source placeholders in SDK prompts, exclude nested legacy
+worker directories, and add the separate readiness browser journey to CI. Final
+follow-up approval and required CI must bind the resulting exact head.
+
+All 26 uploads / eight originals are imported into a new isolated loopback workspace.
+Signed confirmations establish source-reading completeness only, never business
+truth. Private company-import-proof.json records zero questions generated.
+The actual company GraphRAG build has NOT run: one synthetic embedding qualification
+received OpenRouter HTTP 403 key_limit, daily usage $15.46848864 / $15. Reset is
+October 11 at 8:00 PM EDT. Do not retry before reset or raise the limit. After reset,
+qualify the fixed embedding route once before building and independently auditing
+company coverage. Hosted secure FalkorDB budget remains an unanswered owner question;
+separate isolated hosted database and dedicated worker targets remain unqualified.
+H8 and hosted live proof remain open on the same issues. H9 remains owner-deferred.

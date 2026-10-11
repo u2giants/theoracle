@@ -129,6 +129,7 @@ def _seed_database(admin_url: str, source_ids: tuple[UUID, UUID], draft_ids: tup
     appoint_owner(admin_url, workspace_id=WORKSPACE, owner_id=OWNER, appointed_by=uuid4(),
                   appointment_id=appointment, owner_signature_hex=key.sign(message).hex())
     delegate(admin_url, workspace_id=WORKSPACE, grantor_id=OWNER, actor_id=ACTOR, scope="review")
+    delegate(admin_url, workspace_id=WORKSPACE, grantor_id=OWNER, actor_id=ACTOR, scope="confirm")
     with psycopg.connect(admin_url) as conn:
         revision_rows = conn.execute(
             "SELECT s.source_id,s.revision,d.updated_at FROM oracle2.sources s "

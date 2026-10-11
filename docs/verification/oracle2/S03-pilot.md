@@ -258,3 +258,13 @@ The strengthened synthetic browser proof passes with authentication enforced and
 no generic Trigger token env fallback. Fresh `pnpm --filter @oracle/web typecheck`
 and full `pnpm run build:vercel` both pass after the repairs. This specifically
 refutes H1 against the installed pinned SDK; it is not hosted Trigger acceptance.
+
+GLM approved 7dbe8685dfc9fe17fefdcddbe1fe0967a95616ab. Follow-up tests cover
+literal {context}/{question} in original text, explicit nested worker exclusions,
+and separate readiness-only CI browser coverage. Source checks remain 60 passing.
+All 26 original uploads are imported in a new isolated loopback workspace with
+source-reading confirmations; this establishes neither business truth nor company
+graph readiness. No company questions ran. The company graph build is blocked by
+OpenRouter's existing $15 daily key limit, resetting October 11, 2026 at 8:00 PM EDT.
+Fixed embedding qualification must pass after reset before graph construction.
+Hosted targets and the secure FalkorDB hosting budget remain unqualified.
