@@ -1,5 +1,24 @@
 # Oracle overhaul: technology and strategy research
 
+## Workflow integrity follow-up
+
+Checked October 11, 2026 EDT. The research snapshot below remains dated September
+27; its historical PM4Py candidate is 2.7.22 at
+[24a3bf610aea6ecc4938b1864b3ad71fcfb82084](https://github.com/process-intelligence-solutions/pm4py/tree/24a3bf610aea6ecc4938b1864b3ad71fcfb82084).
+W04 must re-qualify a stable exact version and license against the actual worker
+bundle; neither the historical pin nor current branch documentation is installed
+compatibility proof.
+
+The [workflow integrity plan](../../plan_oracle_workflow_integrity.md) (read STATUS
+first) specifies retained conflicts/unknowns and an explicit execution model
+alongside the existing FalkorDB/GraphRAG reported graph. It distinguishes PM4Py
+structural checks from measured event-log analysis. Selected patterns from
+ProMoAI, agency-agents, ODD and the CrewAI consultant are implemented as small
+Oracle-owned contracts, not additional installed platforms. The plan links
+current primary sources, fixes evidence/authority boundaries and requires exact
+dependency/license qualification before deployment. No new runtime capability
+or business acceptance is claimed by that planning publication.
+
 Research checked 2026-09-27 EDT. This is a decision record, not a vendor benchmark.
 Companion: [implementation plan](../../plan_oracle_consultant_overhaul.md), whose STATUS table is authoritative for execution.
 
