@@ -252,7 +252,7 @@ fallbacks, so it now tests that actual argument position rather than hiding it.
 A real pinned SDK/Falkor integration proves two extraction calls for two distinct
 originals while preserving three separate Documents, Chunks and mention identities
 when one upload is an identical-byte alias. S03 currently passes 60 tests.
-Fresh independent review and intended hosted preview remain open.
+Independent source reviews and web delivery passed in PR #83; the dedicated hosted-worker proof remains open.
 
 The strengthened synthetic browser proof passes with authentication enforced and
 no generic Trigger token env fallback. Fresh `pnpm --filter @oracle/web typecheck`
@@ -264,7 +264,13 @@ literal {context}/{question} in original text, explicit nested worker exclusions
 and separate readiness-only CI browser coverage. Source checks remain 60 passing.
 All 26 original uploads are imported in a new isolated loopback workspace with
 source-reading confirmations; this establishes neither business truth nor company
-graph readiness. No company questions ran. The company graph build is blocked by
-OpenRouter's existing $15 daily key limit, resetting October 11, 2026 at 8:00 PM EDT.
-Fixed embedding qualification must pass after reset before graph construction.
-Hosted targets and the secure FalkorDB hosting budget remain unqualified.
+graph readiness. No company questions ran. Albert settled $25/day on October 11;
+the exact existing-key change received independent review and provider verification
+at 1:11 PM EDT. Fixed OpenAI-only embedding qualification passed at 256 dimensions.
+The isolated company graph attempt failed at 1:13 PM EDT with IngestionError;
+its underlying cause is unverified, no finalized company snapshot exists, and no
+questions were generated. Preserve the failed graph and private receipt; diagnose
+with safe error-class/status evidence and minimal synthetic qualification before
+a new immutable company configuration. Hosted
+worker/database targets remain unqualified; prefer existing-server self-hosting,
+which is not yet implemented or qualified, over an assumed Cloud subscription.

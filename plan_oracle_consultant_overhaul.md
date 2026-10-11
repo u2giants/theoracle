@@ -15,7 +15,7 @@ S01 has an offline record. S02 is accepted on synthetic evidence. S03 code and s
 |---|---|---|---|---|
 | S01 | Acceptance corpus and baseline availability | ✅ offline accepted; live comparison unavailable | None | [S01 record](docs/verification/oracle2/S01-baseline.md), [synthetic manifest](evals/oracle2/synthetic-cases.jsonl); [child #25](https://github.com/u2giants/theoracle/issues/25). No real-quality claim. |
 | S02 | Isolated foundation and database/library qualification | ✅ accepted (synthetic only) | S01 | [S02 record](docs/verification/oracle2/S02-dependencies.md) incl. Trigger preview runs on CPython 3.12.14, [models](docs/verification/oracle2/S02-models.md), [FalkorDB license fit](docs/verification/oracle2/S02-falkordb-license.md); [offline CI run 36450899266](https://github.com/u2giants/theoracle/actions/runs/36450899266) at `da76d0a` (final code; later commits documentation-only), [PR #45](https://github.com/u2giants/theoracle/pull/45), [child #26](https://github.com/u2giants/theoracle/issues/26). No business-quality or real-data claim. |
-| S03 | One usable document-to-consultation journey | 🔵 historical thin journey on main; **not accepted** — obsolete grading paused; holistic FalkorDB + GraphRAG SDK correction H1–H8 open | S02 | Offline 11/11 (`36644212614`, `1cdca59`, PR #57). Preview: Muse plan-review **APPROVE** `54b6284`; edge-dev3 journey + v2 in [S03-pilot.md](docs/verification/oracle2/S03-pilot.md). Real-doc bank [evals/oracle2/s03-realdoc-question-bank.md](evals/oracle2/s03-realdoc-question-bank.md) (PR #77) run 2026-10-06 (30/30 answered) from Admin production docs; Ilona L1–15 + Jessica J16–30 historical packets; grading stopped. PDF SOPs still failed ingestion (`pdf-parse` crash — fix in flight). [child #27](https://github.com/u2giants/theoracle/issues/27), [#58](https://github.com/u2giants/theoracle/issues/58). No business-quality claim until process owners accept. |
+| S03 | One usable document-to-consultation journey | 🔵 historical thin journey on main; **not accepted** — obsolete grading paused; holistic FalkorDB + GraphRAG SDK correction H1–H8 open | S02 | Offline 11/11 (`36644212614`, `1cdca59`, PR #57). Preview: Muse plan-review **APPROVE** `54b6284`; edge-dev3 journey + v2 in [S03-pilot.md](docs/verification/oracle2/S03-pilot.md). Real-doc bank [evals/oracle2/s03-realdoc-question-bank.md](evals/oracle2/s03-realdoc-question-bank.md) (PR #77) run 2026-10-06 (30/30 answered) from Admin production docs; Ilona L1–15 + Jessica J16–30 historical packets; grading stopped. Original-reading correction now qualified all four PDFs; the company graph and hosted journey remain unaccepted. [child #27](https://github.com/u2giants/theoracle/issues/27), [#58](https://github.com/u2giants/theoracle/issues/58). No business-quality claim until process owners accept. |
 | S04 | Reliable document learning, revisions and withdrawal | ⬜ open | S03 | Not built; [child #28](https://github.com/u2giants/theoracle/issues/28) |
 | S05 | Confirmed temporal operating model and corrections | ⬜ open | S04 | Not built; [child #29](https://github.com/u2giants/theoracle/issues/29) |
 | S06 | Resumable employee interviews and ordinary chat learning | ⬜ open | S05 | Not built; [child #30](https://github.com/u2giants/theoracle/issues/30) |
@@ -692,8 +692,8 @@ Never merge similarly named departments/people or contradictory policies automat
 | H4 process graph + cross-source resolution | implemented; synthetic integration passes | Real FalkorDB SDK integration; process/responsibility/rule/exception/decision/artifact schema, duplicate and scope tests |
 | H5 connected retrieval + explanation | implemented; synthetic browser proof passes | SDK retrieval and synthesis invoked by actual pilot endpoint; multi-source causality and exception tests |
 | H6 lifecycle, permission and grounding | implemented; focused checks pass | Withdrawal/revision/forbidden-source tests; exact citations; unavailable graph visibly fails |
-| H7 independent review + end-to-end proof | source independently approved at 7dbe868; final follow-up review and delivery open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
-| H8 authorized real-corpus readiness | complete originals qualified and imported; company graph blocked by OpenRouter daily allowance until 8:00 PM EDT October 11; hosted preview unqualified | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
+| H7 independent review + end-to-end proof | source, final review, CI and web delivery complete; dedicated hosted worker proof open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
+| H8 authorized real-corpus readiness | complete originals qualified and imported; reviewed $25 daily key limit verified and fixed embedding passes; company graph failed during ingestion; self-host route preferred, not implemented or qualified | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
 | H9 new questions / existing rerun | deferred by owner | No question generation before H2–H8 pass; rerun existing questions only on new owner instruction |
 
 Implement H2 in `services/oracle-brain/pyproject.toml`, `uv.lock`, SDK adapter module
@@ -910,11 +910,10 @@ worker delivery cannot fail another delivery's processing run; claimed failures 
 recorded by their owner. Processing timeout measures the last state transition, not
 queue age. Dedicated deployment entry, authenticated transport fixture, absent generic
 Trigger credentials, metadata guards, explicit import-receipt precedence and ignored
-browser artifacts are covered. Current S03 contracts pass 60 tests. H7 still requires
-independent exact-current APPROVE; H8 still requires complete company graph and hosted
+browser artifacts are covered. Current S03 contracts pass 60 tests. H7 source review, CI and web delivery passed in PR #83; dedicated hosted-worker proof remains open. H8 still requires complete company graph and hosted
 preview qualification. H9 stays deferred.
 
-**Current delivery gate — October 11, 2026, 12:02 PM EDT:** GLM independently
+**Historical delivery gate — October 11, 2026, 12:02 PM EDT (superseded by verified delivery and spending ruling below):** GLM independently
 approved source 7dbe8685dfc9fe17fefdcddbe1fe0967a95616ab. Subsequent bounded
 repairs preserve literal source placeholders in SDK prompts, exclude nested legacy
 worker directories, and add the separate readiness browser journey to CI. Final
@@ -925,8 +924,102 @@ Signed confirmations establish source-reading completeness only, never business
 truth. Private company-import-proof.json records zero questions generated.
 The actual company GraphRAG build has NOT run: one synthetic embedding qualification
 received OpenRouter HTTP 403 key_limit, daily usage $15.46848864 / $15. Reset is
-October 11 at 8:00 PM EDT. Do not retry before reset or raise the limit. After reset,
-qualify the fixed embedding route once before building and independently auditing
-company coverage. Hosted secure FalkorDB budget remains an unanswered owner question;
+October 11 at 8:00 PM EDT. This was the pre-ruling hold: Albert subsequently settled $25/day, independently reviewed and verified below. Do not restore the superseded prohibition on the reviewed raise. Fixed embedding qualification now passes. Self-hosting on existing Hetz is preferred; no new Cloud subscription budget is needed for discovery;
 separate isolated hosted database and dedicated worker targets remain unqualified.
 H8 and hosted live proof remain open on the same issues. H9 remains owner-deferred.
+
+**Verified correction delivery — October 11, 2026, 12:38 PM EDT:**
+[PR #83](https://github.com/u2giants/theoracle/pull/83) merged as
+[f26ddfaf88e247eadcc4f9ebedd9d21a22857bdd](https://github.com/u2giants/theoracle/commit/f26ddfaf88e247eadcc4f9ebedd9d21a22857bdd).
+Independent GLM final-check APPROVE binds 201da85e0609404cf5b5a153f645dfe319a0f11f
+and the preceding full correction approval binds 7dbe8685dfc9fe17fefdcddbe1fe0967a95616ab.
+Both PR and merged-main contract/build checks pass; the production web deployment
+reports success at that merge SHA. This does not qualify a dedicated holistic
+worker, company graph, or hosted live journey. No company questions have run.
+
+OpenRouter is pay-as-you-go. Fresh read-only account/key checks show $21.236204216
+account credit remaining, but the Oracle key independently has limit=15,
+limit_remaining=0, limit_reset=daily, usage_daily=15.46848864. The key's reset
+is 8:00 PM EDT October 11; no account subscription/reset is involved. The owner
+answered "$25 per day" at 12:43 PM EDT October 11. That settles the business
+budget. The technical action below subsequently received independent APPROVE and was verified at 1:11 PM EDT. No purchase, fallback or direct-provider retry occurred. A direct provider
+remains possible but needs its own admitted endpoint/account and bounded qualification.
+
+Owner asked whether FalkorDB could be self-hosted. Prefer qualification of the
+existing Hetz server over a new $73/month FalkorDB Cloud subscription; the earlier
+cloud-budget question no longer blocks discovery. Read-only live checks found
+31,339 MiB RAM, 21,891 MiB available and 43 GiB disk free. The existing Coolify server is reachable/usable; its exact discovery identities remain in protected receipts; no Oracle project exists there yet.
+No hosted resource, host configuration or existing application was changed.
+The pinned SDK ConnectionConfig supports verified TLS and client certificates;
+its URL parser does not propagate certificate query parameters, so custom CA or
+client certificate inputs must be supplied explicitly and tested before release.
+
+Self-host qualification must retain private candidate/confirmed separation,
+persistent storage, protected credential references, independently tested backup
+and fresh-instance restore, TLS with hostname verification, and a proven restricted
+connection from the dedicated Trigger worker. Trigger static outbound IPs require
+a paid plan; verify the existing account's entitlement before relying on them.
+Prefer the supported userspace Tailscale tunnel to the existing Hetz tailnet,
+with a loopback-only TCP forwarder for Python SDK traffic and a narrowly scoped
+ephemeral worker identity. Trigger documents this pattern at
+https://trigger.dev/docs/guides/examples/private-gcp-resource. Qualify it with
+synthetic traffic first, including checkpoint/restore and revoked access. The
+private tunnel must protect transport end-to-end; direct TLS routes must verify
+certificates and hostnames. Never expose the graph publicly or disable verification
+to obtain connectivity. Re-review license/deployment fit on the exact topology. Compose and
+release definitions belong in Oracle GitHub; Coolify owns runtime; any necessary
+host/firewall change belongs in Ansible through its own gates. Preserve existing
+web/worker capability; do not replace it with a bypass. Technical reviewers gate
+the exact release inputs. H8 and live proof remain open on #27/#58 under Codex.
+
+**Exact technical action for independent review — October 11, 12:44 PM EDT:**
+Owner answer from this chat, verbatim: "$25 per day". Change only the existing
+theOracle OpenRouter key's daily spending limit from 15 to 25 USD. Target vault
+item 62ieeyycs4ierflalbbbt5pq5i / OPENROUTER_API_KEY; unique read-only management
+lookup matches the runtime key label and SHA-256 token fingerprint to the unique theOracle management record. Exact hash/workspace bindings remain in the protected before/after receipts and independently reviewed packet. Management credential: vault item vqk7qypdfdqog6bo7r6f63zz5m / credential. Exact historical action: PATCH the OpenRouter API /keys/{verified-hash} endpoint
+with JSON {"limit":25} only. Inject the existing management credential through
+protected environment, never arguments/output. Recheck unique target, current
+limit=15 and limit_reset=daily immediately before mutation; stop on drift.
+Assert the response and fresh runtime-key GET show limit=25, reset=daily,
+disabled=false, same workspace, expiration and BYOK flag. Preserve all other
+fields, guardrails, keys and consumers. No rotation, new key, credit purchase,
+subscription change, account-wide limit change or hosting mutation is authorized
+by this action. Protected before/after receipts permit restoring limit=15 after
+a failure; restoration must explicitly preserve limit_reset=daily as well as limit=15, and is separately gated on exact independent technical review if any field drifted. Do not issue a blind rollback after a delayed runtime read.
+After successful verification, retire only this key-limit hold, qualify one
+synthetic embedding, then resume the reviewed company-only graph build. Other
+provider holds remain independent. This key-management action and rollback, not
+a hosted infrastructure release, are the only technical mutation requested for
+this review. Self-hosted inputs still need separate exact-topology release review.
+
+**Wrap-up verification — October 11, 2026, 1:11 PM EDT:** Independent GLM plan-review
+APPROVE binds 1174e22e379c861dbd0f40cb8b582d8286f2762e and the exact existing-key
+change only. Provider management and runtime checks now both show $25/day and
+$9.53151136 remaining before further qualification; the exact key identity, all
+other key metadata, workspace, expiration and BYOK settings were preserved. Initial
+runtime reads briefly showed $15 while management already showed $25; fresh runtime
+verification subsequently agreed. Protected before/after receipts remain private.
+The key-specific hold was retired; separate direct-provider holds were not changed.
+One fixed OpenAI-only synthetic embedding passed at 256 dimensions, with zero
+company questions. Company-only graph construction started at 1:11 PM EDT against
+the isolated local workspace and terminated at 1:13 PM EDT with IngestionError.
+No company questions were generated. The private receipt records failure, not
+readiness; no finalized company snapshot exists. The SDK wraps lower errors in
+IngestionError, and this operator retained only the outer error class, so the
+underlying cause is unverified. Preserve the partial graph; do not rerun the same
+immutable configuration or infer quota/timeout without evidence. Exact next step:
+inspect the SDK exception chain and preserve safe class/status diagnostics in a
+protected operator, then qualify a minimal synthetic build before a new company
+configuration. This newly observed failure is carried in the wrap-up handoff;
+no software repair or blind paid retry was started during closure.
+
+Root reported and contained an exposed Tailscale MCP OAuth credential while checking
+self-hosting. The secret was embedded in plaintext vault notes; notes are sanitized,
+but the exposed value still works and replacement remains OPEN. Authenticated
+administrator access is unavailable; the saved clients do not establish OAuth-client
+replacement authority. Preserve the original capability and obtain exact independent
+replacement review; never substitute the separate CI client or disable the integration.
+The bounded path-only audit is incomplete and found an older archived copy. Full
+identity, failed routes, safeguards and next steps are in the session handoff:
+https://github.com/u2giants/theoracle/blob/codex/oracle-selfhost-readiness/HANDOFF.d/2026-10-11T1641Z-edge-dev3-codex-holistic-original-readiness.md .
+Root owns this platform blocker and H7/H8 on the existing cards; H9 remains deferred.
