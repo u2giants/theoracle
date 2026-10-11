@@ -19,7 +19,8 @@ re-derive the plan or resume old experiments to start the isolated replacement.
 The plan distinguishes future design from current runtime and preserves the
 applicable evidence, access and release controls.
 
-For retained conflicts/unknowns, explicit workflow modeling, PM4Py and selective
+For the scoped clean operating-model rebuild, retained conflicts/unknowns,
+explicit workflow modeling, PM4Py and selective
 consultant/lineage integrations, read
 [`plan_oracle_workflow_integrity.md`](plan_oracle_workflow_integrity.md) **STATUS first**.
 It preserves FalkorDB/GraphRAG and the recovery ownership, paused questions and

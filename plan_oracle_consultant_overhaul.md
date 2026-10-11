@@ -1042,3 +1042,18 @@ in the historical paragraph above and its 1641Z handoff are superseded by
 do not rotate, reopen it or repeat the credential sweep. Albert accepted the
 private external Dropbox transcript copy recorded by that receipt. Restricted
 hosting authority remains a separate open engineering gate.
+
+## October 11, 2026 EDT operating-model rebuild supersession
+
+The [workflow integrity plan](plan_oracle_workflow_integrity.md), STATUS first,
+now requires a clean knowledge-to-workflow replacement rather than in-place
+recovery extension. W01 reviews keep/replace/retire boundaries; W02/W03 build the
+new source/finding/operating model; W06 replaces retrieval/answer packing without
+a whole-corpus fallback. FalkorDB/GraphRAG, immutable sources, current authority
+and qualified infrastructure survive. Recovery code/receipts remain references
+and privately owned state; wholesale recovery merge is not a prerequisite to
+new public synthetic core development. The parent H/S product gates remain,
+with W mapping and mechanical-vs-semantic labels authoritative in the new plan.
+PM4Py/measured/consulting work remains requested, separately gated from the first
+documentary slice. No S/H business acceptance or runtime implementation is
+claimed. Read [the Muse debate](docs/research/oracle-operating-model-debate.md).

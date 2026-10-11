@@ -1,5 +1,14 @@
 # Oracle overhaul: technology and strategy research
 
+## Scoped operating-model rebuild follow-up
+
+October 11, 2026 EDT revision: the canonical workflow plan now requires a clean
+knowledge-to-workflow replacement boundary, new cross-source company operating
+model and independently useful documentary slice. Keep FalkorDB/GraphRAG and
+proven substrate, not old business-core code by default. See the
+[Muse critique and debate](oracle-operating-model-debate.md) for objections and
+engineering dispositions; implementation remains unstarted.
+
 ## Workflow integrity follow-up
 
 Checked October 11, 2026 EDT. The research snapshot below remains dated September
