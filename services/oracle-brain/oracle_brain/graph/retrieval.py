@@ -69,7 +69,12 @@ class OriginalBalancedMultiPath(MultiPathRetrieval):
     def _format(self, raw):
         result = super()._format(raw)
         records = [r for r in raw.records if r.get("content")]
+        if len(result.items) != len(records):
+            raise RuntimeError("SDK retrieval formatting changed evidence alignment")
         for item, record in zip(result.items, records):
+            if (item.content != record["content"]
+                    or item.metadata.get("section") != record.get("section", "")):
+                raise RuntimeError("SDK retrieval formatting changed evidence alignment")
             if record.get("section") == "original_evidence":
                 item.metadata.update({key: record[key] for key in
                     ("source_id", "original_hash", "chunk_id", "observation_id")})

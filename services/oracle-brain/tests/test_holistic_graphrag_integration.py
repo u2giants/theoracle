@@ -282,3 +282,73 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
     assert len(llm.calls) >= 3  # two extraction calls, finalization/retrieval completion
     completions = [prompt for prompt in llm.calls if "FULL ORIGINAL SOURCE DATA" in prompt]
     assert completions and all(LITERAL_TEMPLATE_TEXT in prompt for prompt in completions)
+
+
+def test_sdk_finalization_keeps_repeated_authorizations_on_their_own_routes():
+    graph_url = os.environ.get("ORACLE2_TEST_FALKORDB_URL")
+    if not graph_url:
+        pytest.skip("set ORACLE2_TEST_FALKORDB_URL to an approved loopback FalkorDB port")
+    text = ("Review Team checks initial authorization then submits the concept. "
+            "Review Team checks revised authorization then resubmits the concept.")
+    first, second = _source(text, "routes.txt"), _source(DOC_TWO, "review.txt")
+    alias = _source(text, "routes-alias.txt")
+    corpus = Corpus(workspace_id=uuid4(), sources=(first, second, alias),
+                    expected_source_ids=frozenset(s.source_id for s in (first, second, alias)))
+    request = ProcessingRequest(provider="local-synthetic", account="loopback", endpoint=graph_url,
+                                data_classes=frozenset({"synthetic"}), purpose="holistic-integration",
+                                terms_hash="a" * 64)
+    approval = ProcessingApproval(**request.model_dump(), register_ref="loopback-fixture",
+                                  expires_at=datetime.now(timezone.utc) + timedelta(hours=1))
+
+    class RoutesLLM(DeterministicLLM):
+        def invoke(self, prompt, **kwargs):
+            if "\nDOCUMENT DATA:\n" not in prompt or "initial authorization" not in json.loads(
+                    prompt.split("\nDOCUMENT DATA:\n", 1)[1].split(
+                        "\nCOMPLETE CORPUS IDENTITY CONTEXT", 1)[0]):
+                return super().invoke(prompt, **kwargs)
+            self.calls.append(prompt)
+            objects = [{"key": "review", "kind": "Role", "name": "Review Team",
+                        "scope": "licensed", "description": "checks authorization",
+                        "quote": "Review Team"}]
+            for key, name, quote in (
+                    ("initial", "Authorization", "initial authorization"),
+                    ("revised", "Authorization", "revised authorization"),
+                    ("submit", "Submit concept", "submits the concept"),
+                    ("resubmit", "Resubmit concept", "resubmits the concept")):
+                objects.append({"key": key, "kind": "Step", "name": name, "scope": "licensed",
+                                "description": quote, "quote": quote})
+            links = [{"source": a, "target": b, "kind": "PRECEDES",
+                      "description": quote, "quote": quote} for a, b, quote in (
+                ("initial", "submit", "initial authorization then submits the concept"),
+                ("revised", "resubmit", "revised authorization then resubmits the concept"))]
+            return LLMResponse(content=json.dumps({"objects": objects, "links": links,
+                                                  "missing_information": [], "conflicts": []}))
+
+    pilot = HolisticGraphPilot(corpus, graph_url,
+        AdmittedLLM(RoutesLLM(str(first.source_id), str(second.source_id), text, DOC_TWO),
+                    request, [approval], CallBudget(64)),
+        AdmittedEmbedder(DeterministicEmbedder(), request, [approval], CallBudget(64)),
+        config_id="repeated-authorizations-integration-v1", dimensions=4)
+
+    async def run():
+        try:
+            await pilot.build()
+            await pilot.load_reviewed_snapshot()
+            rows = await pilot.rag._graph_store.query_raw(
+                "MATCH (a:Step)-[r:RELATES]->(b:Step) WHERE r.rel_type='PRECEDES' "
+                "RETURN a.id,a.name,b.name,r.source_chunk_ids")
+            assert len(rows.result_set) == 2
+            assert len({row[0] for row in rows.result_set}) == 2
+            assert {row[2] for row in rows.result_set} == {
+                "Submit concept [licensed]", "Resubmit concept [licensed]"}
+            assert all(row[1] == "Authorization [licensed]" and len(row[3]) == 2
+                       for row in rows.result_set)
+            observations = await pilot.rag._graph_store.query_raw(
+                "MATCH (a:Step)-[:HAS_OBSERVATION]->(o:ReportedEntityObservation) "
+                "WHERE a.name='Authorization [licensed]' RETURN a.id,o.evidence_quote")
+            assert len({row[0] for row in observations.result_set}) == 2
+            assert {row[1] for row in observations.result_set} == {
+                "initial authorization", "revised authorization"}
+        finally:
+            await pilot.close()
+    asyncio.run(run())

@@ -20,6 +20,7 @@ from graphrag_sdk.core.providers import LLMInterface, Embedder
 from graphrag_sdk.ingestion.resolution_strategies.base import ResolutionStrategy
 from graphrag_sdk.core.models import ResolutionResult
 from graphrag_sdk.storage.graph_store import GraphStore
+from graphrag_sdk.storage.deduplicator import EntityDeduplicator
 
 from ..provider_policy import ProcessingRequest, ProcessingApproval, authorize
 from .retrieval import OriginalBalancedMultiPath
@@ -257,6 +258,19 @@ class ReportedClaimGraphStore(GraphStore):
                 raise RuntimeError("reported relationship endpoints missing")
             count += written
         return count
+
+
+class ReportedOccurrenceDeduplicator(EntityDeduplicator):
+    """Keep SDK reconciliation while distinguishing source assertion occurrences."""
+    async def _fetch_all_entities(self, batch_size):
+        entities = await super()._fetch_all_entities(batch_size)
+        for entity in entities:
+            if entity.get("label") in {"Step", "Decision", "Exception", "Rule"}:
+                # Only the deduplication key changes; stored names and all SDK
+                # reconciliation of genuinely shared identities remain intact.
+                entity["name"] += "|occurrence:" + entity["id"]
+        return entities
+
 
 class ProcessExtraction(ExtractionStrategy):
     def __init__(self, llm, sources: tuple[CorpusSource, ...] = ()):
@@ -525,7 +539,7 @@ class HolisticGraphPilot:
         # pinned consumers share the owned subclass; vendor files stay intact.
         store = ReportedClaimGraphStore(self.rag._conn)
         self.rag._graph_store = store
-        self.rag._deduplicator._graph = store
+        self.rag._deduplicator = ReportedOccurrenceDeduplicator(store, embedder)
         self.rag._retrieval_strategy = OriginalBalancedMultiPath(
             graph_store=store, vector_store=self.rag._vector_store,
             embedder=embedder, llm=llm,

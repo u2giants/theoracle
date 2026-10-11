@@ -26,6 +26,10 @@ from oracle_brain.graph.graphrag import (
     WholeDocumentChunks,
 )
 from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest
+from oracle_brain.graph.retrieval import OriginalBalancedMultiPath
+from graphrag_sdk.core.models import RawSearchResult, RetrieverResult
+from graphrag_sdk.retrieval.strategies.multi_path import MultiPathRetrieval
+from types import SimpleNamespace
 
 
 def source(text: str, *, source_id: UUID | None = None, revision: str = "r1") -> CorpusSource:
@@ -79,6 +83,40 @@ class FixedEmbedder(Embedder):
 
     def embed_query(self, text: str, **kwargs):
         return [0.0, 1.0, 0.0, 1.0]
+
+
+def retrieval_strategy(response='{"keywords":[]}'):
+    return OriginalBalancedMultiPath(graph_store=object(), vector_store=object(),
+        embedder=FixedEmbedder(), llm=FixedLLM(response), source_hashes={})
+
+
+def test_sdk_keywords_are_structured_literal_terms_and_calls_are_counted():
+    strategy = retrieval_strategy('{"keywords":["REVIEW TEAM"]}')
+    context = SimpleNamespace(ensure_budget=lambda _: None)
+    simple, terms = asyncio.run(strategy._extract_keywords("Review Team", context))
+    assert simple == ["review", "team"]
+    assert terms == ["REVIEW TEAM"]
+    assert strategy.keyword_calls == 1
+    assert strategy._llm.request_options[0]["response_schema"]["additionalProperties"] is False
+
+
+def test_sdk_keywords_reject_invented_aliases_instead_of_silently_falling_back():
+    strategy = retrieval_strategy('{"keywords":["Invented department"]}')
+    with pytest.raises(ValueError, match="not supported by the query"):
+        asyncio.run(strategy._extract_keywords("Review Team", SimpleNamespace(ensure_budget=lambda _: None)))
+    assert strategy.keyword_calls == 1
+
+
+def test_sdk_formatting_refuses_silent_provenance_misalignment(monkeypatch):
+    strategy = retrieval_strategy()
+    raw = RawSearchResult(records=[{"section": "original_evidence", "content": "quoted evidence",
+        "source_id": "approved-source", "original_hash": "a" * 64,
+        "chunk_id": "approved-chunk", "observation_id": "approved-observation"}])
+    actual = strategy._format(raw)
+    assert actual.items[0].metadata["source_id"] == "approved-source"
+    monkeypatch.setattr(MultiPathRetrieval, "_format", lambda self, raw: RetrieverResult(items=[]))
+    with pytest.raises(RuntimeError, match="changed evidence alignment"):
+        strategy._format(raw)
 
 
 def test_corpus_requires_complete_hashed_two_source_inventory_and_budget():
