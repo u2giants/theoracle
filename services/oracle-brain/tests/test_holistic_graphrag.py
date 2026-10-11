@@ -279,6 +279,47 @@ def test_assembled_extraction_envelope_rejects_unicode_expansion_before_dispatch
     assert llm.calls == 0
 
 
+@pytest.mark.parametrize("failure", [None, "foreign", "duplicate", "missing"])
+def test_quote_correction_is_once_exact_complete_and_preserves_claims(failure):
+    text = "Packing requires a label.\nShipping follows packing."
+    payload = {"objects": [{"key": "rule", "kind": "Rule", "name": "Label",
+        "scope": "packing", "description": "Packing requires a label.",
+        "quote": "Packing requires a label. |"}], "links": [],
+        "missing_information": ["Approval date unspecified"], "conflicts": []}
+    correction = {"collection": "objects", "index": 0,
+                  "quote": "Packing requires a label."}
+    corrections = [correction]
+    if failure == "foreign":
+        corrections = [dict(correction, quote="Other source's evidence")]
+    elif failure == "duplicate":
+        corrections *= 2
+    elif failure == "missing":
+        corrections = []
+
+    class SequenceLLM(FixedLLM):
+        def invoke(self, prompt, **kwargs):
+            self.content = json.dumps(payload if self.calls == 0 else
+                                      {"corrections": corrections})
+            return super().invoke(prompt, **kwargs)
+
+    llm = SequenceLLM("")
+    extraction = ProcessExtraction(llm)
+    chunks = TextChunks(chunks=[TextChunk(text=text, index=0, uid="original")])
+    if failure:
+        with pytest.raises(ExtractionEvidenceError) as error:
+            asyncio.run(extraction.extract(chunks, None, None))
+        assert error.value.category == "object_quote"
+        assert not extraction._readings
+    else:
+        graph = asyncio.run(extraction.extract(chunks, None, None))
+        assert graph.nodes[0].properties["evidence_quote"] == correction["quote"]
+        saved = next(iter(extraction._readings.values())).model_dump()
+        assert saved == dict(payload, objects=[dict(payload["objects"][0],
+                                                  quote=correction["quote"])])
+        asyncio.run(extraction.extract(chunks, None, None))
+    assert llm.calls == 2
+
+
 def test_resolver_preserves_relation_types_and_scoped_same_names():
     nodes = [
         GraphNode(id="a", label="Role", properties={"name": "Owner [sales]", "scope": "sales"}),
