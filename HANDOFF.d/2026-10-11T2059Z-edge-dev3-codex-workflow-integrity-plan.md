@@ -55,10 +55,19 @@ not claimed merged or installed. Planning documents are published by this branch
 reviewed PR; verify its actual head, push/merge and exact review before adopting.
 No runtime code, migration, provider generation or production operation was done
 by this planning publication. All W01–W12 implementation rows are open.
+Recovery-only code and the immutable baton are not present on planning/main.
+If the recovery branch moves or is deleted, retrieve exact commit `36e91038` via
+Git/GitHub as specified in plan STATUS; unavailable exact source blocks integration
+under the recovery owner. Do not substitute main or recreate private state.
 
 Focused baseline: 32 deterministic graph tests passed in the qualified recovery
 environment. That is not the full store/browser gate, live acceptance or business
 quality. The plan §5 gives the exact repeatable command and source lines.
+The [sanitized planning receipt](https://github.com/u2giants/theoracle/blob/codex/oracle-workflow-plan/docs/verification/oracle2/workflow/planning-baseline.md)
+binds that observation to recovery, not main. Plan §8.6 maps H1–H9 to W steps;
+the current web route is explicitly distinguished from older pilot components
+in plan §5. Existing H evidence is reused only when its exact inputs and behavior
+cover the W gate too; no competing second execution sequence is authorized.
 
 Current recovery obligations and private receipts belong to
 [the existing recovery baton](https://github.com/u2giants/theoracle/blob/36e91038ee6b1126f9d9c27adce7583a6b74c654/HANDOFF.d/2026-10-11T2032Z-edge-dev3-codex-holistic-recovery-cutover.md).

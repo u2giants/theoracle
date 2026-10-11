@@ -35,6 +35,14 @@ business accepted as separate states. Never close #24/#27/#58 from this plan alo
 It describes unfinished source auditing and restricted hosting, not a working
 production consultant. Re-read current #27 activity and current remote heads;
 do not take over its stores/jobs or replay paid generations without reconciliation.
+The recovery handoff/code are not files in the planning/main checkout. Fetch
+`codex/oracle-readiness-recovery` and inspect the pinned commit, or retrieve the
+immutable GitHub blob at that exact commit via the GitHub contents API. If the
+branch moves or disappears, the pinned commit is still the required reference;
+do not substitute main. If neither Git nor GitHub can supply the exact object,
+W01 records a recovery-owner source-availability blocker on #27. This document
+already carries the relevant scope, failed paths, environment and stop conditions;
+source unavailability blocks integration, not permission to recreate private state.
 Planning-session registration: [this session's handoff](HANDOFF.d/2026-10-11T2059Z-edge-dev3-codex-workflow-integrity-plan.md).
 
 ## 1. Ultimate goal
@@ -124,9 +132,13 @@ the entire S04–S16 overhaul; repairing unrelated historical R2 experiments.
 
 ## 5. Current code and delivery state
 
-Line references below use recovery commit `36e91038ee6b1126f9d9c27adce7583a6b74c654`.
+**Recovery inventory only:** every line reference in the following table uses
+recovery commit `36e91038ee6b1126f9d9c27adce7583a6b74c654`, not planning/main HEAD.
 New files named later are implementation targets, not existing capabilities.
 Use `rg` to relocate symbols after integrating a newer accepted recovery revision.
+In particular `graph/retrieval.py` and the occurrence/observation hardening are
+recovery-only prerequisites. W02 must not attempt edits to these nonexistent-on-main
+surfaces before W01 establishes the accepted recovery integration base.
 
 | Existing component | Exact anchor | Established behavior and limit |
 |---|---|---|
@@ -144,11 +156,26 @@ Use `rg` to relocate symbols after integrating a newer accepted recovery revisio
 | Dependencies | `services/oracle-brain/pyproject.toml:6–22` | Python 3.12 core, pinned GraphRAG SDK; PM4Py absent |
 | Existing verification | `scripts/oracle2/verify_phase.py:24–29`; `.github/workflows/oracle2-contracts.yml` | S03 required test list, real isolated stores, synthetic browser proof |
 
-Focused baseline verification ran 32 tests successfully using
+**Planning observation, not a completed W01 baseline:** 32 focused tests ran at
+the pinned recovery commit, using its qualified Python environment and
 `python -m pytest services/oracle-brain/tests/test_holistic_graphrag.py -q -p no:cacheprovider`
-in the qualified recovery environment. Re-run at W01 and save its exact head,
-dependency digest and sanitized result in W01-baseline.md. This is not business
-acceptance, full-store verification or a deployed outcome.
+([sanitized planning receipt](docs/verification/oracle2/workflow/planning-baseline.md)).
+This count is not asserted for main, which has a different test inventory. Re-run
+at W01 and save its exact head, dependency digest and sanitized result in
+W01-baseline.md. This is not business acceptance, full-store verification or a
+deployed outcome.
+
+**Current main separately:** at `687d9e92da6c4fc1ec0a47206c0e82b4176f863f`,
+`apps/web/app/api/consultant/questions/route.ts:43–58` explicitly requires dedicated
+holistic settings and dispatches `oracle2-holistic-answer`; unavailable readiness
+fails visibly. `apps/web/lib/oracle2-client.ts` manages pilot UI/run state.
+`oracle_brain/retrieval/pilot.py` and `consultant/pilot.py` remain older pilot
+components, not an authorized fallback for this question route. Main has an
+earlier `graph/graphrag.py` and lacks `graph/retrieval.py`; its ProcessModel list
+loss also exists but its line offsets and regression inventory differ. Source
+preparation at main may freeze fixtures/contracts only. Integration W02–W11
+targets the accepted recovery graph/runtime and this same dedicated web/worker
+route, never an accidental switch back to the old passage reader.
 
 The linked recovery handoff reports 26 upload identities/eight original hashes,
 781 reported relationships and 543 observations; these are historical receipt
@@ -218,14 +245,16 @@ Sources checked October 11, 2026 EDT:
 
 | Project | Pattern adopted | Integration and primary source |
 |---|---|---|
-| PM4Py | Formal process validation and measured log analysis | Oracle-owned adapter to [PM4Py](https://github.com/process-intelligence-solutions/pm4py); [formal-model analysis API](https://github.com/process-intelligence-solutions/pm4py/blob/release/pm4py/analysis.py) |
+| PM4Py | Formal process validation and measured log analysis | Oracle-owned adapter to [PM4Py](https://github.com/process-intelligence-solutions/pm4py); [formal-model analysis API](https://github.com/process-intelligence-solutions/pm4py/blob/24a3bf610aea6ecc4938b1864b3ad71fcfb82084/pm4py/analysis.py) |
 | ProMoAI/PMAx | Text-to-formal-model refinement; engineer/analyst separation; calculation artifacts | Extend Oracle extraction/compiler and calculation→interpretation contracts; [README](https://github.com/fit-process-mining/ProMoAI), [agent implementation](https://github.com/fit-process-mining/ProMoAI/blob/main/promoai/agents/agents.py) |
 | agency-agents | Explicit role deliverables, evidence checks and bounded challenge | Encode planner/analyst/challenger result schemas in Oracle; [orchestrator role](https://github.com/msitarzewski/agency-agents/blob/main/specialized/agents-orchestrator.md) |
 | ODD | Source ownership, versions and derived-asset dependency lineage | Small Oracle asset/dependency registry, not the whole platform; [ODD](https://github.com/opendatadiscovery/odd-platform) |
 | CrewAI consultant | Planner → analyst → writer separation | Use existing Oracle workflow engine; [actual implementation](https://github.com/hanantabak2/crewai_ai_business_consultant_on_streamlit/blob/main/main.py) accepts topic/stakeholder strings and has no supplied operational-data or citation contract |
 
 These are selective design patterns, not claims the external projects solve
-Oracle's problem. W04 records exact upstream commits/licenses and the chosen
+Oracle's problem. The PM4Py source link is the prior research's immutable
+2.7.22 candidate; W04 re-qualifies its supported APIs or records a newer exact
+stable compatible version, rather than installing branch documentation. W04 records exact upstream commits/licenses and the chosen
 stable PM4Py version before dependency admission. PM4Py/ProMoAI advertise AGPL;
 do not copy code or deploy until the assigned technical reviewer records exact
 license/deployment fit. No purchase is implied. An incompatible license stops
@@ -357,6 +386,32 @@ event mapping has sufficient identity/time/coverage (W07). Record resolved choic
 in this plan and verification artifacts. Do not ask Albert technical permission.
 No unresolved business decision is required to begin the scoped engineering work.
 
+### 8.6 Relationship to the existing H and S stages
+
+This is the execution detail for the newly requested integrity/analysis scope,
+not a competing replay of the H recovery plan. Existing H records retain their
+evidence and owner; the new W rows start open. The following mapping is binding
+from W01, not deferred until closeout:
+
+| Existing obligation | W responsibility and retained gate |
+|---|---|
+| H1 ownership/paused grading | W01 adopts exact scope; no question or grading restart |
+| H2 SDK/provider admission | Retained prerequisite for W02/W04; do not reinstall or change providers merely to start |
+| H3 original reading | Reuse qualified complete readings; W01/W10 adopt coverage receipts, not reread originals unnecessarily |
+| H4 process graph | W02 fixes finding loss; W03 adds explicit execution contract; retain occurrence/quote/scope guards |
+| H5 retrieval/explanation | W02/W06 extend its same SDK/web path; preserve stock retrieval and whole-source grounding |
+| H6 lifecycle/permission/grounding | W05/W06/W10 extend its invariants across new artifacts; prior passes are not new-artifact proof |
+| H7 technical review/hosting | W10/W11 retain exact review, current checks, restricted topology and restore gates |
+| H8 original/cross-source readiness | Existing recovery owner finishes/adopts its audits; W10 adds workflow/finding coverage with compatible receipts |
+| H9 company questions | Remains deferred; no W step restarts it |
+| S04/S05/S09 | Only findings/model lineage and integrity intersections are specified here; broader lifecycle/policy/company-answer scope stays open |
+| S11/S13–S16 | W07–W09 supply scoped analytical components; W11–W12 retain release/restore/retirement obligations without closing those stages |
+
+A receipt may satisfy both H and W only when exact source, code, schema, graph and
+permission inputs and the tested behavior match; both rows link the same immutable
+artifact. Otherwise extend the relevant proof once and link it from both. Do not
+replay a prior accepted H step or count synthetic evidence as H8 acceptance.
+
 ## 9. Ordered implementation
 
 Before every phase, re-read this STATUS and all downstream steps through W12,
@@ -365,6 +420,8 @@ Natural context cut points are after W03, W06 and W10; apply `fresh-session` at 
 cut only when useful and transfer all remaining obligations. A phase completion
 is never authority to stop remaining authorized work. The plan names no model
 tier implementer; apply the standing mechanical-work delegation policy at execution.
+Every stage gate also requires all §10 matrix tests for that stage's input classes;
+short gate lists below are highlights, never permission to omit a binding test.
 
 ### W01 — Freeze the real baseline and reproduce losses
 
@@ -461,7 +518,8 @@ paths only enough for these artifacts; carry broader S04 obligations forward.
 
 Gate: `test_revision_invalidates_findings_workflow_metrics_and_advice`,
 `test_revoked_permission_denies_cached_artifact`, `test_alias_is_not_second_source`,
-`test_lineage_cycle_rejected`, and `test_rebuild_from_ledger_without_graph` pass.
+`test_lineage_cycle_rejected`, `test_steward_requires_authority`, and
+`test_rebuild_from_ledger_without_graph` pass.
 Ledger/graph restart proof uses isolated stores. Save W05.
 
 ### W06 — Deliver workflow and uncertainty views
@@ -533,7 +591,8 @@ rewrite metric values or erase unresolved source disagreement.
 
 Gate: `test_report_cites_model_and_event_artifacts`,
 `test_challenger_rejects_invented_savings`, `test_report_preserves_unresolved_conflict`,
-`test_role_cannot_promote_policy`, `test_consulting_call_ceiling`, and
+`test_writer_cannot_change_metric_value`, `test_role_cannot_promote_policy`,
+`test_consulting_call_ceiling`, and
 `test_failed_challenge_returns_limited_result` pass. Preview shows one measured
 synthetic bottleneck plus a stated uncertainty and a hypothetical measurement
 experiment. Real company-report generations remain paused. Save W09.

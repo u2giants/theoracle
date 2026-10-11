@@ -2,6 +2,13 @@
 
 ## Workflow integrity follow-up
 
+Checked October 11, 2026 EDT. The research snapshot below remains dated September
+27; its historical PM4Py candidate is 2.7.22 at
+[24a3bf610aea6ecc4938b1864b3ad71fcfb82084](https://github.com/process-intelligence-solutions/pm4py/tree/24a3bf610aea6ecc4938b1864b3ad71fcfb82084).
+W04 must re-qualify a stable exact version and license against the actual worker
+bundle; neither the historical pin nor current branch documentation is installed
+compatibility proof.
+
 The [workflow integrity plan](../../plan_oracle_workflow_integrity.md) (read STATUS
 first) specifies retained conflicts/unknowns and an explicit execution model
 alongside the existing FalkorDB/GraphRAG reported graph. It distinguishes PM4Py
