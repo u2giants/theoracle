@@ -83,11 +83,43 @@ keep/replace/retire evidence.
 | H5 scope and optional later slices | First documentary slice adopted. Disagreed that requested PM4Py/import/consulting could simply become optional or Done with no export. Synthetic engineering remains required, actual-data acceptance stays open |
 | M1–M4 revision/aliases/seals/retirement | Adopted authoritative integer revision, earliest alias test, payload seals, bounded comparison and reversible manifest cutover; no whole-app wipe |
 
+## Round 2: explicit rebuttals and remaining corrections
+
+Muse reviewed [5771ad2](https://github.com/u2giants/theoracle/commit/5771ad2b40cdb4804c209002f38e06149934f5ba)
+and returned REVISE with no remaining architectural disagreement. It conditionally
+agreed that wholesale recovery merge is unnecessary, and reviewer-only unverified
+visibility is better than erasure. It agreed that requested integrations remain
+required but separately gated, independent semantic acceptance must remain
+admission-bound, license qualification precedes runtime admission, and module
+count alone does not make a second application.
+
+Its remaining corrections were incorporated: old red-baseline reproduction
+separated from new-core green tests; binding matrix duplicate/stale targets
+removed; complete new-suite invocation; deadlock fixture; explicit four total
+report calls/cost reservation; named PM4Py reviewer route; W02a ledger-unit gate
+before W02b adapters; employee-notice/denied-reviewer cases; actual-data OPEN
+status restated at W08; diagnostic-only labels restated at W10; finite cost caps
+applied to every private dispatch including cross-document census. Concrete
+development/validation fixture expectations were added. Known explicit essential
+obligations cannot be marked “unresolved” to excuse extraction omissions.
+
+Codex challenged one specific test suggestion: the lost-list regression cannot
+pass on recovery, because its ProcessModel arrays still have no GraphData
+destination. The revised contract requires red list-loss on both old baselines;
+separate occurrence/parallel-claim/observation tests pass on known-good recovery;
+new ledger/projection tests go green and reject intentionally dropping projectors.
+Unavailable recovery source blocks reuse qualification of that mechanism, not
+independent new-core development. This distinction is submitted to Round 3.
+
+The lineage test filename is retained as `test_lineage.py` with its new-core
+module explicitly named, avoiding a cosmetic rename requirement. Both parties
+agree report prices/runtime benchmarks are unmeasured; proposed ceilings cannot
+create new spending authority or supersede current private processing admission.
+
 ## Debate status
 
-Round 2 is requested against the revised source and these explicit disagreements.
-No consensus or final review approval is claimed yet. Final decisions and exact
-review identity will be recorded here and on #27 after the debate completes.
+Round 3 validates the corrected frozen plan and the lost-list regression rebuttal.
+No final APPROVE or runtime acceptance is claimed before its actual response.
 
 ## Current selected architecture
 

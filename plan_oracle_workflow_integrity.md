@@ -113,12 +113,18 @@ findings or a retrieval path. A conflict separately represented by a `CONTRADICT
 edge can survive; the two free-standing lists do not. Do not claim all conflicts
 are lost or that this is the sole cause of every unsuccessful answer.
 
-Reproduce without provider calls: extend the fixed-response extraction fixture
-in `services/oracle-brain/tests/test_holistic_graphrag.py:255–279` with one missing
-owner and two conflicting requirements. Extract, write through the actual pinned
-SDK, finalize, reopen in a new process, retrieve and render. Before the fix, the
-lists have no persisted representation. The new regression must fail on that
-baseline and pass after W02. Use public invented examples only.
+Reproduce without provider calls using W01’s frozen source/expected-artifact
+fixtures under `evals/oracle2/workflow/`. The historical fixed-response fixture
+in recovery `test_holistic_graphrag.py:255–279` is a red-baseline demonstration,
+not the new implementation target. The list-loss test is expected to fail on
+both main and recovery `36e91038`; recovery preserves other invariants, but does
+not fix these arrays. Separately confirm the existing recovery occurrence/
+parallel-claim/observation SDK invariants pass on that known-good pinned baseline.
+A fixture failing everywhere cannot qualify a new core: W02’s ledger tests and
+W03’s `test_new_projection_survives_real_sdk_finalize_reload` must pass with the
+new implementation and reject an intentionally dropping projector. No private
+provider or company-answer call is needed. Every §3 code line reference above
+is at recovery `36e91038`, not current main.
 
 ## 4. Scope
 
@@ -448,14 +454,22 @@ Essential obligations are source-explicit required approvals, actors/handoffs,
 branch conditions, scope/version limits, exceptions affecting allowed work,
 material contradictions and all section/table/diagram regions necessary to
 reconstruct the process. Independent inventory labels essential/detail before
-comparison, not after a model omission. Essential accounting is 100% represented
-or explicitly unresolved with evidence and its affected behavior denied/partial;
+comparison, not after a model omission. Known source-explicit essential obligations must be represented: “unresolved”
+cannot excuse dropping a clearly documented mandatory handoff or approval.
+Only genuine source ambiguity/missing semantics may be explicitly unresolved
+with evidence and its affected behavior denied/partial. Essential accounting
+is 100%, with the represented/unresolved denominators disclosed separately;
 zero unsupported joins, invented facts, erased caveats or privileged-source leaks.
 Detail gaps may remain visible with named owner and disposition; they never
 justify calling an incomplete process complete. Missing/uncertain essential
 control flow prevents formal analysis of that model, not display of a clearly
 partial documentary map. Unclassified inventory items fail the gate.
 
+The cost reservation/call limits below bind EVERY private provider dispatch
+under this plan, including initial census/extraction, cross-document operating
+audit and retries; they are engineering ceilings, not new spending authority.
+Company-answer/report dispatch remains paused irrespective of those ceilings.
+Actual pricing/admission must be refreshed at execution; no assumed vendor rate.
 Bound each private audit correction to one affected artifact and one admitted
 provider retry after precise failure diagnosis. Reserve maximum estimated cost
 using current admitted pricing including reasoning/output before dispatch; cap
@@ -564,19 +578,19 @@ synthetic adapter proof and actual operational usefulness remain separate.
 Planner selects approved tool operations and relevant model/findings; calculation
 worker executes typed operations; analyst explains measured results; challenger
 checks support, alternatives, omitted exceptions, scope and unknowns; writer
-renders only admitted outputs. Use no more than four generation calls per report
-(planner, analyst, challenger, writer), one challenger revision at most within
-the same budget, no automatic retries, and the existing funded/admitted route.
-Calculations are code, not model guesses. Failed challenge returns an explicit
-limited result, not a polished unsupported report. Existing whole-source
-grounding remains; no stage resolves a conflict or writes confirmed policy.
-
-**Open technical choices with criteria:** stable PM4Py release/API compatibility
-and applicable license (W04); bounded formal-check execution limits measured on
-fixtures; exact rendering library already present in the web app; whether a real
-event mapping has sufficient identity/time/coverage (W07). Record resolved choices
-in this plan and verification artifacts. Do not ask Albert technical permission.
-No unresolved business decision is required to begin the scoped engineering work.
+renders only admitted outputs. Use at most four TOTAL generation calls: planner,
+analyst, challenger and writer, one each. A challenger-directed correction is
+made within the writer’s existing call, not a fifth call or second challenger.
+Deterministic final validation returns limited/failed output when constraints
+remain unmet. No automatic retries. Reserve estimated total cost including
+reasoning/output at current admitted pricing before dispatch. Proposed per-call
+maximum output: 8,000 tokens; per-report reserved cost: min($1, remaining daily
+allowance), within the existing $25/day ceiling and processing register. If
+input/output/cost cannot fit, return explicit incomplete coverage; never drop
+a caveat silently. These limits are bounds, not authority to resume paused
+company reports. Calculations are code, not model guesses. Evidence resolves
+to original support through the new bounded pack; whole-corpus text cannot be
+a hidden answer fallback. No stage resolves a conflict or writes confirmed policy.
 
 ### 8.6 Relationship to the existing H and S stages
 
@@ -626,6 +640,30 @@ tier implementer; apply the standing mechanical-work delegation policy at execut
 Every stage gate also requires all §10 matrix tests for that stage's input classes;
 short gate lists below are highlights, never permission to omit a binding test.
 
+### Frozen synthetic fixture specification (W01 creates these public files)
+
+Create `evals/oracle2/workflow/{sources.json,development.json,validation.json,
+expected_obligations.json,checksums.json}`. All business content is invented,
+not POP policy. Development and validation source/process IDs and activity
+names are disjoint; the independent reviewer seals validation checksums before
+extraction. This is a procedural holdout, not a secret dataset. At minimum:
+
+| Scenario family | Exact source obligations / expected result |
+|---|---|
+| Development D-flow | D1: intake → design → exclusive licensed/unlicensed choice; licensed requires rights approval, unlicensed bypasses it; both reach sample. D2: failed sample returns to design as a distinct second occurrence; production requires accepted sample. Every control transition cites its own exact source span |
+| Development D-handoff | D3: artwork revision is handed from design to supplier via an explicit artifact ID; receiving process cannot begin until that specific revision arrives. Preserve separate responsibility and control-flow relations |
+| Validation V-flow | Independent invented packaging process: content and safety reviews run in parallel, shipping release waits for both; rejected content loops to a new revision. An incomplete source omits the join semantics: display partial and decline compilation |
+| Validation V-conflict | V1/V2 assign opposing explicit mandatory approvals under overlapping dated customer scope. Both supports and an unresolved conflict survive; no later-source overwrite. V3’s different customer scope is a variant, not a contradiction |
+| Validation V-identity | Same label identifies two different supplier roles in different scopes; two upload aliases share original bytes. No false merge/corroboration; repeated approval occurrences remain distinct |
+| Validation V-access | One source dependency is revoked after pack build; aggregated summary/report and reviewer quarantine string become inaccessible before serving. New allowed-only artifact may be rebuilt; stale cache is denied |
+
+Freeze the expected obligation/interface/support inventory from these source
+texts before running extractor output; do not generate expectations from the new
+model. A supplied known approval/handoff omitted by extraction is a failure,
+not an “unresolved” success. Add independent integer-revision/tamper/withdrawal
+fixtures and hostile-input rows required by §10. This specification constrains
+creation of the fixtures without delivering runtime code in this planning turn.
+
 ### W01 — Prove the replacement boundary and freeze independent expectations
 
 Inspect current remote main/recovery refs, #27/#58 ownership and immutable
@@ -655,7 +693,11 @@ Gate: independent review approves the precise boundary against all three
 approaches (targeted patch, scoped clean core, whole wipe); evidence supports the
 chosen scoped rebuild. Import-boundary tests fail on old monolithic core reuse.
 Source/identity/history retention is recoverable, no legacy runtime default is
-introduced, and the loss regression demonstrably fails at the old baseline.
+introduced, and list loss demonstrably fails at both old main/recovery baselines. Separately
+verify the known-good occurrence/claim/observation regression passes on pinned
+recovery. If that source/environment is unavailable, record the pass-leg blocker
+for reuse of that mechanism, not a waiver or whole-core merge requirement.
+The new-core loss test must subsequently pass at W02/W03.
 Save exact test/version receipts in W01-baseline.md; zero paid provider calls or
 company questions are needed for this baseline. W02 begins only after this gate.
 
@@ -664,7 +706,10 @@ company questions are needed for this baseline. W02 begins only after this gate.
 Create `operating_model/{__init__.py,contracts.py,source_receipts.py,observations.py,
 findings.py,ledger.py,artifact_storage.py,authority_adapter.py,provider_adapter.py}`
 and `services/oracle-brain/tests/{test_workflow_findings.py,test_artifact_storage.py,
-test_source_receipts.py,test_observation_identity.py}`. These are new modules, not
+test_source_receipts.py,test_observation_identity.py}`. W02a lands/runs source
+receipts, observation/finding ledger and artifact storage using fixed responses
+first; W02b admits the authority/provider adapters and extraction path after that
+unit gate. Save both subgate results in W02’s same receipt. These are new modules, not
 patches to `ProcessExtraction` or `HolisticGraphPilot`. Reuse exact qualified
 originals and narrowly admitted provider/authority functions; retain source
 structure/spans, duplicate-upload aliases and reported/confirmed separation.
@@ -722,8 +767,8 @@ coverage even if structurally well formed. Save W03.
 
 **W04a (qualification first):** inspect an exact stable PM4Py source/version,
 license, APIs and dependency tree against Oracle’s actual intended deployment.
-Create `docs/verification/oracle2/workflow/W04-pm4py-qualification.md`. Assigned
-technical reviewer records exact deployment/license fit; no purchase, no legal
+Create `docs/verification/oracle2/workflow/W04-pm4py-qualification.md`. The assigned non-Codex in-rotation reviewer, selected through `ai-review` as at
+W11, records exact deployment/license fit; no purchase, no legal
 conclusion from a process boundary, no AGPL “workaround” by moving imports.
 Draft Oracle’s pure workflow compiler/typed adapter contract without installing
 or shipping PM4Py. Unresolved licensing blocks PM4Py deployment, not the
@@ -750,7 +795,7 @@ diagnostics; keep original model. No event export is needed for formal checks.
 Gate: exact qualification memo precedes dependency admission; a fresh build
 reproduces the pinned environment. `test_xor_and_parallel_language`,
 `test_rework_preserves_occurrences`, `test_unknown_gateway_not_coerced`,
-`test_compiled_model_round_trip_ids`, `test_formal_check_timeout_keeps_model`,
+`test_compiled_model_round_trip_ids`, `test_formal_check_timeout_keeps_model`, `test_formal_check_detects_deadlock`,
 `test_structural_soundness_does_not_accept_omitted_approval` and
 `test_pm4py_not_bundled_before_qualification` pass. SDK/worker regressions stay
 green. Save W04a and W04b outcomes separately in W04’s acceptance receipt.
@@ -769,6 +814,8 @@ Gate: `test_revision_invalidates_findings_workflow_metrics_and_advice`,
 `test_revoked_permission_denies_cached_artifact`, `test_alias_is_not_second_source`,
 `test_lineage_cycle_rejected`, `test_steward_requires_authority`, and
 `test_rebuild_from_ledger_without_graph` pass.
+Create `services/oracle-brain/tests/test_lineage.py` (name retained from PR85;
+it now tests `operating_model/lineage.py`, not an old business-core module).
 Ledger/graph restart proof uses isolated stores. Save W05.
 
 ### W06 — Deliver bounded retrieval and the documentary first slice
@@ -800,6 +847,9 @@ policy authority. Include loading, empty, stale, blocked and denied states.
 Gate: `apps/web/tests/oracle2/workflow-integrity.spec.ts` proves upload/import →
 SDK → finding/workflow store → restarted retrieval → UI on invented data. Visually
 inspect conflict evidence, partial branches and denied access in the browser.
+Add cases `unverified gaps labeled, strings not asserted` and
+`reviewer denied source cannot see quarantined string`; the review pane and
+notice inherit current-source permission checks before pack and before serve.
 Create `services/oracle-brain/tests/test_workflow_authorization.py` with its §10 checks at this gate.
 The documentary first slice is independently useful without event data: a
 connected multi-document operating overview, one process workflow, its roles/
@@ -846,7 +896,10 @@ missing applicability means unavailable conformance. Exclude cancelled/ongoing
 cases only under explicit receipt rules and show their counts. No ROI or causal
 claims. Gate: independent hand-calculated fixture values match PM4Py/owned metrics;
 parallel paths are not misreported as violations, incomplete logs cannot prove
-skipped work, and event-row drill-down explains every reported number. Save W08.
+skipped work, and event-row drill-down explains every reported number.
+A synthetic pass is engineering qualification only: §9’s unavailable-export rule
+keeps actual-data acceptance OPEN and never permits W08 Done without the
+required actual-data receipt. Save W08 with both states explicitly separated.
 
 ### W09 — Integrate bounded consulting roles and artifacts
 
@@ -894,7 +947,10 @@ before extraction; never derive the answer key from generated models.
 
 Gate: no essential source obligation is omitted, no unsupported scope/causation,
 conflict retained, coverage independent of model self-review. Current protected
-source audits and all actual SDK/store/browser paths pass at exact head. Real
+source audits and all actual SDK/store/browser paths pass at exact head.
+Same-model or same-team inventory/model comparisons are labeled diagnostic-only;
+full semantic acceptance still requires §8.2a’s admitted independent protocol.
+Real
 event usefulness is unavailable until an admitted export exists; retain its open
 acceptance row rather than claiming a measurement from synthetic data. Save W10.
 
@@ -983,14 +1039,14 @@ Test names in §9 and this table are binding behavioral specifications.
 |---|---|---|
 | Replacement boundary | New package imports old monolithic core or removes a proven capability | `test_new_core_import_boundary`, `test_retention_contracts_cover_all_live_callers` in `test_operating_model_boundary.py` |
 | Cross-source model | Same label merges different people/scopes; invented process interface | `test_assembly_requires_supported_identity_and_handoff`, `test_scope_variants_preserve_disagreement` in `test_operating_model_coverage.py` |
-| Legacy findings/display revision | Unverified text treated as factual evidence; forged rN changes identity | `test_legacy_quarantine_excluded_from_answer_evidence`, `test_authorized_review_preserves_unverified_finding`, `test_display_revision_cannot_change_source_identity` in `test_workflow_findings.py` |
+| Legacy findings/display revision | Unverified text treated as factual evidence; forged rN changes identity | `test_legacy_findings_import_keeps_needs_evidence`, `test_legacy_quarantine_excluded_from_answer_evidence`, `test_authorized_review_preserves_unverified_finding`, `test_display_revision_cannot_change_source_identity` in `test_workflow_findings.py` |
 | PM4Py dependency | Package shipped before exact license/deployment admission | `test_pm4py_not_bundled_before_qualification` in `test_pm4py_adapter.py` |
 | Frozen obligation inventory | Generated graph declares itself complete while dropping an approval | `test_independent_obligation_inventory_detects_missing_handoff`, `test_validation_fixture_checksum_immutable` in the same file |
 | Evidence packs/summaries | Top-k drops caveat; oversized corpus truncates; summary leaks revoked source | `test_mandatory_findings_survive_pack_budget`, `test_oversize_returns_incomplete_without_truncation`, `test_summary_revocation_denies_serving` in `test_operating_model_retrieval.py` |
 | SDK projection | Entity reconciliation collapses repeats/parallel claims, or graph loss is hidden by source-answer fallback | `test_new_projection_survives_real_sdk_finalize_reload`, `test_graph_loss_cannot_pass_via_original_text_fallback` in `test_operating_model_coverage.py` |
 | Cutover/retirement | Concurrent revision missed; incompatible manifest; rollback restores forbidden facts | `test_cutover_replays_to_fenced_watermark`, `test_manifest_switch_is_atomic_and_compatible`, `test_rollback_respects_current_withdrawal`, `test_retirement_preserves_proven_capabilities` in `test_operating_model_cutover.py` and `test_operating_model_retirement.py` |
-| Model finding output | Nonempty lists silently dropped at graph conversion | `test_unresolved_findings_survive_finalize_reload` in `test_workflow_findings.py` |
-| Legacy cached findings | Lists imported without valid quote support | `test_legacy_findings_import_keeps_needs_evidence` in `test_workflow_findings.py` |
+| Old-core red baseline (W01 only) | Main and recovery both lose nonempty lists; not a new-core success test | Red-baseline `test_unresolved_findings_survive_finalize_reload`; new gate is `test_new_projection_survives_real_sdk_finalize_reload` above |
+| New finding ledger | Persist/restart hides findings before projection | `test_findings_survive_ledger_reload_and_projection` in `test_workflow_findings.py` |
 | Finding evidence | Quote borrowed across source/version; forged span | `test_finding_support_is_exact_current_original` in the same file |
 | Missing-information output | Absence presented as quoted policy or invented owner | `test_absence_is_coverage_inference_not_company_fact` in the same file |
 | Conflict output | One side invented; old/new scope merged | `test_conflict_needs_two_supported_sides_or_unverified_status` in the same file |
@@ -999,7 +1055,7 @@ Test names in §9 and this table are binding behavioral specifications.
 | Workflow output | Orphan/duplicate IDs; unknown condition; wrong scope join | `test_invalid_workflow_references_and_scope_rejected` in `test_process_model.py` |
 | Workflow topology | AND treated as XOR; repeated step collapsed; unknown OR coerced | `test_xor_and_parallel_language`, `test_rework_preserves_occurrences`, `test_unknown_gateway_not_coerced` in `test_pm4py_adapter.py` |
 | Workflow coverage | Sound net omits mandatory approval | `test_structural_soundness_does_not_accept_omitted_approval` in `test_process_coverage.py` |
-| Formal analyzer | Exponential net, memory/time/cancellation exhaustion | `test_formal_check_timeout_keeps_model` in `test_pm4py_adapter.py` |
+| Formal analyzer | Deadlocked path or resource/cancellation exhaustion | `test_formal_check_detects_deadlock`, `test_formal_check_timeout_keeps_model` in `test_pm4py_adapter.py` |
 | Lineage | Cyclic dependency; forged owner; stale alias | `test_lineage_cycle_rejected`, `test_steward_requires_authority`, `test_alias_is_not_second_source` in `test_lineage.py` |
 | CSV/XES upload | Oversize; external XML entity; compressed bomb; malformed encoding | `test_operational_upload_limits_and_xml_entities` in `test_operational_export.py` |
 | Event identity | Duplicate replay; conflicting ID; many-to-many false case | `test_event_idempotency_and_conflicting_duplicate`, `test_object_correlation_not_flattened` in the same file |
@@ -1009,15 +1065,43 @@ Test names in §9 and this table are binding behavioral specifications.
 | Consultant output | Unsupported saving, concealed conflict, metric rewritten | `test_challenger_rejects_invented_savings`, `test_report_preserves_unresolved_conflict`, `test_writer_cannot_change_metric_value` in `test_process_consult.py` |
 | API actor/request | Forged workspace/process/source permission; stale cache | `test_cross_workspace_workflow_access_denied`, `test_revoked_permission_denies_cached_artifact` in `test_workflow_authorization.py` |
 | Review action | Unprivileged model/policy confirmation, race/double review | `test_role_cannot_promote_policy`, `test_review_race_keeps_append_only_history` in the same file |
-| UI evidence/export | Hidden conflict, stored script/HTML, spreadsheet formula | `workflow-integrity.spec.ts` cases `conflicts stay visible`, `evidence is escaped`, `export formulas are neutralized`, `withdrawn evidence denied` |
+| UI evidence/export | Hidden conflict, stored script/HTML, spreadsheet formula | `workflow-integrity.spec.ts` cases `conflicts stay visible`, `evidence is escaped`, `export formulas are neutralized`, `withdrawn evidence denied`, `unverified gaps labeled, strings not asserted`, `reviewer denied source cannot see quarantined string` |
 | Release/restore | Corrupted backup or stale model/current-source mismatch | `test_restore_requires_current_manifest_and_payload_seals` in `test_workflow_recovery.py` |
 
 Retained required gates: `python3 scripts/oracle2/verify_phase.py S02 --mode offline`,
 `python3 scripts/oracle2/verify_phase.py S03 --mode offline`, existing
 `scripts/oracle2/verify_holistic_browser.py`, worker typecheck/bundle guard and web
 build/guards from the current repository workflow. Run only on approved isolated
-stores. New targeted unit invocation after dependencies are frozen:
-`services/oracle-brain/.venv/bin/python -m pytest services/oracle-brain/tests/test_workflow_findings.py services/oracle-brain/tests/test_process_model.py services/oracle-brain/tests/test_process_coverage.py services/oracle-brain/tests/test_pm4py_adapter.py services/oracle-brain/tests/test_lineage.py services/oracle-brain/tests/test_operational_export.py services/oracle-brain/tests/test_process_analysis.py services/oracle-brain/tests/test_process_consult.py -q`.
+stores. The W-stage verifier chooses the exact named stage suites and fails on missing
+files or skipped required tests. Documentary gates do not import unqualified
+analytical extras. After all implemented components and dependencies qualify,
+the complete targeted unit command is:
+
+```bash
+services/oracle-brain/.venv/bin/python -m pytest \
+  services/oracle-brain/tests/test_operating_model_boundary.py \
+  services/oracle-brain/tests/test_source_receipts.py \
+  services/oracle-brain/tests/test_observation_identity.py \
+  services/oracle-brain/tests/test_workflow_findings.py \
+  services/oracle-brain/tests/test_artifact_storage.py \
+  services/oracle-brain/tests/test_operating_model_coverage.py \
+  services/oracle-brain/tests/test_process_model.py \
+  services/oracle-brain/tests/test_process_coverage.py \
+  services/oracle-brain/tests/test_lineage.py \
+  services/oracle-brain/tests/test_operating_model_retrieval.py \
+  services/oracle-brain/tests/test_operating_model_answer.py \
+  services/oracle-brain/tests/test_operating_model_summaries.py \
+  services/oracle-brain/tests/test_workflow_authorization.py \
+  services/oracle-brain/tests/test_pm4py_adapter.py \
+  services/oracle-brain/tests/test_operational_export.py \
+  services/oracle-brain/tests/test_process_analysis.py \
+  services/oracle-brain/tests/test_process_consult.py \
+  services/oracle-brain/tests/test_operating_model_cutover.py \
+  services/oracle-brain/tests/test_workflow_recovery.py \
+  services/oracle-brain/tests/test_operating_model_retirement.py \
+  -q
+```
+
 The extended gate additionally runs new operating-model boundary, coverage,
 source-receipt, identity, retrieval, answer, summary, cutover and retirement suites
 created by the relevant W stage, plus artifact/authz/recovery suites;
@@ -1187,7 +1271,7 @@ responses, adopted/rejected changes and final exact-source review status.
    precedence; §§8/13 require partial/unknown states over invented structure,
    distinguish measured behavior from policy, and retain evidence/rollback.
 
-Self-audit found and fixed three traps before publication: generic shared-db
+Historical PR85 self-audit found and fixed three traps before that publication: generic shared-db
 routing was corrected for Oracle's separate store (§11); conflict strings without
 opposed spans get unverified status rather than invented support (§8.2); proposed
 `storage/` package shadowing was removed in favor of `artifact_storage.py` (W02).
