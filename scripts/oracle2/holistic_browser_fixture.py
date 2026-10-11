@@ -48,10 +48,10 @@ class FixedLLM(LLMInterface):
         self.first_id, self.second_id = first_id, second_id
 
     def invoke(self, prompt: str, **kwargs) -> LLMResponse:
-        if "GROUNDING REVIEW" in prompt:
+        if prompt.startswith("GROUNDING REVIEW."):
             payload = {"supported": True, "unsupported_statements": [],
                        "omitted_required_exceptions": [], "concealed_conflicts": []}
-        elif "FULL ORIGINAL SOURCE DATA" in prompt:
+        elif "\nFULL ORIGINAL SOURCE DATA:\n" in prompt:
             payload = {"explanation": [{
                 "text": "Intake sends the packet and Review Team reviews it; incomplete packets return to Intake Lead.",
                 "citations": [
@@ -60,7 +60,8 @@ class FixedLLM(LLMInterface):
                 ],
             }], "conflicts": [], "unknowns": ["The approval owner is not stated."],
                 "hypothetical_improvements": []}
-        elif "incomplete" in json.loads(prompt.split("\nDOCUMENT DATA:\n", 1)[1]
+        elif "\nDOCUMENT DATA:\n" in prompt and "incomplete" in json.loads(
+                prompt.split("\nDOCUMENT DATA:\n", 1)[1]
                 .split("\nCOMPLETE CORPUS IDENTITY CONTEXT", 1)[0]):
             payload = {"objects": [
                 {"key": "review", "kind": "Role", "name": "Review Team", "scope": "licensed",

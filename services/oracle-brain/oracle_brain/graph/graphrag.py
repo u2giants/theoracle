@@ -27,6 +27,7 @@ PIPELINE_VERSION = "holistic-s03-1"
 ENTITY_TYPES = ("Process", "Step", "Role", "Department", "Rule", "Exception", "Decision", "Artifact")
 RELATION_TYPES = ("HAS_STEP", "PRECEDES", "RESPONSIBLE_FOR", "DEPENDS_ON", "HANDOFF_TO",
                   "GOVERNED_BY", "EXCEPTION_TO", "PRODUCES", "CONTRADICTS")
+MAX_EXTRACTION_PROMPT_CHARS = 650_000
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -285,6 +286,8 @@ class ProcessExtraction(ExtractionStrategy):
                     "full-title supporting quote in the current document. Keep each standard's "
                     "process and steps separate from its document Artifact. Return ONLY this "
                     "document's complete ProcessModel, not a combined corpus extraction.")
+            if len(prompt) > MAX_EXTRACTION_PROMPT_CHARS:
+                raise ValueError("assembled extraction prompt exceeds qualified budget")
             # Aliases of identical originals share one whole-document extraction,
             # while evidence offsets/chunk IDs are rebuilt separately for each upload.
             text_digest = hashlib.sha256(chunk.text.encode()).hexdigest()

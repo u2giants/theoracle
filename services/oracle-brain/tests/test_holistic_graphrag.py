@@ -270,6 +270,15 @@ def test_corpus_identity_context_keeps_every_original_once_and_rejects_foreign_q
     assert failure.value.category == "object_quote"
 
 
+def test_assembled_extraction_envelope_rejects_unicode_expansion_before_dispatch():
+    first, second = source("文" * 40_000), source("界" * 80_000)
+    llm = FixedLLM("{}")
+    with pytest.raises(ValueError, match="assembled extraction prompt"):
+        asyncio.run(ProcessExtraction(llm, (first, second)).extract(
+            TextChunks(chunks=[TextChunk(text=first.text, index=0, uid="bounded")]), None, None))
+    assert llm.calls == 0
+
+
 def test_resolver_preserves_relation_types_and_scoped_same_names():
     nodes = [
         GraphNode(id="a", label="Role", properties={"name": "Owner [sales]", "scope": "sales"}),

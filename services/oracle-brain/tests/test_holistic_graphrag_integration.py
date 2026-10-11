@@ -46,14 +46,14 @@ class DeterministicLLM(LLMInterface):
 
     def invoke(self, prompt: str, **kwargs) -> LLMResponse:
         self.calls.append(prompt)
-        if "GROUNDING REVIEW" in prompt:
+        if prompt.startswith("GROUNDING REVIEW."):
             return LLMResponse(content=json.dumps({
                 "supported": self.grounding_supported,
                 "unsupported_statements": [] if self.grounding_supported else ["invented causation"],
                 "omitted_required_exceptions": [],
                 "concealed_conflicts": [],
             }))
-        if "FULL ORIGINAL SOURCE DATA" in prompt:
+        if "\nFULL ORIGINAL SOURCE DATA:\n" in prompt:
             answer = {
                 "explanation": [{
                     "text": "Intake sends the packet and Review Team reviews it.",
@@ -141,6 +141,7 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
             built = await pilot.build()
             extraction_calls = [call for call in llm.calls if "DOCUMENT DATA" in call]
             assert len(extraction_calls) == 2
+            assert all("COMPLETE CORPUS IDENTITY CONTEXT" in call for call in extraction_calls)
             calls_after_first_build = len(llm.calls)
             reused = await pilot.build()
             assert reused["reused_snapshot"] is True

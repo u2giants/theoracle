@@ -692,7 +692,7 @@ Never merge similarly named departments/people or contradictory policies automat
 | H4 process graph + cross-source resolution | implemented; synthetic integration passes | Real FalkorDB SDK integration; process/responsibility/rule/exception/decision/artifact schema, duplicate and scope tests |
 | H5 connected retrieval + explanation | implemented; synthetic browser proof passes | SDK retrieval and synthesis invoked by actual pilot endpoint; multi-source causality and exception tests |
 | H6 lifecycle, permission and grounding | implemented; focused checks pass | Withdrawal/revision/forbidden-source tests; exact citations; unavailable graph visibly fails |
-| H7 independent review + end-to-end proof | PR83 source/CI/web delivered; reviewed ingestion repairs pass synthetic SDK/Falkor proof and 68 required local checks; recovery release and dedicated hosted-worker proof open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
+| H7 independent review + end-to-end proof | PR83 source/CI/web delivered; reviewed ingestion repairs pass synthetic SDK/Falkor proof and 71 required local checks; recovery release and dedicated hosted-worker proof open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
 | H8 authorized real-corpus readiness | originals qualified/imported and $25 daily limit verified; generation truncation diagnosed; fresh repaired company attempt rejected unsupported relationship evidence; complete graph and coverage unproved; restricted hosted route blocked on authenticated policy-management access | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
 | H9 new questions / existing rerun | deferred by owner | No question generation before H2–H8 pass; rerun existing questions only on new owner instruction |
 
@@ -1127,3 +1127,28 @@ worker route cannot be qualified through that access. Authenticated policy-manag
 access is the independent hosted blocker, not credential rotation. No hosting,
 network policy, existing application or alternative client credential was changed.
 Root retains H7/H8 on #24/#27/#58. H9 stays deferred.
+
+
+Independent context review APPROVE binds 0c791209813b9d0d8c7b6def750942263a79ff7a.
+Its measured operational concern is the repeated complete-corpus input envelope.
+The final refinement rejects assembled extraction prompts above 650,000 characters
+before dispatch; no source is truncated or skipped to meet it. The actual eight-
+original reading collection is 194,984 source characters before JSON/prompt overhead,
+well inside the verified 1,050,000-token provider context. The $25/day provider cap,
+128-call ceiling and zero retries remain unchanged. Whole-corpus input is deliberately
+repeated to preserve identity context; larger future corpora must qualify an envelope
+rather than silently drop documents. Unicode expansion has a pre-dispatch rejection
+test. The real-store test now asserts the pilot actually supplies identity context,
+and synthetic prompt routing distinguishes source strings from control prefixes.
+
+Exact quote containment does not prove that a generated name, scope or description
+is supported by that quote. Context increases this contamination risk. Independent
+whole-original operating-model coverage must reject unsupported interpretations,
+merged scope and missing exceptions before any company readiness is accepted;
+paused company answers cannot serve as a substitute for this audit.
+
+Measured final envelope: eight actual originals assemble at most 252,336 prompt
+characters per extraction and 1,873,963 across one uncached build, below the 650,000
+per-call guard. This measurement performed zero network/model calls. All 71 required
+local checks pass after the final guard and fixture changes. Source approval and a
+fresh admitted synthetic standards-reference build still precede company dispatch.
