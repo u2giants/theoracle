@@ -46,6 +46,8 @@ class DeterministicLLM(LLMInterface):
 
     def invoke(self, prompt: str, **kwargs) -> LLMResponse:
         self.calls.append(prompt)
+        if prompt.startswith("KEYWORD EXTRACTION."):
+            return LLMResponse(content='{"keywords":[]}')
         if prompt.startswith("GROUNDING REVIEW."):
             return LLMResponse(content=json.dumps({
                 "supported": self.grounding_supported,
@@ -146,11 +148,30 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
             reused = await pilot.build()
             assert reused["reused_snapshot"] is True
             assert len(llm.calls) == calls_after_first_build
-            retrieved = await pilot.rag.retrieve("packet")
+            retrieved = await pilot.rag.retrieve("Review Team")
             stats = await pilot.rag.get_statistics()
             raw_rows = await pilot.rag._graph_store.query_raw(
                 "MATCH (n) RETURN labels(n) AS labels, n LIMIT 100")
             graph_rows = [(row[0], row[1].properties) for row in raw_rows.result_set]
+            observations = await pilot.rag._graph_store.query_raw(
+                "MATCH (e:__Entity__)-[:HAS_OBSERVATION]->(o:ReportedEntityObservation) "
+                "WHERE e.name STARTS WITH 'Review Team [' "
+                "RETURN o.description,o.evidence_quote,o.source_chunk_ids")
+            assert {row[0] for row in observations.result_set} == {"receives packets", "reviews packets"}
+            assert len(observations.result_set) == 2
+            assert sorted(len(row[2]) for row in observations.result_set) == [1, 2]
+            for row in observations.result_set:
+                assert row[1] in DOC_ONE or row[1] in DOC_TWO
+            assert all("descriptions are source-specific" in properties["description"]
+                       for labels, properties in graph_rows if "__Entity__" in labels)
+            original_evidence = [item for item in retrieved.items
+                                if item.metadata.get("section") == "original_evidence"]
+            assert {item.metadata["original_hash"] for item in original_evidence} == {
+                first.content_hash, second.content_hash}
+            assert pilot.rag._retrieval_strategy.keyword_calls == 1
+            assert all(item.metadata.get("source_id") in {
+                str(first.source_id), str(second.source_id), str(alias.source_id)}
+                for item in original_evidence)
             mention_rows = await pilot.rag._graph_store.query_raw(
                 "MATCH (e:__Entity__)-[:MENTIONED_IN]->(c:Chunk)<-[:PART_OF]-(d:Document) "
                 "RETURN DISTINCT d.id,c.id")

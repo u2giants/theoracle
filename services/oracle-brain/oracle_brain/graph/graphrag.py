@@ -22,6 +22,7 @@ from graphrag_sdk.core.models import ResolutionResult
 from graphrag_sdk.storage.graph_store import GraphStore
 
 from ..provider_policy import ProcessingRequest, ProcessingApproval, authorize
+from .retrieval import OriginalBalancedMultiPath
 
 PIPELINE_VERSION = "holistic-s03-1"
 ENTITY_TYPES = ("Process", "Step", "Role", "Department", "Rule", "Exception", "Decision", "Artifact")
@@ -193,9 +194,43 @@ def relation_claim_id(relation: GraphRelationship) -> str:
             relation.properties["evidence_quote"]]
     return hashlib.sha256(json.dumps(data, ensure_ascii=False).encode()).hexdigest()
 
+def observation_id(node: GraphNode) -> str:
+    return hashlib.sha256(json.dumps([node.id, node.properties["original_identity"],
+        node.properties["description"], node.properties["evidence_quote"]],
+        ensure_ascii=False).encode()).hexdigest()
+
 
 class ReportedClaimGraphStore(GraphStore):
     """SDK-compatible writes that preserve distinct quoted claims sharing endpoints."""
+    async def upsert_nodes(self, nodes):
+        # Shared identities do not give one source authority to overwrite another.
+        structural = [node for node in nodes if node.label not in ENTITY_TYPES]
+        nodes = [node for node in nodes if node.label in ENTITY_TYPES]
+        canonical = [node.model_copy(update={"properties": dict(
+            {k: v for k, v in node.properties.items()
+             if k not in {"original_identity", "source_chunk_ids"}},
+            description=f"Reported {node.label} identity; descriptions are source-specific observations.",
+            evidence_quote="")}) for node in nodes]
+        count = await super().upsert_nodes(structural + canonical)
+        for start in range(0, len(nodes), self._BATCH_SIZE):
+            batch = [{"entity": node.id, "id": observation_id(node),
+                      "description": node.properties["description"],
+                      "quote": node.properties["evidence_quote"],
+                      "original": node.properties["original_identity"],
+                      "chunks": node.properties["source_chunk_ids"]}
+                     for node in nodes[start:start + self._BATCH_SIZE]]
+            result = await self._conn.query(
+                "UNWIND $batch AS item MATCH (e:__Entity__ {id:item.entity}) "
+                "MERGE (o:ReportedEntityObservation {id:item.id}) "
+                "WITH e,o,item,coalesce(o.source_chunk_ids,[]) AS old "
+                "SET o.description=item.description,o.evidence_quote=item.quote, "
+                "o.original_identity=item.original, "
+                "o.source_chunk_ids=old+[c IN item.chunks WHERE NOT c IN old] "
+                "MERGE (e)-[:HAS_OBSERVATION]->(o) RETURN count(o)", {"batch": batch})
+            if not result.result_set or result.result_set[0][0] != len(batch):
+                raise RuntimeError("reported entity observation was not stored")
+        return count
+
     async def upsert_relationships(self, relationships):
         structural = [r for r in relationships if r.type != "RELATES"]
         count = await super().upsert_relationships(structural)
@@ -233,6 +268,8 @@ class ProcessExtraction(ExtractionStrategy):
         self.identity_context = list(originals.values())
         self._readings: dict[str, ProcessModel] = {}
         self.expected_claim_ids: set[str] = set()
+        self.expected_observation_ids: set[str] = set()
+        self.original_identity: str | None = None
 
     async def _correct_quotes_once(self, model, text):
         """One bounded citation-only correction; unsupported evidence still fails closed."""
@@ -370,15 +407,20 @@ class ProcessExtraction(ExtractionStrategy):
                                 "object_kind" if obj.kind not in ENTITY_TYPES else "object_quote")
                     raise ExtractionEvidenceError("invalid process object evidence or identity", category, index)
                 scope = obj.scope.strip().casefold()
+                original_identity = self.original_identity or text_digest
                 # Unknown applicability remains source-local, never a global name merge.
                 if scope in {"unknown", "unspecified"}:
-                    scope = f"unknown:{chunk.uid}"
+                    scope = f"unknown:{original_identity}"
                 identity = f"{obj.kind}|{obj.name.strip().casefold()}|{scope}"
+                # Repeated labels are separate execution positions/source assertions.
+                if obj.kind in {"Step", "Decision", "Exception", "Rule"}:
+                    identity += f"|occurrence:{original_identity}:{obj.key}"
                 uid = hashlib.sha256(identity.encode()).hexdigest()
                 ids[obj.key] = uid
                 nodes.append(GraphNode(id=uid, label=obj.kind, properties={
                   "name": f"{obj.name} [{scope}]", "description": obj.description,
-                  "scope": scope, "source_chunk_ids": [chunk.uid], "evidence_quote": obj.quote}))
+                  "scope": scope, "source_chunk_ids": [chunk.uid], "evidence_quote": obj.quote,
+                  "original_identity": original_identity}))
                 start = chunk.text.index(obj.quote)
                 mentions.append(EntityMention(entity_id=uid, chunk_id=chunk.uid,
                                                span_start=start, span_end=start + len(obj.quote)))
@@ -394,6 +436,7 @@ class ProcessExtraction(ExtractionStrategy):
                         "fact": link.description, "source_chunk_ids": [chunk.uid],
                         "evidence_quote": link.quote, "status": "reported"}))
         self.expected_claim_ids.update(relation_claim_id(r) for r in relations)
+        self.expected_observation_ids.update(observation_id(n) for n in nodes)
         return GraphData(nodes=nodes, relationships=relations, mentions=mentions)
 
 class EvidenceCitation(StrictModel):
@@ -464,7 +507,8 @@ class HolisticGraphPilot:
             "embedding": embedder.model_name, "dimensions": dimensions,
             "sdk": "1.4.0", "implementation": {
                 p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (
-                    Path(__file__), Path(__file__).parents[1] / "holistic_runtime.py",
+                    Path(__file__), Path(__file__).with_name("retrieval.py"),
+                    Path(__file__).parents[1] / "holistic_runtime.py",
                     Path(__file__).parents[1] / "provider_policy.py",
                     Path(__file__).parents[1] / "ingest/originals.py",
                     Path(__file__).parents[1] / "provider_transport.py",
@@ -482,7 +526,11 @@ class HolisticGraphPilot:
         store = ReportedClaimGraphStore(self.rag._conn)
         self.rag._graph_store = store
         self.rag._deduplicator._graph = store
-        self.rag._retrieval_strategy._graph = store
+        self.rag._retrieval_strategy = OriginalBalancedMultiPath(
+            graph_store=store, vector_store=self.rag._vector_store,
+            embedder=embedder, llm=llm,
+            source_hashes={str(s.source_id): s.original_hash or s.content_hash
+                           for s in corpus.sources})
 
     async def build(self):
         # Caller supplies only current, authorized source inventory. A new revision gets a new graph.
@@ -496,6 +544,7 @@ class HolisticGraphPilot:
         receipts = []
         extractor = ProcessExtraction(self.llm, self.corpus.sources)
         for source in self.corpus.sources:
+            extractor.original_identity = source.original_hash or source.content_hash
             receipt = await self.rag.ingest(text=source.text,
                 document_id=str(source.source_id), chunker=WholeDocumentChunks(),
                 extractor=extractor, resolver=PreserveReportedRelations())
@@ -512,15 +561,24 @@ class HolisticGraphPilot:
             or {row[0] for row in claims.result_set} != extractor.expected_claim_ids):
             raise RuntimeError("reported relationship claims were lost during indexing")
         claims_digest = hashlib.sha256(json.dumps(sorted(extractor.expected_claim_ids)).encode()).hexdigest()
+        observations = await self.rag._graph_store.query_raw(
+            "MATCH (o:ReportedEntityObservation) RETURN o.id")
+        if ({row[0] for row in observations.result_set} != extractor.expected_observation_ids
+                or len(observations.result_set) != len(extractor.expected_observation_ids)):
+            raise RuntimeError("reported entity observations were lost during indexing")
+        observations_digest = hashlib.sha256(json.dumps(sorted(extractor.expected_observation_ids)).encode()).hexdigest()
         stats = await self.rag.get_statistics()
         if not finalized.indexes or not all(finalized.indexes.values()):
             raise RuntimeError("graph indexing incomplete")
         await self.verify_documents()
         await self.rag._graph_store.query_raw(
             "MERGE (s:HolisticSnapshot {digest:$digest}) SET s.finalized=true,s.pipeline=$pipeline,"
-            "s.claim_count=$count,s.claim_digest=$claims",
+            "s.claim_count=$count,s.claim_digest=$claims,"
+            "s.observation_count=$observations_count,s.observation_digest=$observations",
             params={"digest": self.digest, "pipeline": PIPELINE_VERSION,
-                    "count": len(extractor.expected_claim_ids), "claims": claims_digest})
+                    "count": len(extractor.expected_claim_ids), "claims": claims_digest,
+                    "observations_count": len(extractor.expected_observation_ids),
+                    "observations": observations_digest})
         self.ready = True
         return {"corpus_digest": self.digest, "graph_name": self.graph_name,
                 "pipeline": PIPELINE_VERSION, "sdk_version": "1.4.0",
@@ -550,7 +608,7 @@ class HolisticGraphPilot:
         await self.verify_documents()
         rows = await self.rag._graph_store.query_raw(
             "MATCH (s:HolisticSnapshot {digest:$digest}) WHERE s.finalized=true "
-            "RETURN s.pipeline,s.claim_count,s.claim_digest",
+            "RETURN s.pipeline,s.claim_count,s.claim_digest,s.observation_count,s.observation_digest",
             params={"digest": self.digest})
         if not rows.result_set or rows.result_set[0][0] != PIPELINE_VERSION:
             raise RuntimeError("matching finalized snapshot required")
@@ -560,6 +618,11 @@ class HolisticGraphPilot:
             or len(ids) != len(set(ids)) or len(ids) != rows.result_set[0][1]
             or hashlib.sha256(json.dumps(sorted(ids)).encode()).hexdigest() != rows.result_set[0][2]):
             raise RuntimeError("reported relationship claims changed after finalization")
+        observations = await self.rag._graph_store.query_raw("MATCH (o:ReportedEntityObservation) RETURN o.id")
+        ids = [row[0] for row in observations.result_set]
+        if (not ids or len(ids) != len(set(ids)) or len(ids) != rows.result_set[0][3]
+                or hashlib.sha256(json.dumps(sorted(ids)).encode()).hexdigest() != rows.result_set[0][4]):
+            raise RuntimeError("reported entity observations changed after finalization")
         self.ready = True
 
     async def answer(self, question: str, current_corpus: Corpus):

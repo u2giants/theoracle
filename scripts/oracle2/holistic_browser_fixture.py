@@ -48,7 +48,9 @@ class FixedLLM(LLMInterface):
         self.first_id, self.second_id = first_id, second_id
 
     def invoke(self, prompt: str, **kwargs) -> LLMResponse:
-        if prompt.startswith("GROUNDING REVIEW."):
+        if prompt.startswith("KEYWORD EXTRACTION."):
+            payload = {"keywords": []}
+        elif prompt.startswith("GROUNDING REVIEW."):
             payload = {"supported": True, "unsupported_statements": [],
                        "omitted_required_exceptions": [], "concealed_conflicts": []}
         elif "\nFULL ORIGINAL SOURCE DATA:\n" in prompt:

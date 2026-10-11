@@ -230,7 +230,8 @@ def test_process_extraction_uses_sdk_types_scopes_unknowns_and_rejects_unsupport
     llm = FixedLLM(json.dumps(payload))
     result = asyncio.run(ProcessExtraction(llm).extract(TextChunks(chunks=[chunk]), None, None))
     assert len(result.nodes) == 2 and len(result.relationships) == 1
-    assert any("unknown:chunk-fixed" in node.properties["name"] for node in result.nodes)
+    assert any("unknown:" + hashlib.sha256(chunk.text.encode()).hexdigest()
+               in node.properties["name"] for node in result.nodes)
     assert result.relationships[0].properties["rel_type"] == "PRECEDES"
     assert llm.calls == 1
 
@@ -343,6 +344,28 @@ def test_identity_defect_never_spends_a_citation_correction_call():
         asyncio.run(ProcessExtraction(llm).extract(TextChunks(chunks=[
             TextChunk(text="requires label", index=0, uid="original")]), None, None))
     assert error.value.category == "duplicate_object_key"
+    assert llm.calls == 1
+
+
+@pytest.mark.parametrize("kind", ["Step", "Decision", "Exception", "Rule"])
+def test_repeated_execution_labels_stay_distinct_but_upload_aliases_do_not_duplicate_them(kind):
+    text = "Review approves the initial packet. Review approves the revised packet."
+    payload = {"objects": [
+        {"key": "initial", "kind": kind, "name": "Approval", "scope": "unknown",
+         "description": "initial authorization", "quote": "Review approves the initial packet."},
+        {"key": "revised", "kind": kind, "name": "Approval", "scope": "unknown",
+         "description": "revision authorization", "quote": "Review approves the revised packet."}],
+        "links": [], "missing_information": [], "conflicts": []}
+    llm = FixedLLM(json.dumps(payload))
+    extractor = ProcessExtraction(llm)
+    first = asyncio.run(extractor.extract(TextChunks(chunks=[
+        TextChunk(text=text, index=0, uid="upload-one")]), None, None))
+    alias = asyncio.run(extractor.extract(TextChunks(chunks=[
+        TextChunk(text=text, index=0, uid="upload-alias")]), None, None))
+    assert len({n.id for n in first.nodes}) == 2
+    assert {n.id for n in first.nodes} == {n.id for n in alias.nodes}
+    assert {n.properties["description"] for n in first.nodes} == {
+        "initial authorization", "revision authorization"}
     assert llm.calls == 1
 
 
