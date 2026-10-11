@@ -22,6 +22,11 @@ def test_new_core_import_boundary():
                  'import oracle_brain.consultant.pilot',
                  '__import__("oracle_brain.graph.graphrag")',
                  'exec("import oracle_brain.graph")',
+                 'builtins.exec("import oracle_brain.graph")',
+                 'builtins.eval("1")',
+                 'from importlib import import_module; import_module("oracle_brain.graph")',
+                 'from builtins import exec as run; run("import oracle_brain.graph")',
+                 'from ... import x', 'invalid python syntax :',
                  'importlib.import_module("oracle_brain.retrieval.pilot")'):
         assert import_violations(text, package='oracle_brain.operating_model', helper_allowlist=helpers), text
     assert not import_violations('from ..provider_policy import authorize',package='oracle_brain.operating_model',helper_allowlist=helpers)

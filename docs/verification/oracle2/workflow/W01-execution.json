@@ -5,9 +5,23 @@
   },
   "boundary_tests": {
     "exit": 0,
-    "output": "....                                                                     [100%]\n4 passed in 0.02s",
+    "output_sha256": "99cef98de12a8b8a90abbcb2033d076bfc563ea7951d4da90263da27288d16f6",
     "passed_count": 4,
-    "skipped_count": 0
+    "skipped_count": 0,
+    "test_names": [
+      "test_new_core_import_boundary",
+      "test_retention_contracts_cover_all_live_callers",
+      "test_validation_fixture_checksum_immutable",
+      "test_independent_obligation_inventory_detects_missing_handoff"
+    ]
+  },
+  "cleanup_passed": true,
+  "executed_file_hashes": {
+    "evals/oracle2/workflow/legacy_loss_probe.py": "dbeaf581734182e9fb20fdb35d3ba44217898e3720dad89b50a1755c0379a17d",
+    "scripts/oracle2/verify_operating_model_baseline.py": "7404ca8e5852ce954d149e5fce393e92f7e40775c9b96de6ff7497195286872d",
+    "services/oracle-brain/oracle_brain/operating_model/boundary.py": "70910459c87f648c1859e58c54408c6e7fef7b199e42da00bf05fb50d618fa3a",
+    "services/oracle-brain/tests/test_operating_model_boundary.py": "d4b7435df38300398ac94350fe53156abde8e8f4131ad80ed4db44684735df9a",
+    "services/oracle-brain/tests/test_operating_model_coverage.py": "31fa12f044c19a3addda98fde31aad28e77675ef8f7e3f0a3524cf423c0106d5"
   },
   "image": "falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d",
   "lock_sha256": "9cedb786240ce78dac821f92ea2ddb1caa46125632b185a605ea541244403585",
@@ -19,21 +33,61 @@
     "main": {
       "exit": 1,
       "expected_loss_verified": true,
-      "output_sha256": "3472d737a1b987869ef284741e3eebb8b639e42f5d7eb8f53ad02b716c637248",
-      "probe_sha256": "b287b9c5e1546e5af39e13d94f4a54f21dcf79fa2986f0b94e3ccb2e0a50167e"
+      "output_sha256": "7dea6513ce16133b2d2ba33b3d6a48d2b549ec1ef07d08208fb3e1fbb1588e8c",
+      "preserved_findings": 0,
+      "probe_sha256": "dbeaf581734182e9fb20fdb35d3ba44217898e3720dad89b50a1755c0379a17d",
+      "unexpected_pass": false
     },
     "recovery": {
       "exit": 1,
       "expected_loss_verified": true,
-      "output_sha256": "773d64649a36d2411cb16eec6f718a5e14a161083ae7e2f6dac84fc941c48a67",
-      "probe_sha256": "b287b9c5e1546e5af39e13d94f4a54f21dcf79fa2986f0b94e3ccb2e0a50167e"
+      "output_sha256": "e907ac0a1b75584dcb1bac0f11f6fddfafb1c49cf4cde5bfda4dca0feadd5bd2",
+      "preserved_findings": 0,
+      "probe_sha256": "dbeaf581734182e9fb20fdb35d3ba44217898e3720dad89b50a1755c0379a17d",
+      "unexpected_pass": false
     },
     "recovery_invariants": {
       "exit": 0,
-      "output_sha256": "f82bb1136d1b36a1eb0fcae1070c9c58eee4f76238f211101531b04ca1d2d679",
+      "output_sha256": "c1140a2078403176e5cfa317a8c17756d2882f8d024d6965f0625c8b857fb894",
       "passed": true,
       "passed_count": 34,
       "skipped_count": 0,
+      "test_names": [
+        "test_sdk_keywords_are_structured_literal_terms_and_calls_are_counted",
+        "test_sdk_keywords_reject_invented_aliases_instead_of_silently_falling_back",
+        "test_sdk_formatting_refuses_silent_provenance_misalignment",
+        "test_corpus_requires_complete_hashed_two_source_inventory_and_budget",
+        "test_corpus_requires_distinct_originals_and_rejects_conflicting_alias_readings",
+        "test_corpus_digest_binds_original_provenance",
+        "test_citations_reject_foreign_source_offsets_and_fake_quotes",
+        "test_provider_denial_happens_before_delegate_and_budget_is_enforced",
+        "test_admitted_embedder_batches_once_and_denies_before_delegate",
+        "test_chunking_is_lossless_and_extracts_once_with_cross_boundary_provenance",
+        "test_process_extraction_uses_sdk_types_scopes_unknowns_and_rejects_unsupported_links",
+        "test_corpus_identity_context_keeps_every_original_once_and_rejects_foreign_quote",
+        "test_assembled_extraction_envelope_rejects_unicode_expansion_before_dispatch",
+        "test_quote_correction_is_once_exact_complete_and_preserves_claims[objects-None]",
+        "test_quote_correction_is_once_exact_complete_and_preserves_claims[objects-foreign]",
+        "test_quote_correction_is_once_exact_complete_and_preserves_claims[objects-duplicate]",
+        "test_quote_correction_is_once_exact_complete_and_preserves_claims[objects-missing]",
+        "test_quote_correction_is_once_exact_complete_and_preserves_claims[links-None]",
+        "test_quote_correction_is_once_exact_complete_and_preserves_claims[links-foreign]",
+        "test_quote_correction_is_once_exact_complete_and_preserves_claims[links-duplicate]",
+        "test_quote_correction_is_once_exact_complete_and_preserves_claims[links-missing]",
+        "test_quote_correction_is_once_exact_complete_and_preserves_claims[both-None]",
+        "test_quote_correction_is_once_exact_complete_and_preserves_claims[both-foreign]",
+        "test_quote_correction_is_once_exact_complete_and_preserves_claims[both-duplicate]",
+        "test_quote_correction_is_once_exact_complete_and_preserves_claims[both-missing]",
+        "test_identity_defect_never_spends_a_citation_correction_call",
+        "test_repeated_execution_labels_stay_distinct_but_upload_aliases_do_not_duplicate_them[Step]",
+        "test_repeated_execution_labels_stay_distinct_but_upload_aliases_do_not_duplicate_them[Decision]",
+        "test_repeated_execution_labels_stay_distinct_but_upload_aliases_do_not_duplicate_them[Exception]",
+        "test_repeated_execution_labels_stay_distinct_but_upload_aliases_do_not_duplicate_them[Rule]",
+        "test_resolver_preserves_relation_types_and_scoped_same_names",
+        "test_pilot_has_no_legacy_fallback_and_rejects_changed_corpus_before_answer",
+        "test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documents",
+        "test_sdk_finalization_keeps_repeated_authorizations_on_their_own_routes"
+      ],
       "tests": [
         "test_holistic_graphrag.py",
         "test_holistic_graphrag_integration.py"

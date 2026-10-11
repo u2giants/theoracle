@@ -46,3 +46,12 @@ new ledger/model gates exist. The boundary component now exists and enforces
 only the narrow Oracle helper allowlist; parent-package, dynamic-import and
 exec/eval bypasses are denied. SDK/provider/authority contracts remain separately
 required.
+
+Runner revision records all boundary test results itself via JUnit, derives
+recovery counts from JUnit rather than parsing prose, separates unexpected-pass
+from infrastructure failure, records exact executed-file hashes and cleans up
+only its own container. Invalid syntax/relative imports return denied records;
+all dynamic import/exec/eval spellings tested by the reviewer are now denied.
+The import rule permits modules on the listed helper allowlist (including parent
+from-import spelling); it does not grant permission for side effects or new
+business APIs. Code/release review remains independent of this static check.
