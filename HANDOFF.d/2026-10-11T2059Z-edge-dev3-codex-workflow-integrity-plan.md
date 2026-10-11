@@ -189,3 +189,5 @@ Self-audit passed after a line-by-line owner-decision sweep:
    engineering gates, never approval/setup asks for Albert.
 
 Posted by Codex chat 01a12b2c-9fa9-72c0-a132-341a402873d8 on edge-dev3
+
+Authority clarification: the [Tailscale incident closure receipt](https://github.com/u2giants/theoracle/issues/27#issuecomment-6111823232) records Albert’s “Yes—close the credential incident” ruling and supersedes the older OPEN entry. Preserve its closed/no-rotation scope.

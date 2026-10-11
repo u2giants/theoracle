@@ -130,6 +130,12 @@ messages; resumed company-answer/Ilona/Jessica grading; provider/account/key cha
 reopening the closed credential incident; new cloud purchases; live ERP writes;
 the entire S04–S16 overhaul; repairing unrelated historical R2 experiments.
 
+The Tailscale credential incident is CLOSED. Albert explicitly ruled
+“Yes—close the credential incident” on October 11, 2026 EDT; the
+[closure receipt](https://github.com/u2giants/theoracle/issues/27#issuecomment-6111823232)
+supersedes the older October 11 1641Z handoff’s OPEN status. Preserve the accepted
+private external transcript copy and the no-rotation boundary; do not reopen it.
+
 ## 5. Current code and delivery state
 
 **Recovery inventory only:** every line reference in the following table uses
@@ -465,7 +471,9 @@ or acquire invented spans. Store new artifact revision, retain old graph. Update
 `holistic_runtime.py` serialization and graph retrieval to expose findings without
 requiring a new company-answer call. Gate: new nonempty findings survive actual SDK
 finalize/restart/retrieval; same-ID tampering fails; unresolved and incomplete
-evidence survive; cross-workspace/withdrawn sources cannot be served. Save W02.
+evidence survive; cross-workspace/withdrawn sources cannot be served. Require
+`test_legacy_findings_import_keeps_needs_evidence` in `test_workflow_findings.py`
+and the §10 `test_artifact_storage.py` checks explicitly at this gate. Save W02.
 
 ### W03 — Build source-backed executable workflow contracts
 
@@ -539,6 +547,7 @@ policy authority. Include loading, empty, stale, blocked and denied states.
 Gate: `apps/web/tests/oracle2/workflow-integrity.spec.ts` proves upload/import →
 SDK → finding/workflow store → restarted retrieval → UI on invented data. Visually
 inspect conflict evidence, partial branches and denied access in the browser.
+Require the §10 `test_workflow_authorization.py` checks at this gate.
 No company questions or employee messages. Save W06 with sanitized screenshots.
 
 ### W07 — Import real operational records through a separate path
@@ -643,6 +652,7 @@ revisions with synthetic scenarios first. No company questions are resumed.
 
 Gate: exact hosted revisions match reviewed input; fresh-instance recovery
 reproduces content seals and findings/models/metrics; original capability survives.
+Require the §10 `test_workflow_recovery.py` checks at this gate.
 Keep `- [ ] live proof` on #27/#58 until done. Missing policy-management authority
 is a named external technical blocker owned by the recovery implementation session,
 not a request for Albert to do setup. Save W11.
@@ -669,6 +679,7 @@ Test names in §9 and this table are binding behavioral specifications.
 | External input | Hostile or ambiguous case | Required test |
 |---|---|---|
 | Model finding output | Nonempty lists silently dropped at graph conversion | `test_unresolved_findings_survive_finalize_reload` in `test_workflow_findings.py` |
+| Legacy cached findings | Lists imported without valid quote support | `test_legacy_findings_import_keeps_needs_evidence` in `test_workflow_findings.py` |
 | Finding evidence | Quote borrowed across source/version; forged span | `test_finding_support_is_exact_current_original` in the same file |
 | Missing-information output | Absence presented as quoted policy or invented owner | `test_absence_is_coverage_inference_not_company_fact` in the same file |
 | Conflict output | One side invented; old/new scope merged | `test_conflict_needs_two_supported_sides_or_unverified_status` in the same file |
