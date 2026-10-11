@@ -116,10 +116,40 @@ module explicitly named, avoiding a cosmetic rename requirement. Both parties
 agree report prices/runtime benchmarks are unmeasured; proposed ceilings cannot
 create new spending authority or supersede current private processing admission.
 
-## Debate status
+## Round 3: agreement and plan approval
 
-Round 3 validates the corrected frozen plan and the lost-list regression rebuttal.
-No final APPROVE or runtime acceptance is claimed before its actual response.
+Muse reviewed the complete frozen revision
+[0ed46de7a48ba85e1ff26a5c7956c241e33bf5b7](https://github.com/u2giants/theoracle/commit/0ed46de7a48ba85e1ff26a5c7956c241e33bf5b7)
+and returned **APPROVE**. Its final validation confirmed every Round-2 substantive
+correction and found no remaining in-place-core extension, stale suite name or
+contradictory recovery-merge requirement. It explicitly accepted Codex’s test
+rebuttal: list-loss is red on both old baselines, recovery’s separate proven
+invariants are green, and the new ledger/projection must go green and reject
+intentional loss. A false green old-list test is not required.
+
+The substantive disagreement is resolved: retain proven evidence/infrastructure,
+replace the knowledge-to-workflow core, keep a reviewer-only unverified pane,
+require requested analytical capabilities but decouple their release gates,
+and preserve independent/private admission and business-acceptance controls.
+This is a recorded engineering decision, not deferral of the rebuild decision
+to the next implementing session. W01 confirms the precise boundaries and any
+changed live evidence against this selected direction.
+
+Reviewer provenance: Muse Spark 1.3 Contributor, native Muse Code; named
+conversation `oracle-rebuild-plan-20261011`, session
+`2a24f528-4f33-4961-9079-5161823e7d39`; three substantive rounds: REVISE →
+REVISE → APPROVE. Exact frozen technical plan head is linked above. The protected
+wrapper retained terminal/session/model/source identity and its complete response.
+The final publication receipt on #27 binds the resulting document-only revision
+and review; source movement requires fresh review, never reuse of a stale report.
+
+Limits stated by Muse: no SDK tests executed in its review copy; installed SDK/
+PM4Py behavior, current pricing, private source semantics and hosted topology
+remain named execution-time gates. Its approval is of plan executability, not
+deployment, company answers or business acceptance. No actual runtime capability
+was changed in this planning/debate task. The one subsequently requested
+publication check covers only this finalized debate record and self-audit note,
+with the approved technical plan unchanged.
 
 ## Current selected architecture
 

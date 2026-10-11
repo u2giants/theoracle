@@ -1244,6 +1244,11 @@ seals. Runtime forward-redeploy follows Trigger's existing rollback constraints.
 
 ### Final self-audit
 
+The revised plan passed Muse’s three-round substantive critique/debate on
+October 11, 2026 EDT; [the durable record](docs/research/oracle-operating-model-debate.md)
+records exact technical head, adopted changes, rebuttals, agreement and limits.
+This approves the plan, not implementation, private semantic acceptance or deployment.
+
 All 13 required sections and STATUS are present. Checklist mapping: goal §1;
 application/trigger/current state §§2–6; rejected paths §7; locked/open contracts
 §8; every executable step/files/dependency/gate §9; hostile input × named test
