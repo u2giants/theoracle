@@ -280,17 +280,22 @@ def test_assembled_extraction_envelope_rejects_unicode_expansion_before_dispatch
 
 
 @pytest.mark.parametrize("failure", [None, "foreign", "duplicate", "missing"])
-def test_quote_correction_is_once_exact_complete_and_preserves_claims(failure):
+@pytest.mark.parametrize("collection", ["objects", "links", "both"])
+def test_quote_correction_is_once_exact_complete_and_preserves_claims(failure, collection):
     text = "Packing requires a label.\nShipping follows packing."
     payload = {"objects": [{"key": "rule", "kind": "Rule", "name": "Label",
         "scope": "packing", "description": "Packing requires a label.",
-        "quote": "Packing requires a label. |"}], "links": [],
+        "quote": "Packing requires a label." + (" |" if collection != "links" else "")}],
+        "links": [{"source": "rule", "target": "rule", "kind": "GOVERNED_BY",
+                   "description": "Packing requires a label.",
+                   "quote": "Packing requires a label." + (" |" if collection != "objects" else "")}],
         "missing_information": ["Approval date unspecified"], "conflicts": []}
     correction = {"collection": "objects", "index": 0,
                   "quote": "Packing requires a label."}
-    corrections = [correction]
+    corrections = [dict(correction, collection=key) for key in
+                   (["objects", "links"] if collection == "both" else [collection])]
     if failure == "foreign":
-        corrections = [dict(correction, quote="Other source's evidence")]
+        corrections[0] = dict(corrections[0], quote="Other source's evidence")
     elif failure == "duplicate":
         corrections *= 2
     elif failure == "missing":
@@ -308,16 +313,31 @@ def test_quote_correction_is_once_exact_complete_and_preserves_claims(failure):
     if failure:
         with pytest.raises(ExtractionEvidenceError) as error:
             asyncio.run(extraction.extract(chunks, None, None))
-        assert error.value.category == "object_quote"
+        assert error.value.category == ("link_quote" if collection == "links" else "object_quote")
         assert not extraction._readings
     else:
         graph = asyncio.run(extraction.extract(chunks, None, None))
         assert graph.nodes[0].properties["evidence_quote"] == correction["quote"]
         saved = next(iter(extraction._readings.values())).model_dump()
-        assert saved == dict(payload, objects=[dict(payload["objects"][0],
-                                                  quote=correction["quote"])])
+        assert saved == dict(payload,
+            objects=[dict(payload["objects"][0], quote=correction["quote"])],
+            links=[dict(payload["links"][0], quote=correction["quote"])])
+        assert graph.relationships[0].properties["evidence_quote"] == correction["quote"]
         asyncio.run(extraction.extract(chunks, None, None))
     assert llm.calls == 2
+
+
+def test_identity_defect_never_spends_a_citation_correction_call():
+    item = {"key": "same", "kind": "Rule", "name": "Label", "scope": "packing",
+            "description": "requires label", "quote": "requires label"}
+    payload = {"objects": [item, dict(item, quote="Unsupported added delimiter |")], "links": [],
+               "missing_information": [], "conflicts": []}
+    llm = FixedLLM(json.dumps(payload))
+    with pytest.raises(ExtractionEvidenceError) as error:
+        asyncio.run(ProcessExtraction(llm).extract(TextChunks(chunks=[
+            TextChunk(text="requires label", index=0, uid="original")]), None, None))
+    assert error.value.category == "duplicate_object_key"
+    assert llm.calls == 1
 
 
 def test_resolver_preserves_relation_types_and_scoped_same_names():

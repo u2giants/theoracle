@@ -1152,3 +1152,41 @@ characters per extraction and 1,873,963 across one uncached build, below the 650
 per-call guard. This measurement performed zero network/model calls. All 71 required
 local checks pass after the final guard and fixture changes. Source approval and a
 fresh admitted synthetic standards-reference build still precede company dispatch.
+
+
+### Bounded citation correction — October 11, 2026, 3:12 PM EDT
+
+The subsequent company attempt failed closed on an object quotation and a related
+claim quotation. Protected response capture established the actual cause: a
+321-character unique contiguous source passage acquired an unsupported trailing
+space and table delimiter. Neither whitespace normalization nor another original
+supported the complete generated quote. The failed graph remains immutable and
+unready; its contents are not company acceptance.
+
+A single admitted citation-only correction call may replace all invalid quotations
+for one distinct original. Exact collection/index coverage, unique response entries
+and current-original substring validation are mandatory. No object, relationship,
+name, scope, description, conflict or missing-information entry can be added,
+removed or changed by the correction response. Identity/schema defects never enter
+this lane. A malformed, foreign, missing or duplicate correction fails the entire
+build; there is no correction loop. Input size, generation bounds, admission and
+call budget remain enforced. Replacement quotation meaning still requires the
+independent operating-model audit; exact containment alone is insufficient.
+
+Independent GLM APPROVE binds implementation commit
+752517386cc025fffe78883deebb3d745a32700e. All 75 then-required local checks pass,
+and a fresh three-original synthetic build plus live SDK retrieval succeeded.
+Additional tests cover link-only and mixed object/link correction, failure and
+identity-defect call suppression. These tests and current-head release review
+remain required before shipment.
+
+The next company build reuses only two protected prior provider generations whose
+complete prompt SHA-256 and current source-content SHA-256 match exactly. It runs
+current validators and actual SDK ingestion on a new immutable graph; it does not
+reuse any failed graph or treat cached output as qualified evidence. Cache-file
+hashes and operator identity are preserved privately. This avoids repeating the
+same paid generation while retaining exact provenance. All other generations and
+any needed citation correction use the same admitted OpenAI route. The verified
+remaining daily budget immediately before this build was $7.14; the owner-set
+$25/day limit is unchanged. Company coverage, hosting and H7/H8 remain open;
+company questions and Ilona/Jessica reruns remain paused.
