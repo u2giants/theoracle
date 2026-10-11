@@ -1,6 +1,6 @@
 version: 1
-synthetic_only: true
 extractor:
+  synthetic_only: true
   deployment: dedicated-oracle2-extractor-preview
   database_role: oracle2_extract
   graph_credential: candidate_only
@@ -10,6 +10,7 @@ extractor:
     - ORACLE2_CHECKPOINT_DATABASE_URL
     - SUPABASE_SERVICE_ROLE_KEY
 projector:
+  synthetic_only: true
   deployment: dedicated-oracle2-projector-preview
   database_role: oracle2_project
   graph_credential: confirmed_only
@@ -28,3 +29,13 @@ legacy_trigger_project:
   project_ref: proj_wgpzsvhmsopqhvwqaycn
   oracle2_tasks_allowed: false
 preview_status: measured_synthetic
+holistic:
+  deployment: dedicated-oracle2-holistic-preview
+  database_role: oracle2_holistic
+  graph_credential: reported_candidate_only
+  preview_status: not_qualified_for_company_data
+  forbidden:
+    - ORACLE2_CONFIRMED_GRAPH_URL
+    - ORACLE2_PROJECTION_SIGNING_KEY
+    - ORACLE2_CHECKPOINT_DATABASE_URL
+    - SUPABASE_SERVICE_ROLE_KEY

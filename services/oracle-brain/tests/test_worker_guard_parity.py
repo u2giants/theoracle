@@ -22,9 +22,22 @@ def _forbidden(role: str) -> list[str]:
 
 
 def test_ts_guards_cover_manifest():
-    for role, task in (("extractor", "oracle2-run.ts"), ("projector", "oracle2-project.ts")):
+    for role, task in (("extractor", "oracle2-run.ts"), ("projector", "oracle2-project.ts"),
+                       ("holistic", "oracle2-holistic.ts")):
         source = (ROOT / "apps/workers/src/trigger" / task).read_text()
         names = _forbidden(role)
         assert names, role
         for name in names:
             assert f"process.env.{name}" in source, (role, name)
+
+
+def test_holistic_task_has_dedicated_preview_config_and_identity():
+    config = (ROOT / "apps/workers/trigger.oracle2-holistic.config.ts").read_text()
+    task = (ROOT / "apps/workers/src/trigger/oracle2-holistic.ts").read_text()
+    manifest = (ROOT / "dev/oracle2/runtime-identities.yaml").read_text()
+    assert "oracle2_holistic" in manifest
+    assert "oracle2-holistic-answer" in task
+    assert "./oracle2-python/oracle_brain/holistic_runtime.py" in task
+    assert "dedicated-oracle2-holistic-preview" in manifest
+    assert "scripts: ['./oracle2-python/oracle_brain/**/*.py']" in config
+    assert "oracle2-holistic.ts" in config

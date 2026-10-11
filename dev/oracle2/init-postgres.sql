@@ -11,3 +11,6 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
   CREATE ROLE oracle2_pilot_web LOGIN PASSWORD 'oracle2_local_pilot_web_only';
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE ROLE oracle2_holistic LOGIN PASSWORD 'oracle2_local_holistic_only';
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

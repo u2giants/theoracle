@@ -23,7 +23,11 @@ S02_TESTS = [
 ]
 S03_TESTS = [
     "test_provider_policy.py", "test_pilot_journey.py", "test_authority.py",
-    "test_review_concurrency.py",
+    "test_review_concurrency.py", "test_holistic_graphrag.py",
+    "test_holistic_graphrag_integration.py",
+    "test_holistic_runtime.py", "test_original_reading.py", "test_original_corpus_import.py", "test_original_corpus_read.py",
+    "test_provider_transport.py",
+    "test_original_pdf_image_views.py",
 ]
 
 
@@ -47,6 +51,8 @@ def main() -> int:
         parser.error(f"missing required tests: {', '.join(missing)}")
     if not os.getenv("ORACLE2_TEST_ADMIN_URL") or not os.getenv("ORACLE2_TEST_CONFIRMED_URL"):
         parser.error("real isolated Postgres and FalkorDB test URLs required")
+    if args.phase == "S03" and not os.getenv("ORACLE2_TEST_FALKORDB_URL"):
+        parser.error("S03 requires actual GraphRAG SDK FalkorDB integration target")
     python = SERVICE / ".venv" / "bin" / "python"
     if not python.exists():
         python = SERVICE / ".venv" / "Scripts" / "python.exe"

@@ -1,4 +1,4 @@
-// S03 pilot journey browser test: login → upload → correct → confirm → answer after refresh.
+// Corrected pilot browser gate: intake works; no obsolete answers before corpus readiness.
 import { test, expect } from '@playwright/test';
 
 const PROCESS_DOC = [
@@ -20,7 +20,7 @@ async function pilotLogin(page: import('@playwright/test').Page) {
 }
 
 test.describe('S03 pilot journey', () => {
-  test('login → upload → correction → confirmation → answer after page refresh', async ({ page }) => {
+  test('intake and correction work; questions fail closed before corpus readiness', async ({ page }) => {
     await pilotLogin(page);
 
     // 1. Upload the process table (each row is its own block).
@@ -41,28 +41,18 @@ test.describe('S03 pilot journey', () => {
     await page.getByTestId('confirm-btn').click();
     await expect(page.getByTestId('draft-status')).toContainText('confirmed');
 
-    // 4. Ask a connected question — answer must include the corrected edge.
-    await page.getByTestId('question-input').fill(
-      'Where can the handoff between licensing and production fail?',
-    );
+    // No graph/config readiness is supplied to this synthetic browser gate.
+    // The former quote-assembly path must not produce an answer.
+    await page.getByTestId('question-input').fill('Where can the handoff fail?');
     await page.getByTestId('ask-btn').click();
-    await expect(page.getByTestId('answer-section')).toBeVisible();
-    await expect(page.getByTestId('answer-text')).not.toBeEmpty();
-    await expect(page.getByTestId('answer-text')).toContainText('Process-map connections');
-    await expect(page.getByTestId('answer-text')).toContainText('0→2');
-    await expect(page.getByTestId('answer-text')).toContainText(/Connected process step|Process-map context only/);
-    await expect(page.getByTestId('citations')).toBeVisible();
-    await expect(page.getByTestId('hypothetical')).toBeVisible();
-    await expect(page.getByTestId('hypothetical')).toContainText('not established fact');
-
-    // 5. Page refresh — the answer is still retrievable via session.
+    await expect(page.getByTestId('error-banner')).toContainText('not ready');
+    await expect(page.getByTestId('answer-section')).not.toBeVisible();
     await page.reload();
-    await expect(page.getByTestId('answer-section')).toBeVisible();
-    await expect(page.getByTestId('answer-text')).not.toBeEmpty();
-    await expect(page.getByTestId('citations')).toBeVisible();
+    await expect(page.getByTestId('answer-section')).not.toBeVisible();
+
   });
 
-  test('upload shows missing evidence for unrelated question', async ({ page }) => {
+  test('an unrelated question cannot bypass corpus readiness', async ({ page }) => {
     await pilotLogin(page);
     await page.getByTestId('document-text').fill('The weather is pleasant today.');
     await page.getByTestId('upload-btn').click();
@@ -71,7 +61,8 @@ test.describe('S03 pilot journey', () => {
     await expect(page.getByTestId('draft-status')).toContainText('confirmed');
     await page.getByTestId('question-input').fill('What is the licensing approval threshold?');
     await page.getByTestId('ask-btn').click();
-    await expect(page.getByTestId('answer-text')).toContainText('No source evidence');
+    await expect(page.getByTestId('error-banner')).toContainText('not ready');
+    await expect(page.getByTestId('answer-section')).not.toBeVisible();
     await expect(page.getByTestId('hypothetical')).not.toBeVisible();
   });
 

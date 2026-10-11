@@ -18,6 +18,7 @@ jobs:
       ORACLE2_TEST_CANDIDATE_URL: redis://:oracle2_candidate_local_only@127.0.0.1:56379
       ORACLE2_TEST_CONFIRMED_URL: redis://:oracle2_confirmed_local_only@127.0.0.1:56380
       ORACLE2_TEST_BLOB_ENDPOINT: http://127.0.0.1:54566
+      ORACLE2_TEST_FALKORDB_URL: redis://:oracle2_candidate_local_only@127.0.0.1:56379
       GRAPHITI_TELEMETRY_ENABLED: 'false'
       ORACLE2_TELEMETRY_MODE: 'off'
     steps:
@@ -44,6 +45,8 @@ jobs:
         run: pnpm --filter @oracle/brain-contracts verify:parity
       - name: Typecheck workers and Oracle 2 Trigger configs
         run: pnpm --filter @oracle/workers typecheck
+      - name: Typecheck corrected pilot web
+        run: pnpm --filter @oracle/web typecheck
       - name: Verify Oracle 2 worker script bundle paths
         run: node scripts/oracle2/verify_worker_bundle.mjs
       - name: Install uv
@@ -70,6 +73,10 @@ jobs:
         run: python3 scripts/oracle2/verify_phase.py S02 --mode offline
       - name: S03 pilot journey offline gate
         run: python3 scripts/oracle2/verify_phase.py S03 --mode offline
+      - name: Install browser for synthetic connected-document proof
+        run: pnpm --filter @oracle/web exec playwright install chromium
+      - name: Prove browser through SDK transport and real FalkorDB
+        run: services/oracle-brain/.venv/bin/python scripts/oracle2/verify_holistic_browser.py
       - name: Pilot graph resource experiment
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/resource_experiment.py --nodes 10000 --relations 100000 --output out/oracle2/resource-pilot.json
       - name: Ten-times graph stress experiment

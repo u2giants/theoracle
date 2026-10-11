@@ -1,5 +1,12 @@
 # S03 real-data preview dispatch — exact inputs for independent technical review
 
+**Historical thin dispatch superseded, 2026-10-11 EDT.** Its one-table question and
+grading actions below are not authorized for the corrected pilot. The current owner
+requires complete original readings and holistic FalkorDB **and** GraphRAG SDK
+processing. No company question generation or Ilona/Jessica rerun occurs in this
+correction. The corrective dispatch at the end of this file is the current technical
+review input; historical review approval does not approve the changed approach.
+
 Status: **pending review** (revision 4, 2026-10-04 EDT). Revisions 1–3 were
 REJECTED (last: `20261001T182245-1505817-15927`) including a Critical on
 publishing process/answer-key content (now private) and High on substituting
@@ -176,3 +183,69 @@ plan S03 stop-rule applies if the process map or answer is materially wrong.
 - If browser tests fail, fix and re-run before any real-data step.
 - If token/authority gates do not refuse unauthorized callers, stop and fix
   the gate before claiming the journey.
+
+## Corrective holistic dispatch — 2026-10-11 EDT
+
+Owner: this Codex chat on edge-dev3; same parent #24 and children #27/#58. Scope is
+H1–H8 in the canonical overhaul plan. H9 remains deferred. Historical employee
+questions, answers and grading records are preserved without regeneration or rerun.
+
+Before any real-corpus graph import/build, obtain independent exact-commit APPROVE
+on the implementation plus this dispatch. Publish only the reviewed commit, approval
+reference, immutable private-register hash and sanitized verification results on the
+existing issues. A moved commit invalidates approval. Required engineering proof is
+S02/S03 offline contracts, actual FalkorDB + GraphRAG SDK integration, original-reader
+and import tests, worker least privilege/bundle guard, production web build and the
+synthetic holistic browser journey. A loopback Trigger stand-in is engineering proof;
+it must never be described as actual hosted Trigger acceptance.
+
+The original inventory is 26 byte-verified uploads representing eight distinct
+originals. Private bytes, filenames, normalized readings, review receipts and source
+IDs remain outside this repository. Three native originals are decoded strictly and
+roundtrip exactly. Image/PDF originals require all pages and overlapping detail views,
+complete structured text/ownership/relationships, then an independent different model
+review. All four PDFs comprise 29 pages. Every returned quote retains normalized
+reading offsets and provenance to original-byte hash, parser/model/config identity,
+page coverage and review receipt. Inherent source gaps stay explicit; an unreadable
+or incomplete reading cannot be admitted. Uploaded aliases are preserved without
+counting duplicate bytes as independent cross-document evidence.
+
+Processing authority is Albert's current original-reading and explicit funded
+OpenRouter instructions plus his recorded all-provider sharing scope. Root maintains
+a private immutable registration for the exact provider, existing account, endpoint,
+purpose, data classes, current standard terms, configured models and expiry. Existing
+OpenRouter is selected explicitly; OpenAI-only provider routing, non-training routes,
+no fallback, no telemetry, store=false, bounded calls and no automatic provider-error
+retry apply. Direct OpenAI's separate exhausted-credit hold remains. No new account,
+subscription, key rotation, key limit change or purchase is part of this dispatch.
+Account opt-in logging, zero retention and residency guarantees are not asserted.
+
+After complete reading qualification, import only into a fresh isolated loopback
+Oracle2 workspace. The operator asserts the loopback target/database and complete
+qualified manifest before one transaction. It leaves drafts unconfirmed; no process
+fact is promoted by ingestion. Bootstrap existing signed/store-backed authority with
+the owner keypair; confirmations must use its scoped authority checks and preserve
+revocation behavior. Technical source completeness is separate from business truth.
+
+Build the immutable candidate graph using the actual pinned SDK and reviewed exact
+whole-document corpus/configuration digest. Whole-original extraction must preserve
+roles, steps, handoffs, dependencies, exceptions and contradictory instructions with
+exact source quotes. Scoped shared entities may connect distinct originals; duplicate
+aliases and unrelated names may not establish cross-document joins. Finalize SDK
+indexes, verify every source hash/chunk, store the snapshot marker, and produce only
+sanitized coverage counts and proof hashes. Building the graph is permitted; generating
+company questions or invoking existing question answers is deferred by the owner.
+
+The web role has no model key, graph credential, admin connection or confirmation
+power outside the current authority chain. The dedicated holistic worker can read
+sources/authority and update only its run completion fields; it has no confirmed graph,
+projection signing, checkpoint or service-role credential. Its project must differ
+from legacy/extractor/projector identities. A hosted preview needs a separately
+qualified secure candidate-graph/database route and exact-current managed-platform
+release review; loopback company proof does not establish hosted reachability.
+
+Close H3 only when all eight originals qualify. Close H8 only when the complete real
+corpus is indexed, source integrity and connected operating-model coverage are proved,
+and the reviewed intended preview route works. Keep all remaining live proof on the
+same issues. Enable no readiness digest or employee grading before H1–H8 pass. Report
+readiness to Albert and wait for his later instruction before rerunning Ilona/Jessica.

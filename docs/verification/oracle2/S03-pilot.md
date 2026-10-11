@@ -1,5 +1,7 @@
 # S03 pilot — real-data preview journey (sanitized)
 
+**Historical thin pilot; NOT holistic replacement acceptance.** Albert stopped Ilona/Jessica grading on 2026-10-11 EDT. The recorded answer path used keyword matching and quotation assembly; FalkorDB and GraphRAG SDK did not participate. Preserve the records; do not grade, regenerate or rerun the existing questions. The canonical overhaul plan S03 corrective H1–H8 gates now control readiness.
+
 Date: 2026-10-05 6:04 PM EDT. Host: edge-dev3 (isolated loopback store).
 Reviewed/ran commit: `54b6284a79ad3d4d02cda867e8588875126acdb8`.
 Independent preview plan review: Muse plan-review run `20261005T200601-769277-18919` — **APPROVE** (recorded on #58).
@@ -172,3 +174,57 @@ process-owner feedback if needed.
 
 No production deploy, no employee messages, no public meeting joins. Company
 process wording and answer keys stay in private storage only.
+
+
+## Corrective engineering proof — 2026-10-11 EDT
+
+This supersedes the historical thin-answer acceptance claim above without deleting
+its evidence. The replacement uses GraphRAG SDK 1.4.0 against real isolated FalkorDB,
+whole-document process extraction, scoped cross-source identities, connected retrieval,
+whole-corpus explanation, exact citations and a separate grounding pass. Identical
+original uploads are aliases; they cannot count as separate document understanding.
+
+The frozen CPython 3.12.14 CPU worker dependency bundle installs in a clean Debian
+Node 24 container, builds hnswlib with the project-managed compiler layer, and imports
+GraphRAG SDK, GLiNER and the actual holistic runtime successfully. No vendor files or
+host binaries are patched. Existing web build guards, production web build, workers
+typecheck and worker bundle guard pass. Scoped database permissions cover only required
+run-status/answer publication; they do not grant confirmed graph access or source edits
+to the holistic worker.
+
+Synthetic proof exercises the actual web question endpoint, asynchronous local worker,
+GraphRAG SDK/Falkor ingestion/finalization/retrieval/answer path, two original sources,
+exception/unknown handling, citation rendering and refresh persistence. Its Trigger HTTP
+receipt endpoint is an explicit loopback stand-in: this is not hosted Trigger proof or
+company-data acceptance. The original six browser cases now test intake/correction,
+paused readiness, historical grading notice and authorization rather than the retired
+quotation-assembly answer path.
+
+Real data: byte-verified inventory is 26 uploads / eight distinct originals. Three
+native text/Markdown originals roundtrip losslessly. The direct OpenAI account retains
+its exhausted-credit hold. Owner-identified funded OpenRouter is now explicitly
+registered and a fresh complete image/PDF reading and independent review is active;
+the correct existing vault key was repaired by removing stray quotation marks,
+without rotation, purchase or limit changes. Routing admits OpenAI only and disables
+fallback; no zero-retention or regional-residency claim is made. Provisional
+readings and review findings are protected outside git. No production source records
+are rewritten; no company pilot question is generated or rerun. H7 review and H8 actual
+company readiness remain open on the same issues #24/#27/#58, owned by this Codex chat.
+
+Operator paths: `read_original_corpus.py` prevalidates the complete private inventory,
+reads at most two distinct originals concurrently with per-original four-call budgets,
+and records private provenance/review receipts. `import_original_corpus.py` requires
+complete qualified readings and a new isolated loopback workspace; it leaves process
+drafts unconfirmed and questions disabled. Visual citations refer to labeled normalized
+transcriptions. Intrinsic source ambiguity is preserved as unknown, never guessed away.
+Small embedded PDF artwork also receives native-image and upright 180-degree views
+with original page-location metadata; canonical full pages remain authoritative for
+clipping and visible evidence. Current S03 engineering proof: 59 passing tests and
+the passing synthetic browser journey. No company-question acceptance follows from
+these synthetic checks.
+
+Configuration is documented in `.env.example`. Dedicated holistic Trigger project,
+web Trigger key, worker-only processing register/models/candidate graph, complete source
+ID inventory and exact reviewed corpus digest are separate from legacy extractor and
+projector identities. The web has no model key or graph credential. Never set the
+readiness digest until H2-H8 pass. No new cloud subscription has been created.

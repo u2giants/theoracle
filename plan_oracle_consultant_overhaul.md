@@ -6,13 +6,16 @@ Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through
 
 ## STATUS — read this first
 
-S01 has an offline record. S02 is accepted on synthetic evidence. S03 code and store-backed pilot are on `main`; real-data journey ran on edge-dev3 (Playwright 6/6, Muse preview plan APPROVE). **S03 is not accepted:** Ilona rejected one clause (email notices) on the first answer; v2 corrected that. A 24-question bank on a thin table was rejected as methodology. The **real-doc bank** (30 questions rebuilt only from Admin production uploads; Ilona + Jessica packets) has been **run** (30/30 answered) and is **awaiting process-owner grading** (#58 / #27). Later stages remain open. An issue is an owner/discussion pointer, not acceptance evidence. A completed row must link a reproducible result artifact and deployed revision when relevant.
+**Owner correction, 2026-10-11 EDT:** Albert stopped the Ilona/Jessica grading because the passage-matching pilot does not test the requested holistic understanding. Existing questions/answers are historical evidence only, not replacement acceptance. S03 must use **FalkorDB AND GraphRAG SDK** across the complete authorized document corpus before any new pilot questions are generated. Do not rerun Ilona/Jessica questions until Albert separately requests it. The S03 corrective implementation below takes precedence over the former thin journey and S09 deferral.
+
+
+S01 has an offline record. S02 is accepted on synthetic evidence. S03 code and store-backed pilot are on `main`; real-data journey ran on edge-dev3 (Playwright 6/6, Muse preview plan APPROVE). **S03 is not accepted; obsolete grading paused by Albert on 2026-10-11 EDT:** Ilona rejected one clause (email notices) on the first answer; v2 corrected that. A 24-question bank on a thin table was rejected as methodology. The **real-doc bank** (30 questions rebuilt only from Admin production uploads; Ilona + Jessica packets) has been **run** (30/30 answered) and is retained as **historical evidence; process-owner grading stopped** (#58 / #27). Later stages remain open. An issue is an owner/discussion pointer, not acceptance evidence. A completed row must link a reproducible result artifact and deployed revision when relevant.
 
 | Step | Outcome | Status | Dependency | Evidence / owner |
 |---|---|---|---|---|
 | S01 | Acceptance corpus and baseline availability | ✅ offline accepted; live comparison unavailable | None | [S01 record](docs/verification/oracle2/S01-baseline.md), [synthetic manifest](evals/oracle2/synthetic-cases.jsonl); [child #25](https://github.com/u2giants/theoracle/issues/25). No real-quality claim. |
 | S02 | Isolated foundation and database/library qualification | ✅ accepted (synthetic only) | S01 | [S02 record](docs/verification/oracle2/S02-dependencies.md) incl. Trigger preview runs on CPython 3.12.14, [models](docs/verification/oracle2/S02-models.md), [FalkorDB license fit](docs/verification/oracle2/S02-falkordb-license.md); [offline CI run 36450899266](https://github.com/u2giants/theoracle/actions/runs/36450899266) at `da76d0a` (final code; later commits documentation-only), [PR #45](https://github.com/u2giants/theoracle/pull/45), [child #26](https://github.com/u2giants/theoracle/issues/26). No business-quality or real-data claim. |
-| S03 | One usable document-to-consultation journey | 🔵 code + store-backed journey on main; **not accepted** — real-doc bank run, process-owner grade open | S02 | Offline 11/11 (`36644212614`, `1cdca59`, PR #57). Preview: Muse plan-review **APPROVE** `54b6284`; edge-dev3 journey + v2 in [S03-pilot.md](docs/verification/oracle2/S03-pilot.md). Real-doc bank [evals/oracle2/s03-realdoc-question-bank.md](evals/oracle2/s03-realdoc-question-bank.md) (PR #77) run 2026-10-06 (30/30 answered) from Admin production docs; Ilona L1–15 + Jessica J16–30 packets awaiting grade. PDF SOPs still failed ingestion (`pdf-parse` crash — fix in flight). [child #27](https://github.com/u2giants/theoracle/issues/27), [#58](https://github.com/u2giants/theoracle/issues/58). No business-quality claim until process owners accept. |
+| S03 | One usable document-to-consultation journey | 🔵 historical thin journey on main; **not accepted** — obsolete grading paused; holistic FalkorDB + GraphRAG SDK correction H1–H8 open | S02 | Offline 11/11 (`36644212614`, `1cdca59`, PR #57). Preview: Muse plan-review **APPROVE** `54b6284`; edge-dev3 journey + v2 in [S03-pilot.md](docs/verification/oracle2/S03-pilot.md). Real-doc bank [evals/oracle2/s03-realdoc-question-bank.md](evals/oracle2/s03-realdoc-question-bank.md) (PR #77) run 2026-10-06 (30/30 answered) from Admin production docs; Ilona L1–15 + Jessica J16–30 historical packets; grading stopped. PDF SOPs still failed ingestion (`pdf-parse` crash — fix in flight). [child #27](https://github.com/u2giants/theoracle/issues/27), [#58](https://github.com/u2giants/theoracle/issues/58). No business-quality claim until process owners accept. |
 | S04 | Reliable document learning, revisions and withdrawal | ⬜ open | S03 | Not built; [child #28](https://github.com/u2giants/theoracle/issues/28) |
 | S05 | Confirmed temporal operating model and corrections | ⬜ open | S04 | Not built; [child #29](https://github.com/u2giants/theoracle/issues/29) |
 | S06 | Resumable employee interviews and ordinary chat learning | ⬜ open | S05 | Not built; [child #30](https://github.com/u2giants/theoracle/issues/30) |
@@ -27,7 +30,7 @@ S01 has an offline record. S02 is accepted on synthetic evidence. S03 code and s
 | S15 | Controlled production adoption | ⬜ open | S14 | Not released; [child #39](https://github.com/u2giants/theoracle/issues/39) |
 | S16 | Legacy retirement with recoverable history | ⬜ open | S15 | Not started; [child #40](https://github.com/u2giants/theoracle/issues/40) |
 
-**Next: S03 business acceptance only** (#58 under #27). Real-doc bank is run; grading tasks are **on-site** via claim-review questions on `/claims` — Ilona 15 (L1–15) + Jessica 15 (J16–30). On both Accept: tick S03, close #27/#58, then name S04 (#28). Still open: Vercel `TRIGGER_SECRET_KEY` (`tr_prod_…` — blocked, no Vercel API token/session); Trigger PAT exposure handled by redaction only (owner 2026-10-06, no rotation). Read this whole plan STATUS first.
+**Superseded next-step instruction (historical, do not execute): S03 business acceptance only** (#58 under #27). Real-doc bank is run; grading tasks are **on-site** via claim-review questions on `/claims` — Ilona 15 (L1–15) + Jessica 15 (J16–30). On both Accept: tick S03, close #27/#58, then name S04 (#28). Still open: Vercel `TRIGGER_SECRET_KEY` (`tr_prod_…` — blocked, no Vercel API token/session); Trigger PAT exposure handled by redaction only (owner 2026-10-06, no rotation). Read this whole plan STATUS first.
 
 Research: [technology and strategy review](docs/research/oracle-consultant-technology-review.md). S01: [acceptance specification](evals/oracle2/acceptance-spec.md) and [verification record](docs/verification/oracle2/S01-baseline.md). Planning [handoff](HANDOFF.d/2026-09-28T0044Z-edge-dev3-codex-oracle-consultant-overhaul.md) remains until its header records committed and pushed status under the successor rule. This plan and those records are the current brief; the planning chat is not required.
 
@@ -602,3 +605,293 @@ The following audit applies to **plan completeness**, not to the unbuilt applica
 Audit repairs made before publication: corrected the business-model helper name and Trigger source line; preserved the existing structure-aware chunker description; separated current code from historical deployed evidence; added explicit review/permission/withdrawal boundaries; assigned future unresolved inputs; and made the first employee journey precede the wider platform work.
 
 Posted by Codex chat 01a0e54b-f8f3-7b52-871e-50fc6b39842c on edge-dev3
+
+
+## S03 corrective implementation — holistic corpus pilot (2026-10-11 EDT)
+
+### 1. Ultimate goal
+Oracle must explain an entire business process across documents: steps, responsibilities,
+dependencies, handoffs, exceptions, contradictory instructions, and what evidence is
+missing. It must trace explanations to actual documents, distinguish reported guidance
+from approved company policy, and avoid assembling isolated quotations as an answer.
+If a step conflicts with this goal, the goal wins — stop and flag it.
+
+### 2. Application and environment
+This is `u2giants/theoracle`, Next.js web, Trigger.dev transport, Python
+`services/oracle-brain`, Oracle-owned Postgres and private evidence storage. Canonical
+upstream is `main`. Implement in an isolated upstream worktree. Production legacy
+Oracle remains available. Preview stores stay isolated; no production infrastructure
+or database writes are authorized by this plan.
+
+### 3. Trigger and owner authority
+Albert's chat request, verbatim: "Fix the pilot so it actually tests holistic
+understanding across documents using FalkorDB AND GraphRAG SDK. only generate pilot
+questions once we've put in every possible improvement into the software. Update the
+plan and when you're done tell me (but don't do it yet) rerun Ilona and Jessica’s
+questions through the corrected approach."
+The previous 30-question run used source passages from real uploads but the answer
+engine was a keyword matcher and quotation assembler. Neither FalkorDB nor GraphRAG
+SDK participated. Grading those answers cannot accept the replacement.
+
+### 4. Scope
+In scope: complete corpus ingestion; process-oriented graph schema; cross-document
+identity resolution; evidence receipts; connected retrieval; explanatory model answers;
+exceptions/conflicts/unknowns; revision-safe corpus snapshots; exact runtime proof;
+readiness gate before question generation. "Every possible improvement" means every
+improvement in this bounded capability checklist, with measured completeness and
+quality. It is not an infinite feature backlog or a claim that software is perfect.
+Out: new employee messages, meetings, interviews, industry research, production
+migration, unrelated legacy refactors, automatic grading requests, pilot question
+generation or reruns during this correction. Synthetic engineering fixtures may be
+used; never substitute them for the deferred business pilot.
+
+### 5. Current state and diagnosis
+`apps/web/app/api/consultant/questions/route.ts` calls `retrieveSpans` and
+`answerQuestion` in `apps/web/lib/oracle2-client.ts`; Python mirrors this in
+`oracle_brain/retrieval/pilot.py` and `consultant/pilot.py`. Retrieval ranks substring
+matches, returns five blocks, and merely boosts connected matches. Answer generation
+joins three quotes and always appends the same improvement experiment. The endpoint
+requires one source/draft. `oracle_brain/graph/falkor.py` stores assertions as JSON
+payload nodes, not a connected business operating model. Source and authority storage
+already exist in Postgres. Preserve their authorization and transactional checks.
+The prior S02 proofs establish synthetic stores, not this end-to-end capability.
+
+### 6. Findings
+A database switch alone cannot solve fragmentation. GraphRAG SDK must actually ingest,
+resolve, index, retrieve across and synthesize from the corpus. Full source structure
+must survive parsing; global summaries and complete process context supplement graph
+neighbors. A successful HTTP response, graph node count, or citation existence does
+not establish business understanding. Answers must link causes and obligations across
+sources and preserve exceptions and contradictory scopes.
+
+### 7. Rejected approaches
+Do not merely replace Postgres with FalkorDB, rename the keyword matcher, use SDK only
+as an unused dependency, or hard-code a generic recommendation. Do not let SDK-generated
+facts grant authority or become approved company policy. Do not declare readiness from
+synthetic tests, grade the old questions, tune on their answers, or silently fall back
+to the old answer engine if the graph is unavailable. Do not defer connected retrieval
+until S09: it is required in S03 now.
+
+### 8. Locked design and adjustable choices
+Locked: FalkorDB + published GraphRAG SDK (qualify and pin 1.4.0, not unversioned docs),
+Postgres/private sources remain authority, separate candidate/confirmed identities,
+workspace-and-corpus-version graph isolation, approved providers through existing
+processing admission, original-source receipts, no hidden retrieval fallback, no old
+pilot rerun. Readiness must bind exact software revision, SDK/model/config versions,
+complete source manifest and proof artifact. Changed sources invalidate readiness.
+Adjustable: chunk sizes, context caps, retrieval depth, merge thresholds and summarizer
+model, selected by held-out synthetic capability tests and verified source coverage.
+Never merge similarly named departments/people or contradictory policies automatically.
+
+### 9. Execution steps and STATUS
+| Step | State | Evidence / completion gate |
+|---|---|---|
+| H1 plan + ownership correction | complete | This section; same issues #24/#27/#58 updated with paused obsolete grading |
+| H2 pinned SDK + admitted providers | implemented; engineering checks pass | Dependency lock, SDK API compatibility test, forbidden-provider test |
+| H3 complete source corpus + provenance | native originals verified; funded OpenRouter whole-original reading / review active | Source inventory with hashes/revisions/parser completeness; no incomplete PDFs accepted |
+| H4 process graph + cross-source resolution | implemented; synthetic integration passes | Real FalkorDB SDK integration; process/responsibility/rule/exception/decision/artifact schema, duplicate and scope tests |
+| H5 connected retrieval + explanation | implemented; synthetic browser proof passes | SDK retrieval and synthesis invoked by actual pilot endpoint; multi-source causality and exception tests |
+| H6 lifecycle, permission and grounding | implemented; focused checks pass | Withdrawal/revision/forbidden-source tests; exact citations; unavailable graph visibly fails |
+| H7 independent review + end-to-end proof | open | Exact-head APPROVE, passing existing checks, browser-to-worker-to-Falkor proof with synthetic corpus |
+| H8 authorized real-corpus readiness | blocked on complete visual readings; hosted preview still unqualified | Full corpus indexed/finalized, source integrity + operating-model coverage + retrieval checks; private evidence, sanitized record |
+| H9 new questions / existing rerun | deferred by owner | No question generation before H2–H8 pass; rerun existing questions only on new owner instruction |
+
+Implement H2 in `services/oracle-brain/pyproject.toml`, `uv.lock`, SDK adapter module
+`oracle_brain/graph/graphrag.py` and tests. Regenerate worker requirements with the
+existing export helper, and keep the worker-bundle guard. Provider wrappers must
+perform exact `provider_policy.authorize` before every extraction, embedding,
+resolution, retrieval planning and answer call. No provider credentials in arguments,
+source logs, telemetry or browser. No SDK default network model downloads.
+
+H3: inventory every authorized uploaded source from Oracle-owned read access; preserve
+PDF headings/tables/diagrams and source boundaries. Missing/failed/partial parsing
+blocks readiness. Use stable source IDs, content hashes and source revisions. New
+content builds a new graph snapshot; never query a mixture of old and new versions.
+Use trusted source exports in private storage, never public repository fixtures.
+
+**H3 original-reading correction (owner reiterated 2026-10-11 EDT):** Production
+read-only inventory preserved 26 original uploads representing 8 distinct byte hashes.
+Six failed images are byte-identical copies of the diagram that also has two completed
+but conflicting visual transcriptions. The four PDFs have 29 pages in total and very
+little native text; completed legacy status/chunks therefore cannot prove completeness.
+Do not reuse those transcriptions or mark the failed uploads repaired in production.
+
+Implement `oracle_brain/ingest/originals.py`: verify expected original byte hash, strict
+UTF-8 for text/Markdown, render every PDF page and the original image using pinned local
+libraries, and submit the WHOLE document to an admitted vision reader. Preserve page
+order, literal text, table headers/cells, lane ownership, node identities, arrow direction,
+arrow labels/conditions, dotted paths and explicit uncertainties. Native PDF text is
+an additional check, never a substitute for visual coverage. Include overlapping image
+detail views for a large diagram alongside its full view; do not infer invisible routes.
+Use a separate admitted visual-review model against the same originals; missing pages,
+omissions, unsupported ownership/edges or uncertainty prevent readiness. Permit one
+bounded repair followed by a new review, then fail visibly. No pilot questions are made.
+
+The private import driver verifies all 26 inventory IDs and original hashes before a
+loopback-only isolated import, reads each distinct byte hash once, preserves every upload
+as an alias with original provenance, and exports private reading-review receipts. It
+never rewrites production or treats machine reading as accepted company policy. Bind
+parser code/model/config and original hashes into readiness. Exact duplicate documents
+must not establish cross-document understanding or amplify evidence. Public tests use
+invented text, tables and diagrams and deny provider dispatch before processing admission.
+
+H4: SDK ingestion must build meaningful business objects and typed relationships
+with provenance, followed by `finalize` across the entire corpus. Preserve process
+sections/whole document context alongside evidence chunks. Ambiguous entity merges
+remain explicit; reported assertions are not automatically accepted policy. Keep
+candidate and confirmed credentials separate; no extraction write to confirmed graph.
+
+H5: replace the actual web question path through existing Trigger transport with the
+qualified Python pipeline. Transport only opaque IDs, workspace-bound run ID and user
+question; do not log private payloads. Retrieval uses SDK multi-path graph traversal,
+semantic search, process context and whole-corpus summaries as required by the query.
+Generate an explanatory answer from retrieved evidence with no fixed suggestion.
+Return provenance, connected sources, conflicts, unknowns and runtime identity.
+The old quote assembly may remain a diagnostic fixture, never a success fallback.
+
+H6: validated output cites exact known source spans and active revisions; reject
+invented IDs/quotes. Do not mistake co-occurrence for causation. Preserve contradictory
+instructions and date/customer/department applicability. Withdrawal excludes old
+sources before retrieval, not after model dispatch. Recheck auth and corpus status
+before storing/returning. Bound costs/context/runtime, cancellation and retry behavior.
+
+H7: run existing S02/S03 checks and new integration tests with isolated real stores;
+visually prove upload/review/corpus answer/refresh/error behavior. Review exact code and
+release inputs with an in-rotation independent reviewer. Land via PR and required CI;
+preview deployment follows existing managed-platform approval gates. No manual server
+or production edits. Source implementation is not live proof.
+
+H8: privately record the complete real source manifest and source coverage report,
+SDK ingestion/finalization receipts, graph relationships spanning documents, connected
+retrieval traces and deployed revision. Check missing exceptions and conflicting
+instructions against originals. Do not run Ilona/Jessica questions, generate new pilot
+questions, or request grading for this engineering proof. If a new business-judgment
+need appears, name it; never claim business acceptance without process-owner review.
+
+### 10. Required verification and hostile inputs
+| Input | Hostile/failure case | Required test |
+|---|---|---|
+| Document | embedded instructions / invented facts | `test_document_instruction_is_data` |
+| Corpus | failed PDF / omitted source / truncated table | `test_incomplete_corpus_blocks_readiness` |
+| Identity | same name, different role/customer | `test_ambiguous_entities_not_merged` |
+| Relation | implied cause without evidence | `test_unsupported_relationship_not_fact` |
+| Evidence | fake ID/span/quote | `test_invented_citation_rejected` |
+| Workspace | foreign source or graph | `test_workspace_corpus_isolation` |
+| Lifecycle | stale revision or withdrawn source | `test_changed_corpus_invalidates_readiness` |
+| Policy | expired approval / unapproved fallback | `test_provider_denial_before_dispatch` |
+| Graph | unavailable store / failed finalize | `test_graph_failure_no_legacy_fallback` |
+| Question | asks for unavailable evidence | `test_missing_evidence_explicit` |
+| Output | single-document answer to cross-source dependency | `test_cross_document_dependency_and_exception` |
+| Generation | no live readiness evidence | `test_question_generation_requires_readiness` |
+
+Add `tests/test_holistic_graphrag.py` for contracts and SDK orchestration and
+`tests/test_holistic_graphrag_integration.py` for actual SDK + FalkorDB execution.
+Add endpoint/worker parity and browser corpus tests. Synthetic provider doubles test
+orchestration and graph persistence; they do not establish real model quality.
+Keep existing provider-policy, authority, review concurrency, pilot storage and
+worker-bundle tests passing; obsolete quote-assembly checks remain historical coverage.
+
+### 11. Constraints
+Use existing gates, isolated worktree, owned files only, distinct review engine,
+reviewed managed-platform release, private real evidence, no secret output, and
+EST/EDT in human notes. Oracle-owned database is distinct from shared-db; any structural
+write must be classified by its actual target rather than inherited from another task.
+No new shared-db ticket for this application correction. Existing grading rows are
+historical, preserve their bytes; disabling or archiving app rows needs exact reviewed
+row-data action. Albert stops human grading; this session does not message employees.
+
+### 12. Access
+GitHub read/write verified by this session. Docker daemon and user-owned `uv` available
+on edge-dev3. Real provider/store credentials require `secrets-to-1password` and private
+processing register verification; never infer real access from synthetic credentials.
+Inspect `docs/oracle2-environment.md`, §12 credentials, and the existing preview
+processing record before dispatch. Local synthetic setup remains in service README.
+Actual preview target, scoped stores, deployed worker and web revisions are recorded
+only when verified; do not invent defaults. Missing platform authority is a blocker
+owned by this session to resolve through authenticated tools.
+
+### 13. Done, risks and rollback
+Done means H1–H8 pass with artifacts, code merged and preview verified; question reruns
+remain deliberately deferred. No claim of "every possible improvement" without the
+bounded checklist. Risks: graph extraction hallucinations, missing context, false
+entity merges, provenance loss, provider leakage, stale graphs and token costs.
+Rollback restores the prior deployed revision while retaining source evidence and
+historical graph snapshot. Do not remove the original capability to suppress failures.
+
+Self-audit: (1) execution target, exact changed paths, per-step gates and access are
+specified in §§2/5/9/10/12; readiness cannot be guessed. (2) background, rejected
+approaches and locked choices are in §§3/5–8; obsolete pilot cannot become acceptance.
+(3) business goal is explicit in §1 and overrides a technically passing but fragmented
+implementation. New open status rows require evidence; synthetic proof stays separate
+from H8 real-corpus readiness. This correction extends the existing plan rather than
+creating a separate plan/handoff or leftover-proof ticket.
+
+
+**H3 correction detail — 2026-10-11 EDT:** Native text/Markdown is strict UTF-8
+byte-roundtripped and never paraphrased by a model. Every PDF page has a whole-page
+4000-pixel render plus four overlapping detail views; the large image has its original
+whole view plus six overlapping crops. A different admitted model independently checks
+the entire original against the reading, including ownership and arrow direction.
+One semantic repair may follow specific review findings; provider dispatch errors do
+not trigger another paid request. Intrinsic clipped labels, genuinely ambiguous original
+lane placement and unreadable original marks are preserved as located source ambiguities,
+not invented facts. Unresolved reading doubts still block qualification. Normalized
+visual citations are explicitly transcriptions, not claims of byte-literal image text.
+
+The private 26-upload inventory has eight original hashes; aliases cannot count as
+independent cross-document understanding. Conflicting readings of identical originals
+block ingestion. Readings bind original and normalized-text hashes, exact parser/model
+configuration, page coverage and review receipt. `read_original_corpus.py` writes only
+protected offline evidence; `import_original_corpus.py` accepts only a complete reviewed
+inventory into a new loopback workspace and does not confirm business drafts or enable
+questions. Diagnostic display blocks remain separate from the complete original used
+by the SDK. No production parsing records or claims are rewritten by these operators.
+
+**Engineering checks completed, company acceptance remains open:** Python 3.12 locked
+installation builds hnswlib successfully; actual SDK/Falkor tests and scoped PostgreSQL
+permissions pass; the synthetic browser journey passes through the web endpoint,
+local worker execution and real GraphRAG SDK/Falkor graph. Hosted Trigger transport,
+real-source completeness, independent exact-head review, and H8 company readiness
+remain separate gates. The browser transport stand-in is not hosted Trigger proof.
+The SDK adds native dependencies and resolves transformers 5.16.1 instead of the prior
+5.17 series; frozen install and existing dependency/export guards must pass in CI.
+No new cloud subscription or employee grading is authorized by these engineering proofs.
+
+
+**Current real-original gate — 2026-10-11 EDT:** All 26 originals are privately
+preserved and byte-hash verified before processing; they represent eight distinct
+originals. Three distinct UTF-8 text/Markdown originals (14 uploads including aliases)
+roundtrip exactly. The large image and four PDFs (29 pages) retain private full-document
+readings and independent review findings; these remain provisional until the current
+reading pipeline's complete qualification passes. Review found wrong swimlane ownership,
+missing screenshot labels and an incorrect filename transcription; repair corrected
+those concrete errors. Verified inherent source ambiguities remain explicit.
+
+The existing Oracle OpenAI account returned HTTP 429 with provider code
+`credit_balance_exhausted`; that provider/account-qualified hold remains current and
+is not retried. Albert then explicitly identified his funded OpenRouter key. The
+existing Oracle vault item held the correct key with two stray quotation marks;
+root corrected its representation, preserved the prior representation privately,
+verified equality with the current Vercel value and authenticated successfully.
+OpenRouter reported the Oracle key enabled with its $15 allowance remaining. No key
+rotation, purchase or limit change occurred. Root registered OpenRouter's current
+standard terms plus underlying OpenAI policies, selected the explicit router endpoint
+and OpenAI-only non-training route with fallback disabled, and started a fresh
+whole-original reader / independent reviewer attempt. Models are explicitly
+`openai/gpt-6.1-sol` and `openai/gpt-6-astra`; bounded per-original budgets remain.
+Account opt-in logging settings, ZDR and regional residency are not asserted.
+Root retains H3/H8 ownership; no process-owner grading or pilot questions run.
+The diagram's final remaining wrong-owner ambiguity was corrected by root against
+the original detail view and then passed a fresh independent complete-page review;
+the precise operator correction and review are bound into private provenance. Two
+PDFs passed complete independent review. Two further PDFs exposed small embedded
+artwork text: the reader now supplies native PDF image objects and lossless upright
+180-degree views alongside all full pages and overlapping crops, preserving page
+location and warning that clipped/hidden object material is not visible evidence.
+The improved attempts remain bounded and independently reviewed; a source is not
+accepted merely because other originals passed. The current S03 engineering gate is
+59 passing tests, including native-image orientation and transmission-budget tests;
+the synthetic browser-to-worker-to-Falkor journey also passes.
+Native-source proof, provisional visual readings, failed-attempt evidence and private
+processing register are retained outside this public repository under the approved
+Oracle evidence directory. Source content and credentials remain private.

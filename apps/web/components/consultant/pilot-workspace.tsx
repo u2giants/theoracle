@@ -30,6 +30,7 @@ interface Answer {
   citations: Citation[];
   hypothetical: Hypothetical | null;
   isEstablishedFact: boolean;
+  holistic?: { source_count: number; distinct_original_count?: number; pipeline: string };
 }
 
 interface RunData {
@@ -70,6 +71,8 @@ export function PilotWorkspace() {
       fetch(`/api/consultant/runs/${storedRunId}`)
         .then((r) => r.json())
         .then((data) => {
+          if (data.status === 'pending' || data.status === 'processing') setStatus('processing');
+          if (data.status === 'error' || data.status === 'cancelled') setError(data.error ?? 'Connected answer did not complete');
           if (data.answer) {
             setAnswer(data.answer);
             setConfirmed(true);
@@ -85,6 +88,34 @@ export function PilotWorkspace() {
     if (sourceId) sessionStorage.setItem('oracle2-source-id', sourceId);
     if (draftId) sessionStorage.setItem('oracle2-draft-id', draftId);
   }, [runId, sourceId, draftId]);
+
+  useEffect(() => {
+    if (!runId || status !== 'processing') return;
+    const controller = new AbortController();
+    const timer = setInterval(() => {
+      fetch(`/api/consultant/runs/${runId}`, { credentials: 'same-origin', signal: controller.signal })
+        .then(async (response) => {
+          if (!response.ok) throw new Error('Could not retrieve the connected answer');
+          return response.json();
+        })
+        .then((data) => {
+          if (data.status === 'completed') {
+            setAnswer(data.answer);
+            setStatus('confirmed');
+          } else if (data.status === 'error' || data.status === 'cancelled') {
+            setError(data.error ?? 'Connected answer did not complete');
+            setStatus('confirmed');
+          }
+        })
+        .catch((error: Error) => {
+          if (error.name !== 'AbortError') {
+            setError('Could not retrieve the connected answer');
+            setStatus('confirmed');
+          }
+        });
+    }, 2000);
+    return () => { clearInterval(timer); controller.abort(); };
+  }, [runId, status]);
 
   const login = useCallback(async () => {
     setError(null);
@@ -177,6 +208,7 @@ export function PilotWorkspace() {
   const ask = useCallback(async () => {
     if (!sourceId || !question.trim()) return;
     setError(null);
+    setAnswer(null);
     setLoading(true);
     try {
       const res = await fetch('/api/consultant/questions', {
@@ -187,8 +219,9 @@ export function PilotWorkspace() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'question failed');
-      setAnswer(data.answer);
+      setAnswer(data.answer ?? null);
       setRunId(data.runId);
+      if (data.status === 'pending') setStatus('processing');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'question failed');
     } finally {
@@ -211,7 +244,11 @@ export function PilotWorkspace() {
 
   return (
     <div data-testid="pilot-workspace" className="mx-auto max-w-3xl space-y-6 p-6">
-      <h1 className="text-2xl font-bold">Oracle Pilot — Document to Consultation</h1>
+      <h1 className="text-2xl font-bold">Oracle Pilot — Connected Document Understanding</h1>
+      <p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm">
+        Pilot grading is paused until complete document coverage and connected understanding are verified.
+        Earlier answers are historical and do not qualify for the corrected pilot.
+      </p>
 
       {error && (
         <div data-testid="error-banner" className="rounded border border-red-400 bg-red-50 p-3 text-red-800">
@@ -370,6 +407,11 @@ export function PilotWorkspace() {
 
       {answer && (
         <section data-testid="answer-section">
+          <p data-testid="answer-method" className="mb-2 text-sm text-amber-800">
+            {answer.holistic
+              ? `Connected answer using ${answer.holistic.distinct_original_count ?? answer.holistic.source_count} original documents; reported source guidance.`
+              : 'Historical answer from the earlier method — excluded from corrected pilot grading.'}
+          </p>
           <h2 className="mb-2 text-lg font-semibold">Answer</h2>
           <div data-testid="answer-text" className="whitespace-pre-wrap rounded border p-3">
             {answer.answerText}

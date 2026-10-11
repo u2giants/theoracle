@@ -29,7 +29,8 @@
 | `META_MUSE_BASE_URL` / `ZAI_BASE_URL` / `STEPFUN_BASE_URL` | Optional base-URL overrides for the three OpenAI-compatible adapters (defaults in `docs/configuration.md`) | `.env.local` only unless a region override is needed | optional | not set in prod |
 | `DASHSCOPE_API_KEY` | Qwen adapter | `.env.local`, Vercel, Trigger.dev | optional | optional (set in prod 2026-06-25 for the Qwen vision model) |
 | `DASHSCOPE_BASE_URL` | Qwen adapter region override (default `dashscope-us`; set to the `dashscope-intl` compat endpoint in prod) | `.env.local`, Trigger.dev | optional | recommended when using `qwen/*` models served only on intl |
-| `OPENROUTER_API_KEY` | model catalog enrichment only | `.env.local`, Vercel if desired | optional | optional |
+| `OPENROUTER_API_KEY` | model catalog enrichment; explicitly admitted isolated original reading / holistic processing | 1Password canonical item below; existing Vercel settings | optional | optional |
+
 | `ORACLE_MCP_TOKEN` | Static bearer token for the remote MCP knowledge endpoint (`/api/mcp/mcp`). External AI agents present it to query approved business knowledge. If unset, the endpoint rejects all requests. | `.env.local`, Vercel | optional | yes for MCP access |
 | `ORACLE_MCP_ENABLED_TOOLS` | Optional CSV allowlist for remote MCP capabilities | Vercel/local env if used | optional | optional |
 | `ORACLE_MCP_DISABLED_TOOLS` | Optional CSV denylist for remote MCP capabilities; overrides enabled list | Vercel/local env if used | optional | optional |
@@ -56,6 +57,21 @@
 | `MICROSOFT_BOT_APP_ID` | Azure Bot Framework app ID — enables `@The Oracle join` command from inside Teams | Vercel | optional | required for Teams-native bot |
 | `MICROSOFT_BOT_APP_PASSWORD` | Bot Framework client secret | Vercel | optional | required for Teams-native bot |
 | `MICROSOFT_BOT_TENANT_ID` | Tenant ID for single-tenant Bot Framework auth; omit for multi-tenant | Vercel | optional | optional |
+
+**Canonical OpenRouter credential:** vault `vibe_coding`, existing note
+`OpenRouter API Key - The Oracle (local .env.local)`, item
+`62ieeyycs4ierflalbbbt5pq5i`, concealed field `OPENROUTER_API_KEY`.
+Use `op://vibe_coding/62ieeyycs4ierflalbbbt5pq5i/OPENROUTER_API_KEY` for protected
+injection. Search tags include `openrouter`, `oracle`, `the-oracle`, `production`,
+`runtime-secrets` and `api-key`. The title is retained for existing references;
+the note identifies current Vercel scope, endpoint, uses and owner. On 2026-10-11
+two stray quotation marks were removed from the stored value; the same credential
+was authenticated and verified against Oracle's existing Vercel setting. Do not
+strip, reconstruct or print it. OpenRouter's credit is separate from direct OpenAI's
+account; the direct account's exhausted-credit hold does not describe OpenRouter.
+Company processing still requires a current exact provider/account/endpoint/terms
+registration. Isolated clients select OpenRouter explicitly with OpenAI-only routing,
+no provider fallback and non-training routes; existing direct OpenAI capability stays.
 
 The Teams transcript app also needs the Graph **Application** permissions `OnlineMeetingTranscript.Read.All` + `CallTranscripts.Read.All` (tenant admin consent) and a Teams application access policy. For exact sources and setup notes, read `docs/configuration.md`.
 
