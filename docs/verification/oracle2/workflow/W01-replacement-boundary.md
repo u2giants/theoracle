@@ -20,7 +20,7 @@ reports, grading and messages remain paused.
 ## Keep / replace / retire and callers
 
 The machine-readable [register](boundary-register.json) inventories exact retained
-paths, required invariants/tests, all source callers and narrow allowed imports.
+paths, required invariants/tests, the current source callers (literal-reference inventory; full retirement dependency parity is a W12 gate) and narrow allowed imports.
 Infrastructure is retained provisionally, subject to its tests and new adapter
 negative tests; W01 is not a blanket approval of every legacy interface.
 FalkorDB server and SDK 1.4.0 stay stock. New core never imports legacy business

@@ -27,6 +27,11 @@ def test_new_core_import_boundary():
                  'from importlib import import_module; import_module("oracle_brain.graph")',
                  'from builtins import exec as run; run("import oracle_brain.graph")',
                  'from ... import x', 'invalid python syntax :',
+                 'import importlib.machinery', 'import importlib.util',
+                 'from importlib.util import spec_from_file_location',
+                 'from importlib.machinery import SourceFileLoader',
+                 'import runpy', 'import pkgutil', 'import sys',
+                 '__loader__.exec_module(__spec__)',
                  'importlib.import_module("oracle_brain.retrieval.pilot")'):
         assert import_violations(text, package='oracle_brain.operating_model', helper_allowlist=helpers), text
     assert not import_violations('from ..provider_policy import authorize',package='oracle_brain.operating_model',helper_allowlist=helpers)
@@ -48,3 +53,15 @@ def test_retention_contracts_cover_all_live_callers():
             if path.suffix in ('.py', '.ts') and any(t in path.read_text(errors='strict') for t in ('HolisticGraphPilot', 'oracle2-holistic-answer', 'oracle_brain/holistic_runtime.py')):
                 discovered.add(str(path.relative_to(ROOT)))
     assert discovered == set(register['callers'])
+
+
+def test_retained_helpers_do_not_transitively_import_legacy_business_core():
+    register = json.loads(REGISTRY.read_text())
+    allowed = frozenset(register['helper_allowlist'] + register['transitive_infrastructure'])
+    for module in allowed:
+        path = ROOT / 'services/oracle-brain' / (module.replace('.', '/') + '.py')
+        assert path.is_file(), module
+        denied = import_violations(path.read_text(), package=module.rsplit('.',1)[0], helper_allowlist=allowed)
+        # Helpers may use sys for their established parser/runtime identity; this
+        # check restricts Oracle dependencies, not their reviewed standard library.
+        assert not [name for name in denied if name.startswith('oracle_brain')], (module, denied)

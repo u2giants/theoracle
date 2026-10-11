@@ -1,6 +1,7 @@
 """W01 source-only inventory consistency, not extractor/semantic acceptance."""
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 import pytest
 
@@ -13,6 +14,14 @@ def test_validation_fixture_checksum_immutable():
     for name, expected in checks.items():
         target = FIXTURES / name if not name.startswith('docs/') else ROOT / name
         assert hashlib.sha256(target.read_bytes()).hexdigest() == expected
+    # Source expectations are anchored in their first Git version, not mutable hashes alone.
+    for name in ('sources.json','development.json','validation.json','expected_obligations.json'):
+        relative = 'evals/oracle2/workflow/' + name
+        history = subprocess.check_output(['git','log','--reverse','--format=%H','--',relative],cwd=ROOT,text=True).splitlines()
+        assert history, 'full fixture history required'
+        original = subprocess.check_output(['git','show',history[0]+':'+relative],cwd=ROOT)
+        current = (FIXTURES/name).read_bytes()
+        assert current == original, 'frozen source inventory changed; separate reviewed version required'
     development = json.loads((FIXTURES / 'development.json').read_text())
     validation = json.loads((FIXTURES / 'validation.json').read_text())
     for field in ('source_ids', 'process_ids', 'activities'):

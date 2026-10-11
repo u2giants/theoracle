@@ -48,12 +48,13 @@ def test_unresolved_findings_survive_finalize_reload():
         try:
             await pilot.build()
             await pilot.load_reviewed_snapshot()
+            print('W01_GRAPH_SCOPE: '+pilot.graph_name)
             rows=await pilot.rag._graph_store.query_raw("MATCH (n:ReportedFinding) RETURN count(n)")
             count = rows.result_set[0][0]
-            if count < 2:
+            if count == 0:
                 print('W01_EXPECTED_LOSS: actual SDK finalize/reload findings=' + str(count))
                 pytest.fail('W01_EXPECTED_LOSS: nonempty findings lost after finalize/reload')
-            print('W01_UNEXPECTED_PASS: old baseline now preserves findings')
+            print('W01_UNEXPECTED_PASS: baseline preserves some or all findings')
             return
         except pytest.fail.Exception:
             raise

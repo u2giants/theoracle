@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import ast
-from importlib.util import resolve_name
 
 
 def import_violations(text: str, *, package: str, helper_allowlist: frozenset[str]) -> list[str]:
@@ -17,7 +16,9 @@ def import_violations(text: str, *, package: str, helper_allowlist: frozenset[st
             names = [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom):
             try:
-                module = resolve_name('.' * node.level + (node.module or ''), package) if node.level else (node.module or '')
+                parts = package.split('.')
+                if node.level > len(parts): raise ImportError('relative import exceeds package')
+                module = '.'.join(parts[:len(parts)-node.level+1]+([node.module] if node.module else [])) if node.level else (node.module or '')
             except ImportError:
                 denied.append('invalid-relative-import')
                 continue
@@ -25,9 +26,9 @@ def import_violations(text: str, *, package: str, helper_allowlist: frozenset[st
                 names = [module + '.' + alias.name for alias in node.names]
             else:
                 names = [module]
-        elif isinstance(node, ast.Name) and node.id in {'__import__','exec','eval','compile','__builtins__','import_module'}:
+        elif isinstance(node, ast.Name) and node.id in {'__import__','exec','eval','compile','__builtins__','import_module','__loader__','__spec__'}:
             denied.append('dynamic-code:' + node.id)
-        elif isinstance(node, ast.Attribute) and node.attr in {'__import__','exec','eval','compile','import_module'}:
+        elif isinstance(node, ast.Attribute) and node.attr in {'__import__','exec','eval','compile','import_module','exec_module','load_module','spec_from_file_location','SourceFileLoader'}:
             denied.append('dynamic-code:' + node.attr)
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name) and node.func.id in {'__import__', 'exec', 'eval'}:
@@ -35,7 +36,7 @@ def import_violations(text: str, *, package: str, helper_allowlist: frozenset[st
             elif isinstance(node.func, ast.Attribute) and node.func.attr == 'import_module':
                 denied.append('dynamic-import')
         for name in names:
-            if name in {'builtins','importlib'}:
+            if name.split('.')[0] in {'builtins','runpy','pkgutil','sys'} or (name.split('.')[0]=='importlib' and name!='importlib.metadata'):
                 denied.append('dynamic-module:' + name)
             if name == 'oracle_brain' or name.startswith('oracle_brain.'):
                 if not (name.startswith('oracle_brain.operating_model.') or name == 'oracle_brain.operating_model' or name in helper_allowlist):

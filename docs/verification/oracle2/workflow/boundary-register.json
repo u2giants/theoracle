@@ -1,6 +1,7 @@
 {
   "baseline_main": "3bad33583787316d9fdddc3fd45a737b1236b4b1",
   "baseline_recovery": "36e91038ee6b1126f9d9c27adce7583a6b74c654",
+  "caller_consistency_scope": "Literal source references in registered web routes, Trigger tasks and Python runtime; not W12 full dependency parity.",
   "callers": [
     "apps/web/app/api/consultant/questions/route.ts",
     "apps/workers/src/trigger/oracle2-holistic.ts",
@@ -110,6 +111,11 @@
     }
   ],
   "retire_condition": "W11 accepted, exact caller/writer parity and current-source restore proof; no data destruction",
+  "retirement_requires_full_import_job_route_call_graph": true,
   "review_status": "pending",
-  "schema_version": 1
+  "schema_version": 1,
+  "transitive_infrastructure": [
+    "oracle_brain.contracts",
+    "oracle_brain.models"
+  ]
 }

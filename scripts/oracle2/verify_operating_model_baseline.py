@@ -25,7 +25,7 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('--result',type=Path,required=True);args=parser.parse_args()
     python=ROOT/'services/oracle-brain/.venv/bin/python'
     if not python.is_file(): parser.error('frozen environment required')
-    receipt={'schema_version':1,'baselines':BASELINES,'image':IMAGE,'paid_calls':0,'private_state_changed':False,'results':{}}
+    receipt={'schema_version':1,'baselines':BASELINES,'image':IMAGE,'operator_attestation':{'paid_calls':0,'private_state_changed':False},'results':{}}
     with tempfile.TemporaryDirectory(prefix='oracle-w01-',dir=os.getenv('TMPDIR')) as scratch:
         scratch=Path(scratch);name='oracle-w01-'+uuid4().hex[:12];created=False
         try:
@@ -48,11 +48,12 @@ def main():
                 p=subprocess.run([str(python),'-m','pytest',str(probe),'-q','-s','--tb=short'],cwd=target,env=env,capture_output=True,text=True)
                 output=p.stdout+p.stderr
                 loss=re.search(r'W01_EXPECTED_LOSS: actual SDK finalize/reload findings=(\d+)',output)
-                verified=p.returncode==1 and bool(loss) and int(loss.group(1))<2 and 'W01_INFRA_FAILURE' not in output
-                receipt['results'][label]={'exit':p.returncode,'expected_loss_verified':verified,'preserved_findings':int(loss.group(1)) if loss else None,'unexpected_pass':p.returncode==0 and 'W01_UNEXPECTED_PASS' in output,'output_sha256':hashlib.sha256(output.encode()).hexdigest(),'probe_sha256':hashlib.sha256(probe.read_bytes()).hexdigest()}
+                verified=p.returncode==1 and bool(loss) and int(loss.group(1))==0 and 'W01_INFRA_FAILURE' not in output
+                receipt['results'][label]={'exit':p.returncode,'expected_loss_verified':verified,'preserved_findings':int(loss.group(1)) if loss else None,'unexpected_pass':p.returncode==0 and 'W01_UNEXPECTED_PASS' in output,'output_sha256':hashlib.sha256(output.encode()).hexdigest(),'graph_scope':re.search(r'W01_GRAPH_SCOPE: ([^\n]+)',output).group(1) if re.search(r'W01_GRAPH_SCOPE: ([^\n]+)',output) else None,'probe_sha256':hashlib.sha256(probe.read_bytes()).hexdigest()}
                 if not verified:
                     if receipt['results'][label]['unexpected_pass']:raise RuntimeError('W01_UNEXPECTED_PASS: baseline changed')
                     raise RuntimeError('W01_INFRA_FAILURE: expected loss proof not obtained')
+            assert receipt['results']['main']['graph_scope'] != receipt['results']['recovery']['graph_scope'], 'baseline graph namespaces overlap'
             recovery=scratch/'recovery';env['BASELINE_ROOT']=str(recovery);env['PYTHONPATH']=str(recovery/'services/oracle-brain')
             suites=['test_holistic_graphrag.py','test_holistic_graphrag_integration.py']
             p=subprocess.run([str(python),'-m','pytest',*[str(recovery/'services/oracle-brain/tests'/t) for t in suites],'-q','--tb=short','--junitxml='+str(scratch/'recovery.xml')],cwd=recovery,env=env,capture_output=True,text=True)

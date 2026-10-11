@@ -7,7 +7,7 @@ See [boundary](W01-replacement-boundary.md); independent review pending.
 
 ## Executed results
 
-- Boundary and independent fixture inventory: 4 passed, zero skipped.
+- Boundary and independent fixture inventory: 5 passed, zero skipped.
 - Old-list loss probe at both frozen baselines: 1 failed each at intended assertion
   after actual SDK build, finalize and reviewed snapshot reload. Each returns zero
   ReportedFinding records where two are required. Exact assertion:
@@ -55,3 +55,31 @@ all dynamic import/exec/eval spellings tested by the reviewer are now denied.
 The import rule permits modules on the listed helper allowlist (including parent
 from-import spelling); it does not grant permission for side effects or new
 business APIs. Code/release review remains independent of this static check.
+
+## Scope corrections and independent-review rebuttal
+
+The static gate checks the current authored module dependency contract. It is
+not a sandbox or a security proof against a malicious Python author: arbitrary
+reflection can evade any static checker. No generated/source-supplied Python is
+executed; W11 exact code/security review remains required. Loader primitives are
+denied, including dotted importlib loaders, runpy/pkgutil, sys and __loader__.
+Metadata version lookup is the only importlib exception. Runtime transport may
+use an external reviewed CLI adapter; business modules do not need sys loaders.
+
+The reviewer alleged cross-baseline contamination from an unscoped MATCH query.
+That query is scoped by SDK GraphStore to the pilot's distinct graph_name, not
+the Redis database. Receipt now records and asserts different graph namespaces
+for main/recovery; no destructive flush is needed. The exact immutable old
+baselines are required to preserve zero findings; any nonzero result is now a
+separate unexpected-pass outcome.
+
+Caller automation is literal-reference consistency, not W12 dependency parity.
+W12 must independently inventory every import/job/route/writer before retiring
+anything. Source expectation immutability is additionally anchored to the first
+Git version, so coordinated fixture/checksum edits fail. Fixture syntax/label
+checks never establish source-instruction safety; actual W02 extractor admission
+and W06 serving/quarantine tests remain mandatory. Zero paid calls/private-state
+changes are operator attestations; graph/count/JUnit/file-hash fields are measurements.
+
+Retained helper Oracle dependencies are tested transitively against the seven
+direct adapters plus their two existing infrastructure model/contract dependencies.
