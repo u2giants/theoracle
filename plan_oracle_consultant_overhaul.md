@@ -975,3 +975,26 @@ release definitions belong in Oracle GitHub; Coolify owns runtime; any necessary
 host/firewall change belongs in Ansible through its own gates. Preserve existing
 web/worker capability; do not replace it with a bypass. Technical reviewers gate
 the exact release inputs. H8 and live proof remain open on #27/#58 under Codex.
+
+**Exact technical action for independent review — October 11, 12:44 PM EDT:**
+Owner answer from this chat, verbatim: "$25 per day". Change only the existing
+theOracle OpenRouter key's daily spending limit from 15 to 25 USD. Target vault
+item 62ieeyycs4ierflalbbbt5pq5i / OPENROUTER_API_KEY; unique read-only management
+lookup matches the runtime key label to management hash
+f4c2b5cb4388f8f50f2e2d9fb01c6e6481907317d90a75914cacedc3c3823acd, workspace
+d138f713-7a0d-5ada-be3b-999ea9a849f0, name theOracle. Exact action: PATCH
+https://openrouter.ai/api/v1/keys/f4c2b5cb4388f8f50f2e2d9fb01c6e6481907317d90a75914cacedc3c3823acd
+with JSON {"limit":25} only. Inject the existing management credential through
+protected environment, never arguments/output. Recheck unique target, current
+limit=15 and limit_reset=daily immediately before mutation; stop on drift.
+Assert the response and fresh runtime-key GET show limit=25, reset=daily,
+disabled=false, same workspace, expiration and BYOK flag. Preserve all other
+fields, guardrails, keys and consumers. No rotation, new key, credit purchase,
+subscription change, account-wide limit change or hosting mutation is authorized
+by this action. Protected before/after receipts permit restoring limit=15 after
+a failure; any restoration is itself gated on the same reviewed exact action.
+After successful verification, retire only this key-limit hold, qualify one
+synthetic embedding, then resume the reviewed company-only graph build. Other
+provider holds remain independent. This key-management action and rollback, not
+a hosted infrastructure release, are the only technical mutation requested for
+this review. Self-hosted inputs still need separate exact-topology release review.

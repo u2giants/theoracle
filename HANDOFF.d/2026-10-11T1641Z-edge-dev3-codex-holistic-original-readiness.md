@@ -1,6 +1,6 @@
 ---
 issue: 27
-status: BLOCKED
+status: OPEN
 owner: Codex chat 01a12b21-2aa9-7f73-b169-65d0602effa5
 ---
 
@@ -8,12 +8,14 @@ owner: Codex chat 01a12b21-2aa9-7f73-b169-65d0602effa5
 
 ## 0. Business decisions only the owner can make
 
-Blocking: the Oracle's daily model spending budget. The funded OpenRouter account
+Settled at 12:43 PM EDT October 11: Albert answered "$25 per day" for the Oracle.
+The exact key-setting change is specified in the plan for independent technical
+review; do not ask him again. Earlier verification found: The funded OpenRouter account
 has $21.236204216 remaining, but its existing Oracle key independently caps usage
-at $15 daily, with zero remaining today. Albert was asked whether to use $25/day
-(recommended) or retain $15/day; no answer yet. Do not change it by inference.
+at $15 daily, with zero remaining today. The business budget is now $25/day; review and execution are still required. Do not change it by inference.
 Retaining $15 permits one new qualification after the October 11 reset at 8:00 PM EDT.
-Raise no limit, purchase no credit, and substitute no key without the spending ruling.
+Raise only this existing key to the settled $25/day budget after exact technical
+review; purchase no credit and substitute no key.
 Technical changes require assigned independent AI review, never human approval.
 
 Already settled: all company data may be processed by admitted AI providers
@@ -149,10 +151,10 @@ has occurred. Preserve existing applications and runtime settings.
 
 ## 6. Exact next steps and success gates
 
-1. Resolve the spending ruling or wait for the existing 8:00 PM EDT reset. Obtain
+1. Execute the independently reviewed $25/day key-setting change from the plan. Obtain
    fresh read-only key/credit evidence, not another paid request while blocked.
    A limit change needs exact-account/action independent technical review and the
-   business budget answer; do not create a new key or bypass the cap.
+   settled business budget answer; do not create a new key or bypass the cap.
 2. Qualify the fixed OpenRouter embedding route once, using synthetic input,
    openai/text-embedding-3-small, 256 dimensions, OpenAI-only routing, logging denied,
    no automatic retries. Success means an actual valid 256-dimensional embedding.
@@ -229,7 +231,7 @@ https://github.com/u2giants/theoracle/blob/main/docs/agents/13-deployment.md
 
 ## 9. Open risks and questions
 
-Only open business question is daily spending budget (§0). Hosting capacity is
+No open business question remains (§0); the daily budget is settled. Hosting capacity is
 verified, connectivity architecture is supported but not implemented/qualified,
 and original company graph coverage remains unmeasured. No claim of complete
 holistic understanding, company truth or hosted acceptance is justified yet.
@@ -254,6 +256,6 @@ merge or production-data decisions. No unfinished subagent deliverable remains.
    provenance qualification, provider-key/account distinction and port collisions.
 3. Relevant detail retained: yes, §§3–9 distinguish source/CI/web delivery from
    real graph and hosted proof, and preserve constraints, recovery and success gates.
-4. Owner-decision sweep: yes, the daily spending ruling in §§3,5,6,8,9 is in §0;
+4. Owner-decision sweep: yes, the settled daily spending ruling in §§3,5,6,8,9 is in §0;
    self-hosting preference and deferred question reruns are settled there. Technical
    qualification/reviews remain root-owned and are not human approval requests.
