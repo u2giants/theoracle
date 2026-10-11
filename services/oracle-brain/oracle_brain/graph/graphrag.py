@@ -159,6 +159,13 @@ class ProcessModel(StrictModel):
     missing_information: list[str]
     conflicts: list[str]
 
+def process_output_schema() -> dict:
+    """Provider-enforced kinds supplement the unchanged local evidence checks."""
+    schema = ProcessModel.model_json_schema()
+    schema["$defs"]["ExtractedObject"]["properties"]["kind"]["enum"] = list(ENTITY_TYPES)
+    schema["$defs"]["ExtractedLink"]["properties"]["kind"]["enum"] = list(RELATION_TYPES)
+    return schema
+
 class ExtractionEvidenceError(ValueError):
     """Identify the failed check without retaining a source quote or model body."""
     def __init__(self, message: str, category: str, index: int):
@@ -256,7 +263,8 @@ class ProcessExtraction(ExtractionStrategy):
             raise failure
         try:
             corrections = QuoteCorrections.model_validate_json(
-                (await self.llm.ainvoke(prompt)).content).corrections
+                (await self.llm.ainvoke(prompt,
+                    response_schema=QuoteCorrections.model_json_schema())).content).corrections
         except (ValueError, TypeError):
             raise failure from None
         expected = {(c, i) for c, i, _ in invalid}
@@ -345,7 +353,8 @@ class ProcessExtraction(ExtractionStrategy):
             text_digest = hashlib.sha256(chunk.text.encode()).hexdigest()
             model = self._readings.get(text_digest)
             if model is None:
-                model = ProcessModel.model_validate_json((await self.llm.ainvoke(prompt)).content)
+                model = ProcessModel.model_validate_json((await self.llm.ainvoke(prompt,
+                    response_schema=process_output_schema())).content)
                 # Identity/schema defects are never repaired by the citation lane.
                 keys = [obj.key for obj in model.objects]
                 if (len(set(keys)) == len(keys)

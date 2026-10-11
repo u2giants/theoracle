@@ -65,10 +65,12 @@ class FixedLLM(LLMInterface):
         self.content = content
         self.calls = 0
         self.prompts = []
+        self.request_options = []
 
     def invoke(self, prompt: str, **kwargs) -> LLMResponse:
         self.calls += 1
         self.prompts.append(prompt)
+        self.request_options.append(kwargs)
         return LLMResponse(content=self.content)
 
 
@@ -325,6 +327,10 @@ def test_quote_correction_is_once_exact_complete_and_preserves_claims(failure, c
         assert graph.relationships[0].properties["evidence_quote"] == correction["quote"]
         asyncio.run(extraction.extract(chunks, None, None))
     assert llm.calls == 2
+    schema = llm.request_options[0]["response_schema"]
+    assert "GERNED_BY" not in schema["$defs"]["ExtractedLink"]["properties"]["kind"]["enum"]
+    assert "GOVERNED_BY" in schema["$defs"]["ExtractedLink"]["properties"]["kind"]["enum"]
+    assert llm.request_options[1]["response_schema"]["$defs"]["QuoteCorrection"]["properties"]["collection"]["enum"] == ["objects", "links"]
 
 
 def test_identity_defect_never_spends_a_citation_correction_call():

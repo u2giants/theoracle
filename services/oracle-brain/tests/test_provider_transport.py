@@ -52,6 +52,30 @@ class FakeClient:
         return SimpleNamespace(data=[SimpleNamespace(index=0, embedding=[0.1]) for _ in kwargs["input"]])
 
 
+def test_extraction_schema_enforces_allowed_kinds_at_actual_provider_boundary():
+    from oracle_brain.graph.graphrag import process_output_schema, ENTITY_TYPES, RELATION_TYPES
+    schema = process_output_schema()
+    assert schema['$defs']['ExtractedObject']['properties']['kind']['enum'] == list(ENTITY_TYPES)
+    assert schema['$defs']['ExtractedLink']['properties']['kind']['enum'] == list(RELATION_TYPES)
+    client = FakeClient()
+    options = transport_options(request('openrouter', 'https://openrouter.ai/api/v1'),
+                                'openai/gpt-4o', operation='chat')
+    OpenAIModel('openai/gpt-4o', client, options).invoke('synthetic', response_schema=schema)
+    sent = client.calls[0][1]
+    assert sent['response_format'] == {'type': 'json_schema', 'json_schema': {
+        'name': 'oracle_evidence', 'strict': True, 'schema': schema}}
+    assert sent['extra_body']['provider']['require_parameters']
+    assert not sent['extra_body']['provider']['allow_fallbacks']
+    assert sent['store'] is False
+
+
+def test_invalid_response_schema_never_dispatches():
+    client = FakeClient()
+    with pytest.raises(ValueError, match='invalid holistic response schema'):
+        OpenAIModel('gpt-4o', client).invoke('synthetic', response_schema=[])
+    assert not client.calls
+
+
 @pytest.mark.parametrize("output_limit", [999, 65537, True])
 def test_invalid_output_limit_never_dispatches(output_limit):
     client = FakeClient()
