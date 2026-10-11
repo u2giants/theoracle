@@ -225,4 +225,3 @@ def test_real_falkordb_sdk_builds_finalizes_retrieves_and_answers_across_documen
     assert {citation["source_id"] for statement in result["answer"]["explanation"]
             for citation in statement["citations"]} == {str(first.source_id), str(second.source_id)}
     assert len(llm.calls) >= 3  # two extraction calls, finalization/retrieval completion
-

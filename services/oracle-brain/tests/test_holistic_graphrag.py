@@ -270,4 +270,3 @@ def test_pilot_has_no_legacy_fallback_and_rejects_changed_corpus_before_answer()
                      expected_source_ids=c.expected_source_ids)
     with pytest.raises(RuntimeError, match="must be built"):
         asyncio.run(pilot.answer("How does the handoff work?", changed))
-

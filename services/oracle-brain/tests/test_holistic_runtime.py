@@ -269,4 +269,3 @@ def test_holistic_role_can_read_corpus_and_update_only_run_lifecycle(admin_url):
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             with psycopg.connect(holistic_url) as connection:
                 connection.execute(statement, parameters)
-
