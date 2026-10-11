@@ -71,6 +71,7 @@ export async function insertSource(input: {
   contentType: string;
   processName?: string;
   blocks: SourceBlock[];
+  originalText: string;
 }): Promise<{ sourceId: string; draftId: string }> {
   const sql = client();
   const sourceId = randomUUID();
@@ -82,6 +83,14 @@ export async function insertSource(input: {
           (source_id,workspace_id,uploaded_by,filename,content_type,status)
         VALUES (${sourceId}::uuid,${input.workspaceId}::uuid,${input.actorId}::uuid,
                 ${input.filename},${input.contentType},'draft')
+      `;
+      // Preserve the complete original for corpus reasoning and exact citations.
+      // Diagnostic paragraph blocks remain available for the correction interface.
+      await tx`
+        INSERT INTO oracle2.source_blocks
+          (block_id,source_id,workspace_id,block_index,kind,text,span_start,span_end)
+        VALUES (${randomUUID()}::uuid,${sourceId}::uuid,${input.workspaceId}::uuid,
+                2147483647,'original',${input.originalText},0,${input.originalText.length})
       `;
       for (const block of input.blocks) {
         await tx`
@@ -114,6 +123,7 @@ export async function getSourceBlocks(
       SELECT block_id::text, source_id::text, block_index, text, span_start, span_end
       FROM oracle2.source_blocks
       WHERE source_id=${sourceId}::uuid AND workspace_id=${workspaceId}::uuid
+        AND kind NOT IN ('original', 'original-metadata')
       ORDER BY block_index
     `;
     return rows.map((r) => ({
@@ -286,30 +296,6 @@ export async function confirmDraft(input: {
   }
 }
 
-export async function storeRun(input: {
-  workspaceId: string;
-  actorId: string;
-  sourceId: string;
-  draftId: string | null;
-  question: string;
-  answer: unknown;
-}): Promise<string> {
-  const sql = client();
-  const runId = randomUUID();
-  try {
-    await sql`
-      INSERT INTO oracle2.runs
-        (run_id,workspace_id,actor_id,source_id,draft_id,question,status,answer)
-      VALUES (${runId}::uuid,${input.workspaceId}::uuid,${input.actorId}::uuid,
-              ${input.sourceId}::uuid,${input.draftId}::uuid,${input.question},
-              'completed',${sql.json((input.answer ?? {}) as never)})
-    `;
-    return runId;
-  } finally {
-    await sql.end({ timeout: 1 });
-  }
-}
-
 export async function getRun(
   runId: string,
   workspaceId: string,
@@ -317,6 +303,13 @@ export async function getRun(
 ): Promise<StoredRun | null> {
   const sql = client();
   try {
+    // A killed/undispatched worker cannot leave a visible run pending forever.
+    // Preserve source/question evidence; timeout prevents later publication too.
+    await sql`UPDATE oracle2.runs SET status='error',
+      error='Connected answer timed out; original sources retained',updated_at=now()
+      WHERE run_id=${runId}::uuid AND workspace_id=${workspaceId}::uuid
+        AND actor_id=${actorId}::uuid AND status IN ('pending','processing')
+        AND updated_at < now() - interval '12 minutes'`;
     const rows = await sql`
       SELECT run_id::text, workspace_id::text, actor_id::text, source_id::text,
              draft_id::text, question, status, answer, error, created_at
@@ -341,4 +334,30 @@ export async function getRun(
   } finally {
     await sql.end({ timeout: 1 });
   }
+}
+
+
+export async function startHolisticRun(input: {
+  workspaceId: string; actorId: string; sourceId: string; draftId: string; question: string;
+}): Promise<string> {
+  const sql = client();
+  const runId = randomUUID();
+  try {
+    await sql`
+      INSERT INTO oracle2.runs
+        (run_id,workspace_id,actor_id,source_id,draft_id,question,status)
+      VALUES (${runId}::uuid,${input.workspaceId}::uuid,${input.actorId}::uuid,
+              ${input.sourceId}::uuid,${input.draftId}::uuid,${input.question},'pending')
+    `;
+    return runId;
+  } finally { await sql.end({ timeout: 1 }); }
+}
+
+export async function failHolisticRun(runId: string, workspaceId: string, actorId: string): Promise<void> {
+  const sql = client();
+  try {
+    await sql`UPDATE oracle2.runs SET status='error',error='Connected answer service unavailable',updated_at=now()
+      WHERE run_id=${runId}::uuid AND workspace_id=${workspaceId}::uuid AND actor_id=${actorId}::uuid
+        AND status='pending'`;
+  } finally { await sql.end({ timeout: 1 }); }
 }

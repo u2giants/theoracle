@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
       contentType: 'text/plain',
       processName,
       blocks,
+      originalText: text,
     });
     return NextResponse.json({
       sourceId,

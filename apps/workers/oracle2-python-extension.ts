@@ -26,6 +26,8 @@ export function oracle2Python(options: {
         id: 'oracle2-python',
         image: {
           instructions: [
+            // GraphRAG SDK pins hnswlib's source distribution; preserve that capability.
+            'RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*',
             `COPY --from=${UV_IMAGE} /uv /usr/local/bin/uv`,
             'ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python UV_NO_CACHE=1',
             `RUN uv venv --python ${ORACLE2_PYTHON_VERSION} /opt/venv`,

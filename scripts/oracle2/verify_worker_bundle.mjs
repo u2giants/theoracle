@@ -11,15 +11,19 @@ execFileSync('sh', [join(root, 'scripts/oracle2/sync_worker_python.sh')], { stdi
 const pairs = [
   ['trigger.oracle2-extract.config.ts', 'src/trigger/oracle2-run.ts'],
   ['trigger.oracle2-project.config.ts', 'src/trigger/oracle2-project.ts'],
+  ['trigger.oracle2-holistic.config.ts', 'src/trigger/oracle2-holistic.ts'],
 ];
 for (const [config, task] of pairs) {
   const glob = readFileSync(join(workers, config), 'utf8').match(/scripts: \['([^']+)'\]/)?.[1];
-  const script = readFileSync(join(workers, task), 'utf8').match(/_SCRIPT = '([^']+)'/)?.[1];
-  if (!glob || !script) throw new Error(`${config}: scripts glob or script path missing`);
+  const source = readFileSync(join(workers, task), 'utf8');
+  const scripts = [...source.matchAll(/(?:_SCRIPT = |python\.runScript\()'([^']+)'/g)].map(m => m[1]);
+  if (!glob || !scripts.length) throw new Error(`${config}: scripts glob or script path missing`);
   const base = glob.replace(/\*\*\/\*\.py$/, '');
+  for (const script of scripts) {
   if (!script.startsWith(base)) throw new Error(`${task}: ${script} is outside ${glob}`);
   if (!existsSync(join(workers, script))) throw new Error(`${task}: ${script} not found after sync`);
   console.log(`ok ${task} -> ${script}`);
+  }
 }
 
 // Identity guards must match dev/oracle2/runtime-identities.yaml forbidden lists.
@@ -27,6 +31,8 @@ const forbidden = {
   'src/trigger/oracle2-run.ts': ['ORACLE2_CONFIRMED_GRAPH_URL', 'ORACLE2_PROJECTION_SIGNING_KEY',
     'ORACLE2_CHECKPOINT_DATABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
   'src/trigger/oracle2-project.ts': ['ORACLE2_CANDIDATE_GRAPH_URL',
+    'ORACLE2_CHECKPOINT_DATABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
+  'src/trigger/oracle2-holistic.ts': ['ORACLE2_CONFIRMED_GRAPH_URL', 'ORACLE2_PROJECTION_SIGNING_KEY',
     'ORACLE2_CHECKPOINT_DATABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
 };
 for (const [task, names] of Object.entries(forbidden)) {
@@ -36,7 +42,8 @@ for (const [task, names] of Object.entries(forbidden)) {
   }
 }
 const legacy = readFileSync(join(workers, 'trigger.config.ts'), 'utf8');
-if (!legacy.includes("'**/oracle2-run.ts'") || !legacy.includes("'**/oracle2-project.ts'")) {
+if (!legacy.includes("'**/oracle2-run.ts'") || !legacy.includes("'**/oracle2-project.ts'")
+    || !legacy.includes("'**/oracle2-holistic.ts'")) {
   throw new Error('legacy trigger.config.ts must exclude Oracle 2 tasks');
 }
 console.log('ok identity guards and legacy exclusion');

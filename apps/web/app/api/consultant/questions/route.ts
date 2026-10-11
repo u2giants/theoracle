@@ -1,16 +1,11 @@
 // POST /api/consultant/questions — ask a question and get a cited answer.
 import { NextResponse, type NextRequest } from 'next/server';
-import {
-  answerQuestion,
-  retrieveSpans,
-  type SourceBlock,
-} from '@/lib/oracle2-client';
 import { authorizePilotRequest } from '@/lib/oracle2-pilot-auth';
 import {
   getDraft,
-  getSourceBlocks,
+  startHolisticRun,
+  failHolisticRun,
   pilotWorkspaceId,
-  storeRun,
 } from '@/lib/oracle2-store';
 
 export const dynamic = 'force-dynamic';
@@ -25,8 +20,8 @@ export async function POST(req: NextRequest) {
     const { question, sourceId, draftId } = body;
     const actorId = auth.actorId;
     const workspaceId = pilotWorkspaceId();
-    if (!question || typeof question !== 'string' || !question.trim()) {
-      return NextResponse.json({ error: 'question is required' }, { status: 400 });
+    if (!question || typeof question !== 'string' || !question.trim() || question.length > 4000) {
+      return NextResponse.json({ error: 'Enter a question of 1 to 4000 characters.' }, { status: 400 });
     }
     if (!sourceId || !draftId) {
       return NextResponse.json({ error: 'sourceId and draftId are required' }, { status: 400 });
@@ -44,24 +39,30 @@ export async function POST(req: NextRequest) {
         { status: 409 },
       );
     }
-    const blocks = await getSourceBlocks(sourceId, workspaceId);
-    const connections = draft.connections ?? [];
-    const connectedBlocks = blocks.filter((b) =>
-      connections.some((c) => c.from === b.blockIndex || c.to === b.blockIndex),
-    );
-    const spans = retrieveSpans(question, blocks as SourceBlock[], 5, connections);
-    const answer = answerQuestion(question, spans, connections, connectedBlocks);
-    const runId = await storeRun({
-      workspaceId,
-      actorId,
-      sourceId,
-      draftId,
-      question,
-      answer,
+    // No obsolete passage-matching fallback. Readiness is exact-corpus/config bound.
+    const key = process.env.ORACLE2_HOLISTIC_TRIGGER_SECRET_KEY;
+    const corpusDigest = process.env.ORACLE2_HOLISTIC_CORPUS_DIGEST;
+    if (!key || !corpusDigest || !/^[a-f0-9]{64}$/.test(corpusDigest)) {
+      return NextResponse.json(
+        { error: 'The connected-document pilot is not ready for questions yet.' },
+        { status: 409 },
+      );
+    }
+    const runId = await startHolisticRun({
+      workspaceId, actorId, sourceId, draftId, question,
     });
-    return NextResponse.json({ runId, answer });
+    try {
+      // Dedicated preview project credential; no source text or question in task payload/logs.
+      const { tasks } = await import('@trigger.dev/sdk/v3');
+      await tasks.trigger('oracle2-holistic-answer', { runId, workspaceId, corpusDigest },
+        undefined, { clientConfig: { accessToken: key } });
+    } catch {
+      await failHolisticRun(runId, workspaceId, actorId);
+      return NextResponse.json({ error: 'Connected answer service unavailable' }, { status: 503 });
+    }
+    return NextResponse.json({ runId, status: 'pending' }, { status: 202 });
   } catch (e) {
-    console.error('questions-route-error', e);
+    console.error('questions-route-error', e instanceof Error ? e.name : 'UnknownError');
     return NextResponse.json({ error: 'question failed' }, { status: 500 });
   }
 }

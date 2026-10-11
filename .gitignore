@@ -84,3 +84,6 @@ oracle-teams-cert/
 apps/workers/oracle2-python/
 .env*
 .playwright-cli/
+
+# Local pilot browser proof artifacts
+/apps/web/test-results/
