@@ -1,5 +1,13 @@
 # Oracle overhaul: a company consultant that learns from evidence
 
+**Workflow integrity addendum, October 11, 2026 EDT:** read
+[the scoped plan](plan_oracle_workflow_integrity.md) **STATUS first** for lost
+conflicts/unknowns, explicit process models, PM4Py and selected consultant/lineage
+patterns while retaining FalkorDB and GraphRAG. Its immutable recovery reference
+records the newer paused-question and ownership constraints; older grading
+instructions below do not authorize restarting questions. All new W steps are
+unimplemented. This documentation publication does not adopt recovery or close S03.
+
 Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through [parent issue #24](https://github.com/u2giants/theoracle/issues/24). Research and source inspection baseline: `b3f2377f9b1fd13e1b9abf07cc8f342c180f076e` on `u2giants/theoracle/main`.
 
 **Planning complete; implementation is in progress.** S01 is accepted offline and S02 is accepted on synthetic evidence; see STATUS below. This document specifies the replacement but does not attest that the whole replacement works or authorize production changes. The current application continues to operate under its existing controls until an accepted replacement exists.
