@@ -944,8 +944,9 @@ OpenRouter is pay-as-you-go. Fresh read-only account/key checks show $21.2362042
 account credit remaining, but the Oracle key independently has limit=15,
 limit_remaining=0, limit_reset=daily, usage_daily=15.46848864. The key's reset
 is 8:00 PM EDT October 11; no account subscription/reset is involved. The owner
-was asked for a daily business spending budget ($25/day recommended); no limit
-change, purchase, fallback or direct-provider retry has occurred. A direct provider
+answered "$25 per day" at 12:43 PM EDT October 11. That settles the business
+budget; the exact technical key-setting action below still requires review.
+No limit change, purchase, fallback or direct-provider retry has occurred. A direct provider
 remains possible but needs its own admitted endpoint/account and bounded qualification.
 
 Owner asked whether FalkorDB could be self-hosted. Prefer qualification of the

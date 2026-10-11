@@ -208,7 +208,7 @@ instructions. The current plan and this owner's chat govern the stopped pilot.
 (local .env.local), item 62ieeyycs4ierflalbbbt5pq5i, field OPENROUTER_API_KEY.
 Canonical references and searchable tags were repaired. Direct OpenAI separate
 account remains credit-blocked. Management key item vqk7qypdfdqog6bo7r6f63zz5m
-is not model-call credential and must not change spending before a business ruling.
+is not model-call credential and may change only the exact settled key limit after independent technical review.
 Coolify token c44ghscsnug2xvvrzzp3on7mme/credential; use encrypted tailnet control-plane
 access, never plaintext public HTTP. Read-only Hetz login item 5xukphmemjyt6cp67qo5qdawby
 (username ai, password protected), SSH port 1904. Trigger PAT item
