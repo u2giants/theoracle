@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Enable authenticated TLS on an exact owned, labelled ephemeral test container."""
-import argparse,hashlib,ipaddress,json,os,subprocess
+import argparse,hashlib,ipaddress,json,os,re,shutil,subprocess
 from pathlib import Path
 import psycopg
 
 
 def run(*args):
-    return subprocess.check_output(args,text=True,stderr=subprocess.PIPE)
+    return subprocess.check_output(args,text=True,stderr=subprocess.PIPE,timeout=30)
 
 
 def bootstrap(container,admin_url,directory):
@@ -25,14 +25,49 @@ def bootstrap(container,admin_url,directory):
     if not {'POSTGRES_USER=oracle2_admin','POSTGRES_PASSWORD=oracle2_local_admin_only','POSTGRES_DB=oracle2'}<=env:
         raise PermissionError('invented PostgreSQL fixture identity required')
     directory=Path(directory);directory.mkdir(mode=0o700,parents=True,exist_ok=True);os.chmod(directory,0o700)
-    cert,key=directory/'ca.pem',directory/'server.key'
-    run('openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','2','-subj','/CN=Oracle invented ephemeral test CA',
-        '-addext','subjectAltName=DNS:localhost,IP:127.0.0.1','-keyout',str(key),'-out',str(cert))
-    os.chmod(cert,0o600);os.chmod(key,0o600)
+    issuer=directory/'issuer';issuer.mkdir(mode=0o700,exist_ok=True);os.chmod(issuer,0o700)
+    name=details['Name'].lstrip('/')
+    if not re.fullmatch('[a-zA-Z0-9][a-zA-Z0-9_.-]{0,100}',name):raise PermissionError('invalid owned Docker DNS name')
+    image='python@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e'
+    issuer_modes=[]
+    def issue(*args):
+        created=run('docker','create','--network','none','--read-only','--cap-drop','ALL',
+                    '--security-opt','no-new-privileges','--user',str(os.getuid())+':'+str(os.getgid()),
+                    '--mount','type=bind,src='+str(issuer.resolve())+',dst=/issuer',
+                    '--entrypoint','openssl',image,*args).strip()
+        if not re.fullmatch('[0-9a-f]{64}',created):raise AssertionError('exact issuer container identity required')
+        try:
+            actual=json.loads(run('docker','inspect',created))[0]
+            mode=actual['HostConfig']['NetworkMode']
+            if mode!='none' or not actual['HostConfig']['ReadonlyRootfs']:
+                raise AssertionError('issuer must actually be networkless and read-only')
+            issuer_modes.append(mode)
+            output=run('docker','start','-a',created)
+            if json.loads(run('docker','inspect',created))[0]['State']['ExitCode']!=0:
+                raise AssertionError('networkless issuer command failed')
+            return output
+        finally:
+            # Only the exact disposable issuer is removed; its protected keys survive.
+            run('docker','rm','-f',created)
+    issue('req','-x509','-newkey','rsa:2048','-nodes','-days','2','-subj','/CN=Oracle invented ephemeral issuer',
+          '-addext','basicConstraints=critical,CA:TRUE','-addext','keyUsage=critical,keyCertSign,cRLSign',
+          '-keyout','/issuer/issuer.key','-out','/issuer/ca.pem')
+    issue('req','-new','-newkey','rsa:2048','-nodes','-subj','/CN='+name,
+          '-keyout','/issuer/server.key','-out','/issuer/server.csr')
+    extension=issuer/'leaf.ext';extension.write_text('basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost,DNS:'+name+',IP:127.0.0.1,IP:::1\n')
+    issue('x509','-req','-days','2','-in','/issuer/server.csr','-CA','/issuer/ca.pem','-CAkey','/issuer/issuer.key',
+          '-CAcreateserial','-extfile','/issuer/leaf.ext','-out','/issuer/server.crt')
+    for path in issuer.iterdir():os.chmod(path,0o600)
+    cert,key,leaf=directory/'ca.pem',directory/'server.key',directory/'server.crt'
+    for filename in ('ca.pem','server.key','server.crt'):
+        shutil.copyfile(issuer/filename,directory/filename);os.chmod(directory/filename,0o600)
+    certificate=run('openssl','x509','-in',str(leaf),'-noout','-text')
+    if 'CA:FALSE' not in certificate or 'TLS Web Server Authentication' not in certificate or 'X509v3 Key Usage: critical' not in certificate:
+        raise AssertionError('qualified non-CA server leaf required')
     data='/var/lib/postgresql/data'
-    for path in (cert,key):run('docker','cp',str(path),container+':'+data+'/'+path.name)
-    run('docker','exec',container,'chown','postgres:postgres',data+'/ca.pem',data+'/server.key')
-    run('docker','exec',container,'chmod','600',data+'/ca.pem',data+'/server.key')
+    for path in (cert,key,leaf):run('docker','cp',str(path),container+':'+data+'/'+path.name)
+    run('docker','exec',container,'chown','postgres:postgres',data+'/ca.pem',data+'/server.key',data+'/server.crt')
+    run('docker','exec',container,'chmod','600',data+'/ca.pem',data+'/server.key',data+'/server.crt')
     hba=run('docker','exec',container,'cat',data+'/pg_hba.conf')
     before=directory/'pg_hba.before.conf'
     if not before.exists():before.write_text(hba);os.chmod(before,0o600)
@@ -47,7 +82,7 @@ def bootstrap(container,admin_url,directory):
     after=directory/'pg_hba.conf';after.write_text('\n'.join(lines)+'\n');os.chmod(after,0o600)
     run('docker','cp',str(after),container+':'+data+'/pg_hba.conf')
     run('docker','exec',container,'chown','postgres:postgres',data+'/pg_hba.conf')
-    for statement in ("ALTER SYSTEM SET ssl='on'", "ALTER SYSTEM SET ssl_cert_file='/var/lib/postgresql/data/ca.pem'", "ALTER SYSTEM SET ssl_key_file='/var/lib/postgresql/data/server.key'", 'SELECT pg_reload_conf()'):
+    for statement in ("ALTER SYSTEM SET ssl='on'", "ALTER SYSTEM SET ssl_cert_file='/var/lib/postgresql/data/server.crt'", "ALTER SYSTEM SET ssl_key_file='/var/lib/postgresql/data/server.key'", 'SELECT pg_reload_conf()'):
         run('docker','exec',container,'psql','-U','oracle2_admin','-d','oracle2','-v','ON_ERROR_STOP=1','-c',statement)
     url=psycopg.conninfo.make_conninfo(admin_url,sslmode='verify-full',sslrootcert=str(cert.resolve()))
     with psycopg.connect(url) as c:
@@ -61,9 +96,11 @@ def bootstrap(container,admin_url,directory):
     try:psycopg.connect(psycopg.conninfo.make_conninfo(url,sslmode='disable'))
     except psycopg.OperationalError:pass
     else:raise AssertionError('plaintext unexpectedly authenticated')
-    proof={'synthetic_only':True,'container_id':details['Id'],'tls_verify_full':True,'wrong_password_refused':True,'plaintext_refused':True,'hostssl_scram_networks':sorted(networks),'ca_sha256':hashlib.sha256(cert.read_bytes()).hexdigest(),'hba_sha256':hashlib.sha256(after.read_bytes()).hexdigest()}
+    run('docker','exec',container,'test','!','-e',data+'/issuer.key')
+    if any(str(issuer.resolve())==m.get('Source') for m in details.get('Mounts',[])):raise AssertionError('issuer must not be mounted in runtime')
+    proof={'issuer_network_mode':'none','issuer_actual_network_modes':issuer_modes,'issuer_key_runtime_path_absent':True,'issuer_mount_absent':True,'leaf_ca':False,'leaf_server_auth':True,'synthetic_only':True,'container_id':details['Id'],'tls_verify_full':True,'wrong_password_refused':True,'plaintext_refused':True,'hostssl_scram_networks':sorted(networks),'ca_sha256':hashlib.sha256(cert.read_bytes()).hexdigest(),'hba_sha256':hashlib.sha256(after.read_bytes()).hexdigest()}
     qualification=directory/'qualification.json';qualification.write_text(json.dumps(proof,indent=2)+'\n');os.chmod(qualification,0o600)
-    result={'ORACLE2_TEST_ADMIN_URL':url,'ORACLE2_TEST_TLS_ROOT':str(cert.resolve())}
+    result={'ORACLE2_TEST_ADMIN_URL':url,'ORACLE2_TEST_TLS_ROOT':str(cert.resolve()),'ORACLE2_TEST_TLS_QUALIFICATION':str(qualification.resolve())}
     output=directory/'environment.json';output.write_text(json.dumps(result,indent=2)+'\n');os.chmod(output,0o600)
     return result
 

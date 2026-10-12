@@ -88,6 +88,12 @@ jobs:
           postgres=$(docker compose -f dev/oracle2/compose.yaml ps -q postgres)
           services/oracle-brain/.venv/bin/python dev/oracle2/test_tls_bootstrap.py \
             --container "$postgres" --directory "$RUNNER_TEMP/oracle2-tls-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+      - name: Prove an owned exact-namespace native read-only graph
+        run: |
+          umask 077
+          candidate=$(docker compose -f dev/oracle2/compose.yaml ps -q falkor-candidate)
+          services/oracle-brain/.venv/bin/python dev/oracle2/test_readonly_graph_fixture.py \
+            --container "$candidate" --directory "$RUNNER_TEMP/oracle2-readonly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
       - name: Bootstrap isolated LangGraph checkpoint tables
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/init_local_stores.py
       - name: New operating-model documentary and event contracts

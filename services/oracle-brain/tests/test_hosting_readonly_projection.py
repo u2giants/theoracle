@@ -23,16 +23,19 @@ def test_native_readonly_acl_when_owned_fixture_available():
     import os
     from graphrag_sdk import ConnectionConfig,FalkorDBConnection
     url=os.environ.get('ORACLE2_TEST_READONLY_GRAPH_URL')
-    if not url:pytest.skip('owned namespace-scoped native graph fixture required')
+    if not url:pytest.fail('owned namespace-scoped native graph fixture required')
+    graph_name=os.environ.get('ORACLE2_TEST_READONLY_GRAPH_NAME')
+    other_name=os.environ.get('ORACLE2_TEST_READONLY_OTHER_GRAPH_NAME')
+    assert graph_name and other_name,'sealed owned fixture graph identities required'
     async def check():
-        native=FalkorDBConnection(ConnectionConfig.from_url(url,graph_name='invented_exact_graph',retry_count=1))
+        native=FalkorDBConnection(ConnectionConfig.from_url(url,graph_name=graph_name,retry_count=1))
         try:
             ro=ReadOnlyConnection(native)
             assert (await ro.query('MATCH (n) RETURN count(n)')).result_set==[[1]]
             with pytest.raises(Exception):await native.query('CREATE (:Forbidden)')
             with pytest.raises(Exception):await ro.query('CREATE (:Forbidden)')
         finally:await native.close()
-        other=FalkorDBConnection(ConnectionConfig.from_url(url,graph_name='forbidden_graph',retry_count=1))
+        other=FalkorDBConnection(ConnectionConfig.from_url(url,graph_name=other_name,retry_count=1))
         try:
             with pytest.raises(Exception):await ReadOnlyConnection(other).query('MATCH (n) RETURN count(n)')
         finally:await other.close()
