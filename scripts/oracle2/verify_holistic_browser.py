@@ -134,9 +134,8 @@ def _retain_diagnostics(scratch_path, result_path, fixture_values):
             target=Path(filename)
             os.fchmod(fd,0o600)
             with os.fdopen(fd,'wb') as stream:
-                encoded=data.encode();stream.write(encoded);stream.flush();os.fsync(stream.fileno())
+                encoded=data.encode()[-262144:];stream.write(encoded);stream.flush();os.fsync(stream.fileno())
             diagnostics[name]={'file':target.name,'bytes':len(encoded),'sha256':hashlib.sha256(encoded).hexdigest(),'tail_limit_bytes':262144}
-        shutil.rmtree(scratch_path)
     return diagnostics
 
 
