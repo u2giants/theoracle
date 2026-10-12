@@ -12,7 +12,7 @@ Persist only private minimized events and original-reference receipts under a ne
 
 ## Evidence limits and acceptance scope
 
-The stored 816 payloads have ClickUp event shape, stable native IDs/timestamps/actors/prior/next statuses. Official primary documentation defines native date as Unix milliseconds and recommends webhook_id:history_item_id idempotency: https://developer.clickup.com/docs/webhooktaskpayloads and https://developer.clickup.com/docs/webhooks .
+The stored 816 payloads have ClickUp event shape, stable native IDs/timestamps/actors and next statuses; only 531 have observed prior status, while 285 preserve missing/null predecessor explicitly. Official primary documentation defines native date as Unix milliseconds and recommends webhook_id:history_item_id idempotency: https://developer.clickup.com/docs/webhooktaskpayloads and https://developer.clickup.com/docs/webhooks .
 
 Capture authenticity remains UNVERIFIED: live Workers catalog on the same account returned successful empty list. No deployed producer/signature-enforcement identity was available. This is stored ClickUp-shaped observation history; it must not be called authenticated capture or complete enterprise workflow history without further proof. Root must explicitly accept this provenance limitation or leave intake blocked. No credential/Worker changes, new webhook, connector, auth consent, source writes or provider dispatch are authorized.
 
@@ -22,9 +22,9 @@ Observation-only process identifier `clickup-workspace-2298436-task-status-obser
 
 The root checks exact assigned approval and task gates, script hash below and metadata pin, then injects the existing read credential only via env into this protected operator. Root passes new protected destination plus the literal pinned fingerprint. Re-read compares complete selected original rows byte-for-byte before persistence; any added/corrected/deleted row fails. Files use exclusive creation, private permissions and fsync. A filesystem failure may leave partial files; absent final manifest means unusable export and no acceptance. Source is unchanged; recovery preserves partial receipts and retries only into another new directory under a fresh read/review if inputs changed. No stdout private content; errors fail generically.
 
-Local synthetic fixture tests passed five tests: event normalization/private minimization/original hash linkage, count/order refusal, workspace/task/event/actor mismatch, native ID duplicate rejection, byte budget/multiple-history shape refusal. These are script checks, not live intake proof. Actual original payload export has not run.
+Local synthetic fixture tests passed six tests: event normalization/private minimization/original hash linkage, count/order refusal, workspace/task/event/actor mismatch, native ID duplicate rejection, byte budget/multiple-history shape refusal. These are script checks, not live intake proof. Actual original payload export has not run.
 
-Script SHA256: `391d74fd3cbb52140b854ef3db5a5206f6c82bba3fb9fe6a0a3199eb81c63f86`.
+Script SHA256: `4005b9a9482ad45fe5a907d14196113df4775f672d088f4e86f4858346b2e812`.
 
 ```python
 """Pinned read-only Oracle ClickUp original export. Root review required before run."""
@@ -107,9 +107,9 @@ def normalize(rows):
         timestamp = dt.datetime.fromtimestamp(int(millis) / 1000, dt.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         before, after = item.get("before"), item.get("after")
         actor = item.get("user", {}).get("id")
-        if not isinstance(before, dict) or not isinstance(after, dict) or not isinstance(before.get("status"), str) or not isinstance(after.get("status"), str) or not isinstance(actor, int) or isinstance(actor, bool):
+        if not isinstance(before, dict) or not isinstance(after, dict) or (before.get("status") is not None and not isinstance(before.get("status"), str)) or not isinstance(after.get("status"), str) or not isinstance(actor, int) or isinstance(actor, bool):
             raise ValueError("native status/actor absent")
-        events.append({"event_id": identity, "case_id": case, "activity": after["status"], "timestamp": timestamp, "timestamp_ms": millis, "before_status": before["status"], "after_status": after["status"], "actor_id": str(actor), "process_id": "clickup-workspace-2298436-task-status-observation", "original_capture_id": capture, "original_sha256": sha(payload_bytes)})
+        events.append({"event_id": identity, "case_id": case, "activity": after["status"], "timestamp": timestamp, "timestamp_ms": millis, "before_status": before.get("status"), "before_state": "observed" if isinstance(before.get("status"), str) else "unobserved", "before_status_field": "missing" if "status" not in before else ("null" if before["status"] is None else "value"), "after_status": after["status"], "actor_id": str(actor), "process_id": "clickup-workspace-2298436-task-status-observation", "original_capture_id": capture, "original_sha256": sha(payload_bytes)})
         originals.append({"capture_id": capture, "received_at": row["received_at"], "sha256": sha(payload_bytes)})
     if len(cases) != EXPECTED_CASES:
         raise ValueError("case count drift")
@@ -161,3 +161,5 @@ if __name__ == "__main__":
         print("Export refused; protected operator must inspect the cause without disclosing payloads.", file=sys.stderr)
         sys.exit(1)
 ```
+
+Correction: reviewed first read refused before persistence because 285 originals lack prior status text. Preserve all 816 observations, with before_status null/before_state unobserved and before_status_field missing or null; 531 observed predecessors remain verbatim. No inferred predecessor, exclusion or completeness claim. Fresh independent review required before execution.
