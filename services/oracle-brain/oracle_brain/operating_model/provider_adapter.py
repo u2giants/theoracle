@@ -99,12 +99,16 @@ class Budget:
         if overrun: raise RuntimeError('provider cost overrun; further dispatch denied pending diagnosis')
 
 class AdmittedProvider:
-    def __init__(self, *, request: ProcessingRequest, approvals: list[ProcessingApproval], pricing: Pricing, budget: Budget, sender, remaining_daily_allowance=None, admitted_register_hash=None):
+    def __init__(self, *, request: ProcessingRequest, approvals: list[ProcessingApproval], pricing: Pricing, budget: Budget, sender, remaining_daily_allowance=None, admitted_register_hash=None, operation="chat"):
         from .native_provider import NativeOpenRouter
+        if operation not in {'chat','embedding'}:raise PermissionError('fixed provider operation required')
+        if operation=='embedding' and (pricing.model!='openai/text-embedding-3-small' or pricing.max_output_tokens!=1 or pricing.output_per_million_usd!=0):
+            raise PermissionError('fixed input-only embedding pricing required')
+        self.operation=operation
         native=getattr(sender,'__self__',None)
         if isinstance(native,NativeOpenRouter):
             if (request is None or request.account!='key-sha256:'+native.key_fingerprint
-                    or getattr(sender,'__func__',None) is not NativeOpenRouter.send
+                    or getattr(sender,'__func__',None) is not (NativeOpenRouter.send if operation=='chat' else NativeOpenRouter.embed)
                     or getattr(remaining_daily_allowance,'__self__',None) is not native
                     or getattr(remaining_daily_allowance,'__func__',None) is not NativeOpenRouter.allowance
                     or budget.ledger_identity_hash!=native.ledger_identity_hash):
@@ -121,6 +125,8 @@ class AdmittedProvider:
     def extract(self, *, workspace_id: UUID,artifact_id: UUID,batch_id: UUID,purpose: str,attempt: int,
                 input_tokens_upper_bound: int, messages: list[dict], response_validator=None):
         authorize(self.request,self.approvals)
+        if self.operation=='embedding' and not callable(response_validator):
+            raise PermissionError('trusted embedding validation required before dispatch')
         if self.admitted_register_hash!=self.pricing.admitted_register_hash:raise PermissionError('pricing is not bound to the admitted processing register')
         if self.request.purpose!=purpose or self.pricing.provider!=self.request.provider or self.pricing.expires_at<=datetime.now(timezone.utc):
             raise PermissionError('exact purpose/current price admission required')
@@ -131,7 +137,7 @@ class AdmittedProvider:
             raise ValueError('input reservation does not cover the complete dispatch payload')
         if self.remaining_daily_allowance is None:
             raise PermissionError('authoritative remaining daily allowance unavailable')
-        opts=transport_options(self.request,self.pricing.model,operation='chat')
+        opts=transport_options(self.request,self.pricing.model,operation=self.operation)
         maximum=(Decimal(input_tokens_upper_bound)*self.pricing.input_per_million_usd + Decimal(self.pricing.max_output_tokens)*self.pricing.output_per_million_usd)/Decimal(1_000_000)
         allowance=self.remaining_daily_allowance()
         if maximum > allowance:
@@ -139,7 +145,10 @@ class AdmittedProvider:
         rid=self.budget.reserve(workspace_id=workspace_id,artifact_id=artifact_id,batch_id=batch_id,purpose=purpose,attempt=attempt,maximum=maximum,pricing_hash=digest(self.pricing.model_dump(mode='json')),account_remaining=allowance,correction_hash=self.correction_contract(workspace_id=workspace_id,artifact_id=artifact_id,batch_id=batch_id,purpose=purpose,input_tokens_upper_bound=input_tokens_upper_bound,messages=messages))
         self.last_reservation_id=rid
         try:
-            response,actual=self.sender(messages=messages,model=self.pricing.model,max_output_tokens=self.pricing.max_output_tokens,store=False,**opts)
+            if self.operation=='embedding':
+                response,actual=self.sender(input=messages,model=self.pricing.model,dimensions=256,store=False,**opts)
+            else:
+                response,actual=self.sender(messages=messages,model=self.pricing.model,max_output_tokens=self.pricing.max_output_tokens,store=False,**opts)
         except Exception as error:
             self.budget.finish(rid,actual_usd=maximum,failed=True,response_hash=None,failure_kind='quota_exhausted' if isinstance(error,ProviderQuotaError) else 'transport_failure')
             raise RuntimeError('admitted extraction dispatch failed; private response not logged') from None
@@ -147,5 +156,11 @@ class AdmittedProvider:
         if response_validator is not None:
             try:response_validator(response)
             except (ValueError,TypeError,KeyError):valid=False
-        self.budget.finish(rid,actual_usd=actual,failed=not valid,response_hash=digest({'response':response}),failure_kind=None if valid else 'invalid_output')
+        if self.operation=='embedding':
+            import hashlib
+            raw=getattr(getattr(self.sender,'__self__',None),'last_response_text',None)
+            response_hash=hashlib.sha256(raw.encode()).hexdigest() if isinstance(raw,str) else None
+        else:
+            response_hash=digest({'response':response})
+        self.budget.finish(rid,actual_usd=actual,failed=not valid,response_hash=response_hash,failure_kind=None if valid else 'invalid_output')
         return response

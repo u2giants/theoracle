@@ -45,7 +45,7 @@ def _conservative_key_allowance(data:dict,*,observed_at:datetime,now:datetime,co
 
 
 def current_pricing(models:dict,*,model:str,max_output_tokens:int,register_hash:str,now:datetime)->Pricing:
-    if model not in {'openai/gpt-6.1-sol','openai/gpt-6-astra'} or isinstance(max_output_tokens,bool) or not 1<=max_output_tokens<=8192:
+    if model not in {'openai/gpt-6.1-sol','openai/gpt-6-astra','openai/text-embedding-3-small'} or isinstance(max_output_tokens,bool) or not 1<=max_output_tokens<=8192:
         raise PermissionError('exact bounded admitted model required')
     matches=[m for m in models.get('data',[]) if m.get('id')==model]
     if len(matches)!=1:raise PermissionError('current exact model pricing unavailable')
@@ -53,9 +53,11 @@ def current_pricing(models:dict,*,model:str,max_output_tokens:int,register_hash:
     # Charge the worst published context/cache-write tier up front. No tools,
     # web search, images, plugins, batches or cache write are requested.
     input_rate=max(amount(p[k]) for p in variants for k in ('prompt','input_cache_write') if k in p)
-    output_rate=max(amount(p.get('completion')) for p in variants)
+    embedding=model=='openai/text-embedding-3-small'
+    if embedding and max_output_tokens!=1:raise PermissionError('fixed embedding pricing marker required')
+    output_rate=Decimal(0) if embedding else max(amount(p.get('completion')) for p in variants)
     top=info.get('top_provider',{})
-    if not isinstance(top.get('max_completion_tokens'),int) or max_output_tokens>top['max_completion_tokens']:
+    if not embedding and (not isinstance(top.get('max_completion_tokens'),int) or max_output_tokens>top['max_completion_tokens']):
         raise PermissionError('bounded output incompatible with current model')
     return Pricing(provider='openrouter',model=model,input_per_million_usd=input_rate*1_000_000,
                    output_per_million_usd=output_rate*1_000_000,max_output_tokens=max_output_tokens,
@@ -79,14 +81,14 @@ class NativeOpenRouter:
             raise PermissionError('current exact-key central reservation coverage unavailable')
         return True
     def _request(self,path,body=None):
-        if path not in {'/key','/models','/chat/completions'}:raise PermissionError('unadmitted provider operation')
-        if path=='/chat/completions':self.last_response_text=None
+        if path not in {'/key','/models','/chat/completions','/embeddings','/embeddings/models'}:raise PermissionError('unadmitted provider operation')
+        if path in {'/chat/completions','/embeddings'}:self.last_response_text=None
         request=urllib.request.Request(ENDPOINT+path,data=None if body is None else json.dumps(body,ensure_ascii=False).encode(),headers={'Authorization':'Bearer '+self._key,'Content-Type':'application/json','Cache-Control':'no-store'})
         try:
             with urllib.request.build_opener(NoRedirect()).open(request,timeout=60) as response:
                 raw=response.read(16*1024*1024+1)
             if len(raw)>16*1024*1024:raise ValueError('provider response exceeds bounded envelope')
-            if path=='/chat/completions':self.last_response_text=raw.decode('utf-8')
+            if path in {'/chat/completions','/embeddings'}:self.last_response_text=raw.decode('utf-8')
             return json.loads(raw,parse_float=Decimal)
         except urllib.error.HTTPError as error:
             if error.code==402:raise ProviderQuotaError('existing provider credit quota exhausted; terminal') from None
@@ -99,7 +101,7 @@ class NativeOpenRouter:
         now=datetime.now(timezone.utc)
         return _conservative_key_allowance(data,observed_at=observed,now=now,coverage_current=self._coverage(now))
     def pricing(self,*,model,max_output_tokens,register_hash):
-        return current_pricing(self._request('/models'),model=model,max_output_tokens=max_output_tokens,register_hash=register_hash,now=datetime.now(timezone.utc))
+        return current_pricing(self._request('/embeddings/models' if model=='openai/text-embedding-3-small' else '/models'),model=model,max_output_tokens=max_output_tokens,register_hash=register_hash,now=datetime.now(timezone.utc))
     def send(self,*,messages,model,max_output_tokens,store,extra_body):
         self._coverage(datetime.now(timezone.utc))
         expected={'provider':{'only':['openai'],'allow_fallbacks':False,'require_parameters':True,'data_collection':'deny'}}
@@ -116,3 +118,20 @@ class NativeOpenRouter:
         self.last_receipt.update(finish_reason=choice['finish_reason'],usage=usage)
         # Cost includes reasoning in completion usage; no unrequested paid tools.
         return content,actual
+
+    def embed(self,*,input,model,dimensions,store,extra_body):
+        self._coverage(datetime.now(timezone.utc))
+        expected={'provider':{'only':['openai'],'allow_fallbacks':False,'require_parameters':True,'data_collection':'deny'}}
+        if (model!='openai/text-embedding-3-small' or type(dimensions) is not int or dimensions!=256
+                or store is not False or extra_body!=expected or not isinstance(input,list)
+                or not input or any(not isinstance(text,str) or not text for text in input)):
+            raise PermissionError('exact private embedding transport required')
+        response=self._request('/embeddings',{'model':model,'input':input,'dimensions':256,'encoding_format':'float','store':False,**extra_body})
+        usage=response.get('usage',{});actual=amount(usage.get('cost'))
+        if usage.get('is_byok') is True:actual+=amount(usage.get('cost_details',{}).get('upstream_inference_cost'))
+        if usage.get('server_tool_use') or usage.get('cost_details',{}).get('server_tool_cost'):raise RuntimeError('unrequested embedding tools incurred cost')
+        self.last_receipt={k:response.get(k) for k in ('id','model','created')}
+        self.last_receipt.update(usage=usage)
+        # Schema is validated inside the admitted adapter before settlement, so
+        # malformed vectors still preserve known actual financial charges.
+        return response,actual

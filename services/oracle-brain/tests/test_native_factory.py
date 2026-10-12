@@ -197,3 +197,80 @@ def test_rejected_output_retains_actual_charge_and_wire_without_retry(actual_led
  assert saved['failed'] and saved['raw_response']
  with pytest.raises(PermissionError):b.dispatch(envelope(j))
  assert calls.count('/chat/completions')==1
+
+
+def embedding_job():
+ j=job();request={'model':'openai/text-embedding-3-small','input':['invented vector source'],'dimensions':256,'encoding_format':'float','store':False,
+  'provider':{'only':['openai'],'allow_fallbacks':False,'require_parameters':True,'data_collection':'deny'}}
+ models={'data':[{'id':request['model'],'pricing':{'prompt':'0.00000002'},'context_length':8192}]}
+ pricing=current_pricing(models,model=request['model'],max_output_tokens=1,register_hash=j.register_hash,now=datetime.now(timezone.utc))
+ j=j.model_copy(update={'request':request,'request_hash':hashlib.sha256(canonical_bytes(request)).hexdigest(),'input_tokens_upper_bound':len(canonical_bytes(request))+1024,'pricing':pricing})
+ return j,models
+
+def fake_embedding(monkeypatch,models,response):
+ calls=[]
+ def request(self,path,body=None):
+  calls.append(path)
+  if path=='/embeddings/models':return models
+  if path=='/key':return {'data':{'usage_daily':0,'byok_usage_daily':0,'usage_monthly':0,'byok_usage_monthly':0,'limit':25,'limit_remaining':25,'is_free_tier':False}}
+  if path=='/embeddings':
+   assert body['dimensions']==256 and body['store'] is False and body['provider']['only']==['openai']
+   self.last_response_text=json.dumps(response);return response
+  raise AssertionError(path)
+ monkeypatch.setattr(NativeOpenRouter,'_request',request);return calls
+
+def vector_response():
+ return {'model':'openai/text-embedding-3-small','object':'list','data':[{'object':'embedding','index':0,'embedding':[0.25]*256}],'usage':{'cost':'0.00001'}}
+
+def test_embedding_broker_reserves_fixed_native_operation_and_settles(actual_ledger,tmp_path,monkeypatch):
+ j,models=embedding_job();response=vector_response();calls=fake_embedding(monkeypatch,models,response);b,_=broker(actual_ledger,tmp_path,j)
+ assert json.loads(b.dispatch(envelope(j)))==response
+ assert calls.count('/embeddings')==1 and '/chat/completions' not in calls
+ with psycopg.connect(actual_ledger[2]) as conn:assert conn.execute('SELECT actual_usd,status FROM oracle2.operating_dispatch_receipts').fetchall()==[(Decimal('0.000010'),'completed')]
+
+@pytest.mark.parametrize('malformation',['dimension','count','index','finite','model','boolean'])
+def test_embedding_invalid_vectors_retain_known_charge(actual_ledger,tmp_path,monkeypatch,malformation):
+ j,models=embedding_job();response=vector_response()
+ if malformation=='dimension':response['data'][0]['embedding'].pop()
+ if malformation=='count':response['data']=[]
+ if malformation=='index':response['data'][0]['index']=1
+ if malformation=='finite':response['data'][0]['embedding'][0]=float('inf')
+ if malformation=='model':response['model']='wrong'
+ if malformation=='boolean':response['data'][0]['embedding'][0]=True
+ calls=fake_embedding(monkeypatch,models,response);b,receipts=broker(actual_ledger,tmp_path,j)
+ with pytest.raises(ValueError):b.dispatch(envelope(j))
+ with psycopg.connect(actual_ledger[2]) as conn:assert conn.execute('SELECT actual_usd,status,failure_kind FROM oracle2.operating_dispatch_receipts').fetchall()==[(Decimal('0.000010'),'failed','invalid_output')]
+ assert json.loads((receipts/(str(j.dispatch_id)+'.json')).read_text())['raw_response']
+ assert calls.count('/embeddings')==1
+
+
+def test_embedding_unknown_transport_holds_entire_reservation(actual_ledger,tmp_path,monkeypatch):
+ j,models=embedding_job();fake_embedding(monkeypatch,models,vector_response());original=NativeOpenRouter._request
+ def fail(self,path,body=None):
+  if path=='/embeddings':raise RuntimeError('invented ambiguous transport')
+  return original(self,path,body)
+ monkeypatch.setattr(NativeOpenRouter,'_request',fail);b,_=broker(actual_ledger,tmp_path,j)
+ with pytest.raises(RuntimeError):b.dispatch(envelope(j))
+ with psycopg.connect(actual_ledger[2]) as conn:
+  reserved,actual,status=conn.execute('SELECT r.reserved_usd,s.actual_usd,s.status FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id)').fetchone()
+ assert reserved==actual and status=='failed'
+
+def test_embedding_real_decimal_vectors_validated_and_wire_hashed(actual_ledger,tmp_path,monkeypatch):
+ j,models=embedding_job();response=vector_response();response['data'][0]['embedding']=[Decimal('.25')]*256
+ calls=fake_embedding(monkeypatch,models,vector_response());fake=NativeOpenRouter._request
+ def decimals(self,path,body=None):
+  result=fake(self,path,body)
+  return response if path=='/embeddings' else result
+ monkeypatch.setattr(NativeOpenRouter,'_request',decimals);b,_=broker(actual_ledger,tmp_path,j)
+ raw=b.dispatch(envelope(j))
+ with psycopg.connect(actual_ledger[2]) as conn:
+  assert conn.execute('SELECT response_hash FROM oracle2.operating_dispatch_receipts').fetchone()[0]==hashlib.sha256(raw).hexdigest()
+
+
+def test_embedding_missing_actual_cost_retains_liability(actual_ledger,tmp_path,monkeypatch):
+ j,models=embedding_job();response=vector_response();response['usage']={'prompt_tokens':4,'total_tokens':4}
+ calls=fake_embedding(monkeypatch,models,response);b,_=broker(actual_ledger,tmp_path,j)
+ with pytest.raises(RuntimeError):b.dispatch(envelope(j))
+ with psycopg.connect(actual_ledger[2]) as conn:
+  reserved,actual,status=conn.execute('SELECT r.reserved_usd,s.actual_usd,s.status FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id)').fetchone()
+ assert reserved==actual and status=='failed' and calls.count('/embeddings')==1

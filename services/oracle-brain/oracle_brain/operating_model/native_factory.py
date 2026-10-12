@@ -66,11 +66,11 @@ class _AuthorizedNative(NativeOpenRouter):
         self._before_private_dispatch=before_private_dispatch
 
     def _request(self,path,body=None):
-        if path=='/chat/completions':
+        if path in {'/chat/completions','/embeddings'}:
             self._before_private_dispatch()
             self._coverage(datetime.now(timezone.utc))
         response=super()._request(path,body)
-        if path=='/models':
+        if path in {'/models','/embeddings/models'}:
             self._models_snapshot=response
         return response
 
@@ -165,7 +165,7 @@ class NativeBrokerEgress:
                  trusted_registry_hash: str, coverage_receipt: Callable[[], VerifiedKeyCoverage],
                  trusted_coverage_hash: str, resolve_job: Callable[[UUID], NativeDispatchJob],
                  authorize_current_job: Callable[[NativeDispatchJob], bool],
-                 validate_response: Callable[[NativeDispatchJob, str], None], private_receipts: Path):
+                 validate_response: Callable[[NativeDispatchJob, object], None], private_receipts: Path):
         self._key = api_key
         self._key_fingerprint = hashlib.sha256(api_key.encode()).hexdigest()
         self._url,self._registry,self._registry_hash = ledger_url,registry,trusted_registry_hash
@@ -234,15 +234,24 @@ class NativeBrokerEgress:
         ledger_identity=verify_ledger(self._url,self._registry,trusted_registry_hash=self._registry_hash,
                                      key_fingerprint=self._key_fingerprint,now=datetime.now(timezone.utc))
         request=job.request
-        expected={'model','messages','max_tokens','response_format','store','stream','provider'}
+        embedding=request.get('model')=='openai/text-embedding-3-small'
+        expected={'model','input','dimensions','encoding_format','store','provider'} if embedding else {'model','messages','max_tokens','response_format','store','stream','provider'}
+        payload=request.get('input') if embedding else request.get('messages')
+        output_bound=1 if embedding else request.get('max_tokens')
         policy={'only':['openai'],'allow_fallbacks':False,'require_parameters':True,'data_collection':'deny'}
         if (set(request)!=expected or request['provider']!=policy or request['store'] is not False
-                or request['stream'] is not False or request['response_format']!={'type':'json_object'}
-                or request['model'] not in {'openai/gpt-6.1-sol','openai/gpt-6-astra'}
-                or type(request['max_tokens']) is not int or not 1<=request['max_tokens']<=8192
-                or not isinstance(request['messages'],list) or not request['messages']
-                or job.input_tokens_upper_bound<len(encoded)+1024*len(request['messages'])):
+                or not isinstance(payload,list) or not payload
+                or job.input_tokens_upper_bound<len(encoded)+1024*len(payload)):
             raise PermissionError('exact bounded native provider request required')
+        if embedding:
+            if (type(request['dimensions']) is not int or request['dimensions']!=256
+                    or request['encoding_format']!='float'
+                    or any(not isinstance(text,str) or not text for text in payload)):
+                raise PermissionError('fixed bounded embedding input required')
+        elif (request['stream'] is not False or request['response_format']!={'type':'json_object'}
+                or request['model'] not in {'openai/gpt-6.1-sol','openai/gpt-6-astra'}
+                or type(output_bound) is not int or not 1<=output_bound<=8192):
+            raise PermissionError('exact bounded native chat request required')
         def before_private_dispatch():
             if not currently_authorized():
                 raise PermissionError('current job authority changed before private POST')
@@ -251,17 +260,17 @@ class NativeBrokerEgress:
                                before_private_dispatch=before_private_dispatch,
                                trusted_coverage_hash=self._coverage_hash,ledger_identity_hash=ledger_identity)
         native._coverage(datetime.now(timezone.utc))
-        current=native.pricing(model=request['model'],max_output_tokens=request['max_tokens'],register_hash=job.register_hash)
+        current=native.pricing(model=request['model'],max_output_tokens=output_bound,register_hash=job.register_hash)
         model=[item for item in native._models_snapshot.get('data',[]) if item.get('id')==request['model']]
-        lengths=[model[0].get('context_length'),model[0].get('top_provider',{}).get('context_length')] if len(model)==1 else []
-        if (len(lengths)!=2 or any(type(value) is not int or value<=0 for value in lengths)
-                or job.input_tokens_upper_bound+request['max_tokens']>min(lengths)):
+        lengths=([model[0].get('context_length')] if embedding else [model[0].get('context_length'),model[0].get('top_provider',{}).get('context_length')]) if len(model)==1 else []
+        if (len(lengths)!=(1 if embedding else 2) or any(type(value) is not int or value<=0 for value in lengths)
+                or job.input_tokens_upper_bound+(0 if embedding else output_bound)>min(lengths)):
             raise PermissionError('current complete model context cannot cover admitted input/output bounds')
         if (job.pricing.expires_at<=datetime.now(timezone.utc)
                 or current.model_dump(exclude={'expires_at'})!=job.pricing.model_dump(exclude={'expires_at'})):
             raise PermissionError('current actual pricing differs from admitted job')
         provider=AdmittedProvider(request=job.processing_request,approvals=list(job.approvals),pricing=job.pricing,
-            budget=Budget(self._url,ledger_identity_hash=ledger_identity),sender=native.send,
+            budget=Budget(self._url,ledger_identity_hash=ledger_identity),sender=native.embed if embedding else native.send,operation='embedding' if embedding else 'chat',
             remaining_daily_allowance=native.allowance,admitted_register_hash=job.register_hash)
         # Recheck immediately before reservation/send, after all preflight work.
         if not currently_authorized():
@@ -272,6 +281,8 @@ class NativeBrokerEgress:
             try:
                 if not currently_authorized():
                     raise ValueError('current validation authority unavailable')
+                if embedding:
+                    validate_embedding_response(content,count=len(payload))
                 self._validate_response(job, content)
                 if not currently_authorized():
                     raise ValueError('immutable job changed during validation')
@@ -281,7 +292,7 @@ class NativeBrokerEgress:
         try:
             provider.extract(workspace_id=job.workspace_id,artifact_id=job.artifact_id,batch_id=job.batch_id,
                 purpose=job.purpose,attempt=job.attempt,input_tokens_upper_bound=job.input_tokens_upper_bound,
-                messages=request['messages'],response_validator=validate_paid_response)
+                messages=payload,response_validator=validate_paid_response)
         except Exception:
             if hasattr(provider,'last_reservation_id'):
                 self._record(job,getattr(native,'last_response_text',None),provider.last_reservation_id,failed=True)
@@ -294,3 +305,22 @@ class NativeBrokerEgress:
         if validation_failed:
             raise ValueError('trusted output validation rejected response; diagnosis required')
         return raw.encode()
+
+
+def validate_embedding_response(response, *, count):
+    """Exact native vector identity and complete finite 256-dimension coverage."""
+    from decimal import Decimal
+    if (not isinstance(response,dict) or response.get('model')!='openai/text-embedding-3-small'
+            or response.get('object')!='list' or not isinstance(response.get('data'),list)
+            or len(response['data'])!=count):
+        raise ValueError('embedding response identity/count mismatch')
+    seen=set()
+    for row in response['data']:
+        if (not isinstance(row,dict) or set(row)!={'object','index','embedding'} or row['object']!='embedding'
+                or type(row['index']) is not int or not 0<=row['index']<count or row['index'] in seen
+                or not isinstance(row['embedding'],list) or len(row['embedding'])!=256):
+            raise ValueError('embedding vector schema/dimension/index mismatch')
+        seen.add(row['index'])
+        for value in row['embedding']:
+            if isinstance(value,bool) or not isinstance(value,(int,float,Decimal)) or not Decimal(str(value)).is_finite():
+                raise ValueError('embedding vector contains nonfinite/non-numeric values')
