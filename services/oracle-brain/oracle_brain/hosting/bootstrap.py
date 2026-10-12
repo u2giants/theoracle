@@ -18,6 +18,7 @@ FILES={
  'ledger':({'admin-password','ca.crt','server.crt','server.key','pg_hba.conf'},70),
  'candidate':({'server.conf'},999),
  'confirmed':({'server.conf'},999),
+ 'ledger-data':(set(),70),
  'candidate-data':(set(),999),
  'confirmed-data':(set(),999),
  'spool':(set(),10001),

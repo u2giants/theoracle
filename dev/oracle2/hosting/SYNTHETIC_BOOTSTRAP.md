@@ -21,7 +21,15 @@ and seed run only after an empty-database and exact installer-identity preflight
 Only gateway joins the platform ingress network. Store, job and candidate
 networks are internal with isolated IPv4 and IPv6 gateway modes. Ledger IPAM is
 172.30.41.0/24 and fd42:6f72:6163:41::/64; collision checks on the managed server
-are mandatory before creation. PostgreSQL accepts only TLS/SCRAM for the three
+are mandatory before creation. PostgreSQL runs natively as UID/GID70 with a read-only root, all capabilities
+dropped and no new privileges. Its owned data directory is0700, leaf key0600;
+only own data and fixed container-private /tmp64MiB and socket8MiB tmpfs are
+writable. Native init scripts clear PGHOST and require the ordinary socket path
+/var/run/postgresql. Its configured0700 socket tmpfs becomes3775 through the
+unchanged native entrypoint; this is the sole reviewed ephemeral directory-mode
+exception and is never shared with another container.
+
+PostgreSQL accepts only TLS/SCRAM for the three
 scoped logins on those CIDRs; non-TLS and all other host rules reject. Installer
 Unix access is separate. Projector and documentary executor have separate
 read-only documentary ledger logins and current source-role admissions.

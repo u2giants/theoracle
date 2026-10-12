@@ -96,13 +96,25 @@ services:
       ORACLE_BOOTSTRAP_BUNDLE: ${ORACLE_CONFIRMED_DATA_BUNDLE:?reviewed empty profile bundle required}
       ORACLE_BOOTSTRAP_BUNDLE_SHA256: ${ORACLE_CONFIRMED_DATA_BUNDLE_SHA256:?external bundle hash required}
     volumes: [confirmed-data:/run/oracle-assets]
+  ledger-data-files:
+    <<: *bootstrap
+    command: [ledger-data]
+    environment:
+      ORACLE_BOOTSTRAP_BUNDLE: ${ORACLE_LEDGER_DATA_BUNDLE:?reviewed empty profile bundle required}
+      ORACLE_BOOTSTRAP_BUNDLE_SHA256: ${ORACLE_LEDGER_DATA_BUNDLE_SHA256:?external bundle hash required}
+    volumes: [ledger-data:/run/oracle-assets]
   ledger:
     image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
     networks: [ledger]
+    user: '70:70'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=64m,uid=70,gid=70,mode=0700', '/var/run/postgresql:rw,noexec,nosuid,size=8m,uid=70,gid=70,mode=0700']
     environment: {POSTGRES_DB: oracle_synthetic, POSTGRES_USER: oracle_bootstrap, POSTGRES_PASSWORD_FILE: /run/oracle-auth/admin-password}
     command: [postgres, -c, ssl=on, -c, ssl_cert_file=/run/oracle-auth/server.crt, -c, ssl_key_file=/run/oracle-auth/server.key, -c, hba_file=/run/oracle-auth/pg_hba.conf]
     volumes: [ledger-data:/var/lib/postgresql/data, ledger-auth:/run/oracle-auth:ro, ledger-init:/docker-entrypoint-initdb.d:ro]
-    depends_on: {ledger-files: {condition: service_completed_successfully}, ledger-init: {condition: service_completed_successfully}}
+    depends_on: {ledger-files: {condition: service_completed_successfully}, ledger-init: {condition: service_completed_successfully}, ledger-data-files: {condition: service_completed_successfully}}
     healthcheck: {test: [CMD-SHELL, 'test $$(psql -U oracle_bootstrap -d oracle_synthetic -Atc "SELECT count(*) FROM oracle2.synthetic_hosting_marker") = 1'], interval: 2s, timeout: 2s, retries: 30}
     mem_limit: 1g
     cpus: 1

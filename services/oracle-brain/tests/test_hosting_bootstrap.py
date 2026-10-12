@@ -66,7 +66,7 @@ def test_ledger_init_fixed_source_sql_only(tmp_path,monkeypatch):
     assert 'new empty owned synthetic ledger required' in (tmp_path/names[0]).read_text()
     assert all(p.stat().st_mode&0o777==0o600 for p in tmp_path.iterdir())
 
-@pytest.mark.parametrize('profile',['candidate-data','confirmed-data'])
+@pytest.mark.parametrize('profile',['ledger-data','candidate-data','confirmed-data'])
 def test_fixed_store_data_is_empty_owned_volume(tmp_path,monkeypatch,profile):
     monkeypatch.setitem(bootstrap.FILES,profile,(set(),os.getuid()))
     result=bootstrap.materialize(profile,*bundle(profile,{}),root=tmp_path)

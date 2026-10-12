@@ -23,17 +23,19 @@ App authentication alone does not repair wildcard tailnet grants.
 
 `OpaqueGateway` requires a client certificate from its configured CA, exactly
 one URI SAN matching its dedicated worker identity, and an HMAC signature over
-the exact request body. TLS requires client authentication and hostname/CA
+`POST`, a newline, the fixed request path, another newline and the exact request
+body. Signatures cannot cross between admission and result delivery. TLS requires client authentication and hostname/CA
 verification in the client. Request handshakes take at most five seconds and
 at most 32 connections can be handled concurrently.
 
-Only `POST /v1/jobs/admit` exists. Its JSON object has exactly these fields:
+`POST /v1/jobs/admit` and synthetic-only `POST /v1/jobs/result` accept an opaque
+JSON object with exactly these fields:
 
 - `job_id` and `nonce`: canonical UUIDs.
 - `runtime_hash` and `admission_hash`: lowercase SHA-256 digests.
 - `expires_at`: an integer strictly after current time, at most 120 seconds ahead.
 
-`X-Oracle-Job-Signature` is HMAC-SHA256 of the raw JSON using the independently
+`X-Oracle-Job-Signature` is HMAC-SHA256 of the method/path/body domain using the independently
 reviewed gateway signing credential. Body size is at most 2048 bytes. Duplicate
 JSON keys, duplicate length/signature headers, transfer encoding, private text,
 URLs, query strings, alternative routes and client identities are refused.
@@ -44,9 +46,12 @@ admission seals, source permission, lease, revocation and one-use nonce, then
 persist/enqueue only the opaque job or raise. There is no permissive default.
 Parameters and originals stay in the native ledger/blob custody layer.
 Response 202 contains only `job_id`, `request_hash` and `state=accepted`.
-Enqueue is not execution or delivery. The coordinator must provide separately
-authorized status/proof and existing view delivery paths; no generic result fetch
-or original serving is supplied here.
+Enqueue is not execution or delivery. Synthetic-only result delivery holds
+current canonical job/source/release authority, shares global one-use nonce
+protection, and returns either empty pending status or the exact stored canonical
+pack bytes within the sealed query budget and global 131072-byte envelope. The
+delivery lease is bounded to five seconds. Private result serving remains denied.
+No generic original serving is supplied here.
 
 ## Internal provider egress
 
@@ -226,3 +231,9 @@ reviewed exact source/image inputs, new owned app resource/roles, trusted TLS
 routing, protected real admission registry, qualified original-source/embedding
 admission, witnessed provider key coverage and live native acceptance. Company
 questions and grading remain paused throughout.
+
+## Fixed public invented release preparation
+
+See [SYNTHETIC_BOOTSTRAP.md](SYNTHETIC_BOOTSTRAP.md) for the fixed seed,
+networkless per-volume bootstrap, raw Application inputs, exact native service
+identities and the remaining independent action/live-proof gates.
