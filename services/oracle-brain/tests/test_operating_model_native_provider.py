@@ -46,8 +46,11 @@ def test_current_pricing_reserves_worst_context_and_cache_tier():
 def test_native_sender_has_no_fallback_or_store_override(monkeypatch):
  now=datetime.now(timezone.utc)
  receipt=VerifiedKeyCoverage(admission_hash='a'*64,key_fingerprint=hashlib.sha256(b'synthetic-only').hexdigest(),ledger_identity_hash='b'*64,observed_at=now,expires_at=now+timedelta(minutes=1))
- native=NativeOpenRouter('synthetic-only',coverage_receipt=lambda:receipt,trusted_coverage_hash='a'*64,ledger_identity_hash='b'*64);calls=[]
- monkeypatch.setattr(native,'_request',lambda path,body:(calls.append((path,body)) or {'model':'openai/gpt-6.1-sol','choices':[{'finish_reason':'stop','message':{'content':'{}'}}],'usage':{'cost':'0.01'}}))
+ native=NativeOpenRouter('synthetic-only',coverage_receipt=lambda:receipt,trusted_coverage_hash='a'*64,ledger_identity_hash='b'*64,paid_wire_receiver=lambda raw,**kw:None);calls=[]
+ def fake(path,body):
+  calls.append((path,body));native._receive_paid_wire(b'{}',complete=True)
+  return {'model':'openai/gpt-6.1-sol','choices':[{'finish_reason':'stop','message':{'content':'{}'}}],'usage':{'cost':'0.01'}}
+ monkeypatch.setattr(native,'_request',fake)
  opts={'provider':{'only':['openai'],'allow_fallbacks':False,'require_parameters':True,'data_collection':'deny'}}
  assert native.send(messages=[],model='openai/gpt-6.1-sol',max_output_tokens=100,store=False,extra_body=opts)==('{}',Decimal('.01'))
  assert calls[0][1]['stream'] is False and calls[0][1]['store'] is False and 'tools' not in calls[0][1]

@@ -82,7 +82,7 @@ def fake_native(monkeypatch,*,response=None):
   calls.append(path)
   if path=='/models':return MODELS
   if path=='/key':return {'data':{'usage_daily':'0','byok_usage_daily':'0','usage_monthly':'0','byok_usage_monthly':'0','limit':25,'limit_remaining':25,'is_free_tier':False}}
-  if path=='/chat/completions':self.last_response_text=json.dumps(response);return response
+  if path=='/chat/completions':self._receive_paid_wire(json.dumps(response).encode(),complete=True);self.last_response_text=json.dumps(response);return response
   raise AssertionError('unadmitted path')
  monkeypatch.setattr(NativeOpenRouter,'_request',request)
  return calls
@@ -215,7 +215,7 @@ def fake_embedding(monkeypatch,models,response):
   if path=='/key':return {'data':{'usage_daily':0,'byok_usage_daily':0,'usage_monthly':0,'byok_usage_monthly':0,'limit':25,'limit_remaining':25,'is_free_tier':False}}
   if path=='/embeddings':
    assert body['dimensions']==256 and body['store'] is False and body['provider']['only']==['openai']
-   self.last_response_text=json.dumps(response);return response
+   self._receive_paid_wire(json.dumps(response).encode(),complete=True);self.last_response_text=json.dumps(response);return response
   raise AssertionError(path)
  monkeypatch.setattr(NativeOpenRouter,'_request',request);return calls
 
@@ -274,3 +274,114 @@ def test_embedding_missing_actual_cost_retains_liability(actual_ledger,tmp_path,
  with psycopg.connect(actual_ledger[2]) as conn:
   reserved,actual,status=conn.execute('SELECT r.reserved_usd,s.actual_usd,s.status FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id)').fetchone()
  assert reserved==actual and status=='failed' and calls.count('/embeddings')==1
+
+
+def real_wire_transport(monkeypatch, *, paid_raw, http_error=False, embedding_models=None, incomplete=False):
+ import io
+ import urllib.request
+ import urllib.error
+ calls=[]
+ class Response:
+  def __init__(self,raw,partial=False):self.raw=raw;self.partial=partial
+  def read(self,limit):
+   if self.partial:
+    import http.client
+    raise http.client.IncompleteRead(self.raw,1)
+   return self.raw[:limit]
+  def __enter__(self):return self
+  def __exit__(self,*args):pass
+ class Opener:
+  def open(self,request,timeout):
+   path=request.full_url.removeprefix('https://openrouter.ai/api/v1');calls.append(path)
+   if path=='/models':return Response(json.dumps(MODELS).encode())
+   if path=='/embeddings/models':return Response(json.dumps(embedding_models).encode())
+   if path=='/key':return Response(json.dumps({'data':{'usage_daily':0,'byok_usage_daily':0,'usage_monthly':0,'byok_usage_monthly':0,'limit':25,'limit_remaining':25,'is_free_tier':False}}).encode())
+   if path in {'/chat/completions','/embeddings'}:
+    if http_error:raise urllib.error.HTTPError(request.full_url,500,'synthetic error',{},io.BytesIO(paid_raw))
+    return Response(paid_raw,partial=incomplete)
+   raise AssertionError(path)
+ monkeypatch.setattr(urllib.request,'build_opener',lambda *args:Opener())
+ return calls
+
+def test_actual_transport_durable_wire_precedes_validation_and_settlement(actual_ledger,tmp_path,monkeypatch):
+ from oracle_brain.operating_model.provider_adapter import Budget
+ j=job();raw=json.dumps({'model':'openai/gpt-6.1-sol','choices':[{'finish_reason':'stop','message':{'content':'{}'}}],'usage':{'cost':'0.00001'}}).encode()
+ b,receipts=broker(actual_ledger,tmp_path,j)
+ calls=real_wire_transport(monkeypatch,paid_raw=raw);original=Budget.finish;observed=[]
+ def finish(self,*args,**kwargs):
+  assert (receipts/(str(j.dispatch_id)+'.wire')).read_bytes()==raw
+  metadata=json.loads((receipts/(str(j.dispatch_id)+'.wire.json')).read_bytes())
+  assert metadata['complete'] is True and metadata['raw_sha256']==hashlib.sha256(raw).hexdigest()
+  assert metadata['reservation_id']==str(args[0]);observed.append(True)
+  return original(self,*args,**kwargs)
+ monkeypatch.setattr(Budget,'finish',finish)
+ assert b.dispatch(envelope(j))==raw and observed==[True]
+ assert calls.count('/chat/completions')==1
+ assert (receipts/(str(j.dispatch_id)+'.wire')).stat().st_mode & 0o777==0o600
+ with pytest.raises(PermissionError):b.dispatch(envelope(j))
+ assert calls.count('/chat/completions')==1
+
+@pytest.mark.parametrize('raw,http_error',[(b'not JSON',False),(b'\xffinvalid UTF8',False),(b'{"error":"synthetic HTTP error"}',True),(b'x'*(16*1024*1024+1),False)])
+def test_actual_malformed_error_or_oversize_wire_preserved_with_full_hold(actual_ledger,tmp_path,monkeypatch,raw,http_error):
+ j=job();b,receipts=broker(actual_ledger,tmp_path,j);calls=real_wire_transport(monkeypatch,paid_raw=raw,http_error=http_error)
+ with pytest.raises(RuntimeError):b.dispatch(envelope(j))
+ assert (receipts/(str(j.dispatch_id)+'.wire')).read_bytes()==raw[:16*1024*1024]
+ metadata=json.loads((receipts/(str(j.dispatch_id)+'.wire.json')).read_bytes())
+ assert metadata['complete']==(len(raw)<=16*1024*1024) and metadata['truncated']==(len(raw)>16*1024*1024)
+ with psycopg.connect(actual_ledger[2]) as conn:
+  reserved,actual,status=conn.execute('SELECT r.reserved_usd,s.actual_usd,s.status FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id)').fetchone()
+ assert reserved==actual and status=='failed'
+ with pytest.raises(PermissionError):b.dispatch(envelope(j))
+ assert calls.count('/chat/completions')==1
+
+@pytest.mark.parametrize('failure',['write','fsync'])
+def test_wire_custody_failure_holds_unknown_cost(actual_ledger,tmp_path,monkeypatch,failure):
+ import os
+ j=job();b,receipts=broker(actual_ledger,tmp_path,j);raw=json.dumps({'usage':{'cost':'0.00001'}}).encode();real_wire_transport(monkeypatch,paid_raw=raw)
+ if failure=='write':
+  original=os.open
+  def fail(path,*args,**kwargs):
+   if str(path).endswith('.wire'):raise OSError('synthetic disk failure')
+   return original(path,*args,**kwargs)
+  monkeypatch.setattr(os,'open',fail)
+ else:
+  original=os.fsync;calls=[]
+  def fail(fd):
+   calls.append(fd)
+   if len(calls)==1:raise OSError('synthetic fsync failure')
+   return original(fd)
+  monkeypatch.setattr(os,'fsync',fail)
+ with pytest.raises(RuntimeError):b.dispatch(envelope(j))
+ with psycopg.connect(actual_ledger[2]) as conn:
+  reserved,actual,status=conn.execute('SELECT r.reserved_usd,s.actual_usd,s.status FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id)').fetchone()
+ assert reserved==actual and status=='failed'
+
+
+def test_actual_embedding_wire_persisted_before_known_charge_settlement(actual_ledger,tmp_path,monkeypatch):
+ from oracle_brain.operating_model.provider_adapter import Budget
+ j,models=embedding_job();raw=json.dumps(vector_response()).encode();b,receipts=broker(actual_ledger,tmp_path,j)
+ calls=real_wire_transport(monkeypatch,paid_raw=raw,embedding_models=models);original=Budget.finish
+ def finish(self,*args,**kwargs):
+  assert (receipts/(str(j.dispatch_id)+'.wire')).read_bytes()==raw
+  assert json.loads((receipts/(str(j.dispatch_id)+'.wire.json')).read_bytes())['reservation_id']==str(args[0])
+  assert kwargs['actual_usd']==Decimal('.00001')
+  return original(self,*args,**kwargs)
+ monkeypatch.setattr(Budget,'finish',finish)
+ assert b.dispatch(envelope(j))==raw and calls.count('/embeddings')==1
+
+def test_paid_native_operation_requires_custodian_before_network(monkeypatch):
+ native=NativeOpenRouter(KEY,coverage_receipt=lambda:None,trusted_coverage_hash='e'*64,ledger_identity_hash='f'*64)
+ monkeypatch.setattr(native,'_request',lambda *args,**kw:pytest.fail('network should not be reached'))
+ with pytest.raises(PermissionError):native.send(messages=[],model='openai/gpt-6.1-sol',max_output_tokens=1,store=False,extra_body={})
+ with pytest.raises(PermissionError):native.embed(input=['synthetic'],model='openai/text-embedding-3-small',dimensions=256,store=False,extra_body={})
+
+
+def test_interrupted_http_read_retains_partial_wire_without_known_charge(actual_ledger,tmp_path,monkeypatch):
+ j=job();b,receipts=broker(actual_ledger,tmp_path,j);raw=b'{"incomplete":'
+ real_wire_transport(monkeypatch,paid_raw=raw,incomplete=True)
+ with pytest.raises(RuntimeError):b.dispatch(envelope(j))
+ assert (receipts/(str(j.dispatch_id)+'.wire')).read_bytes()==raw
+ assert json.loads((receipts/(str(j.dispatch_id)+'.wire.json')).read_bytes())['complete'] is False
+ with psycopg.connect(actual_ledger[2]) as conn:
+  reserved,actual=conn.execute('SELECT r.reserved_usd,s.actual_usd FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id)').fetchone()
+ assert reserved==actual

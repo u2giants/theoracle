@@ -179,6 +179,27 @@ class NativeBrokerEgress:
                 or self._receipts.stat().st_mode & 0o077):
             raise PermissionError('existing key and protected private receipt directory required')
 
+    def _capture_wire(self, job: NativeDispatchJob, raw: bytes, reservation_id, *, complete: bool):
+        if (not isinstance(reservation_id,UUID) or type(raw) is not bytes or len(raw)>16*1024*1024
+                or type(complete) is not bool):
+            raise PermissionError('bounded raw wire and existing reservation required')
+        wire=self._receipts/(str(job.dispatch_id)+'.wire')
+        metadata=self._receipts/(str(job.dispatch_id)+'.wire.json')
+        binding={'dispatch_id':str(job.dispatch_id),'reservation_id':str(reservation_id),
+                 'request_hash':job.request_hash,'permission_hash':job.permission_hash,
+                 'job_hash':digest(job.model_dump(mode='json')),'key_fingerprint':self._key_fingerprint,
+                 'ledger_identity_hash':self._registry_hash,'raw_sha256':hashlib.sha256(raw).hexdigest(),
+                 'captured_bytes':len(raw),'complete':complete,'truncated':not complete}
+        for path,data in ((wire,raw),(metadata,canonical_bytes(binding))):
+            descriptor=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+            with os.fdopen(descriptor,'wb') as stream:
+                stream.write(data);stream.flush();os.fsync(stream.fileno())
+        directory=os.open(self._receipts,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(directory)
+        finally:os.close(directory)
+        if wire.read_bytes()!=raw or json.loads(metadata.read_bytes())!=binding:
+            raise PermissionError('durable exact wire readback failed')
+
     def _record(self, job: NativeDispatchJob, raw: str | None, reservation_id, *, failed: bool):
         dispatch_id=job.dispatch_id
         record = {'dispatch_id':str(dispatch_id),'reservation_id':str(reservation_id),
@@ -188,6 +209,8 @@ class NativeBrokerEgress:
                   'pricing_hash':digest(job.pricing.model_dump(mode='json')),
                   'key_fingerprint':self._key_fingerprint,'ledger_identity_hash':self._registry_hash,
                   'raw_response_hash':None if raw is None else hashlib.sha256(raw.encode()).hexdigest()}
+        wire_metadata=self._receipts/(str(dispatch_id)+'.wire.json')
+        record['wire_custody']=json.loads(wire_metadata.read_bytes()) if wire_metadata.exists() else None
         path = self._receipts / (str(dispatch_id)+'.json')
         descriptor = os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         with os.fdopen(descriptor,'wb') as stream:
@@ -220,7 +243,7 @@ class NativeBrokerEgress:
                     and digest(job.model_dump(mode='json'))==job_seal)
         if not currently_authorized():
             raise PermissionError('current job authority unavailable')
-        if (self._receipts/(str(dispatch_id)+'.json')).exists():
+        if any((self._receipts/(str(dispatch_id)+suffix)).exists() for suffix in ('.json','.wire','.wire.json')):
             raise PermissionError('dispatch identity already has a retained response')
         # Processing permission precedes all provider pricing/key reads.
         authorize(job.processing_request,list(job.approvals))
@@ -256,7 +279,10 @@ class NativeBrokerEgress:
             if not currently_authorized():
                 raise PermissionError('current job authority changed before private POST')
             authorize(job.processing_request,list(job.approvals))
-        native=_AuthorizedNative(self._key,coverage_receipt=self._coverage,
+        def capture_paid_wire(raw,*,complete):
+            rid=getattr(provider,'last_reservation_id',None)
+            self._capture_wire(job,raw,rid,complete=complete)
+        native=_AuthorizedNative(self._key,coverage_receipt=self._coverage,paid_wire_receiver=capture_paid_wire,
                                before_private_dispatch=before_private_dispatch,
                                trusted_coverage_hash=self._coverage_hash,ledger_identity_hash=ledger_identity)
         native._coverage(datetime.now(timezone.utc))
