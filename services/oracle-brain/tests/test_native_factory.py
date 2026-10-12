@@ -27,9 +27,10 @@ def actual_ledger():
  if base.get('host') not in {'127.0.0.1','localhost'} or not base.get('dbname','').startswith('oracle_operating_model_test_'):
   raise PermissionError('exact owned synthetic Postgres required')
  base['dbname']='postgres';name='oracle_operating_model_test_factory_'+uuid4().hex[:12];role='oracle_billing_'+uuid4().hex[:12]
+ role_password=uuid4().hex
  with psycopg.connect(**base,autocommit=True) as conn:
   conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
-  conn.execute(sql.SQL('CREATE ROLE {} LOGIN').format(sql.Identifier(role)))
+  conn.execute(sql.SQL('CREATE ROLE {} LOGIN PASSWORD {}').format(sql.Identifier(role),sql.Literal(role_password)))
  admin=psycopg.conninfo.make_conninfo(**{**base,'dbname':name})
  try:
   with psycopg.connect(admin) as conn:
@@ -40,7 +41,7 @@ def actual_ledger():
    conn.execute(sql.SQL('GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO {}').format(sql.Identifier(role)))
    cluster=conn.execute('SELECT system_identifier::text FROM pg_catalog.pg_control_system()').fetchone()[0]
    namespace=ledger_namespace_hash(conn)
-  url=psycopg.conninfo.make_conninfo(**{**base,'dbname':name,'user':role})
+  url=psycopg.conninfo.make_conninfo(**{**base,'dbname':name,'user':role,'password':role_password})
   registry=LedgerRegistry(key_fingerprint=FP,host=base['host'],port=int(base.get('port','5432')),database=name,role=role,
    cluster_identifier=cluster,namespace_hash=namespace,transport='owned-synthetic-loopback',transport_receipt_hash='a'*64,
    dedicated_single_key=True,issuer_actor=uuid4(),reviewer_actor=uuid4(),expires_at=datetime.now(timezone.utc)+timedelta(hours=1))
