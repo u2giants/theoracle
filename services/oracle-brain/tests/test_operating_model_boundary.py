@@ -65,3 +65,11 @@ def test_retained_helpers_do_not_transitively_import_legacy_business_core():
         # Helpers may use sys for their established parser/runtime identity; this
         # check restricts Oracle dependencies, not their reviewed standard library.
         assert not [name for name in denied if name.startswith('oracle_brain')], (module, denied)
+
+
+def test_framework_compile_admission_is_narrow():
+    allowed = 'from langgraph.graph import StateGraph\ngraph = StateGraph(dict)\ngraph.compile()'
+    assert not import_violations(allowed, package='oracle_brain.operating_model', helper_allowlist=frozenset())
+    for code in ('builtins.compile("1", "x", "eval")', 'other.compile()',
+                 allowed + '\ngraph = other\ngraph.compile()', 'compile("1", "x", "eval")'):
+        assert import_violations(code, package='oracle_brain.operating_model', helper_allowlist=frozenset())

@@ -69,9 +69,13 @@ MAX_ATTEMPTS = 10
 
 
 def lease_next(database_url: str, *, lease_seconds: int = 60,
-               allowed_workspaces: frozenset[str] | None = None) -> ProjectionEvent | None:
+               allowed_workspaces: frozenset[str] | None = None,
+               namespace: str | None = None) -> ProjectionEvent | None:
     if allowed_workspaces is not None and not allowed_workspaces:
         return None
+    if namespace not in {None,'oracle_operating_model_v1'}:
+        raise ValueError('unknown projection namespace')
+    namespace_clause = (" AND payload->>'namespace' = 'oracle_operating_model_v1'" if namespace else " AND payload->>'namespace' IS NULL")
     scope_clause = (" AND workspace_id = ANY(%s::uuid[])"
                     if allowed_workspaces is not None else "")
     params = ((MAX_ATTEMPTS, [UUID(value) for value in allowed_workspaces], lease_seconds)
@@ -83,6 +87,7 @@ def lease_next(database_url: str, *, lease_seconds: int = 60,
                  WHERE delivered_at IS NULL AND (lease_until IS NULL OR lease_until<now())
                  AND attempts < %s
                  {scope_clause}
+                 {namespace_clause}
                  ORDER BY revision,event_id FOR UPDATE SKIP LOCKED LIMIT 1
                )
                UPDATE oracle2.outbox o SET attempts=attempts+1,

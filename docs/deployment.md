@@ -295,3 +295,9 @@ If rebuilding from scratch:
 - No Docker, Compose, Coolify, or VPS deployment path exists in this repo.
 - If oversized Vertex file-backed caches are needed in production, provision `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` and related access before expecting that path to activate.
 - If Vertex Batch Prediction is enabled (D14), provision `GOOGLE_VERTEX_BATCH_GCS_BUCKET` in the same region as the Vertex endpoint and grant the worker service account `roles/storage.objectAdmin`. OpenAI and Anthropic batch routes need no extra infrastructure — the provider hosts the input + results. The two-phase worker (`claim-extraction-batch-submit` + `claim-extraction-batch-drain`) is enabled by flipping `extraction_dispatch_mode` to `'batch'` in `/admin/settings`.
+
+## Operating-model replacement progress (October 11, 2026 EDT)
+
+The scoped owner and gates live in plan_oracle_workflow_integrity.md STATUS and #27/#58. New views use actor-owned opaque jobs and a current immutable release manifest; company generation remains paused. The existing dedicated holistic Python bundle retains its old task and adds an isolated operating-model view task; both are excluded from the legacy worker bundle. The new command permits owned synthetic loopback stores only until restricted hosted transport is qualified. PM4Py remains uninstalled after the independent BLOCKED license/deployment verdict.
+
+Oracle 2 CI uses a serialized, per-run Compose project and separate configurable loopback ports (57632/57679/57680/57666) to avoid the protected recovery stores. The original local defaults remain 55432/56379/56380/54566. Additive dedicated SQL004 is bootstrapped only in local/CI stores. A target-checked local migration runner cannot apply hosted SQL. Hosted migration, exact implementation review, merged-main checks, private source acceptance, full restore proof and activation remain open; no new outcome is closed by these local results.

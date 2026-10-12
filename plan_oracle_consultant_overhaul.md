@@ -5,8 +5,7 @@
 conflicts/unknowns, explicit process models, PM4Py and selected consultant/lineage
 patterns while retaining FalkorDB and GraphRAG. Its immutable recovery reference
 records the newer paused-question and ownership constraints; older grading
-instructions below do not authorize restarting questions. All new W steps are
-unimplemented. This documentation publication does not adopt recovery or close S03.
+instructions below do not authorize restarting questions. The W plan now records local implementation and invented SDK/browser/store verification separately from delivery. No W outcome is privately accepted or hosted, and S03 remains open.
 
 Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through [parent issue #24](https://github.com/u2giants/theoracle/issues/24). Research and source inspection baseline: `b3f2377f9b1fd13e1b9abf07cc8f342c180f076e` on `u2giants/theoracle/main`.
 

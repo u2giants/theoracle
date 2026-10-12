@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: oracle2-real-stores-edge-dev3
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -14,11 +18,17 @@ jobs:
     runs-on: [self-hosted, edge-dev3]
     timeout-minutes: 60
     env:
-      ORACLE2_TEST_ADMIN_URL: postgresql://oracle2_admin:oracle2_local_admin_only@127.0.0.1:55432/oracle2
-      ORACLE2_TEST_CANDIDATE_URL: redis://:oracle2_candidate_local_only@127.0.0.1:56379
-      ORACLE2_TEST_CONFIRMED_URL: redis://:oracle2_confirmed_local_only@127.0.0.1:56380
-      ORACLE2_TEST_BLOB_ENDPOINT: http://127.0.0.1:54566
-      ORACLE2_TEST_FALKORDB_URL: redis://:oracle2_candidate_local_only@127.0.0.1:56379
+      COMPOSE_PROJECT_NAME: oracle2-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      ORACLE2_POSTGRES_PORT: '57632'
+      ORACLE2_CANDIDATE_PORT: '57679'
+      ORACLE2_CONFIRMED_PORT: '57680'
+      ORACLE2_OBJECT_PORT: '57666'
+      ORACLE2_OPERATING_TEST_GRAPH_URL: redis://:oracle2_candidate_local_only@127.0.0.1:57679
+      ORACLE2_TEST_ADMIN_URL: postgresql://oracle2_admin:oracle2_local_admin_only@127.0.0.1:57632/oracle2
+      ORACLE2_TEST_CANDIDATE_URL: redis://:oracle2_candidate_local_only@127.0.0.1:57679
+      ORACLE2_TEST_CONFIRMED_URL: redis://:oracle2_confirmed_local_only@127.0.0.1:57680
+      ORACLE2_TEST_BLOB_ENDPOINT: http://127.0.0.1:57666
+      ORACLE2_TEST_FALKORDB_URL: redis://:oracle2_candidate_local_only@127.0.0.1:57679
       GRAPHITI_TELEMETRY_ENABLED: 'false'
       ORACLE2_TELEMETRY_MODE: 'off'
     steps:
@@ -69,6 +79,8 @@ jobs:
         run: docker compose -f dev/oracle2/compose.yaml up -d --wait
       - name: Bootstrap isolated LangGraph checkpoint tables
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/init_local_stores.py
+      - name: New operating-model documentary and event contracts
+        run: services/oracle-brain/.venv/bin/python scripts/oracle2/verify_workflow_integrity.py --stage all
       - name: S02 offline contract and storage gate
         run: python3 scripts/oracle2/verify_phase.py S02 --mode offline
       - name: S03 pilot journey offline gate
@@ -77,6 +89,10 @@ jobs:
         run: pnpm --filter @oracle/web exec playwright install chromium
       - name: Prove browser through SDK transport and real FalkorDB
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/verify_holistic_browser.py
+      - name: Prove invented operating model through current worker SDK and ledger
+        env:
+          PYTHONPATH: services/oracle-brain
+        run: services/oracle-brain/.venv/bin/python scripts/oracle2/verify_workflow_browser.py
       - name: Prove pilot readiness-only browser coverage
         run: |
           services/oracle-brain/.venv/bin/python scripts/oracle2/verify_holistic_browser.py \
@@ -102,7 +118,7 @@ jobs:
             if docker compose -f dev/oracle2/compose.yaml exec -T falkor-confirmed redis-cli -a oracle2_confirmed_local_only ping | grep -q PONG; then break; fi
             sleep 2
           done
-          ORACLE2_TEST_RESTORED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:56380 \
+          ORACLE2_TEST_RESTORED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:57680 \
             services/oracle-brain/.venv/bin/python scripts/oracle2/restore_experiment.py \
               --pilot out/oracle2/resource-pilot.json \
               --stress out/oracle2/resource-stress.json \
@@ -113,18 +129,18 @@ jobs:
           started=$(date +%s)
           confirmed=$(docker compose -f dev/oracle2/compose.yaml ps -q falkor-confirmed)
           docker exec "$confirmed" redis-cli -a oracle2_confirmed_local_only SAVE
-          mkdir -p /tmp/oracle2-s02-restore
-          docker cp "$confirmed:/data/dump.rdb" /tmp/oracle2-s02-restore/dump.rdb
-          docker run -d --name oracle2-s02-restored \
+          mkdir -p $RUNNER_TEMP/oracle2-s02-restore-${GITHUB_RUN_ID}
+          docker cp "$confirmed:/data/dump.rdb" $RUNNER_TEMP/oracle2-s02-restore-${GITHUB_RUN_ID}/dump.rdb
+          docker run -d --name oracle2-ci-restored-${{ github.run_id }} \
             -e FALKORDB_ARGS='--dir /data --requirepass oracle2_confirmed_local_only --appendonly no' \
-            -p 127.0.0.1:56381:6379 \
-            -v /tmp/oracle2-s02-restore:/data \
+            -p 127.0.0.1:57681:6379 \
+            -v $RUNNER_TEMP/oracle2-s02-restore-${GITHUB_RUN_ID}:/data \
             falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
           for attempt in {1..30}; do
-            if docker exec oracle2-s02-restored redis-cli -a oracle2_confirmed_local_only ping | grep -q PONG; then break; fi
+            if docker exec oracle2-ci-restored-${{ github.run_id }} redis-cli -a oracle2_confirmed_local_only ping | grep -q PONG; then break; fi
             sleep 2
           done
-          ORACLE2_TEST_RESTORED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:56381 \
+          ORACLE2_TEST_RESTORED_URL=redis://:oracle2_confirmed_local_only@127.0.0.1:57681 \
             services/oracle-brain/.venv/bin/python scripts/oracle2/restore_experiment.py \
               --pilot out/oracle2/resource-pilot.json \
               --stress out/oracle2/resource-stress.json \
@@ -146,5 +162,5 @@ jobs:
       - name: Stop isolated stores
         if: always()
         run: |
-          docker rm -f oracle2-s02-restored 2>/dev/null || true
+          docker rm -f oracle2-ci-restored-${{ github.run_id }} 2>/dev/null || true
           docker compose -f dev/oracle2/compose.yaml down --volumes

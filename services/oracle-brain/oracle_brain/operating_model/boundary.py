@@ -10,6 +10,21 @@ def import_violations(text: str, *, package: str, helper_allowlist: frozenset[st
         tree = ast.parse(text)
     except SyntaxError:
         return ['invalid-syntax']
+    # Admit the framework's public graph builder, not Python code compilation.
+    graph_types = {alias.asname or alias.name for node in ast.walk(tree)
+                   if isinstance(node, ast.ImportFrom) and node.module == 'langgraph.graph'
+                   for alias in node.names if alias.name == 'StateGraph'}
+    assigned = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    assigned.setdefault(target.id, []).append(node.value)
+    graph_builders = {name for name, values in assigned.items() if len(values) == 1
+                      and isinstance(values[0], ast.Call)
+                      and isinstance(values[0].func, ast.Name)
+                      and values[0].func.id in graph_types}
     for node in ast.walk(tree):
         names = []
         if isinstance(node, ast.Import):
@@ -29,7 +44,8 @@ def import_violations(text: str, *, package: str, helper_allowlist: frozenset[st
         elif isinstance(node, ast.Name) and node.id in {'__import__','exec','eval','compile','__builtins__','import_module','__loader__','__spec__'}:
             denied.append('dynamic-code:' + node.id)
         elif isinstance(node, ast.Attribute) and node.attr in {'__import__','exec','eval','compile','import_module','exec_module','load_module','spec_from_file_location','SourceFileLoader'}:
-            denied.append('dynamic-code:' + node.attr)
+            if not (node.attr == 'compile' and isinstance(node.value, ast.Name) and node.value.id in graph_builders):
+                denied.append('dynamic-code:' + node.attr)
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name) and node.func.id in {'__import__', 'exec', 'eval'}:
                 denied.append('dynamic-code:' + node.func.id)
