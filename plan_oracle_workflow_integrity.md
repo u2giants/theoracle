@@ -640,6 +640,12 @@ acceptance item, never “W08 Done” or proof that measured capability works.
 
 Before every phase, re-read this STATUS and all downstream steps through W12,
 plus affected S04–S16 obligations in the parent plan. Record discovered drift.
+At the end of every phase, re-read all remaining downstream steps through W12
+and the affected parent obligations through S16. Report anything implemented or
+discovered that changes their assumptions, interfaces, identifiers, constraints
+or acceptance gates; reconcile that drift in this STATUS, the parent plan and
+the existing issue before continuing or transferring the session. Carry every
+remaining obligation to plan-end; phase completion never authorizes stopping.
 Natural context cut points are after W03, W06 and W10; apply `fresh-session` at a
 cut only when useful and transfer all remaining obligations. A phase completion
 is never authority to stop remaining authorized work. The plan names no model
