@@ -32,7 +32,7 @@ class Budget:
         self.url=url;self.ledger_identity_hash=ledger_identity_hash
     def reserve(self, *, workspace_id: UUID,artifact_id: UUID,batch_id: UUID,purpose: str,attempt: int,
                 maximum: Decimal,pricing_hash: str, account_remaining: Decimal | None = None, correction_hash: str | None = None) -> UUID:
-        if purpose not in {'source-census','source-extraction','operating-audit'} or attempt not in {1,2} or not maximum.is_finite() or maximum<=0 or maximum>1:
+        if purpose not in {'source-census','source-extraction','operating-audit','independent-source-semantic-acceptance'} or attempt not in {1,2} or not maximum.is_finite() or maximum<=0 or maximum>1:
             raise PermissionError('private dispatch purpose/attempt/cost not admitted')
         # Historical keyword account_remaining denotes this one Oracle key,
         # not unrelated application keys or the provider's whole account.
@@ -50,7 +50,17 @@ class Budget:
                 if not _has_authority_conn(conn,workspace_id,first[0],'dispatch-correction:'+str(artifact_id)):raise PermissionError('correction diagnosis authority expired or revoked')
             if conn.execute("SELECT 1 FROM oracle2.operating_dispatch_receipts WHERE status='overrun' LIMIT 1").fetchone():
                 raise PermissionError('unresolved provider overrun blocks further reservations')
-            day=conn.execute("SELECT COALESCE(sum(reserved_usd),0) FROM oracle2.operating_dispatch_reservations WHERE reserved_at >= (date_trunc('day',now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')").fetchone()[0]
+            # Midnight cannot release in-flight or unknown-cost requests. A call
+            # reserved yesterday but completed today charges today's allowance.
+            # Unknown failures retain the full hold across days until separately
+            # reconciled; no automatic refund or fabricated zero-charge receipt.
+            day=conn.execute("""SELECT COALESCE(sum(GREATEST(r.reserved_usd,COALESCE(s.actual_usd,0))),0)
+                FROM oracle2.operating_dispatch_reservations r
+                LEFT JOIN oracle2.operating_dispatch_receipts s USING(reservation_id)
+                WHERE r.reserved_at >= (date_trunc('day',now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')
+                   OR s.created_at >= (date_trunc('day',now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')
+                   OR s.reservation_id IS NULL
+                   OR (s.status='failed' AND s.failure_kind IS DISTINCT FROM 'invalid_output')""").fetchone()[0]
             batch=conn.execute('SELECT COALESCE(sum(reserved_usd),0) FROM oracle2.operating_dispatch_reservations WHERE batch_id=%s',(batch_id,)).fetchone()[0]
             # Include ALL workspaces' reservations for this single key under one
             # central lock. Key totals may include finished calls; double-counting
@@ -78,6 +88,7 @@ class Budget:
         if not actual_usd.is_finite() or actual_usd<0:raise ValueError('invalid dispatch accounting')
         actual_usd=actual_usd.quantize(Decimal('0.000001'),rounding=ROUND_CEILING)
         with psycopg.connect(self.url) as conn:
+            conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',('oracle-operating-budget',))
             row=conn.execute('SELECT reserved_usd FROM oracle2.operating_dispatch_reservations WHERE reservation_id=%s',(reservation_id,)).fetchone()
             if row is None or not actual_usd.is_finite() or actual_usd<0: raise ValueError('invalid dispatch accounting')
             overrun=actual_usd>row[0]
@@ -92,7 +103,9 @@ class AdmittedProvider:
         from .native_provider import NativeOpenRouter
         native=getattr(sender,'__self__',None)
         if isinstance(native,NativeOpenRouter):
-            if (getattr(remaining_daily_allowance,'__self__',None) is not native
+            if (request is None or request.account!='key-sha256:'+native.key_fingerprint
+                    or getattr(sender,'__func__',None) is not NativeOpenRouter.send
+                    or getattr(remaining_daily_allowance,'__self__',None) is not native
                     or getattr(remaining_daily_allowance,'__func__',None) is not NativeOpenRouter.allowance
                     or budget.ledger_identity_hash!=native.ledger_identity_hash):
                 raise PermissionError('native sender, admitted key allowance and central ledger must share one binding')

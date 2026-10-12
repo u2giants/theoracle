@@ -30,6 +30,10 @@ ledger and liability receipts must agree; the live observation is at most
 15 seconds old. The externally supplied reviewed admission hash is independent
 of the receipt being checked. The native transport rejects arbitrary boolean
 coverage and rechecks the key and ledger immediately before dispatch.
+Native `AdmittedProvider` construction additionally requires the processing
+account to equal `key-sha256:<actual-token-fingerprint>`, the exact bound native
+sender and allowance methods, and that native instance's central ledger identity.
+No arbitrary allowance callback can replace those native bindings.
 
 This verifier discovers no caller, secures no credential, deploys no ledger and
 does not establish that any actual caller is controlled. A trusted runtime must
@@ -47,6 +51,12 @@ routes deny. Provider UTC daily reset never replaces the New York-day
 ledger. Failed unknown charges retain the full reservation. Unresolved overruns
 deny further dispatch. Current census/provider observations and reservations
 must be checked for concurrent callers before a live receipt is issued.
+Reservations made on a previous New York day remain held while pending or
+unknown-cost failed; a previous-day call completed today also counts today.
+Receipt finalization and reservation accounting share the same central lock.
+The exact `independent-source-semantic-acceptance` purpose is permitted only
+when the existing processing-policy gate admits that same purpose and input.
+No question/report purpose is admitted by this extension.
 
 ## Required live evidence
 
