@@ -148,3 +148,18 @@ def test_actual_gateway_tls_scram_session(admin_url,gateway_database,result_job)
         login=c.execute('SELECT session_user').fetchone()[0]
     with psycopg.connect(admin_url) as c:
         assert c.execute("SELECT rolpassword LIKE 'SCRAM-SHA-256$%%' FROM pg_authid WHERE rolname=%s",(login,)).fetchone()==(True,)
+
+
+@pytest.mark.parametrize('pack_size,accepted',[(1024,True),(1025,False)])
+def test_sealed_query_byte_limit_exact_boundary(admin_url,result_job,pack_size,accepted):
+    prefix=b'{"artifact_hash":"'+b'd'*64+b'","unicode":"\xe2\x98\x83","numeric":1.2300,"padding":"'
+    raw=prefix+b'x'*(pack_size-len(prefix)-2)+b'"}'
+    assert len(raw)==pack_size
+    with psycopg.connect(admin_url) as c:
+        c.execute('INSERT INTO oracle2.operating_view_pack_receipts(run_id,workspace_id,actor_id,release_id,release_hash,runtime_hash,canonical_pack,pack_hash) SELECT run_id,workspace_id,actor_id,release_id,release_hash,%s,%s,%s FROM oracle2.operating_view_runs WHERE run_id=%s',('a'*64,raw,hashlib.sha256(raw).hexdigest(),result_job[1].job_id))
+        c.execute("UPDATE oracle2.operating_view_runs SET status='completed',pack=%s WHERE run_id=%s",(Jsonb(json.loads(raw)),result_job[1].job_id))
+    if accepted:
+        with result_job[0].result(result_job[1],WORKER) as lease:assert lease.body==raw;lease.before_write()
+    else:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with result_job[0].result(result_job[1],WORKER):pass

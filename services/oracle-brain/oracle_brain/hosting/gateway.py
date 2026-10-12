@@ -206,7 +206,7 @@ class _Handler(BaseHTTPRequestHandler):
                 deadline=time.monotonic()+5
                 with server.result(job,server.worker_uri) as lease:
                     if (not isinstance(lease,ResultLease) or lease.status not in {200,202}
-                            or not isinstance(lease.body,bytes) or len(lease.body)>262144):
+                            or not isinstance(lease.body,bytes) or len(lease.body)>131072):
                         raise GatewayDenied('bounded result lease required')
                     lease.before_write()
                     if server.clock()>=job.expires_at or time.monotonic()>=deadline:

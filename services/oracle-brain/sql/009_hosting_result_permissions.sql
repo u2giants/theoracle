@@ -83,7 +83,7 @@ BEGIN
  END IF;
  SELECT * INTO r FROM oracle2.operating_view_pack_receipts WHERE run_id=run FOR SHARE;
  IF NOT FOUND OR (r.workspace_id,r.actor_id,r.release_id,r.release_hash,r.runtime_hash) IS DISTINCT FROM (j.workspace_id,j.actor_id,j.release_id,j.release_hash,runtime)
- OR octet_length(r.canonical_pack)>budget+131072 OR encode(sha256(r.canonical_pack),'hex') IS DISTINCT FROM r.pack_hash
+ OR octet_length(r.canonical_pack)>budget OR encode(sha256(r.canonical_pack),'hex') IS DISTINCT FROM r.pack_hash
  OR convert_from(r.canonical_pack,'UTF8')::jsonb IS DISTINCT FROM j.pack
  OR j.pack->>'artifact_hash' IS DISTINCT FROM m->>'artifact_content_hash' OR j.expires_at<=clock_timestamp()
  THEN RAISE EXCEPTION 'result denied' USING ERRCODE='42501'; END IF;
