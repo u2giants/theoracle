@@ -9,6 +9,8 @@ Implementation owner: Codex chat 01a130a9-5aca-7561-8dff-38bf645c6055, successor
 
 ## STATUS — read first
 
+**CURRENT WRAP-UP — October 12, 2026, 4:30 PM EDT:** Read [the complete continuation record](https://github.com/u2giants/theoracle/blob/main/docs/implementation/oracle-continuation-2026-10-12.md) before executing any historical checkpoint below. Source PR #96 is OPEN at `b8fe0743dcefaf6c49c4242b8b61db462989a0e4`: its earlier projector/URI repairs are reviewed, but current CI fails the retained browser journey; never merge failing checks. Exact implementation proof passed 510 checks/zero skips, URI repair passed 17 focused checks; separate browser diagnostic preparation passed three checks but has not repaired the browser. Offline original processing and independent custody validation completed all eight groups/33 pages, with unresolved native-reading alignment and no current SourceRefs or semantic admission. Coolify project `1zziu90glu5ygdddtsccqr43` and environment `kutwfqqgxxyni8g65nhlmcuk` were created/read back; NO application, secret issuance or native deployment. Shared spending coverage remains unadmitted, including UNKNOWN event-service runtime key association. Ilona/Jessica old CLAIMS cleanup is complete, 15 each/live zero remaining; do not redo. W01–W12 acceptance and S03–S16 dependencies remain open. Company questions/reports, employee messages and grading remain paused. Existing write-once handoff remains historical; this STATUS and the linked record carry the current baton without creating or rewriting a second session handoff.
+
 Every implementation row remains unaccepted as of October 12, 2026 EDT; reviewed source is merged and synthetic verification is explicit below. A completed row must
 link an immutable verification artifact and deployed revision where relevant.
 Keep source merged, synthetic verified, privately audited, hosted verified and
@@ -1370,3 +1372,7 @@ opposed spans get unverified status rather than invented support (§8.2); propos
 `storage/` package shadowing was removed in favor of `artifact_storage.py` (W02).
 
 Posted by Codex chat 01a12b2c-9fa9-72c0-a132-341a402873d8 on edge-dev3
+
+## Wrap-up current-state precedence
+
+Earlier dated checkpoints remain historical. Their statements that original processing is in progress, parent-table identity is lost, no native factory exists, no hosting namespace exists, or actual operational exports are unavailable are superseded by this STATUS and the continuation record. Native source-role factory/bindings and SQL007/008/009 exist in OPEN source PR #96; no private admission follows. The quarantined actual ClickUp observation export is present, but authenticated process capture, ledger intake, model mapping and measured acceptance remain open. A project/environment is not an application, installed image or hosted acceptance. Original caption associations are native-only and do not have unique old-reading EvidenceRefs. Do not silently replace old source readings with the unqualified alternate representation.
