@@ -9,9 +9,9 @@ test('invented authenticated map traverses real current worker SDK and ledger',a
   await expect(page.getByRole('alert')).toBeVisible();
   await page.getByLabel('Access token').fill(process.env.ORACLE2_PILOT_TOKEN!);
   await page.getByRole('button',{name:'Connect',exact:true}).click();
+  await expect(page.getByRole('img',{name:'Reported workflow Invented intake'})).toBeVisible({timeout:30000});
   const oversizedEvent=await page.request.post(`${url}/api/consultant/processes/intake/events`,{data:JSON.stringify({format:'csv',window_start:'2026-01-01T00:00:00Z',window_end:'2026-01-02T00:00:00Z',mapping:{process_id:'intake',scope:'intake',timezone_name:'UTC'},raw_export_base64:'A'.repeat(4*1024*1024)})});
   expect(oversizedEvent.status()).toBe(413);
-  await expect(page.getByRole('img',{name:'Reported workflow Invented intake'})).toBeVisible({timeout:30000});
   await expect(page.getByText('Approval owner is missing.',{exact:true})).toBeVisible();
   const imported=await page.request.post(`${url}/api/consultant/processes/intake/events`,{data:JSON.parse(process.env.ORACLE2_EVENT_FIXTURE!)});
   expect(imported.status()).toBe(202);const importJob=await imported.json();
