@@ -22,11 +22,11 @@ business accepted as separate states. Never close #24/#27/#58 from this plan alo
 | W04 | Qualify and integrate PM4Py structural checks | W04a fit approved; isolated measurement verified, product/bundle review open | W03 | `W04-pm4py-qualification.md` |
 | W05 | Preserve source lineage and invalidate derived artifacts | Transitive denial, queued recomputation and signed SDK delivery verified; hosted/restore open | W02; W03 for workflow lineage | `W05-lineage.md` |
 | W06 | Deliver bounded retrieval and the documentary first slice | Invented authenticated browser verified; hosted/private gates open | W03, W05; W04 only for formal diagnostics | `W06-browser.md` |
-| W07 | Import actual event records with honest completeness | Synthetic raw-import replay verified; actual export unavailable | W03, W05 | `W07-operational-import.md` |
+| W07 | Import actual event records with honest completeness | Authenticated synthetic import/review verified; actual export unavailable | W03, W05 | `W07-operational-import.md` |
 | W08 | Discover observed behavior and compare it to documented flow | Deterministic synthetic metrics verified; PM4Py/runtime blocked | W04, W07 | `W08-process-analysis.md` |
-| W09 | Add bounded documentary/measured consulting roles | Synthetic four-role bound verified; company generation paused | W06; W08 only for measured advice | `W09-consulting.md` |
-| W10 | Prove documentary and event slices independently | 102 synthetic tests/zero skips; independent private acceptance open | W02–W06/W09; W07–W08 for event slice | `W10-acceptance.md` |
-| W11 | Reversible core cutover and qualified analytical release | Synthetic selector verified; review/shipment/hosted restore open | Respective W10 slice; existing hosting gates | `W11-live-proof.md` |
+| W09 | Add bounded documentary/measured consulting roles | Persisted four-role measured preview verified; company generation paused | W06; W08 only for measured advice | `W09-consulting.md` |
+| W10 | Prove documentary and event slices independently | 173 synthetic tests/zero skips; independent private acceptance open | W02–W06/W09; W07–W08 for event slice | `W10-acceptance.md` |
+| W11 | Reversible core cutover and qualified analytical release | Synthetic selector/restore/comparison guards verified; shipment/hosted gates open | Respective W10 slice; existing hosting gates | `W11-live-proof.md` |
 | W12 | Reconcile downstream plans and close accepted outcomes | Open | W11 | `W12-closeout.md` |
 
 **Continuation:** verify current STATUS, exact source/review hashes and #27; continue all ready work through W12. Do not restart W01 or treat local verification as delivery. Read this STATUS, then the immutable

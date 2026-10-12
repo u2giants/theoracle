@@ -7,3 +7,7 @@ LangGraph executes planner, analyst, challenger and writer once each, with a fou
 ## Verification and remaining acceptance
 
 Synthetic role tests pass for pause-before-dispatch, failed challenge bound, missing caveats, changed metrics, unsupported claims and successful measured provenance. No company report or question generation occurred. Private provider integration/admission for company reports remains paused; independent semantic/actual-event acceptance remains open.
+
+## Persisted measured preview — October 12, 2026, 12:00 AM EDT
+
+Synthetic reports now persist both documentary model and event-import dependencies, exact query plan and four role receipts. Serving reconstructs current inputs and validates report hashes, metrics, findings and limitations. Source revocation denies the stored report. Immutable release references bind preview content hashes; the browser passed the current synthetic measured preview. Company questions, reports and employee messages remain paused.

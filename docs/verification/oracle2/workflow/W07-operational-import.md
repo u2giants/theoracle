@@ -7,3 +7,7 @@ Separate authorized event imports preserve exact raw bytes, explicit activity/pr
 ## Verification and remaining acceptance
 
 Synthetic event tests pass, including trace-level XES case inheritance, offsets, daylight transitions, duplicate quarantine, censoring, scoped import denial and raw-export replay verification. No admitted company export exists in this session. Actual data usefulness stays unavailable, with owner on #27/#58.
+
+## Authenticated import path — October 12, 2026, 12:00 AM EDT
+
+The real browser route, scoped source authority, opaque action record, fresh worker and immutable event ledger passed with an invented authoritative CSV. The route rejected a body over its 4 MiB web transport bound; the underlying parser retains its separately bounded contract. Completion reads recheck actor, exact selected release, process, current source revision and scoped import authority. Replaying the identical import preserves the same raw bytes and identity. Actual company exports and their acceptance remain unavailable.
