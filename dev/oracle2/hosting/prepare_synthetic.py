@@ -21,7 +21,7 @@ from cryptography.x509.oid import NameOID,ExtendedKeyUsageOID
 
 POSTGRES='postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297'
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'services/oracle-brain'))
-from oracle_brain.hosting.synthetic_fixture import fixture,WORKSPACE,ACTOR
+from oracle_brain.hosting.synthetic_fixture import fixture,graph_acl_users,WORKSPACE,ACTOR
 from oracle_brain.hosting.synthetic_seed import compile_seed
 
 FALKOR='falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d'
@@ -127,8 +127,7 @@ def main(argv=None):
     graph=fixture_release.graph_name
     if not re.fullmatch('[A-Za-z0-9_-]+',graph):raise PermissionError('fixed graph namespace required')
     candidate_config=(f'bind 0.0.0.0\nport 6379\nprotected-mode yes\ndir /var/lib/falkordb/data\n'
-      f'user default off\nuser oracle_executor on >{graph_password} ~{graph} +graph.ro_query +ping +hello +info|server\n'
-      f'user oracle_projector on >{projector_graph_password} ~{graph} +graph.query +graph.ro_query +ping +hello +info|server\n')
+      +graph_acl_users(graph,graph_password,projector_graph_password))
     write(root/'candidate'/'server.conf',candidate_config,999)
     write(root/'confirmed'/'server.conf','bind 0.0.0.0\nport 6379\nprotected-mode yes\nuser default off\ndir /var/lib/falkordb/data\n',999)
     write(root/'executor'/'graph-url',f'redis://oracle_executor:{graph_password}@candidate:6379')

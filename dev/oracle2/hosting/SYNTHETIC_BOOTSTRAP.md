@@ -43,7 +43,10 @@ The native module and default companion startup remain intact. No tmpfs was
 required by the actual pinned-image proof.
 
 FalkorDB default users are disabled. Projector can issue GRAPH.QUERY and
-GRAPH.RO_QUERY only against the exact invented artifact graph. Executor has
+GRAPH.RO_QUERY only against the exact invented artifact graph and its exact
+SDK 1.4.0 `__ontology` sidecar. The native SDK requires this separate per-artifact
+ontology graph during ingestion; no wildcard/global ontology namespace is granted.
+Issuer refuses SDK version or suffix drift pending requalification. Executor has
 GRAPH.RO_QUERY only. Both have PING, HELLO and INFO server, which the pinned
 native driver requires to detect standalone mode; neither has arbitrary INFO,
 CONFIG, FLUSH or cross-graph access. Confirmed store exposes no runtime user.
@@ -51,7 +54,7 @@ CONFIG, FLUSH or cross-graph access. Confirmed store exposes no runtime user.
 The app-owned ReadOnlyConnection delegates native decoding to AsyncGraph.ro_query
 without editing SDK 1.4.0. A read-only SDKProjection refuses build. The projector
 retains the original SDK build path. SDK/driver upgrades must requalify this
-method signature and exact ACL command requirements.
+method signature, ontology namespace and exact ACL command requirements.
 
 Local boundary evidence on the pinned FalkorDB 4.20.7 image showed native SDK
 readback count 1; ordinary GRAPH.QUERY write, RO_QUERY write and another graph

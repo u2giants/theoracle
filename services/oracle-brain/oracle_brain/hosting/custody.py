@@ -112,7 +112,7 @@ class FileCustody:
         # Persist opaque immutable request, never private input/result text.
         payload=json.dumps(job.__dict__,sort_keys=True,separators=(',',':')).encode()
         self._consume_nonce(job)
-        fd=os.open(pending,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        fd=os.open(pending,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         try:os.write(fd,payload);os.fsync(fd)
         finally:os.close(fd)
         directory=os.open(self.spool,os.O_RDONLY|os.O_DIRECTORY)

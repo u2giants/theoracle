@@ -2,7 +2,7 @@
 import base64
 from datetime import datetime,timedelta,timezone
 from oracle_brain.hosting.synthetic_seed import compile_seed
-from oracle_brain.hosting.synthetic_fixture import fixture,WORKSPACE,SOURCES
+from oracle_brain.hosting.synthetic_fixture import fixture,graph_acl_users,WORKSPACE,SOURCES
 from oracle_brain.operating_model.contracts import canonical_bytes,digest
 import pytest
 
@@ -27,3 +27,14 @@ def test_fixed_sources_manifest_and_public_seed():
 def test_only_fixed_reviewed_parameters(field,value):
     data=parameters();data[field]=value
     with pytest.raises(PermissionError):compile_seed(data)
+
+@pytest.mark.parametrize('graph,password', [('foreign','d'*64), ('oracle_*','d'*64), (None,'d'*64), ('fixed','bad')])
+def test_graph_acl_refuses_nonliteral_artifact_or_credential(graph,password):
+    if graph is None:graph=fixture('a'*64,'c'*64)[-1].graph_name+'*'
+    with pytest.raises(PermissionError):graph_acl_users(graph,password,'e'*64)
+
+def test_native_ontology_namespace_drift_requires_requalification(monkeypatch):
+    from graphrag_sdk.storage.ontology_store import OntologyStore
+    graph=fixture('a'*64,'c'*64)[-1].graph_name
+    monkeypatch.setattr(OntologyStore,'ONTOLOGY_GRAPH_SUFFIX','_different')
+    with pytest.raises(PermissionError):graph_acl_users(graph,'d'*64,'e'*64)

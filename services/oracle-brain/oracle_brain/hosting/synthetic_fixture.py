@@ -1,5 +1,5 @@
 """Fixed public invented source fixture; no employee/company inputs or provider."""
-import hashlib,json
+import hashlib,json,re
 from uuid import UUID
 from oracle_brain.operating_model.contracts import ArtifactManifest,canonical_bytes,digest
 from oracle_brain.operating_model.source_receipts import SourceRef,SourceReceipt,EvidenceRef
@@ -17,6 +17,20 @@ RUN=UUID('77777777-7777-4777-8777-777777777777')
 PARSER=hashlib.sha256(b'oracle-public-invented-native-fixture/v1').hexdigest()
 SOURCES=((UUID('22222222-2222-4222-8222-222222222222'),'Invented Harbor sends blue cards to Invented Meadow.'),
          (UUID('33333333-3333-4333-8333-333333333333'),'Invented Meadow counts the blue cards received from Invented Harbor.'))
+
+def graph_acl_users(graph,executor_password,projector_password):
+    """Seal the native SDK's per-artifact ontology sidecar for projector only."""
+    from importlib.metadata import version
+    from graphrag_sdk.storage.ontology_store import OntologyStore
+    if version('graphrag-sdk')!='1.4.0' or OntologyStore.ONTOLOGY_GRAPH_SUFFIX!='__ontology':
+        raise PermissionError('native ontology namespace requires requalification')
+    if not re.fullmatch(r'oracle_operating_model_v1_[0-9a-f]{32}_[0-9a-f]{32}_1_[0-9a-f]{32}',graph):
+        raise PermissionError('exact fixed artifact graph required')
+    if any(not re.fullmatch('[0-9a-f]{64}',value) for value in (executor_password,projector_password)):
+        raise PermissionError('fixed strong synthetic graph credentials required')
+    return ('user default off\n'
+        f'user oracle_executor on >{executor_password} ~{graph} +graph.ro_query +ping +hello +info|server\n'
+        f'user oracle_projector on >{projector_password} ~{graph} ~{graph}__ontology +graph.query +graph.ro_query +ping +hello +info|server\n')
 
 def fixture(runtime_hash,review_hash):
     receipts=[];observations=[];metadata=[]

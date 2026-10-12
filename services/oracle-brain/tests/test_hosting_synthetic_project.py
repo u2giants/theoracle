@@ -39,7 +39,7 @@ def test_registered_public_projector_preserves_release(tmp_path,monkeypatch):
     graph=Redis.from_url(graph_admin,decode_responses=True)
     user='projector_'+token
     executor_user='executor_'+token
-    graph_password=secrets.token_urlsafe(24)
+    graph_password=secrets.token_hex(32)
     from graphrag_sdk.storage.ontology_store import OntologyStore
     assert OntologyStore.ONTOLOGY_GRAPH_SUFFIX=='__ontology'
     ontology_graph=release.graph_name+OntologyStore.ONTOLOGY_GRAPH_SUFFIX
@@ -59,7 +59,8 @@ def test_registered_public_projector_preserves_release(tmp_path,monkeypatch):
         with pytest.raises(PermissionError):PostgresSources(limited)
         binding=SourceRoleBinding(params['runtime_hash'],params['source_role_registry_hash'])
         binding.check_url(limited)
-        graph.execute_command('ACL','SETUSER',user,'on','>'+graph_password,'resetkeys','~'+release.graph_name,'~'+ontology_graph,'-@all','+graph.query','+ping','+hello','+info|server')
+        sealed=synthetic_fixture.graph_acl_users(release.graph_name,graph_password,graph_password).splitlines()
+        graph.execute_command('ACL','SETUSER',user,'resetkeys','-@all',*sealed[2].split()[2:])
         from urllib.parse import urlsplit,urlunsplit,quote
         parsed=urlsplit(graph_admin)
         restricted=urlunsplit((parsed.scheme,quote(user)+':'+quote(graph_password)+'@'+parsed.hostname+':'+str(parsed.port),parsed.path,parsed.query,''))
@@ -73,7 +74,7 @@ def test_registered_public_projector_preserves_release(tmp_path,monkeypatch):
         from redis.exceptions import NoPermissionError
         with pytest.raises(NoPermissionError):native.execute_command('GRAPH.QUERY',release.graph_name+'_foreign__ontology','MATCH (n) RETURN count(n)')
         native.close()
-        graph.execute_command('ACL','SETUSER',executor_user,'on','>'+graph_password,'resetkeys','~'+release.graph_name,'-@all','+graph.ro_query','+ping','+hello','+info|server')
+        graph.execute_command('ACL','SETUSER',executor_user,'resetkeys','-@all',*sealed[1].split()[2:])
         executor_url=restricted.replace(quote(user)+':',quote(executor_user)+':',1)
         reader=Redis.from_url(executor_url,decode_responses=True)
         assert reader.execute_command('GRAPH.RO_QUERY',release.graph_name,'MATCH (n) RETURN count(n)')[1][0][0]>0
