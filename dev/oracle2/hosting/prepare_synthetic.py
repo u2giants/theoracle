@@ -38,12 +38,14 @@ def main(argv=None):
     parser.add_argument('--directory',required=True)
     parser.add_argument('--image',required=True)
     parser.add_argument('--runtime-hash',required=True)
+    parser.add_argument('--gateway-host',default='gateway')
     parser.add_argument('--release-hash',action='append')
     parser.add_argument('--review-hash',required=True)
     parser.add_argument('--synthetic',required=True,action='store_true')
     args=parser.parse_args(argv)
     if not re.fullmatch(r'(?:sha256:|ghcr\.io/u2giants/theoracle-native@sha256:)[a-f0-9]{64}',args.image):raise ValueError('immutable reviewed image required')
     if any(not re.fullmatch('[a-f0-9]{64}',x) for x in [args.runtime_hash,args.review_hash,*(args.release_hash or [])]):raise ValueError('exact hashes required')
+    if not re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?',args.gateway_host) or '..' in args.gateway_host:raise ValueError('exact reviewed gateway DNS hostname required')
     # Certificate issuer must execute inside an explicitly networkless container.
     # A host process or container with a routed network cannot issue this fixture.
     interfaces={line.split(':',1)[0].strip() for line in Path('/proc/net/dev').read_text().splitlines()[2:]}
@@ -74,7 +76,7 @@ def main(argv=None):
         san=x509.DNSName(host) if host else x509.UniformResourceIdentifier(uri)
         cert=(x509.CertificateBuilder().subject_name(name).issuer_name(subject).public_key(key.public_key())
             .serial_number(x509.random_serial_number()).not_valid_before(now-timedelta(minutes=1)).not_valid_after(now+timedelta(hours=2))
-            .add_extension(x509.SubjectAlternativeName([san]),critical=False)
+            .add_extension(x509.SubjectAlternativeName([san]+([x509.DNSName(args.gateway_host)] if folder=='gateway' and args.gateway_host!='gateway' else [])),critical=False)
             .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()),critical=False)
             .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),critical=False)
             .add_extension(x509.BasicConstraints(ca=False,path_length=None),critical=True)
@@ -230,7 +232,7 @@ def main(argv=None):
     # Protected normal-platform environment inputs. Each one-shot materializer
     # receives only its own bundle; no runtime receives the issuer environment.
     from oracle_brain.hosting.bootstrap import FILES
-    platform_env={'ORACLE_GATEWAY_SETTINGS_SHA256':settings_hash['gateway'],
+    platform_env={'ORACLE_HOSTING_IMAGE':args.image,'ORACLE_GATEWAY_HOST':args.gateway_host,'ORACLE_GATEWAY_SETTINGS_SHA256':settings_hash['gateway'],
                   'ORACLE_EXECUTOR_SETTINGS_SHA256':settings_hash['executor'],
                   'ORACLE_PROJECTOR_SETTINGS_SHA256':settings_hash['projector']}
     for profile in FILES:
@@ -238,7 +240,7 @@ def main(argv=None):
         if profile=='ledger-init':files={'seed-parameters.json':json.dumps(parameters,sort_keys=True,separators=(',',':')).encode()}
         else:files={name:(root/folder/name).read_bytes() for name in FILES[profile][0]}
         raw=json.dumps({'schema':'oracle-hosted-files/v1','profile':profile,'files':{n:{'bytes_b64':base64.b64encode(v).decode(),'sha256':hashlib.sha256(v).hexdigest()} for n,v in files.items()}},sort_keys=True,separators=(',',':')).encode()
-        env_profile='PROJECTOR' if profile=='synthetic-project' else profile.upper().replace('-','_')
+        env_profile={'synthetic-project':'PROJECTOR','ledger-init':'SEED','blobs':'BLOB'}.get(profile,profile.upper().replace('-','_'))
         platform_env['ORACLE_'+env_profile+'_BUNDLE']=base64.b64encode(raw).decode()
         platform_env['ORACLE_'+env_profile+'_BUNDLE_SHA256']=hashlib.sha256(raw).hexdigest()
     write(root/'platform-env.json',json.dumps(platform_env,sort_keys=True,separators=(',',':')),os.getuid())

@@ -165,14 +165,16 @@ services:
     expose: [8443]
     volumes: [gateway-auth:/run/oracle-auth:ro, job-spool:/run/oracle-jobs]
     depends_on: {gateway-files: {condition: service_completed_successfully}, executor: {condition: service_started}}
+    # List-form labels interpolate the app identity in both keys and values.
     labels:
-      traefik.enable: 'true'
-      traefik.docker.network: '${COOLIFY_RESOURCE_UUID:?platform-owned ingress network required}'
-      traefik.tcp.routers.oracle-invented.rule: 'HostSNI(`${ORACLE_GATEWAY_HOST:?exact reviewed public gateway hostname required}`)'
-      traefik.tcp.routers.oracle-invented.entrypoints: https
-      traefik.tcp.routers.oracle-invented.tls.passthrough: 'true'
-      traefik.tcp.routers.oracle-invented.service: oracle-invented
-      traefik.tcp.services.oracle-invented.loadbalancer.server.port: '8443'
+      - 'traefik.enable=true'
+      - 'traefik.docker.network=${COOLIFY_RESOURCE_UUID:?platform-owned ingress network required}'
+      - 'traefik.tcp.routers.oracle-${COOLIFY_RESOURCE_UUID:?platform-owned resource identity required}.rule=HostSNI(`${ORACLE_GATEWAY_HOST:?exact reviewed public gateway hostname required}`)'
+      - 'traefik.tcp.routers.oracle-${COOLIFY_RESOURCE_UUID:?platform-owned resource identity required}.entrypoints=https'
+      - 'traefik.tcp.routers.oracle-${COOLIFY_RESOURCE_UUID:?platform-owned resource identity required}.tls.passthrough=true'
+      - 'traefik.tcp.routers.oracle-${COOLIFY_RESOURCE_UUID:?platform-owned resource identity required}.service=oracle-${COOLIFY_RESOURCE_UUID:?platform-owned resource identity required}'
+      - 'traefik.tcp.services.oracle-${COOLIFY_RESOURCE_UUID:?platform-owned resource identity required}.loadbalancer.server.port=8443'
+
 networks:
   ingress: {external: true, name: '${COOLIFY_RESOURCE_UUID:?platform-owned ingress network required}'}
   jobs: &isolated
