@@ -67,13 +67,13 @@ def job():
 def envelope(j):
  return canonical_bytes({'dispatch_id':str(j.dispatch_id),'request_hash':j.request_hash,'request':j.request})
 
-def broker(actual_ledger,tmp_path,j,*,authorize_current=lambda _:True):
+def broker(actual_ledger,tmp_path,j,*,authorize_current=lambda _:True,validator=lambda job,content:None):
  url,registry,_=actual_ledger;registry_hash=digest(registry.model_dump(mode='json'));now=datetime.now(timezone.utc)
  receipts=tmp_path/'private';receipts.mkdir(mode=0o700)
  proof=VerifiedKeyCoverage(admission_hash='e'*64,key_fingerprint=FP,ledger_identity_hash=registry_hash,observed_at=now,expires_at=now+timedelta(hours=1))
  return NativeBrokerEgress(api_key=KEY,ledger_url=url,registry=registry,trusted_registry_hash=registry_hash,
   coverage_receipt=lambda:proof,trusted_coverage_hash='e'*64,resolve_job=lambda identity:j if identity==j.dispatch_id else None,
-  authorize_current_job=authorize_current,private_receipts=receipts),receipts
+  authorize_current_job=authorize_current,validate_response=validator,private_receipts=receipts),receipts
 
 def fake_native(monkeypatch,*,response=None):
  calls=[]
@@ -177,3 +177,23 @@ def test_actual_model_context_shortfall_denies_before_charge(actual_ledger,tmp_p
  with pytest.raises(PermissionError):b.dispatch(envelope(j))
  assert calls==['/models']
  with psycopg.connect(actual_ledger[2]) as conn:assert conn.execute('SELECT count(*) FROM oracle2.operating_dispatch_reservations').fetchone()[0]==0
+
+
+def test_missing_validator_denies_before_provider_reads(actual_ledger,tmp_path,monkeypatch):
+ j=job();calls=fake_native(monkeypatch)
+ with pytest.raises(PermissionError):broker(actual_ledger,tmp_path,j,validator=None)
+ assert calls==[]
+
+def test_rejected_output_retains_actual_charge_and_wire_without_retry(actual_ledger,tmp_path,monkeypatch):
+ j=job()
+ def reject(pinned,content):
+  assert pinned.dispatch_id==j.dispatch_id and content=='{"invented":true}'
+  raise ValueError('invented semantic failure')
+ b,receipts=broker(actual_ledger,tmp_path,j,validator=reject);calls=fake_native(monkeypatch)
+ with pytest.raises(ValueError):b.dispatch(envelope(j))
+ with psycopg.connect(actual_ledger[2]) as conn:
+  assert conn.execute('SELECT actual_usd,status,failure_kind FROM oracle2.operating_dispatch_receipts').fetchall()==[(Decimal('0.000010'),'failed','invalid_output')]
+ saved=json.loads((receipts/(str(j.dispatch_id)+'.json')).read_text())
+ assert saved['failed'] and saved['raw_response']
+ with pytest.raises(PermissionError):b.dispatch(envelope(j))
+ assert calls.count('/chat/completions')==1

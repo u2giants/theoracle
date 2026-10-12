@@ -164,12 +164,16 @@ class NativeBrokerEgress:
     def __init__(self, *, api_key: str, ledger_url: str, registry: LedgerRegistry,
                  trusted_registry_hash: str, coverage_receipt: Callable[[], VerifiedKeyCoverage],
                  trusted_coverage_hash: str, resolve_job: Callable[[UUID], NativeDispatchJob],
-                 authorize_current_job: Callable[[NativeDispatchJob], bool], private_receipts: Path):
+                 authorize_current_job: Callable[[NativeDispatchJob], bool],
+                 validate_response: Callable[[NativeDispatchJob, str], None], private_receipts: Path):
         self._key = api_key
         self._key_fingerprint = hashlib.sha256(api_key.encode()).hexdigest()
         self._url,self._registry,self._registry_hash = ledger_url,registry,trusted_registry_hash
         self._coverage,self._coverage_hash = coverage_receipt,trusted_coverage_hash
         self._resolve,self._authorize = resolve_job,authorize_current_job
+        if not callable(validate_response):
+            raise PermissionError('trusted response validator required before provider reads')
+        self._validate_response = validate_response
         self._receipts = Path(private_receipts)
         if (not api_key or not self._receipts.is_dir() or self._receipts.is_symlink()
                 or self._receipts.stat().st_mode & 0o077):
@@ -262,17 +266,31 @@ class NativeBrokerEgress:
         # Recheck immediately before reservation/send, after all preflight work.
         if not currently_authorized():
             raise PermissionError('job authority changed during preflight')
+        validation_failed = False
+        def validate_paid_response(content):
+            nonlocal validation_failed
+            try:
+                if not currently_authorized():
+                    raise ValueError('current validation authority unavailable')
+                self._validate_response(job, content)
+                if not currently_authorized():
+                    raise ValueError('immutable job changed during validation')
+            except Exception:
+                validation_failed = True
+                raise ValueError('trusted output validation rejected response') from None
         try:
             provider.extract(workspace_id=job.workspace_id,artifact_id=job.artifact_id,batch_id=job.batch_id,
                 purpose=job.purpose,attempt=job.attempt,input_tokens_upper_bound=job.input_tokens_upper_bound,
-                messages=request['messages'])
+                messages=request['messages'],response_validator=validate_paid_response)
         except Exception:
             if hasattr(provider,'last_reservation_id'):
                 self._record(job,getattr(native,'last_response_text',None),provider.last_reservation_id,failed=True)
             raise
         raw=getattr(native,'last_response_text',None)
-        self._record(job,raw,provider.last_reservation_id,failed=False)
+        self._record(job,raw,provider.last_reservation_id,failed=validation_failed)
         authorize(job.processing_request,list(job.approvals))
         if not currently_authorized() or not isinstance(raw,str):
             raise PermissionError('current access to paid response unavailable')
+        if validation_failed:
+            raise ValueError('trusted output validation rejected response; diagnosis required')
         return raw.encode()
