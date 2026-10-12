@@ -13,7 +13,9 @@ Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through
 
 ## STATUS — read this first
 
-Current continuation checkpoint (October 12, 2026, 2:26 PM EDT): PR #95 source merged at `d7f771c448b3e829f3b504a06c440bd1e95abd15`, required checks passed and root qualified 379 tests with zero skips. This does not accept S03–S16. The current coordinator owns remaining W01–W12 on #27/#58; see the source-phase checkpoint in `plan_oracle_workflow_integrity.md` for current hosting, role, original-region and spending gates. Company questions/reports, employee messages and grading remain paused.
+Current continuation checkpoint (October 12, 2026, 3:28 PM EDT): source-role/result/isolated-bootstrap integration continues, with current CI key distinct but the event Worker runtime key still UNKNOWN after its existing Cloudflare credential refused authentication. No private paid processing is admitted; see the latest workflow-integrity checkpoint. Company questions and grading remain paused.
+
+Previous source continuation checkpoint (October 12, 2026, 2:26 PM EDT): PR #95 source merged at `d7f771c448b3e829f3b504a06c440bd1e95abd15`, required checks passed and root qualified 379 tests with zero skips. This does not accept S03–S16. The current coordinator owns remaining W01–W12 on #27/#58; see the source-phase checkpoint in `plan_oracle_workflow_integrity.md` for current hosting, role, original-region and spending gates. Company questions/reports, employee messages and grading remain paused.
 
 October 12, 2026, 1:18 PM EDT: Codex retains W01–W12 ownership. Old CLAIMS assignments for Ilona/Jessica are cleared with independent live readback (15 each, protected history unchanged; PR #94). New hosting/spending integration and real ClickUp observation discovery are recorded in the workflow plan active checkpoint; none establishes private or business acceptance. All S03–S16 obligations remain open. Company questions, reports, employee messages and grading remain paused. Private processing requires fresh exact admission after the previous register expired at 1:11:54 PM EDT.
 
