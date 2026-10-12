@@ -19,6 +19,7 @@ jobs:
     timeout-minutes: 60
     env:
       COMPOSE_PROJECT_NAME: oracle2-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      ORACLE2_SYNTHETIC_POSTGRES_CONTAINER: oracle2-ci-${{ github.run_id }}-${{ github.run_attempt }}-postgres-1
       ORACLE2_POSTGRES_PORT: '57632'
       ORACLE2_CANDIDATE_PORT: '57679'
       ORACLE2_CONFIRMED_PORT: '57680'
