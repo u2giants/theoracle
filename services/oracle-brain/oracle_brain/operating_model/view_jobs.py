@@ -46,7 +46,7 @@ async def execute_view(database_url:str,run_id:UUID,*,ledger,projection,syntheti
         measured=next((r for r in previews if r['variant']=='measured'),None)
         if measured:
             values=measured['measurements']
-            pack['analysis']={'state':'ready','actual_data_acceptance':'synthetic','measurements':{'Completed cases':values['cases']['retained_completed'],'Median elapsed seconds':values['elapsed_seconds']['median'] or 'unavailable','90th percentile elapsed seconds':values['elapsed_seconds']['p90_nearest_rank'] or 'unavailable'}}
+            pack['analysis']={'state':'ready','actual_data_acceptance':'synthetic','measurements':{'Completed cases':values['cases']['retained_completed'],'Median elapsed seconds':values['elapsed_seconds']['median'] if values['elapsed_seconds']['median'] is not None else 'unavailable','90th percentile elapsed seconds':values['elapsed_seconds']['p90_nearest_rank'] if values['elapsed_seconds']['p90_nearest_rank'] is not None else 'unavailable'}}
     if selected(database_url,workspace)!=manifest:raise PermissionError('release changed before view persistence')
     retrieval.recheck_before_serve(workspace,manifest.artifact_id,manifest.artifact_version,pack)
     if len(canonical_bytes(pack))>QueryPlan.model_validate_json(json.dumps(query)).max_bytes:

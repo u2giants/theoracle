@@ -6,7 +6,7 @@ argument. This is an engineering test, never private semantic/hosted admission.
 """
 import asyncio,hashlib,json,os,secrets,signal,socket,subprocess,sys,tempfile,threading,time,tarfile,io
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID,uuid4
 from urllib.parse import urlparse,quote
 from urllib.request import urlopen
 import psycopg
@@ -92,13 +92,31 @@ def main():
         payload={'source_refs':[receipt.ref.model_dump(mode='json'),receipt2.ref.model_dump(mode='json')],'observations':[observed.model_dump(mode='json'),observation2.model_dump(mode='json')],'findings':[finding.model_dump(mode='json'),legacy.model_dump(mode='json')],'workflows':[workflow.model_dump(mode='json')],'operating_models':[model.model_dump(mode='json')]}
         ledger=Ledger(admin,blobs,principal=actor,can_read=authority.can_read,current_source=authority.current)
         ledger.persist(workspace_id=workspace,artifact_id=artifact,version=1,kind='operating_model',payload=payload,refs=(receipt.ref,receipt2.ref),permission_digest='d'*64,compiler_digest='e'*64)
+        from datetime import datetime
+        from oracle_brain.operating_model.ingest.event_store import import_events
+        from oracle_brain.operating_model.ingest.operational_export import Mapping
+        from oracle_brain.operating_model.report_store import persist_report
+        from oracle_brain.operating_model.consultant.process_analysis import Report
+        from oracle_brain.operating_model.retrieval import QueryPlan
+        from oracle_brain.operating_model.release_manifest import ReportReference
+        event_manifest,event_log=import_events(ledger,authority.current(workspace,export_source),export_text.encode(),format='csv',
+            mapping=Mapping(columns={'event_id':'id','case_id':'case','activity_id':'activity','timestamp':'time'},source_system='invented',process_id='intake',scope='intake',activity_map={'Review':'review'}),
+            window_start=datetime.fromisoformat('2026-01-01T00:00:00+00:00'),window_end=datetime.fromisoformat('2026-01-02T00:00:00+00:00'),permission_digest='d'*64,compiler_digest='f'*64)
+        def generate(role,inputs):
+            if role=='planner':return {'operations':['describe_metrics']}
+            if role=='analyst':return {'notes':'invented events only'}
+            if role=='challenger':return {'supported':True}
+            return Report(variant='measured',state='ready',model_artifact_hash=inputs['pack']['artifact_hash'],event_artifact_hash=inputs['event_artifact_hash'],measurements=inputs['metrics'],clauses=(),finding_ids=tuple(f['finding_id'] for f in inputs['pack']['findings']),actual_data_acceptance='synthetic',limitations=('Invented event fixture only.',)).model_dump(mode='json')
+        preview=persist_report(ledger,workspace_id=workspace,model_id=artifact,model_version=1,report_id=uuid4(),report_version=1,
+            plan=QueryPlan(view='process_local',process_ids=('intake',),question='invented measurements',max_bytes=131072,page=0,page_size=25),generate=generate,synthetic=True,permission_digest='d'*64,compiler_digest='f'*64,event_id=event_log.import_id,event_version=1)
+        assert preview['state']=='ready' and preview['calls']==4
         async def build():
             projection=SDKProjection(graph,workspace_id=workspace,artifact_id=artifact,artifact_version=1,generation=generation,llm=NoGeneration(),embedder=SyntheticEmbedding(),dimensions=8)
             try:return await projection.build(ledger,workspace,artifact,1)
             finally:await projection.close()
         built=asyncio.run(build())
         with psycopg.connect(admin) as conn:mark=watermark(conn,workspace)
-        manifest=ReleaseManifest(release_id=uuid4(),workspace_id=workspace,artifact_id=artifact,artifact_version=1,artifact_content_hash=digest(payload),runtime_digest='f'*64,permission_digest='d'*64,source_refs=(receipt.ref,receipt2.ref),graph_generation=generation,graph_name=built['graph_name'],graph_record_digest=built['record_digest'],acceptance_state='synthetic',independent_review_hash='1'*64,documentary_gate_hash='2'*64,source_inventory_hash='3'*64,ledger_watermark=mark)
+        manifest=ReleaseManifest(release_id=uuid4(),workspace_id=workspace,artifact_id=artifact,artifact_version=1,artifact_content_hash=digest(payload),runtime_digest='f'*64,permission_digest='d'*64,source_refs=(receipt.ref,receipt2.ref,authority.current(workspace,export_source).ref),report_refs=(ReportReference(artifact_id=UUID(preview['artifact_id']),version=1,content_hash=preview['content_hash']),),graph_generation=generation,graph_name=built['graph_name'],graph_record_digest=built['record_digest'],acceptance_state='synthetic',independent_review_hash='1'*64,documentary_gate_hash='2'*64,source_inventory_hash='3'*64,ledger_watermark=mark)
         # Synthetic test admission only; never a technical release approval.
         activate(admin,manifest,expected_generation=0,ledger=ledger,verify_projection=lambda m,p:None,runtime_digest='f'*64,synthetic=True,reviewed_release_hashes=frozenset({manifest.content_hash()}))
         role='operating_view_test_'+uuid4().hex;password=secrets.token_urlsafe(32)
