@@ -8,6 +8,7 @@ from psycopg.types.json import Jsonb
 import pytest
 from oracle_brain.operating_model.contracts import canonical_bytes
 from test_hosting_candidate_permissions import scoped
+from oracle_brain.hosting.source_binding import SourceRoleBinding
 
 @pytest.fixture
 def runtime_scope(admin_url,scoped):
@@ -79,7 +80,7 @@ def test_native_first_source_ledger_persist(admin_url,runtime_scope,tmp_path):
     url=psycopg.conninfo.make_conninfo(scoped[0],options='-c role=oracle2_candidate_compiler')
     with psycopg.connect(url) as c:
         actor=c.execute('SELECT actor_id FROM oracle2.appointments WHERE appointment_id=%s',(scoped[4],)).fetchone()[0]
-    sources=PostgresSources(url)
+    sources=PostgresSources(url,source_binding=SourceRoleBinding("c"*64,"d"*64,synthetic=True))
     receipt=sources.current(scoped[1],scoped[3])
     ledger=Ledger(url,FileBlobStore(tmp_path),principal=actor,can_read=sources.can_read,current_source=sources.current)
     manifest=ledger.persist(workspace_id=scoped[1],artifact_id=uuid4(),version=1,kind='extraction',payload={'source_refs':[receipt.ref.model_dump(mode='json')]},refs=(receipt.ref,),permission_digest='a'*64,compiler_digest='c'*64)
@@ -140,7 +141,7 @@ def test_native_execute_view_registered_completion(admin_url,runtime_scope,tmp_p
     from oracle_brain.operating_model.view_jobs import execute_view
     scoped=runtime_scope[0]; workspace=scoped[1]
     compiler_url=psycopg.conninfo.make_conninfo(scoped[0],options='-c role=oracle2_candidate_compiler')
-    sources=PostgresSources(compiler_url); receipt=sources.current(workspace,scoped[3]); blobs=FileBlobStore(tmp_path)
+    sources=PostgresSources(compiler_url,source_binding=SourceRoleBinding("c"*64,"d"*64,synthetic=True)); receipt=sources.current(workspace,scoped[3]); blobs=FileBlobStore(tmp_path)
     with psycopg.connect(admin_url) as c:
         actor=c.execute('SELECT principal_id FROM oracle2.hosting_role_source_admissions WHERE role_name=%s',(scoped[6],)).fetchone()[0]
     compiler=Ledger(compiler_url,blobs,principal=actor,can_read=sources.can_read,current_source=sources.current)
@@ -154,7 +155,7 @@ def test_native_execute_view_registered_completion(admin_url,runtime_scope,tmp_p
         c.execute('UPDATE oracle2.operating_release_selectors SET release_id=%s,generation=generation+1,watermark=%s WHERE workspace_id=%s',(release.release_id,watermark,workspace))
         c.execute('UPDATE oracle2.operating_view_runs SET release_id=%s,release_hash=%s,query_plan=%s,source_refs=%s WHERE run_id=%s',(release.release_id,release.content_hash(),Jsonb({'view':'company_overview','question':'invented','max_bytes':4096,'page':0,'page_size':25}),Jsonb([receipt.ref.model_dump(mode='json')]),runtime_scope[2]))
     doc_url=psycopg.conninfo.make_conninfo(scoped[0],options='-c role=oracle2_documentary_executor')
-    current=PostgresSources(doc_url); ledger=Ledger(doc_url,blobs,principal=actor,can_read=current.can_read,current_source=current.current)
+    current=PostgresSources(doc_url,source_binding=SourceRoleBinding("c"*64,"d"*64,synthetic=True)); ledger=Ledger(doc_url,blobs,principal=actor,can_read=current.can_read,current_source=current.current)
     # Only SDK network candidate retrieval is mocked. Native source authority,
     # ledger, query execution, release validation and completion are real.
     class Projection:

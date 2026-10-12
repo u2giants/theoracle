@@ -36,7 +36,7 @@ def settings(profile, path, seal):
     common={'profile','runtime_hash','synthetic','allowed_release_hashes','worker_uri',
             'database_url_file','registry','registry_hash','spool'}
     extra={'gateway':{'server_cert','server_key','client_ca','hmac_key_file','bind_host','bind_port'},
-           'executor':{'graph_url_file','blob_root'}}
+           'executor':{'graph_url_file','blob_root','source_role_registry_hash'}}
     if profile not in extra or not isinstance(value,dict) or set(value)!=common|extra[profile]:
         raise PermissionError('exact fixed profile schema required')
     if value['profile']!=profile or type(value['synthetic']) is not bool:
@@ -57,6 +57,11 @@ def settings(profile, path, seal):
     protected_file(parsed['sslrootcert'])
     # No password, host, URL or original content is returned by validation.
     value['_database_url']=database
+    if profile=='executor':
+        from .source_binding import SourceRoleBinding
+        binding=SourceRoleBinding(value['runtime_hash'],value['source_role_registry_hash'],synthetic=value['synthetic'])
+        binding.check_url(database)
+        value['_source_binding']=binding
     if profile=='executor' and not value['synthetic']:
         raise PermissionError('private embedding admission has no qualified fixed factory')
     return value
@@ -71,9 +76,14 @@ def build_custody(config):
 
 
 def execute_one(config,custody,authority):
+    binding=config.get('_source_binding')
+    from .source_binding import SourceRoleBinding
+    if not isinstance(binding,SourceRoleBinding):raise PermissionError('sealed source-role binding required')
+    binding.check_url(config['_database_url'])
     claimed=custody.claim()
     if claimed is None:return False
     job,row=claimed
+    binding.check_url(config['_database_url'])
     authority(row)
     # Import the actual retained native implementation, never an env-selected
     # callable or a generic serving interface. Semantic jobs fail in authority.
@@ -85,10 +95,10 @@ def execute_one(config,custody,authority):
     if row['scope']=='documentary-view':
         graph=protected_file(config['graph_url_file'],limit=8192).decode().strip()
         asyncio.run(run_view(run,workspace,database_url=config['_database_url'],graph_url=graph,
-            blobs=blobs,embedder=SyntheticEmbedding(),dimensions=8,synthetic=True))
+            blobs=blobs,embedder=SyntheticEmbedding(),dimensions=8,synthetic=True,source_binding=binding))
     elif row['scope']=='finding-review':
         run_event(run,workspace,database_url=config['_database_url'],blobs=blobs,
-                  synthetic=True,operation='finding_review')
+                  synthetic=True,operation='finding_review',source_binding=binding)
     else:raise PermissionError('fixed documentary execution scope unavailable')
     return True
 

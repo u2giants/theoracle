@@ -140,7 +140,7 @@ def verify_ledger(url: str, registry: LedgerRegistry, *, trusted_registry_hash: 
         memberships=connection.execute("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname<>current_user AND pg_has_role(current_user,oid,'MEMBER'))").fetchone()[0]
         if memberships:
             raise PermissionError('billing role cannot inherit unbounded role capabilities')
-        if registry.transport == 'verify-full-tls' and not connection.info.ssl_in_use:
+        if registry.transport == 'verify-full-tls' and not connection.pgconn.ssl_in_use:
             raise PermissionError('production ledger connection is not TLS')
         cluster = connection.execute('SELECT system_identifier::text FROM pg_catalog.pg_control_system()').fetchone()[0]
         if cluster != registry.cluster_identifier or ledger_namespace_hash(connection) != registry.namespace_hash:

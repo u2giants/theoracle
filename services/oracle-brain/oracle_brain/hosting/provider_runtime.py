@@ -160,7 +160,7 @@ class CurrentJobs:
         ref = ctx.receipt.ref
         with psycopg.connect(self.config['_metadata_url'], connect_timeout=5) as conn:
             conn.execute('SET TRANSACTION READ ONLY')
-            if not conn.info.ssl_in_use:
+            if not conn.pgconn.ssl_in_use:
                 raise PermissionError('metadata TLS unavailable')
             powerful = conn.execute("SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone()
             if not powerful or powerful[0]:
