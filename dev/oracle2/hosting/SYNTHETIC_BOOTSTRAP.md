@@ -26,6 +26,14 @@ scoped logins on those CIDRs; non-TLS and all other host rules reject. Installer
 Unix access is separate. Projector and documentary executor have separate
 read-only documentary ledger logins and current source-role admissions.
 
+FalkorDB candidate and confirmed services run as UID/GID 999 with a read-only
+root, all capabilities dropped and no new privileges. Only their own data
+volumes are writable; fixed networkless data profiles initialize those volumes
+as mode 0700 owned by 999. Native run.sh ignores Docker CMD, so the reviewed
+configuration is supplied through REDIS_ARGS=/run/oracle-auth/server.conf.
+The native module and default companion startup remain intact. No tmpfs was
+required by the actual pinned-image proof.
+
 FalkorDB default users are disabled. Projector can issue GRAPH.QUERY and
 GRAPH.RO_QUERY only against the exact invented artifact graph. Executor has
 GRAPH.RO_QUERY only. Both have PING, HELLO and INFO server, which the pinned
@@ -47,7 +55,7 @@ qualified actual TLS/SCRAM on fresh owned fixtures.
 
 Before action: merge exact reviewed source; publish/read back immutable GHCR
 digest and authenticated platform pull; include the independently owned SQL009
-result helper; seal current source-runtime binding startup; review issuer,
+result helper (now in the fixed init allowlist); seal current source-runtime binding startup; review issuer,
 bundles, internal CIDRs and managed-server collision receipts; review exact raw
 Application inputs; then create/deploy only through Coolify. Prove TLS/SCRAM,
 plaintext refusal, graph ACLs, actual SDK projection, executor completion and

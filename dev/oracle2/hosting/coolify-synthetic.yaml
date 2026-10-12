@@ -82,6 +82,20 @@ services:
       ORACLE_BOOTSTRAP_BUNDLE: ${ORACLE_BLOB_BUNDLE:?reviewed empty profile bundle required}
       ORACLE_BOOTSTRAP_BUNDLE_SHA256: ${ORACLE_BLOB_BUNDLE_SHA256:?external bundle hash required}
     volumes: [executor-blobs:/run/oracle-assets]
+  candidate-data-files:
+    <<: *bootstrap
+    command: [candidate-data]
+    environment:
+      ORACLE_BOOTSTRAP_BUNDLE: ${ORACLE_CANDIDATE_DATA_BUNDLE:?reviewed empty profile bundle required}
+      ORACLE_BOOTSTRAP_BUNDLE_SHA256: ${ORACLE_CANDIDATE_DATA_BUNDLE_SHA256:?external bundle hash required}
+    volumes: [candidate-data:/run/oracle-assets]
+  confirmed-data-files:
+    <<: *bootstrap
+    command: [confirmed-data]
+    environment:
+      ORACLE_BOOTSTRAP_BUNDLE: ${ORACLE_CONFIRMED_DATA_BUNDLE:?reviewed empty profile bundle required}
+      ORACLE_BOOTSTRAP_BUNDLE_SHA256: ${ORACLE_CONFIRMED_DATA_BUNDLE_SHA256:?external bundle hash required}
+    volumes: [confirmed-data:/run/oracle-assets]
   ledger:
     image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
     networks: [ledger]
@@ -95,17 +109,25 @@ services:
   candidate:
     image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
     networks: [candidate]
-    command: [redis-server, /run/oracle-auth/server.conf, --loadmodule, /var/lib/falkordb/bin/falkordb.so]
+    user: "999:999"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    environment: {REDIS_ARGS: /run/oracle-auth/server.conf}
     volumes: [candidate-data:/var/lib/falkordb/data, candidate-auth:/run/oracle-auth:ro]
-    depends_on: {candidate-files: {condition: service_completed_successfully}}
+    depends_on: {candidate-files: {condition: service_completed_successfully}, candidate-data-files: {condition: service_completed_successfully}}
     mem_limit: 2g
     cpus: 1
   confirmed:
     image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
     networks: [confirmed]
-    command: [redis-server, /run/oracle-auth/server.conf, --loadmodule, /var/lib/falkordb/bin/falkordb.so]
+    user: "999:999"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    environment: {REDIS_ARGS: /run/oracle-auth/server.conf}
     volumes: [confirmed-data:/var/lib/falkordb/data, confirmed-auth:/run/oracle-auth:ro]
-    depends_on: {confirmed-files: {condition: service_completed_successfully}}
+    depends_on: {confirmed-files: {condition: service_completed_successfully}, confirmed-data-files: {condition: service_completed_successfully}}
     mem_limit: 2g
     cpus: 1
   synthetic-project:

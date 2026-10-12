@@ -18,6 +18,8 @@ FILES={
  'ledger':({'admin-password','ca.crt','server.crt','server.key','pg_hba.conf'},70),
  'candidate':({'server.conf'},999),
  'confirmed':({'server.conf'},999),
+ 'candidate-data':(set(),999),
+ 'confirmed-data':(set(),999),
  'spool':(set(),10001),
  'blobs':(set(),10001),
  'ledger-init':({'seed-parameters.json'},70),
@@ -57,7 +59,7 @@ def materialize(profile, encoded, seal, root=ROOT):
   parameters=json.loads(values['seed-parameters.json'],object_pairs_hook=_unique_object)
   seed,_,_,_=compile_seed(parameters)
   sqlroot=SQL_ROOT
-  names=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql','006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql','008_hosting_runtime_permissions.sql')
+  names=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql','006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql','008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql')
   values={f'{index+1:02d}-{name}':(sqlroot/name).read_bytes() for index,name in enumerate(names)}
   values['00-empty-owned-preflight.sql']=b"DO $$ BEGIN IF current_database()<>'oracle_synthetic' OR current_user<>'oracle_bootstrap' OR (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database())<>current_user OR EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname !~ '^pg_toast' AND c.relkind IN ('r','p','v','m','S')) THEN RAISE EXCEPTION 'new empty owned synthetic ledger required'; END IF; END $$;\n"
   values['90-public-invented-seed.sql']=seed.encode()

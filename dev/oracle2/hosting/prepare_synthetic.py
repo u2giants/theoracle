@@ -54,7 +54,7 @@ def main(argv=None):
     root=Path(args.directory)
     if root.exists():raise FileExistsError('new synthetic directory required')
     root.mkdir(parents=True,mode=0o700)
-    for name,uid in [('gateway',10001),('executor',10001),('projector',10001),('worker',os.getuid()),('ledger',70),('candidate',999),('confirmed',999),('spool',10001),('blobs',10001),('init',70)]:
+    for name,uid in [('gateway',10001),('executor',10001),('projector',10001),('worker',os.getuid()),('ledger',70),('candidate',999),('confirmed',999),('candidate-data',999),('confirmed-data',999),('spool',10001),('blobs',10001),('init',70)]:
         folder=root/name;folder.mkdir(mode=0o700)
         if os.geteuid()==0:os.chown(folder,uid,uid)
     now=datetime.now(timezone.utc)
@@ -101,7 +101,7 @@ def main(argv=None):
     hba+='host all all all reject\n'
     write(root/'ledger'/'pg_hba.conf',hba,70)
     sqlroot=Path(__file__).resolve().parents[3]/'services/oracle-brain/sql'
-    for index,name in enumerate(('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql','006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql','008_hosting_runtime_permissions.sql')):
+    for index,name in enumerate(('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql','006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql','008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql')):
         write(root/'init'/f'{index+1:02d}-{name}',(sqlroot/name).read_bytes(),70)
     source_registry={'schema':'oracle-public-invented-role-admission/v1','runtime_hash':args.runtime_hash,'role_names':['oracle_synthetic_executor','oracle_synthetic_projector'],
                      'workspace_id':str(WORKSPACE),'principal_id':str(ACTOR),'source_refs':fixture_payload['source_refs'],'expires_at':(now+timedelta(hours=1)).isoformat()}
@@ -189,14 +189,16 @@ def main(argv=None):
         healthcheck: {{test: [CMD-SHELL, 'test $$(psql -U oracle_bootstrap -d oracle_synthetic -Atc \"SELECT count(*) FROM oracle2.synthetic_hosting_marker\") = 1'], interval: 2s, timeout: 2s, retries: 30}}
       candidate:
         image: {FALKOR}
-        command: [redis-server, /run/oracle-auth/server.conf, --loadmodule, /var/lib/falkordb/bin/falkordb.so]
+        user: "999:999"
+        environment: {{REDIS_ARGS: /run/oracle-auth/server.conf}}
         networks: [candidate]
-        volumes: [candidate-data:/var/lib/falkordb/data, ./candidate:/run/oracle-auth:ro]
+        volumes: [./candidate-data:/var/lib/falkordb/data, ./candidate:/run/oracle-auth:ro]
       confirmed:
         image: {FALKOR}
-        command: [redis-server, /run/oracle-auth/server.conf, --loadmodule, /var/lib/falkordb/bin/falkordb.so]
+        user: "999:999"
+        environment: {{REDIS_ARGS: /run/oracle-auth/server.conf}}
         networks: [confirmed]
-        volumes: [confirmed-data:/var/lib/falkordb/data, ./confirmed:/run/oracle-auth:ro]
+        volumes: [./confirmed-data:/var/lib/falkordb/data, ./confirmed:/run/oracle-auth:ro]
     networks:
       ingress: {{}}
       jobs: &isolated
@@ -237,7 +239,7 @@ def main(argv=None):
     if os.geteuid()!=0:
         # Scoped local helper only owns this freshly generated synthetic tree;
         # no host socket, production path, credentials or network is mounted.
-        owner_code="import os,pathlib; root=pathlib.Path('/assets'); mapping={'gateway':10001,'executor':10001,'projector':10001,'ledger':70,'candidate':999,'confirmed':999,'spool':10001,'blobs':10001,'init':70}; [(os.chown(p,u,u),os.chmod(p,0o700 if p.is_dir() else 0o600)) for n,u in mapping.items() for p in [root/n,*(root/n).rglob('*')]]"
+        owner_code="import os,pathlib; root=pathlib.Path('/assets'); mapping={'gateway':10001,'executor':10001,'projector':10001,'ledger':70,'candidate':999,'confirmed':999,'candidate-data':999,'confirmed-data':999,'spool':10001,'blobs':10001,'init':70}; [(os.chown(p,u,u),os.chmod(p,0o700 if p.is_dir() else 0o600)) for n,u in mapping.items() for p in [root/n,*(root/n).rglob('*')]]"
         subprocess.run(['docker','run','--name','oracle-synthetic-owner-'+uuid4().hex[:12],
             '--network','none','--read-only','--mount',f'type=bind,src={root.resolve()},dst=/assets',
             'python:3.12.14-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e',
