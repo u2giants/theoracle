@@ -58,7 +58,7 @@ def settings(profile, path, seal):
     # No password, host, URL or original content is returned by validation.
     value['_database_url']=database
     if profile=='executor':
-        from .source_binding import SourceRoleBinding
+        from oracle_brain.operating_model.source_binding import SourceRoleBinding
         binding=SourceRoleBinding(value['runtime_hash'],value['source_role_registry_hash'],synthetic=value['synthetic'])
         binding.check_url(database)
         value['_source_binding']=binding
@@ -77,7 +77,7 @@ def build_custody(config):
 
 def execute_one(config,custody,authority):
     binding=config.get('_source_binding')
-    from .source_binding import SourceRoleBinding
+    from oracle_brain.operating_model.source_binding import SourceRoleBinding
     if not isinstance(binding,SourceRoleBinding):raise PermissionError('sealed source-role binding required')
     binding.check_url(config['_database_url'])
     claimed=custody.claim()

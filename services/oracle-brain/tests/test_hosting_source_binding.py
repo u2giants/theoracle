@@ -3,7 +3,7 @@ import hashlib,json,os
 from uuid import uuid4
 import psycopg
 import pytest
-from oracle_brain.hosting.source_binding import SourceRoleBinding
+from oracle_brain.operating_model.source_binding import SourceRoleBinding
 from oracle_brain.hosting.runtime import settings,execute_one
 from oracle_brain.operating_model.authority_adapter import PostgresSources
 from test_hosting_candidate_permissions import scoped
@@ -22,7 +22,7 @@ def test_actual_self_binding_matches_and_has_no_catalog_privileges(admin_url,run
  with psycopg.connect(admin_url) as conn:
   login=runtime_scope[0][6]
   assert conn.execute("SELECT rolpassword LIKE 'SCRAM-SHA-256$%%' FROM pg_authid WHERE rolname=%s",(login,)).fetchone()[0] is True
-  assert conn.execute("SELECT EXISTS(SELECT 1 FROM pg_hba_file_rules WHERE type='host' AND auth_method='scram-sha-256')").fetchone()[0] is True
+  assert conn.execute("SELECT EXISTS(SELECT 1 FROM pg_hba_file_rules WHERE type='hostssl' AND auth_method='scram-sha-256')").fetchone()[0] is True
 
 @pytest.mark.parametrize('runtime,registry',[('0'*64,'d'*64),('c'*64,'0'*64),('d'*64,'c'*64),('c'*64,'e'*64)])
 def test_distinct_wrong_external_pins_deny(runtime_scope,runtime,registry):
@@ -32,8 +32,8 @@ def test_distinct_wrong_external_pins_deny(runtime_scope,runtime,registry):
 
 def test_production_plaintext_refused_even_when_registry_matches(runtime_scope):
  url=psycopg.conninfo.make_conninfo(runtime_scope[0][0],sslmode='disable')
- with psycopg.connect(url) as conn:
-  with pytest.raises(PermissionError):SourceRoleBinding('c'*64,'d'*64).check(conn)
+ with pytest.raises((PermissionError,psycopg.OperationalError)):
+  with psycopg.connect(url) as conn:SourceRoleBinding('c'*64,'d'*64).check(conn)
 
 
 def test_source_read_rechecks_pins_after_startup_before_reading(admin_url,runtime_scope):

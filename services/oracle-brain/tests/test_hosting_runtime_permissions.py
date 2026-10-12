@@ -8,7 +8,7 @@ from psycopg.types.json import Jsonb
 import pytest
 from oracle_brain.operating_model.contracts import canonical_bytes
 from test_hosting_candidate_permissions import scoped
-from oracle_brain.hosting.source_binding import SourceRoleBinding
+from oracle_brain.operating_model.source_binding import SourceRoleBinding
 
 @pytest.fixture
 def runtime_scope(admin_url,scoped):

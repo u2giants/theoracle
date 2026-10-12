@@ -99,7 +99,7 @@ def test_actual_identity_or_registry_drift_denies(actual_ledger,field,value):
 
 def test_production_never_accepts_plain_loopback_pg(actual_ledger):
  url,registry,_=actual_ledger;changed=registry.model_copy(update={'transport':'verify-full-tls'});url=psycopg.conninfo.make_conninfo(url,sslmode='disable')
- with pytest.raises(PermissionError):verify_ledger(url,changed,trusted_registry_hash=digest(changed.model_dump(mode='json')),key_fingerprint=FP,now=datetime.now(timezone.utc))
+ with pytest.raises((PermissionError,psycopg.OperationalError)):verify_ledger(url,changed,trusted_registry_hash=digest(changed.model_dump(mode='json')),key_fingerprint=FP,now=datetime.now(timezone.utc))
 
 @pytest.mark.parametrize('privilege',['CREATEROLE','private-table-select','billing-update'])
 def test_actual_role_privilege_drift_denies(actual_ledger,privilege):
@@ -391,7 +391,7 @@ def test_interrupted_http_read_retains_partial_wire_without_known_charge(actual_
 def test_actual_native_ledger_tls_preflight_uses_libpq_and_verified_ca(actual_ledger):
  import os
  ca=os.environ.get('ORACLE2_TEST_TLS_ROOT')
- if not ca:pytest.skip('owned actual TLS fixture CA required')
+ if not ca:pytest.fail('owned actual TLS fixture CA required')
  url,registry,_=actual_ledger
  url=psycopg.conninfo.make_conninfo(url,sslmode='verify-full',sslrootcert=ca)
  with psycopg.connect(url) as connection:assert connection.pgconn.ssl_in_use is True

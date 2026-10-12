@@ -14,7 +14,7 @@ def require_review(connection, workspace_id: UUID, actor_id: UUID, scope: str):
 
 class PostgresSources:
     def __init__(self, url: str, *, source_binding=None, synthetic: bool=False):
-        from oracle_brain.hosting.source_binding import SourceRoleBinding
+        from oracle_brain.operating_model.source_binding import SourceRoleBinding
         if source_binding is not None and not isinstance(source_binding,SourceRoleBinding):
             raise PermissionError('fixed source-role binding required')
         self.url,self.source_binding,self.synthetic = url,source_binding,synthetic
