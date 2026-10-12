@@ -45,7 +45,7 @@ test('invented authenticated map traverses real current worker SDK and ledger',a
     expect(createHash('sha256').update(readFileSync((await largeDownload.path())!)).digest('hex')).toBe(oversizedHash);
   }finally{writeFileSync('.source-offer/oracle-source.tar.gz',archive);writeFileSync('.source-offer/manifest.json',manifestBytes);}
   await page.getByText('Source support',{exact:true}).first().click();
-  await expect(page.getByText('Intake sends packet to Review.',{exact:true})).toBeVisible();
+  await expect(page.locator('blockquote').filter({hasText:/^Intake sends packet to Review\.$/}).first()).toBeVisible();
   await page.getByLabel('Process',{exact:true}).selectOption('intake');
   await expect(page.getByRole('img',{name:'Reported workflow Invented intake'})).toBeVisible({timeout:30000});
   await page.getByRole('button',{name:'Show connected processes'}).click();
