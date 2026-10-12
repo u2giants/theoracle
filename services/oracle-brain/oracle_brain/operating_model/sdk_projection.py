@@ -18,8 +18,9 @@ class PreserveIds(ResolutionStrategy):
         return ResolutionResult(nodes=graph_data.nodes,relationships=graph_data.relationships,merged_count=0,remap={})
 
 class LedgerExtraction(ExtractionStrategy):
-    def __init__(self,observations,semantic_nodes=(),semantic_relations=()):
+    def __init__(self,observations,semantic_nodes=(),semantic_relations=(),semantic_chunks=None):
         self.observations,self.semantic_nodes,self.semantic_relations=observations,semantic_nodes,semantic_relations
+        self.semantic_chunks=semantic_chunks or {}
     async def extract(self,chunks,ontology,ctx):
         if len(chunks.chunks)!=1:raise ValueError('receipt must remain a complete source chunk')
         chunk=chunks.chunks[0];nodes=[];mentions=[]
@@ -34,8 +35,9 @@ class LedgerExtraction(ExtractionStrategy):
              'payload_hash':digest(observation),'source_chunk_ids':[chunk.uid]}))
             mentions.append(EntityMention(entity_id=oid,chunk_id=chunk.uid))
         for identifier,label,title,seal in self.semantic_nodes:
-            nodes.append(GraphNode(id=identifier,label=label,properties={'name':title+' ['+identifier+']','display_name':title,'description':title,'payload_hash':seal,'source_chunk_ids':[chunk.uid]}))
-            mentions.append(EntityMention(entity_id=identifier,chunk_id=chunk.uid))
+            source_chunks=self.semantic_chunks.get(identifier,[chunk.uid])
+            nodes.append(GraphNode(id=identifier,label=label,properties={'name':title+' ['+identifier+']','display_name':title,'description':title,'payload_hash':seal,'source_chunk_ids':source_chunks}))
+            if chunk.uid in source_chunks:mentions.append(EntityMention(entity_id=identifier,chunk_id=chunk.uid))
         relationships=[GraphRelationship(start_node_id=a,end_node_id=b,type='RELATES',properties={'transition_key':key,'payload_hash':seal,'fact':fact,'description':fact,'source_chunk_ids':[chunk.uid],'status':'reported','rel_type':'RELATED_TO'}) for a,b,key,seal,fact in self.semantic_relations]
         return GraphData(nodes=nodes,relationships=relationships,mentions=mentions)
 
@@ -100,13 +102,24 @@ class SDKProjection:
         count=await self.connection.query('MATCH (n) RETURN count(n)')
         if count.result_set[0][0]:raise ValueError('projection generation is already occupied; reload or rebuild separately')
         semantic_nodes,semantic_relations=self.semantic_projection(payload)
+        receipts={ref['source_id']:ledger.current_source(workspace_id,UUID(ref['source_id'])) for ref in payload['source_refs']}
+        observation_chunks={o['observation_id']:digest({'text':receipts[o['ref']['source_id']].reading}) for o in payload.get('observations',[])}
+        semantic_chunks={identifier:sorted({observation_chunks[oid] for oid in values[3]}) for identifier,values in semantic_nodes.items()}
         for ref in payload['source_refs']:
-            receipt=ledger.current_source(workspace_id,UUID(ref['source_id']))
+            receipt=receipts[ref['source_id']]
             observations=[o for o in payload.get('observations',[]) if o['ref']==ref]
             source_observations={o['observation_id'] for o in observations}
             source_nodes=[(identifier,label,title,seal) for identifier,(label,title,seal,support) in semantic_nodes.items() if source_observations.intersection(support)]
             source_relations=[(a,b,key,seal,fact) for key,(a,b,seal,fact,support) in semantic_relations.items() if source_observations.intersection(support)]
-            result=await self.rag.ingest(text=receipt.reading,document_id=ref['source_id'],chunker=ReceiptChunks(),extractor=LedgerExtraction(observations,source_nodes,source_relations),resolver=PreserveIds())
+            # Stock SDK prunes relations whose endpoints are absent from this batch.
+            # Include sealed endpoints while retaining their actual source chunk IDs
+            # and adding mentions only for this receipt's documentary support.
+            required={identifier for a,b,*_ in source_relations for identifier in (a,b)}
+            present={node[0] for node in source_nodes}
+            for identifier in sorted(required-present):
+                label,title,seal,_=semantic_nodes[identifier]
+                source_nodes.append((identifier,label,title,seal))
+            result=await self.rag.ingest(text=receipt.reading,document_id=ref['source_id'],chunker=ReceiptChunks(),extractor=LedgerExtraction(observations,source_nodes,source_relations,semantic_chunks),resolver=PreserveIds())
             if result.chunks_indexed!=1:raise RuntimeError('SDK source/chunk ingestion incomplete')
         finalized=await self.rag.finalize()
         if not finalized.indexes or not all(finalized.indexes.values()):raise RuntimeError('SDK finalization incomplete')
