@@ -1,11 +1,13 @@
 """Fixed OpenRouter transport and conservative account allowance; no hidden retries."""
 import json
+import hashlib
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 from .provider_adapter import Pricing,ProviderQuotaError
+from .key_coverage import VerifiedKeyCoverage
 
 ENDPOINT='https://openrouter.ai/api/v1'
 NY=ZoneInfo('America/New_York')
@@ -55,9 +57,21 @@ def current_pricing(models:dict,*,model:str,max_output_tokens:int,register_hash:
 
 class NativeOpenRouter:
     """Credentials stay in memory; fixed TLS endpoints, bounded responses, no redirects."""
-    def __init__(self,api_key:str,*,coverage_current):
+    def __init__(self,api_key:str,*,coverage_receipt, trusted_coverage_hash:str, ledger_identity_hash:str):
         if not api_key:raise PermissionError('existing admitted account credential unavailable')
-        self._key=api_key;self.coverage_current=coverage_current
+        import re
+        if any(not isinstance(h,str) or not re.fullmatch('[0-9a-f]{64}',h) for h in (trusted_coverage_hash,ledger_identity_hash)):
+            raise PermissionError('externally admitted central key reservation binding required')
+        self._key=api_key;self.coverage_receipt=coverage_receipt
+        self.key_fingerprint=hashlib.sha256(api_key.encode()).hexdigest()
+        self.trusted_coverage_hash=trusted_coverage_hash;self.ledger_identity_hash=ledger_identity_hash
+    def _coverage(self,now):
+        receipt=self.coverage_receipt()
+        if (not isinstance(receipt,VerifiedKeyCoverage) or receipt.admission_hash!=self.trusted_coverage_hash
+                or receipt.key_fingerprint!=self.key_fingerprint or receipt.ledger_identity_hash!=self.ledger_identity_hash
+                or not timedelta(0)<=now-receipt.observed_at<=timedelta(seconds=15) or now>=receipt.expires_at):
+            raise PermissionError('current exact-key central reservation coverage unavailable')
+        return True
     def _request(self,path,body=None):
         if path not in {'/key','/models','/chat/completions'}:raise PermissionError('unadmitted provider operation')
         if path=='/chat/completions':self.last_response_text=None
@@ -76,10 +90,11 @@ class NativeOpenRouter:
         observed=datetime.now(timezone.utc)
         data=self._request('/key').get('data',{})
         now=datetime.now(timezone.utc)
-        return conservative_allowance(data,observed_at=observed,now=now,coverage_current=self.coverage_current())
+        return conservative_allowance(data,observed_at=observed,now=now,coverage_current=self._coverage(now))
     def pricing(self,*,model,max_output_tokens,register_hash):
         return current_pricing(self._request('/models'),model=model,max_output_tokens=max_output_tokens,register_hash=register_hash,now=datetime.now(timezone.utc))
     def send(self,*,messages,model,max_output_tokens,store,extra_body):
+        self._coverage(datetime.now(timezone.utc))
         expected={'provider':{'only':['openai'],'allow_fallbacks':False,'require_parameters':True,'data_collection':'deny'}}
         if store is not False or extra_body!=expected or model not in {'openai/gpt-6.1-sol','openai/gpt-6-astra'} or not 1<=max_output_tokens<=8192:
             raise PermissionError('exact private transport parameters required')

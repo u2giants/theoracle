@@ -1,7 +1,9 @@
 from datetime import datetime,timedelta,timezone
 from decimal import Decimal
+import hashlib
 import pytest
 from oracle_brain.operating_model.native_provider import conservative_allowance,current_pricing,NativeOpenRouter
+from oracle_brain.operating_model.key_coverage import VerifiedKeyCoverage
 NOW=datetime(2026,10,12,2,0,tzinfo=timezone.utc)
 DATA={'usage_monthly':'3.5','byok_usage_monthly':'2.25','limit':None,'is_free_tier':False}
 def test_month_spend_and_byok_conservatively_bound_new_york_day():
@@ -21,7 +23,9 @@ def test_current_pricing_reserves_worst_context_and_cache_tier():
  with pytest.raises(PermissionError):current_pricing(data,model='openai/gpt-6-astra',max_output_tokens=8192,register_hash='a'*64,now=NOW)
  with pytest.raises(PermissionError):current_pricing(data,model='openai/gpt-6.1-sol',max_output_tokens=8193,register_hash='a'*64,now=NOW)
 def test_native_sender_has_no_fallback_or_store_override(monkeypatch):
- native=NativeOpenRouter('synthetic-only',coverage_current=lambda:True);calls=[]
+ now=datetime.now(timezone.utc)
+ receipt=VerifiedKeyCoverage(admission_hash='a'*64,key_fingerprint=hashlib.sha256(b'synthetic-only').hexdigest(),ledger_identity_hash='b'*64,observed_at=now,expires_at=now+timedelta(minutes=1))
+ native=NativeOpenRouter('synthetic-only',coverage_receipt=lambda:receipt,trusted_coverage_hash='a'*64,ledger_identity_hash='b'*64);calls=[]
  monkeypatch.setattr(native,'_request',lambda path,body:(calls.append((path,body)) or {'model':'openai/gpt-6.1-sol','choices':[{'finish_reason':'stop','message':{'content':'{}'}}],'usage':{'cost':'0.01'}}))
  opts={'provider':{'only':['openai'],'allow_fallbacks':False,'require_parameters':True,'data_collection':'deny'}}
  assert native.send(messages=[],model='openai/gpt-6.1-sol',max_output_tokens=100,store=False,extra_body=opts)==('{}',Decimal('.01'))
