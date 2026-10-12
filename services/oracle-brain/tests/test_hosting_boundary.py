@@ -77,7 +77,7 @@ def send(gateway, certificates, obj=None, *, identity="worker", path="/v1/jobs/a
         context.load_cert_chain(str(certificates / (identity + ".pem")),
                                 str(certificates / (identity + ".key")))
     body = json.dumps(obj or job()).encode()
-    signature = hmac.new(KEY, body, hashlib.sha256).hexdigest() if signed else "0" * 64
+    signature = hmac.new(KEY, b"POST\n"+path.encode()+b"\n"+body, hashlib.sha256).hexdigest() if signed else "0" * 64
     request = urllib.request.Request("https://localhost:" + str(gateway[0].server_port) + path,
         data=body, headers={"Content-Type": "application/json", "X-Oracle-Job-Signature": signature})
     try:
@@ -246,3 +246,7 @@ def test_topology_never_gives_executor_gateway_or_host_network():
         assert not service.get("ports") and not service.get("privileged") and not service.get("network_mode")
         assert all("docker.sock" not in volume for volume in service.get("volumes", []))
     assert obj["services"]["confirmed"]["networks"] == ["confirmed"]
+
+
+def test_missing_result_callback_fails_closed(gateway,certificates):
+    assert send(gateway,certificates,path='/v1/jobs/result')[0]==403

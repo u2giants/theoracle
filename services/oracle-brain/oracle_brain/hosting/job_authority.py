@@ -32,10 +32,10 @@ class PostgresJobAuthority:
             raise PermissionError("opaque job/runtime identity denied")
         with psycopg.connect(self.url) as conn:
             rows = conn.execute("""SELECT workspace_id,run_id,'documentary-view',expires_at
-                FROM oracle2.operating_view_runs WHERE run_id=%s AND status='pending' AND expires_at>now()
+                FROM oracle2.operating_view_runs WHERE run_id=%s AND status='pending' AND expires_at>clock_timestamp()
                 UNION ALL
                 SELECT workspace_id,run_id,CASE WHEN operation='finding_review' THEN 'finding-review' ELSE 'denied' END,expires_at
-                FROM oracle2.operating_action_runs WHERE run_id=%s AND status='pending' AND expires_at>now()""",
+                FROM oracle2.operating_action_runs WHERE run_id=%s AND status='pending' AND expires_at>clock_timestamp()""",
                 (identity, identity)).fetchall()
             if len(rows) != 1 or rows[0][2] == 'denied':
                 raise PermissionError("unique canonical documentary job unavailable")
@@ -48,6 +48,51 @@ class PostgresJobAuthority:
                          ("operating-selector:" + str(workspace),))
             self._authorize(conn, row, workspace, run)
         return row
+
+    @contextmanager
+    def _result_connection(self):
+        settings=psycopg.conninfo.conninfo_to_dict(self.url)
+        if settings.get('sslmode')!='verify-full' or not settings.get('sslrootcert'):
+            raise PermissionError('authenticated result ledger TLS required')
+        with psycopg.connect(self.url) as conn:
+            if conn.pgconn.ssl_in_use is not True: raise PermissionError('actual result ledger TLS required')
+            yield conn
+
+    def resolve_result(self,job_id,runtime_hash,admission_hash):
+        if self.synthetic is not True or runtime_hash!=self.runtime_hash or str(UUID(job_id))!=job_id:
+            raise PermissionError('synthetic fixed result denied')
+        with self._result_connection() as conn:
+            values=conn.execute("SELECT workspace_id,expires_at FROM oracle2.operating_view_runs WHERE run_id=%s AND status IN ('pending','completed') AND expires_at>clock_timestamp()",(UUID(job_id),)).fetchone()
+            if not values: raise PermissionError('result unavailable')
+            row={'job_id':job_id,'workspace_id':str(values[0]),'run_id':job_id,'scope':'documentary-view',
+                 'admission_hash':admission_hash,'active':True,'expires_at':int(values[1].timestamp())}
+            self._authorize(conn,row,values[0],UUID(job_id),completed=True)
+        return row
+
+    @contextmanager
+    def hold_result(self,row,opaque):
+        from .gateway import ResultLease
+        if self.synthetic is not True or row.get('scope')!='documentary-view':
+            raise PermissionError('synthetic result authority required')
+        with self._result_connection() as conn:
+            conn.execute("SET LOCAL lock_timeout='2s'")
+            conn.execute("SET LOCAL statement_timeout='5s'")
+            workspace,run=UUID(row['workspace_id']),UUID(row['run_id'])
+            def current():
+                result=conn.execute('SELECT * FROM oracle2.gateway_view_result(%s,%s,%s)',
+                    (run,self.runtime_hash,row['admission_hash'])).fetchone()
+                self._authorize(conn,row,workspace,run,completed=True)
+                expiry=conn.execute('SELECT expires_at FROM oracle2.operating_view_runs WHERE run_id=%s',(run,)).fetchone()
+                if not expiry or opaque.expires_at>expiry[0].timestamp() or conn.execute('SELECT clock_timestamp()').fetchone()[0].timestamp()>=min(opaque.expires_at,expiry[0].timestamp()):
+                    raise PermissionError('result delivery expired')
+                if not result: raise PermissionError('result unavailable')
+                return result
+            result=current()
+            status,raw=result[0],result[1]
+            body=b'{"state":"pending"}' if status=='pending' else bytes(raw)
+            def before_write():
+                if current()!=result: raise PermissionError('result changed during custody')
+            yield ResultLease(202 if status=='pending' else 200,body,before_write)
 
     def __call__(self, row: dict) -> None:
         with self.hold(row):
@@ -71,12 +116,12 @@ class PostgresJobAuthority:
             if self._authorize(conn, row, workspace, run) != actor:
                 raise PermissionError("job identity changed during authorization")
 
-    def _authorize(self, conn, row, workspace, run):
+    def _authorize(self, conn, row, workspace, run, *, completed=False):
         scope = row.get("scope")
         if scope == "documentary-view":
             job = conn.execute("""SELECT actor_id,release_id,release_hash,status
                 FROM oracle2.operating_view_runs WHERE run_id=%s AND workspace_id=%s
-                AND expires_at>now()""", (run, workspace)).fetchone()
+                AND expires_at>clock_timestamp()""", (run, workspace)).fetchone()
             review_scope = None
         elif scope == "finding-review":
             result = conn.execute("SELECT * FROM oracle2.gateway_action_metadata(%s,%s)",
@@ -88,7 +133,7 @@ class PostgresJobAuthority:
                 raise PermissionError("bounded finding scope unavailable")
         else:
             raise PermissionError("scope has no authoritative gateway job metadata")
-        if not job or job[3] != "pending":
+        if not job or job[3] not in ({"pending","completed"} if completed else {"pending"}):
             raise PermissionError("actor-owned pending job unavailable")
         actor, release_id, release_hash, _ = job
         selected = conn.execute("""SELECT m.payload,m.content_hash,s.watermark

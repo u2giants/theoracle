@@ -121,7 +121,7 @@ def main(argv=None):
         if type(config['bind_port']) is not int or not 1<=config['bind_port']<=65535:
             raise PermissionError('bounded gateway port required')
         OpaqueGateway((config['bind_host'],config['bind_port']),tls=tls,worker_uri=config['worker_uri'],
-                      signing_key=key,admit=custody.admit).serve_forever()
+                      signing_key=key,admit=custody.admit,result=custody.result).serve_forever()
     else:
         while True:
             if not execute_one(config,custody,authority):time.sleep(0.5)
