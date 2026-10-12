@@ -19,7 +19,7 @@ async def project(config,review_hash):
         if conn.execute('SELECT oracle2.hosting_source_runtime_binding() IS NOT NULL').fetchone()[0] is not True:raise PermissionError('source role admission absent')
         runtime,registry,_=conn.execute('SELECT * FROM oracle2.hosting_source_runtime_binding()').fetchone()
         if runtime!=config['runtime_hash'] or registry!=config['source_role_registry_hash']:raise PermissionError('external source role pins differ')
-    sources=PostgresSources(config['_database_url'])
+    sources=PostgresSources(config['_database_url'],source_binding=config['_source_binding'])
     # The only bytes materialized by this fixed task are public invented payload.
     blobs=FileBlobStore(Path(config['blob_root']))
     key,seal=blobs.put(WORKSPACE,payload)
