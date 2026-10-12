@@ -37,6 +37,8 @@ def main(argv=None):
     body=json.dumps({'job_id':str(uuid4()),'runtime_hash':marker['runtime_hash'],'admission_hash':'2'*64,
                      'nonce':str(uuid4()),'expires_at':int(time.time())+30},sort_keys=True,separators=(',',':')).encode()
     for request_path in ('/v1/jobs/admit','/v1/jobs/result'):
+        opaque=json.loads(body);opaque['nonce']=str(uuid4())
+        body=json.dumps(opaque,sort_keys=True,separators=(',',':')).encode()
         signature=hmac.new((root/'worker'/'hmac-key').read_bytes(),b'POST\n'+request_path.encode()+b'\n'+body,hashlib.sha256).hexdigest()
         with context.wrap_socket(socket.create_connection(('127.0.0.1',port),timeout=5),server_hostname='gateway') as sock:
             raw=b'POST '+request_path.encode()+b' HTTP/1.0\r\nHost: gateway\r\nContent-Type: application/json\r\nContent-Length: '+str(len(body)).encode()+b'\r\nX-Oracle-Job-Signature: '+signature.encode()+b'\r\n\r\n'+body
