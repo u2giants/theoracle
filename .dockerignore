@@ -1,0 +1,20 @@
+# Build context allowlist: protected evidence, originals, env and tools never sent.
+**
+!services/
+!services/oracle-brain/
+!services/oracle-brain/pyproject.toml
+!services/oracle-brain/uv.lock
+!services/oracle-brain/README.md
+!services/oracle-brain/oracle_brain/
+!services/oracle-brain/oracle_brain/**
+!services/oracle-brain/sql/
+!services/oracle-brain/sql/*.sql
+!dev/
+!dev/oracle2/
+!dev/oracle2/hosting/
+!dev/oracle2/hosting/Dockerfile
+**/__pycache__/**
+**/*.pyc
+**/.env*
+**/.ai/**
+**/.venv/**

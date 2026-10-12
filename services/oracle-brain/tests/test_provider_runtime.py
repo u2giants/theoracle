@@ -122,3 +122,13 @@ def test_valid_registry_context_then_revocation(tmp_path):
 def test_signed_witness_missing_observation_does_not_manufacture_time(tmp_path):
  path,witness,write,kwargs=fixture(tmp_path);del witness['observed_at'];write()
  with pytest.raises(Exception):signed_coverage(path,**kwargs)
+
+
+def test_extraction_profile_refuses_embedding_before_job_authority(tmp_path):
+ jobs,ctx,path,registry=registry_fixture(tmp_path)
+ request={**ctx.job.request,'model':'openai/text-embedding-3-small','input':['invented only']}
+ changed=ctx.job.model_copy(update={'request':request})
+ context=ctx.model_copy(update={'job':changed,'job_hash':digest(changed.model_dump(mode='json'))})
+ path.write_text(registry.model_copy(update={'contexts':(context,)}).model_dump_json())
+ jobs.config['job_registry_hash']=hashlib.sha256(path.read_bytes()).hexdigest()
+ with pytest.raises(PermissionError):jobs.registry()

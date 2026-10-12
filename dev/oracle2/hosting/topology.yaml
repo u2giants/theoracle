@@ -36,6 +36,7 @@ services:
   provider-broker:
     profiles: [provider-admitted]
     <<: *boundary
+    entrypoint: [python, -m, oracle_brain.hosting.provider_runtime]
     command: [provider]
     networks: [provider, outbound, ledger]
     expose: [8443]

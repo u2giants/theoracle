@@ -292,7 +292,7 @@ If rebuilding from scratch:
 ## Operational notes
 
 - SSH is not part of the normal release workflow.
-- No Docker, Compose, Coolify, or VPS deployment path exists in this repo.
+- The retained application remains on its managed platforms. W11 now prepares a separate native documentary Docker/GHCR/Coolify app path; exact reviewed source, protected configuration, isolated network denial and live admission remain required. No SSH or host edits.
 - If oversized Vertex file-backed caches are needed in production, provision `GOOGLE_VERTEX_CONTEXT_CACHE_GCS_BUCKET` and related access before expecting that path to activate.
 - If Vertex Batch Prediction is enabled (D14), provision `GOOGLE_VERTEX_BATCH_GCS_BUCKET` in the same region as the Vertex endpoint and grant the worker service account `roles/storage.objectAdmin`. OpenAI and Anthropic batch routes need no extra infrastructure — the provider hosts the input + results. The two-phase worker (`claim-extraction-batch-submit` + `claim-extraction-batch-drain`) is enabled by flipping `extraction_dispatch_mode` to `'batch'` in `/admin/settings`.
 
@@ -301,3 +301,7 @@ If rebuilding from scratch:
 The scoped owner and gates live in plan_oracle_workflow_integrity.md STATUS and #27/#58. New views use actor-owned opaque jobs and a current immutable release manifest; company generation remains paused. The existing dedicated holistic Python bundle retains its old task and adds an isolated operating-model view task; both are excluded from the legacy worker bundle. The new command permits owned synthetic loopback stores only until restricted hosted transport is qualified. PM4Py remains uninstalled after the independent BLOCKED license/deployment verdict.
 
 Oracle 2 CI uses a serialized, per-run Compose project and separate configurable loopback ports (57632/57679/57680/57666) to avoid the protected recovery stores. The original local defaults remain 55432/56379/56380/54566. Additive dedicated SQL004 is bootstrapped only in local/CI stores. A target-checked local migration runner cannot apply hosted SQL. Hosted migration, exact implementation review, merged-main checks, private source acceptance, full restore proof and activation remain open; no new outcome is closed by these local results.
+
+## Proposed isolated native documentary release — October 12, 2026 EDT
+
+See `dev/oracle2/hosting/README.md` and the current workflow plan STATUS. The PR image job builds only; merged-main publishing records a SHA-tagged GHCR digest with provenance and SBOM. Coolify owns the app runtime and all isolated app networks. Only mutually authenticated opaque ingress is exposed; ledger and candidate/confirmed graphs are private and separate. Provider credentials exist only in the independently admitted broker. Image validation and empty-queue synthetic startup never constitute private corpus, full job delivery or business acceptance. Exact deployment/custody/restore proof is still open on #27/#58. Company questions and grading remain paused.

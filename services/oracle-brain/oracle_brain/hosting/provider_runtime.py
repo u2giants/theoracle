@@ -135,7 +135,10 @@ class CurrentJobs:
             raise PermissionError('independent current immutable job registry required')
         for ctx in registry.contexts:
             job = ctx.job
-            if (job.purpose != 'source-extraction' or digest(job.model_dump(mode='json')) != ctx.job_hash
+            if (job.purpose != 'source-extraction'
+                    or job.request.get('model') not in {'openai/gpt-6.1-sol', 'openai/gpt-6-astra'}
+                    or 'input' in job.request
+                    or digest(job.model_dump(mode='json')) != ctx.job_hash
                     or job.permission_hash != ctx.permission_hash or job.workspace_id != ctx.receipt.ref.workspace_id):
                 raise PermissionError('exact source extraction context required')
         return registry
