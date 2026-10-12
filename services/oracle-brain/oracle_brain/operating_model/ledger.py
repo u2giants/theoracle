@@ -56,10 +56,13 @@ class Ledger:
                              inventories=self.reviewed_inventories)
         for raw in payload.get('workflows',[]):
             model=WorkflowModel.model_validate_json(json.dumps(raw))
+            if model.workspace_id!=workspace_id or not set(model.source_refs)<=set(refs):raise ValueError('workflow source outside artifact manifest')
             if model.status!='reported':raise PermissionError('model output cannot confer confirmed policy')
             validate_workflow(model,validated_observations)
         for raw in payload.get('operating_models',[]):
-            validate_assembly(BusinessOperatingModel.model_validate_json(json.dumps(raw)),validated_observations)
+            model=BusinessOperatingModel.model_validate_json(json.dumps(raw))
+            if model.workspace_id!=workspace_id or not set(model.source_refs)<=set(refs):raise ValueError('company source outside artifact manifest')
+            validate_assembly(model,validated_observations)
         event_log=None
         if kind=='event_import':
             event_log=LogReceipt.model_validate_json(json.dumps(payload['event_import']))

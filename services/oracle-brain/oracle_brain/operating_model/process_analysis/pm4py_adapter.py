@@ -11,15 +11,19 @@ def analyze(model,*,qualification):
     if compiled['state']!='compiled':return compiled
     if not qualification or qualification.get('version')!=PIN or qualification.get('deployment_fit')!='APPROVE' or qualification.get('runtime_resource_fit')!='APPROVE' or not re.fullmatch(r'[0-9a-f]{64}',qualification.get('review_report_hash','')):
         return {'state':'unavailable','reason':'PM4Py exact deployment/license qualification required','model':model.model_dump(mode='json')}
+    return _analyze_compiled(compiled,model.workflow_id)
+
+def _analyze_compiled(compiled,workflow_id):
+    # Private operation, called after admission or by the isolated qualification harness.
     try:
         installed=version('pm4py')
     except PackageNotFoundError:
-        return {'state':'unavailable','reason':'Qualified PM4Py runtime not installed','model':model.model_dump(mode='json')}
+        return {'state':'unavailable','reason':'Qualified PM4Py runtime not installed','model':compiled['model']}
     if installed!=PIN:raise RuntimeError('analytical runtime dependency mismatch')
-    net,initial,final=build_net(compiled,model.workflow_id)
+    net,initial,final=build_net(compiled,workflow_id)
     from pm4py import check_soundness
     sound,diagnostics=check_soundness(net,initial,final)
-    return {'state':'analyzed','structural_soundness':bool(sound),'company_truth_accepted':False,'compiler':compiled['compiler'],'step_map':compiled['step_map'],'transition_map':compiled['transition_map'],'diagnostic_keys':sorted(diagnostics)}
+    return {'state':'analyzed','structural_soundness':bool(sound),'company_truth_accepted':False,'compiler':compiled['compiler'],'step_map':compiled['step_map'],'transition_map':compiled['transition_map'],'diagnostic_keys':sorted(str(getattr(key,'value',key)) for key in diagnostics)}
 
 def build_net(compiled,workflow_id):
     # Called only inside the separately admitted bounded worker.

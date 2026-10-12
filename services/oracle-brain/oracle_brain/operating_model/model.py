@@ -45,7 +45,7 @@ class BusinessOperatingModel(_StrictModel):
     workspace_id: UUID
     source_refs: tuple[SourceRef,...] = Field(min_length=1)
     declared_population: str = Field(min_length=1)
-    processes: tuple[ProcessRecord,...]
+    processes: tuple[ProcessRecord,...] = Field(min_length=1)
     objects: tuple[BusinessRecord,...]
     interfaces: tuple[Interface,...]
     assembly_decisions: tuple[AssemblyDecision,...]
@@ -63,6 +63,12 @@ class BusinessOperatingModel(_StrictModel):
         processes={p.process_id for p in self.processes};objects={o.object_id:o for o in self.objects}
         if any(i.from_process not in processes or i.to_process not in processes or i.artifact_id not in objects for i in self.interfaces):raise ValueError('dangling process interface')
         if any(w.process_id not in processes or w.workspace_id!=self.workspace_id for w in self.workflows):raise ValueError('workflow belongs to unknown process')
+        manifest=set(self.source_refs)
+        if any(not set(w.source_refs)<=manifest for w in self.workflows):raise ValueError('workflow source outside company manifest')
+        for process in self.processes:
+            expected={w.workflow_id for w in self.workflows if w.process_id==process.process_id}
+            if set(process.workflow_ids)!=expected or len(process.workflow_ids)!=len(expected):raise ValueError('process workflow population mismatch')
+            if process.completeness=='complete' and not expected:raise ValueError('complete process requires a documented workflow')
         if self.completeness=='complete' and (any(p.completeness!='complete' for p in self.processes) or any(w.completeness!='complete' for w in self.workflows) or any(i.status=='unresolved' for i in self.interfaces)):
             raise ValueError('incomplete components cannot confer complete company model')
         return self

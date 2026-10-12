@@ -1,17 +1,17 @@
-# W04a fit decided; product dependency not admitted
+# W04 qualification record — local optional integration admitted
 
 Exact stable PM4Py: **2.7.22**, upstream release commit `0715c31f3f1d85924107d6aa5329806db69df899`.
 Source: https://github.com/process-intelligence-solutions/pm4py/releases/tag/2.7.22
 License: https://github.com/process-intelligence-solutions/pm4py/blob/2.7.22/LICENSE
 Inspected upstream source files: LICENSE, setup.py, requirements.txt, analysis.py, discovery.py, conformance.py; metadata came from the exact PyPI version, not a floating resolver.
 
-The release uses AGPL-3.0. Oracle is intended to serve employees through a restricted authenticated web application and dedicated Python workers. At the initial pre-decision inspection, this repository had no root LICENSE establishing a compatible distribution or network-user source offer. A separate analytical worker does not resolve license compatibility. No legal conclusion, source-offer commitment, license purchase, or publication is authorized by this memo.
+The release uses AGPL-3.0. Oracle is intended to serve employees through a restricted authenticated web application and dedicated Python workers. Historical pre-decision finding: at the initial inspection, this repository had no root LICENSE establishing a compatible distribution or network-user source offer. A separate analytical worker does not resolve license compatibility. This historical finding predates the owner source-delivery decision recorded below. No legal conclusion, license purchase or public publication is authorized.
 
 Intended APIs (reviewed exact source): `convert_to_petri_net`, `check_soundness`, `discover_petri_net_inductive`, token replay fitness/conformance, BPMN/Petri utilities. Pure Oracle compilation preserves occurrence IDs; semantic completeness is independently checked before formal analysis. Supported XOR/AND loops only; unknown control semantics retain a partial map and cannot be analyzed.
 
-PyPI wheel size: 2,498,290 bytes, excluding dependencies. Dependency tree includes numpy, pandas, networkx, graphviz, scipy, lxml, matplotlib, pytz, tqdm, wheel, setuptools and conditional cvxopt (Python <3.15). This is metadata, not a measured installed worker footprint. Resource qualification remains unperformed: initial limits 250 occurrences, 500 transitions, 50 gateways, 30 seconds and 512 MiB, cancellable in an isolated process.
+PyPI wheel size: 2,498,290 bytes, excluding dependencies. Dependency tree includes numpy, pandas, networkx, graphviz, scipy, lxml, matplotlib, pytz, tqdm, wheel, setuptools and conditional cvxopt (Python <3.15). This is metadata, not a measured installed worker footprint. The initial, pre-measurement qualification proposed limits 250 occurrences, 500 transitions, 50 gateways, 30 seconds and 512 MiB, cancellable in an isolated process.
 
-Admission decision required from the assigned technical reviewer on exact deployment/license fit. Until that decision resolves compatibility, PM4Py installation, bundling and hosted deployment are denied. Documentary source preservation, typed compiler contract, log import and deterministic measured-event accounting can proceed. No substitute library removes the requested PM4Py capability. W04b stays open if fit cannot be established.
+Admission decision required from the assigned technical reviewer on exact deployment/license fit. The initial pre-decision gate denied installation, bundling and hosted deployment; later scoped verdicts below supersede only the specifically admitted actions. Documentary source preservation, typed compiler contract, log import and deterministic measured-event accounting can proceed. No substitute library removes the requested PM4Py capability. W04b stays open if fit cannot be established.
 
 ## Independent qualification outcome — October 11, 2026, 8:50 PM EDT
 
@@ -30,3 +30,14 @@ Muse returned APPROVE at exact 9cb7bc8701316a8e0b2d3c71480c0c11cbc88194, only fo
 The hash-pinned isolated environment exercised PM4Py 2.7.22: a 250-step/500-arc linear net passed soundness, discovery and replay within 2.65 seconds and 177 MB peak RSS. The compiler-backed XOR/AND/rework-language and deadlock probes passed. A 250-step/50-gateway parallel fixture exhausted the enforced 512 MiB address-space bound and remained incomplete with its original map unchanged; this is not a successful formal result or a smaller-limit substitution. Its measured peak RSS was 209 MB. The separate real subprocess tests prove timeout and memory-exhaustion preservation. No company facts were analyzed and no product qualification flag was enabled.
 
 The offered archive now includes the exact SHA256-pinned PM4Py source distribution plus complete notices and exact source URLs/hashes for all 22 measured dependencies. The descriptor/notice inventory and isolated measurement lock are source-delivery inputs, not product installation/bundle admission. They require fresh exact-input review and authenticated delivery proof before any further installation or analytics enablement.
+
+
+## Local integration admission and remaining solver qualification — October 11, 2026 EDT
+
+Muse report 20261012T013939Z-1382544-17881 approved the local hash-pinned optional extra and worker-bundle tests only at b0be2b23cf82cd9552b6c37e46d8d5867b6ae48b. Neither default-worker installation, deployment, product enablement nor runtime qualification flags were admitted. The browser passed authenticated source delivery, exact archive hash/revision, anonymous denial and logout denial at that exact head.
+
+The timing records describe different probes: the 250-step linear-net run took 2.645 elapsed / 2.366 CPU seconds; the compiler-language/large-parallel fixture record took 0.86 elapsed / 0.934 CPU seconds and ended incomplete on the parallel fixture. They must not be compared as the same execution. Neither establishes private company coverage.
+
+The optional extra now exercises the real bounded adapter: XOR, AND, rework, deadlock, preserved large-fixture exhaustion, discovery, shuffled-case conformance, and public admission denial. The installed exact API returns mixed enum/string diagnostic keys; those are normalized to stable text. The original map is preserved on exhaustion. A separate native-child timeout test proves descendant cancellation in the worker's exclusively owned process group. CI includes these mandatory tests with the optional extra; default worker requirements remain free of PM4Py.
+
+Actual Woflan execution warns that the SciPy solution may be unstable and recommends PuLP. This warning is not suppressed; formal reliability remains unaccepted. Exact PuLP/CBCbox source, license, compatibility, source delivery and bounded native-child execution are under the same independent qualification conversation. No solver has been installed and no product qualification flag is enabled. Private-source semantic acceptance and hosted proof remain open.

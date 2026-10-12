@@ -36,3 +36,14 @@ def test_supported_handoff_links_artifact_and_both_endpoints():
     a=observation(4,'Design sends ART to Supplier');b=observation(5,'Supplier receives packet')
     m=model((a,b),interfaces=(interface(a),))
     assert validate_assembly(m,{o.observation_id:o for o in (a,b)})==m
+
+
+def test_empty_company_cannot_claim_complete():
+    a=observation(4,'Reviewer sends ART');b=observation(5,'Supplier receives packet')
+    raw=model((a,b)).model_dump(mode='json');raw.update(processes=[],completeness='complete')
+    with pytest.raises(ValueError,match='at least 1'):BusinessOperatingModel.model_validate_json(__import__('json').dumps(raw))
+
+def test_dangling_workflow_identity_is_not_navigable():
+    a=observation(4,'Reviewer sends ART');b=observation(5,'Supplier receives packet')
+    raw=model((a,b)).model_dump(mode='json');raw['processes'][0]['workflow_ids']=['invented']
+    with pytest.raises(ValueError,match='workflow population'):BusinessOperatingModel.model_validate_json(__import__('json').dumps(raw))

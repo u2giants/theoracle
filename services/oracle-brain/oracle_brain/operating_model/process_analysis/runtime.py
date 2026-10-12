@@ -3,9 +3,9 @@
 Runtime remains unqualified and uninstalled until W04a admission. These limits
 are proposed, not a claim of measured PM4Py resource fit.
 """
-import json,multiprocessing,queue,re
+import json,multiprocessing,queue,re,os,signal
 from .compiler import compile_contract
-from .pm4py_adapter import PIN,analyze,build_net
+from .pm4py_adapter import PIN,analyze,build_net,_analyze_compiled
 from .event_contracts import LogReceipt
 from .metrics import measured_metrics
 from ..workflows.process_model import WorkflowModel
@@ -18,6 +18,12 @@ def admitted(qualification):
                 and re.fullmatch(r'[0-9a-f]{64}',qualification.get('review_report_hash','')) and qualification.get('runtime_resource_fit')=='APPROVE')
 
 def _worker(model_json,operation,log_json,qualification,output):
+    if not admitted(qualification):
+        output.put({"state":"unavailable","reason":"Exact product admission required"});return
+    _execute_operation(model_json,operation,log_json,output)
+
+def _execute_operation(model_json,operation,log_json,output):
+    # Private analytical operation used by the admitted worker and isolated test harness.
     try:
         import resource,os
         os.environ["OPENBLAS_NUM_THREADS"]="1"
@@ -26,7 +32,7 @@ def _worker(model_json,operation,log_json,qualification,output):
         resource.setrlimit(resource.RLIMIT_AS,(512*1024*1024,512*1024*1024))
         resource.setrlimit(resource.RLIMIT_CPU,(30,30))
         model=WorkflowModel.model_validate_json(model_json)
-        if operation=='structural':result=analyze(model,qualification=qualification)
+        if operation=='structural':result=_analyze_compiled(compile_contract(model),model.workflow_id)
         else:
             from importlib.metadata import version
             if version('pm4py')!=PIN:raise RuntimeError('exact analytical runtime required')
@@ -64,17 +70,39 @@ def run_bounded(model,*,operation,qualification,log=None,timeout_seconds=30):
     if operation!='structural' and log is None:return {'state':'unavailable','reason':'Admitted event export required','model':original}
     return _execute_bounded(original,_worker,(model.model_dump_json(),operation,log.model_dump_json() if log else None,qualification),timeout_seconds)
 
+def _isolated_worker(worker,args,output,ready):
+    # Own a new session before any analytical code can spawn a native solver.
+    os.setsid()
+    ready.send(os.getpid());ready.close()
+    worker(*args,output)
+
 def _execute_bounded(original,worker,args,timeout_seconds):
     # Private process mechanism; callers cannot choose a product operation or target.
     context=multiprocessing.get_context('spawn');output=context.Queue(maxsize=1)
-    process=context.Process(target=worker,args=(*args,output))
+    ready,child_ready=context.Pipe(duplex=False)
+    process=context.Process(target=_isolated_worker,args=(worker,args,output,child_ready))
     process.start();process.join(timeout_seconds)
+    child_ready.close()
+    try:owned_group=ready.poll() and ready.recv()==process.pid
+    except EOFError:owned_group=False
+    ready.close()
     if process.is_alive():
-        process.terminate();process.join(2)
-        if process.is_alive():process.kill();process.join(2)
+        if owned_group:
+            try:os.killpg(process.pid,signal.SIGTERM)
+            except ProcessLookupError:pass
+        else:process.terminate()
+        process.join(2)
+        if owned_group:
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+        elif process.is_alive():process.kill()
+        process.join(2)
         result={'state':'incomplete','reason':'Analytical timeout; original map retained'}
     else:
         try:result=output.get(timeout=.5)
         except queue.Empty:result={'state':'incomplete','reason':'Analytical memory or process exhaustion; original map retained'}
+        if owned_group:
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
     output.close();output.join_thread()
     return {**result,'model':original,'resource_bounds':{'seconds':timeout_seconds,'memory_bytes':512*1024*1024},'company_truth_accepted':False}
