@@ -2,31 +2,31 @@
 
 Written and revised October 11, 2026 EDT. This revision supersedes PR85’s
 patch-oriented execution design; historical defect evidence remains valid.
-The implementation is locally in progress as of October 11, 2026 EDT. This plan records verified engineering progress separately from delivery, private acceptance and production actions. Track this work on [S03 issue #27](https://github.com/u2giants/theoracle/issues/27)
+The implementation source merged on October 12, 2026 at 12:25 AM EDT through [PR #88](https://github.com/u2giants/theoracle/pull/88); private acceptance and restricted hosting remain blocked. This plan records verified engineering progress separately from delivery, private acceptance and production actions. Track this work on [S03 issue #27](https://github.com/u2giants/theoracle/issues/27)
 under [parent #24](https://github.com/u2giants/theoracle/issues/24); retain live proof
 on [the existing proof card #58](https://github.com/u2giants/theoracle/issues/58).
 Implementation owner: Codex chat 01a12d57-75a5-7733-b8c0-0a5d5dc93f24, adopted on #27. Current evidence/card: https://github.com/u2giants/theoracle/issues/27#issuecomment-6115855832.
 
 ## STATUS — read first
 
-Every implementation row remains unaccepted as of October 11, 2026 EDT; local progress is explicit below. A completed row must
+Every implementation row remains unaccepted as of October 12, 2026 EDT; reviewed source is merged and synthetic verification is explicit below. A completed row must
 link an immutable verification artifact and deployed revision where relevant.
 Keep source merged, synthetic verified, privately audited, hosted verified and
 business accepted as separate states. Never close #24/#27/#58 from this plan alone.
 
 | Step | Outcome | State | Dependency | Required acceptance artifact |
 |---|---|---|---|---|
-| W01 | Freeze evidence and prove the keep/replace/retire boundary | Locally reviewed; not shipped | Owned synthetic stores; private index availability checked; no private-store adoption/write | `docs/verification/oracle2/workflow/W01-approval.md` and `W01-execution.json` |
-| W02 | Build a new lossless observation/finding ledger | Locally implemented; review/private/live open | W01 | `W02-findings.md` in the same verification directory |
+| W01 | Freeze evidence and prove the keep/replace/retire boundary | Reviewed source merged; original/recovery boundaries preserved | Owned synthetic stores; private index availability checked; no private-store adoption/write | `docs/verification/oracle2/workflow/W01-approval.md` and `W01-execution.json` |
+| W02 | Build a new lossless observation/finding ledger | Reviewed source merged; private/live open | W01 | `W02-findings.md` in the same verification directory |
 | W03 | Assemble the business operating model and explicit workflows | SDK store/reload/rebuild verified; semantic acceptance open | W02 | `W03-workflow-contract.md` |
 | W04 | Qualify and integrate PM4Py structural checks | W04a fit approved; isolated measurement verified, product/bundle review open | W03 | `W04-pm4py-qualification.md` |
-| W05 | Preserve source lineage and invalidate derived artifacts | Transitive denial, queued recomputation and signed SDK delivery verified; hosted/restore open | W02; W03 for workflow lineage | `W05-lineage.md` |
+| W05 | Preserve source lineage and invalidate derived artifacts | Transitive denial, queued recomputation and signed SDK delivery verified; synthetic fresh restore passed; hosted open | W02; W03 for workflow lineage | `W05-lineage.md` |
 | W06 | Deliver bounded retrieval and the documentary first slice | Invented authenticated browser verified; hosted/private gates open | W03, W05; W04 only for formal diagnostics | `W06-browser.md` |
 | W07 | Import actual event records with honest completeness | Authenticated synthetic import/review verified; actual export unavailable | W03, W05 | `W07-operational-import.md` |
 | W08 | Discover observed behavior and compare it to documented flow | Deterministic synthetic metrics verified; PM4Py/runtime blocked | W04, W07 | `W08-process-analysis.md` |
 | W09 | Add bounded documentary/measured consulting roles | Persisted four-role measured preview verified; company generation paused | W06; W08 only for measured advice | `W09-consulting.md` |
 | W10 | Prove documentary and event slices independently | 175 synthetic tests/zero skips; independent private acceptance open | W02–W06/W09; W07–W08 for event slice | `W10-acceptance.md` |
-| W11 | Reversible core cutover and qualified analytical release | Synthetic selector/restore/comparison guards verified; shipment/hosted gates open | Respective W10 slice; existing hosting gates | `W11-live-proof.md` |
+| W11 | Reversible core cutover and qualified analytical release | Synthetic selector/restore/comparison guards verified; source shipment passed; restricted hosted gates open | Respective W10 slice; existing hosting gates | `W11-live-proof.md` |
 | W12 | Reconcile downstream plans and close accepted outcomes | Open | W11 | `W12-closeout.md` |
 
 **Continuation:** verify current STATUS, exact source/review hashes and #27; continue all ready work through W12. Do not restart W01 or treat local verification as delivery. Read this STATUS, then the immutable
@@ -47,7 +47,17 @@ Never recreate private state to work around source unavailability.
 Planning-session registration: [initial planning handoff](HANDOFF.d/2026-10-11T2059Z-edge-dev3-codex-workflow-integrity-plan.md).
 That write-once baton preserves PR85’s historical brief; this plan’s current STATUS,
 replacement contract and [Muse debate record](docs/research/oracle-operating-model-debate.md)
-supersede its original patch-oriented step instructions. No implementation is claimed.
+supersede its original patch-oriented step instructions. The planning baton is historical; source implementation is now merged. It is retained because its status does not explicitly establish committed-and-pushed publication, required by the successor rule.
+
+## Merged-source checkpoint — October 12, 2026, 12:30 AM EDT
+
+[Reviewed implementation PR #88](https://github.com/u2giants/theoracle/pull/88) merged as [17c16be189269ed219fc56c9bf819808f2a6c785](https://github.com/u2giants/theoracle/commit/17c16be189269ed219fc56c9bf819808f2a6c785). Its complete tree equals reviewed head `86a8697e9fb986b312770143deb6e4299e7eced6`. Exact merged-main runs passed: [contracts / 175 mandatory synthetic tests, no skips](https://github.com/u2giants/theoracle/actions/runs/38203717682), [web and retained checks](https://github.com/u2giants/theoracle/actions/runs/38203717673), [task gates](https://github.com/u2giants/theoracle/actions/runs/38203717639). Normal Git-driven production web deployment `dpl_6bAbnbuAkgVBuMYmmvVzhPyu6axg` is Ready and aliases `oracle.designflow.app`; read-only homepage returned HTTP 200. This proves source delivery and legacy web availability, not a deployed private operating worker, private corpus semantics or business acceptance.
+
+Exact source passed Node 24 synthetic browser checks for connected documents, current evidence, authenticated event import and finding review, persisted four-role measured report, source archive/hash/ranged delivery and logout denial. Reviewed source chain: full Muse APPROVE at `b70def229d13de6c1c285983fe6d4efa741b35a4`; subsequent APPROVE deltas at `2cc5ce816b324802cfe9c9300de302d3b5ec52e4` and `86a8697e9fb986b312770143deb6e4299e7eced6`. Protected review receipts are preserved, excluded from employee source archives.
+
+Owner's licensing decision, quoted from this chat: **“users may receive it under the library’s licensing terms”**. Employee authenticated corresponding-source delivery is implemented; this is not authority to publish private originals or purchase services. The complete bundled solver provenance/license/build closure is still unqualified; PM4Py analytical runtime remains unadmitted.
+
+Remaining W01–W12 owner: Codex chat `01a12d57-75a5-7733-b8c0-0a5d5dc93f24`, on #27 and existing #58. Restricted hosting cannot proceed: current tailnet policy grants wildcard source/destination access and authenticated OAuth has only `policy_file:read`, not policy management. Current global provider-account budget coverage is UNKNOWN; private dispatch remains disabled. Independent original-source semantic evaluation requires a separately admitted protocol; synthetic tests do not satisfy it. Actual operational exports are unavailable. W11 accepted comparison/cutover and W12 retirement wait for those proofs; no legacy capability is retired. Company questions, company reports, employee messages and Ilona/Jessica grading remain paused. Continue every ready authorized step; historical one-child stopping instructions are superseded.
 
 ## 1. Ultimate goal
 
