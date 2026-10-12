@@ -10,6 +10,23 @@ const destination = resolve(root, 'apps/web/.source-offer');
 const mandatory = ['LICENSE','SOURCE_OFFER.md','THIRD_PARTY_NOTICES.md','README.md','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','turbo.json','vercel.json','services/oracle-brain/uv.lock'];
 const codeRoots = ['apps/','packages/','services/','scripts/','migrations/','.github/','dev/oracle2/','evals/oracle2/workflow/'];
 const special = ['docs/deployment.md','docs/configuration.md','docs/development.md'];
+// Recover only Vercel's formatting-only rewrite of the tracked configuration.
+// Every setting must remain identical; custom source changes still fail below.
+if (process.env.VERCEL === '1') {
+  const configPath=resolve(root,'vercel.json');
+  if (!lstatSync(configPath).isFile() || lstatSync(configPath).isSymbolicLink()) throw new Error('Platform config must be a regular project file');
+  const committed=execFileSync('git',['show','HEAD:vercel.json'],{cwd:root});
+  const actual=readFileSync(configPath);
+  if (!actual.equals(committed)) {
+    const canonical=value=>Array.isArray(value)?value.map(canonical):value && typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value;
+    const expected=JSON.parse(committed.toString('utf8')),observed=JSON.parse(actual.toString('utf8'));
+    if (JSON.stringify(canonical(expected)) !== JSON.stringify(canonical(observed))) {
+      const changed=Array.from(new Set([...Object.keys(expected),...Object.keys(observed)])).filter(key=>JSON.stringify(canonical(expected[key]))!==JSON.stringify(canonical(observed[key])));
+      throw new Error('Platform config settings differ from reviewed source; changed keys: '+changed.slice(0,20).join(', '));
+    }
+    writeFileSync(configPath,committed);
+  }
+}
 // Release archives must correspond to a clean committed source tree.
 const dirty = execFileSync('git',['status','--porcelain','--untracked-files=all'],{cwd:root,encoding:'utf8'}).trim();
 if (dirty) {

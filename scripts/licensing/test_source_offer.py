@@ -1,3 +1,4 @@
+import os
 import hashlib
 import json
 import subprocess
@@ -49,3 +50,30 @@ def test_exact_dependency_source_payload_and_tamper_denial(tmp_path):
         assert manifest['files']['third-party/pm4py-2.7.22.tar.gz']==descriptor['sha256']
     (directory/'pm4py-2.7.22.tar.gz').write_bytes(b'tampered')
     result=run(root);assert result.returncode!=0 and 'Dependency source integrity mismatch' in result.stderr
+
+
+def test_platform_formatting_recovery_keeps_exact_committed_source(tmp_path):
+    root,git=repo(tmp_path)
+    config={'framework':'nextjs','buildCommand':'pnpm run build:vercel'}
+    original=(json.dumps(config,indent=2)+'\n').encode()
+    (root/'vercel.json').write_bytes(original);git('add','vercel.json');git('commit','-qm','config')
+    (root/'vercel.json').write_text(json.dumps(dict(reversed(list(config.items()))),separators=(',',':')))
+    result=subprocess.run(['node','scripts/licensing/build_source_offer.mjs'],cwd=root,env={**os.environ,'VERCEL':'1'},text=True,capture_output=True)
+    assert result.returncode==0,result.stderr
+    assert (root/'vercel.json').read_bytes()==original
+    assert not git('status','--porcelain').stdout.strip()
+    with tarfile.open(root/'apps/web/.source-offer/oracle-source.tar.gz','r:gz') as tar:
+        assert tar.extractfile('vercel.json').read()==original
+
+
+def test_platform_semantic_change_is_not_recovered(tmp_path):
+    root,_=repo(tmp_path);changed=b'{"buildCommand":"unreviewed"}\n';(root/'vercel.json').write_bytes(changed)
+    result=subprocess.run(['node','scripts/licensing/build_source_offer.mjs'],cwd=root,env={**os.environ,'VERCEL':'1'},text=True,capture_output=True)
+    assert result.returncode!=0 and 'changed keys: buildCommand' in result.stderr
+    assert (root/'vercel.json').read_bytes()==changed
+
+
+def test_platform_recovery_cannot_admit_changed_application_code(tmp_path):
+    root,_=repo(tmp_path);(root/'vercel.json').write_text(' { } ');(root/'apps/web/app.ts').write_text('unreviewed application code\n')
+    result=subprocess.run(['node','scripts/licensing/build_source_offer.mjs'],cwd=root,env={**os.environ,'VERCEL':'1'},text=True,capture_output=True)
+    assert result.returncode!=0 and 'Commit source changes before building' in result.stderr
