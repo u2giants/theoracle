@@ -1,4 +1,4 @@
-"""Fixed OpenRouter transport and conservative account allowance; no hidden retries."""
+"""Fixed OpenRouter transport and conservative exact-key allowance; no hidden retries."""
 import json
 import hashlib
 import urllib.request
@@ -24,7 +24,8 @@ def amount(value):
     return result
 
 
-def conservative_allowance(data:dict,*,observed_at:datetime,now:datetime,coverage_current:bool)->Decimal:
+def _conservative_key_allowance(data:dict,*,observed_at:datetime,now:datetime,coverage_current:bool)->Decimal:
+    """Arithmetic only; native transport's admitted receipt is the authority gate."""
     if not coverage_current or observed_at.tzinfo is None or now.tzinfo is None or not timedelta(0)<=now-observed_at<=timedelta(seconds=15):
         raise PermissionError('account reservation coverage or fresh observation unavailable')
     utc=now.astimezone(timezone.utc);local=now.astimezone(NY)
@@ -63,7 +64,7 @@ def current_pricing(models:dict,*,model:str,max_output_tokens:int,register_hash:
 class NativeOpenRouter:
     """Credentials stay in memory; fixed TLS endpoints, bounded responses, no redirects."""
     def __init__(self,api_key:str,*,coverage_receipt, trusted_coverage_hash:str, ledger_identity_hash:str):
-        if not api_key:raise PermissionError('existing admitted account credential unavailable')
+        if not api_key:raise PermissionError('existing admitted Oracle key unavailable')
         import re
         if any(not isinstance(h,str) or not re.fullmatch('[0-9a-f]{64}',h) for h in (trusted_coverage_hash,ledger_identity_hash)):
             raise PermissionError('externally admitted central key reservation binding required')
@@ -93,9 +94,10 @@ class NativeOpenRouter:
         except Exception:raise RuntimeError('fixed admitted provider request failed; private request not logged') from None
     def allowance(self):
         observed=datetime.now(timezone.utc)
+        self._coverage(observed)
         data=self._request('/key').get('data',{})
         now=datetime.now(timezone.utc)
-        return conservative_allowance(data,observed_at=observed,now=now,coverage_current=self._coverage(now))
+        return _conservative_key_allowance(data,observed_at=observed,now=now,coverage_current=self._coverage(now))
     def pricing(self,*,model,max_output_tokens,register_hash):
         return current_pricing(self._request('/models'),model=model,max_output_tokens=max_output_tokens,register_hash=register_hash,now=datetime.now(timezone.utc))
     def send(self,*,messages,model,max_output_tokens,store,extra_body):

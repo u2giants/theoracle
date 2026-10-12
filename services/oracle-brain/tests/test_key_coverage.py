@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from oracle_brain.operating_model.contracts import digest
 from oracle_brain.operating_model.key_coverage import KeyConsumer,KeyCoverageAdmission,verify_key_coverage
 from oracle_brain.operating_model.native_provider import NativeOpenRouter
+from oracle_brain.operating_model.provider_adapter import Budget,AdmittedProvider
 
 NOW=datetime.now(timezone.utc)
 FP=hashlib.sha256(b'synthetic-only').hexdigest()
@@ -56,3 +57,13 @@ def test_native_transport_rejects_arbitrary_boolean_and_other_key_before_send(mo
   calls=[];monkeypatch.setattr(native,'_request',lambda *args:calls.append(args))
   with pytest.raises(PermissionError):native.send(messages=[],model='openai/gpt-6.1-sol',max_output_tokens=100,store=False,extra_body={})
   assert calls==[]
+
+def test_native_adapter_binds_real_allowance_and_exact_single_key_ledger():
+ proof=verify(admission())
+ native=NativeOpenRouter('synthetic-only',coverage_receipt=lambda:proof,trusted_coverage_hash=proof.admission_hash,ledger_identity_hash='3'*64)
+ for allowance,budget in [(lambda:25,Budget('synthetic-only',ledger_identity_hash='3'*64)),
+                         (native.allowance,Budget('synthetic-only')),
+                         (native.allowance,Budget('synthetic-only',ledger_identity_hash='5'*64))]:
+  with pytest.raises(PermissionError):AdmittedProvider(request=None,approvals=[],pricing=None,budget=budget,sender=native.send,remaining_daily_allowance=allowance)
+ valid=AdmittedProvider(request=None,approvals=[],pricing=None,budget=Budget('synthetic-only',ledger_identity_hash='3'*64),sender=native.send,remaining_daily_allowance=native.allowance)
+ assert valid.remaining_daily_allowance.__self__ is native
