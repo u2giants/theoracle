@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -68,6 +69,45 @@ def test_budget_rejects_unadmitted_purpose_and_cost(test_database):
     for amount in (Decimal('0'), Decimal('1.000001')):
         with pytest.raises(PermissionError):
             budget.reserve(workspace_id=w, artifact_id=uuid4(), batch_id=b, purpose='source-extraction', attempt=1, maximum=amount, pricing_hash='a'*64)
+
+@pytest.mark.parametrize('status,kind,receipt_today',[
+ (None,None,False),('failed','transport_failure',False),('failed',None,False),('completed',None,True)])
+def test_prior_day_pending_unknown_and_late_completion_hold_today_budget(test_database,status,kind,receipt_today):
+ budget=Budget(test_database)
+ with psycopg.connect(test_database) as conn:
+  for _ in range(25):
+   rid=uuid4()
+   conn.execute("INSERT INTO oracle2.operating_dispatch_reservations(reservation_id,workspace_id,artifact_id,batch_id,purpose,attempt,reserved_usd,pricing_hash,reserved_at) VALUES(%s,%s,%s,%s,'source-census',1,1,%s,now()-interval '2 days')",(rid,uuid4(),uuid4(),uuid4(),'a'*64))
+   if status:
+    conn.execute("INSERT INTO oracle2.operating_dispatch_receipts(reservation_id,actual_usd,status,response_hash,failure_kind,created_at) VALUES(%s,1,%s,%s,%s,CASE WHEN %s THEN now() ELSE now()-interval '2 days' END)",(rid,status,'b'*64,kind,receipt_today))
+ with pytest.raises(PermissionError):budget.reserve(workspace_id=uuid4(),artifact_id=uuid4(),batch_id=uuid4(),purpose='source-census',attempt=1,maximum=Decimal('.01'),pricing_hash='a'*64,account_remaining=Decimal('25'))
+
+def test_known_completed_prior_day_does_not_permanently_hold_new_day(test_database):
+ budget=Budget(test_database)
+ with psycopg.connect(test_database) as conn:
+  rid=uuid4()
+  conn.execute("INSERT INTO oracle2.operating_dispatch_reservations(reservation_id,workspace_id,artifact_id,batch_id,purpose,attempt,reserved_usd,pricing_hash,reserved_at) VALUES(%s,%s,%s,%s,'source-census',1,1,%s,now()-interval '2 days')",(rid,uuid4(),uuid4(),uuid4(),'a'*64))
+  conn.execute("INSERT INTO oracle2.operating_dispatch_receipts(reservation_id,actual_usd,status,response_hash,created_at) VALUES(%s,1,'completed',%s,now()-interval '2 days')",(rid,'b'*64))
+ assert budget.reserve(workspace_id=uuid4(),artifact_id=uuid4(),batch_id=uuid4(),purpose='source-census',attempt=1,maximum=Decimal('1'),pricing_hash='a'*64,account_remaining=Decimal('1'))
+
+def test_all_workspaces_share_one_atomic_key_allowance(test_database):
+ def reserve(_):
+  try:
+   Budget(test_database).reserve(workspace_id=uuid4(),artifact_id=uuid4(),batch_id=uuid4(),purpose='source-census',attempt=1,maximum=Decimal('1'),pricing_hash='a'*64,account_remaining=Decimal('5'))
+   return True
+  except PermissionError:return False
+ with ThreadPoolExecutor(max_workers=8) as pool:results=list(pool.map(reserve,range(12)))
+ assert sum(results)==5
+ with psycopg.connect(test_database) as conn:assert conn.execute('SELECT sum(reserved_usd) FROM oracle2.operating_dispatch_reservations').fetchone()[0]==5
+
+def test_semantic_purpose_requires_matching_processing_admission(adapter):
+ provider,calls=adapter;w,a,b=ids()
+ with pytest.raises(PermissionError):provider.extract(workspace_id=w,artifact_id=a,batch_id=b,purpose='independent-source-semantic-acceptance',attempt=1,input_tokens_upper_bound=2048,messages=[{'role':'user'}])
+ assert calls==[]
+ provider.request=provider.request.model_copy(update={'purpose':'independent-source-semantic-acceptance'})
+ provider.approvals=[ProcessingApproval(**provider.request.model_dump(),expires_at=datetime.now(timezone.utc)+timedelta(hours=1),register_ref='invented-source-semantic-test')]
+ assert provider.extract(workspace_id=w,artifact_id=a,batch_id=b,purpose='independent-source-semantic-acceptance',attempt=1,input_tokens_upper_bound=2048,messages=[{'role':'user'}])=={'ok':True}
+ assert len(calls)==1
 
 
 def test_replay_and_correction_require_failed_first_receipt(test_database,monkeypatch):

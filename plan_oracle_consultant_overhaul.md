@@ -13,6 +13,9 @@ Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through
 
 ## STATUS — read this first
 
+October 12, 2026, 1:18 PM EDT: Codex retains W01–W12 ownership. Old CLAIMS assignments for Ilona/Jessica are cleared with independent live readback (15 each, protected history unchanged; PR #94). New hosting/spending integration and real ClickUp observation discovery are recorded in the workflow plan active checkpoint; none establishes private or business acceptance. All S03–S16 obligations remain open. Company questions, reports, employee messages and grading remain paused. Private processing requires fresh exact admission after the previous register expired at 1:11:54 PM EDT.
+
+
 **October 12, 2026, 11:26 AM EDT successor reconciliation:** Codex chat
 `01a130a9-5aca-7561-8dff-38bf645c6055` adopted all remaining W01–W12 work on
 [#27](https://github.com/u2giants/theoracle/issues/27#issuecomment-6127049812)

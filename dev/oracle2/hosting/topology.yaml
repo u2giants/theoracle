@@ -1,0 +1,91 @@
+# Architecture inputs only; root native factories and exact image/secrets must
+# be supplied before this becomes a deployment. No old synthetic credentials.
+name: oracle-native-isolated
+x-boundary: &boundary
+  image: ${ORACLE_HOSTING_IMAGE:?immutable reviewed image digest required}
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  read_only: true
+  init: true
+  pids_limit: 128
+  mem_limit: 1g
+  cpus: 1.0
+  tmpfs: ['/tmp:rw,noexec,nosuid,size=64m']
+  labels:
+    oracle.hosting.boundary: isolated-native-v1
+services:
+  gateway:
+    <<: *boundary
+    # Dedicated root-reviewed factory, not an arbitrary module from a request.
+    command: [gateway]
+    networks: [ingress, jobs, ledger]
+    environment:
+      ORACLE_HOSTING_SETTINGS_SHA256: ${ORACLE_GATEWAY_SETTINGS_SHA256:?reviewed settings hash required}
+    expose: [8443]
+    # Coolify must terminate no private credentials or remove mTLS. Its exact
+    # routing has to support TLS passthrough or a reviewed isolated authenticator.
+    volumes: [gateway-auth:/run/oracle-auth:ro, job-spool:/run/oracle-jobs]
+  executor:
+    <<: *boundary
+    command: [executor]
+    networks: [jobs, ledger, candidate, provider]
+    environment:
+      ORACLE_HOSTING_SETTINGS_SHA256: ${ORACLE_EXECUTOR_SETTINGS_SHA256:?reviewed settings hash required}
+    volumes: [executor-auth:/run/oracle-auth:ro, job-spool:/run/oracle-jobs, executor-blobs:/run/oracle-blobs]
+    # No Trigger, Tailscale, Coolify, provider key, confirmed/admin/checkpoint key.
+  provider-broker:
+    profiles: [provider-admitted]
+    <<: *boundary
+    entrypoint: [python, -m, oracle_brain.hosting.provider_runtime]
+    command: [provider]
+    networks: [provider, outbound, ledger]
+    expose: [8443]
+    volumes: [provider-auth:/run/oracle-auth:ro]
+  ledger:
+    image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+    networks: [ledger]
+    volumes: [ledger-data:/var/lib/postgresql/data, ledger-auth:/run/oracle-auth:ro]
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/oracle-auth/admin-password
+    mem_limit: 1g
+    cpus: 1.0
+  candidate:
+    image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+    networks: [candidate]
+    volumes: [candidate-data:/var/lib/falkordb/data, candidate-auth:/run/oracle-auth:ro]
+    # Exact reviewed server config contains role auth; no plaintext argv secret.
+    command: [redis-server, /run/oracle-auth/server.conf, --loadmodule, /var/lib/falkordb/bin/falkordb.so]
+    mem_limit: 2g
+    cpus: 1.0
+  confirmed:
+    image: falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+    networks: [confirmed]
+    volumes: [confirmed-data:/var/lib/falkordb/data, confirmed-auth:/run/oracle-auth:ro]
+    command: [redis-server, /run/oracle-auth/server.conf, --loadmodule, /var/lib/falkordb/bin/falkordb.so]
+    mem_limit: 2g
+    cpus: 1.0
+networks:
+  ingress: {}
+  outbound: {}
+  jobs: &isolated
+    internal: true
+    enable_ipv6: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  ledger: *isolated
+  candidate: *isolated
+  confirmed: *isolated
+  provider: *isolated
+volumes:
+  gateway-auth: {}
+  executor-auth: {}
+  provider-auth: {}
+  ledger-auth: {}
+  candidate-auth: {}
+  confirmed-auth: {}
+  executor-blobs: {}
+  job-spool: {}
+  ledger-data: {}
+  candidate-data: {}
+  confirmed-data: {}
