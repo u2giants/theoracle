@@ -9,8 +9,18 @@ test('invented authenticated map traverses real current worker SDK and ledger',a
   await expect(page.getByRole('alert')).toBeVisible();
   await page.getByLabel('Access token').fill(process.env.ORACLE2_PILOT_TOKEN!);
   await page.getByRole('button',{name:'Connect',exact:true}).click();
+  const oversizedEvent=await page.request.post(`${url}/api/consultant/processes/intake/events`,{data:JSON.stringify({format:'csv',window_start:'2026-01-01T00:00:00Z',window_end:'2026-01-02T00:00:00Z',mapping:{process_id:'intake',scope:'intake',timezone_name:'UTC'},raw_export_base64:'A'.repeat(4*1024*1024)})});
+  expect(oversizedEvent.status()).toBe(413);
   await expect(page.getByRole('img',{name:'Reported workflow Invented intake'})).toBeVisible({timeout:30000});
   await expect(page.getByText('Approval owner is missing.',{exact:true})).toBeVisible();
+  const imported=await page.request.post(`${url}/api/consultant/processes/intake/events`,{data:JSON.parse(process.env.ORACLE2_EVENT_FIXTURE!)});
+  expect(imported.status()).toBe(202);const importJob=await imported.json();
+  await expect.poll(async()=>{const r=await page.request.get(`${url}/api/consultant/processes/intake/events?runId=${importJob.runId}`);return (await r.json()).state;},{timeout:30000}).toBe('completed');
+  const importResult=await (await page.request.get(`${url}/api/consultant/processes/intake/events?runId=${importJob.runId}`)).json();
+  expect(importResult.accepted_count).toBe(1);expect(importResult.actual_data_acceptance).toBe('unavailable');
+
+  await expect(page.getByText('Unverified review material; it is not a fact.',{exact:true})).toBeVisible();
+  await expect(page.getByText('Unverified legacy licensor concern',{exact:true})).toBeVisible();
   await expect(page.getByRole('link',{name:'Download corresponding source (AGPL)'})).toHaveAttribute('href','/api/consultant/source');
   const download=await page.request.get(`${url}/api/consultant/source`);expect(download.ok()).toBeTruthy();
   const archive=await download.body();const manifest=JSON.parse(readFileSync('.source-offer/manifest.json','utf8'));
@@ -34,10 +44,20 @@ test('invented authenticated map traverses real current worker SDK and ledger',a
     const [largeDownload]=await Promise.all([page.waitForEvent('download'),page.getByRole('link',{name:'Download corresponding source (AGPL)'}).click()]);
     expect(createHash('sha256').update(readFileSync((await largeDownload.path())!)).digest('hex')).toBe(oversizedHash);
   }finally{writeFileSync('.source-offer/oracle-source.tar.gz',archive);writeFileSync('.source-offer/manifest.json',manifestBytes);}
-  await page.getByText('Source support',{exact:true}).click();
+  await page.getByText('Source support',{exact:true}).first().click();
   await expect(page.getByText('Intake sends packet to Review.',{exact:true})).toBeVisible();
   await page.getByLabel('Process',{exact:true}).selectOption('intake');
   await expect(page.getByRole('img',{name:'Reported workflow Invented intake'})).toBeVisible({timeout:30000});
+  await page.getByRole('button',{name:'Show connected processes'}).click();
+  await expect(page.getByText('Two connected invented processes',{exact:false})).toBeVisible();
+  await expect(page.getByText('Process handoffs',{exact:true})).toBeVisible();
+  const review=await page.request.post(`${url}/api/consultant/reviews/missing-owner`,{data:{action:'finding_annotate',scope:'intake',note:'Invented reviewer requests an owner; no policy approval.'}});
+  expect(review.status()).toBe(202);
+  await expect.poll(async()=>{
+    await page.getByRole('button',{name:'Refresh',exact:true}).click();
+    return page.getByText('Invented reviewer requests an owner; no policy approval.',{exact:true}).count();
+  },{timeout:30000}).toBe(1);
+  await expect(page.getByText('Review decisions do not establish company policy.',{exact:true})).toBeVisible();
   if(process.env.ORACLE2_WORKFLOW_SCREENSHOT)await page.screenshot({path:process.env.ORACLE2_WORKFLOW_SCREENSHOT,fullPage:true});
   const logout=await page.request.delete(`${url}/api/consultant/session`);expect(logout.ok()).toBeTruthy();
   await page.getByRole('button',{name:'Refresh',exact:true}).click();

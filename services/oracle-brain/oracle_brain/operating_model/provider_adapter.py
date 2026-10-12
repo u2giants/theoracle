@@ -11,6 +11,9 @@ from oracle_brain.provider_policy import authorize, ProcessingRequest, Processin
 from oracle_brain.provider_transport import transport_options
 from .contracts import StrictRecord, digest
 
+class ProviderQuotaError(PermissionError):
+    """Terminal quota-only failure; no automatic retry or provider substitution."""
+
 class Pricing(StrictRecord):
     provider: str
     model: str
@@ -34,7 +37,7 @@ class Budget:
             prior=conn.execute('SELECT reservation_id FROM oracle2.operating_dispatch_reservations WHERE workspace_id=%s AND artifact_id=%s AND purpose=%s AND attempt=%s',(workspace_id,artifact_id,purpose,attempt)).fetchone()
             if prior: raise PermissionError('attempt already dispatched; replay cannot charge again')
             if attempt==2:
-                first=conn.execute('SELECT d.diagnosed_by FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id) JOIN oracle2.operating_dispatch_diagnoses d USING(reservation_id) WHERE d.failure_kind!=%s AND d.correction_hash=%s AND r.workspace_id=%s AND r.artifact_id=%s AND r.purpose=%s AND r.attempt=1 AND s.status=%s',('quota_exhausted',correction_hash,workspace_id,artifact_id,purpose,'failed')).fetchone()
+                first=conn.execute('SELECT d.diagnosed_by FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id) JOIN oracle2.operating_dispatch_diagnoses d USING(reservation_id) WHERE d.failure_kind!=%s AND s.failure_kind IS DISTINCT FROM %s AND d.correction_hash=%s AND r.workspace_id=%s AND r.artifact_id=%s AND r.purpose=%s AND r.attempt=1 AND r.batch_id=%s AND s.status=%s',('quota_exhausted','quota_exhausted',correction_hash,workspace_id,artifact_id,purpose,batch_id,'failed')).fetchone()
                 if not first: raise PermissionError('one correction requires a diagnosed failed receipt')
                 _lock(conn,workspace_id)
                 if not _has_authority_conn(conn,workspace_id,first[0],'dispatch-correction:'+str(artifact_id)):raise PermissionError('correction diagnosis authority expired or revoked')
@@ -62,15 +65,18 @@ class Budget:
                 raise PermissionError('current rooted artifact correction authority required')
             conn.execute('INSERT INTO oracle2.operating_dispatch_diagnoses(reservation_id,diagnosed_by,failure_kind,correction_hash,diagnosis_hash) VALUES(%s,%s,%s,%s,%s)',(reservation_id,actor_id,failure_kind,correction_hash,diagnosis_hash))
 
-    def finish(self,reservation_id: UUID, *, actual_usd: Decimal, failed: bool, response_hash: str | None):
+    def finish(self,reservation_id: UUID, *, actual_usd: Decimal, failed: bool, response_hash: str | None, failure_kind: str | None = None):
+        if failure_kind not in {None,'transport_failure','quota_exhausted','invalid_output'} or (failure_kind and not failed):raise ValueError('invalid failure classification')
+        if not actual_usd.is_finite() or actual_usd<0:raise ValueError('invalid dispatch accounting')
+        actual_usd=actual_usd.quantize(Decimal('0.000001'),rounding=ROUND_CEILING)
         with psycopg.connect(self.url) as conn:
             row=conn.execute('SELECT reserved_usd FROM oracle2.operating_dispatch_reservations WHERE reservation_id=%s',(reservation_id,)).fetchone()
             if row is None or not actual_usd.is_finite() or actual_usd<0: raise ValueError('invalid dispatch accounting')
             overrun=actual_usd>row[0]
             status='overrun' if overrun else ('failed' if failed else 'completed')
-            prior=conn.execute('SELECT actual_usd,status,response_hash FROM oracle2.operating_dispatch_receipts WHERE reservation_id=%s',(reservation_id,)).fetchone()
-            if prior and prior!=(actual_usd,status,response_hash): raise ValueError('dispatch receipt tampering')
-            conn.execute('INSERT INTO oracle2.operating_dispatch_receipts(reservation_id,actual_usd,status,response_hash) VALUES(%s,%s,%s,%s) ON CONFLICT DO NOTHING',(reservation_id,actual_usd,status,response_hash))
+            prior=conn.execute('SELECT actual_usd,status,response_hash,failure_kind FROM oracle2.operating_dispatch_receipts WHERE reservation_id=%s',(reservation_id,)).fetchone()
+            if prior and prior!=(actual_usd,status,response_hash,failure_kind): raise ValueError('dispatch receipt tampering')
+            conn.execute('INSERT INTO oracle2.operating_dispatch_receipts(reservation_id,actual_usd,status,response_hash,failure_kind) VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING',(reservation_id,actual_usd,status,response_hash,failure_kind))
         if overrun: raise RuntimeError('provider cost overrun; further dispatch denied pending diagnosis')
 
 class AdmittedProvider:
@@ -78,8 +84,14 @@ class AdmittedProvider:
         self.request,self.approvals,self.pricing,self.budget,self.sender=request,approvals,pricing,budget,sender
         self.remaining_daily_allowance=remaining_daily_allowance
         self.admitted_register_hash=admitted_register_hash
+    def correction_contract(self, *, workspace_id, artifact_id, batch_id, purpose, input_tokens_upper_bound, messages):
+        return digest({'workspace_id':str(workspace_id),'artifact_id':str(artifact_id),'batch_id':str(batch_id),
+                       'purpose':purpose,'messages':messages,'processing_request':self.request.model_dump(mode='json'),
+                       'pricing':self.pricing.model_dump(mode='json'),'register_hash':self.admitted_register_hash,
+                       'input_tokens_upper_bound':input_tokens_upper_bound})
+
     def extract(self, *, workspace_id: UUID,artifact_id: UUID,batch_id: UUID,purpose: str,attempt: int,
-                input_tokens_upper_bound: int, messages: list[dict]):
+                input_tokens_upper_bound: int, messages: list[dict], response_validator=None):
         authorize(self.request,self.approvals)
         if self.admitted_register_hash!=self.pricing.admitted_register_hash:raise PermissionError('pricing is not bound to the admitted processing register')
         if self.request.purpose!=purpose or self.pricing.provider!=self.request.provider or self.pricing.expires_at<=datetime.now(timezone.utc):
@@ -96,11 +108,16 @@ class AdmittedProvider:
         allowance=self.remaining_daily_allowance()
         if maximum > allowance:
             raise PermissionError('current remaining daily allowance cannot fund dispatch')
-        rid=self.budget.reserve(workspace_id=workspace_id,artifact_id=artifact_id,batch_id=batch_id,purpose=purpose,attempt=attempt,maximum=maximum,pricing_hash=digest(self.pricing.model_dump(mode='json')),account_remaining=allowance,correction_hash=digest({'messages':messages}))
+        rid=self.budget.reserve(workspace_id=workspace_id,artifact_id=artifact_id,batch_id=batch_id,purpose=purpose,attempt=attempt,maximum=maximum,pricing_hash=digest(self.pricing.model_dump(mode='json')),account_remaining=allowance,correction_hash=self.correction_contract(workspace_id=workspace_id,artifact_id=artifact_id,batch_id=batch_id,purpose=purpose,input_tokens_upper_bound=input_tokens_upper_bound,messages=messages))
+        self.last_reservation_id=rid
         try:
             response,actual=self.sender(messages=messages,model=self.pricing.model,max_output_tokens=self.pricing.max_output_tokens,store=False,**opts)
-        except Exception:
-            self.budget.finish(rid,actual_usd=maximum,failed=True,response_hash=None)
+        except Exception as error:
+            self.budget.finish(rid,actual_usd=maximum,failed=True,response_hash=None,failure_kind='quota_exhausted' if isinstance(error,ProviderQuotaError) else 'transport_failure')
             raise RuntimeError('admitted extraction dispatch failed; private response not logged') from None
-        self.budget.finish(rid,actual_usd=actual,failed=False,response_hash=digest({'response':response}))
+        valid=True
+        if response_validator is not None:
+            try:response_validator(response)
+            except (ValueError,TypeError,KeyError):valid=False
+        self.budget.finish(rid,actual_usd=actual,failed=not valid,response_hash=digest({'response':response}),failure_kind=None if valid else 'invalid_output')
         return response

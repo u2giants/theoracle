@@ -19,7 +19,16 @@ def activate(database_url:str,manifest:ReleaseManifest,*,expected_generation:int
     if not synthetic and manifest.acceptance_state!='admitted_hosted':raise PermissionError('hosted serving requires accepted restricted restore/live gate')
     payload=ledger.read(manifest.workspace_id,manifest.artifact_id,manifest.artifact_version)
     if digest(payload)!=manifest.artifact_content_hash:raise ValueError('release artifact seal mismatch')
-    if payload['source_refs']!=[r.model_dump(mode='json') for r in manifest.source_refs]:raise ValueError('release source population mismatch')
+    expected_refs=list(payload['source_refs'])
+    for reference in manifest.report_refs:
+        report_payload=ledger.read(manifest.workspace_id,reference.artifact_id,reference.version)
+        if digest(report_payload)!=reference.content_hash or report_payload['report']['model_artifact_hash']!=manifest.artifact_content_hash:
+            raise ValueError('report is not sealed to this exact documentary release')
+        from .report_store import serve_report
+        serve_report(ledger,manifest.workspace_id,reference.artifact_id,reference.version)
+        for ref in report_payload['source_refs']:
+            if ref not in expected_refs:expected_refs.append(ref)
+    if expected_refs!=[r.model_dump(mode='json') for r in manifest.source_refs]:raise ValueError('release source population mismatch')
     verify_projection(manifest,payload)
     with psycopg.connect(database_url) as conn:
         conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',(f'operating-selector:{manifest.workspace_id}',))

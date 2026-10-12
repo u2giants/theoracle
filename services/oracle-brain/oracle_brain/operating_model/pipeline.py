@@ -53,11 +53,20 @@ def persist_assembly(ledger,raw_response,*,workspace_id,artifact_id,version,extr
 
 
 def dispatch_source(ledger,provider,receipt,*,artifact_id,version,batch_id,permission_digest,compiler_digest,attempt=1):
-    from .extraction import ExtractionResponse,persist_response
+    from .extraction import ExtractionResponse,persist_response,validate_response
     ledger.authorize_refs((receipt.ref,),receipt.ref.workspace_id)
     messages=[{'role':'system','content':'Extract literal documentary observations and unresolved findings only. No company questions, reports, recommendations or policy promotion. Return exactly the provided JSON schema: '+json.dumps(ExtractionResponse.model_json_schema(),sort_keys=True)},
               {'role':'user','content':json.dumps({'source_ref':receipt.ref.model_dump(mode='json'),'reading':receipt.reading},ensure_ascii=False)}]
     bound=len(json.dumps(messages,ensure_ascii=False).encode())+1024*len(messages)
-    raw=provider.extract(workspace_id=receipt.ref.workspace_id,artifact_id=artifact_id,batch_id=batch_id,purpose='source-extraction',attempt=attempt,input_tokens_upper_bound=bound,messages=messages)
+    try:
+        raw=provider.extract(workspace_id=receipt.ref.workspace_id,artifact_id=artifact_id,batch_id=batch_id,purpose='source-extraction',attempt=attempt,input_tokens_upper_bound=bound,messages=messages,response_validator=lambda raw:validate_response(receipt,raw,inventories=ledger.reviewed_inventories))
+    except RuntimeError:
+        native=getattr(getattr(provider,'sender',None),'__self__',None)
+        complete_response=getattr(native,'last_response_text',None)
+        ledger.persist(workspace_id=receipt.ref.workspace_id,artifact_id=artifact_id,version=version,kind='failed_extraction',
+            payload={'source_refs':[receipt.ref.model_dump(mode='json')],'complete':False,'raw_response':complete_response,
+                     'failure_class':'admitted_dispatch_failure','reservation_id':str(getattr(provider,'last_reservation_id',''))},
+            refs=(receipt.ref,),permission_digest=permission_digest,compiler_digest=compiler_digest,failed=True)
+        raise RuntimeError('failed admitted source dispatch retained without private logging') from None
     if not isinstance(raw,str):raw=json.dumps(raw,ensure_ascii=False,allow_nan=False)
     return persist_response(ledger,receipt,raw,artifact_id=artifact_id,version=version,permission_digest=permission_digest,compiler_digest=compiler_digest)

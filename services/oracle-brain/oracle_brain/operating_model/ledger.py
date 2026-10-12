@@ -149,8 +149,18 @@ class Ledger:
         manifest = ArtifactManifest.model_validate_json(json.dumps(row[0]))
         if manifest.state!='ready' and not include_failed:
             raise PermissionError('failed extraction cannot serve')
+        # Resolve immutable source identities from relational receipts before opening
+        # any private blob. Source text never needs to be read to check permission.
+        with psycopg.connect(self.url) as conn:
+            source_rows=conn.execute('''SELECT r.receipt->'ref' FROM oracle2.artifact_dependencies d
+              JOIN oracle2.operating_model_source_receipts r ON r.workspace_id=d.workspace_id
+                AND r.source_id::text=d.upstream_id AND r.revision::text=d.upstream_revision
+              WHERE d.workspace_id=%s AND d.artifact_id=%s AND d.version=%s AND d.upstream_kind='source' ''',(workspace_id,artifact_id,version)).fetchall()
+        authoritative_refs=tuple(SourceRef.model_validate_json(json.dumps(row[0])) for row in source_rows)
+        self.authorize_refs(authoritative_refs,workspace_id)
         payload = json.loads(self.blobs.read(manifest.private_object_key,manifest.content_hash))
         refs = tuple(SourceRef.model_validate_json(json.dumps(r)) for r in payload['source_refs'])
+        if set(refs)!=set(authoritative_refs):raise ValueError('blob source identities differ from relational ledger')
         self.authorize_refs(refs,workspace_id)
         if digest({'refs':[r.model_dump(mode='json') for r in refs]}) != manifest.source_digest:
             raise ValueError('source manifest seal mismatch')
@@ -177,3 +187,17 @@ class Ledger:
                 raise ValueError('same review event has different content')
             conn.execute('INSERT INTO oracle2.finding_events(workspace_id,finding_id,event_id,actor_id,scope,action,payload) VALUES(%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING',(workspace_id,finding_id,event_id,self.principal,scope,action,Jsonb(event)))
         return event
+
+    def review_events(self,workspace_id,artifact_id,version):
+        payload=self.read(workspace_id,artifact_id,version)
+        hashes={f['finding_id']:digest(f) for f in payload.get('findings',())}
+        with psycopg.connect(self.url) as conn:
+            rows=conn.execute("SELECT finding_id,event_id,actor_id,scope,action,payload FROM oracle2.finding_events WHERE workspace_id=%s AND payload->>'artifact_id'=%s AND (payload->>'version')::integer=%s ORDER BY created_at,event_id LIMIT 1001",(workspace_id,str(artifact_id),version)).fetchall()
+        if len(rows)>1000:raise ValueError("review history exceeds bounded view; explicit pagination required")
+        result=[]
+        for finding,event,actor,scope,action,data in rows:
+            if data.get('artifact_id')==str(artifact_id) and data.get('version')==version:
+                if hashes.get(finding)!=data.get('finding_hash'):raise ValueError('review does not bind exact current finding')
+                result.append({'finding_id':finding,'event_id':str(event),'actor_id':str(actor),'scope':scope,'action':action,'note':data['note']})
+        self.authorize_refs(tuple(SourceRef.model_validate_json(json.dumps(r)) for r in payload['source_refs']),workspace_id)
+        return result

@@ -1,9 +1,14 @@
 """Immutable release identity; a pointer alone cannot make a projection authoritative."""
 from typing import Literal
 from uuid import UUID
-from pydantic import Field,model_validator
+from pydantic import Field,model_validator,model_serializer
 from .source_receipts import _StrictModel,SourceRef
 from .contracts import digest
+
+class ReportReference(_StrictModel):
+    artifact_id:UUID
+    version:int=Field(strict=True,ge=1)
+    content_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
 
 class ReleaseManifest(_StrictModel):
     schema_version:Literal[1]=1
@@ -20,6 +25,7 @@ class ReleaseManifest(_StrictModel):
     graph_name:str=Field(pattern=r'^oracle_operating_model_v1_')
     graph_record_digest:str=Field(pattern=r'^[0-9a-f]{64}$')
     summary_hashes:tuple[str,...]=()
+    report_refs:tuple[ReportReference,...]=()
     analytical_capability:bool=False
     analytical_qualification_hash:str|None=None
     actual_event_acceptance:Literal['unavailable','synthetic','accepted']='unavailable'
@@ -38,5 +44,11 @@ class ReleaseManifest(_StrictModel):
         if self.acceptance_state in {'hosted_preview','admitted_hosted'} and not self.restricted_hosting_hash:raise ValueError('restricted hosting missing')
         if self.acceptance_state=='admitted_hosted' and not self.restore_proof_hash:raise ValueError('fresh-instance restore proof missing')
         return self
+
+    @model_serializer(mode='wrap')
+    def serialize(self,handler):
+        data=handler(self)
+        if not self.report_refs:data.pop('report_refs',None)
+        return data
 
     def content_hash(self):return digest(self.model_dump(mode='json'))

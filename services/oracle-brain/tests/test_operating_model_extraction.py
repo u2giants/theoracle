@@ -48,3 +48,11 @@ def test_malformed_nonempty_list_persists_failed_receipt(ready):
     with pytest.raises(ValueError): persist_response(l,r,json.dumps(raw),artifact_id=aid,version=1,permission_digest='b'*64,compiler_digest='c'*64)
     with pytest.raises(PermissionError):l.read(r.ref.workspace_id,aid,1)
     assert json.loads(l.read(r.ref.workspace_id,aid,1,include_failed=True)['raw_response'])['findings']==['Owner unknown']
+
+
+def test_forged_finding_quote_preserves_full_failed_response(ready):
+    l,r=ready;aid=uuid4();raw=response(r)
+    raw['findings'][0]['evidence_refs'][0]['quote']='An invented source quote'
+    sealed=json.dumps(raw)
+    with pytest.raises(ValueError,match='preserved'):persist_response(l,r,sealed,artifact_id=aid,version=1,permission_digest='b'*64,compiler_digest='c'*64)
+    assert l.read(r.ref.workspace_id,aid,1,include_failed=True)['raw_response']==sealed

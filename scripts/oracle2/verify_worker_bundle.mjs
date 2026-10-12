@@ -12,7 +12,7 @@ const pairs = [
   ['trigger.oracle2-extract.config.ts', 'src/trigger/oracle2-run.ts'],
   ['trigger.oracle2-project.config.ts', 'src/trigger/oracle2-project.ts'],
   ['trigger.oracle2-holistic.config.ts', 'src/trigger/oracle2-holistic.ts'],
-  ['trigger.oracle2-holistic.config.ts', 'src/trigger/oracle2-operating-model.ts'],
+  ['trigger.oracle2-operating.config.ts', 'src/trigger/oracle2-operating-model.ts'],
 ];
 for (const [config, task] of pairs) {
   const glob = readFileSync(join(workers, config), 'utf8').match(/scripts: \['([^']+)'\]/)?.[1];

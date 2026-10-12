@@ -70,3 +70,18 @@ def test_invalid_provider_response_is_failed_without_outbox(admin_url,tmp_path):
     ledger,r=source_ledger(admin_url,tmp_path); artifact=uuid4();
     with pytest.raises(ValueError): dispatch_source(ledger,Provider('{"complete":false}'),r,artifact_id=artifact,version=1,batch_id=uuid4(),permission_digest='a'*64,compiler_digest='b'*64)
     with psycopg.connect(admin_url) as c: assert c.execute('SELECT state FROM oracle2.artifact_manifests WHERE workspace_id=%s AND artifact_id=%s',(r.ref.workspace_id,artifact)).fetchone()[0]=='failed' and c.execute('SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND assertion_id=%s',(r.ref.workspace_id,artifact)).fetchone()[0]==0
+
+
+def test_transport_failure_keeps_complete_private_wire_response_in_failed_blob(admin_url,tmp_path):
+    ledger,r=source_ledger(admin_url,tmp_path)
+    class Native:
+        last_response_text='{"choices":[{"message":{"content":"incomplete response"}}],"usage":{}}'
+        def send(self,**_):pass
+    class Failed:
+        sender=Native().send
+        last_reservation_id='failed-reservation'
+        def extract(self,**_):raise RuntimeError('redacted')
+    aid=uuid4()
+    with pytest.raises(RuntimeError,match='retained'):dispatch_source(ledger,Failed(),r,artifact_id=aid,version=1,batch_id=uuid4(),permission_digest='a'*64,compiler_digest='b'*64)
+    failed=ledger.read(r.ref.workspace_id,aid,1,include_failed=True)
+    assert failed['raw_response']==Failed.sender.__self__.last_response_text

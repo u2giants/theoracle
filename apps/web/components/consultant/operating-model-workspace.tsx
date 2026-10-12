@@ -68,6 +68,7 @@ export function OperatingModelWorkspace() {
       <SourceDownload />
       <ProcessAnalysisPanel analysis={model.analysis} />
       <WorkflowFindings findings={model.findings} quarantine={model.reviewer_quarantine} />
+      {(model.finding_review_events?.length ?? 0)>0 && <section className="rounded-xl border p-5"><h2 className="font-semibold">Authorized review history</h2><p className="text-sm text-slate-600">Review decisions do not establish company policy.</p>{model.finding_review_events?.map(event=><article key={event.event_id} className="mt-3"><p>{event.action} · {event.scope}</p><p>{event.note}</p></article>)}</section>}
     </>}
   </main>;
 }

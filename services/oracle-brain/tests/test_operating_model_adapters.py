@@ -9,7 +9,7 @@ import psycopg
 import pytest
 from psycopg import sql
 
-from oracle_brain.operating_model.provider_adapter import AdmittedProvider, Budget, Pricing
+from oracle_brain.operating_model.provider_adapter import AdmittedProvider, Budget, Pricing, ProviderQuotaError
 from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest
 
 
@@ -118,6 +118,30 @@ def test_rooted_diagnosis_is_immutable(test_database,monkeypatch):
     with psycopg.connect(test_database) as conn:
         with pytest.raises(psycopg.errors.RaiseException): conn.execute("UPDATE oracle2.operating_dispatch_diagnoses SET failure_kind='quota_exhausted' WHERE reservation_id=%s",(rid,))
 
+def test_provider_quota_failure_preserves_reserved_maximum_and_blocks_false_retry(adapter):
+    provider,_=adapter
+    provider.sender=lambda **_: (_ for _ in ()).throw(ProviderQuotaError('quota'))
+    w,a,b=ids()
+    with pytest.raises(RuntimeError): provider.extract(workspace_id=w,artifact_id=a,batch_id=b,purpose='source-extraction',attempt=1,input_tokens_upper_bound=2048,messages=[{'role':'user'}])
+    rid=provider.last_reservation_id
+    with psycopg.connect(provider.budget.url) as conn:
+        reserved,kind=conn.execute('SELECT r.reserved_usd,s.failure_kind FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id) WHERE r.reservation_id=%s',(rid,)).fetchone()
+    assert kind=='quota_exhausted' and reserved>0
+    with pytest.raises(PermissionError): provider.budget.reserve(workspace_id=w,artifact_id=a,batch_id=b,purpose='source-extraction',attempt=2,maximum=reserved,pricing_hash='a'*64,correction_hash='c'*64)
+
+def test_malformed_success_is_failed_charged_sealed_and_not_retried(adapter):
+    provider,_=adapter; response={'malformed':True}; provider.sender=lambda **_: (response,Decimal('0.000001')); w,a,b=ids()
+    returned=provider.extract(workspace_id=w,artifact_id=a,batch_id=b,purpose='source-extraction',attempt=1,input_tokens_upper_bound=2048,messages=[{'role':'user'}],response_validator=lambda _: (_ for _ in ()).throw(ValueError('bad')))
+    rid=provider.last_reservation_id
+    with psycopg.connect(provider.budget.url) as conn:
+        status,kind,hashv,actual=conn.execute('SELECT status,failure_kind,response_hash,actual_usd FROM oracle2.operating_dispatch_receipts WHERE reservation_id=%s',(rid,)).fetchone()
+    assert returned==response and status=='failed' and kind=='invalid_output' and hashv and actual==Decimal('0.000001')
+    assert provider.sender is not None
+
+def test_tiny_reservation_rounds_up_before_insert(test_database):
+    budget=Budget(test_database); rid=budget.reserve(workspace_id=uuid4(),artifact_id=uuid4(),batch_id=uuid4(),purpose='source-extraction',attempt=1,maximum=Decimal('0.0000001'),pricing_hash='a'*64)
+    with psycopg.connect(test_database) as conn: assert conn.execute('SELECT reserved_usd FROM oracle2.operating_dispatch_reservations WHERE reservation_id=%s',(rid,)).fetchone()[0]==Decimal('0.000001')
+
 
 def test_batch_cap_rejects_sixth_one_dollar_reservation(test_database):
     budget = Budget(test_database); w, b = uuid4(), uuid4()
@@ -170,3 +194,20 @@ def test_account_allowance_includes_pending_local_reservations(test_database):
     budget.reserve(workspace_id=uuid4(),artifact_id=uuid4(),batch_id=uuid4(),purpose='source-extraction',attempt=1,maximum=Decimal('1'),pricing_hash='a'*64,account_remaining=Decimal('1.5'))
     with pytest.raises(PermissionError,match='ceiling'):
         budget.reserve(workspace_id=uuid4(),artifact_id=uuid4(),batch_id=uuid4(),purpose='source-extraction',attempt=1,maximum=Decimal('1'),pricing_hash='a'*64,account_remaining=Decimal('1.5'))
+
+
+def test_correction_contract_binds_complete_dispatch(adapter):
+    provider,_=adapter;w,a,b=ids()
+    values=dict(workspace_id=w,artifact_id=a,batch_id=b,purpose='source-extraction',input_tokens_upper_bound=3000,messages=[{'role':'user','content':'invented'}])
+    baseline=provider.correction_contract(**values)
+    for change in ({'batch_id':uuid4()},{'input_tokens_upper_bound':3001},{'messages':[{'role':'user','content':'corrected'}]}):
+        assert provider.correction_contract(**{**values,**change})!=baseline
+    provider.pricing=provider.pricing.model_copy(update={'max_output_tokens':101})
+    assert provider.correction_contract(**values)!=baseline
+
+
+def test_correction_cannot_escape_original_batch(test_database,monkeypatch):
+    budget,w,a,b,owner,rid=rooted_budget(test_database,monkeypatch)
+    budget.diagnose(reservation_id=rid,actor_id=owner,failure_kind='invalid_output',correction_hash='c'*64,diagnosis_hash='d'*64)
+    with pytest.raises(PermissionError):
+        budget.reserve(workspace_id=w,artifact_id=a,batch_id=uuid4(),purpose='source-extraction',attempt=2,maximum=Decimal('.01'),pricing_hash='a'*64,correction_hash='c'*64)

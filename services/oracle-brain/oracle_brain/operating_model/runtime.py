@@ -31,3 +31,15 @@ async def run_view(run_id:UUID,workspace_id:UUID,*,database_url,graph_url,blobs,
                              generation=manifest.graph_generation,llm=NoGeneration(),embedder=embedder,dimensions=dimensions)
     try:return await execute_view(database_url,run_id,ledger=ledger,projection=projection,synthetic=synthetic)
     finally:await projection.close()
+
+
+def run_event(run_id,workspace_id,*,database_url,blobs,synthetic,operation="event_import"):
+    import psycopg
+    from .action_jobs import execute_event,execute_review
+    with psycopg.connect(database_url) as conn:
+        row=conn.execute('SELECT actor_id FROM oracle2.operating_action_runs WHERE run_id=%s AND workspace_id=%s AND expires_at>now()',(run_id,workspace_id)).fetchone()
+    if row is None:raise PermissionError('opaque action unavailable')
+    sources=PostgresSources(database_url)
+    ledger=Ledger(database_url,blobs,principal=row[0],can_read=sources.can_read,current_source=sources.current)
+    execute=execute_event if operation=="event_import" else execute_review
+    return execute(database_url,run_id,workspace_id,ledger,synthetic)

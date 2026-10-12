@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS oracle2.operating_dispatch_reservations (
 CREATE TABLE IF NOT EXISTS oracle2.operating_dispatch_receipts (
  reservation_id uuid PRIMARY KEY REFERENCES oracle2.operating_dispatch_reservations,
  actual_usd numeric(12,6) NOT NULL CHECK(actual_usd>=0), status text NOT NULL CHECK(status IN ('completed','failed','overrun')),
- response_hash text, created_at timestamptz NOT NULL DEFAULT now());
+ response_hash text, failure_kind text CHECK(failure_kind IN ('transport_failure','quota_exhausted','invalid_output')), created_at timestamptz NOT NULL DEFAULT now());
+ALTER TABLE oracle2.operating_dispatch_receipts ADD COLUMN IF NOT EXISTS failure_kind text CHECK(failure_kind IN ('transport_failure','quota_exhausted','invalid_output'));
 CREATE TABLE IF NOT EXISTS oracle2.operating_dispatch_diagnoses (
  reservation_id uuid PRIMARY KEY REFERENCES oracle2.operating_dispatch_receipts,
  diagnosed_by uuid NOT NULL, failure_kind text NOT NULL CHECK(failure_kind IN ('invalid_output','truncated_output','transport_failure','quota_exhausted')),
@@ -175,3 +176,38 @@ DO $$ BEGIN
  END IF;
 END $$;
 REVOKE ALL ON oracle2.operating_projection_receipts FROM PUBLIC;
+
+-- Bounded comparison history never authorizes serving or retirement by deadline.
+CREATE TABLE IF NOT EXISTS oracle2.operating_comparison_events (
+ workspace_id uuid NOT NULL, comparison_id uuid NOT NULL, sequence integer NOT NULL CHECK(sequence>=0),
+ content_hash text NOT NULL CHECK(content_hash ~ '^[0-9a-f]{64}$'), payload jsonb NOT NULL,
+ PRIMARY KEY(workspace_id,comparison_id,sequence));
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='immutable_operating_comparison_events' AND tgrelid='oracle2.operating_comparison_events'::regclass) THEN
+ CREATE TRIGGER immutable_operating_comparison_events BEFORE UPDATE OR DELETE ON oracle2.operating_comparison_events FOR EACH ROW EXECUTE FUNCTION oracle2.deny_operating_model_mutation();
+ END IF;
+END $$;
+REVOKE ALL ON oracle2.operating_comparison_events FROM PUBLIC;
+-- Original action inputs are immutable; only bounded status/result may progress.
+CREATE TABLE IF NOT EXISTS oracle2.operating_action_runs (
+ run_id uuid PRIMARY KEY, workspace_id uuid NOT NULL, actor_id uuid NOT NULL,
+ operation text NOT NULL CHECK(operation IN ('event_import','finding_review')),
+ payload jsonb NOT NULL, release_id uuid NOT NULL, release_hash text NOT NULL,
+ status text NOT NULL CHECK(status IN ('pending','completed','error')),
+ result jsonb, error_code text, created_at timestamptz NOT NULL DEFAULT now(),
+ expires_at timestamptz NOT NULL DEFAULT now()+interval '5 minutes');
+CREATE OR REPLACE FUNCTION oracle2.guard_operating_action_identity() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF (OLD.run_id,OLD.workspace_id,OLD.actor_id,OLD.operation,OLD.payload,OLD.release_id,OLD.release_hash,OLD.created_at,OLD.expires_at)
+ IS DISTINCT FROM (NEW.run_id,NEW.workspace_id,NEW.actor_id,NEW.operation,NEW.payload,NEW.release_id,NEW.release_hash,NEW.created_at,NEW.expires_at) THEN
+ RAISE EXCEPTION 'operating action identity is immutable'; END IF;
+ IF OLD.status!='pending' AND (NEW.status,NEW.result,NEW.error_code) IS DISTINCT FROM (OLD.status,OLD.result,OLD.error_code) THEN
+ RAISE EXCEPTION 'completed action result is immutable'; END IF;
+ RETURN NEW;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='operating_action_identity' AND tgrelid='oracle2.operating_action_runs'::regclass) THEN
+ CREATE TRIGGER operating_action_identity BEFORE UPDATE ON oracle2.operating_action_runs FOR EACH ROW EXECUTE FUNCTION oracle2.guard_operating_action_identity();
+ END IF;
+END $$;
+REVOKE ALL ON oracle2.operating_action_runs FROM PUBLIC;

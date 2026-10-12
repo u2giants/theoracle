@@ -39,3 +39,14 @@ holistic:
     - ORACLE2_PROJECTION_SIGNING_KEY
     - ORACLE2_CHECKPOINT_DATABASE_URL
     - SUPABASE_SERVICE_ROLE_KEY
+operating_model:
+  deployment: dedicated-oracle2-operating-preview
+  project_ref_env: ORACLE2_OPERATING_TRIGGER_PROJECT_REF
+  database_role: oracle2_extract
+  graph_credential: operating_candidate_only
+  preview_status: not_qualified_for_company_data
+  forbidden:
+    - ORACLE2_CONFIRMED_GRAPH_URL
+    - ORACLE2_PROJECTION_SIGNING_KEY
+    - ORACLE2_CHECKPOINT_DATABASE_URL
+    - SUPABASE_SERVICE_ROLE_KEY
