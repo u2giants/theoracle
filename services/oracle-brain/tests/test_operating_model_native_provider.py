@@ -57,3 +57,27 @@ def test_native_sender_has_no_fallback_or_store_override(monkeypatch):
  for store,extra in [(True,opts),(False,{'provider':{'allow_fallbacks':True}})]:
   with pytest.raises(PermissionError):native.send(messages=[],model='openai/gpt-6.1-sol',max_output_tokens=100,store=store,extra_body=extra)
  assert len(calls)==1
+
+
+def test_native_transport_ignores_unadmitted_environment_proxies(monkeypatch):
+ import urllib.request
+ from oracle_brain.operating_model.native_provider import NoRedirect
+ seen=[]
+ class Response:
+  def read(self,limit):return b'{"data":[]}'
+  def __enter__(self):return self
+  def __exit__(self,*args):pass
+ class Opener:
+  def open(self,request,timeout):return Response()
+ def build(*handlers):
+  seen.extend(handlers)
+  return Opener()
+ monkeypatch.setenv('HTTPS_PROXY','http://unadmitted.invalid:8080')
+ monkeypatch.setenv('HTTP_PROXY','http://unadmitted.invalid:8080')
+ monkeypatch.setattr(urllib.request,'build_opener',build)
+ native=NativeOpenRouter('invented-proxy-test-only',coverage_receipt=lambda:None,
+   trusted_coverage_hash='a'*64,ledger_identity_hash='b'*64)
+ assert native._request('/models')=={'data':[]}
+ proxies=[h for h in seen if isinstance(h,urllib.request.ProxyHandler)]
+ assert len(proxies)==1 and proxies[0].proxies=={}
+ assert any(isinstance(h,NoRedirect) for h in seen)

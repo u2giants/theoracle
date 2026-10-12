@@ -95,7 +95,7 @@ class NativeOpenRouter:
             self.last_response_text=None;self.last_wire_custody_complete=False
         request=urllib.request.Request(ENDPOINT+path,data=None if body is None else json.dumps(body,ensure_ascii=False).encode(),headers={'Authorization':'Bearer '+self._key,'Content-Type':'application/json','Cache-Control':'no-store'})
         try:
-            with urllib.request.build_opener(NoRedirect()).open(request,timeout=60) as response:
+            with urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect()).open(request,timeout=60) as response:
                 try:
                     raw=response.read(16*1024*1024+1);read_complete=True
                 except http.client.IncompleteRead as error:
