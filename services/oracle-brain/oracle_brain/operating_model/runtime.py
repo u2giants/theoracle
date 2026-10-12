@@ -31,4 +31,3 @@ async def run_view(run_id:UUID,workspace_id:UUID,*,database_url,graph_url,blobs,
                              generation=manifest.graph_generation,llm=NoGeneration(),embedder=embedder,dimensions=dimensions)
     try:return await execute_view(database_url,run_id,ledger=ledger,projection=projection,synthetic=synthetic)
     finally:await projection.close()
-

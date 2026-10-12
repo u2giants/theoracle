@@ -40,4 +40,3 @@ def test_invalid_span_and_strict_fields_rejected():
 
     with pytest.raises(ValidationError):
         Observation(observation_id="id", ref=r.ref, occurrence_key="o", kind="step", scope="s", value="v", evidence=())
-
