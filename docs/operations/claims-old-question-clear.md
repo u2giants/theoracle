@@ -6,6 +6,8 @@ Owner request, verbatim: “clear the questions that are currently under CLAIMS 
 
 Target: Oracle CURRENT PROD Supabase project eqccjfbyrywsqkxxpjvg, selected through its specific existing vault session-pooler credential. Never use connected unrelated Supabase MCP, old Oracle project, or shared POP database.
 
+Live identity binding, verified read-only: Ilona Kereki = 0afd45f8-5ee1-4d41-a43c-36bcd59f4102; Jessica Cortazar = 52a0662e-f24b-46bb-87bf-706286c20255. The transaction rechecks these exact names and UUIDs before any UPDATE. Pooler target is strictly allowlisted by exact Supabase endpoint, exact project-bound database username, port5432 and databasepostgres; a substring or wrong host is rejected.
+
 Read-only inventory found precisely 30 open claim_review_question gaps, 15 for each exact named employee. All belong to one October 6 legacy generation run. No new generation/grading permitted. Existing resolved history remains untouched. The existing admin gaps action supports rejected, and the dynamic employee CLAIMS page excludes rejected assignments.
 
 Action: transactionally reject only the exact 30 frozen IDs, change updated_at, preserve all other columns and all claims, evidence, reviews, messages/answers. No deletions, schema changes, notices, provider calls, replacement questions or grading. Backup contains the complete original gap rows privately; no question contents or credential values are sent to reviewer. A table write-exclusion lock and exact whole-row comparison prevent stale inputs; active population must match the same 30 IDs. Exact changed count30, remainingactive0 and unrelatedgap checksum/count equality are mandatory. Claims/evidence/review/message counts are rechecked; any change aborts.
@@ -14,7 +16,7 @@ Run preview first (same changes rolled back), apply only after exact reviewer AP
 
 Review is requested for this exact operation and script only; it grants no W01–W12 hosting, budget, private-source, question-generation or grading authority.
 
-Script SHA256: 3e9ff0b99d6039ecf447f9ca732e9b7f1bb9c260c8d1aedf2f2ccffd6eee0dc2
+Script SHA256: fca023a1c07e572e0f5c8ca67e2b5a07035f75e5cc3b5a64f5cd223daf641fcf
 
 ```python
 """Root-only guarded production operation; requires exact reviewer/task gate before apply."""
@@ -29,7 +31,9 @@ assert len(ids)==len(set(ids))==30
 assert set(employees)=={'0afd45f8-5ee1-4d41-a43c-36bcd59f4102','52a0662e-f24b-46bb-87bf-706286c20255'}
 assert all(r['status']=='open' and r['gap_type']=='claim_review_question' and r['target_employee_id'] in employees for r in b['rows'])
 u=urllib.parse.urlparse(os.environ['ORACLE_DIRECT_URL'])
-assert 'eqccjfbyrywsqkxxpjvg' in ((u.hostname or '')+(u.username or ''))
+assert u.scheme in ('postgres','postgresql') and u.port==5432
+assert (u.hostname=='db.eqccjfbyrywsqkxxpjvg.supabase.co' and u.username=='postgres') or (u.hostname in ('aws-0-us-east-1.pooler.supabase.com','aws-1-us-east-1.pooler.supabase.com') and u.username=='postgres.eqccjfbyrywsqkxxpjvg')
+assert u.path=='/postgres' 
 def canon(value): return json.dumps(value,default=str,sort_keys=True,separators=(',',':'))
 def save(name,value):
  data=canon(value).encode(); target=p/name
@@ -42,6 +46,9 @@ assert mode in ('preview','apply','rollback')
 with psycopg.connect(os.environ['ORACLE_DIRECT_URL'],connect_timeout=15,row_factory=dict_row) as c:
  c.execute("SET LOCAL lock_timeout='5s'"); c.execute("SET LOCAL statement_timeout='30s'")
  c.execute('LOCK TABLE gaps IN SHARE ROW EXCLUSIVE MODE')
+ bound=c.execute('SELECT id,name FROM employees WHERE id=ANY(%s::uuid[]) ORDER BY name',(employees,)).fetchall()
+ assert {str(e['id']):e['name'] for e in bound}=={'0afd45f8-5ee1-4d41-a43c-36bcd59f4102':'Ilona Kereki','52a0662e-f24b-46bb-87bf-706286c20255':'Jessica Cortazar'}
+ assert all(sum(r['target_employee_id']==e for r in b['rows'])==15 for e in employees)
  original_counts=protected_counts(c)
  current=c.execute('SELECT * FROM gaps WHERE id=ANY(%s::uuid[]) ORDER BY target_employee_id,id FOR UPDATE',(ids,)).fetchall()
  assert len(current)==30
