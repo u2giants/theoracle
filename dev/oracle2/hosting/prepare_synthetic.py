@@ -190,12 +190,18 @@ def main(argv=None):
       candidate:
         image: {FALKOR}
         user: "999:999"
+        read_only: true
+        cap_drop: [ALL]
+        security_opt: [no-new-privileges:true]
         environment: {{REDIS_ARGS: /run/oracle-auth/server.conf}}
         networks: [candidate]
         volumes: [./candidate-data:/var/lib/falkordb/data, ./candidate:/run/oracle-auth:ro]
       confirmed:
         image: {FALKOR}
         user: "999:999"
+        read_only: true
+        cap_drop: [ALL]
+        security_opt: [no-new-privileges:true]
         environment: {{REDIS_ARGS: /run/oracle-auth/server.conf}}
         networks: [confirmed]
         volumes: [./confirmed-data:/var/lib/falkordb/data, ./confirmed:/run/oracle-auth:ro]
