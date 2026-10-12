@@ -21,7 +21,7 @@ def admission():
   observed_at=NOW,expires_at=NOW+timedelta(hours=1),census_complete=True,unreserved_paid_callers=0,unreserved_outstanding_liabilities=0)
 
 def verify(a,**change):
- opts=dict(trusted_admission_hash=digest(a.model_dump(mode='json')),key_fingerprint=FP,current_census_hash='2'*64,
+ opts=dict(trusted_admission_hash=digest(a.model_dump(mode='json')),key_fingerprint=FP,current_census_hash='2'*64,current_provider_key_record_hash='a'*64,
   current_ledger_identity_hash='3'*64,current_external_liability_receipt_hash='4'*64,current_observed_at=NOW,now=NOW)
  opts.update(change)
  return verify_key_coverage(a,**opts)
@@ -30,7 +30,7 @@ def test_current_independent_exact_key_coverage():
  a=admission();proof=verify(a)
  assert proof.key_fingerprint==FP and proof.ledger_identity_hash=='3'*64
 
-@pytest.mark.parametrize('field',['trusted_admission_hash','key_fingerprint','current_census_hash','current_ledger_identity_hash','current_external_liability_receipt_hash'])
+@pytest.mark.parametrize('field',['trusted_admission_hash','key_fingerprint','current_provider_key_record_hash','current_census_hash','current_ledger_identity_hash','current_external_liability_receipt_hash'])
 def test_seal_or_live_binding_drift_denies(field):
  with pytest.raises(PermissionError):verify(admission(),**{field:'0'*64})
 

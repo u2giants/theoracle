@@ -28,10 +28,15 @@ def conservative_allowance(data:dict,*,observed_at:datetime,now:datetime,coverag
     if not coverage_current or observed_at.tzinfo is None or now.tzinfo is None or not timedelta(0)<=now-observed_at<=timedelta(seconds=15):
         raise PermissionError('account reservation coverage or fresh observation unavailable')
     utc=now.astimezone(timezone.utc);local=now.astimezone(NY)
-    if (utc.year,utc.month)!=(local.year,local.month):raise PermissionError('UTC/New York month boundary cannot establish daily allowance')
-    # Provider month is UTC. Away from its boundary, its spend is an upper bound
-    # for this New York day's spend. Include BYOK even when key limits do not.
-    used=amount(data.get('usage_monthly'))+amount(data.get('byok_usage_monthly'))
+    if utc.date()==local.date():
+        # The current UTC day starts before today's New York midnight. Before
+        # UTC resets, its spend is a conservative superset of today's NY spend.
+        used=amount(data.get('usage_daily'))+amount(data.get('byok_usage_daily'))
+    else:
+        if (utc.year,utc.month)!=(local.year,local.month):raise PermissionError('UTC/New York month boundary cannot establish daily allowance')
+        # After UTC reset the prior UTC segment remains in this NY day. A daily
+        # counter alone loses it; the complete UTC month is a safe upper bound.
+        used=amount(data.get('usage_monthly'))+amount(data.get('byok_usage_monthly'))
     allowance=max(Decimal(0),Decimal(25)-used)
     if data.get('limit') is not None:allowance=min(allowance,amount(data.get('limit_remaining')))
     if data.get('is_free_tier') is not False:raise PermissionError('existing funded route is not established')

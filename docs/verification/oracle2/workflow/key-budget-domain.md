@@ -38,9 +38,12 @@ transport credentials must not be handed to an alternative caller that bypasses
 the admitted adapter. Current code therefore remains preparation only.
 
 Existing per-attempt $1, resumed-batch $5 and New York-day $25 reservations remain
-binding. Monthly key usage plus BYOK is a conservative upper bound only away
-from the UTC/New York month boundary; missing amounts, stale observations and
-unfunded routes deny. Provider UTC daily reset never replaces the New York-day
+binding. When UTC and New York have the same calendar date, current UTC-day key
+usage plus BYOK is a conservative superset of New York-day spend. After UTC
+resets before New York midnight, monthly key usage plus BYOK remains the fallback
+upper bound only away from the UTC/New York month boundary. No incomplete prior
+UTC segment is assumed zero; missing amounts, stale observations and unfunded
+routes deny. Provider UTC daily reset never replaces the New York-day
 ledger. Failed unknown charges retain the full reservation. Unresolved overruns
 deny further dispatch. Current census/provider observations and reservations
 must be checked for concurrent callers before a live receipt is issued.

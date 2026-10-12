@@ -61,6 +61,7 @@ class VerifiedKeyCoverage(StrictRecord):
 
 def verify_key_coverage(admission: KeyCoverageAdmission, *, trusted_admission_hash: str,
                         key_fingerprint: str, current_census_hash: str,
+                        current_provider_key_record_hash: str,
                         current_ledger_identity_hash: str,
                         current_external_liability_receipt_hash: str,
                         current_observed_at: datetime,
@@ -80,6 +81,7 @@ def verify_key_coverage(admission: KeyCoverageAdmission, *, trusted_admission_ha
             or now >= admission.expires_at or admission.expires_at <= admission.observed_at):
         raise PermissionError('current live key coverage required')
     if (admission.key_fingerprint != key_fingerprint or admission.census_hash != current_census_hash
+            or admission.provider_key_record_hash != current_provider_key_record_hash
             or admission.ledger_identity_hash != current_ledger_identity_hash
             or admission.external_liability_receipt_hash != current_external_liability_receipt_hash):
         raise PermissionError('key consumer census or central reservation path changed')
