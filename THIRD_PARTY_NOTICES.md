@@ -1,0 +1,7 @@
+# Third-party source and notices
+
+Oracle's own source offer is governed by LICENSE. Dependencies keep their original licenses. Exact package versions and checksums are recorded in pnpm-lock.yaml and services/oracle-brain/uv.lock; Python worker requirements are recorded in apps/workers/oracle2-requirements.txt. The source archive includes those locked manifests and project build configuration. Installed dependency packages supply their own license and attribution files.
+
+PM4Py candidate (NOT installed or bundled until admission): version 2.7.22, GNU AGPL-3.0, upstream commit 0715c31f3f1d85924107d6aa5329806db69df899. Exact upstream source: https://github.com/process-intelligence-solutions/pm4py/tree/0715c31f3f1d85924107d6aa5329806db69df899 ; license: https://github.com/process-intelligence-solutions/pm4py/blob/0715c31f3f1d85924107d6aa5329806db69df899/LICENSE . PM4Py is copyright Process Intelligence Solutions and upstream contributors. The analytical release must add the admitted exact dependency source/notice payload and verify its delivery before enabling network use.
+
+GraphRAG SDK remains pinned to 1.4.0; Graphiti remains pinned to 0.30.2. Their pinned package metadata/notices and the existing S02 dependency qualification remain the authority; this notice does not relicense them. FalkorDB's server is a separate qualified service whose existing license fit must be re-proven for the actual hosted deployment. No server binary or data store is distributed in the application source archive.

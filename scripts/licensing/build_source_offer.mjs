@@ -1,0 +1,33 @@
+// Deterministic corresponding-source archive; secrets and business data are excluded.
+import { execFileSync } from 'node:child_process';
+import { readFileSync, mkdirSync, writeFileSync, lstatSync } from 'node:fs';
+import { dirname, resolve, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const destination = resolve(root, 'apps/web/.source-offer');
+const mandatory = ['LICENSE','SOURCE_OFFER.md','THIRD_PARTY_NOTICES.md','README.md','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','turbo.json','vercel.json','services/oracle-brain/uv.lock'];
+const codeRoots = ['apps/','packages/','services/','scripts/','migrations/','.github/','dev/oracle2/','evals/oracle2/workflow/'];
+const special = ['docs/deployment.md','docs/configuration.md','docs/development.md'];
+// Release archives must correspond to a clean committed source tree.
+if (execFileSync('git',['status','--porcelain','--untracked-files=no'],{cwd:root,encoding:'utf8'}).trim()) throw new Error('Commit source changes before building the source offer');
+const tracked = execFileSync('git',['ls-files','-z'],{cwd:root,encoding:'utf8'}).split('\0').filter(Boolean);
+const source = tracked.filter(path => !path.split('/').some(part => ['node_modules','.source-offer','.ai','test-results','uploads','uploaded-files','.env.local','.env','coverage','.next','.trigger','.vercel','dist','out','build'].includes(part)) && (mandatory.includes(path)||special.includes(path)||codeRoots.some(prefix=>path.startsWith(prefix))) && /\.(ts|tsx|js|jsx|mjs|cjs|py|json|toml|yaml|yml|sql|sh|css|md|txt|svg|lock|ps1)$/.test(path));
+for(const path of mandatory)if(!source.includes(path))source.push(path);
+source.sort();
+const entries=[];const hashes={};
+for(const path of source){const absolute=resolve(root,path);if(!absolute.startsWith(root+'/')||!lstatSync(absolute).isFile()||lstatSync(absolute).isSymbolicLink())throw new Error('Source archive path is not a regular project file');const bytes=readFileSync(absolute);hashes[path]=createHash('sha256').update(bytes).digest('hex');entries.push([path,bytes]);}
+const revision=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+const manifest={schema_version:1,revision,files:hashes,source_hash:createHash('sha256').update(JSON.stringify(hashes)).digest('hex'),private_data_included:false};
+entries.push(['SOURCE_ARCHIVE_MANIFEST.json',Buffer.from(JSON.stringify(manifest,null,2)+'\n')]);
+function tarEntry(path,bytes){
+  const header=Buffer.alloc(512);let name=path,prefix='';
+  if(Buffer.byteLength(name)>100){const at=name.lastIndexOf('/');prefix=name.slice(0,at);name=name.slice(at+1);if(Buffer.byteLength(name)>100||Buffer.byteLength(prefix)>155)throw new Error('Source path exceeds archive format bounds');}
+  header.write(name,0,100);header.write('0000644\0',100,8);header.write('0000000\0',108,8);header.write('0000000\0',116,8);header.write(bytes.length.toString(8).padStart(11,'0')+'\0',124,12);header.write('00000000000\0',136,12);header.fill(32,148,156);header.write('0',156);header.write('ustar\0',257,6);header.write('00',263,2);header.write(prefix,345,155);
+  const checksum=header.reduce((sum,value)=>sum+value,0);header.write(checksum.toString(8).padStart(6,'0')+'\0 ',148,8);
+  return [header,bytes,Buffer.alloc((512-bytes.length%512)%512)];
+}
+const archive=gzipSync(Buffer.concat([...entries.flatMap(([path,bytes])=>tarEntry(path,bytes)),Buffer.alloc(1024)]),{mtime:0});
+mkdirSync(destination,{recursive:true});writeFileSync(resolve(destination,'oracle-source.tar.gz'),archive);writeFileSync(resolve(destination,'manifest.json'),JSON.stringify({...manifest,archive_sha256:createHash('sha256').update(archive).digest('hex')})+'\n');
+console.log(JSON.stringify({source_files:source.length,archive_bytes:archive.length,revision,private_data_included:false}));

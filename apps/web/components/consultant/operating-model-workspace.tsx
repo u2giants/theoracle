@@ -55,6 +55,7 @@ export function OperatingModelWorkspace() {
       {model.state !== 'ready' && <p className="rounded bg-amber-50 p-4">{model.error ?? model.coverage_state ?? 'Operating model is unavailable.'}</p>}
       <div><label htmlFor="process">Process</label><select id="process" className="ml-2 rounded border p-2" value={selected} onChange={event => { const value = event.target.value; setSelected(value); void load(value ? `/api/consultant/processes/${encodeURIComponent(value)}` : '/api/consultant/model'); }}><option value="">Company overview</option>{(model.processes ?? []).map(process => <option key={process.process_id} value={process.process_id}>{process.label}</option>)}</select></div>
       <div className="grid gap-6 lg:grid-cols-2">{(model.workflows ?? []).map(workflow => <WorkflowCanvas key={workflow.workflow_id} workflow={workflow} observations={model.observations} />)}</div>
+      <a className="underline" href="/api/consultant/source">Download corresponding source (AGPL)</a>
       <ProcessAnalysisPanel analysis={model.analysis} />
       <WorkflowFindings findings={model.findings} quarantine={model.reviewer_quarantine} />
     </>}

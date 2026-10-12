@@ -87,3 +87,6 @@ apps/workers/oracle2-python/
 
 # Local pilot browser proof artifacts
 /apps/web/test-results/
+
+# Generated corresponding-source offer
+/apps/web/.source-offer/
