@@ -3,6 +3,21 @@
 import argparse,hashlib,ipaddress,json,os,re,shutil,subprocess
 from pathlib import Path
 import psycopg
+from urllib.parse import quote, urlencode
+
+
+def postgres_uri(conninfo, *, sslrootcert):
+    """Export one explicit loopback URI; never service/hostaddr indirection."""
+    params=psycopg.conninfo.conninfo_to_dict(conninfo)
+    allowed={'host','port','user','password','dbname','sslmode','sslrootcert'}
+    if set(params)-allowed or params.get('host') not in {'127.0.0.1','localhost'}:
+        raise PermissionError('single explicit loopback PostgreSQL target required')
+    if not re.fullmatch(r'[0-9]{1,5}',params.get('port','')) or not 0<int(params['port'])<=65535:
+        raise PermissionError('explicit PostgreSQL port required')
+    if not all(params.get(k) for k in ('user','password','dbname')):
+        raise PermissionError('explicit fixture identity required')
+    authority=quote(params['user'],safe='')+':'+quote(params['password'],safe='')+'@'+params['host']+':'+params['port']
+    return 'postgresql://'+authority+'/'+quote(params['dbname'],safe='')+'?'+urlencode({'sslmode':'verify-full','sslrootcert':str(sslrootcert)},quote_via=quote)
 
 
 def run(*args):
@@ -84,7 +99,7 @@ def bootstrap(container,admin_url,directory):
     run('docker','exec',container,'chown','postgres:postgres',data+'/pg_hba.conf')
     for statement in ("ALTER SYSTEM SET ssl='on'", "ALTER SYSTEM SET ssl_cert_file='/var/lib/postgresql/data/server.crt'", "ALTER SYSTEM SET ssl_key_file='/var/lib/postgresql/data/server.key'", 'SELECT pg_reload_conf()'):
         run('docker','exec',container,'psql','-U','oracle2_admin','-d','oracle2','-v','ON_ERROR_STOP=1','-c',statement)
-    url=psycopg.conninfo.make_conninfo(admin_url,sslmode='verify-full',sslrootcert=str(cert.resolve()))
+    url=postgres_uri(admin_url,sslrootcert=cert.resolve())
     with psycopg.connect(url) as c:
         if not c.pgconn.ssl_in_use:raise AssertionError('actual TLS required')
         methods=c.execute("SELECT auth_method FROM pg_hba_file_rules WHERE type='hostssl' AND auth_method<>'reject'").fetchall()

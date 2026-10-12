@@ -72,3 +72,46 @@ def test_tls_foreign_fixture_refuses_before_issuer_or_runtime_write(tmp_path,cas
   with pytest.raises(PermissionError):helper.bootstrap('invented',url,tmp_path/'new')
   assert run.call_count==1 and run.call_args.args[:2]==('docker','inspect')
  assert not (tmp_path/'new').exists()
+
+
+def test_postgres_uri_special_characters_and_explicit_target():
+ import psycopg
+ from urllib.parse import urlparse
+ helper=module('tls_bootstrap')
+ values={'host':'127.0.0.1','port':'5432','user':'invented @user','password':'invented:/?&+#% password','dbname':'invented db'}
+ original=psycopg.conninfo.make_conninfo(**values)
+ uri=helper.postgres_uri(original,sslrootcert='/public fixture/root & CA.pem')
+ assert urlparse(uri).hostname=='127.0.0.1'
+ assert psycopg.conninfo.conninfo_to_dict(uri)=={**values,'sslmode':'verify-full','sslrootcert':'/public fixture/root & CA.pem'}
+ for extra in ({'hostaddr':'127.0.0.1'},{'service':'invented'},{'host':'127.0.0.1,localhost'}):
+  with pytest.raises(PermissionError):helper.postgres_uri(psycopg.conninfo.make_conninfo(**{**values,**extra}),sslrootcert='/public/ca.pem')
+
+def test_exported_uri_retained_checkpoint_bootstrap(tmp_path,monkeypatch):
+ import psycopg
+ from psycopg import sql
+ from uuid import uuid4
+ helper=module('tls_bootstrap')
+ admin=os.environ.get('ORACLE2_TEST_ADMIN_URL')
+ rootcert=os.environ.get('ORACLE2_TEST_TLS_ROOT')
+ if not admin or not rootcert:pytest.fail('actual proper-leaf TLS/SCRAM fixture required')
+ dbname='oracle_operating_model_test_uri_'+uuid4().hex
+ with psycopg.connect(admin,autocommit=True) as connection:
+  created_role=connection.execute("SELECT 1 FROM pg_roles WHERE rolname='oracle2_checkpoint'").fetchone() is None
+  if created_role:connection.execute('CREATE ROLE oracle2_checkpoint NOLOGIN NOSUPERUSER NOBYPASSRLS')
+  connection.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(dbname)))
+ params=psycopg.conninfo.conninfo_to_dict(admin);params['dbname']=dbname
+ uri=helper.postgres_uri(psycopg.conninfo.make_conninfo(**params),sslrootcert=rootcert)
+ try:
+  with psycopg.connect(uri) as connection:
+   assert connection.pgconn.ssl_in_use
+   assert connection.info.get_parameters()['sslmode']=='verify-full'
+  spec=importlib.util.spec_from_file_location('retained_checkpoint_bootstrap',ROOT/'scripts/oracle2/init_local_stores.py')
+  retained=importlib.util.module_from_spec(spec);spec.loader.exec_module(retained)
+  monkeypatch.setenv('ORACLE2_TEST_ADMIN_URL',uri)
+  retained.main()
+  with psycopg.connect(uri) as connection:
+   assert all(connection.execute('SELECT to_regclass(%s)',('public.'+table,)).fetchone()[0] for table in ('checkpoints','checkpoint_blobs','checkpoint_writes'))
+ finally:
+  with psycopg.connect(admin,autocommit=True) as connection:
+   connection.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(dbname)))
+   if created_role:connection.execute('DROP ROLE oracle2_checkpoint')
