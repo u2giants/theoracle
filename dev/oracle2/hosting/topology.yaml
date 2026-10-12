@@ -10,29 +10,34 @@ x-boundary: &boundary
   pids_limit: 128
   mem_limit: 1g
   cpus: 1.0
-  tmpfs: [/tmp:rw,noexec,nosuid,size=64m]
+  tmpfs: ['/tmp:rw,noexec,nosuid,size=64m']
   labels:
     oracle.hosting.boundary: isolated-native-v1
 services:
   gateway:
     <<: *boundary
     # Dedicated root-reviewed factory, not an arbitrary module from a request.
-    command: [python, -m, oracle_brain.hosting.runtime, gateway]
-    networks: [ingress, jobs]
+    command: [gateway]
+    networks: [ingress, jobs, ledger]
+    environment:
+      ORACLE_HOSTING_SETTINGS_SHA256: ${ORACLE_GATEWAY_SETTINGS_SHA256:?reviewed settings hash required}
     expose: [8443]
     # Coolify must terminate no private credentials or remove mTLS. Its exact
     # routing has to support TLS passthrough or a reviewed isolated authenticator.
     volumes: [gateway-auth:/run/oracle-auth:ro, job-spool:/run/oracle-jobs]
   executor:
     <<: *boundary
-    command: [python, -m, oracle_brain.hosting.runtime, executor]
+    command: [executor]
     networks: [jobs, ledger, candidate, provider]
-    volumes: [executor-auth:/run/oracle-auth:ro, job-spool:/run/oracle-jobs]
+    environment:
+      ORACLE_HOSTING_SETTINGS_SHA256: ${ORACLE_EXECUTOR_SETTINGS_SHA256:?reviewed settings hash required}
+    volumes: [executor-auth:/run/oracle-auth:ro, job-spool:/run/oracle-jobs, executor-blobs:/run/oracle-blobs]
     # No Trigger, Tailscale, Coolify, provider key, confirmed/admin/checkpoint key.
   provider-broker:
+    profiles: [provider-admitted]
     <<: *boundary
-    command: [python, -m, oracle_brain.hosting.runtime, provider]
-    networks: [provider, outbound]
+    command: [provider]
+    networks: [provider, outbound, ledger]
     expose: [8443]
     volumes: [provider-auth:/run/oracle-auth:ro]
   ledger:
@@ -63,6 +68,7 @@ networks:
   outbound: {}
   jobs: &isolated
     internal: true
+    enable_ipv6: true
     driver_opts:
       com.docker.network.bridge.gateway_mode_ipv4: isolated
       com.docker.network.bridge.gateway_mode_ipv6: isolated
@@ -77,6 +83,7 @@ volumes:
   ledger-auth: {}
   candidate-auth: {}
   confirmed-auth: {}
+  executor-blobs: {}
   job-spool: {}
   ledger-data: {}
   candidate-data: {}

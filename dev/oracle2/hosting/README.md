@@ -179,3 +179,50 @@ or finding-review `run_event`. Synthetic fixed embeddings are available only
 for an exact synthetic release/profile. Private execution intentionally fails
 until a qualified fixed embedding admission is integrated; no business
 question generation or grading is resumed by these profiles.
+
+### Reproducible executable synthetic hosting assets
+
+`prepare_synthetic.py` requires an explicit synthetic flag, a fresh protected
+output directory, immutable local native image ID, exact runtime hash and one
+or more externally supplied release hashes. It creates only a new local test
+namespace. It never reads an existing deployed URL, management key, provider
+key, Tailscale identity, original source or production credential. It generates
+short-lived synthetic CA/server/worker certificates (including strict X.509
+key identifiers/usages), separate PostgreSQL passwords, separate candidate and
+confirmed graph passwords, protected settings, a policy-only registry, a fixed
+schema/bootstrap SQL set and an executable Compose file. Candidate auth uses
+the existing SDK-compatible isolated-network Redis path; this is **not** a
+claim of qualified SDK TLS support. Executor receives no confirmed credential.
+
+For a non-root developer the generator uses a uniquely named, networkless,
+read-only pinned Python helper with one mount: the freshly created synthetic
+asset directory. It sets only the required container-user ownership there.
+The helper is retained stopped; no container, volume or evidence is deleted.
+Synthetic issuer/grants are authorized only for this new local marked ledger,
+never production. Gateway gets the bounded metadata role; executor gets only
+application table CRUD/sequence usage, no schema creation/DDL/admin powers.
+The broker's separate dormant login gets only reservation/receipt/diagnosis
+SELECT+INSERT and `pg_control_system` execution. Its provider profile, source
+column grants, provider key, witnessed coverage and paid dispatch remain absent.
+No broker service is started by the synthetic Compose file. Production topology
+retains its provider service behind the `provider-admitted` profile until its
+fixed reviewed startup exists; this is an open dependency, not a completed fix.
+
+`verify_synthetic.py` examines and exercises the actual generated five-service
+stack. It requires the synthetic marker and verifies all services running,
+IPv4/IPv6 isolated private networks, verified gateway worker mTLS, rejection of
+missing certificates and signed-but-unregistered opaque jobs, verified ledger
+TLS, restricted gateway columns/writes, authenticated candidate connectivity,
+and executor denial of internet IPv4/IPv6, shared Coolify/SSH and the confirmed
+namespace. Its protected receipt explicitly records `native_job_acceptance:
+false` and `provider_dispatch: false`. Placeholder fixture release hashes
+exercise denial/startup only; they never qualify a real release or job.
+
+Before stopping local stacks, preserve exact inspect records, PostgreSQL dump,
+graph checkpoint files and protected settings/keys. Stop only those unique
+project resources and retain volumes. Do not use `compose down -v` or delete
+another session's resources. Live deployment still requires independently
+reviewed exact source/image inputs, new owned app resource/roles, trusted TLS
+routing, protected real admission registry, qualified original-source/embedding
+admission, witnessed provider key coverage and live native acceptance. Company
+questions and grading remain paused throughout.
