@@ -29,7 +29,7 @@ async def run_view(run_id:UUID,workspace_id:UUID,*,database_url,graph_url,blobs,
     manifest=selected(database_url,workspace_id)
     if manifest.acceptance_state=='synthetic' and not synthetic:raise PermissionError('synthetic projection cannot enter hosted runtime')
     projection=SDKProjection(graph_url,workspace_id=workspace_id,artifact_id=manifest.artifact_id,artifact_version=manifest.artifact_version,
-                             generation=manifest.graph_generation,llm=NoGeneration(),embedder=embedder,dimensions=dimensions)
+                             generation=manifest.graph_generation,llm=NoGeneration(),embedder=embedder,dimensions=dimensions,read_only=True)
     try:return await execute_view(database_url,run_id,ledger=ledger,projection=projection,synthetic=synthetic)
     finally:await projection.close()
 

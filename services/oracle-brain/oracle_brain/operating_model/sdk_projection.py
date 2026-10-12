@@ -41,13 +41,28 @@ class LedgerExtraction(ExtractionStrategy):
         relationships=[GraphRelationship(start_node_id=a,end_node_id=b,type='RELATES',properties={'transition_key':key,'payload_hash':seal,'fact':fact,'description':fact,'source_chunk_ids':[chunk.uid],'status':'reported','rel_type':'RELATED_TO'}) for a,b,key,seal,fact in self.semantic_relations]
         return GraphData(nodes=nodes,relationships=relationships,mentions=mentions)
 
+class ReadOnlyConnection:
+    """App boundary for SDK 1.4.0 AsyncGraph.ro_query; no vendor patch.
+
+    SDK readback calls query(), which otherwise selects GRAPH.QUERY. Delegate
+    native decoding to the driver's read-only command and keep all other
+    connection behavior (including close/config) on the qualified SDK object.
+    """
+    def __init__(self,connection):self._connection=connection
+    def __getattr__(self,name):return getattr(self._connection,name)
+    async def query(self,cypher,params=None,*,timeout=None):
+        return await self._connection.graph.ro_query(cypher,params=params,
+            timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
+
 class SDKProjection:
-    def __init__(self,graph_url:str,*,workspace_id:UUID,artifact_id:UUID,artifact_version:int,generation:UUID,llm,embedder,dimensions:int):
+    def __init__(self,graph_url:str,*,workspace_id:UUID,artifact_id:UUID,artifact_version:int,generation:UUID,llm,embedder,dimensions:int,read_only:bool=False):
         if version('graphrag-sdk')!='1.4.0':raise RuntimeError('exact qualified SDK required')
         self.graph_name=f'{PREFIX}{workspace_id.hex}_{artifact_id.hex}_{artifact_version}_{generation.hex}'
         self.connection=FalkorDBConnection(ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000))
         self.rag=GraphRAG(self.connection,llm=llm,embedder=embedder,embedding_dimension=dimensions,
           ontology=Ontology(entities=[Entity(label=k) for k in ('ReportedObservation','WorkflowStep','DecisionGateway','BusinessArtifact','BusinessRole','BusinessProcess','WorkflowTransition','BusinessInterface','WorkflowCondition','BusinessObjective','MetricDefinition','DecisionVariant')],relations=[Relation(label='RELATED_TO')]))
+        self.read_only=read_only
+        if read_only:self.connection=ReadOnlyConnection(self.connection)
         self.workspace_id=workspace_id
         logging.getLogger('graphrag_sdk').setLevel(logging.CRITICAL)
 
@@ -96,6 +111,7 @@ class SDKProjection:
         return nodes,relations
 
     async def build(self,ledger,workspace_id:UUID,artifact_id:UUID,artifact_version:int):
+        if self.read_only:raise PermissionError('read-only projection cannot build')
         if workspace_id!=self.workspace_id:raise PermissionError('projection workspace mismatch')
         payload=ledger.read(workspace_id,artifact_id,artifact_version)
         records=self.records(payload)

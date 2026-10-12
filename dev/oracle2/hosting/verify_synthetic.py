@@ -36,7 +36,7 @@ def main(argv=None):
     context.load_cert_chain(root/'worker'/'server.crt',root/'worker'/'server.key')
     body=json.dumps({'job_id':str(uuid4()),'runtime_hash':marker['runtime_hash'],'admission_hash':'2'*64,
                      'nonce':str(uuid4()),'expires_at':int(time.time())+30},sort_keys=True,separators=(',',':')).encode()
-    signature=hmac.new((root/'worker'/'hmac-key').read_bytes(),body,hashlib.sha256).hexdigest()
+    signature=hmac.new((root/'worker'/'hmac-key').read_bytes(),b'POST\n/v1/jobs/admit\n'+body,hashlib.sha256).hexdigest()
     with context.wrap_socket(socket.create_connection(('127.0.0.1',port),timeout=5),server_hostname='gateway') as sock:
         raw=b'POST /v1/jobs/admit HTTP/1.0\r\nHost: gateway\r\nContent-Type: application/json\r\nContent-Length: '+str(len(body)).encode()+b'\r\nX-Oracle-Job-Signature: '+signature.encode()+b'\r\n\r\n'+body
         sock.sendall(raw);reply=sock.recv(4096)
