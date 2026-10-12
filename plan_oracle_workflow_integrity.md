@@ -9,6 +9,8 @@ Implementation owner: Codex chat 01a130a9-5aca-7561-8dff-38bf645c6055, successor
 
 ## STATUS — read first
 
+**October 12, 2026, 3:55 PM EDT checkpoint:** [current native source qualification](docs/verification/oracle2/workflow/W11-native-source-qualification.md) records 510 mandatory checks/zero skips, actual registered TLS/SCRAM native projector and exact ontology/reader ACL proof. Independent review exposed and source repaired a projector startup failure. Host network inventory now proved 12 live networks/no prospective collisions with no host changes. Source integration review/shipment, new immutable image, isolated namespace/credential deployment and remote result/restore acceptance remain separate and open. [Offline native text/table custody contract](docs/operations/offline-original-locators.md) is independently reviewed; its one bounded original-processing action is in progress, not source adoption or semantic acceptance. Event-service CI access is401 and authorized runtime key remains UNKNOWN; actual shared spending coverage is not admitted. W01-W12 and S03-S16 downstream obligations remain open, company questions/employee messages/grading paused.
+
 Every implementation row remains unaccepted as of October 12, 2026 EDT; reviewed source is merged and synthetic verification is explicit below. A completed row must
 link an immutable verification artifact and deployed revision where relevant.
 Keep source merged, synthetic verified, privately audited, hosted verified and

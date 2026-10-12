@@ -1,0 +1,21 @@
+# Native synthetic source qualification
+
+Owner: Codex coordinator, issue #27 and proof card #58. October 12, 2026, 3:55 PM EDT.
+
+Exact implementation head `8ea5ab8b8174d15f2365bc2ca9ce07e0bed4c0d2` passed the mandatory W10 synthetic harness: 510 tests, zero skips, zero failures. Receipt SHA256 `0906b1715679a1a69fc854a863e5aa299cedd9444d91b6868247fd7b3f08061e`; implementation/test input hash `ffc4a48e31c12bce624648cb3dbb768ea2fc0f56759cec6cb405799568e3e575`; JUnit SHA256 `3bdb4800fa887e0604dccc7c835360845a9de510e5052548cf52585fc187799e`. Versions: `{"graphrag-sdk": "1.4.0", "langgraph": "1.2.12", "psycopg": "3.3.6", "pydantic": "2.13.5"}`. Head and clean source tree were checked before and after the run; bytecode writing was disabled. Protected receipt and fixture custody remain local; no private originals were supplied to these tests.
+
+The combined gate includes actual registered-projector TLS/SCRAM source-role binding, native SDK 1.4.0 ingestion/finalization, public two-source artifact and record-digest equality, exact projector data-plus-ontology ACL, foreign graph denial, executor read-only data access and write/ontology denial. The deployed issuer uses the same tested ACL builder. Its literal `__ontology` suffix and SDK version are pinned; drift refuses issuance. The projector keeps the stock native SDK and its per-artifact ontology capability. Executor has no ontology grant.
+
+Independent review of the preceding implementation found missing projector source binding; a real end-to-end test reproduced that refusal and then exposed the native SDK sidecar requirement. Both are repaired, and that test is mandatory. Earlier 501-pass proof did not exercise the projector entry point and is not sufficient for this implementation. The previous review was retained non-authorizing after concurrent tests created an untracked bytecode cache; root preserved that cache outside the source tree, adopted its substantive REJECT finding, and will obtain a fresh exact-head review. No stale review is shipment authority.
+
+Docker Compose interpolation also checks every per-profile bundle name and resource-UUID-specific router/network, the gateway DNS SAN and platform image/hostname settings. Remote platform rendering is a separate gate. Mandatory missing-fixture failure remains; no test is converted to a skip.
+
+Live production-host READ ONLY inventory, independently action-reviewed, observed 12 Docker networks, with no overlap against the four prospective IPv4/ULA pairs. Native inspect SHA256 `79753f6c2b25982a92ec81a4b105abeb99cc09a5f59c7d9a639041effa1aab32`; reviewed operator SHA256 `4a508f246d2dc2b5372b6071cf91f167aeb164aa839100fa478777b24c89e72f`. Existing account password authentication worked without changing policy, known-hosts, credentials or host configuration. This is network-admission evidence, not installation.
+
+Coolify recovery must use its managed application action with `docker_cleanup:false`; official v4.4.6 still removes containers and connected networks while retaining named volumes. It is **not literal stop-only**. Exact action review must include backups and recoverable container/network removal; no deletion of named volumes or host changes is authorized.
+
+Source merge, immutable image publication, isolated namespace creation, credential issuance, platform deployment, external mTLS request/result bytes, restore/restart, private semantic acceptance and business acceptance remain separate gates. Current published image belongs to earlier PR #95/main and is not authority for this implementation. PM4Py/PuLP remains separately unqualified for product bundling.
+
+The existing event-service CI token returned 401; the valid D1 read token is active but Workers and own-token permission metadata return 403. No existing authorized account session was found. CI provider key differs from Oracle; running-service key remains UNKNOWN. No token substitution, scope expansion, new paid calls or company-data adoption occurred.
+
+Downstream review: W01-W12 acceptance and S03-S16 dependencies remain open. Original-region custody is local preparation and does not issue current SourceRefs or semantic acceptance. Company questions, employee messages and grading remain paused.
