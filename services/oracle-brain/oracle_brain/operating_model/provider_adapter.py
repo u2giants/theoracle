@@ -1,6 +1,6 @@
 """Exact admissions and conservative atomic cost reservations before any private call."""
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 from uuid import UUID, uuid4
 from typing import Literal
 import psycopg
@@ -27,14 +27,17 @@ class Budget:
         if purpose not in {'source-census','source-extraction','operating-audit'} or attempt not in {1,2} or not maximum.is_finite() or maximum<=0 or maximum>1:
             raise PermissionError('private dispatch purpose/attempt/cost not admitted')
         if account_remaining is not None and (not account_remaining.is_finite() or account_remaining<0):raise PermissionError('invalid account allowance')
+        maximum=maximum.quantize(Decimal("0.000001"),rounding=ROUND_CEILING)
         reservation_id=uuid4()
         with psycopg.connect(self.url) as conn:
             conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',('oracle-operating-budget',))
             prior=conn.execute('SELECT reservation_id FROM oracle2.operating_dispatch_reservations WHERE workspace_id=%s AND artifact_id=%s AND purpose=%s AND attempt=%s',(workspace_id,artifact_id,purpose,attempt)).fetchone()
             if prior: raise PermissionError('attempt already dispatched; replay cannot charge again')
             if attempt==2:
-                first=conn.execute('SELECT 1 FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id) JOIN oracle2.operating_dispatch_diagnoses d USING(reservation_id) WHERE d.failure_kind!=%s AND d.correction_hash=%s AND r.workspace_id=%s AND r.artifact_id=%s AND r.purpose=%s AND r.attempt=1 AND s.status=%s',('quota_exhausted',correction_hash,workspace_id,artifact_id,purpose,'failed')).fetchone()
+                first=conn.execute('SELECT d.diagnosed_by FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id) JOIN oracle2.operating_dispatch_diagnoses d USING(reservation_id) WHERE d.failure_kind!=%s AND d.correction_hash=%s AND r.workspace_id=%s AND r.artifact_id=%s AND r.purpose=%s AND r.attempt=1 AND s.status=%s',('quota_exhausted',correction_hash,workspace_id,artifact_id,purpose,'failed')).fetchone()
                 if not first: raise PermissionError('one correction requires a diagnosed failed receipt')
+                _lock(conn,workspace_id)
+                if not _has_authority_conn(conn,workspace_id,first[0],'dispatch-correction:'+str(artifact_id)):raise PermissionError('correction diagnosis authority expired or revoked')
             if conn.execute("SELECT 1 FROM oracle2.operating_dispatch_receipts WHERE status='overrun' LIMIT 1").fetchone():
                 raise PermissionError('unresolved provider overrun blocks further reservations')
             day=conn.execute("SELECT COALESCE(sum(reserved_usd),0) FROM oracle2.operating_dispatch_reservations WHERE reserved_at >= (date_trunc('day',now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York')").fetchone()[0]
@@ -62,7 +65,7 @@ class Budget:
     def finish(self,reservation_id: UUID, *, actual_usd: Decimal, failed: bool, response_hash: str | None):
         with psycopg.connect(self.url) as conn:
             row=conn.execute('SELECT reserved_usd FROM oracle2.operating_dispatch_reservations WHERE reservation_id=%s',(reservation_id,)).fetchone()
-            if row is None or actual_usd<0: raise ValueError('invalid dispatch accounting')
+            if row is None or not actual_usd.is_finite() or actual_usd<0: raise ValueError('invalid dispatch accounting')
             overrun=actual_usd>row[0]
             status='overrun' if overrun else ('failed' if failed else 'completed')
             prior=conn.execute('SELECT actual_usd,status,response_hash FROM oracle2.operating_dispatch_receipts WHERE reservation_id=%s',(reservation_id,)).fetchone()

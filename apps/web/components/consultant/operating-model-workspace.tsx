@@ -4,6 +4,7 @@ import type { OperatingModel } from '@/lib/operating-model-types';
 import { WorkflowCanvas } from './workflow-canvas';
 import { WorkflowFindings } from './workflow-findings';
 import { ProcessAnalysisPanel } from './process-analysis-panel';
+import { SourceDownload } from './source-download';
 
 export function OperatingModelWorkspace() {
   const [token, setToken] = useState('');
@@ -64,7 +65,7 @@ export function OperatingModelWorkspace() {
       {(model.interfaces?.length ?? 0) > 0 && <section className="rounded-xl border p-5"><h2 className="font-semibold">Process handoffs</h2><ul className="mt-3 space-y-3">{model.interfaces?.map(handoff => <li key={handoff.interface_id}>{handoff.from_process} → {handoff.to_process} · {handoff.artifact_id} · {handoff.status}<details><summary>Source support</summary>{handoff.support.observation_ids.flatMap(id => model.observations?.find(o => o.observation_id === id)?.evidence ?? []).map((quote,index) => <blockquote className="my-2 border-l-2 pl-3" key={index}>{quote.quote}</blockquote>)}</details></li>)}</ul>{selected && <button className="mt-3 rounded border px-3 py-2" onClick={() => void load(`/api/consultant/processes/${encodeURIComponent(selected)}?connected=1`)}>Show connected processes</button>}</section>}
       {!selected && (page > 0 || model.continuation) && <nav aria-label="Overview pages" className="flex gap-3"><button className="rounded border px-3 py-2" disabled={page === 0} onClick={() => { const previous = page - 1; setPage(previous); void load(`/api/consultant/model?page=${previous}`); }}>Previous</button><span>Page {page + 1}</span><button className="rounded border px-3 py-2" disabled={!model.continuation} onClick={() => { if (!model.continuation) return; const next = model.continuation.page; setPage(next); void load(`/api/consultant/model?page=${next}`); }}>Next</button></nav>}
       <div className="grid gap-6 lg:grid-cols-2">{(model.workflows ?? []).map(workflow => <WorkflowCanvas key={workflow.workflow_id} workflow={workflow} observations={model.observations} />)}</div>
-      <a className="underline" href="/api/consultant/source">Download corresponding source (AGPL)</a>
+      <SourceDownload />
       <ProcessAnalysisPanel analysis={model.analysis} />
       <WorkflowFindings findings={model.findings} quarantine={model.reviewer_quarantine} />
     </>}
