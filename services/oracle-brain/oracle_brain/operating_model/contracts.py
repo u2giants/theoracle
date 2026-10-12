@@ -20,7 +20,7 @@ class ArtifactManifest(StrictRecord):
     workspace_id: UUID
     artifact_id: UUID
     version: int = Field(strict=True, ge=1)
-    kind: Literal['extraction', 'operating_model', 'workflow', 'summary', 'analysis', 'report', 'failed_extraction','event_import']
+    kind: Literal['extraction', 'operating_model', 'workflow', 'summary', 'analysis', 'report', 'failed_extraction','failed_assembly','event_import']
     input_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
     source_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
     permission_digest: str = Field(pattern=r'^[0-9a-f]{64}$')

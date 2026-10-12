@@ -6,6 +6,8 @@ from .workflows.process_validate import validate_workflow
 
 def validate_assembly(model:BusinessOperatingModel, observations:dict[str,Observation], *, accepted_mapping_events:frozenset[str]=frozenset()) -> BusinessOperatingModel:
     manifest=set(model.source_refs)
+    identities=[p.process_id for p in model.processes]+[o.object_id for o in model.objects]+[i.interface_id for i in model.interfaces]
+    if len(set(identities))!=len(identities) or set(identities)&observations.keys():raise ValueError('assembly projection identity collision')
     def check(ids,scope=None):
         values=[]
         for oid in ids:

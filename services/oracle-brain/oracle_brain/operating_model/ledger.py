@@ -46,22 +46,30 @@ class Ledger:
         validated_observations={}
         for raw in payload.get('observations', []):
             observation = Observation.model_validate_json(json.dumps(raw))
+            if observation.observation_id in validated_observations:raise ValueError('duplicate observation identity')
             expected = create_observation(receipts[str(observation.ref.source_id)], observation.occurrence_key,
                                           observation.kind, observation.scope, observation.value, observation.evidence)
             validated_observations[observation.observation_id]=observation
             if expected != observation:
                 raise ValueError('observation identity does not match its immutable support')
+        finding_ids=set()
         for raw in payload.get('findings', []):
-            validate_finding(Finding.model_validate_json(json.dumps(raw)), receipts,
+            finding=Finding.model_validate_json(json.dumps(raw))
+            if finding.finding_id in finding_ids:raise ValueError('duplicate finding identity')
+            finding_ids.add(finding.finding_id)
+            validate_finding(finding, receipts,
                              inventories=self.reviewed_inventories)
         for raw in payload.get('workflows',[]):
             model=WorkflowModel.model_validate_json(json.dumps(raw))
             if model.workspace_id!=workspace_id or not set(model.source_refs)<=set(refs):raise ValueError('workflow source outside artifact manifest')
+            if not set(model.finding_ids)<=finding_ids:raise ValueError('workflow finding absent from artifact')
             if model.status!='reported':raise PermissionError('model output cannot confer confirmed policy')
             validate_workflow(model,validated_observations)
         for raw in payload.get('operating_models',[]):
             model=BusinessOperatingModel.model_validate_json(json.dumps(raw))
             if model.workspace_id!=workspace_id or not set(model.source_refs)<=set(refs):raise ValueError('company source outside artifact manifest')
+            if not set(model.finding_ids)<=finding_ids or any(not set(w.finding_ids)<=finding_ids for w in model.workflows):raise ValueError('company finding absent from artifact')
+            if any(w.status!='reported' for w in model.workflows):raise PermissionError('model output cannot confer confirmed policy')
             validate_assembly(model,validated_observations)
         event_log=None
         if kind=='event_import':

@@ -60,12 +60,17 @@ CREATE TABLE IF NOT EXISTS oracle2.operating_dispatch_receipts (
  reservation_id uuid PRIMARY KEY REFERENCES oracle2.operating_dispatch_reservations,
  actual_usd numeric(12,6) NOT NULL CHECK(actual_usd>=0), status text NOT NULL CHECK(status IN ('completed','failed','overrun')),
  response_hash text, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS oracle2.operating_dispatch_diagnoses (
+ reservation_id uuid PRIMARY KEY REFERENCES oracle2.operating_dispatch_receipts,
+ diagnosed_by uuid NOT NULL, failure_kind text NOT NULL CHECK(failure_kind IN ('invalid_output','truncated_output','transport_failure','quota_exhausted')),
+ correction_hash text NOT NULL CHECK(correction_hash ~ '^[0-9a-f]{64}$'),
+ diagnosis_hash text NOT NULL CHECK(diagnosis_hash ~ '^[0-9a-f]{64}$'), created_at timestamptz NOT NULL DEFAULT now());
 DO $$ DECLARE name text; BEGIN
- FOREACH name IN ARRAY ARRAY['operating_dispatch_reservations','operating_dispatch_receipts'] LOOP
+ FOREACH name IN ARRAY ARRAY['operating_dispatch_reservations','operating_dispatch_receipts','operating_dispatch_diagnoses'] LOOP
  IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='immutable_'||name AND tgrelid=('oracle2.'||name)::regclass) THEN
  EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON oracle2.%I FOR EACH ROW EXECUTE FUNCTION oracle2.deny_operating_model_mutation()', 'immutable_'||name,name);
  END IF; END LOOP; END $$;
-REVOKE ALL ON oracle2.operating_dispatch_reservations,oracle2.operating_dispatch_receipts FROM PUBLIC;
+REVOKE ALL ON oracle2.operating_dispatch_reservations,oracle2.operating_dispatch_receipts,oracle2.operating_dispatch_diagnoses FROM PUBLIC;
 -- Fence the serving selector, never source ingestion. Existing writes remain enabled.
 CREATE TABLE IF NOT EXISTS oracle2.operating_model_change_log (
  sequence bigserial PRIMARY KEY, workspace_id uuid NOT NULL, object_kind text NOT NULL,

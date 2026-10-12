@@ -9,7 +9,7 @@ import psycopg
 from psycopg import sql
 
 ROOT=Path(__file__).resolve().parents[2]
-DOCUMENTARY=('operating_model_boundary','operating_model_coverage','source_receipts','observation_identity','workflow_findings','artifact_storage','operating_model_extraction','operating_model_adapters','process_model','process_coverage','business_operating_model','workflow_lineage','operating_model_sdk','operating_model_retrieval','process_consult','operating_model_cutover','operating_model_restore')
+DOCUMENTARY=('operating_model_boundary','operating_model_coverage','source_receipts','observation_identity','workflow_findings','artifact_storage','operating_model_extraction','operating_model_adapters','process_model','process_coverage','business_operating_model','workflow_lineage','operating_model_sdk','operating_model_retrieval','process_consult','operating_model_cutover','operating_model_restore','operating_model_pipeline')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration')
 
 def main():

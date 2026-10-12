@@ -15,6 +15,7 @@ from oracle_brain.operating_model.ledger import Ledger
 from oracle_brain.operating_model.observations import create_observation
 from oracle_brain.operating_model.sdk_projection import SDKProjection
 from oracle_brain.operating_model.source_receipts import EvidenceRef, SourceReceipt, SourceRef
+from oracle_brain.operating_model.workflows.process_model import WorkflowModel, Step, Support, Condition, Transition
 from oracle_brain.operating_model.workflows.process_model import WorkflowModel,Step,Support,Transition,Gateway
 from oracle_brain.operating_model.process_analysis.compiler import compile_contract
 from oracle_brain.operating_model.model import BusinessOperatingModel,ProcessRecord
@@ -61,7 +62,7 @@ def projection_inputs(tmp_path):
     payload = {'source_refs': [ref.model_dump(mode='json')], 'observations': [obs1.model_dump(mode='json'), obs2.model_dump(mode='json')],
                'findings': [missing.model_dump(mode='json'), legacy.model_dump(mode='json')]}
     support=Support(observation_ids=(obs1.observation_id,))
-    workflow=WorkflowModel(workflow_id='synthetic-occurrences',version=1,workspace_id=workspace,process_id='intake',scope='workflow',source_refs=(ref,),completeness='partial',coverage_digest='c'*64,steps=(Step(step_id='first',label='Reviewer',kind='start',support=support),Step(step_id='second',label='Reviewer',kind='end',support=support)),transitions=(Transition(transition_id='explicit-handoff',from_id='first',to_id='second',support=support),))
+    workflow=WorkflowModel(workflow_id='synthetic-occurrences',version=1,workspace_id=workspace,process_id='intake',scope='workflow',source_refs=(ref,),completeness='partial',coverage_digest='c'*64,steps=(Step(step_id='first',label='Reviewer',kind='start',support=support),Step(step_id='second',label='Reviewer',kind='end',support=support)),conditions=(Condition(condition_id='cond-intake',wording='Intake Lead sends the packet',applicability='known',support=support),),transitions=(Transition(transition_id='explicit-handoff',from_id='first',to_id='second',condition_id='cond-intake',support=support),))
     payload['workflows']=[workflow.model_dump(mode='json')]
     model=BusinessOperatingModel(model_id=uuid4(),version=1,workspace_id=workspace,source_refs=(ref,),declared_population='Invented Intake only',processes=(ProcessRecord(process_id='intake',label='Intake',workflow_ids=(workflow.workflow_id,),scope='workflow',source_ids=(source,),observation_ids=(obs1.observation_id,obs2.observation_id),completeness='partial'),),objects=(),interfaces=(),assembly_decisions=(),workflows=(workflow,),finding_ids=(missing.finding_id,legacy.finding_id),completeness='partial')
     payload['operating_models']=[model.model_dump(mode='json')]
@@ -107,6 +108,20 @@ def test_sdk_rebuild_from_ledger(projection_inputs):
         rebuilt = make_projection(graph, workspace, artifact, uuid4())
         assert await rebuilt.build(ledger, workspace, artifact, 1) and payload == await rebuilt.load(ledger, workspace, artifact, 1)
         await rebuilt.close()
+    asyncio.run(run())
+
+def test_real_sdk_preserves_supported_condition_quote_identity(projection_inputs):
+    async def run():
+        graph, ledger, workspace, artifact, payload = projection_inputs; generation=uuid4(); projection=make_projection(graph,workspace,artifact,generation)
+        await projection.build(ledger,workspace,artifact,1)
+        rows=(await projection.connection.query("MATCH (n:OperatingModelRecord {id:'synthetic-occurrences:cond-intake'}) RETURN n.payload_hash")).result_set
+        assert rows and rows[0][0]==__import__('oracle_brain.operating_model.contracts',fromlist=['digest']).digest(payload['workflows'][0]['conditions'][0])
+        semantic=(await projection.connection.query("MATCH (n:__Entity__:WorkflowCondition {id:'synthetic-occurrences:cond-intake'}) RETURN n.display_name,n.payload_hash")).result_set
+        assert semantic and semantic[0][0]=='Intake Lead sends the packet'
+        await projection.connection.query("MATCH (n:OperatingModelRecord {id:'synthetic-occurrences:cond-intake'}) DETACH DELETE n")
+        with pytest.raises(ValueError,match='projection lost'):
+            await projection.load(ledger,workspace,artifact,1)
+        await projection.close()
     asyncio.run(run())
 
 def compiler_model(**changes):

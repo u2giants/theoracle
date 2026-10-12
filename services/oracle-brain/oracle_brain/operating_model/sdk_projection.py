@@ -45,7 +45,7 @@ class SDKProjection:
         self.graph_name=f'{PREFIX}{workspace_id.hex}_{artifact_id.hex}_{artifact_version}_{generation.hex}'
         self.connection=FalkorDBConnection(ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000))
         self.rag=GraphRAG(self.connection,llm=llm,embedder=embedder,embedding_dimension=dimensions,
-          ontology=Ontology(entities=[Entity(label=k) for k in ('ReportedObservation','WorkflowStep','DecisionGateway','BusinessArtifact','BusinessRole','BusinessProcess','WorkflowTransition','BusinessInterface')],relations=[Relation(label='RELATED_TO')]))
+          ontology=Ontology(entities=[Entity(label=k) for k in ('ReportedObservation','WorkflowStep','DecisionGateway','BusinessArtifact','BusinessRole','BusinessProcess','WorkflowTransition','BusinessInterface','WorkflowCondition','BusinessObjective','MetricDefinition','DecisionVariant')],relations=[Relation(label='RELATED_TO')]))
         self.workspace_id=workspace_id
         logging.getLogger('graphrag_sdk').setLevel(logging.CRITICAL)
 
@@ -59,7 +59,7 @@ class SDKProjection:
         for f in payload.get('findings',[]):add(f['finding_id'],'finding',f)
         for w in payload.get('workflows',[]):
             add(w['workflow_id'],'workflow',w)
-            for kind,key in [('steps','step_id'),('gateways','gateway_id'),('transitions','transition_id'),('roles','assignment_id'),('artifacts','artifact_id'),('handoffs','handoff_id')]:
+            for kind,key in [('steps','step_id'),('gateways','gateway_id'),('transitions','transition_id'),('roles','assignment_id'),('artifacts','artifact_id'),('handoffs','handoff_id'),('conditions','condition_id')]:
                 for obj in w.get(kind,[]):add(w['workflow_id']+':'+obj[key],kind,obj)
         for model in payload.get('operating_models',[]):add(str(model['model_id']),'operating_model',model)
         add('artifact:'+digest(payload),'artifact',payload)
@@ -74,8 +74,8 @@ class SDKProjection:
             nodes[identifier]=value
         for w in payload.get('workflows',[]):
             prefix=w['workflow_id']+':'
-            for collection,key,label in [('steps','step_id','WorkflowStep'),('gateways','gateway_id','DecisionGateway'),('artifacts','artifact_id','BusinessArtifact')]:
-                for obj in w.get(collection,[]):add(prefix+obj[key],label,obj.get('label',obj.get('kind',obj[key])),obj,obj['support']['observation_ids'])
+            for collection,key,label in [('steps','step_id','WorkflowStep'),('gateways','gateway_id','DecisionGateway'),('artifacts','artifact_id','BusinessArtifact'),('conditions','condition_id','WorkflowCondition')]:
+                for obj in w.get(collection,[]):add(prefix+obj[key],label,obj.get('label',obj.get('wording',obj.get('kind',obj[key]))),obj,obj['support']['observation_ids'])
             for edge in w['transitions']:
                 identifier=prefix+edge['transition_id']
                 support=edge['support']['observation_ids']
@@ -84,7 +84,7 @@ class SDKProjection:
                     relations[identifier+':'+suffix]=(a,b,digest(edge),'Reported transition '+edge['from_id']+' → '+edge['to_id'],tuple(support))
         for model in payload.get('operating_models',[]):
             for process in model['processes']:add(process['process_id'],'BusinessProcess',process['label'],process,process['observation_ids'])
-            for obj in model['objects']:add(obj['object_id'],'BusinessRole' if obj['kind']=='role' else 'BusinessArtifact',obj['label'],obj,obj['support']['observation_ids'])
+            for obj in model['objects']:add(obj['object_id'],{'role':'BusinessRole','artifact':'BusinessArtifact','objective':'BusinessObjective','metric_definition':'MetricDefinition','decision_variant':'DecisionVariant'}[obj['kind']],obj['label'],obj,obj['support']['observation_ids'])
             for interface in model['interfaces']:
                 if interface['status']=='supported':
                     identifier=interface['interface_id'];support=interface['support']['observation_ids']

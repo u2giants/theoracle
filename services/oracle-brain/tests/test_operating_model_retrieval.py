@@ -38,3 +38,15 @@ def test_cross_source_aggregate_requires_access_to_every_dependency():
     p=payload(2); plan_result=plan(ids=('p0','p1'))
     with pytest.raises(LookupError):
         build_pack({**p, 'operating_models':[{'declared_population':'all','processes':p['operating_models'][0]['processes'][:1],'interfaces':[]}]}, plan_result)
+
+
+def test_workflow_support_and_role_quotes_are_required_even_outside_process_summary():
+    p=payload();extra={**p['observations'][0],'observation_id':'detail','occurrence_key':'detail','evidence':[{'ref':p['source_refs'][0],'start':1,'end':2,'quote':'y'}]};p['observations'].append(extra)
+    p['workflows']=[{'workflow_id':'flow','process_id':'p0','scope':'s','steps':[{'step_id':'detail','support':{'observation_ids':['detail']}}]}]
+    p['operating_models'][0]['objects']=[{'object_id':'role','kind':'role','label':'Reviewer','scope':'s','support':{'observation_ids':['detail']}}]
+    result=build_pack(p,plan())
+    assert {o['observation_id'] for o in result['observations']}=={'o0','detail'}
+    assert result['objects'][0]['label']=='Reviewer' and {e['quote'] for e in result['citations']}=={'x','y'}
+
+def test_overview_page_outside_population_cannot_claim_coverage():
+    with pytest.raises(LookupError,match='population'):build_pack(payload(),plan(view='company_overview',ids=(),page=1))

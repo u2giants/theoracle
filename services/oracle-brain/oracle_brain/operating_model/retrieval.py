@@ -31,14 +31,24 @@ def build_pack(payload:dict,plan:QueryPlan,*, reviewer_scopes:frozenset[str]=fro
                     selected.update((interface['from_process'],interface['to_process']))
     if plan.view=='company_overview':
         ordered=sorted(available)
+        if plan.page and plan.page*plan.page_size>=len(ordered):raise LookupError('overview page outside declared population')
         selected=set(ordered[plan.page*plan.page_size:(plan.page+1)*plan.page_size])
     elif not selected:raise ValueError('process-scoped pack requires explicit process IDs')
     selected_processes=[p for p in processes if p['process_id'] in selected]
     workflows=[w for w in payload.get('workflows',[]) if w['process_id'] in selected]
-    scopes={p['scope'] for p in selected_processes}
+    scopes={p['scope'] for p in selected_processes}|{w['scope'] for w in workflows}
     observation_ids={oid for p in selected_processes for oid in p['observation_ids']}
+    required_findings={fid for w in workflows for fid in w.get('finding_ids',[])}
+    for workflow in workflows:
+        for collection in ('steps','gateways','transitions','conditions','roles','artifacts','handoffs'):
+            for item in workflow.get(collection,[]):observation_ids.update(item['support']['observation_ids'])
+    objects=[]
     interfaces=[]
     for model in models:
+        if plan.view=='company_overview':required_findings.update(model.get('finding_ids',[]))
+        for obj in model.get('objects',[]):
+            if obj['scope'] in scopes:
+                objects.append(obj);observation_ids.update(obj['support']['observation_ids'])
         for interface in model['interfaces']:
             if interface['from_process'] in selected or interface['to_process'] in selected:
                 interfaces.append(interface);observation_ids.update(interface['support']['observation_ids'])
@@ -46,7 +56,7 @@ def build_pack(payload:dict,plan:QueryPlan,*, reviewer_scopes:frozenset[str]=fro
     findings=[];quarantine=[]
     for raw in payload.get('findings',[]):
         f=Finding.model_validate_json(json.dumps(raw))
-        if f.process_id in selected or f.scope in scopes:
+        if f.finding_id in required_findings or f.process_id in selected or f.scope in scopes:
             if answer_eligible(f):findings.append(raw)
             elif f.origin=='legacy_unverified' and f.scope in reviewer_scopes:quarantine.append(raw)
     citations={}
@@ -61,7 +71,7 @@ def build_pack(payload:dict,plan:QueryPlan,*, reviewer_scopes:frozenset[str]=fro
         continuation={'page':plan.page+1,'page_size':plan.page_size,'artifact_hash':digest(payload),'view':plan.view}
     pack={'schema_version':1,'state':'ready','artifact_hash':digest(payload),'view':plan.view,
           'declared_population':[m['declared_population'] for m in models],
-          'processes':selected_processes,'workflows':workflows,'interfaces':interfaces,
+          'processes':selected_processes,'workflows':workflows,'interfaces':interfaces,'objects':objects,
           'observations':observations,'findings':findings,'reviewer_quarantine':quarantine,
           'citations':list(citations.values()),'distinct_original_count':len(originals),
           'continuation':continuation,'declared_population_fully_paged':plan.view=='company_overview' and continuation is None and plan.page==0,
