@@ -49,6 +49,14 @@ That write-once baton preserves PR85’s historical brief; this plan’s current
 replacement contract and [Muse debate record](docs/research/oracle-operating-model-debate.md)
 supersede its original patch-oriented step instructions. The planning baton is historical; source implementation is now merged. It is retained because its status does not explicitly establish committed-and-pushed publication, required by the successor rule.
 
+## Source phase closed — October 12, 2026, 2:26 PM EDT
+
+PR #95 merged normally at `d7f771c448b3e829f3b504a06c440bd1e95abd15`; its source tree is identical to independently approved `4e75d8f4e818844ac0cb4712404e578540ed7a2e`. Required source checks and documentary image build passed. Root frozen qualification passed 379 tests with zero skips, including strict certificate verification and real SCRAM credentials. Main image publication is separate from actual runtime release and live acceptance. The coordinator continues all remaining W01–W12 obligations on #27/#58 from a new current-main branch; no company question/report, employee message or grading pause is lifted.
+
+Next-phase source implements installer-owned current source-role admissions, least-privilege compiler writes, documentary reads and an append-only byte-exact completion receipt. Root independently reran 47 actual SCRAM-backed role tests successfully; private runtime startup pins, source/role issuance, job registration, deployed routing and browser delivery remain pending. No production namespace, private corpus adoption or paid dispatch exists. Approved local offline region parsing completed one group then refused on its 4 GiB address-space cap; protected partials survive. An 8 GiB-only bounded repair is awaiting exact action review; source-region completeness is not claimed. Existing processing permissions expired and cannot authorize future paid work.
+
+Downstream review after source shipment: S03–S16 remain unaccepted; W04 analytical source/bundle admission remains independent, W07 quarantined observation custody precedes W08 mapping, W05/W06 current authority precedes W10 independent source assessment, W11 requires actual hosted comparison and W12 cannot close unmet obligations or retire capabilities. Source merge, image publication and live business acceptance are distinct.
+
 ## Active integration checkpoint — October 12, 2026, 1:18 PM EDT
 
 The current coordinator retains ownership of all W01–W12 live obligations on #27/#58. Reviewed old-question cleanup is complete: PR #94 merged `46bda94be17709e7d5b902239ff9e26c84615ac0`; independent live readback proves exactly fifteen obsolete open questions rejected for each of Ilona and Jessica, zero active old questions, and unchanged protected evidence/answers/history. See `docs/operations/claims-old-question-clear.md`. This clears assignments without resuming question generation or grading.
