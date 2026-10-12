@@ -9,12 +9,26 @@ import psycopg
 from psycopg import sql
 
 ROOT=Path(__file__).resolve().parents[2]
-DOCUMENTARY=('operating_model_boundary','operating_model_coverage','source_receipts','observation_identity','workflow_findings','artifact_storage','operating_model_extraction','operating_model_adapters','process_model','process_coverage','business_operating_model','workflow_lineage','operating_model_sdk','operating_model_retrieval','process_consult','operating_model_cutover','operating_model_restore','operating_model_pipeline','operating_model_native_provider','operating_model_answer','operating_model_summaries','operating_model_comparison','operating_model_retirement','operating_model_actions','operating_model_report_store','workflow_authorization')
+DOCUMENTARY=('operating_model_verifier','operating_model_boundary','operating_model_coverage','source_receipts','observation_identity','workflow_findings','artifact_storage','operating_model_extraction','operating_model_adapters','process_model','process_coverage','business_operating_model','workflow_lineage','operating_model_sdk','operating_model_retrieval','process_consult','operating_model_cutover','operating_model_restore','operating_model_pipeline','operating_model_native_provider','operating_model_answer','operating_model_summaries','operating_model_comparison','operating_model_retirement','operating_model_actions','operating_model_report_store','workflow_authorization')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration')
 
-def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--stage',choices=('documentary','event','all'),required=True);parser.add_argument('--result',default='out/oracle2/workflow-integrity.json');args=parser.parse_args()
-    required=DOCUMENTARY if args.stage=='documentary' else EVENT if args.stage=='event' else DOCUMENTARY+EVENT
+def parse_options(argv=None):
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--stage',choices=('documentary','event','all',*(f'W{i:02d}' for i in range(1,13))),required=True)
+    parser.add_argument('--mode',choices=('synthetic','private-audit'),default='synthetic')
+    parser.add_argument('--result',default='out/oracle2/workflow-integrity.json')
+    return parser.parse_args(argv)
+
+def required_suites(stage):
+    if stage in {'documentary','W02','W03','W05','W06'}:return DOCUMENTARY
+    if stage in {'event','W04','W07','W08'}:return EVENT
+    return DOCUMENTARY+EVENT
+
+def main(argv=None):
+    args=parse_options(argv)
+    if args.mode!='synthetic':
+        raise PermissionError('Independent private-audit admission is unavailable; synthetic proof cannot establish private semantic acceptance')
+    required=required_suites(args.stage)
     paths=[ROOT/'services/oracle-brain/tests'/f'test_{name}.py' for name in required]
     missing=[p.name for p in paths if not p.is_file()]
     if missing:raise RuntimeError('required tests missing: '+','.join(missing))
@@ -23,7 +37,7 @@ def main():
     name='oracle_operating_model_test_'+uuid4().hex
     with psycopg.connect(admin,autocommit=True) as conn:conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
     target=psycopg.conninfo.make_conninfo(**{**parts,'dbname':name})
-    report={'schema_version':1,'stage':args.stage,'success':False,'synthetic':True,'business_accepted':False,'private_source_acceptance':'open','independent_semantic_acceptance':'open','actual_event_acceptance':'unavailable','analytical_runtime_qualified':False,'required_tests':[p.name for p in paths]}
+    report={'schema_version':1,'stage':args.stage,'mode':args.mode,'success':False,'synthetic':True,'business_accepted':False,'private_source_acceptance':'open','independent_semantic_acceptance':'open','actual_event_acceptance':'unavailable','analytical_runtime_qualified':False,'required_tests':[p.name for p in paths]}
     try:
         with psycopg.connect(target) as conn:
             for migration in ('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql'):conn.execute((ROOT/'services/oracle-brain/sql'/migration).read_text())

@@ -11,7 +11,11 @@ const mandatory = ['LICENSE','SOURCE_OFFER.md','THIRD_PARTY_NOTICES.md','README.
 const codeRoots = ['apps/','packages/','services/','scripts/','migrations/','.github/','dev/oracle2/','evals/oracle2/workflow/'];
 const special = ['docs/deployment.md','docs/configuration.md','docs/development.md'];
 // Release archives must correspond to a clean committed source tree.
-if (execFileSync('git',['status','--porcelain','--untracked-files=all'],{cwd:root,encoding:'utf8'}).trim()) throw new Error('Commit source changes before building the source offer');
+const dirty = execFileSync('git',['status','--porcelain','--untracked-files=all'],{cwd:root,encoding:'utf8'}).trim();
+if (dirty) {
+  const trackedChanges = execFileSync('git',['diff','--name-only','HEAD'],{cwd:root,encoding:'utf8'}).trim().split('\n').filter(Boolean);
+  throw new Error('Commit source changes before building the source offer; tracked changes: '+trackedChanges.slice(0,10).join(', ')+'; untracked count: '+dirty.split('\n').filter(line=>line.startsWith('?? ')).length);
+}
 const tracked = execFileSync('git',['ls-files','-z'],{cwd:root,encoding:'utf8'}).split('\0').filter(Boolean);
 const source = tracked.filter(path => !path.split('/').some(part => ['node_modules','.source-offer','.ai','test-results','uploads','uploaded-files','.env.local','.env','coverage','.next','.trigger','.vercel','dist','out','build'].includes(part)) && (mandatory.includes(path)||special.includes(path)||codeRoots.some(prefix=>path.startsWith(prefix))) && /\.(ts|tsx|js|jsx|mjs|cjs|py|json|toml|yaml|yml|sql|sh|css|md|txt|svg|lock|ps1)$/.test(path));
 for(const path of mandatory)if(!source.includes(path))source.push(path);

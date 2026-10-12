@@ -85,7 +85,7 @@ jobs:
       - name: Bootstrap isolated LangGraph checkpoint tables
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/init_local_stores.py
       - name: New operating-model documentary and event contracts
-        run: services/oracle-brain/.venv/bin/python scripts/oracle2/verify_workflow_integrity.py --stage all
+        run: services/oracle-brain/.venv/bin/python scripts/oracle2/verify_workflow_integrity.py --stage W10 --mode synthetic
       - name: S02 offline contract and storage gate
         run: python3 scripts/oracle2/verify_phase.py S02 --mode offline
       - name: S03 pilot journey offline gate
