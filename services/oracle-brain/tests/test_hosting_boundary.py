@@ -31,13 +31,17 @@ def certificates(tmp_path_factory):
         subprocess.run(["openssl", *args], cwd=root, check=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     run("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "ca.key",
-        "-out", "ca.pem", "-days", "1", "-subj", "/CN=Invented Oracle Test CA")
+        "-out", "ca.pem", "-days", "1", "-subj", "/CN=Invented Oracle Test CA",
+        "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0",
+        "-addext", "keyUsage=critical,keyCertSign,cRLSign")
     for name, san, purpose in [("server", "DNS:localhost", "serverAuth"),
                                ("worker", "URI:" + WORKER, "clientAuth"),
                                ("other", "URI:spiffe://oracle/unrelated", "clientAuth")]:
         run("req", "-newkey", "rsa:2048", "-nodes", "-keyout", name + ".key",
             "-out", name + ".csr", "-subj", "/CN=" + name)
-        (root / (name + ".ext")).write_text("subjectAltName=" + san + "\nextendedKeyUsage=" + purpose)
+        (root / (name + ".ext")).write_text("subjectAltName=" + san + "\nextendedKeyUsage=" + purpose
+            + "\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment"
+            + "\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer")
         run("x509", "-req", "-in", name + ".csr", "-CA", "ca.pem", "-CAkey", "ca.key",
             "-CAcreateserial", "-out", name + ".pem", "-days", "1", "-extfile", name + ".ext")
     for p in root.iterdir():
@@ -68,6 +72,7 @@ def gateway(certificates):
 
 def send(gateway, certificates, obj=None, *, identity="worker", path="/v1/jobs/admit", signed=True):
     context = ssl.create_default_context(cafile=str(certificates / "ca.pem"))
+    context.verify_flags |= ssl.VERIFY_X509_STRICT
     if identity:
         context.load_cert_chain(str(certificates / (identity + ".pem")),
                                 str(certificates / (identity + ".key")))
