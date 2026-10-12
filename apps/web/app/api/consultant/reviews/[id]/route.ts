@@ -110,3 +110,13 @@ export async function POST(
 }
 
 
+
+export async function GET(req:NextRequest,{params}:{params:Promise<{id:string}>}){
+ const auth=await authorizePilotRequest(req.headers);if(!auth.ok)return NextResponse.json({error:auth.error},{status:auth.status});
+ try{
+  const {id}=await params;const runId=req.nextUrl.searchParams.get('runId');
+  if(!runId||! /^[0-9a-f-]{36}$/i.test(runId))return NextResponse.json({error:'Opaque review identity required'},{status:400});
+  const {readFindingAction}=await import('@/lib/operating-action-store');
+  return NextResponse.json(await readFindingAction(auth.actorId,id,runId));
+ }catch{return NextResponse.json({error:'Current review unavailable or denied'},{status:409});}
+}

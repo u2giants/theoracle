@@ -50,14 +50,17 @@ test('invented authenticated map traverses real current worker SDK and ledger',a
   await page.getByLabel('Process',{exact:true}).selectOption('intake');
   await expect(page.getByRole('img',{name:'Reported workflow Invented intake'})).toBeVisible({timeout:30000});
   await page.getByRole('button',{name:'Show connected processes'}).click();
-  await expect(page.getByText('Two connected invented processes',{exact:false})).toBeVisible();
+  await expect(page.getByText('Two connected invented processes',{exact:false})).toBeVisible({timeout:30000});
   await expect(page.getByText('Process handoffs',{exact:true})).toBeVisible();
   const review=await page.request.post(`${url}/api/consultant/reviews/missing-owner`,{data:{action:'finding_annotate',scope:'intake',note:'Invented reviewer requests an owner; no policy approval.'}});
   expect(review.status()).toBe(202);
-  await expect.poll(async()=>{
-    await page.getByRole('button',{name:'Refresh',exact:true}).click();
-    return page.getByText('Invented reviewer requests an owner; no policy approval.',{exact:true}).count();
-  },{timeout:30000}).toBe(1);
+  const reviewJob=await review.json();
+  await expect.poll(async()=>{const r=await page.request.get(`${url}/api/consultant/reviews/missing-owner?runId=${reviewJob.runId}`);return (await r.json()).state;},{timeout:30000}).toBe('completed');
+  const reviewResult=await (await page.request.get(`${url}/api/consultant/reviews/missing-owner?runId=${reviewJob.runId}`)).json();
+  expect(reviewResult.policy_promoted).toBe(false);
+  await page.getByRole('button',{name:'Refresh',exact:true}).click();
+  await expect(page.getByText('Invented reviewer requests an owner; no policy approval.',{exact:true})).toBeVisible({timeout:30000});
+  await expect(page.getByText('Invented event preview only. Actual company measurements remain unavailable.',{exact:true})).toBeVisible();
   await expect(page.getByText('Review decisions do not establish company policy.',{exact:true})).toBeVisible();
   if(process.env.ORACLE2_WORKFLOW_SCREENSHOT)await page.screenshot({path:process.env.ORACLE2_WORKFLOW_SCREENSHOT,fullPage:true});
   const logout=await page.request.delete(`${url}/api/consultant/session`);expect(logout.ok()).toBeTruthy();
