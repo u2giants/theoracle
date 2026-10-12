@@ -135,3 +135,26 @@ def test_graph_lineage_loss_denies_serving(projection_inputs):
         with pytest.raises(ValueError,match='finding lineage'):await projection.load(ledger,workspace,artifact,1)
         await projection.close()
     asyncio.run(run())
+
+def test_operating_outbox_signed_projection_replay_and_stale_denial(projection_inputs):
+    from oracle_brain.outbox import lease_next
+    from oracle_brain.operating_model.projection_delivery import project_event,mark_delivered
+    async def run():
+        graph,ledger,workspace,artifact,payload=projection_inputs
+        event=lease_next(ledger.url,allowed_workspaces=frozenset({str(workspace)}),namespace='oracle_operating_model_v1')
+        assert event and event.assertion_id==artifact
+        projection=make_projection(graph,workspace,artifact,uuid4());secret=b'invented-synthetic-signing-key-32bytes'
+        first=await project_event(ledger,event,projection,secret=secret,projector_id='invented-worker')
+        assert await project_event(ledger,event,projection,secret=secret,projector_id='invented-worker')==first
+        with psycopg.connect(ledger.url) as conn:
+            assert conn.execute('SELECT count(*) FROM oracle2.operating_projection_receipts WHERE event_id=%s',(event.event_id,)).fetchone()[0]==1
+            assert conn.execute('SELECT delivered_at IS NOT NULL FROM oracle2.outbox WHERE event_id=%s',(event.event_id,)).fetchone()[0]
+        unsigned={k:v for k,v in first.items() if k!='signature'}
+        with pytest.raises(PermissionError,match='forged'):mark_delivered(ledger,event,unsigned,'0'*64,secret=secret)
+        with pytest.raises(psycopg.errors.RaiseException,match='immutable'):
+            with psycopg.connect(ledger.url) as conn:conn.execute("UPDATE oracle2.outbox SET payload=jsonb_set(payload,'{namespace}','\"tampered\"') WHERE event_id=%s",(event.event_id,))
+        refs=tuple(SourceRef.model_validate_json(json.dumps(r)) for r in payload['source_refs'])
+        ledger.persist(workspace_id=workspace,artifact_id=artifact,version=2,kind='operating_model',payload=payload,refs=refs,permission_digest='d'*64,compiler_digest='e'*64)
+        with pytest.raises(PermissionError,match='stale'):await project_event(ledger,event,projection,secret=secret,projector_id='invented-worker')
+        await projection.close()
+    asyncio.run(run())

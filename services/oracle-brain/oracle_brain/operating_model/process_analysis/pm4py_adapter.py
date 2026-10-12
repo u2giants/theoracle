@@ -1,4 +1,5 @@
 """PM4Py capability stays unavailable until exact license/runtime qualification."""
+import re
 from importlib.metadata import version,PackageNotFoundError
 from .compiler import compile_contract
 
@@ -8,7 +9,7 @@ PIN='2.7.22'
 def analyze(model,*,qualification):
     compiled=compile_contract(model)
     if compiled['state']!='compiled':return compiled
-    if not qualification or qualification.get('version')!=PIN or qualification.get('deployment_fit')!='APPROVE' or not qualification.get('review_report_hash'):
+    if not qualification or qualification.get('version')!=PIN or qualification.get('deployment_fit')!='APPROVE' or qualification.get('runtime_resource_fit')!='APPROVE' or not re.fullmatch(r'[0-9a-f]{64}',qualification.get('review_report_hash','')):
         return {'state':'unavailable','reason':'PM4Py exact deployment/license qualification required','model':model.model_dump(mode='json')}
     try:
         installed=version('pm4py')
@@ -17,7 +18,7 @@ def analyze(model,*,qualification):
     if installed!=PIN:raise RuntimeError('analytical runtime dependency mismatch')
     net,initial,final=build_net(compiled,model.workflow_id)
     from pm4py import check_soundness
-    sound,diagnostics=check_soundness(net,initial,final,return_diagnostics=True)
+    sound,diagnostics=check_soundness(net,initial,final)
     return {'state':'analyzed','structural_soundness':bool(sound),'company_truth_accepted':False,'compiler':compiled['compiler'],'step_map':compiled['step_map'],'transition_map':compiled['transition_map'],'diagnostic_keys':sorted(diagnostics)}
 
 def build_net(compiled,workflow_id):

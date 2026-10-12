@@ -1,0 +1,57 @@
+{
+  "company_truth_accepted": false,
+  "cpu_seconds": 0.934285,
+  "discovery_activity_ids": [
+    "end",
+    "start",
+    "x",
+    "y"
+  ],
+  "elapsed_seconds": 0.8592232440132648,
+  "fixtures": {
+    "and": {
+      "edges": 6,
+      "gateways": 2,
+      "sound": true,
+      "steps": 4
+    },
+    "bounds": {
+      "edges": 324,
+      "gateways": 50,
+      "original_map_retained": true,
+      "reason": "memory_exhaustion",
+      "state": "incomplete",
+      "steps": 250
+    },
+    "deadlock": {
+      "edges": 6,
+      "gateways": 2,
+      "sound": false,
+      "steps": 4
+    },
+    "loop": {
+      "edges": 6,
+      "gateways": 2,
+      "sound": true,
+      "steps": 4
+    },
+    "xor": {
+      "edges": 6,
+      "gateways": 2,
+      "sound": true,
+      "steps": 4
+    }
+  },
+  "limits": {
+    "as_bytes": 536870912,
+    "cpu_seconds": 30
+  },
+  "peak_rss_bytes": 209408000,
+  "product_enabled": false,
+  "synthetic": true,
+  "version": "2.7.22",
+  "environment_bytes": 518951207,
+  "requirements_sha256": "bb8e5a4ba42a272ae3825e47a1633c40c4a6eb430884b6af257048819233ca52",
+  "fit_review_sha256": "f4825872c520a14060b821a1a752071d5f74f0d0617fc390eb0b7561ca79cc82",
+  "runtime_bundle_admitted": false
+}

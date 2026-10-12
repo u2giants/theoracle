@@ -3,7 +3,7 @@
 Runtime remains unqualified and uninstalled until W04a admission. These limits
 are proposed, not a claim of measured PM4Py resource fit.
 """
-import json,multiprocessing,queue
+import json,multiprocessing,queue,re
 from .compiler import compile_contract
 from .pm4py_adapter import PIN,analyze,build_net
 from .event_contracts import LogReceipt
@@ -15,11 +15,14 @@ OPERATIONS=frozenset({'structural','discovery','conformance'})
 
 def admitted(qualification):
     return bool(qualification and qualification.get('version')==PIN and qualification.get('deployment_fit')=='APPROVE'
-                and len(qualification.get('review_report_hash',''))==64 and qualification.get('runtime_resource_fit')=='APPROVE')
+                and re.fullmatch(r'[0-9a-f]{64}',qualification.get('review_report_hash','')) and qualification.get('runtime_resource_fit')=='APPROVE')
 
 def _worker(model_json,operation,log_json,qualification,output):
     try:
-        import resource
+        import resource,os
+        os.environ["OPENBLAS_NUM_THREADS"]="1"
+        os.environ["OMP_NUM_THREADS"]="1"
+        os.environ["MPLBACKEND"]="Agg"
         resource.setrlimit(resource.RLIMIT_AS,(512*1024*1024,512*1024*1024))
         resource.setrlimit(resource.RLIMIT_CPU,(30,30))
         model=WorkflowModel.model_validate_json(model_json)
@@ -59,8 +62,12 @@ def run_bounded(model,*,operation,qualification,log=None,timeout_seconds=30):
     if not admitted(qualification):return {'state':'unavailable','reason':'Exact license and measured runtime qualification required','model':original}
     if compile_contract(model)['state']!='compiled':return {'state':'not_analyzable','model':original}
     if operation!='structural' and log is None:return {'state':'unavailable','reason':'Admitted event export required','model':original}
+    return _execute_bounded(original,_worker,(model.model_dump_json(),operation,log.model_dump_json() if log else None,qualification),timeout_seconds)
+
+def _execute_bounded(original,worker,args,timeout_seconds):
+    # Private process mechanism; callers cannot choose a product operation or target.
     context=multiprocessing.get_context('spawn');output=context.Queue(maxsize=1)
-    process=context.Process(target=_worker,args=(model.model_dump_json(),operation,log.model_dump_json() if log else None,qualification,output))
+    process=context.Process(target=worker,args=(*args,output))
     process.start();process.join(timeout_seconds)
     if process.is_alive():
         process.terminate();process.join(2)

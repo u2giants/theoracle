@@ -101,6 +101,24 @@ class Ledger:
                     raise ValueError('same observation has different content')
                 conn.execute('INSERT INTO oracle2.document_observations VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING',(workspace_id,raw['observation_id'],UUID(raw['ref']['source_id']),raw['ref']['revision'],Jsonb(raw)))
             conn.execute('INSERT INTO oracle2.artifact_manifests(workspace_id,artifact_id,version,kind,input_digest,source_digest,permission_digest,compiler_digest,dependency_digest,content_hash,private_object_key,state,manifest) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(workspace_id,artifact_id,version,kind,manifest.input_digest,manifest.source_digest,permission_digest,compiler_digest,manifest.dependency_digest,seal,key,manifest.state,Jsonb(manifest.model_dump(mode='json'))))
+            conn.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',(f'operating-lineage:{workspace_id}',))
+            for upstream_kind,upstream_id,upstream_revision in dependencies:
+                if upstream_kind not in {'source','permission','identity','artifact','event_window','compiler','dependency'} or not upstream_id or not upstream_revision:
+                    raise ValueError('explicit upstream dependency required')
+                if upstream_kind=='artifact':
+                    upstream_uuid=UUID(upstream_id)
+                    upstream_version=int(upstream_revision)
+                    if upstream_uuid==artifact_id and upstream_version==version:raise ValueError('artifact lineage cycle')
+                    prior=conn.execute('SELECT 1 FROM oracle2.artifact_manifests WHERE workspace_id=%s AND artifact_id=%s AND version=%s AND state=%s',(workspace_id,upstream_uuid,upstream_version,'ready')).fetchone()
+                    if not prior:raise ValueError('upstream artifact unavailable')
+                    self.read(workspace_id,upstream_uuid,upstream_version)
+                    cycle=conn.execute("""WITH RECURSIVE ancestors(artifact_id,version) AS (
+                      SELECT %s::uuid,%s::integer UNION
+                      SELECT d.upstream_id::uuid,d.upstream_revision::integer FROM oracle2.artifact_dependencies d JOIN ancestors a
+                      ON d.artifact_id=a.artifact_id AND d.version=a.version
+                      WHERE d.workspace_id=%s AND d.upstream_kind='artifact'
+                    ) SELECT 1 FROM ancestors WHERE artifact_id=%s AND version=%s LIMIT 1""",(upstream_uuid,upstream_version,workspace_id,artifact_id,version)).fetchone()
+                    if cycle:raise ValueError('artifact lineage cycle')
             for upstream_kind,upstream_id,upstream_revision in dependencies + tuple(('source',str(r.source_id),str(r.revision)) for r in refs):
                 conn.execute('INSERT INTO oracle2.artifact_dependencies VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING',(workspace_id,artifact_id,version,upstream_kind,upstream_id,upstream_revision))
             if event_log:

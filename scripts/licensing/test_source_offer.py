@@ -9,6 +9,7 @@ GENERATOR = ROOT / 'scripts/licensing/build_source_offer.mjs'
 MANDATORY = ('LICENSE','SOURCE_OFFER.md','THIRD_PARTY_NOTICES.md','README.md','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','turbo.json','vercel.json')
 
 def repo(tmp_path):
+    (tmp_path/'.gitignore').write_text('apps/web/.source-offer/\n')
     for name in MANDATORY: (tmp_path/name).write_text('{}\n' if name.endswith('.json') else 'fixture\n')
     (tmp_path/'scripts/licensing').mkdir(parents=True); (tmp_path/'scripts/licensing/build_source_offer.mjs').write_text(GENERATOR.read_text())
     (tmp_path/'services/oracle-brain').mkdir(parents=True); (tmp_path/'services/oracle-brain/uv.lock').write_text('fixture lock\n')
@@ -34,3 +35,17 @@ def test_dirty_tracked_revision_is_denied(tmp_path):
 
 def test_tracked_symlink_is_denied(tmp_path):
     root, git=repo(tmp_path); (root/'apps/web/link.ts').symlink_to('app.ts'); git('add','apps/web/link.ts'); git('commit','-qm','symlink'); result=run(root); assert result.returncode!=0 and 'not a regular project file' in result.stderr
+
+def test_exact_dependency_source_payload_and_tamper_denial(tmp_path):
+    root,git=repo(tmp_path)
+    payload=b'invented dependency source bytes'
+    directory=root/'apps/web/.source-offer';directory.mkdir();(directory/'pm4py-2.7.22.tar.gz').write_bytes(payload)
+    descriptor={'version':'2.7.22','filename':'pm4py-2.7.22.tar.gz','url':'https://files.pythonhosted.org/invented-source-only','bytes':len(payload),'sha256':hashlib.sha256(payload).hexdigest()}
+    (root/'scripts/licensing/pm4py_source.json').write_text(json.dumps(descriptor));git('add','scripts/licensing/pm4py_source.json');git('commit','-qm','descriptor')
+    result=run(root);assert result.returncode==0,result.stderr
+    with tarfile.open(directory/'oracle-source.tar.gz','r:gz') as tar:
+        assert tar.extractfile('third-party/pm4py-2.7.22.tar.gz').read()==payload
+        manifest=json.load(tar.extractfile('SOURCE_ARCHIVE_MANIFEST.json'))
+        assert manifest['files']['third-party/pm4py-2.7.22.tar.gz']==descriptor['sha256']
+    (directory/'pm4py-2.7.22.tar.gz').write_bytes(b'tampered')
+    result=run(root);assert result.returncode!=0 and 'Dependency source integrity mismatch' in result.stderr

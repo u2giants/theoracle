@@ -122,3 +122,51 @@ CREATE TABLE IF NOT EXISTS oracle2.operating_view_runs (
  pack jsonb, source_refs jsonb NOT NULL, error_code text,
  created_at timestamptz NOT NULL DEFAULT now(), expires_at timestamptz NOT NULL DEFAULT now()+interval '5 minutes');
 REVOKE ALL ON oracle2.operating_view_runs FROM PUBLIC;
+
+-- Recompute requests preserve denial until a newly authorized artifact is sealed.
+CREATE TABLE IF NOT EXISTS oracle2.operating_recompute_requests (
+ request_id uuid PRIMARY KEY, workspace_id uuid NOT NULL, artifact_id uuid NOT NULL, version integer NOT NULL,
+ event_id uuid NOT NULL, reason text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE(workspace_id,artifact_id,version,event_id),
+ FOREIGN KEY(workspace_id,artifact_id,version) REFERENCES oracle2.artifact_manifests);
+CREATE TABLE IF NOT EXISTS oracle2.operating_recompute_events (
+ request_id uuid NOT NULL REFERENCES oracle2.operating_recompute_requests, event_id uuid PRIMARY KEY,
+ state text NOT NULL CHECK(state IN ('blocked','rebuilt')), payload jsonb NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS oracle2.operating_source_stewards (
+ event_id uuid PRIMARY KEY, workspace_id uuid NOT NULL, source_id uuid NOT NULL,
+ steward_id uuid NOT NULL, appointed_by uuid NOT NULL, scope text NOT NULL,
+ source_revision integer NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+DO $$ DECLARE name text; BEGIN
+ FOREACH name IN ARRAY ARRAY['operating_recompute_requests','operating_recompute_events','operating_source_stewards'] LOOP
+ IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='immutable_'||name AND tgrelid=('oracle2.'||name)::regclass) THEN
+ EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON oracle2.%I FOR EACH ROW EXECUTE FUNCTION oracle2.deny_operating_model_mutation()', 'immutable_'||name,name);
+ END IF; END LOOP; END $$;
+REVOKE ALL ON oracle2.operating_recompute_requests,oracle2.operating_recompute_events,oracle2.operating_source_stewards FROM PUBLIC;
+
+CREATE TABLE IF NOT EXISTS oracle2.operating_projection_receipts (
+ event_id uuid PRIMARY KEY REFERENCES oracle2.outbox,workspace_id uuid NOT NULL,artifact_id uuid NOT NULL,
+ version integer NOT NULL,payload jsonb NOT NULL,signature text NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now(),
+ FOREIGN KEY(workspace_id,artifact_id,version) REFERENCES oracle2.artifact_manifests);
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='immutable_operating_projection_receipts' AND tgrelid='oracle2.operating_projection_receipts'::regclass) THEN
+ CREATE TRIGGER immutable_operating_projection_receipts BEFORE UPDATE OR DELETE ON oracle2.operating_projection_receipts FOR EACH ROW EXECUTE FUNCTION oracle2.deny_operating_model_mutation();
+ END IF;
+END $$;
+CREATE OR REPLACE FUNCTION oracle2.deny_operating_outbox_rewrite() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF OLD.payload->>'namespace'='oracle_operating_model_v1' OR NEW.payload->>'namespace'='oracle_operating_model_v1' THEN
+  IF (OLD.event_id,OLD.workspace_id,OLD.assertion_id,OLD.revision,OLD.operation,OLD.payload) IS DISTINCT FROM
+     (NEW.event_id,NEW.workspace_id,NEW.assertion_id,NEW.revision,NEW.operation,NEW.payload) THEN
+   RAISE EXCEPTION 'operating artifact outbox identity is immutable';
+  END IF;
+ END IF;
+ RETURN NEW;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='operating_outbox_identity' AND tgrelid='oracle2.outbox'::regclass) THEN
+ CREATE TRIGGER operating_outbox_identity BEFORE UPDATE ON oracle2.outbox FOR EACH ROW EXECUTE FUNCTION oracle2.deny_operating_outbox_rewrite();
+ END IF;
+END $$;
+REVOKE ALL ON oracle2.operating_projection_receipts FROM PUBLIC;

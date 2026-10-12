@@ -40,3 +40,9 @@ GRANT INSERT ON oracle2.operating_model_change_log TO oracle2_pilot_web;
 GRANT USAGE ON SEQUENCE oracle2.operating_model_change_log_sequence_seq TO oracle2_pilot_web;
 GRANT SELECT,INSERT,UPDATE ON oracle2.operating_view_runs TO oracle2_pilot_web,oracle2_extract;
 GRANT SELECT ON oracle2.operating_release_selectors,oracle2.operating_release_manifests,oracle2.operating_model_change_log TO oracle2_pilot_web,oracle2_extract;
+
+GRANT SELECT,INSERT ON oracle2.operating_recompute_requests,oracle2.operating_recompute_events,oracle2.operating_source_stewards TO oracle2_extract;
+GRANT SELECT ON oracle2.operating_recompute_requests,oracle2.operating_recompute_events,oracle2.operating_source_stewards TO oracle2_pilot_web,oracle2_project;
+GRANT SELECT,INSERT ON oracle2.artifact_invalidations TO oracle2_extract;
+GRANT SELECT,INSERT ON oracle2.operating_projection_receipts TO oracle2_project;
+GRANT SELECT ON oracle2.operating_projection_receipts TO oracle2_pilot_web,oracle2_extract;
