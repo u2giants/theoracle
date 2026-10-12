@@ -22,7 +22,7 @@ export default defineConfig({
   retries: { enabledInDev: false, default: { maxAttempts: 1 } },
   dirs: ['./src/trigger'],
   ignorePatterns: readdirSync(triggerDir, { withFileTypes: true })
-    .filter((entry) => entry.name !== 'oracle2-holistic.ts' || entry.isDirectory())
+    .filter((entry) => !['oracle2-holistic.ts'].includes(entry.name) || entry.isDirectory())
     .map((entry) => entry.isDirectory() ? `**/${entry.name}/**` : `**/${entry.name}`),
   build: {
     extensions: [oracle2Python({

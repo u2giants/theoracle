@@ -35,6 +35,7 @@ const git = getGitInfo();
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  outputFileTracingIncludes: { "/api/consultant/source": ["./.source-offer/*"] },
   // Transpile workspace packages — they ship as TypeScript source.
   transpilePackages: ['@oracle/shared', '@oracle/db', '@oracle/auth', '@oracle/ai'],
   // Next 16 moved this out of `experimental`.

@@ -304,3 +304,9 @@ If you add a new env var, update:
 The Claude Code harness, some Anthropic developer tools, and certain VS Code extensions inject `ANTHROPIC_API_KEY=""` (empty string) and sometimes `OPENAI_API_KEY=""` as a credential-redaction safeguard. `dotenv.config()` by default does NOT override existing process-env values, which makes the file-provided real keys silently ignored.
 
 The smoke runner (`packages/ai/src/__verify__/r-providers-smoke.ts`) and the wet-test runner (`apps/workers/src/wet-test/run-claim-extraction-once.ts`) both use `dotenv.config({ override: true })` on the `.env.local` load to defeat this. If you add a new runner script that reads provider keys via `dotenv`, do the same.
+
+## Operating-model synthetic verification (October 11, 2026 EDT)
+
+These settings activate no production capability. ORACLE2_OPERATING_SYNTHETIC=1 is accepted only for synthetic release manifests; the Python adapter additionally requires ORACLE2_ENVIRONMENT=synthetic and loopback stores. ORACLE2_OPERATING_GRAPH_URL and ORACLE2_OPERATING_BLOB_ROOT identify the owned synthetic graph/private blob directory. The web session remains the existing allowlisted actor with current Postgres authority. ORACLE2_OPERATING_TRIGGER_SECRET_KEY is a future dedicated view-worker dispatch credential; it must be absent until its reviewed restricted-hosting transport exists. No source text enters task arguments or stdout. Tests use ORACLE2_OPERATING_TEST_GRAPH_URL and ORACLE2_TEST_ADMIN_URL; missing stores fail rather than skip.
+
+Actual private worker identity/storage/transport and PM4Py license/resource admission remain unresolved on #27/#58. Do not reuse production credentials, publish a source offer, switch providers or install the blocked dependency from these instructions.

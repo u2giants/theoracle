@@ -1,0 +1,13 @@
+{
+  "files": {
+    "development.json": "0448b5ff98901134e64b06313e61b90215a05e430936721579262f1d742e1d2e",
+    "docs/verification/oracle2/workflow/W01-baseline.md": "3265eb27d25262ecb3579bcaa546f6dba00ea0d1637f5798737ab3e3368ea513",
+    "docs/verification/oracle2/workflow/W01-replacement-boundary.md": "0bc59f74aee90f8ce982f646ac4ad325c1c7e822bfc90b61b057a8a428d8f5f5",
+    "docs/verification/oracle2/workflow/boundary-register.json": "8767981f986683db85fd7387984a21f93a3660286b98d205046ecc2968702d9f",
+    "expected_obligations.json": "a0f579e4e589ac2a3bf399486146ee7ca8f6fcbd3abffe1191539443b1df9d18",
+    "legacy_loss_probe.py": "47f33ed27c5842986c7abbbf33c344e1ee6b7a5e7056fddcd31dec2ac5da1fd7",
+    "sources.json": "a89e718a9be896504879a675b48f7b883bb2ba38d3a079bda124d91c4075bf22",
+    "validation.json": "971f056ba7cffe5a384b574544b8bea0cbac4b4d54624ce45d581d2d2472ac24"
+  },
+  "schema_version": 1
+}
