@@ -126,3 +126,56 @@ Official references:
 [Tailscale grants](https://tailscale.com/docs/reference/syntax/grants),
 [Tailscale IP set limitations](https://tailscale.com/docs/features/tailnet-policy-file/ip-sets),
 [Tailscale management scopes](https://tailscale.com/docs/reference/trust-credentials).
+
+### Fixed native startup and current metadata authority
+
+`python -m oracle_brain.hosting.runtime validate` is import/profile validation,
+explicitly **not** live admission. `gateway` and `executor` load only a fixed
+operator settings file (`ORACLE_HOSTING_SETTINGS`, default
+`/run/oracle-auth/settings.json`). `ORACLE_HOSTING_SETTINGS_SHA256` must pin its
+exact bytes outside HTTP. Each file, TLS key/CA/certificate, database URL and
+HMAC key must be private regular files; symlinks/public files fail closed.
+The database connection must use `sslmode=verify-full` plus a protected CA.
+The gateway has only the new ledger's dedicated metadata login. The executor
+has a distinct application login and private blob root, never a gateway secret.
+
+Common exact settings keys: `profile`, `runtime_hash`, `synthetic`,
+`allowed_release_hashes`, `worker_uri`, `database_url_file`, `registry`,
+`registry_hash`, `spool`. Gateway additionally requires `server_cert`,
+`server_key`, `client_ca`, `hmac_key_file`, `bind_host`, `bind_port`.
+Executor additionally requires `graph_url_file`, `blob_root`. No arbitrary
+factory/module/callback name is accepted. Unknown keys/profiles are denied.
+
+The separately pinned registry is policy only, with exact keys `worker_uri`,
+`runtime_hash`, `active`, `expires_at`, `allowed_release_hashes`. Its canonical
+contract digest is `registry_hash`. It contains no original text, job payload,
+private result, workspace permission, or static per-job allowlist.
+`job_id` is the existing native view/action run UUID. `admission_hash` equals
+that selected release's documentary gate hash. The current PostgreSQL resolver
+supplies workspace, actual run, scope and expiry after validating independently
+allowed release hashes, selector, watermark, artifact seal/dependencies,
+source revision/provenance and owner-rooted current source appointments.
+Finding-review additionally checks the exact bounded scope appointment. The
+executor separately checks actual private finding membership and delivery.
+Unregistered semantic verification and event import jobs remain denied.
+
+Apply `sql/006_hosting_gateway_authority.sql` only to a newly issued dedicated
+Oracle application ledger after exact independent review. It creates a NOLOGIN
+metadata group, denies elevated/reused membership, grants bounded columns,
+and exposes finding scope through a fixed security-definer metadata function.
+It never grants view packs/query plans, source reading/receipt bodies, action
+notes/payload/results, private blob keys, writes or arbitrary function execution.
+The independently issued LOGIN must be nonsuperuser, no bypass RLS, no role
+creation, no database creation, no owner membership and only the metadata group.
+Public schema/default privileges must be reviewed on the actual new ledger.
+Gateway joins isolated ledger network with authenticated PostgreSQL TLS; raw
+stores remain unpublished. No actual role issuance or deployment is implied.
+
+Custody requires this resolver and authorizer. A shared filesystem lock, durable
+nonce marker and exclusive pending file prevent duplicate enqueue/replay;
+current authority is held across enqueue and claim. The native executor repeats
+current authority before private access, then executes only retained `run_view`
+or finding-review `run_event`. Synthetic fixed embeddings are available only
+for an exact synthetic release/profile. Private execution intentionally fails
+until a qualified fixed embedding admission is integrated; no business
+question generation or grading is resumed by these profiles.
