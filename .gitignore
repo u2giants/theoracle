@@ -90,3 +90,4 @@ apps/workers/oracle2-python/
 
 # Generated corresponding-source offer
 /apps/web/.source-offer/
+scripts/licensing/__pycache__/

@@ -1,12 +1,20 @@
 import { test,expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 test('invented authenticated map traverses real current worker SDK and ledger',async({page})=>{
   const url=process.env.ORACLE2_PREVIEW_URL!;
+  const anonymous=await page.request.get(`${url}/api/consultant/source`);expect(anonymous.status()).toBe(401);
   await page.goto(`${url}/consultant/operating-model`);
   await expect(page.getByRole('alert')).toBeVisible();
   await page.getByLabel('Access token').fill(process.env.ORACLE2_PILOT_TOKEN!);
   await page.getByRole('button',{name:'Connect',exact:true}).click();
   await expect(page.getByRole('img',{name:'Reported workflow Invented intake'})).toBeVisible({timeout:30000});
   await expect(page.getByText('Approval owner is missing.',{exact:true})).toBeVisible();
+  await expect(page.getByRole('link',{name:'Download corresponding source (AGPL)'})).toHaveAttribute('href','/api/consultant/source');
+  const download=await page.request.get(`${url}/api/consultant/source`);expect(download.ok()).toBeTruthy();
+  const archive=await download.body();const manifest=JSON.parse(readFileSync('.source-offer/manifest.json','utf8'));
+  expect(createHash('sha256').update(archive).digest('hex')).toBe(manifest.archive_sha256);
+  expect(download.headers()['x-oracle-source-revision']).toBe(manifest.revision);expect(archive.subarray(0,2).toString('hex')).toBe('1f8b');
   await page.getByText('Source support',{exact:true}).click();
   await expect(page.getByText('Intake sends packet to Review.',{exact:true})).toBeVisible();
   await page.getByLabel('Process',{exact:true}).selectOption('intake');
@@ -16,4 +24,5 @@ test('invented authenticated map traverses real current worker SDK and ledger',a
   await page.getByRole('button',{name:'Refresh',exact:true}).click();
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.getByRole('img',{name:'Reported workflow Invented intake'})).toHaveCount(0);
+  expect((await page.request.get(`${url}/api/consultant/source`)).status()).toBe(401);
 });

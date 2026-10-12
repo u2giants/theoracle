@@ -4,7 +4,7 @@
 Environment supplies loopback stores. No credential or source text is a command
 argument. This is an engineering test, never private semantic/hosted admission.
 """
-import asyncio,hashlib,json,os,secrets,signal,socket,subprocess,sys,tempfile,threading,time
+import asyncio,hashlib,json,os,secrets,signal,socket,subprocess,sys,tempfile,threading,time,tarfile,io
 from pathlib import Path
 from uuid import uuid4
 from urllib.parse import urlparse,quote
@@ -30,6 +30,17 @@ from oracle_brain.operating_model.release_manifest import ReleaseManifest
 from oracle_brain.operating_model.contracts import digest
 
 ROOT=Path(__file__).resolve().parents[2]
+def verify_source_offer():
+    directory=ROOT/'apps/web/.source-offer'
+    data=json.loads((directory/'manifest.json').read_text())
+    archive=(directory/'oracle-source.tar.gz').read_bytes()
+    assert hashlib.sha256(archive).hexdigest()==data['archive_sha256']
+    assert data['revision']==subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
+    with tarfile.open(fileobj=io.BytesIO(archive),mode='r:gz') as tar:
+        files={entry.name:tar.extractfile(entry).read() for entry in tar.getmembers() if entry.name!='SOURCE_ARCHIVE_MANIFEST.json'}
+    assert {name:hashlib.sha256(value).hexdigest() for name,value in files.items()}==data['files']
+    assert all(not any(part in ('.env','.env.local','uploads','.ai','node_modules') for part in name.split('/')) for name in files)
+verify_source_offer()
 
 def main():
     admin=os.environ['ORACLE2_TEST_ADMIN_URL'];graph=os.environ['ORACLE2_OPERATING_TEST_GRAPH_URL']
