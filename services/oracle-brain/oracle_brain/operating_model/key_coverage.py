@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field, field_validator
 
 from .contracts import StrictRecord, digest
 
@@ -35,6 +35,20 @@ class KeyCoverageAdmission(StrictRecord):
     census_complete: Literal[True]
     unreserved_paid_callers: Literal[0]
     unreserved_outstanding_liabilities: Literal[0]
+
+    @field_validator('unreserved_paid_callers', 'unreserved_outstanding_liabilities', mode='before')
+    @classmethod
+    def literal_counts(cls, value):
+        if type(value) is not int or value != 0:
+            raise ValueError('a strict zero unreserved population is required')
+        return value
+
+    @field_validator('census_complete', mode='before')
+    @classmethod
+    def literal_complete(cls, value):
+        if value is not True:
+            raise ValueError('complete census requires literal true')
+        return value
 
 
 class VerifiedKeyCoverage(StrictRecord):

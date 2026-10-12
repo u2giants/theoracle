@@ -45,7 +45,9 @@ def test_same_actor_stale_future_expired_or_incomplete_census_denies():
 
 def test_unreserved_callers_or_liabilities_cannot_be_admitted():
  for field in ['unreserved_paid_callers','unreserved_outstanding_liabilities']:
-  with pytest.raises(ValidationError):KeyCoverageAdmission.model_validate({**admission().model_dump(),field:1})
+  for value in [1,False,'0']:
+   with pytest.raises(ValidationError):KeyCoverageAdmission.model_validate({**admission().model_dump(),field:value})
+ with pytest.raises(ValidationError):KeyCoverageAdmission.model_validate({**admission().model_dump(),'census_complete':1})
 
 def test_native_transport_rejects_arbitrary_boolean_and_other_key_before_send(monkeypatch):
  a=admission();proof=verify(a)
