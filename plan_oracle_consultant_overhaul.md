@@ -13,6 +13,28 @@ Written 2026-09-27 EDT. Plan owner: Oracle implementation lead, assigned through
 
 ## STATUS — read this first
 
+**October 12, 2026, 11:26 AM EDT successor reconciliation:** Codex chat
+`01a130a9-5aca-7561-8dff-38bf645c6055` adopted all remaining W01–W12 work on
+[#27](https://github.com/u2giants/theoracle/issues/27#issuecomment-6127049812)
+and #58 from the idle predecessor. Current upstream is `78b6de7a50e73cd658aa7913b78f8da897f8e214`.
+The new independent source-semantic protocol/read-only validator has 20 invented
+adversarial checks; W10 full synthetic gate passes 195/195, zero skips, including
+fresh restore and SDK rebuild in newly owned loopback stores. This is source
+engineering, not independently admitted private/hosted/business acceptance.
+Original register unchanged; no company generation, grading, messages, provider
+dispatch, private-state adoption, hosting mutation or retirement. Current
+Tailscale management scopes still return 403 with wildcard policy; encrypted
+Coolify inventory contains no Oracle-named project/resource. Provider management
+can now read all listed account keys, but global atomic reservation coverage
+remains UNKNOWN, so private dispatch is disabled. Solver build/source/license
+closure and actual event exports remain open. W10 requires admitted original
+inventory and independent assessor receipts; W11 still requires restricted
+native hosting/restore and admitted comparison/cutover; W12 cannot retire before
+those inputs. S03–S16 acceptance gates remain unchanged, including broader
+lifecycle/policy/learning/meeting/research/consulting/adoption obligations. Read
+the workflow plan's current checkpoint and
+[protocol](docs/verification/oracle2/workflow/W10-semantic-protocol.md) before proceeding.
+
 **October 12, 2026, 12:30 AM EDT drift reconciliation:** W01–W12 implementation source is on main via PR #88, with 175 mandatory synthetic tests, connected SDK/browser proofs, source delivery and merged-main automated checks passed. Existing web deployment is Ready; private operating workers and company corpus are not hosted or accepted. This advances source groundwork for S03–S06, S10 and later analytical/retirement stages, not their acceptance. Keep every S03–S16 acceptance obligation and child open; no process-owner grading, employee messages or company generation is restarted. Codex owns hosting policy authority, provider-account budget coverage, independent private protocol and solver qualification. See the workflow plan merged-source checkpoint for exact evidence. Historical instructions to stop after one child or create another leftover-proof issue are superseded: continue ready authorized work and retain live proof on #27/#58.
 
 **Owner correction, 2026-10-11 EDT:** Albert stopped the Ilona/Jessica grading because the passage-matching pilot does not test the requested holistic understanding. Existing questions/answers are historical evidence only, not replacement acceptance. S03 must use **FalkorDB AND GraphRAG SDK** across the complete authorized document corpus before any new pilot questions are generated. Do not rerun Ilona/Jessica questions until Albert separately requests it. The S03 corrective implementation below takes precedence over the former thin journey and S09 deferral.

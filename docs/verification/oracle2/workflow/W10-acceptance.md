@@ -1,5 +1,26 @@
 # W10 — staged synthetic verification only; full acceptance open
 
+## Successor protocol engineering — October 12, 2026, 11:26 AM EDT
+
+[Independent original-source semantic protocol](W10-semantic-protocol.md) and
+`operating_model/semantic_acceptance.py` define a complete source-region census,
+pre-candidate diagnostic freeze, independently admitted separate-model/actor
+assessment and read-only current-original coverage validation. They bind exact
+runtime/protocol/census/candidate/evidence/permissions/reviewer/expiry and reject
+self-admission before private access. Essential represented/unresolved accounting
+and owned detail dispositions remain separate; all release/business/company-
+generation rights remain false. Twenty new invented adversarial tests pass.
+
+Full W10 synthetic verification passes 195 tests, zero skips, on newly owned
+loopback Postgres/FalkorDB; actual SDK finalize/reload and dump-to-fresh database/
+blob restore are retained. Test-target setup was repaired to include the existing
+owned synthetic-container identity/label requirements; no guard was weakened and
+no predecessor container/store was modified. This is precommit source engineering;
+the normal exact-head independent review, PR CI and merged-main proof must still
+be recorded on #27/#58. No private evaluation, deployment or new acceptance state
+is claimed. Generic `private-audit` stays closed without its admitted hosted
+runtime/factory and actual independently accepted original/assessment receipts.
+
 Recorded October 11, 2026, 9:01 PM EDT.
 
 verify_workflow_integrity.py declares required documentary and event inventories, fails missing modules, failures and required skips, provisions a uniquely owned loopback test database and saves exact head/input/JUnit/version hashes. Documentary and event capabilities are reported separately from private source/independent semantic/actual-event acceptance. Invented authenticated browser proof is an additional distinct gate. Retained worker guards and web/worker typechecks pass.
