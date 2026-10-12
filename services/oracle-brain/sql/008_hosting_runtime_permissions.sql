@@ -221,3 +221,15 @@ CREATE POLICY hosting_documentary_watermark_read ON oracle2.operating_model_chan
 DROP POLICY IF EXISTS hosting_gateway_watermark_read ON oracle2.operating_model_change_log;
 CREATE POLICY hosting_gateway_watermark_read ON oracle2.operating_model_change_log FOR SELECT TO oracle2_gateway_metadata USING(true);
 GRANT SELECT(workspace_id,sequence) ON oracle2.operating_model_change_log TO oracle2_documentary_executor;
+-- External sealed startup compares these self-only hashes. No caller identity
+-- argument and no catalog/source/credential disclosure or issuance authority.
+CREATE OR REPLACE FUNCTION oracle2.hosting_source_runtime_binding()
+ RETURNS TABLE(runtime_hash text,registry_hash text,expires_at timestamptz)
+ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
+ SELECT r.runtime_hash,r.registry_hash,r.expires_at FROM oracle2.hosting_role_runtime_admissions r
+ WHERE r.role_name=SESSION_USER AND r.expires_at>clock_timestamp()
+ AND EXISTS(SELECT 1 FROM oracle2.hosting_role_source_admissions a WHERE a.role_name=r.role_name
+ AND a.runtime_hash=r.runtime_hash AND a.registry_hash=r.registry_hash AND a.expires_at>clock_timestamp());
+$$;
+REVOKE ALL ON FUNCTION oracle2.hosting_source_runtime_binding() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION oracle2.hosting_source_runtime_binding() TO oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor;

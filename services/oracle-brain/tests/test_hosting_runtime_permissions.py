@@ -186,3 +186,14 @@ def test_current_canonical_job_denials(admin_url,runtime_scope,mutation):
     with psycopg.connect(admin_url) as c:c.execute(mutation,(runtime_scope[2],))
     with psycopg.connect(runtime_scope[0][0]) as c:
         with pytest.raises(psycopg.errors.InsufficientPrivilege):c.execute('SELECT oracle2.complete_documentary_view(%s,%s)',(runtime_scope[2],canonical_bytes({'artifact_hash':'e'*64})))
+
+
+def test_self_only_source_runtime_binding(admin_url,runtime_scope):
+    scoped=runtime_scope[0]
+    with psycopg.connect(scoped[0]) as c:
+        runtime,registry,expiry=c.execute('SELECT * FROM oracle2.hosting_source_runtime_binding()').fetchone()
+        assert runtime=='c'*64 and registry=='d'*64
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):c.execute('SELECT * FROM oracle2.hosting_role_runtime_admissions')
+    with psycopg.connect(admin_url) as c:
+        c.execute("UPDATE oracle2.hosting_role_runtime_admissions SET expires_at=now()-interval '1 second' WHERE role_name=%s",(scoped[6],))
+    with psycopg.connect(scoped[0]) as c:assert c.execute('SELECT * FROM oracle2.hosting_source_runtime_binding()').fetchall()==[]
