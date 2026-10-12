@@ -75,6 +75,10 @@ jobs:
           git diff --exit-code -- packages/brain-contracts/schema
           uv export --project services/oracle-brain --frozen --format requirements-txt --no-dev --no-emit-project --emit-index-url --output-file apps/workers/oracle2-requirements.txt
           git diff --exit-code -- apps/workers/oracle2-requirements.txt
+      - name: Verify corresponding-source archive and build exact offer
+        run: |
+          services/oracle-brain/.venv/bin/python -m pytest -q scripts/licensing/test_source_offer.py
+          node scripts/licensing/build_source_offer.mjs
       - name: Start isolated real stores
         run: docker compose -f dev/oracle2/compose.yaml up -d --wait
       - name: Bootstrap isolated LangGraph checkpoint tables

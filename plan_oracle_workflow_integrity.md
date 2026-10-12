@@ -19,7 +19,7 @@ business accepted as separate states. Never close #24/#27/#58 from this plan alo
 | W01 | Freeze evidence and prove the keep/replace/retire boundary | Locally reviewed; not shipped | Owned synthetic stores; private index availability checked; no private-store adoption/write | `docs/verification/oracle2/workflow/W01-approval.md` and `W01-execution.json` |
 | W02 | Build a new lossless observation/finding ledger | Locally implemented; review/private/live open | W01 | `W02-findings.md` in the same verification directory |
 | W03 | Assemble the business operating model and explicit workflows | SDK store/reload/rebuild verified; semantic acceptance open | W02 | `W03-workflow-contract.md` |
-| W04 | Qualify PM4Py and build an honest formal compiler | W04a fit approved; isolated measurement verified, product/bundle review open | W01; W03 compiler inputs | `W04-pm4py-qualification.md` |
+| W04 | Qualify and integrate PM4Py structural checks | W04a fit approved; isolated measurement verified, product/bundle review open | W03 | `W04-pm4py-qualification.md` |
 | W05 | Preserve source lineage and invalidate derived artifacts | Transitive denial, queued recomputation and signed SDK delivery verified; hosted/restore open | W02; W03 for workflow lineage | `W05-lineage.md` |
 | W06 | Deliver bounded retrieval and the documentary first slice | Invented authenticated browser verified; hosted/private gates open | W03, W05; W04 only for formal diagnostics | `W06-browser.md` |
 | W07 | Import actual event records with honest completeness | Synthetic raw-import replay verified; actual export unavailable | W03, W05 | `W07-operational-import.md` |
