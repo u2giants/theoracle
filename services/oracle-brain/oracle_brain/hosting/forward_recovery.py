@@ -64,13 +64,50 @@ def pack(files,modes=None):
     return stream.getvalue()
 
 
-def save(root,name,raw):
-    path=root/name;path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
-    for parent in path.parents:
-        if not parent.is_relative_to(root):break
-        parent.chmod(0o700)
-    fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
-    with os.fdopen(fd,'wb') as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
+def owned_directory(path):
+    path=Path(path).absolute();fd=os.open(path.anchor,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:
+        for part in path.parts[1:]:
+            nextfd=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=fd);os.close(fd);fd=nextfd
+        info=os.fstat(fd)
+        require(info.st_uid==os.getuid() and stat.S_IMODE(info.st_mode)==0o700,'coordinator directory custody differs')
+        return fd
+    except BaseException:os.close(fd);raise
+
+
+def capture_preflight(root):
+    import re
+    root=Path(root).absolute();parent=root.parent
+    require(os.environ.get('TMPDIR') and parent==Path(os.environ['TMPDIR']).absolute(),'capture parent is outside coordinator custody')
+    require(re.fullmatch(r'oracle-forward-capture-[a-z0-9][a-z0-9-]{0,63}',root.name),'exact forward capture leaf required')
+    fd=owned_directory(parent)
+    try:
+        for leaf in (root.name,root.name+'.manifest.json'):
+            try:os.stat(leaf,dir_fd=fd,follow_symlinks=False)
+            except FileNotFoundError:continue
+            raise PermissionError('existing capture or manifest leaf denied')
+        info=os.fstat(fd);return (info.st_dev,info.st_ino)
+    finally:os.close(fd)
+
+
+def save(root,name,raw,*,root_fd=None):
+    # Never chmod any existing parent; every write is anchored to owned dirfds.
+    path=PurePosixPath(name)
+    require(not path.is_absolute() and '..' not in path.parts and str(path)==name,'unsafe custody output denied')
+    directory=os.dup(root_fd) if root_fd is not None else owned_directory(root)
+    try:
+        for part in path.parts[:-1]:
+            try:os.mkdir(part,0o700,dir_fd=directory)
+            except FileExistsError:pass
+            nextfd=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=directory)
+            info=os.fstat(nextfd)
+            if not (info.st_uid==os.getuid() and stat.S_IMODE(info.st_mode)==0o700):
+                os.close(nextfd);raise PermissionError('nested output custody differs')
+            os.close(directory);directory=nextfd
+        fd=os.open(path.name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=directory)
+        with os.fdopen(fd,'wb') as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
+        os.fsync(directory)
+    finally:os.close(directory)
 
 
 class ForwardRecovery:
@@ -84,7 +121,9 @@ class ForwardRecovery:
         require(self.backup.authority.issued_at<=self.clock()<self.backup.authority.expires_at,'original forward authority expired; no renewal')
 
     def checked(self,args,**kwargs):
-        self.fresh();result=self.run(args,**kwargs);self.fresh();return result
+        self.fresh();budget=kwargs.get('timeout',60)
+        require(self.clock()+budget+15<self.backup.authority.expires_at,'insufficient original lifetime for bounded command')
+        result=self.run(args,**kwargs);self.fresh();return result
 
     def prove_namespace(self,instance,services,*,quiesced=False,phase="source"):
         self.fresh();validate_instance(instance)
@@ -114,13 +153,16 @@ class ForwardRecovery:
               'project':instance.project,'role':role,'image':services[role].image,'state':state},'actual target namespace/image/state differs')
 
         require(seen_networks==set(instance.networks),'actual network closure incomplete')
+        tools=self.checked(['exec',instance.ledger_container,'timeout','--help'],bound=8192,timeout=5)
+        require(b'-k' in tools and b'-s' in tools,'in-container timeout capability unproved')
 
     def sql(self,instance,query):
         self.fresh()
-        return self.checked(['exec','-i',instance.ledger_container,'psql','-X','-q','-A','-t','-v','ON_ERROR_STOP=1','-U','oracle_bootstrap','-d','oracle_synthetic'],data=query.encode(),bound=1024*1024,timeout=30)
+        return self.checked(['exec','-i','--env','PGOPTIONS=-c statement_timeout=20000 -c lock_timeout=5000',instance.ledger_container,'timeout','-s','TERM','-k','5','15','psql','-X','-q','-A','-t','-v','ON_ERROR_STOP=1','-U','oracle_bootstrap','-d','oracle_synthetic'],data=query.encode(),bound=1024*1024,timeout=30)
 
     def capture(self,root,roles_bundle,*,operation_receipt_sha256):
         """Source writer quiescence must already be admitted and observed."""
+        identity=capture_preflight(root)
         b=self.backup;self.prove_namespace(b.instance,b.services,quiesced=True)
         require(hashlib.sha256(roles_bundle).hexdigest()==b.files['roles.bundle'].sha256,'original protected role bundle differs')
         params=json.loads(roles_bundle);compile_restore_roles(params)
@@ -129,9 +171,9 @@ class ForwardRecovery:
         require(int(datetime.fromisoformat(params['expires_at']).timestamp())==b.authority.expires_at,'role authority expiry differs')
         inventory=self.sql(b.instance,"SELECT (SELECT marker FROM oracle2.synthetic_hosting_marker)='public-invented-remote-forward-v2' AND (SELECT count(*) FROM oracle2.sources)=2 AND (SELECT count(*) FROM oracle2.operating_view_runs)=1 AND (SELECT count(*) FROM oracle2.sources WHERE workspace_id='"+str(self.scenario.workspace)+"')=2 AND (SELECT status FROM oracle2.operating_view_runs WHERE run_id='"+b.job_id+"')='completed';")
         require(inventory.strip()==b't','fixed forward-only source population unproved')
-        dump=self.checked(['exec',b.instance.ledger_container,'pg_dump','--format=custom','-U','oracle_bootstrap','-d','oracle_synthetic'],bound=MAX_FILE,timeout=60)
+        dump=self.checked(['exec',b.instance.ledger_container,'timeout','-s','TERM','-k','5','40','pg_dump','--format=custom','-U','oracle_bootstrap','-d','oracle_synthetic'],bound=MAX_FILE,timeout=60)
         require(dump.startswith(b'PGDMP'),'custom archive missing')
-        listing=self.checked(['exec','-i',b.instance.ledger_container,'pg_restore','--list'],data=dump,bound=1024*1024,timeout=30)
+        listing=self.checked(['exec','-i',b.instance.ledger_container,'timeout','-s','TERM','-k','5','15','pg_restore','--list'],data=dump,bound=1024*1024,timeout=30)
         expected_tables=['appointments','artifact_dependencies','artifact_manifests','drafts','hosting_role_runtime_admissions','hosting_role_source_admissions','operating_model_change_log','operating_model_source_receipts','operating_release_manifests','operating_release_selectors','operating_view_pack_receipts','operating_view_runs','source_blocks','sources','synthetic_hosting_marker']
         require(all((' TABLE oracle2 '+table+' ') in listing.decode() for table in expected_tables),'actual archive TOC incomplete')
         state=json.loads(self.sql(b.instance,"SELECT jsonb_build_object('state',status,'watermark',(SELECT max(sequence) FROM oracle2.operating_model_change_log),'result_hex',(SELECT encode(canonical_pack,'hex') FROM oracle2.operating_view_pack_receipts WHERE run_id='"+b.job_id+"'),'sources',(SELECT jsonb_agg(receipt ORDER BY source_id) FROM oracle2.operating_model_source_receipts)) FROM oracle2.operating_view_runs WHERE run_id='"+b.job_id+"';"))
@@ -144,22 +186,31 @@ class ForwardRecovery:
         corpus['roles-bootstrap.json']=canonical_bytes({'schema':'oracle-forward-role-bootstrap/v1','source_head':b.source_head,'runtime_hash':b.runtime_hash,'source_registry_sha256':b.authority.source_registry_sha256,'dump_toc_sha256':hashlib.sha256(corpus['ledger.toc.json']).hexdigest(),'role_bundle_sha256':hashlib.sha256(roles_bundle).hexdigest(),
           'roles':{'oracle_synthetic_gateway':'oracle2_gateway_metadata','oracle_synthetic_executor':'oracle2_documentary_executor','oracle_synthetic_projector':'oracle2_documentary_executor'},'login_privileges':'NOINHERIT,NOSUPERUSER,NOCREATEDB,NOCREATEROLE,NOBYPASSRLS'})
         require(operation_receipt_sha256==b.backup_operation_receipt_sha256,'capture action receipt differs')
-        root=Path(root);require(not root.exists(),'new protected capture directory required');root.mkdir(mode=0o700,parents=False)
-        require(set(corpus)==set(b.files),'captured corpus population differs')
-        seals={}
-        for name,data in corpus.items():
-            mode=spoolmeta.get(name.removeprefix('spool/'),{}).get('mode',0o600) if name.startswith('spool/') else 0o600
-            seals[name]={'sha256':hashlib.sha256(data).hexdigest(),'size':len(data),'runtime_uid':10001 if name.startswith(('spool/','blobs/')) else 0,'runtime_mode':mode}
-            save(root,name,data)
-        nonces=[]
-        for nonce in b.nonces:
-            value=nonce.model_dump();value['consumed_at']=spoolmeta['nonce-'+nonce.request.nonce]['consumed_at'];nonces.append(value)
-        actual=Backup.model_validate({**b.model_dump(),'captured_at':int(self.clock()),'files':seals,'nonces':nonces,
-          'dump_toc_sha256':seals['ledger.toc.json']['sha256'],'role_bootstrap_sha256':seals['roles-bootstrap.json']['sha256'],'result_sha256':seals['result.json']['sha256']})
-        checked=verify_bundle(root,actual)
-        save(root.parent,root.name+'.manifest.json',canonical_bytes(actual.model_dump()))
-        self.backup=actual
-        return actual,checked
+        root=Path(root).absolute();parent_fd=owned_directory(root.parent)
+        output_fd=None
+        try:
+            parent_info=os.fstat(parent_fd)
+            require((parent_info.st_dev,parent_info.st_ino)==identity,'capture parent changed after preflight')
+            os.mkdir(root.name,0o700,dir_fd=parent_fd)
+            output_fd=os.open(root.name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent_fd)
+            require(set(corpus)==set(b.files),'captured corpus population differs')
+            seals={}
+            for name,data in corpus.items():
+                mode=spoolmeta.get(name.removeprefix('spool/'),{}).get('mode',0o600) if name.startswith('spool/') else 0o600
+                seals[name]={'sha256':hashlib.sha256(data).hexdigest(),'size':len(data),'runtime_uid':10001 if name.startswith(('spool/','blobs/')) else 0,'runtime_mode':mode}
+                save(root,name,data,root_fd=output_fd)
+            nonces=[]
+            for nonce in b.nonces:
+                value=nonce.model_dump();value['consumed_at']=spoolmeta['nonce-'+nonce.request.nonce]['consumed_at'];nonces.append(value)
+            actual=Backup.model_validate({**b.model_dump(),'captured_at':int(self.clock()),'files':seals,'nonces':nonces,
+              'dump_toc_sha256':seals['ledger.toc.json']['sha256'],'role_bootstrap_sha256':seals['roles-bootstrap.json']['sha256'],'result_sha256':seals['result.json']['sha256']})
+            checked=verify_bundle(root,actual)
+            save(root.parent,root.name+'.manifest.json',canonical_bytes(actual.model_dump()),root_fd=parent_fd)
+            self.backup=actual
+            return actual,checked
+        finally:
+            if output_fd is not None:os.close(output_fd)
+            os.close(parent_fd)
 
     def restore(self,root,target:Instance,services,*,operation_receipt_sha256):
         """Exact new empty platform instance only; no source seed/data replay."""
@@ -175,7 +226,7 @@ class ForwardRecovery:
         params=json.loads(protected_file(Path(root)/'roles.bundle',limit=MAX_FILE))
         self.sql(target,compile_restore_roles(params))
         dump=protected_file(Path(root)/'ledger.dump',limit=MAX_FILE)
-        self.fresh();self.checked(['exec','-i',target.ledger_container,'pg_restore','--exit-on-error','--single-transaction','-U','oracle_bootstrap','-d','oracle_synthetic'],data=dump,bound=1024*1024,timeout=60)
+        self.fresh();self.checked(['exec','-i','--env','PGOPTIONS=-c statement_timeout=20000 -c lock_timeout=5000',target.ledger_container,'timeout','-s','TERM','-k','5','40','pg_restore','--exit-on-error','--single-transaction','-U','oracle_bootstrap','-d','oracle_synthetic'],data=dump,bound=1024*1024,timeout=60)
         for prefix,role,path in (('spool/','gateway','/run/oracle-jobs'),('blobs/','executor','/run/oracle-blobs')):
             files={name[len(prefix):]:protected_file(Path(root)/name,limit=MAX_FILE) for name in b.files if name.startswith(prefix)}
             self.fresh();self.checked(['cp','-a','-',services[role].container_id+':'+path],data=pack(files,{name[len(prefix):]:b.files[name].runtime_mode for name in b.files if name.startswith(prefix)}),bound=8192,timeout=60)
@@ -207,6 +258,16 @@ class ForwardRecovery:
         expected=fixture(self.backup.runtime_hash,self.backup.review_hash,FORWARD_SCENARIO)
         require(response.get('reload_verified') is True and response.get('sdk_version')=='1.4.0' and response.get('artifact_hash')==expected[3].content_hash and response.get('record_digest')==expected[4].graph_record_digest,'independent stock SDK restricted reload differs')
         return {'sdk_reload_response_sha256':hashlib.sha256(raw).hexdigest(),'hosted_accepted':False,'business_accepted':False,'serving_accepted':False}
+
+
+def arm_native_budget(config,*,seconds):
+    import signal
+    scenario=sealed_scenario(config)
+    require(scenario.scenario_id==FORWARD_SCENARIO and seconds in (45,80),'fixed native budget required')
+    policy=json.loads(protected_file(config['registry']))
+    require(set(policy)=={'worker_uri','runtime_hash','active','expires_at','allowed_release_hashes'} and policy.get('runtime_hash')==config['runtime_hash'] and policy.get('allowed_release_hashes')==config['allowed_release_hashes'] and digest(policy)==config['registry_hash'] and policy.get('active') is True and policy.get('worker_uri')==scenario.worker_uri,'unchanged original policy required')
+    require(time.time()+seconds+15<policy['expires_at'],'insufficient original native operation lifetime')
+    signal.signal(signal.SIGALRM,signal.SIG_DFL);signal.alarm(seconds)
 
 
 async def reload_only(config):
@@ -249,12 +310,17 @@ def collect_native_result(backup,worker_root,*,hostname,port,expected_sha256,clo
     body=canonical_bytes({'job_id':backup.job_id,'runtime_hash':backup.runtime_hash,'admission_hash':fixture(backup.runtime_hash,backup.review_hash,FORWARD_SCENARIO)[-1].documentary_gate_hash,'nonce':str(uuid4()),'expires_at':expiry})
     signature=hmac.new(signing,signature_message('POST','/v1/jobs/result',body),hashlib.sha256).hexdigest()
     request=b'POST /v1/jobs/result HTTP/1.0\r\nHost: gateway\r\nContent-Type: application/json\r\nContent-Length: '+str(len(body)).encode()+b'\r\nX-Oracle-Job-Signature: '+signature.encode()+b'\r\n\r\n'+body
+    deadline=time.monotonic()+15
+    require(clock()+30+15<backup.authority.expires_at,'insufficient original result operation lifetime')
     with context.wrap_socket(socket.create_connection((hostname,port),timeout=5),server_hostname='gateway') as sock:
         sock.settimeout(5);sock.sendall(request);reply=b''
         while True:
+            remaining=deadline-time.monotonic();require(remaining>0,'native result wall budget exceeded')
+            sock.settimeout(min(5,remaining))
             part=sock.recv(8192)
             if not part:break
             reply+=part;require(len(reply)<=140000,'native delivery bound exceeded')
+    require(clock()<backup.authority.expires_at,'original result authority expired during delivery')
     header,delivered=reply.split(b'\r\n\r\n',1)
     require(header.startswith(b'HTTP/1.0 200 ') or header.startswith(b'HTTP/1.1 200 '),'native completed result denied')
     require(hashlib.sha256(delivered).hexdigest()==expected_sha256==backup.result_sha256,'native result exact bytes differ')
@@ -270,11 +336,13 @@ def main(argv=None):
     try:
         if args.operation=='sdk-reload':
             config=settings('executor','/run/oracle-auth/settings.json',os.environ.get('ORACLE_HOSTING_SETTINGS_SHA256',''))
+            arm_native_budget(config,seconds=45)
             result=asyncio.run(reload_only(config))
         else:
             backup=Backup.model_validate_json(protected_file(args.backup))
             operator=ForwardRecovery(backup)
             if args.operation=='capture':
+                capture_preflight(args.bundle)
                 actual,result=operator.capture(args.bundle,protected_file(args.roles_bundle),operation_receipt_sha256=args.operation_receipt_sha256)
                 result['backup_manifest_sha256']=digest(actual.model_dump())
             elif args.operation=='result':result=collect_native_result(backup,args.worker_root,hostname='gateway',port=8443,expected_sha256=backup.result_sha256)

@@ -77,3 +77,23 @@ Candidate and confirmed volume identities are pinned and distinct too. Capture
 derives real dump/corpus seals into a new immutable manifest rather than requiring
 an impossible precomputed PostgreSQL archive digest. Every command rechecks the
 unchanged original authority before and after it.
+
+
+## Output custody and real operation budgets
+
+Capture output must be a fresh oracle-forward-capture-* leaf directly beneath
+existing TMPDIR coordinator custody. Every ancestor opens with nofollow, the
+parent must already be owned0700, and both leaf and manifest must be absent
+before any Docker command. Existing parent/foreign modes are never changed.
+New nested output directories and0600 files are created via anchored dirfds;
+parent inode movement refuses output. Failed partial custody is retained.
+
+Every command requires its fixed timeout plus15seconds remaining in the
+original authority before dispatch, with freshness rechecked afterward.
+PostgreSQL commands use an independently probed in-container timeout executable
+with TERM/kill-after budgets and bounded server statement/lock settings.
+The pinned isolated PostgreSQL fixture qualified the required-s/-k flags.
+Forward projector/reload entrypoints also arm fixed OS process alarms only
+under the unchanged sealed original policy; legacy entrypoints stay unchanged.
+These guards do not assert that Docker client timeout stops daemon work or
+remove partial graphs/role creation/captures. There is no retry or renewal.

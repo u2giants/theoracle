@@ -71,6 +71,7 @@ def test_same_instance_restore_never_writes(bundle):
     root,b,_=bundle;calls=[]
     def runner(args,**kw):
         calls.append(args)
+        if args[0]=='exec':return b'-s SIG -k SECS'
         role=next(k for k,v in b.services.items() if v.container_id==args[-1]);return canonical_bytes(fake_inspection(b,role))
     operator=ForwardRecovery(b,runner=runner,clock=lambda:1000)
     with pytest.raises(PermissionError):operator.restore(root,b.instance,b.services,operation_receipt_sha256='f'*64)
@@ -93,6 +94,7 @@ def test_fresh_rebuild_only_starts_pinned_new_projector(bundle):
         calls.append(args)
         if args[0]=='inspect':
             role=next(k for k,v in target.services.items() if v.container_id==args[-1]);return canonical_bytes(fake_inspection(target,role))
+        if args[0]=='exec':return b'-s SIG -k SECS'
         assert args==['start','-a',target.services['synthetic-project'].container_id]
         return canonical_bytes({'finalized':True,'artifact_hash':expected[3].content_hash,'record_digest':expected[4].graph_record_digest})
     out=ForwardRecovery(b,runner=runner,clock=lambda:1000).rebuild(r.instance,target.services)
@@ -100,7 +102,7 @@ def test_fresh_rebuild_only_starts_pinned_new_projector(bundle):
     assert calls[-1][0]=='start' and b.services['synthetic-project'].container_id not in calls[-1]
 
 
-def test_executable_capture_and_empty_restore_full_command_sequence(bundle,tmp_path):
+def test_executable_capture_and_empty_restore_full_command_sequence(bundle,tmp_path,monkeypatch):
     import time
     root,b,r=bundle;now=int(time.time());p=forward_params()
     p['expires_at']=datetime.fromtimestamp(now+3590,timezone.utc).isoformat()
@@ -127,12 +129,14 @@ def test_executable_capture_and_empty_restore_full_command_sequence(bundle,tmp_p
         calls.append((args,kw))
         if args[0]=='inspect':
             role=next(k for k,v in b.services.items() if v.container_id==args[-1]);return canonical_bytes(fake_inspection(b,role))
+        if 'timeout' in args and '--help' in args:return b'-s SIG -k SECS'
         if 'pg_dump' in args:return b'PGDMP-actual-command-public-test'
         if 'pg_restore' in args:return '\n'.join(' TABLE oracle2 '+name+' oracle_bootstrap' for name in json.loads((root/'ledger.toc.json').read_bytes())['required_table_names']).encode()
         if args[0]=='cp':return source_tar(spool if '/run/oracle-jobs' in args[1] else blobs)
         if b'synthetic_hosting_marker' in kw['data']:return b't\n'
         return canonical_bytes({'state':'completed','watermark':11,'result_hex':result.hex(),'sources':sources})
-    dest=tmp_path/'actual-capture'
+    monkeypatch.setenv('TMPDIR',str(tmp_path))
+    dest=tmp_path/'oracle-forward-capture-test'
     actual,checked=ForwardRecovery(b,runner=capture_run,clock=lambda:now+1).capture(dest,rolebytes,operation_receipt_sha256=b.backup_operation_receipt_sha256)
     assert checked['validated_file_count']==len(b.files) and checked['hosted_accepted'] is False
     assert actual.files['ledger.dump'].sha256!=b.files['ledger.dump'].sha256
@@ -144,6 +148,7 @@ def test_executable_capture_and_empty_restore_full_command_sequence(bundle,tmp_p
         restore_calls.append((args,kw))
         if args[0]=='inspect':
             role=next(k for k,v in target.services.items() if v.container_id==args[-1]);return canonical_bytes(fake_inspection(target,role))
+        if 'timeout' in args and '--help' in args:return b'-s SIG -k SECS'
         if args[0]=='cp':
             category='spool' if '/run/oracle-jobs' in args[-1] or '/run/oracle-jobs' in args[1] else 'blobs'
             if args[1]=='-a':restored[category]=unpack(kw['data']);return b''
@@ -159,3 +164,45 @@ def test_executable_capture_and_empty_restore_full_command_sequence(bundle,tmp_p
     assert out['fresh_restore_bytes_verified'] and out['serving_accepted'] is False
     assert any('pg_restore' in args for args,_ in restore_calls)
     assert restored['spool']==spool and restored['blobs']==blobs
+
+
+@pytest.mark.parametrize('kind',['foreign','symlink_parent','existing_leaf','existing_manifest','public_parent'])
+def test_capture_parent_safety_precedes_all_commands(bundle,tmp_path,monkeypatch,kind):
+    import os
+    _,b,_=bundle;parent=tmp_path/'owned';parent.mkdir(mode=0o700)
+    monkeypatch.setenv('TMPDIR',str(parent));root=parent/'oracle-forward-capture-test'
+    if kind=='foreign':root=tmp_path/'oracle-forward-capture-foreign'
+    elif kind=='symlink_parent':
+        link=tmp_path/'link';link.symlink_to(parent,target_is_directory=True);monkeypatch.setenv('TMPDIR',str(link));root=link/root.name
+    elif kind=='existing_leaf':root.mkdir(mode=0o700)
+    elif kind=='existing_manifest':(parent/(root.name+'.manifest.json')).write_bytes(b'public')
+    else:parent.chmod(0o755)
+    before=parent.stat().st_mode
+    def runner(*args,**kwargs):pytest.fail('unsafe output reached a Docker command')
+    with pytest.raises((PermissionError,OSError)):ForwardRecovery(b,runner=runner,clock=lambda:1000).capture(root,b'public',operation_receipt_sha256=b.backup_operation_receipt_sha256)
+    assert parent.stat().st_mode==before
+
+
+def test_near_expiry_budget_denies_before_any_command(bundle):
+    _,b,_=bundle
+    def runner(*args,**kwargs):pytest.fail('near-expiry command dispatched')
+    operator=ForwardRecovery(b,runner=runner,clock=lambda:b.authority.expires_at-20)
+    with pytest.raises(PermissionError):operator.checked(['exec',b.instance.ledger_container,'pg_dump'],timeout=60)
+
+
+
+def test_native_budget_uses_unchanged_policy_and_os_deadline(tmp_path,monkeypatch):
+    from oracle_brain.hosting.forward_recovery import arm_native_budget
+    from test_hosting_forward_fixture import config
+    import time,signal
+    c=config();now=int(time.time())
+    policy={'worker_uri':c['worker_uri'],'runtime_hash':c['runtime_hash'],'active':True,'expires_at':now+3600,'allowed_release_hashes':c['allowed_release_hashes']}
+    path=tmp_path/'registry';path.write_bytes(canonical_bytes(policy));path.chmod(0o600)
+    c.update(registry=str(path),registry_hash=digest(policy))
+    calls=[];monkeypatch.setattr(signal,'signal',lambda *a:calls.append(('handler',a)))
+    monkeypatch.setattr(signal,'alarm',lambda n:calls.append(('alarm',n)))
+    arm_native_budget(c,seconds=80)
+    assert ('alarm',80) in calls
+    calls.clear();policy['expires_at']=now+30;path.write_bytes(canonical_bytes(policy));c['registry_hash']=digest(policy)
+    with pytest.raises(PermissionError):arm_native_budget(c,seconds=80)
+    assert not calls
