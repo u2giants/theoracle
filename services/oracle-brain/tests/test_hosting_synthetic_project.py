@@ -78,9 +78,43 @@ def test_registered_public_projector_preserves_release(tmp_path,monkeypatch):
         executor_url=restricted.replace(quote(user)+':',quote(executor_user)+':',1)
         reader=Redis.from_url(executor_url,decode_responses=True)
         assert reader.execute_command('GRAPH.RO_QUERY',release.graph_name,'MATCH (n) RETURN count(n)')[1][0][0]>0
-        for command,name,query in [('GRAPH.QUERY',release.graph_name,'CREATE (:Forbidden)'),('GRAPH.RO_QUERY',ontology_graph,'MATCH (n) RETURN count(n)'),('GRAPH.RO_QUERY',release.graph_name+'_foreign','MATCH (n) RETURN count(n)')]:
+        for command,name,query in [('GRAPH.QUERY',release.graph_name,'CREATE (:Forbidden)'),('GRAPH.QUERY',ontology_graph,'CREATE (:Forbidden)'),('GRAPH.RO_QUERY',ontology_graph+'_foreign','MATCH (n) RETURN count(n)'),('GRAPH.RO_QUERY',release.graph_name+'_foreign','MATCH (n) RETURN count(n)')]:
             with pytest.raises(NoPermissionError):reader.execute_command(command,name,query)
+        assert reader.execute_command('GRAPH.RO_QUERY',ontology_graph,'MATCH (n:Entity) RETURN count(n)')[1][0][0]>0
         reader.close()
+        # Exercise the full documentary path with actual registered NOINHERIT
+        # executor credentials, native TLS and the stock read-only graph SDK.
+        from oracle_brain.operating_model.artifact_storage import FileBlobStore
+        from oracle_brain.operating_model.runtime import run_view,SyntheticEmbedding
+        executor_database=make_conninfo(**{**dbparams,'user':roles['executor'],'password':password})
+        binding.check_url(executor_database)
+        with psycopg.connect(executor_database) as conn:
+            assert conn.execute('SELECT rolinherit FROM pg_roles WHERE rolname=SESSION_USER').fetchone()==(False,)
+        outcome=asyncio.run(run_view(synthetic_fixture.RUN,synthetic_fixture.WORKSPACE,
+            database_url=executor_database,graph_url=executor_url,blobs=FileBlobStore(tmp_path/'blobs'),
+            embedder=SyntheticEmbedding(),dimensions=8,synthetic=True,source_binding=binding))
+        assert outcome=={'state':'completed','run_id':str(synthetic_fixture.RUN)}
+        with psycopg.connect(executor_database) as conn:
+            status,pack=conn.execute('SELECT status,pack FROM oracle2.operating_view_runs WHERE run_id=%s',(synthetic_fixture.RUN,)).fetchone()
+        assert status=='completed' and pack['artifact_hash']==manifest.content_hash
+        assert pack['sdk_candidate_count']>0
+        # Warm result reads reuse the completed pack; completion authority is
+        # one-use and must not be refreshed by executing the job again.
+        with psycopg.connect(executor_database) as conn:
+            for _ in range(2):
+                assert conn.execute('SELECT pack FROM oracle2.operating_view_runs WHERE run_id=%s',(synthetic_fixture.RUN,)).fetchone()[0]==pack
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                from oracle_brain.operating_model.contracts import canonical_bytes
+                conn.execute('SELECT oracle2.complete_documentary_view(%s,%s)',(synthetic_fixture.RUN,canonical_bytes(pack)))
+        # An absent persisted ontology must fail closed; no registration writes
+        # or guessed in-memory ontology may rescue a damaged generation.
+        graph.delete(ontology_graph)
+        from redis.exceptions import ResponseError
+        with pytest.raises(ResponseError,match='Invalid graph operation on empty key'):
+            asyncio.run(run_view(synthetic_fixture.RUN,synthetic_fixture.WORKSPACE,
+                database_url=executor_database,graph_url=executor_url,blobs=FileBlobStore(tmp_path/'blobs'),
+                embedder=SyntheticEmbedding(),dimensions=8,synthetic=True,source_binding=binding))
+        assert not graph.exists(ontology_graph)
     finally:
         # Only this test's newly created public graph, user, database and roles.
         graph.delete(release.graph_name,ontology_graph)
