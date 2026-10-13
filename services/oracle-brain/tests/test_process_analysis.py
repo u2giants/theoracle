@@ -37,3 +37,11 @@ def test_strict_receipt_rejects_duplicate_ids_and_out_of_window():
 def test_unique_lifecycle_pair_has_duration():
     r=measured_metrics(log([ev('c',1,0,lifecycle='start'),ev('c',2,5,lifecycle='complete')]))
     assert r['worktime_seconds']['c']['A']==5.0
+
+def test_unknown_terminal_status_cannot_be_counted_as_completed_without_censor_flag():
+    receipt=log([ev('unknown',1,0,status='unknown'),ev('unknown',2,5),ev('done',3,0)])
+    restored=LogReceipt.model_validate_json(receipt.model_dump_json())
+    result=measured_metrics(restored)
+    assert result['cases']=={'total':2,'completed':1,'retained_completed':1,'excluded':0,'censored':1}
+    assert result['event_ids']['unknown']==['e1','e2']
+    assert 'unknown' not in result['worktime_seconds'] and 'unknown' not in result['observed_activity_paths']

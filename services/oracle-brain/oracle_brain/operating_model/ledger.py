@@ -80,6 +80,7 @@ class Ledger:
             raw=base64.b64decode(payload['raw_export_base64'],validate=True)
             if hashlib.sha256(raw).hexdigest()!=event_log.input_hash:raise ValueError('event original hash mismatch')
             derived,quarantined=parse_export(raw,payload['format'],workspace_id,event_mapping,event_log.window_start,event_log.window_end)
+            if derived.import_id!=event_log.import_id:raise ValueError('event parser contract identity mismatch')
             if derived!=event_log or list(quarantined)!=payload['quarantine']:raise ValueError('event records do not reproduce exact raw export')
         key, seal = self.blobs.put(workspace_id, payload)
         source_digest = digest({'refs':[r.model_dump(mode='json') for r in refs]})
