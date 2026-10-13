@@ -19,3 +19,37 @@ Source merge, immutable image publication, isolated namespace creation, credenti
 The existing event-service CI token returned 401; the valid D1 read token is active but Workers and own-token permission metadata return 403. No existing authorized account session was found. CI provider key differs from Oracle; running-service key remains UNKNOWN. No token substitution, scope expansion, new paid calls or company-data adoption occurred.
 
 Downstream review: W01-W12 acceptance and S03-S16 dependencies remain open. Original-region custody is local preparation and does not issue current SourceRefs or semantic acceptance. Company questions, employee messages and grading remain paused.
+
+## Native image CPU portability gate
+
+The PR102 image90eaa56528de5fd15f58117927ffa0fc80136789bcd67ffbd5e76edc0f8839ac
+exits132 (SIGILL) on edge-dev3 when importing hnswlib0.8.0; a faulthandler
+reproduction isolates GraphRAG1.4.0's optional native-resolution import to that
+module. The fresh networkless issuer stopped before creating assets; its spent
+claim and container remain preserved. No new authority was minted or installed.
+The pinned upstream hnswlib0.8.0 setup defaults to -march=native and supports
+HNSWLIB_NO_NATIVE to omit builder-specific ISA tuning. This is a source build
+portability defect consistent with the observed SIGILL; the exact offending
+instruction and earlier image's build-host history remain unknown.
+
+The image build uses that supported build-only flag before frozen uv sync.
+No dependency removal, version downgrade, stub, fallback, vendor patch or
+runtime search suppression. The final shipped profile additionally imports
+the stock SDK, creates a real native ANN index over three invented vectors,
+verifies nearest-neighbor results and saves/reloads the index with identical
+results under the runtime UID. A publisher result still requires actual
+non-builder-host execution of the immutable artifact before installation.
+Upstream source: https://github.com/nmslib/hnswlib/blob/v0.8.0/setup.py#L67-L111.
+
+`coolify-native-preflight.yaml` provides a separately reviewed normal-platform
+one-shot proof of that exact immutable artifact on the deployment host before
+credential issuance. It runs only the public invented ANN qualification, under
+UID10001, network-none, read-only root, dropped capabilities, no-new-privileges,
+CPU1/1GiB/128PIDs/core0 and a bounded writable tmpfs. No ports, volumes, stores,
+credentials, provider inputs or data admission. The app-owned preflight uses the
+existing empty inert app and has a distinct Compose namespace; its exact
+managed configuration/start and later full-runtime configuration require
+separate source/input action approvals. Target exit0 plus fixed public receipt
+and actual OCI/resource readback qualify the artifact, not documentary job or
+private/business acceptance. Preserve stopped proof/receipt before any managed
+transition; old failed apps, stores and spent leases remain untouched.

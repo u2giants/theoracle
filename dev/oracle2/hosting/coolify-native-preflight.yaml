@@ -1,0 +1,19 @@
+# Public invented ANN proof before issuing hosting credentials. No stores or traffic.
+name: oracle-native-preflight-${COOLIFY_RESOURCE_UUID:?exact managed application required}
+services:
+  native-ann-proof:
+    image: ${ORACLE_HOSTING_IMAGE:?reviewed immutable documentary image required}
+    entrypoint: [python, -m, oracle_brain.hosting.verify_native_ann]
+    command: []
+    user: "10001:10001"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: 1.0
+    mem_limit: 1g
+    pids_limit: 128
+    tmpfs: [/tmp:rw,noexec,nosuid,size=64m]
+    restart: "no"
+    ulimits:
+      core: 0
