@@ -40,3 +40,20 @@ def test_hostile_fields_refuse(damage):
 def test_duplicate_json_fields_and_nonfinite_refuse():
     for raw in (b'{"a":1,"a":2}',b'{"a":NaN}'):
         with pytest.raises(ValueError):codec.decode(raw)
+
+@pytest.mark.parametrize('damage',['extra','negative','foreignquote','wronglength','uniqueabsent','nonunique'])
+def test_alignment_is_closed_validated_metadata_without_quote_injection(damage):
+    p=page();item=p['native_locators'][0];item.update(alignment_status='unique',alignment=dict(start=10,end=12,quote='Ω🙂'))
+    if damage=='extra':item['alignment']['unsupported']='injected'
+    elif damage=='negative':item['alignment']['start']=-1
+    elif damage=='foreignquote':item['alignment']['quote']='unadmitted private content'
+    elif damage=='wronglength':item['alignment']['end']=13
+    elif damage=='uniqueabsent':item['alignment']=None
+    else:item['alignment_status']='missing_in_page'
+    with pytest.raises(ValueError):run(p)
+
+def test_valid_alignment_keeps_offsets_and_hash_without_copying_quote():
+    p=page();p['native_locators'][0].update(alignment_status='unique',alignment=dict(start=10,end=12,quote='Ω🙂'))
+    result=run(p);segment=result['segments'][0]
+    assert segment['captured_alignment']==dict(start=10,end=12,quote_sha256=codec.sha('Ω🙂'.encode()))
+    assert 'alignment' not in segment['native_metadata']

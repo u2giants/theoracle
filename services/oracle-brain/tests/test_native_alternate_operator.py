@@ -101,3 +101,53 @@ def test_per_file_output_bound_refuses_before_writes():
         def serialize_page(*a,**kw):return {'segments':[{'utf8_start':0,'utf8_end':1}],'text':'x'*(8*1024**2)}
     with pytest.raises(ValueError):operator.serialize_inputs(c,reader,lambda i,b:writes.update({i:b}),Large,clock=lambda:100)
     assert not writes
+
+@pytest.mark.parametrize('invalid',[-1,True,1.5,'1',None,operator.LIMIT+1])
+def test_invalid_runtime_credit_never_invokes_reader(invalid):
+    c,v,reads,writes,reader=case();c['runtime_bytes']=invalid
+    with pytest.raises(ValueError):operator.serialize_inputs(c,reader,lambda i,b:writes.update({i:b}),codec,clock=lambda:100)
+    assert not reads and not writes
+
+def test_precomputed_actual_input_population_cannot_exceed_limit():
+    c,v,reads,writes,reader=case();c['runtime_bytes']=operator.LIMIT-1
+    with pytest.raises(ValueError):operator.serialize_inputs(c,reader,lambda i,b:writes.update({i:b}),codec,clock=lambda:100)
+    assert not reads and not writes
+
+def mounts():
+    from types import SimpleNamespace
+    import os,stat
+    rows=[]
+    def add(path,mode='ro',filesystem='ext4'):rows.append(f'1 0 1:1 / {path} {mode} - {filesystem} fixture {mode}')
+    for p in ('/','/code/operator.py','/code/native_alternate.py'):add(p)
+    for i in range(48):add('/input/c'+str(i))
+    add('/output','rw');add('/proc','rw','proc');add('/dev','rw','tmpfs');add('/dev/pts','rw','devpts')
+    return rows,SimpleNamespace(st_mode=stat.S_IFDIR|0o700,st_uid=os.getuid())
+
+@pytest.mark.parametrize('damage',['extra','writablecode','writableinput','outputmode','outputowner','kernelmount','missingcode'])
+def test_fixed_mount_and_owned_output_defense_refuses(damage):
+    rows,output=mounts()
+    if damage=='extra':rows.append('1 0 1:1 / /host ro - ext4 host ro')
+    elif damage=='writablecode':rows[1]=rows[1].replace(' ro ',' rw ')
+    elif damage=='writableinput':rows[3]=rows[3].replace(' ro ',' rw ')
+    elif damage=='outputmode':output.st_mode=0o40755
+    elif damage=='outputowner':output.st_uid+=1
+    elif damage=='kernelmount':rows[-1]=rows[-1].replace('devpts','ext4')
+    else:del rows[1]
+    with pytest.raises(ValueError):operator.validate_mounts(rows,48,output)
+
+def test_fixed_mount_shape_is_defense_only():
+    rows,output=mounts();operator.validate_mounts(rows,48,output)
+
+def test_decoder_hash_is_verified_before_execution(tmp_path):
+    target=tmp_path/'decoder.py';marker=tmp_path/'executed'
+    target.write_text('open('+repr(str(marker))+',"w").write("untrusted")')
+    with pytest.raises(ValueError):operator.load_decoder(target)
+    assert not marker.exists()
+    source=ROOT/'services/oracle-brain/oracle_brain/operating_model/native_page_alternate.py'
+    assert operator.load_decoder(source).HISTORY==codec.HISTORY
+
+def test_contract_keeps_worker_defense_separate_from_guardian_authority():
+    contract=json.loads((ROOT/'scripts/oracle2/contracts/native_alternate_serialization.json').read_bytes())
+    assert not contract['worker_verifies_action_admission'] and not contract['worker_proves_one_use_consumption']
+    assert contract['requires_installed_guardian']
+    assert contract['decoder_sha256']==operator.DECODER_SHA256

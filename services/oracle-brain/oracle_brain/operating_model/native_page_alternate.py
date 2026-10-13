@@ -81,6 +81,12 @@ def serialize_page(page,*,capture_hash,expected_original,expected_page):
             continue
         require(isinstance(item.get('source_text'),str),'supported locator source text missing')
         require(item.get('alignment_status') in ('unique','empty','ambiguous_in_page','missing_in_page') and 'alignment' in item,'native alignment record missing')
+        alignment=item['alignment']
+        if alignment is not None:
+            require(item['alignment_status']=='unique' and type(alignment) is dict and set(alignment)=={'start','end','quote'},'captured alignment shape differs')
+            require(integer(alignment['start']) and integer(alignment['end']) and alignment['end']>=alignment['start'] and alignment['quote']==item['source_text']
+                and alignment['end']-alignment['start']==len(item['source_text']),'captured alignment offsets/text differ')
+        else:require(item['alignment_status']!='unique','unique alignment metadata absent')
         if kind=='native_text_region':
             require(ref(item.get('native_text_id'),'texts') and isinstance(item.get('native_label_enum'),str),'native text identity differs')
             identity=(kind,item['native_text_id'],expected_page,index)
@@ -93,7 +99,7 @@ def serialize_page(page,*,capture_hash,expected_original,expected_page):
             identity=(kind,item['parent_table_id'],expected_page,item['row'],item['row_end'],item['column'],item['column_end'])
         require(identity not in seen,'duplicate native cell identity');seen.add(identity)
         start=len(text.encode('utf-8'));text+=item['source_text'];end=len(text.encode('utf-8'))
-        segments.append({'locator_index':index,'utf8_start':start,'utf8_end':end,'source_text_sha256':sha(item['source_text'].encode()),'capture_sha256':capture_hash,'original_sha256':expected_original,'page':expected_page,'native_metadata':item})
+        segments.append({'locator_index':index,'utf8_start':start,'utf8_end':end,'source_text_sha256':sha(item['source_text'].encode()),'capture_sha256':capture_hash,'original_sha256':expected_original,'page':expected_page,'native_metadata':{k:v for k,v in item.items() if k!='alignment'},'captured_alignment':None if alignment is None else {'start':alignment['start'],'end':alignment['end'],'quote_sha256':sha(alignment['quote'].encode())}})
     return {'status':'unqualified-native-alternate-v1','format':'custom-native-page-snapshot-v1','source_qualified':False,'source_ref_issued':False,'ledger_adopted':False,'provider_authority':False,'semantic_qualified':False,'text':text,'segments':segments,'unrepresented_gaps':gaps,'unresolved':page['unresolved'],'native_page_number':expected_page,'original_sha256':expected_original,'capture_sha256':capture_hash}
 
 

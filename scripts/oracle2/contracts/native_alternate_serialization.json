@@ -6,7 +6,6 @@
   "input_schema": "historical-custom-native-pages-v1",
   "decoder_basis": "reviewed-offline-original-locators-public-producer",
   "admission": "genuine-independent-native-dual-scoped-completion-and-one-use-consumption",
-  "preapproval_capture_byte_reads": 0,
   "input_bytes": 268435456,
   "output_bytes": 268435456,
   "workers": 1,
@@ -25,5 +24,12 @@
   "per_file_bytes": 8388608,
   "source_ref_issued": false,
   "provider_authority": false,
-  "semantic_qualified": false
+  "semantic_qualified": false,
+  "guardian_preapproval_private_content_reads": 0,
+  "worker_verifies_action_admission": false,
+  "worker_proves_one_use_consumption": false,
+  "worker_checks": "namespace-mount-code-resource-defense-in-depth-only",
+  "requires_installed_guardian": true,
+  "trust_boundary": "OS owner and root custody are trusted; no protection against an owner bypassing the launcher",
+  "decoder_sha256": "84cbcb3119bb6858915bd4538d5527e5ba6a716ab76a914c6db27f0e4202291d"
 }
