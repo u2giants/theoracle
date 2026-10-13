@@ -6,7 +6,7 @@ permission or a change to the approved inert multipart transport. No supplier
 archives/binaries were read/downloaded; no build, install, runtime, provider,
 private read, flag enablement or source admission occurred.
 
-`dev/oracle2/analytics/source-associations.json` binds the unchanged complete
+`scripts/oracle2/contracts/analytical_source_associations.json` binds the unchanged complete
 37-artifact source manifest and33 exact locked PyPI package/sdist metadata
 identities. Actual wheel selection is unavailable for every package. It retains
 all six CBC binary hashes and seven original PuLP notice hashes, with every
@@ -72,3 +72,17 @@ candidate hashes without authority. No source or rights claim follows from tests
 The prospective matrix must be independently reviewed with the actual product
 before any future integration; source preparation alone remains unavailable for
 real delivery.
+
+
+## Genuine attachment-only review boundary
+
+The new fixed typed matrix is canonically stored under existing contracts; its
+previous dev path is retired, without duplicate copies or a generic exporter
+exception. Existing immutable source-manifest, requirements lock, Dockerfile and
+context remain unchanged and are not exported by the attachment-only route.
+Their exact public SHA commitments and executed mandatory source tests are
+disclosed separately; their exclusion is a review evidence limitation, not
+permission to open private files or claim archive/source qualification. Old
+71d4/45be freezes and their source-only proofs remain immutable in Git and
+coordinator custody; the moved contract/readers require fresh exact-head tests
+and review. No previous review or permission is inherited.

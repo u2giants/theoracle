@@ -6,7 +6,7 @@ ROOT=Path(__file__).resolve().parents[3]
 spec=importlib.util.spec_from_file_location('association_validator',ROOT/'scripts/oracle2/validate_analytical_associations.py')
 v=importlib.util.module_from_spec(spec);spec.loader.exec_module(v)
 FOLDER=ROOT/'dev/oracle2/analytics'
-def matrix():return json.loads((FOLDER/'source-associations.json').read_bytes())
+def matrix():return json.loads((ROOT/'scripts/oracle2/contracts/analytical_source_associations.json').read_bytes())
 def inputs(value):return (json.dumps(value).encode(),(FOLDER/'source-manifest.json').read_bytes(),(FOLDER/'requirements.lock').read_bytes(),(FOLDER/'Dockerfile').read_bytes(),(FOLDER/'Dockerfile.dockerignore').read_bytes())
 def test_complete_descriptors_remain_unavailable():
  r=v.inspect_associations(*inputs(matrix()))
