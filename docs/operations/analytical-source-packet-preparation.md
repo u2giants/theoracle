@@ -42,7 +42,9 @@ Tests use invented local archive bytes only. They cover default denial before
 opens, whole-manifest/revision/image mismatches, notices/rights/native-binary
 preservation, actual size/hash mismatch, chunk limits, cross-artifact/reordered
 reconstruction, source/cache links/collisions, current revocation/expiry and exact
-reconstruction after a single original read. Root integrates their inventory and
-this document's router entry after source review. Actual supplier source payloads,
+reconstruction after a single original read. The mandatory W04/W07/W08/W10 event inventory reuses both source-owned
+suites and explicitly tests inclusion, with their source inputs bound into the
+whole-proof hash. The documentation router points here; source review remains
+a separate gate. Actual supplier source payloads,
 historical CBC ARM/Win32/AMPL builder inputs, full product/runtime/notice review,
 installation and authenticated delivery remain unqualified external/root gates.
