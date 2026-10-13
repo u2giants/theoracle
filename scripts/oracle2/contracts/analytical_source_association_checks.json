@@ -1,0 +1,45 @@
+{
+  "actual_wheel_authenticated": false,
+  "authorizes_read": false,
+  "business_accepted": false,
+  "code_sha256": {
+    "dev/oracle2/analytics/Dockerfile": "297b4a08820093f21602faf4cab3c2301822138f659d68b0becabb1a7017a95a",
+    "dev/oracle2/analytics/Dockerfile.dockerignore": "47ade47547eb0d39fdbe60a3c6c2dc5b71774e5d8394b9ef9698f7b3906b91e1",
+    "dev/oracle2/analytics/requirements.lock": "980bf3a0668a5ef9bc348e82c19b4e32e0664765573d90fbb3728a170550e9f3",
+    "dev/oracle2/analytics/source-associations.json": "139f3ffafc6b6058090e01e275df3f1c55031aa45bd935970236766cb1a2130d",
+    "dev/oracle2/analytics/source-manifest.json": "8d58e4e293c80622a08252040bb20020f61f08fa86497d1fdf57bc9cd999c4ad",
+    "scripts/oracle2/validate_analytical_associations.py": "c8c4353b0b6d783adf98fbc643750b35318a3f4144f3c12bec169d128ead9aa8",
+    "scripts/oracle2/verify_workflow_integrity.py": "0dda1ea2de3d3d5b552a58061e78dacfc6244871bf82bc381a45fff3f405216b",
+    "services/oracle-brain/tests/test_analytical_associations.py": "18b224a50e4b067359718e585d169a1f2c12a3d56717afb3bc7cb79677ccf11a"
+  },
+  "delivery_admitted": false,
+  "evidence_file_excluded_from_tested_input_hash": "scripts/oracle2/contracts/analytical_source_association_checks.json",
+  "evidence_only_commit_after_code_freeze": true,
+  "focused_checks": {
+    "failures": 0,
+    "skipped": 0,
+    "tests": 59
+  },
+  "kind": "analytical-source-association-executed-synthetic-checks-only",
+  "observed_at": "2026-10-13T18:04:17.612981-04:00",
+  "product_admission": false,
+  "provider_authority": false,
+  "runtime_qualified": false,
+  "schema_version": 1,
+  "source_qualified": false,
+  "supplier_payloads_downloaded": false,
+  "synthetic": true,
+  "tested_source_head": "71d4d11cff59acdafbcd9db061d93900d8f6eb5d",
+  "time_zone": "America/New_York",
+  "unchanged_upstream_packet_recipe_lock_context": true,
+  "whole_W10": {
+    "failures": 0,
+    "head": "71d4d11cff59acdafbcd9db061d93900d8f6eb5d",
+    "input_hash": "62ec58d0df9c6901e6d76dec78ebbe2679b3c533dc55a99aa51abe82968c33a1",
+    "junit_sha256": "9caf9028dde4e10261759ce22d0033a0a5241a4c3037db75dded02713eb1a551",
+    "skipped": 0,
+    "success": true,
+    "tests": 868
+  },
+  "whole_receipt_sha256": "1a35d3d67f3d7988b5c4c096e610bbc5d9456b674b2112c457b00c27b6e10de2"
+}
