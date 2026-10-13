@@ -65,7 +65,17 @@ assert_blocked(){
 
 assert_blocked 'migration scope escalation refuses shipping'
 assert_blocked 'acknowledgement cannot bypass protected migration' --acknowledge 'fixture acknowledgement'
-assert_blocked 'owner request cannot bypass protected migration' --owner-request 'fixture owner request'
+# The legacy owner flag is intentionally unsupported by the current toolkit.
+# Either explicit argument refusal or the protected gate refusal is safe.
+set +e
+legacy_output="$(cd "$fixture" && ai-task-gates check --before ship --owner-request 'fixture owner request' 2>&1)"
+legacy_rc=$?
+set -e
+if [ "$legacy_rc" -eq 3 ] || { [ "$legacy_rc" -eq 1 ] && [ "$legacy_output" = 'ai-task-gates: error: unknown option for check: --owner-request' ]; }; then
+  pass 'legacy owner request flag is refused'
+else
+  fail "legacy owner request (exit $legacy_rc: $legacy_output)"
+fi
 
 (
   cd "$fixture"
@@ -88,6 +98,66 @@ if [ "$without_policy" = code ] && [ "$with_policy" = deployment ] \
   pass 'rollback removes the local escalation and byte-exact restore reinstates it'
 else
   fail 'rollback positive control or source-integrity check failed'
+fi
+
+# Selected tooling contains public code only. The repository opts into the
+# sealed attachment route; whole-repository review and runtime writes stay shut.
+(
+  cd "$fixture"
+  ai-task-gates start --class private-tooling --base HEAD >/dev/null
+  ai-task-gates check --before code-only-review >/dev/null
+)
+pass 'private tooling admits the sealed synthetic-fixture review route'
+if (cd "$fixture" && ai-task-gates explain --json | jq -e '.required_gates|index("repository-workflow-compliance")!=null' >/dev/null); then
+  pass 'private tooling retains repository workflow compliance'
+else
+  fail 'private tooling lost repository workflow compliance'
+fi
+for action in review deploy database infrastructure production shared-db-promotion; do
+  set +e
+  output="$(cd "$fixture" && ai-task-gates check --before "$action" 2>&1)"
+  rc=$?
+  set -e
+  if [ "$rc" -eq 3 ]; then pass "private tooling still refuses $action"; else fail "private tooling $action (exit $rc: $output)"; fi
+done
+(
+  cd "$fixture"
+  ai-task-gates start --class private-evidence --base HEAD >/dev/null
+)
+set +e
+output="$(cd "$fixture" && ai-task-gates check --before code-only-review 2>&1)"
+rc=$?
+set -e
+if [ "$rc" -eq 3 ]; then pass 'private evidence remains outside the tooling exception'; else fail "private evidence review (exit $rc: $output)"; fi
+
+# A stronger tooling declaration cannot launder a changed licensed path.
+(
+  cd "$fixture"
+  mkdir -p fixtures/licensed
+  printf '%s\n' '{}' > fixtures/licensed/synthetic.json
+  ai-task-gates start --class private-tooling --base HEAD >/dev/null
+)
+set +e
+output="$(cd "$fixture" && ai-task-gates check --before code-only-review 2>&1)"
+rc=$?
+set -e
+if [ "$rc" -eq 3 ]; then pass 'changed licensed evidence defeats a tooling declaration'; else fail "licensed tooling laundering (exit $rc: $output)"; fi
+rm -f "$fixture/fixtures/licensed/synthetic.json"
+
+# The attachment exporter must also refuse a legacy app fixture even though
+# its pre-existing naming does not match the central licensed-directory rule.
+mkdir -p "$fixture/apps/workers/src/__fixtures__"
+printf '%s\n' '{}' > "$fixture/apps/workers/src/__fixtures__/licensed-synthetic.json"
+printf '%s\n' '["apps/workers/src/__fixtures__/licensed-synthetic.json"]' > "$TMP/private-paths.json"
+exporter="$(dirname "$(readlink -f "$(command -v ai-task-gates)")")/ai-review-code-only.py"
+set +e
+output="$(python3 "$exporter" create "$fixture" "$TMP/refused-export" "$TMP/private-paths.json" --base HEAD 2>&1)"
+rc=$?
+set -e
+if [ "$rc" -ne 0 ] && [ ! -e "$TMP/refused-export" ] && [[ "$output" == *'ambiguous non-code path refused'* ]]; then
+  pass 'licensed app fixture cannot enter the sealed code export'
+else
+  fail "licensed exporter refusal (exit $rc: $output)"
 fi
 
 if [ "$failures" -ne 0 ]; then
