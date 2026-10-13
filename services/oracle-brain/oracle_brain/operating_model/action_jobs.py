@@ -64,5 +64,7 @@ def execute_review(database_url,run_id,workspace_id,ledger,synthetic):
         ledger.append_review(workspace_id=workspace_id,artifact_id=release.artifact_id,version=release.artifact_version,
             finding_id=payload['finding_id'],event_id=run_id,action=payload['action'],scope=payload['scope'],note=payload['note'],authority=require_review)
         result={'state':'completed','run_id':str(run_id),'review_recorded':True,'policy_promoted':False}
+        if conn.execute('SELECT current_user').fetchone()[0] == 'oracle2_documentary_executor':
+            return conn.execute('SELECT oracle2.complete_hosted_finding_review(%s)',(run_id,)).fetchone()[0]
         conn.execute("UPDATE oracle2.operating_action_runs SET status='completed',result=%s WHERE run_id=%s AND status='pending'",(Jsonb(result),run_id))
         return result

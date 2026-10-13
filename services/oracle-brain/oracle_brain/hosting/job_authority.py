@@ -31,12 +31,8 @@ class PostgresJobAuthority:
         if str(identity) != job_id or runtime_hash != self.runtime_hash:
             raise PermissionError("opaque job/runtime identity denied")
         with psycopg.connect(self.url) as conn:
-            rows = conn.execute("""SELECT workspace_id,run_id,'documentary-view',expires_at
-                FROM oracle2.operating_view_runs WHERE run_id=%s AND status='pending' AND expires_at>clock_timestamp()
-                UNION ALL
-                SELECT workspace_id,run_id,CASE WHEN operation='finding_review' THEN 'finding-review' ELSE 'denied' END,expires_at
-                FROM oracle2.operating_action_runs WHERE run_id=%s AND status='pending' AND expires_at>clock_timestamp()""",
-                (identity, identity)).fetchall()
+            rows = conn.execute("SELECT * FROM oracle2.hosting_job_metadata(%s)",
+                                (identity,)).fetchall()
             if len(rows) != 1 or rows[0][2] == 'denied':
                 raise PermissionError("unique canonical documentary job unavailable")
             workspace, run, scope, expiry = rows[0]
@@ -118,6 +114,11 @@ class PostgresJobAuthority:
 
     def _authorize(self, conn, row, workspace, run, *, completed=False):
         scope = row.get("scope")
+        if not completed:
+            identities = conn.execute('SELECT workspace_id,run_id,scope FROM oracle2.hosting_job_metadata(%s)',
+                                      (run,)).fetchall()
+            if identities != [(workspace, run, scope)]:
+                raise PermissionError("current unique canonical job unavailable")
         if scope == "documentary-view":
             job = conn.execute("""SELECT actor_id,release_id,release_hash,status
                 FROM oracle2.operating_view_runs WHERE run_id=%s AND workspace_id=%s

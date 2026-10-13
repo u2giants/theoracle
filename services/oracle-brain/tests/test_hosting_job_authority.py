@@ -22,6 +22,8 @@ def gateway_database(admin_url):
     with psycopg.connect(admin_url, autocommit=True) as conn:
         conn.execute((sql / "004_workflow_integrity.sql").read_text())
         conn.execute((sql / "006_hosting_gateway_authority.sql").read_text())
+        for migration in ("007_hosting_candidate_permissions.sql", "008_hosting_runtime_permissions.sql", "010_hosting_job_permissions.sql"):
+            conn.execute((sql / migration).read_text())
         login='oracle2_gateway_test_'+uuid4().hex[:12]
         conn.execute(psycopg.sql.SQL("CREATE ROLE {} LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS PASSWORD {}").format(
             psycopg.sql.Identifier(login),psycopg.sql.Literal('invented-public-gateway-test-only')))
