@@ -28,6 +28,26 @@ def protected_file(path, *, limit=1_000_000):
     return raw
 
 
+SCENARIO_FIELDS={'synthetic_scenario','synthetic_scenario_seal','synthetic_review_hash'}
+
+def sealed_scenario(value):
+    from .synthetic_fixture import fixed_scenario,fixture,LEGACY_SCENARIO,FORWARD_SCENARIO
+    present=SCENARIO_FIELDS & set(value)
+    if not present:
+        if value.get('worker_uri')==fixed_scenario(FORWARD_SCENARIO).worker_uri:
+            raise PermissionError('forward caller requires all fixed scenario pins')
+        return fixed_scenario()
+    if present!=SCENARIO_FIELDS:raise PermissionError('complete fixed scenario pins required')
+    scenario=fixed_scenario(value['synthetic_scenario'])
+    if value['synthetic_scenario_seal']!=scenario.seal():raise PermissionError('fixed scenario seal differs')
+    if (value.get('synthetic') is not True or value.get('worker_uri')!=scenario.worker_uri
+        or not re.fullmatch('[a-f0-9]{64}',value['synthetic_review_hash'])):
+        raise PermissionError('fixed public scenario caller/review differs')
+    release=fixture(value['runtime_hash'],value['synthetic_review_hash'],scenario.scenario_id)[-1]
+    if value.get('allowed_release_hashes')!=[release.content_hash()]:raise PermissionError('fixed scenario release differs')
+    return scenario
+
+
 def settings(profile, path, seal):
     raw=protected_file(path)
     if not re.fullmatch('[a-f0-9]{64}',seal or '') or hashlib.sha256(raw).hexdigest()!=seal:
@@ -37,7 +57,7 @@ def settings(profile, path, seal):
             'database_url_file','registry','registry_hash','spool'}
     extra={'gateway':{'server_cert','server_key','client_ca','hmac_key_file','bind_host','bind_port'},
            'executor':{'graph_url_file','blob_root','source_role_registry_hash'}}
-    if profile not in extra or not isinstance(value,dict) or set(value)!=common|extra[profile]:
+    if profile not in extra or not isinstance(value,dict) or set(value) not in (common|extra[profile],common|extra[profile]|SCENARIO_FIELDS):
         raise PermissionError('exact fixed profile schema required')
     if value['profile']!=profile or type(value['synthetic']) is not bool:
         raise PermissionError('profile environment mismatch')
@@ -49,6 +69,7 @@ def settings(profile, path, seal):
         raise PermissionError('release hash unavailable')
     if not isinstance(value['worker_uri'],str) or not value['worker_uri'].startswith('spiffe://oracle/'):
         raise PermissionError('fixed worker identity required')
+    sealed_scenario(value)
     database=protected_file(value['database_url_file'],limit=8192).decode().strip()
     from psycopg.conninfo import conninfo_to_dict
     parsed=conninfo_to_dict(database)
@@ -67,8 +88,30 @@ def settings(profile, path, seal):
     return value
 
 
+class FixedScenarioAuthority(PostgresJobAuthority):
+    """A forward issuer binds one canonical job before any spool write."""
+    def __init__(self,*args,scenario,**kwargs):
+        self.scenario=scenario
+        super().__init__(*args,**kwargs)
+
+    def resolve(self,job_id,runtime_hash,admission_hash):
+        if job_id!=str(self.scenario.run):raise PermissionError('cross-scenario job denied')
+        row=super().resolve(job_id,runtime_hash,admission_hash)
+        if row['workspace_id']!=str(self.scenario.workspace):raise PermissionError('cross-scenario workspace denied')
+        return row
+
+    def resolve_result(self,job_id,runtime_hash,admission_hash):
+        if job_id!=str(self.scenario.run):raise PermissionError('cross-scenario result denied')
+        row=super().resolve_result(job_id,runtime_hash,admission_hash)
+        if row['workspace_id']!=str(self.scenario.workspace):raise PermissionError('cross-scenario workspace denied')
+        return row
+
+
 def build_custody(config):
-    authority=PostgresJobAuthority(config['_database_url'],runtime_hash=config['runtime_hash'],
+    scenario=sealed_scenario(config)
+    factory=FixedScenarioAuthority if SCENARIO_FIELDS & set(config) else PostgresJobAuthority
+    extra={'scenario':scenario} if factory is FixedScenarioAuthority else {}
+    authority=factory(config['_database_url'],**extra,runtime_hash=config['runtime_hash'],
         synthetic=config['synthetic'],allowed_release_hashes=frozenset(config['allowed_release_hashes']))
     return FileCustody(registry=Path(config['registry']),spool=Path(config['spool']),
         trusted_registry_hash=config['registry_hash'],runtime_hash=config['runtime_hash'],
@@ -83,6 +126,11 @@ def execute_one(config,custody,authority):
     claimed=custody.claim()
     if claimed is None:return False
     job,row=claimed
+    if SCENARIO_FIELDS & set(config):
+        scenario=sealed_scenario(config)
+        if (row['workspace_id']!=str(scenario.workspace) or row['run_id']!=str(scenario.run)
+            or job.job_id!=str(scenario.run)):
+            raise PermissionError('cross-scenario documentary job denied')
     binding.check_url(config['_database_url'])
     authority(row)
     # Import the actual retained native implementation, never an env-selected

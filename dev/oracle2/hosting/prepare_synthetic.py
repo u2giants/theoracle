@@ -22,7 +22,7 @@ from cryptography.x509.oid import NameOID,ExtendedKeyUsageOID
 
 POSTGRES='postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297'
 sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'services/oracle-brain'))
-from oracle_brain.hosting.synthetic_fixture import fixture,graph_acl_users,WORKSPACE,ACTOR
+from oracle_brain.hosting.synthetic_fixture import fixture,graph_acl_users,WORKSPACE,ACTOR,fixed_scenario,LEGACY_SCENARIO,FORWARD_SCENARIO
 from oracle_brain.hosting.synthetic_seed import compile_seed
 
 FALKOR='falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d'
@@ -36,6 +36,7 @@ def write(path,data,uid=10001):
 
 def main(argv=None):
     parser=argparse.ArgumentParser()
+    parser.add_argument('--scenario',choices=(LEGACY_SCENARIO,FORWARD_SCENARIO),default=LEGACY_SCENARIO)
     parser.add_argument('--directory',required=True)
     parser.add_argument('--image',required=True)
     parser.add_argument('--runtime-hash',required=True)
@@ -46,6 +47,8 @@ def main(argv=None):
     parser.add_argument('--review-hash',required=True)
     parser.add_argument('--synthetic',required=True,action='store_true')
     args=parser.parse_args(argv)
+    scenario=fixed_scenario(args.scenario)
+    WORKSPACE,ACTOR=(scenario.workspace,scenario.actor)
     ipv4=ipaddress.ip_network(args.ledger_ipv4_subnet,strict=True)
     ipv6=ipaddress.ip_network(args.ledger_ipv6_subnet,strict=True)
     if ipv4.version!=4 or ipv4.prefixlen!=24 or not any(ipv4.subnet_of(ipaddress.ip_network(n)) for n in ('10.0.0.0/8','172.16.0.0/12','192.168.0.0/16')):
@@ -59,7 +62,7 @@ def main(argv=None):
     # A host process or container with a routed network cannot issue this fixture.
     interfaces={line.split(':',1)[0].strip() for line in Path('/proc/net/dev').read_text().splitlines()[2:]}
     if interfaces!={'lo'}:raise PermissionError('networkless certificate issuer required')
-    _,_,fixture_payload,fixture_manifest,fixture_release=fixture(args.runtime_hash,args.review_hash)
+    _,_,fixture_payload,fixture_manifest,fixture_release=fixture(args.runtime_hash,args.review_hash,args.scenario)
     if args.release_hash and args.release_hash!=[fixture_release.content_hash()]:raise PermissionError('fixed invented release required')
     args.release_hash=[fixture_release.content_hash()]
     root=Path(args.directory)
@@ -79,7 +82,7 @@ def main(argv=None):
         .add_extension(x509.KeyUsage(digital_signature=True,content_commitment=False,key_encipherment=False,data_encipherment=False,key_agreement=False,key_cert_sign=True,crl_sign=True,encipher_only=None,decipher_only=None),critical=True)
         .sign(ca_key,hashes.SHA256()))
     ca_bytes=ca.public_bytes(serialization.Encoding.PEM)
-    for folder,host,uri,uid in [('ledger','ledger',None,70),('gateway','gateway',None,10001),('worker',None,'spiffe://oracle/synthetic-worker',os.getuid())]:
+    for folder,host,uri,uid in [('ledger','ledger',None,70),('gateway','gateway',None,10001),('worker',None,scenario.worker_uri,os.getuid())]:
         key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
         name=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,host or 'invented worker')])
         san=x509.DNSName(host) if host else x509.UniformResourceIdentifier(uri)
@@ -116,6 +119,8 @@ def main(argv=None):
         write(root/'init'/f'{index+1:02d}-{name}',(sqlroot/name).read_bytes(),70)
     source_registry={'schema':'oracle-public-invented-role-admission/v1','runtime_hash':args.runtime_hash,'role_names':['oracle_synthetic_executor','oracle_synthetic_projector'],
                      'workspace_id':str(WORKSPACE),'principal_id':str(ACTOR),'source_refs':fixture_payload['source_refs'],'expires_at':(now+timedelta(hours=1)).isoformat()}
+    if args.scenario!=LEGACY_SCENARIO:
+        source_registry.update(synthetic_scenario=args.scenario,synthetic_scenario_seal=scenario.seal())
     source_registry_hash=hashlib.sha256(json.dumps(source_registry,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     def scram(password):
         salt=secrets.token_bytes(16);salted=hashlib.pbkdf2_hmac('sha256',password.encode(),salt,4096)
@@ -125,6 +130,8 @@ def main(argv=None):
         return 'SCRAM-SHA-256$4096:'+enc(salt)+'$'+enc(stored)+':'+enc(server)
     parameters={'runtime_hash':args.runtime_hash,'source_role_registry_hash':source_registry_hash,'review_hash':args.review_hash,
                 'expires_at':source_registry['expires_at'],'gateway_scram':scram(gateway_password),'executor_scram':scram(executor_password),'projector_scram':scram(projector_password)}
+    if args.scenario!=LEGACY_SCENARIO:
+        parameters.update(synthetic_scenario=args.scenario,synthetic_scenario_seal=scenario.seal())
     seed,_,_,_=compile_seed(parameters)
     write(root/'init'/'90-public-invented-seed.sql',seed,70)
     write(root/'init'/'00-empty-owned-preflight.sql',"DO $$ BEGIN IF current_database()<>'oracle_synthetic' OR current_user<>'oracle_bootstrap' OR EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname !~ '^pg_toast' AND c.relkind IN ('r','p','v','m','S')) THEN RAISE EXCEPTION 'new empty owned synthetic ledger required'; END IF; END $$;\n",70)
@@ -141,7 +148,7 @@ def main(argv=None):
     write(root/'confirmed'/'server.conf','bind 0.0.0.0\nport 6379\nprotected-mode yes\nuser default off\ndir /var/lib/falkordb/data\n',999)
     write(root/'executor'/'graph-url',f'redis://oracle_executor:{graph_password}@candidate:6379')
     write(root/'projector'/'graph-url',f'redis://oracle_projector:{projector_graph_password}@candidate:6379')
-    registry={'worker_uri':'spiffe://oracle/synthetic-worker','runtime_hash':args.runtime_hash,'active':True,
+    registry={'worker_uri':scenario.worker_uri,'runtime_hash':args.runtime_hash,'active':True,
               'expires_at':int((now+timedelta(hours=1)).timestamp()),'allowed_release_hashes':args.release_hash}
     canonical=json.dumps(registry,sort_keys=True,separators=(',',':')).encode()
     registry_hash=hashlib.sha256(canonical).hexdigest()
@@ -151,6 +158,8 @@ def main(argv=None):
         cfg={'profile':'executor' if profile=='projector' else profile,'runtime_hash':args.runtime_hash,'synthetic':True,'allowed_release_hashes':args.release_hash,
              'worker_uri':registry['worker_uri'],'database_url_file':'/run/oracle-auth/database-url',
              'registry':'/run/oracle-auth/registry.json','registry_hash':registry_hash,'spool':'/run/oracle-jobs'}
+        if args.scenario!=LEGACY_SCENARIO:
+            cfg.update(synthetic_scenario=args.scenario,synthetic_scenario_seal=scenario.seal(),synthetic_review_hash=args.review_hash)
         if profile=='gateway':cfg.update(server_cert='/run/oracle-auth/server.crt',server_key='/run/oracle-auth/server.key',client_ca='/run/oracle-auth/ca.crt',hmac_key_file='/run/oracle-auth/hmac-key',bind_host='0.0.0.0',bind_port=8443)
         else:cfg.update(graph_url_file='/run/oracle-auth/graph-url',blob_root='/run/oracle-blobs',source_role_registry_hash=source_registry_hash)
         raw=json.dumps(cfg,sort_keys=True,separators=(',',':')).encode()
@@ -237,6 +246,10 @@ def main(argv=None):
     ''')
     write(root/'compose.yaml',compose,os.getuid())
     write(root/'SYNTHETIC.json',json.dumps({'synthetic':True,'image':args.image,'runtime_hash':args.runtime_hash,'registry_hash':registry_hash,'profiles':['gateway','executor','synthetic-project'],'source_role_registry_hash':source_registry_hash,'release_hash':fixture_release.content_hash(),'provider':'pending-admission','company_questions':'paused','grading':'paused'}),os.getuid())
+    if args.scenario!=LEGACY_SCENARIO:
+        marker=json.loads((root/'SYNTHETIC.json').read_text())
+        marker.update(synthetic_scenario=args.scenario,synthetic_scenario_seal=scenario.seal(),job_id=str(scenario.run))
+        write(root/'SYNTHETIC.json',json.dumps(marker),os.getuid())
     # Protected normal-platform environment inputs. Each one-shot materializer
     # receives only its own bundle; no runtime receives the issuer environment.
     from oracle_brain.hosting.bootstrap import FILES
