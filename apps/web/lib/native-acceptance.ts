@@ -13,10 +13,10 @@ type SourceRef={schema_version:1;workspace_id:string;source_id:string;revision:n
 type FilePin={path:string;sha256:string};
 export type NativeSettings={schema_version:1;purpose:'public-invented-native-browser';namespace:string;hostname:string;origin:string;
   actor_id:string;workspace_id:string;job_id:string;runtime_hash:string;admission_hash:string;release_hash:string;permission_hash:string;
-  worker_uri:string;source_authority_expires_at:number;worker_permit_expires_at:number;job_expires_at:number;source_refs:SourceRef[];metadata_role:string;
+  worker_uri:string;source_authority_expires_at:number;worker_permit_expires_at:number;job_expires_at:number;source_refs:SourceRef[];metadata_login:string;metadata_role:string;
   database_url:FilePin;database_ca:FilePin;client_cert:FilePin;client_key:FilePin;server_ca:FilePin;hmac_key:FilePin};
 const FIELDS=['schema_version','purpose','namespace','hostname','origin','actor_id','workspace_id','job_id','runtime_hash','admission_hash',
-  'release_hash','permission_hash','worker_uri','source_authority_expires_at','worker_permit_expires_at','job_expires_at','source_refs','metadata_role',
+  'release_hash','permission_hash','worker_uri','source_authority_expires_at','worker_permit_expires_at','job_expires_at','source_refs','metadata_login','metadata_role',
   'database_url','database_ca','client_cert','client_key','server_ca','hmac_key'];
 function exact(value:unknown,fields:string[]):value is Record<string,unknown>{
   return !!value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join('|')===fields.slice().sort().join('|');
@@ -38,7 +38,7 @@ export function parseSettings(raw:Buffer,seal:string,now:number):NativeSettings{
   if(!exact(value,FIELDS)||canonical(value)!==raw.toString('utf8'))throw Error('Native acceptance unavailable');
   const c=value as unknown as NativeSettings;
   if(c.schema_version!==1||c.purpose!=='public-invented-native-browser'||!/^[a-z0-9-]{1,100}$/.test(c.namespace)
-    ||!c.worker_uri.startsWith('spiffe://oracle/')||!/^oracle2_[a-z0-9_]+$/.test(c.metadata_role))throw Error('Native acceptance unavailable');
+    ||!c.worker_uri.startsWith('spiffe://oracle/')||!/^oracle_[a-z0-9_]{1,56}$/.test(c.metadata_login)||c.metadata_role!=='oracle2_gateway_metadata')throw Error('Native acceptance unavailable');
   for(const key of ['actor_id','workspace_id','job_id'] as const)if(!UUID.test(c[key]))throw Error('Native acceptance unavailable');
   for(const key of ['runtime_hash','admission_hash','release_hash','permission_hash'] as const)if(!HASH.test(c[key]))throw Error('Native acceptance unavailable');
   const target=new URL(c.origin);
@@ -68,6 +68,11 @@ export function checkCertificate(cert:Buffer,key:Buffer,workerUri:string,now:num
   const leaf=new X509Certificate(cert);
   if(!(Date.parse(leaf.validFrom)<=now*1000&&now*1000<Date.parse(leaf.validTo))
     ||leaf.subjectAltName!==`URI:${workerUri}`||!leaf.checkPrivateKey(createPrivateKey(key)))throw Error('Native client identity expired or changed');
+}
+export function verifyNativeIdentity(c:NativeSettings,now:number):void{
+  const cert=pinned(c.client_cert),key=pinned(c.client_key);
+  checkCertificate(cert,key,c.worker_uri,now);
+  for(const pin of [c.database_url,c.database_ca,c.server_ca,c.hmac_key])pinned(pin);
 }
 export function opaqueRequest(c:NativeSettings,operation:'admit'|'result',now:number,nonce:string=randomUUID()){
   const expires_at=Math.min(now+60,c.source_authority_expires_at,c.worker_permit_expires_at,c.job_expires_at);
@@ -126,12 +131,23 @@ export async function currentNativeJob(c:NativeSettings,actorId:string):Promise<
   const url=pinned(c.database_url,8192).toString('utf8').trim();const parsed=new URL(url);
   pinned(c.database_ca);
   if(parsed.searchParams.get('sslmode')!=='verify-full'||parsed.searchParams.get('sslrootcert')!==c.database_ca.path
-    ||decodeURIComponent(parsed.username)!==c.metadata_role)throw Error('Native metadata identity unavailable');
+    ||decodeURIComponent(parsed.username)!==c.metadata_login)throw Error('Native metadata identity unavailable');
   const sql=pilotPostgres(url);
   try{return await sql.begin(async tx=>{
     await tx`SET LOCAL statement_timeout='5s'`;await tx`SET LOCAL lock_timeout='2s'`;
-    const [identity]=await tx`SELECT current_user AS role,rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls AS powerful FROM pg_roles WHERE rolname=current_user`;
-    if(identity?.role!==c.metadata_role||identity.powerful)throw Error('Native metadata identity unavailable');
+    const [login]=await tx`SELECT session_user AS login,rolcanlogin,rolinherit,
+      rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls AS powerful
+      FROM pg_roles WHERE rolname=session_user`;
+    const [membership]=await tx`SELECT pg_has_role(session_user,'oracle2_gateway_metadata','MEMBER') AS allowed`;
+    if(login?.login!==c.metadata_login||login.rolcanlogin!==true||login.rolinherit!==false||login.powerful!==false||membership?.allowed!==true)
+      throw Error('Native login identity unavailable');
+    // The effective role is a fixed safe SQL identifier, never a caller value.
+    await tx`SET LOCAL ROLE oracle2_gateway_metadata`;
+    const [identity]=await tx`SELECT current_user AS role,rolcanlogin,
+      rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls AS powerful
+      FROM pg_roles WHERE rolname=current_user`;
+    if(identity?.role!=='oracle2_gateway_metadata'||identity.role!==c.metadata_role||identity.rolcanlogin!==false||identity.powerful!==false)
+      throw Error('Native metadata identity unavailable');
     const [writes]=await tx`SELECT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname='oracle2' AND c.relkind IN ('r','p') AND (has_table_privilege(current_user,c.oid,'INSERT')
       OR has_table_privilege(current_user,c.oid,'UPDATE') OR has_table_privilege(current_user,c.oid,'DELETE'))) AS allowed`;

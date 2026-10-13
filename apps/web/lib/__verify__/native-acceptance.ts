@@ -33,7 +33,7 @@ try{
     actor_id:actor,workspace_id:workspace,job_id:'00000000-0000-4000-8000-000000000003',runtime_hash:H,admission_hash:H,release_hash:H,permission_hash:H,
     worker_uri:worker,source_authority_expires_at:now+600,worker_permit_expires_at:now+600,job_expires_at:now+600,
     source_refs:[{schema_version:1,workspace_id:workspace,source_id:'00000000-0000-4000-8000-000000000004',revision:1,original_sha256:H,reading_sha256:H,parser_id:H}],
-    metadata_role:'oracle2_gateway_browser_invented',database_url:db,database_ca:pin('ca.pem'),client_cert:pin('client.pem'),client_key:pin('client.key'),server_ca:pin('ca.pem'),hmac_key:hmac};
+    metadata_login:'oracle_synthetic_gateway',metadata_role:'oracle2_gateway_metadata',database_url:db,database_ca:pin('ca.pem'),client_cert:pin('client.pem'),client_key:pin('client.key'),server_ca:pin('ca.pem'),hmac_key:hmac};
   const raw=Buffer.from(canonical(c)),seal=sha(raw);
   check(()=>assert.deepEqual(parseSettings(raw,seal,now),c));
   for(const change of ['seal','duplicate','expiry','foreign_sources','hostname','legacy_hostname','http'])check(()=>{
