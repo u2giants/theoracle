@@ -4,10 +4,11 @@ Importing this module performs no operation. Root must admit each concrete
 capture/restore/rebuild/result invocation. No arbitrary shell, SQL, host, path,
 image, provider, credential issuance or old namespace is accepted.
 """
-import argparse,asyncio,base64,hashlib,io,json,os,resource,ssl,stat,subprocess,tarfile,tempfile,time
+import argparse,asyncio,base64,hashlib,io,json,os,re,resource,ssl,stat,subprocess,tarfile,tempfile,time
+from psycopg import sql as pg_sql
 from pathlib import Path,PurePosixPath
 from uuid import uuid4
-from .restore_receipts import Backup,Instance,Service,ROLES,RUNNING,MAX_TOTAL,require,validate_instance,validate_services,verify_bundle
+from .restore_receipts import Backup,Instance,Service,ROLES,RUNNING,MAX_TOTAL,require,validate_instance,validate_services,verify_bundle,read_protected
 from .synthetic_fixture import fixture,fixed_scenario,FORWARD_SCENARIO
 from .synthetic_seed import compile_restore_roles
 from .runtime import protected_file,settings,sealed_scenario
@@ -19,7 +20,8 @@ META_TEMPLATE='{"id":{{json .Id}},"name":{{json .Name}},"application":{{json (in
 
 class BoundedDocker:
     def __call__(self,args,*,data=None,bound=MAX_FILE,timeout=60):
-        require(args and args[0] in {'inspect','exec','cp','start'},'unreviewed Docker operation denied')
+        validate_docker_command(args)
+        require(bound in (8192,1024*1024,MAX_FILE,MAX_TOTAL) and timeout in (5,30,60,90),'unreviewed recovery budget denied')
         def limited():resource.setrlimit(resource.RLIMIT_FSIZE,(bound,bound))
         with tempfile.TemporaryFile() as output:
             result=subprocess.run(['/usr/bin/docker',*args],input=data,stdout=output,stderr=subprocess.DEVNULL,timeout=timeout,
@@ -28,6 +30,36 @@ class BoundedDocker:
             output.seek(0);raw=output.read(bound+1)
             require(len(raw)<=bound,'recovery output bound exceeded')
             return raw
+
+def validate_docker_command(args):
+    """Closed command grammar; no extra flags, commands or filesystem paths."""
+    cid=lambda value: isinstance(value,str) and re.fullmatch(r'[0-9a-f]{64}',value)
+    valid=False
+    if args[:3]==['inspect','--format',META_TEMPLATE]:
+        valid=len(args)==4 and cid(args[3])
+    elif args and args[0]=='start':
+        valid=(len(args)==2 and cid(args[1])) or (len(args)==3 and args[1]=='-a' and cid(args[2]))
+    elif args and args[0]=='cp':
+        ref=lambda value,paths: isinstance(value,str) and ':' in value and cid(value.split(':',1)[0]) and value.split(':',1)[1] in paths
+        valid=(len(args)==3 and args[2]=='-' and ref(args[1],('/run/oracle-jobs/.','/run/oracle-blobs/.')))
+        valid=valid or (len(args)==4 and args[1:3]==['-a','-'] and ref(args[3],('/run/oracle-jobs','/run/oracle-blobs')))
+    elif args and args[0]=='exec':
+        tail=args[1:]
+        if tail and tail[0]=='-i':tail=tail[1:]
+        if tail[:2]==['--env','PGOPTIONS=-c statement_timeout=20000 -c lock_timeout=5000']:tail=tail[2:]
+        if tail and cid(tail[0]):
+            program=tail[1:]
+            valid=program in [
+              ['timeout','--help'],
+              ['timeout','-s','TERM','-k','5','15','psql','-X','-q','-A','-t','-v','ON_ERROR_STOP=1','-U','oracle_bootstrap','-d','oracle_synthetic'],
+              ['timeout','-s','TERM','-k','5','40','pg_dump','--format=custom','-U','oracle_bootstrap','-d','oracle_synthetic'],
+              ['timeout','-s','TERM','-k','5','15','pg_restore','--list'],
+              ['timeout','-s','TERM','-k','5','40','pg_restore','--exit-on-error','--single-transaction','-U','oracle_bootstrap','-d','oracle_synthetic'],
+              ['python','-m','oracle_brain.hosting.forward_recovery','sdk-reload']]
+    require(bool(valid),'unreviewed Docker command denied')
+
+def sql_literal(value):
+    return pg_sql.Literal(str(value)).as_string()
 
 
 def unpack(raw,*,metadata=False):
@@ -130,6 +162,9 @@ class ForwardRecovery:
         require(phase in {'source','restore','rebuild','reload'},'unreviewed recovery phase denied')
         if phase=='source':validate_services(services,self.backup.image)
         else:
+            require(all(services[role].state=='running' for role in ('ledger','candidate','confirmed')),'restore storage must be running')
+            delayed={'ledger-init','gateway','executor','synthetic-project'}
+            require(all(services[role].state=='exited' for role in ROLES if role not in RUNNING and role not in delayed),'restore bootstrap completion unproved')
             normalized={role:Service.model_validate({**value.model_dump(),'state':'running' if role in RUNNING else 'exited'}) for role,value in services.items()}
             validate_services(normalized,self.backup.image)
             require(instance.application!=self.backup.instance.application,'original mutable phase denied')
@@ -169,14 +204,14 @@ class ForwardRecovery:
         require(params['source_role_registry_hash']==b.authority.source_registry_sha256 and params['runtime_hash']==b.runtime_hash and params['review_hash']==b.review_hash,'original role/runtime association differs')
         from datetime import datetime
         require(int(datetime.fromisoformat(params['expires_at']).timestamp())==b.authority.expires_at,'role authority expiry differs')
-        inventory=self.sql(b.instance,"SELECT (SELECT marker FROM oracle2.synthetic_hosting_marker)='public-invented-remote-forward-v2' AND (SELECT count(*) FROM oracle2.sources)=2 AND (SELECT count(*) FROM oracle2.operating_view_runs)=1 AND (SELECT count(*) FROM oracle2.sources WHERE workspace_id='"+str(self.scenario.workspace)+"')=2 AND (SELECT status FROM oracle2.operating_view_runs WHERE run_id='"+b.job_id+"')='completed';")
+        inventory=self.sql(b.instance,"SELECT (SELECT marker FROM oracle2.synthetic_hosting_marker)='public-invented-remote-forward-v2' AND (SELECT count(*) FROM oracle2.sources)=2 AND (SELECT count(*) FROM oracle2.operating_view_runs)=1 AND (SELECT count(*) FROM oracle2.sources WHERE workspace_id="+sql_literal(self.scenario.workspace)+")=2 AND (SELECT status FROM oracle2.operating_view_runs WHERE run_id="+sql_literal(b.job_id)+")='completed';")
         require(inventory.strip()==b't','fixed forward-only source population unproved')
         dump=self.checked(['exec',b.instance.ledger_container,'timeout','-s','TERM','-k','5','40','pg_dump','--format=custom','-U','oracle_bootstrap','-d','oracle_synthetic'],bound=MAX_FILE,timeout=60)
         require(dump.startswith(b'PGDMP'),'custom archive missing')
         listing=self.checked(['exec','-i',b.instance.ledger_container,'timeout','-s','TERM','-k','5','15','pg_restore','--list'],data=dump,bound=1024*1024,timeout=30)
         expected_tables=['appointments','artifact_dependencies','artifact_manifests','drafts','hosting_role_runtime_admissions','hosting_role_source_admissions','operating_model_change_log','operating_model_source_receipts','operating_release_manifests','operating_release_selectors','operating_view_pack_receipts','operating_view_runs','source_blocks','sources','synthetic_hosting_marker']
         require(all((' TABLE oracle2 '+table+' ') in listing.decode() for table in expected_tables),'actual archive TOC incomplete')
-        state=json.loads(self.sql(b.instance,"SELECT jsonb_build_object('state',status,'watermark',(SELECT max(sequence) FROM oracle2.operating_model_change_log),'result_hex',(SELECT encode(canonical_pack,'hex') FROM oracle2.operating_view_pack_receipts WHERE run_id='"+b.job_id+"'),'sources',(SELECT jsonb_agg(receipt ORDER BY source_id) FROM oracle2.operating_model_source_receipts)) FROM oracle2.operating_view_runs WHERE run_id='"+b.job_id+"';"))
+        state=json.loads(self.sql(b.instance,"SELECT jsonb_build_object('state',status,'watermark',(SELECT max(sequence) FROM oracle2.operating_model_change_log),'result_hex',(SELECT encode(canonical_pack,'hex') FROM oracle2.operating_view_pack_receipts WHERE run_id="+sql_literal(b.job_id)+"),'sources',(SELECT jsonb_agg(receipt ORDER BY source_id) FROM oracle2.operating_model_source_receipts)) FROM oracle2.operating_view_runs WHERE run_id="+sql_literal(b.job_id)+";"))
         require(state['state']=='completed' and state['watermark']==11,'completed canonical ledger unavailable')
         spools,spoolmeta=unpack(self.checked(['cp',b.services['gateway'].container_id+':/run/oracle-jobs/.','-'],bound=MAX_TOTAL),metadata=True)
         blobs=unpack(self.checked(['cp',b.services['executor'].container_id+':/run/oracle-blobs/.','-'],bound=MAX_TOTAL))
@@ -223,17 +258,17 @@ class ForwardRecovery:
         for role,path in (('gateway','/run/oracle-jobs/.'),('executor','/run/oracle-blobs/.')):
             existing=unpack(self.checked(['cp',services[role].container_id+':'+path,'-'],bound=MAX_TOTAL))
             require(not existing or (role=='gateway' and existing=={'.custody-lock':b''}),'empty target corpus unproved')
-        params=json.loads(protected_file(Path(root)/'roles.bundle',limit=MAX_FILE))
+        params=json.loads(read_protected(root,'roles.bundle',b.files['roles.bundle']))
         self.sql(target,compile_restore_roles(params))
-        dump=protected_file(Path(root)/'ledger.dump',limit=MAX_FILE)
+        dump=read_protected(root,'ledger.dump',b.files['ledger.dump'])
         self.fresh();self.checked(['exec','-i','--env','PGOPTIONS=-c statement_timeout=20000 -c lock_timeout=5000',target.ledger_container,'timeout','-s','TERM','-k','5','40','pg_restore','--exit-on-error','--single-transaction','-U','oracle_bootstrap','-d','oracle_synthetic'],data=dump,bound=1024*1024,timeout=60)
         for prefix,role,path in (('spool/','gateway','/run/oracle-jobs'),('blobs/','executor','/run/oracle-blobs')):
-            files={name[len(prefix):]:protected_file(Path(root)/name,limit=MAX_FILE) for name in b.files if name.startswith(prefix)}
+            files={name[len(prefix):]:read_protected(root,name,b.files[name]) for name in b.files if name.startswith(prefix)}
             self.fresh();self.checked(['cp','-a','-',services[role].container_id+':'+path],data=pack(files,{name[len(prefix):]:b.files[name].runtime_mode for name in b.files if name.startswith(prefix)}),bound=8192,timeout=60)
             readback,metadata=unpack(self.checked(['cp',services[role].container_id+':'+path+'/.','-'],bound=MAX_TOTAL),metadata=True)
             require(all(metadata[name]['uid']==10001 and metadata[name]['mode']==b.files[prefix+name].runtime_mode for name in files),'restored ownership/mode parity failed')
             require(readback==files,'fresh restore corpus byte parity failed')
-        state=json.loads(self.sql(target,"SELECT jsonb_build_object('state',status,'result_hex',(SELECT encode(canonical_pack,'hex') FROM oracle2.operating_view_pack_receipts WHERE run_id='"+b.job_id+"')) FROM oracle2.operating_view_runs WHERE run_id='"+b.job_id+"';"))
+        state=json.loads(self.sql(target,"SELECT jsonb_build_object('state',status,'result_hex',(SELECT encode(canonical_pack,'hex') FROM oracle2.operating_view_pack_receipts WHERE run_id="+sql_literal(b.job_id)+")) FROM oracle2.operating_view_runs WHERE run_id="+sql_literal(b.job_id)+";"))
         require(state['state']=='completed' and hashlib.sha256(bytes.fromhex(state['result_hex'])).hexdigest()==b.result_sha256,'restored result differs')
         return {'fresh_restore_bytes_verified':True,'operation_receipt_sha256':operation_receipt_sha256,'hosted_accepted':False,'business_accepted':False,'serving_accepted':False}
 
@@ -289,6 +324,21 @@ async def reload_only(config):
     finally:await projection.close()
 
 
+def load_verified_client_chain(context,cert,key):
+    # Load the already verified bytes through immutable kernel descriptors;
+    # never re-open a mutable custody path between pinning and the handshake.
+    import fcntl
+    descriptors=[]
+    try:
+        for name,raw in (('oracle-forward-client-cert',cert),('oracle-forward-client-key',key)):
+            fd=os.memfd_create(name,os.MFD_CLOEXEC|os.MFD_ALLOW_SEALING);descriptors.append(fd)
+            os.fchmod(fd,0o600);os.write(fd,raw)
+            fcntl.fcntl(fd,fcntl.F_ADD_SEALS,fcntl.F_SEAL_WRITE|fcntl.F_SEAL_GROW|fcntl.F_SEAL_SHRINK|fcntl.F_SEAL_SEAL)
+        context.load_cert_chain('/proc/self/fd/'+str(descriptors[0]),'/proc/self/fd/'+str(descriptors[1]))
+    finally:
+        for fd in descriptors:os.close(fd)
+
+
 def collect_native_result(backup,worker_root,*,hostname,port,expected_sha256,clock=time.time):
     """Result-only independent mTLS/HMAC delivery; never enqueue/replay a job."""
     from .gateway import signature_message
@@ -304,7 +354,8 @@ def collect_native_result(backup,worker_root,*,hostname,port,expected_sha256,clo
     require(uris==[scenario.worker_uri] and hashlib.sha256(cert).hexdigest()==backup.authority.certificate_sha256,'worker certificate differs')
     require(len(signing)>=32,'fixed signing key unavailable')
     context=ssl.create_default_context(cadata=ca.decode());context.minimum_version=ssl.TLSVersion.TLSv1_3
-    context.load_cert_chain(root/'server.crt',root/'server.key')
+    context.verify_mode=ssl.CERT_REQUIRED;context.check_hostname=True
+    load_verified_client_chain(context,cert,key)
     expiry=min(int(clock())+30,backup.authority.expires_at-1)
     require(expiry>clock(),'fresh result envelope unavailable')
     body=canonical_bytes({'job_id':backup.job_id,'runtime_hash':backup.runtime_hash,'admission_hash':fixture(backup.runtime_hash,backup.review_hash,FORWARD_SCENARIO)[-1].documentary_gate_hash,'nonce':str(uuid4()),'expires_at':expiry})

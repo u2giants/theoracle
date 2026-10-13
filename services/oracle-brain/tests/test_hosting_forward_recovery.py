@@ -206,3 +206,54 @@ def test_native_budget_uses_unchanged_policy_and_os_deadline(tmp_path,monkeypatc
     calls.clear();policy['expires_at']=now+30;path.write_bytes(canonical_bytes(policy));c['registry_hash']=digest(policy)
     with pytest.raises(PermissionError):arm_native_budget(c,seconds=80)
     assert not calls
+
+
+@pytest.mark.parametrize("args", [
+ ['exec','--privileged','a'*64,'sh'],
+ ['exec','a'*64,'sh','-c','arbitrary'],
+ ['cp','a'*64+':/etc/shadow','-'],
+ ['cp','-a','-','a'*64+':/var/lib/postgresql/data'],
+ ['start','--attach','a'*64],
+ ['inspect','--format','{{json .Config}}','a'*64],
+])
+def test_docker_grammar_denies_unreviewed_flags_and_paths(args):
+    from oracle_brain.hosting.forward_recovery import validate_docker_command
+    with pytest.raises(PermissionError):validate_docker_command(args)
+
+
+def test_restore_changed_sealed_file_denies_before_role_write(bundle,monkeypatch):
+    from oracle_brain.hosting.forward_recovery import ForwardRecovery
+    root,b,r=bundle;operator=ForwardRecovery(b,runner=lambda *a,**k:b"",clock=lambda:1000)
+    def inspect(*a,**k):
+        (root/'roles.bundle').write_bytes(b'changed after verified inventory')
+    monkeypatch.setattr(operator,'prove_namespace',inspect)
+    monkeypatch.setattr(operator,'sql',lambda *a,**k:b't')
+    monkeypatch.setattr(operator,'checked',lambda *a,**k:pack({}))
+    with pytest.raises(PermissionError,match='custody|bytes'):
+        operator.restore(root,r.instance,r.services,operation_receipt_sha256='f'*64)
+
+
+def test_restore_stopped_storage_denies_before_inspection(bundle):
+    _,b,r=bundle
+    bad=dict(r.services);bad['ledger']=bad['ledger'].model_copy(update={'state':'exited'})
+    operator=ForwardRecovery(b,runner=lambda *a,**k:pytest.fail('stopped store dispatched'),clock=lambda:1000)
+    with pytest.raises(PermissionError,match='storage must be running'):
+        operator.prove_namespace(r.instance,bad,phase='restore')
+
+
+def test_sql_literal_does_not_expand_untrusted_input():
+    from oracle_brain.hosting.forward_recovery import sql_literal
+    assert sql_literal("x'; SELECT secret --")=="'x''; SELECT secret --'"
+
+
+def test_verified_tls_chain_uses_sealed_bytes_not_original_paths(tmp_path):
+    import ssl,subprocess
+    from oracle_brain.hosting.forward_recovery import load_verified_client_chain
+    key=tmp_path/'invented.key';cert=tmp_path/'invented.crt'
+    subprocess.run(['/usr/bin/openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(key),'-out',str(cert),'-days','1','-subj','/CN=invented-local-client'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    key.chmod(0o600);cert.chmod(0o600)
+    frozen_cert=cert.read_bytes();frozen_key=key.read_bytes()
+    cert.write_bytes(b'replaced path');key.write_bytes(b'replaced path')
+    context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    load_verified_client_chain(context,frozen_cert,frozen_key)
+    assert cert.read_bytes()==b'replaced path'
