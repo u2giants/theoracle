@@ -92,3 +92,15 @@ all 816 observations/360 cases and 285 unknown predecessors preserved, explicit
 documentary mapping/censoring and actual ledger intake/readback. No preparation
 here closes W04/W07/W08/W10, admits cutover or retirement, or resumes company
 questions/reports, employee messages or grading.
+
+
+## Prospective complete native association register
+
+The [source association matrix](W04-source-association-matrix.md) now records
+33 unavailable actual wheel selections, five CVXOPT Linux bundled components,
+27 SciPy1.18.1 bundled component names and six unavailable CBC build associations.
+Its strict source-only validator refuses real qualification/delivery even when
+candidate fields/hashes are populated. All37 source archives,6 binaries,7 notices
+and existing denied flags remain unchanged; legal/supplier/product decisions
+remain root/reviewer-owned. This register does not close W04/W07/W08/W10 or any
+W01–W12/S03–S16 acceptance, or authorize private reads/paused business activity.
