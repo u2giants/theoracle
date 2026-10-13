@@ -136,7 +136,8 @@
       "required": [
         "repository-workflow-compliance",
         "synthetic-fixtures-only",
-        "oracle-native-alternate-descriptor-only-admission"
+        "oracle-native-alternate-descriptor-only-admission",
+        "oracle-native-alternate-v2-descriptor-only-admission"
       ],
       "forbidden_actions": []
     },

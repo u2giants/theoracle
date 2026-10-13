@@ -1,0 +1,35 @@
+{
+  "schema_version": 2,
+  "profile": "oracle-native-alternate-serialization-v2",
+  "purpose": "native-alternate-serialization",
+  "owner_issues": [
+    27,
+    58
+  ],
+  "entrypoint": "scripts/oracle2/native_alternate_chain_operator.py",
+  "code_sha256": {
+    "scripts/oracle2/native_alternate_chain_operator.py": "d2a3a0076fcf46fdd7a3ddb3fbc00583b0811b2fd5b61fd81cafd346f97b0d5b",
+    "services/oracle-brain/oracle_brain/operating_model/native_page_chain.py": "3fa0bdbcb1eb6a18d87627364acdbc9a0506012e9cb30d94ac5bfadf19242099",
+    "services/oracle-brain/oracle_brain/operating_model/native_page_alternate.py": "84cbcb3119bb6858915bd4538d5527e5ba6a716ab76a914c6db27f0e4202291d"
+  },
+  "sandbox_code_mounts": {
+    "/code/operator.py": "scripts/oracle2/native_alternate_chain_operator.py",
+    "/code/native_chain.py": "services/oracle-brain/oracle_brain/operating_model/native_page_chain.py",
+    "/code/native_alternate.py": "services/oracle-brain/oracle_brain/operating_model/native_page_alternate.py"
+  },
+  "input_count": 48,
+  "root_count": 7,
+  "conditional_children": 41,
+  "capture_count": 33,
+  "authority_boundary": "installed native guardian: genuine new v2 dual scope registration and durable one-use consumption BEFORE any control/capture open",
+  "source_only": true,
+  "authorizes_read": false,
+  "source_qualified": false,
+  "source_ref_issued": false,
+  "ledger_adopted": false,
+  "provider_authority": false,
+  "semantic_qualified": false,
+  "legacy_approval_accepted": false,
+  "metadata_shape_check": "services/oracle-brain/oracle_brain/operating_model/native_page_chain.py:validate_metadata_descriptor",
+  "metadata_shape_boundary": "non-authorizing path and stat observations only; installed guardian independently validates owned private paths and registers genuine exact-purpose dual-scope approval before reads"
+}
