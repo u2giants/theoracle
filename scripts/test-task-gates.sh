@@ -65,13 +65,12 @@ assert_blocked(){
 
 assert_blocked 'migration scope escalation refuses shipping'
 assert_blocked 'acknowledgement cannot bypass protected migration' --acknowledge 'fixture acknowledgement'
-# The legacy owner flag is intentionally unsupported by the current toolkit.
-# Either explicit argument refusal or the protected gate refusal is safe.
+# Assert argument refusal itself; a migration refusal cannot mask flag acceptance.
 set +e
 legacy_output="$(cd "$fixture" && ai-task-gates check --before ship --owner-request 'fixture owner request' 2>&1)"
 legacy_rc=$?
 set -e
-if [ "$legacy_rc" -eq 3 ] || { [ "$legacy_rc" -eq 1 ] && [ "$legacy_output" = 'ai-task-gates: error: unknown option for check: --owner-request' ]; }; then
+if [ "$legacy_rc" -eq 1 ] && [ "$legacy_output" = 'ai-task-gates: error: unknown option for check: --owner-request' ]; then
   pass 'legacy owner request flag is refused'
 else
   fail "legacy owner request (exit $legacy_rc: $legacy_output)"

@@ -6,7 +6,7 @@ LABEL org.opencontainers.image.source="https://github.com/u2giants/theoracle" \
       org.opencontainers.image.title="Oracle isolated documentary native runtime"
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
     GRAPHITI_TELEMETRY_ENABLED=false ORACLE2_TELEMETRY_MODE=off \
-    UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never \
+    UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never HNSWLIB_NO_NATIVE=1 \
     PATH="/app/services/oracle-brain/.venv/bin:${PATH}"
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
@@ -29,5 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 libg
 COPY --from=build /app /app
 RUN groupadd --gid 10001 oracle-native && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin oracle-native
 USER 10001:10001
+# Keep the complete stock SDK and native ANN operations qualified in the shipped profile.
+RUN python -m oracle_brain.hosting.verify_native_ann
 ENTRYPOINT ["python", "-m", "oracle_brain.hosting.runtime"]
 CMD ["validate"]

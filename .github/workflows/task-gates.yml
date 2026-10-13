@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: popcre/ai-devops
-          ref: 4d83f9a5dc400f87408663eddac872b9074c18ed
+          ref: 51905b73c7d2e65d111205ab0552f25bc0183635
           path: .task-gates-toolkit
           persist-credentials: false
 
