@@ -62,7 +62,18 @@ consistency; only independently admitted live observations can establish proof.
    bridge remains a separate source/runtime gate. No old-core cutover or
    retirement is authorized by any of these receipts.
 
-Necessary source gap: the existing seed compiler joins role creation and
-fixture data. A reviewed restore role compiler must reuse its validated fixed
-role statements without repeating source appointments/pending-job insertion.
-The executable operations above have not been implemented or admitted here.
+The separate compile_restore_roles compiler reuses the original fixed parameter
+validation and login statements, creates only the scoped NOLOGIN groups and
+logins transactionally, and never emits source/appointment/job data. Expired
+original parameters and arbitrary verifiers refuse. Legacy seed byte parity
+remains a verification gate.
+The executable source is now implemented in forward_recovery.py, with bounded
+Docker metadata/dump/TOC/corpus/empty-restore/SDK commands and separate result-only
+mTLS delivery. No live operation is admitted by this source. Source quiescence
+and new platform resource creation remain separate root-owned actions. Restore
+target ledger-init stays CREATED and never runs its seed; gateway/executor and
+projector stay unstarted until their separately checked recovery phases.
+Candidate and confirmed volume identities are pinned and distinct too. Capture
+derives real dump/corpus seals into a new immutable manifest rather than requiring
+an impossible precomputed PostgreSQL archive digest. Every command rechecks the
+unchanged original authority before and after it.

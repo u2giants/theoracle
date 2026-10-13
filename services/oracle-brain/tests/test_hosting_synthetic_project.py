@@ -129,6 +129,14 @@ def test_registered_public_projector_preserves_release(tmp_path,monkeypatch,scen
                 with pytest.raises(psycopg.errors.InsufficientPrivilege):
                     conn.execute('SELECT * FROM oracle2.gateway_view_result(%s,%s,%s)',
                         (synthetic_fixture.RUN,params['runtime_hash'],release.documentary_gate_hash))
+        if scenario_id==synthetic_fixture.FORWARD_SCENARIO:
+            from oracle_brain.hosting.forward_recovery import reload_only
+            reader_file=tmp_path/'readonly-recovery-graph';reader_file.write_text(executor_url);reader_file.chmod(0o600)
+            recovery_config={**config,'_database_url':executor_database,'graph_url_file':str(reader_file)}
+            recovered=asyncio.run(reload_only(recovery_config))
+            assert recovered['reload_verified'] and recovered['artifact_hash']==manifest.content_hash
+            assert recovered['record_digest']==release.graph_record_digest
+            assert recovered['serving_accepted'] is False
         # An absent persisted ontology must fail closed; no registration writes
         # or guessed in-memory ontology may rescue a damaged generation.
         graph.delete(ontology_graph)

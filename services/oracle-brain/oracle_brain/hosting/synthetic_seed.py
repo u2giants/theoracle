@@ -11,7 +11,7 @@ PARAMETERS={'runtime_hash','source_role_registry_hash','review_hash','expires_at
 def statement(template,*values):
     return sql.SQL(template).format(*(sql.Literal(v) for v in values)).as_string()+';\n'
 
-def compile_seed(parameters):
+def validate_seed_parameters(parameters):
     extra={'synthetic_scenario','synthetic_scenario_seal'}
     if set(parameters) not in (PARAMETERS,PARAMETERS|extra):raise PermissionError('fixed synthetic parameters required')
     scenario=fixed_scenario(parameters.get('synthetic_scenario',LEGACY_SCENARIO))
@@ -25,12 +25,29 @@ def compile_seed(parameters):
     # materializer under the root's exact-action review.
     for name in ('gateway_scram','executor_scram','projector_scram'):
         if not re.fullmatch(r'SCRAM-SHA-256\$4096:[A-Za-z0-9+/]+={0,2}\$[A-Za-z0-9+/]+={0,2}:[A-Za-z0-9+/]+={0,2}',parameters[name]):raise PermissionError('fixed SCRAM verifier required')
-    receipts,metadata,payload,manifest,release=fixture(parameters['runtime_hash'],parameters['review_hash'],scenario.scenario_id)
-    output='-- FIXED PUBLIC INVENTED ROWS ONLY. New empty dedicated ledger only.\n'
+    return scenario,expires
+
+def _login_sql(parameters):
+    output=''
     output+="CREATE ROLE oracle_synthetic_gateway LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD "+sql.Literal(parameters['gateway_scram']).as_string()+";\nGRANT oracle2_gateway_metadata TO oracle_synthetic_gateway;\nALTER ROLE oracle_synthetic_gateway SET role='oracle2_gateway_metadata';\n"
     for role in ('executor','projector'):
         login='oracle_synthetic_'+role
         output+="CREATE ROLE "+login+" LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD "+sql.Literal(parameters[role+'_scram']).as_string()+";\nGRANT oracle2_documentary_executor TO "+login+";\nALTER ROLE "+login+" SET role='oracle2_documentary_executor';\n"
+    return output
+
+def compile_restore_roles(parameters):
+    scenario,_=validate_seed_parameters(parameters)
+    if scenario.scenario_id!=FORWARD_SCENARIO:raise PermissionError('only distinct forward roles can be restored')
+    output='BEGIN;\n'
+    for group in ('oracle2_gateway_metadata','oracle2_source_reader','oracle2_candidate_compiler','oracle2_documentary_executor'):
+        output+='CREATE ROLE '+group+' NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;\n'
+    return output+_login_sql(parameters)+'COMMIT;\n'
+
+def compile_seed(parameters):
+    scenario,expires=validate_seed_parameters(parameters)
+    WORKSPACE,ACTOR,OWNER,ARTIFACT,RUN=(scenario.workspace,scenario.actor,scenario.owner,scenario.artifact,scenario.run)
+    receipts,metadata,payload,manifest,release=fixture(parameters['runtime_hash'],parameters['review_hash'],scenario.scenario_id)
+    output='-- FIXED PUBLIC INVENTED ROWS ONLY. New empty dedicated ledger only.\n'+_login_sql(parameters)
     output+=statement("INSERT INTO oracle2.appointments(appointment_id,workspace_id,actor_id,scope,granted_by) VALUES({}, {}, {},'root',{})",scenario.root_appointment,WORKSPACE,OWNER,scenario.grantor)
     for index,(receipt,meta) in enumerate(zip(receipts,metadata)):
         source=receipt.ref.source_id;ref=receipt.ref
