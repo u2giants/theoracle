@@ -33,6 +33,7 @@
     "code": { "required": ["repository-workflow-compliance", "existing-verification-gates"], "forbidden_actions": [] },
     "reviewer-safety": { "required": ["repository-workflow-compliance", "repository-rulebook-full-treatment"], "forbidden_actions": [] },
     "deployment": { "required": ["repository-workflow-compliance", "managed-platform-release-review", "exact-owner-action-authorization"], "forbidden_actions": [] },
+    "private-tooling": { "required": ["repository-workflow-compliance", "synthetic-fixtures-only"], "forbidden_actions": [] },
     "shared-db": { "required": ["repository-workflow-compliance", "canonical-oracle-migration-runner", "migration-before-dependent-release", "drizzle-journal-drift-proof"], "forbidden_actions": [] }
   }
 }
