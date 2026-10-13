@@ -53,3 +53,7 @@ separate source/input action approvals. Target exit0 plus fixed public receipt
 and actual OCI/resource readback qualify the artifact, not documentary job or
 private/business acceptance. Preserve stopped proof/receipt before any managed
 transition; old failed apps, stores and spent leases remain untouched.
+
+### Managed preflight empty-command serialization — October13,2026,8:00AM EDT
+
+The first managed credential-free preflight apphrnrhqkvutqkimfsqrygvyad/deploymentgfo7oyuzbfdd0zaqjhehinuc failed before the ANN service ran. Actual platform-parsed compose converted source `command: []` to an empty mapping `{}`; Docker rejected that mapping (`services.native-ann-proof.command must be a null`). The complete failed receipt SHA212defb96134688192c651e6dd4032f7995a74530433bce5ddb0dd2e9e1e86c6 and spent start marker remain preserved. No hosting credentials were issued and no target-host ANN success is claimed. Replace the empty sequence with Compose’s supported empty string, which suppresses the image default command while retaining the exact fixed ANN module entrypoint. All stock search/persistence capability and confinement are retained. A fresh separately reviewed managed attempt is required; this source repair alone is not target-host proof. Company questions/reports/employee messages and grading remain paused.
