@@ -332,8 +332,12 @@ def load_verified_client_chain(context,cert,key):
     try:
         for name,raw in (('oracle-forward-client-cert',cert),('oracle-forward-client-key',key)):
             fd=os.memfd_create(name,os.MFD_CLOEXEC|os.MFD_ALLOW_SEALING);descriptors.append(fd)
-            os.fchmod(fd,0o600);os.write(fd,raw)
-            fcntl.fcntl(fd,fcntl.F_ADD_SEALS,fcntl.F_SEAL_WRITE|fcntl.F_SEAL_GROW|fcntl.F_SEAL_SHRINK|fcntl.F_SEAL_SEAL)
+            os.fchmod(fd,0o600);require(os.write(fd,raw)==len(raw),'client identity descriptor write incomplete')
+            # Linux UAPI fcntl.h: BASE1024+9/+10, seal flags0x0001..0x0008.
+            # Some supported Python builds omit these names; kernel sealing
+            # remains mandatory and is independently read back, never skipped.
+            fcntl.fcntl(fd,getattr(fcntl,'F_ADD_SEALS',1033),0x000f)
+            require(fcntl.fcntl(fd,getattr(fcntl,'F_GET_SEALS',1034))==0x000f,'immutable client identity unproved')
         context.load_cert_chain('/proc/self/fd/'+str(descriptors[0]),'/proc/self/fd/'+str(descriptors[1]))
     finally:
         for fd in descriptors:os.close(fd)
