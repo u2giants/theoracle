@@ -19,7 +19,7 @@ SOURCES=((UUID('22222222-2222-4222-8222-222222222222'),'Invented Harbor sends bl
          (UUID('33333333-3333-4333-8333-333333333333'),'Invented Meadow counts the blue cards received from Invented Harbor.'))
 
 def graph_acl_users(graph,executor_password,projector_password):
-    """Seal the native SDK's per-artifact ontology sidecar for projector only."""
+    """Seal projector writes and executor reads to the exact data and ontology pair."""
     from importlib.metadata import version
     from graphrag_sdk.storage.ontology_store import OntologyStore
     if version('graphrag-sdk')!='1.4.0' or OntologyStore.ONTOLOGY_GRAPH_SUFFIX!='__ontology':
@@ -29,7 +29,7 @@ def graph_acl_users(graph,executor_password,projector_password):
     if any(not re.fullmatch('[0-9a-f]{64}',value) for value in (executor_password,projector_password)):
         raise PermissionError('fixed strong synthetic graph credentials required')
     return ('user default off\n'
-        f'user oracle_executor on >{executor_password} ~{graph} +graph.ro_query +ping +hello +info|server\n'
+        f'user oracle_executor on >{executor_password} ~{graph} ~{graph}__ontology +graph.ro_query +ping +hello +info|server\n'
         f'user oracle_projector on >{projector_password} ~{graph} ~{graph}__ontology +graph.query +graph.ro_query +ping +hello +info|server\n')
 
 def fixture(runtime_hash,review_hash):

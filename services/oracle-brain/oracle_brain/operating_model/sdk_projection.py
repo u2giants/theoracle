@@ -41,6 +41,18 @@ class LedgerExtraction(ExtractionStrategy):
         relationships=[GraphRelationship(start_node_id=a,end_node_id=b,type='RELATES',properties={'transition_key':key,'payload_hash':seal,'fact':fact,'description':fact,'source_chunk_ids':[chunk.uid],'status':'reported','rel_type':'RELATED_TO'}) for a,b,key,seal,fact in self.semantic_relations]
         return GraphData(nodes=nodes,relationships=relationships,mentions=mentions)
 
+class ReadOnlyGraph:
+    """Route SDK data and ontology reads through the native read-only decoder."""
+    def __init__(self,graph):self._graph=graph
+    def __getattr__(self,name):return getattr(self._graph,name)
+    async def query(self,cypher,params=None,**kwargs):
+        return await self._graph.ro_query(cypher,params=params,**kwargs)
+
+class ReadOnlyDriver:
+    def __init__(self,driver):self._driver=driver
+    def __getattr__(self,name):return getattr(self._driver,name)
+    def select_graph(self,name):return ReadOnlyGraph(self._driver.select_graph(name))
+
 class ReadOnlyConnection:
     """App boundary for SDK 1.4.0 AsyncGraph.ro_query; no vendor patch.
 
@@ -50,6 +62,12 @@ class ReadOnlyConnection:
     """
     def __init__(self,connection):self._connection=connection
     def __getattr__(self,name):return getattr(self._connection,name)
+    @property
+    def graph(self):return ReadOnlyGraph(self._connection.graph)
+    @property
+    def _driver(self):
+        driver=self._connection._driver
+        return ReadOnlyDriver(driver) if driver is not None else None
     async def query(self,cypher,params=None,*,timeout=None):
         return await self._connection.graph.ro_query(cypher,params=params,
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
@@ -59,10 +77,10 @@ class SDKProjection:
         if version('graphrag-sdk')!='1.4.0':raise RuntimeError('exact qualified SDK required')
         self.graph_name=f'{PREFIX}{workspace_id.hex}_{artifact_id.hex}_{artifact_version}_{generation.hex}'
         self.connection=FalkorDBConnection(ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000))
-        self.rag=GraphRAG(self.connection,llm=llm,embedder=embedder,embedding_dimension=dimensions,
-          ontology=Ontology(entities=[Entity(label=k) for k in ('ReportedObservation','WorkflowStep','DecisionGateway','BusinessArtifact','BusinessRole','BusinessProcess','WorkflowTransition','BusinessInterface','WorkflowCondition','BusinessObjective','MetricDefinition','DecisionVariant')],relations=[Relation(label='RELATED_TO')]))
-        self.read_only=read_only
         if read_only:self.connection=ReadOnlyConnection(self.connection)
+        self.rag=GraphRAG(self.connection,llm=llm,embedder=embedder,embedding_dimension=dimensions,
+          ontology=Ontology() if read_only else Ontology(entities=[Entity(label=k) for k in ('ReportedObservation','WorkflowStep','DecisionGateway','BusinessArtifact','BusinessRole','BusinessProcess','WorkflowTransition','BusinessInterface','WorkflowCondition','BusinessObjective','MetricDefinition','DecisionVariant')],relations=[Relation(label='RELATED_TO')]))
+        self.read_only=read_only
         self.workspace_id=workspace_id
         logging.getLogger('graphrag_sdk').setLevel(logging.CRITICAL)
 
