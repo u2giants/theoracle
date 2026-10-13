@@ -147,3 +147,13 @@ def test_actual_main_reader_rejects_hardlinked_input_before_read(tmp_path,monkey
     real_open=os.open
     monkeypatch.setattr(op.os,'open',lambda name,flags:real_open(path,flags))
     with pytest.raises(ValueError,match='input stat moved'):op.read_mounted_input({'inputs':[{'stat':declared}]},0,8*1024**2)
+
+
+def test_metadata_shape_check_cannot_open_or_admit_path(monkeypatch):
+ c,v,reads,writes,reader=v2();monkeypatch.setattr(codec,'HISTORY',c['census'])
+ d={'schema_version':2,'profile':c['profile'],'inputs':[dict(x,path='/untrusted-observation/c'+str(i)) for i,x in enumerate(c['inputs'])]}
+ d['inputs'][0]['path']='/etc/passwd'
+ def forbidden_open(*args,**kwargs):raise AssertionError('shape check attempted a content or metadata open')
+ monkeypatch.setattr(os,'open',forbidden_open)
+ result=chain.validate_metadata_descriptor(d,codec=codec)
+ assert result['authorizes_read'] is False and not reads and not writes

@@ -21,7 +21,6 @@
   "root_count": 7,
   "conditional_children": 41,
   "capture_count": 33,
-  "descriptor_validator": "services/oracle-brain/oracle_brain/operating_model/native_page_chain.py:validate_metadata_descriptor",
   "authority_boundary": "installed native guardian: genuine new v2 dual scope registration and durable one-use consumption BEFORE any control/capture open",
   "source_only": true,
   "authorizes_read": false,
@@ -30,5 +29,7 @@
   "ledger_adopted": false,
   "provider_authority": false,
   "semantic_qualified": false,
-  "legacy_approval_accepted": false
+  "legacy_approval_accepted": false,
+  "metadata_shape_check": "services/oracle-brain/oracle_brain/operating_model/native_page_chain.py:validate_metadata_descriptor",
+  "metadata_shape_boundary": "non-authorizing path and stat observations only; installed guardian independently validates owned private paths and registers genuine exact-purpose dual-scope approval before reads"
 }
