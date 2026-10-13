@@ -26,6 +26,7 @@ services/oracle-brain/.venv/
 services/oracle-brain/**/__pycache__/
 services/oracle-brain/.pytest_cache/
 scripts/oracle2/__pycache__/
+dev/oracle2/hosting/__pycache__/
 .env.development
 .env.production
 
