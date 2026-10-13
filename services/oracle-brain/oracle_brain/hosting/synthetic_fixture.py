@@ -18,6 +18,56 @@ PARSER=hashlib.sha256(b'oracle-public-invented-native-fixture/v1').hexdigest()
 SOURCES=((UUID('22222222-2222-4222-8222-222222222222'),'Invented Harbor sends blue cards to Invented Meadow.'),
          (UUID('33333333-3333-4333-8333-333333333333'),'Invented Meadow counts the blue cards received from Invented Harbor.'))
 
+from dataclasses import dataclass
+
+LEGACY_SCENARIO='public-invented-v1'
+FORWARD_SCENARIO='public-invented-forward-v2'
+
+@dataclass(frozen=True)
+class FixedScenario:
+    scenario_id: str
+    workspace: UUID
+    actor: UUID
+    owner: UUID
+    artifact: UUID
+    generation: UUID
+    release: UUID
+    run: UUID
+    parser: str
+    sources: tuple
+    root_appointment: UUID
+    grantor: UUID
+    draft_ids: tuple
+    appointment_ids: tuple
+    block_ids: tuple
+    seed_marker: str
+    worker_uri: str
+
+    def seal(self):
+        from dataclasses import asdict
+        return digest(json.loads(json.dumps(asdict(self),default=str)))
+
+
+def fixed_scenario(scenario_id=LEGACY_SCENARIO):
+    if scenario_id==LEGACY_SCENARIO:
+        # Keep dynamic legacy constants for existing isolated qualification.
+        return FixedScenario(scenario_id,WORKSPACE,ACTOR,OWNER,ARTIFACT,GENERATION,RELEASE,RUN,PARSER,SOURCES,
+            UUID('88888888-8888-4888-8888-888888888888'),UUID('99999999-9999-4999-8999-999999999999'),
+            tuple(UUID(int=100+i) for i in range(2)),tuple(UUID(int=200+i) for i in range(2)),
+            tuple(UUID(int=300+i) for i in range(4)),'public-invented-remote-v1','spiffe://oracle/synthetic-worker')
+    if scenario_id!=FORWARD_SCENARIO:raise PermissionError('only two fixed public invented scenarios exist')
+    return FixedScenario(scenario_id,
+        UUID('21111111-1111-4111-8111-111111111111'),UUID('2aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        UUID('2bbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),UUID('24444444-4444-4444-8444-444444444444'),
+        UUID('25555555-5555-4555-8555-555555555555'),UUID('26666666-6666-4666-8666-666666666666'),
+        UUID('27777777-7777-4777-8777-777777777777'),
+        hashlib.sha256(b'oracle-public-invented-native-forward-fixture/v2').hexdigest(),
+        ((UUID('22222222-2222-4222-8222-222222222223'),'Invented Birch records amber parcels sent to Invented Cedar.'),
+         (UUID('23333333-3333-4333-8333-333333333333'),'Invented Cedar checks the amber parcels received from Invented Birch.')),
+        UUID('28888888-8888-4888-8888-888888888888'),UUID('29999999-9999-4999-8999-999999999999'),
+        tuple(UUID(int=1000100+i) for i in range(2)),tuple(UUID(int=1000200+i) for i in range(2)),
+        tuple(UUID(int=1000300+i) for i in range(4)),'public-invented-remote-forward-v2','spiffe://oracle/synthetic-forward-worker-v2')
+
 def graph_acl_users(graph,executor_password,projector_password):
     """Seal projector writes and executor reads to the exact data and ontology pair."""
     from importlib.metadata import version
@@ -32,7 +82,9 @@ def graph_acl_users(graph,executor_password,projector_password):
         f'user oracle_executor on >{executor_password} ~{graph} ~{graph}__ontology +graph.ro_query +ping +hello +info|server\n'
         f'user oracle_projector on >{projector_password} ~{graph} ~{graph}__ontology +graph.query +graph.ro_query +ping +hello +info|server\n')
 
-def fixture(runtime_hash,review_hash):
+def fixture(runtime_hash,review_hash,scenario_id=LEGACY_SCENARIO):
+    scenario=fixed_scenario(scenario_id)
+    WORKSPACE,ACTOR,ARTIFACT,GENERATION,RELEASE,PARSER,SOURCES=(scenario.workspace,scenario.actor,scenario.artifact,scenario.generation,scenario.release,scenario.parser,scenario.sources)
     receipts=[];observations=[];metadata=[]
     for index,(source,text) in enumerate(SOURCES):
         seal=hashlib.sha256(text.encode()).hexdigest()

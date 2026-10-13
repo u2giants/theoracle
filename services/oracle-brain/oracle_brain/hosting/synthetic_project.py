@@ -7,12 +7,18 @@ from oracle_brain.operating_model.authority_adapter import PostgresSources
 from oracle_brain.operating_model.ledger import Ledger
 from oracle_brain.operating_model.sdk_projection import SDKProjection
 from oracle_brain.operating_model.runtime import NoGeneration,SyntheticEmbedding
-from .runtime import settings,protected_file
-from .synthetic_fixture import fixture,WORKSPACE,ACTOR,ARTIFACT,GENERATION
+from .runtime import settings,protected_file,sealed_scenario
+from .synthetic_fixture import fixture,WORKSPACE,ACTOR,ARTIFACT,GENERATION,LEGACY_SCENARIO
 
 async def project(config,review_hash):
     if not config['synthetic']:raise PermissionError('fixed invented projection only')
-    receipts,_,payload,manifest,release=fixture(config['runtime_hash'],review_hash)
+    scenario=sealed_scenario(config)
+    if scenario.scenario_id!=LEGACY_SCENARIO:
+        WORKSPACE,ACTOR,ARTIFACT,GENERATION=(scenario.workspace,scenario.actor,scenario.artifact,scenario.generation)
+        if review_hash!=config['synthetic_review_hash']:raise PermissionError('forward scenario review differs')
+    else:
+        WORKSPACE,ACTOR,ARTIFACT,GENERATION=(globals()[key] for key in ('WORKSPACE','ACTOR','ARTIFACT','GENERATION'))
+    receipts,_,payload,manifest,release=fixture(config['runtime_hash'],review_hash,scenario.scenario_id)
     if release.content_hash() not in config['allowed_release_hashes']:raise PermissionError('fixed fixture release not independently admitted')
     from psycopg import connect
     with connect(config['_database_url']) as conn:

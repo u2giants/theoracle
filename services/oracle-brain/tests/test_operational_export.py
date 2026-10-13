@@ -40,3 +40,44 @@ def test_duplicate_ids_quarantine_every_row_and_censor():
     raw=b'id,case,a,t\nE,C,Review,2026-01-02T00:00:00Z\nE,C,Review,2026-01-02T00:01:00Z\n'
     r,q=parse_export(raw,'csv',UUID(int=1),mapping,datetime(2026,1,1,tzinfo=timezone.utc),datetime(2027,1,1,tzinfo=timezone.utc))
     assert not r.events and len(q)==2 and r.case_censoring
+
+@pytest.mark.parametrize('format', ['csv', 'xes'])
+def test_missing_terminal_evidence_retains_observation_without_completed_case(format):
+    from oracle_brain.operating_model.process_analysis.metrics import measured_metrics
+    if format=='csv':
+        raw=b'id,case,activity,time\nE,C,A,2026-01-01T00:00:00Z\n'
+    else:
+        raw=b'<log><trace><string key="concept:name" value="C"/><event><string key="id" value="E"/><string key="activity" value="A"/><date key="time" value="2026-01-01T00:00:00Z"/></event></trace></log>'
+    receipt,quarantine=parse_export(raw,format,W,mapping(),START,END)
+    assert not quarantine and len(receipt.events)==1
+    assert receipt.events[0].lifecycle=='point' and receipt.events[0].status=='unknown'
+    assert receipt.case_censoring=={'C':'completion-evidence-unavailable'}
+    metrics=measured_metrics(receipt)
+    assert metrics['event_ids']=={'C':['E']} and metrics['cases']['completed']==0
+    assert metrics['elapsed_seconds']['values']==[] and metrics['worktime_seconds']=={}
+
+def test_explicit_completed_status_retains_existing_measurement_contract():
+    from oracle_brain.operating_model.process_analysis.metrics import measured_metrics
+    columns={**mapping().columns,'status':'status'}
+    raw=b'id,case,activity,time,status\nE1,C,A,2026-01-01T00:00:00Z,completed\nE2,C,A,2026-01-01T00:00:05Z,completed\n'
+    receipt,quarantine=parse_export(raw,'csv',W,mapping(columns=columns),START,END)
+    assert not quarantine and not receipt.case_censoring
+    metrics=measured_metrics(receipt)
+    assert metrics['cases']['completed']==1 and metrics['elapsed_seconds']['values']==[5.0]
+    assert metrics['worktime_seconds']=={'C':{}}
+
+def test_blank_mapped_status_is_unknown_and_preserves_prior_fields():
+    columns={**mapping().columns,'status':'status'}
+    raw=b'id,case,activity,time,status,before_state,before_status\nE,C,A,2026-01-01T00:00:00Z,,unobserved,\n'
+    receipt,quarantine=parse_export(raw,'csv',W,mapping(columns=columns),START,END)
+    assert not quarantine and receipt.events[0].status=='unknown'
+    assert receipt.input_hash==__import__('hashlib').sha256(raw).hexdigest()
+    assert receipt.case_censoring=={'C':'completion-evidence-unavailable'}
+
+def test_current_parser_import_is_idempotent_and_distinct_from_legacy_interpretation():
+    from uuid import uuid5
+    raw=b'id,case,activity,time\nE,C,A,2026-01-01T00:00:00Z\n'
+    first,_=parse_export(raw,'csv',W,mapping(),START,END)
+    again,_=parse_export(raw,'csv',W,mapping(),START,END)
+    legacy=uuid5(W,first.input_hash+first.mapping_hash+START.isoformat()+END.isoformat())
+    assert first==again and first.import_id!=legacy

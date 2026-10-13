@@ -7,7 +7,8 @@ import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const destination = resolve(root, 'apps/web/.source-offer');
-const mandatory = ['LICENSE','SOURCE_OFFER.md','THIRD_PARTY_NOTICES.md','README.md','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','turbo.json','vercel.json','services/oracle-brain/uv.lock'];
+const nativeBuildInputs = ['dev/oracle2/hosting/Dockerfile','.dockerignore','dev/oracle2/analytics/Dockerfile','dev/oracle2/analytics/Dockerfile.dockerignore','dev/oracle2/analytics/requirements.lock'];
+const mandatory = ['LICENSE','SOURCE_OFFER.md','THIRD_PARTY_NOTICES.md','README.md','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','turbo.json','vercel.json','services/oracle-brain/uv.lock',...nativeBuildInputs];
 const codeRoots = ['apps/','packages/','services/','scripts/','migrations/','.github/','dev/oracle2/','evals/oracle2/workflow/'];
 const special = ['docs/deployment.md','docs/configuration.md','docs/development.md'];
 // Recover only Vercel's formatting-only rewrite of the tracked configuration.
@@ -34,7 +35,7 @@ if (dirty) {
   throw new Error('Commit source changes before building the source offer; tracked changes: '+trackedChanges.slice(0,10).join(', ')+'; untracked count: '+dirty.split('\n').filter(line=>line.startsWith('?? ')).length);
 }
 const tracked = execFileSync('git',['ls-files','-z'],{cwd:root,encoding:'utf8'}).split('\0').filter(Boolean);
-const source = tracked.filter(path => !path.split('/').some(part => ['node_modules','.source-offer','.ai','test-results','uploads','uploaded-files','.env.local','.env','coverage','.next','.trigger','.vercel','dist','out','build'].includes(part)) && (mandatory.includes(path)||special.includes(path)||codeRoots.some(prefix=>path.startsWith(prefix))) && /\.(ts|tsx|js|jsx|mjs|cjs|py|json|toml|yaml|yml|sql|sh|css|md|txt|svg|lock|ps1)$/.test(path));
+const source = tracked.filter(path => !path.split('/').some(part => ['node_modules','.source-offer','.ai','test-results','uploads','uploaded-files','.env.local','.env','coverage','.next','.trigger','.vercel','dist','out','build'].includes(part)) && (mandatory.includes(path)||special.includes(path)||codeRoots.some(prefix=>path.startsWith(prefix))) && (nativeBuildInputs.includes(path)||/\.(ts|tsx|js|jsx|mjs|cjs|py|json|toml|yaml|yml|sql|sh|css|md|txt|svg|lock|ps1)$/.test(path)));
 for(const path of mandatory)if(!source.includes(path))source.push(path);
 source.sort();
 const entries=[];const hashes={};

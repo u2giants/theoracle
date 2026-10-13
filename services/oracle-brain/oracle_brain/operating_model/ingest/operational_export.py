@@ -16,6 +16,9 @@ MAX_BYTES=25*1024*1024
 MAX_EVENTS=100000
 MAX_COLUMNS=100
 MAX_CELL=100000
+# Interpretation changes get a distinct immutable import identity; old receipts
+# are preserved rather than overwritten or replayed as current evidence.
+PARSER_CONTRACT='operational-event-v2-explicit-completion'
 
 class Mapping(StrictRecord):
     columns: dict[str,str]
@@ -100,7 +103,7 @@ def parse_export(data:bytes,format:Literal['csv','xes'],workspace_id:UUID,mappin
     window_start,window_end=window_start.astimezone(timezone.utc),window_end.astimezone(timezone.utc)
     rows=_rows(data,format,mapping)
     input_hash=hashlib.sha256(data).hexdigest();mapping_hash=digest(mapping.model_dump(mode='json'))
-    import_id=uuid.uuid5(workspace_id,input_hash+mapping_hash+window_start.isoformat()+window_end.isoformat())
+    import_id=uuid.uuid5(workspace_id,PARSER_CONTRACT+':'+input_hash+mapping_hash+window_start.isoformat()+window_end.isoformat())
     ids=Counter(row.get(mapping.columns['event_id']) for row in rows)
     events=[];quarantine=[];censor={};notes=[]
     for index,row in enumerate(rows,1):
@@ -116,9 +119,11 @@ def parse_export(data:bytes,format:Literal['csv','xes'],workspace_id:UUID,mappin
             tie=val('tie_order');cost=val('cost')
             events.append(PydanticEvent(event_id=val('event_id'),row_index=index,case_id=case,
                 activity_id=mapping.activity_map[val('activity_id')],timestamp=dt,original_timestamp=original,
-                original_zone=zone,lifecycle=val('lifecycle','point'),status=val('status','completed'),
+                original_zone=zone,lifecycle=val('lifecycle','point'),status=val('status','unknown') or 'unknown',
                 resource=val('resource') or None,cost=Decimal(cost) if cost not in (None,'') else None,
                 tie_order=int(tie) if tie not in (None,'') else None,source_import_id=import_id))
+            if events[-1].status=='unknown':
+                censor.setdefault(case,'completion-evidence-unavailable')
         except (ValueError,TypeError) as error:
             quarantine.append({'row_index':index,'reason':str(error),'raw_fields':row})
             if case:censor[case]='quarantined-event-incomplete'

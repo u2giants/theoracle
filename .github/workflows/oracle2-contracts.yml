@@ -106,6 +106,10 @@ jobs:
         run: pnpm --filter @oracle/web exec playwright install chromium
       - name: Prove browser through SDK transport and real FalkorDB
         run: services/oracle-brain/.venv/bin/python scripts/oracle2/verify_holistic_browser.py
+      - name: Prove isolated native browser transport and authority refusals
+        run: pnpm --filter @oracle/web exec tsx lib/__verify__/native-acceptance.ts
+      - name: Validate analytical packet without admitting execution
+        run: services/oracle-brain/.venv/bin/python -m pytest scripts/oracle2/test_validate_analytical_packet.py -q
       - name: Prove pilot PostgreSQL TLS trust and refusals
         run: pnpm --filter @oracle/web exec tsx ../../scripts/oracle2/verify_pilot_tls.ts
       - name: Prove invented operating model through current worker SDK and ledger

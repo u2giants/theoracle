@@ -30,3 +30,24 @@ def test_raw_event_import_manifest_index_and_replay_are_atomic(admin_url,tmp_pat
         assert conn.execute('SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s',(workspace,)).fetchone()[0]==1
     modified=ledger.read(workspace,log.import_id,1);modified['event_import']['events'][0]['activity_id']='invented-unmapped'
     with pytest.raises(ValueError,match='reproduce exact raw'):ledger.persist(workspace_id=workspace,artifact_id=log.import_id,version=2,kind='event_import',payload=modified,refs=(receipt.ref,),permission_digest='a'*64,compiler_digest='b'*64)
+
+def test_legacy_receipt_cannot_be_claimed_current_or_overwritten(tmp_path,monkeypatch):
+    import base64
+    from uuid import uuid5
+    from oracle_brain.operating_model.ingest.operational_export import parse_export
+    workspace,actor,source=uuid4(),uuid4(),uuid4()
+    raw=b'id,case,activity,time,status\nE,C,Review,2026-01-01T00:00:00Z,completed\n'
+    seal=hashlib.sha256(raw).hexdigest()
+    receipt=SourceReceipt(ref=SourceRef(workspace_id=workspace,source_id=source,revision=1,original_sha256=seal,reading_sha256=seal,parser_id='synthetic-csv'),reading=raw.decode(),display_revision='r1')
+    mapping=Mapping(columns={'event_id':'id','case_id':'case','activity_id':'activity','timestamp':'time','status':'status'},source_system='invented',process_id='review',scope='synthetic',activity_map={'Review':'review-step'})
+    start=datetime(2026,1,1,tzinfo=timezone.utc);end=datetime(2026,1,2,tzinfo=timezone.utc)
+    current,quarantine=parse_export(raw,'csv',workspace,mapping,start,end)
+    old_id=uuid5(workspace,current.input_hash+current.mapping_hash+start.isoformat()+end.isoformat())
+    legacy=current.model_copy(update={'import_id':old_id,'events':tuple(e.model_copy(update={'source_import_id':old_id}) for e in current.events)})
+    payload={'source_refs':[receipt.ref.model_dump(mode='json')],'event_import':legacy.model_dump(mode='json'),'mapping':mapping.model_dump(mode='json'),'format':'csv','raw_export_base64':base64.b64encode(raw).decode(),'quarantine':list(quarantine)}
+    ledger=Ledger('synthetic-unused',FileBlobStore(tmp_path),principal=actor,can_read=lambda *_:True,current_source=lambda *_:receipt)
+    def no_database(*args,**kwargs):raise AssertionError('legacy rejection must precede database access')
+    monkeypatch.setattr(psycopg,'connect',no_database)
+    with pytest.raises(ValueError,match='parser contract identity mismatch'):
+        ledger.persist(workspace_id=workspace,artifact_id=old_id,version=1,kind='event_import',payload=payload,refs=(receipt.ref,),permission_digest='a'*64,compiler_digest='b'*64)
+    assert list(tmp_path.iterdir())==[]

@@ -1,0 +1,21 @@
+# Candidate-specific build context. Root documentary context remains unchanged.
+**
+!dev/
+!dev/oracle2/
+!dev/oracle2/analytics/
+!dev/oracle2/analytics/Dockerfile
+!dev/oracle2/analytics/Dockerfile.dockerignore
+!dev/oracle2/analytics/requirements.lock
+!dev/oracle2/analytics/source-manifest.json
+!scripts/
+!scripts/oracle2/
+!scripts/oracle2/validate_analytical_packet.py
+!services/
+!services/oracle-brain/
+!services/oracle-brain/oracle_brain/
+!services/oracle-brain/oracle_brain/**
+**/__pycache__/**
+**/*.pyc
+**/.env*
+**/.ai/**
+**/.venv/**

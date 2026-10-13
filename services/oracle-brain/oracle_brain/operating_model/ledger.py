@@ -20,10 +20,23 @@ class Ledger:
     def __init__(self, database_url: str, blobs, *, principal: UUID,
                  can_read: Callable[[UUID, UUID, UUID], bool],
                  current_source: Callable[[UUID, UUID], SourceReceipt],
-                 reviewed_inventories: dict[str, dict] | None = None):
+                 reviewed_inventories: dict[str, dict] | None = None,
+                 event_intake_resolver=None, clock=None):
         self.url, self.blobs, self.principal = database_url, blobs, principal
         self.can_read, self.current_source = can_read, current_source
         self.reviewed_inventories = reviewed_inventories or {}
+        from datetime import datetime,timezone
+        self.event_intake_resolver=event_intake_resolver
+        self.clock=clock or (lambda:datetime.now(timezone.utc))
+
+    def resolve_event_intake(self):
+        from .ingest.derived_event_lineage import TrustedEventIntake
+        if self.event_intake_resolver is None:
+            raise PermissionError('independently authenticated capture and documentary mapping required')
+        context=self.event_intake_resolver(self.principal)
+        if not isinstance(context,TrustedEventIntake):
+            raise PermissionError('independently authenticated capture and documentary mapping required')
+        return context
 
     def authorize_refs(self, refs: tuple[SourceRef, ...], workspace_id: UUID) -> dict[str, SourceReceipt]:
         receipts = {}
@@ -39,6 +52,20 @@ class Ledger:
                 payload: dict, refs: tuple[SourceRef, ...], permission_digest: str,
                 compiler_digest: str, dependencies: tuple[tuple[str,str,str], ...] = (),
                 failed: bool = False, before_commit: Callable[[], None] | None = None) -> ArtifactManifest:
+        event_derivation=None
+        if kind=='event_import' and 'event_derivation' in payload:
+            from .ingest.derived_event_lineage import EventDerivation,admitted_refs,derive_from_receipts
+            event_derivation=EventDerivation.model_validate_json(json.dumps(payload['event_derivation']))
+            event_mapping=Mapping.model_validate_json(json.dumps(payload['mapping']))
+            trust=self.resolve_event_intake()
+            expected_refs=admitted_refs(trust,workspace_id=workspace_id,actor_id=self.principal,
+                mapping=event_mapping,permission_digest=permission_digest,now=self.clock())
+            if refs!=expected_refs or payload.get('input_bytes_kind')!='derived-point-observation-csv':
+                raise PermissionError('derived CSV must retain independently admitted original lineage')
+            with psycopg.connect(self.url) as scope_connection:
+                _lock(scope_connection,workspace_id)
+                if not _has_authority_conn(scope_connection,workspace_id,self.principal,'event-import:'+event_mapping.scope):
+                    raise PermissionError('current event-import scope required before original resolution')
         receipts = self.authorize_refs(refs, workspace_id)
         if payload.get('source_refs') != [r.model_dump(mode='json') for r in refs]:
             raise ValueError('payload source manifest mismatch')
@@ -79,7 +106,17 @@ class Ledger:
             import base64,hashlib
             raw=base64.b64decode(payload['raw_export_base64'],validate=True)
             if hashlib.sha256(raw).hexdigest()!=event_log.input_hash:raise ValueError('event original hash mismatch')
+            if event_derivation:
+                expected_csv,expected_derivation=derive_from_receipts(trust,receipts)
+                if payload['format']!='csv' or raw!=expected_csv or event_derivation!=expected_derivation:
+                    raise ValueError('derived CSV does not reproduce admitted original exports')
+            elif len(refs)!=1 or refs[0].original_sha256!=hashlib.sha256(raw).hexdigest():
+                raise ValueError('event bytes are not an original; explicit admitted derivation required')
             derived,quarantined=parse_export(raw,payload['format'],workspace_id,event_mapping,event_log.window_start,event_log.window_end)
+            if event_derivation and (quarantined or len(derived.events)!=816
+                    or any(event.status!='unknown' or event.lifecycle!='point' for event in derived.events)):
+                raise PermissionError('complete explicitly mapped point observation population required')
+            if derived.import_id!=event_log.import_id:raise ValueError('event parser contract identity mismatch')
             if derived!=event_log or list(quarantined)!=payload['quarantine']:raise ValueError('event records do not reproduce exact raw export')
         key, seal = self.blobs.put(workspace_id, payload)
         source_digest = digest({'refs':[r.model_dump(mode='json') for r in refs]})
@@ -96,6 +133,12 @@ class Ledger:
                 return manifest
             # Recheck permissions and source revision inside the write boundary.
             _lock(conn,workspace_id)
+            if event_derivation:
+                latest=self.resolve_event_intake()
+                latest_refs=admitted_refs(latest,workspace_id=workspace_id,actor_id=self.principal,
+                    mapping=event_mapping,permission_digest=permission_digest,now=self.clock())
+                if latest_refs!=refs or latest.trusted_admission_hash!=event_derivation.admission_hash:
+                    raise PermissionError('derived event intake admission changed before commit')
             if event_log and not _has_authority_conn(conn,workspace_id,self.principal,'event-import:'+event_mapping.scope):raise PermissionError('event import authority changed')
             self.authorize_refs(refs, workspace_id)
             for receipt in receipts.values():

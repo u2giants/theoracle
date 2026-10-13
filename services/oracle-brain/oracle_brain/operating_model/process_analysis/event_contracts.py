@@ -10,7 +10,7 @@ class PydanticEvent(BaseModel):
     case_id: str = Field(min_length=1); activity_id: str = Field(min_length=1)
     timestamp: AwareDatetime; original_timestamp: str; original_zone: str
     lifecycle: Literal['start','complete','point']; tie_order: int | None = Field(default=None, strict=True, ge=0)
-    status: Literal['ongoing','completed','cancelled']; resource: str | None = None
+    status: Literal['ongoing','completed','cancelled','unknown']; resource: str | None = None
     cost: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False); source_import_id: UUID
 
     @field_validator('timestamp')

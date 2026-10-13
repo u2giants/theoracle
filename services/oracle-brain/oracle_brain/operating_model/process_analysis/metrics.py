@@ -7,7 +7,7 @@ from .event_contracts import LogReceipt
 def measured_metrics(log: LogReceipt, explicit_exclusions: frozenset[str] = frozenset()):
     by_case=defaultdict(list)
     for e in log.events: by_case[e.case_id].append(e)
-    completed=[c for c in by_case if c not in log.case_censoring and not any(e.status in {'ongoing','cancelled'} for e in by_case[c])]
+    completed=[c for c in by_case if c not in log.case_censoring and all(e.status=='completed' for e in by_case[c])]
     excluded=sorted(set(by_case) & set(explicit_exclusions)); retained=[c for c in completed if c not in explicit_exclusions]
     elapsed=[]; work={}; repeats={}; variants={}; provenance={}
     for case in sorted(by_case):
