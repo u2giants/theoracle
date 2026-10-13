@@ -1,0 +1,49 @@
+# Source-only installation candidate. External names and digest require exact review.
+# Separate service: existing 18-role recovery contracts are unchanged.
+services:
+  native-browser:
+    image: ${ORACLE_NATIVE_BROWSER_IMAGE:?immutable GHCR digest required}
+    pull_policy: always
+    user: '10001:10001'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1.0
+    restart: 'no'
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      HOSTNAME: 0.0.0.0
+      ORACLE2_NATIVE_BROWSER_ONLY: '1'
+      ORACLE2_NATIVE_BROWSER_PUBLIC_HOST: ${ORACLE_NATIVE_BROWSER_HOST:?dedicated reviewed HTTPS hostname required}
+      ORACLE2_NATIVE_BROWSER_SOURCE_REVISION: ${ORACLE_NATIVE_BROWSER_REVISION:?exact source SHA required}
+      ORACLE2_PILOT_ACTOR: ${ORACLE_NATIVE_BROWSER_ACTOR:?sealed invented actor required}
+      ORACLE2_PILOT_WORKSPACE_ID: ${ORACLE_NATIVE_BROWSER_WORKSPACE:?sealed invented workspace required}
+      ORACLE2_NATIVE_ACCEPTANCE_SETTINGS: /run/oracle-native-browser/settings.json
+      ORACLE2_NATIVE_ACCEPTANCE_SETTINGS_SHA256: ${ORACLE_NATIVE_BROWSER_SETTINGS_SHA256:?exact reviewed seal required}
+    volumes:
+      - browser-credential:/run/oracle-native-browser:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,uid=10001,gid=10001,mode=0700
+    networks: [browser-ingress, ledger]
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: ${ORACLE_NATIVE_BROWSER_INGRESS_NETWORK:?dedicated ingress required}
+      traefik.http.routers.oracle-native-browser.rule: '__ORACLE_NATIVE_BROWSER_COMPILED_RULE_REQUIRED__'
+      traefik.http.routers.oracle-native-browser.entrypoints: https
+      traefik.http.routers.oracle-native-browser.tls: 'true'
+      traefik.http.routers.oracle-native-browser.tls.certresolver: letsencrypt
+      traefik.http.services.oracle-native-browser.loadbalancer.server.port: '3000'
+networks:
+  browser-ingress:
+    external: true
+    name: ${ORACLE_NATIVE_BROWSER_INGRESS_NETWORK:?}
+  ledger:
+    external: true
+    name: ${ORACLE_NATIVE_LEDGER_NETWORK:?verified existing isolated ledger network required}
+volumes:
+  browser-credential:
+    external: true
+    name: ${ORACLE_NATIVE_BROWSER_CREDENTIAL_VOLUME:?dedicated readonly credential volume required}
