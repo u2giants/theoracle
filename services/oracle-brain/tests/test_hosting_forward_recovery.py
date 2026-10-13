@@ -52,16 +52,20 @@ def fake_inspection(b,role,quiesced=True):
       'synthetic-project':[(instance.blob_volume,'/run/oracle-blobs')]}
     return {'id':service.container_id,'name':'/'+instance.project+'-'+role+'-1','application':instance.application,'project':instance.project,'role':role,'image':service.image,
       'state':'exited' if quiesced and role in {'gateway','executor'} and service.state=='running' else service.state,'networks':' '.join(network_name(instance,i)+':'+instance.networks[i] for i in ROLE_NETWORKS.get(role,())),
-      'mounts':' '.join('volume:'+name+':'+path for name,path in mounts.get(role,[]))}
+      'network_mode':network_name(instance,ROLE_NETWORKS[role][0]) if role in ROLE_NETWORKS else 'none',
+      'mounts':' '.join('volume:'+name+':'+path for name,path in mounts.get(role,[]))} | ({} if role in ROLE_NETWORKS else {'networks':'none:'+('' if service.state=='created' else 'e'*64)})
 
 
 def fake_network(b,args):
+    if args[-1]=='none':return canonical_bytes({'id':'e'*64,'name':'none','driver':'null','internal':False,'ipv6':False})
     i=b.instance.networks.index(args[-1]);return canonical_bytes({'id':args[-1],'name':network_name(b.instance,i),'driver':'bridge','internal':i!=0,'ipv6':i!=0})
 
 def test_actual_identity_precedes_mutation_and_foreign_mount_refuses(bundle):
     _,backup,_=bundle;calls=[]
     def runner(args,**kw):
-        calls.append(args);role=next(k for k,v in backup.services.items() if v.container_id==args[-1])
+        calls.append(args)
+        if args[:2]==['inspect','--type']:return fake_network(backup,args)
+        role=next(k for k,v in backup.services.items() if v.container_id==args[-1])
         row=fake_inspection(backup,role)
         if role=='ledger':row['mounts']='volume:foreign_ledger:/var/lib/postgresql/data'
         return canonical_bytes(row)
@@ -309,15 +313,55 @@ def test_created_empty_ids_require_independently_pinned_networks(bundle,mutation
                 if mutation=='wrong-ipv6':row['ipv6']=True
             return canonical_bytes(row)
         role=next(k for k,v in target.services.items() if v.container_id==args[-1]);row=fake_inspection(target,role)
-        if target.services[role].state=='created':row['networks']=' '.join(network_name(target.instance,i)+':' for i in ROLE_NETWORKS.get(role,()))
+        if target.services[role].state=='created':row['networks']=' '.join(network_name(target.instance,i)+':' for i in ROLE_NETWORKS[role]) if role in ROLE_NETWORKS else 'none:'
         if role=='gateway' and mutation=='missing':row['networks']=''
         if role=='gateway' and mutation=='foreign':row['networks']+=' foreign:'
         return canonical_bytes(row)
     operator=ForwardRecovery(b,runner=runner,clock=lambda:1000)
     if mutation=='valid':
         operator.prove_namespace(target.instance,target.services,phase='restore')
-        assert len([c for c in calls if c[:2]==['inspect','--type']])==5
+        assert len([c for c in calls if c[:2]==['inspect','--type']])==6
     else:
         with pytest.raises(PermissionError,match='network'):
             operator.prove_namespace(target.instance,target.services,phase='restore')
     assert all(c[0] in {'inspect','exec'} for c in calls)
+
+@pytest.mark.parametrize('mutation',['driver','name','internal','ipv6','identity','bootstrap-mode','extra-attachment','foreign-none-id'])
+def test_builtin_no_network_cannot_admit_bootstrap_egress(bundle,mutation):
+    _,b,_=bundle;calls=[]
+    def runner(args,**kw):
+        calls.append(args)
+        if args[:2]==['inspect','--type']:
+            row=json.loads(fake_network(b,args))
+            if args[-1]=='none':
+                if mutation=='driver':row['driver']='bridge'
+                if mutation=='name':row['name']='host'
+                if mutation=='internal':row['internal']=True
+                if mutation=='ipv6':row['ipv6']=True
+                if mutation=='identity':row['id']='invalid'
+            return canonical_bytes(row)
+        role=next(k for k,v in b.services.items() if v.container_id==args[-1]);row=fake_inspection(b,role)
+        if role=='gateway-files':
+            if mutation=='bootstrap-mode':row['network_mode']='host'
+            if mutation=='extra-attachment':row['networks']+=' '+network_name(b.instance,2)+':'+b.instance.networks[2]
+            if mutation=='foreign-none-id':row['networks']='none:'+'f'*64
+        return canonical_bytes(row)
+    with pytest.raises(PermissionError):ForwardRecovery(b,runner=runner,clock=lambda:1000).prove_namespace(b.instance,b.services)
+    assert all(args[0]=='inspect' for args in calls)
+
+def test_actual_created_and_exited_null_driver_metadata():
+    import subprocess,uuid
+    from oracle_brain.hosting.forward_recovery import META_TEMPLATE,NETWORK_TEMPLATE
+    name='oracle-null-network-test-'+uuid.uuid4().hex
+    image='postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297'
+    try:
+        subprocess.run(['docker','create','--name',name,'--network','none',image,'/bin/true'],check=True,stdout=subprocess.DEVNULL,timeout=20)
+        builtin=json.loads(subprocess.check_output(['docker','inspect','--type','network','--format',NETWORK_TEMPLATE,'none'],timeout=5))
+        assert builtin=={'id':builtin['id'],'name':'none','driver':'null','internal':False,'ipv6':False}
+        created=json.loads(subprocess.check_output(['docker','inspect','--format',META_TEMPLATE,name],timeout=5))
+        assert created['state']=='created' and created['network_mode']=='none' and created['networks'].strip()=='none:'
+        subprocess.run(['docker','start','-a',name],check=True,stdout=subprocess.DEVNULL,timeout=20)
+        exited=json.loads(subprocess.check_output(['docker','inspect','--format',META_TEMPLATE,name],timeout=5))
+        assert exited['state']=='exited' and exited['network_mode']=='none' and exited['networks'].strip()=='none:'+builtin['id']
+    finally:
+        subprocess.run(['docker','rm','-f','-v',name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
