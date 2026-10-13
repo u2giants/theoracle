@@ -3,7 +3,7 @@
 // oracle2.appointments. Fails closed when ORACLE2_DATABASE_URL is missing —
 // a real-data journey never runs on memory grants.
 
-import postgres from 'postgres';
+import { pilotPostgres } from '@/lib/oracle2-postgres';
 
 export type PilotScope = 'review' | 'confirm';
 
@@ -20,7 +20,7 @@ function sql() {
   if (!url) {
     throw new Error('ORACLE2_DATABASE_URL is required for store-backed authority');
   }
-  return postgres(url, { max: 1, connect_timeout: 5 });
+  return pilotPostgres(url);
 }
 
 const HAS_AUTHORITY_SQL = `

@@ -36,11 +36,14 @@ def main(argv=None):
     context.load_cert_chain(root/'worker'/'server.crt',root/'worker'/'server.key')
     body=json.dumps({'job_id':str(uuid4()),'runtime_hash':marker['runtime_hash'],'admission_hash':'2'*64,
                      'nonce':str(uuid4()),'expires_at':int(time.time())+30},sort_keys=True,separators=(',',':')).encode()
-    signature=hmac.new((root/'worker'/'hmac-key').read_bytes(),body,hashlib.sha256).hexdigest()
-    with context.wrap_socket(socket.create_connection(('127.0.0.1',port),timeout=5),server_hostname='gateway') as sock:
-        raw=b'POST /v1/jobs/admit HTTP/1.0\r\nHost: gateway\r\nContent-Type: application/json\r\nContent-Length: '+str(len(body)).encode()+b'\r\nX-Oracle-Job-Signature: '+signature.encode()+b'\r\n\r\n'+body
-        sock.sendall(raw);reply=sock.recv(4096)
-        assert reply.startswith(b'HTTP/1.0 403')
+    for request_path in ('/v1/jobs/admit','/v1/jobs/result'):
+        opaque=json.loads(body);opaque['nonce']=str(uuid4())
+        body=json.dumps(opaque,sort_keys=True,separators=(',',':')).encode()
+        signature=hmac.new((root/'worker'/'hmac-key').read_bytes(),b'POST\n'+request_path.encode()+b'\n'+body,hashlib.sha256).hexdigest()
+        with context.wrap_socket(socket.create_connection(('127.0.0.1',port),timeout=5),server_hostname='gateway') as sock:
+            raw=b'POST '+request_path.encode()+b' HTTP/1.0\r\nHost: gateway\r\nContent-Type: application/json\r\nContent-Length: '+str(len(body)).encode()+b'\r\nX-Oracle-Job-Signature: '+signature.encode()+b'\r\n\r\n'+body
+            sock.sendall(raw);reply=sock.recv(4096)
+            assert reply.startswith(b'HTTP/1.0 403')
     checks['valid_worker_unregistered_job_denied']=True
     no_cert=ssl.create_default_context(cafile=str(root/'worker'/'ca.crt'))
     try:
@@ -67,9 +70,9 @@ print(json.dumps({'metadata_tls_verified':True,'private_reads_writes_denied':Tru
     executor_code='''import pathlib,psycopg,json,socket,redis
 url=pathlib.Path('/run/oracle-auth/database-url').read_text().strip()
 with psycopg.connect(url) as conn:
- assert conn.execute('SELECT current_user').fetchone()[0]=='oracle_synthetic_executor'
+ assert conn.execute('SELECT current_user,session_user').fetchone()==('oracle2_documentary_executor','oracle_synthetic_executor')
  assert conn.pgconn.ssl_in_use is True
- assert conn.execute("SELECT marker FROM oracle2.synthetic_hosting_marker").fetchone()[0]=='invented-local-only'
+ assert conn.execute("SELECT * FROM oracle2.hosting_source_runtime_binding()").fetchone() is not None
 graph=pathlib.Path('/run/oracle-auth/graph-url').read_text().strip()
 assert redis.Redis.from_url(graph).ping()
 for host,port in [('1.1.1.1',443),('100.66.37.58',8000),('100.66.37.58',22),('2606:4700:4700::1111',443),(CONFIRMED,6379)]:

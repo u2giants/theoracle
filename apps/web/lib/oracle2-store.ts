@@ -2,7 +2,7 @@
 // Replaces the S03 in-memory maps for the preview journey so confirmation is
 // transactional and evidence is durable. Role: oracle2_pilot_web (not admin).
 
-import postgres from 'postgres';
+import { pilotPostgres } from '@/lib/oracle2-postgres';
 import type { TransactionSql } from 'postgres';
 import { randomUUID } from 'crypto';
 import type { DraftConnection, SourceBlock } from '@/lib/oracle2-client';
@@ -48,7 +48,7 @@ function client() {
   if (!url) {
     throw new Error('ORACLE2_DATABASE_URL is required for the journey store');
   }
-  return postgres(url, { max: 1, connect_timeout: 5 });
+  return pilotPostgres(url);
 }
 
 /** jsonb may round-trip as a string when a prior writer double-encoded it. */

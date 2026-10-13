@@ -11,6 +11,7 @@ import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable
+from contextlib import AbstractContextManager
 from uuid import UUID
 
 
@@ -61,6 +62,19 @@ def parse_job(body: bytes, *, now: int) -> OpaqueJob:
     if type(expiry) is not int or not now < expiry <= now + 120:
         raise GatewayDenied("expired or excessive lease")
     return OpaqueJob(**obj)
+
+
+def signature_message(method: str, path: str, body: bytes) -> bytes:
+    if method != 'POST' or path not in {'/v1/jobs/admit','/v1/jobs/result'}:
+        raise GatewayDenied('fixed signature purpose required')
+    return method.encode()+b'\n'+path.encode()+b'\n'+body
+
+
+@dataclass(frozen=True)
+class ResultLease:
+    status: int
+    body: bytes
+    before_write: Callable[[], None]
 
 
 def server_tls(*, certfile: str, keyfile: str, cafile: str) -> ssl.SSLContext:
@@ -125,13 +139,14 @@ class OpaqueGateway(MutualTLSServer):
     def __init__(self, address: tuple[str, int], *, tls: ssl.SSLContext,
                  worker_uri: str, signing_key: bytes,
                  admit: Callable[[OpaqueJob, str], None],
-                 clock: Callable[[], float] = time.time):
+                 clock: Callable[[], float] = time.time,
+                 result: Callable[[OpaqueJob, str], AbstractContextManager[ResultLease]] | None = None):
         if tls.verify_mode != ssl.CERT_REQUIRED or len(signing_key) < 32:
             raise GatewayDenied("mutual TLS and strong job authentication required")
         if not worker_uri.startswith("spiffe://oracle/") or not callable(admit):
             raise GatewayDenied("bound worker and custody callback required")
         self.worker_uri, self.signing_key = worker_uri, signing_key
-        self.admit, self.clock = admit, clock
+        self.admit, self.clock, self.result = admit, clock, result
         super().__init__(address, _Handler, tls=tls)
 
 
@@ -160,35 +175,54 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self.connection.settimeout(5)
-        if self.path != "/v1/jobs/admit":
+        if self.path not in {"/v1/jobs/admit", "/v1/jobs/result"}:
             return self._reply(404)
         if self.headers.get("Transfer-Encoding") is not None:
-            return self._reply(400)
+            return self._reply(403 if self.path=="/v1/jobs/result" else 400)
         lengths = self.headers.get_all("Content-Length", [])
         if len(lengths) != 1 or not lengths[0].isdigit():
-            return self._reply(400)
+            return self._reply(403 if self.path=="/v1/jobs/result" else 400)
         length = int(lengths[0])
         if not 0 < length <= 2048:
-            return self._reply(413)
+            return self._reply(403 if self.path=="/v1/jobs/result" else 413)
         if self.headers.get_content_type() != "application/json":
-            return self._reply(415)
+            return self._reply(403 if self.path=="/v1/jobs/result" else 415)
         signatures = self.headers.get_all("X-Oracle-Job-Signature", [])
         if len(signatures) != 1:
             return self._reply(403)
         body = self.rfile.read(length)
         if len(body) != length:
-            return self._reply(400)
+            return self._reply(403 if self.path=="/v1/jobs/result" else 400)
         server: OpaqueGateway = self.server
         certificate = self.connection.getpeercert()
         uris = [value for kind, value in certificate.get("subjectAltName", ()) if kind == "URI"]
-        signature = hmac.new(server.signing_key, body, hashlib.sha256).hexdigest()
+        signature = hmac.new(server.signing_key, signature_message("POST",self.path,body), hashlib.sha256).hexdigest()
         if uris != [server.worker_uri] or not hmac.compare_digest(signature, signatures[0]):
             return self._reply(403)
         try:
             job = parse_job(body, now=int(server.clock()))
+            if self.path == '/v1/jobs/result':
+                if server.result is None: raise GatewayDenied('result authority unavailable')
+                deadline=time.monotonic()+5
+                with server.result(job,server.worker_uri) as lease:
+                    if (not isinstance(lease,ResultLease) or lease.status not in {200,202}
+                            or not isinstance(lease.body,bytes) or len(lease.body)>131072):
+                        raise GatewayDenied('bounded result lease required')
+                    lease.before_write()
+                    if server.clock()>=job.expires_at or time.monotonic()>=deadline:
+                        raise GatewayDenied('result lease expired')
+                    self.connection.settimeout(max(.001,deadline-time.monotonic()))
+                    response=(f'HTTP/1.0 {lease.status} OK\r\nContent-Type: application/json\r\n'
+                              f'Content-Length: {len(lease.body)}\r\nCache-Control: no-store\r\n\r\n').encode()+lease.body
+                    self._result_started=True
+                    self.connection.sendall(response)
+                return
             server.admit(job, server.worker_uri)
         except Exception:
             # Callback failure, revoke, drift and unavailable custody fail closed.
+            if getattr(self,'_result_started',False):
+                self.close_connection=True
+                return
             return self._reply(403)
         receipt = json.dumps({"job_id": job.job_id, "request_hash": hashlib.sha256(body).hexdigest(),
                               "state": "accepted"}, separators=(",", ":")).encode()

@@ -52,5 +52,14 @@ async def execute_view(database_url:str,run_id:UUID,*,ledger,projection,syntheti
     if len(canonical_bytes(pack))>QueryPlan.model_validate_json(json.dumps(query)).max_bytes:
         pack={"state":"coverage_incomplete","artifact_hash":pack["artifact_hash"],"reason":"Complete documentary and review evidence exceeds this view budget."}
     with psycopg.connect(database_url) as conn:
-        conn.execute("UPDATE oracle2.operating_view_runs SET status='completed',pack=%s WHERE run_id=%s AND actor_id=%s AND expires_at>now()",(Jsonb(pack),run_id,actor))
+        # Legacy invented fixtures lack the dedicated hosting schema. Private
+        # serving always requires the fixed identity-bound completion boundary.
+        available=conn.execute("SELECT CASE WHEN to_regprocedure('oracle2.hosting_runtime_registered()') IS NULL THEN false ELSE has_function_privilege(current_user,to_regprocedure('oracle2.hosting_runtime_registered()'),'EXECUTE') END").fetchone()[0]
+        registered=available and conn.execute("SELECT oracle2.hosting_runtime_registered()").fetchone()[0]
+        if registered:
+            conn.execute("SELECT oracle2.complete_documentary_view(%s,%s)",(run_id,canonical_bytes(pack)))
+        elif synthetic:
+            conn.execute("UPDATE oracle2.operating_view_runs SET status='completed',pack=%s WHERE run_id=%s AND actor_id=%s AND expires_at>now()",(Jsonb(pack),run_id,actor))
+        else:
+            raise PermissionError('registered documentary completion required')
     return {'state':'completed','run_id':str(run_id)}

@@ -92,7 +92,7 @@ def test_current_source_rechecks_fail_closed(tmp_path,monkeypatch,change):
   def fetchone(self):return self.value
   def fetchall(self):return self.value
  class Connection:
-  info=type('Info',(),{'ssl_in_use':True})()
+  pgconn=type('Libpq',(),{'ssl_in_use':True})()
   def __enter__(self):return self
   def __exit__(self,*args):pass
   def execute(self,sql,args=None):

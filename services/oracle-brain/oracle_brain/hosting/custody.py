@@ -4,6 +4,7 @@ The independently issued registry is mounted read-only. Updating/revoking it is
 an explicit coordinator operation. Executor rechecks actual ledger authority;
 ingress acceptance alone never grants source access or reports live completion.
 """
+from contextlib import contextmanager
 import fcntl
 import hashlib
 import json
@@ -35,7 +36,7 @@ class FileCustody:
         if spool.is_symlink() or not spool.is_dir():
             raise PermissionError('dedicated opaque spool unavailable')
 
-    def resolve(self, job, worker_uri):
+    def resolve(self, job, worker_uri, *, result=False):
         record=_load(self.registry)
         if digest(record)!=self.trusted_registry_hash:
             raise PermissionError('custody registry changed without admission')
@@ -50,7 +51,8 @@ class FileCustody:
             raise PermissionError('fixed external policy schema required')
         if set(record['allowed_release_hashes'])!=set(self.job_authority.allowed_release_hashes):
             raise PermissionError('external release policy differs from authority')
-        row=self.job_authority.resolve(job.job_id,job.runtime_hash,job.admission_hash)
+        resolver=self.job_authority.resolve_result if result else self.job_authority.resolve
+        row=resolver(job.job_id,job.runtime_hash,job.admission_hash)
         allowed={'job_id','workspace_id','run_id','scope','admission_hash','active','expires_at'}
         if set(row)!=allowed or row.get('scope') not in {'documentary-view','finding-review','semantic-verification'}:
             raise PermissionError('only admitted documentary job scopes allowed')
@@ -73,6 +75,34 @@ class FileCustody:
             with self.job_authority.hold(row):
                 self._enqueue(job)
 
+    @contextmanager
+    def result(self,job,worker_uri):
+        # Both purposes consume the same durable nonce namespace before result authority.
+        with (self.spool/'.custody-lock').open('a+b') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            self._consume_nonce(job)
+            row=self.resolve(job,worker_uri,result=True)
+        from .gateway import ResultLease
+        with self.job_authority.hold_result(row,job) as lease:
+            def before_write():
+                # Externally pinned policy may be revoked without a database write.
+                current=_load(self.registry)
+                if (digest(current)!=self.trusted_registry_hash or current.get('active') is not True
+                        or current.get('expires_at',0)<=self.clock() or job.expires_at<=self.clock()):
+                    raise PermissionError('result custody revoked')
+                lease.before_write()
+            yield ResultLease(lease.status,lease.body,before_write)
+
+    def _consume_nonce(self,job):
+        marker=self.spool/('nonce-'+job.nonce)
+        fd=os.open(marker,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        try:
+            os.write(fd,hashlib.sha256(json.dumps(job.__dict__,sort_keys=True).encode()).hexdigest().encode());os.fsync(fd)
+        finally: os.close(fd)
+        directory=os.open(self.spool,os.O_RDONLY|os.O_DIRECTORY)
+        try: os.fsync(directory)
+        finally: os.close(directory)
+
     def _enqueue(self,job):
         marker=self.spool/('nonce-'+job.nonce)
         pending=self.spool/(job.job_id+'.pending')
@@ -81,11 +111,8 @@ class FileCustody:
             raise PermissionError('job or nonce already consumed')
         # Persist opaque immutable request, never private input/result text.
         payload=json.dumps(job.__dict__,sort_keys=True,separators=(',',':')).encode()
-        nonce_fd=os.open(marker,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
-        try:
-            os.write(nonce_fd,hashlib.sha256(payload).hexdigest().encode());os.fsync(nonce_fd)
-        finally:os.close(nonce_fd)
-        fd=os.open(pending,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+        self._consume_nonce(job)
+        fd=os.open(pending,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         try:os.write(fd,payload);os.fsync(fd)
         finally:os.close(fd)
         directory=os.open(self.spool,os.O_RDONLY|os.O_DIRECTORY)
