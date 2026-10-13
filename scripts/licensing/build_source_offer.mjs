@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const destination = resolve(root, 'apps/web/.source-offer');
-const nativeBuildInputs = ['dev/oracle2/hosting/Dockerfile','.dockerignore'];
+const nativeBuildInputs = ['dev/oracle2/hosting/Dockerfile','.dockerignore','dev/oracle2/analytics/Dockerfile','dev/oracle2/analytics/Dockerfile.dockerignore','dev/oracle2/analytics/requirements.lock'];
 const mandatory = ['LICENSE','SOURCE_OFFER.md','THIRD_PARTY_NOTICES.md','README.md','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','turbo.json','vercel.json','services/oracle-brain/uv.lock',...nativeBuildInputs];
 const codeRoots = ['apps/','packages/','services/','scripts/','migrations/','.github/','dev/oracle2/','evals/oracle2/workflow/'];
 const special = ['docs/deployment.md','docs/configuration.md','docs/development.md'];

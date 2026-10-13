@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
 GENERATOR = ROOT / 'scripts/licensing/build_source_offer.mjs'
-MANDATORY = ('LICENSE','SOURCE_OFFER.md','THIRD_PARTY_NOTICES.md','README.md','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','turbo.json','vercel.json','dev/oracle2/hosting/Dockerfile','.dockerignore')
+MANDATORY = ('LICENSE','SOURCE_OFFER.md','THIRD_PARTY_NOTICES.md','README.md','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','turbo.json','vercel.json','dev/oracle2/hosting/Dockerfile','.dockerignore','dev/oracle2/analytics/Dockerfile','dev/oracle2/analytics/Dockerfile.dockerignore','dev/oracle2/analytics/requirements.lock')
 
 def repo(tmp_path):
     (tmp_path/'.gitignore').write_text('apps/web/.source-offer/\n')
@@ -32,6 +32,9 @@ def test_real_archive_is_deterministic_and_excludes_private_data(tmp_path):
     assert 'services/oracle-brain/uv.lock' in extracted
     assert extracted['dev/oracle2/hosting/Dockerfile']==(root/'dev/oracle2/hosting/Dockerfile').read_bytes()
     assert extracted['.dockerignore']==(root/'.dockerignore').read_bytes()
+    for name in ('Dockerfile','Dockerfile.dockerignore','requirements.lock'):
+        path='dev/oracle2/analytics/'+name
+        assert extracted[path]==(root/path).read_bytes()
     assert 'Dockerfile' not in extracted  # Unrelated root file remains outside the offer.
     assert data['revision']==subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
     assert data['source_hash']==hashlib.sha256(json.dumps(data['files'],separators=(',',':')).encode()).hexdigest()
