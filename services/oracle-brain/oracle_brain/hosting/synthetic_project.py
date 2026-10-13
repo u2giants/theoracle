@@ -44,6 +44,9 @@ async def project(config,review_hash):
 def main():
     try:
         config=settings('executor','/run/oracle-auth/settings.json',os.environ.get('ORACLE_HOSTING_SETTINGS_SHA256',''))
+        if config.get('synthetic_scenario')=='public-invented-forward-v2':
+            from .forward_recovery import arm_native_budget
+            arm_native_budget(config,seconds=80)
         review=protected_file('/run/oracle-auth/synthetic-review-hash').decode().strip()
         print(json.dumps(asyncio.run(project(config,review)),sort_keys=True))
     except Exception:

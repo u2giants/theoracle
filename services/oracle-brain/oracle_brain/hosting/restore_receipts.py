@@ -45,6 +45,8 @@ class Instance(Record):
     ledger_volume: str
     spool_volume: str
     blob_volume: str
+    candidate_volume: str
+    confirmed_volume: str
     networks: list[str]=Field(min_length=6,max_length=6)
     isolation_receipt_sha256: str=Field(pattern=HEX)
 
@@ -52,7 +54,7 @@ class Instance(Record):
 class Service(Record):
     container_id: str=Field(pattern=HEX)
     image: str
-    state: Literal['running','exited']
+    state: Literal['running','exited','created']
     exit_code: int
 
 
@@ -141,12 +143,12 @@ def require(value,reason):
 
 def validate_instance(instance):
     require(instance.application!=OLD_APP and instance.project=='oracle-native-'+instance.application,'old or mismatched instance denied')
-    volumes=[instance.ledger_volume,instance.spool_volume,instance.blob_volume]
-    require(len(set(volumes))==3 and all(re.fullmatch(re.escape(instance.project)+r'_[a-z0-9_-]{1,80}',v) for v in volumes),'foreign or shared volume denied')
+    volumes=[instance.ledger_volume,instance.spool_volume,instance.blob_volume,instance.candidate_volume,instance.confirmed_volume]
+    require(len(set(volumes))==5 and all(re.fullmatch(re.escape(instance.project)+r'_[a-z0-9_-]{1,80}',v) for v in volumes),'foreign or shared volume denied')
     require(len(set(instance.networks))==6 and all(re.fullmatch(HEX,n) for n in instance.networks),'network closure differs')
 
 
-def validate_services(services,image):
+def validate_services(services,image,*,restored=False):
     vendor={'ledger':'postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297',
             'candidate':'falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d',
             'confirmed':'falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d'}
@@ -154,7 +156,7 @@ def validate_services(services,image):
     require(len({s.container_id for s in services.values()})==18,'container identity duplicated')
     for role,s in services.items():
         require(s.image==vendor.get(role,image),'role image drift denied')
-        require(s.exit_code==0 and s.state==('running' if role in RUNNING else 'exited'),'role completion/availability unproved')
+        require(s.exit_code==0 and (s.state==('running' if role in RUNNING else 'exited') or (restored and role=='ledger-init' and s.state=='created')),'role completion/availability unproved')
 
 
 def validate_backup(receipt):
@@ -253,11 +255,11 @@ def verify_bundle(root,receipt):
 def validate_restore(backup,restored):
     _,manifest,release,_=validate_backup(backup)
     require(restored.backup_manifest_sha256==digest(backup.model_dump()),'restore backup association differs')
-    validate_instance(restored.instance);validate_services(restored.services,backup.image)
+    validate_instance(restored.instance);validate_services(restored.services,backup.image,restored=True)
     require(restored.instance.ledger_container==restored.services['ledger'].container_id,'restored ledger physical identity differs')
     require(restored.instance.application!=backup.instance.application and restored.instance.ledger_container!=backup.instance.ledger_container,'same instance restore denied')
     require(set(restored.instance.networks).isdisjoint(backup.instance.networks),'original network reused')
-    require({restored.instance.ledger_volume,restored.instance.spool_volume,restored.instance.blob_volume}.isdisjoint({backup.instance.ledger_volume,backup.instance.spool_volume,backup.instance.blob_volume}),'original volume reused')
+    require({restored.instance.ledger_volume,restored.instance.spool_volume,restored.instance.blob_volume,restored.instance.candidate_volume,restored.instance.confirmed_volume}.isdisjoint({backup.instance.ledger_volume,backup.instance.spool_volume,backup.instance.blob_volume,backup.instance.candidate_volume,backup.instance.confirmed_volume}),'original volume reused')
     require({s.container_id for s in restored.services.values()}.isdisjoint({s.container_id for s in backup.services.values()}),'original container reused')
     require(restored.authority==backup.authority and backup.captured_at<=restored.restored_at<backup.authority.expires_at,'renewed or expired restore authority denied')
     require(restored.files==backup.files and restored.result_sha256==backup.result_sha256 and restored.job_id==backup.job_id,'restored bytes/result/job differ')

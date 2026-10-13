@@ -62,7 +62,38 @@ consistency; only independently admitted live observations can establish proof.
    bridge remains a separate source/runtime gate. No old-core cutover or
    retirement is authorized by any of these receipts.
 
-Necessary source gap: the existing seed compiler joins role creation and
-fixture data. A reviewed restore role compiler must reuse its validated fixed
-role statements without repeating source appointments/pending-job insertion.
-The executable operations above have not been implemented or admitted here.
+The separate compile_restore_roles compiler reuses the original fixed parameter
+validation and login statements, creates only the scoped NOLOGIN groups and
+logins transactionally, and never emits source/appointment/job data. Expired
+original parameters and arbitrary verifiers refuse. Legacy seed byte parity
+remains a verification gate.
+The executable source is now implemented in forward_recovery.py, with bounded
+Docker metadata/dump/TOC/corpus/empty-restore/SDK commands and separate result-only
+mTLS delivery. No live operation is admitted by this source. Source quiescence
+and new platform resource creation remain separate root-owned actions. Restore
+target ledger-init stays CREATED and never runs its seed; gateway/executor and
+projector stay unstarted until their separately checked recovery phases.
+Candidate and confirmed volume identities are pinned and distinct too. Capture
+derives real dump/corpus seals into a new immutable manifest rather than requiring
+an impossible precomputed PostgreSQL archive digest. Every command rechecks the
+unchanged original authority before and after it.
+
+
+## Output custody and real operation budgets
+
+Capture output must be a fresh oracle-forward-capture-* leaf directly beneath
+existing TMPDIR coordinator custody. Every ancestor opens with nofollow, the
+parent must already be owned0700, and both leaf and manifest must be absent
+before any Docker command. Existing parent/foreign modes are never changed.
+New nested output directories and0600 files are created via anchored dirfds;
+parent inode movement refuses output. Failed partial custody is retained.
+
+Every command requires its fixed timeout plus15seconds remaining in the
+original authority before dispatch, with freshness rechecked afterward.
+PostgreSQL commands use an independently probed in-container timeout executable
+with TERM/kill-after budgets and bounded server statement/lock settings.
+The pinned isolated PostgreSQL fixture qualified the required-s/-k flags.
+Forward projector/reload entrypoints also arm fixed OS process alarms only
+under the unchanged sealed original policy; legacy entrypoints stay unchanged.
+These guards do not assert that Docker client timeout stops daemon work or
+remove partial graphs/role creation/captures. There is no retry or renewal.
