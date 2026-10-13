@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "profile": "oracle-native-alternate-serialization-v1",
+  "action": "offline-private-capture-transform",
+  "purpose": "native-alternate-serialization",
+  "input_schema": "DoclingDocument:1.10.0",
+  "decoder_basis": "docling-core:2.99.0",
+  "admission": "genuine-independent-native-dual-scoped-completion-and-one-use-consumption",
+  "preapproval_capture_byte_reads": 0,
+  "input_bytes": 268435456,
+  "output_bytes": 268435456,
+  "workers": 1,
+  "threads": 2,
+  "address_space_bytes": 8589934592,
+  "cpu_seconds": 120,
+  "wall_seconds": 180,
+  "network": "none",
+  "source_qualified": false,
+  "ledger_adopted": false,
+  "company_generation_authorized": false
+}
