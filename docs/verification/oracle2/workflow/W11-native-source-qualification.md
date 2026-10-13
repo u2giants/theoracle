@@ -40,3 +40,16 @@ verifies nearest-neighbor results and saves/reloads the index with identical
 results under the runtime UID. A publisher result still requires actual
 non-builder-host execution of the immutable artifact before installation.
 Upstream source: https://github.com/nmslib/hnswlib/blob/v0.8.0/setup.py#L67-L111.
+
+`coolify-native-preflight.yaml` provides a separately reviewed normal-platform
+one-shot proof of that exact immutable artifact on the deployment host before
+credential issuance. It runs only the public invented ANN qualification, under
+UID10001, network-none, read-only root, dropped capabilities, no-new-privileges,
+CPU1/1GiB/128PIDs/core0 and a bounded writable tmpfs. No ports, volumes, stores,
+credentials, provider inputs or data admission. The app-owned preflight uses the
+existing empty inert app and has a distinct Compose namespace; its exact
+managed configuration/start and later full-runtime configuration require
+separate source/input action approvals. Target exit0 plus fixed public receipt
+and actual OCI/resource readback qualify the artifact, not documentary job or
+private/business acceptance. Preserve stopped proof/receipt before any managed
+transition; old failed apps, stores and spent leases remain untouched.
