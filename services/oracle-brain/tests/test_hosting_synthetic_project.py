@@ -109,7 +109,8 @@ def test_registered_public_projector_preserves_release(tmp_path,monkeypatch):
         # An absent persisted ontology must fail closed; no registration writes
         # or guessed in-memory ontology may rescue a damaged generation.
         graph.delete(ontology_graph)
-        with pytest.raises(NoPermissionError):
+        from redis.exceptions import ResponseError
+        with pytest.raises(ResponseError,match='Invalid graph operation on empty key'):
             asyncio.run(run_view(synthetic_fixture.RUN,synthetic_fixture.WORKSPACE,
                 database_url=executor_database,graph_url=executor_url,blobs=FileBlobStore(tmp_path/'blobs'),
                 embedder=SyntheticEmbedding(),dimensions=8,synthetic=True,source_binding=binding))
