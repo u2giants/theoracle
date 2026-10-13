@@ -24,7 +24,7 @@ def main(argv=None):
     # Quiesce the only application writers before recovery capture.
     subprocess.run(['docker','stop',services['gateway']['Id'],services['executor']['Id']],check=True,stdout=subprocess.DEVNULL)
     backups={'containers-before-stop.json':raw}
-    backups['postgres-recovery.sql']=subprocess.check_output(['docker','exec',services['ledger']['Id'],'pg_dumpall','-U','postgres'])
+    backups['postgres-recovery.sql']=subprocess.check_output(['docker','exec',services['ledger']['Id'],'pg_dumpall','-U','oracle_bootstrap'])
     for service in ('candidate','confirmed'):
         backups[service+'-data.tar']=subprocess.check_output(['docker','exec',services[service]['Id'],'tar','-C','/var/lib/falkordb/data','-cf','-','.'])
     recovery=root/'recovery';recovery.mkdir(mode=0o700)

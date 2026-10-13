@@ -98,8 +98,8 @@ def test_actual_identity_or_registry_drift_denies(actual_ledger,field,value):
  with pytest.raises(PermissionError):verify_ledger(url,changed,trusted_registry_hash=digest(changed.model_dump(mode='json')),key_fingerprint=FP,now=datetime.now(timezone.utc))
 
 def test_production_never_accepts_plain_loopback_pg(actual_ledger):
- url,registry,_=actual_ledger;changed=registry.model_copy(update={'transport':'verify-full-tls'})
- with pytest.raises(PermissionError):verify_ledger(url,changed,trusted_registry_hash=digest(changed.model_dump(mode='json')),key_fingerprint=FP,now=datetime.now(timezone.utc))
+ url,registry,_=actual_ledger;changed=registry.model_copy(update={'transport':'verify-full-tls'});url=psycopg.conninfo.make_conninfo(url,sslmode='disable')
+ with pytest.raises((PermissionError,psycopg.OperationalError)):verify_ledger(url,changed,trusted_registry_hash=digest(changed.model_dump(mode='json')),key_fingerprint=FP,now=datetime.now(timezone.utc))
 
 @pytest.mark.parametrize('privilege',['CREATEROLE','private-table-select','billing-update'])
 def test_actual_role_privilege_drift_denies(actual_ledger,privilege):
@@ -322,7 +322,7 @@ def test_actual_transport_durable_wire_precedes_validation_and_settlement(actual
  with pytest.raises(PermissionError):b.dispatch(envelope(j))
  assert calls.count('/chat/completions')==1
 
-@pytest.mark.parametrize('raw,http_error',[(b'not JSON',False),(b'\xffinvalid UTF8',False),(b'{"error":"synthetic HTTP error"}',True),(b'x'*(16*1024*1024+1),False)])
+@pytest.mark.parametrize('raw,http_error',[(b'not JSON',False),(b'\xffinvalid UTF8',False),(b'{"error":"synthetic HTTP error"}',True),(b'x'*(16*1024*1024+1),False)],ids=['malformed-json','invalid-utf8','http-error','oversized'])
 def test_actual_malformed_error_or_oversize_wire_preserved_with_full_hold(actual_ledger,tmp_path,monkeypatch,raw,http_error):
  j=job();b,receipts=broker(actual_ledger,tmp_path,j);calls=real_wire_transport(monkeypatch,paid_raw=raw,http_error=http_error)
  with pytest.raises(RuntimeError):b.dispatch(envelope(j))
@@ -386,3 +386,15 @@ def test_interrupted_http_read_retains_partial_wire_without_known_charge(actual_
  with psycopg.connect(actual_ledger[2]) as conn:
   reserved,actual=conn.execute('SELECT r.reserved_usd,s.actual_usd FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id)').fetchone()
  assert reserved==actual
+
+
+def test_actual_native_ledger_tls_preflight_uses_libpq_and_verified_ca(actual_ledger):
+ import os
+ ca=os.environ.get('ORACLE2_TEST_TLS_ROOT')
+ if not ca:pytest.fail('owned actual TLS fixture CA required')
+ url,registry,_=actual_ledger
+ url=psycopg.conninfo.make_conninfo(url,sslmode='verify-full',sslrootcert=ca)
+ with psycopg.connect(url) as connection:assert connection.pgconn.ssl_in_use is True
+ changed=registry.model_copy(update={'transport':'verify-full-tls'})
+ identity=digest(changed.model_dump(mode='json'))
+ assert verify_ledger(url,changed,trusted_registry_hash=identity,key_fingerprint=FP,now=datetime.now(timezone.utc))==identity
