@@ -55,6 +55,7 @@ def required_public_chain_hashes():
         return hashes
     finally:
         for parent,_,_ in prepared.values():os.close(parent)
+EVENT += ('analytical_associations',)
 
 def parse_options(argv=None):
     parser=argparse.ArgumentParser()
@@ -98,7 +99,7 @@ def main(argv=None):
                 print(completed.stdout[-6000:]);raise RuntimeError('required synthetic gate failed or skipped')
             report['versions']={package:version(package) for package in ('graphrag-sdk','langgraph','pydantic','psycopg')}
             report['head']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
-            tracked=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','services/oracle-brain/oracle_brain/operating_model','services/oracle-brain/tests','scripts/oracle2/verify_workflow_integrity.py','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/validate_analytical_packet.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics'],cwd=ROOT,text=True).splitlines()
+            tracked=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','services/oracle-brain/oracle_brain/operating_model','services/oracle-brain/tests','scripts/oracle2/verify_workflow_integrity.py','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/validate_analytical_packet.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics'],cwd=ROOT,text=True).splitlines()
             hashes={p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in tracked if (ROOT/p).is_file()}
             current_public_hashes=required_public_chain_hashes()
             if current_public_hashes!=public_hashes:raise RuntimeError('required public source changed during tests')

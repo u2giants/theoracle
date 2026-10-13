@@ -1,0 +1,489 @@
+{
+  "schema_version": 1,
+  "scope": "analytical-candidate-source-associations-only",
+  "target": {
+    "python": "CPython3.12",
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "source_manifest_sha256": "8d58e4e293c80622a08252040bb20020f61f08fa86497d1fdf57bc9cd999c4ad",
+  "primary_sources": {
+    "cvxopt_linux_wheels": "https://cvxopt.org/install/",
+    "scipy_bundled_url": "https://raw.githubusercontent.com/scipy/scipy/v1.18.1/LICENSES_bundled.txt",
+    "scipy_bundled_document_sha256": "45b1a2cf4eb57277812fcbca2b6af7d84e98c942a5e4dcc360610f49de16c63f"
+  },
+  "packages": [
+    {
+      "package": "annotated-types",
+      "version": "0.8.0",
+      "sdist_sha256": "13b2beaad985e05e2d6407ee4c4f35590b11f8d693a258a561055cac8f64cab7",
+      "pypi_metadata_url": "https://pypi.org/pypi/annotated-types/0.8.0/json",
+      "pypi_metadata_sha256": "a6e8e5b10c8fd2f596bba53e015cd37f6279fb5cec26ce0c5e9968625be4fefa",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "contourpy",
+      "version": "1.4.0",
+      "sdist_sha256": "20156f5a1ac4f8ce02656e39a61e82164a3d359796dc8026f75b062783d500e1",
+      "pypi_metadata_url": "https://pypi.org/pypi/contourpy/1.4.0/json",
+      "pypi_metadata_sha256": "38b45f9f0cc556a4b2621ae474419bff5ffeb0d01e3582579206af5ff8a5bd3b",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "cvxopt",
+      "version": "1.3.3",
+      "sdist_sha256": "8059cef41f1f115c87bc9b75fec9f86db95e7f0afcf03a52d619ba433e443bcb",
+      "pypi_metadata_url": "https://pypi.org/pypi/cvxopt/1.3.3/json",
+      "pypi_metadata_sha256": "41a8f04d49fb869b98b67c8bf54541dc78153b3aaaa811d28753efe18ea4d24b",
+      "actual_wheel": null,
+      "components": [
+        {
+          "component": "OpenBLAS",
+          "association": null
+        },
+        {
+          "component": "DSDP",
+          "association": null
+        },
+        {
+          "component": "GLPK",
+          "association": null
+        },
+        {
+          "component": "GSL",
+          "association": null
+        },
+        {
+          "component": "FFTW",
+          "association": null
+        }
+      ]
+    },
+    {
+      "package": "cycler",
+      "version": "0.12.1",
+      "sdist_sha256": "88bb128f02ba341da8ef447245a9e138fae777f6a23943da4540077d3601eb1c",
+      "pypi_metadata_url": "https://pypi.org/pypi/cycler/0.12.1/json",
+      "pypi_metadata_sha256": "c4dc853a4b3611f48cfef3e363faeb85c70af63e3d49fe2c64dbe56ab5d688f0",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "fonttools",
+      "version": "4.66.1",
+      "sdist_sha256": "64967c6ddb0d4c610dfd8cb1485981b2d27972ddfb7d4bbbd9e199d2a089c450",
+      "pypi_metadata_url": "https://pypi.org/pypi/fonttools/4.66.1/json",
+      "pypi_metadata_sha256": "6b0790228a44c7f2be7502ddb65410c80d83cf2300c7fc380ddb1f7bfb097481",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "graphviz",
+      "version": "0.21",
+      "sdist_sha256": "20743e7183be82aaaa8ad6c93f8893c923bd6658a04c32ee115edb3c8a835f78",
+      "pypi_metadata_url": "https://pypi.org/pypi/graphviz/0.21/json",
+      "pypi_metadata_sha256": "506c1c12f9bcf246ff07e0462a713b81d3d5981edcae223bdb7add7695bcfbd4",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "iniconfig",
+      "version": "2.3.1",
+      "sdist_sha256": "67f4b9c50da0dedf52af349e7749a80a9057a5031199791b906c3bb3ae878960",
+      "pypi_metadata_url": "https://pypi.org/pypi/iniconfig/2.3.1/json",
+      "pypi_metadata_sha256": "ab4d5df71d2a4f01a0eb418d7809bb22dca3293991a369309f068c07c1471557",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "kiwisolver",
+      "version": "1.5.1",
+      "sdist_sha256": "f1303ef2eec81262a4b708c3e858afe58d7c75ad91c1c05266eda7673369859a",
+      "pypi_metadata_url": "https://pypi.org/pypi/kiwisolver/1.5.1/json",
+      "pypi_metadata_sha256": "9b4053c476b6cd0da61e905cc5cdf4a7309dc0ce17809475e615c5444ade86fe",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "lxml",
+      "version": "6.1.3",
+      "sdist_sha256": "45222d94ddd511536f3b2f7d9deae3b2339b4ce0f075f1ca25703b07cad9dd21",
+      "pypi_metadata_url": "https://pypi.org/pypi/lxml/6.1.3/json",
+      "pypi_metadata_sha256": "1f03dafdc0bd6c308a1e69aff7caef27f6d7c586eadd34e02229703a8541fe61",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "matplotlib",
+      "version": "3.11.2",
+      "sdist_sha256": "cec596316640f2b394b8f0daa0ea61a8eae82d017b620b9f202befb972a59ea4",
+      "pypi_metadata_url": "https://pypi.org/pypi/matplotlib/3.11.2/json",
+      "pypi_metadata_sha256": "5f75d7e3ecb136a2b41d647188dd25f670558870661e0f870aedc76643d20606",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "networkx",
+      "version": "3.7",
+      "sdist_sha256": "fd77a511bd90f39f3d016351345b52cf5319b813bdca01de3f755d3cca62e96a",
+      "pypi_metadata_url": "https://pypi.org/pypi/networkx/3.7/json",
+      "pypi_metadata_sha256": "7f1ed131b5a2e9e53bd980cfce44f80960241c76ea494935c3ec798bed686442",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "numpy",
+      "version": "2.5.4",
+      "sdist_sha256": "9a94cf751c9ad8ebaa835bcd3d40dacf8534ad086b88c38029b65123c7999d2a",
+      "pypi_metadata_url": "https://pypi.org/pypi/numpy/2.5.4/json",
+      "pypi_metadata_sha256": "a42b40d53fac5388e974f21aa1f01d3b47440ad8181fc827b08023bf8ca3cc96",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "packaging",
+      "version": "26.3",
+      "sdist_sha256": "94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79",
+      "pypi_metadata_url": "https://pypi.org/pypi/packaging/26.3/json",
+      "pypi_metadata_sha256": "4f190d2f0b312b3086058cee64ab4333bf3ce67fb78b4c2bdb43899049b29f4d",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "pandas",
+      "version": "3.0.6",
+      "sdist_sha256": "66b07ef7315a31bfe1089cd3d71a7de781c9dca986762d0b4fe7c0ef17465d10",
+      "pypi_metadata_url": "https://pypi.org/pypi/pandas/3.0.6/json",
+      "pypi_metadata_sha256": "ea78ab4387dcc2f27bf36d97007f897e5ba2d31a658c08925bdd9a362375ca2a",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "pillow",
+      "version": "12.3.0",
+      "sdist_sha256": "3b8182a766685eaa002637e28b4ec8d6b18819a0c71f579bf0dbaa5830297cce",
+      "pypi_metadata_url": "https://pypi.org/pypi/pillow/12.3.0/json",
+      "pypi_metadata_sha256": "63159d6013cf20f98ff9caeb8b0b210b7f5877975587f4265397ffb0fd8c72a0",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "pluggy",
+      "version": "1.6.0",
+      "sdist_sha256": "7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3",
+      "pypi_metadata_url": "https://pypi.org/pypi/pluggy/1.6.0/json",
+      "pypi_metadata_sha256": "db23d1227f5870da7538b1e29371d9fc9a93b0499989f8e3ef021fdccd75bc8e",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "pm4py",
+      "version": "2.7.22",
+      "sdist_sha256": "c098cdb0e709f62b4e203181b38dd6f24b7f0491b951c02aa8d32cf6aac03fcb",
+      "pypi_metadata_url": "https://pypi.org/pypi/pm4py/2.7.22/json",
+      "pypi_metadata_sha256": "135f0e006d5afe84c5481c80e107b4ab4cc18b3b0dbf19ff7a475dd5e881c0a5",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "psutil",
+      "version": "7.2.2",
+      "sdist_sha256": "0746f5f8d406af344fd547f1c8daa5f5c33dbc293bb8d6a16d80b4bb88f59372",
+      "pypi_metadata_url": "https://pypi.org/pypi/psutil/7.2.2/json",
+      "pypi_metadata_sha256": "84f9d2597c3c15fe19d1ce069bfdbf25951dc423dc51d67c3979468c029b6415",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "pulp",
+      "version": "3.3.0",
+      "sdist_sha256": "7eb99b9ce7beeb8bbb7ea9d1c919f02f003ab7867e0d1e322f2f2c26dd31c8ba",
+      "pypi_metadata_url": "https://pypi.org/pypi/pulp/3.3.0/json",
+      "pypi_metadata_sha256": "caaf4069fdc72c5e678c6b8ac7f50b9de2931d16b8c80f1a60b9c1fb1e187b02",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "pydantic",
+      "version": "2.13.5",
+      "sdist_sha256": "51a9c5f7b2f8e636f04c6cada605d9b6a3bf1348fdf945a3d8869b19bba0ee08",
+      "pypi_metadata_url": "https://pypi.org/pypi/pydantic/2.13.5/json",
+      "pypi_metadata_sha256": "20a994795e3341324a7da30ae19b815669c2bf1722c5077089cfdc379215009d",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "pydantic-core",
+      "version": "2.46.5",
+      "sdist_sha256": "10416c15b8839ecc4ef4d0885da76da6fd0f67333a0eb8aff6d93c4b8f2910fc",
+      "pypi_metadata_url": "https://pypi.org/pypi/pydantic-core/2.46.5/json",
+      "pypi_metadata_sha256": "6cbd39a49f9c7e2dfc8b96f6955d9b9b275ba6f36cacab0e9a863937e99fd8ac",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "pygments",
+      "version": "2.21.0",
+      "sdist_sha256": "610ca751c9bc2492b38eb9a38a7fbc93edbbb2d7182edaf34e66ae493dee5c8c",
+      "pypi_metadata_url": "https://pypi.org/pypi/pygments/2.21.0/json",
+      "pypi_metadata_sha256": "330104a10adc8a587e3f98f4e207557125ca0c1d489e129334da5acb2b813a03",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "pyparsing",
+      "version": "3.3.3",
+      "sdist_sha256": "928ae7e20211f3b6f3915a72f06a0cfd29ab9d24279dd6346b6b1a7146397d36",
+      "pypi_metadata_url": "https://pypi.org/pypi/pyparsing/3.3.3/json",
+      "pypi_metadata_sha256": "b851d5414eca50b38263f56c00a1fbec80383a26a3ad8e41a204b72cdeee5751",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "pytest",
+      "version": "9.1.1",
+      "sdist_sha256": "1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313",
+      "pypi_metadata_url": "https://pypi.org/pypi/pytest/9.1.1/json",
+      "pypi_metadata_sha256": "8ed48304ba7fd0ae974a041f117487b499d553b40e5ce55a9ece677e946f68dd",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "python-dateutil",
+      "version": "2.9.0.post0",
+      "sdist_sha256": "37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3",
+      "pypi_metadata_url": "https://pypi.org/pypi/python-dateutil/2.9.0.post0/json",
+      "pypi_metadata_sha256": "65747bc111eb972ae6f477f211253f21e25738cb7d894ddb80ddd65f620b58a7",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "pytz",
+      "version": "2026.5",
+      "sdist_sha256": "fa23724b9c486543b9ff54a327ee7569ac83ade54bb9afd0fc18676620401c86",
+      "pypi_metadata_url": "https://pypi.org/pypi/pytz/2026.5/json",
+      "pypi_metadata_sha256": "0b9d5b062b43462cb97adf344fe8dba40c64d6b6c8aac8add71de69b3a2b0a48",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "scipy",
+      "version": "1.18.1",
+      "sdist_sha256": "52c4b7422442aba924d03ad4019852b08a92e64ea187b933135687bfe2747307",
+      "pypi_metadata_url": "https://pypi.org/pypi/scipy/1.18.1/json",
+      "pypi_metadata_sha256": "8fc6948fe40ecc069474738e18405af6cab47eefb2ddce5ac017bf342df5a470",
+      "actual_wheel": null,
+      "components": [
+        {
+          "component": "fast_matrix_market",
+          "association": null
+        },
+        {
+          "component": "pystreambuf",
+          "association": null
+        },
+        {
+          "component": "fast_float",
+          "association": null
+        },
+        {
+          "component": "ryu",
+          "association": null
+        },
+        {
+          "component": "L-BFGS-B",
+          "association": null
+        },
+        {
+          "component": "LAPJVsp",
+          "association": null
+        },
+        {
+          "component": "SuperLU",
+          "association": null
+        },
+        {
+          "component": "ARPACK",
+          "association": null
+        },
+        {
+          "component": "Qhull",
+          "association": null
+        },
+        {
+          "component": "xsf",
+          "association": null
+        },
+        {
+          "component": "pyduccfft",
+          "association": null
+        },
+        {
+          "component": "ducc0",
+          "association": null
+        },
+        {
+          "component": "uarray",
+          "association": null
+        },
+        {
+          "component": "ampgo",
+          "association": null
+        },
+        {
+          "component": "pybind11",
+          "association": null
+        },
+        {
+          "component": "HiGHS",
+          "association": null
+        },
+        {
+          "component": "Boost",
+          "association": null
+        },
+        {
+          "component": "Biasedurn",
+          "association": null
+        },
+        {
+          "component": "UNU.RAN",
+          "association": null
+        },
+        {
+          "component": "NumPy",
+          "association": null
+        },
+        {
+          "component": "array-api-compat",
+          "association": null
+        },
+        {
+          "component": "array-api-extra",
+          "association": null
+        },
+        {
+          "component": "Tempita",
+          "association": null
+        },
+        {
+          "component": "Chebfun",
+          "association": null
+        },
+        {
+          "component": "getLebedevSphere",
+          "association": null
+        },
+        {
+          "component": "prima",
+          "association": null
+        },
+        {
+          "component": "packaging.version",
+          "association": null
+        }
+      ]
+    },
+    {
+      "package": "setuptools",
+      "version": "84.0.0",
+      "sdist_sha256": "f4695c21257f0d9b537ec2692c941d02ee143b7cc1276941349a546573b2ef73",
+      "pypi_metadata_url": "https://pypi.org/pypi/setuptools/84.0.0/json",
+      "pypi_metadata_sha256": "24d07932459261bbf9e66e5cfdebfeba23a977234ab24bf9c3a1df053c53ba21",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "six",
+      "version": "1.17.0",
+      "sdist_sha256": "ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81",
+      "pypi_metadata_url": "https://pypi.org/pypi/six/1.17.0/json",
+      "pypi_metadata_sha256": "d8de39dd52b73048d81a8fd78022ee2bc72f8b568bcf0d88e5d5069c302b1208",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "tqdm",
+      "version": "4.70.1",
+      "sdist_sha256": "cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4",
+      "pypi_metadata_url": "https://pypi.org/pypi/tqdm/4.70.1/json",
+      "pypi_metadata_sha256": "0589819a1bc3437c8f215d95f3f64ff24d602dc6a62598eb8d2e420c8e6a0b25",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "typing-extensions",
+      "version": "4.16.0",
+      "sdist_sha256": "dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5",
+      "pypi_metadata_url": "https://pypi.org/pypi/typing-extensions/4.16.0/json",
+      "pypi_metadata_sha256": "2140da00d62dde967f52d0be0ae28444f1d6a3fe603f52c83c23988c32122d5a",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "typing-inspection",
+      "version": "0.4.4",
+      "sdist_sha256": "547274fa6b0a561ccf549cc9524b999a578e737d015d8709d021f9d0d13bea47",
+      "pypi_metadata_url": "https://pypi.org/pypi/typing-inspection/0.4.4/json",
+      "pypi_metadata_sha256": "0605416f2f37f2df04e45360cf5ce4ca5eeca6d414bb6ddb1ec5a9893c62ac30",
+      "actual_wheel": null,
+      "components": []
+    },
+    {
+      "package": "wheel",
+      "version": "0.48.0",
+      "sdist_sha256": "94800765601e9171bf5d58d066e640662842bcedcbab982b2c90787a2c987322",
+      "pypi_metadata_url": "https://pypi.org/pypi/wheel/0.48.0/json",
+      "pypi_metadata_sha256": "03f655da3a6dd010d9ac41d4771d5d973109cb662a1e10eb9d967535ffd145f8",
+      "actual_wheel": null,
+      "components": []
+    }
+  ],
+  "cbc_binaries": [
+    {
+      "path": "pulp-3.3.0/pulp/solverdir/cbc/linux/arm64/cbc",
+      "sha256": "90e1ee27a969cb2f54a02a2edbe8b1f5e4ba8e2b293e44584d96dbc750ba559b",
+      "actual_build_association": null
+    },
+    {
+      "path": "pulp-3.3.0/pulp/solverdir/cbc/linux/i32/cbc",
+      "sha256": "62911eb74138f5c9b74876f03db6209d8443a9042483343059b57678892ac7c2",
+      "actual_build_association": null
+    },
+    {
+      "path": "pulp-3.3.0/pulp/solverdir/cbc/linux/i64/cbc",
+      "sha256": "2e17077752aa52b06385ad248c9e90bb4f1ce34038c34c94e1012ca6adea5cc7",
+      "actual_build_association": null
+    },
+    {
+      "path": "pulp-3.3.0/pulp/solverdir/cbc/osx/i64/cbc",
+      "sha256": "9eeb33c515945620d89dfc2efef9c6740b559e14a6603153a156c6e288a5765b",
+      "actual_build_association": null
+    },
+    {
+      "path": "pulp-3.3.0/pulp/solverdir/cbc/win/i32/cbc.exe",
+      "sha256": "7d930a6301cf0f0da0d7fdfa94f49d31aec00d6dfde6097e01dbf004111e4fdb",
+      "actual_build_association": null
+    },
+    {
+      "path": "pulp-3.3.0/pulp/solverdir/cbc/win/i64/cbc.exe",
+      "sha256": "fb4642eca630f6263c365975aca7e87917cbe82ed7e6ccb79804e2f1f812419c",
+      "actual_build_association": null
+    }
+  ],
+  "preserved_notice_sha256": {
+    "pulp-3.3.0/LICENSE": "b41bca287571c8ac88dc634f7ccbad0910f5fe42e38fefe1304c3c3b85b94aec",
+    "pulp-3.3.0/pulp/solverdir/cbc/linux/arm64/coin-license.txt": "0076749b626931ea5aaee25ddd5019fbfd96da78243cc0d5bd24fe246500981f",
+    "pulp-3.3.0/pulp/solverdir/cbc/linux/i32/coin-license.txt": "0076749b626931ea5aaee25ddd5019fbfd96da78243cc0d5bd24fe246500981f",
+    "pulp-3.3.0/pulp/solverdir/cbc/linux/i64/coin-license.txt": "0076749b626931ea5aaee25ddd5019fbfd96da78243cc0d5bd24fe246500981f",
+    "pulp-3.3.0/pulp/solverdir/cbc/osx/i64/coin-license.txt": "0076749b626931ea5aaee25ddd5019fbfd96da78243cc0d5bd24fe246500981f",
+    "pulp-3.3.0/pulp/solverdir/cbc/win/i32/coin-license.txt": "0076749b626931ea5aaee25ddd5019fbfd96da78243cc0d5bd24fe246500981f",
+    "pulp-3.3.0/pulp/solverdir/cbc/win/i64/coin-license.txt": "b2cd389435fc11009fae20d53c4b1fdea53dab785b02aa4681d36af02b1a7ace"
+  },
+  "source_qualified": false,
+  "delivery_admitted": false,
+  "product_admission": false,
+  "runtime_qualified": false
+}
