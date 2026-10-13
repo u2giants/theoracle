@@ -1,5 +1,7 @@
 # Exact read-only native hosting preflight
 
+Status: REVIEW_REQUIRED. No execution has occurred.
+
 Owner: Codex chat 01a132aa-596e-7d72-9957-cbabf6a79cf6 on #27/#58.
 Prepared October 12, 2026, 8:56 PM EDT. This requests independent review of precisely one read-only inventory, not installation or credential issuance.
 
@@ -7,7 +9,7 @@ Merged application source: d97b0023c75c2f83c3c6404dbbdaecf2098e26a0. Existing ta
 
 The verbatim retained public operator below is copied byte-for-byte to this session's protected private receipt directory, mode0700, and executed once. Operator SHA256: 4a508f246d2dc2b5372b6071cf91f167aeb164aa839100fa478777b24c89e72f. It validates supplied Docker IDs and runs only two bounded remote commands: `docker network ls --no-trunc --format '{{.ID}}'` and `docker network inspect` followed by validated exact network IDs. It drops secret environment before children, uses no shell locally, disables SSH agent/forwardings/control reuse, keeps the existing password only in a0600 temporary file read through an0700 askpass helper, and deletes only that newly owned temporary credential folder when done. Remote raw output is held in memory and never printed; persisted projection contains only CIDR collision receipts and hashes. No secret values enter arguments, reports or repositories. Failures refuse; no retry or host-key replacement.
 
-Purpose: fresh collision receipt for the eight proposed IPv4/IPv6 ranges172.30.41–44.0/24 and fd42:6f72:6163:41–44::/64. Receipt is preparation only. Docker isolated-mode qualification, exact merged image publication/managed pull, inert Application creation, synthetic issuer/bundle review, platform env installation, deployment and remote acceptance require separate exact-input action review and task gates before mutations.
+Purpose: fresh collision receipt for the eight proposed IPv4/IPv6 ranges 172.30.41–44.0/24 and fd42:6f72:6163:41–44::/64. Receipt is preparation only. Docker isolated-mode qualification, exact merged image publication/managed pull, inert Application creation, synthetic issuer/bundle review, platform env installation, deployment and remote acceptance require separate exact-input action review and task gates before mutations.
 
 Reviewer must state whether this precise read-only inventory is APPROVE, REJECT or BLOCKED; an APPROVE does not authorize any later mutation.
 
@@ -137,4 +139,34 @@ if __name__=='__main__':
         reason=str(error) if isinstance(error,Denied) else 'readonly_inventory_denied'
         print(json.dumps({'read_only':True,'completed':False,'reason':reason}))
         raise SystemExit(1)
+```
+
+## Execution guard and current evidence
+
+The prior Muse verdict approves documentation only and explicitly leaves operational findings gating inventory. This revision resolves them; fresh independent exact-head approval is required for this guarded inventory before execution. The coordinator is the root decision owner (root does not mean Unix UID0). No production mutation action is requested or authorized. The repository deploy action will separately gate Coolify installation; the generic production action is forbidden and will not be used to bypass that managed release route.
+
+The fresh local peer read resolves hetz to100.66.37.58, the exact verified encrypted tailnet peer. The retained ED25519 host-key fingerprint is SHA256:FeonQSuZip/nt3Zd7qXd0QqDqK+Q7B9tq1lubIiCEfg. The guard pins the whole existing known-host file and refuses a DNS/known-host/operator mismatch before opening SSH; no host key is replaced. It compiles the exact hash-checked retained operator bytes, avoiding Markdown transcription, and consumes one exclusive attempt marker before the first remote action. Failure spends the attempt; re-execution needs a new reviewed plan. Reviewers execute no credentialed calls.
+
+The coordinator retains the receipt privately, checks all eight overlap booleans, records its hash/NY activity time on #27/#58, and refuses network creation if any overlap or ambiguity exists. No arbitrary receipt is accepted; exact operator/current inventory provenance is required. Source claims refer to PR96 and completed runs38328410148/38328410081/38328410102/38328410073, merge d97b0023c75c2f83c3c6404dbbdaecf2098e26a0 and completed main runs38329175387/38329175369/38329175392/38329175860. Main artifact sha256:73a2ca47c6525dc35ed41cc6592660d5ba59136d878efce436fe9a66bfd29813 was downloaded and locally pulled; image revision label matches exact merged source. Managed-server pull remains unproved. No tests or source claims imply private/company acceptance.
+
+Fresh reviewer request: APPROVE, REJECT or BLOCKED this exact guard plus retained operator for the single read-only inventory, with any operational blockers stated explicitly. Approval of documentation alone is insufficient.
+
+```python
+import hashlib,os,stat,socket
+from pathlib import Path
+root=Path(__file__).resolve().parent
+operator=root/'hetz_password_readonly.py'
+expected='4a508f246d2dc2b5372b6071cf91f167aeb164aa839100fa478777b24c89e72f'
+def protected(path,mode):
+ s=path.lstat()
+ if path.is_symlink() or s.st_uid!=os.getuid() or stat.S_IMODE(s.st_mode)!=mode:raise PermissionError('protected exact input required')
+protected(root,0o700);protected(operator,0o600)
+raw=operator.read_bytes()
+if hashlib.sha256(raw).hexdigest()!=expected:raise PermissionError('operator drift')
+known=Path.home()/'.ssh/known_hosts'
+if known.is_symlink() or hashlib.sha256(known.read_bytes()).hexdigest()!='9657aee7f8edd5aeebc454953ab4562edfb3101838a4aa2807014166eeb3870a':raise PermissionError('known-host drift')
+if set(x[4][0] for x in socket.getaddrinfo('hetz',22))!={'100.66.37.58'}:raise PermissionError('peer DNS drift')
+fd=os.open(root/'attempt.claim',os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
+os.write(fd,expected.encode());os.fsync(fd);os.close(fd)
+exec(compile(raw,str(operator),'exec'),{'__name__':'__main__','__file__':str(operator)})
 ```
