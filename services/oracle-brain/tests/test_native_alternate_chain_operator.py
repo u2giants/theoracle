@@ -115,3 +115,35 @@ def test_worker_current_uid_is_authoritative_before_any_read():
  c,v,reads,writes,reader=v2();c['inputs'][15]['stat']['uid']=os.getuid()+1
  with pytest.raises(ValueError,match='private unique inode'):run(c,reader,writes)
  assert not reads and not writes
+
+@pytest.mark.parametrize('mutation',['atime','dev','ino','uid','gid','mode','nlink','size','mtime_ns','ctime_ns'])
+def test_actual_main_input_reader_integrity_fields(tmp_path,monkeypatch,mutation):
+    from types import SimpleNamespace
+    path=tmp_path/'invented-input';path.write_bytes(b'invented native bytes');path.chmod(0o600)
+    os.utime(path,(1000000000,1000000000));before=path.stat()
+    declared=dict(dev=before.st_dev,ino=before.st_ino,size=before.st_size,mode=0o600,
+                  uid=before.st_uid,mtime_ns=before.st_mtime_ns,ctime_ns=before.st_ctime_ns)
+    real_open=os.open;real_fstat=os.fstat;calls=[]
+    def opened(name,flags,*args,**kwargs):
+        assert name=='/input/c0' and flags & os.O_NOFOLLOW
+        return real_open(path,flags,*args,**kwargs)
+    def observed(fd):
+        info=real_fstat(fd);calls.append(info)
+        if len(calls)==1:return info
+        fields={name:getattr(info,name) for name in ('st_dev','st_ino','st_uid','st_gid','st_mode','st_nlink','st_size','st_mtime_ns','st_ctime_ns','st_atime')}
+        if mutation=='atime':fields['st_atime']=before.st_atime+100
+        else:fields['st_'+mutation]+=1
+        return SimpleNamespace(**fields)
+    monkeypatch.setattr(op.os,'open',opened);monkeypatch.setattr(op.os,'fstat',observed)
+    if mutation=='atime':assert op.read_mounted_input({'inputs':[{'stat':declared}]},0,8*1024**2)==b'invented native bytes'
+    else:
+        with pytest.raises(ValueError,match='input changed during read'):
+            op.read_mounted_input({'inputs':[{'stat':declared}]},0,8*1024**2)
+    assert len(calls)==2
+
+def test_actual_main_reader_rejects_hardlinked_input_before_read(tmp_path,monkeypatch):
+    path=tmp_path/'input';path.write_bytes(b'invented');path.chmod(0o600);os.link(path,tmp_path/'alias')
+    info=path.stat();declared=dict(dev=info.st_dev,ino=info.st_ino,size=info.st_size,mode=0o600,uid=info.st_uid,mtime_ns=info.st_mtime_ns,ctime_ns=info.st_ctime_ns)
+    real_open=os.open
+    monkeypatch.setattr(op.os,'open',lambda name,flags:real_open(path,flags))
+    with pytest.raises(ValueError,match='input stat moved'):op.read_mounted_input({'inputs':[{'stat':declared}]},0,8*1024**2)

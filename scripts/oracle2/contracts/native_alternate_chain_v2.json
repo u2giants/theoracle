@@ -8,7 +8,7 @@
   ],
   "entrypoint": "scripts/oracle2/native_alternate_chain_operator.py",
   "code_sha256": {
-    "scripts/oracle2/native_alternate_chain_operator.py": "1aaeac368c8ab4734fc7c9b464b7266a24f5c068fd95a42787484811d2a9d5d2",
+    "scripts/oracle2/native_alternate_chain_operator.py": "d2a3a0076fcf46fdd7a3ddb3fbc00583b0811b2fd5b61fd81cafd346f97b0d5b",
     "services/oracle-brain/oracle_brain/operating_model/native_page_chain.py": "3fa0bdbcb1eb6a18d87627364acdbc9a0506012e9cb30d94ac5bfadf19242099",
     "services/oracle-brain/oracle_brain/operating_model/native_page_alternate.py": "84cbcb3119bb6858915bd4538d5527e5ba6a716ab76a914c6db27f0e4202291d"
   },

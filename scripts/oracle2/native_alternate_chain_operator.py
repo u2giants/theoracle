@@ -122,6 +122,25 @@ def unique_control(pairs):
     return out
 
 
+def stable_input_stat(info):
+    # Access time may change because of this very read; all integrity fields stay bound.
+    return (info.st_dev,info.st_ino,info.st_uid,info.st_gid,info.st_mode,info.st_nlink,
+            info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+
+
+def read_mounted_input(control,index,maximum):
+    fd=os.open('/input/c'+str(index),os.O_RDONLY|os.O_NOFOLLOW)
+    with os.fdopen(fd,'rb') as stream:
+        info=os.fstat(stream.fileno())
+        actual=dict(dev=info.st_dev,ino=info.st_ino,size=info.st_size,mode=stat.S_IMODE(info.st_mode),
+                    uid=info.st_uid,mtime_ns=info.st_mtime_ns,ctime_ns=info.st_ctime_ns)
+        require(stat.S_ISREG(info.st_mode) and info.st_nlink==1
+                and actual==control['inputs'][index]['stat'],'input stat moved')
+        result=stream.read(maximum)
+        require(stable_input_stat(os.fstat(stream.fileno()))==stable_input_stat(info),'input changed during read')
+        return result
+
+
 def main():
     # The actual native guardian is the admission boundary, not a caller flag.
     # Namespace/mount/code checks provide defense in depth. An OS owner can
@@ -143,12 +162,7 @@ def main():
     decoder=load_decoder('/code/native_alternate.py')
     chain=load_decoder('/code/native_chain.py',expected=CHAIN_SHA256)
     require(control['census']==decoder.HISTORY,'fixed historical source pins required')
-    def reader(index,maximum):
-        fd=os.open('/input/c'+str(index),os.O_RDONLY|os.O_NOFOLLOW)
-        with os.fdopen(fd,'rb') as stream:
-            info=os.fstat(stream.fileno());actual=dict(dev=info.st_dev,ino=info.st_ino,size=info.st_size,mode=stat.S_IMODE(info.st_mode),uid=info.st_uid,mtime_ns=info.st_mtime_ns,ctime_ns=info.st_ctime_ns)
-            require(stat.S_ISREG(info.st_mode) and actual==control['inputs'][index]['stat'],'input stat moved')
-            result=stream.read(maximum);require(os.fstat(stream.fileno())==info,'input changed during read');return result
+    def reader(index,maximum):return read_mounted_input(control,index,maximum)
     def writer(index,payload):
         fd=os.open('/output/c'+str(index)+'.json',os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'wb') as out:out.write(payload);out.flush();os.fsync(out.fileno())
