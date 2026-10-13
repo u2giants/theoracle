@@ -78,7 +78,7 @@ def test_native_kinds_and_unlocated_text_are_never_silently_lost():
 
 @pytest.mark.parametrize('damage', ['page_hole', 'page_mismatch', 'text_id', 'table_id',
     'duplicate_cell', 'bad_cell_bounds', 'reversed_span', 'bool_span', 'missing_text',
-    'nonfinite_box', 'unknown_caption', 'duplicate_page_provenance', 'missing_schema', 'schema_version'])
+    'nonfinite_box', 'unknown_caption', 'missing_schema', 'schema_version'])
 def test_malformed_native_records_refuse(damage):
     doc = fixture()
     cell = doc['tables'][0]['data']['table_cells'][0]
@@ -93,7 +93,6 @@ def test_malformed_native_records_refuse(damage):
     elif damage == 'missing_text': del doc['texts'][0]['text']
     elif damage == 'nonfinite_box': doc['texts'][0]['prov'][0]['bbox']['l'] = float('nan')
     elif damage == 'unknown_caption': doc['pictures'][0]['captions'] = [{'$ref': '#/texts/8'}]
-    elif damage == 'duplicate_page_provenance': doc['texts'][0]['prov'].append(provenance())
     elif damage == 'missing_schema': del doc['schema_name']
     elif damage == 'schema_version': doc['version'] = '1.11.0'
     with pytest.raises(ValueError): run(doc)
@@ -110,3 +109,13 @@ def test_table_caption_and_empty_table_are_explicit_metadata():
     assert run(doc)['segments'][2]['caption_refs'] == [{'$ref': '#/texts/1'}]
     doc['tables'][0]['data']['table_cells'] = []
     assert any(g['reason'] == 'table_without_cells' for g in run(doc)['gaps'])
+
+
+def test_multiple_native_provenances_on_same_page_preserved_without_duplicate_text():
+    doc = fixture()
+    doc['texts'][0]['prov'].append(provenance())
+    doc['tables'][0]['prov'].append(provenance())
+    result = run(doc)
+    assert len(result['segments']) == 4
+    assert len(result['segments'][0]['native_provenance']) == 3
+    assert len(result['segments'][2]['native_provenance']) == 2

@@ -35,19 +35,17 @@ def _provenance(item, pages):
     values = item.get('prov')
     if not isinstance(values, list):
         raise ValueError('native provenance list required')
-    seen = set()
     for value in values:
         if not isinstance(value, dict):
             raise ValueError('invalid native provenance')
         page = _integer(value.get('page_no'), 1)
         span = value.get('charspan')
-        if page not in pages or page in seen or not isinstance(span, list) or len(span) != 2:
+        if page not in pages or not isinstance(span, list) or len(span) != 2:
             raise ValueError('invalid native page/span')
         _integer(span[0]); _integer(span[1])
         if span[1] < span[0]:
             raise ValueError('reversed native span')
         _bbox(value.get('bbox'))
-        seen.add(page)
     return deepcopy(values)
 
 
@@ -99,10 +97,11 @@ def serialize_docling(document, *, original_hash, capture_hash):
             raise ValueError('native text required')
         if not prov:
             gaps.append(dict(native_identity=ref, reason='text_without_page_provenance'))
-        for p in prov:
-            items.append((p['page_no'], 0, index, (), value,
+        item_pages = sorted({p['page_no'] for p in prov})
+        for page in item_pages:
+            items.append((page, 0, index, (), value,
                           dict(native_identity=ref, kind='native_text_region',
-                               native_provenance=prov, representation_duplication=len(prov) > 1)))
+                               native_provenance=prov, representation_duplication=len(item_pages) > 1)))
     for index, item in enumerate(document.get('tables', [])):
         ref = f'#/tables/{index}'
         prov = _provenance(item, pages)
@@ -123,7 +122,7 @@ def serialize_docling(document, *, original_hash, capture_hash):
             seen.add(address)
             if cell.get('bbox') is not None:
                 _bbox(cell['bbox'])
-            if len(prov) != 1 or 'ref' in cell:
+            if len({p['page_no'] for p in prov}) != 1 or 'ref' in cell:
                 gaps.append(dict(native_identity=(ref, *address),
                     native_provenance=prov, cell_metadata=deepcopy(cell), caption_refs=caption_refs,
                     reason='rich_cell_not_supported' if 'ref' in cell else 'cell_parent_not_single_page'))
