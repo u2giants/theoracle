@@ -60,13 +60,19 @@ helper, Docker Compose version, runtime labels, application or network state.
 
 ## Execution blockers remain explicit
 
-The prospective compiler checks remaining lifetime at compile time and fixes
-230 seconds of timeout/kill-after budgets, with a 300-second remaining-lifetime
-requirement. That is **not a platform queue-time expiry guarantee**. Before any
-execution, the coordinator must obtain an independently reviewed mechanism that
-checks original expiry at actual helper execution and before each command, plus
-actual helper timeout/Compose-wait qualification. No replay or implicit retry is
-admitted after partial execution. Source-only packets cannot self-attest any gate.
+Every phase has an exact fixed `sh -c` dual absolute-epoch guard, assembled only
+from strict integer original-authority and separately genuine reviewer-action
+lease expiries. Before first create both must retain more than300 seconds;
+later phases require their fixed command timeout plus5-second kill budget and
+15-second safety. Queue delay expires either guard before the phase dispatches.
+No caller script, expression, clock override, eval, retry or renewal is admitted.
+
+The compiler remains **NONAUTHORIZING**: root must independently prove report
+identity and genuine current action lease association, one-use execution, and
+actual helper sh/date/test/timeout/Compose-wait/pinned PHP-regex capability.
+Pinned Coolify permits single-quoted script literals via its published regex;
+PHP runtime is unavailable in the local qualification. Root owns actual platform
+qualification. The fixed literal cannot self-attest reviewer authority.
 
 ## Local qualification
 
@@ -75,6 +81,7 @@ paths/roles, old/foreign/near-expiry refusal, unchanged normal Compose and all18
 service contracts. Real local Docker Compose proves a failed one-shot makes
 `wait` fail before store start. Two new networkless local PostgreSQL instances
 prove empty-target observation, roles-only initialization, custom dump restore,
-forward marker and invented result-byte parity, and unchanged job count. Their
+forward marker and invented result-byte parity, and unchanged job count. Actual shell-prefix checks prove valid guards pass and
+queued original-authority expiry or expired reviewer lease refuses dispatch. Their
 owned containers/anonymous volumes are removed. These are local source proofs;
 no hosted/bootstrap/result/browser/reliability acceptance is asserted.

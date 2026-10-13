@@ -11,8 +11,13 @@ APP='newrestoreapplication0001';SOURCE='c'*40;IMAGE='ghcr.io/u2giants/theoracle-
 def test_exact_create_and_all_chained_commands_bound_to_same_platform_paths():
     create=create_packet('project','environment',SOURCE,IMAGE)
     assert create['body']['instant_deploy'] is False and create['body']['docker_compose_location'].endswith('coolify-forward-restore.yaml')
-    packet=stage_packet(APP,SOURCE,IMAGE,2000,now=1000)
-    commands=packet['body']['docker_compose_custom_start_command'].split(' && ')
+    packet=stage_packet(APP,SOURCE,IMAGE,2000,2000,'e'*64,now=1000)
+    import re
+    raw=packet['body']['docker_compose_custom_start_command']
+    guards=re.findall(r"/bin/sh -c 'test [0-9]+ -gt \$\(/bin/date \+%s\) && test [0-9]+ -gt \$\(/bin/date \+%s\)'",raw)
+    assert len(guards)==4
+    commands=re.split(r"/bin/sh -c 'test [0-9]+ -gt \$\(/bin/date \+%s\) && test [0-9]+ -gt \$\(/bin/date \+%s\)' && ",raw)[1:]
+    commands=[x.removesuffix(' && ') for x in commands]
     assert len(commands)==4
     for command in commands:
         assert '--project-directory /data/coolify/applications/'+APP in command
@@ -28,11 +33,11 @@ def test_exact_create_and_all_chained_commands_bound_to_same_platform_paths():
 
 @pytest.mark.parametrize('app',["../../foreign",'x; reboot','vhmcdkdk23dgvjvcvhyhcjzd','x'*41,''])
 def test_foreign_paths_commands_old_app_denied(app):
-    with pytest.raises(PermissionError):stage_packet(app,SOURCE,IMAGE,2000,now=1000)
+    with pytest.raises(PermissionError):stage_packet(app,SOURCE,IMAGE,2000,2000,'e'*64,now=1000)
 
 @pytest.mark.parametrize('expiry',[1000,1300,1299])
 def test_original_lifetime_boundary_denied(expiry):
-    with pytest.raises(PermissionError):stage_packet(APP,SOURCE,IMAGE,expiry,now=1000)
+    with pytest.raises(PermissionError):stage_packet(APP,SOURCE,IMAGE,expiry,2000,'e'*64,now=1000)
 
 def test_restore_compose_preserves_all18_and_never_mounts_or_starts_seed():
     original=yaml.safe_load((HOSTING/'coolify-synthetic.yaml').read_text());restore=yaml.safe_load((HOSTING/'coolify-forward-restore.yaml').read_text())
@@ -80,7 +85,9 @@ def test_actual_local_empty_postgres_custom_dump_roles_only_restore(tmp_path):
             ready=False
             for _ in range(30):
                 p=subprocess.run(['docker','exec',name,'pg_isready','-U','oracle_bootstrap','-d','oracle_synthetic'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=3)
-                if p.returncode==0:ready=True;break
+                if p.returncode==0:
+                    pid=subprocess.run(['docker','exec',name,'cat','/proc/1/comm'],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=3)
+                    if pid.returncode==0 and pid.stdout.strip()==b'postgres':ready=True;break
                 time.sleep(.2)
             assert ready
         source,target=names
@@ -100,3 +107,27 @@ def test_actual_local_empty_postgres_custom_dump_roles_only_restore(tmp_path):
     finally:
         for name in names:
             subprocess.run(['docker','rm','-f','-v',name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=30)
+
+@pytest.mark.parametrize('field,value',[('authority',True),('authority','2000'),('reviewer',True),('reviewer',0),('reviewer',1300),('report','not-a-report')])
+def test_no_caller_script_or_invalid_expiry_lease(field,value):
+    args={'authority':2000,'reviewer':2000,'report':'e'*64};args[field]=value
+    with pytest.raises(PermissionError):stage_packet(APP,SOURCE,IMAGE,args['authority'],args['reviewer'],args['report'],now=1000)
+
+
+def test_actual_execution_prefix_valid_expired_and_queue_delay_never_dispatches(tmp_path):
+    import re,time
+    epoch=int(time.time())
+    valid=stage_packet(APP,SOURCE,IMAGE,epoch+1000,epoch+1000,'e'*64,now=epoch)
+    guards=re.findall(r"/bin/sh -c 'test [0-9]+ -gt \$\(/bin/date \+%s\) && test [0-9]+ -gt \$\(/bin/date \+%s\)'",valid['body']['docker_compose_custom_start_command'])
+    assert len(guards)==4
+    for guard in guards:assert subprocess.run(['sh','-c',guard],timeout=2).returncode==0
+    delayed=stage_packet(APP,SOURCE,IMAGE,epoch+301,epoch+1000,'e'*64,now=epoch)
+    first=re.findall(r"/bin/sh -c 'test [0-9]+ -gt \$\(/bin/date \+%s\) && test [0-9]+ -gt \$\(/bin/date \+%s\)'",delayed['body']['docker_compose_custom_start_command'])[0]
+    time.sleep(2)
+    marker=tmp_path/'must-not-dispatch'
+    result=subprocess.run(['sh','-c',first+' && touch '+str(marker)],timeout=2)
+    assert result.returncode!=0 and not marker.exists()
+    # Separately expired review lease fails even with unchanged live authority.
+    review_expired="/bin/sh -c 'test "+str(epoch+1000)+" -gt $(/bin/date +%s) && test 1 -gt $(/bin/date +%s)'"
+    assert subprocess.run(['sh','-c',review_expired+' && touch '+str(marker)],timeout=2).returncode!=0 and not marker.exists()
+    assert valid['authorizing'] is False
