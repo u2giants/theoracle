@@ -33,6 +33,7 @@ export function NativeAcceptanceWorkspace(){
       <button className="rounded border px-4 py-2 disabled:opacity-50" disabled={busy||attempted||!signedIn} onClick={()=>void act('POST')}>Run invented test</button>
       <button className="rounded border px-4 py-2 disabled:opacity-50" disabled={busy||!signedIn} onClick={()=>void act('GET')}>Read result</button>
     </div>
+    <a className="underline" href="/api/consultant/native-acceptance/source">Download corresponding source</a>
     <p role="status" aria-live="polite">{status}</p>
     {hash&&<p className="break-all">Result fingerprint: {hash}</p>}
     {result&&<pre className="overflow-auto whitespace-pre-wrap rounded border p-4" aria-label="Invented native result">{result}</pre>}

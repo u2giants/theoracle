@@ -1,8 +1,9 @@
+import { nativeRequestOrigin } from '@/lib/native-acceptance';
 import { createNativeSession, authorizeNativeRequest, destroyNativeSession, nativeCookie, clearNativeCookie } from '@/lib/native-browser-auth';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 const denied=(status:number)=>Response.json({error:'Hosted invented-data sign-in unavailable'},{status,headers:{'Cache-Control':'no-store'}});
-function sameOrigin(req:Request){return req.headers.get('origin')===new URL(req.url).origin&&req.headers.get('sec-fetch-site')!=='cross-site';}
+const sameOrigin=nativeRequestOrigin;
 export async function POST(req:Request){
   try{
     if(!sameOrigin(req)||req.headers.get('content-type')!=='application/json'||req.headers.get('transfer-encoding'))return denied(400);

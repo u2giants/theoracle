@@ -53,7 +53,7 @@ def test_real_native_metadata_login_source_read_session(tmp_path):
         (tmp_path/'worker.ext').write_text('subjectAltName=URI:'+scenario.worker_uri+'\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=clientAuth\n')
         openssl('x509','-req','-in','worker.csr','-CA','ca.pem','-CAkey','ca.key','-CAcreateserial','-out','worker.pem','-days','1','-extfile','worker.ext')
         cert=pin('client.crt',(tmp_path/'worker.pem').read_bytes());key=pin('client.key',(tmp_path/'worker.key').read_bytes());serverca=pin('server-ca',(tmp_path/'ca.pem').read_bytes());hmacpin=pin('hmac',b'public-invented-fixed-key-'*3)
-        settings={'schema_version':1,'purpose':'public-invented-native-browser','namespace':'invented-native-source-role','hostname':'gateway','origin':'https://gateway:8443',
+        settings={'schema_version':1,'purpose':'public-invented-native-browser','namespace':'invented-native-source-role','hostname':'gateway','origin':'https://gateway:8443','public_page_origin':'https://native.example.test',
           'actor_id':str(scenario.actor),'workspace_id':str(scenario.workspace),'job_id':str(scenario.run),'runtime_hash':params['runtime_hash'],
           'admission_hash':release.documentary_gate_hash,'release_hash':release.content_hash(),'permission_hash':release.permission_digest,'worker_uri':scenario.worker_uri,
           'source_authority_expires_at':int(expires.timestamp()),'worker_permit_expires_at':int(expires.timestamp()),'job_expires_at':int(expires.timestamp()),
