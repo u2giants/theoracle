@@ -27,6 +27,8 @@ def test_router_and_external_network_interpolate_same_app_identity():
     source=(HOSTING/'coolify-synthetic.yaml').read_text()
     names=set(re.findall(r'\$\{([A-Z0-9_]+)',source))
     env={**os.environ,**{n:'invented-placeholder' for n in names}}
+    # CI's local stack identity must not override the managed YAML namespace.
+    env.pop('COMPOSE_PROJECT_NAME',None)
     env.update(ORACLE_LEDGER_IPV4_SUBNET='172.30.42.0/24',ORACLE_LEDGER_IPV6_SUBNET='fd42:6f72:6163:42::/64',ORACLE_HOSTING_IMAGE='ghcr.io/u2giants/theoracle-native@sha256:'+'a'*64,COOLIFY_RESOURCE_UUID='syntheticownedapp',ORACLE_GATEWAY_HOST='oracle-native-acceptance.178.156.180.212.sslip.io')
     result=subprocess.run(['docker','compose','-f',str(HOSTING/'coolify-synthetic.yaml'),'config','--format','json'],env=env,capture_output=True,check=True)
     config=json.loads(result.stdout)
