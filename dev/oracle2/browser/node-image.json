@@ -1,0 +1,10 @@
+{
+  "schema_version":1,
+  "registry":"https://registry-1.docker.io/v2/library/node/",
+  "tag":"24.21.0-bookworm-slim",
+  "index_sha256":"d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20",
+  "linux_amd64_manifest_sha256":"51b1100cc2a83d370c6a60952e3f2989c8a43159d0e38586e090f3b3326efefd",
+  "config_sha256":"470015c1ab1577c19efce2e80cdad4afd9c682cf8f4dcf3dccae5abfd9113397",
+  "node_version":"24.21.0",
+  "association":"Anonymous official registry responses, each raw response hashed; selected manifest linux/amd64 and config NODE_VERSION verified. This records public build input, not a deployed artifact."
+}

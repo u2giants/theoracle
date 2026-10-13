@@ -1,0 +1,71 @@
+name: Oracle invented native browser candidate image
+on:
+  pull_request:
+    branches: [main]
+    paths: ['apps/web/**','packages/**','scripts/licensing/**','dev/oracle2/browser/**','pnpm-lock.yaml','package.json','.github/workflows/oracle-native-browser-image.yml']
+  push:
+    branches: [main]
+    paths: ['apps/web/**','packages/**','scripts/licensing/**','dev/oracle2/browser/**','pnpm-lock.yaml','package.json','.github/workflows/oracle-native-browser-image.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: oracle-native-browser-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Verify fixed runtime denial boundary
+        run: node --test dev/oracle2/browser/runtime.test.mjs dev/oracle2/browser/ingress.test.mjs
+      - name: Build candidate for isolated source rehearsal
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dev/oracle2/browser/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: oracle-native-browser:source-candidate
+          build-args: REVISION=${{ github.sha }}
+          provenance: false
+          sbom: false
+      - name: Verify actual standalone purpose boundary without authority or network
+        env:
+          ORACLE_NATIVE_BROWSER_REHEARSAL_DIGEST: ${{ steps.build.outputs.digest }}
+        run: node dev/oracle2/browser/standalone-smoke.mjs
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish verified-source candidate from merged main; no deployment
+        id: image
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: dev/oracle2/browser/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/u2giants/theoracle-native-browser:sha-${{ github.sha }}
+          build-args: REVISION=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+      - name: Record candidate identity
+        run: |
+          printf '%s\n' '${{ steps.image.outputs.digest || steps.build.outputs.digest }}' > native-browser-candidate-digest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oracle-native-browser-candidate-${{ github.sha }}
+          path: native-browser-candidate-digest.txt

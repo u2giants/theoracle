@@ -15,8 +15,23 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { nativeRequestAllowed, nativeForwardingAllowed, readStaticManifest } from './lib/native-browser-runtime.mjs';
 
 export async function proxy(request: NextRequest) {
+  // Candidate-only server boundary precedes all retained Supabase/company code.
+  // Every ordinary Vercel deployment keeps the existing path when flag is absent.
+  if(process.env.ORACLE2_NATIVE_BROWSER_ONLY!==undefined){
+    try{
+      if(['x-middleware-subrequest','x-invoke-path','x-invoke-query','x-matched-path','x-now-route-matches','x-nextjs-data'].some(key=>request.headers.has(key)))return new NextResponse('Unavailable',{status:404,headers:{'Cache-Control':'no-store'}});
+      if(!nativeForwardingAllowed(request.headers.get('host'),request.headers.get('x-forwarded-proto'),request.headers.get('x-forwarded-host'),request.headers.get('forwarded'),process.env))return new NextResponse('Unavailable',{status:404,headers:{'Cache-Control':'no-store'}});
+      if(!nativeRequestAllowed(request.url,request.method,request.headers.get('host'),process.env,readStaticManifest()))
+        return new NextResponse('Unavailable',{status:404,headers:{'Cache-Control':'no-store'}});
+      return NextResponse.next({request});
+    }catch{return new NextResponse('Unavailable',{status:503,headers:{'Cache-Control':'no-store'}});}
+  }
+  // Preserve the original matcher exclusions for ordinary deployments.
+  if(/^\/(?:_next\/(?:static|image)|favicon\.ico|robots\.txt|sitemap\.xml)/.test(request.nextUrl.pathname)
+    ||/\.(?:svg|png|jpg|jpeg|gif|webp)$/.test(request.nextUrl.pathname))return NextResponse.next({request});
   // Start with a clean pass-through response.
   let supabaseResponse = NextResponse.next({ request });
 
@@ -60,6 +75,7 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    '/:path*',
     /*
      * Match every path EXCEPT:
      *  - _next/static  (Next.js build assets)

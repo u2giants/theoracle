@@ -1,0 +1,17 @@
+{
+  "schema_version":1,"purpose":"public-invented-native-browser",
+  "source_revision":null,"candidate_ghcr_digest":null,"installed_image_digest":null,
+  "review_report_hash":null,"current_gate_receipt_hash":null,
+  "dedicated_https_hostname":null,"certificate_dns_and_expiry_receipt_hash":null,
+  "companion_container_id":null,"browser_uid":10001,
+  "network_ids":{"dedicated_ingress":null,"existing_isolated_ledger":null},
+  "network_membership_receipt_hash":null,"ledger_internal_verified":false,
+  "gateway_dns_tls_receipt_hash":null,"ledger_dns_tls_receipt_hash":null,
+  "host_published_ports":[],"networks_exactly_ingress_and_ledger_verified":false,
+  "credential_volume_readonly_verified":false,"credential_volume_shared_with_core":false,
+  "no_company_provider_admin_environment_verified":false,
+  "original_18_core_contract_receipt_hash":null,"original_18_core_preserved_verified":false,
+  "sealed_settings_hash":null,"purpose_session_live_receipt_hash":null,
+  "native_roundtrip_live_receipt_hash":null,"denied_route_live_receipt_hash":null,
+  "acceptance_admitted":false,"live_acceptance":false
+}

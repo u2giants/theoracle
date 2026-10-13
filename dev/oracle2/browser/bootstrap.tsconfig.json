@@ -1,0 +1,9 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "module":"ESNext","moduleResolution":"Bundler","allowJs":true,"checkJs":false,
+    "noEmit":false,"incremental":false,"rootDir":"../../../apps/web/lib",
+    "outDir":"../../../apps/web/.next/native-browser-bootstrap","types":["node"]
+  },
+  "include":["../../../apps/web/lib/native-browser-boot.ts","../../../apps/web/lib/native-browser-runtime.mjs"]
+}

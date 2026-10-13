@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
 GENERATOR = ROOT / 'scripts/licensing/build_source_offer.mjs'
-MANDATORY = ('LICENSE','SOURCE_OFFER.md','THIRD_PARTY_NOTICES.md','README.md','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','turbo.json','vercel.json','dev/oracle2/hosting/Dockerfile','.dockerignore','dev/oracle2/analytics/Dockerfile','dev/oracle2/analytics/Dockerfile.dockerignore','dev/oracle2/analytics/requirements.lock')
+MANDATORY = ('dev/oracle2/browser/Dockerfile','dev/oracle2/browser/Dockerfile.dockerignore','LICENSE','SOURCE_OFFER.md','THIRD_PARTY_NOTICES.md','README.md','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','turbo.json','vercel.json','dev/oracle2/hosting/Dockerfile','.dockerignore','dev/oracle2/analytics/Dockerfile','dev/oracle2/analytics/Dockerfile.dockerignore','dev/oracle2/analytics/requirements.lock')
 
 def repo(tmp_path):
     (tmp_path/'.gitignore').write_text('apps/web/.source-offer/\n')
@@ -16,7 +16,7 @@ def repo(tmp_path):
         path.write_text('{}\n' if name.endswith('.json') else 'fixture\n')
     (tmp_path/'scripts/licensing').mkdir(parents=True); (tmp_path/'scripts/licensing/build_source_offer.mjs').write_text(GENERATOR.read_text())
     (tmp_path/'services/oracle-brain').mkdir(parents=True); (tmp_path/'services/oracle-brain/uv.lock').write_text('fixture lock\n')
-    (tmp_path/'apps/web').mkdir(parents=True); (tmp_path/'apps/web/app.ts').write_text('export const fixture = true;\n'); (tmp_path/'Dockerfile').write_text('FROM scratch\n'); (tmp_path/'uv.lock').write_text('private fixture\n')
+    (tmp_path/'apps/web').mkdir(parents=True); (tmp_path/'apps/web/app.ts').write_text('export const fixture = true;\n'); (tmp_path/'apps/web/proof.d.mts').write_text('export const publicType: string;\n'); (tmp_path/'Dockerfile').write_text('FROM scratch\n'); (tmp_path/'uv.lock').write_text('private fixture\n')
     (tmp_path/'.env.local').write_text('secret\n'); (tmp_path/'uploads').mkdir(); (tmp_path/'uploads/private.txt').write_text('secret\n')
     def git(*args): return subprocess.run(['git',*args],cwd=tmp_path,check=True,capture_output=True,text=True)
     git('init','-q'); git('config','user.email','test@example.com'); git('config','user.name','Test'); git('add','-A'); git('commit','-qm','fixture'); return tmp_path, git
@@ -34,6 +34,10 @@ def test_real_archive_is_deterministic_and_excludes_private_data(tmp_path):
     assert extracted['.dockerignore']==(root/'.dockerignore').read_bytes()
     for name in ('Dockerfile','Dockerfile.dockerignore','requirements.lock'):
         path='dev/oracle2/analytics/'+name
+        assert extracted[path]==(root/path).read_bytes()
+    assert extracted['apps/web/proof.d.mts']==(root/'apps/web/proof.d.mts').read_bytes()
+    for name in ('Dockerfile','Dockerfile.dockerignore'):
+        path='dev/oracle2/browser/'+name
         assert extracted[path]==(root/path).read_bytes()
     assert 'Dockerfile' not in extracted  # Unrelated root file remains outside the offer.
     assert data['revision']==subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()

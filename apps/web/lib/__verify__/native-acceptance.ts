@@ -7,7 +7,7 @@ import { createServer } from 'node:https';
 import { createHmac } from 'node:crypto';
 import { authorizePilotRequest } from '../oracle2-pilot-auth';
 import { canonical, parseSettings, protectedBytes, checkCertificate, opaqueRequest, signature,
-  nativeTransport, nativeHandlers, sha, type NativeSettings, type NativeDependencies } from '../native-acceptance';
+  nativeRequestOrigin, nativeTransport, nativeHandlers, sha, type NativeSettings, type NativeDependencies } from '../native-acceptance';
 
 const scratch=mkdtempSync(join(tmpdir(),'oracle-native-browser-invented-'));
 const H='a'.repeat(64),actor='00000000-0000-4000-8000-000000000001',workspace='00000000-0000-4000-8000-000000000002';
@@ -29,13 +29,27 @@ try{
   now=Math.floor(Date.now()/1000);
   const pin=(name:string)=>({path:join(scratch,name),sha256:sha(readFileSync(join(scratch,name)))});
   const key=Buffer.alloc(32,7),hmac=file('hmac',key),db=file('database','postgres://not-a-live-credential');
-  const c:NativeSettings={schema_version:1,purpose:'public-invented-native-browser',namespace:'invented-native-browser',hostname:'localhost',origin:'https://localhost',
+  const c:NativeSettings={schema_version:1,purpose:'public-invented-native-browser',namespace:'invented-native-browser',hostname:'localhost',origin:'https://localhost',public_page_origin:'https://native.example.test',
     actor_id:actor,workspace_id:workspace,job_id:'00000000-0000-4000-8000-000000000003',runtime_hash:H,admission_hash:H,release_hash:H,permission_hash:H,
     worker_uri:worker,source_authority_expires_at:now+600,worker_permit_expires_at:now+600,job_expires_at:now+600,
     source_refs:[{schema_version:1,workspace_id:workspace,source_id:'00000000-0000-4000-8000-000000000004',revision:1,original_sha256:H,reading_sha256:H,parser_id:H}],
-    metadata_role:'oracle2_gateway_browser_invented',database_url:db,database_ca:pin('ca.pem'),client_cert:pin('client.pem'),client_key:pin('client.key'),server_ca:pin('ca.pem'),hmac_key:hmac};
+    metadata_login:'oracle_synthetic_gateway',metadata_role:'oracle2_gateway_metadata',database_url:db,database_ca:pin('ca.pem'),client_cert:pin('client.pem'),client_key:pin('client.key'),server_ca:pin('ca.pem'),hmac_key:hmac};
   const raw=Buffer.from(canonical(c)),seal=sha(raw);
   check(()=>assert.deepEqual(parseSettings(raw,seal,now),c));
+  const envKeys=['ORACLE2_NATIVE_BROWSER_ONLY','ORACLE2_NATIVE_BROWSER_PUBLIC_HOST','ORACLE2_NATIVE_ACCEPTANCE_SETTINGS','ORACLE2_NATIVE_ACCEPTANCE_SETTINGS_SHA256'];
+  const old=envKeys.map(k=>process.env[k]);
+  try{
+    process.env.ORACLE2_NATIVE_BROWSER_ONLY='1';process.env.ORACLE2_NATIVE_BROWSER_PUBLIC_HOST='native.example.test';
+    process.env.ORACLE2_NATIVE_ACCEPTANCE_SETTINGS=file('sealed-settings',raw).path;process.env.ORACLE2_NATIVE_ACCEPTANCE_SETTINGS_SHA256=seal;
+    const headers={'host':'native.example.test','x-forwarded-proto':'https','origin':c.public_page_origin};
+    const request=(h:Record<string,string>)=>new Request('http://0.0.0.0:3000/api/consultant/native-acceptance',{method:'POST',headers:h});
+    check(()=>assert(nativeRequestOrigin(request(headers))));
+    check(()=>assert(nativeRequestOrigin(request({...headers,'x-forwarded-host':'native.example.test'}))));
+    for(const bad of ([{'host':'foreign.test'},{'x-forwarded-proto':'https, https'},{'origin':'https://foreign.test'},{'x-forwarded-host':'native.example.test, native.example.test'},{'forwarded':'host=native.example.test'},{'sec-fetch-site':'cross-site'}] as Record<string,string>[]))check(()=>assert(!nativeRequestOrigin(request({...headers,...bad}))));
+    delete process.env.ORACLE2_NATIVE_BROWSER_ONLY;
+    check(()=>assert(nativeRequestOrigin(new Request(c.public_page_origin,{headers:{origin:c.public_page_origin}}))));
+  }finally{envKeys.forEach((k,i)=>{if(old[i]===undefined)delete process.env[k];else process.env[k]=old[i];});}
+
   for(const change of ['seal','duplicate','expiry','foreign_sources','hostname','legacy_hostname','http'])check(()=>{
     let altered=structuredClone(c),bytes=raw,hash=seal;
     if(change==='seal')hash='b'.repeat(64);
