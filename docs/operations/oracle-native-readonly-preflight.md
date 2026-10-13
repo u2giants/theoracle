@@ -7,7 +7,7 @@ Prepared October 12, 2026, 8:56 PM EDT. This requests independent review of prec
 
 Merged application source: d97b0023c75c2f83c3c6404dbbdaecf2098e26a0. Existing target is the known hetz peer, exact SSH target ai@hetz with strict existing known-host verification. Existing ai login password is injected through the protected vault process into ORACLE_HETZ_READ_PASSWORD; reviewers never access the vault. No new credential, provider call, source processing, server edit, container start/stop/removal or network mutation is authorized.
 
-The verbatim retained public operator below is copied byte-for-byte to this session's protected private receipt directory, mode0700, and executed once. Operator SHA256: 4a508f246d2dc2b5372b6071cf91f167aeb164aa839100fa478777b24c89e72f. It validates supplied Docker IDs and runs only two bounded remote commands: `docker network ls --no-trunc --format '{{.ID}}'` and `docker network inspect` followed by validated exact network IDs. It drops secret environment before children, uses no shell locally, disables SSH agent/forwardings/control reuse, keeps the existing password only in a0600 temporary file read through an0700 askpass helper, and deletes only that newly owned temporary credential folder when done. Remote raw output is held in memory and never printed; persisted projection contains only CIDR collision receipts and hashes. No secret values enter arguments, reports or repositories. Failures refuse; no retry or host-key replacement.
+The verbatim retained public operator below is retained with the sole reviewed change that its SSH known-host input is a mode0600 owned snapshot, then copied byte-for-byte to this session's protected private receipt directory, mode0700, and executed once. Operator SHA256: 36a1a171c80635f5343731d705ba292ccb0c21fe457d6fe447998ad944c62050. It validates supplied Docker IDs and runs only two bounded remote commands: `docker network ls --no-trunc --format '{{.ID}}'` and `docker network inspect` followed by validated exact network IDs. It drops secret environment before children, uses no shell locally, disables SSH agent/forwardings/control reuse, keeps the existing password only in a0600 temporary file read through an0700 askpass helper, and deletes only that newly owned temporary credential folder when done. Remote raw output is held in memory and never printed; persisted projection contains only CIDR collision receipts and hashes. No secret values enter arguments, reports or repositories. Failures refuse; no retry or host-key replacement.
 
 Purpose: fresh collision receipt for the eight proposed IPv4/IPv6 ranges 172.30.41–44.0/24 and fd42:6f72:6163:41–44::/64. Receipt is preparation only. Docker isolated-mode qualification, exact merged image publication/managed pull, inert Application creation, synthetic issuer/bundle review, platform env installation, deployment and remote acceptance require separate exact-input action review and task gates before mutations.
 
@@ -106,7 +106,7 @@ def main():
     password=os.environ.pop('ORACLE_HETZ_READ_PASSWORD','')
     if not password or len(password.encode())>65536 or '\x00' in password or '\n' in password or '\r' in password:
         raise Denied('password_field_rejected')
-    known=Path.home()/'.ssh/known_hosts'
+    known=Path(__file__).resolve().parent/'known-hosts.snapshot'
     if not known.is_file():raise Denied('existing_known_hosts_required')
     root=Path(__file__).resolve().parent
     if root.stat().st_mode&0o777!=0o700:raise Denied('protected_receipt_directory_required')
@@ -156,17 +156,22 @@ import hashlib,os,stat,socket
 from pathlib import Path
 root=Path(__file__).resolve().parent
 operator=root/'hetz_password_readonly.py'
-expected='4a508f246d2dc2b5372b6071cf91f167aeb164aa839100fa478777b24c89e72f'
+expected='36a1a171c80635f5343731d705ba292ccb0c21fe457d6fe447998ad944c62050'
 def protected(path,mode):
  s=path.lstat()
  if path.is_symlink() or s.st_uid!=os.getuid() or stat.S_IMODE(s.st_mode)!=mode:raise PermissionError('protected exact input required')
 protected(root,0o700);protected(operator,0o600)
 raw=operator.read_bytes()
 if hashlib.sha256(raw).hexdigest()!=expected:raise PermissionError('operator drift')
-known=Path.home()/'.ssh/known_hosts'
+known=root/'known-hosts.snapshot'
+protected(known,0o600)
 if known.is_symlink() or hashlib.sha256(known.read_bytes()).hexdigest()!='9657aee7f8edd5aeebc454953ab4562edfb3101838a4aa2807014166eeb3870a':raise PermissionError('known-host drift')
 if set(x[4][0] for x in socket.getaddrinfo('hetz',22))!={'100.66.37.58'}:raise PermissionError('peer DNS drift')
 fd=os.open(root/'attempt.claim',os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
 os.write(fd,expected.encode());os.fsync(fd);os.close(fd)
 exec(compile(raw,str(operator),'exec'),{'__name__':'__main__','__file__':str(operator)})
 ```
+
+The known-host snapshot is copied locally from the current protected existing known-host file, verified against its pinned SHA before execution, and never replaced or edited by this plan. Owner/mode checks now cover it. It sits inside the owned0700 session directory and is passed to SSH as its sole host-key file. This closes the unrelated-known-host update race; competing hostile processes with the same OS uid are outside this local boundary.
+
+Coordinator fresh observations, October12,2026,9:00PM EDT: local DNS returned exactly100.66.37.58; the encrypted tailnet census identifies that peer as hetz; existing Coolify GET/version4.4.6 and GET/server inventory authenticate that target and serverUUID onwp0kd7w1w74w9yeotnoihp. The existing SSH ED25519 fingerprint was independently read using ssh-keygen from retained known-hosts and equals the recorded value. Snapshot/operator hashes were computed from exact bytes before review. These are coordinator-verified observations, not reviewer-run credentials. The reviewer should assess whether these exact current observations suffice for this read-only action and issue the action verdict explicitly; unverifiable live behavior must remain unknown. No hosted mutation is implied.
