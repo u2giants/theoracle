@@ -98,11 +98,14 @@ def test_registered_public_projector_preserves_release(tmp_path,monkeypatch):
             status,pack=conn.execute('SELECT status,pack FROM oracle2.operating_view_runs WHERE run_id=%s',(synthetic_fixture.RUN,)).fetchone()
         assert status=='completed' and pack['artifact_hash']==manifest.content_hash
         assert pack['sdk_candidate_count']>0
-        assert asyncio.run(run_view(synthetic_fixture.RUN,synthetic_fixture.WORKSPACE,
-            database_url=executor_database,graph_url=executor_url,blobs=FileBlobStore(tmp_path/'blobs'),
-            embedder=SyntheticEmbedding(),dimensions=8,synthetic=True,source_binding=binding))==outcome
+        # Warm result reads reuse the completed pack; completion authority is
+        # one-use and must not be refreshed by executing the job again.
         with psycopg.connect(executor_database) as conn:
-            assert conn.execute('SELECT pack FROM oracle2.operating_view_runs WHERE run_id=%s',(synthetic_fixture.RUN,)).fetchone()[0]==pack
+            for _ in range(2):
+                assert conn.execute('SELECT pack FROM oracle2.operating_view_runs WHERE run_id=%s',(synthetic_fixture.RUN,)).fetchone()[0]==pack
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                from oracle_brain.operating_model.contracts import canonical_bytes
+                conn.execute('SELECT oracle2.complete_documentary_view(%s,%s)',(synthetic_fixture.RUN,canonical_bytes(pack)))
         # An absent persisted ontology must fail closed; no registration writes
         # or guessed in-memory ontology may rescue a damaged generation.
         graph.delete(ontology_graph)
