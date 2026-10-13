@@ -17,7 +17,7 @@ def instance(app,seed):
     project='oracle-native-'+app
     return {'application':app,'project':project,'ledger_container':format(seed+ROLES.index('ledger'),'064x'),
       'ledger_volume':project+'_ledger-data','spool_volume':project+'_job-spool','blob_volume':project+'_executor-blobs','candidate_volume':project+'_candidate-data','confirmed_volume':project+'_confirmed-data',
-      'networks':[format(seed+100+i,'064x') for i in range(6)],'isolation_receipt_sha256':'b'*64}
+      'networks':[format(seed+100+i,'064x') for i in range(5)],'isolation_receipt_sha256':'b'*64}
 
 
 def services(image,seed):

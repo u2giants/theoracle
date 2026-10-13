@@ -15,7 +15,12 @@ from .runtime import protected_file,settings,sealed_scenario
 from oracle_brain.operating_model.contracts import canonical_bytes,digest
 
 MAX_FILE=512*1024**2
-META_TEMPLATE='{"id":{{json .Id}},"name":{{json .Name}},"application":{{json (index .Config.Labels "coolify.applicationUuid")}},"project":{{json (index .Config.Labels "com.docker.compose.project")}},"role":{{json (index .Config.Labels "com.docker.compose.service")}},"image":{{json .Config.Image}},"state":{{json .State.Status}},"networks":"{{range .NetworkSettings.Networks}}{{.NetworkID}} {{end}}","mounts":"{{range .Mounts}}{{.Type}}:{{.Name}}:{{.Destination}} {{end}}"}'
+META_TEMPLATE='{"id":{{json .Id}},"name":{{json .Name}},"application":{{json (index .Config.Labels "coolify.applicationUuid")}},"project":{{json (index .Config.Labels "com.docker.compose.project")}},"role":{{json (index .Config.Labels "com.docker.compose.service")}},"image":{{json .Config.Image}},"state":{{json .State.Status}},"network_mode":{{json .HostConfig.NetworkMode}},"networks":"{{range $name,$net := .NetworkSettings.Networks}}{{$name}}:{{$net.NetworkID}} {{end}}","mounts":"{{range .Mounts}}{{.Type}}:{{.Name}}:{{.Destination}} {{end}}"}'
+NETWORK_TEMPLATE='{"id":{{json .Id}},"name":{{json .Name}},"driver":{{json .Driver}},"internal":{{json .Internal}},"ipv6":{{json .EnableIPv6}}}'
+NETWORK_ROLES=('ingress','jobs','ledger','candidate','confirmed')
+ROLE_NETWORKS={'ledger':(2,),'candidate':(3,),'confirmed':(4,),'synthetic-project':(2,3),'executor':(1,2,3),'gateway':(0,1,2)}
+def network_name(instance,index):return instance.application if index==0 else instance.project+'_'+NETWORK_ROLES[index]
+
 
 
 class BoundedDocker:
@@ -37,6 +42,8 @@ def validate_docker_command(args):
     valid=False
     if args[:3]==['inspect','--format',META_TEMPLATE]:
         valid=len(args)==4 and cid(args[3])
+    elif args[:4]==['inspect','--type','network','--format']:
+        valid=len(args)==6 and args[4]==NETWORK_TEMPLATE and (cid(args[5]) or args[5]=='none')
     elif args and args[0]=='start':
         valid=(len(args)==2 and cid(args[1])) or (len(args)==3 and args[1]=='-a' and cid(args[2]))
     elif args and args[0]=='cp':
@@ -170,10 +177,26 @@ class ForwardRecovery:
             require(instance.application!=self.backup.instance.application,'original mutable phase denied')
             require(services['ledger-init'].state=='created','restore seed profile must remain unstarted')
         require(instance.ledger_container==services['ledger'].container_id,'ledger binding differs')
+        no_network=json.loads(self.checked(['inspect','--type','network','--format',NETWORK_TEMPLATE,'none'],bound=8192,timeout=5))
+        require(set(no_network)=={'id','name','driver','internal','ipv6'} and isinstance(no_network['id'],str)
+            and re.fullmatch(r'[0-9a-f]{64}',no_network['id']) and no_network=={'id':no_network['id'],'name':'none','driver':'null','internal':False,'ipv6':False},'actual builtin no-network identity differs')
         seen_networks=set()
         for role in ROLES:
             row=json.loads(self.checked(['inspect','--format',META_TEMPLATE,services[role].container_id],bound=8192,timeout=5))
             networks=row.pop('networks').split();mounts=row.pop('mounts').split()
+            require(all(token.count(':')==1 for token in networks),'actual role network attachment differs')
+            pairs=[token.split(':',1) for token in networks]
+            expected={network_name(instance,i):instance.networks[i] for i in ROLE_NETWORKS.get(role,())}
+            mode=row.pop('network_mode')
+            bootstrap=role not in ROLE_NETWORKS
+            if bootstrap:
+                require(mode=='none','bootstrap must use builtin no-network mode')
+                expected={'none':no_network['id']}
+            else:
+                require(mode in expected,'actual role network mode differs')
+            require(len(pairs)==len(expected) and len({name for name,_ in pairs})==len(pairs),'actual role network attachment differs')
+            require(all(name in expected and (value==expected[name] or (services[role].state=='created' and value=='')) for name,value in pairs),'actual role network attachment differs')
+            networks=[] if bootstrap else [expected[name] for name,_ in pairs]
             seen_networks.update(networks)
             require(set(networks)<=set(instance.networks),'actual original/foreign network denied')
             expected_mounts={'ledger':[(instance.ledger_volume,'/var/lib/postgresql/data')],'candidate':[(instance.candidate_volume,'/var/lib/falkordb/data')],'confirmed':[(instance.confirmed_volume,'/var/lib/falkordb/data')],'gateway':[(instance.spool_volume,'/run/oracle-jobs')],'executor':[(instance.spool_volume,'/run/oracle-jobs'),(instance.blob_volume,'/run/oracle-blobs')],'synthetic-project':[(instance.blob_volume,'/run/oracle-blobs')]}
@@ -188,6 +211,9 @@ class ForwardRecovery:
               'project':instance.project,'role':role,'image':services[role].image,'state':state},'actual target namespace/image/state differs')
 
         require(seen_networks==set(instance.networks),'actual network closure incomplete')
+        for i,identity in enumerate(instance.networks):
+            observed=json.loads(self.checked(['inspect','--type','network','--format',NETWORK_TEMPLATE,identity],bound=8192,timeout=5))
+            require(observed=={'id':identity,'name':network_name(instance,i),'driver':'bridge','internal':i!=0,'ipv6':i!=0},'actual core network identity differs')
         tools=self.checked(['exec',instance.ledger_container,'timeout','--help'],bound=8192,timeout=5)
         require(b'-k' in tools and b'-s' in tools,'in-container timeout capability unproved')
 
