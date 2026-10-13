@@ -31,6 +31,12 @@ async function main() {
   await refuse(badCA);
   const weak = new URL(url); weak.searchParams.set('sslmode', 'require');
   assert.throws(() => pilotPostgres(weak.toString()));
+  const system = new URL(url); system.searchParams.set('sslrootcert', 'system');
+  await refuse(system);
+  system.searchParams.set('sslmode', 'require');
+  assert.throws(() => pilotPostgres(system.toString()));
+  const missingCA = new URL(url); missingCA.searchParams.delete('sslrootcert');
+  await refuse(missingCA);
 
   // Tunnel to the same actual TLS server using an address absent from its SAN.
   const sockets = new Set<Socket>();

@@ -1,11 +1,11 @@
-import postgres from 'postgres';
+import { pilotPostgres } from './oracle2-postgres';
 import { randomUUID } from 'node:crypto';
 import { pilotWorkspaceId } from './oracle2-store';
 
 export function operatingClient() {
   const url = process.env.ORACLE2_DATABASE_URL;
   if (!url) throw new Error('Operating model store unavailable');
-  return postgres(url, { max: 1, connect_timeout: 5 });
+  return pilotPostgres(url);
 }
 export const operatingAuthority = `WITH RECURSIVE lineage AS (
  SELECT a.appointment_id AS start_id,a.appointment_id,a.parent_id,a.revoked_at,a.expires_at,a.scope,a.workspace_id,1 AS depth

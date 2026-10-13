@@ -7,13 +7,14 @@ import postgres from 'postgres';
 export function pilotPostgres(url: string) {
   const parsed = new URL(url);
   const root = parsed.searchParams.get('sslrootcert');
-  if (!root || root === 'system') {
+  const mode = parsed.searchParams.get('sslmode');
+  if (!root && mode !== 'verify-full') {
     return postgres(url, { max: 1, connect_timeout: 5 });
   }
-  if (parsed.searchParams.get('sslmode') !== 'verify-full') {
+  if (mode !== 'verify-full') {
     throw new Error('Custom PostgreSQL trust requires sslmode=verify-full');
   }
-  const ca = readFileSync(root, 'utf8');
+  const ca = root && root !== 'system' ? readFileSync(root, 'utf8') : undefined;
   const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
   parsed.searchParams.delete('sslrootcert');
   parsed.searchParams.delete('sslmode');

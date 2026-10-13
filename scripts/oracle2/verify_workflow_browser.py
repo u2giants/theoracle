@@ -28,6 +28,7 @@ from oracle_brain.operating_model.runtime import NoGeneration,SyntheticEmbedding
 from oracle_brain.operating_model.cutover import activate,watermark
 from oracle_brain.operating_model.release_manifest import ReleaseManifest
 from oracle_brain.operating_model.contracts import digest
+from urllib.parse import urlencode
 
 ROOT=Path(__file__).resolve().parents[2]
 def verify_source_offer():
@@ -72,7 +73,7 @@ def main():
             conn.execute("INSERT INTO oracle2.drafts(draft_id,source_id,workspace_id,created_by,process_name,status) VALUES(%s,%s,%s,%s,'Invented Events','confirmed')",(uuid4(),export_source,workspace,actor))
             for index,kind,value in ((0,'original',export_text),(1,'original-metadata',json.dumps(export_provenance))):
                 conn.execute('INSERT INTO oracle2.source_blocks(block_id,source_id,workspace_id,block_index,kind,text,span_start,span_end) VALUES(%s,%s,%s,%s,%s,%s,0,%s)',(uuid4(),export_source,workspace,index,kind,value,len(value)))
-        authority=PostgresSources(admin);receipt=authority.current(workspace,source)
+        authority=PostgresSources(admin,synthetic=True);receipt=authority.current(workspace,source)
         second=uuid4();text2='Review receives packet from Intake.';seal2=hashlib.sha256(text2.encode()).hexdigest()
         delegate(admin,workspace_id=workspace,grantor_id=owner,actor_id=actor,scope='source-read:'+str(second))
         provenance2={**provenance,'original_hash':seal2,'content_hash':seal2}
@@ -130,7 +131,10 @@ def main():
             for table in ('artifact_manifests','artifact_dependencies','operating_model_source_receipts','document_observations','assembly_revisions','operational_imports','outbox','finding_events'):
                 conn.execute(sql.SQL('GRANT INSERT ON oracle2.{} TO {}').format(sql.Identifier(table),sql.Identifier(role)))
 
-        parts=psycopg.conninfo.conninfo_to_dict(admin);parts.update(user=role,password=password);viewer=f"postgresql://{quote(role)}:{quote(password)}@{parts['host']}:{parts.get('port','5432')}/{quote(parts['dbname'])}"
+        parts=psycopg.conninfo.conninfo_to_dict(admin);parts.update(user=role,password=password)
+        viewer=f"postgresql://{quote(role,safe='')}:{quote(password,safe='')}@{parts['host']}:{parts.get('port','5432')}/{quote(parts['dbname'],safe='')}"
+        tls={key:parts[key] for key in ('sslmode','sslrootcert') if key in parts}
+        if tls:viewer+='?'+urlencode(tls,quote_via=quote)
         stopped=threading.Event();worker_errors=[]
         worker_env={**os.environ,'ORACLE2_DATABASE_URL':viewer,'ORACLE2_OPERATING_GRAPH_URL':graph,'ORACLE2_OPERATING_BLOB_ROOT':str(blobs.root),'ORACLE2_OPERATING_SYNTHETIC':'1','ORACLE2_ENVIRONMENT':'synthetic'}
         def dispatch():
