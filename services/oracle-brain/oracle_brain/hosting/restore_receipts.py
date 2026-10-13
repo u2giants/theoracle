@@ -47,7 +47,7 @@ class Instance(Record):
     blob_volume: str
     candidate_volume: str
     confirmed_volume: str
-    networks: list[str]=Field(min_length=6,max_length=6)
+    networks: list[str]=Field(min_length=5,max_length=5)
     isolation_receipt_sha256: str=Field(pattern=HEX)
 
 
@@ -145,7 +145,7 @@ def validate_instance(instance):
     require(instance.application!=OLD_APP and instance.project=='oracle-native-'+instance.application,'old or mismatched instance denied')
     volumes=[instance.ledger_volume,instance.spool_volume,instance.blob_volume,instance.candidate_volume,instance.confirmed_volume]
     require(len(set(volumes))==5 and all(re.fullmatch(re.escape(instance.project)+r'_[a-z0-9_-]{1,80}',v) for v in volumes),'foreign or shared volume denied')
-    require(len(set(instance.networks))==6 and all(re.fullmatch(HEX,n) for n in instance.networks),'network closure differs')
+    require(len(set(instance.networks))==5 and all(re.fullmatch(HEX,n) for n in instance.networks),'network closure differs')
 
 
 def validate_services(services,image,*,restored=False):

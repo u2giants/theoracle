@@ -2,7 +2,7 @@
 import hashlib,io,json,tarfile
 from datetime import datetime,timedelta,timezone
 import pytest
-from oracle_brain.hosting.forward_recovery import ForwardRecovery,unpack,pack,ROLES
+from oracle_brain.hosting.forward_recovery import ForwardRecovery,unpack,pack,ROLES,ROLE_NETWORKS,network_name
 from oracle_brain.hosting.synthetic_seed import compile_restore_roles,compile_seed
 from oracle_brain.hosting.synthetic_fixture import fixed_scenario,fixture,FORWARD_SCENARIO
 from oracle_brain.operating_model.contracts import digest,canonical_bytes
@@ -51,9 +51,12 @@ def fake_inspection(b,role,quiesced=True):
       'executor':[(instance.spool_volume,'/run/oracle-jobs'),(instance.blob_volume,'/run/oracle-blobs')],
       'synthetic-project':[(instance.blob_volume,'/run/oracle-blobs')]}
     return {'id':service.container_id,'name':'/'+instance.project+'-'+role+'-1','application':instance.application,'project':instance.project,'role':role,'image':service.image,
-      'state':'exited' if quiesced and role in {'gateway','executor'} and service.state=='running' else service.state,'networks':instance.networks[ROLES.index(role)%6]+' ',
+      'state':'exited' if quiesced and role in {'gateway','executor'} and service.state=='running' else service.state,'networks':' '.join(network_name(instance,i)+':'+instance.networks[i] for i in ROLE_NETWORKS.get(role,())),
       'mounts':' '.join('volume:'+name+':'+path for name,path in mounts.get(role,[]))}
 
+
+def fake_network(b,args):
+    i=b.instance.networks.index(args[-1]);return canonical_bytes({'id':args[-1],'name':network_name(b.instance,i),'driver':'bridge','internal':i!=0,'ipv6':i!=0})
 
 def test_actual_identity_precedes_mutation_and_foreign_mount_refuses(bundle):
     _,backup,_=bundle;calls=[]
@@ -72,6 +75,7 @@ def test_same_instance_restore_never_writes(bundle):
     def runner(args,**kw):
         calls.append(args)
         if args[0]=='exec':return b'-s SIG -k SECS'
+        if args[:2]==['inspect','--type']:return fake_network(b,args)
         role=next(k for k,v in b.services.items() if v.container_id==args[-1]);return canonical_bytes(fake_inspection(b,role))
     operator=ForwardRecovery(b,runner=runner,clock=lambda:1000)
     with pytest.raises(PermissionError):operator.restore(root,b.instance,b.services,operation_receipt_sha256='f'*64)
@@ -93,8 +97,10 @@ def test_fresh_rebuild_only_starts_pinned_new_projector(bundle):
     def runner(args,**kw):
         calls.append(args)
         if args[0]=='inspect':
+            if args[1]=='--type':return fake_network(target,args)
             role=next(k for k,v in target.services.items() if v.container_id==args[-1]);return canonical_bytes(fake_inspection(target,role))
         if args[0]=='exec':return b'-s SIG -k SECS'
+        if args[:2]==['inspect','--type']:return fake_network(b,args)
         assert args==['start','-a',target.services['synthetic-project'].container_id]
         return canonical_bytes({'finalized':True,'artifact_hash':expected[3].content_hash,'record_digest':expected[4].graph_record_digest})
     out=ForwardRecovery(b,runner=runner,clock=lambda:1000).rebuild(r.instance,target.services)
@@ -128,6 +134,7 @@ def test_executable_capture_and_empty_restore_full_command_sequence(bundle,tmp_p
     def capture_run(args,**kw):
         calls.append((args,kw))
         if args[0]=='inspect':
+            if args[1]=='--type':return fake_network(b,args)
             role=next(k for k,v in b.services.items() if v.container_id==args[-1]);return canonical_bytes(fake_inspection(b,role))
         if 'timeout' in args and '--help' in args:return b'-s SIG -k SECS'
         if 'pg_dump' in args:return b'PGDMP-actual-command-public-test'
@@ -147,6 +154,7 @@ def test_executable_capture_and_empty_restore_full_command_sequence(bundle,tmp_p
     def restore_run(args,**kw):
         restore_calls.append((args,kw))
         if args[0]=='inspect':
+            if args[1]=='--type':return fake_network(target,args)
             role=next(k for k,v in target.services.items() if v.container_id==args[-1]);return canonical_bytes(fake_inspection(target,role))
         if 'timeout' in args and '--help' in args:return b'-s SIG -k SECS'
         if args[0]=='cp':
@@ -257,3 +265,59 @@ def test_verified_tls_chain_uses_sealed_bytes_not_original_paths(tmp_path):
     context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     load_verified_client_chain(context,frozen_cert,frozen_key)
     assert cert.read_bytes()==b'replaced path'
+
+
+@pytest.mark.parametrize('mutation',['absent','foreign','sixth','cross-role','bootstrap-network'])
+def test_exact_physical_role_network_attachment_denies(bundle,mutation):
+    _,b,_=bundle;calls=[]
+    def runner(args,**kw):
+        calls.append(args)
+        if args[0]=='exec':return b'-s SIG -k SECS'
+        if args[:2]==['inspect','--type']:return fake_network(b,args)
+        role=next(k for k,v in b.services.items() if v.container_id==args[-1]);row=fake_inspection(b,role)
+        target='gateway-files' if mutation=='bootstrap-network' else 'ledger'
+        if role==target:
+            row['networks']={'absent':'','foreign':'f'*64,'sixth':row['networks']+' '+'f'*64,'cross-role':b.instance.networks[3],'bootstrap-network':b.instance.networks[2]}[mutation]
+        return canonical_bytes(row)
+    with pytest.raises(PermissionError,match='network attachment'):
+        ForwardRecovery(b,runner=runner,clock=lambda:1000).prove_namespace(b.instance,b.services,quiesced=True)
+    assert all(a[0]=='inspect' for a in calls)
+
+def test_realistic_five_network_closure(bundle):
+    _,b,_=bundle;assert len(b.instance.networks)==5
+    def runner(args,**kw):
+        if args[0]=='exec':return b'-s SIG -k SECS'
+        if args[:2]==['inspect','--type']:return fake_network(b,args)
+        role=next(k for k,v in b.services.items() if v.container_id==args[-1]);return canonical_bytes(fake_inspection(b,role))
+    ForwardRecovery(b,runner=runner,clock=lambda:1000).prove_namespace(b.instance,b.services,quiesced=True)
+
+@pytest.mark.parametrize('mutation',['valid','missing','spoof','namecollision','foreign','wrong-driver','wrong-internal','wrong-ipv6'])
+def test_created_empty_ids_require_independently_pinned_networks(bundle,mutation):
+    _,b,r=bundle
+    pending={k:({**v.model_dump(),'state':'created'} if k in {'ledger-init','synthetic-project','gateway','executor'} else v.model_dump()) for k,v in r.services.items()}
+    target=changed(b,instance=r.instance.model_dump(),services=pending);calls=[]
+    def runner(args,**kw):
+        calls.append(args)
+        if args[0]=='exec':return b'-s SIG -k SECS'
+        if args[1]=='--type':
+            row=json.loads(fake_network(target,args))
+            if args[-1]==target.instance.networks[0]:
+                if mutation=='spoof':row['id']='f'*64
+                if mutation=='namecollision':row['name']=network_name(target.instance,1)
+                if mutation=='wrong-driver':row['driver']='overlay'
+                if mutation=='wrong-internal':row['internal']=True
+                if mutation=='wrong-ipv6':row['ipv6']=True
+            return canonical_bytes(row)
+        role=next(k for k,v in target.services.items() if v.container_id==args[-1]);row=fake_inspection(target,role)
+        if target.services[role].state=='created':row['networks']=' '.join(network_name(target.instance,i)+':' for i in ROLE_NETWORKS.get(role,()))
+        if role=='gateway' and mutation=='missing':row['networks']=''
+        if role=='gateway' and mutation=='foreign':row['networks']+=' foreign:'
+        return canonical_bytes(row)
+    operator=ForwardRecovery(b,runner=runner,clock=lambda:1000)
+    if mutation=='valid':
+        operator.prove_namespace(target.instance,target.services,phase='restore')
+        assert len([c for c in calls if c[:2]==['inspect','--type']])==5
+    else:
+        with pytest.raises(PermissionError,match='network'):
+            operator.prove_namespace(target.instance,target.services,phase='restore')
+    assert all(c[0] in {'inspect','exec'} for c in calls)
