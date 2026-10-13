@@ -13,7 +13,7 @@ services:
     cpus: 1.0
     mem_limit: 1g
     pids_limit: 128
-    tmpfs: [/tmp:rw,noexec,nosuid,size=64m]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
     restart: "no"
     ulimits:
       core: 0
