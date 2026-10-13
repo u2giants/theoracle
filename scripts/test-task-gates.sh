@@ -147,18 +147,22 @@ rm -f "$fixture/fixtures/licensed/synthetic.json"
 # The attachment exporter must also refuse a legacy app fixture even though
 # its pre-existing naming does not match the central licensed-directory rule.
 mkdir -p "$fixture/apps/workers/src/__fixtures__"
-printf '%s\n' '{}' > "$fixture/apps/workers/src/__fixtures__/licensed-synthetic.json"
-printf '%s\n' '["apps/workers/src/__fixtures__/licensed-synthetic.json"]' > "$TMP/private-paths.json"
 exporter="$(dirname "$(readlink -f "$(command -v ai-task-gates)")")/ai-review-code-only.py"
-set +e
-output="$(python3 "$exporter" create "$fixture" "$TMP/refused-export" "$TMP/private-paths.json" --base HEAD 2>&1)"
-rc=$?
-set -e
-if [ "$rc" -ne 0 ] && [ ! -e "$TMP/refused-export" ] && [[ "$output" == *'ambiguous non-code path refused'* ]]; then
-  pass 'licensed app fixture cannot enter the sealed code export'
-else
-  fail "licensed exporter refusal (exit $rc: $output)"
-fi
+for extension in json ts mjs; do
+  selected="apps/workers/src/__fixtures__/licensed-synthetic.$extension"
+  printf '%s\n' '{}' > "$fixture/$selected"
+  printf '["%s"]\n' "$selected" > "$TMP/private-paths.json"
+  set +e
+  output="$(python3 "$exporter" create "$fixture" "$TMP/refused-export-$extension" "$TMP/private-paths.json" --base HEAD 2>&1)"
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ] && ! compgen -G "$TMP/refused-export-$extension*" > /dev/null && [[ "$output" == *'evidence or hidden path refused'* ]]; then
+    pass "legacy app fixture with $extension suffix cannot enter sealed code export"
+  else
+    fail "licensed exporter refusal ($extension, exit $rc: $output)"
+  fi
+  rm -f "$fixture/$selected"
+done
 
 if [ "$failures" -ne 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
