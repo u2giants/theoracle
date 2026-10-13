@@ -10,6 +10,7 @@ import secrets
 import subprocess
 import textwrap
 import sys
+import ipaddress
 import hmac
 import base64
 from uuid import uuid4
@@ -39,10 +40,18 @@ def main(argv=None):
     parser.add_argument('--image',required=True)
     parser.add_argument('--runtime-hash',required=True)
     parser.add_argument('--gateway-host',default='gateway')
+    parser.add_argument('--ledger-ipv4-subnet',default='172.30.41.0/24')
+    parser.add_argument('--ledger-ipv6-subnet',default='fd42:6f72:6163:41::/64')
     parser.add_argument('--release-hash',action='append')
     parser.add_argument('--review-hash',required=True)
     parser.add_argument('--synthetic',required=True,action='store_true')
     args=parser.parse_args(argv)
+    ipv4=ipaddress.ip_network(args.ledger_ipv4_subnet,strict=True)
+    ipv6=ipaddress.ip_network(args.ledger_ipv6_subnet,strict=True)
+    if ipv4.version!=4 or ipv4.prefixlen!=24 or not any(ipv4.subnet_of(ipaddress.ip_network(n)) for n in ('10.0.0.0/8','172.16.0.0/12','192.168.0.0/16')):
+        raise ValueError('reviewed private IPv4 /24 required')
+    if ipv6.version!=6 or ipv6.prefixlen!=64 or not ipv6.subnet_of(ipaddress.ip_network('fc00::/7')):
+        raise ValueError('reviewed private IPv6 /64 required')
     if not re.fullmatch(r'(?:sha256:|ghcr\.io/u2giants/theoracle-native@sha256:)[a-f0-9]{64}',args.image):raise ValueError('immutable reviewed image required')
     if any(not re.fullmatch('[a-f0-9]{64}',x) for x in [args.runtime_hash,args.review_hash,*(args.release_hash or [])]):raise ValueError('exact hashes required')
     if not re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?',args.gateway_host) or '..' in args.gateway_host:raise ValueError('exact reviewed gateway DNS hostname required')
@@ -98,12 +107,12 @@ def main(argv=None):
     # No provider key is issued. Broker startup remains admission-gated.
     hba='local all oracle_bootstrap trust\nlocal all all reject\nhostnossl all all all reject\n'
     for login in ('oracle_synthetic_gateway','oracle_synthetic_executor','oracle_synthetic_projector'):
-        for cidr in ('172.30.41.0/24','fd42:6f72:6163:41::/64'):
+        for cidr in (str(ipv4),str(ipv6)):
             hba+=f'hostssl oracle_synthetic {login} {cidr} scram-sha-256\n'
     hba+='host all all all reject\n'
     write(root/'ledger'/'pg_hba.conf',hba,70)
     sqlroot=Path(__file__).resolve().parents[3]/'services/oracle-brain/sql'
-    for index,name in enumerate(('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql','006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql','008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql')):
+    for index,name in enumerate(('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql','006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql','008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql','010_hosting_job_permissions.sql')):
         write(root/'init'/f'{index+1:02d}-{name}',(sqlroot/name).read_bytes(),70)
     source_registry={'schema':'oracle-public-invented-role-admission/v1','runtime_hash':args.runtime_hash,'role_names':['oracle_synthetic_executor','oracle_synthetic_projector'],
                      'workspace_id':str(WORKSPACE),'principal_id':str(ACTOR),'source_refs':fixture_payload['source_refs'],'expires_at':(now+timedelta(hours=1)).isoformat()}
@@ -217,7 +226,7 @@ def main(argv=None):
       ledger:
         <<: *isolated
         ipam:
-          config: [{{subnet: 172.30.41.0/24}}, {{subnet: "fd42:6f72:6163:41::/64"}}]
+          config: [{{subnet: {ipv4}}}, {{subnet: "{ipv6}"}}]
       candidate: *isolated
       confirmed: *isolated
       provider: *isolated
@@ -231,7 +240,7 @@ def main(argv=None):
     # Protected normal-platform environment inputs. Each one-shot materializer
     # receives only its own bundle; no runtime receives the issuer environment.
     from oracle_brain.hosting.bootstrap import FILES
-    platform_env={'ORACLE_HOSTING_IMAGE':args.image,'ORACLE_GATEWAY_HOST':args.gateway_host,'ORACLE_GATEWAY_SETTINGS_SHA256':settings_hash['gateway'],
+    platform_env={'ORACLE_LEDGER_IPV4_SUBNET':str(ipv4),'ORACLE_LEDGER_IPV6_SUBNET':str(ipv6),'ORACLE_HOSTING_IMAGE':args.image,'ORACLE_GATEWAY_HOST':args.gateway_host,'ORACLE_GATEWAY_SETTINGS_SHA256':settings_hash['gateway'],
                   'ORACLE_EXECUTOR_SETTINGS_SHA256':settings_hash['executor'],
                   'ORACLE_PROJECTOR_SETTINGS_SHA256':settings_hash['projector']}
     for profile in FILES:

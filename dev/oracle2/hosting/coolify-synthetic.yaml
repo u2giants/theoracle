@@ -1,6 +1,6 @@
 # Exact image/env bundles require independent action review. Public invented only.
 # Raw Application parser is mandatory: no global env_file or implicit networks.
-name: oracle-native-public-invented
+name: 'oracle-native-${COOLIFY_RESOURCE_UUID:?platform-owned namespace required}'
 x-runtime: &runtime
   image: ${ORACLE_HOSTING_IMAGE:?reviewed GHCR immutable digest required}
   cap_drop: [ALL]
@@ -184,7 +184,7 @@ networks:
   ledger:
     <<: *isolated
     ipam:
-      config: [{subnet: 172.30.41.0/24}, {subnet: "fd42:6f72:6163:41::/64"}]
+      config: [{subnet: '${ORACLE_LEDGER_IPV4_SUBNET:?reviewed private ledger IPv4 range required}'}, {subnet: '${ORACLE_LEDGER_IPV6_SUBNET:?reviewed private ledger IPv6 range required}'}]
   candidate: *isolated
   confirmed: *isolated
 volumes:

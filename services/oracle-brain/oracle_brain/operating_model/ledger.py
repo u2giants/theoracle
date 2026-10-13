@@ -185,7 +185,10 @@ class Ledger:
             expected=(finding_id,self.principal,scope,action,event)
             if prior and prior!=expected:
                 raise ValueError('same review event has different content')
-            conn.execute('INSERT INTO oracle2.finding_events(workspace_id,finding_id,event_id,actor_id,scope,action,payload) VALUES(%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING',(workspace_id,finding_id,event_id,self.principal,scope,action,Jsonb(event)))
+            if conn.execute('SELECT current_user').fetchone()[0] == 'oracle2_documentary_executor':
+                conn.execute('SELECT oracle2.append_hosted_finding_review(%s,%s)', (event_id,Jsonb(event)))
+            else:
+                conn.execute('INSERT INTO oracle2.finding_events(workspace_id,finding_id,event_id,actor_id,scope,action,payload) VALUES(%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING',(workspace_id,finding_id,event_id,self.principal,scope,action,Jsonb(event)))
         return event
 
     def review_events(self,workspace_id,artifact_id,version):

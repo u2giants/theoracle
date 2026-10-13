@@ -52,7 +52,7 @@ def test_registered_public_projector_preserves_release(tmp_path,monkeypatch):
     dbadmin=make_conninfo(**dbparams)
     try:
         with psycopg.connect(dbadmin,autocommit=True) as conn:
-            for name in ('001_foundation','002_pilot','004_workflow_integrity','006_hosting_gateway_authority','007_hosting_candidate_permissions','008_hosting_runtime_permissions','009_hosting_result_permissions'):
+            for name in ('001_foundation','002_pilot','004_workflow_integrity','006_hosting_gateway_authority','007_hosting_candidate_permissions','008_hosting_runtime_permissions','009_hosting_result_permissions','010_hosting_job_permissions'):
                 conn.execute((Path(__file__).parents[1]/'sql'/f'{name}.sql').read_text())
             conn.execute(seed)
         limited=make_conninfo(**{**dbparams,'user':roles['projector'],'password':password})

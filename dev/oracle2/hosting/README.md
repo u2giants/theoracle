@@ -237,3 +237,18 @@ questions and grading remain paused throughout.
 See [SYNTHETIC_BOOTSTRAP.md](SYNTHETIC_BOOTSTRAP.md) for the fixed seed,
 networkless per-volume bootstrap, raw Application inputs, exact native service
 identities and the remaining independent action/live-proof gates.
+
+## Registered executor job custody
+
+SQL010 admits opaque documentary and synthetic finding-review jobs to the real
+NOINHERIT executor without gateway membership. Its bounded metadata function
+checks globally ambiguous run IDs before enforcing current source, actor,
+release, registry and lease constraints. Finding-review reads remain scoped;
+append and completion use bounded functions rather than granting direct writes.
+Original-reading and policy-promotion boundaries remain intact.
+
+Raw managed Compose binds its project and volume namespace to the platform app
+UUID. A fresh installation chooses independently reviewed, non-overlapping
+private ledger IPv4 /24 and IPv6 /64 ranges; the networkless issuer binds those
+same ranges into PostgreSQL admission and the platform environment. These
+changes do not renew a spent job or authorize installation into existing stores.

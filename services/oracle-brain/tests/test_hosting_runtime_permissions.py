@@ -20,6 +20,7 @@ def runtime_scope(admin_url,scoped):
     with psycopg.connect(admin_url) as c:
         c.execute((scripts/'006_hosting_gateway_authority.sql').read_text())
         c.execute((scripts/'008_hosting_runtime_permissions.sql').read_text())
+        c.execute((scripts/'010_hosting_job_permissions.sql').read_text())
         # Existing test receipt was immutable invented prequalification; use a new
         # source revision so first native receipt is exercised without deletion.
         c.execute('UPDATE oracle2.sources SET revision=2 WHERE source_id=%s',(source,))
