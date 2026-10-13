@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import re
 import stat
-import tempfile
+import secrets
 import time
 
 _spec=importlib.util.spec_from_file_location('analytical_packet_validator',Path(__file__).with_name('validate_analytical_packet.py'))
@@ -120,32 +120,54 @@ class SourcePacketStore:
         source_fd=directory_fd(self.source_root)
         try:cache_fd=directory_fd(self.cache_root)
         except Exception:os.close(source_fd);raise
-        fd=None;temporary=None
+        fd=None;temporary=None;temporary_fd=None;temporary_identity=None
         try:
             fd=os.open(artifact['filename'],os.O_RDONLY|os.O_NOFOLLOW,dir_fd=source_fd);before=os.fstat(fd)
             require(stat.S_ISREG(before.st_mode) and before.st_uid==os.getuid() and before.st_nlink==1 and not stat.S_IMODE(before.st_mode)&0o077 and before.st_size==artifact['bytes'],'fixed protected artifact size/custody differs')
-            temporary_fd,temporary=tempfile.mkstemp(dir=self.cache_root,prefix='.verification-')
+            candidate='.verification-'+secrets.token_hex(16)
+            temporary_fd=os.open(candidate,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=cache_fd)
+            temporary=candidate
+            initial=os.fstat(temporary_fd);temporary_identity=(initial.st_dev,initial.st_ino)
+            require(stat.S_ISREG(initial.st_mode) and initial.st_uid==os.getuid() and initial.st_nlink==1 and stat.S_IMODE(initial.st_mode)==0o600,'owned exclusive verification leaf required')
             hasher=hashlib.sha256();actual=0
-            with os.fdopen(temporary_fd,'wb') as out:
-                while True:
-                    self._recheck(principal,grant)
-                    chunk=os.read(fd,min(validator.CHUNK,artifact['bytes']-actual+1))
-                    if not chunk:break
-                    actual+=len(chunk);require(actual<=artifact['bytes'] and actual<=validator.LIMIT,'actual intact archive exceeds bound')
-                    hasher.update(chunk);out.write(chunk)
-                require(actual==artifact['bytes'] and hasher.hexdigest()==artifact['sha256'] and stat_record(os.fstat(fd))==stat_record(before),'full actual archive integrity differs')
-                self._recheck(principal,grant);out.flush();os.fsync(out.fileno());os.fchmod(out.fileno(),0o400)
-            # No overwrite: immutable content addressed bytes remain protected.
+            while True:
+                self._recheck(principal,grant)
+                chunk=os.read(fd,min(validator.CHUNK,artifact['bytes']-actual+1))
+                if not chunk:break
+                actual+=len(chunk);require(actual<=artifact['bytes'] and actual<=validator.LIMIT,'actual intact archive exceeds bound')
+                hasher.update(chunk)
+                pending=memoryview(chunk)
+                while pending:
+                    written=os.write(temporary_fd,pending);require(written>0,'verification write incomplete');pending=pending[written:]
+            require(actual==artifact['bytes'] and hasher.hexdigest()==artifact['sha256'] and stat_record(os.fstat(fd))==stat_record(before),'full actual archive integrity differs')
+            self._recheck(principal,grant);os.fchmod(temporary_fd,0o400);os.fsync(temporary_fd)
+            held=os.fstat(temporary_fd);leaf=os.stat(temporary,dir_fd=cache_fd,follow_symlinks=False)
+            require((held.st_dev,held.st_ino)==temporary_identity and stat.S_ISREG(held.st_mode) and held.st_uid==os.getuid() and stat.S_IMODE(held.st_mode)==0o400 and held.st_nlink==1 and held.st_size==artifact['bytes'] and stat_record(leaf)==stat_record(held),'held verification inode changed')
+            # Both names resolve only within the already held cache directory.
+            # An existing published hash is never overwritten or reused.
             filename=artifact['sha256']+'.archive'
-            os.link(temporary,filename,dst_dir_fd=cache_fd,follow_symlinks=False);os.unlink(temporary);temporary=None
+            os.link(temporary,filename,src_dir_fd=cache_fd,dst_dir_fd=cache_fd,follow_symlinks=False)
+            linked=os.stat(filename,dir_fd=cache_fd,follow_symlinks=False);held=os.fstat(temporary_fd)
+            require((held.st_dev,held.st_ino)==temporary_identity and held.st_nlink==2 and stat.S_IMODE(held.st_mode)==0o400 and held.st_uid==os.getuid() and stat_record(linked)==stat_record(held),'published verification inode differs')
+            os.unlink(temporary,dir_fd=cache_fd);temporary=None
             os.fsync(cache_fd)
-            cached=os.stat(filename,dir_fd=cache_fd,follow_symlinks=False)
+            held=os.fstat(temporary_fd);cached=os.stat(filename,dir_fd=cache_fd,follow_symlinks=False)
+            require((held.st_dev,held.st_ino)==temporary_identity and held.st_nlink==1 and stat.S_IMODE(held.st_mode)==0o400 and held.st_uid==os.getuid() and stat_record(cached)==stat_record(held),'immutable published cache custody differs')
             self.verified[identity]=(filename,stat_record(cached))
             return self.verified[identity]
         finally:
-            if fd is not None:os.close(fd)
-            os.close(source_fd);os.close(cache_fd)
-            if temporary is not None:os.unlink(temporary)
+            # Only our exclusively created leaf under the held directory may be
+            # removed. A replaced/colliding foreign leaf is preserved on refusal.
+            try:
+                if temporary is not None:
+                    try:
+                        leaf=os.stat(temporary,dir_fd=cache_fd,follow_symlinks=False)
+                        if (leaf.st_dev,leaf.st_ino)==temporary_identity:os.unlink(temporary,dir_fd=cache_fd)
+                    except FileNotFoundError:pass
+            finally:
+                if temporary_fd is not None:os.close(temporary_fd)
+                if fd is not None:os.close(fd)
+                os.close(source_fd);os.close(cache_fd)
     def serve(self,request):
         require(type(request) is ChunkRequest and type(request.binding) is ProductBinding and request.binding==self.binding,'request whole manifest/revision/image differs')
         grant=self._grant(request.principal) # BEFORE source/cache byte opens

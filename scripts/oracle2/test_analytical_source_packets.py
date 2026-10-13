@@ -125,6 +125,54 @@ class Packets(unittest.TestCase):
         store.authority=Changed(self.grant)
         with self.assertRaises(ValueError):store.serve(self.request())
 
+    def test_cache_parent_swap_stays_on_held_inode_no_foreign_bytes_opened(self):
+        store=self.store(self.authority);original_open=os.open;original_link=os.link
+        held_cache=self.root/'retained-cache';foreign_payload=b'FOREIGN-NOT-OPENED';opened=[];links=[];swapped=[]
+        def opened_at(path,*args,**kwargs):
+            opened.append((str(path),kwargs.get('dir_fd')))
+            if str(path).startswith('.verification-') and not swapped:
+                self.cache.rename(held_cache);self.cache.mkdir(mode=0o700)
+                (self.cache/str(path)).write_bytes(foreign_payload)
+                (self.cache/(p.sha(self.bytes)+'.archive')).write_bytes(foreign_payload)
+                swapped.append(str(path))
+                self.assertIsNotNone(kwargs.get('dir_fd'))
+            return original_open(path,*args,**kwargs)
+        def linked_at(src,dst,**kwargs):
+            self.assertEqual(kwargs.get('src_dir_fd'),kwargs.get('dst_dir_fd'))
+            self.assertIsNotNone(kwargs.get('src_dir_fd'));self.assertFalse(kwargs['follow_symlinks'])
+            links.append((src,dst));return original_link(src,dst,**kwargs)
+        with mock.patch.object(os,'open',side_effect=opened_at),mock.patch.object(os,'link',side_effect=linked_at):
+            filename,custody=store._verify_artifact('pm4py','invented-viewer',self.grant)
+        self.assertEqual((held_cache/filename).read_bytes(),self.bytes)
+        self.assertEqual((self.cache/filename).read_bytes(),foreign_payload)
+        self.assertEqual((self.cache/swapped[0]).read_bytes(),foreign_payload)
+        self.assertEqual(custody,p.stat_record((held_cache/filename).stat()))
+        self.assertFalse(list(held_cache.glob('.verification-*')))
+        self.assertEqual(len(links),1)
+        self.assertTrue(all(not str(path).startswith(str(self.cache)+'/') for path,_ in opened))
+
+    def test_temp_collision_preserves_foreign_leaf_and_does_not_publish(self):
+        collision=self.cache/'.verification-fixed';collision.write_bytes(b'FOREIGN');collision.chmod(0o600)
+        store=self.store(self.authority)
+        with mock.patch.object(p.secrets,'token_hex',return_value='fixed'):
+            with self.assertRaises(FileExistsError):store.serve(self.request())
+        self.assertEqual(collision.read_bytes(),b'FOREIGN');self.assertFalse(list(self.cache.glob('*.archive')))
+
+    def test_replaced_temp_leaf_is_not_published_or_deleted(self):
+        store=self.store(self.authority);original_stat=os.stat;replacement=[]
+        def changed(path,*args,**kwargs):
+            if str(path).startswith('.verification-') and not replacement:
+                fd=kwargs['dir_fd'];os.unlink(path,dir_fd=fd)
+                new=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=fd)
+                try:os.write(new,b'FOREIGN')
+                finally:os.close(new)
+                replacement.append(str(path))
+            return original_stat(path,*args,**kwargs)
+        with mock.patch.object(os,'stat',side_effect=changed):
+            with self.assertRaisesRegex(ValueError,'inode changed'):store.serve(self.request())
+        self.assertEqual((self.cache/replacement[0]).read_bytes(),b'FOREIGN')
+        self.assertFalse(list(self.cache.glob('*.archive')))
+
     def test_committed_inventory_remains_unavailable_and_complete(self):
         manifest=json.loads((FOLDER/'source-manifest.json').read_bytes())
         result=p.validator.inspect_packet(manifest,(FOLDER/'requirements.lock').read_bytes(),(FOLDER/'Dockerfile').read_bytes(),(FOLDER/'Dockerfile.dockerignore').read_bytes())
