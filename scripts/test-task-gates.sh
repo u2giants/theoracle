@@ -107,11 +107,22 @@ fi
   ai-task-gates check --before code-only-review >/dev/null
 )
 pass 'private tooling admits the sealed synthetic-fixture review route'
+# Isolate the private declaration's contribution; other classes cannot mask it.
+cp "$fixture/.ai-devops/task-gates.json" "$TMP/compliance-policy.json"
+jq '.gates |= with_entries(if .key == "private-tooling" then . else .value.required |= map(select(. != "repository-workflow-compliance")) end)' "$TMP/compliance-policy.json" > "$fixture/.ai-devops/task-gates.json"
 if (cd "$fixture" && ai-task-gates explain --json | jq -e '.required_gates|index("repository-workflow-compliance")!=null' >/dev/null); then
-  pass 'private tooling retains repository workflow compliance'
+  pass 'private declaration alone requires repository workflow compliance'
 else
-  fail 'private tooling lost repository workflow compliance'
+  fail 'private declaration lost its own workflow requirement'
 fi
+jq '.gates["private-tooling"].required |= map(select(. != "repository-workflow-compliance"))' "$fixture/.ai-devops/task-gates.json" > "$TMP/without-compliance.json"
+cp "$TMP/without-compliance.json" "$fixture/.ai-devops/task-gates.json"
+if (cd "$fixture" && ai-task-gates explain --json | jq -e '.required_gates|index("repository-workflow-compliance")==null' >/dev/null); then
+  pass 'removing private compliance defeats the isolated assertion'
+else
+  fail 'another requirement masks the private declaration assertion'
+fi
+cp "$TMP/compliance-policy.json" "$fixture/.ai-devops/task-gates.json"
 for action in review deploy database infrastructure production shared-db-promotion; do
   set +e
   output="$(cd "$fixture" && ai-task-gates check --before "$action" 2>&1)"
@@ -162,6 +173,39 @@ for extension in json ts mjs; do
   fi
   rm -f "$fixture/$selected"
 done
+
+# Filename protection must work even outside legacy fixture directories.
+printf '%s\n' 'export const invented = true;' > "$fixture/apps/workers/src/licensed-synthetic.ts"
+printf '%s\n' '["apps/workers/src/licensed-synthetic.ts"]' > "$TMP/name-only-paths.json"
+set +e
+output="$(python3 "$exporter" create "$fixture" "$TMP/name-only-refused" "$TMP/name-only-paths.json" --base HEAD 2>&1)"
+rc=$?
+set -e
+if [ "$rc" -ne 0 ] && ! compgen -G "$TMP/name-only-refused*" >/dev/null && [[ "$output" == *'licensed evidence filename refused'* ]]; then
+  pass 'licensed filename refuses code export without a fixture-directory match'
+else
+  fail "licensed filename refusal (exit $rc: $output)"
+fi
+rm -f "$fixture/apps/workers/src/licensed-synthetic.ts"
+
+# A distinct fresh public fixture proves capability alongside the denials.
+public="$TMP/public-export-source"
+git -C "$TMP" init --quiet public-export-source
+git -C "$public" config user.name 'Task Gate Test'
+git -C "$public" config user.email 'task-gate-test@example.invalid'
+git -C "$public" remote add origin https://github.com/u2giants/theoracle.git
+mkdir -p "$public/.ai-devops" "$public/src"
+cp "$ROOT/.ai-devops/task-gates.json" "$public/.ai-devops/task-gates.json"
+git -C "$public" add .ai-devops/task-gates.json
+git -C "$public" commit --quiet -m baseline
+printf '%s\n' 'export const invented = true;' > "$public/src/app.ts"
+printf '%s\n' '["src/app.ts"]' > "$TMP/public-paths.json"
+(cd "$public" && ai-task-gates start --class private-tooling --base HEAD >/dev/null)
+if python3 "$exporter" create "$public" "$TMP/public-admitted" "$TMP/public-paths.json" --base HEAD > "$TMP/public-export-receipt.json" && python3 "$exporter" verify "$TMP/public-admitted" > /dev/null; then
+  pass 'genuine public source still exports and verifies through the declared route'
+else
+  fail 'genuine public export capability failed'
+fi
 
 if [ "$failures" -ne 0 ]; then
   printf '%s failure(s)\n' "$failures" >&2
