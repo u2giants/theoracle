@@ -5,7 +5,7 @@ patch-oriented execution design; historical defect evidence remains valid.
 Historical baseline source merged on October 12, 2026 at 12:25 AM EDT through [PR #88](https://github.com/u2giants/theoracle/pull/88); private acceptance and restricted hosting remain blocked. This plan records verified engineering progress separately from delivery, private acceptance and production actions. Track this work on [S03 issue #27](https://github.com/u2giants/theoracle/issues/27)
 under [parent #24](https://github.com/u2giants/theoracle/issues/24); retain live proof
 on [the existing proof card #58](https://github.com/u2giants/theoracle/issues/58).
-Implementation owner: Codex chat `01a1362e-9981-7980-b191-089c0d73b9e0`, adopted #27/#58 on October 13, 2026 EDT; current coordinator; subagent preparation is historical unless a later activity receipt states otherwise. Current evidence/card: https://github.com/u2giants/theoracle/issues/27#issuecomment-6149274293.
+Implementation owner: Codex chat `01a1362e-9981-7980-b191-089c0d73b9e0`, adopted #27/#58 on October 13, 2026 EDT; recorded coordinator, idle after blocked wrap-up; the successor must adopt the existing cards; subagent preparation is historical. Current evidence/card: https://github.com/u2giants/theoracle/issues/27#issuecomment-6149274293.
 
 ## STATUS — read first
 

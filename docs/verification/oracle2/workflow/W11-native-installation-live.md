@@ -1,6 +1,6 @@
 # Native installation and live acceptance — current continuation
 
-Current owner: Codex chat 01a1362e-9981-7980-b191-089c0d73b9e0 on #27/#58 under #24. Latest closing checkpoint: October 13, 2026, 9:13 PM EDT. Previous coordinator and receipts below are historical. Earlier sections below are historical checkpoints, superseded only by explicit later receipts. This record distinguishes source delivery, hosted public-invented execution and private/business acceptance. It does not replace either plan, authorize new actions or resume paused company work.
+Recorded owner: Codex chat 01a1362e-9981-7980-b191-089c0d73b9e0, idle after blocked wrap-up; the successor must adopt #27/#58 under #24. Latest closing checkpoint: October 13, 2026, 9:13 PM EDT. Previous coordinator and receipts below are historical. Earlier sections below are historical checkpoints, superseded only by explicit later receipts. This record distinguishes source delivery, hosted public-invented execution and private/business acceptance. It does not replace either plan, authorize new actions or resume paused company work.
 
 ## Closing checkpoint — October 13, 2026, 9:13 PM EDT
 
