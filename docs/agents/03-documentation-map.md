@@ -49,3 +49,5 @@ Rules:
 - Update this documentation map when documentation files are added, removed, renamed, or repurposed.
 - `docs/oracle/` — deeper AI-retrofit reference material; only read when the task touches the AI-retrofit spec directly.
 - `oracle_master_spec.md` and `oracle_ai_architecture_prompt caching.md` are historical/spec reference files, not default orientation docs.
+
+Current October 13 coordinator closeout: [admitted diagnosis and unfinished acceptance handoff](../../HANDOFF.d/2026-10-14T0113Z-edge-dev3-codex-admission-runtime-closeout.md). Read both plans STATUS first; this handoff preserves blocked actions, confirmed ownership, source/installation differences, all four subagent outcomes and every remaining W/S obligation.
