@@ -1,0 +1,5 @@
+# Immutable public source evidence — October 13, 2026
+
+Owner: ROOT coordinator on #27/#58 under #24. Necessary to retain exact coordinator test receipts and genuine independent SOURCE reports with the canonical W11 continuation, accessible after temporary workspaces disappear. These are public source/local invented-data evidence only: all business/private/semantic/event/runtime qualification flags in the actual receipt remain false. Test counts are coordinator execution, not reviewer execution. SOURCE APPROVE is not installation, exact actual-operation approval, current private-purpose authority or live acceptance.
+
+Files are byte-identical to the retained source receipts, with hashes in the canonical W11 checkpoint. No private originals, control/capture bytes, credentials, certificates or actual-action prompts are included. Each future checkpoint links this fixed bundle; it is not regenerated or rewritten. Consolidation/retirement is owned by ROOT after a successor durable evidence archive preserves identical bytes and references; no competing current registry is introduced.

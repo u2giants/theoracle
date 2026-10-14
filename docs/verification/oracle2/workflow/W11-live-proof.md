@@ -15,3 +15,7 @@ Operating view/import/review tasks now use their own required project reference 
 Existing Coolify API reads succeeded over a freshly verified owned encrypted-tailnet peer; there is no Oracle resource. A configured Tailscale credential obtained policy_file:read and policy GET returned 200. The current network policy has an unrestricted member-to-member grant, so it does not prove a restricted pilot cohort. Vercel's observed protection configuration likewise does not qualify this private pilot. No policy, host, app environment or cloud resource was mutated. An exact reviewed restricted topology and authorized executable control-plane path remain required before hosted action.
 
 Comparison events are append-only and hash chained, with a maximum of three admitted runs or seven New York calendar days and explicit accept/revise/blocked outcomes. No company comparison was started. Private dispatch remains disabled while account-wide budget coverage and current frozen-runtime review are unresolved.
+
+## Continuation pointer — October 13, 2026, 8:28 PM EDT
+
+This remains the W11 acceptance artifact; no private/cutover acceptance is added. Current installation/source/gap checkpoints are recorded in [the native continuation](W11-native-installation-live.md#coordinator-checkpoint--october-13-2026-828-pm-edt), which complements this acceptance record. ROOT retains same #27/#58 live-proof ownership and all unchecked prerequisites; neither pointer supersedes actual acceptance criteria.
