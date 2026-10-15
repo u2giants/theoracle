@@ -1,7 +1,7 @@
 # FalkorDB on Coolify — executable deployment plan (DRAFT, not executed)
 
-**STATUS 2026-10-15:** review 16 APPROVED and fixed; deploy attempt 4 STOPPED at the `ai-task-gates check --before infrastructure`
-gate (task class code vs observed deployment). Nothing created on hetz; §9 checks not run.
+**STATUS 2026-10-14 11:40 PM EDT:** deploy attempt 5 STOPPED at §6 step 3 (409: Coolify auto-created empty env keys; needs PATCH).
+Created: vault CA/password/TLS items, environment `oracle-graph-production`, unstarted service `oracle-falkordb-confirmed`. §9 not run.
 
 Prepared 2026-10-14 (EDT); revised the same day after DeepSeek plan reviews 1, 2 and 4-14
 (all REJECT; review 3 was not a plan-content review and has no findings to carry; review files are local-only under the gitignored `.ai/reviews/`, so the
