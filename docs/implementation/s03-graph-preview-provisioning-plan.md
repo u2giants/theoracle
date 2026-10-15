@@ -68,7 +68,9 @@ R2 environment variables (the dedicated project's `prod` environment; see note):
 `ORACLE2_TELEMETRY_MODE=off`, `ORACLE2_DATABASE_URL` (R1 pooler URL, role
 `oracle2_holistic`), `ORACLE2_CANDIDATE_GRAPH_URL` (`rediss://:<candidate password>@oracle-graph.designflow.app:16391`),
 `ORACLE2_GRAPH_TLS_CA_PEM` / `_CERT_PEM` / `_KEY_PEM` (candidate worker client TLS + private CA),
-`ORACLE2_HOLISTIC_WORKSPACE_ID`, `ORACLE2_HOLISTIC_SOURCE_IDS`, `ORACLE2_HOLISTIC_CORPUS_DIGEST`.
+`ORACLE2_HOLISTIC_WORKSPACE_ID`, `ORACLE2_HOLISTIC_SOURCE_IDS`, `ORACLE2_HOLISTIC_CORPUS_DIGEST`,
+`ORACLE2_HOLISTIC_TRIGGER_PROJECT_REF=proj_fsoejmtnnwajrkjsvlax` (non-secret; the remote build's
+indexer evaluates `trigger.oracle2-holistic.config.ts`, which refuses to load without it).
 Forbidden and verified absent: `ORACLE2_CONFIRMED_GRAPH_URL`, `ORACLE2_PROJECTION_SIGNING_KEY`,
 `ORACLE2_CHECKPOINT_DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, any model key.
 
@@ -110,4 +112,4 @@ up to deletion; nothing else depends on them.
 ## Applied so far
 
 - R1 `wfdrklofsczspazshaib` created and seeded under APPROVE of `5aaabf0` (stepfun run 20261015T205103-1573801-10144); workspace `13cc935a-6417-41c5-91a9-7f88098a0c1f`, digest `f5ebe8c4e8422726a0b4b82f24e704d04f273b0998935105c471d4fa78035ef8`.
-- R2 project created; no variables set and nothing deployed (stopped at the missing `staging` environment pending this revision).
+- R2 project created; the eleven variables above (except the project ref) set under APPROVE of `89de682`. First deploy (version 20261015.1) failed at indexing: "Dedicated non-legacy holistic preview project required" because the project ref variable was absent; nothing ran.
