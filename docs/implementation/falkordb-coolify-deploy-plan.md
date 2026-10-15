@@ -1,7 +1,7 @@
 # FalkorDB on Coolify — executable deployment plan (DRAFT, not executed)
 
-**STATUS 2026-10-15:** attempt 10 DEPLOYED both roles; §9 1–3,5–9 PASS; check 4 public route FAIL (ports 16390/16391 time out from outside;
-host listens — upstream firewall, not touched). Services running with internal networks, DNS and backup tasks.
+**STATUS 2026-10-15:** attempt 10 DEPLOYED both roles; §9 checks 1–9 PASS (check 4 rerun after Hetzner firewall opened 16390/16391).
+Services running with internal networks, DNS and backup tasks.
 
 Prepared 2026-10-14 (EDT); revised the same day after DeepSeek plan reviews 1, 2 and 4-14
 (all REJECT; review 3 was not a plan-content review and has no findings to carry; review files are local-only under the gitignored `.ai/reviews/`, so the

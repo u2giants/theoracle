@@ -69,3 +69,7 @@ Step 7: tasks created 201 — confirmed wkidn4amzovremldvasiudbi, candidate tuqz
 8 PASS: SCAN-RAN only.
 9 PASS: GRAPH.DELETE OK; GRAPH.LIST [].
 State: both services RUNNING, empty, internal networks, backup tasks enabled. Open: public reachability (Hetzner firewall rule for 16390/16391), #27 DNS rollback checklist item, off-server backup copy.
+
+## §9 check 4 rerun (2026-10-15, after Hetzner firewall opened 16390/16391)
+Diagnosis before: hetz INPUT ACCEPT, DOCKER-USER empty, no ufw; DNAT rule for 16390 counter 0 and tcpdump 0 packets during 3 outside attempts → blocked at Hetzner Cloud firewall (fixed by Albert).
+Route: `178.156.180.212 via 192.168.1.2 dev eno1` (correct). Both roles PASS: openssl `Verification: OK`, `Verified peername: oracle-graph.designflow.app`; authenticated worker PONG with hostname verified; no client cert → TLSV13_ALERT_CERTIFICATE_REQUIRED; plaintext → connection reset; 178.156.180.212:6390/6391/6379 closed (timeout). §9 now 1–9 PASS.
