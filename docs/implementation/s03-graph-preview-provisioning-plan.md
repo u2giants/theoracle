@@ -44,7 +44,7 @@ No other resource is created or changed.
   (all three, `rediss://` only; cert/key written once per process to 0600 temp files; hostname checked).
   The hosted FalkorDB requires a client certificate; without this the worker cannot
   connect. Unit test: `services/oracle-brain/tests/test_graph_tls_options.py`.
-- `scripts/oracle2/seed_hosted_preview.py`: applies `001_foundation.sql`, `002_pilot.sql`,
+- `scripts/oracle2/seed_hosted_preview.py`: applies (in `dev/oracle2/compose.yaml` order) the roles, `001_foundation.sql`, `002_pilot.sql`, `004_workflow_integrity.sql`,
   creates the five `oracle2_*` login roles directly with random passwords (the committed
   local passwords are never applied), applies `dev/oracle2/grant-postgres.sql`, seeds two invented documents (the same text
   as the reviewed browser fixture), a signed throwaway owner appointment and review/confirm

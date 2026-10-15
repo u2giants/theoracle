@@ -90,13 +90,14 @@ def main() -> int:
         with conn.transaction():
             if conn.execute("SELECT to_regnamespace('oracle2')").fetchone()[0] is not None:
                 raise RuntimeError("oracle2 schema already present; target is not a fresh preview")
-            for filename in ("001_foundation.sql", "002_pilot.sql"):
-                conn.execute((root / "services/oracle-brain/sql" / filename).read_text())
+            # Same order as dev/oracle2/compose.yaml: roles, 001, 002, 004, grants.
             # Roles get random passwords directly; the committed local passwords
             # in dev/oracle2/init-postgres.sql are never applied here.
             for role, password in out["rolePasswords"].items():
                 conn.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
                     sql.Identifier(role), sql.Literal(password)))
+            for filename in ("001_foundation.sql", "002_pilot.sql", "004_workflow_integrity.sql"):
+                conn.execute((root / "services/oracle-brain/sql" / filename).read_text())
             conn.execute((root / "dev/oracle2/grant-postgres.sql").read_text())
             for index, (sid, did, filename, text) in enumerate(
                     ((source_ids[0], draft_ids[0], "intake.txt", DOC_ONE),
