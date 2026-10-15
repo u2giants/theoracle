@@ -48,7 +48,11 @@ No other resource is created or changed.
   creates the five `oracle2_*` login roles directly with random passwords (the committed
   local passwords are never applied), applies `dev/oracle2/grant-postgres.sql`, seeds two invented documents (the same text
   as the reviewed browser fixture), a signed throwaway owner appointment and review/confirm
-  delegation for one invented actor, and computes the exact corpus digest. Refuses any
+  delegation for one invented actor, and computes the exact corpus digest. It writes all
+  generated credentials to a new 0600 file outside the repository *before* any database
+  change, runs schema/roles/seed in one transaction, refuses a database that already has the
+  `oracle2` schema, and accepts only `db.<ref>.supabase.co` or the Supabase pooler with user
+  `postgres.<ref>`, with `sslmode=require`. Refuses any
   project ref other than the one passed, and all known existing refs.
 
 ## Settings (exact names; values from R1 seed output / 1Password)
@@ -58,7 +62,7 @@ R2 staging environment variables:
 `ORACLE2_TELEMETRY_MODE=off`, `ORACLE2_DATABASE_URL` (R1 pooler URL, role
 `oracle2_holistic`), `ORACLE2_CANDIDATE_GRAPH_URL` (`rediss://:<candidate password>@oracle-graph.designflow.app:16391`),
 `ORACLE2_GRAPH_TLS_CA_PEM` / `_CERT_PEM` / `_KEY_PEM` (candidate worker client TLS + private CA),
-`ORACLE2_HOLISTIC_WORKSPACE_ID`, `ORACLE2_HOLISTIC_CORPUS_DIGEST`.
+`ORACLE2_HOLISTIC_WORKSPACE_ID`, `ORACLE2_HOLISTIC_SOURCE_IDS`, `ORACLE2_HOLISTIC_CORPUS_DIGEST`.
 Forbidden and verified absent: `ORACLE2_CONFIRMED_GRAPH_URL`, `ORACLE2_PROJECTION_SIGNING_KEY`,
 `ORACLE2_CHECKPOINT_DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, any model key.
 

@@ -12,6 +12,7 @@ Deterministic and provider-free: no model call, no network beyond FalkorDB.
 
 from __future__ import annotations
 
+import atexit
 import math
 import os
 import re
@@ -114,6 +115,13 @@ class GraphEvidence:
 _TLS_FILES: dict[tuple, list[str]] = {}
 
 
+def _unlink_quietly(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
 def graph_tls_options(scheme: str) -> dict:
     """Optional client-certificate TLS for a hosted graph (PEM values from env).
 
@@ -122,8 +130,9 @@ def graph_tls_options(scheme: str) -> dict:
     """
     names = ("ORACLE2_GRAPH_TLS_CA_PEM", "ORACLE2_GRAPH_TLS_CERT_PEM", "ORACLE2_GRAPH_TLS_KEY_PEM")
     values = [os.getenv(n) for n in names]
-    if not any(values):
+    if all(v is None for v in values):
         return {}
+    # Any of the three set (even empty) means TLS was intended: all must be non-empty.
     if not all(values) or scheme != "rediss":
         raise ValueError("graph client TLS needs CA, certificate and key with rediss://")
     key = tuple(values)
@@ -136,6 +145,7 @@ def graph_tls_options(scheme: str) -> dict:
             with os.fdopen(fd, "w") as handle:
                 handle.write(value)
             paths.append(path)
+            atexit.register(_unlink_quietly, path)
         _TLS_FILES[key] = paths
     return {"ssl_ca_data": values[0], "ssl_certfile": paths[0], "ssl_keyfile": paths[1],
             "ssl_cert_reqs": "required", "ssl_check_hostname": True}
