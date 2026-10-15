@@ -40,6 +40,8 @@ def test_retention_rules():
 def test_retention_fails_closed():
     with pytest.raises(KeyError):
         decide(Record("unknown", NOW), RULES, NOW)
+    # A tombstone wins even when no rule covers the kind: never left readable.
+    assert decide(Record("unknown", NOW, tombstoned=True), RULES, NOW) == "purge"
     with pytest.raises(ValueError):
         decide(Record("meeting", NOW.replace(tzinfo=None)), RULES, NOW)
 

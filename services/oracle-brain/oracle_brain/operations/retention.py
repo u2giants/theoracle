@@ -24,12 +24,13 @@ def decide(record: Record, rules: dict[str, RetentionRule], now: datetime) -> st
     """Return 'hide', 'purge' or 'keep'. Unknown kinds fail closed."""
     if now.tzinfo is None or record.created_at.tzinfo is None:
         raise ValueError("timestamps must be timezone-aware")
+    if record.tombstoned:
+        # Deleted evidence is never readable, even without a rule for its kind;
+        # a hold only defers physical purge.
+        return "hide" if record.legal_hold else "purge"
     rule = rules.get(record.kind)
     if rule is None:
         raise KeyError(f"no retention rule for {record.kind!r}")
-    if record.tombstoned:
-        # Deleted evidence is never readable; a hold only defers physical purge.
-        return "hide" if record.legal_hold else "purge"
     if record.legal_hold or rule.ttl is None:
         return "keep"
     return "purge" if now - record.created_at >= rule.ttl else "keep"
