@@ -10,14 +10,14 @@ owner: claude (s02-coordination-pr-gates-baf147 worktree)
 Hetzner Cloud firewall token (read/write) if the firewall must be confirmed; otherwise none.
 
 ## State
-- Plan: `docs/implementation/falkordb-coolify-deploy-plan.md` — revised through DeepSeek review 14; gate = golden fixtures in dev/oracle2/hosting/golden/; each review round is committed in this worktree branch by the coordinator after its edits.
+- Plan: `docs/implementation/falkordb-coolify-deploy-plan.md` — revised through DeepSeek review 17 (clean branch falkordb-coolify-deploy); gate = golden fixtures in dev/oracle2/hosting/golden/; each review round is committed in this worktree branch by the coordinator after its edits.
 - Gate: `python3 dev/oracle2/hosting/validate_falkordb_plan.py` + `services/oracle-brain/tests/test_falkordb_coolify_plan.py` pass.
 - No live mutation.
 
 ## Next
-Re-review; on ACCEPT execute via the root coordinator's HOST-PATH (§6 0b). Open residuals: vm.overcommit_memory read, Trigger.dev public-route probe.
+Exact-head review on the clean branch; on APPROVE execute via the root coordinator's HOST-PATH (§6 0b). Open residuals: vm.overcommit_memory read, Trigger.dev public-route probe.
 
-## Execution attempt 2026-10-14 (owner-approved deploy, plan @ 28a2365)
+## Execution attempt 2026-10-14 (owner-approved deploy, plan @ (squashed into the clean-branch commit))
 STOPPED at §6 preflight 0b before any change: no HOST-PATH from this session (ssh hetz / ai@ / root@100.66.37.58 → Permission denied (publickey); root@178.156.180.212:22 timed out). 0a/0c/name-collision preflights therefore not runnable. Nothing created on Coolify, Cloudflare or hetz; no secrets read. Resume: the root Oracle coordinator runs the plan from §6 step 0 over its own approved host path.
 
 ## Execution attempt 2 (2026-10-14, coordinator-supplied host path)
@@ -32,5 +32,5 @@ PASS: health; public 16390 + tailnet 6390 PONG; worker GRAPH.QUERY/RO_QUERY ok; 
 DIFFERS: missing-tailnet-IP decoupling. With 100.66.37.58 absent (ip_nonlocal_bind=0), `compose up` rc=0, tailnet-fwd running and 100.66.37.58:6391 LISTENING via docker-proxy (no `cannot assign requested address`). Store + public 16391 fine. §6 0c text/decoupling claim is wrong for 29.6.0. 0b NOT amended; coordinator decision needed.
 Follow-up (coordinator: amend): fresh dind, tailnet IP never assigned → compose rc 1, fwd Created, store healthy, public PONG; IP added later → tailnet still refused, fwd not auto-started (needs redeploy). Earlier "rc 0 + listening" came from a run where the IP had been present before removal. Plan 0b now requires 29.6.0 + Compose major ≥5 recorded; tailnet proven only by §9 check 4; receipts + overcommit=0 residual added.
 
-## Execution attempt 4 (2026-10-15, after review 16 APPROVED; fixes committed bd0a4c4)
+## Execution attempt 4 (2026-10-15, after review 16 APPROVED; fixes committed (squashed into the clean-branch commit))
 STOPPED before any host/SSH/Coolify/1Password/Cloudflare action: the plan's required gate `ai-task-gates check --before infrastructure` returned rc 3 — "STOP before infrastructure; declared: code; observed: deployment (protected)", escalated by branch files (.github/workflows/oracle-native-browser-image.yml, oracle-native-image.yml, oracle2-contracts.yml, task-gates.yml; apps/web|workers package.json; apps/workers/trigger.config.ts; dev/oracle2/{analytics,browser,hosting}/Dockerfile; packages/brain-contracts/package.json). The gate says a protected class cannot be reviewer-approved away; re-declaring with `ai-task-gates start --class deployment` (or running from a branch without those files) is a coordinator/owner decision, not taken here. No SSH connection opened; nothing created.

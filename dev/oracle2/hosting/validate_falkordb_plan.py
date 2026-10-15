@@ -25,8 +25,9 @@ DUMMY_ENV = {"FALKORDB_PASSWORD": "invented-placeholder", "FALKORDB_SERVER_TLS_B
 
 def compose_block(text: str | None = None) -> str:
     blocks = re.findall(r"```yaml\n(.*?)```", PLAN.read_text() if text is None else text, re.S)
+    blocks = [b for b in blocks if "<ROLE>" in b]
     if len(blocks) != 1:
-        raise ValueError(f"expected 1 yaml block, found {len(blocks)}")
+        raise ValueError(f"expected 1 compose yaml block containing <ROLE>, found {len(blocks)}")
     return blocks[0]
 
 
@@ -94,6 +95,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"FAIL: {exc}")
         return 1
     if argv == ["--write-golden"]:
+        meta = json.loads((GOLDEN / "meta.json").read_text()) if (GOLDEN / "meta.json").exists() else {}
+        if meta and compose_version() != meta.get("generator_compose_version"):
+            print("FAIL: refusing to regenerate goldens with a different Compose version than the recorded generator")
+            return 1
         GOLDEN.mkdir(parents=True, exist_ok=True)
         try:
             rendered = {role: normalize(render(role, block)) for role in ROLES}

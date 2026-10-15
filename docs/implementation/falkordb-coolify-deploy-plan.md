@@ -500,7 +500,7 @@ script, restore commands, argv scan and API payloads are covered by the dated ma
 recorded in §8/§9 (not by CI) and are re-proven live by §9 checks 7/8 during execution.
 **Validator (test gap):** `services/oracle-brain/tests/test_falkordb_coolify_plan.py` calls the
 validator's golden-equality `check` for both roles plus mutation cases (FAILS, never skips, if Docker
-Compose v2 is absent; the W10 runner needs it); goldens are in the W10 input hash; PyYAML declared in the `test` extra (uv.lock regenerated). Required: listed as
+Compose v2 is absent; the W10 runner needs it); goldens are in the W10 input hash; no PyYAML needed (the validator normalizes with `docker compose config`, not a YAML library). Required: listed as
 `falkordb_coolify_plan` in `scripts/oracle2/verify_workflow_integrity.py` DOCUMENTARY, which
 `.github/workflows/oracle2-contracts.yml` runs (`--stage W10`); that runner fails on any skip. `python3 dev/oracle2/hosting/validate_falkordb_plan.py` — run
 2026-10-14: PASS for both roles. Gate is EXACT EQUALITY: each role's rendered block, normalized by
@@ -567,7 +567,7 @@ M uv.lock regenerated (`uv lock --check` 0); M DNS as §6 step 6; M ACL users (�
 long-syntax binds + TLS paths + single substitution path; L shared-items text (§2); L header; L name
 collision (§2).
 Review 4: M1 validator strengthened (§11); M2 network model in README banner; M3 DNS rollback
-(§10); L1 rotation owner (§3); L2 env ordering (§6); L3 pytest + PyYAML declared (§11); L4 host
+(§10); L1 rotation owner (§3); L2 env ordering (§6); L3 pytest declared; PyYAML not needed (§11); L4 host
 residual (§5, §9).
 Owner route decision (public mTLS primary, Tailscale backup): header, §2, §3, §5, §9.
 Review 2: H1 three identities (§3); H2 CA key wording (§3); M1 overhaul line marked
