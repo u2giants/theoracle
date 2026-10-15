@@ -1,7 +1,7 @@
 # FalkorDB on Coolify — executable deployment plan (DRAFT, not executed)
 
-**STATUS 2026-10-14 11:40 PM EDT:** deploy attempt 5 STOPPED at §6 step 3 (409: Coolify auto-created empty env keys; needs PATCH).
-Created: vault CA/password/TLS items, environment `oracle-graph-production`, unstarted service `oracle-falkordb-confirmed`. §9 not run.
+**STATUS 2026-10-14 11:50 PM EDT:** attempt 6 STOPPED at §6 step 5 (start is POST on this Coolify, 405 on GET).
+Confirmed service configured (envs set) but not started; candidate not created; §9 not run.
 
 Prepared 2026-10-14 (EDT); revised the same day after DeepSeek plan reviews 1, 2 and 4-14
 (all REJECT; review 3 was not a plan-content review and has no findings to carry; review files are local-only under the gitignored `.ai/reviews/`, so the
