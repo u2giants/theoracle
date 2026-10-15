@@ -45,9 +45,9 @@ def test_full_settings_write_private_files(monkeypatch):
 
 def test_falkordb_client_accepts_tls_options(monkeypatch):
     import inspect
-    from falkordb import FalkorDB
-    accepted = set(inspect.signature(FalkorDB.__init__).parameters)
-    assert {"ssl_ca_data", "ssl_certfile", "ssl_keyfile", "ssl_cert_reqs",
+    import redis
+    accepted = set(inspect.signature(redis.Redis.__init__).parameters)
+    assert {"username", "ssl_ca_data", "ssl_certfile", "ssl_keyfile", "ssl_cert_reqs",
             "ssl_check_hostname"} <= accepted
 
 

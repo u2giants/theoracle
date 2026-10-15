@@ -21,7 +21,8 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 from uuid import UUID
 
-from falkordb import FalkorDB
+import redis
+from falkordb import Graph
 
 from ..consultant.pilot import Citation, HypotheticalExperiment, PilotAnswer
 
@@ -160,10 +161,13 @@ class FalkorEvidenceGraph:
             raise ValueError("invalid FalkorDB URL")
         if not re.fullmatch(r"oracle2_evidence_[a-z0-9_]{1,64}", graph_name):
             raise ValueError("evidence graph name must be oracle2_evidence_<id>")
-        client = FalkorDB(host=parsed.hostname, port=parsed.port or 6379,
-                          password=parsed.password, ssl=parsed.scheme == "rediss",
-                          **graph_tls_options(parsed.scheme))
-        self.graph = client.select_graph(graph_name)
+        # Plain redis client + Graph: FalkorDB() probes INFO for cluster/sentinel
+        # detection, which the hosted least-privilege ACL user (worker) may not run.
+        client = redis.Redis(host=parsed.hostname, port=parsed.port or 6379,
+                             username=parsed.username or None,
+                             password=parsed.password, ssl=parsed.scheme == "rediss",
+                             **graph_tls_options(parsed.scheme))
+        self.graph = Graph(client, graph_name)
 
     def reset(self) -> None:
         self.graph.query("MATCH (n) DETACH DELETE n")

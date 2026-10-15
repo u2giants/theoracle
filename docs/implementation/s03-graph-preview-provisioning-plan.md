@@ -44,6 +44,11 @@ No other resource is created or changed.
   (all three, `rediss://` only; cert/key written once per process to 0600 temp files; hostname checked).
   The hosted FalkorDB requires a client certificate; without this the worker cannot
   connect. Unit test: `services/oracle-brain/tests/test_graph_tls_options.py`.
+- `FalkorEvidenceGraph` passes the URL username (hosted ACL user `worker`) and uses a plain
+  redis client with `falkordb.Graph` instead of `FalkorDB()`, whose constructor runs `INFO`
+  (cluster/sentinel probe) that the hosted least-privilege `worker` ACL forbids
+  (`NoPermissionError ... 'info'`). Graph commands used: GRAPH.QUERY/RO_QUERY/DELETE only.
+  R2's `ORACLE2_CANDIDATE_GRAPH_URL` is therefore `rediss://worker:<password>@...:16391`.
 - `scripts/oracle2/seed_hosted_preview.py`: applies (in `dev/oracle2/compose.yaml` order) the roles, `001_foundation.sql`, `002_pilot.sql`, `004_workflow_integrity.sql`,
   creates the five `oracle2_*` login roles directly with random passwords (the committed
   local passwords are never applied), applies `dev/oracle2/grant-postgres.sql`, seeds two invented documents (the same text
@@ -66,7 +71,7 @@ preview settings, touches no Oracle production resource, and is deleted at teard
 R2 environment variables (the dedicated project's `prod` environment; see note):
 `ORACLE2_ENVIRONMENT=preview`, `ORACLE2_ANSWER_ENGINE=graph-evidence`,
 `ORACLE2_TELEMETRY_MODE=off`, `ORACLE2_DATABASE_URL` (R1 pooler URL, role
-`oracle2_holistic`), `ORACLE2_CANDIDATE_GRAPH_URL` (`rediss://:<candidate password>@oracle-graph.designflow.app:16391`),
+`oracle2_holistic`), `ORACLE2_CANDIDATE_GRAPH_URL` (`rediss://worker:<candidate password>@oracle-graph.designflow.app:16391`),
 `ORACLE2_GRAPH_TLS_CA_PEM` / `_CERT_PEM` / `_KEY_PEM` (candidate worker client TLS + private CA),
 `ORACLE2_HOLISTIC_WORKSPACE_ID`, `ORACLE2_HOLISTIC_SOURCE_IDS`, `ORACLE2_HOLISTIC_CORPUS_DIGEST`,
 `ORACLE2_HOLISTIC_TRIGGER_PROJECT_REF=proj_fsoejmtnnwajrkjsvlax` (non-secret; the remote build's
@@ -113,3 +118,7 @@ up to deletion; nothing else depends on them.
 
 - R1 `wfdrklofsczspazshaib` created and seeded under APPROVE of `5aaabf0` (stepfun run 20261015T205103-1573801-10144); workspace `13cc935a-6417-41c5-91a9-7f88098a0c1f`, digest `f5ebe8c4e8422726a0b4b82f24e704d04f273b0998935105c471d4fa78035ef8`.
 - R2 project created; the eleven variables above (except the project ref) set under APPROVE of `89de682`. First deploy (version 20261015.1) failed at indexing: "Dedicated non-legacy holistic preview project required" because the project ref variable was absent; nothing ran.
+- Worker deployed as R2 version 20261015.2 at `67f3b50`; Vercel branch variables, branch `oracle2-s03-preview`
+  and bypass secret created; preview `dpl_8BPUGFSEwyCpC3z1WrDS6TinikuQ` READY. First two proof runs failed in
+  the worker: FalkorDB authentication (no ACL username) then `INFO` not permitted for `worker`;
+  the database read worked. This revision fixes the client; it changes no server or ACL setting.
