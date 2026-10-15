@@ -1,0 +1,167 @@
+{
+ "name": "oracle-falkordb-candidate",
+ "networks": {
+  "oracle-graph-candidate": {
+   "driver": "bridge",
+   "driver_opts": {
+    "com.docker.network.bridge.enable_ip_masquerade": "false"
+   },
+   "ipam": {},
+   "name": "oracle-graph-candidate"
+  }
+ },
+ "services": {
+  "data-files": {
+   "cap_add": [
+    "CHOWN",
+    "FOWNER"
+   ],
+   "cap_drop": [
+    "ALL"
+   ],
+   "command": null,
+   "entrypoint": [
+    "/bin/sh",
+    "-c",
+    "chown 999:999 /var/lib/falkordb/data /backups && chmod 0700 /var/lib/falkordb/data /backups"
+   ],
+   "image": "falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d",
+   "network_mode": "none",
+   "read_only": true,
+   "restart": "no",
+   "security_opt": [
+    "no-new-privileges:true"
+   ],
+   "user": "0:0",
+   "volumes": [
+    {
+     "source": "oracle-falkordb-candidate-data",
+     "target": "/var/lib/falkordb/data",
+     "type": "volume",
+     "volume": {}
+    },
+    {
+     "source": "oracle-falkordb-candidate-backups",
+     "target": "/backups",
+     "type": "volume",
+     "volume": {}
+    }
+   ]
+  },
+  "falkordb": {
+   "cap_drop": [
+    "ALL"
+   ],
+   "command": [
+    "set -e; umask 077\n: \"$${FALKORDB_PASSWORD:?missing}\" \"$${FALKORDB_SERVER_TLS_B64:?missing}\"\nprintf '%s' \"$$FALKORDB_SERVER_TLS_B64\" | base64 -d | tar -x -C /run/auth\nrnd() { head -c 24 /dev/urandom | base64 | tr -d '/+=\\n'; }\nrnd > /run/auth/hc.password; rnd > /run/auth/backup.password\nG='+GRAPH.QUERY +GRAPH.RO_QUERY +GRAPH.DELETE +GRAPH.LIST +GRAPH.EXPLAIN +GRAPH.PROFILE +GRAPH.CONSTRAINT'\n{\n  echo 'user default off'\n  echo \"user worker on >$$FALKORDB_PASSWORD ~* &* -@all +@connection $$G -@dangerous\"\n  echo \"user healthcheck on >$$(cat /run/auth/hc.password) -@all +ping\"\n  echo \"user backup on >$$(cat /run/auth/backup.password) -@all +ping +bgsave +lastsave\"\n} > /run/auth/users.acl\n: > /run/auth/server.conf\nunset FALKORDB_PASSWORD FALKORDB_SERVER_TLS_B64 G\ncat >> /run/auth/server.conf <<'EOF'\nport 0\ntls-port 6379\ntls-cert-file /run/auth/server.crt\ntls-key-file /run/auth/server.key\ntls-ca-cert-file /run/auth/ca.crt\ntls-auth-clients yes\ntls-protocols \"TLSv1.3\"\nbind 0.0.0.0\nprotected-mode yes\ndir /var/lib/falkordb/data\nappendonly yes\nappendfsync everysec\nsave 900 1\nsave 300 100\naclfile /run/auth/users.acl\nrename-command DEBUG \"\"\nEOF\ncat > /run/auth/backup.sh <<'BK'\nset -eu; export REDISCLI_AUTH=\"$$(cat /run/auth/backup.password)\"\nC=\"redis-cli --user backup --tls --cacert /run/auth/ca.crt --cert /run/auth/hc.crt --key /run/auth/hc.key -h 127.0.0.1 -p 6379\"\nbefore=$$($$C LASTSAVE); $$C BGSAVE >/dev/null\ni=0; while [ \"$$($$C LASTSAVE)\" = \"$$before\" ]; do i=$$((i+1)); [ $$i -le 600 ] || exit 1; sleep 1; done\nd=/backups/$$(date -u +%Y%m%dT%H%M%SZ); mkdir -m 0700 \"$$d\"\ncp /var/lib/falkordb/data/dump.rdb \"$$d/\"\n[ ! -d /var/lib/falkordb/data/appendonlydir ] || cp -r /var/lib/falkordb/data/appendonlydir \"$$d/\"\n(cd \"$$d\" && find . -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS)\nls -1d /backups/2*/ | sort | head -n -14 | xargs -r rm -rf\nBK\nexec redis-server /run/auth/server.conf --loadmodule /var/lib/falkordb/bin/falkordb.so\n"
+   ],
+   "cpus": 1,
+   "depends_on": {
+    "data-files": {
+     "condition": "service_completed_successfully",
+     "required": true
+    }
+   },
+   "entrypoint": [
+    "/bin/sh",
+    "-c"
+   ],
+   "environment": {
+    "FALKORDB_PASSWORD": "invented-placeholder",
+    "FALKORDB_SERVER_TLS_B64": "aW52ZW50ZWQ="
+   },
+   "healthcheck": {
+    "interval": "15s",
+    "retries": 5,
+    "test": [
+     "CMD-SHELL",
+     "REDISCLI_AUTH=\"$$(cat /run/auth/hc.password)\" redis-cli --user healthcheck --tls --cacert /run/auth/ca.crt --cert /run/auth/hc.crt --key /run/auth/hc.key -h 127.0.0.1 -p 6379 ping | grep -q PONG"
+    ],
+    "timeout": "5s"
+   },
+   "image": "falkordb/falkordb:v4.20.7@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d",
+   "mem_limit": "2147483648",
+   "networks": {
+    "oracle-graph-candidate": null
+   },
+   "pids_limit": 256,
+   "ports": [
+    {
+     "host_ip": "178.156.180.212",
+     "mode": "ingress",
+     "protocol": "tcp",
+     "published": "16391",
+     "target": 6379
+    }
+   ],
+   "read_only": true,
+   "restart": "unless-stopped",
+   "security_opt": [
+    "no-new-privileges:true"
+   ],
+   "tmpfs": [
+    "/run/auth:rw,noexec,nosuid,size=1m,uid=999,gid=999,mode=0700",
+    "/tmp:rw,noexec,nosuid,size=16m,uid=999,gid=999,mode=0700"
+   ],
+   "user": "999:999",
+   "volumes": [
+    {
+     "source": "oracle-falkordb-candidate-data",
+     "target": "/var/lib/falkordb/data",
+     "type": "volume",
+     "volume": {}
+    },
+    {
+     "source": "oracle-falkordb-candidate-backups",
+     "target": "/backups",
+     "type": "volume",
+     "volume": {}
+    }
+   ]
+  },
+  "tailnet-fwd": {
+   "cap_drop": [
+    "ALL"
+   ],
+   "command": [
+    "printf 'pid /tmp/n.pid; error_log stderr; events {} stream { resolver 127.0.0.11 valid=10s ipv6=off; server { listen 6379; set $$u falkordb:6379; proxy_pass $$u; } }' > /tmp/n.conf\nexec nginx -c /tmp/n.conf -e stderr -g 'daemon off;'\n"
+   ],
+   "entrypoint": [
+    "/bin/sh",
+    "-c"
+   ],
+   "image": "nginx@sha256:72aeb3308ef6cb3118242fb16389518923916dfa206e32d1a8377acc328b9870",
+   "mem_limit": "33554432",
+   "networks": {
+    "oracle-graph-candidate": null
+   },
+   "pids_limit": 32,
+   "ports": [
+    {
+     "host_ip": "100.66.37.58",
+     "mode": "ingress",
+     "protocol": "tcp",
+     "published": "6391",
+     "target": 6379
+    }
+   ],
+   "read_only": true,
+   "restart": "unless-stopped",
+   "security_opt": [
+    "no-new-privileges:true"
+   ],
+   "tmpfs": [
+    "/tmp:rw,noexec,nosuid,size=1m,uid=101,gid=101,mode=0700"
+   ],
+   "user": "101:101"
+  }
+ },
+ "volumes": {
+  "oracle-falkordb-candidate-backups": {
+   "name": "oracle-falkordb-candidate-backups"
+  },
+  "oracle-falkordb-candidate-data": {
+   "name": "oracle-falkordb-candidate-data"
+  }
+ }
+}
