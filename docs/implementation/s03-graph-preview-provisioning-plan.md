@@ -29,7 +29,7 @@ passes with an APPROVE naming the merged head of this plan.
 | # | Resource | Platform / where | Cost |
 |---|---|---|---|
 | R1 | New Supabase project `oracle2-s03-preview`, region `us-east-1` | Existing Supabase org `gcxiglhgughlynvhdljs` ("Free"; has one free active slot) | $0 (free tier) |
-| R2 | New Trigger project `oracle2-holistic-preview`, **staging** environment only | Existing Trigger org POP | existing plan |
+| R2 | New Trigger project `oracle2-holistic-preview` (`proj_fsoejmtnnwajrkjsvlax`, created 2026-10-15), its **`prod`** environment only | Existing Trigger org POP | existing plan |
 | R3 | Vercel Preview env vars scoped by `gitBranch=oracle2-s03-preview` only | Existing Vercel project `prj_rP6Jlima7iK1paffEPhLqxlswGsC` | $0 |
 | R4 | Git branch `oracle2-s03-preview` at the merged head of this plan (deploy trigger for R3) | GitHub `u2giants/theoracle` | $0 |
 | R5 | One Vercel "Protection Bypass for Automation" secret, for scripted proof requests | Same Vercel project | $0 |
@@ -55,9 +55,15 @@ No other resource is created or changed.
   `postgres.<ref>`, with `sslmode=require`. Refuses any
   project ref other than the one passed, and all known existing refs.
 
+Note on R2 environment (revision 2026-10-15): a newly created Trigger project has no
+`staging` environment (API: `Environment not found`); only `dev` and `prod` exist. R2 is
+a dedicated, preview-only project that nothing else uses, so its `prod` environment is
+the isolated preview worker. "prod" is Trigger's label only: it holds invented data and
+preview settings, touches no Oracle production resource, and is deleted at teardown.
+
 ## Settings (exact names; values from R1 seed output / 1Password)
 
-R2 staging environment variables:
+R2 environment variables (the dedicated project's `prod` environment; see note):
 `ORACLE2_ENVIRONMENT=preview`, `ORACLE2_ANSWER_ENGINE=graph-evidence`,
 `ORACLE2_TELEMETRY_MODE=off`, `ORACLE2_DATABASE_URL` (R1 pooler URL, role
 `oracle2_holistic`), `ORACLE2_CANDIDATE_GRAPH_URL` (`rediss://:<candidate password>@oracle-graph.designflow.app:16391`),
@@ -69,7 +75,7 @@ Forbidden and verified absent: `ORACLE2_CONFIRMED_GRAPH_URL`, `ORACLE2_PROJECTIO
 R3 Vercel Preview (gitBranch `oracle2-s03-preview` only):
 `ORACLE2_DATABASE_URL` (R1 pooler URL, role `oracle2_pilot_web`), `ORACLE2_PILOT_TOKEN`
 (random), `ORACLE2_PILOT_ACTOR`, `ORACLE2_PILOT_WORKSPACE_ID`,
-`ORACLE2_HOLISTIC_TRIGGER_SECRET_KEY` (R2 staging secret key),
+`ORACLE2_HOLISTIC_TRIGGER_SECRET_KEY` (R2 `prod` secret key),
 `ORACLE2_HOLISTIC_CORPUS_DIGEST`, `TRIGGER_API_URL=https://api.trigger.dev`.
 
 ## Steps
@@ -78,8 +84,8 @@ R3 Vercel Preview (gitBranch `oracle2-s03-preview` only):
    generated DB password stored in 1Password `Oracle2 S03 preview DB - oracle2-s03-preview (<ref>)`.
 2. Run the seed script against R1's admin URL; store its output JSON in the same
    1Password item. Record only non-secret ids and digest on #27.
-3. Create R2; set R2 staging variables through the Trigger API; deploy
-   `apps/workers/trigger.oracle2-holistic.config.ts` to staging from the merged head.
+3. Create R2; set R2 variables through the Trigger API; deploy
+   `apps/workers/trigger.oracle2-holistic.config.ts` to R2's `prod` environment from the approved head.
 4. Create R4 at the merged head; set R3 variables; create R5 (stored in 1Password);
    wait for the branch preview deployment to be READY.
 5. Live proof (below). Post signed evidence on #27.
@@ -91,7 +97,7 @@ Against the branch preview URL, with the bypass header and the pilot token:
    reaches `completed` with at least one citation whose quote is from `intake.txt`.
 2. Unsupported question "What is the travel reimbursement limit?" reaches `completed`
    with no citations and `evidenceStatus=no_source_evidence` ("no evidence found").
-3. Trigger staging runs for both are `COMPLETED`; FalkorDB candidate holds no
+3. R2 runs for both are `COMPLETED`; FalkorDB candidate holds no
    `oracle2_evidence_run_*` graph afterwards.
 
 ## Rollback / teardown (when #27 closes or on any failure)
@@ -100,3 +106,8 @@ Delete R3 variables and R5; delete branch R4; delete Trigger project R2; pause t
 delete Supabase project R1; confirm no `oracle2_evidence_run_*` graph remains on the
 candidate FalkorDB; archive the 1Password item. Each is independent and reversible
 up to deletion; nothing else depends on them.
+
+## Applied so far
+
+- R1 `wfdrklofsczspazshaib` created and seeded under APPROVE of `5aaabf0` (stepfun run 20261015T205103-1573801-10144); workspace `13cc935a-6417-41c5-91a9-7f88098a0c1f`, digest `f5ebe8c4e8422726a0b4b82f24e704d04f273b0998935105c471d4fa78035ef8`.
+- R2 project created; no variables set and nothing deployed (stopped at the missing `staging` environment pending this revision).
