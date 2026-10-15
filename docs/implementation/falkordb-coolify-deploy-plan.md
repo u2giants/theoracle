@@ -431,13 +431,14 @@ either value is empty (runtime `:?` check), so a missing env fails closed.
    returns only `178.156.180.212`.
 7. Mutation, per role (backup task; Coolify 4.4.6 OpenAPI `POST /services/{uuid}/scheduled-tasks`,
    fields name/command/frequency/container/timeout/enabled): body file on tmpfs
-   `{"name":"falkordb-backup","command":"<§8 script, newlines kept, JSON-encoded by python json.dumps>","frequency":"17 3 * * *","container":"<CTR>","timeout":900,"enabled":true}`
+   `{"name":"falkordb-backup","command":"sh /run/auth/backup.sh","frequency":"17 3 * * *","container":"<CTR>","timeout":900,"enabled":true}`
    `<CTR>` is resolved, never hardcoded: first `GET /services/<SVC>` (read) and take the
    `applications[].name` whose compose service is `falkordb` (expected `falkordb`, confirmed live);
    cross-check via HOST-PATH with `docker ps --filter label=com.docker.compose.service=falkordb --filter network=oracle-graph-<ROLE> --format '{{.Names}}'`.
    If no single match → STOP, do not create the task.
-   (the body file is built by `python3 -c` from the §8 block so quoting is exact; the `command` value is
-   explicitly `sh -eu -c <shlex.quote(script)>`, so it does not depend on whether Coolify wraps it in a shell), sent with
+   (the body file is built by `python3 -c` with `json.dumps`; the 22-char `command` fits Coolify 4.4.6's
+   255-char limit and runs the entrypoint-written §8 script; before creating the task, require
+   `docker exec <CTR> sh -n /run/auth/backup.sh` via HOST-PATH to succeed, else STOP), sent with
    the token rule: `… | curl -sS --config - -X POST http://100.66.37.58:8000/api/v1/services/<SVC>/scheduled-tasks -H 'Content-Type: application/json' --data @"$BODY"`;
    record the returned task uuid. For §9 check 7 run it once: `POST /services/<SVC>/scheduled-tasks/<TASK>/execute`,
    then poll `GET /services/<SVC>/scheduled-tasks/<TASK>/executions` until status `success`.
@@ -452,7 +453,7 @@ nothing else to those ports; ephemeral pre-authorized key tagged `tag:oracle-tri
 ## 8. Backup, retention, restore (M8) — owner: root Oracle coordinator
 Coolify 4.4.6 scheduled task on each service (container `<CTR>` resolved in §6 step 7), cron `17 3 * * *`,
 server timezone America/New_York (verify the service's timezone field reads it; else use
-`17 7 * * *` UTC and note DST). Task command (Coolify 4.4.6 limits it to 255 chars; attempt 9 got 500 on the 704-char inline script): `sh /run/auth/backup.sh` — the entrypoint writes this exact script (retention: keep 14 newest) to tmpfs at every start, so it is pinned by the compose golden:
+`17 7 * * *` UTC and note DST). Task command (Coolify 4.4.6 limits it to 255 chars; attempt 9 got 500 on the 704-char inline script): `sh /run/auth/backup.sh` — the entrypoint writes this script (byte-identical except the trailing retention comment, which the compose copy omits; retention: keep 14 newest) to tmpfs at every start, so it is pinned by the compose golden:
 ```sh
 set -eu; export REDISCLI_AUTH="$(cat /run/auth/backup.password)"
 C="redis-cli --user backup --tls --cacert /run/auth/ca.crt --cert /run/auth/hc.crt --key /run/auth/hc.key -h 127.0.0.1 -p 6379"
