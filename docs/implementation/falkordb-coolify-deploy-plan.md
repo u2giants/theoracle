@@ -269,6 +269,17 @@ services:
         aclfile /run/auth/users.acl
         rename-command DEBUG ""
         EOF
+        cat > /run/auth/backup.sh <<'BK'
+        set -eu; export REDISCLI_AUTH="$$(cat /run/auth/backup.password)"
+        C="redis-cli --user backup --tls --cacert /run/auth/ca.crt --cert /run/auth/hc.crt --key /run/auth/hc.key -h 127.0.0.1 -p 6379"
+        before=$$($$C LASTSAVE); $$C BGSAVE >/dev/null
+        i=0; while [ "$$($$C LASTSAVE)" = "$$before" ]; do i=$$((i+1)); [ $$i -le 600 ] || exit 1; sleep 1; done
+        d=/backups/$$(date -u +%Y%m%dT%H%M%SZ); mkdir -m 0700 "$$d"
+        cp /var/lib/falkordb/data/dump.rdb "$$d/"
+        [ ! -d /var/lib/falkordb/data/appendonlydir ] || cp -r /var/lib/falkordb/data/appendonlydir "$$d/"
+        (cd "$$d" && find . -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS)
+        ls -1d /backups/2*/ | sort | head -n -14 | xargs -r rm -rf
+        BK
         exec redis-server /run/auth/server.conf --loadmodule /var/lib/falkordb/bin/falkordb.so
     tmpfs:
       - /run/auth:rw,noexec,nosuid,size=1m,uid=999,gid=999,mode=0700
@@ -441,7 +452,7 @@ nothing else to those ports; ephemeral pre-authorized key tagged `tag:oracle-tri
 ## 8. Backup, retention, restore (M8) — owner: root Oracle coordinator
 Coolify 4.4.6 scheduled task on each service (container `<CTR>` resolved in §6 step 7), cron `17 3 * * *`,
 server timezone America/New_York (verify the service's timezone field reads it; else use
-`17 7 * * *` UTC and note DST). Exact command:
+`17 7 * * *` UTC and note DST). Task command (Coolify 4.4.6 limits it to 255 chars; attempt 9 got 500 on the 704-char inline script): `sh /run/auth/backup.sh` — the entrypoint writes this exact script (retention: keep 14 newest) to tmpfs at every start, so it is pinned by the compose golden:
 ```sh
 set -eu; export REDISCLI_AUTH="$(cat /run/auth/backup.password)"
 C="redis-cli --user backup --tls --cacert /run/auth/ca.crt --cert /run/auth/hc.crt --key /run/auth/hc.key -h 127.0.0.1 -p 6379"
