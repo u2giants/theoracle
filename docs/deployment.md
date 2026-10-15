@@ -195,6 +195,14 @@ Unknowns to verify through dashboards when CLI/API cannot expose them: the Supab
   carrying the OLD behaviour.
 - Deploy from `apps/workers`; the project ref is committed in `trigger.config.ts`.
 
+### FalkorDB graph stores (hetz / Coolify)
+
+- Follow `docs/implementation/falkordb-coolify-deploy-plan.md` §10 (stop, then delete each role's service with volumes kept).
+- [ ] **Remove DNS record `oracle-graph.designflow.app`** (DNS-only `A` → hetz, Cloudflare record id
+  `32019fc3aeb47e529ba7287cb0c84b2e`) — only when BOTH roles are being removed, because the record is shared.
+  Pass: `dig +short oracle-graph.designflow.app` returns nothing. Tick the matching rollback item on
+  u2giants/theoracle#27.
+
 ### Database
 
 - There is no automatic rollback.

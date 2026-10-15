@@ -274,3 +274,45 @@ with safe error-class/status evidence and minimal synthetic qualification before
 a new immutable company configuration. Hosted
 worker/database targets remain unqualified; prefer existing-server self-hosting,
 which is not yet implemented or qualified, over an assumed Cloud subscription.
+
+
+## Automated recheck on current main — 2026-10-15 EDT (invented data only)
+
+Owner rule (2026-10-15): staff review is deferred to the very end; this section uses automated
+checks on invented data only. No company questions, employee messages, provider calls or production
+writes. Source: main `54a8036`, host edge-dev3, isolated loopback stores (own compose project).
+
+| Check | Result | Decisive line |
+|---|---|---|
+| `scripts/oracle2/verify_phase.py S03 --mode offline` (local synthetic FalkorDB/Postgres containers) | **PASS** | `60 passed, 1 warning in 5.03s` |
+| `apps/web/tests/oracle2/pilot.spec.ts` via `verify_holistic_browser.py --readiness-only` | **PASS** | `6 passed (4.9s)` |
+| S01 rubric, automated proxy on the 20 synthetic acceptance cases (`scripts/oracle2/score_s03_synthetic_rubric.py`) | **FAIL** (expected) | `0/20 passed; threshold 19/20; meets_threshold false` |
+
+### Automated rubric score (S01 dimensions, synthetic acceptance split)
+
+The scorer runs the pilot retrieval + consultant path over one pooled corpus of every acceptance
+evidence span and checks each S01 dimension mechanically: required-fact term coverage (at least 60%)
+or an explicit no-evidence gap for `abstain` cases; every citation quotes a real span and includes
+the case's own source; no off-scope source cited; exceptions = fact and scope; usefulness = fact and
+citation; clarity = a single quoted fact; improvement contract = hypothetical labelled "not
+established fact" with measure and missing inputs.
+
+| Dimension | Cases passing (of 20) |
+|---|---|
+| Fact correctness | 8 |
+| Mandatory exceptions | 0 |
+| Citation support | 18 |
+| Temporal / customer scope | 1 |
+| Usefulness | 8 |
+| Clarity | 5 |
+| Improvement contract | 20 |
+
+Category floors: procedure ownership 0/4, conditional exception 0/4, cross-department 0/4,
+historical change 0/3, improvement decision 0/5 — every floor missed.
+
+**Finding.** The thin keyword path quotes whichever spans share words with the question, so it
+pulls off-scope evidence into almost every answer, never abstains when the corpus has loosely
+related text (all four `abstain` cases fail), and attaches the same hypothetical to every answer.
+This confirms the 2026-10-11 owner correction mechanically: the thin path cannot meet the S01
+threshold, and the holistic FalkorDB + GraphRAG SDK correction (H1–H8) remains required. The
+store, browser and authority gates themselves pass. Not business acceptance; S03 stays open.
