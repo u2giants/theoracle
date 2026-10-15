@@ -470,8 +470,14 @@ cp /var/lib/falkordb/data/dump.rdb "$d/"
 (cd "$d" && find . -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS)
 ls -1d /backups/2*/ | sort | head -n -14 | xargs -r rm -rf   # retention: keep 14 newest
 ```
-Off-server copy: not in this action; checklist item `- [ ] off-server FalkorDB backup copy`
-on u2giants/theoracle#27, owner root coordinator.
+Off-server copy (in place October 15, 2026): the existing Backrest instance on hetz (`/opt/backrest`,
+plan `docker-volumes`, every 15 min at :05/:20/:35/:50) already snapshots all of `/var/lib/docker/volumes`,
+including both `oracle-falkordb-<ROLE>-backups` volumes, to the restic repo on DigitalOcean Spaces nyc3
+(bucket `backrest`). Each nightly dump therefore reaches DigitalOcean within 15 minutes. Restic repo
+credentials live in the Backrest config on hetz, not in this repo. Off-server restore test: run restic
+from a machine off hetz with ≥2 GB RAM (the Backrest droplet, 458 MB, stalls), restore the newest
+`*-backups/_data/*/` for each role, `sha256sum -c SHA256SUMS`, then load as below. First proof:
+u2giants/theoracle#27 comment 6199759934 (snapshot `191f367a`, both roles byte-identical, PASS).
 **Restore test** (before admission, then monthly; owner root coordinator), per role, on the
 host as a throwaway, in this ORDER (starting first and copying after loads an empty store — proven):
 1. `docker volume create falkordb-restore-<ROLE>`; `docker run --rm --network none -v falkordb-restore-<ROLE>:/d --entrypoint chown <digest> 999:999 /d`
