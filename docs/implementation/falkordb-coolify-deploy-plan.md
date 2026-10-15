@@ -1,6 +1,6 @@
 # FalkorDB on Coolify — executable deployment plan (DRAFT, not executed)
 
-**STATUS 2026-10-15 12:00 AM EDT:** attempt 7 STOPPED at the §5 network rule (Coolify adds an egress-capable per-service network).
+**STATUS 2026-10-15 12:05 AM EDT:** attempt 7 STOPPED at the §5 network rule; fixed by §6 step 4a (Coolify's per-service network pre-created `internal`). Both services must be stopped before resuming.
 Both services created and RUNNING (empty); no DNS, no backup task; §9 not run.
 
 Prepared 2026-10-14 (EDT); revised the same day after DeepSeek plan reviews 1, 2 and 4-14
@@ -199,8 +199,14 @@ service sits on a single bridge with `enable_ip_masquerade=false`: published por
 data-files job uses `network_mode: none`. After deploy, `docker inspect` (read-only, on the
 host by the root Oracle coordinator's host path (HOST-PATH, see §6 step 0b): `docker inspect <ctr> --format '{{json .NetworkSettings.Networks}}'`)
 must show the service attached ONLY to
-`oracle-graph-<ROLE>`; Coolify 4.4.6 may add its own per-service network — if it does, STOP
-and report (do not accept an egress-capable network).
+`oracle-graph-<ROLE>` plus Coolify's per-service network `<SVC>` (attempt 7 proved Coolify 4.4.6 always
+adds it, `external: true`, created by `docker network create --attachable <SVC>` only when absent; no supported
+setting removes it). That network MUST be `internal=true` (no egress); any other egress-capable network → STOP.
+**§6 step 4a (network pre-create, per role, via HOST-PATH, before every start):** if `<SVC>` exists, require
+`docker network inspect <SVC>` to list only this role's containers (else STOP), stop the service (§10 stop),
+`docker network rm <SVC>`; then `docker network create --internal --attachable <SVC>`. After start, require
+`docker network inspect <SVC> --format '{{.Internal}}'` = `true` and outbound TCP to 1.1.1.1:443 from the
+container to fail; otherwise stop the service and STOP. Ingress still uses `oracle-graph-<ROLE>`.
 ```yaml
 name: oracle-falkordb-<ROLE>
 services:
