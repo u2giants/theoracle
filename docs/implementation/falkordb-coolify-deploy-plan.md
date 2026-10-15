@@ -1,6 +1,6 @@
 # FalkorDB on Coolify — executable deployment plan (DRAFT, not executed)
 
-**STATUS 2026-10-15 12:05 AM EDT:** attempt 7 STOPPED at the §5 network rule; fixed by §6 step 4a (Coolify's per-service network pre-created `internal`). Both services must be stopped before resuming.
+**STATUS 2026-10-15 12:05 AM EDT:** attempt 7 STOPPED at the §5 network rule; fixed by §6 step 4a (Coolify's per-service network recreated `internal`, containers reconnected). Both services must be stopped before resuming.
 Both services created and RUNNING (empty); no DNS, no backup task; §9 not run.
 
 Prepared 2026-10-14 (EDT); revised the same day after DeepSeek plan reviews 1, 2 and 4-14
@@ -27,7 +27,7 @@ carries a matching banner). The stores ARE published on the public internet, pro
 mutual TLS + password (§3); the tailnet bind is a backup route. The native
 gateway/executor/projector topology is superseded by the first decision;
 `plan_oracle_consultant_overhaul.md`'s old "Current topology" sentence is marked HISTORICAL,
-and both plans' STATUS carry a dated "CURRENT — October 14, 2026" paragraph. Still binding from
+and both plans' STATUS carry a dated "CURRENT STATUS / DRIFT — October 14, 2026, 4:47 PM EDT" paragraph. Still binding from
 the README: pinned digests, non-root hardening (§5), no secrets in argv, candidate/confirmed
 separation, no store INTERNET egress (§5 networks; the host and host-published services stay reachable — disclosed residual), verified TLS (§3).
 **Host firewall (read-only finding, `u2giants/ansible` main `ca373d0`):** no Ansible change is
@@ -202,11 +202,7 @@ must show the service attached ONLY to
 `oracle-graph-<ROLE>` plus Coolify's per-service network `<SVC>` (attempt 7 proved Coolify 4.4.6 always
 adds it, `external: true`, created by `docker network create --attachable <SVC>` only when absent; no supported
 setting removes it). That network MUST be `internal=true` (no egress); any other egress-capable network → STOP.
-**§6 step 4a (network pre-create, per role, via HOST-PATH, before every start):** if `<SVC>` exists, require
-`docker network inspect <SVC>` to list only this role's containers (else STOP), stop the service (§10 stop),
-`docker network rm <SVC>`; then `docker network create --internal --attachable <SVC>`. After start, require
-`docker network inspect <SVC> --format '{{.Internal}}'` = `true` and outbound TCP to 1.1.1.1:443 from the
-container to fail; otherwise stop the service and STOP. Ingress still uses `oracle-graph-<ROLE>`.
+The procedure that enforces this is §6 step 4a.
 ```yaml
 name: oracle-falkordb-<ROLE>
 services:
@@ -400,6 +396,14 @@ either value is empty (runtime `:?` check), so a missing env fails closed.
 3. Mutation: `PATCH /services/<SVC>/envs` (body `{"key","value"}`) for `FALKORDB_PASSWORD` and `FALKORDB_SERVER_TLS_B64` — Coolify 4.4.6 auto-creates these keys empty from the compose `${...}` references (attempt 5 got 409 on POST); use `POST` only if a key is absent in `GET /services/<SVC>/envs`. Afterwards re-read the envs and STOP unless both keys are present and non-empty (value never printed). Resume rule: on rerun, reuse the existing environment, confirmed service and 1Password items created by attempt 5 (verify by name/uuid in receipts), never create duplicates;
    body built from env by python, written to a tmpfs file and sent with the token rule (`curl --config - --data @$BODY`); print only the HTTP code.
 4. Read: `GET /services/<SVC>` — no FQDN/domain; both env key names present.
+4a. Mutation (network, per role, via HOST-PATH, before every start): if `<SVC>` exists: require
+   `docker network inspect <SVC>` to list only this role's containers (else STOP); stop the service (§10 stop) and
+   confirm exited; for each listed container `docker network disconnect -f <SVC> <ctr>`; `docker network rm <SVC>`.
+   Then `docker network create --internal --attachable <SVC>`, and for each container recorded above
+   `docker network connect <SVC> <ctr>` (works on exited containers; re-binds the endpoint to the new network ID —
+   without it a restart fails with "network <old-id> not found"). If step 5 still fails with that error, STOP.
+   After step 5: require `docker network inspect <SVC> --format '{{.Internal}}'` = `true` and outbound TCP to
+   1.1.1.1:443 from the container to fail; otherwise stop the service and STOP. Ingress uses `oracle-graph-<ROLE>`.
 5. Mutation: `POST /services/<SVC>/start` (attempt 6: GET returned 405 "This endpoint has changed to a POST request"). Lifecycle verb rule for start/stop/restart only: if Coolify answers 405 with a message naming the other verb, retry that same endpoint once with the named verb and record it; any other error STOPs.
 6. Mutation, once, before §9 (DNS; Cloudflare token from vault item "cloudflare token" in env `CF`).
    Zone id `921eb133a3f7d5802780445b283f84ce` = `designflow.app` (read-only GET
@@ -478,7 +482,7 @@ pinned digest (all files `OK`, canary returned). Then `docker rm -f` and `docker
    cert + password → PONG with hostname verified (`openssl s_client -verify_hostname`); without client
    cert → handshake refused; plaintext → refused; `178.156.180.212` ports 6390/6391/6379 closed.
    Backup route: same from a tagged tailnet node after §7.
-5. Network: service attached only to `oracle-graph-<ROLE>`; outbound internet TCP from the container
+5. Network: service attached only to `oracle-graph-<ROLE>` and Coolify's `<SVC>` network, the latter `Internal=true`; outbound internet TCP from the container
    fails. Host/bridge probe (L4): TCP from the container to its network gateway and to `172.17.0.1`
    is RECORDED, not claimed blocked — see residual below.
 6. Canary from edge-dev3 (worker user, public route): `GRAPH.QUERY oracle2_synthetic_probe "CREATE (:Canary {id:'fk-<ROLE>'})"`;
