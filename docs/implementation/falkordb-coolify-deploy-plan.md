@@ -397,13 +397,16 @@ either value is empty (runtime `:?` check), so a missing env fails closed.
    body built from env by python, written to a tmpfs file and sent with the token rule (`curl --config - --data @$BODY`); print only the HTTP code.
 4. Read: `GET /services/<SVC>` — no FQDN/domain; both env key names present.
 4a. Mutation (network, per role, via HOST-PATH, before every start): if `<SVC>` exists: require
-   `docker network inspect <SVC>` to list only this role's containers (else STOP); stop the service (§10 stop) and
+   `docker network inspect <SVC>` to list only this role's containers plus `coolify-proxy` (attempt 8: Coolify attaches its Traefik proxy to every service network; any other container → STOP); stop the service (§10 stop) and
    confirm exited; for each listed container `docker network disconnect -f <SVC> <ctr>`; `docker network rm <SVC>`.
-   Then `docker network create --internal --attachable <SVC>`, and for each container recorded above
+   Then `docker network create --internal --attachable <SVC>`, and for each of this role's containers (NOT `coolify-proxy`) recorded above
    `docker network connect <SVC> <ctr>` (works on exited containers; re-binds the endpoint to the new network ID —
    without it a restart fails with "network <old-id> not found"). If step 5 still fails with that error, STOP.
    After step 5: require `docker network inspect <SVC> --format '{{.Internal}}'` = `true` and outbound TCP to
-   1.1.1.1:443 from the container to fail; otherwise stop the service and STOP. Ingress uses `oracle-graph-<ROLE>`.
+   1.1.1.1:443 from the container to fail; otherwise stop the service and STOP. If Coolify re-attaches
+   `coolify-proxy` on start, accept and record it: the service has no FQDN so Traefik routes nothing to it, the
+   network stays internal (no egress), and Traefik reachability is already the disclosed host-access residual (§5 L4).
+   Any STOP after a service has started: first stop the started services (§10 stop), then report. Ingress uses `oracle-graph-<ROLE>`.
 5. Mutation: `POST /services/<SVC>/start` (attempt 6: GET returned 405 "This endpoint has changed to a POST request"). Lifecycle verb rule for start/stop/restart only: if Coolify answers 405 with a message naming the other verb, retry that same endpoint once with the named verb and record it; any other error STOPs.
 6. Mutation, once, before §9 (DNS; Cloudflare token from vault item "cloudflare token" in env `CF`).
    Zone id `921eb133a3f7d5802780445b283f84ce` = `designflow.app` (read-only GET
