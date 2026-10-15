@@ -1,7 +1,7 @@
 # FalkorDB on Coolify — executable deployment plan (DRAFT, not executed)
 
-**STATUS 2026-10-15 12:05 AM EDT:** attempt 7 STOPPED at the §5 network rule; fixed by §6 step 4a (Coolify's per-service network recreated `internal`, containers reconnected). Both services must be stopped before resuming.
-Both services created and RUNNING (empty); no DNS, no backup task; §9 not run.
+**STATUS 2026-10-15:** attempt 9 STOPPED at §6 step 7 (Coolify scheduled-task command limited to 255 chars). Networks internal, DNS record created,
+both services STOPPED; §9 not run.
 
 Prepared 2026-10-14 (EDT); revised the same day after DeepSeek plan reviews 1, 2 and 4-14
 (all REJECT; review 3 was not a plan-content review and has no findings to carry; review files are local-only under the gitignored `.ai/reviews/`, so the
