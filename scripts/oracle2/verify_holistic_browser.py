@@ -143,6 +143,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--result", default="out/oracle2/holistic-browser-result.json")
     parser.add_argument("--readiness-only", action="store_true")
+    parser.add_argument("--pilot-graph-evidence", action="store_true",
+                        help="run pilot.spec.ts against the ready graph-evidence answer method")
     args = parser.parse_args()
     result_path = ROOT / args.result
     fixture_proc = web_proc = None
@@ -164,7 +166,8 @@ def main() -> int:
         fixture_log = (scratch_path / "fixture.log").open("w", encoding="utf-8")
         fixture_proc = subprocess.Popen(
             [sys.executable, "-u", str(FIXTURE), "--admin-url", admin_url,
-             "--falkordb-url", falkor_url, "--env-file", str(fixture_env_path)],
+             "--falkordb-url", falkor_url, "--env-file", str(fixture_env_path),
+             "--engine", ("graph-evidence" if args.pilot_graph_evidence else "holistic-graphrag")],
             cwd=ROOT, env={**os.environ, "PYTHONPATH": str(ROOT / "services/oracle-brain")},
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=fixture_log,
             text=True, start_new_session=True)
@@ -215,7 +218,7 @@ def main() -> int:
         completed = _browser_run(
             ["pnpm", "--filter", "@oracle/web", "exec", "playwright", "test",
              "--config", "playwright.oracle2.config.ts",
-             ("tests/oracle2/pilot.spec.ts" if args.readiness_only
+             ("tests/oracle2/pilot.spec.ts" if args.readiness_only or args.pilot_graph_evidence
               else "tests/oracle2/holistic-browser.spec.ts")],
             cwd=ROOT, env=test_env, timeout=90)
         browser_log=scratch_path / "browser.log"

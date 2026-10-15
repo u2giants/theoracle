@@ -189,6 +189,7 @@ def test_execute_run_requires_review_authority_and_cancellation_never_completes(
     monkeypatch.setenv("ORACLE2_HOLISTIC_WORKSPACE_ID", str(workspace))
     monkeypatch.setenv("ORACLE2_DATABASE_URL", admin_url)
     monkeypatch.setenv("ORACLE2_HOLISTIC_CORPUS_DIGEST", FakePilot.digest)
+    monkeypatch.setenv("ORACLE2_ANSWER_ENGINE", "holistic-graphrag")
     fake = FakePilot()
     monkeypatch.setattr("oracle_brain.holistic_runtime.make_pilot", lambda corpus: fake)
 
@@ -225,6 +226,7 @@ def test_execute_rechecks_exact_corpus_before_completion(admin_url, monkeypatch)
     monkeypatch.setenv("ORACLE2_HOLISTIC_WORKSPACE_ID", str(workspace))
     monkeypatch.setenv("ORACLE2_DATABASE_URL", admin_url)
     monkeypatch.setenv("ORACLE2_HOLISTIC_CORPUS_DIGEST", FakePilot.digest)
+    monkeypatch.setenv("ORACLE2_ANSWER_ENGINE", "holistic-graphrag")
     original = read_corpus
     changed = original(psycopg.connect(admin_url), workspace).model_copy(update={"expected_source_ids": frozenset()})
     calls = [original, lambda connection, scope: changed]

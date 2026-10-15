@@ -53,7 +53,20 @@ class OpenAIEmbedding(Embedder):
         return [row.embedding for row in sorted(result.data, key=lambda r: r.index)]
 
 
-def configuration():
+GRAPH_EVIDENCE = "graph-evidence"
+HOLISTIC_GRAPHRAG = "holistic-graphrag"
+EVIDENCE_ENGINE_VERSION = "graph-evidence-v1"
+
+
+def answer_engine() -> str:
+    """Selected answer method. The deterministic graph-evidence method is the default."""
+    engine = os.getenv("ORACLE2_ANSWER_ENGINE", GRAPH_EVIDENCE)
+    if engine not in {GRAPH_EVIDENCE, HOLISTIC_GRAPHRAG}:
+        raise ValueError("unsupported answer engine")
+    return engine
+
+
+def _guard_environment():
     # Only dedicated isolated preview worker may hold these settings.
     if os.getenv("ORACLE2_ENVIRONMENT") != "preview":
         raise PermissionError("holistic runtime requires isolated preview environment")
@@ -63,6 +76,10 @@ def configuration():
             raise PermissionError("holistic extractor contains forbidden credentials")
     if os.getenv("ORACLE2_TELEMETRY_MODE", "off") != "off":
         raise PermissionError("source telemetry forbidden")
+
+
+def configuration():
+    _guard_environment()
     required = ("ORACLE2_DATABASE_URL", "ORACLE2_CANDIDATE_GRAPH_URL",
                 "ORACLE2_HOLISTIC_LLM_MODEL", "ORACLE2_HOLISTIC_EMBED_MODEL",
                 "ORACLE2_HOLISTIC_PROCESSING_REQUESTS", "ORACLE2_PROCESSING_APPROVALS",
@@ -128,6 +145,62 @@ def read_corpus(connection, workspace: UUID):
     return Corpus(workspace_id=workspace, sources=tuple(sources), expected_source_ids=expected)
 
 
+def evidence_digest(corpus) -> str:
+    """Readiness digest for the graph-evidence method: exact confirmed corpus + engine version."""
+    data = {"workspace": str(corpus.workspace_id), "engine": EVIDENCE_ENGINE_VERSION,
+            "sources": sorted((str(s.source_id), s.revision, s.content_hash)
+                              for s in corpus.sources)}
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+
+def evidence_blocks(corpus) -> list[dict]:
+    """One evidence block per non-empty line of each confirmed original, with exact spans."""
+    import re
+    from uuid import NAMESPACE_URL, uuid5
+    blocks = []
+    for source in corpus.sources:
+        for index, match in enumerate(re.finditer(r"[^\n]+", source.text)):
+            text = match.group(0).strip()
+            if not text:
+                continue
+            start = match.start() + (len(match.group(0)) - len(match.group(0).lstrip()))
+            blocks.append({"source_id": source.source_id,
+                           "block_id": uuid5(NAMESPACE_URL, f"{source.source_id}:{source.revision}:{index}"),
+                           "span_start": start, "span_end": start + len(text), "text": text,
+                           "title": source.filename})
+    return blocks
+
+
+def graph_evidence_answer(question: str, corpus, run_id: UUID) -> dict:
+    """Answer from a run-scoped FalkorDB evidence graph; no provider calls."""
+    from oracle_brain.graph.evidence_answer import FalkorEvidenceGraph, answer_from_graph
+    graph = FalkorEvidenceGraph(os.environ["ORACLE2_CANDIDATE_GRAPH_URL"],
+                                f"oracle2_evidence_run_{run_id.hex}")
+    try:
+        graph.reset()
+        graph.ingest(evidence_blocks(corpus))
+        answer = answer_from_graph(question, graph.retrieve(question))
+    finally:
+        try:
+            graph.graph.delete()
+        except Exception:
+            pass
+    h = answer.hypothetical
+    cited = {c.source_id for c in answer.citations}
+    return {"answerText": answer.answer_text,
+            "citations": [{"sourceId": str(c.source_id), "quote": c.quote,
+                           "spanStart": c.span_start, "spanEnd": c.span_end}
+                          for c in answer.citations],
+            "hypothetical": None if h is None else {
+                "label": h.label, "description": h.description, "measure": h.measure,
+                "missingInputs": list(h.missing_inputs)},
+            "isEstablishedFact": answer.is_established_fact,
+            "evidenceStatus": ("graph_evidence" if answer.citations else "no_source_evidence"),
+            "evidenceGraph": {"engine": EVIDENCE_ENGINE_VERSION,
+                              "corpus_source_count": len(corpus.sources),
+                              "cited_source_count": len(cited)}}
+
+
 def make_pilot(corpus):
     llm, embedder, dimensions = configuration()
     return HolisticGraphPilot(corpus, os.environ["ORACLE2_CANDIDATE_GRAPH_URL"], llm, embedder,
@@ -160,6 +233,10 @@ async def execute(operation: str, request: dict):
     database = os.environ["ORACLE2_DATABASE_URL"]
     with psycopg.connect(database) as connection:
         corpus = read_corpus(connection, workspace)
+    engine = answer_engine()
+    if engine == GRAPH_EVIDENCE:
+        _guard_environment()
+        return await _execute_graph_evidence(operation, request, database, workspace, corpus)
     pilot = make_pilot(corpus)
     claimed = False
     try:
@@ -227,6 +304,58 @@ async def execute(operation: str, request: dict):
         raise
     finally:
         await pilot.close()
+
+
+def _claim(database, workspace, run_id):
+    with psycopg.connect(database) as connection:
+        with connection.transaction():
+            _lock(connection, workspace)
+            row = connection.execute("""SELECT actor_id,question,status FROM oracle2.runs
+                  WHERE run_id=%s AND workspace_id=%s FOR UPDATE""", (run_id, workspace)).fetchone()
+            if row is None or row[2] != "pending":
+                raise PermissionError("run not pending in authorized workspace")
+            actor, question, _ = row
+            if not _has_authority_conn(connection, workspace, actor, "review"):
+                raise PermissionError("actor authority missing")
+            connection.execute("UPDATE oracle2.runs SET status='processing',updated_at=now() WHERE run_id=%s",
+                               (run_id,))
+    return actor, question
+
+
+async def _execute_graph_evidence(operation, request, database, workspace, corpus):
+    digest = evidence_digest(corpus)
+    if operation == "build":
+        # Engineering readiness only: report the digest an operator must review and configure.
+        return {"corpus_digest": digest, "engine": EVIDENCE_ENGINE_VERSION}
+    if operation != "answer":
+        raise ValueError("unsupported operation; pilot question generation is deferred")
+    if digest != request.get("corpusDigest") or digest != os.getenv("ORACLE2_HOLISTIC_CORPUS_DIGEST"):
+        raise PermissionError("reviewed current corpus readiness missing")
+    run_id = UUID(request["runId"])
+    actor, question = _claim(database, workspace, run_id)
+    try:
+        answer = graph_evidence_answer(question, corpus, run_id)
+        with psycopg.connect(database) as connection:
+            with connection.transaction():
+                _lock(connection, workspace)
+                if (read_corpus(connection, workspace) != corpus or
+                    not _has_authority_conn(connection, workspace, actor, "review")):
+                    raise PermissionError("source corpus or authority changed during answer")
+                changed = connection.execute("""UPDATE oracle2.runs SET status='completed',answer=%s,updated_at=now()
+                   WHERE run_id=%s AND workspace_id=%s AND status='processing'""",
+                   (Jsonb(answer), run_id, workspace))
+                if changed.rowcount != 1:
+                    raise PermissionError("run cancelled or changed before publication")
+    except Exception:
+        try:
+            with psycopg.connect(database) as connection:
+                connection.execute("""UPDATE oracle2.runs SET status='error',
+                    error='Connected corpus answer failed; original sources retained',updated_at=now()
+                    WHERE run_id=%s AND workspace_id=%s AND status='processing'""", (run_id, workspace))
+        except Exception:
+            pass
+        raise
+    return {"run_id": str(run_id), "status": "completed", "corpus_digest": digest}
 
 
 def main():
