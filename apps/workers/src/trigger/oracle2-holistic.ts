@@ -1,4 +1,6 @@
-import { task } from '@trigger.dev/sdk/v3';
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { logger, task } from '@trigger.dev/sdk/v3';
 import { python } from '@trigger.dev/python';
 
 // Dedicated reported-source preview; no source-bearing task payload.
@@ -21,6 +23,15 @@ export const oracle2HolisticAnswer = task({
     }
     const identifiers = { runId: payload.runId, workspaceId: payload.workspaceId,
                           corpusDigest: payload.corpusDigest };
+    // Failure recording: non-secret runtime facts only (no env values, no payload text).
+    const bin = process.env.PYTHON_BIN_PATH || 'python';
+    const script = './oracle2-python/oracle_brain/holistic_runtime.py';
+    const probe = spawnSync(bin, ['-c', 'import sys; print(sys.version.split()[0])'], { encoding: 'utf8', timeout: 60_000 });
+    logger.info('oracle2-python-preflight', {
+      bin, binExists: existsSync(bin), scriptExists: existsSync(script), cwd: process.cwd(),
+      probeStatus: probe.status, probeSignal: probe.signal, probeError: probe.error?.message ?? null,
+      probeStdout: (probe.stdout ?? '').slice(0, 200), probeStderr: (probe.stderr ?? '').slice(-500),
+    });
     const result = await python.runScript('./oracle2-python/oracle_brain/holistic_runtime.py',
       ['answer', JSON.stringify(identifiers)]);
     const status = JSON.parse(result.stdout);
