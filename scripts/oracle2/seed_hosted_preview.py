@@ -56,11 +56,12 @@ def main() -> int:
     with psycopg.connect(admin_url, autocommit=True) as conn:
         for filename in ("001_foundation.sql", "002_pilot.sql"):
             conn.execute((root / "services/oracle-brain/sql" / filename).read_text())
-        conn.execute((root / "dev/oracle2/init-postgres.sql").read_text())
-        conn.execute((root / "dev/oracle2/grant-postgres.sql").read_text())
+        # Roles are created with random passwords directly; the committed local
+        # passwords in dev/oracle2/init-postgres.sql are never applied here.
         for role, password in passwords.items():
-            conn.execute(sql.SQL("ALTER ROLE {} PASSWORD {}").format(
+            conn.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
                 sql.Identifier(role), sql.Literal(password)))
+        conn.execute((root / "dev/oracle2/grant-postgres.sql").read_text())
         for index, (sid, did, filename, text) in enumerate(
                 ((source_ids[0], draft_ids[0], "intake.txt", DOC_ONE),
                  (source_ids[1], draft_ids[1], "review.txt", DOC_TWO))):

@@ -30,6 +30,7 @@ def test_full_settings_write_private_files(monkeypatch):
     for n, v in zip(NAMES, ("CA", "CERT", "KEY")):
         monkeypatch.setenv(n, v)
     opts = graph_tls_options("rediss")
+    assert graph_tls_options("rediss") == opts  # written once, reused
     try:
         assert opts["ssl_ca_data"] == "CA" and opts["ssl_check_hostname"] is True
         for key, value in (("ssl_certfile", "CERT"), ("ssl_keyfile", "KEY")):
@@ -37,3 +38,11 @@ def test_full_settings_write_private_files(monkeypatch):
             assert stat.S_IMODE(os.stat(opts[key]).st_mode) == 0o600
     finally:
         os.unlink(opts["ssl_certfile"]); os.unlink(opts["ssl_keyfile"])
+
+
+def test_falkordb_client_accepts_tls_options(monkeypatch):
+    import inspect
+    from falkordb import FalkorDB
+    accepted = set(inspect.signature(FalkorDB.__init__).parameters)
+    assert {"ssl_ca_data", "ssl_certfile", "ssl_keyfile", "ssl_cert_reqs",
+            "ssl_check_hostname"} <= accepted

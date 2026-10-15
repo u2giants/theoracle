@@ -41,12 +41,12 @@ No other resource is created or changed.
 
 - `FalkorEvidenceGraph` accepts optional client-certificate TLS from
   `ORACLE2_GRAPH_TLS_CA_PEM`, `ORACLE2_GRAPH_TLS_CERT_PEM`, `ORACLE2_GRAPH_TLS_KEY_PEM`
-  (all three, `rediss://` only; cert/key to 0600 temp files; hostname checked).
+  (all three, `rediss://` only; cert/key written once per process to 0600 temp files; hostname checked).
   The hosted FalkorDB requires a client certificate; without this the worker cannot
   connect. Unit test: `services/oracle-brain/tests/test_graph_tls_options.py`.
 - `scripts/oracle2/seed_hosted_preview.py`: applies `001_foundation.sql`, `002_pilot.sql`,
-  `dev/oracle2/init-postgres.sql`, `dev/oracle2/grant-postgres.sql` to R1, replaces every
-  local role password with a random one, seeds two invented documents (the same text
+  creates the five `oracle2_*` login roles directly with random passwords (the committed
+  local passwords are never applied), applies `dev/oracle2/grant-postgres.sql`, seeds two invented documents (the same text
   as the reviewed browser fixture), a signed throwaway owner appointment and review/confirm
   delegation for one invented actor, and computes the exact corpus digest. Refuses any
   project ref other than the one passed, and all known existing refs.

@@ -111,6 +111,9 @@ class GraphEvidence:
     sentences: tuple[str, ...]
 
 
+_TLS_FILES: dict[tuple, list[str]] = {}
+
+
 def graph_tls_options(scheme: str) -> dict:
     """Optional client-certificate TLS for a hosted graph (PEM values from env).
 
@@ -123,12 +126,17 @@ def graph_tls_options(scheme: str) -> dict:
         return {}
     if not all(values) or scheme != "rediss":
         raise ValueError("graph client TLS needs CA, certificate and key with rediss://")
-    paths = []
-    for value in values[1:]:
-        fd, path = tempfile.mkstemp(prefix="oracle2-graph-", suffix=".pem")
-        with os.fdopen(fd, "w") as handle:
-            handle.write(value)
-        paths.append(path)
+    key = tuple(values)
+    paths = _TLS_FILES.get(key)
+    if paths is None:
+        # Written once per process and reused, so key copies do not accumulate.
+        paths = []
+        for value in values[1:]:
+            fd, path = tempfile.mkstemp(prefix="oracle2-graph-", suffix=".pem")
+            with os.fdopen(fd, "w") as handle:
+                handle.write(value)
+            paths.append(path)
+        _TLS_FILES[key] = paths
     return {"ssl_ca_data": values[0], "ssl_certfile": paths[0], "ssl_keyfile": paths[1],
             "ssl_cert_reqs": "required", "ssl_check_hostname": True}
 
