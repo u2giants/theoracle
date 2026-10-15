@@ -82,3 +82,41 @@ def test_synthetic_rubric_meets_threshold():
     assert result["passed"] >= 19, result["dimension_totals"]
     assert result["meets_threshold"] is True
     assert result["business_accepted"] is False
+
+
+def test_threshold_and_exception_are_labelled_from_source_words():
+    from oracle_brain.graph.evidence_answer import GraphEvidence
+    text = "A crate with a dent over 5 cm is rejected; smaller dents are accepted for showroom use only."
+    evidence = [GraphEvidence(source_id=uuid4(), block_id=uuid4(), span_start=0, span_end=len(text),
+                              text=text, score=1.0, gap_sentences=(), sentences=(text,))]
+    answer = answer_from_graph("Can a dented crate be accepted?", evidence)
+    assert "threshold: A crate with a dent over 5 cm is rejected" in answer.answer_text
+    assert "exception: smaller dents are accepted for showroom use only" in answer.answer_text
+
+
+def test_runtime_graph_evidence_blocks_keep_exact_spans_and_digest_is_stable():
+    from oracle_brain import holistic_runtime as rt
+    from oracle_brain.graph.graphrag import Corpus, CorpusSource
+    import hashlib
+    texts = ("Intake logs the order.\n  Review checks the order.", "Shipping packs the crate.")
+    sources = tuple(CorpusSource(source_id=uuid4(), revision="1:r", filename=f"d{i}.txt", text=t,
+                                 content_hash=hashlib.sha256(t.encode()).hexdigest(), complete=True)
+                    for i, t in enumerate(texts))
+    corpus = Corpus(workspace_id=uuid4(), sources=sources,
+                    expected_source_ids=frozenset(s.source_id for s in sources))
+    blocks = rt.evidence_blocks(corpus)
+    assert len(blocks) == 3
+    for block in blocks:
+        source = next(s for s in sources if s.source_id == block["source_id"])
+        assert source.text[block["span_start"]:block["span_end"]] == block["text"]
+    assert rt.evidence_digest(corpus) == rt.evidence_digest(corpus)
+    assert len(rt.evidence_digest(corpus)) == 64
+
+
+def test_runtime_answer_engine_defaults_to_graph_evidence(monkeypatch):
+    from oracle_brain import holistic_runtime as rt
+    monkeypatch.delenv("ORACLE2_ANSWER_ENGINE", raising=False)
+    assert rt.answer_engine() == rt.GRAPH_EVIDENCE
+    monkeypatch.setenv("ORACLE2_ANSWER_ENGINE", "bogus")
+    with pytest.raises(ValueError):
+        rt.answer_engine()

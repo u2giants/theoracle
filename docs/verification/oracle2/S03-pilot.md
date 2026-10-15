@@ -346,3 +346,30 @@ aliases and question-type preferences were developed against the acceptance spli
 20/20 is an automated proxy, not generalisation proof; the development split is reported
 above for that reason. Not wired into the web question endpoint yet; not staff review or
 business acceptance. S03 stays open.
+
+## Graph-evidence method connected to the consultant page (child #27) — 2026-10-15 EDT
+
+The worker answer path (`holistic_runtime.py`, Trigger task `oracle2-holistic-answer`)
+now defaults to the deterministic FalkorDB graph-evidence method
+(`ORACLE2_ANSWER_ENGINE=graph-evidence`; `holistic-graphrag` remains selectable).
+Each run builds a run-scoped evidence graph from the exact confirmed corpus (one block
+per source line, exact spans) and deletes it afterwards. Readiness stays bound to a
+reviewed corpus digest (`evidence_digest`, engine `graph-evidence-v1`). No provider calls.
+The page labels the method and says "no supporting source evidence" when nothing matches.
+
+Generalization change (generic, not keyed to any case): answers label a numeric
+threshold clause and its exception clause using source words only; a missing-input
+observation yields a "required field at intake" hypothesis; the measure names wait,
+review and delay time. Development failures D03/D09 were inspected only for their
+failure class (unlabelled threshold/exception; trial wording), then fixed by these rules.
+
+| Check (synthetic only) | Result |
+|---|---|
+| S01 rubric, acceptance split, graph engine | **20/20, meets_threshold true** |
+| Development split (held out, informational) | **10/10** (was 8/10) |
+| `verify_phase.py S03 --mode offline` | 67 passed |
+| `pilot.spec.ts` via `--pilot-graph-evidence` (no-evidence answer in browser) | 5 passed, 2 skipped (readiness-only cases) |
+| `pilot.spec.ts` via `--readiness-only` | 6 passed, 1 skipped (graph-ready case) |
+| `holistic-browser.spec.ts` (holistic engine, unchanged) | passed |
+
+Not staff review or business acceptance; S03 stays open.

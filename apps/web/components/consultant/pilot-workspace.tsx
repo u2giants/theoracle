@@ -31,6 +31,8 @@ interface Answer {
   hypothetical: Hypothetical | null;
   isEstablishedFact: boolean;
   holistic?: { source_count: number; distinct_original_count?: number; pipeline: string };
+  evidenceStatus?: string;
+  evidenceGraph?: { engine: string; corpus_source_count: number; cited_source_count: number };
 }
 
 interface RunData {
@@ -408,7 +410,11 @@ export function PilotWorkspace() {
       {answer && (
         <section data-testid="answer-section">
           <p data-testid="answer-method" className="mb-2 text-sm text-amber-800">
-            {answer.holistic
+            {answer.evidenceGraph
+              ? answer.evidenceStatus === 'no_source_evidence'
+                ? `Graph evidence answer: searched ${answer.evidenceGraph.corpus_source_count} original documents; no supporting source evidence found.`
+                : `Graph evidence answer citing ${answer.evidenceGraph.cited_source_count} of ${answer.evidenceGraph.corpus_source_count} original documents.`
+              : answer.holistic
               ? `Connected answer using ${answer.holistic.distinct_original_count ?? answer.holistic.source_count} original documents; reported source guidance.`
               : 'Historical answer from the earlier method — excluded from corrected pilot grading.'}
           </p>

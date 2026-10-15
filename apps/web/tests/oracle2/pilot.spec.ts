@@ -19,8 +19,40 @@ async function pilotLogin(page: import('@playwright/test').Page) {
   await expect(page.getByTestId('pilot-actor')).toBeVisible({ timeout: 10_000 });
 }
 
+// Set only by verify_holistic_browser.py --pilot-graph-evidence (synthetic loopback fixture).
+const graphReady = Boolean(process.env.ORACLE2_HOLISTIC_CORPUS_DIGEST
+  && process.env.ORACLE2_HOLISTIC_FIXTURE_SOURCE_ID && process.env.ORACLE2_HOLISTIC_FIXTURE_DRAFT_ID);
+
 test.describe('S03 pilot journey', () => {
+  test('ready graph evidence method answers "no source evidence" for an unsupported question', async ({ page }) => {
+    test.skip(!graphReady, 'graph-evidence fixture readiness is required');
+    const sourceId = process.env.ORACLE2_HOLISTIC_FIXTURE_SOURCE_ID!;
+    const draftId = process.env.ORACLE2_HOLISTIC_FIXTURE_DRAFT_ID!;
+    await page.addInitScript(({ source, draft }) => {
+      sessionStorage.setItem('oracle2-source-id', source);
+      sessionStorage.setItem('oracle2-draft-id', draft);
+    }, { source: sourceId, draft: draftId });
+    await pilotLogin(page);
+    const response = await page.request.post('/api/consultant/questions', {
+      data: { question: 'What is the forklift battery charging schedule?', sourceId, draftId },
+    });
+    expect(response.status()).toBe(202);
+    const { runId } = await response.json();
+    await expect.poll(async () => {
+      const run = await page.request.get(`/api/consultant/runs/${runId}`);
+      return (await run.json()).status;
+    }, { timeout: 30_000 }).toBe('completed');
+    await page.evaluate((id) => sessionStorage.setItem('oracle2-run-id', id), runId);
+    await page.reload();
+    await expect(page.getByTestId('answer-section')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('answer-text')).toContainText('No source evidence was found');
+    await expect(page.getByTestId('answer-method')).toContainText('no supporting source evidence');
+    await expect(page.getByTestId(/^citation-/)).toHaveCount(0);
+    await expect(page.getByTestId('hypothetical')).not.toBeVisible();
+  });
+
   test('intake and correction work; questions fail closed before corpus readiness', async ({ page }) => {
+    test.skip(graphReady, 'readiness-only scenario');
     await pilotLogin(page);
 
     // 1. Upload the process table (each row is its own block).
@@ -53,6 +85,7 @@ test.describe('S03 pilot journey', () => {
   });
 
   test('an unrelated question cannot bypass corpus readiness', async ({ page }) => {
+    test.skip(graphReady, 'readiness-only scenario');
     await pilotLogin(page);
     await page.getByTestId('document-text').fill('The weather is pleasant today.');
     await page.getByTestId('upload-btn').click();

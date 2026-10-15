@@ -207,6 +207,9 @@ def main() -> int:
     parser.add_argument("--falkordb-url", default=os.environ.get("ORACLE2_TEST_FALKORDB_URL", ""))
     parser.add_argument("--env-file", required=True)
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--engine", choices=[holistic_runtime.HOLISTIC_GRAPHRAG,
+                                             holistic_runtime.GRAPH_EVIDENCE],
+                        default=holistic_runtime.HOLISTIC_GRAPHRAG)
     args = parser.parse_args()
     if not args.admin_url or not args.falkordb_url:
         parser.error("admin and FalkorDB loopback URLs are required")
@@ -217,7 +220,14 @@ def main() -> int:
         raise PermissionError("fixture requires the published synthetic local admin identity")
     source_ids, draft_ids = (uuid4(), uuid4()), (uuid4(), uuid4())
     holistic_url, revisions = _seed_database(args.admin_url, source_ids, draft_ids)
-    proof = asyncio.run(_build(args.falkordb_url, source_ids, revisions))
+    if args.engine == holistic_runtime.GRAPH_EVIDENCE:
+        corpus = Corpus(workspace_id=WORKSPACE, sources=(
+            _source(source_ids[0], "intake.txt", DOC_ONE, revisions[0]),
+            _source(source_ids[1], "review.txt", DOC_TWO, revisions[1])),
+            expected_source_ids=frozenset(source_ids))
+        proof = {"corpus_digest": holistic_runtime.evidence_digest(corpus)}
+    else:
+        proof = asyncio.run(_build(args.falkordb_url, source_ids, revisions))
     server = ThreadingHTTPServer(("127.0.0.1", args.port), TriggerHandler)
     trigger_url = f"http://127.0.0.1:{server.server_port}"
     os.environ.update({
@@ -227,6 +237,7 @@ def main() -> int:
         "ORACLE2_HOLISTIC_SOURCE_IDS": json.dumps([str(x) for x in source_ids]),
         "ORACLE2_HOLISTIC_CORPUS_DIGEST": proof["corpus_digest"],
         "ORACLE2_HOLISTIC_CONFIG_ID": "holistic-browser-fixture-v1",
+        "ORACLE2_ANSWER_ENGINE": args.engine,
     })
     env = {
         "ORACLE2_DATABASE_URL": args.admin_url.replace("oracle2_admin:oracle2_local_admin_only",

@@ -56,6 +56,9 @@ _DEPENDENCY_E = re.compile(r"\b(only after|before|until|requires?|needs?|depends
 _SUPERSEDES = re.compile(r"\b(supersed(?:e|es|ed)|replac(?:e|es|ed)|correction|corrected)\b", re.IGNORECASE)
 _REVISION = re.compile(r"\brevision\s+(\d+)", re.IGNORECASE)
 _CONDITION = re.compile(r"^\s*if\s+(.+?),\s*(.+?)\s+until\s+(.+?)\.?$", re.IGNORECASE)
+_THRESHOLD = re.compile(r"\b(over|above|under|below|more than|less than|at least|at most|"
+                        r"exceeds?|within|up to)\s+\$?\d", re.IGNORECASE)
+_EXCEPTION = re.compile(r"\b(only|except|unless|but|instead|otherwise|exception)\b", re.IGNORECASE)
 _OBSERVATION = re.compile(r"\b(\d+|two|three|four|five|six|seven|eight|nine|ten)\b"
                           r"[^.]*\b(of|took|waited|lack|missing|repeat)\b", re.IGNORECASE)
 
@@ -238,20 +241,42 @@ def _improvement(question: str, evidence: list[GraphEvidence]) -> HypotheticalEx
         thing = item.group(1) if item else "the step"
         proposal = f"sending {thing} at intake instead of only after a later step"
     elif lacking:
-        proposal = f"a completeness check or reminder for the {lacking.group(1).strip()}"
+        thing = lacking.group(1).strip()
+        proposal = (f"try making the {thing} a required field at intake "
+                    f"(a completeness check or reminder for the {thing})")
     missing = [g for e in evidence for g in e.gap_sentences] or ["baseline volume and cycle time"]
     return HypotheticalExperiment(
         label="Hypothetical improvement experiment (not established fact)",
         description=(f"Observed contributor in the source: {observed} "
                      f"Hypothesis to test: {proposal}."),
-        measure=("Measure how often the observed issue recurs and the review/delay time, "
-                 "before and after the test, on the same scope."),
+        measure=("Measure how often the observed issue recurs (repeat-request rate) and the "
+                 "wait, review and delay time, before and after the test, on the same scope."),
         missing_inputs=missing,
     )
 
 
+def _rule_parts(sents: list[str]) -> str | None:
+    """Label a numeric threshold and its exception clause, quoting source words only."""
+    parts = []
+    for x in sents:
+        for clause in re.split(r";\s*|,\s*(?=(?:but|except|unless|otherwise)\b)", x.rstrip(".")):
+            clause = clause.strip()
+            if not clause:
+                continue
+            if _THRESHOLD.search(clause):
+                parts.append(f"threshold: {clause}")
+            elif _EXCEPTION.search(clause):
+                parts.append(f"exception: {clause}")
+    if any(p.startswith("threshold") for p in parts):
+        return "; ".join(parts) + "."
+    return None
+
+
 def _summary(sents: list[str]) -> str | None:
     """Restate conditional or superseding evidence without adding facts."""
+    rule = _rule_parts(sents)
+    if rule:
+        return rule
     for x in sents:
         m = _CONDITION.match(x)
         if m:
