@@ -391,7 +391,7 @@ either value is empty (runtime `:?` check), so a missing env fails closed.
    `prepare_coolify_payload.py` builds an Application from a git repo and is not used here): send `server_uuid`, `project_uuid`,
    `environment_name:"oracle-graph-production"`, `name:"oracle-falkordb-<ROLE>"`, `description`,
    `docker_compose_raw` (base64), `instant_deploy:false`. Record UUID in the issue receipt only.
-3. Mutation: `POST /services/<SVC>/envs` for `FALKORDB_PASSWORD` and `FALKORDB_SERVER_TLS_B64`,
+3. Mutation: `PATCH /services/<SVC>/envs` (body `{"key","value"}`) for `FALKORDB_PASSWORD` and `FALKORDB_SERVER_TLS_B64` — Coolify 4.4.6 auto-creates these keys empty from the compose `${...}` references (attempt 5 got 409 on POST); use `POST` only if a key is absent in `GET /services/<SVC>/envs`. Afterwards re-read the envs and STOP unless both keys are present and non-empty (value never printed). Resume rule: on rerun, reuse the existing environment, confirmed service and 1Password items created by attempt 5 (verify by name/uuid in receipts), never create duplicates;
    body built from env by python, written to a tmpfs file and sent with the token rule (`curl --config - --data @$BODY`); print only the HTTP code.
 4. Read: `GET /services/<SVC>` — no FQDN/domain; both env key names present.
 5. Mutation (Coolify uses the GET verb; this is NOT a read): `GET /services/<SVC>/start`.
