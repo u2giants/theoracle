@@ -26,11 +26,17 @@ export const oracle2HolisticAnswer = task({
     // Failure recording: non-secret runtime facts only (no env values, no payload text).
     const bin = process.env.PYTHON_BIN_PATH || 'python';
     const script = './oracle2-python/oracle_brain/holistic_runtime.py';
-    const probe = spawnSync(bin, ['-c', 'import sys; print(sys.version.split()[0])'], { encoding: 'utf8', timeout: 60_000 });
+    const probe = (code: string) => {
+      const r = spawnSync(bin, ['-X', 'faulthandler', '-c', code], { encoding: 'utf8', timeout: 120_000 });
+      return { status: r.status, signal: r.signal, error: r.error?.message ?? null,
+               stdout: (r.stdout ?? '').slice(0, 200), stderr: (r.stderr ?? '').slice(-800) };
+    };
+    // Each module imported separately, so a native crash (signal, no output) is attributable.
+    const modules = ['numpy', 'hnswlib', 'psycopg', 'redis', 'falkordb', 'openai', 'graphrag_sdk'];
     logger.info('oracle2-python-preflight', {
       bin, binExists: existsSync(bin), scriptExists: existsSync(script), cwd: process.cwd(),
-      probeStatus: probe.status, probeSignal: probe.signal, probeError: probe.error?.message ?? null,
-      probeStdout: (probe.stdout ?? '').slice(0, 200), probeStderr: (probe.stderr ?? '').slice(-500),
+      version: probe('import sys; print(sys.version.split()[0])'),
+      imports: Object.fromEntries(modules.map((m) => [m, probe(`import ${m}`)])),
     });
     const result = await python.runScript('./oracle2-python/oracle_brain/holistic_runtime.py',
       ['answer', JSON.stringify(identifiers)]);
