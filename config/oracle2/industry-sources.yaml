@@ -1,0 +1,13 @@
+{
+  "sources": [
+    {"source_id": "cpsc-recalls", "publisher": "U.S. Consumer Product Safety Commission",
+     "url": "https://www.cpsc.gov/Recalls", "jurisdiction": "US", "scope": "consumer products / retail",
+     "access": "public", "cadence": "weekly"},
+    {"source_id": "astm-f963", "publisher": "ASTM International",
+     "url": "https://www.astm.org/f0963-23.html", "jurisdiction": "US", "scope": "toy safety standard",
+     "access": "licensed", "cadence": "quarterly", "rights_confirmed": false},
+    {"source_id": "ftc-guides", "publisher": "U.S. Federal Trade Commission",
+     "url": "https://www.ftc.gov/business-guidance", "jurisdiction": "US", "scope": "marketing / labeling",
+     "access": "public", "cadence": "quarterly"}
+  ]
+}
