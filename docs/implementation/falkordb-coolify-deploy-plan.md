@@ -394,7 +394,7 @@ either value is empty (runtime `:?` check), so a missing env fails closed.
 3. Mutation: `PATCH /services/<SVC>/envs` (body `{"key","value"}`) for `FALKORDB_PASSWORD` and `FALKORDB_SERVER_TLS_B64` — Coolify 4.4.6 auto-creates these keys empty from the compose `${...}` references (attempt 5 got 409 on POST); use `POST` only if a key is absent in `GET /services/<SVC>/envs`. Afterwards re-read the envs and STOP unless both keys are present and non-empty (value never printed). Resume rule: on rerun, reuse the existing environment, confirmed service and 1Password items created by attempt 5 (verify by name/uuid in receipts), never create duplicates;
    body built from env by python, written to a tmpfs file and sent with the token rule (`curl --config - --data @$BODY`); print only the HTTP code.
 4. Read: `GET /services/<SVC>` — no FQDN/domain; both env key names present.
-5. Mutation (Coolify uses the GET verb; this is NOT a read): `GET /services/<SVC>/start`.
+5. Mutation: `POST /services/<SVC>/start` (attempt 6: GET returned 405 "This endpoint has changed to a POST request"). Lifecycle verb rule for start/stop/restart only: if Coolify answers 405 with a message naming the other verb, retry that same endpoint once with the named verb and record it; any other error STOPs.
 6. Mutation, once, before §9 (DNS; Cloudflare token from vault item "cloudflare token" in env `CF`).
    Zone id `921eb133a3f7d5802780445b283f84ce` = `designflow.app` (read-only GET
    `/client/v4/zones?name=designflow.app`, 2026-10-14; re-read at execution and STOP if different).
@@ -485,7 +485,7 @@ pinned digest (all files `OK`, canary returned). Then `docker rm -f` and `docker
 9. `GRAPH.DELETE oracle2_synthetic_probe` (worker user) → `OK`; `GRAPH.LIST` no longer lists it.
 
 ## 10. Rollback (only what this plan created)
-Per role: `GET /services/<SVC>/stop`, then `DELETE /services/<SVC>?delete_volumes=false&delete_connected_networks=true&delete_configurations=true&docker_cleanup=true`
+Per role: `POST /services/<SVC>/stop` (same lifecycle verb rule as §6 step 5), then `DELETE /services/<SVC>?delete_volumes=false&delete_connected_networks=true&delete_configurations=true&docker_cleanup=true`
 (volumes are KEPT by default; switch to `delete_volumes=true` only after a fresh §8 backup and
 only if the store held synthetic data alone); delete the empty
 `oracle-graph-production` environment; ONLY when both roles are being removed (the record is shared)
