@@ -12,13 +12,17 @@ Deterministic and provider-free: no model call, no network beyond FalkorDB.
 
 from __future__ import annotations
 
+import atexit
 import math
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from urllib.parse import urlparse
 from uuid import UUID
 
-from falkordb import FalkorDB
+import redis
+from falkordb import Graph
 
 from ..consultant.pilot import Citation, HypotheticalExperiment, PilotAnswer
 
@@ -109,6 +113,45 @@ class GraphEvidence:
     sentences: tuple[str, ...]
 
 
+_TLS_FILES: dict[tuple, list[str]] = {}
+
+
+def _unlink_quietly(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def graph_tls_options(scheme: str) -> dict:
+    """Optional client-certificate TLS for a hosted graph (PEM values from env).
+
+    All three of ORACLE2_GRAPH_TLS_CA_PEM, _CERT_PEM and _KEY_PEM must be set
+    together, and only with a rediss:// URL. Cert and key go to 0600 temp files.
+    """
+    names = ("ORACLE2_GRAPH_TLS_CA_PEM", "ORACLE2_GRAPH_TLS_CERT_PEM", "ORACLE2_GRAPH_TLS_KEY_PEM")
+    values = [os.getenv(n) for n in names]
+    if all(v is None for v in values):
+        return {}
+    # Any of the three set (even empty) means TLS was intended: all must be non-empty.
+    if not all(values) or scheme != "rediss":
+        raise ValueError("graph client TLS needs CA, certificate and key with rediss://")
+    key = tuple(values)
+    paths = _TLS_FILES.get(key)
+    if paths is None:
+        # Written once per process and reused, so key copies do not accumulate.
+        paths = []
+        for value in values[1:]:
+            fd, path = tempfile.mkstemp(prefix="oracle2-graph-", suffix=".pem")
+            with os.fdopen(fd, "w") as handle:
+                handle.write(value)
+            paths.append(path)
+            atexit.register(_unlink_quietly, path)
+        _TLS_FILES[key] = paths
+    return {"ssl_ca_data": values[0], "ssl_certfile": paths[0], "ssl_keyfile": paths[1],
+            "ssl_cert_reqs": "required", "ssl_check_hostname": True}
+
+
 class FalkorEvidenceGraph:
     """Evidence graph for one isolated corpus (one FalkorDB graph name)."""
 
@@ -118,9 +161,13 @@ class FalkorEvidenceGraph:
             raise ValueError("invalid FalkorDB URL")
         if not re.fullmatch(r"oracle2_evidence_[a-z0-9_]{1,64}", graph_name):
             raise ValueError("evidence graph name must be oracle2_evidence_<id>")
-        client = FalkorDB(host=parsed.hostname, port=parsed.port or 6379,
-                          password=parsed.password, ssl=parsed.scheme == "rediss")
-        self.graph = client.select_graph(graph_name)
+        # Plain redis client + Graph: FalkorDB() probes INFO for cluster/sentinel
+        # detection, which the hosted least-privilege ACL user (worker) may not run.
+        client = redis.Redis(host=parsed.hostname, port=parsed.port or 6379,
+                             username=parsed.username or None,
+                             password=parsed.password, ssl=parsed.scheme == "rediss",
+                             **graph_tls_options(parsed.scheme))
+        self.graph = Graph(client, graph_name)
 
     def reset(self) -> None:
         self.graph.query("MATCH (n) DETACH DELETE n")
