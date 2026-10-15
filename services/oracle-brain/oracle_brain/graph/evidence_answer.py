@@ -13,7 +13,9 @@ Deterministic and provider-free: no model call, no network beyond FalkorDB.
 from __future__ import annotations
 
 import math
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from urllib.parse import urlparse
 from uuid import UUID
@@ -109,6 +111,28 @@ class GraphEvidence:
     sentences: tuple[str, ...]
 
 
+def graph_tls_options(scheme: str) -> dict:
+    """Optional client-certificate TLS for a hosted graph (PEM values from env).
+
+    All three of ORACLE2_GRAPH_TLS_CA_PEM, _CERT_PEM and _KEY_PEM must be set
+    together, and only with a rediss:// URL. Cert and key go to 0600 temp files.
+    """
+    names = ("ORACLE2_GRAPH_TLS_CA_PEM", "ORACLE2_GRAPH_TLS_CERT_PEM", "ORACLE2_GRAPH_TLS_KEY_PEM")
+    values = [os.getenv(n) for n in names]
+    if not any(values):
+        return {}
+    if not all(values) or scheme != "rediss":
+        raise ValueError("graph client TLS needs CA, certificate and key with rediss://")
+    paths = []
+    for value in values[1:]:
+        fd, path = tempfile.mkstemp(prefix="oracle2-graph-", suffix=".pem")
+        with os.fdopen(fd, "w") as handle:
+            handle.write(value)
+        paths.append(path)
+    return {"ssl_ca_data": values[0], "ssl_certfile": paths[0], "ssl_keyfile": paths[1],
+            "ssl_cert_reqs": "required", "ssl_check_hostname": True}
+
+
 class FalkorEvidenceGraph:
     """Evidence graph for one isolated corpus (one FalkorDB graph name)."""
 
@@ -119,7 +143,8 @@ class FalkorEvidenceGraph:
         if not re.fullmatch(r"oracle2_evidence_[a-z0-9_]{1,64}", graph_name):
             raise ValueError("evidence graph name must be oracle2_evidence_<id>")
         client = FalkorDB(host=parsed.hostname, port=parsed.port or 6379,
-                          password=parsed.password, ssl=parsed.scheme == "rediss")
+                          password=parsed.password, ssl=parsed.scheme == "rediss",
+                          **graph_tls_options(parsed.scheme))
         self.graph = client.select_graph(graph_name)
 
     def reset(self) -> None:
