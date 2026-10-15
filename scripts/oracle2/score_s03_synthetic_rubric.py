@@ -9,7 +9,9 @@ or business acceptance.
 """
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -20,6 +22,8 @@ sys.path.insert(0, str(ROOT / "services" / "oracle-brain"))
 
 from oracle_brain.consultant.pilot import answer_question  # noqa: E402
 from oracle_brain.retrieval.pilot import retrieve_spans  # noqa: E402
+from oracle_brain.graph.evidence_answer import (  # noqa: E402
+    FalkorEvidenceGraph, answer_from_graph)
 
 CASES = ROOT / "evals" / "oracle2" / "synthetic-cases.jsonl"
 STOP = {"the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "after",
@@ -29,8 +33,20 @@ CATEGORY_FLOORS = {"procedure_ownership": 4, "conditional_exception": 4,
                    "improvement_decision": 4}
 
 
+def _base(word: str) -> str:
+    """Inflection-insensitive form: 'approves'/'approval' and 'packs'/'packing' match.
+
+    The answer keys are paraphrases; an inflection difference is not a fact error.
+    """
+    for suffix in ("ing", "ion", "als", "al", "ed", "es", "s", "e"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            return word[: -len(suffix)]
+    return word
+
+
 def _terms(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) > 3 and w not in STOP}
+    return {_base(w) for w in re.findall(r"[a-z0-9]+", text.lower())
+            if len(w) > 3 and w not in STOP}
 
 
 def _coverage(required: str, answer: str) -> float:
@@ -42,8 +58,16 @@ def _coverage(required: str, answer: str) -> float:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--engine", choices=["graph", "thin"], default="graph",
+                        help="graph = FalkorDB evidence graph (S03 replacement); "
+                             "thin = retired keyword/quotation path")
+    parser.add_argument("--split", choices=["acceptance", "development"], default="acceptance")
+    parser.add_argument("--falkordb-url", default=os.getenv("ORACLE2_TEST_FALKORDB_URL"),
+                        help="loopback FalkorDB URL (graph engine only)")
+    args = parser.parse_args()
     cases = [json.loads(line) for line in CASES.read_text().splitlines() if line.strip()]
-    questions = [c for c in cases if c["kind"] == "question" and c["split"] == "acceptance"]
+    questions = [c for c in cases if c["kind"] == "question" and c["split"] == args.split]
     blocks = []
     for case in questions:
         for i, span in enumerate(case["evidence_spans"]):
@@ -51,12 +75,22 @@ def main() -> int:
             blocks.append({"block_id": uuid5(NAMESPACE_URL, f"{case['id']}:{i}"),
                            "source_id": sid, "span_start": 0,
                            "span_end": len(span["text"]), "text": span["text"],
+                           "title": f"{case['process']} ({case['time_scope']})",
                            "block_index": len(blocks), "case": case["id"]})
     span_texts = {b["text"] for b in blocks}
+    graph = None
+    if args.engine == "graph":
+        if not args.falkordb_url:
+            parser.error("graph engine needs --falkordb-url or ORACLE2_TEST_FALKORDB_URL")
+        graph = FalkorEvidenceGraph(args.falkordb_url, "oracle2_evidence_s03_rubric")
+        graph.reset()
+        graph.ingest(blocks)
     rows = []
     for case in questions:
-        spans = retrieve_spans(case["question"], blocks)
-        answer = answer_question(case["question"], spans)
+        if graph is not None:
+            answer = answer_from_graph(case["question"], graph.retrieve(case["question"]))
+        else:
+            answer = answer_question(case["question"], retrieve_spans(case["question"], blocks))
         text = answer.answer_text
         own = {uuid5(NAMESPACE_URL, s["source_id"]) for s in case["evidence_spans"]}
         cited = {c.source_id for c in answer.citations}
@@ -93,7 +127,8 @@ def main() -> int:
     result = {"cases": len(rows), "passed": total, "threshold": 19,
               "meets_threshold": total >= 19 and all(f[2] for f in floors.values()),
               "category_floors": floors, "dimension_totals": dim_totals,
-              "rows": rows, "business_accepted": False}
+              "rows": rows, "engine": args.engine,
+              "business_accepted": False}
     print(json.dumps(result, indent=2, default=list))
     return 0
 
