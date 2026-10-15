@@ -122,3 +122,7 @@ up to deletion; nothing else depends on them.
   and bypass secret created; preview `dpl_8BPUGFSEwyCpC3z1WrDS6TinikuQ` READY. First two proof runs failed in
   the worker: FalkorDB authentication (no ACL username) then `INFO` not permitted for `worker`;
   the database read worked. This revision fixes the client; it changes no server or ACL setting.
+- Root cause of the hosted worker crash (found by the reviewed preflight recording, run
+  `run_06gk35mub3bs71vrdrhplrv001`): `hnswlib` import dies with `SIGILL` ("Fatal Python error:
+  Illegal instruction") because its source build used `-march=native` on the build host. Fix:
+  `HNSWLIB_NO_NATIVE=1` in the worker image's Python layer (`apps/workers/oracle2-python-extension.ts`).

@@ -29,7 +29,9 @@ export function oracle2Python(options: {
             // GraphRAG SDK pins hnswlib's source distribution; preserve that capability.
             'RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*',
             `COPY --from=${UV_IMAGE} /uv /usr/local/bin/uv`,
-            'ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python UV_NO_CACHE=1',
+            // hnswlib's sdist builds with -march=native by default; the build host's CPU
+            // differs from the run host's, which crashed every import with SIGILL.
+            'ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python UV_NO_CACHE=1 HNSWLIB_NO_NATIVE=1',
             `RUN uv venv --python ${ORACLE2_PYTHON_VERSION} /opt/venv`,
             `COPY ${options.requirementsFile} ./oracle2-requirements.txt`,
             // Every artifact is hash-pinned, so considering both indexes cannot admit a
