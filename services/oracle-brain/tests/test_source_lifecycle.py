@@ -34,6 +34,8 @@ def test_same_bytes_do_not_reingest_and_edits_create_revisions():
     assert created_edit and edit.number == 2 and ledger.current("s1") == edit
     other, _ = ledger.record("s2", b"Old limit 18")
     assert other.number == 1
+    reverted, created_revert = ledger.record("s1", b"Old limit 18")
+    assert created_revert and reverted.number == 3 and ledger.current("s1") == reverted
 
 
 def test_f12_withdrawn_revision_is_never_served():

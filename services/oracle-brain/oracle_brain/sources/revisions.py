@@ -24,9 +24,10 @@ class RevisionLedger:
         """Return (revision, created). created=False means an exact duplicate."""
         digest = content_hash(data)
         history = self._by_source.setdefault(source_id, [])
-        for revision in history:
-            if revision.digest == digest:
-                return revision, False
+        # Only a repeat of the current bytes is a duplicate; reverting to an
+        # older revision's bytes is a genuine edit and becomes current.
+        if history and history[-1].digest == digest:
+            return history[-1], False
         revision = Revision(source_id, len(history) + 1, digest)
         history.append(revision)
         return revision, True

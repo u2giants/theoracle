@@ -25,12 +25,12 @@ def test_bad_sources_fail_visibly(data, fmt, reason):
     assert error.value.reason == reason
 
 
-def test_oversize_source_rejected(monkeypatch):
-    monkeypatch.setattr("oracle_brain.ingest.limits.MAX_SOURCE_BYTES", 8)
+def test_oversize_source_rejected():
     from oracle_brain.ingest import limits
 
+    limits.check_bytes(b"x" * 8, max_bytes=8)
     with pytest.raises(SourceRejected, match="source_too_large"):
-        limits.check_bytes(b"x" * 9, max_bytes=limits.MAX_SOURCE_BYTES)
+        limits.check_bytes(b"x" * 9, max_bytes=8)
 
 
 def test_block_budget_stops_runaway_sources():
