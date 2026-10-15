@@ -28,6 +28,7 @@ S03_TESTS = [
     "test_holistic_runtime.py", "test_original_reading.py", "test_original_corpus_import.py", "test_original_corpus_read.py",
     "test_provider_transport.py",
     "test_original_pdf_image_views.py",
+    "test_graph_evidence_answer.py",
 ]
 
 

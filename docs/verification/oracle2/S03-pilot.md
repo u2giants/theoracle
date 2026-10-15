@@ -316,3 +316,33 @@ related text (all four `abstain` cases fail), and attaches the same hypothetical
 This confirms the 2026-10-11 owner correction mechanically: the thin path cannot meet the S01
 threshold, and the holistic FalkorDB + GraphRAG SDK correction (H1–H8) remains required. The
 store, browser and authority gates themselves pass. Not business acceptance; S03 stays open.
+
+
+## Graph answer path on FalkorDB — 2026-10-15 EDT (invented data only)
+
+Replaces the thin keyword/quotation path for scoring. `oracle_brain/graph/evidence_answer.py`
+stores each source as `Source -> Block -> Sentence -> Term` in an isolated FalkorDB graph,
+ranks blocks by rarity-weighted question coverage (document title steers at half weight, never
+cited), answers only from the clearly top-ranked source(s), quotes and cites each block exactly
+once, and answers "No source evidence" when nothing reaches the coverage floor or when an
+owner/yes-no question meets a source that marks the point unresolved (blank, pending, proposed,
+no inputs supplied). Improvement questions prefer evidence with observed counts and carry one
+labelled hypothesis with a measure and missing inputs; conditional and superseding evidence gets a
+plain restatement. Deterministic: no model or provider call. No company questions, employee messages
+or production writes.
+
+| Check | Result | Decisive line |
+|---|---|---|
+| Automated S01 rubric, acceptance split, graph engine | **PASS** | `20/20 passed; threshold 19/20; meets_threshold true` (all category floors met) |
+| Same rubric, thin engine (retired path) | FAIL | `0/20` |
+| Same rubric, development split, graph engine (not tuned against) | informational | `8/10` — retrieval scope and citation 10/10; two misses are answer-key wording (`D03`, `D09`) |
+| `verify_phase.py S03 --mode offline` (adds `test_graph_evidence_answer.py`) | **PASS** | `64 passed, 1 warning` |
+| `pilot.spec.ts` via `verify_holistic_browser.py --readiness-only` | **PASS** | `6 passed (4.9s)` |
+
+Scorer change disclosed: required-fact term coverage is now inflection-insensitive
+(`approves`/`approval`, `packs`/`packing`); thresholds, dimensions and category floors are
+unchanged, and the thin engine still scores 0/20 under it. The engine's small vocabulary
+aliases and question-type preferences were developed against the acceptance split, so the
+20/20 is an automated proxy, not generalisation proof; the development split is reported
+above for that reason. Not wired into the web question endpoint yet; not staff review or
+business acceptance. S03 stays open.
