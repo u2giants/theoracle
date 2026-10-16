@@ -49,7 +49,7 @@ class Budget:
         self.admitted_allocation=admitted_allocation
     def reserve(self, *, workspace_id: UUID,artifact_id: UUID,batch_id: UUID,purpose: str,attempt: int,
                 maximum: Decimal,pricing_hash: str, account_remaining: Decimal | None = None, correction_hash: str | None = None) -> UUID:
-        if purpose not in {'source-census','source-extraction','operating-audit','independent-source-semantic-acceptance'} or attempt not in {1,2} or not maximum.is_finite() or maximum<=0 or maximum>1:
+        if purpose not in {'source-census','source-extraction','operating-audit','independent-source-semantic-acceptance','source-original-reading','source-original-review'} or attempt not in {1,2} or not maximum.is_finite() or maximum<=0 or maximum>1:
             raise PermissionError('private dispatch purpose/attempt/cost not admitted')
         # Historical keyword account_remaining denotes this one Oracle key,
         # not unrelated application keys or the provider's whole account.
