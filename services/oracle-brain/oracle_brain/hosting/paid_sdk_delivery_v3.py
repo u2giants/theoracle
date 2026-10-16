@@ -47,7 +47,9 @@ def load_paid_sdk_bundle_v3(settings,job,*,artifact_id,artifact_version,embeddin
     settings.authorize(job)
     ledger=build_purpose_compiler_ledger_v3(settings,job)
     metadata,refs=settings.resolver.artifact_metadata(job.workspace_id,artifact_id,artifact_version)
-    _require(metadata.kind=='processing_qualified_model_v1' and refs==job.source_refs,
+    _require(metadata.kind=='processing_qualified_model_v1'
+        and len(set(refs))==len(refs) and len(set(job.source_refs))==len(job.source_refs)
+        and set(refs)==set(job.source_refs),
         'current exact qualified compiler metadata required before embedding custody')
     manifest,payload=ledger.read_with_manifest(job.workspace_id,artifact_id,artifact_version)
     _require(manifest==metadata,'qualified artifact changed before private embedding read')
