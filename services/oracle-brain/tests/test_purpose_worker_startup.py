@@ -440,3 +440,45 @@ def test_actual_compiler_v3_window_separates_freshness_and_original_operation(
             (settings.config.expected_session_role,job.source_refs[2].source_id))
     with pytest.raises(psycopg.errors.InsufficientPrivilege):settings.custody_window_v3(job)
     assert x['state']['posts']==0
+
+
+@pytest.mark.parametrize('revoke_after_validation',[False,True])
+def test_qualified_read_boundary_consolidates_observer_but_keeps_actual_source_sql(
+        admin_url,compiler_worker,monkeypatch,revoke_after_validation):
+    """Controlled semantic work, actual compiler SQL/custody/mTLS; no model-quality claim."""
+    import time
+    from types import SimpleNamespace
+    from oracle_brain.hosting.purpose_journey_v2 import build_purpose_qualified_reader_v3
+    x,settings,job=compiler_worker
+    ledger=build_purpose_qualified_reader_v3(settings,job);guard=ledger.processing_read_guard
+    assert ledger.processing_compile_guard.ledger is not ledger
+    assert ledger.processing_compile_guard.ledger.processing_read_guard is ledger.processing_compile_guard
+    assert ledger.processing_compile_guard.ledger.processing_extraction_guard is ledger.processing_extraction_guard
+    assert guard.ledger is ledger
+    original=x['state']['sequence']
+    for ref in job.source_refs:guard.source(ref.workspace_id,job.actor_id,ref.source_id)
+    assert guard.trust()==frozenset()  # This fixture has no semantic admission.
+    assert x['state']['sequence']==original  # Metadata SQL and registry, no parent network.
+    def controlled_validation(*args):
+        for ref in job.source_refs:guard.source(ref.workspace_id,job.actor_id,ref.source_id)
+        guard.trust()
+        if revoke_after_validation:
+            with psycopg.connect(admin_url) as conn:
+                conn.execute('DELETE FROM oracle2.hosting_role_source_admissions WHERE role_name=%s AND source_id=%s',
+                    (settings.config.expected_session_role,job.source_refs[2].source_id))
+        else:time.sleep(5.05)
+        return job.original_horizon
+    monkeypatch.setattr(guard.qualified,'valid_until',controlled_validation)
+    # Mock only expensive pure summary semantics; no private artifact is seeded.
+    manifest=SimpleNamespace(kind='processing_summary_v1',workspace_id=job.workspace_id)
+    if revoke_after_validation:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            guard.valid_until(manifest,{},job.actor_id,datetime.now(timezone.utc))
+        assert x['state']['sequence']==original+1
+    else:
+        until=guard.valid_until(manifest,{},job.actor_id,datetime.now(timezone.utc))
+        assert datetime.now(timezone.utc)<until<=job.original_horizon
+        assert x['state']['sequence']==original+2  # Real BEFORE and NEW fresh LAST.
+    assert x['state']['posts']==0
+    with psycopg.connect(admin_url) as conn:
+        assert conn.execute('SELECT count(*) FROM oracle2.artifact_manifests WHERE workspace_id=%s',(job.workspace_id,)).fetchone()[0]==0
