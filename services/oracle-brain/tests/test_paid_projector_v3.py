@@ -45,3 +45,34 @@ def test_projector_startup_rejects_missing_or_placeholder_external_hashes_before
         with pytest.raises(Exception,match='explicit external projector'):
             load_paid_projector_settings_v3('/absent',config_hash,appointment_path='/absent',
                 expected_appointment_sha256=appointment_hash,issuer_actor=uuid4(),reviewer_actor=uuid4(),worker=None,job=None)
+
+
+def test_exact_generation_attempt_nonce_survives_unknown_and_process_restart(tmp_path):
+    from oracle_brain.hosting.paid_projector_v3 import _ProjectorAttemptFilesV3
+    import json
+    tmp_path.chmod(0o700)
+    first=_ProjectorAttemptFilesV3(tmp_path,'exact-invented-graph')
+    row={'attempt_id':str(uuid4()),'state':'STARTED','job_hash':'a'*64,'lease_token':str(uuid4())}
+    first.begin(row)
+    first.append({'attempt_id':row['attempt_id'],'state':'UNKNOWN','server_writer_inactive_proven':False})
+    restarted=_ProjectorAttemptFilesV3(tmp_path,'exact-invented-graph')
+    assert restarted.started()==row
+    with pytest.raises(Exception,match='graph generation already attempted'):
+        restarted.begin({**row,'attempt_id':str(uuid4()),'job_hash':'b'*64})
+    with pytest.raises(Exception,match='projector attempt identity differs'):
+        restarted.append({'attempt_id':str(uuid4()),'state':'COMPLETED'})
+    assert json.loads(first.events_path.read_text())['server_writer_inactive_proven'] is False
+    assert first.start_path.exists()  # No expiry-based deletion/rebuild.
+
+
+def test_projector_attempt_nonce_refuses_symlink_and_foreign_permissions(tmp_path):
+    from oracle_brain.hosting.paid_projector_v3 import _ProjectorAttemptFilesV3
+    tmp_path.chmod(0o700)
+    attempt=_ProjectorAttemptFilesV3(tmp_path,'exact-invented-graph')
+    outside=tmp_path/'outside';outside.write_text('untouched')
+    attempt.start_path.symlink_to(outside)
+    with pytest.raises(Exception):attempt.begin({'attempt_id':str(uuid4())})
+    assert outside.read_text()=='untouched'
+    tmp_path.chmod(0o755)
+    with pytest.raises(Exception):_ProjectorAttemptFilesV3(tmp_path,'foreign-mode')
+    tmp_path.chmod(0o700)

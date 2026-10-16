@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit,unquote
 from uuid import UUID
-import hashlib,ssl,re
+import hashlib,ssl,re,json
 from pydantic import Field,AwareDatetime,model_validator
 from oracle_brain.operating_model.contracts import StrictRecord,digest
 from oracle_brain.operating_model.purpose_journey import PurposeWorkerJobV2
-from .purpose_journey_v2 import CompilerWorkerSettingsV2,_worker_file,_worker_json,_require
+from .purpose_journey_v2 import CompilerWorkerSettingsV2,_worker_file,_worker_json,_require,_unique
 from .paid_sdk_delivery_v3 import load_paid_sdk_bundle_v3
 
 HASH=r'^[a-f0-9]{64}$'
@@ -207,7 +207,7 @@ def _paid_projector_projection_v3(settings,*,signed_receipt=None):
         username=unquote(parsed.username),password=unquote(parsed.password),graph_name=c.graph_name,
         ssl=True,ssl_cert_reqs='required',ssl_check_hostname=True,ssl_ca_certs=c.tls_ca_file,
         ssl_certfile=c.tls_certificate_file,ssl_keyfile=c.tls_key_file,
-        query_timeout_ms=max(1,min(30000,int(remaining*1000))),pool_timeout=min(30.0,remaining),retry_count=0)
+        query_timeout_ms=max(1,min(30000,int(remaining*1000))),pool_timeout=min(30.0,remaining),retry_count=1)
     projection=PaidProcessingSDKProjectionV3(settings.graph_url,workspace_id=c.workspace_id,
         artifact_id=c.artifact_id,artifact_version=c.artifact_version,generation=c.generation,
         embedder=settings.bundle.embedder,qualification_guard=CurrentPaidProjectorGuardV3(settings),
@@ -257,16 +257,113 @@ class PaidProjectorAuthorityV3:
         return self.settings.current()
 
 
+class _ProjectorAttemptFilesV3:
+    """Mechanical metadata custody only; files never grant graph/source access."""
+    def __init__(self,spool,graph_name):
+        from .purpose_journey_v2 import PurposeJourneyJournalV2
+        self.journal=PurposeJourneyJournalV2(Path(spool))
+        self.name='paid-projector-v3-'+hashlib.sha256(graph_name.encode()).hexdigest()
+        self.start_path=self.journal.spool/(self.name+'.started.json')
+        self.events_path=self.journal.spool/(self.name+'.events.jsonl')
+    def begin(self,metadata):
+        from .custody import _durable_nonce
+        from oracle_brain.operating_model.contracts import canonical_bytes
+        with self.journal._locked():
+            _require(not self.start_path.exists() and not self.start_path.is_symlink()
+                and not self.events_path.exists() and not self.events_path.is_symlink(),
+                'graph generation already attempted; observe known ACK or retain UNKNOWN')
+            _durable_nonce(self.journal.spool,self.start_path.name,canonical_bytes(metadata))
+        return metadata
+    def started(self):
+        return json.loads(_worker_file(self.start_path),object_pairs_hook=_unique)
+    def append(self,event):
+        from .custody import _sync_spool
+        from oracle_brain.operating_model.contracts import canonical_bytes
+        import os,stat
+        with self.journal._locked():
+            start=self.started()
+            _require(event['attempt_id']==start['attempt_id'],'projector attempt identity differs')
+            fd=os.open(self.events_path,os.O_WRONLY|os.O_CREAT|os.O_APPEND|os.O_NOFOLLOW,0o600)
+            try:
+                info=os.fstat(fd)
+                _require(stat.S_ISREG(info.st_mode) and info.st_uid==os.getuid() and info.st_nlink==1
+                    and info.st_mode&0o077==0 and info.st_size<=1024*1024,'private bounded projector custody required')
+                os.write(fd,canonical_bytes(event)+b'\n');os.fsync(fd)
+            finally:os.close(fd)
+            _sync_spool(self.journal.spool)
+
+
+# Actual objects are retained on UNKNOWN. A completed/cancelled Python Task is
+# NOT proof that an already-sent server query stopped. No graph cleanup occurs.
+_OWNED_PROJECTOR_WORK_V3={}
+
+
+class PaidProjectorAttemptCustodyV3:
+    def __init__(self,settings,lease):
+        import asyncio,os
+        from uuid import uuid4
+        from oracle_brain.operating_model.processing_projection import ProcessingProjectionLease
+        _require(type(settings) is PaidProjectorSettingsV3 and type(lease) is ProcessingProjectionLease,
+            'exact actual projector settings and owned SQL lease required')
+        settings.current();c=settings.config
+        _require((lease.event.workspace_id,lease.event.assertion_id,lease.event.revision)==
+            (c.workspace_id,c.artifact_id,c.artifact_version)
+            and lease.lease_role==settings.worker.config.expected_session_role,
+            'projector lease belongs to another artifact/compiler')
+        now=datetime.now(timezone.utc)
+        self.deadline=min(settings.valid_until,lease.lease_until)
+        _require(now<self.deadline,'original projector lease/horizon expired')
+        self.settings,self.lease=settings,lease
+        self.files=_ProjectorAttemptFilesV3(settings.worker.config.spool,c.graph_name)
+        task=asyncio.current_task()
+        self.record=self.files.begin(dict(schema_version=3,purpose='projector-operation-custody-v3',
+            state='STARTED',attempt_id=str(uuid4()),graph_name=c.graph_name,
+            config_sha256=settings.config_sha256,job_hash=digest(settings.job.model_dump(mode='json')),
+            allocation_hash=settings.job.allocation_hash,event_id=str(lease.event.event_id),
+            lease_token=str(lease.lease_token),deadline=self.deadline.isoformat(),
+            started_at=now.isoformat(),process_id=os.getpid(),caller_task=task.get_name() if task else None))
+    def unknown(self,error,projection):
+        task=getattr(error,'task',None)
+        _OWNED_PROJECTOR_WORK_V3[self.record['attempt_id']]=(task,projection,self.deadline)
+        self.files.append(dict(attempt_id=self.record['attempt_id'],state='UNKNOWN',
+            at=datetime.now(timezone.utc).isoformat(),reason=type(error).__name__,
+            task_name=task.get_name() if task is not None else None,
+            task_done=task.done() if task is not None else None,server_writer_inactive_proven=False))
+    def complete(self,signed_receipt):
+        import hmac
+        from oracle_brain.operating_model.projection_delivery import signature
+        # Trusted core returns only after real fenced SQL ACK/commit/current
+        # deadline checks. Retaining that historical fact needs no fresh grant.
+        _require(type(signed_receipt) is dict and type(signed_receipt.get('signature')) is str,
+            'actual core signed SQL ACK result required')
+        body={k:v for k,v in signed_receipt.items() if k!='signature'}
+        c=self.settings.config
+        _require(body.get('graph_name')==c.graph_name and body.get('projector_id')==str(c.projector_id)
+            and body.get('event_id')==str(self.lease.event.event_id)
+            and body.get('lease_token')==str(self.lease.lease_token)
+            and body.get('workspace_id')==str(c.workspace_id) and body.get('artifact_id')==str(c.artifact_id)
+            and body.get('version')==c.artifact_version and body.get('content_hash')==c.content_hash
+            and hmac.compare_digest(signature(self.settings.receipt_secret,body),signed_receipt['signature']),
+            'actual exact committed projector ACK result required')
+        self.files.append(dict(attempt_id=self.record['attempt_id'],state='COMPLETED',
+            at=datetime.now(timezone.utc).isoformat(),receipt_hash=digest(body),signature=signed_receipt['signature']))
+
+
 async def project_paid_projector_event_v3(settings,lease):
-    """Fixed protected entry; caller cannot supply projection/key/authority callbacks."""
+    """One exact-generation attempt; UNKNOWN retains actual task/connection."""
     from oracle_brain.operating_model.processing_projection import project_paid_processing_event_v3
     _require(type(settings) is PaidProjectorSettingsV3,'exact protected projector settings required')
     settings.current()
-    projection=build_paid_projector_projection_v3(settings)
+    projection=build_paid_projector_projection_v3(settings)  # pinned SDK constructor is lazy
+    attempt=PaidProjectorAttemptCustodyV3(settings,lease)    # durable BEFORE graph work
     authority=PaidProjectorAuthorityV3(settings)
-    _require(type(authority) is PaidProjectorAuthorityV3,'exact protected projector authority required')
     try:
-        return await project_paid_processing_event_v3(settings.bundle.ledger,lease,projection,
+        result=await project_paid_processing_event_v3(settings.bundle.ledger,lease,projection,
             secret=settings.receipt_secret,projector_id=str(settings.config.projector_id),authority=authority)
-    finally:
+        attempt.complete(result)
+    except BaseException as error:
+        attempt.unknown(error,projection)
+        raise
+    else:
         await projection.close()
+        return result
