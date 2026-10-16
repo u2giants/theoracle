@@ -62,7 +62,7 @@ def gateway(certificates):
                      cafile=str(root / "ca.pem"))
     server = OpaqueGateway(("127.0.0.1", 0), tls=tls, worker_uri=WORKER,
                            signing_key=KEY, admit=admit, clock=lambda: 1000)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval':0.01}, daemon=True)
     thread.start()
     yield server, accepted, revoked
     server.shutdown()
@@ -203,7 +203,7 @@ def test_actual_internal_broker_mutual_tls_and_no_proxy(certificates):
     tls = server_tls(certfile=str(certificates / "server.pem"), keyfile=str(certificates / "server.key"),
                      cafile=str(certificates / "ca.pem"))
     server = EgressServer(("127.0.0.1", 0), tls=tls, executor_uri=WORKER, egress=egress)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval':0.01}, daemon=True)
     thread.start()
     try:
         context = ssl.create_default_context(cafile=str(certificates / "ca.pem"))

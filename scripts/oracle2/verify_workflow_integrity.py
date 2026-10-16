@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Staged synthetic proof. Missing tests and skips fail; acceptance stays separate."""
-import argparse,hashlib,json,os,stat,subprocess,sys,tempfile
+import argparse,hashlib,json,os,stat,subprocess,sys,tempfile,time
+import psutil
 from importlib.metadata import version,PackageNotFoundError
 from pathlib import Path
 from uuid import uuid4
@@ -78,49 +79,163 @@ def required_suites(stage):
     if stage in {'event','W04','W07','W08'}:return EVENT
     return DOCUMENTARY+EVENT
 
+def test_groups(stage):
+    required=required_suites(stage)
+    groups=(('documentary',DOCUMENTARY),('event',EVENT)) if required==DOCUMENTARY+EVENT else (('required',required),)
+    flattened=tuple(suite for _,suites in groups for suite in suites)
+    if flattened!=required or len(set(flattened))!=len(flattened):
+        raise RuntimeError('required suite population is duplicated or omitted')
+    return groups
+
+
+def stop_owned_workers(workers):
+    """Only children of Popen handles created by this verifier are signalled."""
+    errors=[];owned=[]
+    for worker in workers:
+        if worker.poll() is not None:continue
+        try:
+            parent=psutil.Process(worker.pid)
+            owned.extend(reversed(parent.children(recursive=True)));owned.append(parent)
+        except psutil.NoSuchProcess:pass
+        except psutil.Error:errors.append('owned worker tree inspection failed')
+    for process in owned:
+        try:process.terminate()
+        except psutil.NoSuchProcess:pass
+        except psutil.Error:errors.append('owned worker termination failed')
+    _,alive=psutil.wait_procs(owned,timeout=2)
+    for process in alive:
+        try:process.kill()
+        except psutil.NoSuchProcess:pass
+        except psutil.Error:errors.append('owned worker kill failed')
+    _,alive=psutil.wait_procs(alive,timeout=2)
+    if alive:errors.append('owned worker survived cleanup')
+    for worker in workers:
+        try:worker.wait(timeout=2)
+        except subprocess.TimeoutExpired:errors.append('owned worker was not reaped')
+    return errors
+
+
+def run_test_groups(jobs,directory,*,deadline):
+    """All workers share the one caller-owned monotonic test deadline."""
+    workers=[];streams=[];results=[];cleanup=[];launch_error=False
+    try:
+        for job in jobs:
+            path=directory/(job['name']+'.stdout')
+            stream=path.open('xb');path.chmod(0o600);streams.append(stream)
+            try:
+                worker=subprocess.Popen(job['command'],cwd=ROOT,env=job['env'],stdout=stream,
+                    stderr=subprocess.STDOUT,start_new_session=True)
+            except OSError:
+                launch_error=True;break
+            workers.append(worker)
+        timed_out=False
+        if launch_error:cleanup.extend(stop_owned_workers(workers))
+        for worker in workers:
+            remaining=max(0,deadline-time.monotonic())
+            try:worker.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:timed_out=True;break
+        if time.monotonic()>deadline:timed_out=True
+        if timed_out:cleanup.extend(stop_owned_workers(workers))
+        for index,job in enumerate(jobs):
+            worker=workers[index] if index<len(workers) else None
+            results.append({'name':job['name'],'exit_code':worker.returncode if worker else None,
+                'timed_out':timed_out,'launch_error':launch_error})
+        return results,cleanup
+    finally:
+        if any(worker.poll() is None for worker in workers):cleanup.extend(stop_owned_workers(workers))
+        for stream in streams:stream.close()
+
+
+def aggregate_evidence(jobs,results,directory):
+    combined=ET.Element('testsuites');tests=skips=failures=0;invalid=[]
+    if len(results)!=len(jobs):invalid.append('worker population incomplete')
+    for job,result in zip(jobs,results):
+        output=directory/(job['name']+'.stdout');junit=directory/(job['name']+'.xml')
+        result['stdout_sha256']=hashlib.sha256(output.read_bytes()).hexdigest() if output.is_file() else None
+        if not output.is_file():invalid.append('required worker output missing')
+        result['junit_present']=junit.is_file()
+        if result['timed_out'] or result.get('launch_error') or result['exit_code']!=0:invalid.append('worker did not complete successfully')
+        if not junit.is_file():invalid.append('required junit evidence missing');continue
+        junit.chmod(0o600);raw=junit.read_bytes();result['junit_sha256']=hashlib.sha256(raw).hexdigest()
+        try:root=ET.fromstring(raw)
+        except ET.ParseError:invalid.append('required junit evidence malformed');continue
+        cases=root.findall('.//testcase')
+        if not cases:invalid.append('required worker cases missing')
+        count_skips=sum(c.find('skipped') is not None for c in cases)
+        count_failures=sum(c.find('failure') is not None or c.find('error') is not None for c in cases)
+        tests+=len(cases);skips+=count_skips;failures+=count_failures
+        result.update(tests=len(cases),skipped=count_skips,failures=count_failures)
+        combined.append(root)
+    if skips or failures:invalid.append('required synthetic gate failed or skipped')
+    return {'tests':tests,'skipped':skips,'failures':failures,'exit_code':int(bool(invalid)),
+        'junit_sha256':hashlib.sha256(ET.tostring(combined)).hexdigest(),'worker_results':results,
+        'evidence_errors':invalid}
+
+
+def cleanup_test_databases(admin,parts,owned):
+    errors=[]
+    for name in owned:
+        try:
+            with psycopg.connect(admin,autocommit=True) as conn:
+                if conn.execute('SELECT current_database()').fetchone()[0]!=parts.get('dbname','postgres'):
+                    raise PermissionError('actual cleanup administrator target differs')
+                conn.execute('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=%s',(name,))
+                conn.execute(sql.SQL('DROP DATABASE {}').format(sql.Identifier(name)))
+        except Exception:errors.append({'database':name,'reason':'owned database cleanup failed'})
+    return errors
+
+
 def main(argv=None):
     args=parse_options(argv)
     if args.mode!='synthetic':
         raise PermissionError('Independent private-audit admission is unavailable; synthetic proof cannot establish private semantic acceptance')
-    required=required_suites(args.stage)
+    required=required_suites(args.stage);groups=test_groups(args.stage)
     paths=[ROOT/'services/oracle-brain/tests'/f'test_{name}.py' for name in required]
     missing=[p.name for p in paths if not p.is_file()]
     if missing:raise RuntimeError('required tests missing: '+','.join(missing))
     public_hashes=required_public_chain_hashes()
     admin=os.environ['ORACLE2_TEST_ADMIN_URL'];parts=psycopg.conninfo.conninfo_to_dict(admin)
     if parts.get('host') not in {'localhost','127.0.0.1'}:raise PermissionError('synthetic loopback proof required')
-    name='oracle_operating_model_test_'+uuid4().hex
-    with psycopg.connect(admin,autocommit=True) as conn:conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
-    target=psycopg.conninfo.make_conninfo(**{**parts,'dbname':name})
-    report={'schema_version':1,'stage':args.stage,'mode':args.mode,'success':False,'synthetic':True,'business_accepted':False,'private_source_acceptance':'open','independent_semantic_acceptance':'open','actual_event_acceptance':'unavailable','analytical_runtime_qualified':False,'required_tests':[p.name for p in paths]}
+    destination=ROOT/args.result;destination.parent.mkdir(parents=True,exist_ok=True)
+    evidence=Path(tempfile.mkdtemp(prefix='workflow-evidence-',dir=destination.parent));evidence.chmod(0o700)
+    report={'schema_version':1,'stage':args.stage,'mode':args.mode,'success':False,'synthetic':True,'business_accepted':False,'private_source_acceptance':'open','independent_semantic_acceptance':'open','actual_event_acceptance':'unavailable','analytical_runtime_qualified':False,'required_tests':[p.name for p in paths],'worker_evidence':str(evidence),'cleanup_errors':[]}
+    owned=[]
     try:
-        with psycopg.connect(target) as conn:
-            for migration in SYNTHETIC_MIGRATIONS:conn.execute((ROOT/'services/oracle-brain/sql'/migration).read_text())
-        with tempfile.TemporaryDirectory(prefix='oracle-workflow-proof-',dir=os.getenv('TMPDIR')) as tmp:
-            junit=Path(tmp)/'junit.xml'
-            env={**os.environ,'ORACLE2_TEST_ADMIN_URL':target,'PYTHONPATH':str(ROOT/'services/oracle-brain')}
-            completed=subprocess.run([sys.executable,'-m','pytest',*map(str,paths),'-q','--tb=short',f'--junitxml={junit}'],cwd=ROOT,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=120)
-            if not junit.exists():raise RuntimeError('required junit evidence missing')
-            cases=ET.parse(junit).findall('.//testcase');skipped=sum(c.find('skipped') is not None for c in cases)
-            failures=sum(c.find('failure') is not None or c.find('error') is not None for c in cases)
-            report.update(tests=len(cases),skipped=skipped,failures=failures,exit_code=completed.returncode)
-            if completed.returncode or skipped or not cases or failures:
-                print(completed.stdout[-6000:]);raise RuntimeError('required synthetic gate failed or skipped')
-            report['versions']={package:version(package) for package in ('graphrag-sdk','langgraph','pydantic','psycopg')}
-            report['head']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
-            tracked=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','services/oracle-brain/oracle_brain/operating_model','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/test_readonly_graph_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/validate_analytical_packet.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics'],cwd=ROOT,text=True).splitlines()
-            hashes={p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in tracked if (ROOT/p).is_file()}
-            current_public_hashes=required_public_chain_hashes()
-            if current_public_hashes!=public_hashes:raise RuntimeError('required public source changed during tests')
-            hashes.update(current_public_hashes)
-            report['input_hash']=hashlib.sha256(json.dumps(hashes,sort_keys=True).encode()).hexdigest()
-            report['junit_sha256']=hashlib.sha256(junit.read_bytes()).hexdigest();report['success']=True
+        jobs=[]
+        # Setup remains outside the existing 120-second TEST budget. Every group
+        # gets its own proven fresh DB before any worker starts; EVENT has no
+        # fixed-role mutations, shared advisory locks or graph operations.
+        for label,suites in groups:
+            name='oracle_operating_model_test_'+uuid4().hex
+            with psycopg.connect(admin,autocommit=True) as conn:
+                if conn.execute('SELECT current_database()').fetchone()[0]!=parts.get('dbname','postgres'):
+                    raise PermissionError('actual synthetic administrator target differs')
+                conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
+            owned.append(name);target=psycopg.conninfo.make_conninfo(**{**parts,'dbname':name})
+            with psycopg.connect(target) as conn:
+                if conn.execute('SELECT current_database()').fetchone()[0]!=name:
+                    raise PermissionError('actual fresh synthetic target differs')
+                for migration in SYNTHETIC_MIGRATIONS:conn.execute((ROOT/'services/oracle-brain/sql'/migration).read_text())
+            command=[sys.executable,'-m','pytest',*[str(ROOT/'services/oracle-brain/tests'/f'test_{n}.py') for n in suites],'-q','--tb=short',f'--junitxml={evidence/(label+".xml")}']
+            jobs.append({'name':label,'command':command,'env':{**os.environ,'ORACLE2_TEST_ADMIN_URL':target,'PYTHONPATH':str(ROOT/'services/oracle-brain')}})
+        results,worker_cleanup=run_test_groups(jobs,evidence,deadline=time.monotonic()+120)
+        report['cleanup_errors'].extend(worker_cleanup)
+        report.update(aggregate_evidence(jobs,results,evidence))
+        report['versions']={package:version(package) for package in ('graphrag-sdk','langgraph','pydantic','psycopg')}
+        report['head']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
+        tracked=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','services/oracle-brain/oracle_brain/operating_model','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/test_readonly_graph_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics'],cwd=ROOT,text=True).splitlines()
+        hashes={p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in tracked if (ROOT/p).is_file()}
+        current_public_hashes=required_public_chain_hashes()
+        if current_public_hashes!=public_hashes:raise RuntimeError('required public source changed during tests')
+        hashes.update(current_public_hashes)
+        report['input_hash']=hashlib.sha256(json.dumps(hashes,sort_keys=True).encode()).hexdigest()
+        report['success']=report['exit_code']==0 and not report['cleanup_errors']
     finally:
-        with psycopg.connect(admin,autocommit=True) as conn:
-            conn.execute('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=%s',(name,))
-            conn.execute(sql.SQL('DROP DATABASE {}').format(sql.Identifier(name)))
-        destination=ROOT/args.result;destination.parent.mkdir(parents=True,exist_ok=True);destination.write_text(json.dumps(report,indent=2)+'\n');destination.chmod(0o600)
-    print(json.dumps({k:report[k] for k in ('stage','success','tests','skipped','business_accepted','analytical_runtime_qualified')}))
-    return 0
+        report['owned_databases']=owned
+        report['cleanup_errors'].extend(cleanup_test_databases(admin,parts,owned))
+        if report['cleanup_errors']:report['success']=False
+        destination.write_text(json.dumps(report,indent=2)+'\n');destination.chmod(0o600)
+    print(json.dumps({k:report.get(k) for k in ('stage','success','tests','skipped','business_accepted','analytical_runtime_qualified')}))
+    return 0 if report['success'] else 1
 
 if __name__=='__main__':raise SystemExit(main())

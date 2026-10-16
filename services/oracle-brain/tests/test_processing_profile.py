@@ -17,7 +17,7 @@ def processing_server(processing,tmp_path,certificates):
     custody,authority,current,opaque=metadata_profile(processing,tmp_path)
     tls=server_tls(certfile=str(certificates/'server.pem'),keyfile=str(certificates/'server.key'),cafile=str(certificates/'ca.pem'))
     server=processing_gateway(('127.0.0.1',0),tls=tls,signing_key=KEY,custody=custody)
-    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    thread=threading.Thread(target=server.serve_forever, kwargs={'poll_interval':0.01},daemon=True);thread.start()
     yield server,custody,authority,opaque
     server.shutdown();server.server_close();thread.join(2)
 
