@@ -152,8 +152,8 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         from oracle_brain.operating_model.summaries import summarize_from_ledger,persist_summary
         from uuid import uuid4
         import cProfile,pstats,io
-        summary_profile=cProfile.Profile()
-        summary_profile.enable()
+        summary_profile=cProfile.Profile() if __import__('os').environ.get('ORACLE2_TEST_SUMMARY_PROFILE_ONLY')=='1' else None
+        if summary_profile is not None:summary_profile.enable()
         try:
             summary=summarize_from_ledger(summary_compiler,job.workspace_id,qualified[0].artifact_id,1,
                 QueryPlan(view='company_overview',question='Invented complete workflow',max_bytes=128*1024,page=0,page_size=25),
@@ -166,11 +166,12 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
                 assert connection.execute("SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND payload->>'namespace'='oracle_processing_v1'",
                     (job.workspace_id,)).fetchone()==(1,)
         finally:
-            summary_profile.disable()
-            summary_profile.dump_stats(str(tmp_path/'summary-compile-profile.pstats'))
-            profile_text=io.StringIO()
-            pstats.Stats(summary_profile,stream=profile_text).strip_dirs().sort_stats('cumulative').print_stats()
-            (tmp_path/'summary-compile-profile.txt').write_text(profile_text.getvalue())
+            if summary_profile is not None:
+                summary_profile.disable()
+                summary_profile.dump_stats(str(tmp_path/'summary-compile-profile.pstats'))
+                profile_text=io.StringIO()
+                pstats.Stats(summary_profile,stream=profile_text).strip_dirs().sort_stats('cumulative').print_stats()
+                (tmp_path/'summary-compile-profile.txt').write_text(profile_text.getvalue())
         stage('compiler_summary_committed_without_second_projection')
         return summary_compiler,summary_guard,summary,summary_manifest
     def dispatch_embedding():
