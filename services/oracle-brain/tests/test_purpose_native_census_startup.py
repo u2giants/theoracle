@@ -6,6 +6,7 @@ import json
 import threading
 from datetime import datetime,timedelta,timezone
 from decimal import Decimal
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from uuid import uuid4
@@ -37,9 +38,15 @@ from oracle_brain.hosting.purpose_runtime import load_purpose_runtime_settings_v
 from oracle_brain.hosting.purpose_transport import purpose_ingress_server_v2,PurposeProviderClientV2
 
 @pytest.fixture
-def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,tmp_path,monkeypatch):
-    f=purpose_population('census','source-reader');source,_,_=context(f)
-    receipts=source.read_population();now=datetime.now(timezone.utc);expiry=now+timedelta(seconds=90)
+def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,tmp_path,monkeypatch,request):
+    mode=getattr(request,"param","census");assert mode in {"census","extraction"}
+    if mode=='census':
+        f=purpose_population('census','source-reader');source,_,_=context(f);receipts=source.read_population()
+    else:
+        from oracle_brain.operating_model.authority_adapter import ProcessingSourceResolver
+        f=purpose_population('embedding','source-reader');f['refs']=tuple(sorted(f['refs'],key=lambda ref:ref.source_id.int));source=ProcessingSourceResolver(f['url'],binding=f['binding'])
+        receipts=tuple(source.current_for_processing(f['workspace'],ref.source_id) for ref in f['refs'])
+    now=datetime.now(timezone.utc);expiry=now+timedelta(seconds=90)
     ledger_url,registry,billing_admin=actual_ledger
     registry=registry.model_copy(update={'transport':'verify-full-tls'})
     ledger_hash=digest(registry.model_dump(mode='json'))
@@ -47,19 +54,37 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
     catalog['data'][0]['context_length']=131072
     catalog['data'][0]['top_provider']['context_length']=131072
     state={'posts':0,'after_post':None,'revoked':False,'sequence':1,'wire':None,'requests':[],'failure':None}
-    regions=tuple(SourceRegion(region_id=f'original-{i}',kind='section',evidence=EvidenceRef(ref=r.ref,start=0,end=len(r.reading),quote=r.reading)) for i,r in enumerate(receipts))
-    scope=OriginalScope(workspace_id=f['workspace'],receipts=receipts,regions=regions,
-        source_region_register_hash=digest({'regions':[r.model_dump(mode='json') for r in regions]}))
-    census=CensusContext(scope=scope,actor_id=f['actor'],runtime_hash=f['runtime'],permission_hash='c'*64,protocol_hash='d'*64,request_hash='e'*64)
-    request=request_for(census);census=census.model_copy(update={'request_hash':digest(request)})
-    processing_request=ProcessingRequest(provider='openrouter',account='key-sha256:'+FP,endpoint='https://openrouter.ai/api/v1',
-        data_classes=frozenset({'synthetic'}),purpose='source-census',terms_hash='b'*64)
-    approval=ProcessingApproval(**processing_request.model_dump(),expires_at=expiry,register_ref='invented-native-census-only')
-    job=NativeDispatchJob(dispatch_id=uuid4(),workspace_id=f['workspace'],artifact_id=uuid4(),batch_id=uuid4(),purpose='source-census',attempt=1,
-        request=request,request_hash=digest(request),permission_hash=census.permission_hash,processing_request=processing_request,approvals=(approval,),
-        pricing=current_pricing(catalog,model=request['model'],max_output_tokens=request['max_tokens'],register_hash='d'*64,now=now),
-        register_hash='d'*64,input_tokens_upper_bound=2*len(canonical_bytes(request))+4096)
-    private=PurposePrivateContextV2(phase='census',job=job,census=census)
+    if mode=='census':
+        regions=tuple(SourceRegion(region_id=f'original-{i}',kind='section',evidence=EvidenceRef(ref=r.ref,start=0,end=len(r.reading),quote=r.reading)) for i,r in enumerate(receipts))
+        scope=OriginalScope(workspace_id=f['workspace'],receipts=receipts,regions=regions,
+            source_region_register_hash=digest({'regions':[r.model_dump(mode='json') for r in regions]}))
+        census=CensusContext(scope=scope,actor_id=f['actor'],runtime_hash=f['runtime'],permission_hash='c'*64,protocol_hash='d'*64,request_hash='e'*64)
+        request=request_for(census);census=census.model_copy(update={'request_hash':digest(request)})
+        processing_request=ProcessingRequest(provider='openrouter',account='key-sha256:'+FP,endpoint='https://openrouter.ai/api/v1',
+            data_classes=frozenset({'synthetic'}),purpose='source-census',terms_hash='b'*64)
+        approval=ProcessingApproval(**processing_request.model_dump(),expires_at=expiry,register_ref='invented-native-census-only')
+        job=NativeDispatchJob(dispatch_id=uuid4(),workspace_id=f['workspace'],artifact_id=uuid4(),batch_id=uuid4(),purpose='source-census',attempt=1,
+            request=request,request_hash=digest(request),permission_hash=census.permission_hash,processing_request=processing_request,approvals=(approval,),
+            pricing=current_pricing(catalog,model=request['model'],max_output_tokens=request['max_tokens'],register_hash='d'*64,now=now),
+            register_hash='d'*64,input_tokens_upper_bound=2*len(canonical_bytes(request))+4096)
+        private=PurposePrivateContextV2(phase='census',job=job,census=census)
+    else:
+        from oracle_brain.hosting.provider_runtime import JobContext,JobRegistry
+        from oracle_brain.operating_model.pipeline import extraction_messages
+        from test_native_factory import job as template_job
+        processing_request=ProcessingRequest(provider='openrouter',account='key-sha256:'+FP,endpoint='https://openrouter.ai/api/v1',
+            data_classes=frozenset({'synthetic'}),purpose='source-extraction',terms_hash='b'*64)
+        approval=ProcessingApproval(**processing_request.model_dump(),expires_at=expiry,register_ref='invented-native-extraction-only')
+        batch=uuid4();contexts=[]
+        for receipt in receipts:
+            request={**template_job().request,'messages':extraction_messages(receipt)}
+            job=NativeDispatchJob(dispatch_id=uuid4(),workspace_id=f['workspace'],artifact_id=uuid4(),batch_id=batch,purpose='source-extraction',attempt=1,
+                request=request,request_hash=digest(request),permission_hash='c'*64,processing_request=processing_request,approvals=(approval,),
+                pricing=current_pricing(catalog,model=request['model'],max_output_tokens=request['max_tokens'],register_hash='d'*64,now=now),
+                register_hash='d'*64,input_tokens_upper_bound=2*len(canonical_bytes(request))+4096)
+            contexts.append(JobContext(job=job,actor_id=f['actor'],job_hash=digest(job.model_dump(mode='json')),permission_hash=job.permission_hash,receipt=receipt,inventories={}))
+        private=JobRegistry(issuer_actor=uuid4(),reviewer_actor=uuid4(),runtime_hash=f['runtime'],expires_at=expiry,contexts=tuple(contexts))
+        job=contexts[0].job;request=job.request
     coverage=KeyCoverageAdmission(domain='existing-owner-authorized-oracle-key',key_fingerprint=FP,provider_key_record_hash='4'*64,
         consumers=(KeyConsumer(consumer_id='invented-census',runtime_revision_hash=f['runtime'],mode='central-reservation',proof_hash='5'*64),),
         census_hash='6'*64,ledger_identity_hash=ledger_hash,external_liability_receipt_hash='7'*64,issuer_actor=uuid4(),reviewer_actor=uuid4(),
@@ -68,27 +93,53 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
     allocation=BudgetAllocationPinsV2(original_batch_id=job.batch_id,allocation_hash='8'*64,original_receipt_hash='9'*64,original_ceiling_usd=Decimal('.25'),
         original_expires_at=expiry,ledger_registry_hash=ledger_hash,key_coverage_hash=coverage_hash,
         account_identity_hash=digest({k:policy[k] for k in ('provider','account','endpoint')}))
-    dispatch=PurposeDispatchV2(dispatch_id=job.dispatch_id,source_refs=f['refs'],job_hash=digest(job.model_dump(mode='json')),request_hash=job.request_hash,
-        permission_hash=job.permission_hash,context_hash=digest(private.model_dump(mode='json')),model=request['model'],processing_request_hash=digest(policy),
-        account_policy_hash=digest({k:v for k,v in policy.items() if k!='terms_hash'}),account_identity_hash=allocation.account_identity_hash,terms_hash=policy['terms_hash'],
-        pricing_hash=digest(job.pricing.model_dump(mode='json')),register_hash=job.register_hash,approvals_hash=digest({'approvals':[approval.model_dump(mode='json')]}),
-        budget_identity_hash=digest(allocation.model_dump(mode='json')),ledger_registry_hash=ledger_hash,key_coverage_hash=coverage_hash)
-    issuer,reviewer=uuid4(),uuid4()
-    population=ParentPopulationAdmissionV2(workspace_id=f['workspace'],parent_registry_sha256='1'*64,runtime_hash=f['runtime'],source_registry_hash=f['registry'],
-        source_refs=f['refs'],population_digest=source_population_digest(f['refs']),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
-    phase=PurposePhaseRegistryV2(qualification_purpose='phase-operation-qualification-v2',run_id=uuid4(),workspace_id=f['workspace'],actor_id=f['actor'],provider_login=f['login'],worker_uri=WORKER,
-        phase='census',purpose='source-census',operation='chat',runtime_hash=f['runtime'],source_registry_hash=f['registry'],parent_registry_sha256=population.parent_registry_sha256,
-        population_admission_sha256=digest(population.model_dump(mode='json')),source_refs=f['refs'],population_digest=population.population_digest,
-        dispatches=(dispatch,),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
-    values=phase.model_dump(mode='python');values.pop('qualification_purpose');values['phase_registry_sha256']=digest(phase.model_dump(mode='json'))
-    descriptor=PurposeRunDescriptorV2.model_validate(values)
-    projection=PurposeMetadataProjectionV2(descriptor=descriptor,descriptor_sha256=digest(descriptor.model_dump(mode='json')))
-    pins=PurposePinsV2(qualification_purpose='phase-operation-qualification-v2',phase='census',operation='chat',runtime_hash=f['runtime'],source_registry_hash=f['registry'],
-        parent_registry_sha256=population.parent_registry_sha256,population_admission_sha256=descriptor.population_admission_sha256,phase_registry_sha256=descriptor.phase_registry_sha256,
-        budget_allocation_projection_sha256=dispatch.budget_identity_hash,descriptor_sha256=projection.descriptor_sha256,projection_sha256=digest(projection.model_dump(mode='json')),
-        provider_login=f['login'],worker_uri=WORKER,issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
-    payload=CensusPayload(obligations=tuple(Obligation(obligation_id=f'original-{i}',priority='essential',expected='represented',
-        evidence=r.evidence,reason='Explicit invented role approval') for i,r in enumerate(regions))).model_dump_json()
+    if mode=='census':
+        dispatch=PurposeDispatchV2(dispatch_id=job.dispatch_id,source_refs=f['refs'],job_hash=digest(job.model_dump(mode='json')),request_hash=job.request_hash,
+            permission_hash=job.permission_hash,context_hash=digest(private.model_dump(mode='json')),model=request['model'],processing_request_hash=digest(policy),
+            account_policy_hash=digest({k:v for k,v in policy.items() if k!='terms_hash'}),account_identity_hash=allocation.account_identity_hash,terms_hash=policy['terms_hash'],
+            pricing_hash=digest(job.pricing.model_dump(mode='json')),register_hash=job.register_hash,approvals_hash=digest({'approvals':[approval.model_dump(mode='json')]}),
+            budget_identity_hash=digest(allocation.model_dump(mode='json')),ledger_registry_hash=ledger_hash,key_coverage_hash=coverage_hash)
+        issuer,reviewer=uuid4(),uuid4()
+        population=ParentPopulationAdmissionV2(workspace_id=f['workspace'],parent_registry_sha256='1'*64,runtime_hash=f['runtime'],source_registry_hash=f['registry'],
+            source_refs=f['refs'],population_digest=source_population_digest(f['refs']),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
+        phase=PurposePhaseRegistryV2(qualification_purpose='phase-operation-qualification-v2',run_id=uuid4(),workspace_id=f['workspace'],actor_id=f['actor'],provider_login=f['login'],worker_uri=WORKER,
+            phase='census',purpose='source-census',operation='chat',runtime_hash=f['runtime'],source_registry_hash=f['registry'],parent_registry_sha256=population.parent_registry_sha256,
+            population_admission_sha256=digest(population.model_dump(mode='json')),source_refs=f['refs'],population_digest=population.population_digest,
+            dispatches=(dispatch,),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
+        values=phase.model_dump(mode='python');values.pop('qualification_purpose');values['phase_registry_sha256']=digest(phase.model_dump(mode='json'))
+        descriptor=PurposeRunDescriptorV2.model_validate(values)
+        projection=PurposeMetadataProjectionV2(descriptor=descriptor,descriptor_sha256=digest(descriptor.model_dump(mode='json')))
+        pins=PurposePinsV2(qualification_purpose='phase-operation-qualification-v2',phase='census',operation='chat',runtime_hash=f['runtime'],source_registry_hash=f['registry'],
+            parent_registry_sha256=population.parent_registry_sha256,population_admission_sha256=descriptor.population_admission_sha256,phase_registry_sha256=descriptor.phase_registry_sha256,
+            budget_allocation_projection_sha256=dispatch.budget_identity_hash,descriptor_sha256=projection.descriptor_sha256,projection_sha256=digest(projection.model_dump(mode='json')),
+            provider_login=f['login'],worker_uri=WORKER,issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
+        payload=CensusPayload(obligations=tuple(Obligation(obligation_id=f'original-{i}',priority='essential',expected='represented',
+            evidence=r.evidence,reason='Explicit invented role approval') for i,r in enumerate(regions))).model_dump_json()
+    else:
+        from oracle_brain.operating_model.processing_context import (ProcessingEnvelope,QualifiedProcessingSources,ProcessingPins,ProcessingProjection,derive_processing_descriptor)
+        from oracle_brain.hosting.processing_extraction_runtime_v2 import ExtractionOperationQualificationV2,ExtractionTargetV2
+        issuer,reviewer=private.issuer_actor,private.reviewer_actor;parent_hash=digest(private.model_dump(mode='json'))
+        population=ParentPopulationAdmissionV2(workspace_id=f['workspace'],parent_registry_sha256=parent_hash,runtime_hash=f['runtime'],source_registry_hash=f['registry'],
+            source_refs=f['refs'],population_digest=source_population_digest(f['refs']),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
+        source_qualification=QualifiedProcessingSources(workspace_id=f['workspace'],actor_id=f['actor'],runtime_hash=f['runtime'],source_registry_hash=f['registry'],
+            expected_owner_role=f['binding'].expected_owner_role,source_refs=f['refs'],issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
+        envelope=ProcessingEnvelope(run_id=uuid4(),worker_uri=WORKER,runtime_hash=f['runtime'],source_registry_hash=f['registry'],parent_registry_sha256=parent_hash,
+            ledger_registry_hash=ledger_hash,key_coverage_hash=coverage_hash,budget_allocation_hash=allocation.allocation_hash,budget_receipt_hash=allocation.original_receipt_hash,
+            budget_ceiling_usd=allocation.original_ceiling_usd,budget_expires_at=expiry,dispatch_ids=tuple(c.job.dispatch_id for c in contexts),source_refs=f['refs'],
+            issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
+        pins=ProcessingPins(runtime_hash=f['runtime'],worker_uri=WORKER,source_registry_hash=f['registry'],expected_owner_role=f['binding'].expected_owner_role,
+            parent_registry_sha256=parent_hash,envelope_sha256=digest(envelope.model_dump(mode='json')),qualification_sha256=digest(source_qualification.model_dump(mode='json')),
+            descriptor_sha256='0'*64,projection_sha256='0'*64,ledger_registry_hash=ledger_hash,key_coverage_hash=coverage_hash)
+        descriptor=derive_processing_descriptor(private,envelope,source_qualification,pins=pins,now=now)
+        projection=ProcessingProjection(descriptor=descriptor,descriptor_sha256=digest(descriptor.model_dump(mode='json')))
+        pins=pins.model_copy(update={'descriptor_sha256':projection.descriptor_sha256,'projection_sha256':digest(projection.model_dump(mode='json'))})
+        qualification=ExtractionOperationQualificationV2(workspace_id=f['workspace'],actor_id=f['actor'],provider_login=f['login'],worker_uri=WORKER,runtime_hash=f['runtime'],
+            source_registry_hash=f['registry'],parent_registry_sha256=parent_hash,envelope_sha256=pins.envelope_sha256,source_qualification_sha256=pins.qualification_sha256,
+            descriptor_sha256=pins.descriptor_sha256,projection_sha256=pins.projection_sha256,population_admission_sha256=digest(population.model_dump(mode='json')),
+            budget_allocation_projection_sha256=digest(allocation.model_dump(mode='json')),source_refs=f['refs'],population_digest=population.population_digest,
+            targets=tuple(ExtractionTargetV2(dispatch_id=c.job.dispatch_id,artifact_id=c.job.artifact_id,artifact_version=1,source_ref=c.receipt.ref,native_job_hash=c.job_hash,
+                context_hash=digest(c.model_dump(mode='json'))) for c in sorted(contexts,key=lambda item:item.job.dispatch_id.int)),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
+        dispatch=descriptor.dispatches[0]
     def store(name,value):
         path=tmp_path/name;raw=canonical_bytes(value.model_dump(mode='json')) if hasattr(value,'model_dump') else value
         path.write_bytes(raw);path.chmod(0o600);return str(path),hashlib.sha256(raw).hexdigest()
@@ -107,11 +158,17 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
         def do_POST(self):
             assert self.path=='/chat/completions' and self.headers['Authorization']=='Bearer '+KEY
             body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));state['requests'].append(body);state['posts']+=1
-            packet=json.loads(body['messages'][1]['content']);assert set(packet)=={'purpose','originals','regions'}
-            assert tuple(r['ref']['source_id'] for r in packet['originals'])==tuple(str(r.source_id) for r in f['refs'])
+            if mode=='census':
+                packet=json.loads(body['messages'][1]['content']);assert set(packet)=={'purpose','originals','regions'}
+                assert tuple(r['ref']['source_id'] for r in packet['originals'])==tuple(str(r.source_id) for r in f['refs'])
+                content=payload
+            else:
+                from test_operating_model_extraction import response
+                matching=[c for c in contexts if c.job.request==body];assert len(matching)==1
+                content=json.dumps(response(matching[0].receipt))
             if state['after_post']:state['after_post']()
             wire={'id':'invented-native-census','model':request['model'],'created':1,'private_wire_canary':'PRIVATE_NATIVE_WIRE',
-                'choices':[{'finish_reason':'stop','message':{'content':payload}}],'usage':{'cost':'.00001','prompt_tokens':100,'completion_tokens':100}}
+                'choices':[{'index':0,'finish_reason':'stop','message':{'role':'assistant','content':content}}],'usage':{'cost':'.00001','prompt_tokens':100,'completion_tokens':100}}
             state['wire']=canonical_bytes(wire);self.reply(wire)
     fake=ThreadingHTTPServer(('127.0.0.1',0),FakeOpenRouter);start(fake)
     import oracle_brain.operating_model.native_provider as native_module
@@ -133,13 +190,31 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
         spool=tmp_path/'observer-state';spool.mkdir();_,replay=provision(spool,admission)
         private_dir=tmp_path/'private-custody';private_dir.mkdir(mode=0o700)
         pins_file,pins_hash=store('pins.json',pins);population_file,_=store('population.json',population);projection_file,_=store('projection.json',projection)
-        allocation_file,_=store('allocation.json',allocation);phase_file,_=store('phase.json',phase);context_file,_=store('private-census.json',private)
+        allocation_file,_=store('allocation.json',allocation)
+        if mode=='census':phase_file,_=store('phase.json',phase);context_file,_=store('private-census.json',private)
+        else:
+            context_file,_=store('parent-extraction.json',private);envelope_file,_=store('envelope.json',envelope)
+            source_qualification_file,_=store('source-qualification.json',source_qualification)
+            extraction_file,extraction_hash=store('extraction-qualification.json',qualification)
         source_url_file,_=store('source-url',f['url'].encode());ledger_url_file,_=store('ledger-url',ledger_url.encode());ledger_file,_=store('ledger.json',registry)
         key_file,_=store('provider-key',KEY.encode());coverage_file,_=store('coverage.json',coverage);observer_file,observer_hash=store('observer.json',admission)
         coverage_signing=Ed25519PrivateKey.generate();coverage_public=coverage_signing.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw).hex()
         witness=CoverageWitness(census_hash=coverage.census_hash,provider_key_record_hash=coverage.provider_key_record_hash,ledger_identity_hash=ledger_hash,
             external_liability_receipt_hash=coverage.external_liability_receipt_hash,observed_at=datetime.now(timezone.utc)).model_dump(mode='json')
         coverage_witness_file,_=store('coverage-witness.json',canonical_bytes({'witness':witness,'signature':base64.b64encode(coverage_signing.sign(canonical_bytes(witness))).decode()}))
+        def observe_fixture_coverage():
+            # This is the existing independently appointed synthetic observer,
+            # not a worker/self-issued admission or an operation renewal.
+            with psycopg.connect(ledger_url) as conn:
+                conn.execute('SET TRANSACTION READ ONLY')
+                assert conn.execute('SELECT count(*) FROM oracle2.operating_dispatch_reservations r WHERE NOT EXISTS(SELECT 1 FROM oracle2.operating_dispatch_receipts s WHERE s.reservation_id=r.reservation_id)').fetchone()[0]==0
+            observed=datetime.now(timezone.utc);assert observed<coverage.expires_at
+            value=CoverageWitness(census_hash=coverage.census_hash,provider_key_record_hash=coverage.provider_key_record_hash,
+                ledger_identity_hash=coverage.ledger_identity_hash,external_liability_receipt_hash=coverage.external_liability_receipt_hash,observed_at=observed).model_dump(mode='json')
+            raw=canonical_bytes({'witness':value,'signature':base64.b64encode(coverage_signing.sign(canonical_bytes(value))).decode()})
+            Path(coverage_witness_file).write_bytes(raw)
+            state.setdefault('coverage_observations',[]).append({'observed_at':observed.isoformat(),'witness_sha256':hashlib.sha256(raw).hexdigest(),
+                'unchanged_admission_hash':coverage_hash,'original_expires_at':coverage.expires_at.isoformat()})
         b=binding(443)
         config=dict(schema_version=2,phase='census',role='provider',worker_uri=WORKER,pins_file=pins_file,pins_sha256=pins_hash,population_file=population_file,
             projection_file=projection_file,budget_allocation_projection_file=allocation_file,source_url_file=source_url_file,expected_owner_role=f['binding'].expected_owner_role,
@@ -147,12 +222,30 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
             observer_timeout_seconds=5,observer_hostname='localhost',observer_port=observer.server_port,observer_server_uri=SERVER,observer_client_uri=WORKER,observer_ca=str(b.ca_file),
             observer_certificate=str(b.certificate_file),observer_key=str(b.key_file),observer_spool=str(spool),observer_namespace='parent-v2',observer_initialization_hash=replay['initialization_receipt_hash'],
             server_certificate=str(tmp_path/'server.pem'),server_key=str(tmp_path/'server.key'),client_ca=str(b.ca_file),bind_host='127.0.0.1',bind_port=9444,
-            phase_registry_file=phase_file,private_context_files={str(job.dispatch_id):context_file},provider_key_file=key_file,ledger_url_file=ledger_url_file,
+            phase_registry_file=phase_file if mode=='census' else '',private_context_files={str(job.dispatch_id):context_file},provider_key_file=key_file,ledger_url_file=ledger_url_file,
             ledger_registry_file=ledger_file,ledger_registry_hash=ledger_hash,coverage_admission_file=coverage_file,coverage_admission_hash=coverage_hash,
             coverage_witness_file=coverage_witness_file,coverage_observer_public_key=coverage_public,private_receipts=str(private_dir))
+        if mode=='extraction':
+            config.update(phase='extraction',extraction_qualification_file=extraction_file,extraction_qualification_sha256=extraction_hash,
+                parent_registry_file=context_file,envelope_file=envelope_file,source_qualification_file=source_qualification_file)
+            del config['phase_registry_file'];del config['private_context_files']
         config_file,config_hash=store('settings.json',canonical_bytes(config))
-        settings=load_purpose_runtime_settings_v2(config_file,config_hash,expected_phase='census',expected_role='provider')
-        ingress=build_purpose_broker_v2(settings)
+        if mode=='census':
+            settings=load_purpose_runtime_settings_v2(config_file,config_hash,expected_phase='census',expected_role='provider')
+            ingress=build_purpose_broker_v2(settings);server_factory=purpose_ingress_server_v2;client_factory=PurposeProviderClientV2
+        else:
+            from oracle_brain.hosting.processing_extraction_runtime_v2 import load_extraction_runtime_settings_v2,build_extraction_broker_v2
+            from oracle_brain.hosting.purpose_transport import extraction_ingress_server_v2,ExtractionProviderClientV2
+            settings=load_extraction_runtime_settings_v2(config_file,config_hash,expected_role='provider')
+            ingress=build_extraction_broker_v2(settings);server_factory=extraction_ingress_server_v2;client_factory=ExtractionProviderClientV2
+        if mode=='extraction':
+            original_validate=ingress.jobs.validate
+            def observed_validate(*args):
+                try:return original_validate(*args)
+                except Exception as error:
+                    state['validation_failure']=type(error).__name__+': '+str(error)
+                    raise
+            ingress.jobs.validate=observed_validate
         actual_dispatch=ingress.dispatch
         def observed_dispatch(*args):
             try:return actual_dispatch(*args)
@@ -160,14 +253,15 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
                 state['failure']=type(error).__name__+': '+str(error)
                 raise
         ingress.dispatch=observed_dispatch
-        provider=purpose_ingress_server_v2(('127.0.0.1',0),tls=tls,worker_uri=WORKER,ingress=ingress);start(provider)
-        yield dict(f=f,job=job,private=private,settings=settings,client=PurposeProviderClientV2(binding(provider.server_port)),dispatch=dispatch,
-            descriptor=descriptor,state=state,custody=private_dir,billing_admin=billing_admin,context_file=context_file,pins_file=Path(pins_file),pins=pins)
+        provider=server_factory(('127.0.0.1',0),tls=tls,worker_uri=WORKER,ingress=ingress);start(provider)
+        yield dict(f=f,job=job,private=private,settings=settings,client=client_factory(replace(binding(provider.server_port),timeout=90)),dispatch=dispatch,
+            descriptor=descriptor,state=state,custody=private_dir,billing_admin=billing_admin,context_file=context_file,pins_file=Path(pins_file),pins=pins,mode=mode,operation_hash=descriptor.phase_registry_sha256 if mode=='census' else extraction_hash,
+            expires_at=expiry,contexts=tuple(contexts) if mode=='extraction' else (),qualification=qualification if mode=='extraction' else None,population=population,observe_fixture_coverage=observe_fixture_coverage)
     finally:
         for server,thread in zip(servers,threads):server.shutdown();server.server_close();thread.join(2)
 
 
-def dispatch(x):return x['client'].dispatch(x['job'].dispatch_id,x['job'].request_hash,x['descriptor'].phase_registry_sha256)
+def dispatch(x):return x['client'].dispatch(x['job'].dispatch_id,x['job'].request_hash,x['operation_hash'],deadline=x['expires_at'])
 
 
 def test_actual_native_census_full_private_wire_one_budget_and_metadata_reply(native_census_startup):
@@ -211,3 +305,57 @@ def test_actual_native_census_revoked_after_post_keeps_charge_and_raw_wire_no_co
     assert not (x['custody']/(str(x['job'].dispatch_id)+'.phase-commit.json')).exists()
     with psycopg.connect(x['billing_admin']) as conn:
         assert conn.execute('SELECT status,actual_usd FROM oracle2.operating_dispatch_receipts').fetchall()==[('failed',Decimal('.00001'))]
+
+@pytest.mark.parametrize('native_census_startup',['extraction'],indirect=True)
+def test_actual_native_extraction_three_originals_one_budget_private_wire(native_census_startup):
+    x=native_census_startup
+    assert len(x['contexts'])==3
+    for ctx in x['contexts']:
+        x['observe_fixture_coverage']()
+        try:reply=x['client'].dispatch(ctx.job.dispatch_id,ctx.job.request_hash,x['operation_hash'],deadline=x['expires_at'])
+        except GatewayDenied:pytest.fail('actual native extraction refused: '+str(x['state']['failure'])+'; validator='+str(x['state'].get('validation_failure'))+'; posts='+str(x['state']['posts']))
+        assert set(reply)=={'dispatch_id','request_hash','extraction_qualification_sha256','raw_response_hash','receipt_hash'}
+        assert reply['extraction_qualification_sha256']==x['operation_hash']
+        assert 'PRIVATE_NATIVE_WIRE' not in json.dumps(reply) and KEY not in json.dumps(reply)
+        commit=json.loads((x['custody']/(str(ctx.job.dispatch_id)+'.phase-commit.json')).read_bytes())
+        assert digest(commit)==reply['receipt_hash'] and commit['actual_caller_login']==x['f']['login']
+        assert commit['extraction_source_ref']==ctx.receipt.ref.model_dump(mode='json')
+        assert hashlib.sha256((x['custody']/(str(ctx.job.dispatch_id)+'.wire')).read_bytes()).hexdigest()==reply['raw_response_hash']
+    assert x['state']['posts']==3
+    with psycopg.connect(x['billing_admin']) as conn:
+        assert conn.execute('SELECT count(*),sum(s.actual_usd) FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id) WHERE r.purpose=%s',('source-extraction',)).fetchone()==(3,Decimal('.00003'))
+        assert conn.execute('SELECT count(DISTINCT batch_id) FROM oracle2.operating_dispatch_reservations').fetchone()[0]==1
+
+@pytest.mark.parametrize('native_census_startup',['extraction'],indirect=True)
+def test_actual_extraction_last_scope_revoked_before_private_parent_or_post(admin_url,native_census_startup,monkeypatch):
+    x=native_census_startup;seen=[]
+    import oracle_brain.hosting.provider_runtime as runtime
+    original=runtime.protected_file
+    def observed(path,**kwargs):
+        if str(path)==x['context_file']:seen.append(path)
+        return original(path,**kwargs)
+    monkeypatch.setattr(runtime,'protected_file',observed)
+    with psycopg.connect(admin_url) as conn:conn.execute('UPDATE oracle2.appointments SET revoked_at=now() WHERE appointment_id=%s',(x['f']['grants'][2],))
+    with pytest.raises(GatewayDenied):dispatch(x)
+    assert x['state']['posts']==0 and seen==[]
+
+@pytest.mark.parametrize('native_census_startup',['extraction'],indirect=True)
+@pytest.mark.parametrize('field',['source_ref','native_job_hash'])
+def test_extraction_swapped_dispatch_binding_denies_before_parent(admin_url,native_census_startup,monkeypatch,field):
+    x=native_census_startup;seen=[];q=x['qualification'];targets=list(q.targets)
+    targets[0]=targets[0].model_copy(update={field:getattr(q.targets[1],field)})
+    targets[1]=targets[1].model_copy(update={field:getattr(q.targets[0],field)})
+    changed=q.model_copy(update={'targets':tuple(targets)})
+    qpath=Path(x['settings'].config.extraction_qualification_file);qpath.write_bytes(canonical_bytes(changed.model_dump(mode='json')))
+    config=x['settings'].config.model_dump(mode='json');config['extraction_qualification_sha256']=hashlib.sha256(qpath.read_bytes()).hexdigest()
+    cpath=x['settings'].config_path;cpath.write_bytes(canonical_bytes(config))
+    import oracle_brain.hosting.provider_runtime as runtime
+    original=runtime.protected_file
+    def observed(path,**kwargs):
+        if str(path)==x['context_file']:seen.append(path)
+        return original(path,**kwargs)
+    monkeypatch.setattr(runtime,'protected_file',observed)
+    from oracle_brain.hosting.processing_extraction_runtime_v2 import load_extraction_runtime_settings_v2
+    with pytest.raises(PermissionError,match='operation/parent/population/startup'):
+        load_extraction_runtime_settings_v2(cpath,hashlib.sha256(cpath.read_bytes()).hexdigest(),expected_role='provider')
+    assert seen==[] and x['state']['posts']==0
