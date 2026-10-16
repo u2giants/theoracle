@@ -561,3 +561,110 @@ class ExtractionMetadataIngressV2:
 
 def build_extraction_broker_v2(settings):return ExtractionBrokerIngressV2(settings)
 def build_extraction_metadata_v2(settings):return ExtractionMetadataIngressV2(settings)
+
+
+class FailedPaidResponseCustodyWitnessV2(StrictRecord):
+    """Failed paid custody consistency; never successful response/phase authority."""
+    schema_version: Literal[2]=2
+    purpose: Literal['failed-native-extraction-custody-v2']='failed-native-extraction-custody-v2'
+    workspace_id: UUID
+    artifact_id: UUID
+    artifact_version: int=Field(strict=True,ge=1)
+    source_ref: SourceRef
+    source_refs: tuple[SourceRef,...]
+    population_digest: str=Field(pattern=HASH)
+    native_dispatch_id: UUID
+    reservation_id: UUID
+    native_job_hash: str=Field(pattern=HASH)
+    request_hash: str=Field(pattern=HASH)
+    permission_hash: str=Field(pattern=HASH)
+    expected_model: Literal['openai/gpt-6.1-sol']='openai/gpt-6.1-sol'
+    account_policy_hash: str=Field(pattern=HASH)
+    account_identity_hash: str=Field(pattern=HASH)
+    budget_projection_hash: str=Field(pattern=HASH)
+    extraction_qualification_hash: str=Field(pattern=HASH)
+    native_receipt_hash: str=Field(pattern=HASH)
+    wire_metadata_hash: str=Field(pattern=HASH)
+    raw_wire_hash: str=Field(pattern=HASH)
+    key_fingerprint: str=Field(pattern=HASH)
+    ledger_identity_hash: str=Field(pattern=HASH)
+    complete_wire: bool=Field(strict=True)
+    failure_class: Literal['incomplete-wire','malformed-envelope','rejected-extraction','native-failure-after-response']
+
+
+def verify_extraction_failed_paid_wire_v2(context,record,raw,wire_metadata,qualification,population,*,
+        expected_qualification_hash,expected_ledger_hash,artifact_version,now):
+    """Pure failed custody check. Caller authenticates exact files/current SQL.
+
+    Failed native records have no trusted historical commit observation. This
+    consumer conservatively requires current operation/population horizons; it
+    cannot mint or imitate a successful ExtractionResponseCommitV2.
+    """
+    from oracle_brain.operating_model.captured_assembly import _observed_model_content
+    from oracle_brain.operating_model.extraction import validate_response
+    from oracle_brain.operating_model.pipeline import extraction_messages
+    from oracle_brain.provider_policy import authorize
+    if (type(context) is not JobContext or type(record) is not dict or type(wire_metadata) is not dict
+            or type(raw) is not bytes or not raw or len(raw)>16*1024*1024
+            or type(qualification) is not ExtractionOperationQualificationV2
+            or type(population) is not ParentPopulationAdmissionV2
+            or type(now) is not datetime or now.tzinfo is None or now.utcoffset() is None
+            or sealed(qualification)!=expected_qualification_hash):
+        raise PermissionError('exact current qualified failed paid custody required')
+    q=ExtractionOperationQualificationV2.model_validate(qualification.model_dump(mode='python'))
+    pop=ParentPopulationAdmissionV2.model_validate(population.model_dump(mode='python'))
+    job=context.job;target=q.target(job.dispatch_id);policy=job.processing_request.model_dump(mode='json')
+    key=job.processing_request.account.removeprefix('key-sha256:');wire_hash=hashlib.sha256(raw).hexdigest()
+    record_fields={'dispatch_id','reservation_id','failed','raw_response','request_hash','permission_hash','job_hash',
+        'register_hash','pricing_hash','key_fingerprint','ledger_identity_hash','raw_response_hash','wire_custody'}
+    wire_fields={'dispatch_id','reservation_id','request_hash','permission_hash','job_hash','key_fingerprint',
+        'ledger_identity_hash','raw_sha256','captured_bytes','complete','truncated'}
+    if (set(record)!=record_fields or set(wire_metadata)!=wire_fields or record['failed'] is not True
+            or record['wire_custody']!=wire_metadata or type(wire_metadata['complete']) is not bool
+            or wire_metadata['truncated'] is not (not wire_metadata['complete'])
+            or type(wire_metadata['captured_bytes']) is not int or wire_metadata['captured_bytes']!=len(raw)
+            or wire_metadata['raw_sha256']!=wire_hash
+            or any(record[k]!=wire_metadata[k] for k in ('dispatch_id','reservation_id','request_hash','permission_hash','job_hash','key_fingerprint','ledger_identity_hash'))
+            or record['dispatch_id']!=str(job.dispatch_id) or record['job_hash']!=sealed(job)
+            or record['request_hash']!=job.request_hash or record['permission_hash']!=job.permission_hash
+            or record['register_hash']!=job.register_hash or record['pricing_hash']!=sealed(job.pricing)
+            or record['key_fingerprint']!=key or record['ledger_identity_hash']!=expected_ledger_hash
+            or now>=min(q.expires_at,pop.expires_at,job.pricing.expires_at)
+            or sealed(pop)!=q.population_admission_sha256 or pop.source_refs!=q.source_refs
+            or pop.parent_registry_sha256!=q.parent_registry_sha256 or pop.runtime_hash!=q.runtime_hash
+            or pop.source_registry_hash!=q.source_registry_hash or pop.workspace_id!=q.workspace_id
+            or context.actor_id!=q.actor_id or job.workspace_id!=q.workspace_id
+            or target.source_ref!=context.receipt.ref or target.artifact_id!=job.artifact_id
+            or target.artifact_version!=artifact_version or target.native_job_hash!=sealed(job)
+            or target.context_hash!=sealed(context) or context.job_hash!=sealed(job)
+            or context.permission_hash!=job.permission_hash or job.request_hash!=digest(job.request)
+            or job.purpose!='source-extraction' or job.processing_request.purpose!='source-extraction'
+            or job.request.get('model')!=q.model or job.pricing.model!=q.model
+            or job.pricing.admitted_register_hash!=job.register_hash
+            or job.request.get('messages')!=extraction_messages(context.receipt)):
+        raise PermissionError('failed native custody differs from qualified extraction/actual paid wire')
+    reservation=UUID(record['reservation_id'])
+    if str(reservation)!=record['reservation_id']:raise PermissionError('actual canonical reservation required')
+    authorize(job.processing_request,list(job.approvals),now=now)
+    if record['raw_response'] is None:
+        if record['raw_response_hash'] is not None:raise PermissionError('absent decoded wire cannot claim a decoded hash')
+    elif (not isinstance(record['raw_response'],str) or record['raw_response'].encode()!=raw
+            or record['raw_response_hash']!=wire_hash):
+        raise PermissionError('decoded failed receipt differs from captured bytes')
+    if not wire_metadata['complete']:
+        failure='incomplete-wire'
+    else:
+        try:content=_observed_model_content(raw,q.model)
+        except Exception:failure='malformed-envelope'
+        else:
+            try:validate_response(context.receipt,content,inventories=context.inventories)
+            except Exception:failure='rejected-extraction'
+            else:failure='native-failure-after-response'
+    return FailedPaidResponseCustodyWitnessV2(workspace_id=q.workspace_id,artifact_id=target.artifact_id,
+        artifact_version=artifact_version,source_ref=context.receipt.ref,source_refs=q.source_refs,population_digest=q.population_digest,
+        native_dispatch_id=job.dispatch_id,reservation_id=reservation,native_job_hash=sealed(job),request_hash=job.request_hash,
+        permission_hash=job.permission_hash,account_policy_hash=digest({k:v for k,v in policy.items() if k!='terms_hash'}),
+        account_identity_hash=digest({k:policy[k] for k in ('provider','account','endpoint')}),
+        budget_projection_hash=q.budget_allocation_projection_sha256,extraction_qualification_hash=expected_qualification_hash,
+        native_receipt_hash=digest(record),wire_metadata_hash=digest(wire_metadata),raw_wire_hash=wire_hash,
+        key_fingerprint=key,ledger_identity_hash=expected_ledger_hash,complete_wire=wire_metadata['complete'],failure_class=failure)
