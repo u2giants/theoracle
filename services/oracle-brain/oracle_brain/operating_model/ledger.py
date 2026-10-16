@@ -198,6 +198,13 @@ class Ledger:
         return manifest
 
     def read(self, workspace_id: UUID, artifact_id: UUID, version: int, *, include_failed: bool=False) -> dict:
+        return self._read_authorized(workspace_id,artifact_id,version,include_failed=include_failed)[1]
+
+    def read_with_manifest(self, workspace_id: UUID, artifact_id: UUID, version: int, *, include_failed: bool=False) -> tuple[ArtifactManifest,dict]:
+        """Exact manifest and payload from the same fully authorized read path."""
+        return self._read_authorized(workspace_id,artifact_id,version,include_failed=include_failed)
+
+    def _read_authorized(self, workspace_id: UUID, artifact_id: UUID, version: int, *, include_failed: bool=False) -> tuple[ArtifactManifest,dict]:
         with psycopg.connect(self.url) as conn:
             row = conn.execute('SELECT manifest FROM oracle2.artifact_manifests WHERE workspace_id=%s AND artifact_id=%s AND version=%s',(workspace_id,artifact_id,version)).fetchone()
             denied = conn.execute('SELECT 1 FROM oracle2.artifact_invalidations WHERE workspace_id=%s AND artifact_id=%s AND version=%s LIMIT 1',(workspace_id,artifact_id,version)).fetchone()
@@ -227,7 +234,7 @@ class Ledger:
         if processing:
             if self.processing_read_guard(manifest,payload,self.principal,self.clock()) is not None:
                 raise PermissionError('processing qualification guard did not validate')
-        return payload
+        return manifest,payload
 
     def append_review(self, *, workspace_id: UUID, artifact_id: UUID, version: int,
                       finding_id: str, event_id: UUID, action: str, scope: str,

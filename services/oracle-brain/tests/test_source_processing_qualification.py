@@ -304,7 +304,8 @@ def test_real_sql_hold_requires_exact_dispatch_and_current_dual_grants(admin_url
     'processing_qualified_model_v1','processing_summary_v1','processing_failed_assembly_v1',
 ])
 @pytest.mark.parametrize('original_status',['draft','confirmed'])
-def test_default_ledger_denies_processing_kind_before_blob_even_if_claims_qualified(admin_url,processing,kind,original_status):
+@pytest.mark.parametrize('read_api',['read','read_with_manifest'])
+def test_default_ledger_denies_processing_kind_before_blob_even_if_claims_qualified(admin_url,processing,kind,original_status,read_api):
     from oracle_brain.operating_model.contracts import ArtifactManifest
     from oracle_brain.operating_model.ledger import Ledger
     f=processing();artifact=uuid4()
@@ -321,7 +322,7 @@ def test_default_ledger_denies_processing_kind_before_blob_even_if_claims_qualif
         def read(self,*args):raise AssertionError('unqualified private blob was opened')
     ledger=Ledger(admin_url,NoBlob(),principal=f['actor'],can_read=lambda *args:True,current_source=lambda *args:None)
     with pytest.raises(PermissionError,match='qualification'):
-        ledger.read(f['workspace'],artifact,1,include_failed=True)
+        getattr(ledger,read_api)(f['workspace'],artifact,1,include_failed=True)
 
 
 def test_hold_rechecks_actual_scope_clock_before_commit(admin_url,processing):
@@ -336,3 +337,24 @@ def test_hold_rechecks_actual_scope_clock_before_commit(admin_url,processing):
             assert proof.expires_at<desc.expires_at
             time.sleep(0.35)
     assert entered
+
+
+def test_manifest_pair_reuses_full_legacy_authorized_read(admin_url,processing,tmp_path):
+    from oracle_brain.operating_model.ledger import Ledger
+    from oracle_brain.operating_model.artifact_storage import FileBlobStore
+    f=processing()
+    with psycopg.connect(admin_url) as conn:
+        conn.execute("UPDATE oracle2.sources SET status='confirmed' WHERE source_id=%s",(f['source'],))
+        conn.execute("UPDATE oracle2.drafts SET status='confirmed' WHERE source_id=%s",(f['source'],))
+    sources=PostgresSources(admin_url,synthetic=True)
+    receipt=sources.current(f['workspace'],f['source'])
+    ledger=Ledger(admin_url,FileBlobStore(tmp_path),principal=f['actor'],can_read=sources.can_read,current_source=sources.current)
+    payload={'source_refs':[receipt.ref.model_dump(mode='json')]}
+    manifest=ledger.persist(workspace_id=f['workspace'],artifact_id=uuid4(),version=1,kind='extraction',payload=payload,
+                            refs=(receipt.ref,),permission_digest='a'*64,compiler_digest=RUNTIME)
+    pair=ledger.read_with_manifest(f['workspace'],manifest.artifact_id,1)
+    assert pair==(manifest,payload)
+    assert ledger.read(f['workspace'],manifest.artifact_id,1)==pair[1]
+    with psycopg.connect(admin_url) as conn:
+        conn.execute('UPDATE oracle2.appointments SET revoked_at=clock_timestamp() WHERE appointment_id=%s',(f['read'],))
+    with pytest.raises(PermissionError):ledger.read_with_manifest(f['workspace'],manifest.artifact_id,1)
