@@ -16,7 +16,7 @@ from .ledger import Ledger
 
 class ProcessingCompilerLedger(Ledger):
     def __init__(self,database_url,blobs,*,principal,processing_sources,
-                 processing_compile_guard=None,processing_read_guard=None,
+                 processing_compile_guard=None,processing_read_guard=None,processing_extraction_guard=None,
                  reviewed_inventories=None,clock=None):
         if (not isinstance(processing_sources,ProcessingArtifactResolver)
                 or database_url!=processing_sources.url
@@ -25,6 +25,13 @@ class ProcessingCompilerLedger(Ledger):
             raise PermissionError('fixed current processing compiler required')
         if processing_compile_guard is not None and not callable(processing_compile_guard):
             raise PermissionError('trusted processing compile guard required')
+        if processing_extraction_guard is not None:
+            # Imported only for the opt-in path; the legacy/source V1 path keeps
+            # its existing imports and behavior. A duck type is not authority.
+            from .purpose_journey import ProcessingCompilerExtractionGuardV2
+            if type(processing_extraction_guard) is not ProcessingCompilerExtractionGuardV2:
+                raise PermissionError('exact protected processing extraction guard required')
+        self.processing_extraction_guard=processing_extraction_guard
         self.processing_compile_guard=processing_compile_guard
         super().__init__(database_url,blobs,principal=principal,processing_sources=processing_sources,
             processing_read_guard=processing_read_guard,reviewed_inventories=reviewed_inventories,
@@ -57,6 +64,13 @@ class ProcessingCompilerLedger(Ledger):
             compiler_digest=compiler_digest,dependency_digest=hashlib.sha256(dep_bytes).hexdigest(),
             content_hash=seal,private_object_key=key,state='failed' if failed else 'ready')
         deadline=self.processing_sources.binding.expires_at
+        if (kind in {'processing_extraction_v1','processing_failed_extraction_v1'}
+                and self.processing_extraction_guard is not None):
+            now=self.clock()
+            manifest_until=self._authorize_processing_blob(manifest)
+            if self.processing_extraction_guard(manifest,payload,self.principal,now) is not None:
+                raise PermissionError('processing extraction guard did not validate')
+            deadline=min(deadline,manifest_until,self._extraction_horizon(manifest,payload,now))
         if kind in {'processing_qualified_model_v1','processing_summary_v1'}:
             if self.processing_compile_guard is None:
                 raise PermissionError('independent current processing qualification required')
@@ -92,3 +106,30 @@ class ProcessingCompilerLedger(Ledger):
             if conn.execute('SELECT clock_timestamp()<%s',(deadline,)).fetchone()[0] is not True:
                 raise PermissionError('processing/semantic authority expired before commit')
         return manifest
+
+    def _extraction_horizon(self,manifest,payload,now):
+        until=self.processing_extraction_guard.valid_until(manifest,payload,self.principal,now)
+        if (not isinstance(until,datetime) or until.tzinfo is None
+                or until.utcoffset() is None or until<=now or until<=self.clock()):
+            raise PermissionError('finite current extraction horizon required')
+        return until
+
+    def _authorize_processing_blob(self,manifest):
+        if (manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}
+                and self.processing_extraction_guard is not None):
+            now=self.clock()
+            until=self.processing_extraction_guard.authorize_manifest(manifest,self.principal,now)
+            if (not isinstance(until,datetime) or until.tzinfo is None
+                    or until.utcoffset() is None or until<=now or until<=self.clock()):
+                raise PermissionError('finite current extraction manifest horizon required')
+            return until
+
+    def _read_processing_authorized(self,*args,**kwargs):
+        manifest,payload=super()._read_processing_authorized(*args,**kwargs)
+        if (manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}
+                and self.processing_extraction_guard is not None):
+            now=self.clock()
+            if self.processing_extraction_guard(manifest,payload,self.principal,now) is not None:
+                raise PermissionError('processing extraction read guard did not validate')
+            self._extraction_horizon(manifest,payload,now)
+        return manifest,payload
