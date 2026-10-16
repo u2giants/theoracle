@@ -1,0 +1,116 @@
+# Opt-in source profile only. External complete mount/process/URI qualification
+# and actual protected admissions are required before any installation.
+# Existing native/documentary topology is unchanged. One existing PostgreSQL
+# central Budget is referenced by protected provider configuration, never cloned.
+name: oracle-purpose-v2-isolated
+x-boundary: &boundary
+  image: ${ORACLE_PURPOSE_IMAGE:?reviewed immutable image digest required}
+  entrypoint: [python, -m, oracle_brain.hosting.purpose_transport]
+  user: "65534:65534"
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  read_only: true
+  init: true
+  pids_limit: 128
+  mem_limit: 1g
+  cpus: 1.0
+  tmpfs: ['/tmp:rw,noexec,nosuid,size=64m']
+  labels:
+    oracle.purpose.boundary: isolated-v2-source-only
+services:
+  census-provider:
+    <<: *boundary
+    profiles: [purpose-v2-admitted]
+    command: [--phase, census, --role, provider, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_CENSUS_PROVIDER_SETTINGS_SHA256:?independently pinned settings required}"]
+    expose: [8443]
+    networks: [census, ledger, census-outbound]
+    volumes: [census-provider-auth:/run/purpose-auth:ro, census-provider-state:/run/purpose-state, census-input:/run/purpose-input:ro]
+  census-metadata:
+    <<: *boundary
+    profiles: [purpose-v2-admitted]
+    command: [--phase, census, --role, metadata, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_CENSUS_METADATA_SETTINGS_SHA256:?independently pinned settings required}"]
+    expose: [8443]
+    networks: [census, ledger]
+    volumes: [census-metadata-auth:/run/purpose-auth:ro, census-metadata-state:/run/purpose-state]
+  assembly-provider:
+    <<: *boundary
+    profiles: [purpose-v2-admitted]
+    command: [--phase, assembly, --role, provider, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_ASSEMBLY_PROVIDER_SETTINGS_SHA256:?independently pinned settings required}"]
+    expose: [8443]
+    networks: [assembly, ledger, assembly-outbound]
+    volumes: [assembly-provider-auth:/run/purpose-auth:ro, assembly-provider-state:/run/purpose-state, assembly-input:/run/purpose-input:ro]
+  assembly-metadata:
+    <<: *boundary
+    profiles: [purpose-v2-admitted]
+    command: [--phase, assembly, --role, metadata, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_ASSEMBLY_METADATA_SETTINGS_SHA256:?independently pinned settings required}"]
+    expose: [8443]
+    networks: [assembly, ledger]
+    volumes: [assembly-metadata-auth:/run/purpose-auth:ro, assembly-metadata-state:/run/purpose-state]
+  assessment-provider:
+    <<: *boundary
+    profiles: [purpose-v2-admitted]
+    command: [--phase, assessment, --role, provider, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_ASSESSMENT_PROVIDER_SETTINGS_SHA256:?independently pinned settings required}"]
+    expose: [8443]
+    networks: [assessment, ledger, assessment-outbound]
+    volumes: [assessment-provider-auth:/run/purpose-auth:ro, assessment-provider-state:/run/purpose-state, assessment-input:/run/purpose-input:ro]
+  assessment-metadata:
+    <<: *boundary
+    profiles: [purpose-v2-admitted]
+    command: [--phase, assessment, --role, metadata, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_ASSESSMENT_METADATA_SETTINGS_SHA256:?independently pinned settings required}"]
+    expose: [8443]
+    networks: [assessment, ledger]
+    volumes: [assessment-metadata-auth:/run/purpose-auth:ro, assessment-metadata-state:/run/purpose-state]
+  embedding-provider:
+    <<: *boundary
+    profiles: [purpose-v2-admitted]
+    command: [--phase, embedding, --role, provider, --config, /run/purpose-auth/settings.json, --config-sha256, "${ORACLE_EMBEDDING_PROVIDER_SETTINGS_SHA256:?independently pinned settings required}"]
+    expose: [8443]
+    networks: [embedding, ledger, embedding-outbound]
+    volumes: [embedding-provider-auth:/run/purpose-auth:ro, embedding-provider-state:/run/purpose-state, embedding-input:/run/purpose-input:ro]
+networks:
+  ledger:
+    external: true
+    name: ${ORACLE_PURPOSE_LEDGER_NETWORK:?existing dedicated central ledger network required}
+  census:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  census-outbound: {}
+  assembly:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  assembly-outbound: {}
+  assessment:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  assessment-outbound: {}
+  embedding:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+      com.docker.network.bridge.gateway_mode_ipv6: isolated
+  embedding-outbound: {}
+volumes:
+  census-provider-auth: {}
+  census-provider-state: {}
+  census-metadata-auth: {}
+  census-metadata-state: {}
+  census-input: {}
+  assembly-provider-auth: {}
+  assembly-provider-state: {}
+  assembly-metadata-auth: {}
+  assembly-metadata-state: {}
+  assembly-input: {}
+  assessment-provider-auth: {}
+  assessment-provider-state: {}
+  assessment-metadata-auth: {}
+  assessment-metadata-state: {}
+  assessment-input: {}
+  embedding-provider-auth: {}
+  embedding-provider-state: {}
+  embedding-input: {}
