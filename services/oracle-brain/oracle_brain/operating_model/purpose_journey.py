@@ -83,3 +83,29 @@ def _validate_worker_job_population_and_phase(self,minimum):
     _require(all(v is None for v in provider_fields) if self.phase == 'compile'
              else all(v is not None for v in provider_fields), 'fixed phase dispatch metadata required')
     return self
+
+
+# Exact closed worker-job classes the real worker accepts. A protocol or a
+# subclass never confers authority: only these two concrete classes are admitted.
+WORKER_JOB_TYPES = (PurposeWorkerJobV2, PurposeWorkerJobV3)
+
+
+def is_worker_job(job):
+    return type(job) in WORKER_JOB_TYPES
+
+
+def parse_worker_job(raw):
+    """Parse immutable worker-job bytes to the exact V2 or V3 class.
+
+    Dispatch is on the recorded schema_version only; never subclass widening.
+    V2 keeps its serialized bytes and minimum-of-three unchanged; V3 admits an
+    explicit complete one-to-4096 original population.
+    """
+    import json as _json
+    text = raw.decode('utf-8') if isinstance(raw, (bytes, bytearray)) else raw
+    if type(text) is not str:
+        raise ValueError('worker job bytes required')
+    version = _json.loads(text).get('schema_version')
+    if type(version) is not int or version not in (2, 3):
+        raise ValueError('worker job version must be integer two or three')
+    return (PurposeWorkerJobV3 if version == 3 else PurposeWorkerJobV2).model_validate_json(text)

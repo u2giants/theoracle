@@ -8,7 +8,7 @@ from uuid import UUID
 import hashlib,ssl,re,json
 from pydantic import Field,AwareDatetime,model_validator
 from oracle_brain.operating_model.contracts import StrictRecord,digest
-from oracle_brain.operating_model.purpose_journey import PurposeWorkerJobV2
+from oracle_brain.operating_model.purpose_journey import PurposeWorkerJobV2, PurposeWorkerJobV3, is_worker_job
 from .purpose_journey_v2 import CompilerWorkerSettingsV2,_worker_file,_worker_json,_require,_unique
 from .paid_sdk_delivery_v3 import load_paid_sdk_bundle_v3,_semantic_operation_horizon_v3
 from oracle_brain.operating_model.processing_projection import ProcessingProjectionAuthorityWindowV3
@@ -91,7 +91,7 @@ class PaidProjectorSettingsV3:
     issuer_actor:UUID
     reviewer_actor:UUID
     worker:CompilerWorkerSettingsV2
-    job:PurposeWorkerJobV2
+    job:PurposeWorkerJobV2 | PurposeWorkerJobV3
     bundle:object
     operation_horizon:datetime
     graph_url:str=field(repr=False)
@@ -134,7 +134,7 @@ def load_paid_projector_settings_v3(config_path,expected_config_sha256,*,appoint
     _require(type(expected_config_sha256) is str and re.fullmatch(HASH,expected_config_sha256)
         and type(expected_appointment_sha256) is str and re.fullmatch(HASH,expected_appointment_sha256),
         'explicit external projector config and appointment hashes required')
-    _require(type(worker) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2
+    _require(type(worker) is CompilerWorkerSettingsV2 and is_worker_job(job)
         and job.phase=='compile' and type(issuer_actor) is UUID and type(reviewer_actor) is UUID,
         'actual compiler worker and protected external projector pins required')
     worker.authorize(job)

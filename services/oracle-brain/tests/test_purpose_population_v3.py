@@ -3,7 +3,9 @@ from uuid import UUID
 import hashlib,json
 import pytest
 from oracle_brain.operating_model.contracts import canonical_bytes
-from oracle_brain.operating_model.purpose_journey import PurposeWorkerJobV2,PurposeWorkerJobV3
+from oracle_brain.operating_model.purpose_journey import (
+    PurposeWorkerJobV2, PurposeWorkerJobV3, WORKER_JOB_TYPES, is_worker_job, parse_worker_job,
+)
 
 
 def raw(n):
@@ -45,3 +47,71 @@ def test_v3_retains_population_scope_predecessor_and_horizon(damage):
 def test_v3_version_is_exact_integer_not_literal_coercion(bad):
     r=raw(1);r['schema_version']=bad
     with pytest.raises(ValueError):PurposeWorkerJobV3.model_validate_json(json.dumps(r))
+
+
+# --- Real worker-job propagation kernel: exact V2/V3 dispatch, never widening. ---
+
+@pytest.mark.parametrize('n',[1,2,3,4095,4096])
+def test_parse_worker_job_dispatches_exact_v3_for_complete_population(n):
+    r=raw(n);r['schema_version']=3
+    job=parse_worker_job(json.dumps(r))
+    assert type(job) is PurposeWorkerJobV3 and job.schema_version==3 and len(job.source_refs)==n
+    assert is_worker_job(job)
+
+
+@pytest.mark.parametrize('n',[3,4,4096])
+def test_parse_worker_job_dispatches_exact_v2_and_keeps_minimum_three(n):
+    r=raw(n);r['schema_version']=2
+    job=parse_worker_job(json.dumps(r))
+    assert type(job) is PurposeWorkerJobV2 and job.schema_version==2 and len(job.source_refs)==n
+
+
+@pytest.mark.parametrize('n',[0,4097])
+def test_parse_worker_job_rejects_out_of_v3_population_bounds(n):
+    r=raw(n);r['schema_version']=3
+    with pytest.raises((PermissionError,ValueError)):
+        parse_worker_job(json.dumps(r))
+
+
+@pytest.mark.parametrize('n',[1,2])
+def test_parse_worker_job_still_rejects_v2_below_three(n):
+    r=raw(n);r['schema_version']=2
+    with pytest.raises(PermissionError):
+        parse_worker_job(json.dumps(r))
+
+
+@pytest.mark.parametrize('bad',[True,3.0,'3',None,1,4])
+def test_parse_worker_job_rejects_unsupported_version(bad):
+    r=raw(1);r['schema_version']=bad
+    with pytest.raises(ValueError):
+        parse_worker_job(json.dumps(r))
+
+
+def test_parse_worker_job_accepts_raw_bytes():
+    r=raw(1);r['schema_version']=3
+    job=parse_worker_job(json.dumps(r).encode())
+    assert type(job) is PurposeWorkerJobV3
+
+
+def test_is_worker_job_rejects_subclass_widening():
+    class Wide(PurposeWorkerJobV3):
+        pass
+    base=PurposeWorkerJobV3.model_validate_json(json.dumps(raw(1)))
+    assert is_worker_job(base)
+    # An instance of an unregistered subclass is NOT an admitted exact class.
+    assert not is_worker_job(Wide.model_validate_json(json.dumps(raw(1))))
+    assert WORKER_JOB_TYPES==(PurposeWorkerJobV2,PurposeWorkerJobV3)
+
+
+def test_worker_registry_shape_accepts_complete_v3_population():
+    """The real worker registry field is a closed V2|V3 union; V3 1..4096 flows through."""
+    from typing import Union
+    from pydantic import BaseModel, ConfigDict
+    class Reg(BaseModel):
+        model_config=ConfigDict(extra='forbid',strict=True,frozen=True)
+        jobs: tuple[Union[PurposeWorkerJobV2,PurposeWorkerJobV3],...]
+    a,b,c=raw(3),raw(1),raw(4096)
+    a['schema_version']=2; b['schema_version']=3; c['schema_version']=3
+    reg=Reg.model_validate_json(json.dumps({'jobs':[a,b,c]}))
+    assert [type(j) for j in reg.jobs]==[PurposeWorkerJobV2,PurposeWorkerJobV3,PurposeWorkerJobV3]
+    assert [len(j.source_refs) for j in reg.jobs]==[3,1,4096]

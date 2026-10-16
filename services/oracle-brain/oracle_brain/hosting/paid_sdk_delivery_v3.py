@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime,timezone
 from uuid import UUID
 from oracle_brain.operating_model.contracts import digest
-from oracle_brain.operating_model.purpose_journey import PurposeWorkerJobV2
+from oracle_brain.operating_model.purpose_journey import is_worker_job
 from oracle_brain.operating_model.purpose_profiles_v2 import PurposePrivateContextV2
 from oracle_brain.operating_model.purpose_receipts_v2 import PhaseResponseCommitV2
 from oracle_brain.operating_model.purpose_qualification_v3 import PurposeQualifiedAssemblyReadGuardV3
@@ -42,7 +42,7 @@ class AuthenticatedPaidSDKBundleV3:
 
 def load_paid_sdk_bundle_v3(settings,job,*,artifact_id,artifact_version,embedding_dispatch_id):
     """Current own SQL/custody BEFORE bytes, then exact historical native proof."""
-    _require(type(settings) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2
+    _require(type(settings) is CompilerWorkerSettingsV2 and is_worker_job(job)
         and job.phase=='compile' and type(artifact_id) is UUID and type(embedding_dispatch_id) is UUID
         and type(artifact_version) is int and artifact_version>=1,'exact protected compiler SDK consume required')
     settings.authorize(job)

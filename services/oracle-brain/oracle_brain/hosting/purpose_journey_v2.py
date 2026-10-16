@@ -21,7 +21,9 @@ from pydantic import AwareDatetime, Field, model_validator
 from oracle_brain.operating_model.contracts import StrictRecord, SourceRef, canonical_bytes, digest
 from oracle_brain.operating_model.purpose_context import source_population_digest
 from oracle_brain.hosting.custody import _durable_nonce, _sync_spool
-from oracle_brain.operating_model.purpose_journey import PurposeWorkerJobV2
+from oracle_brain.operating_model.purpose_journey import (
+    PurposeWorkerJobV2, PurposeWorkerJobV3, WORKER_JOB_TYPES, is_worker_job, parse_worker_job,
+)
 from oracle_brain.operating_model.processing_ledger import ProcessingExtractionGuardProtocol
 
 HASH = r'^[0-9a-f]{64}$'
@@ -131,7 +133,7 @@ class PurposeJourneyJournalV2:
 
     @staticmethod
     def _current(job, now):
-        _require(type(job) is PurposeWorkerJobV2 and type(now) is datetime and now.tzinfo is not None
+        _require(is_worker_job(job) and type(now) is datetime and now.tzinfo is not None
                  and now < job.expires_at <= job.original_horizon, 'phase job expired or unqualified')
 
     @staticmethod
@@ -196,7 +198,7 @@ class PurposeJourneyJournalV2:
 
     @staticmethod
     def _consume_binding(original,consumer):
-        _require(type(original) is PurposeWorkerJobV2 and type(consumer) is PurposeWorkerJobV2
+        _require(is_worker_job(original) and is_worker_job(consumer)
             and original.operation=='dispatch' and consumer.operation=='consume'
             and consumer.consume_of_job_id==original.job_id,'explicit original-attempt consume required')
         fields=('journey_id','workspace_id','actor_id','runtime_hash','phase','source_id','source_refs',
@@ -357,7 +359,7 @@ class PurposeWorkerRegistryV2(StrictRecord):
     reviewer_actor: UUID
     valid_from: AwareDatetime
     expires_at: AwareDatetime
-    jobs: tuple[PurposeWorkerJobV2,...]
+    jobs: tuple[PurposeWorkerJobV2 | PurposeWorkerJobV3, ...]
 
 
 class CurrentPurposeWorkerJobsV2:
@@ -653,7 +655,7 @@ class PurposeJourneyCustodyV2:
         _require(len(candidates)<=4096,'bounded phase queue required')
         for path in candidates:
             raw=_worker_file(path)
-            job=PurposeWorkerJobV2.model_validate_json(raw)
+            job=parse_worker_job(raw)
             _require(path.name==str(job.job_id)+'.purpose-v2.pending','phase queue identity changed')
             self.settings.authorize(job) # no journal/queue lock during network
             if job.operation=='consume':
@@ -684,7 +686,7 @@ class PurposeJourneyCustodyV2:
     def original_attempt(self,consumer):
         _require(consumer.operation=='consume','explicit consume operation required')
         path=self.journal.spool/(str(consumer.consume_of_job_id)+'.purpose-v2.claimed')
-        original=PurposeWorkerJobV2.model_validate_json(_worker_file(path))
+        original=parse_worker_job(_worker_file(path))
         self.journal._consume_binding(original,consumer)
         return original
 
@@ -736,7 +738,7 @@ def observe_purpose_phase_commit_v2(settings,job_id):
     job=settings.jobs.current(job_id,now=datetime.now(timezone.utc));settings.authorize(job)
     journal=PurposeJourneyJournalV2(Path(settings.config.spool))
     claimed=journal.spool/(str(job.job_id)+'.purpose-v2.claimed')
-    _require(PurposeWorkerJobV2.model_validate_json(_worker_file(claimed))==job,'exact retained claimed phase required')
+    _require(parse_worker_job(_worker_file(claimed))==job,'exact retained claimed phase required')
     commit=_phase_commit_from_custody(settings,job)
     return journal.commit(job,receipt_hash=digest(commit.model_dump(mode='json')),
         native_receipt_hash=commit.native_custody_receipt_hash,now=datetime.now(timezone.utc))
@@ -764,7 +766,7 @@ def _historical_extraction_population_v2(settings,job,qualification,raw,entry):
 class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
     """Actual compiler/source+external custody before bytes, persist AND read."""
     def __init__(self,settings,current_job):
-        _require(type(settings) is CompilerWorkerSettingsV2 and type(current_job) is PurposeWorkerJobV2,
+        _require(type(settings) is CompilerWorkerSettingsV2 and is_worker_job(current_job),
                  'actual current compiler worker constructor required')
         self.settings,self.job=settings,current_job
 
@@ -1005,7 +1007,7 @@ def build_purpose_compiler_ledger_v3(settings,job,*,extraction_guard=None):
     """Only protected hosting construction qualifies this new runtime path."""
     from oracle_brain.operating_model.processing_ledger import ProcessingCompilerLedger
     from oracle_brain.operating_model.artifact_storage import FileBlobStore
-    _require(type(settings) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2,
+    _require(type(settings) is CompilerWorkerSettingsV2 and is_worker_job(job),
              'actual protected compiler settings and external job required')
     settings.authorize(job)
     guard=ProcessingCompilerExtractionGuardV2(settings,job) if extraction_guard is None else extraction_guard
@@ -1156,7 +1158,7 @@ def compile_purpose_worker_result_v3(settings,job):
     from oracle_brain.operating_model.purpose_qualification_v3 import (
         PurposeSemanticAdmissionV3,compile_purpose_assembly_v3)
     from oracle_brain.operating_model.semantic_acceptance import IndependentAssessment
-    _require(type(settings) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2
+    _require(type(settings) is CompilerWorkerSettingsV2 and is_worker_job(job)
         and job.phase=='compile','exact externally appointed compiler phase required')
     settings.authorize(job)
     def parse(raw,entry,cls):
@@ -1230,7 +1232,7 @@ def persist_purpose_extraction_result_v2(settings,job,*,failed=False):
         ExtractionOperationQualificationV2,ExtractionResponseCommitV2,
         verify_extraction_paid_wire_v2,verify_extraction_failed_paid_wire_v2)
     from oracle_brain.operating_model.extraction import persist_response,ExtractionPersistenceProfile
-    _require(type(settings) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2
+    _require(type(settings) is CompilerWorkerSettingsV2 and is_worker_job(job)
         and job.phase=='extraction' and type(failed) is bool,'exact compiler extraction attempt required')
     settings.authorize(job)
     raw,entry=settings.private(job,'native_job',dispatch_id=job.dispatch_id)
@@ -1294,7 +1296,7 @@ def observe_qualified_purpose_result_v3(settings,job):
     The actual guard checks current external admission and exact upstream paid
     custody before serving the existing sealed blob to this compiler.
     """
-    _require(type(settings) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2
+    _require(type(settings) is CompilerWorkerSettingsV2 and is_worker_job(job)
         and job.phase=='compile' and job.operation=='consume','explicit qualified-result observation required')
     raw,_=settings.private(job,'compile_inputs')
     inputs=_worker_parse(raw,PurposeCompileInputsV2)
