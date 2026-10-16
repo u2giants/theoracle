@@ -452,7 +452,7 @@ class CompilerWorkerSettingsV2:
         return job
 
     def _custody_state(self,job):
-        self.authorize(job)
+        authority_until=self.authority_horizon(job)
         c=self.config
         appointed=_worker_json(c.custody_appointment_file,c.custody_appointment_sha256,CompilerPhaseCustodyAppointmentV2)
         now=datetime.now(timezone.utc)
@@ -465,7 +465,7 @@ class CompilerWorkerSettingsV2:
         _require(files and len({(f.kind,f.artifact_id,f.artifact_version,f.dispatch_id) for f in files})==len(files)
                  and len({f.path for f in files})==len(files),
                  'exact independently qualified phase-result file whitelist required')
-        return files,min(appointed.expires_at,job.expires_at,self.authority_horizon(job))
+        return files,min(appointed.expires_at,job.expires_at,authority_until)
 
     def custody(self,job):
         return self._custody_state(job)[0]
@@ -473,16 +473,30 @@ class CompilerWorkerSettingsV2:
     def custody_horizon(self,job):
         return self._custody_state(job)[1]
 
-    def private(self,job,kind,*,artifact_id=None,artifact_version=None,dispatch_id=None):
-        files=self.custody(job)
-        matches=[f for f in files if f.kind==kind and (artifact_id is None or f.artifact_id==artifact_id)
-                 and (artifact_version is None or f.artifact_version==artifact_version)
-                 and (dispatch_id is None or f.dispatch_id==dispatch_id)]
+    @staticmethod
+    def _file_entry(files,kind,selector):
+        matches=[f for f in files if f.kind==kind and all(value is None or getattr(f,key)==value
+            for key,value in selector.items())]
         _require(len(matches)==1,'unique exact compiler file whitelist entry required')
-        entry=matches[0]
-        raw=_worker_file(entry.path,entry.sha256)
+        return matches[0]
+
+    def private_bundle(self,job,requests):
+        """One bounded exact whitelist batch; current authority before/after bytes."""
+        _require(type(requests) is tuple and 1<=len(requests)<=32,'bounded exact private file bundle required')
+        files,until=self._custody_state(job)
+        selected=[self._file_entry(files,kind,selector) for kind,selector in requests]
+        _require(len({entry.path for entry in selected})==len(selected),'duplicate private file bundle target')
+        results=[]
+        for entry in selected:
+            _require(datetime.now(timezone.utc)<until,'current custody expired before private file read')
+            results.append((_worker_file(entry.path,entry.sha256),entry))
+        _require(datetime.now(timezone.utc)<until,'current custody expired during private file read')
         self.authorize(job)
-        return raw,entry
+        return tuple(results)
+
+    def private(self,job,kind,*,artifact_id=None,artifact_version=None,dispatch_id=None):
+        return self.private_bundle(job,((kind,dict(artifact_id=artifact_id,
+            artifact_version=artifact_version,dispatch_id=dispatch_id)),))[0]
 
 
 def load_purpose_worker_settings_v2(config_path,trusted_config_sha256):
@@ -491,7 +505,7 @@ def load_purpose_worker_settings_v2(config_path,trusted_config_sha256):
     from oracle_brain.operating_model.authority_adapter import ProcessingSourceBinding,ProcessingArtifactResolver
     from oracle_brain.operating_model.semantic_registry_v3 import CurrentSemanticAdmissionsV3,SemanticRegistryAppointmentV3
     from oracle_brain.hosting.parent_observer_v2 import ParentObserverAdmissionV2,ParentCurrentnessConsumerV2
-    from oracle_brain.hosting.purpose_transport import PurposeTLSBindingV2,ParentObserverClientV2,PurposeProviderClientV2
+    from oracle_brain.hosting.purpose_transport import PurposeTLSBindingV2,ParentObserverClientV2,PurposeProviderClientV2,ExtractionProviderClientV2
     from oracle_brain.hosting.custody import DurableNonceSequenceV2
     from oracle_brain.hosting.provider_runtime import tls_url
     c=_worker_json(config_path,trusted_config_sha256,CompilerWorkerConfigV2)
@@ -526,7 +540,7 @@ def load_purpose_worker_settings_v2(config_path,trusted_config_sha256):
     semantic=CurrentSemanticAdmissionsV3(c.semantic_registry_file,c.semantic_registry_sha256,
         appointment=SemanticRegistryAppointmentV3(c.workspace_id,c.runtime_hash,'candidate-compiler',
             c.semantic_issuer_actor,c.semantic_reviewer_actor,c.semantic_valid_from,c.semantic_expires_at))
-    clients={phase:PurposeProviderClientV2(tls(b)) for phase,b in c.clients.items()}
+    clients={phase:(ExtractionProviderClientV2 if phase=='extraction' else PurposeProviderClientV2)(tls(b)) for phase,b in c.clients.items()}
     settings=CompilerWorkerSettingsV2(c,Path(config_path),trusted_config_sha256,population,allocation,resolver,observer,semantic,jobs,clients)
     for job in registry.jobs:settings.authorize(job)
     PurposeJourneyJournalV2(Path(c.spool))
@@ -601,9 +615,10 @@ def _phase_commit_from_custody(settings,job,reply=None):
         and native.get('request_hash')==commit.request_hash
         and native.get('raw_response_hash')==commit.raw_response_hash,'actual paid/native custody differs')
     if reply is not None:
-        _require(type(reply) is dict and set(reply)=={'dispatch_id','request_hash','phase_registry_sha256','raw_response_hash','receipt_hash'}
+        field='extraction_qualification_sha256' if job.phase=='extraction' else 'phase_registry_sha256'
+        _require(type(reply) is dict and set(reply)=={'dispatch_id','request_hash',field,'raw_response_hash','receipt_hash'}
             and reply=={'dispatch_id':str(job.dispatch_id),'request_hash':job.request_hash,
-                'phase_registry_sha256':job.phase_registry_sha256,'raw_response_hash':commit.raw_response_hash,'receipt_hash':seal},
+                field:job.phase_registry_sha256,'raw_response_hash':commit.raw_response_hash,'receipt_hash':seal},
             'opaque metadata reply differs from actual authorized phase custody')
     settings.authorize(job)
     return commit
@@ -658,12 +673,10 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
         entry,until=self._entry(manifest,principal,now)
         s=self.settings;job=self.job
         selector={'artifact_id':manifest.artifact_id,'artifact_version':manifest.version,'dispatch_id':entry.dispatch_id}
-        context_raw,_=s.private(job,'native_job',**selector)
+        ((context_raw,_),(qraw,qentry),(wire,wentry),(commit_raw,centry),(native_raw,nentry))=s.private_bundle(job,
+            tuple((kind,selector) for kind in ('native_job','extraction_qualification','raw_wire','phase_commit','native_receipt')))
         context=JobContext.model_validate_json(context_raw)
-        qraw,qentry=s.private(job,'extraction_qualification',**selector)
         qualification=ExtractionOperationQualificationV2.model_validate_json(qraw)
-        wire,wentry=s.private(job,'raw_wire',**selector)
-        commit_raw,centry=s.private(job,'phase_commit',**selector)
         committed=ExtractionResponseCommitV2.model_validate_json(commit_raw)
         content,witness=verify_extraction_paid_wire_v2(context,committed,wire,qualification,s.population,
             expected_qualification_hash=qentry.sha256,artifact_version=manifest.version)
@@ -681,7 +694,6 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
                 and centry.request_hash==committed.request_hash))
             and qualification.budget_allocation_projection_sha256==s.config.allocation_projection_sha256,
             'paid witness differs from externally appointed compiler/source/allocation custody')
-        native_raw,nentry=s.private(job,'native_receipt',**selector)
         native=json.loads(native_raw,object_pairs_hook=_unique)
         _require(native.get('failed') is False and digest(native)==witness.native_custody_receipt_hash
             and (nentry.native_custody_receipt_hash is None or nentry.native_custody_receipt_hash==witness.native_custody_receipt_hash)
@@ -698,13 +710,10 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
         entry,until=self._entry(manifest,principal,now)
         s=self.settings;job=self.job
         selector={'artifact_id':manifest.artifact_id,'artifact_version':manifest.version,'dispatch_id':entry.dispatch_id}
-        context_raw,_=s.private(job,'native_job',**selector)
+        ((context_raw,_),(qraw,qentry),(wire,wentry),(native_raw,nentry),(metadata_raw,mentry))=s.private_bundle(job,
+            tuple((kind,selector) for kind in ('native_job','extraction_qualification','raw_wire','native_receipt','wire_metadata')))
         context=JobContext.model_validate_json(context_raw)
-        qraw,qentry=s.private(job,'extraction_qualification',**selector)
         q=ExtractionOperationQualificationV2.model_validate_json(qraw)
-        wire,wentry=s.private(job,'raw_wire',**selector)
-        native_raw,nentry=s.private(job,'native_receipt',**selector)
-        metadata_raw,mentry=s.private(job,'wire_metadata',**selector)
         record=json.loads(native_raw,object_pairs_hook=_unique)
         metadata=json.loads(metadata_raw,object_pairs_hook=_unique)
         witness=verify_extraction_failed_paid_wire_v2(context,record,wire,metadata,q,s.population,
@@ -766,14 +775,15 @@ def run_purpose_worker_once_v2(settings):
     if job.phase=='compile':
         manifest=compile_purpose_worker_result_v3(settings,job)
         return custody.journal.compile_committed(job,manifest,now=datetime.now(timezone.utc))
-    from oracle_brain.hosting.purpose_transport import PurposeProviderClientV2
+    from oracle_brain.hosting.purpose_transport import PurposeProviderClientV2,ExtractionProviderClientV2
     client=settings.clients.get(job.phase)
-    _require(type(client) is PurposeProviderClientV2,'fixed actual mTLS phase client required')
+    _require(type(client) is (ExtractionProviderClientV2 if job.phase=='extraction' else PurposeProviderClientV2),
+        'fixed actual phase-specific mTLS client required')
     settings.authorize(job)
     # No filesystem or SQL lock spans this network operation. A failure leaves
     # the durable spent claim in place: never enqueue/dispatch it again.
     try:
-        reply=client.dispatch(job.dispatch_id,job.request_hash,job.phase_registry_sha256)
+        reply=client.dispatch(job.dispatch_id,job.request_hash,job.phase_registry_sha256,deadline=job.expires_at)
         settings.authorize(job)
         commit=_phase_commit_from_custody(settings,job,reply)
         if job.phase=='extraction':persist_purpose_extraction_result_v2(settings,job)
