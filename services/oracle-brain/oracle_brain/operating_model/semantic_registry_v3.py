@@ -85,7 +85,7 @@ class CurrentSemanticAdmissionsV3:
         self.expected_hash = expected_external_registry_sha256
         self.appointment = appointment
 
-    def current(self, now):
+    def _current_state(self, now):
         self.appointment.validate(now)
         _require(self.path.parent.resolve() == self.path.parent, "registry parent changed")
         with os.fdopen(os.open(self.path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
@@ -115,6 +115,7 @@ class CurrentSemanticAdmissionsV3:
         _require(type(row["admissions"]) is list and len(row["admissions"]) <= 4096,
                  "bounded external admission metadata required")
         admitted = set()
+        horizons = [self.appointment.expires_at, _aware(row["expires_at"])]
         for item in row["admissions"]:
             _require(type(item) is dict and set(item) == {"schema_version", "admission_hash", "record_seal",
                      "valid_from", "expires_at", "revoked"} | set(scope), "fixed schema3 metadata only")
@@ -129,4 +130,12 @@ class CurrentSemanticAdmissionsV3:
                      < _aware(item["expires_at"]) <= _aware(row["expires_at"]),
                      "external admission not current")
             admitted.add(item["admission_hash"])
-        return frozenset(admitted)
+            horizons.append(_aware(item["expires_at"]))
+        return frozenset(admitted), min(horizons)
+
+    def current(self, now):
+        return self._current_state(now)[0]
+
+    def valid_until(self, now):
+        """Same protected read; conservative minimum current trust horizon."""
+        return self._current_state(now)[1]

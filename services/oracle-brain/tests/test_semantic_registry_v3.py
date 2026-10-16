@@ -44,6 +44,20 @@ def test_current_metadata_only_and_no_auto_adoption(registry):
     assert not any('private' in k or 'candidate' in k for k in row)
 
 
+def test_actual_current_trust_horizon_rereads_same_pinned_registry(registry):
+    now, appointment, row, path, publish = registry
+    item = row['admissions'][0]
+    item['expires_at'] = (now + timedelta(seconds=20)).isoformat()
+    item['record_seal'] = digest({k: v for k, v in item.items() if k != 'record_seal'})
+    consumer = publish()
+    assert consumer.valid_until(now) == now + timedelta(seconds=20)
+    assert consumer.valid_until(now) < appointment.expires_at
+    with pytest.raises(PermissionError): consumer.valid_until(now + timedelta(seconds=21))
+    row['revoked'] = True
+    publish()
+    with pytest.raises(PermissionError, match='hash changed'): consumer.valid_until(now)
+
+
 @pytest.mark.parametrize('field,value', [
     ('schema_version', 2), ('schema_version', True), ('revoked', True),
     ('qualification_purpose', 'other'), ('workspace_id', str(uuid4())),
