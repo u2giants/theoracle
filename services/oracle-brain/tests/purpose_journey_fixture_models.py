@@ -131,5 +131,5 @@ def assessment_json(context):
 def embedding_response(count):
     if type(count) is not int or not 0<count<=10000: raise ValueError('bounded exact input count required')
     return {'object':'list','model':'openai/text-embedding-3-small','data':[
-        {'object':'embedding','index':i,'embedding':[1.0]+[0.0]*255} for i in range(count)],
+        {'object':'embedding','index':i,'embedding':[1.0,float(i+1)/count]+[0.0]*254} for i in range(count)],
         'usage':{'prompt_tokens':count,'total_tokens':count}}

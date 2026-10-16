@@ -91,7 +91,9 @@ def test_rich_fixture_builders_use_actual_observations_and_retain_conflict_unkno
     coverage=validate_coverage(census.obligations,assessment.coverage,object_evidence=evidence,
         independent_inventory_hash=digest({'obligations':[o.model_dump(mode='json') for o in census.obligations]}))
     assert coverage['essential_represented']==3 and coverage['essential_unresolved']==3
-    validate_embedding_response(embedding_response(7),count=7)
+    vectors=embedding_response(7)
+    validate_embedding_response(vectors,count=7)
+    assert len({tuple(v['embedding']) for v in vectors['data']})==7
     with pytest.raises(ValueError,match='exact three'):
         model_json(payloads[:-1],source_refs=tuple(refs),model_id=model_id)
     damaged=[dict(p) for p in payloads];damaged[0]['observations']=[]
