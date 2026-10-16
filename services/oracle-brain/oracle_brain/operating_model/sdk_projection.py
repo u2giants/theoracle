@@ -73,13 +73,14 @@ class ReadOnlyConnection:
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
 
 class SDKProjection:
-    def __init__(self,graph_url:str,*,workspace_id:UUID,artifact_id:UUID,artifact_version:int,generation:UUID,llm,embedder,dimensions:int,read_only:bool=False):
+    def __init__(self,graph_url:str,*,workspace_id:UUID,artifact_id:UUID,artifact_version:int,generation:UUID,llm,embedder,dimensions:int,read_only:bool=False,qualification_guard=None):
         if version('graphrag-sdk')!='1.4.0':raise RuntimeError('exact qualified SDK required')
         self.graph_name=f'{PREFIX}{workspace_id.hex}_{artifact_id.hex}_{artifact_version}_{generation.hex}'
         self.connection=FalkorDBConnection(ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000))
         if read_only:self.connection=ReadOnlyConnection(self.connection)
         self.rag=GraphRAG(self.connection,llm=llm,embedder=embedder,embedding_dimension=dimensions,
           ontology=Ontology() if read_only else Ontology(entities=[Entity(label=k) for k in ('ReportedObservation','WorkflowStep','DecisionGateway','BusinessArtifact','BusinessRole','BusinessProcess','WorkflowTransition','BusinessInterface','WorkflowCondition','BusinessObjective','MetricDefinition','DecisionVariant')],relations=[Relation(label='RELATED_TO')]))
+        self.qualification_guard=qualification_guard
         self.read_only=read_only
         self.workspace_id=workspace_id
         logging.getLogger('graphrag_sdk').setLevel(logging.CRITICAL)
@@ -131,7 +132,8 @@ class SDKProjection:
     async def build(self,ledger,workspace_id:UUID,artifact_id:UUID,artifact_version:int):
         if self.read_only:raise PermissionError('read-only projection cannot build')
         if workspace_id!=self.workspace_id:raise PermissionError('projection workspace mismatch')
-        payload=ledger.read(workspace_id,artifact_id,artifact_version)
+        from .assembly_qualification import read_documentary_artifact
+        payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)
         records=self.records(payload)
         count=await self.connection.query('MATCH (n) RETURN count(n)')
         if count.result_set[0][0]:raise ValueError('projection generation is already occupied; reload or rebuild separately')
@@ -168,7 +170,7 @@ class SDKProjection:
                 await self.connection.query('MATCH (f:OperatingModelRecord {id:$fid}),(d:Document {id:$sid}) CREATE (f)-[:SUPPORTED_BY {payload_hash:$seal}]->(d)',params={'fid':f['finding_id'],'sid':evidence['ref']['source_id'],'seal':digest(evidence)})
         await self.verify(payload)
         # Exact sources and current access are checked again after all asynchronous work.
-        if ledger.read(workspace_id,artifact_id,artifact_version)!=payload:raise PermissionError('input changed during projection')
+        if read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)!=payload:raise PermissionError('input changed during projection')
         await self.connection.query('CREATE (:OperatingModelSnapshot {content_hash:$seal,record_digest:$records,sdk:$sdk,finalized:true})',params={'seal':digest(payload),'records':digest({'records':records}),'sdk':'1.4.0'})
         return {'graph_name':self.graph_name,'content_hash':digest(payload),'record_digest':digest({'records':records}),'sdk_version':'1.4.0','finalized':finalized.model_dump(mode='json')}
 
@@ -195,7 +197,8 @@ class SDKProjection:
         if {r[0]:r[1] for r in documents}!=expected_docs:raise ValueError('SDK source manifest mismatch')
 
     async def load(self,ledger,workspace_id:UUID,artifact_id:UUID,artifact_version:int):
-        payload=ledger.read(workspace_id,artifact_id,artifact_version)
+        from .assembly_qualification import read_documentary_artifact
+        payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)
         rows=(await self.connection.query('MATCH (s:OperatingModelSnapshot) RETURN s.content_hash,s.record_digest,s.sdk,s.finalized')).result_set
         expected=[digest(payload),digest({'records':self.records(payload)}),'1.4.0',True]
         if len(rows)!=1 or list(rows[0])!=expected:raise ValueError('current sealed finalized snapshot required')

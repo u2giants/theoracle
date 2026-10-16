@@ -75,3 +75,9 @@ def test_required_documentary_gate_includes_fresh_original_journey():
 
 def test_required_documentary_gate_includes_processing_contract_and_transport():
     assert {'processing_context','processing_profile'} <= set(verifier.required_suites('W10'))
+
+
+def test_qualified_assembly_suites_are_in_required_documentary_gate():
+    assert {'assembly_context','assembly_qualification','observed_assembly_capture'} <= set(verifier.DOCUMENTARY)
+    for name in ('assembly_context','assembly_qualification','observed_assembly_capture'):
+        assert (Path(__file__).parent/f'test_{name}.py').is_file()

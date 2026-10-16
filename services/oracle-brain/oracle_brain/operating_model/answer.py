@@ -14,9 +14,9 @@ class Answer(StrictRecord):
     caveats:tuple[str,...]
     artifact_hash:str
 
-def answer_from_summary(ledger,summary,*,intent:Intent,process_id:str|None=None):
+def answer_from_summary(ledger,summary,*,intent:Intent,process_id:str|None=None,qualification_guard=None):
     if intent not in {'overview','process_steps','roles','artifacts','interfaces','findings'}:raise ValueError('unsupported documentary intent')
-    summary.recheck(ledger);p=summary.pack.contents
+    summary.recheck(ledger,qualification_guard=qualification_guard);p=summary.pack.contents
     findings=tuple(p.get('findings',()))
     caveats=tuple(f['text'] for f in findings)
     if p.get('coverage_state')=='partial':caveats+=('Reported operating coverage remains partial.',)
