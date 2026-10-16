@@ -163,7 +163,7 @@ def _png(image: Any) -> bytes:
     return out.getvalue()
 
 
-def _views(data: bytes, content_type: str) -> tuple[list[OriginalView], list[str]]:
+def _views(data: bytes, content_type: str, *, require_native_images: bool = False) -> tuple[list[OriginalView], list[str]]:
     if content_type in {"text/plain", "text/markdown"}:
         text = data.decode("utf-8", errors="strict")
         if not text.strip():
@@ -235,6 +235,8 @@ def _views(data: bytes, content_type: str) -> tuple[list[OriginalView], list[str
                 finally:
                     image_bitmap.close()
                 if max(embedded.size) > 4000:
+                    if require_native_images:
+                        raise ValueError("native PDF artwork exceeds unchanged 4000px bound")
                     embedded.thumbnail((4000, 4000), Image.Resampling.LANCZOS)
                 location = tuple(object_.get_bounds())
                 native_crop = (0, 0, embedded.width, embedded.height)
