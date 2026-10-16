@@ -31,7 +31,7 @@ class Measurement:
         if self.amount < 0 or not self.unit.strip() or not self.period.strip():
             raise ValueError("nonnegative amount and explicit unit/period required")
         if self.unit == "money":
-            if not isinstance(self.currency, str) or len(self.currency) != 3 or not self.currency.isalpha() or not self.currency.isupper():
+            if not isinstance(self.currency, str) or len(self.currency) != 3 or any(c < "A" or c > "Z" for c in self.currency):
                 raise ValueError("explicit uppercase currency required")
         elif self.currency is not None:
             raise ValueError("currency applies only to monetary measurements")

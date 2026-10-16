@@ -88,3 +88,20 @@ def test_machine_identifier_rejects_control_format_combining_nonascii(bad, field
 
 def test_natural_language_assumptions_retain_chinese():
     assert Forecast(money("5"), money("2"), ("相同工作量",)).estimated_reduction == 3
+
+
+@pytest.mark.parametrize("currency", ["ÜSD", "ΧΨΩ", "ＵＳＤ", "US\u200b", "U\u0301S", "USD ", "US\x00"])
+def test_currency_is_exact_ascii_uppercase_identifier(currency):
+    with pytest.raises(ValueError, match="currency"):
+        money("5", currency)
+
+
+@pytest.mark.parametrize("amount", [1, 1.0, "1", None, True])
+def test_non_decimal_amount_rejected(amount):
+    with pytest.raises(ValueError, match="Decimal"):
+        Measurement(amount, "money", "per_week", "USD")
+
+
+def test_currency_is_rejected_for_nonmonetary_measurement():
+    with pytest.raises(ValueError, match="only"):
+        Measurement(Decimal("5"), "hours", "per_week", "USD")
