@@ -245,7 +245,58 @@ def verify_purpose_final_assembly_v3(manifest,payload,principal,now,*,trusted_ad
 
 class PurposeQualifiedAssemblyReadGuardV3(QualifiedAssemblyReadGuard):
     """Explicit schema3 only; inherited summary replay rechecks this exact parent."""
+    @classmethod
+    def for_full_compiler_parent_v3(cls,*,trusted_admissions,runtime_hash,current_source_identity,
+            current_extraction_seal,qualified_parent_reader):
+        from .processing_ledger import PurposeProcessingCompilerLedgerV3
+        if (cls is not PurposeQualifiedAssemblyReadGuardV3
+                or type(getattr(qualified_parent_reader,'__self__',None)) is not PurposeProcessingCompilerLedgerV3
+                or getattr(qualified_parent_reader,'__func__',None) is not
+                    PurposeProcessingCompilerLedgerV3.read_validated_qualified_parent_v3):
+            raise PermissionError('exact completed full compiler parent boundary required')
+        guard=cls(trusted_admissions=trusted_admissions,runtime_hash=runtime_hash,
+            current_source_identity=current_source_identity,current_extraction_seal=current_extraction_seal,
+            qualified_parent_reader=qualified_parent_reader)
+        guard._full_parent_v3=qualified_parent_reader
+        return guard
+
+    def _validated_summary_parent_v3(self,manifest,payload,principal,now):
+        from .processing_ledger import PurposeProcessingCompilerLedgerV3,ValidatedQualifiedParentV3
+        from .summaries import DocumentarySummary
+        from .retrieval import build_pack
+        parent_reader=self._full_parent_v3
+        if (type(getattr(parent_reader,'__self__',None)) is not PurposeProcessingCompilerLedgerV3
+                or getattr(parent_reader,'__func__',None) is not
+                    PurposeProcessingCompilerLedgerV3.read_validated_qualified_parent_v3
+                or parent_reader.__self__.principal!=principal):
+            raise PermissionError('exact current compiler parent method required')
+        summary=DocumentarySummary.model_validate_json(canonical_bytes(payload['summary']));pack=summary.pack
+        if (manifest.kind!='processing_summary_v1' or manifest.state!='ready'
+                or digest(payload)!=manifest.content_hash or pack.workspace_id!=manifest.workspace_id
+                or pack.artifact_id==manifest.artifact_id
+                or summary.summary_hash!=digest(pack.model_dump(mode='json'))
+                or payload['source_refs']!=[r.model_dump(mode='json') for r in pack.source_refs]):
+            raise PermissionError('qualified summary envelope or parent identity differs')
+        result=parent_reader(pack.workspace_id,pack.artifact_id,pack.version)
+        if type(result) is not ValidatedQualifiedParentV3:
+            raise PermissionError('actual completed parent result required')
+        parent=result.manifest;body=json.loads(result.canonical_body)
+        if (parent.kind!='processing_qualified_model_v1' or parent.state!='ready'
+                or parent.workspace_id!=pack.workspace_id or parent.artifact_id!=pack.artifact_id
+                or parent.version!=pack.version or parent.content_hash!=pack.artifact_hash
+                or digest(body)!=parent.content_hash or body['source_refs']!=payload['source_refs']
+                or result.valid_until<=now):
+            raise PermissionError('qualified summary requires exact current immutable parent')
+        if build_pack(body,pack.plan)!=pack.contents:
+            raise PermissionError('qualified summary content differs from current admitted parent')
+        if result.valid_until<=parent_reader.__self__.clock():
+            raise PermissionError('parent authority expired during summary validation')
+        return result.valid_until
+
     def __call__(self,manifest,payload,principal,now):
+        if manifest.kind=='processing_summary_v1' and hasattr(self,'_full_parent_v3'):
+            self._validated_summary_parent_v3(manifest,payload,principal,now)
+            return None
         if manifest.kind=='processing_qualified_model_v1':
             return verify_purpose_final_assembly_v3(manifest,payload,principal,now,
                 trusted_admission_hashes=self._trust(),runtime_hash=self._runtime,
@@ -253,6 +304,8 @@ class PurposeQualifiedAssemblyReadGuardV3(QualifiedAssemblyReadGuard):
         return super().__call__(manifest,payload,principal,now)
 
     def valid_until(self,manifest,payload,principal,now):
+        if manifest.kind=='processing_summary_v1' and hasattr(self,'_full_parent_v3'):
+            return self._validated_summary_parent_v3(manifest,payload,principal,now)
         if manifest.kind!='processing_qualified_model_v1':
             return super().valid_until(manifest,payload,principal,now)
         self(manifest,payload,principal,now)
