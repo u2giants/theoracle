@@ -44,3 +44,8 @@ def test_unknown_original_job_subclass_is_not_an_admitted_native_snapshot():
     b=object.__new__(NativeBrokerEgress);b._resolve=lambda _:j;b._allocation=None
     b._authorize=lambda _:pytest.fail('unknown subclass reached current authority')
     with pytest.raises(PermissionError,match='immutable admitted job'):b.dispatch(envelope(j))
+
+@pytest.mark.parametrize('bad',[True,False,1.0,'1'])
+def test_native_original_version_is_not_bool_float_or_string(bad):
+    values=original_job().model_dump(mode='python');values['schema_version']=bad
+    with pytest.raises(ValueError):RawOriginalDispatchJobV1.model_validate(values)

@@ -5,12 +5,28 @@ Only protected consumers and actual SQL role appointments can qualify a source.
 """
 from typing import Literal
 from uuid import UUID
-from pydantic import AwareDatetime,Field,model_validator
+from pydantic import AwareDatetime,Field,model_validator,field_validator
 from .contracts import StrictRecord,digest
 
 HASH=r'^[0-9a-f]{64}$'
 
-class RawOriginalRefV1(StrictRecord):
+class _RawRecordV1(StrictRecord):
+    @field_validator('schema_version',mode='before',check_fields=False)
+    @classmethod
+    def strict_raw_version(cls,value):
+        if type(value) is not int or value!=1:
+            raise ValueError('raw version is exact integer one')
+        return value
+
+    @field_validator('qualification_pass',mode='before',check_fields=False)
+    @classmethod
+    def strict_qualification_boolean(cls,value):
+        if type(value) is not bool:
+            raise ValueError('qualification pass is an actual boolean')
+        return value
+
+
+class RawOriginalRefV1(_RawRecordV1):
     schema_version:Literal[1]=1
     workspace_id:UUID
     source_id:UUID
@@ -27,7 +43,7 @@ class RawOriginalRefV1(StrictRecord):
             raise ValueError('original filename is a display name, never a locator')
         return self
 
-class RawOriginalPopulationV1(StrictRecord):
+class RawOriginalPopulationV1(_RawRecordV1):
     """Externally pinned COMPLETE raw phase population; fields confer no scope."""
     schema_version:Literal[1]=1
     purpose:Literal['raw-original-population-v1']='raw-original-population-v1'
@@ -53,7 +69,7 @@ class RawOriginalPopulationV1(StrictRecord):
         return self
 
 
-class OriginalResponseCommitBaseV1(StrictRecord):
+class OriginalResponseCommitBaseV1(_RawRecordV1):
     schema_version:Literal[1]=1
     raw_ref:RawOriginalRefV1
     population_id:UUID

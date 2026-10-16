@@ -1,7 +1,7 @@
 """Pure purpose-worker job contract; infrastructure belongs in hosting."""
 from typing import Literal
 from uuid import UUID
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, Field, model_validator, field_validator
 from .contracts import StrictRecord, SourceRef
 HASH = r'^[0-9a-f]{64}$'
 PHASES = ('census','extraction','assembly','assessment','compile')
@@ -49,6 +49,13 @@ class PurposeWorkerJobV3(PurposeWorkerJobV2):
     """Explicit complete one-or-more originals; V2 bytes and minimum stay fixed."""
     schema_version:Literal[3]=3
     purpose:Literal['replacement-documentary-journey-v3']='replacement-documentary-journey-v3'
+
+    @field_validator('schema_version',mode='before')
+    @classmethod
+    def exact_v3_version(cls,value):
+        if type(value) is not int or value!=3:
+            raise ValueError('worker V3 version must be integer three')
+        return value
 
     @model_validator(mode='after')
     def exact_population_and_phase(self):
