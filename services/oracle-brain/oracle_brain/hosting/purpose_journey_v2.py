@@ -445,9 +445,9 @@ class CompilerWorkerSettingsV2:
     jobs: CurrentPurposeWorkerJobsV2
     clients: dict
 
-    def _source_horizon(self,job):
+    def _source_horizon(self,job,*,connection=None):
         horizons=[]
-        with self.resolver._connection() as conn:
+        with self.resolver._connection(connection) as conn:
             self.resolver._check(conn)
             for ref in job.source_refs:
                 rows=conn.execute('SELECT * FROM oracle2.hosting_current_source_identity(%s,%s,%s,%s,%s)',
@@ -470,9 +470,10 @@ class CompilerWorkerSettingsV2:
         _worker_file(self.config_path,self.config_sha256)
         current=self.jobs.current(job.job_id,now=datetime.now(timezone.utc))
         _require(current==job,'immutable externally admitted worker job changed')
-        before=self._source_horizon(job)
-        witness=self.observer.current(self.population)
-        after=self._source_horizon(job)
+        with self.resolver.shared_connection() as shared:
+            before=self._source_horizon(job,connection=shared)
+            witness=self.observer.current(self.population)
+            after=self._source_horizon(job,connection=shared)
         # No SQL/custody lock is held during observer network.
         until=min(before,after,witness.expires_at,self.config.source_expires_at,job.expires_at,
             self.population.expires_at,self.allocation.original_expires_at)
@@ -489,9 +490,10 @@ class CompilerWorkerSettingsV2:
         _worker_file(self.config_path,self.config_sha256)
         _require(self.jobs.current(job.job_id,now=datetime.now(timezone.utc))==job,
             'immutable externally admitted worker job changed')
-        before=self._source_horizon(job)
-        witness=self.observer.current(self.population)
-        after=self._source_horizon(job)
+        with self.resolver.shared_connection() as shared:
+            before=self._source_horizon(job,connection=shared)
+            witness=self.observer.current(self.population)
+            after=self._source_horizon(job,connection=shared)
         operation=min(before,after,self.config.source_expires_at,job.expires_at,job.original_horizon,
             self.population.expires_at,self.allocation.original_expires_at,self.observer.admission.expires_at)
         current=min(operation,witness.expires_at)
@@ -502,9 +504,10 @@ class CompilerWorkerSettingsV2:
         """Exact appointment, authentic currentness on both sides; no new grant."""
         from oracle_brain.operating_model.processing_projection import ProcessingProjectionAuthorityWindowV3
         # Existing parser/actor/population/file-whitelist checks BEFORE bytes.
-        before=self.authority_window_v3(job)
-        _,appointment_until=self._custody_appointment_v2(job)
-        final=self.authority_window_v3(job)
+        with self.resolver.shared_connection():
+            before=self.authority_window_v3(job)
+            _,appointment_until=self._custody_appointment_v2(job)
+            final=self.authority_window_v3(job)
         operation=min(before.operation_horizon,final.operation_horizon,appointment_until,job.expires_at,job.original_horizon)
         current=min(final.current_until,operation)
         _require(datetime.now(timezone.utc)<current,'actual V3 custody boundary expired')
@@ -526,6 +529,19 @@ class CompilerWorkerSettingsV2:
     def authorize(self,job):
         self.authority_horizon(job)
         return job
+
+    def assert_source_current(self,job):
+        """Post-dispatch source/job currentness without a second observer exchange.
+
+        Pre-dispatch authorize already proved full observer+source authority;
+        this still re-proves immutable job identity and current original scope.
+        """
+        _worker_file(self.config_path,self.config_sha256)
+        _require(self.jobs.current(job.job_id,now=datetime.now(timezone.utc))==job,
+            'immutable externally admitted worker job changed')
+        until=self._source_horizon(job)
+        _require(datetime.now(timezone.utc)<until,'actual compiler source authority expired')
+        return until
 
     def _custody_appointment_v2(self,job):
         """Pure protected appointment validation; caller supplies current authority."""
@@ -926,7 +942,7 @@ def run_purpose_worker_once_v2(settings):
     # the durable spent claim in place: never enqueue/dispatch it again.
     try:
         reply=client.dispatch(job.dispatch_id,job.request_hash,job.phase_registry_sha256,deadline=job.expires_at)
-        settings.authorize(job)
+        settings.assert_source_current(job)
         commit=_phase_commit_from_custody(settings,job,reply)
         if job.phase=='extraction':persist_purpose_extraction_result_v2(settings,job)
     except Exception as original_error:

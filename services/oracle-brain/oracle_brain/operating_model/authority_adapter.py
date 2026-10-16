@@ -119,8 +119,24 @@ class ProcessingSourceResolver:
         if not isinstance(binding, ProcessingSourceBinding):
             raise PermissionError('fixed processing binding required')
         self.url, self.binding = url, binding
+        import threading
+        self._shared = threading.local()
         with self._connection() as conn:
             self._check(conn)
+
+    @contextmanager
+    def shared_connection(self):
+        """Reuse one connection across nested identity/seal checks in one verify."""
+        existing = getattr(self._shared, 'conn', None)
+        if existing is not None:
+            yield existing
+            return
+        with self._connection() as conn:
+            self._shared.conn = conn
+            try:
+                yield conn
+            finally:
+                self._shared.conn = None
 
     @property
     def metadata_only(self):
@@ -128,6 +144,12 @@ class ProcessingSourceResolver:
 
     @contextmanager
     def _connection(self, connection=None):
+        if connection is None:
+            shared = getattr(self, '_shared', None)
+            existing = getattr(shared, 'conn', None) if shared is not None else None
+            if existing is not None:
+                yield existing
+                return
         if connection is not None:
             wanted = psycopg.conninfo.conninfo_to_dict(self.url)
             actual = connection.info.get_parameters()
@@ -143,6 +165,8 @@ class ProcessingSourceResolver:
                 yield conn
 
     def _check(self, conn):
+        # Same identity/ACL facts as the historical multi-statement check, proved
+        # in one current catalogue round-trip. No fact is cached or skipped.
         b = self.binding
         if datetime.now(timezone.utc) >= b.expires_at:
             raise PermissionError('processing caller admission expired')
@@ -151,42 +175,62 @@ class ProcessingSourceResolver:
             if (not b.synthetic or params.get('host') not in {'localhost','127.0.0.1','::1'}
                 or not params.get('dbname','').startswith('oracle_operating_model_test')):
                 raise PermissionError('processing ledger authenticated TLS required')
-        row = conn.execute("""SELECT session_user,current_user,rolsuper,rolbypassrls,
-            rolcreaterole,rolcreatedb,rolreplication FROM pg_roles WHERE rolname=session_user""").fetchone()
         group = 'oracle2_' + b.profile.replace('-','_')
-        if (not row or row[0] != b.expected_session_role or row[1] not in {row[0],group}
-                or any(row[2:])):
+        facts = conn.execute("""
+            SELECT
+              (SELECT row_to_json(s) FROM (
+                SELECT session_user,current_user,rolsuper,rolbypassrls,
+                       rolcreaterole,rolcreatedb,rolreplication
+                FROM pg_roles WHERE rolname=session_user) s),
+              (SELECT COALESCE(jsonb_agg(rolname::text ORDER BY rolname),'[]'::jsonb)
+               FROM pg_roles WHERE rolname=ANY(%s) AND pg_has_role(session_user,oid,'MEMBER')),
+              (SELECT row_to_json(o) FROM (
+                SELECT r.rolname,pg_has_role(session_user,r.oid,'MEMBER') AS reachable
+                FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner
+                WHERE n.nspname='oracle2') o),
+              (SELECT COALESCE(jsonb_agg(rolname::text),'[]'::jsonb)
+               FROM pg_roles WHERE pg_has_role(session_user,oid,'MEMBER')
+                 OR pg_has_role(session_user,oid,'SET') OR pg_has_role(session_user,oid,'USAGE')),
+              (SELECT row_to_json(f) FROM (
+                SELECT rolcanlogin,rolinherit,rolsuper,rolbypassrls,
+                       rolcreaterole,rolcreatedb,rolreplication
+                FROM pg_roles WHERE rolname=%s) f),
+              (SELECT row_to_json(e) FROM (
+                SELECT rolcanlogin,rolinherit,
+                       pg_has_role(session_user,%s,'USAGE') AS usage,
+                       pg_has_role(session_user,%s,'SET') AS set
+                FROM pg_roles WHERE rolname=session_user) e)
+        """, (list(self._groups), group, group, group)).fetchone()
+        session_row, groups, owner_row, reachable, flags, entry = facts
+        if (not session_row or session_row['session_user'] != b.expected_session_role
+                or session_row['current_user'] not in {session_row['session_user'], group}
+                or any(session_row[k] for k in
+                       ('rolsuper','rolbypassrls','rolcreaterole','rolcreatedb','rolreplication'))):
             raise PermissionError('processing session role differs')
-        groups = conn.execute("""SELECT rolname::text FROM pg_roles WHERE rolname=ANY(%s)
-            AND pg_has_role(session_user,oid,'MEMBER') ORDER BY rolname""", (list(self._groups),)).fetchall()
-        if groups != [(group,)]:
+        if groups != [group]:
             raise PermissionError('exclusive fixed processing role required')
-        owner = conn.execute("""SELECT r.rolname,pg_has_role(session_user,r.oid,'MEMBER')
-            FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname='oracle2'""").fetchone()
-        if owner != (b.expected_owner_role,False):
+        if (not owner_row or owner_row['rolname'] != b.expected_owner_role
+                or owner_row['reachable'] is not False):
             raise PermissionError('trusted schema owner differs or is reachable')
-        reachable=conn.execute("""SELECT rolname::text FROM pg_roles WHERE
-            pg_has_role(session_user,oid,'MEMBER') OR pg_has_role(session_user,oid,'SET')
-            OR pg_has_role(session_user,oid,'USAGE')""").fetchall()
-        if {r[0] for r in reachable}!={b.expected_session_role,group}:
+        if set(reachable) != {b.expected_session_role, group}:
             raise PermissionError('exact processing membership differs')
-        flags=conn.execute('SELECT rolcanlogin,rolinherit,rolsuper,rolbypassrls,rolcreaterole,rolcreatedb,rolreplication FROM pg_roles WHERE rolname=%s',(group,)).fetchone()
-        if flags is None or any(flags):
+        if flags is None or any(flags.values() if isinstance(flags, dict) else flags):
             raise PermissionError('fixed processing group flags differ')
-        entry=conn.execute("SELECT rolcanlogin,rolinherit,pg_has_role(session_user,%s,'USAGE'),pg_has_role(session_user,%s,'SET') FROM pg_roles WHERE rolname=session_user",(group,group)).fetchone()
-        if (not entry or not entry[0] or (row[1]==row[0] and not entry[2])
-                or (row[1]==group and not entry[3])):
+        if (not entry or not entry['rolcanlogin']
+                or (session_row['current_user'] == session_row['session_user'] and not entry['usage'])
+                or (session_row['current_user'] == group and not entry['set'])):
             raise PermissionError('actual processing inherit/SET entry differs')
         self._check_function_signatures(conn,self._signatures)
         if b.profile != 'gateway-metadata':
             from .source_binding import SourceRoleBinding
             SourceRoleBinding(b.runtime_hash,b.source_registry_hash,synthetic=b.synthetic).check(conn)
 
-    def _check_function_signatures(self,conn,signatures):
+    def _check_function_signatures(self,conn,signatures,rows=None):
         b=self.binding
         # One CURRENT catalogue statement, not a cached proof. LEFT joins retain
         # every requested ordinal, including missing functions and empty ACLs.
-        rows=conn.execute("""SELECT requested.signature,owner.rolname,p.prosecdef,p.proconfig,
+        if rows is None:
+            rows=conn.execute("""SELECT requested.signature,owner.rolname,p.prosecdef,p.proconfig,
                 coalesce(jsonb_agg(jsonb_build_array(coalesce(grantee.rolname,'PUBLIC'),acl.is_grantable))
                     FILTER (WHERE acl.privilege_type='EXECUTE' AND acl.grantee<>p.proowner),'[]'::jsonb)
             FROM unnest(%s::text[]) WITH ORDINALITY requested(signature,ordinal)

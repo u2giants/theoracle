@@ -5,6 +5,8 @@ from pathlib import Path
 from urllib.parse import quote,urlparse
 from uuid import uuid4
 import redis
+from contextlib import contextmanager
+import hashlib,stat
 
 IDENTITY=re.compile('oracle_ro_fixture_(?:graph_|user_)[0-9a-f]{32}')
 
@@ -79,6 +81,7 @@ def processing_reader(container,admin_url,directory,*,receipt,secret,current_del
     projector key. This helper never alters a graph, an existing ACL or a host.
     """
     import hmac
+    from oracle_brain.hosting.custody import _durable_nonce
     from uuid import UUID
     from oracle_brain.operating_model.projection_delivery import signature
     details,params=owned_target(container,admin_url)
@@ -100,12 +103,22 @@ def processing_reader(container,admin_url,directory,*,receipt,secret,current_del
         raise PermissionError('fresh owned protected output required')
     client=redis.Redis.from_url(admin_url,socket_timeout=5,socket_connect_timeout=5,decode_responses=True)
     username='oracle_ro_fixture_user_'+uuid4().hex
+    owner_hash=None
     try:
         if client.execute_command('ACL','GETUSER',username) is not None:
             raise PermissionError('existing read-only identity cannot be altered')
         rows=client.execute_command('GRAPH.RO_QUERY',graph,'MATCH (s:OperatingModelSnapshot) RETURN s.content_hash,s.record_digest,s.sdk,s.finalized,s.projection_schema,s.projection_digest','TIMEOUT',30000)
         expected=[[body['content_hash'],body['record_digest'],'1.4.0','true',body['projection_schema'],body['projection_digest']]]
         if rows[1]!=expected:raise PermissionError('actual delivered graph seal differs')
+        destination.mkdir(mode=0o700,parents=True,exist_ok=True)
+        if destination.resolve()!=destination or destination.stat().st_uid!=os.getuid() or destination.stat().st_mode&0o077:
+            raise PermissionError('canonical private reader output required')
+        owner={'schema_version':1,'profile':'processing-reader-fixture-v1','synthetic_only':True,
+            'container_id':details['Id'],'graph_name':graph,'username':username,'nonce':uuid4().hex,
+            'receipt_body_hash':hashlib.sha256(json.dumps(body,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()}
+        owner_raw=json.dumps(owner,sort_keys=True,separators=(',',':')).encode()
+        _durable_nonce(destination,'ownership.json',owner_raw)
+        owner_hash=hashlib.sha256(owner_raw).hexdigest()
         password=secrets.token_urlsafe(32)
         client.execute_command('ACL','SETUSER',username,'on','>'+password,'~'+graph,'-@all',
             '+graph.ro_query','+ping','+hello','+info|server')
@@ -135,7 +148,295 @@ def processing_reader(container,admin_url,directory,*,receipt,secret,current_del
             with (destination/name).open('x') as stream:json.dump(value,stream);stream.write('\n')
             os.chmod(destination/name,0o600)
         return result
+    except BaseException:
+        # Exact durable owner exists before ACL write; cleanup never guesses a prefix.
+        if owner_hash is not None:
+            retire_processing_reader(container,admin_url,destination,expected_ownership_sha256=owner_hash)
+        raise
     finally:client.close()
+
+
+@contextmanager
+def processing_reader_scope(container,admin_url,directory,*,receipt,secret,current_delivery):
+    """TEST-only new readonly ACL; caller closes own readonly pools before exit."""
+    environment=processing_reader(container,admin_url,directory,receipt=receipt,secret=secret,current_delivery=current_delivery)
+    owner=Path(directory)/'ownership.json';expected=hashlib.sha256(owner.read_bytes()).hexdigest()
+    try:yield environment
+    finally:retire_processing_reader(container,admin_url,directory,expected_ownership_sha256=expected)
+
+
+def retire_processing_reader(container,admin_url,directory,*,expected_ownership_sha256):
+    """Retire ONLY this new reader account; never delete/modify its graph."""
+    from oracle_brain.hosting.custody import _durable_nonce
+    destination=Path(directory)
+    raw,owner=_private_recovery_record(destination/'ownership.json',expected_ownership_sha256)
+    if (set(owner)!={'schema_version','profile','synthetic_only','container_id','graph_name','username','nonce','receipt_body_hash'}
+            or type(owner['schema_version']) is not int or owner['schema_version']!=1
+            or owner['profile']!='processing-reader-fixture-v1' or owner['synthetic_only'] is not True
+            or not re.fullmatch(r'oracle_ro_fixture_user_[0-9a-f]{32}',owner['username'])
+            or not re.fullmatch(r'oracle_processing_v1_[0-9a-f]{32}_[0-9a-f]{32}_[1-9][0-9]*_[0-9a-f]{32}',owner['graph_name'])
+            or not re.fullmatch(r'[0-9a-f]{32}',owner['nonce']) or not re.fullmatch(r'[0-9a-f]{64}',owner['receipt_body_hash'])):
+        raise PermissionError('exact new processing reader ownership required')
+    details,_=owned_target(container,admin_url)
+    if details['Id']!=owner['container_id']:raise PermissionError('reader target changed')
+    client=redis.Redis.from_url(admin_url,socket_timeout=2,socket_connect_timeout=2,decode_responses=True)
+    try:
+        acl=client.acl_getuser(owner['username'])
+        if acl is None:
+            # Creator may have failed before the first ACL write, never adopt/recreate.
+            _durable_nonce(destination,'reader-retired.json',json.dumps({'ownership_hash':expected_ownership_sha256,
+                'status':'exact-reader-absent-no-graph-change'}).encode());return
+        keys=acl.get('keys',[]);commands=acl.get('commands',[])
+        if isinstance(keys,str):keys=keys.split()
+        if isinstance(commands,str):commands=commands.split()
+        if (set(keys)!={'~'+owner['graph_name']} or acl.get('selectors') or acl.get('categories')!=['-@all']
+                or set(commands)!={'+graph.ro_query','+ping','+hello','+info|server'}):
+            raise PermissionError('reader ACL drifted; preserve')
+        client.execute_command('ACL','SETUSER',owner['username'],'off')
+        killed=client.execute_command('CLIENT','KILL','USER',owner['username'],'SKIPME','YES')
+        if ('off' not in client.acl_getuser(owner['username'])['flags']
+                or any(row.get('user')==owner['username'] for row in client.client_list())):
+            raise PermissionError('exact reader clients remain; preserve')
+        if client.execute_command('ACL','DELUSER',owner['username'])!=1:raise PermissionError('reader retirement differs')
+        _durable_nonce(destination,'reader-retired.json',json.dumps({'ownership_hash':expected_ownership_sha256,
+            'killed_clients':killed,'status':'exact-reader-retired-no-graph-change'}).encode())
+    finally:client.close()
+
+
+class _OwnedProcessingWriter:
+    """TEST fixture ownership, never runtime/source authority or stop proof."""
+    def __init__(self,directory,ownership,ownership_bytes,environment):
+        self.directory=directory;self.ownership=ownership;self.ownership_bytes=ownership_bytes
+        self.environment=environment;self.inactive=False
+    def _owned_admin(self):
+        current,_=owned_target(self._container,self._admin_url)
+        info=(self.directory/'ownership.json').lstat()
+        if (current['Id']!=self.ownership['container_id'] or not stat.S_ISREG(info.st_mode)
+                or info.st_uid!=os.getuid() or info.st_nlink!=1 or info.st_mode&0o077
+                or (self.directory/'ownership.json').read_bytes()!=self.ownership_bytes
+                or json.loads(self.ownership_bytes)!=self.ownership):
+            raise PermissionError('exact writer fence ownership differs')
+        client=redis.Redis.from_url(self._admin_url,socket_timeout=2,socket_connect_timeout=2,decode_responses=True)
+        acl=client.acl_getuser(self.ownership['username'])
+        keys=acl.get('keys',[]) if acl else []
+        if isinstance(keys,str):keys=keys.split()
+        commands=acl.get('commands',[]) if acl else []
+        if isinstance(commands,str):commands=commands.split()
+        if (not acl or type(commands) is not list or any(type(x) is not str for x in commands)
+                or set(keys)!={'~'+self.ownership['graph_name'],'~'+self.ownership['ontology_name']}
+                or acl.get('selectors') or acl.get('categories')!=['-@all']
+                or {x.lower() for x in commands}!=
+                    {'+graph.query','+graph.ro_query','+ping','+hello','+info|server'}):
+            client.close();raise PermissionError('writer ACL ownership differs; preserve')
+        return client
+
+    def retire(self):
+        from oracle_brain.hosting.custody import _durable_nonce
+        if not self.inactive:raise PermissionError('actual owned producer inactivity unproved')
+        client=self._owned_admin()
+        try:
+            for key in (self.ownership['graph_name'],self.ownership['ontology_name']):
+                if client.exists(key):client.execute_command('GRAPH.DELETE',key)
+            if client.execute_command('ACL','DELUSER',self.ownership['username'])!=1:
+                raise PermissionError('owned writer retirement differs')
+            _durable_nonce(self.directory,'retired.json',json.dumps({
+                'ownership_hash':hashlib.sha256(self.ownership_bytes).hexdigest(),
+                'status':'exact-inactive-resources-retired'}).encode())
+        finally:client.close()
+
+    def fence_producer(self):
+        """LOCAL TEST ONLY: fence this NEW exact username; never shared/admin users."""
+        from oracle_brain.hosting.custody import _durable_nonce
+        if getattr(self,'_fenced',False):raise PermissionError('writer fence is single use')
+        client=self._owned_admin()
+        try:
+            username=self.ownership['username']
+            client.execute_command('ACL','SETUSER',username,'off')
+            killed=client.execute_command('CLIENT','KILL','USER',username,'SKIPME','YES')
+            acl=client.acl_getuser(username)
+            if 'off' not in acl.get('flags',[]) or any(c.get('user')==username for c in client.client_list()):
+                raise PermissionError('exact producer fence unproved; preserve')
+            _durable_nonce(self.directory,'fenced.json',json.dumps({
+                'ownership_hash':hashlib.sha256(self.ownership_bytes).hexdigest(),
+                'status':'exact-new-writer-disabled-and-clients-absent','killed_clients':killed}).encode())
+            self._fenced=True
+        finally:client.close()
+
+    def confirm_fenced_inactive(self,*,timeout=5):
+        """After caller closes ALL owned pools/tasks, prove server idle under fence.
+
+        No runtime privilege; no claim that cancellation or an idle snapshot by
+        itself stops a query. Only this fresh dedicated writer may be fenced.
+        """
+        import time
+        from oracle_brain.hosting.custody import _durable_nonce
+        if not getattr(self,'_fenced',False) or type(timeout) not in (int,float) or not 0<timeout<=5:
+            raise PermissionError('exact bounded producer fence required')
+        client=self._owned_admin();deadline=time.monotonic()+timeout;observations=0
+        try:
+            while True:
+                username=self.ownership['username'];acl=client.acl_getuser(username)
+                if 'off' not in acl.get('flags',[]) or any(c.get('user')==username for c in client.client_list()):
+                    raise PermissionError('producer fence changed; preserve')
+                result=client.execute_command('GRAPH.INFO','RunningQueries','WaitingQueries')
+                if (type(result) is not list or len(result)!=4 or result[0]!='# Running queries'
+                        or result[2]!='# Waiting queries' or any(type(result[i]) is not list for i in (1,3))):
+                    raise PermissionError('actual graph idle evidence unavailable; preserve')
+                active=0
+                for entries in (result[1],result[3]):
+                    for entry in entries:
+                        if type(entry) is not list or len(entry)%2:raise PermissionError('malformed graph activity; preserve')
+                        row=dict(zip(entry[::2],entry[1::2]))
+                        if 'Graph name' not in row:raise PermissionError('missing graph activity identity; preserve')
+                        if row['Graph name'] in (self.ownership['graph_name'],self.ownership['ontology_name']):active+=1
+                observations+=1
+                if not active:break
+                if time.monotonic()>=deadline:raise PermissionError('owned graph still running or waiting; preserve')
+                time.sleep(min(.01,max(0,deadline-time.monotonic())))
+            _durable_nonce(self.directory,'fenced-idle.json',json.dumps({
+                'ownership_hash':hashlib.sha256(self.ownership_bytes).hexdigest(),
+                'status':'fenced-own-producer-and-no-own-running-or-waiting-query',
+                'observations':observations}).encode())
+            self.confirm_inactive()
+        finally:client.close()
+
+    def confirm_inactive(self):
+        """Caller must have actual timely owned completion; UNKNOWN cannot call."""
+        from oracle_brain.hosting.custody import _durable_nonce
+        _durable_nonce(self.directory,'inactive.json',json.dumps({'ownership_hash':hashlib.sha256(self.ownership_bytes).hexdigest(),
+            'status':'caller-observed-inactive'}).encode())
+        self.inactive=True
+
+
+@contextmanager
+def processing_writer(container,admin_url,directory,*,workspace_id,artifact_id,version,generation):
+    """Create ONLY a new own graph/ontology writer ACL on a proven local target.
+
+    Default UNKNOWN preserves exact ownership/resources. Caller confirms actual
+    inactive completion only after timely work; no timeout implies cleanup.
+    """
+    from uuid import UUID
+    from oracle_brain.hosting.custody import _durable_nonce
+    if (any(type(i) is not UUID for i in (workspace_id,artifact_id,generation))
+            or type(version) is not int or version<1):raise PermissionError('exact own UUID graph namespace required')
+    details,params=owned_target(container,admin_url)
+    graph=f'oracle_processing_v1_{workspace_id.hex}_{artifact_id.hex}_{version}_{generation.hex}'
+    ontology=graph+'__ontology';username='oracle_writer_fixture_user_'+uuid4().hex
+    destination=Path(directory)
+    if destination.exists() or destination.is_symlink():raise PermissionError('fresh owned writer directory required')
+    destination.mkdir(mode=0o700,parents=True)
+    client=redis.Redis.from_url(admin_url,socket_timeout=5,socket_connect_timeout=5,decode_responses=True)
+    try:
+        if client.exists(graph) or client.exists(ontology) or client.acl_getuser(username) is not None:
+            raise PermissionError('existing graph/ontology/ACL cannot be adopted')
+        password=secrets.token_urlsafe(32)
+        url='redis://'+quote(username,safe='')+':'+quote(password,safe='')+'@127.0.0.1:'+str(params.port)
+        ownership={'schema_version':1,'synthetic_only':True,'container_id':details['Id'],
+            'graph_name':graph,'ontology_name':ontology,'username':username,'nonce':uuid4().hex}
+        raw=json.dumps(ownership,sort_keys=True,separators=(',',':')).encode()
+        environment={'ORACLE2_TEST_PROCESSING_WRITER_GRAPH_URL':url}
+        # Actual retained O_EXCL/fsync primitive, durable BEFORE first ACL write.
+        _durable_nonce(destination,'ownership.json',raw)
+        _durable_nonce(destination,'environment.json',json.dumps(environment).encode())
+        if (destination/'ownership.json').read_bytes()!=raw:raise PermissionError('writer ownership readback differs')
+        lease=_OwnedProcessingWriter(destination,ownership,raw,environment)
+        lease._container=container;lease._admin_url=admin_url
+        client.execute_command('ACL','SETUSER',username,'on','>'+password,'~'+graph,'~'+ontology,'-@all',
+            '+graph.query','+graph.ro_query','+ping','+hello','+info|server')
+        restricted=redis.Redis.from_url(url,socket_timeout=3,socket_connect_timeout=3,decode_responses=True)
+        try:
+            restricted.ping()
+            # Empty exact namespaces only: no documentary content or extra node.
+            for key in (graph,ontology):restricted.execute_command('GRAPH.QUERY',key,'RETURN 1','TIMEOUT',1000)
+            for args in (('GRAPH.QUERY','oracle_processing_v1_'+uuid4().hex,'RETURN 1','TIMEOUT',1000),
+                         ('ACL','GETUSER',username),('GRAPH.LIST',),('GRAPH.DELETE',graph)):
+                try:restricted.execute_command(*args)
+                except redis.exceptions.NoPermissionError:pass
+                else:raise AssertionError('writer acquired unrelated graph/admin/list/delete capability')
+        finally:restricted.close()
+        try:yield lease
+        finally:
+            if not lease.inactive:
+                _durable_nonce(destination,'unknown.json',json.dumps({'ownership_hash':hashlib.sha256(raw).hexdigest(),
+                    'status':'UNKNOWN-preserved-no-cleanup'}).encode())
+            else:
+                lease.retire()
+    finally:client.close()
+
+
+def _private_recovery_record(path,expected_hash):
+    """Private TEST fixture evidence only, not source/runtime authority."""
+    path=Path(path)
+    if (not path.is_absolute() or path.resolve()!=path or path.parent.is_symlink()
+            or not re.fullmatch(r'[0-9a-f]{64}',expected_hash)):
+        raise PermissionError('canonical pinned private recovery record required')
+    directory=path.parent.stat();info=path.lstat()
+    if (directory.st_uid!=os.getuid() or directory.st_mode&0o077
+            or not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid()
+            or info.st_nlink!=1 or info.st_mode&0o077 or info.st_size>16384):
+        raise PermissionError('private own single-link recovery record required')
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
+    try:
+        opened=os.fstat(fd)
+        if (opened.st_dev,opened.st_ino)!=(info.st_dev,info.st_ino):
+            raise PermissionError('recovery record changed before read')
+        raw=os.read(fd,16385)
+        after=os.fstat(fd)
+        if ((after.st_size,after.st_mtime_ns,after.st_ctime_ns)!=(info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+                or hashlib.sha256(raw).hexdigest()!=expected_hash):
+            raise PermissionError('recovery record hash or identity differs')
+    finally:os.close(fd)
+    def unique(pairs):
+        value={}
+        for key,item in pairs:
+            if key in value:raise PermissionError('duplicate recovery metadata')
+            value[key]=item
+        return value
+    return raw,json.loads(raw,object_pairs_hook=unique)
+
+
+@contextmanager
+def recover_processing_writer(container,admin_url,directory,*,expected_ownership_sha256,
+        producer_stop_receipt,expected_producer_stop_sha256):
+    """LOCAL TEST ONLY: exact prior owner, independently recorded stopped caller.
+
+    The supplied terminal record is caller evidence, NOT an authority issuer or
+    automatic stop proof. No credentials/environment are read or reissued.
+    Only a fresh dedicated writer created by processing_writer is recoverable.
+    """
+    from oracle_brain.hosting.custody import _durable_nonce
+    destination=Path(directory)
+    raw,owner=_private_recovery_record(destination/'ownership.json',expected_ownership_sha256)
+    fields={'schema_version','synthetic_only','container_id','graph_name','ontology_name','username','nonce'}
+    if (type(owner) is not dict or set(owner)!=fields or type(owner['schema_version']) is not int
+            or owner['schema_version']!=1 or owner['synthetic_only'] is not True
+            or not re.fullmatch(r'oracle_writer_fixture_user_[0-9a-f]{32}',owner['username'])
+            or not re.fullmatch(r'oracle_processing_v1_[0-9a-f]{32}_[0-9a-f]{32}_[1-9][0-9]*_[0-9a-f]{32}',owner['graph_name'])
+            or owner['ontology_name']!=owner['graph_name']+'__ontology'
+            or not re.fullmatch(r'[0-9a-f]{32}',owner['nonce'])):
+        raise PermissionError('exact canonical newly owned writer required')
+    _,stopped=_private_recovery_record(producer_stop_receipt,expected_producer_stop_sha256)
+    if (type(stopped) is not dict or set(stopped)!={'schema_version','ownership_sha256','run_id',
+            'terminal_exit_code','local_producer_tasks_stopped','local_producer_pools_closed','terminal_evidence_sha256'}
+            or type(stopped['schema_version']) is not int or stopped['schema_version']!=1
+            or stopped['ownership_sha256']!=expected_ownership_sha256
+            or type(stopped['run_id']) is not str or not 0<len(stopped['run_id'])<=256
+            or type(stopped['terminal_exit_code']) is not int
+            or stopped['local_producer_tasks_stopped'] is not True
+            or stopped['local_producer_pools_closed'] is not True
+            or not re.fullmatch(r'[0-9a-f]{64}',stopped['terminal_evidence_sha256'])):
+        raise PermissionError('actual exact run terminal/tasks/pools evidence required')
+    lease=_OwnedProcessingWriter(destination,owner,raw,{})
+    lease._container=container;lease._admin_url=admin_url
+    # Reuse the exact ownership/target/key/command validator BEFORE any fence.
+    checked=lease._owned_admin();checked.close()
+    _durable_nonce(destination,'recovered.json',json.dumps({'ownership_hash':expected_ownership_sha256,
+        'producer_stop_record_hash':expected_producer_stop_sha256,'status':'exact-own-writer-recovered-not-yet-inactive'}).encode())
+    try:yield lease
+    finally:
+        if lease.inactive:lease.retire()
+        else:_durable_nonce(destination,'recovery-unknown.json',json.dumps({
+            'ownership_hash':expected_ownership_sha256,'status':'UNKNOWN-preserved-no-cleanup'}).encode())
 
 
 if __name__=='__main__':

@@ -198,8 +198,25 @@ def deliver_actual_paid_graph(worker,job,*,artifact,embedding_dispatch_id,root,t
             stage('protected_projector_settings_loaded')
             lease=lease_processing_projection(settings.bundle.ledger,job.workspace_id)
             assert lease is not None
+            def _ack_profile(name):
+                if os.environ.get('ORACLE2_TEST_ACK_PROFILE')!='1':
+                    return None
+                import cProfile
+                prof=cProfile.Profile();prof.enable()
+                return (prof,name)
+            def _ack_profile_end(token):
+                if token is None:return
+                import cProfile,pstats,io
+                prof,name=token;prof.disable()
+                buf=io.StringIO();pstats.Stats(prof,stream=buf).strip_dirs().sort_stats('cumulative').print_stats(40)
+                (root/('ack-profile-'+name+'.txt')).write_text(buf.getvalue())
+                prof.dump_stats(str(root/('ack-profile-'+name+'.pstats')))
             async def deliver():
-                signed=await project_paid_projector_event_v3(settings,lease)
+                token=_ack_profile('project')
+                try:
+                    signed=await project_paid_projector_event_v3(settings,lease)
+                finally:
+                    _ack_profile_end(token)
                 assert signed['schema_version']==3 and signed['embedding_protocol']=='paid-sdk-embedding-v3'
                 stage('protected_graph_ack_committed')
                 return signed
@@ -207,11 +224,15 @@ def deliver_actual_paid_graph(worker,job,*,artifact,embedding_dispatch_id,root,t
             def restart():
                 # Independent readonly reconstruction AFTER the actual ACK.
                 async def verify():
-                    fresh=reload_paid_projector_projection_v3(settings)
+                    token=_ack_profile('reload')
                     try:
-                        loaded=await fresh.load(settings.bundle.ledger,job.workspace_id,artifact.artifact_id,artifact.version)
-                        assert loaded['qualified_lineage']['schema_version']==3
-                    finally:await fresh.close()
+                        fresh=reload_paid_projector_projection_v3(settings)
+                        try:
+                            loaded=await fresh.load(settings.bundle.ledger,job.workspace_id,artifact.artifact_id,artifact.version)
+                            assert loaded['qualified_lineage']['schema_version']==3
+                        finally:await fresh.close()
+                    finally:
+                        _ack_profile_end(token)
                 asyncio.run(verify())
                 stage('fresh_compiler_restart_verified')
             yield dict(signed=signed,settings=settings,container=container,admin_url=admin,generation=generation,restart=restart)
