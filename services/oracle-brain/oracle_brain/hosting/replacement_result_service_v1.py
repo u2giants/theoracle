@@ -1,5 +1,5 @@
 """Fixed mTLS result consumer; no provider, raw-source or metadata-gateway route."""
-import asyncio,hashlib,ssl,time,threading,concurrent.futures
+import asyncio,hashlib,ssl,time,threading,concurrent.futures,math
 from datetime import datetime,timezone
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -116,10 +116,18 @@ class ProtectedReplacementResultServiceV1:
                 _require(checked<end,'result completed after original deadline')
                 response=ProtectedReplacementResultResponseV1(schema_version=1,protocol=PROTOCOL,nonce=request.nonce,
                     request_sha256=hashlib.sha256(raw).hexdigest(),checked_at=checked,expires_at=end,snapshot=snapshot)
-                encoded=encode_result_response_v1(response)
         finally:
             if projection is not None:
                 await self._close_owned_projection(projection,deadline)
+        _require(datetime.now(timezone.utc)<deadline,'result deadline expired before publication')
+        # Pool cleanup can consume currentness or change a hold/confirmation.
+        final,final_until=s.current_target()
+        _require(_target_identity(before)==_target_identity(final),'result changed during owned cleanup')
+        checked=datetime.now(timezone.utc);end=min(deadline,final_until)
+        _require(checked<end,'result deadline expired after final current check')
+        response=ProtectedReplacementResultResponseV1(**(response.model_dump(mode='python')|
+            {'checked_at':checked,'expires_at':end}))
+        encoded=encode_result_response_v1(response)
         _require(datetime.now(timezone.utc)<deadline,'result deadline expired before publication')
         return encoded
 
@@ -129,41 +137,85 @@ class _ResultOwnedLoopV1:
     def __init__(self,service):
         _require(type(service) is ProtectedReplacementResultServiceV1,'exact owned result service required')
         self.service=service;self.requests=set();self.closing=False
+        self.records={};self.record_lock=threading.RLock();self.observed_outcomes={'returned':0,'failed':0,'cancelled':0}
         self.loop=asyncio.new_event_loop();self.ready=threading.Event()
         self.thread=threading.Thread(target=self._run,name='protected-result-owned-loop',daemon=False)
-        self.thread.start();_require(self.ready.wait(5),'owned result loop did not start')
+        try:
+            self.thread.start()
+            _require(self.ready.wait(5),'owned result loop did not start')
+        except BaseException:
+            if self.thread.is_alive():
+                self.loop.call_soon_threadsafe(self.loop.stop);self.thread.join(timeout=5)
+                _require(not self.thread.is_alive(),'owned result constructor cleanup remains unknown')
+            elif not self.loop.is_closed():self.loop.close()
+            raise
 
     def _run(self):
         asyncio.set_event_loop(self.loop);self.ready.set()
         self.loop.run_forever();self.loop.close()
 
-    async def _request(self,peer,raw):
+    async def _request(self,peer,raw,original_end,record):
+        task=asyncio.current_task();record['task']=task
+        _require(time.monotonic()<original_end,'original result handler deadline expired')
         _require(not self.closing and not self.service._cleanup_unknown and len(self.requests)<32,
             'owned result lifecycle unavailable')
-        task=asyncio.current_task();self.requests.add(task)
+        self.requests.add(task)
         try:return await self.service.handle_result_v1(peer,raw)
         finally:self.requests.remove(task)
 
-    def result(self,peer,raw):
+    def _settled(self,future,record):
+        try:
+            error=future.exception();outcome='failed' if error is not None else 'returned'
+        except concurrent.futures.CancelledError:outcome='cancelled'
+        with self.record_lock:
+            record['outcome']=outcome
+            self.observed_outcomes[outcome]+=1
+        self.loop.call_soon_threadsafe(self._retire_observed,future,record)
+
+    def _retire_observed(self,future,record):
+        # Only runs on the owned loop; unfinished closes keep actual task records.
+        with self.record_lock:
+            if record['handler_observed'] and record.get('outcome') and not self.service._owned_closes:
+                self.records.pop(future,None)
+
+    def result(self,peer,raw,*,absolute_monotonic_deadline):
         _require(not self.closing,'result listener is closing')
-        future=asyncio.run_coroutine_threadsafe(self._request(peer,raw),self.loop)
-        try:return future.result(timeout=35)
+        _require(type(absolute_monotonic_deadline) in (int,float)
+            and math.isfinite(absolute_monotonic_deadline)
+            and time.monotonic()<absolute_monotonic_deadline,'original result handler deadline expired')
+        # Narrow the trusted handler clock by the actual strict request, never reset it.
+        now=datetime.now(timezone.utc);request=parse_result_request_v1(raw,now=now)
+        original_end=min(absolute_monotonic_deadline,time.monotonic()+max(0,(request.expires_at-now).total_seconds()))
+        record={'task':None,'handler_observed':False,'outcome':None,'original_end':original_end}
+        future=asyncio.run_coroutine_threadsafe(self._request(peer,raw,original_end,record),self.loop)
+        with self.record_lock:self.records[future]=record
+        future.add_done_callback(lambda f:self._settled(f,record))
+        try:return future.result(timeout=max(0,original_end-time.monotonic())+5)
         except concurrent.futures.TimeoutError:
             # Do not cancel/drop actual work when its handler wait ends.
             self.loop.call_soon_threadsafe(setattr,self.service,'_cleanup_unknown',True)
             raise PermissionError('owned result request remains unknown') from None
+        finally:
+            with self.record_lock:record['handler_observed']=True
+            self.loop.call_soon_threadsafe(self._retire_observed,future,record)
 
     async def _observe(self):
         self.closing=True
-        tasks=set(self.requests)|set(self.service._owned_closes)
+        with self.record_lock:futures=tuple(self.records)
+        wrapped={asyncio.wrap_future(f) for f in futures}
+        tasks=set(self.requests)|set(self.service._owned_closes)|wrapped
         if tasks:
             _,pending=await asyncio.wait(tasks,timeout=5)
             _require(not pending,'owned result tasks remain pending')
+        for task in wrapped:
+            try:task.result()
+            except BaseException:pass  # Known denied request, exception observed; never published/retried.
         for task in tuple(self.service._owned_closes):
             try:task.result()
             except BaseException:raise PermissionError('owned result cleanup remains unknown') from None
             del self.service._owned_closes[task]
         _require(not self.requests,'owned result requests remain active')
+        with self.record_lock:self.records.clear()
 
     def close(self):
         if self.loop.is_closed() and not self.thread.is_alive():return
@@ -201,7 +253,7 @@ def protected_replacement_result_server_v1(settings):
                 length=fixed_request_length_v1(self,path='/v3/replacement/result',content_type='application/json',maximum_bytes=4096)
                 peer=peer_der_v1(self.connection,expected_uri=c.client_uri,expected_der_sha256=c.client_certificate_sha256)
                 raw=read_request_body_v1(self,length,absolute_monotonic_deadline=end)
-                result=self.server.owned_result_loop.result(peer,raw)
+                result=self.server.owned_result_loop.result(peer,raw,absolute_monotonic_deadline=end)
                 self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store')
                 self.send_header('Content-Length',str(len(result)));self.end_headers();self.wfile.write(result)
             except Exception:
@@ -212,9 +264,13 @@ def protected_replacement_result_server_v1(settings):
         daemon_threads=False
         def __init__(self):
             super().__init__((c.listen_host,c.listen_port),Handler,tls=context)
-            self.owned_result_loop=_ResultOwnedLoopV1(service)
+            try:self.owned_result_loop=_ResultOwnedLoopV1(service)
+            except BaseException:
+                super().server_close()
+                raise
         def server_close(self):
             # Existing non-daemon request handlers are joined by server_close.
             super().server_close()
-            self.owned_result_loop.close()
+            owner=getattr(self,'owned_result_loop',None)
+            if owner is not None:owner.close()
     return ResultServer()
