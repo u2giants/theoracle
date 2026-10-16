@@ -151,6 +151,9 @@ def verify_extraction_paid_wire_v2(context,commit,raw,qualification,population,*
             or commit.request_hash!=job.request_hash or job.workspace_id!=qualification.workspace_id
             or commit.workspace_id!=qualification.workspace_id
             or job.purpose!='source-extraction' or job.processing_request.purpose!='source-extraction'
+            or job.processing_request.provider!='openrouter'
+            or job.processing_request.endpoint!='https://openrouter.ai/api/v1'
+            or not job.processing_request.account.startswith('key-sha256:') or job.processing_request.fallback
             or job.request.get('model')!=qualification.model or commit.model!=qualification.model
             or job.pricing.model!=qualification.model or job.pricing.admitted_register_hash!=job.register_hash
             or commit.account_policy_hash!=digest({k:v for k,v in job.processing_request.model_dump(mode='json').items() if k!='terms_hash'})
@@ -284,6 +287,11 @@ def _extraction_population_hold_v2(settings,dispatch):
         with ExitStack() as stack:
             proofs=tuple(stack.enter_context(s.resolver.hold(d,j,connection=conn)) for j in d.dispatches)
             proof=proofs[d.dispatches.index(dispatch)]
+            # Narrow the actual selected-source proof to every admitted source's
+            # finite SQL horizon; never stretch one source over another grant.
+            proof=proof.model_copy(update={'expires_at':min(p.expires_at for p in proofs)})
+            if datetime.now(timezone.utc)>=proof.expires_at:
+                raise PermissionError('complete extraction source horizon expired')
             _current_extraction_records_v2(s,now=datetime.now(timezone.utc))
             yield proof,conn
             _current_extraction_records_v2(s,now=datetime.now(timezone.utc))
@@ -642,6 +650,9 @@ def verify_extraction_failed_paid_wire_v2(context,record,raw,wire_metadata,quali
             or target.context_hash!=sealed(context) or context.job_hash!=sealed(job)
             or context.permission_hash!=job.permission_hash or job.request_hash!=digest(job.request)
             or job.purpose!='source-extraction' or job.processing_request.purpose!='source-extraction'
+            or job.processing_request.provider!='openrouter'
+            or job.processing_request.endpoint!='https://openrouter.ai/api/v1'
+            or not job.processing_request.account.startswith('key-sha256:') or job.processing_request.fallback
             or job.request.get('model')!=q.model or job.pricing.model!=q.model
             or job.pricing.admitted_register_hash!=job.register_hash
             or job.request.get('messages')!=extraction_messages(context.receipt)):
