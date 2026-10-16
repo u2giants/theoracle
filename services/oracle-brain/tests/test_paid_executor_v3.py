@@ -73,3 +73,71 @@ def test_summary_targets_require_exact_parent_kind_and_independent_appointment()
     a=PaidExecutorAppointmentV3.model_validate(values)
     with pytest.raises(PermissionError,match='appointment/config differs'):
         _appointment(parsed,a,'a'*64,parsed.issuer_actor,parsed.reviewer_actor,datetime.now(timezone.utc))
+
+
+def make_paid_executor_fixture_settings_v3(worker,job,root,*,executor_binding,database_url_file,database_ca_file,
+        graph_url_file,tls_ca_file,tls_certificate_file,tls_key_file,tls_client_uri,tls_server_uri,
+        qualified_manifest,qualified_payload,delivery_seal,qualified_blob_root,summary_targets=()):
+    """TEST ONLY metadata authoring; all roles, bytes, ACK and TLS already exist."""
+    import hashlib,json
+    from pathlib import Path
+    from datetime import datetime,timezone
+    from urllib.parse import urlsplit,unquote
+    from psycopg.conninfo import conninfo_to_dict
+    from oracle_brain.hosting.paid_executor_v3 import (PaidExecutorConfigV3,PaidExecutorAppointmentV3,
+        load_paid_executor_settings_v3)
+    from oracle_brain.hosting.purpose_journey_v2 import CompilerWorkerSettingsV2,_require
+    from oracle_brain.operating_model.authority_adapter import ProcessingSourceBinding
+    from oracle_brain.operating_model.contracts import canonical_bytes,digest,ProcessingProjectionDeliverySealV3
+    from oracle_brain.operating_model.purpose_qualification_v3 import PurposeSemanticAdmissionV3
+    _require(type(worker) is CompilerWorkerSettingsV2 and type(executor_binding) is ProcessingSourceBinding
+        and executor_binding.profile=='documentary-executor' and executor_binding.principal!=worker.config.actor_id
+        and type(delivery_seal) is ProcessingProjectionDeliverySealV3,'actual separate executor metadata required')
+    worker.authorize(job);worker.semantic.current(datetime.now(timezone.utc))
+    admission=PurposeSemanticAdmissionV3.model_validate_json(canonical_bytes(qualified_payload['assembly_qualification']['admission']))
+    _require(digest(qualified_payload)==qualified_manifest.content_hash
+        and (delivery_seal.artifact_id,delivery_seal.version,delivery_seal.content_hash)==
+            (qualified_manifest.artifact_id,qualified_manifest.version,qualified_manifest.content_hash),
+        'actual qualified model/SQL delivery target differs')
+    _require(executor_binding.source_registry_hash==worker.config.source_registry_hash
+        and executor_binding.expected_session_role!=worker.config.expected_session_role,
+        'separate executor and unchanged original source registry required')
+    # These are fixture-owned exact existing credentials; helper issues none.
+    sql=conninfo_to_dict(Path(database_url_file).read_text().strip())
+    graph=urlsplit(Path(graph_url_file).read_text().strip())
+    now=datetime.now(timezone.utc);end=min(job.original_horizon,job.expires_at,worker.population.expires_at,
+        worker.allocation.original_expires_at,executor_binding.expires_at,worker.semantic.valid_until(now),admission.expires_at)
+    c=dict(workspace_id=job.workspace_id,actor_id=executor_binding.principal,
+        expected_owner_role=executor_binding.expected_owner_role,expected_session_role=executor_binding.expected_session_role,
+        runtime_hash=executor_binding.runtime_hash,source_registry_hash=executor_binding.source_registry_hash,
+        source_refs=job.source_refs,original_root_hash=worker.population.parent_registry_sha256,
+        semantic_admission_hash=digest(admission.model_dump(mode='json')),semantic_context_hash=admission.context_hash,
+        original_horizon=job.original_horizon,source_expires_at=end,database_hostname=sql['host'],
+        database_port=int(sql.get('port') or 5432),database_name=sql['dbname'],
+        artifact_id=qualified_manifest.artifact_id,artifact_version=qualified_manifest.version,
+        content_hash=qualified_manifest.content_hash,source_digest=qualified_manifest.source_digest,
+        permission_digest=qualified_manifest.permission_digest,projection_digest=delivery_seal.projection_digest,
+        receipt_body_hash=delivery_seal.receipt_body_hash,receipt_signature=delivery_seal.signature,
+        generation=__import__('uuid').UUID(delivery_seal.graph_name.rsplit('_',1)[1]),graph_name=delivery_seal.graph_name,
+        blob_root=str(qualified_blob_root),graph_hostname=graph.hostname,graph_port=graph.port or 6379,
+        graph_username=unquote(graph.username),tls_server_uri=tls_server_uri,tls_client_uri=tls_client_uri,
+        compiler_actor=admission.compiler_actor,compiler_login=admission.compiler_login,compiler_runtime_hash=admission.runtime_hash,
+        compiler_permission_hash=admission.compiler_permission_hash,semantic_issuer_actor=worker.config.semantic_issuer_actor,
+        semantic_reviewer_actor=worker.config.semantic_reviewer_actor,semantic_valid_from=worker.config.semantic_valid_from,
+        semantic_expires_at=worker.config.semantic_expires_at,issuer_actor=worker.config.custody_issuer_actor,
+        reviewer_actor=worker.config.custody_reviewer_actor,valid_from=now,expires_at=end,summary_targets=summary_targets)
+    files=dict(database_url=database_url_file,database_ca=database_ca_file,graph_url=graph_url_file,
+        tls_ca=tls_ca_file,tls_certificate=tls_certificate_file,tls_key=tls_key_file,
+        semantic_registry=worker.config.semantic_registry_file)
+    for name,path in files.items():
+        c[name+'_file']=str(path);c[name+'_sha256']=hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    config=PaidExecutorConfigV3.model_validate(c)
+    root=Path(root);root.mkdir(mode=0o700,exist_ok=True)
+    config_path=root/'executor.json';config_path.write_bytes(canonical_bytes(config.model_dump(mode='json')));config_path.chmod(0o600)
+    config_hash=hashlib.sha256(config_path.read_bytes()).hexdigest()
+    fields=PaidExecutorAppointmentV3.model_fields
+    appointment=PaidExecutorAppointmentV3.model_validate({**{k:getattr(config,k) for k in fields if hasattr(config,k)},'config_sha256':config_hash})
+    appointment_path=root/'executor-appointment.json';appointment_path.write_bytes(canonical_bytes(appointment.model_dump(mode='json')));appointment_path.chmod(0o600)
+    return load_paid_executor_settings_v3(config_path,config_hash,appointment_path=appointment_path,
+        expected_appointment_sha256=hashlib.sha256(appointment_path.read_bytes()).hexdigest(),
+        issuer_actor=config.issuer_actor,reviewer_actor=config.reviewer_actor)
