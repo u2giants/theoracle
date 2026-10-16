@@ -660,6 +660,9 @@ def _phase_commit_from_custody(settings,job,reply=None):
         and commit.workspace_id==job.workspace_id and commit.source_refs==job.source_refs
         and commit.population_digest==source_population_digest(job.source_refs)
         and commit.request_hash==job.request_hash
+        and commit.operation_approval_hash==job.phase_registry_sha256
+        and commit.parent_registry_hash==settings.population.parent_registry_sha256
+        and commit.budget_identity_hash==settings.config.allocation_projection_sha256
         and entry.dispatch_id==commit.dispatch_id and entry.native_job_hash==commit.job_hash
         and (entry.phase_commit_hash is None or entry.phase_commit_hash==seal)
         and (entry.native_custody_receipt_hash is None or entry.native_custody_receipt_hash==commit.native_custody_receipt_hash)
