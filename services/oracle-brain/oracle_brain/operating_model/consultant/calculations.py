@@ -3,6 +3,15 @@ from dataclasses import dataclass
 from decimal import Decimal, localcontext
 
 
+def _canonical_token(value: object) -> bool:
+    """Machine identifiers are nonempty visible ASCII, never normalized.
+
+    Natural-language assumptions are not identifiers and retain Unicode.
+    This validates syntax, not evidence authenticity or measurement truth.
+    """
+    return isinstance(value, str) and bool(value) and all(33 <= ord(c) <= 126 for c in value)
+
+
 @dataclass(frozen=True)
 class Measurement:
     amount: Decimal
@@ -17,7 +26,7 @@ class Measurement:
             raise ValueError("measurement exceeds computational precision bounds")
         if not isinstance(self.unit, str) or not isinstance(self.period, str):
             raise ValueError("string unit and period required")
-        if self.unit != self.unit.strip() or self.period != self.period.strip():
+        if not _canonical_token(self.unit) or not _canonical_token(self.period):
             raise ValueError("canonical unit and period required")
         if self.amount < 0 or not self.unit.strip() or not self.period.strip():
             raise ValueError("nonnegative amount and explicit unit/period required")
