@@ -10,6 +10,13 @@ from oracle_brain.hosting.purpose_journey_v2 import PurposeJourneyJournalV2
 NOW=datetime.now(timezone.utc)
 ACTOR=uuid4()
 
+
+@pytest.fixture(autouse=True)
+def fresh_fixture_horizon(monkeypatch):
+    # Collection time confers no runtime authority; each independent test starts
+    # its existing two/three-minute invented window when actually executed.
+    monkeypatch.setitem(globals(),'NOW',datetime.now(timezone.utc))
+
 def job(*, phase='census', journey=None, refs=None, parent=None, prior=None, source_id=None, allocation='a'*64):
     now=NOW
     refs=refs or tuple(SourceRef(workspace_id=(w:=uuid4()) if i==0 else w,source_id=uuid4(),revision=1,
