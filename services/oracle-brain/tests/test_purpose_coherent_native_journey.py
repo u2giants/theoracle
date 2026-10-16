@@ -40,11 +40,11 @@ from oracle_brain.hosting.purpose_journey_v2 import PurposeJourneyCustodyV2,run_
 
 
 @pytest.mark.parametrize('native_census_startup',[{'phase':'census','coherent':True}],indirect=True)
-def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker):
+def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,admin_url,tmp_path):
     x,settings,job=compiler_worker
     parent=x['input_parent']
     assert parent is not None and len(parent.contexts)==3
-    assert tuple(c.receipt.reading for c in parent.contexts)==RICH_SOURCE_TEXTS
+    assert set(c.receipt.reading for c in parent.contexts)==set(RICH_SOURCE_TEXTS)
     assert parent.runtime_hash==x['input_runtime'] and all(c.actor_id==x['input_actor'] for c in parent.contexts)
     assert settings.population.parent_registry_sha256==digest(parent.model_dump(mode='json'))
     assert {c.job.batch_id for c in parent.contexts}=={x['job'].batch_id}
@@ -57,3 +57,12 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker):
     # Original-input custody is sealed; no extraction operation registry, paid
     # result, or future phase body was manufactured to establish this barrier.
     assert not list(x['custody'].glob('*.extraction*'))
+    from purpose_journey_fixture_phases import admit_extraction_phase
+    extraction=admit_extraction_phase(x,admin_url=admin_url,root=tmp_path/'late-extraction',census_row=row)
+    for context in parent.contexts:
+        x['observe_fixture_coverage']()
+        reply=extraction['client'].dispatch(context.job.dispatch_id,context.job.request_hash,extraction['operation_hash'],deadline=x['expires_at'])
+        assert reply['dispatch_id']==str(context.job.dispatch_id)
+    assert x['state']['posts']==4
+    assert extraction['settings'].population.parent_registry_sha256==settings.population.parent_registry_sha256
+

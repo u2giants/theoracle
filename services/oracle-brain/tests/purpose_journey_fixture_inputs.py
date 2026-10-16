@@ -1,5 +1,6 @@
 """Immutable ORIGINAL-input parent; this object issues no operation authority."""
 from uuid import uuid4
+from test_native_factory import job as template_job
 from oracle_brain.hosting.provider_runtime import JobContext,JobRegistry
 from oracle_brain.operating_model.contracts import canonical_bytes,digest
 from oracle_brain.operating_model.native_factory import NativeDispatchJob
@@ -14,7 +15,7 @@ def original_input_parent(receipts,*,actor_id,runtime_hash,batch_id,expires_at,c
     approval=ProcessingApproval(**processing.model_dump(),expires_at=expires_at,register_ref='invented-coherent-original-inputs')
     contexts=[]
     for receipt in receipts:
-        request=dict(model='openai/gpt-6.1-sol',messages=extraction_messages(receipt),temperature=0,max_tokens=4096)
+        request={**template_job().request,'messages':extraction_messages(receipt),'max_tokens':4096}
         job=NativeDispatchJob(dispatch_id=uuid4(),workspace_id=receipt.ref.workspace_id,artifact_id=uuid4(),batch_id=batch_id,
             purpose='source-extraction',attempt=1,request=request,request_hash=digest(request),permission_hash='c'*64,
             processing_request=processing,approvals=(approval,),
