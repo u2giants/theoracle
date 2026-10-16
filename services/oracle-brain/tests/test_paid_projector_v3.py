@@ -31,3 +31,17 @@ def test_projector_startup_never_accepts_foreign_worker_or_caller_json():
         with pytest.raises(Exception,match='actual compiler worker'):
             load_paid_projector_settings_v3('/absent','a'*64,appointment_path='/absent',
                 expected_appointment_sha256='b'*64,issuer_actor=uuid4(),reviewer_actor=uuid4(),worker=worker,job={})
+
+
+def test_projector_authority_refuses_caller_objects_and_deserialized_metadata():
+    from oracle_brain.hosting.paid_projector_v3 import PaidProjectorAuthorityV3
+    for supplied in (None,True,{},object()):
+        with pytest.raises(Exception,match='exact protected projector authority'):
+            PaidProjectorAuthorityV3(supplied)
+
+
+def test_projector_startup_rejects_missing_or_placeholder_external_hashes_before_files():
+    for config_hash,appointment_hash in ((None,'b'*64),('a'*64,None),('placeholder','b'*64),('a'*64,'')):
+        with pytest.raises(Exception,match='explicit external projector'):
+            load_paid_projector_settings_v3('/absent',config_hash,appointment_path='/absent',
+                expected_appointment_sha256=appointment_hash,issuer_actor=uuid4(),reviewer_actor=uuid4(),worker=None,job=None)
