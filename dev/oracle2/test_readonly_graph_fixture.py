@@ -145,6 +145,79 @@ class _OwnedProcessingWriter:
     def __init__(self,directory,ownership,ownership_bytes,environment):
         self.directory=directory;self.ownership=ownership;self.ownership_bytes=ownership_bytes
         self.environment=environment;self.inactive=False
+    def _owned_admin(self):
+        current,_=owned_target(self._container,self._admin_url)
+        info=(self.directory/'ownership.json').lstat()
+        if (current['Id']!=self.ownership['container_id'] or not stat.S_ISREG(info.st_mode)
+                or info.st_uid!=os.getuid() or info.st_nlink!=1 or info.st_mode&0o077
+                or (self.directory/'ownership.json').read_bytes()!=self.ownership_bytes
+                or json.loads(self.ownership_bytes)!=self.ownership):
+            raise PermissionError('exact writer fence ownership differs')
+        client=redis.Redis.from_url(self._admin_url,socket_timeout=2,socket_connect_timeout=2,decode_responses=True)
+        acl=client.acl_getuser(self.ownership['username'])
+        keys=acl.get('keys',[]) if acl else []
+        if isinstance(keys,str):keys=keys.split()
+        if (not acl or set(keys)!={'~'+self.ownership['graph_name'],'~'+self.ownership['ontology_name']}
+                or acl.get('selectors')):
+            client.close();raise PermissionError('writer ACL ownership differs; preserve')
+        return client
+
+    def fence_producer(self):
+        """LOCAL TEST ONLY: fence this NEW exact username; never shared/admin users."""
+        from oracle_brain.hosting.custody import _durable_nonce
+        if getattr(self,'_fenced',False):raise PermissionError('writer fence is single use')
+        client=self._owned_admin()
+        try:
+            username=self.ownership['username']
+            client.execute_command('ACL','SETUSER',username,'off')
+            killed=client.execute_command('CLIENT','KILL','USER',username,'SKIPME','YES')
+            acl=client.acl_getuser(username)
+            if 'off' not in acl.get('flags',[]) or any(c.get('user')==username for c in client.client_list()):
+                raise PermissionError('exact producer fence unproved; preserve')
+            _durable_nonce(self.directory,'fenced.json',json.dumps({
+                'ownership_hash':hashlib.sha256(self.ownership_bytes).hexdigest(),
+                'status':'exact-new-writer-disabled-and-clients-absent','killed_clients':killed}).encode())
+            self._fenced=True
+        finally:client.close()
+
+    def confirm_fenced_inactive(self,*,timeout=5):
+        """After caller closes ALL owned pools/tasks, prove server idle under fence.
+
+        No runtime privilege; no claim that cancellation or an idle snapshot by
+        itself stops a query. Only this fresh dedicated writer may be fenced.
+        """
+        import time
+        from oracle_brain.hosting.custody import _durable_nonce
+        if not getattr(self,'_fenced',False) or type(timeout) not in (int,float) or not 0<timeout<=5:
+            raise PermissionError('exact bounded producer fence required')
+        client=self._owned_admin();deadline=time.monotonic()+timeout;observations=0
+        try:
+            while True:
+                username=self.ownership['username'];acl=client.acl_getuser(username)
+                if 'off' not in acl.get('flags',[]) or any(c.get('user')==username for c in client.client_list()):
+                    raise PermissionError('producer fence changed; preserve')
+                result=client.execute_command('GRAPH.INFO','RunningQueries','WaitingQueries')
+                if (type(result) is not list or len(result)!=4 or result[0]!='# Running queries'
+                        or result[2]!='# Waiting queries' or any(type(result[i]) is not list for i in (1,3))):
+                    raise PermissionError('actual graph idle evidence unavailable; preserve')
+                active=0
+                for entries in (result[1],result[3]):
+                    for entry in entries:
+                        if type(entry) is not list or len(entry)%2:raise PermissionError('malformed graph activity; preserve')
+                        row=dict(zip(entry[::2],entry[1::2]))
+                        if 'Graph name' not in row:raise PermissionError('missing graph activity identity; preserve')
+                        if row['Graph name'] in (self.ownership['graph_name'],self.ownership['ontology_name']):active+=1
+                observations+=1
+                if not active:break
+                if time.monotonic()>=deadline:raise PermissionError('owned graph still running or waiting; preserve')
+                time.sleep(min(.01,max(0,deadline-time.monotonic())))
+            _durable_nonce(self.directory,'fenced-idle.json',json.dumps({
+                'ownership_hash':hashlib.sha256(self.ownership_bytes).hexdigest(),
+                'status':'fenced-own-producer-and-no-own-running-or-waiting-query',
+                'observations':observations}).encode())
+            self.confirm_inactive()
+        finally:client.close()
+
     def confirm_inactive(self):
         """Caller must have actual timely owned completion; UNKNOWN cannot call."""
         from oracle_brain.hosting.custody import _durable_nonce
@@ -185,6 +258,7 @@ def processing_writer(container,admin_url,directory,*,workspace_id,artifact_id,v
         _durable_nonce(destination,'environment.json',json.dumps(environment).encode())
         if (destination/'ownership.json').read_bytes()!=raw:raise PermissionError('writer ownership readback differs')
         lease=_OwnedProcessingWriter(destination,ownership,raw,environment)
+        lease._container=container;lease._admin_url=admin_url
         client.execute_command('ACL','SETUSER',username,'on','>'+password,'~'+graph,'~'+ontology,'-@all',
             '+graph.query','+graph.ro_query','+ping','+hello','+info|server')
         restricted=redis.Redis.from_url(url,socket_timeout=3,socket_connect_timeout=3,decode_responses=True)
