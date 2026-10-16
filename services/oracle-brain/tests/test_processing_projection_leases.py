@@ -174,3 +174,21 @@ def test_adapter_applies_actual_fixed_command_and_lock_deadlines(processing,tmp_
     monkeypatch.setattr(delivery.psycopg,'connect',observed_connect)
     assert lease_processing_projection(ledger,f['workspace']) is not None
     assert settings==[('5s','2s')]
+
+
+def test_legacy_delivery_refuses_paid_v3_before_any_ledger_or_ack(monkeypatch):
+    import asyncio
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
+    import oracle_brain.operating_model.processing_projection as delivery
+    calls=[]
+    def forbidden(*args,**kwargs):
+        calls.append('authority-or-ack')
+        raise AssertionError('legacy entry must refuse paid V3 before access')
+    monkeypatch.setattr(delivery,'_compiler',forbidden)
+    monkeypatch.setattr(delivery,'acknowledge_processing_projection',forbidden)
+    # Deliberately incomplete adversarial instance: no constructor/configuration
+    # can turn this subclass into a legacy projection or schema-1 ACK.
+    projection=object.__new__(PaidProcessingSDKProjectionV3)
+    with pytest.raises(PermissionError,match='explicit strict V3'):
+        asyncio.run(delivery.project_processing_event(object(),None,projection,secret=b'invented',projector_id='test'))
+    assert calls==[]
