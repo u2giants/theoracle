@@ -12,10 +12,28 @@ from .processing_ledger import ProcessingCompilerLedger
 from .projection_delivery import signature
 
 
+@dataclass(frozen=True)
+class ProcessingProjectionAuthorityWindowV3:
+    """Current observation freshness and independently bounded operation lifetime.
+
+    A typed record is not authority: protected hosting supplies the actual
+    appointed adapter and validates every external and current SQL constraint.
+    """
+    current_until:datetime
+    operation_horizon:datetime
+
+    def __post_init__(self):
+        for value in (self.current_until,self.operation_horizon):
+            if type(value) is not datetime or value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError('explicit aware projection window required')
+        if self.current_until>self.operation_horizon:
+            raise ValueError('current proof cannot exceed operation horizon')
+
+
 @runtime_checkable
 class ProcessingProjectionAuthorityProtocol(Protocol):
     """Pure contract; protected hosting enforces the actual appointed adapter."""
-    def authorize_current(self) -> datetime: ...
+    def authorize_current(self) -> ProcessingProjectionAuthorityWindowV3: ...
 
 
 class ProcessingProjectionIncomplete(PermissionError):
@@ -30,6 +48,16 @@ def _deadline(value):
             or value<=datetime.now(timezone.utc)):
         raise PermissionError('current finite projection deadline required')
     return value
+
+
+def _current_window(authority):
+    window=authority.authorize_current()
+    if type(window) is not ProcessingProjectionAuthorityWindowV3:
+        raise PermissionError('explicit currentness and operation window required')
+    _deadline(window.current_until);_deadline(window.operation_horizon)
+    if window.current_until>window.operation_horizon:
+        raise PermissionError('projection proof exceeds operation horizon')
+    return window
 
 
 @dataclass(frozen=True)
@@ -88,7 +116,12 @@ def acknowledge_processing_projection(ledger,lease,receipt,seal,*,secret,caller_
             raise PermissionError('actual paid projector authority and original deadline required')
         # Outside SQL locks: the hosting adapter rechecks its original external
         # appointment, target, paid custody, current compiler/source and semantics.
-        deadline=min(deadline,_deadline(caller_deadline),_deadline(authority.authorize_current()))
+        # The earlier semantic guard deadline is a freshness proof, not the
+        # operation duration. The exact protected window rechecks those same
+        # semantics/current grants LAST and supplies both distinct constraints.
+        window=_current_window(authority)
+        deadline=min(binding.expires_at,lease.lease_until,_deadline(caller_deadline),
+            window.operation_horizon,window.current_until)
     elif caller_deadline is not None:
         deadline=min(deadline,_deadline(caller_deadline))
     event=lease.event
@@ -156,8 +189,11 @@ async def _project_processing_event(ledger,lease,projection,*,secret,projector_i
     if paid:
         horizon=getattr(ledger.processing_read_guard,'valid_until',None)
         if not callable(horizon):raise PermissionError('current paid semantic horizon required')
-        original_deadline=min(_deadline(binding.expires_at),_deadline(lease.lease_until),
-            _deadline(horizon(manifest,payload,ledger.principal,ledger.clock())),_deadline(authority.authorize_current()))
+        _deadline(horizon(manifest,payload,ledger.principal,ledger.clock()))
+        # Fresh current proof is obtained LAST before graph work. Its short
+        # observation age never renews or truncates the fixed operation lifetime.
+        window=_current_window(authority)
+        original_deadline=min(_deadline(binding.expires_at),_deadline(lease.lease_until),window.operation_horizon)
         # The actual graph task remains owned/observable after timeout. Cancel
         # is a request, not evidence that a remote write stopped. Hosting retains
         # UNKNOWN in its existing protected spool and refuses generation reuse.

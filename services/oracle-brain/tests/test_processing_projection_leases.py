@@ -355,7 +355,7 @@ def test_paid_delivery_total_deadline_never_acks_late_or_partial_graph(monkeypat
         deadline=None
         def authorize_current(self):
             if self.deadline is None:self.deadline=datetime.now(timezone.utc)+timedelta(seconds=.1)
-            return self.deadline
+            return delivery.ProcessingProjectionAuthorityWindowV3(self.deadline,self.deadline)
     unknown=[]
     async def attempt():
         try:
@@ -369,3 +369,24 @@ def test_paid_delivery_total_deadline_never_acks_late_or_partial_graph(monkeypat
     assert len(unknown)==1 and unknown[0].task.done() and unknown[0].reason=='deadline'
     assert 'ACK' not in calls
     assert calls==(['late-remote-write'] if suppress_cancel else [])
+
+
+@pytest.mark.parametrize('value',[None,False,datetime.now(timezone.utc)])
+def test_paid_window_refuses_ambiguous_single_deadline(value):
+    from types import SimpleNamespace
+    import oracle_brain.operating_model.processing_projection as delivery
+    with pytest.raises(PermissionError,match='explicit currentness'):
+        delivery._current_window(SimpleNamespace(authorize_current=lambda:value))
+
+
+def test_paid_window_separates_current_freshness_from_operation_duration():
+    from types import SimpleNamespace
+    import oracle_brain.operating_model.processing_projection as delivery
+    now=datetime.now(timezone.utc)
+    window=delivery.ProcessingProjectionAuthorityWindowV3(now+timedelta(seconds=1),now+timedelta(seconds=30))
+    assert delivery._current_window(SimpleNamespace(authorize_current=lambda:window)) is window
+    assert window.operation_horizon-window.current_until==timedelta(seconds=29)
+    stale=delivery.ProcessingProjectionAuthorityWindowV3(now-timedelta(seconds=1),now+timedelta(seconds=30))
+    with pytest.raises(PermissionError):delivery._current_window(SimpleNamespace(authorize_current=lambda:stale))
+    with pytest.raises(ValueError):delivery.ProcessingProjectionAuthorityWindowV3(now+timedelta(seconds=30),now)
+    with pytest.raises(ValueError):delivery.ProcessingProjectionAuthorityWindowV3(now.replace(tzinfo=None),now)
