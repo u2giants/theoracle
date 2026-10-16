@@ -434,6 +434,7 @@ class PurposeSourceBindingV2:
 
 class _PurposeRoleVerifierV2(ProcessingSourceResolver):
     _signatures={**ProcessingSourceResolver._signatures,
+        'oracle2._purpose_deadlines_v2()':frozenset(),
         'oracle2._purpose_source_v2(uuid,uuid,uuid,text,text,text,boolean)':frozenset(),
         **{f'oracle2.hosting_{name}_receipt_v2(uuid,uuid,uuid,text,text)':frozenset({'oracle2_source_reader'})
            for name in ('source_census','operating_audit','independent_semantic')},
@@ -444,6 +445,12 @@ class _PurposeRoleVerifierV2(ProcessingSourceResolver):
         'oracle2._purpose_embedding_artifact_v2(uuid,uuid,integer,uuid,text,text)':frozenset(),
         'oracle2.hosting_projection_embedding_seal_v2(uuid,uuid,integer,uuid,text,text)':frozenset({'oracle2_gateway_metadata'}),
     }
+
+    def _check(self,conn):
+        super()._check(conn)
+        # Executed before the fixed getter SELECT, so PostgreSQL actually arms
+        # this statement's timer. Preserve any tighter positive caller deadline.
+        conn.execute("SELECT set_config('statement_timeout',CASE WHEN current_setting('statement_timeout')::interval<=interval '0' OR current_setting('statement_timeout')::interval>interval '5 seconds' THEN '5s' ELSE current_setting('statement_timeout') END,true)")
 
 
 class PurposeSourceResolverV2:
