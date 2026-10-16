@@ -309,6 +309,9 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
     """Current generated metadata; no original bytes in artifact lookup."""
     _signatures={**ProcessingSourceResolver._signatures,
         'oracle2._processing_dependency_digest(uuid,uuid,integer)':frozenset(),
+        'oracle2._processing_projection_actor(uuid,uuid,integer,text,text)':frozenset(),
+        'oracle2.lease_processing_projection(uuid,text,text,integer)':frozenset({'oracle2_candidate_compiler'}),
+        'oracle2.ack_processing_projection(uuid,uuid,uuid,integer,jsonb,text,text,text,timestamp with time zone)':frozenset({'oracle2_candidate_compiler'}),
         'oracle2.commit_processing_candidate(jsonb,bytea,bytea,bytea,jsonb,text,text,timestamp with time zone)':frozenset({'oracle2_candidate_compiler'}),
         'oracle2.hosting_processing_artifact(uuid,uuid,integer,uuid,text,text)':frozenset({'oracle2_candidate_compiler','oracle2_documentary_executor'}),
     }

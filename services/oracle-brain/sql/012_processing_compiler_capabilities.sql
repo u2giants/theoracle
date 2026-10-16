@@ -101,7 +101,7 @@ BEGIN
  PERFORM pg_advisory_xact_lock(hashtextextended('operating-lineage:'||w::text,0));
  -- Writer owns one self-compatible lock before any INSERT; two SHARE holders
  -- must never both upgrade to ROW EXCLUSIVE in competing workspaces.
- LOCK TABLE oracle2.artifact_dependencies,oracle2.artifact_invalidations IN SHARE ROW EXCLUSIVE MODE;
+ LOCK TABLE oracle2.artifact_manifests,oracle2.artifact_dependencies,oracle2.artifact_invalidations IN SHARE ROW EXCLUSIVE MODE;
  FOR dep IN SELECT value FROM jsonb_array_elements(deps) LOOP
   IF jsonb_typeof(dep) IS DISTINCT FROM 'array' OR jsonb_array_length(dep)<>3 OR EXISTS(SELECT 1 FROM jsonb_array_elements(dep) x WHERE jsonb_typeof(x) IS DISTINCT FROM 'string')
   OR dep->>0 NOT IN ('source','artifact') THEN RAISE insufficient_privilege USING MESSAGE='processing dependency kind denied'; END IF;
@@ -181,7 +181,7 @@ BEGIN
  END LOOP;
  IF jsonb_array_length(refs)=0 THEN RAISE insufficient_privilege USING MESSAGE='processing source population missing'; END IF;
  PERFORM pg_advisory_xact_lock(hashtextextended('operating-lineage:'||workspace::text,0));
- LOCK TABLE oracle2.artifact_dependencies,oracle2.artifact_invalidations IN SHARE MODE;
+ LOCK TABLE oracle2.artifact_manifests,oracle2.artifact_dependencies,oracle2.artifact_invalidations IN SHARE MODE;
  -- UNION reaches a finite immutable population even if untrusted legacy INSERTs
  -- introduced cycles; pair reachability below detects cycles without depth guesses.
  FOR a IN WITH RECURSIVE ancestors(id,v) AS (
@@ -211,3 +211,110 @@ EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN RA
 END $body$;
 REVOKE ALL ON FUNCTION oracle2.hosting_processing_artifact(uuid,uuid,integer,uuid,text,text) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
 GRANT EXECUTE ON FUNCTION oracle2.hosting_processing_artifact(uuid,uuid,integer,uuid,text,text) TO oracle2_candidate_compiler,oracle2_documentary_executor;
+
+-- Existing queue, explicit processing lease fencing. Legacy rows stay NULL and
+-- legacy lease/receipt handlers are not changed or admitted to this namespace.
+ALTER TABLE oracle2.outbox ADD COLUMN IF NOT EXISTS processing_lease_role name;
+ALTER TABLE oracle2.outbox ADD COLUMN IF NOT EXISTS processing_lease_token uuid;
+
+CREATE OR REPLACE FUNCTION oracle2._processing_projection_actor(workspace uuid,artifact uuid,ver integer,runtime text,registry text)
+ RETURNS uuid LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
+DECLARE actor uuid;
+BEGIN
+ SELECT a.principal_id INTO actor FROM oracle2.artifact_dependencies d JOIN oracle2.hosting_role_source_admissions a
+ ON a.role_name=SESSION_USER AND a.workspace_id=d.workspace_id AND a.source_id=d.upstream_id::uuid AND a.revision=d.upstream_revision::integer
+ WHERE d.workspace_id=workspace AND d.artifact_id=artifact AND d.version=ver AND d.upstream_kind='source' ORDER BY d.upstream_id LIMIT 1;
+ IF actor IS NULL THEN RAISE insufficient_privilege; END IF;
+ PERFORM oracle2.hosting_processing_artifact(workspace,artifact,ver,actor,runtime,registry);
+ RETURN actor;
+END $$;
+REVOKE ALL ON FUNCTION oracle2._processing_projection_actor(uuid,uuid,integer,text,text) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
+
+CREATE OR REPLACE FUNCTION oracle2.lease_processing_projection(workspace uuid,runtime text,registry text,lease_seconds integer)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
+DECLARE candidate record; e oracle2.outbox%ROWTYPE; actor uuid; current_manifest jsonb; token uuid; scanned integer:=0;
+BEGIN
+ IF lease_seconds IS NULL OR lease_seconds<1 OR lease_seconds>60
+ OR NOT pg_has_role(SESSION_USER,'oracle2_candidate_compiler','MEMBER') THEN RAISE insufficient_privilege; END IF;
+ IF current_setting('lock_timeout')::interval=interval '0' OR current_setting('lock_timeout')::interval>interval '2 seconds' THEN PERFORM set_config('lock_timeout','2s',true); END IF;
+ -- Exact workspace prevents an unauthorized/blocked workspace starving another.
+ -- Bounded scan and existing MAX_ATTEMPTS=10 prevent unbounded automatic replay.
+ FOR candidate IN SELECT event_id,assertion_id,revision FROM oracle2.outbox o
+ WHERE o.workspace_id=workspace AND o.payload->>'namespace'='oracle_processing_v1'
+ AND o.operation='project' AND o.payload->'manifest'->>'kind'='processing_qualified_model_v1'
+ AND o.delivered_at IS NULL AND (o.lease_until IS NULL OR o.lease_until<clock_timestamp()) AND o.attempts<10
+ AND EXISTS(SELECT 1 FROM oracle2.artifact_dependencies d JOIN oracle2.hosting_role_source_admissions a ON a.role_name=SESSION_USER AND a.workspace_id=d.workspace_id AND a.source_id=d.upstream_id::uuid AND a.revision=d.upstream_revision::integer
+ WHERE d.workspace_id=workspace AND d.artifact_id=o.assertion_id AND d.version=o.revision AND d.upstream_kind='source')
+ ORDER BY o.revision,o.event_id LIMIT 64 LOOP
+  BEGIN
+   -- No artifact advisory lock is taken by leasing; none is taken after workspace.
+   actor:=oracle2._processing_projection_actor(workspace,candidate.assertion_id,candidate.revision,runtime,registry);
+   SELECT x.manifest INTO current_manifest FROM oracle2.artifact_manifests x WHERE x.workspace_id=workspace AND x.artifact_id=candidate.assertion_id AND x.version=candidate.revision;
+   SELECT * INTO e FROM oracle2.outbox o WHERE o.event_id=candidate.event_id AND o.workspace_id=workspace
+    AND o.delivered_at IS NULL AND (o.lease_until IS NULL OR o.lease_until<clock_timestamp()) AND o.attempts<10 FOR UPDATE SKIP LOCKED;
+   IF NOT FOUND THEN CONTINUE; END IF;
+   IF e.payload IS DISTINCT FROM jsonb_build_object('namespace','oracle_processing_v1','manifest',current_manifest)
+   OR current_manifest->>'kind'<>'processing_qualified_model_v1' OR current_manifest->>'state'<>'ready'
+   OR e.revision<>(SELECT max(x.version) FROM oracle2.artifact_manifests x WHERE x.workspace_id=workspace AND x.artifact_id=e.assertion_id AND x.kind='processing_qualified_model_v1' AND x.state='ready') THEN CONTINUE; END IF;
+   token:=gen_random_uuid();
+   UPDATE oracle2.outbox SET attempts=attempts+1,lease_until=clock_timestamp()+make_interval(secs=>lease_seconds),processing_lease_role=SESSION_USER,processing_lease_token=token WHERE event_id=e.event_id RETURNING * INTO e;
+   -- Actual authority must remain current after the row wait/claim.
+   PERFORM oracle2._processing_projection_actor(workspace,e.assertion_id,e.revision,runtime,registry);
+   RETURN jsonb_build_object('event_id',e.event_id,'workspace_id',workspace,'assertion_id',e.assertion_id,'revision',e.revision,'operation',e.operation,'payload',e.payload,'attempts',e.attempts,'lease_role',e.processing_lease_role,'lease_token',e.processing_lease_token,'lease_until',e.lease_until);
+  EXCEPTION WHEN insufficient_privilege OR invalid_text_representation OR numeric_value_out_of_range THEN
+   -- Entire denied candidate subtransaction rolls back; return no candidate data.
+   CONTINUE;
+  END;
+ END LOOP;
+ RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION oracle2.lease_processing_projection(uuid,text,text,integer) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
+GRANT EXECUTE ON FUNCTION oracle2.lease_processing_projection(uuid,text,text,integer) TO oracle2_candidate_compiler;
+
+CREATE OR REPLACE FUNCTION oracle2.ack_processing_projection(
+ event uuid,workspace uuid,token uuid,attempt integer,receipt jsonb,receipt_signature text,runtime text,registry text,caller_deadline timestamptz)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
+DECLARE e oracle2.outbox%ROWTYPE; actor uuid; m jsonb; prior oracle2.operating_projection_receipts%ROWTYPE;
+BEGIN
+ IF caller_deadline IS NULL OR NOT isfinite(caller_deadline) OR caller_deadline<=clock_timestamp()
+ OR NOT pg_has_role(SESSION_USER,'oracle2_candidate_compiler','MEMBER') OR receipt_signature IS NULL OR receipt_signature !~ '^[0-9a-f]{64}$' THEN RAISE insufficient_privilege; END IF;
+ IF current_setting('lock_timeout')::interval=interval '0' OR current_setting('lock_timeout')::interval>interval '2 seconds' THEN PERFORM set_config('lock_timeout','2s',true); END IF;
+ SELECT * INTO e FROM oracle2.outbox o WHERE o.event_id=event AND o.workspace_id=workspace;
+ IF NOT FOUND THEN RAISE insufficient_privilege; END IF;
+ actor:=oracle2._processing_projection_actor(workspace,e.assertion_id,e.revision,runtime,registry);
+ SELECT * INTO e FROM oracle2.outbox o WHERE o.event_id=event AND o.workspace_id=workspace FOR UPDATE;
+ SELECT x.manifest INTO m FROM oracle2.artifact_manifests x WHERE x.workspace_id=workspace AND x.artifact_id=e.assertion_id AND x.version=e.revision;
+ IF e.processing_lease_role IS DISTINCT FROM SESSION_USER OR e.processing_lease_token IS DISTINCT FROM token OR e.attempts IS DISTINCT FROM attempt
+ OR e.operation<>'project' OR e.payload IS DISTINCT FROM jsonb_build_object('namespace','oracle_processing_v1','manifest',m)
+ OR m->>'kind' IS DISTINCT FROM 'processing_qualified_model_v1' OR m->>'state' IS DISTINCT FROM 'ready'
+ OR e.revision<>(SELECT max(x.version) FROM oracle2.artifact_manifests x WHERE x.workspace_id=workspace AND x.artifact_id=e.assertion_id AND x.kind='processing_qualified_model_v1' AND x.state='ready')
+ OR jsonb_typeof(receipt) IS DISTINCT FROM 'object'
+ OR NOT receipt ?& ARRAY['schema_version','event_id','workspace_id','artifact_id','version','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_attempt','lease_until']
+ OR (receipt-ARRAY['schema_version','event_id','workspace_id','artifact_id','version','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_attempt','lease_until'])<>'{}'::jsonb
+ OR EXISTS(SELECT 1 FROM unnest(ARRAY['event_id','workspace_id','artifact_id','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_until']) k WHERE jsonb_typeof(receipt->k) IS DISTINCT FROM 'string')
+ OR jsonb_typeof(receipt->'version') IS DISTINCT FROM 'number' OR jsonb_typeof(receipt->'lease_attempt') IS DISTINCT FROM 'number'
+ OR receipt->'schema_version' IS DISTINCT FROM '1'::jsonb OR receipt->>'event_id' IS DISTINCT FROM event::text
+ OR receipt->>'workspace_id' IS DISTINCT FROM workspace::text OR receipt->>'artifact_id' IS DISTINCT FROM e.assertion_id::text OR receipt->>'version' IS DISTINCT FROM e.revision::text
+ OR receipt->>'content_hash' IS DISTINCT FROM m->>'content_hash' OR receipt->>'source_digest' IS DISTINCT FROM m->>'source_digest' OR receipt->>'permission_digest' IS DISTINCT FROM m->>'permission_digest'
+ OR receipt->>'sdk_version' IS DISTINCT FROM '1.4.0' OR jsonb_typeof(receipt->'projector_id') IS DISTINCT FROM 'string' OR receipt->>'projector_id'=''
+ OR receipt->>'record_digest' !~ '^[0-9a-f]{64}$' OR receipt->>'lease_role' IS DISTINCT FROM SESSION_USER::text OR receipt->>'lease_token' IS DISTINCT FROM token::text OR receipt->>'lease_attempt' IS DISTINCT FROM attempt::text
+ OR receipt->>'graph_name' !~ ('^oracle_processing_v1_'||replace(workspace::text,'-','')||'_'||replace(e.assertion_id::text,'-','')||'_'||e.revision::text||'_[0-9a-f]{32}$') THEN
+ RAISE insufficient_privilege USING MESSAGE='exact processing delivery receipt and current claim required'; END IF;
+ SELECT * INTO prior FROM oracle2.operating_projection_receipts r WHERE r.event_id=event;
+ IF FOUND THEN
+  IF e.delivered_at IS NULL OR prior.payload IS DISTINCT FROM receipt OR prior.signature IS DISTINCT FROM receipt_signature THEN RAISE insufficient_privilege USING MESSAGE='conflicting processing ACK'; END IF;
+  IF caller_deadline<=clock_timestamp() THEN RAISE insufficient_privilege; END IF;
+  RETURN jsonb_build_object('receipt',prior.payload,'signature',prior.signature);
+ END IF;
+ IF e.delivered_at IS NOT NULL OR e.lease_until IS NULL OR NOT isfinite(e.lease_until) OR e.lease_until<=clock_timestamp()
+ OR (receipt->>'lease_until')::timestamptz IS DISTINCT FROM e.lease_until THEN RAISE insufficient_privilege USING MESSAGE='processing lease expired or replaced'; END IF;
+ INSERT INTO oracle2.operating_projection_receipts(event_id,workspace_id,artifact_id,version,payload,signature)
+ VALUES(event,workspace,e.assertion_id,e.revision,receipt,receipt_signature);
+ UPDATE oracle2.outbox SET delivered_at=clock_timestamp(),lease_until=NULL WHERE event_id=event;
+ PERFORM oracle2._processing_projection_actor(workspace,e.assertion_id,e.revision,runtime,registry);
+ IF caller_deadline<=clock_timestamp() THEN RAISE insufficient_privilege USING MESSAGE='processing semantic authority expired before ACK'; END IF;
+ RETURN jsonb_build_object('receipt',receipt,'signature',receipt_signature);
+EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN RAISE insufficient_privilege USING MESSAGE='invalid processing ACK';
+END $$;
+REVOKE ALL ON FUNCTION oracle2.ack_processing_projection(uuid,uuid,uuid,integer,jsonb,text,text,text,timestamptz) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
+GRANT EXECUTE ON FUNCTION oracle2.ack_processing_projection(uuid,uuid,uuid,integer,jsonb,text,text,text,timestamptz) TO oracle2_candidate_compiler;
