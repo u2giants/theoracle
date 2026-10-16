@@ -144,3 +144,42 @@ def qualified_map_view_v1(model, *, workflow_id:str, observations:tuple, finding
     gateways=[dict(gateway_id=x.gateway_id,kind=x.kind,support=dict(observation_ids=list(x.support.observation_ids))) for x in w.gateways]
     transitions=[dict(transition_id=x.transition_id,from_id=x.from_id,to_id=x.to_id,rework=x.rework,support=dict(observation_ids=list(x.support.observation_ids)))|({'condition_id':x.condition_id} if x.condition_id is not None else {}) for x in w.transitions]
     return MapView.model_validate(dict(workflow=dict(workflow_id=w.workflow_id,scope=w.scope,completeness=w.completeness,steps=steps,gateways=gateways,transitions=transitions,conditions=[dict(condition_id=x.condition_id,wording=x.wording,applicability=x.applicability) for x in w.conditions]),observations=[dict(observation_id=x.observation_id,evidence=[evidence(e) for e in x.evidence]) for x in observations],findings=[dict(scope=x.scope,finding_id=x.finding_id,kind=x.kind,text=x.text,status=x.status,origin=x.origin,evidence_refs=[evidence(e) for e in x.evidence_refs]) for x in findings]))
+
+def documentary_answer_public_v1(answer,source_refs:tuple)->Answer|None:
+    """Present an already-authorized documentary answer; abstention remains absent.
+
+    Exact current source population is supplied by the protected caller. These types,
+    text and citations are transport validation, never an access or semantic grant.
+    """
+    from oracle_brain.operating_model.answer import Answer as NativeAnswer
+    from oracle_brain.operating_model.source_receipts import SourceRef
+    if type(answer) is not NativeAnswer or type(source_refs) is not tuple or not source_refs or any(type(ref) is not SourceRef for ref in source_refs):raise TypeError('exact documentary answer/current refs required')
+    if len(set(source_refs))!=len(source_refs) or len({ref.workspace_id for ref in source_refs})!=1:raise ValueError('exact unique current population required')
+    if any(citation.ref not in source_refs for citation in answer.citations):raise ValueError('answer citation outside current population')
+    if answer.state=='abstained':return None
+    if not answer.records or not answer.citations:raise ValueError('answered content and evidence required')
+    headings={'overview':'Reported process overview','process_steps':'Reported process steps','roles':'Reported roles','artifacts':'Reported artifacts','interfaces':'Reported interfaces','findings':'Reported findings'}
+    fallback={'overview':'A reported process is supported by the cited evidence.','process_steps':'A reported step is supported by the cited evidence.','roles':'A reported role assignment is supported by the cited evidence.','artifacts':'A reported artifact is supported by the cited evidence.','interfaces':'A reported interface is supported by the cited evidence.','findings':'A reported finding is retained with the cited evidence.'}
+    lines=[headings[answer.intent]]
+    for record in answer.records:
+        fields=('text',) if answer.intent=='findings' else ('label','wording')
+        displayed=[]
+        for key in fields:
+            if key in record:
+                value=record[key]
+                if type(value) is not str or not value:raise ValueError('invalid documentary display field')
+                displayed.append(value)
+        lines.append(' '.join(displayed) if displayed else fallback[answer.intent])
+    # Preserve every retained caveat; never silently truncate, relabel suggestions,
+    # or serialize arbitrary native record fields/private context.
+    for finding in answer.findings:
+        text=finding.get('text')
+        if type(text) is not str or not text:raise ValueError('invalid retained finding text')
+        if text not in lines and text not in answer.caveats:lines.append('Retained finding: '+text)
+    if answer.caveats:lines.extend(['Caveats',*answer.caveats])
+    citations=[]
+    for citation in answer.citations:
+        ref=citation.ref
+        source=dict(workspaceId=str(ref.workspace_id),sourceId=str(ref.source_id),revision=ref.revision,originalSha256=ref.original_sha256,readingSha256=ref.reading_sha256,parserId=ref.parser_id)
+        citations.append(dict(source=source,start=citation.start,end=citation.end,quote=citation.quote))
+    return Answer.model_validate(dict(text='\n'.join(lines),citations=citations))

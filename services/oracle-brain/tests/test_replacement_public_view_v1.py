@@ -55,3 +55,21 @@ def test_public_declared_object_shapes_match_generated_zod_schema():
             compare(a['items'],b['items'])
         if 'enum' in a:assert set(a['enum'])==set(b['enum'])
     compare(ts,py)
+
+def test_documentary_answer_presentation_is_exact_cited_bounded_and_abstains():
+    from oracle_brain.hosting.replacement_public_view_v1 import documentary_answer_public_v1
+    from oracle_brain.operating_model.answer import Answer
+    from oracle_brain.operating_model.source_receipts import SourceRef
+    source=VECTORS[0]['value']['sources'][0]
+    ref=dict(workspace_id=source['workspaceId'],source_id=source['sourceId'],revision=source['revision'],original_sha256=source['originalSha256'],reading_sha256=source['readingSha256'],parser_id=source['parserId'])
+    typed=SourceRef.model_validate_json(json.dumps(ref))
+    def native(**changes):
+        value=dict(state='answered',intent='overview',records=[dict(label='Suggested review path',private_path='/private/not-public')],findings=[],citations=[dict(ref=ref,start=0,end=1,quote='😀')],caveats=['Reported coverage remains partial.'],artifact_hash='a'*64)|changes
+        return Answer.model_validate_json(json.dumps(value))
+    public=documentary_answer_public_v1(native(),(typed,))
+    assert 'Suggested review path' in public.text and 'partial' in public.text and '/private' not in public.text
+    assert public.citations[0].source.readingSha256==typed.reading_sha256
+    assert documentary_answer_public_v1(native(state='abstained',records=[],citations=[]),(typed,)) is None
+    with pytest.raises(ValueError):documentary_answer_public_v1(native(caveats=['x'*32001]),(typed,))
+    with pytest.raises(ValueError):documentary_answer_public_v1(native(),(typed.model_copy(update={'revision':typed.revision+1}),))
+    with pytest.raises(TypeError):documentary_answer_public_v1(native().model_dump(),(typed,))
