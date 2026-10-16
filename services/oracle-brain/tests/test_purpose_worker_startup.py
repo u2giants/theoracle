@@ -415,7 +415,9 @@ def test_actual_compiler_final_current_proof_follows_controlled_slow_validation(
                     (settings.config.expected_session_role,job.source_refs[2].source_id))
         return job.original_horizon
     monkeypatch.setattr(guard.qualified,'valid_until',controlled_validation)
-    manifest=SimpleNamespace(kind='processing_qualified_model_v1')
+    # Controlled summary semantics need no invented qualified admission.
+    # Actual full qualified-model paths still require authorize_semantic.
+    manifest=SimpleNamespace(kind='processing_summary_v1')
     if revoke_after_validation:
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             guard.valid_until(manifest,{},job.actor_id,began)
