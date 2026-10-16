@@ -522,9 +522,10 @@ class CompilerWorkerSettingsV2:
             and admission.compiler_login==c.expected_session_role
             and admission.issuer_actor==c.semantic_issuer_actor and admission.reviewer_actor==c.semantic_reviewer_actor,
             'semantic body differs from external current compiler appointment')
-        _require(digest(admission.model_dump(mode='json')) in self.semantic.current(datetime.now(timezone.utc)),
+        admitted,until=self.semantic._current_state(datetime.now(timezone.utc))
+        _require(digest(admission.model_dump(mode='json')) in admitted,
             'actual current external semantic registry required')
-        return min(admission.expires_at,self.semantic.valid_until(datetime.now(timezone.utc)))
+        return min(admission.expires_at,until)
 
     def authorize(self,job):
         self.authority_horizon(job)
@@ -1000,7 +1001,8 @@ class _PurposeCompilerReadGuardV3:
         if manifest.kind=='processing_qualified_model_v1':
             from oracle_brain.operating_model.purpose_qualification_v3 import PurposeSemanticAdmissionV3
             self.settings.authorize_semantic(_worker_parse(canonical_bytes(payload['assembly_qualification']['admission']),PurposeSemanticAdmissionV3))
-        return self.qualified(manifest,payload,principal,now)
+        with self.settings.resolver.shared_connection():
+            return self.qualified(manifest,payload,principal,now)
 
     def validate_current(self,manifest,payload,principal,now):
         # Authorization still precedes private/evidence access. Its short-lived
@@ -1013,8 +1015,9 @@ class _PurposeCompilerReadGuardV3:
             if manifest.kind=='processing_qualified_model_v1':
                 from oracle_brain.operating_model.purpose_qualification_v3 import PurposeSemanticAdmissionV3
                 self.settings.authorize_semantic(_worker_parse(canonical_bytes(payload['assembly_qualification']['admission']),PurposeSemanticAdmissionV3))
-            validated_until=min(self.qualified.valid_until(manifest,payload,principal,now),
-                self.settings.semantic.valid_until(datetime.now(timezone.utc)))
+            with self.settings.resolver.shared_connection():
+                validated_until=min(self.qualified.valid_until(manifest,payload,principal,now),
+                    self.settings.semantic.valid_until(datetime.now(timezone.utc)))
         current_until=self.settings.custody_horizon(self.job)
         until=min(validated_until,current_until)
         _require(datetime.now(timezone.utc)<until,'current compiler deadline expired after validation')
@@ -1099,8 +1102,10 @@ class _PurposeQualifiedReadGuardV3(_PurposeCompilerReadGuardV3):
             self.settings.authorize_semantic(_worker_parse(canonical_bytes(payload['assembly_qualification']['admission']),PurposeSemanticAdmissionV3))
         # This full semantic/immutable lineage validation retains actual own-role
         # source and dependency SQL callbacks plus the sole current registry.
-        validated=min(self.qualified.valid_until(manifest,payload,principal,datetime.now(timezone.utc)),
-            self.settings.semantic.valid_until(datetime.now(timezone.utc)))
+        # One shared connection covers the nested identity/seal round-trips.
+        with self.settings.resolver.shared_connection():
+            validated=min(self.qualified.valid_until(manifest,payload,principal,datetime.now(timezone.utc)),
+                self.settings.semantic.valid_until(datetime.now(timezone.utc)))
         final=self._boundary()  # NEW current proof LAST, never cached across calls.
         until=min(before.operation_horizon,final.operation_horizon,final.current_until,validated)
         _require(datetime.now(timezone.utc)<until,'qualified reader authority expired after validation')

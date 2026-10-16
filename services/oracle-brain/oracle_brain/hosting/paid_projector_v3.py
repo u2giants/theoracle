@@ -290,8 +290,8 @@ def reload_paid_projector_projection_v3(settings):
     receipt={**delivered.receipt.model_dump(mode='json'),'signature':delivered.signature}
     _require(receipt['graph_name']==c.graph_name and receipt['projector_id']==str(c.projector_id),
         'committed projector receipt belongs to another target/identity')
-    settings.current_window()
-    return _paid_projector_projection_v3(settings,signed_receipt=receipt)
+    window=settings.current_window()
+    return _paid_projector_projection_v3(settings,signed_receipt=receipt,window=window)
 
 
 @dataclass(frozen=True)
