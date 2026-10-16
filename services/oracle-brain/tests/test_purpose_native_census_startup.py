@@ -48,7 +48,9 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
         from purpose_journey_fixture_models import RICH_SOURCE_TEXTS
         rich={'source_texts':RICH_SOURCE_TEXTS}
     if mode=='census':
-        f=purpose_population('census','source-reader',**rich);source,_,_=context(f);receipts=source.read_population()
+        f=purpose_population('census','source-reader',**rich)
+        if coherent:f['refs']=tuple(sorted(f['refs'],key=lambda ref:ref.source_id.int))
+        source,_,_=context(f);receipts=source.read_population()
     else:
         from oracle_brain.operating_model.authority_adapter import ProcessingSourceResolver
         f=purpose_population('embedding','source-reader');f['refs']=tuple(sorted(f['refs'],key=lambda ref:ref.source_id.int));source=ProcessingSourceResolver(f['url'],binding=f['binding'])
@@ -99,7 +101,7 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
         private=JobRegistry(issuer_actor=uuid4(),reviewer_actor=uuid4(),runtime_hash=f['runtime'],expires_at=expiry,contexts=tuple(contexts))
         job=contexts[0].job;request=job.request
     coverage=KeyCoverageAdmission(domain='existing-owner-authorized-oracle-key',key_fingerprint=FP,provider_key_record_hash='4'*64,
-        consumers=(KeyConsumer(consumer_id='invented-census',runtime_revision_hash=f['runtime'],mode='central-reservation',proof_hash='5'*64),),
+        consumers=tuple(KeyConsumer(consumer_id='invented-runtime-'+str(i),runtime_revision_hash=runtime,mode='central-reservation',proof_hash='5'*64) for i,runtime in enumerate((f['runtime'],input_runtime) if coherent else (f['runtime'],))),
         census_hash='6'*64,ledger_identity_hash=ledger_hash,external_liability_receipt_hash='7'*64,issuer_actor=uuid4(),reviewer_actor=uuid4(),
         observed_at=now,expires_at=expiry,census_complete=True,unreserved_paid_callers=0,unreserved_outstanding_liabilities=0)
     coverage_hash=digest(coverage.model_dump(mode='json'));policy=processing_request.model_dump(mode='json')
@@ -174,7 +176,9 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
         def do_POST(self):
             assert self.path=='/chat/completions' and self.headers['Authorization']=='Bearer '+KEY
             body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));state['requests'].append(body);state['posts']+=1
-            if mode=='census':
+            if digest(body) in state.get('content_by_request_hash',{}):
+                content=state['content_by_request_hash'][digest(body)]
+            elif mode=='census':
                 packet=json.loads(body['messages'][1]['content']);assert set(packet)=={'purpose','originals','regions'}
                 assert tuple(r['ref']['source_id'] for r in packet['originals'])==tuple(str(r.source_id) for r in f['refs'])
                 content=payload
@@ -183,7 +187,7 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
                 matching=[c for c in contexts if c.job.request==body];assert len(matching)==1
                 content=json.dumps(response(matching[0].receipt))
             if state['after_post']:state['after_post']()
-            wire={'id':'invented-native-census','model':request['model'],'created':1,'private_wire_canary':'PRIVATE_NATIVE_WIRE',
+            wire={'id':'invented-native-census','model':body['model'],'created':1,'private_wire_canary':'PRIVATE_NATIVE_WIRE',
                 'choices':[{'index':0,'finish_reason':'stop','message':{'role':'assistant','content':content}}],'usage':{'cost':'.00001','prompt_tokens':100,'completion_tokens':100}}
             state['wire']=canonical_bytes(wire);self.reply(wire)
     fake=ThreadingHTTPServer(('127.0.0.1',0),FakeOpenRouter);start(fake)
@@ -273,7 +277,10 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
         yield dict(f=f,job=job,private=private,settings=settings,client=client_factory(replace(binding(provider.server_port),timeout=90)),dispatch=dispatch,
             descriptor=descriptor,state=state,custody=private_dir,billing_admin=billing_admin,context_file=context_file,pins_file=Path(pins_file),pins=pins,mode=mode,operation_hash=descriptor.phase_registry_sha256 if mode=='census' else extraction_hash,
             expires_at=expiry,contexts=tuple(contexts) if mode=='extraction' else (),qualification=qualification if mode=='extraction' else None,population=population,observe_fixture_coverage=observe_fixture_coverage,
-            input_parent=input_parent,input_actor=input_actor,input_runtime=input_runtime)
+            input_parent=input_parent,input_actor=input_actor,input_runtime=input_runtime,
+            platform=dict(start=start,tls=tls,binding=binding,catalog=catalog,ledger_registry=registry,ledger_hash=ledger_hash,coverage=coverage,coverage_hash=coverage_hash,
+                coverage_file=coverage_file,coverage_witness_file=coverage_witness_file,coverage_public=coverage_public,allocation=allocation,
+                key_file=key_file,ledger_url_file=ledger_url_file,ledger_file=ledger_file,allocation_file=allocation_file))
     finally:
         for server,thread in zip(servers,threads):server.shutdown();server.server_close();thread.join(2)
 
