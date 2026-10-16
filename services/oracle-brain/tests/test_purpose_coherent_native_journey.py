@@ -178,6 +178,9 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         pstats.Stats(summary_profile,stream=profile_text).strip_dirs().sort_stats('cumulative').print_stats()
         (tmp_path/'summary-compile-profile.txt').write_text(profile_text.getvalue())
     stage('compiler_summary_committed_without_second_projection')
+    if __import__('os').environ.get('ORACLE2_TEST_SUMMARY_PROFILE_ONLY')=='1':
+        stage('partial_summary_profile_only_no_graph_acceptance')
+        return
     with unmounted_historical_extraction_wires(extraction,tmp_path/'unmounted-extraction-wire-backups') as absent:
         paid=load_paid_sdk_bundle_v3(delivered_worker,compile_job,artifact_id=qualified[0].artifact_id,artifact_version=1,
             embedding_dispatch_id=embedding['job'].dispatch_id)
