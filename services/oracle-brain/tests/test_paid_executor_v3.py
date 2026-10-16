@@ -132,7 +132,7 @@ def make_paid_executor_fixture_settings_v3(worker,job,root,*,executor_binding,da
     for name,path in files.items():
         c[name+'_file']=str(path);c[name+'_sha256']=hashlib.sha256(Path(path).read_bytes()).hexdigest()
     config=PaidExecutorConfigV3.model_validate(c)
-    root=Path(root);root.mkdir(mode=0o700,exist_ok=True)
+    root=Path(root);root.mkdir(mode=0o700)  # New immutable appointment, never overwrite a live one.
     config_path=root/'executor.json';config_path.write_bytes(canonical_bytes(config.model_dump(mode='json')));config_path.chmod(0o600)
     config_hash=hashlib.sha256(config_path.read_bytes()).hexdigest()
     fields=PaidExecutorAppointmentV3.model_fields
