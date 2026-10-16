@@ -384,3 +384,37 @@ def test_worker_startup_requires_external_hash_before_any_file_read():
             with pytest.raises(Exception,match='explicit externally pinned worker'):
                 load_purpose_worker_settings_v2('/absent',value)
             private_read.assert_not_called()
+
+
+@pytest.mark.parametrize('revoke_after_validation',[False,True])
+def test_actual_compiler_final_current_proof_follows_controlled_slow_validation(
+        admin_url,compiler_worker,monkeypatch,revoke_after_validation):
+    """Real SQL/observer scope, controlled validator timing; no model acceptance."""
+    import time
+    from types import SimpleNamespace
+    x,settings,job=compiler_worker
+    ledger=build_purpose_compiler_ledger_v3(settings,job)
+    guard=ledger.processing_read_guard
+    began=datetime.now(timezone.utc)
+    def controlled_validation(*args):
+        # Exceed the genuine fixture parent's <=5s observation horizon. This
+        # is test timing only, never an operational expiry/clock mutation.
+        time.sleep(5.05)
+        if revoke_after_validation:
+            with psycopg.connect(admin_url) as conn:
+                conn.execute('DELETE FROM oracle2.hosting_role_source_admissions WHERE role_name=%s AND source_id=%s',
+                    (settings.config.expected_session_role,job.source_refs[2].source_id))
+        return job.original_horizon
+    monkeypatch.setattr(guard.qualified,'valid_until',controlled_validation)
+    manifest=SimpleNamespace(kind='processing_qualified_model_v1')
+    if revoke_after_validation:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            guard.valid_until(manifest,{},job.actor_id,began)
+    else:
+        until=guard.valid_until(manifest,{},job.actor_id,began)
+        assert datetime.now(timezone.utc)<until<=job.expires_at
+        assert datetime.now(timezone.utc)-began>timedelta(seconds=5)
+    assert x['state']['posts']==0
+    with psycopg.connect(admin_url) as conn:
+        assert conn.execute('SELECT count(*) FROM oracle2.artifact_manifests WHERE workspace_id=%s',
+            (job.workspace_id,)).fetchone()[0]==0
