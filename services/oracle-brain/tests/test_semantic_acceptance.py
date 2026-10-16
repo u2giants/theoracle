@@ -208,3 +208,17 @@ def test_missing_essential_is_not_excused_by_not_applicable_or_zero_denominator(
     reseal(case)
     with pytest.raises(ValueError, match='no essential obligations'):
         verify_semantic_acceptance(**case)
+
+
+def test_pure_refactor_preserves_legacy_canonical_output_and_actual_assessor_boundary(case):
+    calls=[];original=case['current_source'];assessor=case['admission'].assessor_actor
+    def permission(workspace,actor,source):
+        calls.append(('permission',actor));return actor==assessor
+    def reading(workspace,source):
+        assert calls[-1]==('permission',assessor)
+        calls.append(('reading',source));return original(workspace,source)
+    case.update(can_read=permission,current_source=reading)
+    result=verify_semantic_acceptance(**case)
+    # Recorded from the unchanged legacy implementation before pure factoring.
+    assert digest(result)=='b3a1cf4d864ffbc8da2e9ace67bfb776085bf823c6a309d5bdf5de1abf2ea9c8'
+    assert [actor for kind,actor in calls if kind=='permission']==[assessor,assessor]

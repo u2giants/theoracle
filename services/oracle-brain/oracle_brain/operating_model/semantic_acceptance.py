@@ -92,22 +92,9 @@ def sealed(record):
     return digest(record.model_dump(mode='json'))
 
 
-def verify_semantic_acceptance(*, census: FrozenCensus,
-                               assessment: IndependentAssessment,
-                               admission: SemanticAdmission,
-                               trusted_admission_hashes: frozenset[Hash],
-                               source_regions: tuple[SourceRegion, ...],
-                               candidate: dict, object_evidence: dict,
-                               runtime_hash: Hash, permission_hash: Hash,
-                               candidate_created_at: datetime, now: datetime,
-                               current_source, can_read) -> dict:
-    """Validate independently admitted evidence against current original receipts.
-
-    The coordinator derives candidate/object_evidence from the sealed ledger,
-    and source_regions from the independent original register. Neither is a
-    provider assertion. Current-source and permission callbacks are mandatory.
-    Returns acceptance for this documentary artifact only, never serving rights.
-    """
+def _validate_semantic_bindings(*, census,assessment,admission,trusted_admission_hashes,
+        source_regions,candidate,object_evidence,runtime_hash,permission_hash,candidate_created_at,now):
+    """Pure pre-reading identity checks; no private reads or permission callbacks."""
     if sealed(admission) not in trusted_admission_hashes:
         raise PermissionError('independent semantic admission unavailable')
     if any(t.tzinfo is None or t.utcoffset() is None for t in (now, candidate_created_at)):
@@ -152,20 +139,15 @@ def verify_semantic_acceptance(*, census: FrozenCensus,
         raise ValueError('source region register omits an original')
     if candidate.get('source_refs') != [r.model_dump(mode='json') for r in refs]:
         raise ValueError('candidate source population differs from independent census')
-    receipts = {}
+    return refs
 
-    def resolve():
-        for ref in refs:
-            # Permission is checked before requesting a private reading.
-            if not can_read(census.workspace_id, admission.assessor_actor, ref.source_id):
-                raise PermissionError('current source access denied')
-            receipt = current_source(ref.workspace_id, ref.source_id)
-            if not isinstance(receipt, SourceReceipt) or receipt.ref != ref:
-                raise PermissionError('original reading changed or withdrawn')
-            receipts[ref] = receipt
 
-    resolve()
+def _validate_semantic_evidence(*,census,assessment,source_regions,object_evidence,receipts):
+    """Pure evidence/coverage checks over already-authorized exact readings.
 
+    This function grants no source access or serving permission. Its caller must
+    authenticate its actual current actor before supplying private receipts.
+    """
     def evidence_check(evidence):
         if evidence.ref not in receipts:
             raise ValueError('semantic evidence outside source census')
@@ -223,12 +205,51 @@ def verify_semantic_acceptance(*, census: FrozenCensus,
         raise ValueError('detail omissions lack visible dispositions')
     if set(assessment.detail_gap_owners) != detail_gaps:
         raise ValueError('detail omissions lack named disposition owners')
+    return coverage,len(detail_gaps)
+
+
+def verify_semantic_acceptance(*, census: FrozenCensus,
+                               assessment: IndependentAssessment,
+                               admission: SemanticAdmission,
+                               trusted_admission_hashes: frozenset[Hash],
+                               source_regions: tuple[SourceRegion, ...],
+                               candidate: dict, object_evidence: dict,
+                               runtime_hash: Hash, permission_hash: Hash,
+                               candidate_created_at: datetime, now: datetime,
+                               current_source, can_read) -> dict:
+    """Validate independently admitted evidence against current original receipts.
+
+    The coordinator derives candidate/object_evidence from the sealed ledger,
+    and source_regions from the independent original register. Neither is a
+    provider assertion. Current-source and permission callbacks are mandatory.
+    Returns acceptance for this documentary artifact only, never serving rights.
+    """
+    refs=_validate_semantic_bindings(census=census,assessment=assessment,admission=admission,
+        trusted_admission_hashes=trusted_admission_hashes,source_regions=source_regions,
+        candidate=candidate,object_evidence=object_evidence,runtime_hash=runtime_hash,
+        permission_hash=permission_hash,candidate_created_at=candidate_created_at,now=now)
+    receipts = {}
+
+    def resolve():
+        for ref in refs:
+            # Permission is checked before requesting a private reading.
+            if not can_read(census.workspace_id, admission.assessor_actor, ref.source_id):
+                raise PermissionError('current source access denied')
+            receipt = current_source(ref.workspace_id, ref.source_id)
+            if not isinstance(receipt, SourceReceipt) or receipt.ref != ref:
+                raise PermissionError('original reading changed or withdrawn')
+            receipts[ref] = receipt
+
+    resolve()
+
+    coverage,detail_gap_count=_validate_semantic_evidence(census=census,assessment=assessment,
+        source_regions=source_regions,object_evidence=object_evidence,receipts=receipts)
     # Recheck after evaluation, before returning a receipt. Serving still needs
     # its own current ledger/access/hosted/review gates on every read.
     resolve()
     return {**coverage, 'schema_version': 1, 'semantic_accepted': True,
             'assessment_hash': sealed(assessment), 'admission_hash': sealed(admission),
             'candidate_hash': admission.candidate_hash, 'protocol_hash': admission.protocol_hash,
-            'detail_gap_count': len(detail_gaps), 'business_accepted': False,
+            'detail_gap_count': detail_gap_count, 'business_accepted': False,
             'actual_event_accepted': False, 'hosted_accepted': False,
             'serving_authorized': False, 'company_generation_authorized': False}
