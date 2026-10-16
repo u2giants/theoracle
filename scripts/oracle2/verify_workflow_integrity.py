@@ -21,7 +21,7 @@ PURPOSE_V2_SUITES=('purpose_context_v2','parent_observer_v2','purpose_profiles_v
     'purpose_assembly_v2','purpose_capture_v2','purpose_qualification_v3','purpose_receipts_v2',
     'purpose_runtime_v2','purpose_source_authority','purpose_transport','purpose_transport_startup',
     'purpose_shared_budget','purpose_allocation_budget','semantic_registry_v3',
-    'processing_extraction_runtime_v2','extraction_connection_authority','purpose_native_census_startup','purpose_journey','purpose_worker_startup','purpose_coherent_native_journey','paid_sdk_embeddings_v3','paid_sdk_delivery_v3','paid_projector_v3')
+    'processing_extraction_runtime_v2','extraction_connection_authority','purpose_native_census_startup','purpose_journey','purpose_worker_startup','purpose_coherent_native_journey','paid_sdk_embeddings_v3','paid_sdk_delivery_v3','paid_projector_v3','paid_executor_v3')
 DOCUMENTARY += PURPOSE_V2_SUITES
 DOCUMENTARY += ('falkordb_coolify_plan','native_page_alternate','native_alternate_operator','native_alternate_chain_operator','hosting_restore_platform')
 SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
