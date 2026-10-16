@@ -93,6 +93,32 @@ REVOKE ALL ON oracle2.source_original_revisions,oracle2.source_reading_qualifica
  FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
  oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer,oracle2_replacement_requester;
 
+-- Only strict seal metadata uses this encoder: no decimal/float interpretation.
+-- Arrays retain order and object keys use the same UTF-8 canonical ordering as
+-- the application. A byte commitment must equal this output before hashing.
+CREATE OR REPLACE FUNCTION oracle2._replacement_metadata_json(value jsonb)
+ RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE result text;
+BEGIN
+ CASE jsonb_typeof(value)
+ WHEN 'object' THEN
+  SELECT '{'||coalesce(string_agg(to_jsonb(x.key)::text||':'||oracle2._replacement_metadata_json(x.value),',' ORDER BY x.key COLLATE "C"),'')||'}'
+   INTO result FROM jsonb_each(value) x;
+ WHEN 'array' THEN
+  SELECT '['||coalesce(string_agg(oracle2._replacement_metadata_json(x.value),',' ORDER BY x.ordinality),'')||']'
+   INTO result FROM jsonb_array_elements(value) WITH ORDINALITY x;
+ WHEN 'number' THEN
+  IF value::text !~ '^-?[0-9]+$' THEN RAISE invalid_parameter_value USING MESSAGE='integer seal metadata required'; END IF;
+  result:=value::text;
+ WHEN 'string','boolean','null' THEN result:=value::text;
+ ELSE RAISE invalid_parameter_value USING MESSAGE='strict seal metadata required';
+ END CASE;
+ RETURN result;
+END $body$;
+REVOKE ALL ON FUNCTION oracle2._replacement_metadata_json(jsonb) FROM PUBLIC,
+ oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
+ oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer,oracle2_replacement_requester;
+
 CREATE OR REPLACE FUNCTION oracle2._replacement_request_context()
  RETURNS oracle2.hosting_request_principal_admissions LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
 DECLARE a oracle2.hosting_request_principal_admissions%ROWTYPE;r oracle2.hosting_role_runtime_admissions%ROWTYPE;
@@ -196,7 +222,7 @@ BEGIN
   RAISE insufficient_privilege USING MESSAGE='replacement caller deadline expired';
  END IF;
  until:=least(a.expires_at,caller_deadline,oracle2._replacement_scope(a.workspace_id,a.principal_id,'intake'));
- request_hash:=encode(sha256(convert_to(jsonb_build_object('expected_head',expected_head,'intake',intake)::text,'UTF8')),'hex');
+ request_hash:=encode(sha256(convert_to(oracle2._replacement_metadata_json(jsonb_build_object('expected_head',expected_head,'intake',intake)),'UTF8')),'hex');
  SELECT * INTO prior FROM oracle2.source_intake_reservations_v1 r WHERE r.workspace_id=a.workspace_id
  AND r.principal_id=a.principal_id AND r.idempotency_key=idempotency FOR UPDATE;
  IF prior.reservation_id IS NOT NULL THEN
