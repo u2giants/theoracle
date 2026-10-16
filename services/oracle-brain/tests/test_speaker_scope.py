@@ -16,3 +16,10 @@ def test_unique_verified_provider_link_preserves_original_name():
 def test_blank_or_non_string_verified_links_remain_unknown():
     for links in (("",), ("   ",), (None,), (7,), ([],), ("employee", "")):
         assert resolve_speaker("p", "Guest", {"p": links}).employee_id is None
+
+
+def test_malformed_link_containers_and_padded_identifiers_remain_unknown():
+    for mapping in (None, {"p": "a"}, {"p": 7}, {"p": ["a"]}, {"p": (" a ",)}):
+        assert resolve_speaker("p", "Guest", mapping).employee_id is None
+    for provider_id in (" ", " p ", None, 7):
+        assert resolve_speaker(provider_id, "Guest", {provider_id: ("a",)}).employee_id is None
