@@ -81,6 +81,7 @@ def processing_reader(container,admin_url,directory,*,receipt,secret,current_del
     projector key. This helper never alters a graph, an existing ACL or a host.
     """
     import hmac
+    from oracle_brain.hosting.custody import _durable_nonce
     from uuid import UUID
     from oracle_brain.operating_model.projection_delivery import signature
     details,params=owned_target(container,admin_url)
@@ -102,12 +103,22 @@ def processing_reader(container,admin_url,directory,*,receipt,secret,current_del
         raise PermissionError('fresh owned protected output required')
     client=redis.Redis.from_url(admin_url,socket_timeout=5,socket_connect_timeout=5,decode_responses=True)
     username='oracle_ro_fixture_user_'+uuid4().hex
+    owner_hash=None
     try:
         if client.execute_command('ACL','GETUSER',username) is not None:
             raise PermissionError('existing read-only identity cannot be altered')
         rows=client.execute_command('GRAPH.RO_QUERY',graph,'MATCH (s:OperatingModelSnapshot) RETURN s.content_hash,s.record_digest,s.sdk,s.finalized,s.projection_schema,s.projection_digest','TIMEOUT',30000)
         expected=[[body['content_hash'],body['record_digest'],'1.4.0','true',body['projection_schema'],body['projection_digest']]]
         if rows[1]!=expected:raise PermissionError('actual delivered graph seal differs')
+        destination.mkdir(mode=0o700,parents=True,exist_ok=True)
+        if destination.resolve()!=destination or destination.stat().st_uid!=os.getuid() or destination.stat().st_mode&0o077:
+            raise PermissionError('canonical private reader output required')
+        owner={'schema_version':1,'profile':'processing-reader-fixture-v1','synthetic_only':True,
+            'container_id':details['Id'],'graph_name':graph,'username':username,'nonce':uuid4().hex,
+            'receipt_body_hash':hashlib.sha256(json.dumps(body,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()}
+        owner_raw=json.dumps(owner,sort_keys=True,separators=(',',':')).encode()
+        _durable_nonce(destination,'ownership.json',owner_raw)
+        owner_hash=hashlib.sha256(owner_raw).hexdigest()
         password=secrets.token_urlsafe(32)
         client.execute_command('ACL','SETUSER',username,'on','>'+password,'~'+graph,'-@all',
             '+graph.ro_query','+ping','+hello','+info|server')
@@ -137,6 +148,58 @@ def processing_reader(container,admin_url,directory,*,receipt,secret,current_del
             with (destination/name).open('x') as stream:json.dump(value,stream);stream.write('\n')
             os.chmod(destination/name,0o600)
         return result
+    except BaseException:
+        # Exact durable owner exists before ACL write; cleanup never guesses a prefix.
+        if owner_hash is not None:
+            retire_processing_reader(container,admin_url,destination,expected_ownership_sha256=owner_hash)
+        raise
+    finally:client.close()
+
+
+@contextmanager
+def processing_reader_scope(container,admin_url,directory,*,receipt,secret,current_delivery):
+    """TEST-only new readonly ACL; caller closes own readonly pools before exit."""
+    environment=processing_reader(container,admin_url,directory,receipt=receipt,secret=secret,current_delivery=current_delivery)
+    owner=Path(directory)/'ownership.json';expected=hashlib.sha256(owner.read_bytes()).hexdigest()
+    try:yield environment
+    finally:retire_processing_reader(container,admin_url,directory,expected_ownership_sha256=expected)
+
+
+def retire_processing_reader(container,admin_url,directory,*,expected_ownership_sha256):
+    """Retire ONLY this new reader account; never delete/modify its graph."""
+    from oracle_brain.hosting.custody import _durable_nonce
+    destination=Path(directory)
+    raw,owner=_private_recovery_record(destination/'ownership.json',expected_ownership_sha256)
+    if (set(owner)!={'schema_version','profile','synthetic_only','container_id','graph_name','username','nonce','receipt_body_hash'}
+            or type(owner['schema_version']) is not int or owner['schema_version']!=1
+            or owner['profile']!='processing-reader-fixture-v1' or owner['synthetic_only'] is not True
+            or not re.fullmatch(r'oracle_ro_fixture_user_[0-9a-f]{32}',owner['username'])
+            or not re.fullmatch(r'oracle_processing_v1_[0-9a-f]{32}_[0-9a-f]{32}_[1-9][0-9]*_[0-9a-f]{32}',owner['graph_name'])
+            or not re.fullmatch(r'[0-9a-f]{32}',owner['nonce']) or not re.fullmatch(r'[0-9a-f]{64}',owner['receipt_body_hash'])):
+        raise PermissionError('exact new processing reader ownership required')
+    details,_=owned_target(container,admin_url)
+    if details['Id']!=owner['container_id']:raise PermissionError('reader target changed')
+    client=redis.Redis.from_url(admin_url,socket_timeout=2,socket_connect_timeout=2,decode_responses=True)
+    try:
+        acl=client.acl_getuser(owner['username'])
+        if acl is None:
+            # Creator may have failed before the first ACL write, never adopt/recreate.
+            _durable_nonce(destination,'reader-retired.json',json.dumps({'ownership_hash':expected_ownership_sha256,
+                'status':'exact-reader-absent-no-graph-change'}).encode());return
+        keys=acl.get('keys',[]);commands=acl.get('commands',[])
+        if isinstance(keys,str):keys=keys.split()
+        if isinstance(commands,str):commands=commands.split()
+        if (set(keys)!={'~'+owner['graph_name']} or acl.get('selectors') or acl.get('categories')!=['-@all']
+                or set(commands)!={'+graph.ro_query','+ping','+hello','+info|server'}):
+            raise PermissionError('reader ACL drifted; preserve')
+        client.execute_command('ACL','SETUSER',owner['username'],'off')
+        killed=client.execute_command('CLIENT','KILL','USER',owner['username'],'SKIPME','YES')
+        if ('off' not in client.acl_getuser(owner['username'])['flags']
+                or any(row.get('user')==owner['username'] for row in client.client_list())):
+            raise PermissionError('exact reader clients remain; preserve')
+        if client.execute_command('ACL','DELUSER',owner['username'])!=1:raise PermissionError('reader retirement differs')
+        _durable_nonce(destination,'reader-retired.json',json.dumps({'ownership_hash':expected_ownership_sha256,
+            'killed_clients':killed,'status':'exact-reader-retired-no-graph-change'}).encode())
     finally:client.close()
 
 
