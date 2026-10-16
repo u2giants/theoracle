@@ -81,3 +81,13 @@ def test_qualified_assembly_suites_are_in_required_documentary_gate():
     assert {'assembly_context','assembly_qualification','observed_assembly_capture'} <= set(verifier.DOCUMENTARY)
     for name in ('assembly_context','assembly_qualification','observed_assembly_capture'):
         assert (Path(__file__).parent/f'test_{name}.py').is_file()
+
+
+def test_processing_role_and_journey_proofs_are_required_with_explicit_migrations():
+    assert {'source_processing_qualification','processing_compiler_capabilities',
+        'processing_projection_leases','processing_documentary_journey'} <= set(verifier.DOCUMENTARY)
+    assert verifier.SYNTHETIC_MIGRATIONS==('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
+        '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
+        '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
+        '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
+        '012_processing_compiler_capabilities.sql')

@@ -5,12 +5,13 @@ from uuid import uuid4
 import pytest
 from test_assembly_context import context, wire_case
 from oracle_brain.operating_model.captured_assembly import captured_assembly_candidate
-from oracle_brain.operating_model.contracts import digest
+from oracle_brain.operating_model.contracts import digest,ProcessingExtractionSeal
 from oracle_brain.operating_model.coverage import CoverageRecord
 from oracle_brain.operating_model.semantic_acceptance import (
     CRITERIA, CriterionReview, IndependentAssessment, SemanticAdmission, sealed,
 )
 from oracle_brain.operating_model.assembly_qualification import (
+    CapturedAssemblySemanticAdmission,qualified_content_core,
     verify_captured_assembly_semantic_acceptance, final_assembly_envelope,
     verify_final_assembly_lineage,
 )
@@ -29,7 +30,7 @@ def qualified(context):
             object_ids=('p'+str(i+1),),reason='Invented exact support') for i,o in enumerate(ctx.census.obligations)),
         criteria=tuple(CriterionReview(criterion=k,verdict='pass',explanation='Injected fixture assessment',
             evidence=tuple(r.evidence for r in ctx.census.regions),object_ids=('p1','p2')) for k in sorted(CRITERIA)))
-    admission=SemanticAdmission(protocol_hash=assessment.protocol_hash,runtime_hash=ctx.runtime_hash,
+    admission=CapturedAssemblySemanticAdmission(final_envelope_hash=digest(qualified_content_core(captured,census=ctx.census,assessment=assessment)),protocol_hash=assessment.protocol_hash,runtime_hash=ctx.runtime_hash,
         source_region_register_hash=digest({'regions':[r.model_dump(mode='json') for r in ctx.census.regions]}),
         census_hash=sealed(ctx.census),assessment_hash=sealed(assessment),candidate_hash=captured.candidate_hash,
         permission_hash=ctx.job.permission_hash,reviewer_report_hash='b'*64,
@@ -46,18 +47,20 @@ def qualified(context):
     manifest=ctx.extractions[0].manifest.model_copy(update={'artifact_id':model.model_id,
         'kind':'processing_qualified_model_v1','content_hash':digest(payload),
         'source_digest':digest({'refs':[r.ref.model_dump(mode='json') for r in ctx.receipts]})})
-    manifests={(e.manifest.artifact_id,e.manifest.version):e.manifest for e in ctx.extractions}
+    manifests={(e.manifest.artifact_id,e.manifest.version):ProcessingExtractionSeal.model_validate_json(__import__('json').dumps(
+        {k:v for k,v in e.manifest.model_dump(mode='json').items() if k!='private_object_key'} |
+        {'manifest_hash':sealed(e.manifest),'source_refs':e.payload['source_refs']})) for e in ctx.extractions}
     return dict(manifest=manifest,payload=payload,principal=uuid4(),now=now+timedelta(seconds=2),
         trusted_admission_hashes=frozenset({sealed(admission)}),runtime_hash=ctx.runtime_hash,
         current_source_identity=lambda w,p,s:receipts[s].ref,
-        current_extraction_manifest=lambda w,p,a,v:manifests[(a,v)])
+        current_extraction_seal=lambda w,p,a,v:manifests[(a,v)])
 
 
 def test_compile_then_final_serve_verifies_using_only_current_metadata(qualified):
     assert verify_final_assembly_lineage(**qualified) is None
-    candidate={k:v for k,v in qualified['payload'].items() if k not in {'coverage','assembly_qualification'}}
+    candidate={k:v for k,v in qualified['payload'].items() if k not in {'coverage','qualified_lineage','assembly_qualification'}}
     assert digest(candidate)!=digest(qualified['payload'])
-    assert digest(candidate)==qualified['payload']['assembly_qualification']['candidate_hash']
+    assert digest(candidate)==qualified['payload']['qualified_lineage']['candidate_hash']
 
 
 @pytest.mark.parametrize('change',('trust','expired','runtime','source','extraction','body','coverage','lineage','actor'))
@@ -67,12 +70,12 @@ def test_final_serve_refuses_missing_or_changed_current_seals(qualified,change):
     elif change=='expired':q['now']+=timedelta(minutes=1)
     elif change=='runtime':q['runtime_hash']='f'*64
     elif change=='source':q['current_source_identity']=lambda *_:None
-    elif change=='extraction':q['current_extraction_manifest']=lambda *_:None
+    elif change=='extraction':q['current_extraction_seal']=lambda *_:None
     elif change=='actor':q['principal']=None
     else:
         if change=='body':q['payload']['raw_response']='{}'
         elif change=='coverage':q['payload']['coverage']['essential_total']=999
-        else:q['payload']['assembly_qualification']['capture_hash']='e'*64
+        else:q['payload']['qualified_lineage']['capture_hash']='e'*64
         # Even a newly sealed final artifact cannot replace trusted admission.
         q['manifest']=q['manifest'].model_copy(update={'content_hash':digest(q['payload'])})
     with pytest.raises((ValueError,PermissionError)):
@@ -83,7 +86,7 @@ def read_guard(q):
     from oracle_brain.operating_model.assembly_qualification import QualifiedAssemblyReadGuard
     return QualifiedAssemblyReadGuard(trusted_admissions=lambda:q['trusted_admission_hashes'],
         runtime_hash=q['runtime_hash'],current_source_identity=q['current_source_identity'],
-        current_extraction_manifest=q['current_extraction_manifest'],
+        current_extraction_seal=q['current_extraction_seal'],
         qualified_parent_reader=lambda *_:(q['manifest'],q['payload']))
 
 
@@ -144,7 +147,7 @@ def test_answer_rechecks_current_qualification_without_original_reader(qualified
     elif change=='revoked':
         guard=QualifiedAssemblyReadGuard(trusted_admissions=lambda:q['trusted_admission_hashes'],
             runtime_hash=q['runtime_hash'],current_source_identity=lambda *_:None,
-            current_extraction_manifest=q['current_extraction_manifest'],qualified_parent_reader=lambda *_:None)
+            current_extraction_seal=q['current_extraction_seal'],qualified_parent_reader=lambda *_:None)
     elif change=='parent':q['payload']['raw_response']='{}'
     if change=='ok':
         answer=answer_from_summary(l,summary,intent='overview',qualification_guard=guard)
@@ -167,3 +170,13 @@ def test_processing_projection_requires_explicit_guard_and_separate_namespace():
     assert ProcessingSDKProjection.graph_prefix=='oracle_processing_v1_'
     assert SDKProjection.graph_prefix=='oracle_operating_model_v1_'
     with pytest.raises(PermissionError):ProcessingSDKProjection(qualification_guard=None)
+
+
+def test_legacy_v1_admission_cannot_authorize_new_qualified_content(qualified):
+    import json
+    q=qualified;raw=q['payload']['assembly_qualification']['admission']
+    legacy=SemanticAdmission.model_validate_json(json.dumps({k:v for k,v in raw.items() if k!='final_envelope_hash'} | {'schema_version':1}))
+    q['payload']['assembly_qualification']['admission']=legacy.model_dump(mode='json')
+    q['trusted_admission_hashes']=frozenset({sealed(legacy)})
+    q['manifest']=q['manifest'].model_copy(update={'content_hash':digest(q['payload'])})
+    with pytest.raises((ValueError,PermissionError)):verify_final_assembly_lineage(**q)

@@ -56,7 +56,7 @@ def context():
     processing = j.processing_request.model_copy(update={'purpose':'operating-audit'})
     approval = j.approvals[0].model_copy(update={'purpose':'operating-audit'})
     extractions = tuple(SealedAssemblyExtraction(manifest=ArtifactManifest(
-        workspace_id=m.workspace_id, artifact_id=uuid4(), version=1, kind='extraction',
+        workspace_id=m.workspace_id, artifact_id=uuid4(), version=1, kind='processing_extraction_v1',
         input_digest='a'*64, source_digest=digest({'refs':p['source_refs']}),
         permission_digest=j.permission_hash, compiler_digest='b'*64, dependency_digest='c'*64,
         content_hash=digest(p), private_object_key='invented', state='ready'), payload=p) for p in payloads)

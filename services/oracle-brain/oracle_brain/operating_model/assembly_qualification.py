@@ -7,11 +7,12 @@ admission hash registry and real current source/extraction metadata resolvers.
 """
 from datetime import datetime
 from uuid import UUID
+from typing import Literal
 
 from pydantic import Field
 
 from .captured_assembly import CapturedAssemblyCandidate, captured_assembly_candidate
-from .contracts import ArtifactManifest, StrictRecord, digest
+from .contracts import ArtifactManifest, ProcessingExtractionSeal, StrictRecord, digest
 from .coverage import validate_coverage
 from .pipeline import assembly_inputs, assembly_candidate_payload
 from .semantic_acceptance import (
@@ -24,20 +25,35 @@ from .source_receipts import SourceRef
 HASH = r'^[0-9a-f]{64}$'
 
 
+class CapturedAssemblySemanticAdmission(SemanticAdmission):
+    """V2 of the existing external registry, never an upgrade of a V1 receipt."""
+    schema_version: Literal[2] = 2
+    final_envelope_hash: str = Field(pattern=HASH)
+
+
 class FinalAssemblyLineage(StrictRecord):
+    schema_version: Literal[2] = 2
+    kind: Literal['captured-assembly-qualified-content-v2'] = 'captured-assembly-qualified-content-v2'
     candidate_hash: str = Field(pattern=HASH)
     capture_hash: str = Field(pattern=HASH)
     object_evidence_hash: str = Field(pattern=HASH)
-    census: FrozenCensus
-    assessment: IndependentAssessment
-    admission: SemanticAdmission
-    final_envelope_hash: str = Field(pattern=HASH)
+    census_hash: str = Field(pattern=HASH)
+    assessment_hash: str = Field(pattern=HASH)
+    source_refs: tuple[SourceRef,...]
+    extraction_manifest_hashes: tuple[str,...]
+
+
+class AssemblyQualification(StrictRecord):
+    schema_version: Literal[2] = 2
+    admission: CapturedAssemblySemanticAdmission
 
 
 def verify_captured_assembly_semantic_acceptance(*, context, observer,
         expected_observer_context_hash, protocol, expected_protocol_hash, observed, raw, assessment, admission,
         trusted_admission_hashes, source_regions, current_source, can_read, now):
     """Compiler/assessor only. Current original receipts are mandatory here."""
+    if not isinstance(admission,CapturedAssemblySemanticAdmission):
+        raise PermissionError('new qualified assembly requires independently admitted V2 final core')
     captured, _ = captured_assembly_candidate(context=context, observer=observer,
         expected_observer_context_hash=expected_observer_context_hash,
         protocol=protocol,expected_protocol_hash=expected_protocol_hash, observed=observed, raw=raw, now=now)
@@ -62,120 +78,110 @@ def verify_captured_assembly_semantic_acceptance(*, context, observer,
         runtime_hash=context.runtime_hash, permission_hash=context.job.permission_hash,
         candidate_created_at=observed.observed_at, now=now,
         current_source=current_source, can_read=can_read)
+    if digest(qualified_content_core(captured,census=context.census,assessment=assessment))!=admission.final_envelope_hash:
+        raise PermissionError('external V2 admission does not bind exact qualified content core')
     return captured
 
 
-def final_assembly_envelope(captured, *, census, assessment, admission):
-    """Deterministic bytes only; caller must independently verify admission first.
+def qualified_content_core(captured, *, census, assessment):
+    """Private compiler derivation; caller must obtain real independent V2 admission.
 
-    Persisting these bytes alone never authorizes reading or serving. The current
-    semantic admission and complete lineage are checked again at each read.
+    Raw census/assessment/whole originals never enter the minimized serving core.
     """
-    if (not isinstance(captured, CapturedAssemblyCandidate)
-            or digest(captured.candidate) != captured.candidate_hash
-            or captured.candidate_hash != admission.candidate_hash
-            or sealed(census) != admission.census_hash
-            or sealed(assessment) != admission.assessment_hash):
-        raise PermissionError('qualified assembly inputs differ')
-    _, observations, findings = assembly_inputs((captured.candidate,))
     import json
-    refs = tuple(SourceRef.model_validate_json(json.dumps(r)) for r in captured.candidate['source_refs'])
-    _, evidence = assembly_candidate_payload(captured.candidate['raw_response'],
-        workspace_id=census.workspace_id, refs=refs, observations=observations, findings=findings)
-    coverage = validate_coverage(census.obligations, assessment.coverage,
-        object_evidence=evidence, independent_inventory_hash=digest({
-            'obligations':[o.model_dump(mode='json') for o in census.obligations]}))
-    body = {**captured.candidate, 'coverage':coverage}
-    lineage = FinalAssemblyLineage(candidate_hash=captured.candidate_hash,
-        capture_hash=digest(captured.candidate['assembly_capture']),
-        object_evidence_hash=captured.object_evidence_hash,census=census,
-        assessment=assessment,admission=admission,final_envelope_hash=digest(body))
-    return {**body, 'assembly_qualification':lineage.model_dump(mode='json')}
-
-
-def verify_final_assembly_lineage(manifest, payload, principal, now, *,
-        trusted_admission_hashes, runtime_hash, current_source_identity,
-        current_extraction_manifest):
-    """Serving-only: exact current metadata, no raw source getter or fake receipt."""
-    import json
-    if (not isinstance(manifest, ArtifactManifest)
-            or manifest.kind != 'processing_qualified_model_v1' or manifest.state != 'ready'
-            or not isinstance(principal, UUID) or now.tzinfo is None or now.utcoffset() is None):
-        raise PermissionError('qualified model serving context required')
-    lineage = FinalAssemblyLineage.model_validate_json(json.dumps(payload['assembly_qualification']))
-    admission, assessment, census = lineage.admission, lineage.assessment, lineage.census
-    if (sealed(admission) not in trusted_admission_hashes or admission.expires_at <= now
-            or admission.runtime_hash != runtime_hash
-            or admission.implementer_actor == admission.assessor_actor
-            or assessment.assessor_actor != admission.assessor_actor
-            or assessment.protocol_hash != admission.protocol_hash
-            or assessment.permission_hash != admission.permission_hash
-            or sealed(assessment) != admission.assessment_hash
-            or sealed(census) != admission.census_hash
-            or assessment.census_hash != admission.census_hash
-            or assessment.candidate_hash != admission.candidate_hash
-            or not census.frozen_at < admission.candidate_created_at <= assessment.assessed_at <= now):
-        raise PermissionError('current external assembly semantic admission required')
-    body = {k:v for k,v in payload.items() if k != 'assembly_qualification'}
-    candidate = {k:v for k,v in body.items() if k != 'coverage'}
-    if (digest(payload) != manifest.content_hash or digest(body) != lineage.final_envelope_hash
-            or digest(candidate) != lineage.candidate_hash
-            or lineage.candidate_hash != admission.candidate_hash
-            or digest(candidate['assembly_capture']) != lineage.capture_hash
-            or lineage.object_evidence_hash != admission.object_evidence_hash
-            or manifest.workspace_id != census.workspace_id
-            or manifest.permission_digest != admission.permission_hash):
-        raise PermissionError('candidate to final assembly lineage differs')
-    refs = tuple(SourceRef.model_validate_json(json.dumps(r)) for r in candidate['source_refs'])
-    if (refs != census.source_refs or len(set(refs)) != len(refs)
-            or digest({'refs':[r.model_dump(mode='json') for r in refs]}) != manifest.source_digest):
-        raise PermissionError('qualified assembly source population differs')
-    for ref in refs:
-        # Trusted metadata resolver performs the executor's own current access
-        # check; assessor permissions are not borrowed for the executor.
-        if current_source_identity(ref.workspace_id, principal, ref.source_id) != ref:
-            raise PermissionError('current qualified assembly source identity unavailable')
-    actual_model=candidate['operating_models'][0]
-    if manifest.artifact_id!=UUID(actual_model['model_id']) or manifest.version!=actual_model['version']:
-        raise PermissionError('qualified manifest differs from intended generated model')
-    capture = candidate['assembly_capture']
-    if manifest.compiler_digest!=capture['compiler_digest']:
-        raise PermissionError('qualified compiler seal differs from admitted context')
-    from .captured_assembly import ObservedAssemblyProtocol
-    protocol=ObservedAssemblyProtocol.model_validate_json(json.dumps(capture['protocol']))
-    if sealed(protocol)!=capture['protocol_hash'] or capture['protocol_hash']!=admission.protocol_hash:
-        raise PermissionError('current admission does not bind observed-wire protocol')
-    from .captured_assembly import ObservedAssemblyWire
-    observed = ObservedAssemblyWire.model_validate_json(json.dumps(capture['observed_wire']))
-    if observed.observed_at != admission.candidate_created_at:
-        raise PermissionError('admitted observed capture time differs')
-    extractions = capture['extractions']
-    if len(extractions) != len(refs):
-        raise PermissionError('qualified assembly extraction population differs')
-    seen=set()
-    for expected in extractions:
-        key=(UUID(expected['artifact_id']),expected['version'])
-        if key in seen:raise PermissionError('duplicate assembly extraction dependency')
-        seen.add(key)
-        current=current_extraction_manifest(manifest.workspace_id,principal,*key)
-        if not isinstance(current,ArtifactManifest) or sealed(current)!=expected['manifest_hash']:
-            raise PermissionError('current sealed extraction dependency unavailable')
-        if any(current.model_dump(mode='json')[k] != v for k,v in expected.items() if k!='manifest_hash'):
-            raise PermissionError('qualified assembly extraction identity differs')
-    _, observations, findings = assembly_inputs((candidate,))
-    expected, evidence = assembly_candidate_payload(candidate['raw_response'],
-        workspace_id=census.workspace_id,refs=refs,observations=observations,findings=findings)
-    if {**expected,'assembly_capture':capture} != candidate:
-        raise PermissionError('qualified candidate contains unmatched generated bytes')
-    if digest({k:[e.model_dump(mode='json') for e in v] for k,v in evidence.items()}) != admission.object_evidence_hash:
-        raise PermissionError('qualified object evidence differs from independent admission')
+    if not isinstance(captured,CapturedAssemblyCandidate) or digest(captured.candidate)!=captured.candidate_hash:
+        raise PermissionError('captured candidate identity differs')
+    _,observations,findings=assembly_inputs((captured.candidate,))
+    refs=tuple(SourceRef.model_validate_json(json.dumps(r)) for r in captured.candidate['source_refs'])
+    _,evidence=assembly_candidate_payload(captured.candidate['raw_response'],workspace_id=census.workspace_id,
+        refs=refs,observations=observations,findings=findings)
     coverage=validate_coverage(census.obligations,assessment.coverage,object_evidence=evidence,
         independent_inventory_hash=digest({'obligations':[o.model_dump(mode='json') for o in census.obligations]}))
-    if body['coverage'] != coverage:
-        raise PermissionError('final coverage differs from independent assessment')
-    # A second current metadata read closes changes during deterministic checks.
+    lineage=FinalAssemblyLineage(candidate_hash=captured.candidate_hash,
+        capture_hash=digest(captured.candidate['assembly_capture']),object_evidence_hash=captured.object_evidence_hash,
+        census_hash=sealed(census),assessment_hash=sealed(assessment),source_refs=refs,
+        extraction_manifest_hashes=tuple(e['manifest_hash'] for e in captured.candidate['assembly_capture']['extractions']))
+    return {**captured.candidate,'coverage':coverage,'qualified_lineage':lineage.model_dump(mode='json')}
+
+
+def final_assembly_envelope(captured, *, census, assessment, admission):
+    """Final core excludes the admission/selfhash, avoiding circular certification."""
+    if (not isinstance(admission,CapturedAssemblySemanticAdmission)
+            or captured.candidate_hash!=admission.candidate_hash
+            or sealed(census)!=admission.census_hash or sealed(assessment)!=admission.assessment_hash):
+        raise PermissionError('current independent V2 qualified assembly admission required')
+    core=qualified_content_core(captured,census=census,assessment=assessment)
+    if digest(core)!=admission.final_envelope_hash:
+        raise PermissionError('V2 admission does not bind deterministic final content core')
+    return {**core,'assembly_qualification':AssemblyQualification(admission=admission).model_dump(mode='json')}
+
+
+def verify_final_assembly_lineage(manifest,payload,principal,now,*,trusted_admission_hashes,
+        runtime_hash,current_source_identity,current_extraction_seal):
+    """Serving-only: minimized admitted core/current metadata, never raw originals."""
+    import json
+    if (not isinstance(manifest,ArtifactManifest) or manifest.kind!='processing_qualified_model_v1'
+            or manifest.state!='ready' or not isinstance(principal,UUID)
+            or now.tzinfo is None or now.utcoffset() is None):
+        raise PermissionError('qualified model serving context required')
+    qualification=AssemblyQualification.model_validate_json(json.dumps(payload['assembly_qualification']))
+    admission=qualification.admission
+    lineage=FinalAssemblyLineage.model_validate_json(json.dumps(payload['qualified_lineage']))
+    core={k:v for k,v in payload.items() if k!='assembly_qualification'}
+    candidate={k:v for k,v in core.items() if k not in {'coverage','qualified_lineage'}}
+    if (sealed(admission) not in trusted_admission_hashes or admission.expires_at<=now
+            or admission.runtime_hash!=runtime_hash or admission.implementer_actor==admission.assessor_actor
+            or digest(core)!=admission.final_envelope_hash or digest(payload)!=manifest.content_hash
+            or digest(candidate)!=lineage.candidate_hash or lineage.candidate_hash!=admission.candidate_hash
+            or lineage.census_hash!=admission.census_hash or lineage.assessment_hash!=admission.assessment_hash
+            or lineage.object_evidence_hash!=admission.object_evidence_hash
+            or digest(candidate['assembly_capture'])!=lineage.capture_hash
+            or manifest.permission_digest!=admission.permission_hash):
+        raise PermissionError('current external V2 assembly admission or minimized lineage differs')
+    refs=tuple(SourceRef.model_validate_json(json.dumps(r)) for r in candidate['source_refs'])
+    if (refs!=lineage.source_refs or not refs or len(set(refs))!=len(refs)
+            or any(r.workspace_id!=manifest.workspace_id for r in refs)
+            or digest({'refs':[r.model_dump(mode='json') for r in refs]})!=manifest.source_digest):
+        raise PermissionError('qualified source population differs')
+    model=candidate['operating_models'][0]
+    if manifest.artifact_id!=UUID(model['model_id']) or manifest.version!=model['version']:
+        raise PermissionError('qualified manifest differs from generated model identity')
+    capture=candidate['assembly_capture']
+    from .captured_assembly import ObservedAssemblyProtocol,ObservedAssemblyWire
+    protocol=ObservedAssemblyProtocol.model_validate_json(json.dumps(capture['protocol']))
+    observed=ObservedAssemblyWire.model_validate_json(json.dumps(capture['observed_wire']))
+    if (sealed(protocol)!=capture['protocol_hash'] or capture['protocol_hash']!=admission.protocol_hash
+            or observed.observed_at!=admission.candidate_created_at
+            or observed.observed_at>now or manifest.compiler_digest!=capture['compiler_digest']):
+        raise PermissionError('current admitted observation/compile protocol differs')
     for ref in refs:
-        if current_source_identity(ref.workspace_id,principal,ref.source_id) != ref:
+        if current_source_identity(ref.workspace_id,principal,ref.source_id)!=ref:
+            raise PermissionError('current qualified source identity unavailable')
+    extractions=capture['extractions'];seen=set();extracted_sources=[]
+    if len(extractions)!=len(refs) or tuple(e['manifest_hash'] for e in extractions)!=lineage.extraction_manifest_hashes:
+        raise PermissionError('qualified extraction population differs')
+    for expected in extractions:
+        key=(UUID(expected['artifact_id']),expected['version'])
+        if key in seen:raise PermissionError('duplicate qualified extraction dependency')
+        seen.add(key)
+        current=current_extraction_seal(manifest.workspace_id,principal,*key)
+        if (not isinstance(current,ProcessingExtractionSeal) or current.workspace_id!=manifest.workspace_id
+                or any(current.model_dump(mode='json')[k]!=v for k,v in expected.items())
+                or len(current.source_refs)!=1 or current.source_refs[0] not in refs
+                or digest({'refs':[r.model_dump(mode='json') for r in current.source_refs]})!=current.source_digest):
+            raise PermissionError('current sealed extraction dependency unavailable')
+        extracted_sources.extend(current.source_refs)
+    if len(extracted_sources)!=len(refs) or set(extracted_sources)!=set(refs):
+        raise PermissionError('current extraction source population differs')
+    _,observations,findings=assembly_inputs((candidate,))
+    expected,evidence=assembly_candidate_payload(candidate['raw_response'],workspace_id=manifest.workspace_id,
+        refs=refs,observations=observations,findings=findings)
+    if {**expected,'assembly_capture':capture}!=candidate:
+        raise PermissionError('qualified candidate contains unmatched generated bytes')
+    if digest({k:[e.model_dump(mode='json') for e in v] for k,v in evidence.items()})!=admission.object_evidence_hash:
+        raise PermissionError('qualified object evidence differs from independent V2 admission')
+    for ref in refs:
+        if current_source_identity(ref.workspace_id,principal,ref.source_id)!=ref:
             raise PermissionError('qualified source changed during serving checks')
     return None
 
@@ -189,14 +195,14 @@ class QualifiedAssemblyReadGuard:
     original content at serving time.
     """
     def __init__(self, *, trusted_admissions, runtime_hash, current_source_identity,
-                 current_extraction_manifest, qualified_parent_reader):
+                 current_extraction_seal, qualified_parent_reader):
         if any(not callable(c) for c in (trusted_admissions,current_source_identity,
-                current_extraction_manifest,qualified_parent_reader)):
+                current_extraction_seal,qualified_parent_reader)):
             raise PermissionError('trusted current qualification runtime required')
         self._trust=trusted_admissions
         self._runtime=runtime_hash
         self._source=current_source_identity
-        self._extraction=current_extraction_manifest
+        self._extraction=current_extraction_seal
         self._parent=qualified_parent_reader
 
     def valid_until(self, manifest, payload, principal, now):
@@ -204,8 +210,8 @@ class QualifiedAssemblyReadGuard:
         self(manifest,payload,principal,now)
         if manifest.kind=='processing_qualified_model_v1':
             import json
-            lineage=FinalAssemblyLineage.model_validate_json(json.dumps(payload['assembly_qualification']))
-            deadline=lineage.admission.expires_at
+            qualification=AssemblyQualification.model_validate_json(json.dumps(payload['assembly_qualification']))
+            deadline=qualification.admission.expires_at
         elif manifest.kind=='processing_summary_v1':
             from .summaries import DocumentarySummary
             import json
@@ -224,7 +230,7 @@ class QualifiedAssemblyReadGuard:
         if manifest.kind == 'processing_qualified_model_v1':
             return verify_final_assembly_lineage(manifest,payload,principal,now,
                 trusted_admission_hashes=self._trust(),runtime_hash=self._runtime,
-                current_source_identity=self._source,current_extraction_manifest=self._extraction)
+                current_source_identity=self._source,current_extraction_seal=self._extraction)
         if manifest.kind != 'processing_summary_v1':
             raise PermissionError('extraction/failed processing artifact is not qualified for serving')
         from .summaries import DocumentarySummary

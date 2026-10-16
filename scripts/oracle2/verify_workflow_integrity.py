@@ -11,8 +11,15 @@ from psycopg import sql
 ROOT=Path(__file__).resolve().parents[2]
 DOCUMENTARY=('operating_model_verifier','operating_model_boundary','operating_model_coverage','source_receipts','observation_identity','workflow_findings','artifact_storage','operating_model_extraction','operating_model_adapters','process_model','process_coverage','business_operating_model','workflow_lineage','operating_model_sdk','operating_model_retrieval','process_consult','operating_model_cutover','operating_model_restore','operating_model_pipeline','operating_model_native_provider','operating_model_answer','operating_model_summaries','operating_model_comparison','operating_model_retirement','operating_model_actions','operating_model_report_store','workflow_authorization','native_alternate','acceptance_profiles','semantic_acceptance','semantic_runtime','key_coverage','hosting_boundary','hosting_job_authority','hosting_startup','native_factory','provider_runtime','hosting_candidate_permissions','hosting_runtime_permissions','hosting_source_binding','hosting_readonly_projection','synthetic_control_fixtures','hosting_bootstrap','hosting_synthetic_fixture','hosting_result','hosting_synthetic_project','hosting_platform_translation','hosting_executor_jobs','hosting_forward_fixture','hosting_restore_receipts','hosting_forward_recovery','minimized_observations')
 DOCUMENTARY += ('replacement_documentary_journey', 'processing_context', 'processing_profile',
-                'assembly_context','assembly_qualification','observed_assembly_capture')
+                'assembly_context','assembly_qualification','observed_assembly_capture',
+                'source_processing_qualification','processing_compiler_capabilities',
+                'processing_projection_leases','processing_documentary_journey')
 DOCUMENTARY += ('falkordb_coolify_plan','native_page_alternate','native_alternate_operator','native_alternate_chain_operator','hosting_restore_platform')
+SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
+    '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
+    '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
+    '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
+    '012_processing_compiler_capabilities.sql')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
 PUBLIC_CHAIN=('scripts/oracle2/native_alternate_operator.py','scripts/oracle2/native_alternate_chain_operator.py','scripts/oracle2/contracts/native_alternate_serialization.json','scripts/oracle2/contracts/native_alternate_chain_v2.json')
 PUBLIC_SOURCE_LIMIT=8*1024**2
@@ -88,7 +95,7 @@ def main(argv=None):
     report={'schema_version':1,'stage':args.stage,'mode':args.mode,'success':False,'synthetic':True,'business_accepted':False,'private_source_acceptance':'open','independent_semantic_acceptance':'open','actual_event_acceptance':'unavailable','analytical_runtime_qualified':False,'required_tests':[p.name for p in paths]}
     try:
         with psycopg.connect(target) as conn:
-            for migration in ('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql'):conn.execute((ROOT/'services/oracle-brain/sql'/migration).read_text())
+            for migration in SYNTHETIC_MIGRATIONS:conn.execute((ROOT/'services/oracle-brain/sql'/migration).read_text())
         with tempfile.TemporaryDirectory(prefix='oracle-workflow-proof-',dir=os.getenv('TMPDIR')) as tmp:
             junit=Path(tmp)/'junit.xml'
             env={**os.environ,'ORACLE2_TEST_ADMIN_URL':target,'PYTHONPATH':str(ROOT/'services/oracle-brain')}
@@ -101,7 +108,7 @@ def main(argv=None):
                 print(completed.stdout[-6000:]);raise RuntimeError('required synthetic gate failed or skipped')
             report['versions']={package:version(package) for package in ('graphrag-sdk','langgraph','pydantic','psycopg')}
             report['head']=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
-            tracked=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','services/oracle-brain/oracle_brain/operating_model','services/oracle-brain/tests','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/validate_analytical_packet.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics'],cwd=ROOT,text=True).splitlines()
+            tracked=subprocess.check_output(['git','ls-files','--cached','--others','--exclude-standard','services/oracle-brain/oracle_brain/operating_model','services/oracle-brain/tests','services/oracle-brain/sql','dev/oracle2/test_readonly_graph_fixture.py','scripts/oracle2/verify_workflow_integrity.py','dev/oracle2/hosting/validate_falkordb_plan.py','dev/oracle2/hosting/golden','docs/implementation/falkordb-coolify-deploy-plan.md','scripts/oracle2/validate_analytical_associations.py','scripts/oracle2/contracts/analytical_source_associations.json','scripts/oracle2/analytical_source_packets.py','scripts/oracle2/test_analytical_source_packets.py','scripts/oracle2/validate_analytical_packet.py','scripts/oracle2/test_validate_analytical_packet.py','dev/oracle2/analytics'],cwd=ROOT,text=True).splitlines()
             hashes={p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest() for p in tracked if (ROOT/p).is_file()}
             current_public_hashes=required_public_chain_hashes()
             if current_public_hashes!=public_hashes:raise RuntimeError('required public source changed during tests')
