@@ -10,7 +10,8 @@ from pydantic import Field,AwareDatetime,model_validator
 from oracle_brain.operating_model.contracts import StrictRecord,digest
 from oracle_brain.operating_model.purpose_journey import PurposeWorkerJobV2
 from .purpose_journey_v2 import CompilerWorkerSettingsV2,_worker_file,_worker_json,_require,_unique
-from .paid_sdk_delivery_v3 import load_paid_sdk_bundle_v3
+from .paid_sdk_delivery_v3 import load_paid_sdk_bundle_v3,_semantic_operation_horizon_v3
+from oracle_brain.operating_model.processing_projection import ProcessingProjectionAuthorityWindowV3
 
 HASH=r'^[a-f0-9]{64}$'
 
@@ -92,12 +93,12 @@ class PaidProjectorSettingsV3:
     worker:CompilerWorkerSettingsV2
     job:PurposeWorkerJobV2
     bundle:object
-    valid_until:datetime
+    operation_horizon:datetime
     graph_url:str=field(repr=False)
     receipt_secret:bytes=field(repr=False)
     tls_context:ssl.SSLContext=field(repr=False)
 
-    def current(self):
+    def current_window(self):
         self.worker.authorize(self.job)
         now=datetime.now(timezone.utc)
         self.worker.custody_horizon(self.job);self.worker.semantic.current(now)
@@ -107,7 +108,7 @@ class PaidProjectorSettingsV3:
             and appointment.issuer_actor==self.issuer_actor and appointment.reviewer_actor==self.reviewer_actor
             and appointment.worker_config_sha256==self.worker.config_sha256
             and appointment.job_hash==digest(self.job.model_dump(mode='json'))
-            and appointment.valid_from<=now<min(appointment.expires_at,self.valid_until),
+            and appointment.valid_from<=now<min(appointment.expires_at,self.operation_horizon),
             'current exact projector appointment/config required')
         self.bundle.qualification_guard(self.bundle.manifest,self.bundle.payload,self.job.actor_id,now)
         for path,seal in ((config.graph_url_file,config.graph_url_sha256),(config.tls_ca_file,config.tls_ca_sha256),
@@ -116,14 +117,16 @@ class PaidProjectorSettingsV3:
             _worker_file(path,seal)
         # Current SQL grants can shorten after startup. Never discard that
         # authenticated horizon or authorize a credential read only beforehand.
-        current_custody=self.worker.custody_horizon(self.job)
         current_now=datetime.now(timezone.utc)
         self.worker.semantic.current(current_now)
         self.bundle.qualification_guard(self.bundle.manifest,self.bundle.payload,self.job.actor_id,current_now)
-        horizon=min(self.valid_until,current_custody,self.worker.semantic.valid_until(current_now),
-            self.bundle.qualification_guard.valid_until(self.bundle.manifest,self.bundle.payload,self.job.actor_id,current_now))
-        _require(datetime.now(timezone.utc)<horizon,'original/current projector horizon expired')
-        return horizon
+        self.bundle.qualification_guard.valid_until(self.bundle.manifest,self.bundle.payload,self.job.actor_id,current_now)
+        semantic_until=_semantic_operation_horizon_v3(self.worker,self.bundle.payload)
+        fresh=self.worker.custody_window_v3(self.job)
+        operation=min(self.operation_horizon,fresh.operation_horizon,semantic_until)
+        window=ProcessingProjectionAuthorityWindowV3(min(fresh.current_until,operation),operation)
+        _require(datetime.now(timezone.utc)<window.current_until,'original/current projector boundary expired')
+        return window
 
 
 def load_paid_projector_settings_v3(config_path,expected_config_sha256,*,appointment_path,
@@ -159,9 +162,10 @@ def load_paid_projector_settings_v3(config_path,expected_config_sha256,*,appoint
     _require(digest(bundle.payload)==config.content_hash
         and bundle.embedder.data.inventory.projection_digest==config.projection_digest,
         'projector target differs from current paid qualified artifact')
-    horizon=min(bundle.valid_until,config.expires_at,appointment.expires_at,
-        worker.authority_horizon(job),worker.custody_horizon(job),worker.semantic.valid_until(now))
-    _require(datetime.now(timezone.utc)<horizon,'projector authority expired before credential read')
+    initial_window=worker.custody_window_v3(job)
+    horizon=min(bundle.window.operation_horizon,config.expires_at,appointment.expires_at,
+        initial_window.operation_horizon,worker.semantic.valid_until(now))
+    _require(datetime.now(timezone.utc)<min(horizon,initial_window.current_until),'projector authority expired before credential read')
     # Existing exact-file protection rejects symlink parents/leaves, aliases,
     # foreign ownership, nlink !=1, nonprivate modes, mutation and oversized data.
     url=_worker_file(config.graph_url_file,config.graph_url_sha256,limit=8192).decode().strip()
@@ -184,7 +188,10 @@ def load_paid_projector_settings_v3(config_path,expected_config_sha256,*,appoint
         and _worker_file(config.tls_key_file,config.tls_key_sha256)==key,'TLS identity changed during startup')
     worker.authorize(job);worker.custody_horizon(job);worker.semantic.current(datetime.now(timezone.utc))
     bundle.qualification_guard(bundle.manifest,bundle.payload,job.actor_id,datetime.now(timezone.utc))
-    _require(datetime.now(timezone.utc)<horizon,'projector original horizon expired during credential read')
+    semantic_until=_semantic_operation_horizon_v3(worker,bundle.payload)
+    final_window=worker.custody_window_v3(job)
+    horizon=min(horizon,semantic_until,final_window.operation_horizon)
+    _require(datetime.now(timezone.utc)<min(horizon,final_window.current_until),'projector original/current horizon expired during credential read')
     return PaidProjectorSettingsV3(config,Path(config_path),expected_config_sha256,Path(appointment_path),
         expected_appointment_sha256,issuer_actor,reviewer_actor,worker,job,bundle,horizon,url,secret,context)
 
@@ -197,17 +204,18 @@ class CurrentPaidProjectorGuardV3(CurrentPaidSDKGuardV3):
         self.projector=settings
         super().__init__(settings.bundle.qualification_guard.combined)
     def __call__(self,manifest,payload,principal,now):
-        self.projector.current()
+        self.projector.current_window()
         return super().__call__(manifest,payload,principal,now)
     def valid_until(self,manifest,payload,principal,now):
-        return min(self.projector.current(),super().valid_until(manifest,payload,principal,now))
+        super().valid_until(manifest,payload,principal,now)
+        return self.projector.current_window().current_until
 
 
 def _paid_projector_projection_v3(settings,*,signed_receipt=None):
     from graphrag_sdk import ConnectionConfig
     from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
     _require(type(settings) is PaidProjectorSettingsV3,'exact protected projector settings required')
-    horizon=settings.current();c=settings.config
+    window=settings.current_window();horizon=window.operation_horizon;c=settings.config
     remaining=(horizon-datetime.now(timezone.utc)).total_seconds()
     _require(remaining>0,'projector original horizon expired')
     parsed=urlsplit(settings.graph_url)
@@ -226,7 +234,7 @@ def _paid_projector_projection_v3(settings,*,signed_receipt=None):
     # cancellation cannot interrupt that Python stack. Reject actual expiry
     # after construction, before handing anything to the absolute-deadline
     # graph handler; this never permits a late marker or ACK.
-    settings.current()
+    settings.current_window()
     _require(datetime.now(timezone.utc)<horizon,'original projector deadline elapsed during construction')
     return projection
 
@@ -239,7 +247,7 @@ def build_paid_projector_projection_v3(settings):
 def reload_paid_projector_projection_v3(settings):
     """Genuine committed compiler ACK only, never caller supplied receipt/cache."""
     _require(type(settings) is PaidProjectorSettingsV3,'exact protected projector settings required')
-    settings.current();c=settings.config
+    settings.current_window();c=settings.config
     # This exact compiler-only SQL getter is a required dependency; absence or
     # revocation fails closed rather than opening an owner connection/fallback.
     delivered=settings.worker.resolver.projection_receipt_v3(c.workspace_id,c.artifact_id,c.artifact_version)
@@ -248,11 +256,11 @@ def reload_paid_projector_projection_v3(settings):
         and set(delivered.source_refs)==set(settings.job.source_refs)
         and datetime.now(timezone.utc)<delivered.valid_until,'current exact delivered source metadata required')
     from dataclasses import replace
-    settings=replace(settings,valid_until=min(settings.valid_until,delivered.valid_until))
+    settings=replace(settings,operation_horizon=min(settings.operation_horizon,delivered.valid_until))
     receipt={**delivered.receipt.model_dump(mode='json'),'signature':delivered.signature}
     _require(receipt['graph_name']==c.graph_name and receipt['projector_id']==str(c.projector_id),
         'committed projector receipt belongs to another target/identity')
-    settings.current()
+    settings.current_window()
     return _paid_projector_projection_v3(settings,signed_receipt=receipt)
 
 
@@ -262,7 +270,7 @@ class PaidProjectorAuthorityV3:
     def __post_init__(self):
         _require(type(self.settings) is PaidProjectorSettingsV3,'exact protected projector authority required')
     def authorize_current(self):
-        return self.settings.current()
+        return self.settings.current_window()
 
 
 class _ProjectorAttemptFilesV3:
@@ -313,13 +321,13 @@ class PaidProjectorAttemptCustodyV3:
         from oracle_brain.operating_model.processing_projection import ProcessingProjectionLease
         _require(type(settings) is PaidProjectorSettingsV3 and type(lease) is ProcessingProjectionLease,
             'exact actual projector settings and owned SQL lease required')
-        current_horizon=settings.current();c=settings.config
+        current_window=settings.current_window();c=settings.config
         _require((lease.event.workspace_id,lease.event.assertion_id,lease.event.revision)==
             (c.workspace_id,c.artifact_id,c.artifact_version)
             and lease.lease_role==settings.worker.config.expected_session_role,
             'projector lease belongs to another artifact/compiler')
         now=datetime.now(timezone.utc)
-        self.deadline=min(settings.valid_until,current_horizon,lease.lease_until)
+        self.deadline=min(settings.operation_horizon,current_window.operation_horizon,lease.lease_until)
         _require(now<self.deadline,'original projector lease/horizon expired')
         self.settings,self.lease=settings,lease
         self.files=_ProjectorAttemptFilesV3(settings.worker.config.spool,c.graph_name)
@@ -361,7 +369,7 @@ async def project_paid_projector_event_v3(settings,lease):
     """One exact-generation attempt; UNKNOWN retains actual task/connection."""
     from oracle_brain.operating_model.processing_projection import project_paid_processing_event_v3
     _require(type(settings) is PaidProjectorSettingsV3,'exact protected projector settings required')
-    settings.current()
+    settings.current_window()
     projection=build_paid_projector_projection_v3(settings)  # pinned SDK constructor is lazy
     attempt=PaidProjectorAttemptCustodyV3(settings,lease)    # durable BEFORE graph work
     authority=PaidProjectorAuthorityV3(settings)

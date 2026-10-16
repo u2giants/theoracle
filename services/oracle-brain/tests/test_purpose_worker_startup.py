@@ -427,3 +427,25 @@ def test_actual_compiler_final_current_proof_follows_controlled_slow_validation(
     with psycopg.connect(admin_url) as conn:
         assert conn.execute('SELECT count(*) FROM oracle2.artifact_manifests WHERE workspace_id=%s',
             (job.workspace_id,)).fetchone()[0]==0
+
+
+def test_actual_compiler_v3_window_separates_freshness_and_original_operation(
+        admin_url,compiler_worker):
+    """Actual roles/observer, no graph/provider or semantic-quality claim."""
+    import time
+    x,settings,job=compiler_worker
+    first=settings.custody_window_v3(job)
+    assert datetime.now(timezone.utc)<first.current_until<first.operation_horizon<=job.expires_at
+    with psycopg.connect(admin_url) as conn:
+        conn.execute("UPDATE oracle2.hosting_role_source_admissions SET expires_at=LEAST(expires_at,clock_timestamp()+interval '30 seconds') WHERE role_name=%s",
+            (settings.config.expected_session_role,))
+    time.sleep(5.05)
+    assert first.current_until<datetime.now(timezone.utc)
+    fresh=settings.custody_window_v3(job)
+    assert datetime.now(timezone.utc)<fresh.current_until<fresh.operation_horizon<first.operation_horizon
+    assert fresh.operation_horizon<=datetime.now(timezone.utc)+timedelta(seconds=30)
+    with psycopg.connect(admin_url) as conn:
+        conn.execute('DELETE FROM oracle2.hosting_role_source_admissions WHERE role_name=%s AND source_id=%s',
+            (settings.config.expected_session_role,job.source_refs[2].source_id))
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):settings.custody_window_v3(job)
+    assert x['state']['posts']==0
