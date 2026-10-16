@@ -71,3 +71,7 @@ def test_required_documentary_gate_includes_fresh_original_journey():
     from scripts.oracle2.verify_workflow_integrity import required_suites
     assert 'replacement_documentary_journey' in required_suites('W10')
     assert 'replacement_documentary_journey' in required_suites('documentary')
+
+
+def test_required_documentary_gate_includes_processing_contract_and_transport():
+    assert {'processing_context','processing_profile'} <= set(verifier.required_suites('W10'))
