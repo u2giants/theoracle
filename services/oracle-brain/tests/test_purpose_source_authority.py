@@ -278,3 +278,58 @@ def test_purpose_original_reader_has_no_compiler_write_capability(purpose_popula
     f=purpose_population()
     with psycopg.connect(f['url']) as conn:
         assert conn.execute("SELECT has_function_privilege(current_user,'oracle2.commit_processing_candidate(jsonb,bytea,bytea,bytea,jsonb,text,text,timestamptz)','EXECUTE')").fetchone()==(False,)
+
+
+def seed_embedding_metadata(admin_url,f):
+    """Admin seeds invented relational identity only, never semantic admission."""
+    from oracle_brain.operating_model.contracts import ArtifactManifest,digest
+    from psycopg.types.json import Jsonb
+    def insert(conn,kind,refs,parents=()):
+        artifact=uuid4();deps=tuple(sorted([('source',str(r.source_id),str(r.revision)) for r in refs]+[('artifact',str(p.artifact_id),str(p.version)) for p in parents]))
+        m=ArtifactManifest(workspace_id=f['workspace'],artifact_id=artifact,version=1,kind=kind,state='ready',
+            input_digest='a'*64,source_digest='b'*64,permission_digest='c'*64,compiler_digest='d'*64,
+            dependency_digest=digest({'dependencies':deps}),content_hash='e'*64,private_object_key='PRIVATE_NEVER_RETURNED')
+        columns=tuple(k for k in type(m).model_fields if k!='schema_version')
+        conn.execute(sql.SQL('INSERT INTO oracle2.artifact_manifests ({},manifest) VALUES ({},%s)').format(
+            sql.SQL(',').join(map(sql.Identifier,columns)),sql.SQL(',').join(sql.Placeholder() for _ in columns)),
+            tuple(getattr(m,k) for k in columns)+(Jsonb(m.model_dump(mode='json')),))
+        for kind_,id_,revision in deps:
+            conn.execute('INSERT INTO oracle2.artifact_dependencies VALUES(%s,%s,1,%s,%s,%s)',(f['workspace'],artifact,kind_,id_,revision))
+        return m
+    with psycopg.connect(admin_url) as conn:
+        extractions=tuple(insert(conn,'processing_extraction_v1',(r,)) for r in f['refs'])
+        model=insert(conn,'processing_qualified_model_v1',f['refs'],extractions)
+    return model,extractions
+
+
+def test_embedding_qualified_seal_real_gateway_no_private_body(admin_url,purpose_population):
+    from oracle_brain.operating_model.contracts import ProcessingQualifiedProjectionSealV2,digest
+    f=purpose_population('embedding','gateway-metadata');res,_,_=context(f)
+    model,extractions=seed_embedding_metadata(admin_url,f)
+    seal=res.embedding_eligibility_seal(f['workspace'],model.artifact_id,1)
+    assert type(seal) is ProcessingQualifiedProjectionSealV2 and seal.manifest_hash==digest(model.model_dump(mode='json'))
+    assert seal.source_refs==f['refs'] and len(seal.extraction_seals)==3
+    assert {s.manifest_hash for s in seal.extraction_seals}=={digest(m.model_dump(mode='json')) for m in extractions}
+    assert 'PRIVATE_NEVER_RETURNED' not in seal.model_dump_json() and 'private_object_key' not in seal.model_dump_json()
+    with psycopg.connect(f['url']) as conn:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute('SELECT * FROM oracle2.hosting_processing_artifact(%s,%s,1,%s,%s,%s)',(f['workspace'],model.artifact_id,f['actor'],f['runtime'],f['registry']))
+    with pytest.raises((PermissionError,psycopg.errors.InsufficientPrivilege)):
+        res.embedding_eligibility_seal(f['workspace'],extractions[0].artifact_id,1)
+
+
+@pytest.mark.parametrize('mutation',['read','purpose','withdraw','dependency','invalidation','runtime'])
+def test_embedding_seal_rechecks_actual_current_authority(admin_url,purpose_population,mutation):
+    f=purpose_population('embedding','gateway-metadata');res,_,_=context(f)
+    model,_=seed_embedding_metadata(admin_url,f)
+    assert res.embedding_eligibility_seal(f['workspace'],model.artifact_id,1)
+    with psycopg.connect(admin_url) as conn:
+        if mutation in {'read','purpose'}:
+            scope=('source-read' if mutation=='read' else 'source-extraction')+':'+str(f['refs'][2].source_id)
+            conn.execute('UPDATE oracle2.appointments SET revoked_at=now() WHERE workspace_id=%s AND actor_id=%s AND scope=%s',(f['workspace'],f['actor'],scope))
+        elif mutation=='withdraw':conn.execute("UPDATE oracle2.drafts SET status='withdrawn' WHERE source_id=%s",(f['refs'][2].source_id,))
+        elif mutation=='dependency':conn.execute("INSERT INTO oracle2.artifact_dependencies VALUES(%s,%s,1,'source',%s,'99')",(f['workspace'],model.artifact_id,str(f['refs'][2].source_id)))
+        elif mutation=='invalidation':conn.execute('INSERT INTO oracle2.artifact_invalidations(workspace_id,artifact_id,version,reason,event_id) VALUES(%s,%s,1,%s,%s)',(f['workspace'],model.artifact_id,'invented test invalidation',uuid4()))
+        else:conn.execute("UPDATE oracle2.hosting_role_runtime_admissions SET expires_at=now()-interval '1 second' WHERE role_name=%s",(f['login'],))
+    with pytest.raises((PermissionError,psycopg.errors.InsufficientPrivilege)):
+        res.embedding_eligibility_seal(f['workspace'],model.artifact_id,1)

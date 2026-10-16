@@ -52,3 +52,22 @@ class ProcessingExtractionSeal(StrictRecord):
     manifest_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     dependency_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
     source_refs: tuple[SourceRef, ...] = Field(min_length=1)
+
+
+class ProcessingQualifiedProjectionSealV2(StrictRecord):
+    """Embedding eligibility metadata; never a manifest or private-body grant."""
+    schema_version: Literal[2] = 2
+    workspace_id: UUID
+    artifact_id: UUID
+    version: int = Field(strict=True, ge=1)
+    kind: Literal['processing_qualified_model_v1']
+    state: Literal['ready']
+    content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    input_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    permission_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    compiler_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    dependency_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    manifest_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_refs: tuple[SourceRef, ...] = Field(min_length=1)
+    extraction_seals: tuple[ProcessingExtractionSeal, ...] = Field(min_length=1)

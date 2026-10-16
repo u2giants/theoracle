@@ -440,6 +440,9 @@ class _PurposeRoleVerifierV2(ProcessingSourceResolver):
         **{f'oracle2.hosting_{name}_identity_v2(uuid,uuid,uuid,text,text)':frozenset({'oracle2_source_reader','oracle2_gateway_metadata'})
            for name in ('source_census','operating_audit','independent_semantic')},
         'oracle2.hosting_projection_embedding_identity_v2(uuid,uuid,uuid,text,text)':frozenset({'oracle2_gateway_metadata'}),
+        'oracle2._processing_dependency_digest(uuid,uuid,integer)':frozenset(),
+        'oracle2._purpose_embedding_artifact_v2(uuid,uuid,integer,uuid,text,text)':frozenset(),
+        'oracle2.hosting_projection_embedding_seal_v2(uuid,uuid,integer,uuid,text,text)':frozenset({'oracle2_gateway_metadata'}),
     }
 
 
@@ -459,6 +462,34 @@ class PurposeSourceResolverV2:
     @property
     def metadata_only(self):
         return self.binding.source.profile=='gateway-metadata'
+
+    def embedding_eligibility_seal(self,workspace_id,artifact_id,version,*,connection=None):
+        from .contracts import ProcessingQualifiedProjectionSealV2
+        b=self.binding;s=b.source
+        if (b.phase!='embedding' or b.operation!='embedding' or b.caller_kind!='provider'
+                or s.profile!='gateway-metadata' or s.expected_session_role!=b.expected_provider_login
+                or not isinstance(workspace_id,UUID) or not isinstance(artifact_id,UUID)
+                or type(version) is not int or version<1
+                or any(r.workspace_id!=workspace_id for r in b.source_refs)):
+            raise PermissionError('fixed own-login embedding metadata capability required')
+        with self._roles._connection(connection) as conn:
+            self._population(conn)
+            rows=conn.execute('SELECT oracle2.hosting_projection_embedding_seal_v2(%s,%s,%s,%s,%s,%s)',
+                (workspace_id,artifact_id,version,s.principal,s.runtime_hash,s.source_registry_hash)).fetchall()
+            self._population(conn)
+            if len(rows)!=1:raise PermissionError('unique qualified projection seal required')
+            seal=ProcessingQualifiedProjectionSealV2.model_validate_json(json.dumps(rows[0][0]))
+            if ((seal.workspace_id,seal.artifact_id,seal.version)!=(workspace_id,artifact_id,version)
+                    or len(set(seal.source_refs))!=len(seal.source_refs)
+                    or set(seal.source_refs)!=set(b.source_refs)
+                    or len({(e.artifact_id,e.version) for e in seal.extraction_seals})!=len(seal.extraction_seals)
+                    or any(e.workspace_id!=workspace_id or not set(e.source_refs)<=set(b.source_refs)
+                           for e in seal.extraction_seals)
+                    or set(r for e in seal.extraction_seals for r in e.source_refs)!=set(b.source_refs)):
+                raise PermissionError('qualified projection complete population differs')
+            # Canonical descriptor ordering is an application consistency pin;
+            # this does not fabricate or replace the full manifest digest.
+            return seal.model_copy(update={'source_refs':b.source_refs})
 
     def _check(self,conn):
         self._roles._check(conn)
