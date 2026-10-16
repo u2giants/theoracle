@@ -26,6 +26,11 @@ consultant/lineage integrations, read
 It preserves FalkorDB/GraphRAG and the recovery ownership, paused questions and
 release gates; planning publication is not implementation or acceptance.
 
+For separating qualified original processing from generated-truth confirmation, read
+[`plan_oracle_source_processing_qualification.md`](plan_oracle_source_processing_qualification.md)
+**STATUS first**. It is an unimplemented architecture prerequisite on #27 under #24,
+not permission to change roles, read private originals, dispatch providers or apply SQL.
+
 ## 3. Task router — where each section now lives
 
 `AGENTS.md` is kept small because it loads into every AI session. The full text of
