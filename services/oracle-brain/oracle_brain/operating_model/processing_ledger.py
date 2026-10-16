@@ -215,3 +215,9 @@ class PurposeProcessingCompilerLedgerV3(ProcessingCompilerLedger):
         # The full body hook already validated this same boundary exactly once,
         # before the independent current metadata reread. Never cache its result.
         return None
+
+
+def require_explicit_compiler_ledger_v3(ledger):
+    """Closed implementation boundary only, never permission or paid evidence."""
+    if type(ledger) not in (ProcessingCompilerLedger,PurposeProcessingCompilerLedgerV3):
+        raise PermissionError('actual explicit compiler ledger required')

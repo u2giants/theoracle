@@ -53,9 +53,8 @@ def compiler_extraction_handoff_v2(ledger,*,workspace_id,extraction_ids,source_r
     No provider work or SQL lock spans private blob reads.
     """
     import psycopg
-    from .processing_ledger import ProcessingCompilerLedger,PurposeProcessingCompilerLedgerV3
-    if type(ledger) not in (ProcessingCompilerLedger,PurposeProcessingCompilerLedgerV3):
-        raise PermissionError('actual explicit compiler ledger required')
+    from .processing_ledger import require_explicit_compiler_ledger_v3
+    require_explicit_compiler_ledger_v3(ledger)
     resolver=ledger.processing_sources;binding=resolver.binding
     if binding.profile!='candidate-compiler' or ledger.principal!=binding.principal:
         raise PermissionError('current compiler principal/profile required')
@@ -77,7 +76,7 @@ def compiler_extraction_handoff_v2(ledger,*,workspace_id,extraction_ids,source_r
         compiler_login=actual[0],compiler_runtime_hash=binding.runtime_hash,
         compiler_authority_receipt_hash=compiler_authority_receipt_hash,
         source_registry_hash=binding.source_registry_hash,source_refs=source_refs,
-        extractions=tuple(pairs),issued_at=now,expires_at=min(expires_at,binding.expires_at))
+        extractions=tuple(pairs),issued_at=actual[1],expires_at=min(expires_at,binding.expires_at))
 
 
 class AssemblyJobContextV2(StrictRecord):
