@@ -16,12 +16,12 @@ def config(role='metadata'):
         projection_file='/own/projection.json',source_url_file='/own/source-url',expected_owner_role='oracle_schema_owner',
         expected_session_role='own_census_login',source_expires_at=datetime.now(timezone.utc),
         parent_observer_admission_file='/own/observer.json',parent_observer_admission_hash='b'*64,
-        observer_hostname='observer.internal',observer_port=9443,observer_server_uri='spiffe://oracle/parent-observer',
+        observer_timeout_seconds=5,observer_hostname='observer.internal',observer_port=9443,observer_server_uri='spiffe://oracle/parent-observer',
         observer_client_uri='spiffe://oracle/census-client',observer_ca='/own/ca',observer_certificate='/own/cert',
         observer_key='/own/key',observer_spool='/own/spool',observer_namespace='parent-v2',
         observer_initialization_hash='c'*64,server_certificate='/own/server-cert',server_key='/own/server-key',
         client_ca='/own/client-ca',bind_host='127.0.0.1',bind_port=9444)
-    if role=='metadata':common.update(provider_hostname='provider.internal',provider_port=9445,
+    if role=='metadata':common.update(provider_rpc_timeout_seconds=90,provider_hostname='provider.internal',provider_port=9445,
         provider_server_uri='spiffe://oracle/census-provider',provider_client_uri='spiffe://oracle/census-worker',
         provider_ca='/own/provider-ca',provider_certificate='/own/provider-cert',provider_key='/own/provider-client-key')
     else:common.update(phase_registry_file='/own/phase.json',private_context_files={},provider_key_file='/own/provider-key',
