@@ -313,13 +313,13 @@ class PaidProjectorAttemptCustodyV3:
         from oracle_brain.operating_model.processing_projection import ProcessingProjectionLease
         _require(type(settings) is PaidProjectorSettingsV3 and type(lease) is ProcessingProjectionLease,
             'exact actual projector settings and owned SQL lease required')
-        settings.current();c=settings.config
+        current_horizon=settings.current();c=settings.config
         _require((lease.event.workspace_id,lease.event.assertion_id,lease.event.revision)==
             (c.workspace_id,c.artifact_id,c.artifact_version)
             and lease.lease_role==settings.worker.config.expected_session_role,
             'projector lease belongs to another artifact/compiler')
         now=datetime.now(timezone.utc)
-        self.deadline=min(settings.valid_until,lease.lease_until)
+        self.deadline=min(settings.valid_until,current_horizon,lease.lease_until)
         _require(now<self.deadline,'original projector lease/horizon expired')
         self.settings,self.lease=settings,lease
         self.files=_ProjectorAttemptFilesV3(settings.worker.config.spool,c.graph_name)
