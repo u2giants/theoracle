@@ -156,3 +156,14 @@ def test_explicit_embedding_metadata_bridge_uses_typed_seal_without_blob_locatio
     with pytest.raises(Exception):check(seal,trust=frozenset())
     for field in ('content_hash','source_digest','permission_digest','compiler_digest'):
         with pytest.raises(Exception):check(seal.model_copy(update={field:'f'*64}))
+
+
+def test_independent_assessor_cannot_be_current_compiler_actor_or_login(qualified_v3):
+    q=qualified_v3;admission=q['admission']
+    with pytest.raises(PermissionError):
+        PurposeSemanticAdmissionV3.model_validate(admission.model_copy(update={'compiler_actor':admission.assessor_actor}).model_dump(mode='python'))
+    from oracle_brain.operating_model.purpose_qualification_v3 import _verify_phase_bindings
+    commits={c.phase:c for c in q['commits']}
+    altered=admission.model_copy(update={'compiler_login':commits['assessment'].provider_login})
+    captured,_=captured_assembly_candidate_v2(**q['wire'])
+    with pytest.raises(PermissionError):_verify_phase_bindings(q['wire']['context'],captured,q['assessment'],altered,commits)

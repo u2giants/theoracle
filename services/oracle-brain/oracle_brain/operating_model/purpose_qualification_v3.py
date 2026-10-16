@@ -48,7 +48,7 @@ class PurposeSemanticAdmissionV3(CapturedAssemblySemanticAdmission):
 
     @model_validator(mode='after')
     def independent_qualification(self):
-        if (self.issuer_actor==self.reviewer_actor
+        if (self.issuer_actor==self.reviewer_actor or self.compiler_actor==self.assessor_actor
                 or {self.issuer_actor,self.reviewer_actor}&{self.compiler_actor,self.implementer_actor,self.assessor_actor}):
             raise PermissionError('actual separately appointed independent issuer/reviewer required')
         return self
@@ -104,7 +104,7 @@ def _verify_phase_bindings(context,captured,assessment,admission,commits):
             or assembly.raw_response_hash!=captured.observed_wire.raw_sha256
             or not captured.observed_wire.observed_at<=assembly.committed_at
             or assessor.actor_id!=admission.assessor_actor or assessor.actor_id==assembly.actor_id
-            or assessor.provider_login==assembly.provider_login
+            or assessor.provider_login in {assembly.provider_login,admission.compiler_login}
             or assessor.runtime_hash!=admission.assessment_runtime_hash
             or assessor.permission_hash!=admission.permission_hash
             or assessor.raw_response_hash!=assessment.raw_response_hash
