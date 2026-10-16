@@ -114,8 +114,16 @@ class PaidProjectorSettingsV3:
                          (config.tls_certificate_file,config.tls_certificate_sha256),(config.tls_key_file,config.tls_key_sha256),
                          (config.receipt_key_file,config.receipt_key_sha256)):
             _worker_file(path,seal)
-        _require(datetime.now(timezone.utc)<self.valid_until,'original projector horizon expired')
-        return self.valid_until
+        # Current SQL grants can shorten after startup. Never discard that
+        # authenticated horizon or authorize a credential read only beforehand.
+        current_custody=self.worker.custody_horizon(self.job)
+        current_now=datetime.now(timezone.utc)
+        self.worker.semantic.current(current_now)
+        self.bundle.qualification_guard(self.bundle.manifest,self.bundle.payload,self.job.actor_id,current_now)
+        horizon=min(self.valid_until,current_custody,self.worker.semantic.valid_until(current_now),
+            self.bundle.qualification_guard.valid_until(self.bundle.manifest,self.bundle.payload,self.job.actor_id,current_now))
+        _require(datetime.now(timezone.utc)<horizon,'original/current projector horizon expired')
+        return horizon
 
 
 def load_paid_projector_settings_v3(config_path,expected_config_sha256,*,appointment_path,
