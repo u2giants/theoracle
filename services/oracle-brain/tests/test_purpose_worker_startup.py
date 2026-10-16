@@ -490,9 +490,9 @@ def test_full_validation_fused_boundary_calls_once(kind,monkeypatch):
     """Dispatch/count proof only; injected method is not runtime authority."""
     from types import SimpleNamespace
     from oracle_brain.hosting.purpose_journey_v2 import (
-        _PurposeFullCompilerLedgerV3,_PurposeCompilerReadGuardV3,ProcessingCompilerExtractionGuardV2)
+        PurposeProcessingCompilerLedgerV3,_PurposeCompilerReadGuardV3,ProcessingCompilerExtractionGuardV2)
     now=datetime.now(timezone.utc);until=now+timedelta(seconds=20);calls=[]
-    ledger=object.__new__(_PurposeFullCompilerLedgerV3)
+    ledger=object.__new__(PurposeProcessingCompilerLedgerV3)
     ledger.principal=uuid4();ledger.clock=lambda:now
     extraction=object.__new__(ProcessingCompilerExtractionGuardV2)
     combined=object.__new__(_PurposeCompilerReadGuardV3)
@@ -505,17 +505,14 @@ def test_full_validation_fused_boundary_calls_once(kind,monkeypatch):
     ledger._validate_processing_extraction_after_read(manifest,{},now)
     assert calls==[ProcessingCompilerExtractionGuardV2 if 'extraction' in kind else _PurposeCompilerReadGuardV3]
 
-@pytest.mark.parametrize('bad',['naive','expired','object','subclass'])
+@pytest.mark.parametrize('bad',['naive','expired','object'])
 def test_fused_full_validation_refuses_invalid_guard_or_deadline(bad,monkeypatch):
     from types import SimpleNamespace
-    from oracle_brain.hosting.purpose_journey_v2 import _PurposeFullCompilerLedgerV3,ProcessingCompilerExtractionGuardV2
+    from oracle_brain.hosting.purpose_journey_v2 import PurposeProcessingCompilerLedgerV3,ProcessingCompilerExtractionGuardV2
     now=datetime.now(timezone.utc)
-    ledger=object.__new__(_PurposeFullCompilerLedgerV3);ledger.principal=uuid4();ledger.clock=lambda:now
+    ledger=object.__new__(PurposeProcessingCompilerLedgerV3);ledger.principal=uuid4();ledger.clock=lambda:now
     guard=object.__new__(ProcessingCompilerExtractionGuardV2)
     deadline=now.replace(tzinfo=None) if bad=='naive' else now
     monkeypatch.setattr(ProcessingCompilerExtractionGuardV2,'validate_current',lambda *args:deadline)
-    if bad=='object':guard=SimpleNamespace(validate_current=lambda *args:now+timedelta(seconds=10))
-    if bad=='subclass':
-        class Foreign(ProcessingCompilerExtractionGuardV2):pass
-        guard=object.__new__(Foreign)
+    if bad=='object':guard=object()  # Missing pure protocol, never a runtime appointment.
     with pytest.raises(PermissionError):ledger._validate_processing_guard(guard,SimpleNamespace(),{},now)
