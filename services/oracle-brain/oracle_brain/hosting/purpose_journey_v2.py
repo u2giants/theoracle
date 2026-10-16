@@ -238,20 +238,24 @@ class PurposeJourneyJournalV2:
                 settlement_verified=False,
                 **({'consumed_by_job_hash':digest(consumer.model_dump(mode='json'))} if consumer is not None else {}))
 
-    def compile_committed(self,job,manifest,*,now):
+    def compile_committed(self,job,manifest,*,now,consumer=None):
         from oracle_brain.operating_model.contracts import ArtifactManifest
-        self._current(job,now)
+        self._current(consumer or job,now)
+        if consumer is not None:self._consume_binding(job,consumer)
         _require(job.phase=='compile' and type(manifest) is ArtifactManifest
             and manifest.workspace_id==job.workspace_id and manifest.kind=='processing_qualified_model_v1'
             and manifest.compiler_digest==job.runtime_hash,'actual qualified compiler artifact required')
         with self._locked():
             rows=self.read(job.journey_id);self._root(job,rows)
             phase=[r for r in rows if r['phase_key']==job.phase_key]
-            _require(len(phase)==1 and phase[0]['state']=='attempt-started'
+            _require(phase and phase[0]['state']=='attempt-started'
+                and all(r['state'] in {'attempt-started','awaiting-external-custody'} for r in phase)
                 and phase[0]['job_hash']==digest(job.model_dump(mode='json')),'exact claimed compiler phase required')
+            if consumer is not None:_require(consumer.resume_journal_hash==phase[-1]['journal_hash'],'stale compiler consume')
             return self._append(job,rows,'qualified-model-outbox-committed',now,
                 receipt_hash=manifest.content_hash,qualified_manifest_hash=digest(manifest.model_dump(mode='json')),
-                qualified_artifact_id=str(manifest.artifact_id),qualified_artifact_version=manifest.version)
+                qualified_artifact_id=str(manifest.artifact_id),qualified_artifact_version=manifest.version,
+                **({'consumed_by_job_hash':digest(consumer.model_dump(mode='json'))} if consumer is not None else {}))
 
 
 class CompilerPhaseClientConfigV2(StrictRecord):
@@ -831,8 +835,11 @@ def run_purpose_worker_once_v2(settings):
     if claimed is None:return None
     job,attempt=claimed
     if job.operation=='consume':
-        _require(job.phase!='compile','compiler crash observation requires exact qualified artifact receipt')
         original=custody.original_attempt(job)
+        if job.phase=='compile':
+            manifest=observe_qualified_purpose_result_v3(settings,job)
+            settings.authorize(job)
+            return custody.journal.compile_committed(original,manifest,now=datetime.now(timezone.utc),consumer=job)
         try:commit=_phase_commit_from_custody(settings,job)
         except FileNotFoundError:
             if job.phase!='extraction':raise
@@ -1082,4 +1089,23 @@ def _existing_purpose_extraction(ledger,job,entry,*,failed):
         return None
     _require(manifest.kind==('processing_failed_extraction_v1' if failed else 'processing_extraction_v1'),
         'existing actual artifact has a different native result disposition')
+    return manifest
+
+
+def observe_qualified_purpose_result_v3(settings,job):
+    """Read already committed qualified artifact after an admitted compiler crash.
+
+    No assembly/extraction/provider dispatch or SQL persistence is repeated.
+    The actual guard checks current external admission and exact upstream paid
+    custody before serving the existing sealed blob to this compiler.
+    """
+    _require(type(settings) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2
+        and job.phase=='compile' and job.operation=='consume','explicit qualified-result observation required')
+    raw,_=settings.private(job,'compile_inputs')
+    inputs=_worker_parse(raw,PurposeCompileInputsV2)
+    ledger=build_purpose_compiler_ledger_v3(settings,job)
+    manifest,payload=ledger.read_with_manifest(job.workspace_id,inputs.artifact_id,inputs.artifact_version)
+    _require(manifest.kind=='processing_qualified_model_v1' and manifest.state=='ready',
+        'exact already committed qualified artifact required')
+    settings.authorize(job)
     return manifest
