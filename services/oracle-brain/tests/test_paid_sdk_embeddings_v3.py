@@ -400,3 +400,53 @@ def test_owned_writer_acl_has_only_exact_graph_keys_and_durable_precreation_owne
         assert not admin.exists(owner['graph_name']) and not admin.exists(owner['ontology_name'])
     finally:admin.close()
     assert (root/'retired.json').is_file()
+
+
+def test_owned_writer_fence_blocks_late_query_and_waits_actual_server_idle(tmp_path):
+    import os,redis,threading,time
+    from dev.oracle2.test_readonly_graph_fixture import processing_writer
+    url=os.environ['ORACLE2_OPERATING_TEST_GRAPH_URL'];container=os.environ['COMPOSE_PROJECT_NAME']+'-falkor-candidate-1'
+    root=tmp_path/'fenced-writer'
+    with processing_writer(container,url,root,workspace_id=uuid4(),artifact_id=uuid4(),version=1,generation=uuid4()) as writer:
+        owner=writer.ownership;admin=redis.Redis.from_url(url,socket_timeout=2,decode_responses=True)
+        producer=redis.Redis.from_url(writer.environment['ORACLE2_TEST_PROCESSING_WRITER_GRAPH_URL'],socket_timeout=4)
+        with pytest.raises(PermissionError,match='fence required'):writer.confirm_fenced_inactive()
+        username=owner['username'];owner['username']='default'
+        try:
+            with pytest.raises(PermissionError,match='ownership differs'):writer.fence_producer()
+        finally:owner['username']=username
+        assert 'on' in admin.acl_getuser(username)['flags']
+        completed=threading.Event();outcome=[]
+        def work():
+            try:
+                producer.execute_command('GRAPH.QUERY',owner['graph_name'],
+                    'UNWIND range(1,10000000) AS x WITH sum(x) AS total CREATE (:Late {total:total}) RETURN total',
+                    'TIMEOUT',1500)
+                outcome.append('response')
+            except redis.exceptions.RedisError:outcome.append('connection-or-query-refused')
+            finally:completed.set()
+        worker=threading.Thread(target=work);worker.start()
+        try:
+            deadline=time.monotonic()+3;observed=False
+            while time.monotonic()<deadline:
+                activity=admin.execute_command('GRAPH.INFO','RunningQueries','WaitingQueries')
+                for entries in (activity[1],activity[3]):
+                    for entry in entries:
+                        if dict(zip(entry[::2],entry[1::2])).get('Graph name')==owner['graph_name']:observed=True
+                if observed:break
+                time.sleep(.005)
+            assert observed,'actual owned running/waiting query must be observed before fencing'
+            writer.fence_producer()
+            # An attempted late reconnect cannot reauthenticate after the fence.
+            late=redis.Redis.from_url(writer.environment['ORACLE2_TEST_PROCESSING_WRITER_GRAPH_URL'],socket_timeout=1)
+            try:
+                with pytest.raises(redis.exceptions.AuthenticationError):late.ping()
+            finally:late.close()
+            worker.join(timeout=5);assert completed.is_set() and not worker.is_alive()
+            producer.close() # All local owned producers are closed before server-idle inspection.
+            writer.confirm_fenced_inactive()
+            assert (root/'fenced.json').is_file() and (root/'fenced-idle.json').is_file()
+            assert outcome
+        finally:
+            worker.join(timeout=5);producer.close();admin.close()
+    assert (root/'retired.json').is_file()
