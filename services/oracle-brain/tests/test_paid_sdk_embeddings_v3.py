@@ -188,6 +188,14 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
             nodes=(await p.connection.query('MATCH (n) RETURN n')).result_set
             for row in nodes:
                 for node in row:assert_no_uncited_originals(node.properties)
+            # Actual missing/mutated singleton markers cannot authenticate reload.
+            marker=(await p.connection.query('MATCH (s:PaidSDKEmbeddingSnapshotV3) RETURN s.proof_hash')).result_set[0][0]
+            await p.connection.query('MATCH (s:PaidSDKEmbeddingSnapshotV3) DELETE s')
+            with pytest.raises(PermissionError,match='completion|completed'):await p.paid_projection_proof(payload)
+            await p.connection.query('CREATE (:PaidSDKEmbeddingSnapshotV3 {proof_hash:$proof})',params={'proof':marker})
+            await p.connection.query('MATCH (s:OperatingModelSnapshot) SET s.projection_digest=$bad',params={'bad':'f'*64})
+            with pytest.raises(ValueError,match='snapshot'):await p.paid_projection_proof(payload)
+            await p.connection.query('MATCH (s:OperatingModelSnapshot) SET s.projection_digest=$projection',params={'projection':p.processing_projection_digest(payload)})
             first=(await p.connection.query('MATCH (c:Chunk) RETURN c.id,c.embedding LIMIT 1')).result_set[0]
             assert first[1] and len(first[1])==256
             wrong=[1.0]+[0.0]*255
@@ -624,3 +632,61 @@ def test_paid_compiler_load_retains_new_final_sdk_scope_and_ack(damage):
         assert state['reads']==state['guards']==state['acks']==state['hmac']==2
     else:
         with pytest.raises(PermissionError):asyncio.run(projection.load(ledger,uuid4(),uuid4(),1))
+
+@pytest.mark.parametrize('damage',['allow','initial-sdk-deny','initial-sdk-false','final-sdk-deny','final-sdk-false','final-ledger-deny','final-body','final-manifest','base-marker','paid-marker'])
+def test_paid_build_operation_keeps_both_independent_scopes_and_final_actual_markers(paid_case,monkeypatch,damage):
+    """Controlled distinct authority boundaries; actual graph proof runs separately."""
+    import asyncio
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3,ProcessingSDKProjection
+    from oracle_brain.operating_model.assembly_qualification import QualifiedAssemblyReadGuard
+    data=verify_paid_sdk_embedding_v3(**paid_case);payload=copy.deepcopy(paid_case['private'].embedding.qualified_payload)
+    state={'reads':0,'guards':0,'graph':False,'proofs':0,'base':None,'paid':None,'queries':0}
+    class Scope(QualifiedAssemblyReadGuard):
+        def __init__(self):pass
+        def __call__(self,*args):
+            state['guards']+=1
+            phase='final' if state['graph'] else 'initial'
+            if damage==phase+'-sdk-deny':raise PermissionError('independent SDK scope revoked')
+            if damage==phase+'-sdk-false':return False
+    p=object.__new__(PaidProcessingSDKProjectionV3);p.workspace_id=data.witness.workspace_id;p.read_only=False;p.graph_name='owned-controlled';p._paid_built_here=False
+    p.paid_embedder=PaidProjectionEmbedderV3(data);p.qualification_guard=Scope()
+    manifest=SimpleNamespace(kind='processing_qualified_model_v1',version=1)
+    def read(*args):
+        state['reads']+=1
+        if state['graph'] and damage=='final-ledger-deny':raise PermissionError('current ledger source withdrawn')
+        current=SimpleNamespace(kind=manifest.kind,version=2) if state['graph'] and damage=='final-manifest' else manifest
+        body=copy.deepcopy(payload)
+        if state['graph'] and damage=='final-body':body['changed']=True
+        return current,body
+    ledger=SimpleNamespace(principal=uuid4(),read_with_manifest=read)
+    async def writes(*args):
+        assert state['guards']==state['reads']==1
+        state['graph']=True
+        return p.records(payload),SimpleNamespace(model_dump=lambda **kw:{'indexes':{'actual':True}})
+    p._build_graph_payload=writes
+    async def structural(self,body):assert state['graph'] and body==payload
+    monkeypatch.setattr(ProcessingSDKProjection,'verify',structural)
+    from oracle_brain.operating_model.paid_sdk_embeddings_v3 import PaidSDKProjectionProofV3
+    proof=PaidSDKProjectionProofV3(**{k:'a'*64 for k in PaidSDKProjectionProofV3.model_fields if k.endswith('_hash')})
+    async def vectors(inventory):state['proofs']+=1;assert inventory==data.inventory;return proof
+    p._verify_paid_vectors_inventory=vectors
+    async def query(text,params=None):
+        state['queries']+=1;assert state['guards']>=1
+        if text.startswith('CREATE (:OperatingModelSnapshot'):state['base']=params
+        elif text.startswith('CREATE (:PaidSDKEmbeddingSnapshotV3'):state['paid']=params['proof']
+        elif 'MATCH (s:OperatingModelSnapshot)' in text:
+            b=state['base'];return SimpleNamespace(result_set=[[b['seal'],b['records'],b['sdk'],False if damage=='base-marker' else True,b['schema'],b['projection']]])
+        elif 'MATCH (s:PaidSDKEmbeddingSnapshotV3)' in text:return SimpleNamespace(result_set=[] if damage=='paid-marker' else [[state['paid']]])
+        else:raise AssertionError(text)
+        return SimpleNamespace(result_set=[])
+    p.connection=SimpleNamespace(query=query)
+    if damage=='allow':
+        result=asyncio.run(p.build(ledger,p.workspace_id,data.witness.qualified_artifact_id,data.witness.qualified_artifact_version))
+        assert result['paid_embedding']==proof.model_dump(mode='json')
+        assert state['reads']==state['guards']==2 and state['proofs']==1 and p._paid_built_here
+    else:
+        with pytest.raises(PermissionError):asyncio.run(p.build(ledger,p.workspace_id,data.witness.qualified_artifact_id,data.witness.qualified_artifact_version))
+        assert not p._paid_built_here
+        if damage.startswith('initial'):assert not state['graph'] and state['queries']==0
+    assert p._paid_building is False
