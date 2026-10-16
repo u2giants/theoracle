@@ -85,11 +85,11 @@ def actual_metadata_startup(admin_url,purpose_population,bound_tls,tmp_path):
         config=dict(schema_version=2,phase='census',role='metadata',worker_uri=WORKER,pins_file=pins_file,pins_sha256=pins_hash,
             population_file=pop_file,projection_file=projection_file,budget_allocation_projection_file=allocation_file,source_url_file=url_file,expected_owner_role=f['binding'].expected_owner_role,
             expected_session_role=f['login'],source_expires_at=f['expiry'].isoformat(),parent_observer_admission_file=observer_file,parent_observer_admission_hash=observer_hash,
-            observer_hostname='localhost',observer_port=observer.server_port,observer_server_uri=SERVER,observer_client_uri=WORKER,
+            observer_timeout_seconds=5,observer_hostname='localhost',observer_port=observer.server_port,observer_server_uri=SERVER,observer_client_uri=WORKER,
             observer_ca=str(b.ca_file),observer_certificate=str(b.certificate_file),observer_key=str(b.key_file),observer_spool=str(spool),
             observer_namespace='parent-v2',observer_initialization_hash=replay['initialization_receipt_hash'],server_certificate=str(tmp_path/'server.pem'),
             server_key=str(tmp_path/'server.key'),client_ca=str(b.ca_file),bind_host='127.0.0.1',bind_port=metadata_port,
-            provider_hostname='localhost',provider_port=provider.server_port,provider_server_uri=SERVER,provider_client_uri=WORKER,
+            provider_rpc_timeout_seconds=90,provider_hostname='localhost',provider_port=provider.server_port,provider_server_uri=SERVER,provider_client_uri=WORKER,
             provider_ca=str(b.ca_file),provider_certificate=str(b.certificate_file),provider_key=str(b.key_file))
         config_file,config_hash=store('settings.json',canonical_bytes(config))
         settings=load_purpose_runtime_settings_v2(config_file,config_hash,expected_phase='census',expected_role='metadata')
