@@ -65,3 +65,9 @@ def test_public_source_mutation_during_fd_hashing_refuses(public_chain_tree,monk
         return result
     monkeypatch.setattr(verifier.os,'read',reader)
     with pytest.raises(RuntimeError,match='changed'):verifier.required_public_chain_hashes()
+
+
+def test_required_documentary_gate_includes_fresh_original_journey():
+    from scripts.oracle2.verify_workflow_integrity import required_suites
+    assert 'replacement_documentary_journey' in required_suites('W10')
+    assert 'replacement_documentary_journey' in required_suites('documentary')

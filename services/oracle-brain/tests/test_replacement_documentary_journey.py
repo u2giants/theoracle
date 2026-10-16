@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import os
+from pathlib import Path
 from uuid import uuid4
 
 import psycopg
@@ -43,7 +44,7 @@ class InventedProvider:
             origin='source_reported' if missing else 'reported_conflict_unverified',
             evidence_refs=(evidence,),
         )
-        return json.dumps({
+        raw = json.dumps({
             'schema_version': 1, 'source_id': str(ref.source_id), 'source_revision': 1,
             'complete': True, 'unresolved_items': [],
             'observations': [{'occurrence_key': 'literal-handoff', 'kind': 'handoff',
@@ -51,6 +52,8 @@ class InventedProvider:
                               'evidence': [evidence.model_dump(mode='json')]}],
             'findings': [finding.model_dump(mode='json')],
         })
+        kwargs['response_validator'](raw)
+        return raw
 
 
 def assemble_invented(payloads):
@@ -83,6 +86,8 @@ def assemble_invented(payloads):
 
 @pytest.fixture
 def journey_inputs(admin_url, tmp_path):
+    with psycopg.connect(admin_url) as connection:
+        connection.execute((Path(__file__).parents[1] / 'sql/004_workflow_integrity.sql').read_text())
     workspace, assembly, summary, actor = uuid4(), uuid4(), uuid4(), uuid4()
     texts = ('Design sends ART to Supplier. Approval owner is unknown.',
              'Supplier receives ART. Review timing conflicts with the older schedule.')
