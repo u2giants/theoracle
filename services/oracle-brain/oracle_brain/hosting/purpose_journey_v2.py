@@ -566,14 +566,15 @@ def load_purpose_worker_settings_v2(config_path,trusted_config_sha256):
     registry=_worker_json(c.jobs_registry_file,c.jobs_registry_sha256,PurposeWorkerRegistryV2)
     _require(registry.jobs,'no externally admitted current worker phase')
     for job in registry.jobs:jobs.current(job.job_id,now=now)
+    observer_admission=_worker_json(c.parent_observer_admission_file,c.parent_observer_admission_hash,ParentObserverAdmissionV2)
+    _require(observer_admission.population==population and observer_admission.client_uri==c.worker_uri
+             and observer_admission.principal_id==c.actor_id,
+             'actual compiler parent observation appointment differs')
     url=tls_url(c.database_url_file)
     binding=ProcessingSourceBinding(runtime_hash=c.runtime_hash,source_registry_hash=c.source_registry_hash,
         expected_owner_role=c.expected_owner_role,expected_session_role=c.expected_session_role,
         principal=c.actor_id,profile='candidate-compiler',expires_at=c.source_expires_at,synthetic=False)
     resolver=ProcessingArtifactResolver(url,binding=binding)
-    observer_admission=_worker_json(c.parent_observer_admission_file,c.parent_observer_admission_hash,ParentObserverAdmissionV2)
-    _require(observer_admission.population==population and observer_admission.client_uri==c.worker_uri,
-             'actual compiler parent observation appointment differs')
     def tls(b,timeout):
         return PurposeTLSBindingV2(b.hostname,b.port,b.server_uri,b.client_uri,
             Path(b.ca_file),Path(b.certificate_file),Path(b.key_file),timeout=timeout)
