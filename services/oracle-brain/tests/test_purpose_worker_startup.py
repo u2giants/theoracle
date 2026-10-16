@@ -287,15 +287,6 @@ def make_next_compiler_worker_v2(x,compiler_root,*,prior_settings,jobs,custody_f
         compiler_login=old.expected_session_role,runtime_hash=old.runtime_hash,
         population_digest=prior_settings.population.population_digest,issuer_actor=old.custody_issuer_actor,
         reviewer_actor=old.custody_reviewer_actor,valid_from=now,expires_at=end,files=custody_files)
-    if not extraction:
-        outputs.extend(CompilerPhaseCustodyFileV2(kind=kind,
-            path=str(x['custody']/(str(job.dispatch_id)+suffix)),dispatch_id=job.dispatch_id,
-            native_job_hash=digest(x['job'].model_dump(mode='json')),request_hash=job.request_hash,
-            producer_runtime_hash=f['runtime']) for kind,suffix in [('raw_wire','.wire'),('wire_metadata','.wire.json')])
-        context_path=Path(x['context_file'])
-        outputs.append(CompilerPhaseCustodyFileV2(kind='census_context',path=str(context_path),
-            sha256=hashlib.sha256(context_path.read_bytes()).hexdigest(),dispatch_id=job.dispatch_id))
-        appointment=appointment.model_copy(update={'files':{job.job_id:tuple(outputs)}})
     custody_file,custody_hash=store('custody.json',appointment)
     binding=x['client'].binding
     client=dict(hostname=binding.hostname,port=binding.port,server_uri=binding.server_uri,client_uri=binding.client_uri,
