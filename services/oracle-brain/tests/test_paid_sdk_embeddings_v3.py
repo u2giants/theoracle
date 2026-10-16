@@ -249,18 +249,31 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
                 cfg=ConnectionConfig.from_url(tls_url,graph_name=p.graph_name,ssl=True,ssl_check_hostname=True,ssl_cert_reqs='required',
                     ssl_ca_certs=str(certificates/'ca.pem'),ssl_certfile=str(certificates/'worker.pem'),ssl_keyfile=str(certificates/'worker.key'),
                     query_timeout_ms=3000,retry_count=1,pool_timeout=1)
-                reader=PaidMetadataSDKProjectionV3(tls_url,workspace_id=m.workspace_id,artifact_id=m.artifact_id,
-                    artifact_version=m.version,generation=generation,resolver=source,qualification_guard=guard,connection_config=cfg)
+                # This retained component has a legacy schema2 qualification.
+                # It proves compiler/graph/TLS/ACK only, never a V3 executor
+                # qualification. The new profile must refuse that old guard.
+                with pytest.raises(PermissionError,match='schema3'):
+                    PaidMetadataSDKProjectionV3(tls_url,workspace_id=m.workspace_id,artifact_id=m.artifact_id,
+                        artifact_version=m.version,generation=generation,resolver=source,qualification_guard=guard,connection_config=cfg)
+                from graphrag_sdk import FalkorDBConnection
+                from oracle_brain.operating_model.sdk_projection import ReadOnlyConnection
+                from oracle_brain.operating_model.paid_sdk_embeddings_v3 import graph_vector_coverage_v3
+                reader=ReadOnlyConnection(FalkorDBConnection(cfg))
                 try:
-                    assert await reader.load(executor,m.workspace_id,m.artifact_id,m.version)==payload
-                    assert not hasattr(reader,'paid_embedder') and not hasattr(reader,'_paid_receipt_secret')
-                    for row in (await reader.connection.query('MATCH (n) RETURN n')).result_set:
+                    assert executor.read_with_manifest(m.workspace_id,m.artifact_id,m.version)[1]==payload
+                    seal=source.projection_delivery_seal(m.workspace_id,m.artifact_id,m.version)
+                    chunks=(await reader.query('MATCH (c:Chunk) RETURN c.text,c.embedding')).result_set
+                    entities=(await reader.query('MATCH (e:__Entity__) RETURN e.id,e.name,e.embedding')).result_set
+                    relations=(await reader.query('MATCH ()-[r:RELATES]->() RETURN r.transition_key,r.fact,r.embedding')).result_set
+                    coverage,_=graph_vector_coverage_v3(data.inventory,chunks=chunks,entities=entities,relations=relations)
+                    assert coverage==seal.embedding_coverage_hash
+                    for row in (await reader.query('MATCH (n) RETURN n')).result_set:
                         for node in row:assert_no_uncited_originals(node.properties)
                     with pytest.raises(redis.exceptions.ResponseError,match='read-only'):
-                        await reader.connection.query('CREATE (:Forbidden)')
-                    assert (await reader.connection.query('MATCH (n:Forbidden) RETURN count(n)')).result_set==[[0]]
+                        await reader.query('CREATE (:Forbidden)')
+                    assert (await reader.query('MATCH (n:Forbidden) RETURN count(n)')).result_set==[[0]]
                     q['trust'].clear()
-                    with pytest.raises(PermissionError):await reader.load(executor,m.workspace_id,m.artifact_id,m.version)
+                    with pytest.raises(PermissionError):executor.read_with_manifest(m.workspace_id,m.artifact_id,m.version)
                     import psycopg
                     with psycopg.connect(admin_url) as conn:conn.execute("UPDATE oracle2.drafts SET status='withdrawn' WHERE source_id=%s",(f['source'],))
                     with pytest.raises(psycopg.errors.InsufficientPrivilege,match='withdrawn'):
@@ -297,3 +310,50 @@ def test_paid_supported_sdk_tls_config_keeps_exact_target_and_every_tls_option()
         ('ssl_keyfile',None),('query_timeout_ms',None),('pool_timeout',float('inf')),('retry_count',0)]:
         with pytest.raises(PermissionError):paid_tls_connection_config_v3(uri,'exact_owned_graph',replace(selected,**{field:value}))
     with pytest.raises(PermissionError):paid_tls_connection_config_v3(uri.replace('rediss:','redis:'),'exact_owned_graph',selected)
+
+
+def test_metadata_coverage_needs_no_paidwire_and_matches_compiler_actual_vector_digest(paid_case):
+    from oracle_brain.operating_model.paid_sdk_embeddings_v3 import graph_vector_coverage_v3,sdk_float32_vector
+    data=verify_paid_sdk_embedding_v3(**paid_case);rows={'chunks':[],'entities':[],'relations':[]}
+    for i,item in enumerate(data.inventory.inputs):
+        vector=list(sdk_float32_vector(data.vectors[i]))
+        for key in item.usage_keys:
+            kind,identifier=key.split(':',1)
+            if kind=='chunk':rows['chunks'].append([item.text,vector])
+            elif kind=='entity':rows['entities'].append([identifier,item.text,vector])
+            elif kind=='relation':rows['relations'].append([identifier,item.text,vector])
+    compiler=graph_vector_coverage_v3(data.inventory,**rows,paid_data=data)
+    assert graph_vector_coverage_v3(data.inventory,**rows)==compiler
+    damaged=copy.deepcopy(rows);damaged['chunks'][0][1][1]=0.0
+    changed=graph_vector_coverage_v3(data.inventory,**damaged)
+    assert changed[0]!=compiler[0]  # Executor MUST compare current authenticated ACK.
+    with pytest.raises(PermissionError):graph_vector_coverage_v3(data.inventory,**damaged,paid_data=data)
+    with pytest.raises(PermissionError):graph_vector_coverage_v3(data.inventory,**(rows|{'chunks':rows['chunks'][:-1]}))
+
+
+def test_cached_paid_receipt_and_key_cannot_substitute_current_sql_ack():
+    import asyncio
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3,PaidMetadataSDKProjectionV3
+    # No SDK/client construction: reject the missing actual role capability
+    # before consulting caller-provided artifact data or opening any graph.
+    projection=object.__new__(PaidProcessingSDKProjectionV3)
+    projection._paid_receipt_secret=b'x'*32
+    projection._paid_signed_receipt={'signature':'a'*64}
+    def forbidden(*args):raise AssertionError('unqualified artifact read attempted')
+    ledger=SimpleNamespace(processing_sources=object(),principal=uuid4(),read_with_manifest=forbidden)
+    with pytest.raises(PermissionError,match='actual compiler receipt'):
+        asyncio.run(projection.load(ledger,uuid4(),uuid4(),1))
+    with pytest.raises(PermissionError,match='schema3 semantic verifier'):
+        PaidMetadataSDKProjectionV3('rediss://unused.invalid',workspace_id=uuid4(),artifact_id=uuid4(),
+            artifact_version=1,generation=uuid4(),resolver=object(),qualification_guard=object(),connection_config=object())
+
+
+def test_metadata_v3_refuses_legacy_payload_before_sql_or_graph():
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.sdk_projection import PaidMetadataSDKProjectionV3
+    projection=object.__new__(PaidMetadataSDKProjectionV3);projection._executor_manifest=object()
+    def forbidden(*args):raise AssertionError('legacy payload reached SQL/graph')
+    projection.delivery_resolver=SimpleNamespace(projection_delivery_seal=forbidden)
+    with pytest.raises(ValueError):
+        projection._delivery({'assembly_qualification':{'schema_version':2},'qualified_lineage':{'schema_version':2}})
