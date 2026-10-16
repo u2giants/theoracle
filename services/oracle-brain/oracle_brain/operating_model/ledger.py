@@ -266,14 +266,18 @@ class Ledger:
         if (len(set(refs))!=len(refs) or set(refs)!=set(authoritative_refs)
                 or digest({'refs':[r.model_dump(mode='json') for r in refs]})!=manifest.source_digest):
             raise PermissionError('processing blob source manifest differs')
-        if self.processing_read_guard(manifest,payload,self.principal,self.clock()) is not None:
-            raise PermissionError('processing qualification guard did not validate')
+        self._validate_processing_read_guard(manifest,payload,self.clock())
         # Current metadata only, again after opening/validating the blob. No raw
         # source getter or nested SQL lock is used by this serving path.
         current,current_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
         if current!=manifest or set(current_refs)!=set(refs):
             raise PermissionError('processing artifact changed during read')
         return manifest,payload
+
+    def _validate_processing_read_guard(self,manifest,payload,now):
+        """Body boundary; protected compilers may fuse validation and horizon."""
+        if self.processing_read_guard(manifest,payload,self.principal,now) is not None:
+            raise PermissionError('processing qualification guard did not validate')
 
     def append_review(self, *, workspace_id: UUID, artifact_id: UUID, version: int,
                       finding_id: str, event_id: UUID, action: str, scope: str,
