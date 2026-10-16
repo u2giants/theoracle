@@ -15,12 +15,17 @@ DOCUMENTARY += ('replacement_documentary_journey', 'processing_context', 'proces
                 'assembly_context','assembly_qualification','observed_assembly_capture',
                 'source_processing_qualification','processing_compiler_capabilities',
                 'processing_projection_leases','processing_documentary_journey')
+PURPOSE_V2_SUITES=('purpose_context_v2','parent_observer_v2','purpose_profiles_v2',
+    'purpose_assembly_v2','purpose_capture_v2','purpose_qualification_v3','purpose_receipts_v2',
+    'purpose_runtime_v2','purpose_source_authority','purpose_transport','purpose_transport_startup',
+    'purpose_shared_budget','purpose_allocation_budget','semantic_registry_v3')
+DOCUMENTARY += PURPOSE_V2_SUITES
 DOCUMENTARY += ('falkordb_coolify_plan','native_page_alternate','native_alternate_operator','native_alternate_chain_operator','hosting_restore_platform')
 SYNTHETIC_MIGRATIONS=('001_foundation.sql','002_pilot.sql','004_workflow_integrity.sql',
     '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
     '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
     '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
-    '012_processing_compiler_capabilities.sql')
+    '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql')
 EVENT=('operational_event_store','operational_export','process_analysis','pm4py_adapter','pm4py_integration','derived_event_lineage','analytical_source_packets')
 PUBLIC_CHAIN=('scripts/oracle2/native_alternate_operator.py','scripts/oracle2/native_alternate_chain_operator.py','scripts/oracle2/contracts/native_alternate_serialization.json','scripts/oracle2/contracts/native_alternate_chain_v2.json')
 PUBLIC_SOURCE_LIMIT=8*1024**2

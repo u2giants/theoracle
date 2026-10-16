@@ -90,7 +90,7 @@ def test_processing_role_and_journey_proofs_are_required_with_explicit_migration
         '006_hosting_gateway_authority.sql','007_hosting_candidate_permissions.sql',
         '008_hosting_runtime_permissions.sql','009_hosting_result_permissions.sql',
         '010_hosting_job_permissions.sql','011_hosting_source_processing_permissions.sql',
-        '012_processing_compiler_capabilities.sql')
+        '012_processing_compiler_capabilities.sql','013_processing_purpose_permissions.sql')
 
 
 def test_parallel_population_is_exact_and_single_set_stages_remain_single():
@@ -179,3 +179,14 @@ def test_cleanup_wrong_target_cannot_terminate_or_drop_database(monkeypatch):
     errors=verifier.cleanup_test_databases('invented',{'dbname':'expected'},['oracle_operating_model_test_owned'])
     assert errors==[{'database':'oracle_operating_model_test_owned','reason':'owned database cleanup failed'}]
     assert queries==['SELECT current_database()']
+
+
+def test_all_current_versioned_purpose_suites_are_required_once_without_new_runner():
+    from collections import Counter
+    suites=verifier.required_suites('W10')
+    expected={p.stem.removeprefix('test_') for p in Path(__file__).parent.glob('test_purpose_*.py')}
+    expected|={'parent_observer_v2','semantic_registry_v3'}
+    assert expected==set(verifier.PURPOSE_V2_SUITES)
+    assert all(Counter(suites)[name]==1 for name in expected)
+    assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
+    assert verifier.SYNTHETIC_MIGRATIONS[-1]=='013_processing_purpose_permissions.sql'
