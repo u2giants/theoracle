@@ -145,14 +145,23 @@ class ProcessingProjectionReceiptV3(StrictRecord):
     valid_until: AwareDatetime
 
 
-class ReplacementConfirmationTargetV1(StrictRecord):
+class _ReplacementMetadataV1(StrictRecord):
+    @model_validator(mode='before')
+    @classmethod
+    def exact_integer_schema(cls,value):
+        if isinstance(value,dict) and 'schema_version' in value and type(value['schema_version']) is not int:
+            raise ValueError('replacement metadata schema version must be an exact integer')
+        return value
+
+
+class ReplacementConfirmationTargetV1(_ReplacementMetadataV1):
     workflow_id: str = Field(min_length=1,max_length=200)
     version: int = Field(strict=True,ge=1)
     content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     eligible: bool
 
 
-class ReplacementSummaryTargetV1(StrictRecord):
+class ReplacementSummaryTargetV1(_ReplacementMetadataV1):
     summary_artifact_id: UUID
     summary_version: int = Field(strict=True,ge=1)
     summary_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -161,7 +170,7 @@ class ReplacementSummaryTargetV1(StrictRecord):
     qualified_parent_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
 
 
-class ReplacementExecutorTargetV1(StrictRecord):
+class ReplacementExecutorTargetV1(_ReplacementMetadataV1):
     """Authenticated SQL control metadata only; never semantic/read authority."""
     run_id: UUID
     journey_revision: int = Field(strict=True,ge=1)
