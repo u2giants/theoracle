@@ -173,6 +173,16 @@ class SDKProjection:
         if workspace_id!=self.workspace_id:raise PermissionError('projection workspace mismatch')
         from .assembly_qualification import read_documentary_artifact
         payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)
+        records,finalized=await self._build_graph_payload(ledger,workspace_id,payload)
+        await self.verify(payload)
+        # Exact sources and current access are checked again after all asynchronous work.
+        if read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)!=payload:raise PermissionError('input changed during projection')
+        await self.connection.query('CREATE (:OperatingModelSnapshot {content_hash:$seal,record_digest:$records,sdk:$sdk,finalized:true})',params={'seal':digest(payload),'records':digest({'records':records}),'sdk':'1.4.0'})
+        return {'graph_name':self.graph_name,'content_hash':digest(payload),'record_digest':digest({'records':records}),'sdk_version':'1.4.0','finalized':finalized.model_dump(mode='json')}
+
+    async def _build_graph_payload(self,ledger,workspace_id,payload):
+        # Graph writes only. Public callers must establish their own complete
+        # before/after authority; this private helper never supplies a grant.
         records=self.records(payload)
         count=await self.connection.query('MATCH (n) RETURN count(n)')
         if count.result_set[0][0]:raise ValueError('projection generation is already occupied; reload or rebuild separately')
@@ -208,11 +218,7 @@ class SDKProjection:
         for f in payload.get('findings',[]):
             for evidence in f['evidence_refs']:
                 await self.connection.query('MATCH (f:OperatingModelRecord {id:$fid}),(d:Document {id:$sid}) CREATE (f)-[:SUPPORTED_BY {payload_hash:$seal}]->(d)',params={'fid':f['finding_id'],'sid':self.document_id(evidence['ref'],payload),'seal':digest(evidence)})
-        await self.verify(payload)
-        # Exact sources and current access are checked again after all asynchronous work.
-        if read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)!=payload:raise PermissionError('input changed during projection')
-        await self.connection.query('CREATE (:OperatingModelSnapshot {content_hash:$seal,record_digest:$records,sdk:$sdk,finalized:true})',params={'seal':digest(payload),'records':digest({'records':records}),'sdk':'1.4.0'})
-        return {'graph_name':self.graph_name,'content_hash':digest(payload),'record_digest':digest({'records':records}),'sdk_version':'1.4.0','finalized':finalized.model_dump(mode='json')}
+        return records,finalized
 
     async def verify(self,payload):
         expected=self.records(payload)
@@ -239,11 +245,15 @@ class SDKProjection:
     async def load(self,ledger,workspace_id:UUID,artifact_id:UUID,artifact_version:int):
         from .assembly_qualification import read_documentary_artifact
         payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)
+        await self._check_graph_snapshot(payload)
+        await self.verify(payload)
+        return payload
+
+    async def _check_graph_snapshot(self,payload):
+        # Graph integrity only. This private helper never proves read authority.
         rows=(await self.connection.query('MATCH (s:OperatingModelSnapshot) RETURN s.content_hash,s.record_digest,s.sdk,s.finalized')).result_set
         expected=[digest(payload),digest({'records':self.records(payload)}),'1.4.0',True]
         if len(rows)!=1 or list(rows[0])!=expected:raise ValueError('current sealed finalized snapshot required')
-        await self.verify(payload)
-        return payload
 
     async def close(self):await self.connection.close()
 
@@ -374,34 +384,24 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
         if processing_embedding_inventory_v3(payload)!=self.paid_embedder.data.inventory:
             raise PermissionError('current qualified SDK input differs from exact paid inventory')
         self.paid_embedder.assert_no_denials()
+        return self.paid_embedder.data.inventory
 
     async def _verify_paid_vectors(self,payload):
-        from .paid_sdk_embeddings_v3 import PaidSDKProjectionProofV3,sdk_float32_vector
-        import math
-        self._paid_payload(payload)
-        inventory=self.paid_embedder.data.inventory;w=self.paid_embedder.data.witness
-        expected={key:(item.text,item.text_hash) for item in inventory.inputs for key in item.usage_keys if not key.startswith('probe:')}
-        actual={}
-        def accept(key,text,vector):
-            if key not in expected or key in actual or expected[key][0]!=text:
-                raise PermissionError('stored SDK vector identity/text population differs')
-            if (not isinstance(vector,(list,tuple)) or len(vector)!=256
-                    or any(type(x) not in (int,float) or not math.isfinite(x) for x in vector)
-                    or tuple(float(x) for x in vector)!=sdk_float32_vector(self.paid_embedder.vector_for_usage(key))):
-                raise PermissionError('stored SDK vector differs from actual paid response')
-            actual[key]={'usage_key':key,'text_hash':expected[key][1],'vector_hash':digest({'vector':tuple(float(x) for x in vector)})}
-        documents={doc['text']:doc['document_id'] for doc in self.projection_view(payload)['documents']}
-        for text,vector in (await self.connection.query('MATCH (c:Chunk) RETURN c.text,c.embedding')).result_set:
-            if text not in documents:raise PermissionError('SDK chunk outside exact paid projection')
-            accept('chunk:'+documents[text],text,vector)
-        for identifier,name,vector in (await self.connection.query('MATCH (e:__Entity__) RETURN e.id,e.name,e.embedding')).result_set:
-            accept('entity:'+identifier,name,vector)
-        for identifier,fact,vector in (await self.connection.query('MATCH ()-[r:RELATES]->() RETURN r.transition_key,r.fact,r.embedding')).result_set:
-            accept('relation:'+identifier,fact,vector)
-        if actual.keys()!=expected.keys():raise PermissionError('SDK omitted actual paid graph vectors')
-        if self._paid_building:self.paid_embedder.assert_observed(tuple(expected))
-        coverage=digest({'schema':'paid-sdk-vector-coverage-v3','storage':'falkordb-vecf32','inventory_hash':w.inventory_hash,
-            'vectors':[actual[key] for key in sorted(actual)]})
+        inventory=self._paid_payload(payload)
+        return await self._verify_paid_vectors_inventory(inventory)
+
+    async def _verify_paid_vectors_inventory(self,inventory):
+        # One operation-local immutable inventory, never cached authority.
+        from .paid_sdk_embeddings_v3 import PaidSDKProjectionProofV3
+        self.paid_embedder.assert_no_denials()
+        w=self.paid_embedder.data.witness
+        from .paid_sdk_embeddings_v3 import graph_vector_coverage_v3
+        chunks=(await self.connection.query('MATCH (c:Chunk) RETURN c.text,c.embedding')).result_set
+        entities=(await self.connection.query('MATCH (e:__Entity__) RETURN e.id,e.name,e.embedding')).result_set
+        relations=(await self.connection.query('MATCH ()-[r:RELATES]->() RETURN r.transition_key,r.fact,r.embedding')).result_set
+        coverage,keys=graph_vector_coverage_v3(inventory,chunks=chunks,entities=entities,relations=relations,
+            paid_data=self.paid_embedder.data)
+        if self._paid_building:self.paid_embedder.assert_observed(keys)
         proof=PaidSDKProjectionProofV3(embedding_inventory_hash=w.inventory_hash,embedding_context_hash=w.context_hash,
             embedding_native_receipt_hash=w.native_receipt_hash,embedding_wire_hash=w.raw_response_hash,
             embedding_commit_hash=w.phase_commit_hash,embedding_vectors_hash=w.vectors_hash,embedding_coverage_hash=coverage)
@@ -420,17 +420,40 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
         await self._verify_paid_vectors(payload)
 
     async def build(self,ledger,workspace_id,artifact_id,artifact_version):
+        if type(self) is not PaidProcessingSDKProjectionV3 or self.read_only or workspace_id!=self.workspace_id:
+            raise PermissionError('exact writable paid projection identity required')
+        from .assembly_qualification import read_documentary_artifact
+        self._paid_built_here=False
         self._paid_building=True
         try:
-            result=await super().build(ledger,workspace_id,artifact_id,artifact_version)
-            from .assembly_qualification import read_documentary_artifact
-            payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard)
-            proof=await self._verify_paid_vectors(payload)
+            # BOTH actual ledger authority and independent SDK scope precede
+            # the first graph query and are freshly checked after ALL graph work.
+            manifest,payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,
+                qualification_guard=self.qualification_guard,with_manifest=True)
+            payload=copy.deepcopy(payload);inventory=self._paid_payload(payload)
+            records,finalized=await self._build_graph_payload(ledger,workspace_id,payload)
+            projection=self.processing_projection_digest(payload)
+            await self.connection.query('CREATE (:OperatingModelSnapshot {content_hash:$seal,record_digest:$records,sdk:$sdk,finalized:true,projection_schema:$schema,projection_digest:$projection})',
+                params={'seal':digest(payload),'records':digest({'records':records}),'sdk':'1.4.0','schema':self.projection_schema,'projection':projection})
+            # Full structural/provenance proof plus actual paid float32 vectors.
+            # Public verify remains independently complete for other operations.
+            await ProcessingSDKProjection.verify(self,payload)
+            proof=await self._verify_paid_vectors_inventory(inventory)
             await self.connection.query('CREATE (:PaidSDKEmbeddingSnapshotV3 {proof_hash:$proof})',params={'proof':digest(proof.model_dump(mode='json'))})
+            rows=(await self.connection.query('MATCH (s:OperatingModelSnapshot) RETURN s.content_hash,s.record_digest,s.sdk,s.finalized,s.projection_schema,s.projection_digest')).result_set
+            expected=[digest(payload),digest({'records':records}),'1.4.0',True,self.projection_schema,projection]
+            if len(rows)!=1 or list(rows[0])!=expected:raise PermissionError('paid build actual finalized snapshot differs')
+            markers=(await self.connection.query('MATCH (s:PaidSDKEmbeddingSnapshotV3) RETURN s.proof_hash')).result_set
+            if markers!=[[digest(proof.model_dump(mode='json'))]]:raise PermissionError('paid build actual completion marker differs')
+            self.paid_embedder.assert_no_denials()
+            latest,body=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,
+                qualification_guard=self.qualification_guard,with_manifest=True)
+            if latest!=manifest or canonical_bytes(body)!=canonical_bytes(payload):raise PermissionError('input changed during paid projection')
         finally:self._paid_building=False
         self._paid_built_here=True
-        await self.verify(payload)
-        return {**result,'paid_embedding':proof.model_dump(mode='json')}
+        return {'graph_name':self.graph_name,'content_hash':digest(payload),'record_digest':digest({'records':records}),
+            'sdk_version':'1.4.0','finalized':finalized.model_dump(mode='json'),'projection_schema':self.projection_schema,
+            'projection_digest':projection,'paid_embedding':proof.model_dump(mode='json')}
 
     async def load(self,ledger,workspace_id,artifact_id,artifact_version):
         # Only the current real compiler SQL getter may supply prior ACK data.
@@ -444,7 +467,10 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
         if (type(source) is not ProcessingArtifactResolver or source.binding.profile!='candidate-compiler'
                 or ledger.principal!=source.binding.principal):
             raise PermissionError('actual compiler receipt read capability required')
-        manifest,payload=ledger.read_with_manifest(workspace_id,artifact_id,artifact_version)
+        from .assembly_qualification import read_documentary_artifact
+        manifest,payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
+        sealed=canonical_bytes(payload)
+        payload=json.loads(sealed)
         current=source.projection_receipt_v3(workspace_id,artifact_id,artifact_version)
         if type(current) is not ProcessingProjectionReceiptV3:raise PermissionError('actual current compiler ACK required')
         receipt={**current.receipt.model_dump(mode='json'),'signature':current.signature}
@@ -454,13 +480,16 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
         self._verify_paid_receipt(payload)
         if (receipt['source_digest'],receipt['permission_digest'])!=(manifest.source_digest,manifest.permission_digest):
             raise PermissionError('paid SDK ACK source/compiler manifest seal differs')
-        result=await super().load(ledger,workspace_id,artifact_id,artifact_version)
+        await self._check_graph_snapshot(payload)
+        await self.verify(payload)
+        result=payload
         again=source.projection_receipt_v3(workspace_id,artifact_id,artifact_version)
-        latest,body=ledger.read_with_manifest(workspace_id,artifact_id,artifact_version)
+        latest,body=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
         if (again.receipt!=current.receipt or again.signature!=current.signature or again.source_refs!=current.source_refs
                 or datetime.now(timezone.utc)>=min(current.valid_until,again.valid_until)
-                or latest!=manifest or body!=payload):
+                or latest!=manifest or canonical_bytes(body)!=sealed or canonical_bytes(payload)!=sealed):
             raise PermissionError('paid SDK ACK or current authority changed during graph load')
+        self._verify_paid_receipt(body)
         return result
 
     async def paid_projection_proof(self,payload):
@@ -529,6 +558,13 @@ class PaidMetadataSDKProjectionV3(ProcessingSDKProjection):
     async def build(self,*args,**kwargs):raise PermissionError('metadata-only executor cannot build')
 
     def _delivery(self,payload):
+        from .purpose_qualification_v3 import PurposeAssemblyQualificationV3,PurposeFinalLineageV3
+        PurposeAssemblyQualificationV3.model_validate_json(canonical_bytes(payload.get('assembly_qualification')))
+        PurposeFinalLineageV3.model_validate_json(canonical_bytes(payload.get('qualified_lineage')))
+        from .paid_sdk_embeddings_v3 import processing_embedding_inventory_v3
+        return self._delivery_inventory(payload,processing_embedding_inventory_v3(payload))
+
+    def _delivery_inventory(self,payload,inventory):
         from .contracts import ProcessingProjectionDeliverySealV3
         from .paid_sdk_embeddings_v3 import processing_embedding_inventory_v3
         from datetime import datetime,timezone
@@ -538,7 +574,7 @@ class PaidMetadataSDKProjectionV3(ProcessingSDKProjection):
         PurposeAssemblyQualificationV3.model_validate_json(canonical_bytes(payload.get('assembly_qualification')))
         PurposeFinalLineageV3.model_validate_json(canonical_bytes(payload.get('qualified_lineage')))
         seal=self.delivery_resolver.projection_delivery_seal(*self._delivery_target)
-        m=self._executor_manifest;inventory=processing_embedding_inventory_v3(payload)
+        m=self._executor_manifest
         if (type(seal) is not ProcessingProjectionDeliverySealV3 or datetime.now(timezone.utc)>=seal.valid_until
                 or seal.graph_name!=self.graph_name or seal.content_hash!=digest(payload)
                 or (seal.content_hash,seal.source_digest,seal.permission_digest)!=(m.content_hash,m.source_digest,m.permission_digest)
@@ -548,9 +584,8 @@ class PaidMetadataSDKProjectionV3(ProcessingSDKProjection):
             raise PermissionError('current executor delivery does not bind this graph/model/projection')
         return seal,inventory
 
-    async def verify(self,payload):
+    async def _verify_metadata_graph(self,payload,inventory,before):
         from .paid_sdk_embeddings_v3 import graph_vector_coverage_v3,PaidSDKProjectionProofV3
-        before,inventory=self._delivery(payload)
         await super().verify(payload)
         chunks=(await self.connection.query('MATCH (c:Chunk) RETURN c.text,c.embedding')).result_set
         entities=(await self.connection.query('MATCH (e:__Entity__) RETURN e.id,e.name,e.embedding')).result_set
@@ -560,20 +595,43 @@ class PaidMetadataSDKProjectionV3(ProcessingSDKProjection):
         proof=PaidSDKProjectionProofV3.model_validate({k:getattr(before,k) for k in PaidSDKProjectionProofV3.model_fields})
         marker=(await self.connection.query('MATCH (s:PaidSDKEmbeddingSnapshotV3) RETURN s.proof_hash')).result_set
         if marker!=[[digest(proof.model_dump(mode='json'))]]:raise PermissionError('executor completed graph marker differs')
-        after,_=self._delivery(payload)
-        # checked_at is a fresh observation, not immutable delivery identity.
-        if before.model_dump(exclude={'checked_at','valid_until'})!=after.model_dump(exclude={'checked_at','valid_until'}):
+
+    async def verify(self,payload):
+        # Public verification independently retains both current SDK scopes.
+        if self._executor_ledger is None or self._executor_manifest is None:raise PermissionError('actual authorized executor load context required')
+        from .assembly_qualification import read_documentary_artifact
+        manifest,actual=read_documentary_artifact(self._executor_ledger,*self._delivery_target,qualification_guard=self.qualification_guard,with_manifest=True)
+        sealed=canonical_bytes(actual)
+        if manifest!=self._executor_manifest or canonical_bytes(payload)!=sealed:raise PermissionError('executor verification input differs')
+        before,inventory=self._delivery(payload)
+        await self._verify_metadata_graph(payload,inventory,before)
+        after,_=self._delivery_inventory(payload,inventory)
+        self._same_delivery(before,after)
+        latest,body=read_documentary_artifact(self._executor_ledger,*self._delivery_target,qualification_guard=self.qualification_guard,with_manifest=True)
+        if latest!=manifest or canonical_bytes(body)!=sealed or canonical_bytes(payload)!=sealed:raise PermissionError('qualified executor input changed during verification')
+        self._same_delivery(before,after)
+
+    @staticmethod
+    def _same_delivery(before,after):
+        from datetime import datetime,timezone
+        if (datetime.now(timezone.utc)>=min(before.valid_until,after.valid_until)
+                or before.model_dump(exclude={'checked_at','valid_until'})!=after.model_dump(exclude={'checked_at','valid_until'})):
             raise PermissionError('current executor delivery changed during graph verification')
-        self._executor_ledger.read_with_manifest(*self._delivery_target)
 
     async def load(self,ledger,workspace_id,artifact_id,artifact_version):
         if ((workspace_id,artifact_id,artifact_version)!=self._delivery_target or ledger.processing_sources is not self.delivery_resolver
                 or ledger.principal!=self.delivery_resolver.binding.principal):
             raise PermissionError('exact current executor ledger/profile required')
-        manifest,payload=ledger.read_with_manifest(workspace_id,artifact_id,artifact_version)
+        from .assembly_qualification import read_documentary_artifact
+        manifest,payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
+        sealed=canonical_bytes(payload);payload=json.loads(sealed)
         self._executor_manifest=manifest;self._executor_ledger=ledger
-        self._delivery(payload)
-        result=await super().load(ledger,workspace_id,artifact_id,artifact_version)
-        again,body=ledger.read_with_manifest(workspace_id,artifact_id,artifact_version)
-        if again!=manifest or body!=payload:raise PermissionError('qualified executor input changed during graph load')
-        return result
+        before,inventory=self._delivery(payload)
+        await self._check_graph_snapshot(payload)
+        await self._verify_metadata_graph(payload,inventory,before)
+        after,_=self._delivery_inventory(payload,inventory)
+        self._same_delivery(before,after)
+        again,body=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
+        if again!=manifest or canonical_bytes(body)!=sealed or canonical_bytes(payload)!=sealed:raise PermissionError('qualified executor input changed during graph load')
+        self._same_delivery(before,after)
+        return payload

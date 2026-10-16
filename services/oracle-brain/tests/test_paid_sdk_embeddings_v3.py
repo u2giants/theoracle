@@ -148,7 +148,7 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
     from dev.oracle2.test_readonly_graph_fixture import owned_target
     from test_processing_documentary_journey import qualified_journey,assert_no_uncited_originals
     from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
-    from oracle_brain.operating_model.processing_projection import lease_processing_projection,project_paid_processing_event_v3
+    from oracle_brain.operating_model.processing_projection import lease_processing_projection,project_paid_processing_event_v3,ProcessingProjectionIncomplete
     from oracle_brain.operating_model.paid_sdk_embeddings_v3 import sdk_float32_vector
     q=qualified_journey(admin_url,processing,tmp_path);m=q['manifest'];payload=q['ledger'].read(m.workspace_id,m.artifact_id,m.version)
     data=verify_paid_sdk_embedding_v3(**paid_case_for(payload,m));adapter=PaidProjectionEmbedderV3(data)
@@ -164,6 +164,7 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
             return q['guard'].valid_until(current,body,q['ledger'].principal,q['ledger'].clock())
     async def exercise():
         nonlocal readonly_username
+        graph_completion_known=True
         p=PaidProcessingSDKProjectionV3(graph_url,workspace_id=m.workspace_id,artifact_id=m.artifact_id,
             artifact_version=m.version,generation=generation,embedder=adapter,qualification_guard=q['guard'])
         assert p.graph_name==f'oracle_processing_v1_{m.workspace_id.hex}_{m.artifact_id.hex}_{m.version}_{generation.hex}'
@@ -187,6 +188,14 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
             nodes=(await p.connection.query('MATCH (n) RETURN n')).result_set
             for row in nodes:
                 for node in row:assert_no_uncited_originals(node.properties)
+            # Actual missing/mutated singleton markers cannot authenticate reload.
+            marker=(await p.connection.query('MATCH (s:PaidSDKEmbeddingSnapshotV3) RETURN s.proof_hash')).result_set[0][0]
+            await p.connection.query('MATCH (s:PaidSDKEmbeddingSnapshotV3) DELETE s')
+            with pytest.raises(PermissionError,match='completion|completed'):await p.paid_projection_proof(payload)
+            await p.connection.query('CREATE (:PaidSDKEmbeddingSnapshotV3 {proof_hash:$proof})',params={'proof':marker})
+            await p.connection.query('MATCH (s:OperatingModelSnapshot) SET s.projection_digest=$bad',params={'bad':'f'*64})
+            with pytest.raises(ValueError,match='snapshot'):await p.paid_projection_proof(payload)
+            await p.connection.query('MATCH (s:OperatingModelSnapshot) SET s.projection_digest=$projection',params={'projection':p.processing_projection_digest(payload)})
             first=(await p.connection.query('MATCH (c:Chunk) RETURN c.id,c.embedding LIMIT 1')).result_set[0]
             assert first[1] and len(first[1])==256
             wrong=[1.0]+[0.0]*255
@@ -228,6 +237,41 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
                 actual=q['source'].projection_receipt_v3(m.workspace_id,m.artifact_id,m.version)
                 assert actual.receipt.event_id==str(event)
                 return actual.receipt.model_dump(mode='json')|{'signature':actual.signature}
+            from dev.oracle2.test_readonly_graph_fixture import processing_reader_scope,retire_processing_reader
+            import redis
+            scoped_root=tmp_path/'scoped-reader';observed=[]
+            original_execute=redis.Redis.execute_command
+            def observed_execute(client,*args,**kwargs):
+                if len(args)>2 and args[:2]==('ACL','SETUSER'):
+                    owner=json.loads((scoped_root/'ownership.json').read_text())
+                    assert args[2]==owner['username']
+                    assert (scoped_root/'ownership.json').stat().st_mode&0o777==0o600
+                    observed.append('durable-owner-before-acl')
+                return original_execute(client,*args,**kwargs)
+            with pytest.MonkeyPatch.context() as patch:
+                patch.setattr(redis.Redis,'execute_command',observed_execute)
+                with processing_reader_scope(container,graph_url,scoped_root,receipt=result,secret=secret,current_delivery=actual_delivery) as scoped:
+                    owner_raw=(scoped_root/'ownership.json').read_bytes();owner=json.loads(owner_raw)
+                    owner_hash=hashlib.sha256(owner_raw).hexdigest()
+                    with pytest.raises(PermissionError,match='hash'):
+                        retire_processing_reader(container,graph_url,scoped_root,expected_ownership_sha256='0'*64)
+                    admin=redis.Redis.from_url(graph_url,socket_timeout=2,decode_responses=True)
+                    restricted=redis.Redis.from_url(scoped['ORACLE2_TEST_PROCESSING_READONLY_GRAPH_URL'],socket_timeout=2)
+                    try:
+                        assert restricted.ping()
+                        for mutation in ('+graph.query','~unrelated-exact-reader-test'):
+                            admin.execute_command('ACL','SETUSER',owner['username'],mutation)
+                            try:
+                                with pytest.raises(PermissionError,match='ACL drifted'):
+                                    retire_processing_reader(container,graph_url,scoped_root,expected_ownership_sha256=owner_hash)
+                            finally:admin.execute_command('ACL','SETUSER',owner['username'],'resetkeys','~'+owner['graph_name'],
+                                '-@all','+graph.ro_query','+ping','+hello','+info|server')
+                    finally:restricted.close();admin.close()
+            check=redis.Redis.from_url(graph_url,socket_timeout=2)
+            try:
+                assert check.acl_getuser(owner['username']) is None and check.exists(owner['graph_name'])
+            finally:check.close()
+            assert observed and (scoped_root/'reader-retired.json').is_file()
             readonly=processing_reader(container,graph_url,tmp_path/'v3-reader',receipt=result,secret=secret,current_delivery=actual_delivery)
             readonly_username=json.loads((tmp_path/'v3-reader'/'qualification.json').read_text())['readonly_username']
             tls,_=bound_tls
@@ -279,6 +323,14 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
                     with pytest.raises(psycopg.errors.InsufficientPrivilege,match='withdrawn'):
                         source.projection_delivery_seal(m.workspace_id,m.artifact_id,m.version)
                 finally:await reader.close()
+        except ProcessingProjectionIncomplete as error:
+            # Cancellation/task completion alone cannot prove the sent server
+            # query stopped. Preserve this exact unaccepted generation.
+            graph_completion_known=False
+            path=tmp_path/'unaccepted-graph-completion.json'
+            path.write_text(json.dumps({'graph_name':p.graph_name,'reason':error.reason,
+                'deadline':error.deadline.isoformat(),'completion':'UNKNOWN','owner':'baseline'}));path.chmod(0o600)
+            raise
         finally:
             # Re-prove exact own candidate target; remove ONLY this UUID graph.
             owned_target(container,graph_url)
@@ -288,7 +340,8 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
                 client=redis.Redis.from_url(graph_url,socket_timeout=2)
                 try:assert client.execute_command('ACL','DELUSER',readonly_username)==1
                 finally:client.close()
-            await p.connection.delete_graph();await p.close()
+            if graph_completion_known:
+                await p.connection.delete_graph();await p.close()
     asyncio.run(exercise())
 
 
@@ -357,3 +410,284 @@ def test_metadata_v3_refuses_legacy_payload_before_sql_or_graph():
     projection.delivery_resolver=SimpleNamespace(projection_delivery_seal=forbidden)
     with pytest.raises(ValueError):
         projection._delivery({'assembly_qualification':{'schema_version':2},'qualified_lineage':{'schema_version':2}})
+
+
+def test_owned_writer_acl_has_only_exact_graph_keys_and_durable_precreation_owner(tmp_path):
+    import os,redis
+    from dev.oracle2.test_readonly_graph_fixture import processing_writer,owned_target
+    url=os.environ['ORACLE2_OPERATING_TEST_GRAPH_URL'];container=os.environ['COMPOSE_PROJECT_NAME']+'-falkor-candidate-1'
+    root=tmp_path/'writer';ids=dict(workspace_id=uuid4(),artifact_id=uuid4(),version=1,generation=uuid4())
+    with processing_writer(container,url,root,**ids) as writer:
+        owner=json.loads((root/'ownership.json').read_text())
+        assert (root/'ownership.json').stat().st_mode&0o777==0o600
+        assert owner['graph_name'].endswith(ids['generation'].hex)
+        restricted=redis.Redis.from_url(writer.environment['ORACLE2_TEST_PROCESSING_WRITER_GRAPH_URL'],socket_timeout=2)
+        try:
+            restricted.execute_command('GRAPH.QUERY',owner['graph_name'],'CREATE (:OnlyOwn)','TIMEOUT',1000)
+            rows=restricted.execute_command('GRAPH.RO_QUERY',owner['graph_name'],'MATCH (n:OnlyOwn) RETURN count(n)','TIMEOUT',1000)
+            assert rows[1]==[[1]]
+        finally:restricted.close()
+        # All own synchronous writes returned; no SDK/background task was started.
+        writer.confirm_inactive()
+    owned_target(container,url)
+    admin=redis.Redis.from_url(url,socket_timeout=2)
+    try:
+        assert admin.acl_getuser(owner['username']) is None
+        assert not admin.exists(owner['graph_name']) and not admin.exists(owner['ontology_name'])
+    finally:admin.close()
+    assert (root/'retired.json').is_file()
+
+
+def test_owned_writer_fence_blocks_late_query_and_waits_actual_server_idle(tmp_path):
+    import os,redis,threading,time
+    from dev.oracle2.test_readonly_graph_fixture import processing_writer
+    url=os.environ['ORACLE2_OPERATING_TEST_GRAPH_URL'];container=os.environ['COMPOSE_PROJECT_NAME']+'-falkor-candidate-1'
+    root=tmp_path/'fenced-writer'
+    with processing_writer(container,url,root,workspace_id=uuid4(),artifact_id=uuid4(),version=1,generation=uuid4()) as writer:
+        owner=writer.ownership;admin=redis.Redis.from_url(url,socket_timeout=2,decode_responses=True)
+        producer=redis.Redis.from_url(writer.environment['ORACLE2_TEST_PROCESSING_WRITER_GRAPH_URL'],socket_timeout=4)
+        with pytest.raises(PermissionError,match='fence required'):writer.confirm_fenced_inactive()
+        username=owner['username'];owner['username']='default'
+        try:
+            with pytest.raises(PermissionError,match='ownership differs'):writer.fence_producer()
+        finally:owner['username']=username
+        assert 'on' in admin.acl_getuser(username)['flags']
+        completed=threading.Event();outcome=[]
+        def work():
+            try:
+                producer.execute_command('GRAPH.QUERY',owner['graph_name'],
+                    'UNWIND range(1,10000000) AS x WITH sum(x) AS total CREATE (:Late {total:total}) RETURN total',
+                    'TIMEOUT',1500)
+                outcome.append('response')
+            except redis.exceptions.RedisError:outcome.append('connection-or-query-refused')
+            finally:completed.set()
+        worker=threading.Thread(target=work);worker.start()
+        try:
+            deadline=time.monotonic()+3;observed=False
+            while time.monotonic()<deadline:
+                activity=admin.execute_command('GRAPH.INFO','RunningQueries','WaitingQueries')
+                for entries in (activity[1],activity[3]):
+                    for entry in entries:
+                        if dict(zip(entry[::2],entry[1::2])).get('Graph name')==owner['graph_name']:observed=True
+                if observed:break
+                time.sleep(.005)
+            assert observed,'actual owned running/waiting query must be observed before fencing'
+            writer.fence_producer()
+            # An attempted late reconnect cannot reauthenticate after the fence.
+            late=redis.Redis.from_url(writer.environment['ORACLE2_TEST_PROCESSING_WRITER_GRAPH_URL'],socket_timeout=1)
+            try:
+                with pytest.raises(redis.exceptions.AuthenticationError):late.ping()
+            finally:late.close()
+            worker.join(timeout=5);assert completed.is_set() and not worker.is_alive()
+            producer.close() # All local owned producers are closed before server-idle inspection.
+            writer.confirm_fenced_inactive()
+            assert (root/'fenced.json').is_file() and (root/'fenced-idle.json').is_file()
+            assert outcome
+        finally:
+            worker.join(timeout=5);producer.close();admin.close()
+    assert (root/'retired.json').is_file()
+
+
+def test_owned_writer_restart_recovery_requires_exact_owner_target_acl_and_stopped_run(tmp_path):
+    import os,redis
+    from dev.oracle2.test_readonly_graph_fixture import processing_writer,recover_processing_writer
+    from oracle_brain.hosting.custody import _durable_nonce
+    url=os.environ['ORACLE2_OPERATING_TEST_GRAPH_URL'];container=os.environ['COMPOSE_PROJECT_NAME']+'-falkor-candidate-1'
+    root=tmp_path/'restart-writer'
+    with processing_writer(container,url,root,workspace_id=uuid4(),artifact_id=uuid4(),version=1,generation=uuid4()) as original:
+        owner=dict(original.ownership)
+        # No SDK or outstanding producer was started; all bootstrap calls returned.
+    assert (root/'unknown.json').is_file() and not (root/'retired.json').exists()
+    sha=hashlib.sha256((root/'ownership.json').read_bytes()).hexdigest()
+    record=dict(schema_version=1,ownership_sha256=sha,run_id='invented-own-terminal-run',terminal_exit_code=1,
+        local_producer_tasks_stopped=True,local_producer_pools_closed=True,terminal_evidence_sha256='a'*64)
+    body=canonical_bytes(record);_durable_nonce(root,'terminal.json',body)
+    args=dict(expected_ownership_sha256=sha,producer_stop_receipt=root/'terminal.json',
+        expected_producer_stop_sha256=hashlib.sha256(body).hexdigest())
+    with pytest.raises(PermissionError,match='hash'):
+        with recover_processing_writer(container,url,root,**{**args,'expected_ownership_sha256':'0'*64}):pass
+    # Source role/admin target cannot be substituted by a different loopback port.
+    from urllib.parse import urlsplit,urlunsplit
+    parsed=urlsplit(url);wrong=urlunsplit((parsed.scheme,parsed.netloc.rsplit(':',1)[0]+':1',parsed.path,parsed.query,parsed.fragment))
+    with pytest.raises((PermissionError,RuntimeError)):
+        with recover_processing_writer(container,wrong,root,**args):pass
+    record['local_producer_tasks_stopped']=False;bad=canonical_bytes(record);_durable_nonce(root,'not-stopped.json',bad)
+    with pytest.raises(PermissionError,match='terminal/tasks/pools'):
+        with recover_processing_writer(container,url,root,**{**args,'producer_stop_receipt':root/'not-stopped.json',
+                'expected_producer_stop_sha256':hashlib.sha256(bad).hexdigest()}):pass
+    admin=redis.Redis.from_url(url,socket_timeout=2,decode_responses=True)
+    try:
+        for extra in (('~unrelated-exact-test-key',),('+graph.delete',)):
+            admin.execute_command('ACL','SETUSER',owner['username'],*extra)
+            try:
+                with pytest.raises(PermissionError,match='ACL ownership'):
+                    with recover_processing_writer(container,url,root,**args):pass
+                assert 'on' in admin.acl_getuser(owner['username'])['flags']
+            finally:
+                admin.execute_command('ACL','SETUSER',owner['username'],'resetkeys','~'+owner['graph_name'],
+                    '~'+owner['ontology_name'],'-@all','+graph.query','+graph.ro_query','+ping','+hello','+info|server')
+        # Recovery never opens this private credential record.
+        (root/'environment.json').rename(root/'unused-private-environment.json')
+        with recover_processing_writer(container,url,root,**args) as recovered:
+            assert recovered.environment=={}
+            recovered.fence_producer()
+            recovered.confirm_fenced_inactive()
+        assert admin.acl_getuser(owner['username']) is None
+        assert not admin.exists(owner['graph_name']) and not admin.exists(owner['ontology_name'])
+    finally:admin.close()
+    assert all((root/name).is_file() for name in ('recovered.json','fenced.json','fenced-idle.json','retired.json'))
+
+@pytest.mark.parametrize('damage',['allow','pre-sdk-scope','post-sdk-scope','false-sdk-scope','sdk-expiry','body-change','ledger-revoked','ack-change','ack-expiry'])
+def test_paid_metadata_load_keeps_distinct_sdk_scope_and_fresh_final_boundaries(damage):
+    """Controlled call-boundary proof; no SQL/graph/runtime admission is claimed."""
+    import asyncio
+    from datetime import datetime,timedelta,timezone
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.sdk_projection import PaidMetadataSDKProjectionV3
+    from oracle_brain.operating_model.assembly_qualification import QualifiedAssemblyReadGuard
+    state={'reads':0,'guards':0,'graph':False,'seals':0}
+    class SDKScope(QualifiedAssemblyReadGuard):
+        def __init__(self):pass
+        def __call__(self,manifest,payload,principal,now):
+            state['guards']+=1
+            if damage=='false-sdk-scope':return False
+            if (damage=='pre-sdk-scope' and not state['graph']) or (damage in ('post-sdk-scope','sdk-expiry') and state['graph']):raise PermissionError('distinct SDK scope revoked/expired')
+            return None
+    principal=uuid4();target=(uuid4(),uuid4(),1);resolver=SimpleNamespace(binding=SimpleNamespace(principal=principal))
+    manifest=SimpleNamespace(kind='processing_qualified_model_v1');payload={'immutable':'supported'}
+    def read(*args):
+        state['reads']+=1
+        if damage=='ledger-revoked' and state['graph']:raise PermissionError('actual read revoked')
+        return manifest,({'immutable':'changed'} if damage=='body-change' and state['graph'] else payload.copy())
+    ledger=SimpleNamespace(principal=principal,processing_sources=resolver,read_with_manifest=read)
+    projection=object.__new__(PaidMetadataSDKProjectionV3);projection.delivery_resolver=resolver;projection._delivery_target=target;projection.qualification_guard=SDKScope()
+    def delivery(*args):
+        state['seals']+=1
+        expired=damage=='ack-expiry' and state['graph']
+        seal=SimpleNamespace(valid_until=datetime.now(timezone.utc)+timedelta(seconds=-1 if expired else 30))
+        identity={'delivery':'changed' if damage=='ack-change' and state['graph'] else 'exact'}
+        seal.model_dump=lambda **kw:identity.copy()
+        return seal,object()
+    projection._delivery=delivery;projection._delivery_inventory=delivery
+    async def snapshot(body):state['graph']=True
+    async def verify(*args):assert state['graph']
+    projection._check_graph_snapshot=snapshot;projection._verify_metadata_graph=verify
+    if damage=='allow':
+        assert asyncio.run(projection.load(ledger,*target))==payload
+        assert state['reads']==state['guards']==2
+    else:
+        with pytest.raises(PermissionError):asyncio.run(projection.load(ledger,*target))
+        if damage in ('pre-sdk-scope','false-sdk-scope'):assert not state['graph']
+
+
+def test_paid_compiler_separate_sdk_scope_denies_before_receipt_or_graph():
+    import asyncio
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
+    from oracle_brain.operating_model.authority_adapter import ProcessingArtifactResolver
+    from oracle_brain.operating_model.assembly_qualification import QualifiedAssemblyReadGuard
+    class SDKScope(QualifiedAssemblyReadGuard):
+        def __init__(self):pass
+        def __call__(self,*args):raise PermissionError('separate compiler SDK scope denied')
+    source=object.__new__(ProcessingArtifactResolver);source.binding=SimpleNamespace(profile='candidate-compiler',principal=uuid4())
+    def forbidden(*args):raise AssertionError('receipt/graph consulted before independent SDK scope')
+    source.projection_receipt_v3=forbidden
+    projection=object.__new__(PaidProcessingSDKProjectionV3);projection._paid_receipt_secret=b'x'*32;projection.qualification_guard=SDKScope();projection._check_graph_snapshot=forbidden
+    ledger=SimpleNamespace(processing_sources=source,principal=source.binding.principal,read_with_manifest=lambda *args:(SimpleNamespace(kind='processing_qualified_model_v1'),{}))
+    with pytest.raises(PermissionError,match='separate compiler SDK scope'):asyncio.run(projection.load(ledger,uuid4(),uuid4(),1))
+
+@pytest.mark.parametrize('damage',['allow','post-sdk-scope','ack-change','body-change','ack-expiry'])
+def test_paid_compiler_load_retains_new_final_sdk_scope_and_ack(damage):
+    import asyncio
+    from datetime import datetime,timedelta,timezone
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
+    from oracle_brain.operating_model.authority_adapter import ProcessingArtifactResolver
+    from oracle_brain.operating_model.assembly_qualification import QualifiedAssemblyReadGuard
+    from oracle_brain.operating_model.contracts import ProcessingProjectionReceiptV3
+    state={'reads':0,'guards':0,'graph':False,'acks':0,'hmac':0}
+    class SDKScope(QualifiedAssemblyReadGuard):
+        def __init__(self):pass
+        def __call__(self,*args):
+            state['guards']+=1
+            if damage=='post-sdk-scope' and state['graph']:raise PermissionError('final separate compiler SDK scope revoked')
+    source=object.__new__(ProcessingArtifactResolver);source.binding=SimpleNamespace(profile='candidate-compiler',principal=uuid4())
+    identity=SimpleNamespace(source_digest='a',permission_digest='b',kind='processing_qualified_model_v1')
+    receipt=SimpleNamespace(model_dump=lambda **kw:{'source_digest':'a','permission_digest':'b'})
+    def current(*args):
+        state['acks']+=1
+        return ProcessingProjectionReceiptV3.model_construct(receipt=receipt,signature='changed' if damage=='ack-change' and state['graph'] else 'exact',source_refs=(),valid_until=datetime.now(timezone.utc)+timedelta(seconds=-1 if damage=='ack-expiry' and state['graph'] else 30))
+    source.projection_receipt_v3=current
+    def read(*args):
+        state['reads']+=1
+        return identity,{'immutable':'changed' if damage=='body-change' and state['graph'] else 'supported'}
+    projection=object.__new__(PaidProcessingSDKProjectionV3);projection._paid_receipt_secret=b'x'*32;projection._paid_signed_receipt=None;projection.qualification_guard=SDKScope()
+    def hmac(*args):state['hmac']+=1
+    projection._verify_paid_receipt=hmac
+    async def graph(*args):state['graph']=True
+    projection._check_graph_snapshot=graph;projection.verify=graph
+    ledger=SimpleNamespace(principal=source.binding.principal,processing_sources=source,read_with_manifest=read)
+    if damage=='allow':
+        assert asyncio.run(projection.load(ledger,uuid4(),uuid4(),1))=={'immutable':'supported'}
+        assert state['reads']==state['guards']==state['acks']==state['hmac']==2
+    else:
+        with pytest.raises(PermissionError):asyncio.run(projection.load(ledger,uuid4(),uuid4(),1))
+
+@pytest.mark.parametrize('damage',['allow','initial-sdk-deny','initial-sdk-false','final-sdk-deny','final-sdk-false','final-ledger-deny','final-body','final-manifest','base-marker','paid-marker','failed-rebuild'])
+def test_paid_build_operation_keeps_both_independent_scopes_and_final_actual_markers(paid_case,monkeypatch,damage):
+    """Controlled distinct authority boundaries; actual graph proof runs separately."""
+    import asyncio
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3,ProcessingSDKProjection
+    from oracle_brain.operating_model.assembly_qualification import QualifiedAssemblyReadGuard
+    data=verify_paid_sdk_embedding_v3(**paid_case);payload=copy.deepcopy(paid_case['private'].embedding.qualified_payload)
+    state={'reads':0,'guards':0,'graph':False,'proofs':0,'base':None,'paid':None,'queries':0}
+    class Scope(QualifiedAssemblyReadGuard):
+        def __init__(self):pass
+        def __call__(self,*args):
+            state['guards']+=1
+            phase='final' if state['graph'] else 'initial'
+            if damage==phase+'-sdk-deny':raise PermissionError('independent SDK scope revoked')
+            if damage==phase+'-sdk-false':return False
+    p=object.__new__(PaidProcessingSDKProjectionV3);p.workspace_id=data.witness.workspace_id;p.read_only=False;p.graph_name='owned-controlled';p._paid_built_here=damage=='failed-rebuild'
+    p.paid_embedder=PaidProjectionEmbedderV3(data);p.qualification_guard=Scope()
+    manifest=SimpleNamespace(kind='processing_qualified_model_v1',version=1)
+    def read(*args):
+        state['reads']+=1
+        if state['graph'] and damage=='final-ledger-deny':raise PermissionError('current ledger source withdrawn')
+        current=SimpleNamespace(kind=manifest.kind,version=2) if state['graph'] and damage=='final-manifest' else manifest
+        body=copy.deepcopy(payload)
+        if state['graph'] and damage=='final-body':body['changed']=True
+        return current,body
+    ledger=SimpleNamespace(principal=uuid4(),read_with_manifest=read)
+    async def writes(*args):
+        assert state['guards']==state['reads']==1
+        if damage=='failed-rebuild':raise ValueError('occupied prior generation')
+        state['graph']=True
+        return p.records(payload),SimpleNamespace(model_dump=lambda **kw:{'indexes':{'actual':True}})
+    p._build_graph_payload=writes
+    async def structural(self,body):assert state['graph'] and body==payload
+    monkeypatch.setattr(ProcessingSDKProjection,'verify',structural)
+    from oracle_brain.operating_model.paid_sdk_embeddings_v3 import PaidSDKProjectionProofV3
+    proof=PaidSDKProjectionProofV3(**{k:'a'*64 for k in PaidSDKProjectionProofV3.model_fields if k.endswith('_hash')})
+    async def vectors(inventory):state['proofs']+=1;assert inventory==data.inventory;return proof
+    p._verify_paid_vectors_inventory=vectors
+    async def query(text,params=None):
+        state['queries']+=1;assert state['guards']>=1
+        if text.startswith('CREATE (:OperatingModelSnapshot'):state['base']=params
+        elif text.startswith('CREATE (:PaidSDKEmbeddingSnapshotV3'):state['paid']=params['proof']
+        elif 'MATCH (s:OperatingModelSnapshot)' in text:
+            b=state['base'];return SimpleNamespace(result_set=[[b['seal'],b['records'],b['sdk'],False if damage=='base-marker' else True,b['schema'],b['projection']]])
+        elif 'MATCH (s:PaidSDKEmbeddingSnapshotV3)' in text:return SimpleNamespace(result_set=[] if damage=='paid-marker' else [[state['paid']]])
+        else:raise AssertionError(text)
+        return SimpleNamespace(result_set=[])
+    p.connection=SimpleNamespace(query=query)
+    if damage=='allow':
+        result=asyncio.run(p.build(ledger,p.workspace_id,data.witness.qualified_artifact_id,data.witness.qualified_artifact_version))
+        assert result['paid_embedding']==proof.model_dump(mode='json')
+        assert state['reads']==state['guards']==2 and state['proofs']==1 and p._paid_built_here
+    else:
+        with pytest.raises(ValueError if damage=='failed-rebuild' else PermissionError):asyncio.run(p.build(ledger,p.workspace_id,data.witness.qualified_artifact_id,data.witness.qualified_artifact_version))
+        assert not p._paid_built_here
+        if damage.startswith('initial'):assert not state['graph'] and state['queries']==0
+    assert p._paid_building is False
