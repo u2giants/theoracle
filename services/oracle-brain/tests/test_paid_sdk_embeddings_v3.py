@@ -153,7 +153,7 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
     from dev.oracle2.test_readonly_graph_fixture import owned_target
     from test_processing_documentary_journey import qualified_journey,assert_no_uncited_originals
     from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
-    from oracle_brain.operating_model.processing_projection import lease_processing_projection,project_paid_processing_event_v3
+    from oracle_brain.operating_model.processing_projection import lease_processing_projection,project_paid_processing_event_v3,ProcessingProjectionIncomplete
     from oracle_brain.operating_model.paid_sdk_embeddings_v3 import sdk_float32_vector
     q=qualified_journey(admin_url,processing,tmp_path);m=q['manifest'];payload=q['ledger'].read(m.workspace_id,m.artifact_id,m.version)
     data=verify_paid_sdk_embedding_v3(**paid_case_for(payload,m));adapter=PaidProjectionEmbedderV3(data)
@@ -169,6 +169,7 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
             return q['guard'].valid_until(current,body,q['ledger'].principal,q['ledger'].clock())
     async def exercise():
         nonlocal readonly_username
+        graph_completion_known=True
         p=PaidProcessingSDKProjectionV3(graph_url,workspace_id=m.workspace_id,artifact_id=m.artifact_id,
             artifact_version=m.version,generation=generation,embedder=adapter,qualification_guard=q['guard'])
         assert p.graph_name==f'oracle_processing_v1_{m.workspace_id.hex}_{m.artifact_id.hex}_{m.version}_{generation.hex}'
@@ -284,6 +285,14 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
                     with pytest.raises(psycopg.errors.InsufficientPrivilege,match='withdrawn'):
                         source.projection_delivery_seal(m.workspace_id,m.artifact_id,m.version)
                 finally:await reader.close()
+        except ProcessingProjectionIncomplete as error:
+            # Cancellation/task completion alone cannot prove the sent server
+            # query stopped. Preserve this exact unaccepted generation.
+            graph_completion_known=False
+            path=tmp_path/'unaccepted-graph-completion.json'
+            path.write_text(json.dumps({'graph_name':p.graph_name,'reason':error.reason,
+                'deadline':error.deadline.isoformat(),'completion':'UNKNOWN','owner':'baseline'}));path.chmod(0o600)
+            raise
         finally:
             # Re-prove exact own candidate target; remove ONLY this UUID graph.
             owned_target(container,graph_url)
@@ -293,7 +302,8 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
                 client=redis.Redis.from_url(graph_url,socket_timeout=2)
                 try:assert client.execute_command('ACL','DELUSER',readonly_username)==1
                 finally:client.close()
-            await p.connection.delete_graph();await p.close()
+            if graph_completion_known:
+                await p.connection.delete_graph();await p.close()
     asyncio.run(exercise())
 
 
