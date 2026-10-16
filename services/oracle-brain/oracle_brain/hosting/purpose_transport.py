@@ -189,14 +189,14 @@ def main(argv=None):
     """Explicit opt-in startup; the protected loader owns all authority/schema."""
     import argparse
     from .gateway import server_tls
-    from .purpose_runtime import (load_purpose_runtime_settings_v2,
-        build_purpose_broker_v2, build_purpose_metadata_v2)
     parser = argparse.ArgumentParser()
     parser.add_argument("--phase", choices=("census", "assembly", "assessment", "embedding"), required=True)
     parser.add_argument("--role", choices=("provider", "metadata"), required=True)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--config-sha256", required=True)
     args = parser.parse_args(argv)
+    from .purpose_runtime import (load_purpose_runtime_settings_v2,
+        build_purpose_broker_v2, build_purpose_metadata_v2)
     settings = load_purpose_runtime_settings_v2(args.config, args.config_sha256,
         expected_phase=args.phase, expected_role=args.role)
     if settings.phase != args.phase or settings.role != args.role:

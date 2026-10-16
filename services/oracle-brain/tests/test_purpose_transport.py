@@ -20,7 +20,7 @@ def bound_tls(certificates,tmp_path):
     for p in tmp_path.iterdir():p.chmod(0o600)
     tls=server_tls(certfile=str(cert),keyfile=str(key),cafile=str(certificates/'ca.pem'))
     def binding(port,client='worker',uri=SERVER):
-        return PurposeTLSBindingV2('localhost',port,uri,WORKER,certificates/'ca.pem',certificates/(client+'.pem'),certificates/(client+'.key'))
+        return PurposeTLSBindingV2('localhost',port,uri,WORKER if client=='worker' else 'spiffe://oracle/unrelated',certificates/'ca.pem',certificates/(client+'.pem'),certificates/(client+'.key'))
     return tls,binding
 
 def test_actual_provider_tls_and_private_response_denial(bound_tls,monkeypatch):
@@ -117,3 +117,35 @@ def test_actual_total_deadline_aborts_trickled_header(bound_tls):
             client.dispatch(uuid4(),'a'*64,'b'*64)
         assert time.monotonic()-started<.35
     finally:server.shutdown();server.server_close();thread.join(2)
+
+
+def test_opt_in_profile_only_phase_local_mounts_and_fixed_startup():
+    from pathlib import Path
+    import yaml
+    root=Path(__file__).resolve().parents[3]
+    value=yaml.safe_load((root/'dev/oracle2/hosting/purpose-v2-isolated.yaml').read_text())
+    expected={p+'-'+r for p in ('census','assembly','assessment') for r in ('provider','metadata')}|{'embedding-provider'}
+    assert set(value['services'])==expected
+    assert value['networks']['ledger']['external'] is True
+    for name,service in value['services'].items():
+        phase,role=name.split('-')
+        assert service['entrypoint']==['python','-m','oracle_brain.hosting.purpose_transport']
+        assert service['command'][:4]==['--phase',phase,'--role',role]
+        assert service['user']=='65534:65534' and service['read_only'] is True
+        assert service['cap_drop']==['ALL'] and not service.get('ports')
+        assert service['networks']==[phase,'ledger']+([phase+'-outbound'] if role=='provider' else [])
+        assert service['volumes']==[name+'-auth:/run/purpose-auth:ro',name+'-state:/run/purpose-state']+([phase+'-input:/run/purpose-input:ro'] if role=='provider' else [])
+        assert not any('docker.sock' in m or '/run/purpose:' in m for m in service['volumes'])
+
+
+def test_cli_requires_fixed_phase_role_and_seal_before_authority_load():
+    from oracle_brain.hosting.purpose_transport import main
+    with pytest.raises(SystemExit) as result:main([])
+    assert result.value.code==2
+
+
+def test_client_certificate_must_match_own_external_uri_pin(bound_tls):
+    import dataclasses
+    _,binding=bound_tls
+    with pytest.raises(GatewayDenied):
+        dataclasses.replace(binding(443),client_uri='spiffe://oracle/wrong-caller')
