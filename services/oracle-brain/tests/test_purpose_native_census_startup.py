@@ -219,7 +219,7 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
             assert self.path=='/v2/parent/current';incoming=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             state['sequence']+=1;clock=datetime.now(timezone.utc)
             witness=ParentCurrentnessWitnessV2(purpose='complete-parent-currentness-v2',admission_hash=digest(admission.model_dump(mode='json')),challenge=incoming['challenge'],
-                sequence=state['sequence'],population=population,principal_id=f['actor'],observer_uri=SERVER,client_uri=WORKER,checked_at=clock,expires_at=clock+timedelta(seconds=4),revoked=state['revoked'])
+                sequence=state['sequence'],population=population,principal_id=f['actor'],observer_uri=SERVER,client_uri=WORKER,checked_at=clock,expires_at=min(clock+timedelta(seconds=4),admission.expires_at,population.expires_at),revoked=state['revoked'])
             value=witness.model_dump(mode='json');raw=canonical_bytes({'witness':value,'signature':base64.b64encode(signing.sign(DOMAIN+canonical_bytes(value))).decode()})
             self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
     observer=MutualTLSServer(('127.0.0.1',0),Observer,tls=tls);start(observer)
