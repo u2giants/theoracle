@@ -59,7 +59,9 @@ class ExtractionOperationQualificationV2(StrictRecord):
                 or any(r.workspace_id!=self.workspace_id for r in self.source_refs)
                 or len({r.source_id for r in self.source_refs})!=len(self.source_refs)
                 or self.population_digest!=source_population_digest(self.source_refs)
-                or tuple(t.source_ref for t in self.targets)!=self.source_refs
+                or len(self.targets)!=len(self.source_refs)
+                or len({t.source_ref for t in self.targets})!=len(self.targets)
+                or set(t.source_ref for t in self.targets)!=set(self.source_refs)
                 or len({t.dispatch_id for t in self.targets})!=len(self.targets)
                 or len({(t.artifact_id,t.artifact_version) for t in self.targets})!=len(self.targets)):
             raise PermissionError('independently qualified exact ordered extraction population required')
@@ -393,6 +395,7 @@ def load_extraction_runtime_settings_v2(config_path,trusted_config_sha256,*,expe
             or pop.source_refs!=q.source_refs or pop.runtime_hash!=q.runtime_hash or pop.source_registry_hash!=q.source_registry_hash
             or pop.workspace_id!=q.workspace_id or pop.parent_registry_sha256!=q.parent_registry_sha256
             or tuple(t.dispatch_id for t in q.targets)!=tuple(j.dispatch_id for j in d.dispatches)
+            or any(t.source_ref!=j.source_ref or t.native_job_hash!=j.job_hash for t,j in zip(q.targets,d.dispatches))
             or (c.role=='provider' and c.expected_session_role!=q.provider_login)):
         raise PermissionError('external extraction operation/parent/population/startup pins differ')
     admission=_typed(c.parent_observer_admission_file,c.parent_observer_admission_hash,ParentObserverAdmissionV2)

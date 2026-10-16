@@ -149,3 +149,20 @@ def test_failed_consumer_refuses_unproven_or_changed_paid_custody(failed_wire,da
  elif damage=='expired':now=q.expires_at
  elif damage=='borrow-source':ctx=ctx.model_copy(update={'receipt':ctx.receipt.model_copy(update={'ref':q.source_refs[1]})})
  with pytest.raises(Exception):failed_verify((ctx,record,raw,metadata,q,pop,now))
+
+
+def test_independent_source_and_dispatch_uuid_orders_preserve_exact_mapping(paid):
+    ctx,c,raw,q,pop=paid
+    # Source UUID order is opposite the independently ordered dispatch UUIDs.
+    # No correlated fixture IDs or change to the retained V1 sorting contract.
+    refs=tuple(r.model_copy(update={'source_id':__import__('uuid').UUID(int=i+1)}) for i,r in enumerate(q.source_refs))
+    targets=tuple(t.model_copy(update={'dispatch_id':__import__('uuid').UUID(int=i+1),'source_ref':ref})
+        for i,(t,ref) in enumerate(zip(q.targets,reversed(refs))))
+    value=q.model_copy(update={'source_refs':refs,'population_digest':source_population_digest(refs),'targets':targets})
+    actual=ExtractionOperationQualificationV2.model_validate(value.model_dump(mode='python'))
+    assert tuple(t.source_ref for t in actual.targets)==tuple(reversed(actual.source_refs))
+    assert tuple(t.dispatch_id.int for t in actual.targets)==(1,2)
+    for damaged in (targets[:1],(targets[0],targets[1].model_copy(update={'source_ref':targets[0].source_ref})),
+            (targets[0],targets[1].model_copy(update={'source_ref':refs[0].model_copy(update={'source_id':uuid4()})}))):
+        with pytest.raises(Exception):ExtractionOperationQualificationV2.model_validate(
+            value.model_copy(update={'targets':damaged}).model_dump(mode='python'))
