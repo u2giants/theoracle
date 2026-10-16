@@ -246,7 +246,7 @@ def _appointment(c,a,config_hash,issuer,reviewer,now):
     _require(c.valid_from<=now<c.expires_at<=a.expires_at,'current executor config required')
 
 
-def load_paid_executor_settings_v3(config_path,expected_config_sha256,*,appointment_path,
+def _executor_bootstrap_v3(config_path,expected_config_sha256,*,appointment_path,
         expected_appointment_sha256,issuer_actor,reviewer_actor):
     _require(all(type(h) is str and re.fullmatch(HASH,h) for h in (expected_config_sha256,expected_appointment_sha256))
         and type(issuer_actor) is UUID and type(reviewer_actor) is UUID,'external protected executor pins required')
@@ -272,6 +272,14 @@ def load_paid_executor_settings_v3(config_path,expected_config_sha256,*,appointm
     semantic=CurrentSemanticAdmissionsV3(c.semantic_registry_file,c.semantic_registry_sha256,
         appointment=SemanticRegistryAppointmentV3(c.workspace_id,c.compiler_runtime_hash,'candidate-compiler',
             c.semantic_issuer_actor,c.semantic_reviewer_actor,c.semantic_valid_from,c.semantic_expires_at))
+    return c,url,resolver,semantic
+
+
+def load_paid_executor_settings_v3(config_path,expected_config_sha256,*,appointment_path,
+        expected_appointment_sha256,issuer_actor,reviewer_actor):
+    c,url,resolver,semantic=_executor_bootstrap_v3(config_path,expected_config_sha256,
+        appointment_path=appointment_path,expected_appointment_sha256=expected_appointment_sha256,
+        issuer_actor=issuer_actor,reviewer_actor=reviewer_actor)
     holder={}
     def current():return holder['settings'].authorize_current()
     def source(workspace,principal,source_id):
