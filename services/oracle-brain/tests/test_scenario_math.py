@@ -72,3 +72,19 @@ def test_noncanonical_units_periods_fail_closed(field, whitespace, placement):
         args["currency"] = None
     with pytest.raises(ValueError, match="canonical"):
         Measurement(**args)
+
+
+NONCANONICAL = tuple(chr(code) for code in range(33)) + ("\x7f", "\u0085", "\u00a0", "\u200b", "\ufeff", "\u2060", "\u202e", "\u0301", "中")
+
+
+@pytest.mark.parametrize("bad", NONCANONICAL)
+@pytest.mark.parametrize("field", ["unit", "period"])
+def test_machine_identifier_rejects_control_format_combining_nonascii(bad, field):
+    args = dict(amount=Decimal("5"), unit="money", period="per_week", currency="USD")
+    args[field] = args[field] + bad + "x"
+    with pytest.raises(ValueError, match="canonical"):
+        Measurement(**args)
+
+
+def test_natural_language_assumptions_retain_chinese():
+    assert Forecast(money("5"), money("2"), ("相同工作量",)).estimated_reduction == 3

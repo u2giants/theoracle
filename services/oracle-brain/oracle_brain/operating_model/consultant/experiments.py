@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from .calculations import Measurement, difference
+from .calculations import Measurement, difference, _canonical_token
 
 
 def _aware(value: datetime):
@@ -28,7 +28,7 @@ class ExperimentObservation:
             raise ValueError("observation window incomplete")
         if self.observed_through > now:
             raise ValueError("future observations rejected")
-        if not isinstance(self.evidence_refs, tuple) or not self.evidence_refs or any(not isinstance(ref, str) or not ref.strip() or ref != ref.strip() for ref in self.evidence_refs):
+        if not isinstance(self.evidence_refs, tuple) or not self.evidence_refs or any(not _canonical_token(ref) for ref in self.evidence_refs):
             raise ValueError("baseline and followup evidence references required")
         if len(set(self.evidence_refs)) < 2:
             raise ValueError("distinct baseline and followup evidence required")

@@ -58,3 +58,9 @@ def test_noncanonical_evidence_cannot_make_one_reference_distinct(whitespace, pl
     altered = whitespace + "ref" if placement == "prefix" else "ref" + whitespace
     with pytest.raises(ValueError):
         observation(evidence_refs=("ref", altered)).observed_reduction(now=END)
+
+
+@pytest.mark.parametrize("bad", tuple(chr(code) for code in range(33)) + ("\x7f", "\u0085", "\u00a0", "\u200b", "\ufeff", "\u2060", "\u202e", "\u0301", "中"))
+def test_evidence_identifier_rejects_control_format_combining_nonascii(bad):
+    with pytest.raises(ValueError):
+        observation(evidence_refs=("ref", "ref" + bad + "x")).observed_reduction(now=END)
