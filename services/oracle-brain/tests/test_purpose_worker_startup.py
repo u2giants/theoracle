@@ -72,6 +72,8 @@ def make_initial_compiler_worker_v2(admin_url,x,compiler_root):
         outputs=[entry.model_copy(update={k:v for k,v in native.items() if k!='dispatch_id'}) for entry in outputs]
         outputs.extend([
             CompilerPhaseCustodyFileV2(kind='native_job',path=ctx_file,sha256=ctx_hash,**native),
+            CompilerPhaseCustodyFileV2(kind='extraction_population',path=c.population_file,
+                sha256=x['qualification'].population_admission_sha256,**native),
             CompilerPhaseCustodyFileV2(kind='extraction_qualification',path=c.extraction_qualification_file,
                 sha256=c.extraction_qualification_sha256,**native),
             CompilerPhaseCustodyFileV2(kind='raw_wire',path=str(x['custody']/(str(job.dispatch_id)+'.wire')),
@@ -358,4 +360,26 @@ def test_foreign_observer_subject_denied_before_compiler_credentials_or_phase_by
         with pytest.raises(Exception,match='actual compiler parent observation appointment differs'):
             load_purpose_worker_settings_v2(str(cfg),hashlib.sha256(data).hexdigest())
         credential_read.assert_not_called()
+    assert x['state']['posts']==0
+
+@pytest.mark.parametrize('native_census_startup',['extraction'],indirect=True)
+def test_historical_extractor_population_is_separate_but_exact_original_journey(compiler_worker):
+    from oracle_brain.hosting.purpose_journey_v2 import _historical_extraction_population_v2
+    x,settings,job=compiler_worker
+    original=x['settings'].population;q=x['qualification']
+    def check(population,qualification=None):
+        raw=canonical_bytes(population.model_dump(mode='json'));sha=hashlib.sha256(raw).hexdigest()
+        qualification=(qualification or q).model_copy(update={'population_admission_sha256':sha})
+        entry=CompilerPhaseCustodyFileV2(kind='extraction_population',path=str(Path(x['context_file']).parent/'metadata-only'),sha256=sha)
+        return _historical_extraction_population_v2(settings,job,qualification,raw,entry)
+    assert check(original)==original
+    # Pure relation proof: historical producer runtime is allowed to differ,
+    # but must equal its separately externally appointed qualification runtime.
+    distinct=original.model_copy(update={'runtime_hash':'a'*64})
+    assert check(distinct,q.model_copy(update={'runtime_hash':'a'*64}))==distinct
+    for changed in (original.model_copy(update={'parent_registry_sha256':'b'*64}),
+                    original.model_copy(update={'source_refs':original.source_refs[:-1],
+                        'population_digest':digest({'source_refs':[r.model_dump(mode='json') for r in original.source_refs[:-1]]})}),
+                    distinct):
+        with pytest.raises(Exception):check(changed)
     assert x['state']['posts']==0
