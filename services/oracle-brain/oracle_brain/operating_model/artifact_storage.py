@@ -57,10 +57,12 @@ def _private_stat(info,*,directory=False):
         or (not directory and info.st_nlink!=1)):
         raise PermissionError('immutable private storage ownership/type/link/mode differs')
 
-def _parent_fd(root,parts,*,create,strict=True):
+def _parent_fd(root,parts,*,create,strict=True,expected_root=None):
     fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
     try:
         if strict:_private_stat(os.fstat(fd),directory=True)
+        info=os.fstat(fd)
+        if expected_root is not None and (info.st_dev,info.st_ino,info.st_uid)!=expected_root:raise PermissionError('appointed private root changed')
         for part in parts:
             if not part or part in ('.','..') or '/' in part or '\\' in part:raise ValueError('invalid private path component')
             if create:
@@ -86,9 +88,9 @@ def _read_private_at(parent,name,limit,*,strict=True):
             raise ValueError('private object changed during read')
         return data
 
-def _write_private_at(root,parts,data,*,strict=True):
+def _write_private_at(root,parts,data,*,strict=True,expected_root=None):
     """Shared immutable byte primitive; no scope/authority is issued here."""
-    parent=_parent_fd(root,parts[:-1],create=True,strict=strict);name=parts[-1];created=None
+    parent=_parent_fd(root,parts[:-1],create=True,strict=strict,expected_root=expected_root);name=parts[-1];created=None
     try:
         try:fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=parent)
         except FileExistsError:
@@ -123,6 +125,15 @@ class FileBlobStore:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         if self.root.stat().st_mode & 0o077:
             raise PermissionError('blob root must be private')
+
+    @classmethod
+    def _from_provisioned_original_root(cls,root:Path,expected_root:tuple):
+        """No mkdir/provisioning; exact already-appointed root checked on every open."""
+        if cls is not FileBlobStore or type(expected_root) is not tuple or len(expected_root)!=3:raise TypeError('exact provisioned private root required')
+        if not root.is_absolute() or root.resolve()!=root:raise PermissionError('canonical provisioned root required')
+        fd=_parent_fd(root,[],create=False,expected_root=expected_root);os.close(fd)
+        store=cls.__new__(cls);store.root=root;store._original_root_alias=False;store._appointed_original_root_identity=expected_root
+        return store
 
     def put(self, workspace_id: UUID, payload: dict) -> tuple[str, str]:
         data = canonical_bytes(payload)
@@ -160,12 +171,12 @@ class FileBlobStore:
     # factory/public raw intake route; callers cannot manufacture authority.
     def _put_original_bytes(self,ref:OriginalObjectRefV1,data:bytes):
         if self._original_root_alias:raise PermissionError('private original root alias denied')
-        _original_bytes(ref,data);_write_private_at(self.root,ref.key.split('/'),data)
+        _original_bytes(ref,data);_write_private_at(self.root,ref.key.split('/'),data,expected_root=getattr(self,'_appointed_original_root_identity',None))
         return ref
     def _read_original_bytes(self,ref:OriginalObjectRefV1):
         if self._original_root_alias:raise PermissionError('private original root alias denied')
         if type(ref) not in (OriginalObjectRefV1,ReservationOriginalObjectRefV1):raise ValueError('exact private original identity required')
-        ref.__post_init__();parts=ref.key.split('/');parent=_parent_fd(self.root,parts[:-1],create=False)
+        ref.__post_init__();parts=ref.key.split('/');parent=_parent_fd(self.root,parts[:-1],create=False,expected_root=getattr(self,'_appointed_original_root_identity',None))
         try:data=_read_private_at(parent,parts[-1],ref.byte_count)
         finally:os.close(parent)
         _original_bytes(ref,data);return data

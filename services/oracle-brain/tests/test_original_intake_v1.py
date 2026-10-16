@@ -11,7 +11,7 @@ from oracle_brain.hosting.original_intake_v1 import OriginalIntakeConfigV1,Origi
 
 def settings(tmp_path):
     root=tmp_path/'already-provisioned';root.mkdir(mode=0o700);info=root.stat();now=datetime.now(timezone.utc);expires=now+timedelta(minutes=1)
-    def parse(cls,value):return cls.model_validate_json(json.dumps(value,default=str))
+    def parse(cls,value):return cls.model_validate_json(json.dumps(dict(schema_version=1,**value),default=str))
     common=dict(auth_issuer='https://invented.invalid/auth/v1',auth_project_id='invented',auth_user_id=uuid4(),employee_id=uuid4(),principal_id=uuid4(),workspace_id=uuid4(),expected_session_role='invented_requester',runtime_hash='a'*64,registry_hash='b'*64,storage_profile_hash='c'*64,original_horizon=expires,expires_at=expires)
     c=parse(OriginalIntakeConfigV1,dict(purpose='original-intake-factory-v1',**common,expected_owner_role='invented_owner',database_url=dict(path='/missing/private/db',sha256='d'*64),database_ca=dict(path='/missing/private/ca',sha256='e'*64),storage_root=str(root),storage_device=info.st_dev,storage_inode=info.st_ino,storage_uid=info.st_uid))
     cpath=tmp_path/'config';craw=canonical_bytes(c.model_dump(mode='json'));cpath.write_bytes(craw);cpath.chmod(0o600);ch=hashlib.sha256(craw).hexdigest();issuer=uuid4();reviewer=uuid4()
@@ -90,3 +90,14 @@ def test_intake_public_snapshot_has_no_private_context_or_schema_fields():
     value=OriginalIntakeSnapshotV1(sourceId=uuid4(),revision=1,originalSha256='a'*64,byteCount=1,mediaType='application/pdf',filename='original.pdf',state='awaiting_original_reading',qualifiedSourceRef=None)
     assert set(value.model_dump(mode='json'))=={'sourceId','revision','originalSha256','byteCount','mediaType','filename','state','qualifiedSourceRef'}
     with pytest.raises(ValueError):OriginalIntakeSnapshotV1.model_validate(value.model_dump()|{'private_object_key':'forbidden'})
+
+def test_provisioned_private_store_never_recreates_root_and_detects_open_race(tmp_path):
+    root=tmp_path/'provisioned';root.mkdir(mode=0o700);info=root.stat();identity=(info.st_dev,info.st_ino,info.st_uid)
+    store=FileBlobStore._from_provisioned_original_root(root,identity)
+    original=OriginalObjectRefV1(uuid4(),uuid4(),1,hashlib.sha256(b'x').hexdigest(),1,'application/pdf','a'*64);ref=ReservationOriginalObjectRefV1(original,uuid4())
+    root.rename(tmp_path/'original');root.mkdir(mode=0o700)
+    with pytest.raises(PermissionError):store._put_original_bytes(ref,b'x')
+    assert not (root/'source-originals').exists()
+    root.rmdir()
+    with pytest.raises(FileNotFoundError):FileBlobStore._from_provisioned_original_root(root,identity)
+    assert not root.exists()

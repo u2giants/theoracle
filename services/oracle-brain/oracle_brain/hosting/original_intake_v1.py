@@ -15,6 +15,7 @@ MAX_BYTES=25*1024*1024
 class ProtectedInputV1(StrictRecord):
     path:str;sha256:str=Field(pattern=HASH)
 class OriginalIntakeConfigV1(StrictRecord):
+    schema_version:Literal[1]
     purpose:Literal['original-intake-factory-v1']
     auth_issuer:str;auth_project_id:str;auth_user_id:UUID;employee_id:UUID
     principal_id:UUID;workspace_id:UUID
@@ -33,6 +34,7 @@ class OriginalIntakeConfigV1(StrictRecord):
         if issuer.scheme!='https' or not issuer.hostname or issuer.path!='/auth/v1' or issuer.username or issuer.password or issuer.query or issuer.fragment:raise ValueError('fixed issuer required')
         return self
 class OriginalIntakeAppointmentV1(StrictRecord):
+    schema_version:Literal[1]
     purpose:Literal['original-intake-factory-v1']
     config_sha256:str=Field(pattern=HASH)
     auth_issuer:str;auth_project_id:str;auth_user_id:UUID;employee_id:UUID
@@ -114,6 +116,7 @@ class RequesterContextV1(StrictRecord):
     runtime_hash:str=Field(pattern=HASH);source_registry_hash:str=Field(pattern=HASH)
     checked_at:AwareDatetime;valid_until:AwareDatetime
 class ReserveEnvelopeV1(StrictRecord):
+    schema_version:Literal[1]
     context:RequesterContextV1;reservation:IntakeReservationV1
 from .replacement_public_view_v1 import Public
 class OriginalIntakeSnapshotV1(Public):
@@ -132,6 +135,7 @@ class OriginalIntakeSnapshotV1(Public):
             object.__setattr__(self,'qualifiedSourceRef',parsed.model_dump(mode='json'))
         return self
 class FinalizeEnvelopeV1(StrictRecord):
+    schema_version:Literal[1]
     context:RequesterContextV1;snapshot:OriginalIntakeSnapshotV1
 class OriginalIntakeUnavailable(PermissionError):pass
 class OriginalIntakeConflict(ValueError):pass
@@ -187,23 +191,25 @@ class OriginalIntakeFactoryV1:
         if type(data) is not bytes:raise TypeError('exact original bytes required')
         q=OriginalIntakeRequestV1(source_id=source_id,expected_head=expected_head,idempotency_key=idempotency_key,filename=filename,original_sha256=original_sha256,byte_count=len(data))
         if hashlib.sha256(data).hexdigest()!=q.original_sha256:raise ValueError('original byte hash differs')
-        s=self.settings;s.current();written=None
-        intake=dict(source_id=str(q.source_id) if q.source_id else None,filename=q.filename,media_type='application/pdf',byte_count=q.byte_count)
+        s=self.settings;original_deadline=s.current();written=None
+        intake=dict(source_id=str(q.source_id) if q.source_id else None,filename=q.filename,media_type='application/pdf',byte_count=q.byte_count,caller_deadline=original_deadline.isoformat())
         reserved=self._call('reserve',(q.expected_head,json.dumps(intake),q.idempotency_key),ReserveEnvelopeV1)
         ref,deadline=reservation_original_ref_v1(s,q,reserved.reservation,data)
-        deadline=min(deadline,_context_horizon(s,reserved.context))
+        deadline=min(original_deadline,deadline,_context_horizon(s,reserved.context))
         try:
             if datetime.now(timezone.utc)>=deadline:raise PermissionError('intake write horizon elapsed')
             # No SQL connection or lock remains open during storage I/O.
-            store=FileBlobStore(Path(s.config.storage_root));store._put_original_bytes(ref,data);written=ref
+            store=FileBlobStore._from_provisioned_original_root(Path(s.config.storage_root),(s.config.storage_device,s.config.storage_inode,s.config.storage_uid));store._put_original_bytes(ref,data);written=ref
             if store._read_original_bytes(ref)!=data:raise ValueError('private original readback differs')
+            if datetime.now(timezone.utc)>=deadline:raise PermissionError('intake readback horizon elapsed')
             observation=dict(schema_version=1,purpose='original-intake-byte-custody-v1',reservation_id=str(ref.reservation_id),source_id=str(ref.original.source_id),workspace_id=str(ref.original.workspace_id),revision=ref.original.revision,private_object_key=ref.key,original_sha256=ref.original_sha256,byte_count=ref.byte_count,storage_profile_hash=ref.original.storage_profile_hash)
             seal=digest(observation)
-            _write_private_at(store.root,['intake-observations',str(ref.reservation_id),'custody.json'],canonical_bytes(observation))
+            _write_private_at(store.root,['intake-observations',str(ref.reservation_id),'custody.json'],canonical_bytes(observation),expected_root=(s.config.storage_device,s.config.storage_inode,s.config.storage_uid))
             s.current()
             if datetime.now(timezone.utc)>=deadline:raise PermissionError('intake finalization horizon elapsed')
-            custody=dict(original_sha256=q.original_sha256,byte_count=q.byte_count,custody_seal_sha256=seal,expected_context=_expected_context(s))
+            custody=dict(original_sha256=q.original_sha256,byte_count=q.byte_count,custody_seal_sha256=seal,expected_context=_expected_context(s),caller_deadline=deadline.isoformat())
             final=self._call('finalize',(ref.reservation_id,q.expected_head,json.dumps(custody)),FinalizeEnvelopeV1)
+            if datetime.now(timezone.utc)>=deadline:raise PermissionError('intake original finalization deadline elapsed')
             snapshot=final.snapshot
             if snapshot.sourceId!=ref.original.source_id or snapshot.revision!=ref.original.revision or snapshot.originalSha256!=q.original_sha256 or snapshot.byteCount!=q.byte_count or snapshot.filename!=q.filename:raise PermissionError('finalized original identity differs')
             return snapshot
@@ -214,7 +220,7 @@ class OriginalIntakeFactoryV1:
                     root=Path(s.config.storage_root);info=root.lstat()
                     if root.resolve()!=root or (info.st_dev,info.st_ino,info.st_uid)!=(s.config.storage_device,s.config.storage_inode,s.config.storage_uid) or info.st_mode&0o077:raise PermissionError('orphan record root differs')
                     orphan=dict(schema_version=1,purpose='unadmitted-original-intake-observation-v1',reservation_id=str(ref.reservation_id),private_object_key=ref.key,original_sha256=ref.original_sha256,byte_count=ref.byte_count,failure_class=type(error).__name__,observed_at=datetime.now(timezone.utc).isoformat())
-                    _write_private_at(root,['intake-observations',str(ref.reservation_id),str(uuid4())+'.orphan.json'],canonical_bytes(orphan))
+                    _write_private_at(root,['intake-observations',str(ref.reservation_id),str(uuid4())+'.orphan.json'],canonical_bytes(orphan),expected_root=(s.config.storage_device,s.config.storage_inode,s.config.storage_uid))
                 except BaseException:raise OriginalIntakeUnavailable('Intake unaccepted; private orphan recording uncertain') from None
             if getattr(error,'sqlstate',None) in ('40001','23505'):raise OriginalIntakeConflict('Refresh original revision before retrying') from None
             raise OriginalIntakeUnavailable('Intake unaccepted; private custody retained') from None
