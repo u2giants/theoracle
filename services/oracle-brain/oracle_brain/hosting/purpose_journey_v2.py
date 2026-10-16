@@ -1027,6 +1027,13 @@ def build_purpose_compiler_ledger_v3(settings,job,*,extraction_guard=None):
         principal=settings.config.actor_id,processing_sources=settings.resolver,
         processing_compile_guard=combined,processing_read_guard=combined,processing_extraction_guard=guard)
     combined.ledger=ledger
+    from oracle_brain.operating_model.purpose_qualification_v3 import PurposeQualifiedAssemblyReadGuardV3
+    _require(type(ledger) is PurposeProcessingCompilerLedgerV3,
+        'full parent validation requires exact core compiler ledger')
+    combined.qualified=PurposeQualifiedAssemblyReadGuardV3.for_full_compiler_parent_v3(
+        trusted_admissions=combined.trust,runtime_hash=settings.config.runtime_hash,
+        current_source_identity=combined.source,current_extraction_seal=combined.extraction_seal,
+        qualified_parent_reader=ledger.read_validated_qualified_parent_v3)
     return ledger
 
 
