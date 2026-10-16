@@ -3,7 +3,7 @@ import hashlib
 import json
 from typing import Literal
 from uuid import UUID
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator, field_validator
 from .source_receipts import SourceRef
 
 class StrictRecord(BaseModel):
@@ -146,10 +146,10 @@ class ProcessingProjectionReceiptV3(StrictRecord):
 
 
 class _ReplacementMetadataV1(StrictRecord):
-    @model_validator(mode='before')
+    @field_validator('schema_version',mode='before')
     @classmethod
     def exact_integer_schema(cls,value):
-        if isinstance(value,dict) and 'schema_version' in value and type(value['schema_version']) is not int:
+        if type(value) is not int:
             raise ValueError('replacement metadata schema version must be an exact integer')
         return value
 
