@@ -235,6 +235,7 @@ class Ledger:
               WHERE d.workspace_id=%s AND d.artifact_id=%s AND d.version=%s AND d.upstream_kind='source' ''',(workspace_id,artifact_id,version)).fetchall()
         authoritative_refs=tuple(SourceRef.model_validate_json(json.dumps(row[0])) for row in source_rows)
         self.authorize_refs(authoritative_refs,workspace_id)
+        if processing:self._authorize_processing_blob(manifest)
         payload = json.loads(self.blobs.read(manifest.private_object_key,manifest.content_hash))
         refs = tuple(SourceRef.model_validate_json(json.dumps(r)) for r in payload['source_refs'])
         if set(refs)!=set(authoritative_refs):raise ValueError('blob source identities differ from relational ledger')
@@ -246,6 +247,9 @@ class Ledger:
                 raise PermissionError('processing qualification guard did not validate')
         return manifest,payload
 
+    def _authorize_processing_blob(self,manifest):
+        """Opt-in compiler custody check after source authorization, before bytes."""
+
     def _read_processing_authorized(self,workspace_id,artifact_id,version,*,include_failed=False):
         if self.processing_read_guard is None:
             raise PermissionError('current trusted processing qualification required')
@@ -256,6 +260,7 @@ class Ledger:
             raise PermissionError('processing profile cannot open extraction or failed candidate blobs')
         if manifest.state!='ready' and not include_failed:
             raise PermissionError('failed processing candidate cannot serve')
+        self._authorize_processing_blob(manifest)
         payload=json.loads(self.blobs.read(manifest.private_object_key,manifest.content_hash))
         refs=tuple(SourceRef.model_validate_json(json.dumps(r)) for r in payload['source_refs'])
         if (len(set(refs))!=len(refs) or set(refs)!=set(authoritative_refs)
