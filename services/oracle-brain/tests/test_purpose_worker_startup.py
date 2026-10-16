@@ -217,3 +217,19 @@ def test_actual_compiler_revoked_during_bundle_returns_no_private_result(admin_u
     assert len(seen)==1
     with psycopg.connect(admin_url) as conn:
         assert conn.execute('SELECT count(*) FROM oracle2.artifact_manifests WHERE workspace_id=%s',(job.workspace_id,)).fetchone()[0]==0
+
+
+def test_actual_phase_output_cannot_replace_registry_parent_or_original_allocation(compiler_worker):
+    from oracle_brain.hosting.purpose_journey_v2 import _phase_commit_from_custody
+    x,settings,job=compiler_worker
+    x['client'].dispatch(job.dispatch_id,job.request_hash,x['operation_hash'],deadline=x['expires_at'])
+    committed=_phase_commit_from_custody(settings,job)
+    path=x['custody']/(str(job.dispatch_id)+'.phase-commit.json')
+    raw=path.read_bytes()
+    for field in ('operation_approval_hash','parent_registry_hash','budget_identity_hash'):
+        changed=committed.model_dump(mode='json');changed[field]='0'*64
+        path.write_bytes(canonical_bytes(changed))
+        with pytest.raises(PermissionError,match='authorized phase commit differs'):
+            _phase_commit_from_custody(settings,job)
+        path.write_bytes(raw)
+    assert x['state']['posts']==1
