@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "purpose": "replacement-public-snapshot-validation-v1",
+  "authority": false,
+  "rules": [
+    "All citation and evidence end offsets exceed start; Unicode code point count of quote equals end minus start.",
+    "Within a map, step, gateway, transition and condition canonical IDs are globally unique; observation IDs are unique.",
+    "Each step, gateway and transition support observation ID resolves to a map observation.",
+    "Each transition endpoint resolves to a step or gateway; any condition ID resolves to a condition.",
+    "A map requires a current model.",
+    "Current confirmation workflow ID equals map workflow ID when map is present.",
+    "Each finding and observation evidence source ID and revision matches a current snapshot source.",
+    "Snapshot source IDs are unique.",
+    "Current confirmation requires model and exact model version/content hash.",
+    "Current confirmation is allowed only in confirmed_for_scope or answer_ready.",
+    "Model is allowed only in draft_ready, confirmed_for_scope or answer_ready.",
+    "confirmed_for_scope requires current confirmation.",
+    "answer_ready requires model and answer.",
+    "Answer is allowed only in answer_ready.",
+    "Each answer citation full SourceRef exactly equals one current snapshot source, including workspace and every hash/parser field.",
+    "Any page view width multiplied by height is at most 20000000 pixels."
+  ]
+}
