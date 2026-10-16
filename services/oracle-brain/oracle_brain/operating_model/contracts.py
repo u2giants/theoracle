@@ -3,7 +3,7 @@ import hashlib
 import json
 from typing import Literal
 from uuid import UUID
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 from .source_receipts import SourceRef
 
 class StrictRecord(BaseModel):
@@ -143,3 +143,59 @@ class ProcessingProjectionReceiptV3(StrictRecord):
     source_refs: tuple[SourceRef,...] = Field(min_length=1)
     checked_at: AwareDatetime
     valid_until: AwareDatetime
+
+
+class ReplacementConfirmationTargetV1(StrictRecord):
+    workflow_id: str = Field(min_length=1,max_length=200)
+    version: int = Field(strict=True,ge=1)
+    content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    eligible: bool
+
+
+class ReplacementSummaryTargetV1(StrictRecord):
+    summary_artifact_id: UUID
+    summary_version: int = Field(strict=True,ge=1)
+    summary_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    qualified_parent_id: UUID
+    qualified_parent_version: int = Field(strict=True,ge=1)
+    qualified_parent_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
+class ReplacementExecutorTargetV1(StrictRecord):
+    """Authenticated SQL control metadata only; never semantic/read authority."""
+    run_id: UUID
+    journey_revision: int = Field(strict=True,ge=1)
+    state: Literal['pending','processing','delivered','revision_pending','cancelled','error']
+    answer_hold: bool
+    cancelled: bool
+    population_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    requester_principal_id: UUID
+    workspace_id: UUID
+    model_id: UUID
+    model_version: int = Field(strict=True,ge=1)
+    model_content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    ack_event_id: UUID
+    projection_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_refs: tuple[SourceRef,...] = Field(min_length=1,max_length=4096)
+    current_confirmation: ReplacementConfirmationTargetV1 | None
+    summary_targets: tuple[ReplacementSummaryTargetV1,...] = Field(max_length=64)
+    checked_at: AwareDatetime
+    valid_until: AwareDatetime
+
+    @model_validator(mode='after')
+    def exact_target_metadata(self):
+        if (self.checked_at>=self.valid_until or len(set(self.source_refs))!=len(self.source_refs)
+                or len({ref.source_id for ref in self.source_refs})!=len(self.source_refs)
+                or any(ref.workspace_id!=self.workspace_id for ref in self.source_refs)
+                or self.cancelled!=(self.state=='cancelled')):
+            raise ValueError('exact finite current replacement target metadata required')
+        identities=[(s.summary_artifact_id,s.summary_version) for s in self.summary_targets]
+        if (len(set(identities))!=len(identities) or any(
+                (s.qualified_parent_id,s.qualified_parent_version,s.qualified_parent_content_hash)!=
+                (self.model_id,self.model_version,self.model_content_hash) for s in self.summary_targets)):
+            raise ValueError('registered summaries must bind exact qualified target')
+        c=self.current_confirmation
+        if c is not None and c.eligible and (self.answer_hold or self.cancelled or self.state!='delivered'
+                or (c.version,c.content_hash)!=(self.model_version,self.model_content_hash)):
+            raise ValueError('current confirmation cannot survive a held or changed target')
+        return self
