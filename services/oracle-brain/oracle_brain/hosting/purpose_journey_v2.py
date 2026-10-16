@@ -100,7 +100,7 @@ class PurposeJourneyJournalV2:
             _require(type(row) is dict and type(row.get('schema_version')) is int and row.get('schema_version') == 2
                      and row.get('journey_id') == str(journey) and row.get('previous_hash') == previous
                      and type(row.get('revision')) is int and row.get('revision') == len(rows)+1
-                     and row.get('state') in {'attempt-started','awaiting-external-phase-admission','qualified-model-outbox-committed'}
+                     and row.get('state') in {'attempt-started','awaiting-external-custody','awaiting-external-phase-admission','native-failed-custody-reported','qualified-model-outbox-committed'}
                      and row.get('phase') in PHASES, 'phase journal fork or schema drift')
             core={k:v for k,v in row.items() if k!='journal_hash'}
             _require(row.get('journal_hash') == digest(core), 'phase journal seal differs')
@@ -182,10 +182,24 @@ class PurposeJourneyJournalV2:
         with self._locked():
             rows=self.read(job.journey_id);_require(rows, 'phase was not claimed');self._root(job,rows)
             phase=[r for r in rows if r['phase_key']==job.phase_key]
-            _require(len(phase)==1 and phase[0]['state']=='attempt-started'
-                     and phase[0]['job_hash']==digest(job.model_dump(mode='json')), 'same immutable claimed phase required')
+            _require(phase and phase[0]['state']=='attempt-started'
+                     and all(r['state'] in {'attempt-started','awaiting-external-custody'} for r in phase)
+                     and all(r['job_hash']==digest(job.model_dump(mode='json')) for r in phase), 'same immutable claimed phase required')
             return self._append(job,rows,'qualified-model-outbox-committed' if job.phase=='compile'
                 else 'awaiting-external-phase-admission',now,receipt_hash=receipt_hash,native_receipt_hash=native_receipt_hash)
+
+
+    def awaiting_custody(self,job,*,now):
+        self._current(job,now)
+        with self._locked():
+            rows=self.read(job.journey_id);_require(rows,'phase was not claimed');self._root(job,rows)
+            phase=[r for r in rows if r['phase_key']==job.phase_key]
+            _require(phase and phase[0]['state']=='attempt-started'
+                and all(r['job_hash']==digest(job.model_dump(mode='json')) for r in phase)
+                and all(r['state'] in {'attempt-started','awaiting-external-custody'} for r in phase),
+                'cannot rewrite committed phase as awaiting')
+            if phase[-1]['state']=='awaiting-external-custody':return phase[-1]
+            return self._append(job,rows,'awaiting-external-custody',now)
 
 
 class CompilerPhaseClientConfigV2(StrictRecord):
@@ -408,7 +422,7 @@ class CompilerWorkerSettingsV2:
         self.authority_horizon(job)
         return job
 
-    def custody(self,job):
+    def _custody_state(self,job):
         self.authorize(job)
         c=self.config
         appointed=_worker_json(c.custody_appointment_file,c.custody_appointment_sha256,CompilerPhaseCustodyAppointmentV2)
@@ -422,7 +436,13 @@ class CompilerWorkerSettingsV2:
         _require(files and len({(f.kind,f.artifact_id,f.artifact_version,f.dispatch_id) for f in files})==len(files)
                  and len({f.path for f in files})==len(files),
                  'exact independently qualified phase-result file whitelist required')
-        return files
+        return files,min(appointed.expires_at,job.expires_at,self.authority_horizon(job))
+
+    def custody(self,job):
+        return self._custody_state(job)[0]
+
+    def custody_horizon(self,job):
+        return self._custody_state(job)[1]
 
     def private(self,job,kind,*,artifact_id=None,artifact_version=None,dispatch_id=None):
         files=self.custody(job)
@@ -587,7 +607,8 @@ class ProcessingCompilerExtractionGuardV2(ProcessingExtractionGuardProtocol):
             and manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'},
             'exact current compiler extraction target required')
         until=s.authority_horizon(self.job)
-        files=s.custody(self.job)
+        files,custody_until=s._custody_state(self.job)
+        until=min(until,custody_until)
         targets=[f for f in files if f.kind=='native_job' and f.artifact_id==manifest.artifact_id
                  and f.artifact_version==manifest.version]
         _require(len(targets)==1,'artifact has no unique externally appointed paid extraction target')
@@ -720,9 +741,17 @@ def run_purpose_worker_once_v2(settings):
     settings.authorize(job)
     # No filesystem or SQL lock spans this network operation. A failure leaves
     # the durable spent claim in place: never enqueue/dispatch it again.
-    reply=client.dispatch(job.dispatch_id,job.request_hash,job.phase_registry_sha256)
-    settings.authorize(job)
-    commit=_phase_commit_from_custody(settings,job,reply)
+    try:
+        reply=client.dispatch(job.dispatch_id,job.request_hash,job.phase_registry_sha256)
+        settings.authorize(job)
+        commit=_phase_commit_from_custody(settings,job,reply)
+    except Exception:
+        # No retry, fabricated success, horizon extension or authority minting.
+        # Current authority is required even for this owned metadata transition;
+        # otherwise the original spent claim alone remains the durable record.
+        settings.authorize(job)
+        custody.journal.awaiting_custody(job,now=datetime.now(timezone.utc))
+        raise
     return custody.journal.commit(job,receipt_hash=digest(commit.model_dump(mode='json')),
         native_receipt_hash=commit.native_custody_receipt_hash,now=datetime.now(timezone.utc))
 
@@ -765,7 +794,7 @@ class _PurposeCompilerReadGuardV3:
         return self.qualified(manifest,payload,principal,now)
 
     def valid_until(self,manifest,payload,principal,now):
-        until=self.settings.authority_horizon(self.job)
+        until=min(self.settings.authority_horizon(self.job),self.settings.custody_horizon(self.job))
         if manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}:
             return min(until,self.extraction.valid_until(manifest,payload,principal,now))
         return min(until,self.qualified.valid_until(manifest,payload,principal,now),
