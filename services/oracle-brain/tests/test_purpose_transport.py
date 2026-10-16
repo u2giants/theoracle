@@ -20,7 +20,7 @@ def bound_tls(certificates,tmp_path):
     for p in tmp_path.iterdir():p.chmod(0o600)
     tls=server_tls(certfile=str(cert),keyfile=str(key),cafile=str(certificates/'ca.pem'))
     def binding(port,client='worker',uri=SERVER):
-        return PurposeTLSBindingV2('localhost',port,uri,certificates/'ca.pem',certificates/(client+'.pem'),certificates/(client+'.key'))
+        return PurposeTLSBindingV2('localhost',port,uri,WORKER,certificates/'ca.pem',certificates/(client+'.pem'),certificates/(client+'.key'))
     return tls,binding
 
 def test_actual_provider_tls_and_private_response_denial(bound_tls,monkeypatch):
