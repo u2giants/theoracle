@@ -53,3 +53,52 @@ def test_v2_separation_never_weakens_exact_historical_handoff_binding(context,da
     elif damage=='model-id':new=new.model_copy(update={'model_id':uuid4()})
     with pytest.raises((PermissionError,ValueError)):
         new.validate_candidate(model.model_dump_json(),now=now)
+
+
+def test_rich_fixture_builders_use_actual_observations_and_retain_conflict_unknowns():
+    import hashlib,json
+    from types import SimpleNamespace
+    from oracle_brain.operating_model.source_receipts import SourceReceipt,SourceRef
+    from oracle_brain.operating_model.extraction import validate_response
+    from oracle_brain.operating_model.pipeline import assembly_inputs,assembly_candidate_payload
+    from oracle_brain.operating_model.acceptance_profiles import AssessmentPayload,CensusPayload
+    from oracle_brain.operating_model.coverage import validate_coverage
+    from oracle_brain.operating_model.native_factory import validate_embedding_response
+    from purpose_journey_fixture_models import (RICH_SOURCE_TEXTS,PRIVATE_MARKERS,extraction_json,
+        census_json,model_json,assessment_json,embedding_response)
+    workspace=uuid4();receipts=[];payloads=[]
+    for text in RICH_SOURCE_TEXTS:
+        sha=hashlib.sha256(text.encode()).hexdigest()
+        r=SourceReceipt(ref=SourceRef(workspace_id=workspace,source_id=uuid4(),revision=1,
+            original_sha256=sha,reading_sha256=sha,parser_id='invented-test'),reading=text,display_revision='r1')
+        raw=extraction_json(r);response,observations=validate_response(r,raw)
+        payloads.append({'source_refs':[r.ref.model_dump(mode='json')],
+            'observations':[o.model_dump(mode='json') for o in observations],
+            'findings':[f.model_dump(mode='json') for f in response.findings]})
+        receipts.append(r)
+    refs,observations,findings=assembly_inputs(payloads,enforce_unique_sources=True)
+    model_id=uuid4();raw=model_json(payloads,source_refs=tuple(refs),model_id=model_id)
+    payload,evidence=assembly_candidate_payload(raw,workspace_id=workspace,refs=refs,observations=observations,findings=findings)
+    assert len(observations)==3 and len(findings)==3
+    assert {f['kind'] for f in findings.values()}=={'source_conflict','missing_information'}
+    model=payload['operating_models'][0]
+    assert model['completeness']=='conflicted' and model['workflows'][0]['status']=='reported'
+    assert len(model['workflows'][0]['handoffs'])==2
+    assert set(model['finding_ids'])==set(findings)
+    assert all(marker not in json.dumps(payload) for marker in PRIVATE_MARKERS)
+    census=CensusPayload.model_validate_json(census_json(SimpleNamespace(scope=SimpleNamespace(receipts=receipts))))
+    assessment=AssessmentPayload.model_validate_json(assessment_json(SimpleNamespace(census=census,object_evidence=evidence)))
+    coverage=validate_coverage(census.obligations,assessment.coverage,object_evidence=evidence,
+        independent_inventory_hash=digest({'obligations':[o.model_dump(mode='json') for o in census.obligations]}))
+    assert coverage['essential_represented']==3 and coverage['essential_unresolved']==3
+    validate_embedding_response(embedding_response(7),count=7)
+    with pytest.raises(ValueError,match='exact three'):
+        model_json(payloads[:-1],source_refs=tuple(refs),model_id=model_id)
+    damaged=[dict(p) for p in payloads];damaged[0]['observations']=[]
+    with pytest.raises(ValueError,match='exact three'):
+        model_json(damaged,source_refs=tuple(refs),model_id=model_id)
+    omitted=SimpleNamespace(census=census,object_evidence={k:v for k,v in evidence.items() if k not in findings})
+    with pytest.raises(ValueError,match='omitted'):
+        assessment_json(omitted)
+    for count in (0,True,10001):
+        with pytest.raises(ValueError):embedding_response(count)
