@@ -6,6 +6,7 @@ from graphrag_sdk import GraphRAG,ConnectionConfig,FalkorDBConnection,Ontology,E
 from graphrag_sdk.core.models import GraphData,GraphNode,GraphRelationship,EntityMention,ResolutionResult
 from graphrag_sdk.ingestion.resolution_strategies.base import ResolutionStrategy
 from .contracts import digest,canonical_bytes
+from .workflows.process_model import WorkflowModel,canonical_workflow_items
 
 PREFIX='oracle_operating_model_v1_'
 
@@ -119,8 +120,9 @@ class SDKProjection:
         for f in payload.get('findings',[]):add(f['finding_id'],'finding',f)
         for w in payload.get('workflows',[]):
             add(w['workflow_id'],'workflow',w)
-            for kind,key in [('steps','step_id'),('gateways','gateway_id'),('transitions','transition_id'),('roles','assignment_id'),('artifacts','artifact_id'),('handoffs','handoff_id'),('conditions','condition_id')]:
-                for obj in w.get(kind,[]):add(w['workflow_id']+':'+obj[key],kind,obj)
+            typed=WorkflowModel.model_validate_json(canonical_bytes(w))
+            for kind,key,item in canonical_workflow_items(typed):
+                add(w['workflow_id']+':'+key,kind,item.model_dump(mode='json'))
         for model in payload.get('operating_models',[]):add(str(model['model_id']),'operating_model',model)
         add('artifact:'+digest(payload),'artifact',payload)
         return records

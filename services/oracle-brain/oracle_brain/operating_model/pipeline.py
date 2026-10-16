@@ -6,6 +6,7 @@ from .source_receipts import SourceRef,EvidenceRef
 from .assembly import validate_assembly
 from .coverage import validate_coverage
 from .extraction import ExtractionPersistenceProfile,extraction_artifact_kinds
+from .workflows.process_model import canonical_workflow_items
 
 
 def assembly_inputs(payloads, *, enforce_unique_sources=False):
@@ -37,15 +38,17 @@ def assembly_candidate_payload(raw_response, *, workspace_id, refs, observations
     if any(w.status!='reported' for w in model.workflows):raise PermissionError('suggestions cannot confer company policy')
     evidence={}
     def support(identifier,ids):
+        if identifier in evidence or identifier in observations:raise ValueError('assembly projection identity collision')
         evidence[identifier]=tuple(e for oid in ids for e in observations[oid].evidence)
     for p in model.processes:support(p.process_id,p.observation_ids)
     for o in model.objects:support(o.object_id,o.support.observation_ids)
     for i in model.interfaces:support(i.interface_id,i.support.observation_ids)
     for w in model.workflows:
-        for item in (*w.steps,*w.gateways,*w.transitions,*w.roles,*w.artifacts,*w.handoffs,*w.conditions):
-            key=next(getattr(item,k) for k in ('step_id','gateway_id','transition_id','assignment_id','artifact_id','handoff_id','condition_id') if hasattr(item,k))
+        for _,key,item in canonical_workflow_items(w):
             support(w.workflow_id+':'+key,item.support.observation_ids)
-    for key,f in findings.items():evidence[key]=tuple(EvidenceRef.model_validate_json(json.dumps(e)) for e in f['evidence_refs'])
+    for key,f in findings.items():
+        if key in evidence or key in observations:raise ValueError('finding projection identity collision')
+        evidence[key]=tuple(EvidenceRef.model_validate_json(json.dumps(e)) for e in f['evidence_refs'])
     payload={'source_refs':[r.model_dump(mode='json') for r in refs],'observations':[o.model_dump(mode='json') for o in observations.values()],'findings':list(findings.values()),'workflows':[w.model_dump(mode='json') for w in model.workflows],'operating_models':[model.model_dump(mode='json')],'raw_response':raw_response}
     return payload,evidence
 
