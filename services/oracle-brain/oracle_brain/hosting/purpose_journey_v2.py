@@ -1019,6 +1019,37 @@ def build_purpose_compiler_ledger_v3(settings,job,*,extraction_guard=None):
     return ledger
 
 
+
+class _PurposeQualifiedReadGuardV3(_PurposeCompilerReadGuardV3):
+    """Current qualified-read lineage; compilation still uses the full raw guard."""
+    def extraction_seal(self,workspace,principal,artifact,version):
+        _require(principal==self.settings.config.actor_id,'compiler extraction principal differs')
+        self.settings.authorize(self.job)
+        return self.settings.resolver.extraction_seal(workspace,artifact,version)
+
+    def parent(self,workspace,principal,artifact,version):
+        _require(principal==self.settings.config.actor_id,'qualified parent principal differs')
+        self.settings.authorize(self.job)
+        metadata,_=self.settings.resolver.artifact_metadata(workspace,artifact,version)
+        _require(metadata.kind=='processing_qualified_model_v1','qualified model parent only')
+        manifest,payload=self.ledger.read_with_manifest(workspace,artifact,version)
+        _require(manifest==metadata,'qualified parent changed during read')
+        return manifest,payload
+
+
+def build_purpose_qualified_reader_v3(settings,job):
+    """Fixed read composition; direct persistence retains full paid raw proof."""
+    ledger=build_purpose_compiler_ledger_v3(settings,job)
+    full=ledger.processing_compile_guard
+    _require(type(full) is _PurposeCompilerReadGuardV3
+        and type(ledger.processing_extraction_guard) is ProcessingCompilerExtractionGuardV2,
+        'full protected compiler and extraction guards required')
+    qualified=_PurposeQualifiedReadGuardV3(settings,job,ledger.processing_extraction_guard)
+    qualified.ledger=ledger
+    ledger.processing_read_guard=qualified
+    return ledger
+
+
 def failed_extraction_payload_v2(witness):
     """Actual failed attempt/capture only; native provider retains cost liability."""
     from oracle_brain.hosting.processing_extraction_runtime_v2 import FailedPaidResponseCustodyWitnessV2
