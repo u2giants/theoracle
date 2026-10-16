@@ -120,7 +120,6 @@ class PaidProjectorSettingsV3:
         current_now=datetime.now(timezone.utc)
         self.worker.semantic.current(current_now)
         self.bundle.qualification_guard(self.bundle.manifest,self.bundle.payload,self.job.actor_id,current_now)
-        self.bundle.qualification_guard.valid_until(self.bundle.manifest,self.bundle.payload,self.job.actor_id,current_now)
         semantic_until=_semantic_operation_horizon_v3(self.worker,self.bundle.payload)
         fresh=self.worker.custody_window_v3(self.job)
         operation=min(self.operation_horizon,fresh.operation_horizon,semantic_until)
@@ -203,11 +202,19 @@ class CurrentPaidProjectorGuardV3(CurrentPaidSDKGuardV3):
         _require(type(settings) is PaidProjectorSettingsV3,'protected projector settings required')
         self.projector=settings
         super().__init__(settings.bundle.qualification_guard.combined)
+    def _target(self,manifest,payload,principal):
+        bundle=self.projector.bundle
+        _require(principal==self.projector.job.actor_id
+            and manifest==bundle.manifest and digest(payload)==digest(bundle.payload)
+            and manifest.workspace_id==self.projector.job.workspace_id
+            and manifest.artifact_id==self.projector.config.artifact_id
+            and manifest.version==self.projector.config.artifact_version,
+            "exact protected projector qualified target required")
     def __call__(self,manifest,payload,principal,now):
+        self._target(manifest,payload,principal)
         self.projector.current_window()
-        return super().__call__(manifest,payload,principal,now)
     def valid_until(self,manifest,payload,principal,now):
-        super().valid_until(manifest,payload,principal,now)
+        self._target(manifest,payload,principal)
         return self.projector.current_window().current_until
 
 

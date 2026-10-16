@@ -147,3 +147,26 @@ def make_paid_projector_fixture_settings_v3(worker,job,root,*,graph_url_file,tls
     appoint,appoint_sha=store('projector-appointment.json',appointment)
     return load_paid_projector_settings_v3(str(cfg),cfg_sha,appointment_path=str(appoint),
         expected_appointment_sha256=appoint_sha,issuer_actor=issuer,reviewer_actor=reviewer,worker=worker,job=job)
+
+
+def test_projector_target_guard_refuses_substitution_before_current_authority():
+    """Target comparison only; this fixture grants no current authority."""
+    from types import SimpleNamespace
+    from oracle_brain.hosting.paid_projector_v3 import CurrentPaidProjectorGuardV3
+    actor,workspace,artifact=uuid4(),uuid4(),uuid4()
+    manifest=SimpleNamespace(workspace_id=workspace,artifact_id=artifact,version=1)
+    payload={'sealed':'invented'}
+    calls=[]
+    settings=SimpleNamespace(bundle=SimpleNamespace(manifest=manifest,payload=payload),
+        job=SimpleNamespace(actor_id=actor,workspace_id=workspace),
+        config=SimpleNamespace(artifact_id=artifact,artifact_version=1),
+        current_window=lambda:calls.append('current'))
+    guard=object.__new__(CurrentPaidProjectorGuardV3);guard.projector=settings
+    for supplied_manifest,supplied_payload,principal in (
+        (manifest,payload,uuid4()),(manifest,{'sealed':'substituted'},actor),
+        (SimpleNamespace(workspace_id=workspace,artifact_id=uuid4(),version=1),payload,actor)):
+        with pytest.raises(PermissionError,match='exact protected projector'):
+            guard(supplied_manifest,supplied_payload,principal,datetime.now(timezone.utc))
+    assert calls==[]
+    guard(manifest,payload,actor,datetime.now(timezone.utc))
+    assert calls==['current']

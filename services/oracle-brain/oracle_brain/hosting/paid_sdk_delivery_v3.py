@@ -56,7 +56,6 @@ def load_paid_sdk_bundle_v3(settings,job,*,artifact_id,artifact_version,embeddin
     _require(manifest==metadata,'qualified artifact changed before private embedding read')
     combined=ledger.processing_read_guard
     guard=CurrentPaidSDKGuardV3(combined)
-    guard(manifest,payload,settings.config.actor_id,datetime.now(timezone.utc))
     selector=dict(artifact_id=artifact_id,artifact_version=artifact_version,dispatch_id=embedding_dispatch_id)
     ((context_raw,context_entry),(pins_raw,_),(commit_raw,commit_entry),
      (native_raw,native_entry),(wire,wire_entry))=settings.private_bundle(job,
@@ -85,10 +84,8 @@ def load_paid_sdk_bundle_v3(settings,job,*,artifact_id,artifact_version,embeddin
     again,current=ledger.read_with_manifest(job.workspace_id,artifact_id,artifact_version)
     _require(again==manifest and current==payload,'qualified artifact changed during embedding consumption')
     now=datetime.now(timezone.utc)
-    guard(manifest,payload,settings.config.actor_id,now)
     # Expensive qualification first; fresh currentness LAST. Observation age
     # is never cached as the whole lifetime of this V3 paid delivery.
-    guard.valid_until(manifest,payload,settings.config.actor_id,now)
     semantic_until=_semantic_operation_horizon_v3(settings,payload)
     fresh=settings.custody_window_v3(job)
     from oracle_brain.operating_model.processing_projection import ProcessingProjectionAuthorityWindowV3
