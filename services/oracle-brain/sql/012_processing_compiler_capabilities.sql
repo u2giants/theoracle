@@ -329,12 +329,17 @@ CREATE OR REPLACE FUNCTION oracle2.ack_processing_projection(
  event uuid,workspace uuid,token uuid,attempt integer,receipt jsonb,receipt_signature text,runtime text,registry text,caller_deadline timestamptz)
  RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
 DECLARE e oracle2.outbox%ROWTYPE; actor uuid; m jsonb; prior oracle2.operating_projection_receipts%ROWTYPE;
+ base_keys text[]:=ARRAY['schema_version','event_id','workspace_id','artifact_id','version','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_attempt','lease_until','projection_schema','projection_digest'];
+ paid_hashes text[]:=ARRAY['embedding_inventory_hash','embedding_context_hash','embedding_native_receipt_hash','embedding_wire_hash','embedding_commit_hash','embedding_vectors_hash','embedding_coverage_hash'];
+ receipt_keys text[]; paid boolean;
 BEGIN
  IF caller_deadline IS NULL OR NOT isfinite(caller_deadline) OR caller_deadline<=clock_timestamp()
  OR NOT pg_has_role(SESSION_USER,'oracle2_candidate_compiler','MEMBER') OR receipt_signature IS NULL OR receipt_signature !~ '^[0-9a-f]{64}$' THEN RAISE insufficient_privilege; END IF;
  IF current_setting('lock_timeout')::interval=interval '0' OR current_setting('lock_timeout')::interval>interval '2 seconds' THEN PERFORM set_config('lock_timeout','2s',true); END IF;
  SELECT * INTO e FROM oracle2.outbox o WHERE o.event_id=event AND o.workspace_id=workspace;
  IF NOT FOUND THEN RAISE insufficient_privilege; END IF;
+ paid:=coalesce(receipt->'schema_version'='3'::jsonb AND receipt->>'schema_version'='3',false);
+ receipt_keys:=base_keys||CASE WHEN paid THEN ARRAY['embedding_protocol']||paid_hashes ELSE ARRAY[]::text[] END;
  actor:=oracle2._processing_projection_actor(workspace,e.assertion_id,e.revision,runtime,registry);
  SELECT * INTO e FROM oracle2.outbox o WHERE o.event_id=event AND o.workspace_id=workspace FOR UPDATE;
  SELECT x.manifest INTO m FROM oracle2.artifact_manifests x WHERE x.workspace_id=workspace AND x.artifact_id=e.assertion_id AND x.version=e.revision;
@@ -343,11 +348,14 @@ BEGIN
  OR m->>'kind' IS DISTINCT FROM 'processing_qualified_model_v1' OR m->>'state' IS DISTINCT FROM 'ready'
  OR e.revision<>(SELECT max(x.version) FROM oracle2.artifact_manifests x WHERE x.workspace_id=workspace AND x.artifact_id=e.assertion_id AND x.kind='processing_qualified_model_v1' AND x.state='ready')
  OR jsonb_typeof(receipt) IS DISTINCT FROM 'object'
- OR NOT receipt ?& ARRAY['schema_version','event_id','workspace_id','artifact_id','version','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_attempt','lease_until','projection_schema','projection_digest']
- OR (receipt-ARRAY['schema_version','event_id','workspace_id','artifact_id','version','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_attempt','lease_until','projection_schema','projection_digest'])<>'{}'::jsonb
+ OR NOT receipt ?& receipt_keys
+ OR (receipt-receipt_keys)<>'{}'::jsonb
  OR EXISTS(SELECT 1 FROM unnest(ARRAY['event_id','workspace_id','artifact_id','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_until','projection_schema','projection_digest']) k WHERE jsonb_typeof(receipt->k) IS DISTINCT FROM 'string')
  OR jsonb_typeof(receipt->'version') IS DISTINCT FROM 'number' OR jsonb_typeof(receipt->'lease_attempt') IS DISTINCT FROM 'number'
- OR receipt->'schema_version' IS DISTINCT FROM '1'::jsonb OR receipt->>'event_id' IS DISTINCT FROM event::text
+ OR (NOT paid AND receipt->'schema_version' IS DISTINCT FROM '1'::jsonb)
+ OR (paid AND (receipt->>'embedding_protocol' IS DISTINCT FROM 'paid-sdk-embedding-v3'
+  OR EXISTS(SELECT 1 FROM unnest(paid_hashes) k WHERE jsonb_typeof(receipt->k) IS DISTINCT FROM 'string' OR receipt->>k !~ '^[0-9a-f]{64}$')))
+ OR receipt->>'event_id' IS DISTINCT FROM event::text
  OR receipt->>'workspace_id' IS DISTINCT FROM workspace::text OR receipt->>'artifact_id' IS DISTINCT FROM e.assertion_id::text OR receipt->>'version' IS DISTINCT FROM e.revision::text
  OR receipt->>'content_hash' IS DISTINCT FROM m->>'content_hash' OR receipt->>'source_digest' IS DISTINCT FROM m->>'source_digest' OR receipt->>'permission_digest' IS DISTINCT FROM m->>'permission_digest'
  OR receipt->>'projection_schema' IS DISTINCT FROM 'qualified-evidence-projection-v1' OR receipt->>'projection_digest' !~ '^[0-9a-f]{64}$'

@@ -177,7 +177,14 @@ class ProcessingSourceResolver:
         if (not entry or not entry[0] or (row[1]==row[0] and not entry[2])
                 or (row[1]==group and not entry[3])):
             raise PermissionError('actual processing inherit/SET entry differs')
-        for signature, allowed in self._signatures.items():
+        self._check_function_signatures(conn,self._signatures)
+        if b.profile != 'gateway-metadata':
+            from .source_binding import SourceRoleBinding
+            SourceRoleBinding(b.runtime_hash,b.source_registry_hash,synthetic=b.synthetic).check(conn)
+
+    def _check_function_signatures(self,conn,signatures):
+        b=self.binding
+        for signature, allowed in signatures.items():
             function = conn.execute("""SELECT r.rolname,p.prosecdef,p.proconfig
                 FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner WHERE p.oid=to_regprocedure(%s)""",
                 (signature,)).fetchone()
@@ -191,9 +198,6 @@ class ProcessingSourceResolver:
                     (signature,)).fetchall()
                 if frozenset(name for name,_ in grants) != allowed or any(grantable for _,grantable in grants):
                     raise PermissionError('fixed processing function ACL differs')
-        if b.profile != 'gateway-metadata':
-            from .source_binding import SourceRoleBinding
-            SourceRoleBinding(b.runtime_hash,b.source_registry_hash,synthetic=b.synthetic).check(conn)
 
     def _args(self, workspace_id, source_id):
         if not isinstance(workspace_id,UUID) or not isinstance(source_id,UUID):
@@ -334,6 +338,52 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
         'oracle2.commit_processing_candidate(jsonb,bytea,bytea,bytea,jsonb,text,text,timestamp with time zone)':frozenset({'oracle2_candidate_compiler'}),
         'oracle2.hosting_processing_artifact(uuid,uuid,integer,uuid,text,text)':frozenset({'oracle2_candidate_compiler','oracle2_documentary_executor'}),
     }
+
+    _delivery_signatures={
+        'oracle2._purpose_deadlines_v2()':frozenset(),
+        'oracle2._processing_projection_delivery_v3(uuid,uuid,integer,uuid,text,text)':frozenset(),
+        'oracle2.hosting_processing_projection_delivery_v3(uuid,uuid,integer,uuid,text,text)':frozenset({'oracle2_documentary_executor'}),
+        'oracle2.hosting_processing_projection_receipt_v3(uuid,uuid,integer,uuid,text,text)':frozenset({'oracle2_candidate_compiler'}),
+    }
+
+    def _projection_delivery_v3(self,workspace_id,artifact_id,version,*,receipt,connection=None):
+        from .contracts import ProcessingProjectionDeliverySealV3,ProcessingProjectionReceiptV3,digest
+        profile='candidate-compiler' if receipt else 'documentary-executor'
+        if (self.binding.profile!=profile or type(workspace_id) is not UUID or type(artifact_id) is not UUID
+                or type(version) is not int or version<1):
+            raise PermissionError('exact current paid projection read capability required')
+        query=('SELECT oracle2.hosting_processing_projection_receipt_v3(%s,%s,%s,%s,%s,%s)' if receipt else
+               'SELECT oracle2.hosting_processing_projection_delivery_v3(%s,%s,%s,%s,%s,%s)')
+        with self._connection(connection) as conn:
+            # Pre-arm BEFORE fixed getter SELECT and preserve tighter callers.
+            for setting,bound in (('statement_timeout','5s'),('lock_timeout','2s')):
+                conn.execute("SELECT set_config(%s,CASE WHEN current_setting(%s)::interval<=interval '0' OR current_setting(%s)::interval>%s::interval THEN %s ELSE current_setting(%s) END,true)",
+                    (setting,setting,setting,bound,bound,setting))
+            self._check(conn);self._check_function_signatures(conn,self._delivery_signatures)
+            rows=conn.execute(query,(workspace_id,artifact_id,version,self.binding.principal,self.binding.runtime_hash,self.binding.source_registry_hash)).fetchall()
+            self._check(conn);self._check_function_signatures(conn,self._delivery_signatures)
+            if len(rows)!=1 or rows[0][0] is None:raise PermissionError('unique actual paid projection ACK required')
+            model=ProcessingProjectionReceiptV3 if receipt else ProcessingProjectionDeliverySealV3
+            result=model.model_validate_json(json.dumps(rows[0][0]))
+            body=result.receipt if receipt else result
+            if (str(body.workspace_id),str(body.artifact_id),body.version)!=(str(workspace_id),str(artifact_id),version):
+                raise PermissionError('paid projection ACK target differs')
+            if (len({r.source_id for r in result.source_refs})!=len(result.source_refs)
+                    or any(r.workspace_id!=workspace_id for r in result.source_refs)
+                    or digest({'refs':[r.model_dump(mode='json') for r in result.source_refs]})!=body.source_digest):
+                raise PermissionError('paid projection ACK source population differs')
+            until=min(result.valid_until,self.binding.expires_at)
+            actual_clock=conn.execute('SELECT clock_timestamp()').fetchone()[0]
+            if not result.checked_at<=actual_clock<until:
+                raise PermissionError('paid projection ACK current authority expired')
+            result=result.model_copy(update={'valid_until':until})
+        return result
+
+    def projection_delivery_seal(self,workspace_id,artifact_id,version,*,connection=None):
+        return self._projection_delivery_v3(workspace_id,artifact_id,version,receipt=False,connection=connection)
+
+    def projection_receipt_v3(self,workspace_id,artifact_id,version,*,connection=None):
+        return self._projection_delivery_v3(workspace_id,artifact_id,version,receipt=True,connection=connection)
 
     def artifact_metadata(self,workspace_id,artifact_id,version,*,connection=None):
         from .contracts import ArtifactManifest,PROCESSING_ARTIFACT_KINDS
