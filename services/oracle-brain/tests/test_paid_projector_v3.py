@@ -80,7 +80,7 @@ def test_projector_attempt_nonce_refuses_symlink_and_foreign_permissions(tmp_pat
 
 def make_paid_projector_fixture_settings_v3(worker,job,root,*,graph_url_file,tls_ca_file,
         tls_certificate_file,tls_key_file,receipt_key_file,artifact_id,artifact_version,
-        embedding_dispatch_id,generation,projector_id):
+        embedding_dispatch_id,generation,projector_id,prepared_bundle=None):
     """TEST ONLY external metadata authoring; creates no runtime/source/key grant.
 
     Caller owns the coherent invented fixture and existing exact target/keys.
@@ -96,8 +96,26 @@ def make_paid_projector_fixture_settings_v3(worker,job,root,*,graph_url_file,tls
     from oracle_brain.hosting.paid_projector_v3 import PaidProjectorAppointmentV3
     from oracle_brain.hosting.purpose_journey_v2 import _worker_file
     root=Path(root);root.mkdir(mode=0o700)
-    bundle=load_paid_sdk_bundle_v3(worker,job,artifact_id=artifact_id,
-        artifact_version=artifact_version,embedding_dispatch_id=embedding_dispatch_id)
+    # Optional SAME-construction result supplies metadata hashes ONLY. It
+    # never replaces the real protected loader's paid/current authentication.
+    if prepared_bundle is None:
+        bundle=load_paid_sdk_bundle_v3(worker,job,artifact_id=artifact_id,
+            artifact_version=artifact_version,embedding_dispatch_id=embedding_dispatch_id)
+    else:
+        from oracle_brain.hosting.paid_sdk_delivery_v3 import AuthenticatedPaidSDKBundleV3
+        assert type(prepared_bundle) is AuthenticatedPaidSDKBundleV3
+        bundle=prepared_bundle
+        assert bundle.qualification_guard.combined.settings is worker
+        assert bundle.qualification_guard.combined.job==job
+        worker.authorize(job);worker.custody_window_v3(job)
+        worker.semantic.current(datetime.now(timezone.utc))
+        metadata,refs=worker.resolver.artifact_metadata(job.workspace_id,artifact_id,artifact_version)
+        assert metadata==bundle.manifest and metadata.kind=='processing_qualified_model_v1'
+        assert len(set(refs))==len(refs) and set(refs)==set(job.source_refs)
+        witness=bundle.embedder.data.witness
+        assert (witness.dispatch_id,witness.qualified_artifact_id,witness.qualified_artifact_version)==(
+            embedding_dispatch_id,artifact_id,artifact_version)
+        assert digest(bundle.payload)==metadata.content_hash==witness.qualified_content_hash
     now=datetime.now(timezone.utc)
     end=min(job.expires_at,job.original_horizon,worker.config.source_expires_at,bundle.window.operation_horizon,
         worker.semantic.valid_until(now),worker.custody_window_v3(job).operation_horizon)
