@@ -31,6 +31,26 @@ class OriginalObjectRefV1:
     @property
     def key(self):return f'source-originals/{self.workspace_id}/{self.source_id}/{self.revision}/{self.original_sha256}.bin'
 
+@dataclass(frozen=True)
+class ReservationOriginalObjectRefV1:
+    """SQL-reservation identity only; no arbitrary key and no intake/read grant."""
+    original:OriginalObjectRefV1
+    reservation_id:UUID
+    def __post_init__(self):
+        if type(self.original) is not OriginalObjectRefV1 or type(self.reservation_id) is not UUID:
+            raise ValueError('exact original/reservation identities required')
+        self.original.__post_init__()
+    @property
+    def key(self):
+        o=self.original
+        return f'source-originals/{o.workspace_id}/{o.source_id}/{o.revision}/{self.reservation_id}'
+    @property
+    def byte_count(self):return self.original.byte_count
+    @property
+    def original_sha256(self):return self.original.original_sha256
+    @property
+    def content_type(self):return self.original.content_type
+
 def _private_stat(info,*,directory=False):
     if (info.st_uid!=os.getuid() or info.st_mode&0o077
         or (not stat.S_ISDIR(info.st_mode) if directory else not stat.S_ISREG(info.st_mode))
@@ -91,7 +111,7 @@ def _write_private_at(root,parts,data,*,strict=True):
     finally:os.close(parent)
 
 def _original_bytes(ref,data):
-    if type(ref) is not OriginalObjectRefV1 or type(data) is not bytes:raise ValueError('exact private original identity/bytes required')
+    if type(ref) not in (OriginalObjectRefV1,ReservationOriginalObjectRefV1) or type(data) is not bytes:raise ValueError('exact private original identity/bytes required')
     ref.__post_init__()
     if len(data)!=ref.byte_count or hashlib.sha256(data).hexdigest()!=ref.original_sha256:raise ValueError('original byte seal differs')
 
@@ -144,7 +164,7 @@ class FileBlobStore:
         return ref
     def _read_original_bytes(self,ref:OriginalObjectRefV1):
         if self._original_root_alias:raise PermissionError('private original root alias denied')
-        if type(ref) is not OriginalObjectRefV1:raise ValueError('exact private original identity required')
+        if type(ref) not in (OriginalObjectRefV1,ReservationOriginalObjectRefV1):raise ValueError('exact private original identity required')
         ref.__post_init__();parts=ref.key.split('/');parent=_parent_fd(self.root,parts[:-1],create=False)
         try:data=_read_private_at(parent,parts[-1],ref.byte_count)
         finally:os.close(parent)
@@ -188,7 +208,7 @@ class ObjectBlobStore:
         if self._read_original_bytes(ref)!=data:raise ValueError('original object readback differs')
         return ref
     def _read_original_bytes(self,ref:OriginalObjectRefV1):
-        if type(ref) is not OriginalObjectRefV1:raise ValueError('exact private original identity required')
+        if type(ref) not in (OriginalObjectRefV1,ReservationOriginalObjectRefV1):raise ValueError('exact private original identity required')
         ref.__post_init__();body=self.client.get_object(Bucket=self.bucket,Key=ref.key)['Body']
         try:data=body.read(ref.byte_count+1)
         finally:body.close()
