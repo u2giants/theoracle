@@ -48,3 +48,23 @@ def test_provided_connection_rechecks_revoked_third_source_on_next_boundary(admi
         owner.execute('UPDATE oracle2.appointments SET revoked_at=clock_timestamp() WHERE appointment_id=%s',(f['grants'][2],))
     with psycopg.connect(f['url']) as conn,pytest.raises(psycopg.errors.InsufficientPrivilege):
         with adapter.hold(d,d.dispatches[2],connection=conn):pytest.fail('revoked third source admitted')
+
+
+def test_explicit_address_pin_rejects_other_actual_target_before_hold(purpose_population,monkeypatch):
+    f=purpose_population('embedding','gateway-metadata');adapter,d=bound(f)
+    with psycopg.connect(f['url']) as conn:
+        assert conn.info.hostaddr!='192.0.2.1'
+        # Only the expected protected target changes. No connection is opened to
+        # the TEST-NET address; the existing real own-role connection must deny.
+        monkeypatch.setattr(adapter,'url',psycopg.conninfo.make_conninfo(f['url'],hostaddr='192.0.2.1'))
+        with pytest.raises(PermissionError,match='connection target'):
+            with adapter.hold(d,d.dispatches[0],connection=conn):pytest.fail('alternate address admitted')
+
+
+def test_unpinned_address_retains_existing_role_tls_target_checks(purpose_population,monkeypatch):
+    f=purpose_population('embedding','gateway-metadata');adapter,d=bound(f)
+    parts=psycopg.conninfo.conninfo_to_dict(f['url']);parts.pop('hostaddr',None)
+    with psycopg.connect(f['url']) as conn:
+        monkeypatch.setattr(adapter,'url',psycopg.conninfo.make_conninfo(**parts))
+        with adapter.hold(d,d.dispatches[0],connection=conn) as proof:
+            assert proof.session_role==f['login'] and proof.source_ref==d.dispatches[0].source_ref

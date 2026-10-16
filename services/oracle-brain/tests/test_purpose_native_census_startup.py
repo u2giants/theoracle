@@ -322,6 +322,11 @@ def test_actual_native_extraction_three_originals_one_budget_private_wire(native
         assert commit['extraction_source_ref']==ctx.receipt.ref.model_dump(mode='json')
         assert hashlib.sha256((x['custody']/(str(ctx.job.dispatch_id)+'.wire')).read_bytes()).hexdigest()==reply['raw_response_hash']
     assert x['state']['posts']==3
+    assert len(x['state']['coverage_observations'])==3
+    evidence=Path(x['settings'].config_path).parent/'fixture-coverage-observation-proof.json'
+    evidence.write_bytes(canonical_bytes({'schema_version':1,'operation_approval_hash':x['operation_hash'],
+        'population_digest':x['population'].population_digest,'observations':x['state']['coverage_observations']}))
+    evidence.chmod(0o600)
     with psycopg.connect(x['billing_admin']) as conn:
         assert conn.execute('SELECT count(*),sum(s.actual_usd) FROM oracle2.operating_dispatch_reservations r JOIN oracle2.operating_dispatch_receipts s USING(reservation_id) WHERE r.purpose=%s',('source-extraction',)).fetchone()==(3,Decimal('.00003'))
         assert conn.execute('SELECT count(DISTINCT batch_id) FROM oracle2.operating_dispatch_reservations').fetchone()[0]==1
