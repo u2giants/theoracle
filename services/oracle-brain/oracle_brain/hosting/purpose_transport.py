@@ -12,6 +12,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
+from cryptography import x509
+from cryptography.x509.oid import ExtensionOID
 
 from .gateway import GatewayDenied, unique_object
 from .parent_observer_v2 import ParentObserverTransportV2
@@ -38,18 +40,19 @@ class PurposeTLSBindingV2:
     hostname: str
     port: int
     server_uri: str
+    client_uri: str
     ca_file: Path
     certificate_file: Path
     key_file: Path
     timeout: float = 5.0
 
     def __post_init__(self):
-        if (not isinstance(self.hostname, str) or not self.hostname
-                or any(c in self.hostname for c in "/:@?#\\\t\r\n ")
+        if (not isinstance(self.hostname, str)
+                or re.fullmatch(r"[A-Za-z0-9.-]+", self.hostname) is None
                 or type(self.port) is not int or not 0 < self.port < 65536
-                or not isinstance(self.server_uri, str)
-                or not self.server_uri.startswith("spiffe://oracle/")
-                or any(c.isspace() for c in self.server_uri)
+                or any(not isinstance(uri, str) or re.fullmatch(
+                    r"spiffe://oracle/[A-Za-z0-9._/-]+", uri) is None
+                    for uri in (self.server_uri, self.client_uri))
                 or type(self.timeout) not in (int, float)
                 or not math.isfinite(self.timeout) or not 0 < self.timeout <= 5):
             raise GatewayDenied("fixed purpose TLS pins required")
@@ -57,6 +60,15 @@ class PurposeTLSBindingV2:
             if (not isinstance(path, Path) or not path.is_absolute() or path.is_symlink()
                     or not path.is_file() or path.stat().st_mode & 0o077):
                 raise GatewayDenied("protected TLS material required")
+        try:
+            certificate = x509.load_pem_x509_certificate(self.certificate_file.read_bytes())
+            identities = certificate.extensions.get_extension_for_oid(
+                ExtensionOID.SUBJECT_ALTERNATIVE_NAME).value.get_values_for_type(
+                    x509.UniformResourceIdentifier)
+            if identities != [self.client_uri]:
+                raise ValueError
+        except (ValueError, x509.ExtensionNotFound):
+            raise GatewayDenied("fixed purpose client certificate identity required") from None
 
 
 class _FixedTLSClientV2:
@@ -171,3 +183,32 @@ def purpose_ingress_server_v2(address: tuple[str, int], *, tls: ssl.SSLContext,
     """One constructor binds the verified TLS peer and reconstructed job caller."""
     return EgressServer(address, tls=tls, executor_uri=worker_uri,
         egress=PurposeIngressBridgeV2(ingress, worker_uri))
+
+
+def main(argv=None):
+    """Explicit opt-in startup; the protected loader owns all authority/schema."""
+    import argparse
+    from .gateway import server_tls
+    from .purpose_runtime import (load_purpose_runtime_settings_v2,
+        build_purpose_broker_v2, build_purpose_metadata_v2)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--phase", choices=("census", "assembly", "assessment", "embedding"), required=True)
+    parser.add_argument("--role", choices=("provider", "metadata"), required=True)
+    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--config-sha256", required=True)
+    args = parser.parse_args(argv)
+    settings = load_purpose_runtime_settings_v2(args.config, args.config_sha256,
+        expected_phase=args.phase, expected_role=args.role)
+    if settings.phase != args.phase or settings.role != args.role:
+        raise GatewayDenied("fixed startup phase/profile mismatch")
+    ingress = (build_purpose_broker_v2(settings) if args.role == "provider"
+               else build_purpose_metadata_v2(settings))
+    tls = server_tls(certfile=str(settings.server_certificate),
+        keyfile=str(settings.server_key), cafile=str(settings.client_ca))
+    with purpose_ingress_server_v2((settings.bind_host, settings.bind_port),
+            tls=tls, worker_uri=settings.worker_uri, ingress=ingress) as server:
+        server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
