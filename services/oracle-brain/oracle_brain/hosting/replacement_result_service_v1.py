@@ -1,7 +1,7 @@
 """Fixed mTLS result consumer; no provider, raw-source or metadata-gateway route."""
-import asyncio,hashlib,ssl,time,threading
+import asyncio,hashlib,ssl,time
 from datetime import datetime,timezone
-from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from cryptography import x509
 from cryptography.x509.oid import ExtensionOID
@@ -13,6 +13,8 @@ from oracle_brain.operating_model.summaries import serve_summary
 from oracle_brain.operating_model.answer import answer_from_summary
 from .purpose_journey_v2 import _worker_file,_require
 from .custody import _durable_nonce
+from .gateway import MutualTLSServer,server_tls
+from .replacement_transport_v1 import fixed_request_length_v1,read_request_body_v1,peer_der_v1
 from .paid_executor_v3 import build_paid_executor_projection_v3
 from .replacement_result_settings_v1 import ProtectedReplacementResultSettingsV1
 from .replacement_result_v1 import (parse_result_request_v1,ProtectedReplacementResultResponseV1,
@@ -104,11 +106,10 @@ def protected_replacement_result_server_v1(settings):
     ca=_worker_file(c.client_ca_file,c.client_ca_sha256)
     certificate=_worker_file(c.server_certificate_file,c.server_certificate_sha256)
     key=_worker_file(c.server_key_file,c.server_key_sha256)
-    context=ssl.create_default_context(ssl.Purpose.CLIENT_AUTH,cadata=ca.decode())
-    context.verify_mode=ssl.CERT_REQUIRED;context.minimum_version=ssl.TLSVersion.TLSv1_2
-    context.load_cert_chain(c.server_certificate_file,c.server_key_file)
+    context=server_tls(certfile=c.server_certificate_file,keyfile=c.server_key_file,cafile=c.client_ca_file)
     _require(_worker_file(c.server_certificate_file,c.server_certificate_sha256)==certificate
-        and _worker_file(c.server_key_file,c.server_key_sha256)==key,'result server TLS changed')
+        and _worker_file(c.server_key_file,c.server_key_sha256)==key
+        and _worker_file(c.client_ca_file,c.client_ca_sha256)==ca,'result server TLS changed')
     cert=x509.load_pem_x509_certificate(certificate)
     uris=cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME).value.get_values_for_type(x509.UniformResourceIdentifier)
     _require(uris==[c.server_uri],'result server certificate identity differs')
@@ -118,38 +119,15 @@ def protected_replacement_result_server_v1(settings):
         def log_message(self,*args):pass
         def do_POST(self):
             try:
-                _require(self.path=='/v3/replacement/result' and self.headers.get('Content-Type')=='application/json'
-                    and self.headers.get('Transfer-Encoding') is None,'fixed result route required')
-                length=self.headers.get('Content-Length','')
-                _require(length.isascii() and length.isdigit() and 0<int(length)<=4096,'bounded result bytes required')
-                end=time.monotonic()+30;chunks=[];remaining=int(length)
-                while remaining:
-                    left=end-time.monotonic();_require(left>0,'original request body deadline expired')
-                    self.connection.settimeout(left)
-                    chunk=self.rfile.read1(remaining);_require(chunk,'complete result bytes required')
-                    chunks.append(chunk);remaining-=len(chunk)
-                raw=b''.join(chunks)
-                result=asyncio.run(service.handle_result_v1(self.connection.getpeercert(binary_form=True),raw))
+                end=time.monotonic()+30
+                length=fixed_request_length_v1(self,path='/v3/replacement/result',content_type='application/json',maximum_bytes=4096)
+                peer=peer_der_v1(self.connection,expected_uri=c.client_uri,expected_der_sha256=c.client_certificate_sha256)
+                raw=read_request_body_v1(self,length,absolute_monotonic_deadline=end)
+                result=asyncio.run(service.handle_result_v1(peer,raw))
                 self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store')
                 self.send_header('Content-Length',str(len(result)));self.end_headers();self.wfile.write(result)
             except Exception:
                 self.send_response(503);self.send_header('Content-Length','0');self.send_header('Cache-Control','no-store');self.end_headers()
         def do_GET(self):
             self.send_response(404);self.send_header('Content-Length','0');self.end_headers()
-    class Server(ThreadingHTTPServer):
-        daemon_threads=True
-        def __init__(self,*args):
-            self.slots=threading.BoundedSemaphore(8);super().__init__(*args)
-        def get_request(self):
-            sock,address=super().get_request();sock.settimeout(5)
-            try:return context.wrap_socket(sock,server_side=True),address
-            except BaseException:sock.close();raise
-        def process_request(self,request,address):
-            if not self.slots.acquire(blocking=False):self.shutdown_request(request);return
-            try:super().process_request(request,address)
-            except BaseException:self.slots.release();raise
-        def process_request_thread(self,request,address):
-            try:super().process_request_thread(request,address)
-            finally:self.slots.release()
-    server=Server((c.listen_host,c.listen_port),Handler)
-    return server
+    return MutualTLSServer((c.listen_host,c.listen_port),Handler,tls=context)
