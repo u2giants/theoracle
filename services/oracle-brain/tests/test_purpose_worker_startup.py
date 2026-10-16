@@ -339,3 +339,23 @@ def test_actual_worker_short_original_job_deadline_wins_over_long_provider_rpc(a
     assert x['state']['posts']==1
     assert custody.journal.read(job.journey_id)[0]['state']=='attempt-started'
     assert not list(Path(settings.config.spool).glob('*.pending'))
+
+
+def test_foreign_observer_subject_denied_before_compiler_credentials_or_phase_bytes(compiler_worker):
+    from unittest.mock import patch
+    from oracle_brain.hosting import provider_runtime as worker
+    x,settings,job=compiler_worker
+    config=settings.config
+    raw=json.loads(Path(config.parent_observer_admission_file).read_bytes())
+    raw['principal_id']=str(uuid4())
+    path=Path(config.jobs_registry_file).parent/'foreign-observer.json'
+    data=canonical_bytes(raw);path.write_bytes(data);path.chmod(0o600)
+    changed=config.model_copy(update={'parent_observer_admission_file':str(path),
+        'parent_observer_admission_hash':hashlib.sha256(data).hexdigest()})
+    cfg=path.parent/'foreign-worker.json';data=canonical_bytes(changed.model_dump(mode='json'))
+    cfg.write_bytes(data);cfg.chmod(0o600)
+    with patch.object(worker,'tls_url',wraps=worker.tls_url) as credential_read:
+        with pytest.raises(Exception,match='actual compiler parent observation appointment differs'):
+            load_purpose_worker_settings_v2(str(cfg),hashlib.sha256(data).hexdigest())
+        credential_read.assert_not_called()
+    assert x['state']['posts']==0
