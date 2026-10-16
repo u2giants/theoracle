@@ -6,7 +6,7 @@ from .calculations import Measurement, difference
 
 
 def _aware(value: datetime):
-    if value.tzinfo is None or value.utcoffset() is None:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("timezone-aware observation dates required")
 
 
@@ -28,7 +28,7 @@ class ExperimentObservation:
             raise ValueError("observation window incomplete")
         if self.observed_through > now:
             raise ValueError("future observations rejected")
-        if not self.evidence_refs or any(not ref.strip() for ref in self.evidence_refs):
+        if not isinstance(self.evidence_refs, tuple) or not self.evidence_refs or any(not isinstance(ref, str) or not ref.strip() for ref in self.evidence_refs):
             raise ValueError("baseline and followup evidence references required")
         if len(set(self.evidence_refs)) < 2:
             raise ValueError("distinct baseline and followup evidence required")

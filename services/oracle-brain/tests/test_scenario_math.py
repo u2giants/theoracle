@@ -35,3 +35,28 @@ def test_missing_assumptions_and_actual_label_rejected():
 def test_no_change_and_increased_cost_are_retained():
     assert Forecast(money("10"), money("10"), ("same workload",)).estimated_reduction == 0
     assert Forecast(money("10"), money("12"), ("same workload",)).estimated_reduction == -2
+
+
+@pytest.mark.parametrize("assumptions", ["single-assumption", None, (None,), ("",)])
+def test_missing_or_incompatible_inputs_abstain(assumptions):
+    with pytest.raises(ValueError):
+        Forecast(money("10"), money("2"), assumptions)
+
+
+@pytest.mark.parametrize("changes", [{"unit": 5}, {"period": None}, {"currency": 123}, {"currency": "usd"}, {"currency": "US"}, {"currency": None}])
+def test_invalid_measurement_metadata_rejected(changes):
+    args = dict(amount=Decimal("1"), unit="money", period="per_week", currency="USD")
+    args.update(changes)
+    with pytest.raises(ValueError):
+        Measurement(**args)
+
+
+@pytest.mark.parametrize("amount", ["1e1000000", "1e-1000000", "1234567890123456789012345678901234567"])
+def test_computational_precision_bounds(amount):
+    with pytest.raises(ValueError, match="precision"):
+        money(amount)
+
+
+def test_missing_baseline_is_not_fabricated():
+    with pytest.raises(ValueError):
+        Forecast(None, money("2"), ("same workload",))

@@ -33,3 +33,20 @@ def test_missing_distinct_evidence_rejected(refs):
 def test_mixed_period_cannot_be_reported_as_observed_savings():
     with pytest.raises(ValueError, match="incompatible"):
         observation(followup=Measurement(Decimal("8"), "money", "per_month", "USD")).observed_reduction(now=END)
+
+
+@pytest.mark.parametrize("refs", ["baseline-only", None, ("baseline-only",), (1, "followup")])
+def test_single_string_or_wrong_type_cannot_prove_two_observations(refs):
+    with pytest.raises(ValueError):
+        observation(evidence_refs=refs).observed_reduction(now=END)
+
+
+def test_naive_current_clock_is_rejected():
+    with pytest.raises(ValueError, match="timezone"):
+        observation().observed_reduction(now=END.replace(tzinfo=None))
+
+
+def test_acceptance_is_not_realized_benefit():
+    # A decision to try a scenario cannot replace completed followup evidence.
+    with pytest.raises(ValueError, match="incomplete"):
+        observation(observed_through=START).observed_reduction(now=START)
