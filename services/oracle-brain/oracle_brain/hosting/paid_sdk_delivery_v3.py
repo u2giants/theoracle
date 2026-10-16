@@ -10,8 +10,8 @@ from oracle_brain.operating_model.purpose_qualification_v3 import PurposeQualifi
 from oracle_brain.operating_model.paid_sdk_embeddings_v3 import (
     PaidSDKEmbeddingPinsV3,PaidProjectionEmbedderV3,verify_paid_sdk_embedding_v3,
     processing_embedding_inventory_v3)
-from .purpose_journey_v2 import (CompilerWorkerSettingsV2,_PurposeCompilerReadGuardV3,
-    build_purpose_compiler_ledger_v3,_worker_parse,_unique,_require)
+from .purpose_journey_v2 import (CompilerWorkerSettingsV2,_PurposeQualifiedReadGuardV3,
+    build_purpose_qualified_reader_v3,_worker_parse,_unique,_require)
 import json
 from oracle_brain.operating_model.processing_projection import ProcessingProjectionAuthorityWindowV3
 
@@ -19,7 +19,7 @@ from oracle_brain.operating_model.processing_projection import ProcessingProject
 class CurrentPaidSDKGuardV3(PurposeQualifiedAssemblyReadGuardV3):
     """Actual protected compiler composition; no injected authority callbacks."""
     def __init__(self,combined):
-        _require(type(combined) is _PurposeCompilerReadGuardV3,'actual compiler read guard required')
+        _require(type(combined) is _PurposeQualifiedReadGuardV3,'actual compiler read guard required')
         self.combined=combined
         super().__init__(trusted_admissions=combined.trust,runtime_hash=combined.settings.config.runtime_hash,
             current_source_identity=combined.source,current_extraction_seal=combined.extraction_seal,
@@ -46,7 +46,7 @@ def load_paid_sdk_bundle_v3(settings,job,*,artifact_id,artifact_version,embeddin
         and job.phase=='compile' and type(artifact_id) is UUID and type(embedding_dispatch_id) is UUID
         and type(artifact_version) is int and artifact_version>=1,'exact protected compiler SDK consume required')
     settings.authorize(job)
-    ledger=build_purpose_compiler_ledger_v3(settings,job)
+    ledger=build_purpose_qualified_reader_v3(settings,job)
     metadata,refs=settings.resolver.artifact_metadata(job.workspace_id,artifact_id,artifact_version)
     _require(metadata.kind=='processing_qualified_model_v1'
         and len(set(refs))==len(refs) and len(set(job.source_refs))==len(job.source_refs)
