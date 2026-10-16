@@ -1023,12 +1023,32 @@ def compile_purpose_worker_result_v3(settings,job):
     _require(type(settings) is CompilerWorkerSettingsV2 and type(job) is PurposeWorkerJobV2
         and job.phase=='compile','exact externally appointed compiler phase required')
     settings.authorize(job)
-    def model(kind,cls,**selector):
-        raw,entry=settings.private(job,kind,**selector)
+    def parse(raw,entry,cls):
         parsed=cls.model_validate_json(raw)
         _require(raw==canonical_bytes(parsed.model_dump(mode='json')),'canonical exact compiler custody record required')
         return parsed,entry
-    inputs,_=model('compile_inputs',PurposeCompileInputsV2)
+    inputs_raw,inputs_entry=settings.private(job,'compile_inputs')
+    inputs,_=parse(inputs_raw,inputs_entry,PurposeCompileInputsV2)
+    # Only these existing exact targets are read. Re-include compile_inputs in
+    # the stable bundle so selector discovery cannot race a changed input.
+    selectors=(('compile_inputs',{}),('assembly_context',{'dispatch_id':inputs.assembly_dispatch_id}),
+        ('assembly_observer',{'dispatch_id':inputs.assembly_dispatch_id}),
+        ('assembly_protocol',{'dispatch_id':inputs.assembly_dispatch_id}),
+        ('assembly_observed',{'dispatch_id':inputs.assembly_dispatch_id}),
+        ('census_context',{'dispatch_id':inputs.census_dispatch_id}),
+        ('assessment_context',{'dispatch_id':inputs.assessment_dispatch_id}),
+        ('assessment',{'dispatch_id':inputs.assessment_dispatch_id}),('semantic_admission',{}),
+        *(('phase_commit',{'dispatch_id':dispatch}) for dispatch in
+            (inputs.census_dispatch_id,inputs.assembly_dispatch_id,inputs.assessment_dispatch_id)),
+        ('assembly_wire',{'dispatch_id':inputs.assembly_dispatch_id}),
+        ('census_wire',{'dispatch_id':inputs.census_dispatch_id}),
+        ('assessment_wire',{'dispatch_id':inputs.assessment_dispatch_id}))
+    bundle=settings.private_bundle(job,selectors)
+    records={(kind,selector.get('dispatch_id')):value for (kind,selector),value in zip(selectors,bundle,strict=True)}
+    _require(records[('compile_inputs',None)]==(inputs_raw,inputs_entry),'compile input changed during bundle read')
+    def model(kind,cls,**selector):
+        raw,entry=records[(kind,selector.get('dispatch_id'))]
+        return parse(raw,entry,cls)
     ctx,_=model('assembly_context',AssemblyJobContextV2,dispatch_id=inputs.assembly_dispatch_id)
     _require(tuple(r.ref for r in ctx.receipts)==job.source_refs
         and ctx.job.artifact_id==inputs.artifact_id and ctx.model_version==inputs.artifact_version,
@@ -1048,9 +1068,9 @@ def compile_purpose_worker_result_v3(settings,job):
         _require(commit.phase==phase and commit.dispatch_id==dispatch and commit.source_refs==job.source_refs,
             'exact actual historical phase custody required')
         commits.append(commit)
-    assembly_wire,_=settings.private(job,'assembly_wire',dispatch_id=inputs.assembly_dispatch_id)
-    census_wire,_=settings.private(job,'census_wire',dispatch_id=inputs.census_dispatch_id)
-    assessment_wire,_=settings.private(job,'assessment_wire',dispatch_id=inputs.assessment_dispatch_id)
+    assembly_wire,_=records[('assembly_wire',inputs.assembly_dispatch_id)]
+    census_wire,_=records[('census_wire',inputs.census_dispatch_id)]
+    assessment_wire,_=records[('assessment_wire',inputs.assessment_dispatch_id)]
     ledger=build_purpose_compiler_ledger_v3(settings,job)
     payload=compile_purpose_assembly_v3(compiler_ledger=ledger,context=ctx,observer=observer,
         expected_observer_context_hash=observer_entry.sha256,protocol=protocol,expected_protocol_hash=protocol_entry.sha256,
