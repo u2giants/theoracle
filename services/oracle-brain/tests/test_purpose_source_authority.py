@@ -222,3 +222,59 @@ def test_v2_membership_drift_during_hold_denies_current_caller(admin_url,purpose
                 with psycopg.connect(admin_url) as conn:conn.execute(sql.SQL('GRANT pg_monitor TO {}').format(sql.Identifier(f['login'])))
     finally:
         with psycopg.connect(admin_url) as conn:conn.execute(sql.SQL('REVOKE pg_monitor FROM {}').format(sql.Identifier(f['login'])))
+
+
+@pytest.mark.parametrize('signature',[
+    'oracle2._purpose_source_v2(uuid,uuid,uuid,text,text,text,boolean)',
+    'oracle2.hosting_source_census_receipt_v2(uuid,uuid,uuid,text,text)',
+    'oracle2.hosting_projection_embedding_identity_v2(uuid,uuid,uuid,text,text)',
+])
+def test_v2_adapter_rechecks_private_and_public_acl_before_access(admin_url,purpose_population,signature):
+    f=purpose_population();adapter,_,_=context(f)
+    with psycopg.connect(admin_url) as conn:conn.execute('GRANT EXECUTE ON FUNCTION '+signature+' TO PUBLIC')
+    try:
+        with pytest.raises(PermissionError,match='ACL'):adapter.identity(f['workspace'],f['source'])
+    finally:
+        with psycopg.connect(admin_url) as conn:conn.execute('REVOKE EXECUTE ON FUNCTION '+signature+' FROM PUBLIC')
+    assert adapter.identity(f['workspace'],f['source'])==f['refs'][0]
+
+
+def test_v2_fixed_function_configuration_and_owner_are_not_discovered_as_authority(admin_url,purpose_population):
+    f=purpose_population();adapter,_,_=context(f)
+    signature='oracle2.hosting_source_census_receipt_v2(uuid,uuid,uuid,text,text)'
+    with psycopg.connect(admin_url) as conn:
+        original=conn.execute('SELECT pg_get_functiondef(to_regprocedure(%s))',(signature,)).fetchone()[0]
+        conn.execute('ALTER FUNCTION '+signature+' SET search_path=public,oracle2')
+    try:
+        with pytest.raises(PermissionError,match='owner/config'):adapter.identity(f['workspace'],f['source'])
+    finally:
+        with psycopg.connect(admin_url) as conn:conn.execute(original)
+    assert adapter.identity(f['workspace'],f['source'])==f['refs'][0]
+
+
+@pytest.mark.parametrize('mutation',['runtime-expired','source-expired','root-revoked','read-revoked','wrong-actor','wrong-registry','duplicate-original'])
+def test_v2_additional_actual_source_and_admission_denials(admin_url,purpose_population,mutation):
+    f=purpose_population();ref=f['refs'][1]
+    with psycopg.connect(admin_url) as conn:
+        if mutation=='runtime-expired':conn.execute("UPDATE oracle2.hosting_role_runtime_admissions SET expires_at=clock_timestamp()-interval '1 second' WHERE role_name=%s",(f['login'],))
+        elif mutation=='source-expired':conn.execute("UPDATE oracle2.hosting_role_source_admissions SET expires_at=clock_timestamp()-interval '1 second' WHERE role_name=%s AND source_id=%s",(f['login'],ref.source_id))
+        elif mutation=='root-revoked':conn.execute('UPDATE oracle2.appointments SET revoked_at=clock_timestamp() WHERE appointment_id=%s',(f['root'],))
+        elif mutation=='read-revoked':conn.execute('UPDATE oracle2.appointments SET revoked_at=clock_timestamp() WHERE actor_id=%s AND scope=%s',(f['actor'],'source-read:'+str(ref.source_id)))
+        elif mutation=='wrong-actor':conn.execute('UPDATE oracle2.hosting_role_source_admissions SET principal_id=%s WHERE role_name=%s AND source_id=%s',(uuid4(),f['login'],ref.source_id))
+        elif mutation=='wrong-registry':conn.execute("UPDATE oracle2.hosting_role_runtime_admissions SET registry_hash=%s WHERE role_name=%s",('f'*64,f['login']))
+        else:conn.execute('INSERT INTO oracle2.source_blocks SELECT %s,source_id,workspace_id,block_index+50,kind,text,span_start,span_end FROM oracle2.source_blocks WHERE source_id=%s AND kind=%s',(uuid4(),ref.source_id,'original'))
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):query(f,ref,raw=True)
+
+
+def test_v2_actual_set_role_proof_distinguishes_original_login_and_effective_group(purpose_population):
+    f=purpose_population();adapter,d,j=context(f)
+    with psycopg.connect(f['url']) as conn:
+        conn.execute('SET LOCAL ROLE oracle2_source_reader')
+        with adapter.hold(d,j,connection=conn) as proof:
+            assert proof.actual_caller_login==f['login'] and proof.session_role=='oracle2_source_reader'
+
+
+def test_purpose_original_reader_has_no_compiler_write_capability(purpose_population):
+    f=purpose_population()
+    with psycopg.connect(f['url']) as conn:
+        assert conn.execute("SELECT has_function_privilege(current_user,'oracle2.commit_processing_candidate(jsonb,bytea,bytea,bytea,jsonb,text,text,timestamptz)','EXECUTE')").fetchone()==(False,)

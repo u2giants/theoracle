@@ -409,6 +409,7 @@ class PurposeSourceBindingV2:
     def __post_init__(self):
         from .purpose_context import source_population_digest
         if (type(self.source) is not ProcessingSourceBinding
+                or any(type(v) is not str for v in (self.phase,self.purpose,self.operation,self.caller_kind))
                 or _PURPOSE_PHASES_V2.get(self.phase)!=(self.purpose,self.operation)
                 or not isinstance(self.expected_provider_login,str)
                 or not re.fullmatch('[a-z_][a-z0-9_]{0,62}',self.expected_provider_login)
