@@ -125,3 +125,16 @@ def test_sdk_relation_fact_texts_are_deduplicated_with_every_usage_key(paid_case
     facts=[i for i in inv.inputs if any(k.startswith('relation:') for k in i.usage_keys)]
     assert len(facts)==1 and facts[0].text=='Reported transition a → b'
     assert len(facts[0].usage_keys)==2
+
+
+def test_actual_sdk_float32_storage_rule_is_exact_without_epsilon_or_normalization():
+    from oracle_brain.operating_model.paid_sdk_embeddings_v3 import sdk_float32_vector
+    import struct
+    vector=[0.1]+[0.0]*255
+    stored=sdk_float32_vector(vector)
+    assert stored[0]==struct.unpack('!f',struct.pack('!f',0.1))[0] and stored[0]!=0.1
+    assert stored[1:]==tuple(vector[1:])
+    for bad in ([1e100]+[0.0]*255,[1e-100]*256,[float('nan')]*256):
+        with pytest.raises(ValueError):sdk_float32_vector(bad)
+    changed=list(stored);changed[0]=0.10001
+    assert tuple(changed)!=stored

@@ -5,7 +5,7 @@ BEFORE opening private inputs, and recheck after verification and before ACK.
 Typed values/hash equality alone never appoint that runtime or grant file access.
 """
 from datetime import datetime
-import hashlib,json,math,threading
+import hashlib,json,math,threading,struct
 from importlib.metadata import version
 from typing import Literal
 from uuid import UUID
@@ -99,6 +99,16 @@ class PaidSDKEmbeddingWitnessV3(StrictRecord):
     # Historical own-phase commit horizon, not a current compiler/read grant.
     phase_valid_until:AwareDatetime
 
+def sdk_float32_vector(vector):
+    """Exact retained SDK vecf32 storage representation, not normalization."""
+    if len(vector)!=256:raise ValueError('exact 256-dimensional SDK vector required')
+    try:values=tuple(struct.unpack('!f',struct.pack('!f',float(v)))[0] for v in vector)
+    except (OverflowError,ValueError,TypeError,struct.error):raise ValueError('vector cannot be represented by SDK vecf32') from None
+    if any(not math.isfinite(v) for v in values) or not any(v!=0 for v in values):
+        raise ValueError('SDK vecf32 vector is nonfinite or zero after cast')
+    return values
+
+
 class PaidSDKEmbeddingDataV3(StrictRecord):
     witness:PaidSDKEmbeddingWitnessV3
     inventory:SDKEmbeddingInventoryV3
@@ -110,6 +120,7 @@ class PaidSDKEmbeddingDataV3(StrictRecord):
                 or digest({'vectors':self.vectors})!=self.witness.vectors_hash
                 or any(len(v)!=256 or not any(x!=0 for x in v) or any(not math.isfinite(x) for x in v) for v in self.vectors)):
             raise ValueError('complete exact finite nonzero paid vector population required')
+        for vector in self.vectors:sdk_float32_vector(vector)
         return self
 
 
