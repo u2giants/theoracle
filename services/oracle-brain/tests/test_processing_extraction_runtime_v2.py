@@ -72,3 +72,25 @@ def test_paid_payload_and_population_refusals(paid,change):
    content=json.loads(wire['choices'][0]['message']['content']);content['findings'][0]['evidence_refs'][0]['quote']='invented';wire['choices'][0]['message']['content']=json.dumps(content)
   raw=json.dumps(wire).encode();c=c.model_copy(update={'raw_response_hash':hashlib.sha256(raw).hexdigest(),'model_content_hash':hashlib.sha256(wire['choices'][0]['message']['content'].encode()).hexdigest()})
  with pytest.raises(Exception):verify((ctx,c,raw,q,pop))
+
+
+def test_invalid_paid_content_has_consistency_witness_but_cannot_promote(paid):
+ from oracle_brain.hosting.processing_extraction_runtime_v2 import verify_extraction_paid_wire_v2
+ ctx,c,raw,q,pop=paid
+ wire=json.loads(raw);wire['choices'][0]['message']['content']='{"invalid":"extraction"}'
+ raw=json.dumps(wire).encode();c=c.model_copy(update={'raw_response_hash':hashlib.sha256(raw).hexdigest(),
+  'model_content_hash':hashlib.sha256(wire['choices'][0]['message']['content'].encode()).hexdigest()})
+ content,witness=verify_extraction_paid_wire_v2(ctx,c,raw,q,pop,expected_qualification_hash=sealed(q),artifact_version=1)
+ assert content=='{"invalid":"extraction"}' and witness.raw_wire_hash==hashlib.sha256(raw).hexdigest()
+ with pytest.raises(Exception):verify((ctx,c,raw,q,pop))
+
+
+def test_extraction_provider_and_metadata_mounts_are_separate():
+ from oracle_brain.hosting.processing_extraction_runtime_v2 import ExtractionProviderConfigV2,ExtractionMetadataConfigV2
+ from test_purpose_runtime_v2 import config
+ from pydantic import ValidationError
+ raw=config('metadata');raw.update(phase='extraction',extraction_qualification_file='/own/extraction-op',extraction_qualification_sha256='a'*64)
+ assert ExtractionMetadataConfigV2.model_validate(raw).phase=='extraction'
+ for field in ('parent_registry_file','source_qualification_file','envelope_file','provider_key_file','ledger_url_file'):
+  with pytest.raises(ValidationError):ExtractionMetadataConfigV2.model_validate({**raw,field:'/private/forbidden'})
+ with pytest.raises(ValidationError):ExtractionProviderConfigV2.model_validate(raw)
