@@ -148,8 +148,8 @@ def compile_purpose_assembly_v3(*,compiler_ledger,context,observer,expected_obse
     pure validation. Existing external admission is consumed, never manufactured.
     """
     import psycopg
-    from .processing_ledger import ProcessingCompilerLedger
-    if type(compiler_ledger) is not ProcessingCompilerLedger or type(admission) is not PurposeSemanticAdmissionV3:
+    from .processing_ledger import ProcessingCompilerLedger,PurposeProcessingCompilerLedgerV3
+    if type(compiler_ledger) not in (ProcessingCompilerLedger,PurposeProcessingCompilerLedgerV3) or type(admission) is not PurposeSemanticAdmissionV3:
         raise PermissionError('actual compiler ledger and explicitly admitted semantic schema3 required')
     b=compiler_ledger.processing_sources.binding
     if (sealed(admission) not in trusted_admission_hashes or now>=admission.expires_at

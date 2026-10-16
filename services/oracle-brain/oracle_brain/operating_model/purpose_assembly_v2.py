@@ -53,8 +53,8 @@ def compiler_extraction_handoff_v2(ledger,*,workspace_id,extraction_ids,source_r
     No provider work or SQL lock spans private blob reads.
     """
     import psycopg
-    from .processing_ledger import ProcessingCompilerLedger
-    if type(ledger) is not ProcessingCompilerLedger:
+    from .processing_ledger import ProcessingCompilerLedger,PurposeProcessingCompilerLedgerV3
+    if type(ledger) not in (ProcessingCompilerLedger,PurposeProcessingCompilerLedgerV3):
         raise PermissionError('actual explicit compiler ledger required')
     resolver=ledger.processing_sources;binding=resolver.binding
     if binding.profile!='candidate-compiler' or ledger.principal!=binding.principal:
