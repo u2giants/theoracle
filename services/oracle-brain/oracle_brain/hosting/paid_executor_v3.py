@@ -276,11 +276,11 @@ def load_paid_executor_settings_v3(config_path,expected_config_sha256,*,appointm
     def current():return holder['settings'].authorize_current()
     def source(workspace,principal,source_id):
         _require(workspace==c.workspace_id and principal==c.actor_id and source_id in {r.source_id for r in c.source_refs},'exact executor source target required')
-        current();return resolver.identity(workspace,source_id)
+        return resolver.identity(workspace,source_id)
     def extraction(workspace,principal,artifact,version):
         _require(workspace==c.workspace_id and principal==c.actor_id,'executor dependency principal differs')
-        current();return resolver.extraction_seal(workspace,artifact,version)
-    def trust():current();return semantic.current(datetime.now(timezone.utc))
+        return resolver.extraction_seal(workspace,artifact,version)
+    def trust():return semantic.current(datetime.now(timezone.utc))
     def parent(workspace,principal,artifact,version):
         _require(workspace==c.workspace_id and principal==c.actor_id,'executor qualified parent principal differs')
         _require((artifact,version)==(c.artifact_id,c.artifact_version),'exact appointed executor parent required')
@@ -292,6 +292,14 @@ def load_paid_executor_settings_v3(config_path,expected_config_sha256,*,appointm
     from oracle_brain.operating_model.ledger import Ledger
     def denied(*args):raise PermissionError('executor original/nonprocessing bytes forbidden')
     class ExactExecutorLedger(Ledger):
+        def _validate_processing_read_guard(self,manifest,payload,now):
+            # One complete current population boundary; metadata callbacks still
+            # use actual own-role SQL identity/seals and current external registry.
+            current()
+            _require(type(self.processing_read_guard) is PurposeQualifiedAssemblyReadGuardV3,
+                'exact protected executor qualified guard required')
+            self.processing_read_guard(manifest,payload,self.principal,now)
+            current()  # NEW actual current proof after complete validation.
         def _authorize_processing_blob(self,manifest):
             current()
             model=(manifest.kind=='processing_qualified_model_v1'
