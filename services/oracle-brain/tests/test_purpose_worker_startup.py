@@ -21,11 +21,11 @@ from oracle_brain.hosting.purpose_journey_v2 import (
     run_purpose_worker_once_v2,build_purpose_compiler_ledger_v3)
 
 
-@pytest.fixture
-def compiler_worker(admin_url,native_census_startup,tmp_path):
-    x=native_census_startup;f=x['f'];c=x['settings'].config
+def make_initial_compiler_worker_v2(admin_url,x,compiler_root):
+    """TEST ONLY independent fixture provisioning; not a runtime issuer."""
+    f=x['f'];c=x['settings'].config
     now=datetime.now(timezone.utc);end=min(f['expiry'],x['settings'].population.expires_at)
-    root=tmp_path/'compiler';root.mkdir(mode=0o700)
+    root=Path(compiler_root);root.mkdir(mode=0o700)
     def store(name,value):
         raw=canonical_bytes(value.model_dump(mode='json')) if hasattr(value,'model_dump') else value
         path=root/name;path.write_bytes(raw);path.chmod(0o600)
@@ -107,7 +107,13 @@ def compiler_worker(admin_url,native_census_startup,tmp_path):
         semantic_issuer_actor=sissuer,semantic_reviewer_actor=sreviewer,semantic_valid_from=now-timedelta(seconds=1),semantic_expires_at=end)
     config_file,config_hash=store('worker.json',config)
     settings=load_purpose_worker_settings_v2(config_file,config_hash)
-    yield x,settings,job
+    return settings,(job,)
+
+
+@pytest.fixture
+def compiler_worker(admin_url,native_census_startup,tmp_path):
+    settings,jobs=make_initial_compiler_worker_v2(admin_url,native_census_startup,tmp_path/'compiler')
+    return native_census_startup,settings,jobs[0]
 
 
 def test_actual_compiler_startup_native_phase_and_no_repost(compiler_worker):
@@ -233,3 +239,54 @@ def test_actual_phase_output_cannot_replace_registry_parent_or_original_allocati
             _phase_commit_from_custody(settings,job)
         path.write_bytes(raw)
     assert x['state']['posts']==1
+
+
+def make_next_compiler_worker_v2(x,compiler_root,*,prior_settings,jobs,custody_files,spool=None):
+    """TEST ONLY late external appointment, same actual compiler/root/allocation.
+
+    Call only after actual predecessor outputs. This helper creates no phase
+    job/context/provider approval: its explicit jobs and exact file capabilities
+    are supplied by the independently authored coherent fixture owner.
+    """
+    from oracle_brain.hosting.purpose_journey_v2 import CompilerWorkerSettingsV2
+    assert type(prior_settings) is CompilerWorkerSettingsV2 and type(jobs) is tuple and jobs
+    old=prior_settings.config;root=Path(compiler_root);root.mkdir(mode=0o700)
+    now=datetime.now(timezone.utc)
+    assert set(custody_files)=={j.job_id for j in jobs}
+    assert all(type(j) is PurposeWorkerJobV2 and j.workspace_id==old.workspace_id and j.actor_id==old.actor_id
+        and j.runtime_hash==old.runtime_hash and j.source_refs==prior_settings.population.source_refs
+        and j.allocation_hash==prior_settings.allocation.allocation_hash
+        and j.original_horizon==prior_settings.allocation.original_expires_at for j in jobs)
+    assert spool is None or str(spool)==old.spool
+    current_population=x['population']
+    assert current_population.source_refs==prior_settings.population.source_refs
+    assert current_population.parent_registry_sha256==prior_settings.population.parent_registry_sha256
+    assert current_population.source_registry_hash==old.source_registry_hash
+    phase_config=x['settings'].config
+    allocation=BudgetAllocationPinsV2.model_validate_json(Path(phase_config.budget_allocation_projection_file).read_bytes())
+    assert allocation==prior_settings.allocation
+    end=min(old.source_expires_at,prior_settings.allocation.original_expires_at,*(j.expires_at for j in jobs))
+    def store(name,record):
+        raw=canonical_bytes(record.model_dump(mode='json'));path=root/name
+        path.write_bytes(raw);path.chmod(0o600)
+        return str(path),hashlib.sha256(raw).hexdigest()
+    registry=PurposeWorkerRegistryV2(workspace_id=old.workspace_id,actor_id=old.actor_id,worker_uri=old.worker_uri,
+        runtime_hash=old.runtime_hash,issuer_actor=old.worker_issuer_actor,reviewer_actor=old.worker_reviewer_actor,
+        valid_from=now,expires_at=end,jobs=jobs)
+    registry_file,registry_hash=store('jobs.json',registry)
+    appointment=CompilerPhaseCustodyAppointmentV2(workspace_id=old.workspace_id,actor_id=old.actor_id,
+        compiler_login=old.expected_session_role,runtime_hash=old.runtime_hash,
+        population_digest=prior_settings.population.population_digest,issuer_actor=old.custody_issuer_actor,
+        reviewer_actor=old.custody_reviewer_actor,valid_from=now,expires_at=end,files=custody_files)
+    custody_file,custody_hash=store('custody.json',appointment)
+    binding=x['client'].binding
+    client=dict(hostname=binding.hostname,port=binding.port,server_uri=binding.server_uri,client_uri=binding.client_uri,
+        ca_file=str(binding.ca_file),certificate_file=str(binding.certificate_file),key_file=str(binding.key_file))
+    assert client['client_uri']==old.worker_uri
+    config=old.model_copy(update=dict(jobs_registry_file=registry_file,jobs_registry_sha256=registry_hash,
+        custody_appointment_file=custody_file,custody_appointment_sha256=custody_hash,
+        clients={j.phase:client for j in jobs if j.phase!='compile'}))
+    # Revalidate strict type instead of granting authority via model_copy alone.
+    config=CompilerWorkerConfigV2.model_validate(config.model_dump(mode='python'))
+    config_file,config_hash=store('worker.json',config)
+    return load_purpose_worker_settings_v2(config_file,config_hash),jobs
