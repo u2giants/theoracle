@@ -133,7 +133,8 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
             (job.workspace_id,assembly['job'].artifact_id)).fetchone()==('processing_qualified_model_v1','ready')
         assert connection.execute("SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND payload->>'namespace'='oracle_processing_v1'",
             (job.workspace_id,)).fetchone()==(1,)
-    compiled_ledger=build_purpose_compiler_ledger_v3(compiled,compile_job)
+    from oracle_brain.hosting.purpose_journey_v2 import build_purpose_qualified_reader_v3
+    compiled_ledger=build_purpose_qualified_reader_v3(compiled,compile_job)
     qualified=compiled_ledger.read_with_manifest(job.workspace_id,assembly['job'].artifact_id,1)
     embedding=admit_assembly_phase(x,admin_url=admin_url,root=tmp_path/'late-embedding',handoff=handoff,census=frozen,
         receipts=receipts,phase='embedding',qualified=qualified,semantic_settings=compiled)
@@ -148,16 +149,27 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         artifact=qualified[0],root=tmp_path/'late-paid-consumer')
     stage('embedding_custody_reappointment_loaded')
     from oracle_brain.hosting.paid_sdk_delivery_v3 import load_paid_sdk_bundle_v3
-    paid=load_paid_sdk_bundle_v3(delivered_worker,compile_job,artifact_id=qualified[0].artifact_id,artifact_version=1,
-        embedding_dispatch_id=embedding['job'].dispatch_id)
-    assert len(paid.embedder.data.vectors)==len(paid.embedder.data.inventory.inputs)
-    assert all(len(v)==256 for v in paid.embedder.data.vectors)
-    stage('protected_paid_bundle_verified')
-    from purpose_journey_fixture_delivery import deliver_actual_paid_graph
-    signed=deliver_actual_paid_graph(delivered_worker,compile_job,artifact=qualified[0],
-        embedding_dispatch_id=embedding['job'].dispatch_id,root=tmp_path/'actual-paid-graph',
-        tls=x['platform']['tls'],certificates=__import__('pathlib').Path(x['platform']['binding'](1).ca_file).parent,
-        prepared_bundle=paid,stage=stage)
+    from purpose_journey_fixture_delivery import deliver_actual_paid_graph,unmounted_historical_extraction_wires
+    with unmounted_historical_extraction_wires(extraction,tmp_path/'unmounted-extraction-wire-backups') as absent:
+        paid=load_paid_sdk_bundle_v3(delivered_worker,compile_job,artifact_id=qualified[0].artifact_id,artifact_version=1,
+            embedding_dispatch_id=embedding['job'].dispatch_id)
+        assert len(paid.embedder.data.vectors)==len(paid.embedder.data.inventory.inputs)
+        assert all(len(v)==256 for v in paid.embedder.data.vectors)
+        stage('protected_paid_bundle_without_historical_raw_wire')
+        with pytest.raises(FileNotFoundError) as raw_denial:
+            paid.ledger.read_with_manifest(job.workspace_id,handoff.extractions[0].manifest.artifact_id,1)
+        assert __import__('pathlib').Path(raw_denial.value.filename) in absent
+        with pytest.raises(FileNotFoundError) as compile_denial:
+            paid.ledger.persist(workspace_id=job.workspace_id,artifact_id=qualified[0].artifact_id,version=1,
+                kind='processing_qualified_model_v1',payload=qualified[1],refs=job.source_refs,
+                permission_digest=qualified[0].permission_digest,compiler_digest=qualified[0].compiler_digest,
+                dependencies=tuple(('artifact',str(e.manifest.artifact_id),str(e.manifest.version)) for e in handoff.extractions))
+        assert __import__('pathlib').Path(compile_denial.value.filename) in absent
+        stage('raw_read_and_direct_compile_refused_missing_paid_proof')
+        signed=deliver_actual_paid_graph(delivered_worker,compile_job,artifact=qualified[0],
+            embedding_dispatch_id=embedding['job'].dispatch_id,root=tmp_path/'actual-paid-graph',
+            tls=x['platform']['tls'],certificates=__import__('pathlib').Path(x['platform']['binding'](1).ca_file).parent,
+            prepared_bundle=paid,stage=stage)
     assert signed['content_hash']==qualified[0].content_hash and x['state']['posts']==7
     stage('protected_graph_ack_and_compiler_restart')
     from oracle_brain.operating_model.retrieval import QueryPlan
