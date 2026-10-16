@@ -189,15 +189,16 @@ def test_opt_in_extraction_boundary_rejects_untyped_guards_before_blob(processin
     class NoBlob:
         def put(self,*args):raise AssertionError('untyped extraction authority reached blob')
         def read(self,*args):raise AssertionError('untyped extraction authority reached blob')
-    with pytest.raises(PermissionError,match='exact protected'):
+    with pytest.raises(PermissionError,match='protected processing'):
         ProcessingCompilerLedger(f['url'],NoBlob(),principal=f['actor'],processing_sources=source,
             processing_read_guard=lambda *args:None,processing_extraction_guard=value)
 
 
-def test_opt_in_extraction_boundary_rejects_subclasses(processing,tmp_path):
-    from oracle_brain.operating_model.purpose_journey import ProcessingCompilerExtractionGuardV2
-    class BorrowedGuard(ProcessingCompilerExtractionGuardV2):pass
+def test_opt_in_extraction_boundary_rejects_incomplete_protocol(processing,tmp_path):
+    class Incomplete:
+        def __call__(self,*args):return None
+        def valid_until(self,*args):raise AssertionError('incomplete authority called')
     f=processing();source=ProcessingArtifactResolver(f['url'],binding=f['binding'])
-    with pytest.raises(PermissionError,match='exact protected'):
+    with pytest.raises(PermissionError,match='guard protocol'):
         ProcessingCompilerLedger(f['url'],FileBlobStore(tmp_path),principal=f['actor'],processing_sources=source,
-            processing_read_guard=lambda *args:None,processing_extraction_guard=object.__new__(BorrowedGuard))
+            processing_read_guard=lambda *args:None,processing_extraction_guard=Incomplete())
