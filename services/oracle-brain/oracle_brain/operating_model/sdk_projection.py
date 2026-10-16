@@ -332,6 +332,7 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
             raise PermissionError('paid SDK vector artifact identity differs')
         class NoGeneration(LLMInterface):
             model_name='sealed-projection-no-generation'
+            def __init__(self):super().__init__(self.model_name)
             def invoke(self,prompt,**kwargs):raise PermissionError('sealed SDK projection cannot generate or extract again')
         self.paid_embedder=embedder;self._paid_building=False;self._paid_proof=None;self._paid_built_here=False
         self._paid_signed_receipt=copy.deepcopy(signed_receipt);self._paid_receipt_secret=receipt_secret
