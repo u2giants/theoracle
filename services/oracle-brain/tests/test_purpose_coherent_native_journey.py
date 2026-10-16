@@ -41,6 +41,11 @@ from oracle_brain.hosting.purpose_journey_v2 import PurposeJourneyCustodyV2,run_
 
 @pytest.mark.parametrize('native_census_startup',[{'phase':'census','coherent':True}],indirect=True)
 def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,admin_url,tmp_path):
+    import json,time
+    started=time.monotonic();timings={}
+    def stage(name):
+        timings[name]=round(time.monotonic()-started,3)
+        path=tmp_path/'stage-timings.json';path.write_text(json.dumps(timings,sort_keys=True));path.chmod(0o600)
     x,settings,job=compiler_worker
     parent=x['input_parent']
     assert parent is not None and len(parent.contexts)==3
@@ -52,6 +57,7 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
     try:row=run_purpose_worker_once_v2(settings)
     except Exception as error:raise AssertionError(str(x['state'].get('failure'))) from error
     assert row['state']=='awaiting-external-phase-admission' and x['state']['posts']==1
+    stage('census_committed')
     assert len(custody.journal.read(job.journey_id))==2
     from purpose_journey_fixture_phases import freeze_authorized_census
     frozen=freeze_authorized_census(settings,job)
@@ -75,6 +81,7 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         assert len(manifests)==3 and all(m[1:] == ('processing_extraction_v1','ready') for m in manifests)
         assert connection.execute('SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s',(job.workspace_id,)).fetchone()==(0,)
     assert x['state']['posts']==4
+    stage('three_extractions_committed')
     assert extraction['settings'].population.parent_registry_sha256==settings.population.parent_registry_sha256
 
     from oracle_brain.hosting.purpose_journey_v2 import build_purpose_compiler_ledger_v3
@@ -87,6 +94,7 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         now=datetime.now(timezone.utc),expires_at=current.population.expires_at)
     assert len(handoff.extractions)==3 and handoff.source_refs==frozen.source_refs
     assert all(e.payload['observations'] and e.payload['findings'] for e in handoff.extractions)
+    stage('compiler_handoff_verified')
     from purpose_journey_fixture_phases import admit_assembly_phase,phase_worker_appointment
     receipts=tuple(c.receipt for c in extraction['contexts'])
     assembly=admit_assembly_phase(x,admin_url=admin_url,root=tmp_path/'late-assembly',handoff=handoff,census=frozen,receipts=receipts)
@@ -95,6 +103,7 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
     PurposeJourneyCustodyV2(assembled).admit(assembly_job.job_id)
     assembly_row=run_purpose_worker_once_v2(assembled)
     assert assembly_row['state']=='awaiting-external-phase-admission' and x['state']['posts']==5
+    stage('assembly_committed')
     from purpose_journey_fixture_phases import capture_actual_assembly
     captured,evidence=capture_actual_assembly(assembly)
     assert captured.handoff_hash==digest(handoff.model_dump(mode='json'))
@@ -107,6 +116,7 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
     try:assessment_row=run_purpose_worker_once_v2(assessed)
     except Exception as error:raise AssertionError(str(x['state'].get('failure'))) from error
     assert assessment_row['state']=='awaiting-external-phase-admission' and x['state']['posts']==6
+    stage('assessment_committed')
     assert assessment['descriptor'].actor_id!=assembly['descriptor'].actor_id
     assert assessment['descriptor'].provider_login!=assembly['descriptor'].provider_login
     assert assessment['job'].request['model']!=assembly['job'].request['model']
@@ -117,6 +127,7 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
     PurposeJourneyCustodyV2(compiled).admit(compile_job.job_id)
     compile_row=run_purpose_worker_once_v2(compiled)
     assert compile_row['state']=='qualified-model-outbox-committed' and x['state']['posts']==6
+    stage('qualified_model_committed')
     with psycopg.connect(admin_url) as connection:
         assert connection.execute("SELECT kind,state FROM oracle2.artifact_manifests WHERE workspace_id=%s AND artifact_id=%s",
             (job.workspace_id,assembly['job'].artifact_id)).fetchone()==('processing_qualified_model_v1','ready')
@@ -131,6 +142,7 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         embedding['operation_hash'],deadline=embedding['descriptor'].expires_at)
     except Exception as error:raise AssertionError(str(x['state'].get('failure'))) from error
     assert x['state']['posts']==7 and set(embedding_reply)=={'dispatch_id','request_hash','phase_registry_sha256','raw_response_hash','receipt_hash'}
+    stage('native_embedding_committed')
     from purpose_journey_fixture_delivery import appoint_actual_embedding_outputs
     delivered_worker,embedding_pins=appoint_actual_embedding_outputs(embedding,worker=compiled,compile_job=compile_job,
         artifact=qualified[0],root=tmp_path/'late-paid-consumer')
@@ -139,3 +151,10 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         embedding_dispatch_id=embedding['job'].dispatch_id)
     assert len(paid.embedder.data.vectors)==len(paid.embedder.data.inventory.inputs)
     assert all(len(v)==256 for v in paid.embedder.data.vectors)
+    stage('protected_paid_bundle_verified')
+    from purpose_journey_fixture_delivery import deliver_actual_paid_graph
+    signed=deliver_actual_paid_graph(delivered_worker,compile_job,artifact=qualified[0],
+        embedding_dispatch_id=embedding['job'].dispatch_id,root=tmp_path/'actual-paid-graph',
+        tls=x['platform']['tls'],certificates=__import__('pathlib').Path(x['platform']['binding'](1).ca_file).parent)
+    assert signed['content_hash']==qualified[0].content_hash and x['state']['posts']==7
+    stage('protected_graph_ack_and_compiler_restart')

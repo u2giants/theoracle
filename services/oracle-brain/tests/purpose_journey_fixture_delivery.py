@@ -34,3 +34,53 @@ def appoint_actual_embedding_outputs(phase,*,worker,compile_job,artifact,root):
     assert updated.population==worker.population and updated.allocation==worker.allocation
     assert updated.config.semantic_registry_sha256==worker.config.semantic_registry_sha256
     return updated,pins
+
+
+def deliver_actual_paid_graph(worker,job,*,artifact,embedding_dispatch_id,root,tls,certificates):
+    """ONE actual native packet through protected factory and leased outbox.
+
+    The fixture admin provisions only a new exact writer ACL. Runtime receives
+    its own named writer credentials; UNKNOWN never confirms cleanup.
+    """
+    import asyncio,os,secrets
+    from urllib.parse import urlsplit,urlunsplit
+    from uuid import uuid4
+    from dev.oracle2.test_readonly_graph_fixture import processing_writer
+    from dev.oracle2.test_graph_tls_fixture import owned_graph_tls,verify_graph_tls_peer
+    from test_hosting_boundary import WORKER
+    from test_purpose_transport import SERVER
+    from test_paid_projector_v3 import make_paid_projector_fixture_settings_v3
+    from oracle_brain.hosting.paid_projector_v3 import project_paid_projector_event_v3,reload_paid_projector_projection_v3
+    from oracle_brain.operating_model.processing_projection import lease_processing_projection
+    root.mkdir(mode=0o700)
+    admin=os.environ['ORACLE2_OPERATING_TEST_GRAPH_URL'];project=os.environ['COMPOSE_PROJECT_NAME']
+    container=project+'-falkor-candidate-1';generation=uuid4()
+    with processing_writer(container,admin,root/'writer',workspace_id=artifact.workspace_id,
+            artifact_id=artifact.artifact_id,version=artifact.version,generation=generation) as writer:
+        with owned_graph_tls(container,admin,server_context=tls,expected_client_uri=WORKER) as port:
+            verify_graph_tls_peer(port,ca_file=certificates/'ca.pem',certificate_file=certificates/'worker.pem',
+                key_file=certificates/'worker.key',expected_server_uri=SERVER)
+            parsed=urlsplit(writer.environment['ORACLE2_TEST_PROCESSING_WRITER_GRAPH_URL'])
+            graph_url=urlunsplit(('rediss',parsed.netloc.rsplit('@',1)[0]+'@localhost:'+str(port),'','',''))
+            url_file=root/'writer-url';url_file.write_text(graph_url);url_file.chmod(0o600)
+            key_file=root/'receipt-key';key_file.write_bytes(secrets.token_bytes(32));key_file.chmod(0o600)
+            settings=make_paid_projector_fixture_settings_v3(worker,job,root/'projector',graph_url_file=url_file,
+                tls_ca_file=certificates/'ca.pem',tls_certificate_file=certificates/'worker.pem',
+                tls_key_file=certificates/'worker.key',receipt_key_file=key_file,artifact_id=artifact.artifact_id,
+                artifact_version=artifact.version,embedding_dispatch_id=embedding_dispatch_id,generation=generation,projector_id=uuid4())
+            lease=lease_processing_projection(settings.bundle.ledger,job.workspace_id)
+            assert lease is not None
+            async def deliver():
+                signed=await project_paid_projector_event_v3(settings,lease)
+                assert signed['schema_version']==3 and signed['embedding_protocol']=='paid-sdk-embedding-v3'
+                # Fresh compiler reconstruction obtains the ACTUAL SQL ACK, not
+                # this local return value or an owner SELECT/cached receipt.
+                fresh=reload_paid_projector_projection_v3(settings)
+                try:
+                    loaded=await fresh.load(settings.bundle.ledger,job.workspace_id,artifact.artifact_id,artifact.version)
+                    assert loaded['qualified_lineage']['schema_version']==3
+                finally:await fresh.close()
+                return signed
+            signed=asyncio.run(deliver())
+            writer.confirm_inactive()  # All timely awaited calls/pools closed.
+            return signed
