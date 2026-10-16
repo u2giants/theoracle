@@ -160,3 +160,17 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         prepared_bundle=paid,stage=stage)
     assert signed['content_hash']==qualified[0].content_hash and x['state']['posts']==7
     stage('protected_graph_ack_and_compiler_restart')
+    from oracle_brain.operating_model.retrieval import QueryPlan
+    from oracle_brain.operating_model.summaries import summarize_from_ledger,persist_summary
+    from uuid import uuid4
+    summary=summarize_from_ledger(paid.ledger,job.workspace_id,qualified[0].artifact_id,1,
+        QueryPlan(view='company_overview',question='Invented complete workflow',max_bytes=128*1024,page=0,page_size=25),
+        qualification_guard=paid.qualification_guard)
+    summary_manifest=persist_summary(paid.ledger,summary,summary_id=uuid4(),summary_version=1,
+        permission_digest=qualified[0].permission_digest,compiler_digest=delivered_worker.config.runtime_hash,
+        qualification_guard=paid.qualification_guard)
+    assert summary_manifest.kind=='processing_summary_v1'
+    with psycopg.connect(admin_url) as connection:
+        assert connection.execute("SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND payload->>'namespace'='oracle_processing_v1'",
+            (job.workspace_id,)).fetchone()==(1,)
+    stage('compiler_summary_committed_without_second_projection')
