@@ -37,3 +37,9 @@ def test_executor_run_metadata_refuses_inconsistent_or_noncurrent_identity(damag
         value['summary_targets']=[dict(summary_artifact_id=str(uuid4()),summary_version=1,summary_content_hash='a'*64,
             qualified_parent_id=str(uuid4()),qualified_parent_version=1,qualified_parent_content_hash=value['model_content_hash'])]
     with pytest.raises(ValueError):ReplacementExecutorTargetV1.model_validate_json(json.dumps(value))
+
+
+@pytest.mark.parametrize('version',[True,False,1.0,'1'])
+def test_replacement_metadata_version_cannot_coerce_noninteger(version):
+    value=target_metadata();value['schema_version']=version
+    with pytest.raises(ValueError):ReplacementExecutorTargetV1.model_validate_json(json.dumps(value))
