@@ -75,3 +75,13 @@ def test_explicit_independent_observer_and_provider_deadlines_required(field,val
         if value is None:raw.pop(field)
         else:raw[field]=value
         with pytest.raises(ValidationError):PurposeMetadataConfigV2.model_validate(raw)
+
+
+def test_only_embedding_provider_can_mount_current_semantic_registry():
+    raw=config('provider');raw['semantic_registry_file']='/private/qualified-registry'
+    with pytest.raises(PermissionError):PurposeProviderConfigV2.model_validate(raw)
+    raw=config('provider');raw['phase']='embedding'
+    with pytest.raises(PermissionError):PurposeProviderConfigV2.model_validate(raw)
+    raw.update(semantic_registry_file='/own/registry',semantic_registry_sha256='1'*64,
+        semantic_appointment_file='/own/appointment',semantic_appointment_sha256='2'*64)
+    assert PurposeProviderConfigV2.model_validate(raw).phase=='embedding'

@@ -261,3 +261,54 @@ class PurposeQualifiedAssemblyReadGuardV3(QualifiedAssemblyReadGuard):
 
 
 from .contracts import canonical_bytes
+
+
+def verify_embedding_projection_v3(*,resolver,context,semantic_registry,now,connection=None):
+    """Actual own-role metadata eligibility; no raw getter or fake manifest.
+
+    The current SQL seal authenticates relational currentness and private blob
+    hash, not its body semantics. Exact externally admitted schema3 plus the
+    immutable body/projection hashes supply those separate checks.
+    """
+    from .authority_adapter import PurposeSourceResolverV2
+    from .contracts import ProcessingQualifiedProjectionSealV2
+    from .purpose_profiles_v2 import DerivedEmbeddingContextV2
+    from .semantic_registry_v3 import CurrentSemanticAdmissionsV3
+    if (type(resolver) is not PurposeSourceResolverV2 or type(context) is not DerivedEmbeddingContextV2
+            or type(semantic_registry) is not CurrentSemanticAdmissionsV3
+            or resolver.binding.phase!='embedding' or resolver.binding.caller_kind!='provider'
+            or resolver.binding.source.profile!='gateway-metadata'
+            or resolver.binding.source.principal!=context.actor_id):
+        raise PermissionError('actual own-login embedding metadata capability required')
+    def current():
+        return resolver.embedding_eligibility_seal(context.workspace_id,context.qualified_artifact_id,
+            context.qualified_artifact_version,connection=connection)
+    seal=current()
+    if (type(seal) is not ProcessingQualifiedProjectionSealV2 or seal.content_hash!=context.qualified_content_hash
+            or seal.source_refs!=context.source_refs or semantic_registry.appointment.workspace_id!=context.workspace_id):
+        raise PermissionError('exact current qualified projection eligibility differs')
+    def identity(workspace,principal,source):
+        if workspace!=context.workspace_id or principal!=context.actor_id:
+            raise PermissionError('embedding cannot borrow another source-reading actor')
+        matches=[ref for ref in seal.source_refs if ref.source_id==source]
+        if len(matches)!=1:raise PermissionError('qualified source metadata missing')
+        return matches[0]
+    def extraction(workspace,principal,artifact,version):
+        if workspace!=context.workspace_id or principal!=context.actor_id:
+            raise PermissionError('embedding cannot borrow compiler or executor credentials')
+        matches=[item for item in seal.extraction_seals if (item.artifact_id,item.version)==(artifact,version)]
+        if len(matches)!=1:raise PermissionError('qualified extraction metadata missing')
+        return matches[0]
+    _verify_final_assembly_lineage(seal,context.qualified_payload,context.actor_id,now,
+        trusted_admission_hashes=semantic_registry.current(now),runtime_hash=semantic_registry.appointment.runtime_hash,
+        current_source_identity=identity,current_extraction_seal=extraction,
+        qualification_model=PurposeAssemblyQualificationV3,lineage_model=PurposeFinalLineageV3,
+        protocol_model=ObservedAssemblyProtocolV2,wire_model=ObservedAssemblyWireV2,
+        permission_field='compiler_permission_hash',additional_check=_serve_schema3,
+        metadata_model=ProcessingQualifiedProjectionSealV2)
+    type(context).model_validate(context.model_dump(mode='python'))
+    if current()!=seal:
+        raise PermissionError('embedding eligibility changed during pure semantic validation')
+    admission=PurposeAssemblyQualificationV3.model_validate_json(
+        canonical_bytes(context.qualified_payload['assembly_qualification'])).admission
+    return min(semantic_registry.valid_until(now),admission.expires_at,resolver.binding.source.expires_at)

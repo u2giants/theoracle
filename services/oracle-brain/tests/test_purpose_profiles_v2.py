@@ -98,7 +98,7 @@ def test_derived_embedding_uses_only_exact_current_qualified_projection(qualifie
         runtime_hash='a'*64,permission_hash='b'*64,qualified_artifact_id=qualified['manifest'].artifact_id,
         qualified_artifact_version=qualified['manifest'].version,qualified_content_hash=digest(payload),
         projection_digest=digest(view),source_refs=tuple(SourceRef.model_validate_json(json.dumps(r)) for r in view['source_refs']),
-        projection=view)
+        projection=view,qualified_payload=payload)
     request=embedding.request()
     assert request['input']==[d['text'] for d in view['documents']]
     assert request['dimensions']==256 and request['model']=='openai/text-embedding-3-small'

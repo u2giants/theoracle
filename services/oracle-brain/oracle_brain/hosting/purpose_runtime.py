@@ -4,6 +4,7 @@ Every currentness observation is externally appointed, every SQL capability is
 bound to this caller, and every operation is qualified by protected phase bytes.
 This module consumes those admissions; it never issues grants, trust or budget.
 """
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime,timezone
 import json
@@ -80,6 +81,20 @@ class PurposeProviderConfigV2(PurposeCommonConfigV2):
     coverage_witness_file: str
     coverage_observer_public_key: str=Field(pattern=HASH)
     private_receipts: str
+    semantic_registry_file: str|None=None
+    semantic_registry_sha256: str|None=Field(default=None,pattern=HASH)
+    semantic_appointment_file: str|None=None
+    semantic_appointment_sha256: str|None=Field(default=None,pattern=HASH)
+
+    @model_validator(mode='after')
+    def embedding_semantic_mounts_only(self):
+        fields=(self.semantic_registry_file,self.semantic_registry_sha256,
+            self.semantic_appointment_file,self.semantic_appointment_sha256)
+        if (self.phase=='embedding' and any(v is None for v in fields)
+                or self.phase!='embedding' and any(v is not None for v in fields)):
+            raise PermissionError('only embedding provider mounts explicit current semantic appointment')
+        return self
+
     # Assembly's preparse observer is separately admitted; never inferred.
     assembly_observer_file: str|None=None
     assembly_observer_hash: str|None=Field(default=None,pattern=HASH)
@@ -229,6 +244,35 @@ def _local_operation_records_current_v2(settings,*,now,private_context=None):
     return allocation
 
 
+@contextmanager
+def _purpose_source_hold_v2(settings,descriptor,dispatch):
+    with settings.resolver._roles._connection(None) as conn:
+        with settings.resolver.hold(descriptor,dispatch,connection=conn) as proof:
+            yield proof,conn
+
+
+class SemanticRegistryStartupPinsV3(StrictRecord):
+    workspace_id: UUID
+    runtime_hash: str=Field(pattern=HASH)
+    compiler_profile: Literal['candidate-compiler']='candidate-compiler'
+    issuer_actor: UUID
+    reviewer_actor: UUID
+    valid_from: AwareDatetime
+    expires_at: AwareDatetime
+    purpose: Literal['captured-assembly-semantic-admission-v3']='captured-assembly-semantic-admission-v3'
+
+
+def _embedding_current_v3(settings,context,*,now,connection):
+    from oracle_brain.operating_model.semantic_registry_v3 import CurrentSemanticAdmissionsV3,SemanticRegistryAppointmentV3
+    from oracle_brain.operating_model.purpose_qualification_v3 import verify_embedding_projection_v3
+    c=settings.config
+    pins=_typed(c.semantic_appointment_file,c.semantic_appointment_sha256,SemanticRegistryStartupPinsV3)
+    appointment=SemanticRegistryAppointmentV3(**pins.model_dump(mode='python'))
+    registry=CurrentSemanticAdmissionsV3(c.semantic_registry_file,c.semantic_registry_sha256,appointment=appointment)
+    return verify_embedding_projection_v3(resolver=settings.resolver,context=context.embedding,
+        semantic_registry=registry,now=now,connection=connection)
+
+
 class CurrentPurposeJobsV2:
     """Own phase only: no CurrentJobs parent loader, path or sibling context."""
     def __init__(self,settings):
@@ -247,7 +291,7 @@ class CurrentPurposeJobsV2:
         if type(s.config) is not PurposeProviderConfigV2:
             raise PermissionError('metadata runtime cannot open private phase files')
         d,j,_=self.metadata(dispatch_id)
-        with s.resolver.hold(d,j) as proof:
+        with _purpose_source_hold_v2(s,d,j) as (proof,conn):
             verify_purpose_authority_proof_v2(proof,d,j,projection_sha256=s.pins.projection_sha256,
                 actual_caller_login=s.config.expected_session_role,profile=s.resolver.binding.source.profile,
                 now=datetime.now(timezone.utc))
@@ -263,14 +307,16 @@ class CurrentPurposeJobsV2:
             if digest(ctx.model_dump(mode='json'))!=j.context_hash:
                 raise PermissionError('private phase context differs from operation qualification')
             ctx.validate_current(d,j,now=datetime.now(timezone.utc))
+            if d.phase=='embedding':_embedding_current_v3(s,ctx,now=datetime.now(timezone.utc),connection=conn)
         witness=s.observer.current(s.population)
         # Close the observer network gap with one final actual SQL check. No
         # network occurs under this short hold; stale queued intent is not proof.
-        with s.resolver.hold(d,j) as proof:
+        with _purpose_source_hold_v2(s,d,j) as (proof,conn):
             now=datetime.now(timezone.utc)
             _local_operation_records_current_v2(s,now=now,private_context=ctx)
             verify_purpose_authority_proof_v2(proof,d,j,projection_sha256=s.pins.projection_sha256,
                 actual_caller_login=s.config.expected_session_role,profile=s.resolver.binding.source.profile,now=now)
+            if d.phase=='embedding':_embedding_current_v3(s,ctx,now=now,connection=conn)
             if now>=min(witness.expires_at,proof.expires_at):
                 raise PermissionError('current parent/source observation expired before use')
         return ctx
@@ -341,13 +387,14 @@ def _commit_phase_response_v2(settings,context,record):
     success=directory/(str(j.dispatch_id)+'.phase-commit.json')
     created=False;owned_inode=None
     try:
-        with s.resolver.hold(d,j) as proof:
+        with _purpose_source_hold_v2(s,d,j) as (proof,conn):
             now=datetime.now(timezone.utc)
             _local_operation_records_current_v2(s,now=now,private_context=context)
             verify_purpose_authority_proof_v2(proof,d,j,projection_sha256=s.pins.projection_sha256,
                 actual_caller_login=s.config.expected_session_role,profile=s.resolver.binding.source.profile,now=now)
             until=min(proof.expires_at,witness.expires_at,allocation.original_expires_at,s.pins.expires_at,
                       s.population.expires_at,d.expires_at,s.config.source_expires_at)
+            if d.phase=='embedding':until=min(until,_embedding_current_v3(s,context,now=now,connection=conn))
             committed=PhaseResponseCommitV2(phase=d.phase,operation=d.operation,processing_purpose=d.purpose,
                 dispatch_id=j.dispatch_id,workspace_id=d.workspace_id,actor_id=d.actor_id,
                 provider_login=d.provider_login,actual_caller_login=proof.actual_caller_login,
@@ -367,6 +414,7 @@ def _commit_phase_response_v2(settings,context,record):
             # link is exclusive: a replay never overwrites an existing success.
             os.link(pending,success,follow_symlinks=False);created=True;_sync_spool(directory)
             _local_operation_records_current_v2(s,now=datetime.now(timezone.utc),private_context=context)
+            if d.phase=='embedding':_embedding_current_v3(s,context,now=datetime.now(timezone.utc),connection=conn)
         # SQL hold's actual current-source/role/clock recheck completed. No success
         # may escape when post-write guards refuse; preserve failed custody below.
         if datetime.now(timezone.utc)>=until:
@@ -402,7 +450,8 @@ def _native_phase_broker_v2(settings,jobs,context):
     if d.expires_at>allocation.original_expires_at:
         raise PermissionError('phase cannot extend original allocation expiry')
     if c.phase=='embedding':
-        raise PermissionError('current typed embedding eligibility capability required')
+        with _purpose_source_hold_v2(settings,d,d.dispatch(context.job.dispatch_id)) as (proof,conn):
+            _embedding_current_v3(settings,context,now=datetime.now(timezone.utc),connection=conn)
     key=protected_file(c.provider_key_file,limit=8192).decode().strip()
     fingerprint=hashlib.sha256(key.encode()).hexdigest()
     def coverage():
@@ -468,7 +517,7 @@ class PurposeMetadataIngressV2:
         if request['request_hash']!=j.request_hash or request['phase_registry_sha256']!=s.pins.phase_registry_sha256:
             raise PermissionError('metadata dispatch differs from independently admitted operation')
         def current_sql():
-            with s.resolver.hold(d,j) as proof:
+            with _purpose_source_hold_v2(s,d,j) as (proof,conn):
                 verify_purpose_authority_proof_v2(proof,d,j,projection_sha256=s.pins.projection_sha256,
                     actual_caller_login=s.config.expected_session_role,profile='gateway-metadata',
                     now=datetime.now(timezone.utc))
