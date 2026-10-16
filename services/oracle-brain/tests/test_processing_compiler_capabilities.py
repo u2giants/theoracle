@@ -181,3 +181,23 @@ def test_original_or_gateway_role_never_opens_generated_blob(admin_url,processin
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute('SELECT * FROM oracle2.hosting_processing_artifact(%s,%s,1,%s,%s,%s)',
                 (f['workspace'],uuid4(),f['actor'],RUNTIME,REGISTRY))
+
+
+@pytest.mark.parametrize('value',[True,False,object(),lambda *args:None])
+def test_opt_in_extraction_boundary_rejects_untyped_guards_before_blob(processing,tmp_path,value):
+    f=processing();source=ProcessingArtifactResolver(f['url'],binding=f['binding'])
+    class NoBlob:
+        def put(self,*args):raise AssertionError('untyped extraction authority reached blob')
+        def read(self,*args):raise AssertionError('untyped extraction authority reached blob')
+    with pytest.raises(PermissionError,match='exact protected'):
+        ProcessingCompilerLedger(f['url'],NoBlob(),principal=f['actor'],processing_sources=source,
+            processing_read_guard=lambda *args:None,processing_extraction_guard=value)
+
+
+def test_opt_in_extraction_boundary_rejects_subclasses(processing,tmp_path):
+    from oracle_brain.operating_model.purpose_journey import ProcessingCompilerExtractionGuardV2
+    class BorrowedGuard(ProcessingCompilerExtractionGuardV2):pass
+    f=processing();source=ProcessingArtifactResolver(f['url'],binding=f['binding'])
+    with pytest.raises(PermissionError,match='exact protected'):
+        ProcessingCompilerLedger(f['url'],FileBlobStore(tmp_path),principal=f['actor'],processing_sources=source,
+            processing_read_guard=lambda *args:None,processing_extraction_guard=object.__new__(BorrowedGuard))
