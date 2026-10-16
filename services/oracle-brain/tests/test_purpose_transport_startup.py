@@ -138,7 +138,8 @@ def test_actual_fixed_metadata_cli_process_uses_protected_files_and_mtls(actual_
         child=subprocess.Popen([sys.executable,'-m','oracle_brain.hosting.purpose_transport',
             '--phase','census','--role','metadata','--config',x['config_file'],
             '--config-sha256',x['config_hash']],stdout=stream,stderr=subprocess.STDOUT,
-            env={'PATH':os.defpath,'LANG':'C.UTF-8','PYTHONNOUSERSITE':'1'})
+            env={'PATH':os.defpath,'LANG':'C.UTF-8','PYTHONNOUSERSITE':'1',
+                'PYTHONPATH':str(Path(__file__).resolve().parents[1]),'PYTHONDONTWRITEBYTECODE':'1'})
         try:
             deadline=time.monotonic()+5
             while True:
