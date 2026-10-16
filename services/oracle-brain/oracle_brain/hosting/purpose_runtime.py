@@ -252,6 +252,7 @@ def _purpose_source_hold_v2(settings,descriptor,dispatch):
 
 
 class SemanticRegistryStartupPinsV3(StrictRecord):
+    schema_version: Literal[3] = 3
     workspace_id: UUID
     runtime_hash: str=Field(pattern=HASH)
     compiler_profile: Literal['candidate-compiler']='candidate-compiler'
@@ -268,7 +269,11 @@ def _embedding_current_v3(settings,context,*,now,connection):
     from oracle_brain.operating_model.purpose_profiles_v2 import DerivedSDKEmbeddingContextV3
     c=settings.config
     pins=_typed(c.semantic_appointment_file,c.semantic_appointment_sha256,SemanticRegistryStartupPinsV3)
-    appointment=SemanticRegistryAppointmentV3(**pins.model_dump(mode='python'))
+    appointment=SemanticRegistryAppointmentV3(
+        workspace_id=pins.workspace_id,runtime_hash=pins.runtime_hash,
+        compiler_profile=pins.compiler_profile,issuer_actor=pins.issuer_actor,
+        reviewer_actor=pins.reviewer_actor,valid_from=pins.valid_from,
+        expires_at=pins.expires_at,purpose=pins.purpose)
     registry=CurrentSemanticAdmissionsV3(c.semantic_registry_file,c.semantic_registry_sha256,appointment=appointment)
     verify=verify_sdk_embedding_projection_v3 if type(context.embedding) is DerivedSDKEmbeddingContextV3 else verify_embedding_projection_v3
     return verify(resolver=settings.resolver,context=context.embedding,

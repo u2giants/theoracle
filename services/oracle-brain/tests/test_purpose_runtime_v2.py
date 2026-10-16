@@ -85,3 +85,52 @@ def test_only_embedding_provider_can_mount_current_semantic_registry():
     raw.update(semantic_registry_file='/own/registry',semantic_registry_sha256='1'*64,
         semantic_appointment_file='/own/appointment',semantic_appointment_sha256='2'*64)
     assert PurposeProviderConfigV2.model_validate(raw).phase=='embedding'
+
+
+@pytest.mark.parametrize('mutation', [None, 'version', 'missing', 'extra', 'foreign-scope'])
+def test_embedding_current_constructs_actual_strict_schema3_registry(tmp_path, monkeypatch, mutation):
+    from datetime import timedelta
+    from types import SimpleNamespace
+    from uuid import uuid4
+    import hashlib
+    import oracle_brain.hosting.purpose_runtime as runtime
+    import oracle_brain.operating_model.purpose_qualification_v3 as qualification
+    now=datetime.now(timezone.utc);start=now-timedelta(seconds=1);end=now+timedelta(minutes=1)
+    workspace,issuer,reviewer=uuid4(),uuid4(),uuid4()
+    pins=dict(schema_version=3,workspace_id=str(workspace),runtime_hash='a'*64,
+        compiler_profile='candidate-compiler',issuer_actor=str(issuer),reviewer_actor=str(reviewer),
+        valid_from=start.isoformat(),expires_at=end.isoformat(),
+        purpose='captured-assembly-semantic-admission-v3')
+    scope=dict(qualification_purpose=pins['purpose'],workspace_id=str(workspace),runtime_hash='a'*64,
+        compiler_profile='candidate-compiler',issuer_actor=str(issuer),reviewer_actor=str(reviewer))
+    item=dict(schema_version=3,admission_hash='b'*64,revoked=False,
+        valid_from=start.isoformat(),expires_at=end.isoformat(),**scope)
+    item['record_seal']=digest(item)
+    registry=dict(schema_version=3,revoked=False,valid_from=start.isoformat(),
+        expires_at=end.isoformat(),admissions=[item],**scope)
+    if mutation=='version':pins['schema_version']=1
+    elif mutation=='missing':del pins['runtime_hash']
+    elif mutation=='extra':pins['authorized']=True
+    elif mutation=='foreign-scope':pins['workspace_id']=str(uuid4())
+    def write(name,value):
+        body=canonical_bytes(value);path=tmp_path/name;path.write_bytes(body);path.chmod(0o600)
+        return str(path),hashlib.sha256(body).hexdigest()
+    appointment_path,appointment_hash=write('appointment.json',pins)
+    registry_path,registry_hash=write('registry.json',registry)
+    settings=SimpleNamespace(config=SimpleNamespace(semantic_appointment_file=appointment_path,
+        semantic_appointment_sha256=appointment_hash,semantic_registry_file=registry_path,
+        semantic_registry_sha256=registry_hash),resolver=object())
+    context=SimpleNamespace(embedding=object());connection=object();calls=[]
+    def boundary(**kwargs):
+        assert kwargs['resolver'] is settings.resolver and kwargs['connection'] is connection
+        # Exercise the actual protected registry, not a stub appointment constructor.
+        hashes=kwargs['semantic_registry'].current(kwargs['now']);calls.append(hashes)
+        return hashes
+    monkeypatch.setattr(qualification,'verify_embedding_projection_v3',boundary)
+    if mutation is None:
+        assert runtime._embedding_current_v3(settings,context,now=now,connection=connection)==frozenset({'b'*64})
+        assert calls==[frozenset({'b'*64})]
+    else:
+        with pytest.raises((ValidationError,PermissionError)):
+            runtime._embedding_current_v3(settings,context,now=now,connection=connection)
+        assert not calls
