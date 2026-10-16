@@ -346,7 +346,7 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
         self.paid_embedder.assert_no_denials()
 
     async def _verify_paid_vectors(self,payload):
-        from .paid_sdk_embeddings_v3 import PaidSDKProjectionProofV3
+        from .paid_sdk_embeddings_v3 import PaidSDKProjectionProofV3,sdk_float32_vector
         import math
         self._paid_payload(payload)
         inventory=self.paid_embedder.data.inventory;w=self.paid_embedder.data.witness
@@ -357,7 +357,7 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
                 raise PermissionError('stored SDK vector identity/text population differs')
             if (not isinstance(vector,(list,tuple)) or len(vector)!=256
                     or any(type(x) not in (int,float) or not math.isfinite(x) for x in vector)
-                    or tuple(float(x) for x in vector)!=self.paid_embedder.vector_for_usage(key)):
+                    or tuple(float(x) for x in vector)!=sdk_float32_vector(self.paid_embedder.vector_for_usage(key))):
                 raise PermissionError('stored SDK vector differs from actual paid response')
             actual[key]={'usage_key':key,'text_hash':expected[key][1],'vector_hash':digest({'vector':tuple(float(x) for x in vector)})}
         documents={doc['text']:doc['document_id'] for doc in self.projection_view(payload)['documents']}
@@ -370,7 +370,7 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
             accept('relation:'+identifier,fact,vector)
         if actual.keys()!=expected.keys():raise PermissionError('SDK omitted actual paid graph vectors')
         if self._paid_building:self.paid_embedder.assert_observed(tuple(expected))
-        coverage=digest({'schema':'paid-sdk-vector-coverage-v3','inventory_hash':w.inventory_hash,
+        coverage=digest({'schema':'paid-sdk-vector-coverage-v3','storage':'falkordb-vecf32','inventory_hash':w.inventory_hash,
             'vectors':[actual[key] for key in sorted(actual)]})
         proof=PaidSDKProjectionProofV3(embedding_inventory_hash=w.inventory_hash,embedding_context_hash=w.context_hash,
             embedding_native_receipt_hash=w.native_receipt_hash,embedding_wire_hash=w.raw_response_hash,
