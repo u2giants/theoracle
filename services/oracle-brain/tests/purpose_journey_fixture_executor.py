@@ -89,8 +89,19 @@ def executor_certificate(certificates,root):
     return certificate,key
 
 
+def prepare_executor_inputs(*,admin_url,worker,job,compiler,qualified_manifest,summary_manifest,root,certificates):
+    """All compiler-observer replica work is serial before graph projection."""
+    root.mkdir(mode=0o700)
+    db_file,binding,resolver=executor_role(admin_url,worker,job,root)
+    replica=root/'sanitized-blobs'
+    materialize_sanitized_only(compiler,resolver,job,(qualified_manifest,summary_manifest),replica)
+    certificate,key=executor_certificate(certificates,root)
+    return dict(root=root,db_file=db_file,binding=binding,resolver=resolver,replica=replica,
+        certificate=certificate,key=key,qualified_manifest=qualified_manifest,summary_manifest=summary_manifest)
+
+
 def verify_protected_executor(delivery,*,admin_url,worker,job,summary_manifest,extraction_ids,
-        root,tls,certificates,stage,after_positive):
+        root,tls,certificates,stage,after_positive,prepared=None):
     """The real own-role loader, ACK metadata, readonly TLS graph and answer."""
     import asyncio,pytest
     from urllib.parse import urlsplit,urlunsplit
@@ -101,12 +112,12 @@ def verify_protected_executor(delivery,*,admin_url,worker,job,summary_manifest,e
     from oracle_brain.hosting.paid_executor_v3 import ExecutorSummaryTargetV3,build_paid_executor_projection_v3
     from oracle_brain.operating_model.summaries import serve_summary
     from oracle_brain.operating_model.answer import answer_from_summary
-    root.mkdir(mode=0o700)
     projector=delivery['settings'];manifest=projector.bundle.manifest;payload=projector.bundle.payload
-    db_file,binding,resolver=executor_role(admin_url,worker,job,root)
-    replica=root/'sanitized-blobs'
-    materialize_sanitized_only(projector.bundle.ledger,resolver,job,(manifest,summary_manifest),replica)
-    certificate,key=executor_certificate(certificates,root)
+    if prepared is None:
+        prepared=prepare_executor_inputs(admin_url=admin_url,worker=worker,job=job,compiler=projector.bundle.ledger,
+            qualified_manifest=manifest,summary_manifest=summary_manifest,root=root,certificates=certificates)
+    assert prepared['root']==root and prepared['qualified_manifest']==manifest and prepared['summary_manifest']==summary_manifest
+    db_file,binding,resolver,replica,certificate,key=(prepared[k] for k in ('db_file','binding','resolver','replica','certificate','key'))
     def actual_delivery(event):
         actual=worker.resolver.projection_receipt_v3(job.workspace_id,manifest.artifact_id,manifest.version)
         assert actual.receipt.event_id==str(event)
@@ -143,26 +154,41 @@ def verify_protected_executor(delivery,*,admin_url,worker,job,summary_manifest,e
                     assert answer.state=='answered' and answer.citations
                     assert all(marker not in answer.model_dump_json() for marker in PRIVATE_MARKERS)
                     stage('protected_executor_graph_summary_answer_verified')
-                    # Negative assertions follow the complete positive path.
-                    # This fixture-admin callback grants no runtime authority.
-                    after_positive()
-                    denied=(PermissionError,psycopg.errors.InsufficientPrivilege)
-                    with pytest.raises(denied):settings.resolver.current_for_processing(job.workspace_id,job.source_refs[0].source_id)
-                    original_read=settings.ledger.blobs.read
-                    def no_raw_blob(*args):raise AssertionError('executor attempted an extraction blob')
-                    settings.ledger.blobs.read=no_raw_blob
-                    try:
-                        for artifact,version in extraction_ids:
-                            with pytest.raises(denied):settings.ledger.read_with_manifest(job.workspace_id,artifact,version)
-                    finally:settings.ledger.blobs.read=original_read
-                    # Current source withdrawal defeats retained model/summary
-                    # and graph objects; no cached answer becomes authority.
-                    with psycopg.connect(admin_url) as conn:
-                        conn.execute("UPDATE oracle2.drafts SET status='withdrawn' WHERE source_id=%s AND workspace_id=%s",
-                            (job.source_refs[-1].source_id,job.workspace_id))
-                    with pytest.raises(psycopg.errors.InsufficientPrivilege):settings.read_summary(summary_manifest.artifact_id,summary_manifest.version)
-                    with pytest.raises(psycopg.errors.InsufficientPrivilege):await projection.load(settings.ledger,job.workspace_id,manifest.artifact_id,manifest.version)
-                    with pytest.raises(psycopg.errors.InsufficientPrivilege):answer_from_summary(settings.ledger,summary,intent='overview',qualification_guard=settings.guard)
-                    stage('withdrawal_denies_cached_graph_summary_and_answer')
+                    return projection,summary
                 finally:await projection.close()
-            asyncio.run(load_and_answer())
+            from purpose_journey_fixture_delivery import run_independent_fixture_tasks
+            c=worker.config
+            results=run_independent_fixture_tasks({'compiler_restart':delivery['restart'],
+                'executor_answer':lambda:asyncio.run(load_and_answer())},
+                deadline=min(job.original_horizon,job.expires_at,settings.config.expires_at),
+                identities={'compiler_restart':dict(principal=str(c.actor_id),runtime=c.runtime_hash,
+                    login=c.expected_session_role,observer_path=str(worker.observer.replay.state_path.resolve())),
+                    'executor_answer':dict(principal=str(settings.config.actor_id),runtime=settings.config.runtime_hash,
+                    login=settings.config.expected_session_role,observer_path=None)},record=root/'restart-executor-overlap.json')
+            projection,summary=results['executor_answer']
+            stage('protected_graph_ack_and_compiler_restart')
+            # Both independent positive futures and their connection pools are
+            # now joined/closed. Cached objects must still deny source changes.
+            async def negatives():
+                # Negative assertions follow the complete positive path.
+                # This fixture-admin callback grants no runtime authority.
+                after_positive()
+                denied=(PermissionError,psycopg.errors.InsufficientPrivilege)
+                with pytest.raises(denied):settings.resolver.current_for_processing(job.workspace_id,job.source_refs[0].source_id)
+                original_read=settings.ledger.blobs.read
+                def no_raw_blob(*args):raise AssertionError('executor attempted an extraction blob')
+                settings.ledger.blobs.read=no_raw_blob
+                try:
+                    for artifact,version in extraction_ids:
+                        with pytest.raises(denied):settings.ledger.read_with_manifest(job.workspace_id,artifact,version)
+                finally:settings.ledger.blobs.read=original_read
+                # Current source withdrawal defeats retained model/summary
+                # and graph objects; no cached answer becomes authority.
+                with psycopg.connect(admin_url) as conn:
+                    conn.execute("UPDATE oracle2.drafts SET status='withdrawn' WHERE source_id=%s AND workspace_id=%s",
+                        (job.source_refs[-1].source_id,job.workspace_id))
+                with pytest.raises(psycopg.errors.InsufficientPrivilege):settings.read_summary(summary_manifest.artifact_id,summary_manifest.version)
+                with pytest.raises(psycopg.errors.InsufficientPrivilege):await projection.load(settings.ledger,job.workspace_id,manifest.artifact_id,manifest.version)
+                with pytest.raises(psycopg.errors.InsufficientPrivilege):answer_from_summary(settings.ledger,summary,intent='overview',qualification_guard=settings.guard)
+                stage('withdrawal_denies_cached_graph_summary_and_answer')
+            asyncio.run(negatives())

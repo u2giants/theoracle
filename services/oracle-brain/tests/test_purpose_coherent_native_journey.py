@@ -41,11 +41,13 @@ from oracle_brain.hosting.purpose_journey_v2 import PurposeJourneyCustodyV2,run_
 
 @pytest.mark.parametrize('native_census_startup',[{'phase':'census','coherent':True}],indirect=True)
 def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,admin_url,tmp_path):
-    import json,time
+    import json,time,threading
+    stage_lock=threading.Lock()
     started=time.monotonic();timings={}
     def stage(name):
-        timings[name]=round(time.monotonic()-started,3)
-        path=tmp_path/'stage-timings.json';path.write_text(json.dumps(timings,sort_keys=True));path.chmod(0o600)
+        with stage_lock:
+            timings[name]=round(time.monotonic()-started,3)
+            path=tmp_path/'stage-timings.json';path.write_text(json.dumps(timings,sort_keys=True));path.chmod(0o600)
     x,settings,job=compiler_worker
     parent=x['input_parent']
     assert parent is not None and len(parent.contexts)==3
@@ -138,46 +140,60 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
     qualified=compiled_ledger.read_with_manifest(job.workspace_id,assembly['job'].artifact_id,1)
     embedding=admit_assembly_phase(x,admin_url=admin_url,root=tmp_path/'late-embedding',handoff=handoff,census=frozen,
         receipts=receipts,phase='embedding',qualified=qualified,semantic_settings=compiled)
-    x['observe_fixture_coverage']()
-    try:embedding_reply=embedding['client'].dispatch(embedding['job'].dispatch_id,embedding['job'].request_hash,
-        embedding['operation_hash'],deadline=embedding['descriptor'].expires_at)
-    except Exception as error:raise AssertionError(str(x['state'].get('failure'))) from error
-    assert x['state']['posts']==7 and set(embedding_reply)=={'dispatch_id','request_hash','phase_registry_sha256','raw_response_hash','receipt_hash'}
-    stage('native_embedding_committed')
+    from oracle_brain.operating_model.summaries import summarize_from_ledger,persist_summary
+    from uuid import uuid4
+    from purpose_journey_fixture_delivery import run_independent_fixture_tasks
+    def compile_summary():
+        # Summary is a compiler operation: retain all historical paid proof here.
+        from oracle_brain.hosting.paid_sdk_delivery_v3 import CurrentPaidSDKGuardV3
+        summary_compiler=build_purpose_qualified_reader_v3(compiled,compile_job)
+        summary_guard=CurrentPaidSDKGuardV3(summary_compiler.processing_read_guard)
+        from oracle_brain.operating_model.retrieval import QueryPlan
+        from oracle_brain.operating_model.summaries import summarize_from_ledger,persist_summary
+        from uuid import uuid4
+        import cProfile,pstats,io
+        summary_profile=cProfile.Profile()
+        summary_profile.enable()
+        try:
+            summary=summarize_from_ledger(summary_compiler,job.workspace_id,qualified[0].artifact_id,1,
+                QueryPlan(view='company_overview',question='Invented complete workflow',max_bytes=128*1024,page=0,page_size=25),
+                qualification_guard=summary_guard)
+            summary_manifest=persist_summary(summary_compiler,summary,summary_id=uuid4(),summary_version=1,
+                permission_digest=qualified[0].permission_digest,compiler_digest=compiled.config.runtime_hash,
+                qualification_guard=summary_guard)
+            assert summary_manifest.kind=='processing_summary_v1'
+            with psycopg.connect(admin_url) as connection:
+                assert connection.execute("SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND payload->>'namespace'='oracle_processing_v1'",
+                    (job.workspace_id,)).fetchone()==(1,)
+        finally:
+            summary_profile.disable()
+            summary_profile.dump_stats(str(tmp_path/'summary-compile-profile.pstats'))
+            profile_text=io.StringIO()
+            pstats.Stats(summary_profile,stream=profile_text).strip_dirs().sort_stats('cumulative').print_stats()
+            (tmp_path/'summary-compile-profile.txt').write_text(profile_text.getvalue())
+        stage('compiler_summary_committed_without_second_projection')
+        return summary_compiler,summary_guard,summary,summary_manifest
+    def dispatch_embedding():
+        x['observe_fixture_coverage']()
+        try:reply=embedding['client'].dispatch(embedding['job'].dispatch_id,embedding['job'].request_hash,
+            embedding['operation_hash'],deadline=embedding['descriptor'].expires_at)
+        except Exception as error:raise AssertionError(str(x['state'].get('failure'))) from error
+        assert x['state']['posts']==7 and set(reply)=={'dispatch_id','request_hash','phase_registry_sha256','raw_response_hash','receipt_hash'}
+        stage('native_embedding_committed')
+        return reply
+    def identity(settings):
+        return dict(principal=str(settings.config.actor_id),runtime=settings.config.runtime_hash,
+            login=settings.config.expected_session_role,observer_path=str(settings.observer.replay.state_path.resolve()))
+    parallel=run_independent_fixture_tasks({'summary':compile_summary,'embedding':dispatch_embedding},
+        deadline=min(compile_job.original_horizon,compile_job.expires_at,embedding['descriptor'].expires_at),
+        identities={'summary':identity(compiled),'embedding':identity(embedding['settings'])},record=tmp_path/'summary-embedding-overlap.json')
+    summary_compiler,summary_guard,summary,summary_manifest=parallel['summary']
     from purpose_journey_fixture_delivery import appoint_actual_embedding_outputs
     delivered_worker,embedding_pins=appoint_actual_embedding_outputs(embedding,worker=compiled,compile_job=compile_job,
         artifact=qualified[0],root=tmp_path/'late-paid-consumer')
     stage('embedding_custody_reappointment_loaded')
     from oracle_brain.hosting.paid_sdk_delivery_v3 import load_paid_sdk_bundle_v3
     from purpose_journey_fixture_delivery import deliver_actual_paid_graph,unmounted_historical_extraction_wires
-    # Summary is a compiler operation: retain all historical paid proof here.
-    from oracle_brain.hosting.paid_sdk_delivery_v3 import CurrentPaidSDKGuardV3
-    summary_compiler=build_purpose_qualified_reader_v3(delivered_worker,compile_job)
-    summary_guard=CurrentPaidSDKGuardV3(summary_compiler.processing_read_guard)
-    from oracle_brain.operating_model.retrieval import QueryPlan
-    from oracle_brain.operating_model.summaries import summarize_from_ledger,persist_summary
-    from uuid import uuid4
-    import cProfile,pstats,io
-    summary_profile=cProfile.Profile()
-    summary_profile.enable()
-    try:
-        summary=summarize_from_ledger(summary_compiler,job.workspace_id,qualified[0].artifact_id,1,
-            QueryPlan(view='company_overview',question='Invented complete workflow',max_bytes=128*1024,page=0,page_size=25),
-            qualification_guard=summary_guard)
-        summary_manifest=persist_summary(summary_compiler,summary,summary_id=uuid4(),summary_version=1,
-            permission_digest=qualified[0].permission_digest,compiler_digest=delivered_worker.config.runtime_hash,
-            qualification_guard=summary_guard)
-        assert summary_manifest.kind=='processing_summary_v1'
-        with psycopg.connect(admin_url) as connection:
-            assert connection.execute("SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND payload->>'namespace'='oracle_processing_v1'",
-                (job.workspace_id,)).fetchone()==(1,)
-    finally:
-        summary_profile.disable()
-        summary_profile.dump_stats(str(tmp_path/'summary-compile-profile.pstats'))
-        profile_text=io.StringIO()
-        pstats.Stats(summary_profile,stream=profile_text).strip_dirs().sort_stats('cumulative').print_stats()
-        (tmp_path/'summary-compile-profile.txt').write_text(profile_text.getvalue())
-    stage('compiler_summary_committed_without_second_projection')
     def assert_missing_raw_full_compilation(proof_ledger,absent):
         with pytest.raises(FileNotFoundError) as raw_denial:
             proof_ledger.read_with_manifest(job.workspace_id,handoff.extractions[0].manifest.artifact_id,1)
@@ -207,16 +223,73 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         assert len(paid.embedder.data.vectors)==len(paid.embedder.data.inventory.inputs)
         assert all(len(v)==256 for v in paid.embedder.data.vectors)
         stage('protected_paid_bundle_without_historical_raw_wire')
+        from purpose_journey_fixture_executor import prepare_executor_inputs
+        prepared_executor=prepare_executor_inputs(admin_url=admin_url,worker=delivered_worker,job=compile_job,
+            compiler=paid.ledger,qualified_manifest=qualified[0],summary_manifest=summary_manifest,
+            root=tmp_path/'actual-executor',certificates=__import__('pathlib').Path(x['platform']['binding'](1).ca_file).parent)
+        stage('executor_replica_prepared_before_graph')
         def raw_compile_negatives():assert_missing_raw_full_compilation(paid.ledger,absent)
         with deliver_actual_paid_graph(delivered_worker,compile_job,artifact=qualified[0],
             embedding_dispatch_id=embedding['job'].dispatch_id,root=tmp_path/'actual-paid-graph',
             tls=x['platform']['tls'],certificates=__import__('pathlib').Path(x['platform']['binding'](1).ca_file).parent,
             prepared_bundle=paid,stage=stage) as delivery:
             assert delivery['signed']['content_hash']==qualified[0].content_hash and x['state']['posts']==7
-            stage('protected_graph_ack_and_compiler_restart')
             from purpose_journey_fixture_executor import verify_protected_executor
             verify_protected_executor(delivery,admin_url=admin_url,worker=delivered_worker,job=compile_job,
                 summary_manifest=summary_manifest,extraction_ids=tuple((e.manifest.artifact_id,e.manifest.version) for e in handoff.extractions),
                 root=tmp_path/'actual-executor',tls=x['platform']['tls'],
                 certificates=__import__('pathlib').Path(x['platform']['binding'](1).ca_file).parent,stage=stage,
-                after_positive=raw_compile_negatives)
+                after_positive=raw_compile_negatives,prepared=prepared_executor)
+
+
+def _independent_test_identities():
+    return {'a':dict(principal='actor-a',runtime='runtime-a',login='login-a',observer_path='observer-a'),
+        'b':dict(principal='actor-b',runtime='runtime-b',login='login-b',observer_path='observer-b')}
+
+
+def test_parallel_fixture_tasks_overlap_and_join_before_successor(tmp_path):
+    import threading,json
+    from datetime import datetime,timedelta,timezone
+    from purpose_journey_fixture_delivery import run_independent_fixture_tasks
+    barrier=threading.Barrier(2);done=[]
+    def task(name):barrier.wait(timeout=2);done.append(name);return name
+    result=run_independent_fixture_tasks({'a':lambda:task('a'),'b':lambda:task('b')},
+        deadline=datetime.now(timezone.utc)+timedelta(seconds=5),identities=_independent_test_identities(),record=tmp_path/'overlap.json')
+    assert result=={'a':'a','b':'b'} and set(done)=={'a','b'}
+    record=json.loads((tmp_path/'overlap.json').read_text());a,b=(record['intervals'][k] for k in ('a','b'))
+    assert max(a['started'],b['started'])<min(a['finished'],b['finished']) and record['all_tasks_observed']
+
+
+@pytest.mark.parametrize('collision',['principal','runtime','login','observer_path'])
+def test_parallel_fixture_refuses_shared_actual_identity_or_observer_before_calls(tmp_path,collision):
+    from datetime import datetime,timedelta,timezone
+    from purpose_journey_fixture_delivery import run_independent_fixture_tasks
+    identities=_independent_test_identities();identities['b'][collision]=identities['a'][collision];calls=[]
+    with pytest.raises(AssertionError,match='collision|shared observer'):
+        run_independent_fixture_tasks({'a':lambda:calls.append('a'),'b':lambda:calls.append('b')},
+            deadline=datetime.now(timezone.utc)+timedelta(seconds=5),identities=identities,record=tmp_path/'denied.json')
+    assert calls==[] and not (tmp_path/'denied.json').exists()
+
+
+def test_parallel_fixture_observes_other_lane_after_failure_and_never_runs_successor(tmp_path):
+    import threading,json
+    from datetime import datetime,timedelta,timezone
+    from purpose_journey_fixture_delivery import run_independent_fixture_tasks
+    barrier=threading.Barrier(2);done=[];successors=[]
+    def bad():barrier.wait(timeout=2);raise PermissionError('controlled branch denied')
+    def good():barrier.wait(timeout=2);done.append('joined');return 'actual-result'
+    with pytest.raises(PermissionError,match='controlled branch denied'):
+        run_independent_fixture_tasks({'a':bad,'b':good},deadline=datetime.now(timezone.utc)+timedelta(seconds=5),
+            identities=_independent_test_identities(),record=tmp_path/'failure.json')
+        successors.append('custody-or-graph')
+    assert done==['joined'] and successors==[] and json.loads((tmp_path/'failure.json').read_text())['all_tasks_observed']
+
+
+def test_parallel_fixture_expired_original_horizon_never_starts_or_renews(tmp_path):
+    from datetime import datetime,timedelta,timezone
+    from purpose_journey_fixture_delivery import run_independent_fixture_tasks
+    calls=[]
+    with pytest.raises(TimeoutError,match='original fixture horizon'):
+        run_independent_fixture_tasks({'a':lambda:calls.append('a'),'b':lambda:calls.append('b')},
+            deadline=datetime.now(timezone.utc)-timedelta(seconds=1),identities=_independent_test_identities(),record=tmp_path/'expired.json')
+    assert calls==[]

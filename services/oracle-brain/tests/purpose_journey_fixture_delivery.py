@@ -9,6 +9,45 @@ from oracle_brain.hosting.purpose_journey_v2 import CompilerPhaseCustodyFileV2,C
 from test_purpose_worker_startup import make_next_compiler_worker_v2
 
 
+def run_independent_fixture_tasks(tasks,*,deadline,identities,record):
+    """TEST ONLY bounded two-lane DAG; no grant/proof/result is cached here."""
+    import concurrent.futures,time
+    from datetime import datetime,timezone
+    if len(tasks)!=2 or set(tasks)!=set(identities):raise AssertionError('two exact independent fixture lanes required')
+    if not isinstance(deadline,datetime) or deadline.tzinfo is None or deadline.utcoffset() is None:
+        raise AssertionError('aware original fixture horizon required')
+    if deadline<=datetime.now(timezone.utc):raise TimeoutError('original fixture horizon elapsed')
+    values=list(identities.values())
+    for key in ('principal','runtime','login'):
+        if not values[0][key] or values[0][key]==values[1][key]:raise AssertionError('fixture identity collision')
+    paths=[v.get('observer_path') for v in values if v.get('observer_path') is not None]
+    if len(set(paths))!=len(paths):raise AssertionError('shared observer state cannot run concurrently')
+    intervals={};results={};errors=[]
+    def run(name,task):
+        intervals[name]={'started':time.monotonic()}
+        try:return task()
+        finally:intervals[name]['finished']=time.monotonic()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        futures={name:pool.submit(run,name,task) for name,task in tasks.items()}
+        for name,future in futures.items():
+            try:
+                remaining=(deadline-datetime.now(timezone.utc)).total_seconds()
+                if remaining<=0:raise TimeoutError('original fixture horizon elapsed')
+                results[name]=future.result(timeout=remaining)
+            except BaseException as error:errors.append(error)
+        # A timeout/cancel is not stop proof. Observe every actual task before
+        # caller may close graph/credentials or dispatch any successor.
+        for name,future in futures.items():
+            try:results[name]=future.result()
+            except BaseException as error:
+                if error not in errors:errors.append(error)
+    record.write_text(json.dumps({'intervals':intervals,'identities':identities,'deadline':deadline.isoformat(),
+        'all_tasks_observed':True,'errors':[type(e).__name__ for e in errors]},sort_keys=True));record.chmod(0o600)
+    if errors:raise errors[0]
+    if datetime.now(timezone.utc)>=deadline:raise TimeoutError('original fixture horizon elapsed')
+    return results
+
+
 @contextmanager
 def unmounted_historical_extraction_wires(extraction,root):
     """TEST ONLY recoverable absence of exactly three already-paid raw files."""
@@ -97,14 +136,17 @@ def deliver_actual_paid_graph(worker,job,*,artifact,embedding_dispatch_id,root,t
                 signed=await project_paid_projector_event_v3(settings,lease)
                 assert signed['schema_version']==3 and signed['embedding_protocol']=='paid-sdk-embedding-v3'
                 stage('protected_graph_ack_committed')
-                # Fresh compiler reconstruction obtains the ACTUAL SQL ACK, not
-                # this local return value or an owner SELECT/cached receipt.
-                fresh=reload_paid_projector_projection_v3(settings)
-                try:
-                    loaded=await fresh.load(settings.bundle.ledger,job.workspace_id,artifact.artifact_id,artifact.version)
-                    assert loaded['qualified_lineage']['schema_version']==3
-                finally:await fresh.close()
                 return signed
             signed=asyncio.run(deliver())
-            yield dict(signed=signed,settings=settings,container=container,admin_url=admin,generation=generation)
+            def restart():
+                # Independent readonly reconstruction AFTER the actual ACK.
+                async def verify():
+                    fresh=reload_paid_projector_projection_v3(settings)
+                    try:
+                        loaded=await fresh.load(settings.bundle.ledger,job.workspace_id,artifact.artifact_id,artifact.version)
+                        assert loaded['qualified_lineage']['schema_version']==3
+                    finally:await fresh.close()
+                asyncio.run(verify())
+                stage('fresh_compiler_restart_verified')
+            yield dict(signed=signed,settings=settings,container=container,admin_url=admin,generation=generation,restart=restart)
             writer.confirm_inactive()  # All timely awaited calls/pools closed.
