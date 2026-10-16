@@ -70,6 +70,8 @@ def captured_assembly_candidate(*, context: AssemblyJobContext, observer: Assemb
         expected_protocol_hash: str, observed: ObservedAssemblyWire,
         raw: bytes, now: datetime):
     """Compile-only parse of actual retained wire; never fabricate ledger metadata."""
+    if type(context) is not AssemblyJobContext or type(protocol) is not ObservedAssemblyProtocol:
+        raise PermissionError('legacy assembly capture cannot consume a purpose V2 context/protocol')
     if now.tzinfo is None or now.utcoffset() is None or observer.expires_at <= now:
         raise PermissionError('current externally admitted assembly observer required')
     if (not isinstance(protocol, ObservedAssemblyProtocol)
@@ -89,21 +91,8 @@ def captured_assembly_candidate(*, context: AssemblyJobContext, observer: Assemb
             or type(raw) is not bytes or len(raw) != observed.captured_bytes
             or hashlib.sha256(raw).hexdigest() != observed.raw_sha256):
         raise PermissionError('complete observed assembly wire differs from sealed context')
-    envelope = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_object,
-                          parse_constant=_deny_constant)
-    if not isinstance(envelope, dict) or envelope.get('model') != context.job.request['model']:
-        raise PermissionError('captured provider model differs from assembly context')
-    choices = envelope.get('choices')
-    if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
-        raise ValueError('captured assembly requires exactly one complete choice')
-    choice = choices[0]
-    message = choice.get('message')
-    if (choice.get('finish_reason') != 'stop' or choice.get('index') != 0
-            or not isinstance(message, dict) or message.get('role') != 'assistant'
-            or message.get('tool_calls') or message.get('refusal')
-            or not isinstance(message.get('content'), str)):
-        raise ValueError('captured assembly is incomplete or not model-only content')
-    payload, evidence = context.validate_candidate(message['content'], now=now)
+    content=_observed_model_content(raw,context.job.request['model'])
+    payload, evidence = context.validate_candidate(content, now=now)
     # This stable pre-assessment packet binds full wire provenance as well as
     # extracted model content. Coverage is added only after independent admission.
     payload['assembly_capture'] = {
@@ -121,6 +110,24 @@ def captured_assembly_candidate(*, context: AssemblyJobContext, observer: Assemb
     return CapturedAssemblyCandidate(context_hash=sealed(context), observed_wire=observed,
         candidate=payload, candidate_hash=digest(payload), object_evidence_hash=digest({
             k: [e.model_dump(mode='json') for e in v] for k,v in evidence.items()})), evidence
+
+
+def _observed_model_content(raw,model):
+    envelope = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_object,
+                          parse_constant=_deny_constant)
+    if not isinstance(envelope, dict) or envelope.get('model') != model:
+        raise PermissionError('captured provider model differs from assembly context')
+    choices = envelope.get('choices')
+    if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
+        raise ValueError('captured assembly requires exactly one complete choice')
+    choice = choices[0]
+    message = choice.get('message')
+    if (choice.get('finish_reason') != 'stop' or choice.get('index') != 0
+            or not isinstance(message, dict) or message.get('role') != 'assistant'
+            or message.get('tool_calls') or message.get('refusal')
+            or not isinstance(message.get('content'), str)):
+        raise ValueError('captured assembly is incomplete or not model-only content')
+    return message['content']
 
 
 class ObservedAssemblyCustodian:

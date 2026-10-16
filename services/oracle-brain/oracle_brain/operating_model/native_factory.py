@@ -352,7 +352,7 @@ def validate_embedding_response(response, *, count):
                 raise ValueError('embedding vector contains nonfinite/non-numeric values')
 
 
-class ObservedAssemblyBrokerEgress(NativeBrokerEgress):
+class _ObservedAssemblyBrokerBase(NativeBrokerEgress):
     """Explicit versioned assembly path; legacy broker/extraction stays unchanged.
 
     Protected startup supplies the independently pinned context/custodian and
@@ -361,11 +361,8 @@ class ObservedAssemblyBrokerEgress(NativeBrokerEgress):
     """
     def __init__(self, *, assembly_context, expected_assembly_context_hash,
                  assembly_observer, **kwargs):
-        from .assembly_context import AssemblyJobContext
-        from .captured_assembly import ObservedAssemblyCustodian
-        if (not isinstance(assembly_context,AssemblyJobContext)
-                or digest(assembly_context.model_dump(mode='json'))!=expected_assembly_context_hash
-                or not isinstance(assembly_observer,ObservedAssemblyCustodian)):
+        self._validate_context_types(assembly_context,assembly_observer)
+        if digest(assembly_context.model_dump(mode='json'))!=expected_assembly_context_hash:
             raise PermissionError('externally pinned assembly context and actual observer required')
         self._assembly_context=assembly_context
         self._assembly_context_hash=expected_assembly_context_hash
@@ -414,3 +411,13 @@ class ObservedAssemblyBrokerEgress(NativeBrokerEgress):
             raise PermissionError('observed assembly qualification unavailable; wire retained') from None
         if observed is not None:
             self._assembly_observer.retain(self._receipts,observed)
+
+
+class ObservedAssemblyBrokerEgress(_ObservedAssemblyBrokerBase):
+    """Legacy assembly context/protocol only; new phases require explicit V2."""
+    @staticmethod
+    def _validate_context_types(context,observer):
+        from .assembly_context import AssemblyJobContext
+        from .captured_assembly import ObservedAssemblyCustodian
+        if type(context) is not AssemblyJobContext or type(observer) is not ObservedAssemblyCustodian:
+            raise PermissionError('exact legacy assembly context and custodian required')
