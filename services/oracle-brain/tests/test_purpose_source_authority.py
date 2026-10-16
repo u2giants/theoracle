@@ -23,7 +23,7 @@ def purpose_population(admin_url,processing):
         if source_texts is not None:
             if not isinstance(source_texts,tuple) or len(source_texts)!=3 or any(type(text) is not str or not text for text in source_texts):
                 raise ValueError('three original input texts required before admission')
-        purpose,name=PHASES[phase];f=processing(profile,**({'reading':source_texts[0]} if source_texts is not None else {}))
+        purpose,name=PHASES[phase];f=processing(profile,**({'reading':source_texts[0],'original_sha256':hashlib.sha256(source_texts[0].encode()).hexdigest()} if source_texts is not None else {}))
         runtime=hashlib.sha256(('invented-runtime:'+phase).encode()).hexdigest()
         registry=hashlib.sha256(('invented-registry:'+phase+str(f['workspace'])).encode()).hexdigest()
         f.update(phase=phase,purpose=purpose,function=name,runtime=runtime,registry=registry)
@@ -38,14 +38,15 @@ def purpose_population(admin_url,processing):
                 source=f['source'] if index==0 else uuid4()
                 reading=source_texts[index] if source_texts is not None else (f['reading'] if index==0 else f'Invented original {index}: separate approval responsibility remains unknown.')
                 sha=hashlib.sha256(reading.encode()).hexdigest()
-                ref=SourceRef(workspace_id=f['workspace'],source_id=source,revision=1,original_sha256='a'*64,reading_sha256=sha,parser_id='b'*64)
+                original_sha=sha if source_texts is not None else 'a'*64
+                ref=SourceRef(workspace_id=f['workspace'],source_id=source,revision=1,original_sha256=original_sha,reading_sha256=sha,parser_id='b'*64)
                 if index:
-                    provenance=dict(original_hash='a'*64,content_hash=sha,parser_identity='b'*64,content_type='text/plain',evidence_kind='native_text',page_count=1,review_receipt='c'*64)
+                    provenance=dict(original_hash=original_sha,content_hash=sha,parser_identity='b'*64,content_type='text/plain',evidence_kind='native_text',page_count=1,review_receipt='c'*64)
                     conn.execute("INSERT INTO oracle2.sources(source_id,workspace_id,uploaded_by,filename,content_type,status) VALUES(%s,%s,%s,'invented.txt','text/plain','draft')",(source,f['workspace'],f['actor']))
                     conn.execute("INSERT INTO oracle2.drafts(draft_id,source_id,workspace_id,created_by,process_name,status) VALUES(%s,%s,%s,%s,'unaccepted generated interpretation','draft')",(uuid4(),source,f['workspace'],f['actor']))
                     for block,(kind,text) in enumerate([('original',reading),('original-metadata',json.dumps(provenance))]):
                         conn.execute('INSERT INTO oracle2.source_blocks VALUES(%s,%s,%s,%s,%s,%s,0,%s)',(uuid4(),source,f['workspace'],block,kind,text,len(text)))
-                    conn.execute('INSERT INTO oracle2.hosting_role_source_admissions VALUES(%s,%s,%s,1,%s,%s,%s,%s,%s,%s,%s)',(f['login'],f['workspace'],source,f['actor'],'a'*64,sha,'b'*64,runtime,registry,f['expiry']))
+                    conn.execute('INSERT INTO oracle2.hosting_role_source_admissions VALUES(%s,%s,%s,1,%s,%s,%s,%s,%s,%s,%s)',(f['login'],f['workspace'],source,f['actor'],original_sha,sha,'b'*64,runtime,registry,f['expiry']))
                     conn.execute('INSERT INTO oracle2.appointments(appointment_id,workspace_id,actor_id,scope,granted_by,parent_id,expires_at) VALUES(%s,%s,%s,%s,%s,%s,%s)',(uuid4(),f['workspace'],f['actor'],'source-read:'+str(source),owner,f['root'],f['expiry']))
                 grant=uuid4()
                 conn.execute('INSERT INTO oracle2.appointments(appointment_id,workspace_id,actor_id,scope,granted_by,parent_id,expires_at) VALUES(%s,%s,%s,%s,%s,%s,%s)',(grant,f['workspace'],f['actor'],purpose+':'+str(source),owner,f['root'],f['expiry']))

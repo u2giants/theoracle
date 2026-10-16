@@ -22,11 +22,11 @@ REGISTRY='e'*64
 
 @pytest.fixture
 def processing(admin_url):
-    def create(profile='candidate-compiler', *, reading='Invented source: approval ownership is unknown.'):
+    def create(profile='candidate-compiler', *, reading='Invented source: approval ownership is unknown.', original_sha256='a'*64):
         workspace,source,actor,owner,root,read,extract=(uuid4() for _ in range(7))
         login='processing_'+uuid4().hex[:12]
         reading_hash=hashlib.sha256(reading.encode()).hexdigest()
-        provenance=dict(original_hash='a'*64,content_hash=reading_hash,parser_identity='b'*64,
+        provenance=dict(original_hash=original_sha256,content_hash=reading_hash,parser_identity='b'*64,
                         content_type='text/plain',evidence_kind='native_text',page_count=1,review_receipt='c'*64)
         expiry=datetime.now(timezone.utc)+timedelta(minutes=20)
         with psycopg.connect(admin_url) as conn:
@@ -41,11 +41,11 @@ def processing(admin_url):
             for appointment,scope in [(read,'source-read:'),(extract,'source-extraction:')]:
                 conn.execute('INSERT INTO oracle2.appointments(appointment_id,workspace_id,actor_id,scope,granted_by,parent_id,expires_at) VALUES(%s,%s,%s,%s,%s,%s,%s)',(appointment,workspace,actor,scope+str(source),owner,root,expiry))
             conn.execute('INSERT INTO oracle2.hosting_role_runtime_admissions VALUES(%s,%s,%s,%s)',(login,RUNTIME,REGISTRY,expiry))
-            conn.execute('INSERT INTO oracle2.hosting_role_source_admissions VALUES(%s,%s,%s,1,%s,%s,%s,%s,%s,%s,%s)',(login,workspace,source,actor,'a'*64,reading_hash,'b'*64,RUNTIME,REGISTRY,expiry))
+            conn.execute('INSERT INTO oracle2.hosting_role_source_admissions VALUES(%s,%s,%s,1,%s,%s,%s,%s,%s,%s,%s)',(login,workspace,source,actor,original_sha256,reading_hash,'b'*64,RUNTIME,REGISTRY,expiry))
         url=psycopg.conninfo.make_conninfo(admin_url,user=login,password='invented-test-only')
         binding=ProcessingSourceBinding(RUNTIME,REGISTRY,owner_role,login,actor,profile,expiry,synthetic=False)
         return dict(url=url,workspace=workspace,source=source,actor=actor,root=root,read=read,extract=extract,
-                    login=login,binding=binding,reading=reading,expiry=expiry)
+                    login=login,binding=binding,reading=reading,expiry=expiry,original_sha256=original_sha256)
     return create
 
 

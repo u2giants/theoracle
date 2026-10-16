@@ -32,7 +32,7 @@ def admit_extraction_phase(x,*,admin_url,root,census_row):
     """Invoke ONLY after the actual worker's authorized census journal row."""
     assert census_row['state']=='awaiting-external-phase-admission'
     assert x['state']['posts']==1 and x['input_parent'] is not None
-    p=x['platform'];original=x['f'];parent=x['input_parent'];end=x['expires_at'];now=datetime.now(timezone.utc)
+    p=x['platform'];original=x['f'];parent=x['input_parent'];end=min(x['expires_at'],*(c.job.pricing.expires_at for c in parent.contexts));now=datetime.now(timezone.utc)
     assert now<end
     root.mkdir(mode=0o700)
     def store(name,value):
@@ -61,7 +61,7 @@ def admit_extraction_phase(x,*,admin_url,root,census_row):
         expected_owner_role=original['binding'].expected_owner_role,source_refs=refs,issuer_actor=issuer,reviewer_actor=reviewer,expires_at=end)
     envelope=ProcessingEnvelope(run_id=uuid4(),worker_uri=WORKER,runtime_hash=runtime,source_registry_hash=original['registry'],parent_registry_sha256=parent_hash,
         ledger_registry_hash=p['ledger_hash'],key_coverage_hash=p['coverage_hash'],budget_allocation_hash=allocation.allocation_hash,
-        budget_receipt_hash=allocation.original_receipt_hash,budget_ceiling_usd=allocation.original_ceiling_usd,budget_expires_at=end,
+        budget_receipt_hash=allocation.original_receipt_hash,budget_ceiling_usd=allocation.original_ceiling_usd,budget_expires_at=allocation.original_expires_at,
         dispatch_ids=tuple(c.job.dispatch_id for c in parent.contexts),source_refs=refs,issuer_actor=issuer,reviewer_actor=reviewer,expires_at=end)
     pins=ProcessingPins(runtime_hash=runtime,worker_uri=WORKER,source_registry_hash=original['registry'],expected_owner_role=qualified.expected_owner_role,
         parent_registry_sha256=parent_hash,envelope_sha256=digest(envelope.model_dump(mode='json')),qualification_sha256=digest(qualified.model_dump(mode='json')),
@@ -110,3 +110,58 @@ def admit_extraction_phase(x,*,admin_url,root,census_row):
     f=dict(original,actor=actor,runtime=runtime,login=login,url=url,binding=ProcessingSourceBinding(runtime,original['registry'],qualified.expected_owner_role,login,actor,'source-reader',end))
     return dict(x,f=f,job=parent.contexts[0].job,private=parent,settings=settings,client=client,descriptor=descriptor,custody=custody,
         contexts=parent.contexts,qualification=qualification,operation_hash=paths['operation'][1],population=population,mode='extraction',context_file=paths['parent'][0])
+
+
+def extraction_worker_appointments(x,*,prior_settings,initial_job,census_row,root):
+    from oracle_brain.operating_model.purpose_journey import PurposeWorkerJobV2
+    from oracle_brain.hosting.purpose_journey_v2 import CompilerPhaseCustodyFileV2
+    from test_purpose_worker_startup import make_next_compiler_worker_v2
+    root.mkdir(mode=0o700);jobs=[];files={}
+    for context in x['contexts']:
+        native=context.job;target=x['qualification'].target(native.dispatch_id)
+        job=PurposeWorkerJobV2(job_id=uuid4(),journey_id=initial_job.journey_id,workspace_id=initial_job.workspace_id,actor_id=initial_job.actor_id,
+            phase='extraction',source_refs=initial_job.source_refs,source_id=context.receipt.ref.source_id,allocation_hash=initial_job.allocation_hash,
+            parent_journal_hash=census_row['journal_hash'],prior_receipt_hash=census_row['receipt_hash'],nonce=uuid4().hex,
+            runtime_hash=initial_job.runtime_hash,admission_hash=x['operation_hash'],dispatch_id=native.dispatch_id,request_hash=native.request_hash,
+            phase_registry_sha256=x['operation_hash'],expires_at=initial_job.expires_at,original_horizon=initial_job.original_horizon)
+        path=root/(str(native.dispatch_id)+'.context.json');raw=canonical_bytes(context.model_dump(mode='json'));path.write_bytes(raw);path.chmod(0o600)
+        identity=dict(dispatch_id=native.dispatch_id,native_job_hash=context.job_hash,artifact_id=target.artifact_id,artifact_version=target.artifact_version,source_ref=target.source_ref)
+        outputs=[]
+        for kind,suffix in [('phase_commit','.phase-commit.json'),('native_receipt','.json'),('raw_wire','.wire'),('wire_metadata','.wire.json')]:
+            outputs.append(CompilerPhaseCustodyFileV2(kind=kind,path=str(x['custody']/(str(native.dispatch_id)+suffix)),
+                request_hash=native.request_hash,producer_runtime_hash=x['f']['runtime'],**identity))
+        qpath=root/(str(native.dispatch_id)+'.qualified-operation.json')
+        qbytes=Path(x['settings'].config.extraction_qualification_file).read_bytes()
+        assert hashlib.sha256(qbytes).hexdigest()==x['operation_hash']
+        qpath.write_bytes(qbytes);qpath.chmod(0o600)
+        outputs.extend([
+            CompilerPhaseCustodyFileV2(kind='native_job',path=str(path),sha256=hashlib.sha256(raw).hexdigest(),**identity),
+            CompilerPhaseCustodyFileV2(kind='extraction_qualification',path=str(qpath),sha256=x['operation_hash'],**identity)])
+        jobs.append(job);files[job.job_id]=tuple(outputs)
+    # Explicit compiler custody covers all three current extraction outputs,
+    # enabling the retained full-population handoff after all actual commits.
+    all_files=tuple(entry for entries in files.values() for entry in entries)
+    assert len({entry.path for entry in all_files})==len(all_files)
+    files={job.job_id:all_files for job in jobs}
+    return make_next_compiler_worker_v2(x,root/'worker',prior_settings=prior_settings,jobs=tuple(jobs),custody_files=files)
+
+
+def freeze_authorized_census(settings,job):
+    """Freeze the actual committed census; no invented dispatch/time receipt."""
+    from oracle_brain.operating_model.purpose_profiles_v2 import PurposePrivateContextV2
+    from oracle_brain.operating_model.purpose_receipts_v2 import PhaseResponseCommitV2
+    from oracle_brain.operating_model.acceptance_profiles import CensusPayload
+    from oracle_brain.operating_model.semantic_acceptance import FrozenCensus
+    selectors={'dispatch_id':job.dispatch_id}
+    private_raw,_=settings.private(job,'census_context',**selectors)
+    wire,_=settings.private(job,'raw_wire',**selectors)
+    commit_raw,_=settings.private(job,'phase_commit',**selectors)
+    private=PurposePrivateContextV2.model_validate_json(private_raw)
+    commit=PhaseResponseCommitV2.model_validate_json(commit_raw)
+    assert private.phase=='census' and commit.phase=='census'
+    assert digest(private.model_dump(mode='json'))==commit.context_hash
+    assert hashlib.sha256(wire).hexdigest()==commit.raw_response_hash
+    payload=CensusPayload.model_validate_json(json.loads(wire)['choices'][0]['message']['content'])
+    return FrozenCensus(workspace_id=job.workspace_id,source_refs=job.source_refs,regions=private.census.scope.regions,
+        obligations=payload.obligations,source_only_context_hash=commit.context_hash,source_only_dispatch_hash=digest(commit.model_dump(mode='json')),
+        frozen_at=commit.committed_at,census_model=private.job.request['model'])
