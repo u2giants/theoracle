@@ -17,7 +17,7 @@ from typing import Callable, Literal
 from uuid import UUID
 
 import psycopg
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, Field, model_validator, field_validator
 
 from oracle_brain.provider_policy import ProcessingApproval, ProcessingRequest, authorize
 from .contracts import StrictRecord, canonical_bytes, digest
@@ -71,6 +71,13 @@ class RawOriginalDispatchJobV1(NativeDispatchJob):
     view_manifest_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
     locator_map_hash:str=Field(pattern=r'^[0-9a-f]{64}$')
     reading_commit_hash:str|None=Field(default=None,pattern=r'^[0-9a-f]{64}$')
+
+    @field_validator('schema_version',mode='before')
+    @classmethod
+    def exact_version_integer(cls,value):
+        if type(value) is not int or value!=1:
+            raise ValueError('raw native job version must be integer one')
+        return value
 
     @model_validator(mode='after')
     def exact_original_phase(self):
