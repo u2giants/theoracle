@@ -2,7 +2,8 @@
 import hashlib,ssl,time,math
 from cryptography import x509
 from cryptography.x509.oid import ExtensionOID
-from .purpose_journey_v2 import _require
+def _require(condition,message):
+    if not condition:raise PermissionError(message)
 
 def fixed_request_length_v1(handler,*,path,content_type,maximum_bytes):
     _require(handler.path==path and handler.command=='POST'

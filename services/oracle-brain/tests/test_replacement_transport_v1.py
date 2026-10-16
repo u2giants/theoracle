@@ -7,8 +7,7 @@ import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding
 from test_hosting_boundary import certificates,WORKER
-from test_purpose_transport import bound_tls
-from oracle_brain.hosting.gateway import MutualTLSServer
+from oracle_brain.hosting.gateway import MutualTLSServer,server_tls
 from oracle_brain.hosting.replacement_transport_v1 import fixed_request_length_v1,read_request_body_v1,peer_der_v1
 
 @pytest.mark.parametrize('lengths,types,te,path',[(['1','1'],['application/json'],[], '/fixed'),
@@ -34,8 +33,8 @@ def test_absolute_body_deadline_is_not_reset_between_chunks(monkeypatch):
     for value in (float('inf'),float('nan'),True):
         with pytest.raises(PermissionError):read_request_body_v1(handler,1,absolute_monotonic_deadline=value)
 
-def test_actual_mutual_tls_peer_fingerprint_uri_and_fixed_complete_body(bound_tls,certificates):
-    tls,_=bound_tls
+def test_actual_mutual_tls_peer_fingerprint_uri_and_fixed_complete_body(certificates):
+    tls=server_tls(certfile=str(certificates/'server.pem'),keyfile=str(certificates/'server.key'),cafile=str(certificates/'ca.pem'))
     worker=x509.load_pem_x509_certificate((certificates/'worker.pem').read_bytes()).public_bytes(Encoding.DER)
     expected=hashlib.sha256(worker).hexdigest();calls=[]
     class Handler(BaseHTTPRequestHandler):
