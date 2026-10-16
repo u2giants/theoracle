@@ -247,3 +247,44 @@ def test_unknown_phase_refuses_before_config_or_authority_load():
     with pytest.raises(SystemExit) as result:
         main(['--phase','unknown','--role','provider','--config','/never/open','--config-sha256','a'*64])
     assert result.value.code==2
+
+
+def test_blocked_dns_is_bounded_single_worker_no_post_then_distinct_tls_recovery(bound_tls,monkeypatch):
+    import socket
+    from concurrent.futures import ThreadPoolExecutor
+    from dataclasses import replace
+    tls,binding=bound_tls;seen=[]
+    class Ingress:
+        def dispatch(self,peer,request):
+            assert peer==WORKER;seen.append(request['dispatch_id'])
+            return {**request,'raw_response_hash':'c'*64,'receipt_hash':'d'*64}
+    server=EgressServer(('127.0.0.1',0),tls=tls,executor_uri=WORKER,egress=PurposeIngressBridgeV2(Ingress(),WORKER))
+    thread=threading.Thread(target=server.serve_forever,kwargs={'poll_interval':.01},daemon=True);thread.start()
+    original=socket.getaddrinfo;entered=threading.Event();release=threading.Event();calls=[];resolvers=[]
+    def stalled(*args,**kwargs):
+        calls.append(args);resolvers.append(threading.current_thread())
+        if len(calls)==1:
+            entered.set();assert release.wait(3)
+        return original(*args,**kwargs)
+    monkeypatch.setattr(socket,'getaddrinfo',stalled)
+    client=PurposeProviderClientV2(replace(binding(server.server_port),timeout=.4))
+    try:
+        with ThreadPoolExecutor(max_workers=1) as callers:
+            first=callers.submit(client.dispatch,uuid4(),'a'*64,'b'*64)
+            assert entered.wait(1)
+            with pytest.raises(GatewayDenied,match='DNS resolver busy'):
+                client.dispatch(uuid4(),'a'*64,'b'*64)
+            with pytest.raises(GatewayDenied,match='DNS deadline'):
+                first.result(timeout=2)
+            assert len(calls)==1 and not release.is_set() and seen==[]
+            assert resolvers[0].daemon and resolvers[0].is_alive()
+            release.set();resolvers[0].join(2);assert not resolvers[0].is_alive()
+            # A genuinely distinct admitted fixture request, never a timed-out
+            # attempt's replay or a late resolver initiating a deferred POST.
+            distinct=uuid4();reply=client.dispatch(distinct,'a'*64,'b'*64)
+            assert reply['dispatch_id']==str(distinct) and seen==[str(distinct)]
+            assert len(calls)==2
+    finally:
+        release.set()
+        for resolver in resolvers:resolver.join(2)
+        server.shutdown();server.server_close();thread.join(2)

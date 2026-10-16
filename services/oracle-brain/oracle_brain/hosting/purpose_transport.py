@@ -77,11 +77,70 @@ class _FixedTLSClientV2:
         if type(binding) is not PurposeTLSBindingV2:
             raise GatewayDenied("typed fixed TLS binding required")
         self.binding = binding
+        self._dns_lock = threading.Lock()
         # No system trust, environment proxy, redirects, or caller-supplied URL.
         self._tls = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         self._tls.minimum_version = ssl.TLSVersion.TLSv1_2
         self._tls.load_verify_locations(cadata=binding.ca_file.read_text())
         self._tls.load_cert_chain(binding.certificate_file, binding.key_file)
+
+    def _resolve(self, deadline):
+        # OS DNS cannot be cancelled. Bound the caller and permit only one
+        # outstanding resolver per fixed client, never a queue or replacement.
+        if deadline <= time.monotonic():
+            raise GatewayDenied("purpose DNS deadline elapsed")
+        if not self._dns_lock.acquire(blocking=False):
+            raise GatewayDenied("purpose DNS resolver busy")
+        complete = threading.Event()
+        result = {}
+        def resolve():
+            try:
+                result['addresses'] = socket.getaddrinfo(self.binding.hostname,
+                    self.binding.port, type=socket.SOCK_STREAM)
+            except Exception:
+                result['failed'] = True
+            finally:
+                self._dns_lock.release()
+                complete.set()
+        worker = threading.Thread(target=resolve, daemon=True, name='oracle-purpose-dns')
+        try:
+            worker.start()
+        except Exception:
+            self._dns_lock.release()
+            raise GatewayDenied("purpose DNS resolver unavailable") from None
+        if not complete.wait(max(0, deadline-time.monotonic())) or time.monotonic() >= deadline:
+            # Only this caller may consume its result. Late completion cannot
+            # connect or POST; a later distinct admitted attempt resolves anew.
+            raise GatewayDenied("purpose DNS deadline elapsed")
+        if result.get('failed') or not result.get('addresses'):
+            raise GatewayDenied("purpose DNS resolution refused")
+        return result['addresses']
+
+    def _connect_addresses(self, addresses, deadline, address, timeout=None, source_address=None):
+        if address != (self.binding.hostname, self.binding.port) or source_address is not None:
+            raise GatewayDenied("fixed purpose connection target required")
+        for family, kind, protocol, _, target in addresses:
+            if (family not in (socket.AF_INET, socket.AF_INET6)
+                    or kind != socket.SOCK_STREAM or target[1] != self.binding.port):
+                raise GatewayDenied("fixed purpose resolved target required")
+            remaining = deadline-time.monotonic()
+            if remaining <= 0:
+                raise GatewayDenied("purpose connection deadline elapsed")
+            active = socket.socket(family, kind, protocol)
+            try:
+                active.settimeout(remaining)
+                active.connect(target)
+                remaining = deadline-time.monotonic()
+                if remaining <= 0:
+                    raise GatewayDenied("purpose connection deadline elapsed")
+                active.settimeout(remaining)  # TLS gets only the remaining total.
+                return active
+            except OSError:
+                active.close()
+            except BaseException:
+                active.close()
+                raise
+        raise GatewayDenied("purpose connection refused")
 
     def _post(self, route: str, value: dict, limit: int, *, valid_until: datetime | None = None) -> bytes:
         duration = self.binding.timeout
@@ -92,8 +151,13 @@ class _FixedTLSClientV2:
         if duration <= 0:
             raise GatewayDenied("purpose RPC horizon elapsed")
         deadline = time.monotonic() + duration
+        addresses = self._resolve(deadline)
         conn = http.client.HTTPSConnection(self.binding.hostname, self.binding.port,
             timeout=duration, context=self._tls)
+        # Keep original hostname/SNI/certificate checks while avoiding another
+        # unbounded DNS lookup inside the standard connection implementation.
+        conn._create_connection = lambda address, timeout=None, source_address=None: self._connect_addresses(
+            addresses, deadline, address, timeout, source_address)
         timer = None
         try:
             conn.connect()
