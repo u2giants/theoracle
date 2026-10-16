@@ -1021,11 +1021,66 @@ def build_purpose_compiler_ledger_v3(settings,job,*,extraction_guard=None):
 
 
 class _PurposeQualifiedReadGuardV3(_PurposeCompilerReadGuardV3):
-    """Current qualified-read lineage; compilation still uses the full raw guard."""
+    """Bounded current read: whole population at boundaries, SQL per dependency."""
+    def trust(self):
+        return self.settings.semantic.current(datetime.now(timezone.utc))
+
+    def source(self,workspace,principal,source_id):
+        _require(workspace==self.job.workspace_id and principal==self.settings.config.actor_id
+            and source_id in {r.source_id for r in self.job.source_refs},'exact compiler source principal/scope required')
+        return self.settings.resolver.identity(workspace,source_id)
+
     def extraction_seal(self,workspace,principal,artifact,version):
-        _require(principal==self.settings.config.actor_id,'compiler extraction principal differs')
-        self.settings.authorize(self.job)
+        _require(workspace==self.job.workspace_id and principal==self.settings.config.actor_id,
+            'compiler extraction principal differs')
         return self.settings.resolver.extraction_seal(workspace,artifact,version)
+
+    def _boundary(self):
+        from oracle_brain.operating_model.processing_projection import ProcessingProjectionAuthorityWindowV3
+        fresh=self.settings.authority_window_v3(self.job)
+        _,appointment_until=self.settings._custody_appointment_v2(self.job)
+        operation=min(fresh.operation_horizon,appointment_until)
+        window=ProcessingProjectionAuthorityWindowV3(min(fresh.current_until,operation),operation)
+        _require(datetime.now(timezone.utc)<window.current_until,'qualified reader current boundary expired')
+        return window
+
+    def authorize_manifest(self,manifest,principal,now):
+        _require(principal==self.settings.config.actor_id and manifest.workspace_id==self.job.workspace_id
+            and manifest.kind in {'processing_qualified_model_v1','processing_summary_v1'},
+            'exact qualified reader principal/kind required')
+        fresh=self._boundary()
+        actual,refs=self.settings.resolver.artifact_metadata(manifest.workspace_id,manifest.artifact_id,manifest.version)
+        _require(actual==manifest and len(set(refs))==len(refs) and set(refs)==set(self.job.source_refs),
+            'qualified reader immutable metadata/population differs before bytes')
+        _require(datetime.now(timezone.utc)<fresh.current_until,'qualified preblob authorization expired')
+        return fresh.current_until
+
+    def _validate_qualified_current(self,manifest,payload,principal,now):
+        _require(principal==self.settings.config.actor_id and manifest.workspace_id==self.job.workspace_id
+            and manifest.kind in {'processing_qualified_model_v1','processing_summary_v1'},
+            'exact current qualified read target required')
+        before=self._boundary()
+        if manifest.kind=='processing_qualified_model_v1':
+            from oracle_brain.operating_model.purpose_qualification_v3 import PurposeSemanticAdmissionV3
+            self.settings.authorize_semantic(_worker_parse(canonical_bytes(payload['assembly_qualification']['admission']),PurposeSemanticAdmissionV3))
+        # This full semantic/immutable lineage validation retains actual own-role
+        # source and dependency SQL callbacks plus the sole current registry.
+        validated=min(self.qualified.valid_until(manifest,payload,principal,datetime.now(timezone.utc)),
+            self.settings.semantic.valid_until(datetime.now(timezone.utc)))
+        final=self._boundary()  # NEW current proof LAST, never cached across calls.
+        until=min(before.operation_horizon,final.operation_horizon,final.current_until,validated)
+        _require(datetime.now(timezone.utc)<until,'qualified reader authority expired after validation')
+        return until
+
+    def __call__(self,manifest,payload,principal,now):
+        if manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}:
+            return self.extraction(manifest,payload,principal,now)
+        self._validate_qualified_current(manifest,payload,principal,now)
+
+    def valid_until(self,manifest,payload,principal,now):
+        if manifest.kind in {'processing_extraction_v1','processing_failed_extraction_v1'}:
+            return self.extraction.valid_until(manifest,payload,principal,now)
+        return self._validate_qualified_current(manifest,payload,principal,now)
 
     def parent(self,workspace,principal,artifact,version):
         _require(principal==self.settings.config.actor_id,'qualified parent principal differs')
@@ -1037,16 +1092,32 @@ class _PurposeQualifiedReadGuardV3(_PurposeCompilerReadGuardV3):
         return manifest,payload
 
 
+from oracle_brain.operating_model.processing_ledger import ProcessingCompilerLedger as _ProcessingCompilerLedger
+
+class _PurposeQualifiedReaderLedgerV3(_ProcessingCompilerLedger):
+    def _authorize_processing_blob(self,manifest):
+        super()._authorize_processing_blob(manifest)  # Full raw extraction hook unchanged.
+        if manifest.kind in {'processing_qualified_model_v1','processing_summary_v1'}:
+            guard=self.processing_read_guard
+            _require(type(guard) is _PurposeQualifiedReadGuardV3,'exact protected qualified preblob guard required')
+            guard.authorize_manifest(manifest,self.principal,datetime.now(timezone.utc))
+
+
 def build_purpose_qualified_reader_v3(settings,job):
     """Fixed read composition; direct persistence retains full paid raw proof."""
-    ledger=build_purpose_compiler_ledger_v3(settings,job)
-    full=ledger.processing_compile_guard
+    base=build_purpose_compiler_ledger_v3(settings,job)
+    full=base.processing_compile_guard
     _require(type(full) is _PurposeCompilerReadGuardV3
-        and type(ledger.processing_extraction_guard) is ProcessingCompilerExtractionGuardV2,
+        and type(base.processing_extraction_guard) is ProcessingCompilerExtractionGuardV2,
         'full protected compiler and extraction guards required')
-    qualified=_PurposeQualifiedReadGuardV3(settings,job,ledger.processing_extraction_guard)
+    qualified=_PurposeQualifiedReadGuardV3(settings,job,base.processing_extraction_guard)
+    ledger=_PurposeQualifiedReaderLedgerV3(settings.resolver.url,base.blobs,
+        principal=settings.config.actor_id,processing_sources=settings.resolver,
+        processing_compile_guard=full,processing_read_guard=qualified,
+        processing_extraction_guard=base.processing_extraction_guard)
+    _require(full.ledger is base and base.processing_read_guard is full,
+        'full compiler parent reads must retain their original raw-proof ledger')
     qualified.ledger=ledger
-    ledger.processing_read_guard=qualified
     return ledger
 
 
