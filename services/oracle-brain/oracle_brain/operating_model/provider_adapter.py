@@ -150,6 +150,18 @@ class AdmittedProvider:
                        'pricing':self.pricing.model_dump(mode='json'),'register_hash':self.admitted_register_hash,
                        'input_tokens_upper_bound':input_tokens_upper_bound})
 
+    def _validate_reservation_input(self, *, purpose, input_tokens_upper_bound, messages):
+        # Raw originals need their separately appointed multimodal constructor.
+        # Text byte estimates cannot authenticate complete image-token pricing.
+        if purpose in {'source-original-reading','source-original-review'}:
+            raise PermissionError('protected raw original provider required')
+        required_bound=len(json.dumps(messages,ensure_ascii=False).encode()) + 1024*len(messages)
+        if input_tokens_upper_bound < required_bound:
+            raise ValueError('input reservation does not cover the complete dispatch payload')
+
+    def _reservation_maximum(self, *, input_tokens_upper_bound):
+        return (Decimal(input_tokens_upper_bound)*self.pricing.input_per_million_usd + Decimal(self.pricing.max_output_tokens)*self.pricing.output_per_million_usd)/Decimal(1_000_000)
+
     def extract(self, *, workspace_id: UUID,artifact_id: UUID,batch_id: UUID,purpose: str,attempt: int,
                 input_tokens_upper_bound: int, messages: list[dict], response_validator=None):
         authorize(self.request,self.approvals)
@@ -160,13 +172,11 @@ class AdmittedProvider:
             raise PermissionError('exact purpose/current price admission required')
         if isinstance(input_tokens_upper_bound,bool) or input_tokens_upper_bound<1:
             raise ValueError('bounded input token count required')
-        required_bound=len(json.dumps(messages,ensure_ascii=False).encode()) + 1024*len(messages)
-        if input_tokens_upper_bound < required_bound:
-            raise ValueError('input reservation does not cover the complete dispatch payload')
+        self._validate_reservation_input(purpose=purpose,input_tokens_upper_bound=input_tokens_upper_bound,messages=messages)
         if self.remaining_daily_allowance is None:
             raise PermissionError('authoritative remaining daily allowance unavailable')
         opts=transport_options(self.request,self.pricing.model,operation=self.operation)
-        maximum=(Decimal(input_tokens_upper_bound)*self.pricing.input_per_million_usd + Decimal(self.pricing.max_output_tokens)*self.pricing.output_per_million_usd)/Decimal(1_000_000)
+        maximum=self._reservation_maximum(input_tokens_upper_bound=input_tokens_upper_bound)
         allowance=self.remaining_daily_allowance()
         if maximum > allowance:
             raise PermissionError('current remaining daily allowance cannot fund dispatch')
