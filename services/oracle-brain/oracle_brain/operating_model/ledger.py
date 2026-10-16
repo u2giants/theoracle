@@ -251,6 +251,10 @@ class Ledger:
         """Opt-in compiler custody check after source authorization, before bytes."""
 
     def _read_processing_authorized(self,workspace_id,artifact_id,version,*,include_failed=False):
+        manifest,payload,_=self._read_processing_boundary(workspace_id,artifact_id,version,include_failed=include_failed)
+        return manifest,payload
+
+    def _read_processing_boundary(self,workspace_id,artifact_id,version,*,include_failed=False):
         if self.processing_read_guard is None:
             raise PermissionError('current trusted processing qualification required')
         manifest,authoritative_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
@@ -266,13 +270,13 @@ class Ledger:
         if (len(set(refs))!=len(refs) or set(refs)!=set(authoritative_refs)
                 or digest({'refs':[r.model_dump(mode='json') for r in refs]})!=manifest.source_digest):
             raise PermissionError('processing blob source manifest differs')
-        self._validate_processing_read_guard(manifest,payload,self.clock())
+        validation=self._validate_processing_read_guard(manifest,payload,self.clock())
         # Current metadata only, again after opening/validating the blob. No raw
         # source getter or nested SQL lock is used by this serving path.
         current,current_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
         if current!=manifest or set(current_refs)!=set(refs):
             raise PermissionError('processing artifact changed during read')
-        return manifest,payload
+        return manifest,payload,validation
 
     def _validate_processing_read_guard(self,manifest,payload,now):
         """Body boundary; protected compilers may fuse validation and horizon."""
