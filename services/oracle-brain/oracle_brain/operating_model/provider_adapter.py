@@ -23,13 +23,30 @@ class Pricing(StrictRecord):
     expires_at: AwareDatetime
     admitted_register_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
 
+class AdmittedAllocationLimitV2(StrictRecord):
+    """Trusted externally qualified cap projection; fields alone grant nothing.
+
+    The native factory must authenticate the original receipt/hash/batch mapping.
+    SQL enforces the provided narrower numeric limit under its existing lock; it
+    does not authenticate allocation receipt provenance or persist its identity.
+    """
+    batch_id: UUID
+    allocation_hash: str=Field(pattern=r'^[0-9a-f]{64}$')
+    original_receipt_hash: str=Field(pattern=r'^[0-9a-f]{64}$')
+    ceiling_usd: Decimal=Field(gt=0,allow_inf_nan=False)
+    expires_at: AwareDatetime
+
 class Budget:
     """Single Oracle-key central ledger; never a workspace-specific budget shard."""
-    def __init__(self,url: str,*,ledger_identity_hash: str | None = None):
+    def __init__(self,url: str,*,ledger_identity_hash: str | None = None,
+                 admitted_allocation: AdmittedAllocationLimitV2 | None = None):
         import re
         if ledger_identity_hash is not None and not re.fullmatch('[0-9a-f]{64}',ledger_identity_hash):
             raise PermissionError('verified central ledger identity required')
+        if admitted_allocation is not None and type(admitted_allocation) is not AdmittedAllocationLimitV2:
+            raise PermissionError('exact externally admitted allocation cap required')
         self.url=url;self.ledger_identity_hash=ledger_identity_hash
+        self.admitted_allocation=admitted_allocation
     def reserve(self, *, workspace_id: UUID,artifact_id: UUID,batch_id: UUID,purpose: str,attempt: int,
                 maximum: Decimal,pricing_hash: str, account_remaining: Decimal | None = None, correction_hash: str | None = None) -> UUID:
         if purpose not in {'source-census','source-extraction','operating-audit','independent-source-semantic-acceptance'} or attempt not in {1,2} or not maximum.is_finite() or maximum<=0 or maximum>1:
@@ -41,6 +58,12 @@ class Budget:
         reservation_id=uuid4()
         with psycopg.connect(self.url) as conn:
             conn.execute('SELECT pg_advisory_xact_lock(hashtext(%s))',('oracle-operating-budget',))
+            allocation=self.admitted_allocation
+            if allocation is not None:
+                AdmittedAllocationLimitV2.model_validate(allocation.model_dump(mode='python'))
+                if batch_id!=allocation.batch_id or conn.execute('SELECT clock_timestamp()<%s',
+                        (allocation.expires_at,)).fetchone()[0] is not True:
+                    raise PermissionError('original allocation batch or expiry unavailable')
             prior=conn.execute('SELECT reservation_id FROM oracle2.operating_dispatch_reservations WHERE workspace_id=%s AND artifact_id=%s AND purpose=%s AND attempt=%s',(workspace_id,artifact_id,purpose,attempt)).fetchone()
             if prior: raise PermissionError('attempt already dispatched; replay cannot charge again')
             if attempt==2:
@@ -66,7 +89,12 @@ class Budget:
             # central lock. Key totals may include finished calls; double-counting
             # is conservative. This store must never mix unrelated provider keys.
             ceiling=min(Decimal(25),account_remaining) if account_remaining is not None else Decimal(25)
-            if day+maximum>ceiling or batch+maximum>5: raise PermissionError('daily or batch reservation ceiling exceeded')
+            batch_ceiling=min(Decimal(5),allocation.ceiling_usd) if allocation is not None else Decimal(5)
+            if day+maximum>ceiling or batch+maximum>batch_ceiling:
+                raise PermissionError('daily or batch reservation ceiling exceeded')
+            if allocation is not None and conn.execute('SELECT clock_timestamp()<%s',
+                    (allocation.expires_at,)).fetchone()[0] is not True:
+                raise PermissionError('original allocation expired before reservation commit')
             conn.execute('INSERT INTO oracle2.operating_dispatch_reservations(reservation_id,workspace_id,artifact_id,batch_id,purpose,attempt,reserved_usd,pricing_hash) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)',(reservation_id,workspace_id,artifact_id,batch_id,purpose,attempt,maximum,pricing_hash))
         return reservation_id
 
