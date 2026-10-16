@@ -6,6 +6,8 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from uuid import UUID, uuid4
 
+from .summaries import SummaryCache
+
 COMPANY_SCOPE = "company"
 
 
@@ -26,6 +28,7 @@ class Fact:
 @dataclass
 class FactStore:
     facts: list[Fact] = field(default_factory=list)
+    summaries: SummaryCache = field(default_factory=SummaryCache)
 
     def assert_fact(
         self,
@@ -53,6 +56,7 @@ class FactStore:
             old, fact_id=uuid4(), value=value, recorded_at=recorded_at, supersedes=old.fact_id
         )
         self.facts.append(new)
+        self.summaries.invalidate_fact(old.fact_id)
         return new
 
     def as_of(
