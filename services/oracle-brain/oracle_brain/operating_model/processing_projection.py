@@ -30,6 +30,8 @@ def lease_processing_projection(ledger,workspace_id,*,lease_seconds=60):
     if not isinstance(workspace_id,UUID) or type(lease_seconds) is not int or not 1<=lease_seconds<=60:
         raise PermissionError('bounded exact processing workspace lease required')
     with psycopg.connect(ledger.url) as conn:
+        conn.execute("SET LOCAL statement_timeout='5s'")
+        conn.execute("SET LOCAL lock_timeout='2s'")
         ledger.processing_sources._check(conn)
         row=conn.execute('SELECT oracle2.lease_processing_projection(%s,%s,%s,%s)',
             (workspace_id,binding.runtime_hash,binding.source_registry_hash,lease_seconds)).fetchone()
@@ -62,6 +64,8 @@ def acknowledge_processing_projection(ledger,lease,receipt,seal,*,secret):
     deadline=min(binding.expires_at,semantic_deadline,lease.lease_until)
     event=lease.event
     with psycopg.connect(ledger.url) as conn:
+        conn.execute("SET LOCAL statement_timeout='5s'")
+        conn.execute("SET LOCAL lock_timeout='2s'")
         ledger.processing_sources._check(conn)
         row=conn.execute('SELECT oracle2.ack_processing_projection(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
             (event.event_id,event.workspace_id,lease.lease_token,event.attempts,Jsonb(receipt),seal,
@@ -108,6 +112,7 @@ async def project_processing_event(ledger,lease,projection,*,secret,projector_id
         'artifact_id':str(event.assertion_id),'version':event.revision,'content_hash':manifest.content_hash,
         'source_digest':manifest.source_digest,'permission_digest':manifest.permission_digest,
         'graph_name':projection.graph_name,'record_digest':digest({'records':projection.records(payload)}),
+        'projection_schema':'qualified-evidence-projection-v1','projection_digest':projection.processing_projection_digest(payload),
         'sdk_version':'1.4.0','projector_id':projector_id,'lease_role':lease.lease_role,
         'lease_token':str(lease.lease_token),'lease_attempt':event.attempts,'lease_until':lease.lease_until.isoformat()}
     seal=signature(secret,receipt)

@@ -358,3 +358,47 @@ def test_manifest_pair_reuses_full_legacy_authorized_read(admin_url,processing,t
     with psycopg.connect(admin_url) as conn:
         conn.execute('UPDATE oracle2.appointments SET revoked_at=clock_timestamp() WHERE appointment_id=%s',(f['read'],))
     with pytest.raises(PermissionError):ledger.read_with_manifest(f['workspace'],manifest.artifact_id,1)
+
+
+@pytest.mark.parametrize('extra',['pg_read_all_data','pg_monitor','intermediary'])
+def test_any_extra_reachable_role_denies_adapter_and_direct_getter(admin_url,processing,extra):
+    f=processing(); adapter=resolver(f)
+    role='processing_extra_'+uuid4().hex[:12] if extra=='intermediary' else extra
+    with psycopg.connect(admin_url) as conn:
+        if extra=='intermediary':
+            conn.execute(sql.SQL('CREATE ROLE {} NOLOGIN NOINHERIT').format(sql.Identifier(role)))
+        conn.execute(sql.SQL('GRANT {} TO {}').format(sql.Identifier(role),sql.Identifier(f['login'])))
+    try:
+        with pytest.raises(PermissionError): adapter.current_for_processing(f['workspace'],f['source'])
+        with psycopg.connect(f['url']) as conn:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute('SELECT * FROM oracle2.hosting_processing_source_receipt(%s,%s,%s,%s,%s)',
+                    (f['workspace'],f['source'],f['actor'],RUNTIME,REGISTRY)).fetchone()
+    finally:
+        with psycopg.connect(admin_url) as conn:
+            conn.execute(sql.SQL('REVOKE {} FROM {}').format(sql.Identifier(role),sql.Identifier(f['login'])))
+    assert adapter.current_for_processing(f['workspace'],f['source']).reading==f['reading']
+
+
+def test_pg16_noninherited_membership_does_not_authorize_unset_session(admin_url,processing):
+    f=processing(); group='oracle2_candidate_compiler'
+    with psycopg.connect(admin_url) as conn:
+        conn.execute(sql.SQL('GRANT {} TO {} WITH INHERIT FALSE, SET TRUE').format(sql.Identifier(group),sql.Identifier(f['login'])))
+    try:
+        with pytest.raises(PermissionError): resolver(f)
+    finally:
+        with psycopg.connect(admin_url) as conn:
+            conn.execute(sql.SQL('GRANT {} TO {} WITH INHERIT TRUE, SET TRUE').format(sql.Identifier(group),sql.Identifier(f['login'])))
+
+
+def test_membership_drift_during_actual_hold_denies_before_commit(admin_url,processing):
+    f=processing('gateway-metadata');adapter,desc,dispatch=run_context(f,resolver(f))
+    try:
+        with pytest.raises(PermissionError,match='membership'):
+            with adapter.hold(desc,dispatch):
+                with psycopg.connect(admin_url) as conn:
+                    conn.execute(sql.SQL('GRANT pg_monitor TO {}').format(sql.Identifier(f['login'])))
+    finally:
+        with psycopg.connect(admin_url) as conn:
+            conn.execute(sql.SQL('REVOKE pg_monitor FROM {}').format(sql.Identifier(f['login'])))
+    with adapter.hold(desc,dispatch):pass

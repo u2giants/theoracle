@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime,timedelta,timezone
 import time
-from uuid import uuid4
+from uuid import UUID,uuid4
 import psycopg
 from psycopg import sql
 from psycopg.types.json import Jsonb
@@ -25,7 +25,7 @@ def attestation(lease):
     return dict(schema_version=1,event_id=str(e.event_id),workspace_id=str(e.workspace_id),artifact_id=str(e.assertion_id),version=e.revision,
         content_hash=m['content_hash'],source_digest=m['source_digest'],permission_digest=m['permission_digest'],
         graph_name=f'oracle_processing_v1_{e.workspace_id.hex}_{e.assertion_id.hex}_{e.revision}_'+('a'*32),
-        record_digest='b'*64,sdk_version='1.4.0',projector_id='invented-sql-boundary-control',lease_role=lease.lease_role,
+        record_digest='b'*64,projection_schema='qualified-evidence-projection-v1',projection_digest='d'*64,sdk_version='1.4.0',projector_id='invented-sql-boundary-control',lease_role=lease.lease_role,
         lease_token=str(lease.lease_token),lease_attempt=e.attempts,lease_until=lease.lease_until.isoformat())
 
 
@@ -111,3 +111,42 @@ def test_malformed_receipt_denied_without_delivery(admin_url,processing,tmp_path
     f=processing();ledger,_=projectable(f,tmp_path);lease=lease_processing_projection(ledger,f['workspace']);r=attestation(lease);r[field]=value
     with pytest.raises(psycopg.errors.InsufficientPrivilege):sql_ack(f,lease,r)
     with psycopg.connect(admin_url) as conn:assert conn.execute('SELECT delivered_at FROM oracle2.outbox WHERE event_id=%s',(lease.event.event_id,)).fetchone()[0] is None
+
+
+def test_more_than64_denied_prefix_does_not_hide_eligible_event(admin_url,processing,tmp_path):
+    f=processing();ledger,m=projectable(f,tmp_path)
+    # Deliberately invalid append-only rows precede the real event. No authority
+    # is issued to these controls; exact dependency sealing must reject them.
+    with psycopg.connect(admin_url) as conn:
+        valid_event=conn.execute('SELECT event_id FROM oracle2.outbox WHERE assertion_id=%s',(m.artifact_id,)).fetchone()[0]
+        for index in range(65):
+            bad=m.model_copy(update={'artifact_id':uuid4(),'dependency_digest':'0'*64})
+            conn.execute('INSERT INTO oracle2.artifact_manifests(workspace_id,artifact_id,version,kind,input_digest,source_digest,permission_digest,compiler_digest,dependency_digest,content_hash,private_object_key,state,manifest) VALUES(%s,%s,1,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                (bad.workspace_id,bad.artifact_id,bad.kind,bad.input_digest,bad.source_digest,bad.permission_digest,bad.compiler_digest,bad.dependency_digest,bad.content_hash,bad.private_object_key,bad.state,Jsonb(bad.model_dump(mode='json'))))
+            conn.execute('INSERT INTO oracle2.artifact_dependencies VALUES(%s,%s,1,%s,%s,%s)',(f['workspace'],bad.artifact_id,'source',str(f['source']),'1'))
+            conn.execute('INSERT INTO oracle2.outbox(event_id,workspace_id,assertion_id,revision,operation,payload) VALUES(%s,%s,%s,1,%s,%s)',
+                (UUID(int=valid_event.int-1000-index),f['workspace'],bad.artifact_id,'project',Jsonb({'namespace':'oracle_processing_v1','manifest':bad.model_dump(mode='json')})))
+    lease=lease_processing_projection(ledger,f['workspace'])
+    assert lease and lease.event.assertion_id==m.artifact_id
+    sql_ack(f,lease)
+    with psycopg.connect(admin_url) as conn:
+        assert conn.execute('SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND attempts>0',(f['workspace'],)).fetchone()[0]==1
+
+
+@pytest.mark.parametrize('mode',['unexpected','timeout'])
+def test_eligibility_unexpected_fault_or_timeout_propagates_without_claim(admin_url,processing,tmp_path,mode):
+    f=processing();ledger,_=projectable(f,tmp_path)
+    signature='oracle2._processing_projection_eligible(uuid,uuid,integer,jsonb,text,text)'
+    with psycopg.connect(admin_url) as conn:
+        original=conn.execute('SELECT pg_get_functiondef(to_regprocedure(%s))',(signature,)).fetchone()[0]
+        body="RAISE EXCEPTION 'owned unexpected eligibility fault' USING ERRCODE='XX000';" if mode=='unexpected' else 'PERFORM pg_sleep(6); RETURN true;'
+        conn.execute('CREATE OR REPLACE FUNCTION oracle2._processing_projection_eligible(workspace uuid,artifact uuid,ver integer,event_payload jsonb,runtime text,registry text) RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $owned$ BEGIN '+body+' END $owned$')
+    try:
+        start=time.monotonic()
+        with pytest.raises(psycopg.errors.InternalError_ if mode=='unexpected' else psycopg.errors.QueryCanceled):
+            lease_processing_projection(ledger,f['workspace'])
+        assert time.monotonic()-start<7
+        with psycopg.connect(admin_url) as conn:
+            assert conn.execute('SELECT sum(attempts),count(delivered_at) FROM oracle2.outbox WHERE workspace_id=%s',(f['workspace'],)).fetchone()==(0,0)
+    finally:
+        with psycopg.connect(admin_url) as conn:conn.execute(original)

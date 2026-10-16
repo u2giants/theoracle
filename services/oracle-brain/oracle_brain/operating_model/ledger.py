@@ -220,6 +220,10 @@ class Ledger:
         processing=manifest.kind in PROCESSING_ARTIFACT_KINDS
         if processing and (self.processing_sources is None or self.processing_read_guard is None):
             raise PermissionError('current trusted processing qualification required')
+        if (processing and (self.processing_sources.binding.profile not in {'candidate-compiler','documentary-executor'}
+                or (self.processing_sources.binding.profile != 'candidate-compiler'
+                    and manifest.kind not in {'processing_qualified_model_v1','processing_summary_v1'}))):
+            raise PermissionError('processing profile cannot open extraction or failed candidate blobs')
         if manifest.state!='ready' and not include_failed:
             raise PermissionError('failed extraction cannot serve')
         # Resolve immutable source identities from relational receipts before opening
@@ -246,6 +250,10 @@ class Ledger:
         if self.processing_read_guard is None:
             raise PermissionError('current trusted processing qualification required')
         manifest,authoritative_refs=self.processing_sources.artifact_metadata(workspace_id,artifact_id,version)
+        if (self.processing_sources.binding.profile not in {'candidate-compiler','documentary-executor'}
+                or (self.processing_sources.binding.profile != 'candidate-compiler'
+                    and manifest.kind not in {'processing_qualified_model_v1','processing_summary_v1'})):
+            raise PermissionError('processing profile cannot open extraction or failed candidate blobs')
         if manifest.state!='ready' and not include_failed:
             raise PermissionError('failed processing candidate cannot serve')
         payload=json.loads(self.blobs.read(manifest.private_object_key,manifest.content_hash))

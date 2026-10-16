@@ -4,6 +4,7 @@ import json
 from typing import Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
+from .source_receipts import SourceRef
 
 class StrictRecord(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
@@ -34,3 +35,20 @@ class ArtifactManifest(StrictRecord):
     content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
     private_object_key: str
     state: Literal['ready', 'failed']
+
+
+class ProcessingExtractionSeal(StrictRecord):
+    """Current immutable extraction identity, never a private-body capability."""
+    workspace_id: UUID
+    artifact_id: UUID
+    version: int = Field(strict=True, ge=1)
+    kind: Literal['processing_extraction_v1']
+    state: Literal['ready']
+    content_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    input_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    permission_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    compiler_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    manifest_hash: str = Field(pattern=r'^[0-9a-f]{64}$')
+    dependency_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_refs: tuple[SourceRef, ...] = Field(min_length=1)

@@ -157,7 +157,7 @@ GRANT EXECUTE ON FUNCTION oracle2.commit_processing_candidate(jsonb,bytea,bytea,
 
 -- No receipt bodies or original text in this getter. It serves only the caller's
 -- exact current source population and rejects forged/extended relational lineage.
-CREATE OR REPLACE FUNCTION oracle2.hosting_processing_artifact(
+CREATE OR REPLACE FUNCTION oracle2._processing_artifact_metadata(
  workspace uuid,artifact uuid,ver integer,principal uuid,expected_runtime text,expected_registry text)
  RETURNS TABLE(manifest jsonb,source_refs jsonb)
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
@@ -209,8 +209,44 @@ BEGIN
  RETURN QUERY SELECT m,refs;
 EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN RAISE insufficient_privilege USING MESSAGE='invalid processing lineage';
 END $body$;
+REVOKE ALL ON FUNCTION oracle2._processing_artifact_metadata(uuid,uuid,integer,uuid,text,text) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
+
+CREATE OR REPLACE FUNCTION oracle2.hosting_processing_artifact(
+ workspace uuid,artifact uuid,ver integer,principal uuid,expected_runtime text,expected_registry text)
+ RETURNS TABLE(manifest jsonb,source_refs jsonb)
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
+DECLARE q record;
+BEGIN
+ SELECT * INTO STRICT q FROM oracle2._processing_artifact_metadata(workspace,artifact,ver,principal,expected_runtime,expected_registry);
+ IF pg_has_role(SESSION_USER,'oracle2_documentary_executor','MEMBER')
+ AND q.manifest->>'kind' NOT IN ('processing_qualified_model_v1','processing_summary_v1') THEN
+  RAISE insufficient_privilege USING MESSAGE='executor candidate body capability denied';
+ END IF;
+ RETURN QUERY SELECT q.manifest,q.source_refs;
+END $$;
 REVOKE ALL ON FUNCTION oracle2.hosting_processing_artifact(uuid,uuid,integer,uuid,text,text) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
 GRANT EXECUTE ON FUNCTION oracle2.hosting_processing_artifact(uuid,uuid,integer,uuid,text,text) TO oracle2_candidate_compiler,oracle2_documentary_executor;
+
+-- A seal is metadata only. The full manifest/private key never leaves this getter.
+CREATE OR REPLACE FUNCTION oracle2.hosting_processing_extraction_seal(
+ workspace uuid,artifact uuid,ver integer,principal uuid,expected_runtime text,expected_registry text)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
+DECLARE q record; manifest_hash text;
+BEGIN
+ SELECT * INTO STRICT q FROM oracle2._processing_artifact_metadata(workspace,artifact,ver,principal,expected_runtime,expected_registry);
+ IF q.manifest->>'kind'<>'processing_extraction_v1' OR q.manifest->>'state'<>'ready' THEN RAISE insufficient_privilege; END IF;
+ -- ArtifactManifest consists only of canonical scalar values. Preserve exact
+ -- private-path bytes inside the digest without returning those bytes.
+ SELECT encode(sha256(convert_to('{'||string_agg(to_jsonb(key)::text||':'||value::text,',' ORDER BY key COLLATE "C")||'}','UTF8')),'hex')
+ INTO manifest_hash FROM jsonb_each(q.manifest);
+ RETURN jsonb_build_object('schema_version',1,'workspace_id',workspace,'artifact_id',artifact,'version',ver,
+ 'kind','processing_extraction_v1','state','ready','content_hash',q.manifest->>'content_hash',
+ 'input_digest',q.manifest->>'input_digest','source_digest',q.manifest->>'source_digest',
+ 'permission_digest',q.manifest->>'permission_digest','compiler_digest',q.manifest->>'compiler_digest',
+ 'manifest_hash',manifest_hash,'dependency_digest',q.manifest->>'dependency_digest','source_refs',q.source_refs);
+END $$;
+REVOKE ALL ON FUNCTION oracle2.hosting_processing_extraction_seal(uuid,uuid,integer,uuid,text,text) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
+GRANT EXECUTE ON FUNCTION oracle2.hosting_processing_extraction_seal(uuid,uuid,integer,uuid,text,text) TO oracle2_candidate_compiler,oracle2_documentary_executor;
 
 -- Existing queue, explicit processing lease fencing. Legacy rows stay NULL and
 -- legacy lease/receipt handlers are not changed or admitted to this namespace.
@@ -230,10 +266,27 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION oracle2._processing_projection_actor(uuid,uuid,integer,text,text) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
 
+CREATE OR REPLACE FUNCTION oracle2._processing_projection_eligible(workspace uuid,artifact uuid,ver integer,event_payload jsonb,runtime text,registry text)
+ RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
+DECLARE m jsonb;
+BEGIN
+ PERFORM oracle2._processing_projection_actor(workspace,artifact,ver,runtime,registry);
+ SELECT x.manifest INTO m FROM oracle2.artifact_manifests x WHERE x.workspace_id=workspace AND x.artifact_id=artifact AND x.version=ver;
+ RETURN event_payload=jsonb_build_object('namespace','oracle_processing_v1','manifest',m)
+ AND m->>'kind'='processing_qualified_model_v1' AND m->>'state'='ready'
+ AND ver=(SELECT max(x.version) FROM oracle2.artifact_manifests x WHERE x.workspace_id=workspace AND x.artifact_id=artifact AND x.kind='processing_qualified_model_v1' AND x.state='ready');
+EXCEPTION WHEN insufficient_privilege OR invalid_text_representation OR numeric_value_out_of_range THEN
+ RETURN false;
+END $$;
+REVOKE ALL ON FUNCTION oracle2._processing_projection_eligible(uuid,uuid,integer,jsonb,text,text) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
+
 CREATE OR REPLACE FUNCTION oracle2.lease_processing_projection(workspace uuid,runtime text,registry text,lease_seconds integer)
  RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
 DECLARE candidate record; e oracle2.outbox%ROWTYPE; actor uuid; current_manifest jsonb; token uuid; scanned integer:=0;
 BEGIN
+ -- Timeout must be set BEFORE the command begins; setting it inside a function
+ -- would not reliably arm the current statement's timer. The fixed adapter does so.
+ IF current_setting('statement_timeout')::interval<=interval '0' OR current_setting('statement_timeout')::interval>interval '5 seconds' THEN RAISE insufficient_privilege USING MESSAGE='bounded statement timeout required'; END IF;
  IF lease_seconds IS NULL OR lease_seconds<1 OR lease_seconds>60
  OR NOT pg_has_role(SESSION_USER,'oracle2_candidate_compiler','MEMBER') THEN RAISE insufficient_privilege; END IF;
  IF current_setting('lock_timeout')::interval=interval '0' OR current_setting('lock_timeout')::interval>interval '2 seconds' THEN PERFORM set_config('lock_timeout','2s',true); END IF;
@@ -245,6 +298,7 @@ BEGIN
  AND o.delivered_at IS NULL AND (o.lease_until IS NULL OR o.lease_until<clock_timestamp()) AND o.attempts<10
  AND EXISTS(SELECT 1 FROM oracle2.artifact_dependencies d JOIN oracle2.hosting_role_source_admissions a ON a.role_name=SESSION_USER AND a.workspace_id=d.workspace_id AND a.source_id=d.upstream_id::uuid AND a.revision=d.upstream_revision::integer
  WHERE d.workspace_id=workspace AND d.artifact_id=o.assertion_id AND d.version=o.revision AND d.upstream_kind='source')
+ AND oracle2._processing_projection_eligible(workspace,o.assertion_id,o.revision,o.payload,runtime,registry)
  ORDER BY o.revision,o.event_id LIMIT 64 LOOP
   BEGIN
    -- No artifact advisory lock is taken by leasing; none is taken after workspace.
@@ -289,13 +343,14 @@ BEGIN
  OR m->>'kind' IS DISTINCT FROM 'processing_qualified_model_v1' OR m->>'state' IS DISTINCT FROM 'ready'
  OR e.revision<>(SELECT max(x.version) FROM oracle2.artifact_manifests x WHERE x.workspace_id=workspace AND x.artifact_id=e.assertion_id AND x.kind='processing_qualified_model_v1' AND x.state='ready')
  OR jsonb_typeof(receipt) IS DISTINCT FROM 'object'
- OR NOT receipt ?& ARRAY['schema_version','event_id','workspace_id','artifact_id','version','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_attempt','lease_until']
- OR (receipt-ARRAY['schema_version','event_id','workspace_id','artifact_id','version','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_attempt','lease_until'])<>'{}'::jsonb
- OR EXISTS(SELECT 1 FROM unnest(ARRAY['event_id','workspace_id','artifact_id','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_until']) k WHERE jsonb_typeof(receipt->k) IS DISTINCT FROM 'string')
+ OR NOT receipt ?& ARRAY['schema_version','event_id','workspace_id','artifact_id','version','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_attempt','lease_until','projection_schema','projection_digest']
+ OR (receipt-ARRAY['schema_version','event_id','workspace_id','artifact_id','version','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_attempt','lease_until','projection_schema','projection_digest'])<>'{}'::jsonb
+ OR EXISTS(SELECT 1 FROM unnest(ARRAY['event_id','workspace_id','artifact_id','content_hash','source_digest','permission_digest','graph_name','record_digest','sdk_version','projector_id','lease_role','lease_token','lease_until','projection_schema','projection_digest']) k WHERE jsonb_typeof(receipt->k) IS DISTINCT FROM 'string')
  OR jsonb_typeof(receipt->'version') IS DISTINCT FROM 'number' OR jsonb_typeof(receipt->'lease_attempt') IS DISTINCT FROM 'number'
  OR receipt->'schema_version' IS DISTINCT FROM '1'::jsonb OR receipt->>'event_id' IS DISTINCT FROM event::text
  OR receipt->>'workspace_id' IS DISTINCT FROM workspace::text OR receipt->>'artifact_id' IS DISTINCT FROM e.assertion_id::text OR receipt->>'version' IS DISTINCT FROM e.revision::text
  OR receipt->>'content_hash' IS DISTINCT FROM m->>'content_hash' OR receipt->>'source_digest' IS DISTINCT FROM m->>'source_digest' OR receipt->>'permission_digest' IS DISTINCT FROM m->>'permission_digest'
+ OR receipt->>'projection_schema' IS DISTINCT FROM 'qualified-evidence-projection-v1' OR receipt->>'projection_digest' !~ '^[0-9a-f]{64}$'
  OR receipt->>'sdk_version' IS DISTINCT FROM '1.4.0' OR jsonb_typeof(receipt->'projector_id') IS DISTINCT FROM 'string' OR receipt->>'projector_id'=''
  OR receipt->>'record_digest' !~ '^[0-9a-f]{64}$' OR receipt->>'lease_role' IS DISTINCT FROM SESSION_USER::text OR receipt->>'lease_token' IS DISTINCT FROM token::text OR receipt->>'lease_attempt' IS DISTINCT FROM attempt::text
  OR receipt->>'graph_name' !~ ('^oracle_processing_v1_'||replace(workspace::text,'-','')||'_'||replace(e.assertion_id::text,'-','')||'_'||e.revision::text||'_[0-9a-f]{32}$') THEN

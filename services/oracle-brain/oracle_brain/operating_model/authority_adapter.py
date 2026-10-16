@@ -161,6 +161,18 @@ class ProcessingSourceResolver:
             FROM pg_namespace n JOIN pg_roles r ON r.oid=n.nspowner WHERE n.nspname='oracle2'""").fetchone()
         if owner != (b.expected_owner_role,False):
             raise PermissionError('trusted schema owner differs or is reachable')
+        reachable=conn.execute("""SELECT rolname::text FROM pg_roles WHERE
+            pg_has_role(session_user,oid,'MEMBER') OR pg_has_role(session_user,oid,'SET')
+            OR pg_has_role(session_user,oid,'USAGE')""").fetchall()
+        if {r[0] for r in reachable}!={b.expected_session_role,group}:
+            raise PermissionError('exact processing membership differs')
+        flags=conn.execute('SELECT rolcanlogin,rolinherit,rolsuper,rolbypassrls,rolcreaterole,rolcreatedb,rolreplication FROM pg_roles WHERE rolname=%s',(group,)).fetchone()
+        if flags is None or any(flags):
+            raise PermissionError('fixed processing group flags differ')
+        entry=conn.execute("SELECT rolcanlogin,rolinherit,pg_has_role(session_user,%s,'USAGE'),pg_has_role(session_user,%s,'SET') FROM pg_roles WHERE rolname=session_user",(group,group)).fetchone()
+        if (not entry or not entry[0] or (row[1]==row[0] and not entry[2])
+                or (row[1]==group and not entry[3])):
+            raise PermissionError('actual processing inherit/SET entry differs')
         for signature, allowed in self._signatures.items():
             function = conn.execute("""SELECT r.rolname,p.prosecdef,p.proconfig
                 FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner WHERE p.oid=to_regprocedure(%s)""",
@@ -309,7 +321,10 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
     """Current generated metadata; no original bytes in artifact lookup."""
     _signatures={**ProcessingSourceResolver._signatures,
         'oracle2._processing_dependency_digest(uuid,uuid,integer)':frozenset(),
+        'oracle2._processing_artifact_metadata(uuid,uuid,integer,uuid,text,text)':frozenset(),
+        'oracle2.hosting_processing_extraction_seal(uuid,uuid,integer,uuid,text,text)':frozenset({'oracle2_candidate_compiler','oracle2_documentary_executor'}),
         'oracle2._processing_projection_actor(uuid,uuid,integer,text,text)':frozenset(),
+        'oracle2._processing_projection_eligible(uuid,uuid,integer,jsonb,text,text)':frozenset(),
         'oracle2.lease_processing_projection(uuid,text,text,integer)':frozenset({'oracle2_candidate_compiler'}),
         'oracle2.ack_processing_projection(uuid,uuid,uuid,integer,jsonb,text,text,text,timestamp with time zone)':frozenset({'oracle2_candidate_compiler'}),
         'oracle2.commit_processing_candidate(jsonb,bytea,bytea,bytea,jsonb,text,text,timestamp with time zone)':frozenset({'oracle2_candidate_compiler'}),
@@ -335,3 +350,21 @@ class ProcessingArtifactResolver(ProcessingSourceResolver):
                 or len(set(refs))!=len(refs)):
             raise PermissionError('current processing manifest differs')
         return manifest,refs
+
+
+    def extraction_seal(self,workspace_id,artifact_id,version,*,connection=None):
+        from .contracts import ProcessingExtractionSeal
+        if (self.binding.profile not in {'candidate-compiler','documentary-executor'}
+                or not isinstance(workspace_id,UUID) or not isinstance(artifact_id,UUID)
+                or type(version) is not int or version<1):
+            raise PermissionError('exact processing extraction seal identity required')
+        with self._connection(connection) as conn:
+            self._check(conn)
+            rows=conn.execute('SELECT oracle2.hosting_processing_extraction_seal(%s,%s,%s,%s,%s,%s)',
+                (workspace_id,artifact_id,version,self.binding.principal,self.binding.runtime_hash,self.binding.source_registry_hash)).fetchall()
+            self._check(conn)
+        if len(rows)!=1:raise PermissionError('unique current extraction seal required')
+        seal=ProcessingExtractionSeal.model_validate_json(json.dumps(rows[0][0]))
+        if (seal.workspace_id,seal.artifact_id,seal.version)!=(workspace_id,artifact_id,version):
+            raise PermissionError('current extraction seal differs')
+        return seal

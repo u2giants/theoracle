@@ -27,7 +27,7 @@ BEGIN
  PERFORM pg_advisory_xact_lock(hashtext('oracle2-authz:'||workspace::text));
  SELECT nspowner INTO owner_oid FROM pg_namespace WHERE nspname='oracle2';
  SELECT oid INTO login_oid FROM pg_roles WHERE rolname=SESSION_USER
- AND NOT (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication);
+ AND rolcanlogin AND NOT (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication);
  IF login_oid IS NULL OR owner_oid IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname=CURRENT_USER)
  OR pg_has_role(login_oid,owner_oid,'MEMBER') THEN RAISE insufficient_privilege USING MESSAGE='processing owner/session denied'; END IF;
  SELECT array_agg(rolname::text ORDER BY rolname) INTO kinds FROM pg_roles
@@ -35,6 +35,14 @@ BEGIN
  AND pg_has_role(login_oid,oid,'MEMBER');
  IF coalesce(cardinality(kinds),0)<>1 THEN RAISE insufficient_privilege USING MESSAGE='exclusive processing role required'; END IF;
  kind:=kinds[1];
+ -- PG16 MEMBER, SET and inherited USAGE have different option semantics.
+ -- The new processing issuer permits no other reachable role, even harmless
+ -- intermediate/monitor membership. Legacy SourceRoleBinding is unchanged.
+ IF EXISTS(SELECT 1 FROM pg_roles x WHERE x.rolname NOT IN (SESSION_USER::text,kind)
+ AND (pg_has_role(login_oid,x.oid,'MEMBER') OR pg_has_role(login_oid,x.oid,'SET') OR pg_has_role(login_oid,x.oid,'USAGE')))
+ OR EXISTS(SELECT 1 FROM pg_roles x WHERE x.rolname=kind AND (x.rolcanlogin OR x.rolinherit OR x.rolsuper OR x.rolbypassrls OR x.rolcreaterole OR x.rolcreatedb OR x.rolreplication))
+ OR current_setting('role') NOT IN ('none',SESSION_USER::text,kind) THEN
+ RAISE insufficient_privilege USING MESSAGE='exact processing role/SET membership required'; END IF;
  IF want_raw AND kind NOT IN ('oracle2_source_reader','oracle2_candidate_compiler') THEN
   RAISE insufficient_privilege USING MESSAGE='raw processing role denied';
  END IF;

@@ -139,9 +139,11 @@ def test_metadata_and_both_read_apis_deny_before_blob_after_relational_change(ad
 def test_executor_metadata_and_payload_read_without_raw_original_or_write(admin_url,processing,tmp_path):
     f=processing();_,m,p=persist_extraction(f,tmp_path)
     url,binding=executor_for(admin_url,f);src=ProcessingArtifactResolver(url,binding=binding)
-    manifest,refs=src.artifact_metadata(f['workspace'],m.artifact_id,1)
-    assert manifest==m and refs[0].source_id==f['source']
-    assert f['reading'] not in json.dumps(manifest.model_dump(mode='json'))
+    with pytest.raises((PermissionError,psycopg.errors.InsufficientPrivilege)):
+        src.artifact_metadata(f['workspace'],m.artifact_id,1)
+    seal=src.extraction_seal(f['workspace'],m.artifact_id,1)
+    assert seal.manifest_hash==digest(m.model_dump(mode='json')) and seal.source_refs[0].source_id==f['source']
+    assert 'private_object_key' not in seal.model_dump() and f['reading'] not in json.dumps(seal.model_dump(mode='json'))
     with pytest.raises(PermissionError):src.current_for_processing(f['workspace'],f['source'])
     with pytest.raises(PermissionError):ProcessingCompilerLedger(url,FileBlobStore(tmp_path/'executor'),principal=f['actor'],processing_sources=src)
 
@@ -152,3 +154,30 @@ def test_actual_clock_expiry_rolls_back_after_local_callback(admin_url,processin
     with psycopg.connect(admin_url) as conn:
         assert conn.execute('SELECT count(*) FROM oracle2.artifact_manifests WHERE workspace_id=%s',(f['workspace'],)).fetchone()[0]==0
         assert conn.execute('SELECT count(*) FROM oracle2.operating_model_source_receipts WHERE source_id=%s',(f['source'],)).fetchone()[0]==0
+
+
+@pytest.mark.parametrize('read_api',['read','read_with_manifest'])
+@pytest.mark.parametrize('kind',['processing_extraction_v1','processing_failed_extraction_v1','processing_failed_assembly_v1'])
+def test_executor_processing_kind_denied_before_blob(admin_url,processing,tmp_path,read_api,kind):
+    f=processing(); args,m,_=bundle(f,kind=kind); commit(f,args)
+    url,binding=executor_for(admin_url,f);src=ProcessingArtifactResolver(url,binding=binding)
+    class NoBlob:
+        def read(self,*args):raise AssertionError('executor opened restricted candidate blob')
+    ledger=Ledger(url,NoBlob(),principal=f['actor'],can_read=lambda *args:False,current_source=lambda *args:None,processing_sources=src,processing_read_guard=lambda *args:None)
+    with pytest.raises((PermissionError,psycopg.errors.InsufficientPrivilege)):
+        getattr(ledger,read_api)(f['workspace'],m.artifact_id,1,include_failed=True)
+
+
+@pytest.mark.parametrize('profile',['source-reader','gateway-metadata'])
+@pytest.mark.parametrize('read_api',['read','read_with_manifest'])
+def test_original_or_gateway_role_never_opens_generated_blob(admin_url,processing,tmp_path,profile,read_api):
+    f=processing(profile);src=ProcessingArtifactResolver(f['url'],binding=f['binding'])
+    class NoBlob:
+        def read(self,*args):raise AssertionError('metadata/original role opened generated blob')
+    ledger=Ledger(f['url'],NoBlob(),principal=f['actor'],can_read=lambda *args:False,current_source=lambda *args:None,
+        processing_sources=src,processing_read_guard=lambda *args:None)
+    with pytest.raises(PermissionError):getattr(ledger,read_api)(f['workspace'],uuid4(),1)
+    with psycopg.connect(f['url']) as conn:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute('SELECT * FROM oracle2.hosting_processing_artifact(%s,%s,1,%s,%s,%s)',
+                (f['workspace'],uuid4(),f['actor'],RUNTIME,REGISTRY))
