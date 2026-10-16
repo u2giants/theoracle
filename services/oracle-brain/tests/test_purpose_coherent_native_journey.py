@@ -156,33 +156,40 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
         assert len(paid.embedder.data.vectors)==len(paid.embedder.data.inventory.inputs)
         assert all(len(v)==256 for v in paid.embedder.data.vectors)
         stage('protected_paid_bundle_without_historical_raw_wire')
-        with pytest.raises(FileNotFoundError) as raw_denial:
-            paid.ledger.read_with_manifest(job.workspace_id,handoff.extractions[0].manifest.artifact_id,1)
-        assert __import__('pathlib').Path(raw_denial.value.filename) in absent
-        with pytest.raises(FileNotFoundError) as compile_denial:
-            paid.ledger.persist(workspace_id=job.workspace_id,artifact_id=qualified[0].artifact_id,version=1,
-                kind='processing_qualified_model_v1',payload=qualified[1],refs=job.source_refs,
-                permission_digest=qualified[0].permission_digest,compiler_digest=qualified[0].compiler_digest,
-                dependencies=tuple(('artifact',str(e.manifest.artifact_id),str(e.manifest.version)) for e in handoff.extractions))
-        assert __import__('pathlib').Path(compile_denial.value.filename) in absent
-        stage('raw_read_and_direct_compile_refused_missing_paid_proof')
-        signed=deliver_actual_paid_graph(delivered_worker,compile_job,artifact=qualified[0],
+        def raw_compile_negatives():
+            with pytest.raises(FileNotFoundError) as raw_denial:
+                paid.ledger.read_with_manifest(job.workspace_id,handoff.extractions[0].manifest.artifact_id,1)
+            assert __import__('pathlib').Path(raw_denial.value.filename) in absent
+            with pytest.raises(FileNotFoundError) as compile_denial:
+                paid.ledger.persist(workspace_id=job.workspace_id,artifact_id=qualified[0].artifact_id,version=1,
+                    kind='processing_qualified_model_v1',payload=qualified[1],refs=job.source_refs,
+                    permission_digest=qualified[0].permission_digest,compiler_digest=qualified[0].compiler_digest,
+                    dependencies=tuple(('artifact',str(e.manifest.artifact_id),str(e.manifest.version)) for e in handoff.extractions))
+            assert __import__('pathlib').Path(compile_denial.value.filename) in absent
+            stage('raw_read_and_direct_compile_refused_missing_paid_proof')
+        from oracle_brain.operating_model.retrieval import QueryPlan
+        from oracle_brain.operating_model.summaries import summarize_from_ledger,persist_summary
+        from uuid import uuid4
+        summary=summarize_from_ledger(paid.ledger,job.workspace_id,qualified[0].artifact_id,1,
+            QueryPlan(view='company_overview',question='Invented complete workflow',max_bytes=128*1024,page=0,page_size=25),
+            qualification_guard=paid.qualification_guard)
+        summary_manifest=persist_summary(paid.ledger,summary,summary_id=uuid4(),summary_version=1,
+            permission_digest=qualified[0].permission_digest,compiler_digest=delivered_worker.config.runtime_hash,
+            qualification_guard=paid.qualification_guard)
+        assert summary_manifest.kind=='processing_summary_v1'
+        with psycopg.connect(admin_url) as connection:
+            assert connection.execute("SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND payload->>'namespace'='oracle_processing_v1'",
+                (job.workspace_id,)).fetchone()==(1,)
+        stage('compiler_summary_committed_without_second_projection')
+        with deliver_actual_paid_graph(delivered_worker,compile_job,artifact=qualified[0],
             embedding_dispatch_id=embedding['job'].dispatch_id,root=tmp_path/'actual-paid-graph',
             tls=x['platform']['tls'],certificates=__import__('pathlib').Path(x['platform']['binding'](1).ca_file).parent,
-            prepared_bundle=paid,stage=stage)
-    assert signed['content_hash']==qualified[0].content_hash and x['state']['posts']==7
-    stage('protected_graph_ack_and_compiler_restart')
-    from oracle_brain.operating_model.retrieval import QueryPlan
-    from oracle_brain.operating_model.summaries import summarize_from_ledger,persist_summary
-    from uuid import uuid4
-    summary=summarize_from_ledger(paid.ledger,job.workspace_id,qualified[0].artifact_id,1,
-        QueryPlan(view='company_overview',question='Invented complete workflow',max_bytes=128*1024,page=0,page_size=25),
-        qualification_guard=paid.qualification_guard)
-    summary_manifest=persist_summary(paid.ledger,summary,summary_id=uuid4(),summary_version=1,
-        permission_digest=qualified[0].permission_digest,compiler_digest=delivered_worker.config.runtime_hash,
-        qualification_guard=paid.qualification_guard)
-    assert summary_manifest.kind=='processing_summary_v1'
-    with psycopg.connect(admin_url) as connection:
-        assert connection.execute("SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND payload->>'namespace'='oracle_processing_v1'",
-            (job.workspace_id,)).fetchone()==(1,)
-    stage('compiler_summary_committed_without_second_projection')
+            prepared_bundle=paid,stage=stage) as delivery:
+            assert delivery['signed']['content_hash']==qualified[0].content_hash and x['state']['posts']==7
+            stage('protected_graph_ack_and_compiler_restart')
+            from purpose_journey_fixture_executor import verify_protected_executor
+            verify_protected_executor(delivery,admin_url=admin_url,worker=delivered_worker,job=compile_job,
+                summary_manifest=summary_manifest,extraction_ids=tuple((e.manifest.artifact_id,e.manifest.version) for e in handoff.extractions),
+                root=tmp_path/'actual-executor',tls=x['platform']['tls'],
+                certificates=__import__('pathlib').Path(x['platform']['binding'](1).ca_file).parent,stage=stage,
+                after_positive=raw_compile_negatives)

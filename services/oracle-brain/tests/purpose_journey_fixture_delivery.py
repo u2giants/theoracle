@@ -56,6 +56,7 @@ def appoint_actual_embedding_outputs(phase,*,worker,compile_job,artifact,root):
     return updated,pins
 
 
+@contextmanager
 def deliver_actual_paid_graph(worker,job,*,artifact,embedding_dispatch_id,root,tls,certificates,prepared_bundle,stage):
     """ONE actual native packet through protected factory and leased outbox.
 
@@ -105,5 +106,5 @@ def deliver_actual_paid_graph(worker,job,*,artifact,embedding_dispatch_id,root,t
                 finally:await fresh.close()
                 return signed
             signed=asyncio.run(deliver())
+            yield dict(signed=signed,settings=settings,container=container,admin_url=admin,generation=generation)
             writer.confirm_inactive()  # All timely awaited calls/pools closed.
-            return signed
