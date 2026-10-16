@@ -93,3 +93,27 @@ def test_actual_tls_response_refusals(bound_tls,case):
     try:
         with pytest.raises(GatewayDenied):PurposeProviderClientV2(binding(server.server_port)).dispatch(uuid4(),'a'*64,'b'*64)
     finally:server.shutdown();server.server_close();thread.join(2)
+
+def test_actual_total_deadline_aborts_trickled_header(bound_tls):
+    import dataclasses
+    import http.client
+    import time
+    tls,binding=bound_tls
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self,*args):pass
+        def do_POST(self):
+            self.rfile.read(int(self.headers['Content-Length']))
+            try:
+                self.wfile.write(b'HTTP/1.0 200 OK\r\nX-Trickle: ');self.wfile.flush()
+                for _ in range(20):
+                    self.wfile.write(b'a');self.wfile.flush();time.sleep(.02)
+            except (OSError,ValueError):pass
+    server=MutualTLSServer(('127.0.0.1',0),Handler,tls=tls)
+    thread=threading.Thread(target=server.serve_forever,kwargs={'poll_interval':.01},daemon=True);thread.start()
+    try:
+        client=PurposeProviderClientV2(dataclasses.replace(binding(server.server_port),timeout=.1))
+        started=time.monotonic()
+        with pytest.raises((GatewayDenied,OSError,http.client.HTTPException)):
+            client.dispatch(uuid4(),'a'*64,'b'*64)
+        assert time.monotonic()-started<.35
+    finally:server.shutdown();server.server_close();thread.join(2)
