@@ -153,7 +153,8 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
     from dev.oracle2.test_readonly_graph_fixture import owned_target
     from test_processing_documentary_journey import qualified_journey,assert_no_uncited_originals
     from oracle_brain.operating_model.sdk_projection import PaidProcessingSDKProjectionV3
-    from oracle_brain.operating_model.processing_projection import lease_processing_projection,project_paid_processing_event_v3,ProcessingProjectionIncomplete
+    from oracle_brain.operating_model.processing_projection import (lease_processing_projection,
+        project_paid_processing_event_v3,ProcessingProjectionIncomplete,ProcessingProjectionAuthorityWindowV3)
     from oracle_brain.operating_model.paid_sdk_embeddings_v3 import sdk_float32_vector
     q=qualified_journey(admin_url,processing,tmp_path);m=q['manifest'];payload=q['ledger'].read(m.workspace_id,m.artifact_id,m.version)
     data=verify_paid_sdk_embedding_v3(**paid_case_for(payload,m));adapter=PaidProjectionEmbedderV3(data)
@@ -166,7 +167,8 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
         # Invented semantic admission fixture; real role/source SQL is exercised.
         def authorize_current(self):
             current,body=q['ledger'].read_with_manifest(m.workspace_id,m.artifact_id,m.version)
-            return q['guard'].valid_until(current,body,q['ledger'].principal,q['ledger'].clock())
+            until=q['guard'].valid_until(current,body,q['ledger'].principal,q['ledger'].clock())
+            return ProcessingProjectionAuthorityWindowV3(current_until=until,operation_horizon=until)
     async def exercise():
         nonlocal readonly_username
         graph_completion_known=True
