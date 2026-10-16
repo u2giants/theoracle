@@ -17,7 +17,7 @@ from cryptography.x509.oid import ExtensionOID
 
 from .gateway import GatewayDenied, unique_object
 from .parent_observer_v2 import ParentObserverTransportV2
-from .egress import EgressServer
+from .egress import EgressServer, _EgressHandler
 
 
 def _hex(value):
@@ -176,6 +176,69 @@ class PurposeIngressBridgeV2:
                 or len(encoded) > 4096):
             raise GatewayDenied("private content or unbound receipt refused")
         return encoded
+
+
+class ExtractionProviderClientV2(_FixedTLSClientV2):
+    """Distinct extraction qualification field/domain; no purpose-mode switch."""
+    def dispatch(self, dispatch_id: UUID, request_hash: str, extraction_qualification_sha256: str) -> dict:
+        if (type(dispatch_id) is not UUID or not _hex(request_hash)
+                or not _hex(extraction_qualification_sha256)):
+            raise GatewayDenied("canonical extraction dispatch identity required")
+        request = {"dispatch_id": str(dispatch_id), "request_hash": request_hash,
+                   "extraction_qualification_sha256": extraction_qualification_sha256}
+        result = _object(self._post("/v2/extraction/chat", request, 4096),
+            set(request) | {"raw_response_hash", "receipt_hash"})
+        if (any(result[k] != v for k, v in request.items())
+                or not _hex(result["raw_response_hash"]) or not _hex(result["receipt_hash"])):
+            raise GatewayDenied("unbound extraction receipt metadata")
+        return result
+
+
+class ExtractionIngressBridgeV2:
+    def __init__(self, ingress, worker_uri: str):
+        if not callable(getattr(ingress, "dispatch", None)) or not worker_uri.startswith("spiffe://oracle/"):
+            raise GatewayDenied("fixed extraction ingress required")
+        self._ingress, self.worker_uri = ingress, worker_uri
+
+    def dispatch(self, raw: bytes) -> bytes:
+        request = _object(raw, {"dispatch_id", "request_hash", "extraction_qualification_sha256"})
+        try:
+            if str(UUID(request["dispatch_id"])) != request["dispatch_id"]:
+                raise ValueError
+        except (ValueError, TypeError, AttributeError):
+            raise GatewayDenied("invalid extraction dispatch identity") from None
+        if not _hex(request["request_hash"]) or not _hex(request["extraction_qualification_sha256"]):
+            raise GatewayDenied("invalid extraction qualification seal")
+        result = self._ingress.dispatch(self.worker_uri, request)
+        encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+        receipt = _object(encoded, set(request) | {"raw_response_hash", "receipt_hash"})
+        if (any(receipt[k] != v for k, v in request.items())
+                or not _hex(receipt["raw_response_hash"]) or not _hex(receipt["receipt_hash"])
+                or len(encoded) > 4096):
+            raise GatewayDenied("private extraction response refused")
+        return encoded
+
+
+class _ExtractionHandlerV2(_EgressHandler):
+    def do_POST(self):
+        # Exact external route is authenticated by its own listener/peer pin and
+        # distinct qualification-field contract before the retained parser runs.
+        self.external_path = self.path
+        if self.external_path != "/v2/extraction/chat":
+            return self._reply(404)
+        try:
+            self.path = "/v1/provider/chat"
+            super().do_POST()
+        finally:
+            self.path = self.external_path
+
+
+def extraction_ingress_server_v2(address: tuple[str, int], *, tls: ssl.SSLContext,
+                                 worker_uri: str, ingress) -> EgressServer:
+    server = EgressServer(address, tls=tls, executor_uri=worker_uri,
+        egress=ExtractionIngressBridgeV2(ingress, worker_uri))
+    server.RequestHandlerClass = _ExtractionHandlerV2
+    return server
 
 
 def purpose_ingress_server_v2(address: tuple[str, int], *, tls: ssl.SSLContext,
