@@ -1,5 +1,6 @@
 """Retained authority primitives, with exact source visibility rather than workspace-only access."""
 import hashlib
+import json
 from uuid import UUID
 import psycopg
 from oracle_brain.knowledge.authority import _lock, _has_authority_conn

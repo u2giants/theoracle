@@ -19,6 +19,7 @@ class ProcessingCompilerLedger(Ledger):
                  processing_compile_guard=None,processing_read_guard=None,
                  reviewed_inventories=None,clock=None):
         if (not isinstance(processing_sources,ProcessingArtifactResolver)
+                or database_url!=processing_sources.url
                 or processing_sources.binding.profile!='candidate-compiler'
                 or processing_sources.binding.principal!=principal):
             raise PermissionError('fixed current processing compiler required')
@@ -27,7 +28,7 @@ class ProcessingCompilerLedger(Ledger):
         self.processing_compile_guard=processing_compile_guard
         super().__init__(database_url,blobs,principal=principal,processing_sources=processing_sources,
             processing_read_guard=processing_read_guard,reviewed_inventories=reviewed_inventories,
-            can_read=lambda *a:False,current_source=lambda *a:None,clock=clock)
+            can_read=lambda *a:False,current_source=processing_sources.current_for_processing,clock=clock)
 
     def persist(self,*,workspace_id,artifact_id,version,kind,payload,refs,permission_digest,
                 compiler_digest,dependencies=(),failed=False,before_commit=None):

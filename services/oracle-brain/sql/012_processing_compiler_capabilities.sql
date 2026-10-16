@@ -117,7 +117,7 @@ BEGIN
    PERFORM oracle2.hosting_processing_artifact(w,(dep->>1)::uuid,(dep->>2)::integer,actor,expected_runtime,expected_registry);
   END IF;
  END LOOP;
- IF EXISTS(SELECT 1 FROM jsonb_array_elements(refs) ref WHERE NOT EXISTS(SELECT 1 FROM jsonb_array_elements(deps) d WHERE d->>0='source' AND d->>1=ref->>'source_id' AND d->>2=ref->>'revision')) THEN RAISE insufficient_privilege USING MESSAGE='complete source dependencies required'; END IF;
+ IF EXISTS(SELECT 1 FROM jsonb_array_elements(refs) candidate_ref WHERE NOT EXISTS(SELECT 1 FROM jsonb_array_elements(deps) d WHERE d->>0='source' AND d->>1=candidate_ref->>'source_id' AND d->>2=candidate_ref->>'revision')) THEN RAISE insufficient_privilege USING MESSAGE='complete source dependencies required'; END IF;
  IF m->>'kind'='processing_summary_v1' AND ((SELECT count(*) FROM jsonb_array_elements(deps) d WHERE d->>0='artifact')<>1
  OR NOT EXISTS(SELECT 1 FROM jsonb_array_elements(deps) d JOIN oracle2.artifact_manifests a ON a.workspace_id=w AND a.artifact_id=(d->>1)::uuid AND a.version=(d->>2)::integer WHERE d->>0='artifact' AND a.kind='processing_qualified_model_v1')) THEN RAISE insufficient_privilege USING MESSAGE='qualified summary parent required'; END IF;
  IF m->>'kind'='processing_qualified_model_v1' AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(deps) d WHERE d->>0='artifact') THEN RAISE insufficient_privilege USING MESSAGE='qualified model extraction parents required'; END IF;
