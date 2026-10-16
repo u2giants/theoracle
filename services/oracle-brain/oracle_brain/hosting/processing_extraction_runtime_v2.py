@@ -282,6 +282,11 @@ def _extraction_population_hold_v2(settings,dispatch):
         with ExitStack() as stack:
             proofs=tuple(stack.enter_context(s.resolver.hold(d,j,connection=conn)) for j in d.dispatches)
             proof=proofs[d.dispatches.index(dispatch)]
+            # Narrow the actual selected-source proof to every admitted source's
+            # finite SQL horizon; never stretch one source over another grant.
+            proof=proof.model_copy(update={'expires_at':min(p.expires_at for p in proofs)})
+            if datetime.now(timezone.utc)>=proof.expires_at:
+                raise PermissionError('complete extraction source horizon expired')
             _current_extraction_records_v2(s,now=datetime.now(timezone.utc))
             yield proof,conn
             _current_extraction_records_v2(s,now=datetime.now(timezone.utc))
