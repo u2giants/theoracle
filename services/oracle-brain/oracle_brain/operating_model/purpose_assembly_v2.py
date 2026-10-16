@@ -77,7 +77,7 @@ def compiler_extraction_handoff_v2(ledger,*,workspace_id,extraction_ids,source_r
         compiler_login=actual[0],compiler_runtime_hash=binding.runtime_hash,
         compiler_authority_receipt_hash=compiler_authority_receipt_hash,
         source_registry_hash=binding.source_registry_hash,source_refs=source_refs,
-        extractions=tuple(pairs),issued_at=now,expires_at=min(expires_at,binding.expires_at))
+        extractions=tuple(pairs),issued_at=actual[1],expires_at=min(expires_at,binding.expires_at))
 
 
 class AssemblyJobContextV2(StrictRecord):
