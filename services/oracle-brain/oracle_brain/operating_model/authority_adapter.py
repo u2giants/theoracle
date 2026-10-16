@@ -267,7 +267,7 @@ class BoundProcessingSourceResolver(ProcessingSourceResolver):
         super().__init__(url,binding=run_binding.source_binding)
 
     @contextmanager
-    def hold(self,descriptor,dispatch):
+    def hold(self,descriptor,dispatch,*,connection=None):
         # Shared contracts come from the independently reviewed processing-context
         # lane. Missing integration fails closed; no substitute proof is minted.
         from .processing_context import ProcessingRunDescriptor,ProcessingDispatch,ProcessingAuthorityProof
@@ -289,7 +289,7 @@ class BoundProcessingSourceResolver(ProcessingSourceResolver):
                 or datetime.now(timezone.utc)>=descriptor.expires_at):
             raise PermissionError('exact admitted processing run and dispatch required')
         ref=dispatch.source_ref
-        with self._connection() as conn:
+        with self._connection(connection) as conn:
             self._check(conn)
             rows=conn.execute('SELECT * FROM oracle2.hosting_current_source_identity(%s,%s,%s,%s,%s)',
                               self._args(descriptor.workspace_id,ref.source_id)).fetchall()
