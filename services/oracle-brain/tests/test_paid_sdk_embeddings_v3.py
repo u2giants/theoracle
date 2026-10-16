@@ -443,3 +443,53 @@ def test_owned_writer_fence_blocks_late_query_and_waits_actual_server_idle(tmp_p
         finally:
             worker.join(timeout=5);producer.close();admin.close()
     assert (root/'retired.json').is_file()
+
+
+def test_owned_writer_restart_recovery_requires_exact_owner_target_acl_and_stopped_run(tmp_path):
+    import os,redis
+    from dev.oracle2.test_readonly_graph_fixture import processing_writer,recover_processing_writer
+    from oracle_brain.hosting.custody import _durable_nonce
+    url=os.environ['ORACLE2_OPERATING_TEST_GRAPH_URL'];container=os.environ['COMPOSE_PROJECT_NAME']+'-falkor-candidate-1'
+    root=tmp_path/'restart-writer'
+    with processing_writer(container,url,root,workspace_id=uuid4(),artifact_id=uuid4(),version=1,generation=uuid4()) as original:
+        owner=dict(original.ownership)
+        # No SDK or outstanding producer was started; all bootstrap calls returned.
+    assert (root/'unknown.json').is_file() and not (root/'retired.json').exists()
+    sha=hashlib.sha256((root/'ownership.json').read_bytes()).hexdigest()
+    record=dict(schema_version=1,ownership_sha256=sha,run_id='invented-own-terminal-run',terminal_exit_code=1,
+        local_producer_tasks_stopped=True,local_producer_pools_closed=True,terminal_evidence_sha256='a'*64)
+    body=canonical_bytes(record);_durable_nonce(root,'terminal.json',body)
+    args=dict(expected_ownership_sha256=sha,producer_stop_receipt=root/'terminal.json',
+        expected_producer_stop_sha256=hashlib.sha256(body).hexdigest())
+    with pytest.raises(PermissionError,match='hash'):
+        with recover_processing_writer(container,url,root,**{**args,'expected_ownership_sha256':'0'*64}):pass
+    # Source role/admin target cannot be substituted by a different loopback port.
+    from urllib.parse import urlsplit,urlunsplit
+    parsed=urlsplit(url);wrong=urlunsplit((parsed.scheme,parsed.netloc.rsplit(':',1)[0]+':1',parsed.path,parsed.query,parsed.fragment))
+    with pytest.raises((PermissionError,RuntimeError)):
+        with recover_processing_writer(container,wrong,root,**args):pass
+    record['local_producer_tasks_stopped']=False;bad=canonical_bytes(record);_durable_nonce(root,'not-stopped.json',bad)
+    with pytest.raises(PermissionError,match='terminal/tasks/pools'):
+        with recover_processing_writer(container,url,root,**{**args,'producer_stop_receipt':root/'not-stopped.json',
+                'expected_producer_stop_sha256':hashlib.sha256(bad).hexdigest()}):pass
+    admin=redis.Redis.from_url(url,socket_timeout=2,decode_responses=True)
+    try:
+        for extra in (('~unrelated-exact-test-key',),('+graph.delete',)):
+            admin.execute_command('ACL','SETUSER',owner['username'],*extra)
+            try:
+                with pytest.raises(PermissionError,match='ACL ownership'):
+                    with recover_processing_writer(container,url,root,**args):pass
+                assert 'on' in admin.acl_getuser(owner['username'])['flags']
+            finally:
+                admin.execute_command('ACL','SETUSER',owner['username'],'resetkeys','~'+owner['graph_name'],
+                    '~'+owner['ontology_name'],'-@all','+graph.query','+graph.ro_query','+ping','+hello','+info|server')
+        # Recovery never opens this private credential record.
+        (root/'environment.json').rename(root/'unused-private-environment.json')
+        with recover_processing_writer(container,url,root,**args) as recovered:
+            assert recovered.environment=={}
+            recovered.fence_producer()
+            recovered.confirm_fenced_inactive()
+        assert admin.acl_getuser(owner['username']) is None
+        assert not admin.exists(owner['graph_name']) and not admin.exists(owner['ontology_name'])
+    finally:admin.close()
+    assert all((root/name).is_file() for name in ('recovered.json','fenced.json','fenced-idle.json','retired.json'))
