@@ -19,8 +19,11 @@ PHASES={
 
 @pytest.fixture
 def purpose_population(admin_url,processing):
-    def create(phase='census',profile='source-reader'):
-        purpose,name=PHASES[phase];f=processing(profile)
+    def create(phase='census',profile='source-reader', *, source_texts=None):
+        if source_texts is not None:
+            if not isinstance(source_texts,tuple) or len(source_texts)!=3 or any(type(text) is not str or not text for text in source_texts):
+                raise ValueError('three original input texts required before admission')
+        purpose,name=PHASES[phase];f=processing(profile,**({'reading':source_texts[0]} if source_texts is not None else {}))
         runtime=hashlib.sha256(('invented-runtime:'+phase).encode()).hexdigest()
         registry=hashlib.sha256(('invented-registry:'+phase+str(f['workspace'])).encode()).hexdigest()
         f.update(phase=phase,purpose=purpose,function=name,runtime=runtime,registry=registry)
@@ -33,7 +36,7 @@ def purpose_population(admin_url,processing):
             conn.execute('UPDATE oracle2.hosting_role_source_admissions SET runtime_hash=%s,registry_hash=%s WHERE role_name=%s',(runtime,registry,f['login']))
             for index in range(3):
                 source=f['source'] if index==0 else uuid4()
-                reading=f['reading'] if index==0 else f'Invented original {index}: separate approval responsibility remains unknown.'
+                reading=source_texts[index] if source_texts is not None else (f['reading'] if index==0 else f'Invented original {index}: separate approval responsibility remains unknown.')
                 sha=hashlib.sha256(reading.encode()).hexdigest()
                 ref=SourceRef(workspace_id=f['workspace'],source_id=source,revision=1,original_sha256='a'*64,reading_sha256=sha,parser_id='b'*64)
                 if index:

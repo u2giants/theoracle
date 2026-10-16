@@ -22,10 +22,9 @@ REGISTRY='e'*64
 
 @pytest.fixture
 def processing(admin_url):
-    def create(profile='candidate-compiler'):
+    def create(profile='candidate-compiler', *, reading='Invented source: approval ownership is unknown.'):
         workspace,source,actor,owner,root,read,extract=(uuid4() for _ in range(7))
         login='processing_'+uuid4().hex[:12]
-        reading='Invented source: approval ownership is unknown.'
         reading_hash=hashlib.sha256(reading.encode()).hexdigest()
         provenance=dict(original_hash='a'*64,content_hash=reading_hash,parser_identity='b'*64,
                         content_type='text/plain',evidence_kind='native_text',page_count=1,review_receipt='c'*64)
