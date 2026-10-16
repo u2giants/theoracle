@@ -39,14 +39,21 @@ from oracle_brain.hosting.purpose_transport import purpose_ingress_server_v2,Pur
 
 @pytest.fixture
 def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,tmp_path,monkeypatch,request):
-    mode=getattr(request,"param","census");assert mode in {"census","extraction"}
+    options=getattr(request,"param","census")
+    coherent=isinstance(options,dict) and options.get('coherent') is True
+    mode=options['phase'] if isinstance(options,dict) else options
+    assert mode in {"census","extraction"}
+    rich={}
+    if coherent:
+        from purpose_journey_fixture_models import RICH_SOURCE_TEXTS
+        rich={'source_texts':RICH_SOURCE_TEXTS}
     if mode=='census':
-        f=purpose_population('census','source-reader');source,_,_=context(f);receipts=source.read_population()
+        f=purpose_population('census','source-reader',**rich);source,_,_=context(f);receipts=source.read_population()
     else:
         from oracle_brain.operating_model.authority_adapter import ProcessingSourceResolver
         f=purpose_population('embedding','source-reader');f['refs']=tuple(sorted(f['refs'],key=lambda ref:ref.source_id.int));source=ProcessingSourceResolver(f['url'],binding=f['binding'])
         receipts=tuple(source.current_for_processing(f['workspace'],ref.source_id) for ref in f['refs'])
-    now=datetime.now(timezone.utc);expiry=now+timedelta(seconds=90)
+    now=datetime.now(timezone.utc);expiry=now+timedelta(seconds=110 if coherent else 90)
     ledger_url,registry,billing_admin=actual_ledger
     registry=registry.model_copy(update={'transport':'verify-full-tls'})
     ledger_hash=digest(registry.model_dump(mode='json'))
@@ -54,6 +61,12 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
     catalog['data'][0]['context_length']=131072
     catalog['data'][0]['top_provider']['context_length']=131072
     state={'posts':0,'after_post':None,'revoked':False,'sequence':1,'wire':None,'requests':[],'failure':None}
+    input_parent=None;input_actor=None;input_runtime=None;original_batch=uuid4()
+    if coherent:
+        from purpose_journey_fixture_inputs import original_input_parent
+        input_actor=uuid4();input_runtime=hashlib.sha256(b'invented-coherent-extractor-runtime').hexdigest()
+        input_parent=original_input_parent(receipts,actor_id=input_actor,runtime_hash=input_runtime,batch_id=original_batch,
+            expires_at=expiry,catalog=catalog,now=now,account='key-sha256:'+FP)
     if mode=='census':
         regions=tuple(SourceRegion(region_id=f'original-{i}',kind='section',evidence=EvidenceRef(ref=r.ref,start=0,end=len(r.reading),quote=r.reading)) for i,r in enumerate(receipts))
         scope=OriginalScope(workspace_id=f['workspace'],receipts=receipts,regions=regions,
@@ -63,7 +76,7 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
         processing_request=ProcessingRequest(provider='openrouter',account='key-sha256:'+FP,endpoint='https://openrouter.ai/api/v1',
             data_classes=frozenset({'synthetic'}),purpose='source-census',terms_hash='b'*64)
         approval=ProcessingApproval(**processing_request.model_dump(),expires_at=expiry,register_ref='invented-native-census-only')
-        job=NativeDispatchJob(dispatch_id=uuid4(),workspace_id=f['workspace'],artifact_id=uuid4(),batch_id=uuid4(),purpose='source-census',attempt=1,
+        job=NativeDispatchJob(dispatch_id=uuid4(),workspace_id=f['workspace'],artifact_id=uuid4(),batch_id=original_batch,purpose='source-census',attempt=1,
             request=request,request_hash=digest(request),permission_hash=census.permission_hash,processing_request=processing_request,approvals=(approval,),
             pricing=current_pricing(catalog,model=request['model'],max_output_tokens=request['max_tokens'],register_hash='d'*64,now=now),
             register_hash='d'*64,input_tokens_upper_bound=2*len(canonical_bytes(request))+4096)
@@ -100,7 +113,7 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
             pricing_hash=digest(job.pricing.model_dump(mode='json')),register_hash=job.register_hash,approvals_hash=digest({'approvals':[approval.model_dump(mode='json')]}),
             budget_identity_hash=digest(allocation.model_dump(mode='json')),ledger_registry_hash=ledger_hash,key_coverage_hash=coverage_hash)
         issuer,reviewer=uuid4(),uuid4()
-        population=ParentPopulationAdmissionV2(workspace_id=f['workspace'],parent_registry_sha256='1'*64,runtime_hash=f['runtime'],source_registry_hash=f['registry'],
+        population=ParentPopulationAdmissionV2(workspace_id=f['workspace'],parent_registry_sha256=digest(input_parent.model_dump(mode='json')) if coherent else '1'*64,runtime_hash=f['runtime'],source_registry_hash=f['registry'],
             source_refs=f['refs'],population_digest=source_population_digest(f['refs']),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
         phase=PurposePhaseRegistryV2(qualification_purpose='phase-operation-qualification-v2',run_id=uuid4(),workspace_id=f['workspace'],actor_id=f['actor'],provider_login=f['login'],worker_uri=WORKER,
             phase='census',purpose='source-census',operation='chat',runtime_hash=f['runtime'],source_registry_hash=f['registry'],parent_registry_sha256=population.parent_registry_sha256,
@@ -115,6 +128,9 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
             provider_login=f['login'],worker_uri=WORKER,issuer_actor=issuer,reviewer_actor=reviewer,expires_at=expiry)
         payload=CensusPayload(obligations=tuple(Obligation(obligation_id=f'original-{i}',priority='essential',expected='represented',
             evidence=r.evidence,reason='Explicit invented role approval') for i,r in enumerate(regions))).model_dump_json()
+        if coherent:
+            from purpose_journey_fixture_models import census_json
+            payload=census_json(census)
     else:
         from oracle_brain.operating_model.processing_context import (ProcessingEnvelope,QualifiedProcessingSources,ProcessingPins,ProcessingProjection,derive_processing_descriptor)
         from oracle_brain.hosting.processing_extraction_runtime_v2 import ExtractionOperationQualificationV2,ExtractionTargetV2
@@ -256,7 +272,8 @@ def native_census_startup(admin_url,purpose_population,actual_ledger,bound_tls,t
         provider=server_factory(('127.0.0.1',0),tls=tls,worker_uri=WORKER,ingress=ingress);start(provider)
         yield dict(f=f,job=job,private=private,settings=settings,client=client_factory(replace(binding(provider.server_port),timeout=90)),dispatch=dispatch,
             descriptor=descriptor,state=state,custody=private_dir,billing_admin=billing_admin,context_file=context_file,pins_file=Path(pins_file),pins=pins,mode=mode,operation_hash=descriptor.phase_registry_sha256 if mode=='census' else extraction_hash,
-            expires_at=expiry,contexts=tuple(contexts) if mode=='extraction' else (),qualification=qualification if mode=='extraction' else None,population=population,observe_fixture_coverage=observe_fixture_coverage)
+            expires_at=expiry,contexts=tuple(contexts) if mode=='extraction' else (),qualification=qualification if mode=='extraction' else None,population=population,observe_fixture_coverage=observe_fixture_coverage,
+            input_parent=input_parent,input_actor=input_actor,input_runtime=input_runtime)
     finally:
         for server,thread in zip(servers,threads):server.shutdown();server.server_close();thread.join(2)
 
