@@ -1,11 +1,31 @@
 """Explicit post-paid-output custody metadata for the single native fixture."""
 import hashlib,json
+from contextlib import contextmanager
 from pathlib import Path
 from oracle_brain.operating_model.contracts import canonical_bytes,digest
 from oracle_brain.operating_model.paid_sdk_embeddings_v3 import PaidSDKEmbeddingPinsV3
 from oracle_brain.operating_model.purpose_receipts_v2 import PhaseResponseCommitV2
 from oracle_brain.hosting.purpose_journey_v2 import CompilerPhaseCustodyFileV2,CompilerPhaseCustodyAppointmentV2
 from test_purpose_worker_startup import make_next_compiler_worker_v2
+
+
+@contextmanager
+def unmounted_historical_extraction_wires(extraction,root):
+    """TEST ONLY recoverable absence of exactly three already-paid raw files."""
+    root.mkdir(mode=0o700)
+    paths=tuple(extraction['custody']/(str(c.job.dispatch_id)+'.wire') for c in extraction['contexts'])
+    assert len(paths)==3 and len(set(paths))==3
+    moved=[]
+    try:
+        for index,path in enumerate(paths):
+            seal=hashlib.sha256(path.read_bytes()).hexdigest();backup=root/(str(index)+'.wire-backup')
+            assert not backup.exists()
+            path.rename(backup);moved.append((path,backup,seal))
+        yield paths
+    finally:
+        for path,backup,seal in reversed(moved):
+            assert not path.exists() and hashlib.sha256(backup.read_bytes()).hexdigest()==seal
+            backup.rename(path)
 
 
 def appoint_actual_embedding_outputs(phase,*,worker,compile_job,artifact,root):
