@@ -50,3 +50,35 @@ def test_census_barrier_parallel_extractions_and_assembly_all_refs(tmp_path):
     j.claim(assembly,now=datetime.now(timezone.utc))
     alias=extracts[0].model_copy(update={'job_id':uuid4(),'nonce':uuid4().hex})
     with pytest.raises(PermissionError):j.claim(alias,now=datetime.now(timezone.utc))
+
+
+def test_future_output_appointment_requires_exact_producer_attempt_without_placeholder(tmp_path):
+    from oracle_brain.hosting.purpose_journey_v2 import CompilerPhaseCustodyFileV2
+    from pydantic import ValidationError
+    base=dict(kind='raw_wire',path=str(tmp_path/'exact.wire'),dispatch_id=uuid4(),
+        native_job_hash='a'*64,request_hash='b'*64,producer_runtime_hash='c'*64)
+    admitted=CompilerPhaseCustodyFileV2(**base)
+    assert admitted.sha256 is None # future bytes have no invented hash
+    for field in ('dispatch_id','native_job_hash','request_hash','producer_runtime_hash'):
+        with pytest.raises((PermissionError,ValidationError)):
+            CompilerPhaseCustodyFileV2(**{k:v for k,v in base.items() if k!=field})
+    for kind in ('native_job','assembly_context','extraction_qualification'):
+        with pytest.raises(PermissionError):CompilerPhaseCustodyFileV2(**{**base,'kind':kind})
+
+
+def test_protected_worker_functions_refuse_boolean_dictionary_and_callable():
+    from oracle_brain.hosting.purpose_journey_v2 import (
+        run_purpose_worker_once_v2,build_purpose_compiler_ledger_v3)
+    for invalid in (True,{},object(),lambda:True):
+        with pytest.raises(PermissionError):run_purpose_worker_once_v2(invalid)
+        with pytest.raises(PermissionError):build_purpose_compiler_ledger_v3(invalid,job())
+
+
+def test_journal_expired_phase_and_truncated_append_cannot_retry(tmp_path):
+    j=PurposeJourneyJournalV2(tmp_path);first=job()
+    with pytest.raises(PermissionError):j.claim(first,now=first.expires_at)
+    j.claim(first,now=datetime.now(timezone.utc))
+    path=j._path(first.journey_id)
+    with path.open('ab') as stream:stream.write(b'{')
+    with pytest.raises(PermissionError):j.read(first.journey_id)
+    with pytest.raises(PermissionError):j.claim(first,now=datetime.now(timezone.utc))
