@@ -178,6 +178,7 @@ class PaidExecutorSettingsV3:
         a=_worker_parse(canonical_bytes(p['assembly_qualification']['admission']),PurposeSemanticAdmissionV3)
         _require((a.compiler_actor,a.compiler_login,a.runtime_hash,a.compiler_permission_hash)==
             (c.compiler_actor,c.compiler_login,c.compiler_runtime_hash,c.compiler_permission_hash)
+            and (a.issuer_actor,a.reviewer_actor)==(c.semantic_issuer_actor,c.semantic_reviewer_actor)
             and a.workspace_id==c.workspace_id and a.context_hash==c.semantic_context_hash
             and digest(a.model_dump(mode='json'))==c.semantic_admission_hash
             and c.semantic_admission_hash in self.semantic.current(datetime.now(timezone.utc)),
