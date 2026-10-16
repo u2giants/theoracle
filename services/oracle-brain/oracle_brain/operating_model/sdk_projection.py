@@ -73,9 +73,11 @@ class ReadOnlyConnection:
             timeout=timeout if timeout is not None else self._connection.config.query_timeout_ms)
 
 class SDKProjection:
+    graph_prefix=PREFIX
+
     def __init__(self,graph_url:str,*,workspace_id:UUID,artifact_id:UUID,artifact_version:int,generation:UUID,llm,embedder,dimensions:int,read_only:bool=False,qualification_guard=None):
         if version('graphrag-sdk')!='1.4.0':raise RuntimeError('exact qualified SDK required')
-        self.graph_name=f'{PREFIX}{workspace_id.hex}_{artifact_id.hex}_{artifact_version}_{generation.hex}'
+        self.graph_name=f'{self.graph_prefix}{workspace_id.hex}_{artifact_id.hex}_{artifact_version}_{generation.hex}'
         self.connection=FalkorDBConnection(ConnectionConfig.from_url(graph_url,graph_name=self.graph_name,query_timeout_ms=30_000))
         if read_only:self.connection=ReadOnlyConnection(self.connection)
         self.rag=GraphRAG(self.connection,llm=llm,embedder=embedder,embedding_dimension=dimensions,
@@ -206,3 +208,14 @@ class SDKProjection:
         return payload
 
     async def close(self):await self.connection.close()
+
+
+class ProcessingSDKProjection(SDKProjection):
+    """Explicit qualified processing namespace; no legacy graph reuse."""
+    graph_prefix='oracle_processing_v1_'
+
+    def __init__(self,*args,qualification_guard,**kwargs):
+        from .assembly_qualification import QualifiedAssemblyReadGuard
+        if not isinstance(qualification_guard,QualifiedAssemblyReadGuard):
+            raise PermissionError('trusted current processing qualification verifier required')
+        super().__init__(*args,qualification_guard=qualification_guard,**kwargs)

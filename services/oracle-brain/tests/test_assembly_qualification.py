@@ -160,3 +160,10 @@ def test_compile_deadline_is_actual_current_semantic_admission_not_summary_claim
     assert deadline.isoformat().replace('+00:00','Z')==q['payload']['assembly_qualification']['admission']['expires_at']
     q['trusted_admission_hashes']=frozenset()
     with pytest.raises(PermissionError):guard.valid_until(q['manifest'],q['payload'],q['principal'],q['now'])
+
+
+def test_processing_projection_requires_explicit_guard_and_separate_namespace():
+    from oracle_brain.operating_model.sdk_projection import SDKProjection,ProcessingSDKProjection
+    assert ProcessingSDKProjection.graph_prefix=='oracle_processing_v1_'
+    assert SDKProjection.graph_prefix=='oracle_operating_model_v1_'
+    with pytest.raises(PermissionError):ProcessingSDKProjection(qualification_guard=None)
