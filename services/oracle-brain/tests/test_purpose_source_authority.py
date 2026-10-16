@@ -133,7 +133,7 @@ def context(f,*,caller_kind='provider',expiry=None):
     purpose,operation,model=PHASE_CONTRACTS[f['phase']]
     dispatch=PurposeDispatchV2(dispatch_id=uuid4(),source_refs=f['refs'],model=model,
         **{name:'d'*64 for name in ('job_hash','request_hash','permission_hash','context_hash',
-        'processing_request_hash','account_policy_hash','terms_hash','pricing_hash','register_hash',
+        'processing_request_hash','account_policy_hash','account_identity_hash','terms_hash','pricing_hash','register_hash',
         'approvals_hash','budget_identity_hash','ledger_registry_hash','key_coverage_hash')})
     provider=f['login'] if caller_kind=='provider' else f['login']+'_provider'
     descriptor=PurposeRunDescriptorV2(run_id=uuid4(),workspace_id=f['workspace'],actor_id=f['actor'],
