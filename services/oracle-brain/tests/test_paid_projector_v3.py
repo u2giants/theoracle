@@ -76,3 +76,56 @@ def test_projector_attempt_nonce_refuses_symlink_and_foreign_permissions(tmp_pat
     tmp_path.chmod(0o755)
     with pytest.raises(Exception):_ProjectorAttemptFilesV3(tmp_path,'foreign-mode')
     tmp_path.chmod(0o700)
+
+
+def make_paid_projector_fixture_settings_v3(worker,job,root,*,graph_url_file,tls_ca_file,
+        tls_certificate_file,tls_key_file,receipt_key_file,artifact_id,artifact_version,
+        embedding_dispatch_id,generation,projector_id):
+    """TEST ONLY external metadata authoring; creates no runtime/source/key grant.
+
+    Caller owns the coherent invented fixture and existing exact target/keys.
+    All source/provider/semantic/custody authority must ALREADY exist. This
+    creates only fixture config+independent appointment bytes and calls the
+    REAL protected loader; no fake bundle, role, current check or provider.
+    """
+    import hashlib
+    from pathlib import Path
+    from urllib.parse import urlsplit,unquote
+    from oracle_brain.operating_model.contracts import canonical_bytes,digest
+    from oracle_brain.hosting.paid_sdk_delivery_v3 import load_paid_sdk_bundle_v3
+    from oracle_brain.hosting.paid_projector_v3 import PaidProjectorAppointmentV3
+    from oracle_brain.hosting.purpose_journey_v2 import _worker_file
+    root=Path(root);root.mkdir(mode=0o700)
+    bundle=load_paid_sdk_bundle_v3(worker,job,artifact_id=artifact_id,
+        artifact_version=artifact_version,embedding_dispatch_id=embedding_dispatch_id)
+    now=datetime.now(timezone.utc)
+    end=min(job.expires_at,job.original_horizon,worker.config.source_expires_at,bundle.valid_until,
+        worker.semantic.valid_until(now),worker.custody_horizon(job))
+    assert now<end
+    issuer,reviewer=uuid4(),uuid4()  # explicit invented fixture appointment only
+    graph_bytes=_worker_file(graph_url_file);target=urlsplit(graph_bytes.decode().strip())
+    assert target.scheme=='rediss' and target.username and target.password
+    name=f'oracle_processing_v1_{job.workspace_id.hex}_{artifact_id.hex}_{artifact_version}_{generation.hex}'
+    common=dict(worker_config_sha256=worker.config_sha256,job_hash=digest(job.model_dump(mode='json')),
+        workspace_id=job.workspace_id,compiler_actor=job.actor_id,compiler_login=worker.config.expected_session_role,
+        runtime_hash=worker.config.runtime_hash,issuer_actor=issuer,reviewer_actor=reviewer,
+        valid_from=now,expires_at=end)
+    files={}
+    for prefix,path in (('graph_url',graph_url_file),('tls_ca',tls_ca_file),
+                        ('tls_certificate',tls_certificate_file),('tls_key',tls_key_file),('receipt_key',receipt_key_file)):
+        path=Path(path);files[prefix+'_file']=str(path)
+        files[prefix+'_sha256']=hashlib.sha256(_worker_file(path)).hexdigest()
+    value=PaidProjectorConfigV3(**common,artifact_id=artifact_id,artifact_version=artifact_version,
+        content_hash=bundle.manifest.content_hash,projection_digest=bundle.embedder.data.inventory.projection_digest,
+        embedding_dispatch_id=embedding_dispatch_id,generation=generation,graph_name=name,ontology_name=name+'__ontology',
+        graph_hostname=target.hostname,graph_port=target.port or 6379,graph_username=unquote(target.username),
+        projector_id=projector_id,**files)
+    def store(name,value):
+        raw=canonical_bytes(value.model_dump(mode='json'));path=root/name
+        path.write_bytes(raw);path.chmod(0o600)
+        return path,hashlib.sha256(raw).hexdigest()
+    cfg,cfg_sha=store('projector-config.json',value)
+    appointment=PaidProjectorAppointmentV3(config_sha256=cfg_sha,**common)
+    appoint,appoint_sha=store('projector-appointment.json',appointment)
+    return load_paid_projector_settings_v3(str(cfg),cfg_sha,appointment_path=str(appoint),
+        expected_appointment_sha256=appoint_sha,issuer_actor=issuer,reviewer_actor=reviewer,worker=worker,job=job)
