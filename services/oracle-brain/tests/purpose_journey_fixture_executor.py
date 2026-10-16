@@ -158,7 +158,7 @@ def verify_protected_executor(delivery,*,admin_url,worker,job,summary_manifest,e
                     # Current source withdrawal defeats retained model/summary
                     # and graph objects; no cached answer becomes authority.
                     with psycopg.connect(admin_url) as conn:
-                        conn.execute("UPDATE oracle2.sources SET status='withdrawn' WHERE source_id=%s AND workspace_id=%s",
+                        conn.execute("UPDATE oracle2.drafts SET status='withdrawn' WHERE source_id=%s AND workspace_id=%s",
                             (job.source_refs[-1].source_id,job.workspace_id))
                     with pytest.raises(psycopg.errors.InsufficientPrivilege):settings.read_summary(summary_manifest.artifact_id,summary_manifest.version)
                     with pytest.raises(psycopg.errors.InsufficientPrivilege):await projection.load(settings.ledger,job.workspace_id,manifest.artifact_id,manifest.version)
