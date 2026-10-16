@@ -186,22 +186,20 @@ def verify_protected_executor(delivery,*,admin_url,worker,job,summary_manifest,e
                     assert answer.state=='answered' and answer.citations
                     assert all(marker not in answer.model_dump_json() for marker in PRIVATE_MARKERS)
                     stage('protected_executor_graph_summary_answer_verified')
-                    await asyncio.to_thread(result_service.verify,stage)
                     return projection,summary
                 finally:await projection.close()
             def measured_executor():
                 with measured_actual_executor_boundaries(settings,root):
                     return asyncio.run(load_and_answer())
-            from purpose_journey_fixture_delivery import run_independent_fixture_tasks
-            c=worker.config
-            results=run_independent_fixture_tasks({'compiler_restart':delivery['restart'],
-                'executor_answer':measured_executor},
-                deadline=min(job.original_horizon,job.expires_at,settings.config.expires_at),
-                identities={'compiler_restart':dict(principal=str(c.actor_id),runtime=c.runtime_hash,
-                    login=c.expected_session_role,observer_path=str(worker.observer.replay.state_path.resolve())),
-                    'executor_answer':dict(principal=str(settings.config.actor_id),runtime=settings.config.runtime_hash,
-                    login=settings.config.expected_session_role,observer_path=None)},record=root/'restart-executor-overlap.json')
-            projection,summary=results['executor_answer']
+            from purpose_journey_fixture_delivery import run_readonly_delivery_fixture_tasks
+            with result_service.opened():
+                results=run_readonly_delivery_fixture_tasks({'compiler_restart':delivery['restart'],
+                    'executor_answer':measured_executor,'result_rpc':lambda:result_service.verify_positive(stage)},
+                    deadline=min(job.original_horizon,job.expires_at,settings.config.expires_at,result_service.settings.config.expires_at),
+                    compiler=worker,direct=settings,result=result_service.settings,record=root/'restart-executor-result-overlap.json')
+                projection,summary=results['executor_answer']
+                result_service.assert_projection_disjoint(projection)
+                result_service.verify_held(stage)  # All three positives joined.
             stage('protected_graph_ack_and_compiler_restart')
             # Both independent positive futures and their connection pools are
             # now joined/closed. Cached objects must still deny source changes.

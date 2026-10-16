@@ -1,5 +1,7 @@
 """Owned synthetic same-journey result mTLS proof; no actual issuer or install."""
 from datetime import datetime,timedelta,timezone
+from contextlib import contextmanager
+from unittest.mock import patch
 from pathlib import Path
 from threading import Thread
 from uuid import uuid4
@@ -49,44 +51,71 @@ class _ResultProof:
     def __init__(self,settings,root,certificates,client,key,admin_url):
         self.settings,self.root,self.certificates,self.client,self.key=settings,root,certificates,client,key
         self.admin_url=admin_url  # TEST OWNER only, never passed to the service.
+        self.projections=[];self.requests=[]
 
-    def verify(self,stage):
-        settings=self.settings;c=settings.config
-        server=protected_replacement_result_server_v1(settings);thread=Thread(target=server.serve_forever,daemon=True);thread.start()
-        try:
-            target,horizon=settings.current_target();now=datetime.now(timezone.utc)
-            request=ProtectedReplacementResultRequestV1(schema_version=1,protocol=PROTOCOL,journey_id=c.journey_id,
-                expected_journey_revision=target.journey_revision,model_id=c.model_id,model_version=c.model_version,
-                content_hash=c.model_content_hash,projection_digest=c.projection_digest,ack_event_id=c.ack_event_id,
-                summary_artifact_id=c.summary_artifact_id,summary_version=c.summary_version,summary_content_hash=c.summary_content_hash,
-                nonce=uuid4().hex+uuid4().hex,expires_at=min(now+timedelta(seconds=30),horizon,c.expires_at,c.original_horizon))
-            client=_FixedTLSClientV2(PurposeTLSBindingV2('localhost',server.server_address[1],RESULT_URI,REQUESTER_URI,
+    @contextmanager
+    def opened(self):
+        import oracle_brain.hosting.replacement_result_service_v1 as actual
+        actual_build=actual.build_paid_executor_projection_v3
+        actual_handle=actual.ProtectedReplacementResultServiceV1.handle_result_v1
+        def observed_build(*args,**kwargs):
+            projection=actual_build(*args,**kwargs);self.projections.append(projection);return projection
+        async def observed_handle(service,peer,raw):
+            self.requests.append(hashlib.sha256(raw).hexdigest())
+            return await actual_handle(service,peer,raw)
+        with patch.object(actual,'build_paid_executor_projection_v3',side_effect=observed_build),patch.object(actual.ProtectedReplacementResultServiceV1,'handle_result_v1',observed_handle):
+            self.server=protected_replacement_result_server_v1(self.settings)
+            # TEST instance only: server_close tracks/joins actual handlers.
+            self.server.daemon_threads=False
+            self.thread=Thread(target=self.server.serve_forever,daemon=True);self.thread.start()
+            self.transport=_FixedTLSClientV2(PurposeTLSBindingV2('localhost',self.server.server_address[1],RESULT_URI,REQUESTER_URI,
                 self.certificates/'ca.pem',self.client,self.key,timeout=30))
-            raw=client._post('/v3/replacement/result',request.model_dump(mode='json'),MAX_RESULT_BYTES,valid_until=request.expires_at)
-            response=ProtectedReplacementResultResponseV1.model_validate_json(raw)
-            assert response.nonce==request.nonce and response.request_sha256==hashlib.sha256(canonical_bytes(request.model_dump(mode='json'))).hexdigest()
-            snapshot=response.snapshot.model_dump(mode='json')
-            assert snapshot['state']=='answer_ready' and snapshot['answer']['citations'] and snapshot['mapView']
-            assert snapshot['model']['ackEventId']==str(c.ack_event_id)
-            assert all(marker not in raw.decode() for marker in PRIVATE_MARKERS)
-            assert not any(k in raw.decode() for k in ('private_object_key','receipt_secret','raw_wire_hash','native_job_hash'))
-            _durable_nonce(self.root,'actual-result-roundtrip.json',canonical_bytes(dict(schema_version=1,synthetic=True,
-                installation=False,client_uri=REQUESTER_URI,server_uri=RESULT_URI,request_sha256=response.request_sha256,
-                response_sha256=hashlib.sha256(raw).hexdigest(),journey_id=str(c.journey_id),model_id=str(c.model_id),ack_event_id=str(c.ack_event_id))))
-            stage('protected_result_mtls_current_map_summary_cited_answer_verified')
-            from unittest.mock import patch
-            from oracle_brain.hosting.egress import GatewayDenied
-            import pytest
-            with psycopg.connect(self.admin_url) as owner:
-                owner.execute('UPDATE oracle2.processing_journey_runs_v1 SET answer_hold=true WHERE run_id=%s',(c.journey_id,))
-            try:
-                denied=request.model_copy(update={'nonce':uuid4().hex+uuid4().hex})
-                with patch.object(type(settings.executor.ledger.blobs),'get',side_effect=AssertionError('held result reached private qualified bytes')) as blob:
-                    with pytest.raises(GatewayDenied):client._post('/v3/replacement/result',denied.model_dump(mode='json'),MAX_RESULT_BYTES,valid_until=denied.expires_at)
-                    assert blob.call_count==0
+            try:yield self
             finally:
-                with psycopg.connect(self.admin_url) as owner:
-                    owner.execute('UPDATE oracle2.processing_journey_runs_v1 SET answer_hold=false WHERE run_id=%s',(c.journey_id,))
-            stage('held_result_mtls_denied_before_private_bytes')
+                self.server.shutdown();self.thread.join(timeout=5);self.server.server_close();assert not self.thread.is_alive()
+
+    def request(self):
+        c=self.settings.config;target,horizon=self.settings.current_target();now=datetime.now(timezone.utc)
+        return ProtectedReplacementResultRequestV1(schema_version=1,protocol=PROTOCOL,journey_id=c.journey_id,
+            expected_journey_revision=target.journey_revision,model_id=c.model_id,model_version=c.model_version,
+            content_hash=c.model_content_hash,projection_digest=c.projection_digest,ack_event_id=c.ack_event_id,
+            summary_artifact_id=c.summary_artifact_id,summary_version=c.summary_version,summary_content_hash=c.summary_content_hash,
+            nonce=uuid4().hex+uuid4().hex,expires_at=min(now+timedelta(seconds=30),horizon,c.expires_at,c.original_horizon))
+
+    def verify_positive(self,stage):
+        c=self.settings.config;request=self.request()
+        raw=self.transport._post('/v3/replacement/result',request.model_dump(mode='json'),MAX_RESULT_BYTES,valid_until=request.expires_at)
+        response=ProtectedReplacementResultResponseV1.model_validate_json(raw)
+        assert response.nonce==request.nonce and response.request_sha256==hashlib.sha256(canonical_bytes(request.model_dump(mode='json'))).hexdigest()
+        snapshot=response.snapshot.model_dump(mode='json')
+        assert snapshot['state']=='answer_ready' and snapshot['answer']['citations'] and snapshot['mapView']
+        assert snapshot['model']['ackEventId']==str(c.ack_event_id)
+        assert all(marker not in raw.decode() for marker in PRIVATE_MARKERS)
+        assert not any(k in raw.decode() for k in ('private_object_key','receipt_secret','raw_wire_hash','native_job_hash'))
+        assert self.requests==[response.request_sha256] and len(self.projections)==1
+        _durable_nonce(self.root,'actual-result-roundtrip.json',canonical_bytes(dict(schema_version=1,synthetic=True,
+            installation=False,client_uri=REQUESTER_URI,server_uri=RESULT_URI,request_sha256=response.request_sha256,
+            response_sha256=hashlib.sha256(raw).hexdigest(),journey_id=str(c.journey_id),model_id=str(c.model_id),ack_event_id=str(c.ack_event_id))))
+        stage('protected_result_mtls_current_map_summary_cited_answer_verified')
+        return response
+
+    def assert_projection_disjoint(self,direct):
+        assert len(self.projections)==1
+        actual=self.projections[0]
+        assert direct is not actual and direct.connection is not actual.connection
+
+    def verify_held(self,stage):
+        from oracle_brain.hosting.gateway import GatewayDenied
+        import pytest
+        # Fresh, distinct observational RPC under the unchanged original horizon.
+        denied=self.request();c=self.settings.config;before=len(self.requests)
+        with psycopg.connect(self.admin_url) as owner:
+            owner.execute('UPDATE oracle2.processing_journey_runs_v1 SET answer_hold=true WHERE run_id=%s',(c.journey_id,))
+        try:
+            with patch.object(type(self.settings.executor.ledger.blobs),'read',side_effect=AssertionError('held result reached private qualified bytes')) as blob:
+                with pytest.raises(GatewayDenied):self.transport._post('/v3/replacement/result',denied.model_dump(mode='json'),MAX_RESULT_BYTES,valid_until=denied.expires_at)
+                assert blob.call_count==0 and len(self.requests)==before+1 and len(self.projections)==1
         finally:
-            server.shutdown();thread.join(timeout=5);server.server_close();assert not thread.is_alive()
+            with psycopg.connect(self.admin_url) as owner:
+                owner.execute('UPDATE oracle2.processing_journey_runs_v1 SET answer_hold=false WHERE run_id=%s',(c.journey_id,))
+        stage('held_result_mtls_denied_before_private_bytes')

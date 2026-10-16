@@ -34,12 +34,18 @@ def run_independent_fixture_tasks(tasks,*,deadline,identities,record):
         if not values[0][key] or values[0][key]==values[1][key]:raise AssertionError('fixture identity collision')
     paths=[v.get('observer_path') for v in values if v.get('observer_path') is not None]
     if len(set(paths))!=len(paths):raise AssertionError('shared observer state cannot run concurrently')
+    return _observe_fixture_tasks(tasks,deadline=deadline,identities=identities,record=record)
+
+
+def _observe_fixture_tasks(tasks,*,deadline,identities,record):
+    import concurrent.futures,time
+    from datetime import datetime,timezone
     intervals={};results={};errors=[]
     def run(name,task):
         intervals[name]={'started':time.monotonic()}
         try:return task()
         finally:intervals[name]['finished']=time.monotonic()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as pool:
         futures={name:pool.submit(run,name,task) for name,task in tasks.items()}
         for name,future in futures.items():
             try:
@@ -58,6 +64,54 @@ def run_independent_fixture_tasks(tasks,*,deadline,identities,record):
     if errors:raise errors[0]
     if datetime.now(timezone.utc)>=deadline:raise TimeoutError('original fixture horizon elapsed')
     return results
+
+def _assert_readonly_delivery_resources(identities):
+    if set(identities)!={'compiler_restart','executor_answer','result_rpc'}:
+        raise AssertionError('three closed readonly delivery lanes required')
+    compiler,direct,result=(identities[k] for k in ('compiler_restart','executor_answer','result_rpc'))
+    if compiler['profile']!='candidate-compiler' or direct['profile']!='documentary-executor' or result['profile']!='documentary-executor':
+        raise AssertionError('actual closed delivery profiles required')
+    for key in ('principal','runtime','login'):
+        if not compiler[key] or not direct[key] or compiler[key]==direct[key] or direct[key]!=result[key]:
+            raise AssertionError('actual compiler and same-human executor identity required')
+    if not compiler['observer_path'] or direct['observer_path'] is not None or result['observer_path'] is not None:
+        raise AssertionError('only compiler observer may execute in delivery lanes')
+    for key in ('config_sha256','appointment_sha256','config_path','appointment_path'):
+        if not direct[key] or direct[key]!=result[key]:raise AssertionError('same immutable executor appointment required')
+    for key in ('settings_object','resolver_object','ledger_object','guard_object','semantic_object','blobs_object'):
+        if not direct[key] or direct[key]==result[key]:raise AssertionError('shared executor mutable object refused')
+
+
+def run_readonly_delivery_fixture_tasks(tasks,*,deadline,compiler,direct,result,record):
+    from oracle_brain.hosting.purpose_journey_v2 import CompilerWorkerSettingsV2
+    from oracle_brain.hosting.paid_executor_v3 import PaidExecutorSettingsV3
+    from oracle_brain.hosting.replacement_result_settings_v1 import ProtectedReplacementResultSettingsV1
+    from datetime import datetime,timezone
+    if (type(compiler) is not CompilerWorkerSettingsV2 or type(direct) is not PaidExecutorSettingsV3
+            or type(result) is not ProtectedReplacementResultSettingsV1 or type(result.executor) is not PaidExecutorSettingsV3):
+        raise AssertionError('exact actual protected delivery settings required')
+    if set(tasks)!={'compiler_restart','executor_answer','result_rpc'}:
+        raise AssertionError('three closed readonly delivery tasks required')
+    if not isinstance(deadline,datetime) or deadline.tzinfo is None or deadline.utcoffset() is None:
+        raise AssertionError('aware original fixture horizon required')
+    if deadline<=datetime.now(timezone.utc):raise TimeoutError('original fixture horizon elapsed')
+    def executor_identity(settings):
+        c=settings.config
+        if getattr(settings,'observer',None) is not None:raise AssertionError('executor must have no observer')
+        return dict(principal=str(c.actor_id),runtime=c.runtime_hash,login=c.expected_session_role,
+            profile=settings.resolver.binding.profile,observer_path=None,config_sha256=settings.config_sha256,
+            appointment_sha256=settings.appointment_sha256,config_path=str(settings.config_path.resolve()),
+            appointment_path=str(settings.appointment_path.resolve()),settings_object=id(settings),
+            resolver_object=id(settings.resolver),ledger_object=id(settings.ledger),guard_object=id(settings.guard),
+            semantic_object=id(settings.semantic),blobs_object=id(settings.ledger.blobs))
+    c=compiler.config
+    identities=dict(compiler_restart=dict(principal=str(c.actor_id),runtime=c.runtime_hash,
+        login=c.expected_session_role,profile=compiler.resolver.binding.profile,
+        observer_path=str(compiler.observer.replay.state_path.resolve())),
+        executor_answer=executor_identity(direct),result_rpc=executor_identity(result.executor))
+    _assert_readonly_delivery_resources(identities)
+    return _observe_fixture_tasks(tasks,deadline=deadline,identities=identities,record=record)
+
 
 
 @contextmanager
