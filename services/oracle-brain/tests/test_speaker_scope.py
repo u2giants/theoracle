@@ -11,3 +11,8 @@ def test_unique_verified_provider_link_preserves_original_name():
     speaker = resolve_speaker('p', '原名', {'p': ('a',)})
     assert speaker.employee_id == 'a'
     assert speaker.display_name == '原名'
+
+
+def test_blank_or_non_string_verified_links_remain_unknown():
+    for links in (("",), ("   ",), (None,), (7,), ([],), ("employee", "")):
+        assert resolve_speaker("p", "Guest", {"p": links}).employee_id is None
