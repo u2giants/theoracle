@@ -15,6 +15,19 @@ END $owner$;
 -- One shared V2 validator preserves the V1 integrity algorithm and adds exact
 -- purpose leaves. It deliberately does not call V1: extraction authority cannot
 -- substitute for any newly appointed purpose. V1 definitions stay unchanged.
+-- Statement deadline must be configured BEFORE the caller starts its SELECT.
+CREATE OR REPLACE FUNCTION oracle2._purpose_deadlines_v2()
+ RETURNS void LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $$
+BEGIN
+ IF current_setting('statement_timeout')::interval<=interval '0' OR current_setting('statement_timeout')::interval>interval '5 seconds' THEN
+  RAISE insufficient_privilege USING MESSAGE='preconfigured bounded purpose statement deadline required';
+ END IF;
+ IF current_setting('lock_timeout')::interval<=interval '0' OR current_setting('lock_timeout')::interval>interval '2 seconds' THEN
+  PERFORM set_config('lock_timeout','2s',true);
+ END IF;
+END $$;
+REVOKE ALL ON FUNCTION oracle2._purpose_deadlines_v2() FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
+
 CREATE OR REPLACE FUNCTION oracle2._purpose_source_v2(
  workspace uuid, source uuid, principal uuid, expected_runtime text, expected_registry text, purpose text, want_raw boolean)
  RETURNS TABLE(revision integer, original_hash text, reading_hash text, parser_id text, original_reading text, provenance text, valid_until timestamptz, checked_at timestamptz)
@@ -24,6 +37,7 @@ DECLARE a oracle2.hosting_role_source_admissions%ROWTYPE;
  kinds text[]; kind text; reading text; metadata jsonb; n bigint; source_revision integer; source_status text;
  scope_name text; permitted boolean; deadline timestamptz; scope_deadline timestamptz;
 BEGIN
+ PERFORM oracle2._purpose_deadlines_v2();
  -- Use the SAME connection as an enclosing ledger transaction; never a nested lock connection.
  PERFORM pg_advisory_xact_lock(hashtext('oracle2-authz:'||workspace::text));
  SELECT nspowner INTO owner_oid FROM pg_namespace WHERE nspname='oracle2';
@@ -205,6 +219,7 @@ CREATE OR REPLACE FUNCTION oracle2._purpose_embedding_artifact_v2(
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
 DECLARE m jsonb; a record; d record; q record; refs jsonb:='[]'; expiry timestamptz:='infinity'; kinds text[]; cycle boolean;
 BEGIN
+ PERFORM oracle2._purpose_deadlines_v2();
  IF current_setting('lock_timeout')::interval=interval '0' OR current_setting('lock_timeout')::interval>interval '2 seconds' THEN PERFORM set_config('lock_timeout','2s',true); END IF;
  SELECT array_agg(rolname::text ORDER BY rolname) INTO kinds FROM pg_roles WHERE rolname IN
  ('oracle2_source_reader','oracle2_candidate_compiler','oracle2_documentary_executor','oracle2_gateway_metadata') AND pg_has_role(SESSION_USER,oid,'MEMBER');

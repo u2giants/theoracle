@@ -56,8 +56,12 @@ def query(f,ref,*,raw=False,connection=None):
     suffix='receipt' if raw else 'identity'
     statement=f'SELECT * FROM oracle2.hosting_{f["function"]}_{suffix}_v2(%s,%s,%s,%s,%s)'
     args=(ref.workspace_id,ref.source_id,f['actor'],f['runtime'],f['registry'])
-    if connection is not None:return connection.execute(statement,args).fetchone()
-    with psycopg.connect(f['url']) as conn:return conn.execute(statement,args).fetchone()
+    if connection is not None:
+        connection.execute("SET LOCAL statement_timeout='5s'")
+        return connection.execute(statement,args).fetchone()
+    with psycopg.connect(f['url']) as conn:
+        conn.execute("SET LOCAL statement_timeout='5s'")
+        return conn.execute(statement,args).fetchone()
 
 
 @pytest.mark.parametrize('phase',['census','assembly','assessment'])
@@ -333,3 +337,37 @@ def test_embedding_seal_rechecks_actual_current_authority(admin_url,purpose_popu
         else:conn.execute("UPDATE oracle2.hosting_role_runtime_admissions SET expires_at=now()-interval '1 second' WHERE role_name=%s",(f['login'],))
     with pytest.raises((PermissionError,psycopg.errors.InsufficientPrivilege)):
         res.embedding_eligibility_seal(f['workspace'],model.artifact_id,1)
+
+
+def test_direct_purpose_getter_requires_prearmed_statement_deadline(purpose_population):
+    f=purpose_population();r=f['refs'][0]
+    with psycopg.connect(f['url']) as conn:
+        conn.execute("SET LOCAL statement_timeout='0'")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute('SELECT * FROM oracle2.hosting_source_census_identity_v2(%s,%s,%s,%s,%s)',
+                (r.workspace_id,r.source_id,f['actor'],f['runtime'],f['registry']))
+
+
+@pytest.mark.parametrize('statement,lock,error',[('300ms','100ms',psycopg.errors.LockNotAvailable),('100ms','300ms',psycopg.errors.QueryCanceled)])
+def test_actual_tighter_caller_deadline_aborts_held_workspace(admin_url,purpose_population,statement,lock,error):
+    from concurrent.futures import ThreadPoolExecutor
+    f=purpose_population();r=f['refs'][0]
+    def read():
+        with psycopg.connect(f['url']) as conn:
+            conn.execute('SELECT set_config(%s,%s,true),set_config(%s,%s,true)',('statement_timeout',statement,'lock_timeout',lock))
+            conn.execute('SELECT * FROM oracle2.hosting_source_census_identity_v2(%s,%s,%s,%s,%s)',
+                (r.workspace_id,r.source_id,f['actor'],f['runtime'],f['registry']))
+    with psycopg.connect(admin_url) as owner:
+        owner.execute("SELECT pg_advisory_xact_lock(hashtext('oracle2-authz:'||%s::text))",(f['workspace'],))
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future=pool.submit(read)
+            with pytest.raises(error):future.result(timeout=2)
+    assert query(f,r)
+
+
+def test_v2_adapter_preserves_tighter_preexisting_statement_deadline(purpose_population):
+    f=purpose_population();adapter,_,_=context(f)
+    with psycopg.connect(f['url']) as conn:
+        conn.execute("SET LOCAL statement_timeout='150ms'")
+        adapter._check(conn)
+        assert conn.execute("SHOW statement_timeout").fetchone()[0]=='150ms'
