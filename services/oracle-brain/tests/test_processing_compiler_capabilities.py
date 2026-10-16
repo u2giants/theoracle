@@ -264,5 +264,16 @@ def test_pure_compile_helpers_refuse_arbitrary_compiler_subclasses(base_name):
     import inspect
     kwargs={name:None for name in inspect.signature(compile_purpose_assembly_v3).parameters}
     kwargs['compiler_ledger']=ledger
-    with pytest.raises(PermissionError,match='actual compiler ledger'):
+    with pytest.raises(PermissionError,match='actual explicit compiler ledger'):
         compile_purpose_assembly_v3(**kwargs)
+
+
+@pytest.mark.parametrize('base_name',['ProcessingCompilerLedger','PurposeProcessingCompilerLedgerV3'])
+def test_closed_implementation_check_accepts_only_exact_retained_classes(base_name):
+    from oracle_brain.operating_model import processing_ledger as module
+    # This checks implementation identity only; uninitialized objects confer no
+    # SQL/source permission, semantic admission, or private paid evidence.
+    exact=object.__new__(getattr(module,base_name))
+    assert module.require_explicit_compiler_ledger_v3(exact) is None
+    class Arbitrary(getattr(module,base_name)):pass
+    with pytest.raises(PermissionError):module.require_explicit_compiler_ledger_v3(object.__new__(Arbitrary))
