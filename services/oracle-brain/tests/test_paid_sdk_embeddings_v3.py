@@ -204,3 +204,22 @@ def test_paid_supported_sdk_tls_config_keeps_exact_target_and_every_tls_option()
         ('ssl_keyfile',None),('query_timeout_ms',None),('pool_timeout',float('inf'))]:
         with pytest.raises(PermissionError):paid_tls_connection_config_v3(uri,'exact_owned_graph',replace(selected,**{field:value}))
     with pytest.raises(PermissionError):paid_tls_connection_config_v3(uri.replace('rediss:','redis:'),'exact_owned_graph',selected)
+
+
+def test_metadata_coverage_needs_no_paidwire_and_matches_compiler_actual_vector_digest(paid_case):
+    from oracle_brain.operating_model.paid_sdk_embeddings_v3 import graph_vector_coverage_v3,sdk_float32_vector
+    data=verify_paid_sdk_embedding_v3(**paid_case);rows={'chunks':[],'entities':[],'relations':[]}
+    for i,item in enumerate(data.inventory.inputs):
+        vector=list(sdk_float32_vector(data.vectors[i]))
+        for key in item.usage_keys:
+            kind,identifier=key.split(':',1)
+            if kind=='chunk':rows['chunks'].append([item.text,vector])
+            elif kind=='entity':rows['entities'].append([identifier,item.text,vector])
+            elif kind=='relation':rows['relations'].append([identifier,item.text,vector])
+    compiler=graph_vector_coverage_v3(data.inventory,**rows,paid_data=data)
+    assert graph_vector_coverage_v3(data.inventory,**rows)==compiler
+    damaged=copy.deepcopy(rows);damaged['chunks'][0][1][1]=0.0
+    changed=graph_vector_coverage_v3(data.inventory,**damaged)
+    assert changed[0]!=compiler[0]  # Executor MUST compare current authenticated ACK.
+    with pytest.raises(PermissionError):graph_vector_coverage_v3(data.inventory,**damaged,paid_data=data)
+    with pytest.raises(PermissionError):graph_vector_coverage_v3(data.inventory,**(rows|{'chunks':rows['chunks'][:-1]}))
