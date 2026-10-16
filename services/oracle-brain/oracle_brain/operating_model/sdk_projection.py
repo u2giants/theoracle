@@ -378,28 +378,13 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
         import math
         self._paid_payload(payload)
         inventory=self.paid_embedder.data.inventory;w=self.paid_embedder.data.witness
-        expected={key:(item.text,item.text_hash) for item in inventory.inputs for key in item.usage_keys if not key.startswith('probe:')}
-        actual={}
-        def accept(key,text,vector):
-            if key not in expected or key in actual or expected[key][0]!=text:
-                raise PermissionError('stored SDK vector identity/text population differs')
-            if (not isinstance(vector,(list,tuple)) or len(vector)!=256
-                    or any(type(x) not in (int,float) or not math.isfinite(x) for x in vector)
-                    or tuple(float(x) for x in vector)!=sdk_float32_vector(self.paid_embedder.vector_for_usage(key))):
-                raise PermissionError('stored SDK vector differs from actual paid response')
-            actual[key]={'usage_key':key,'text_hash':expected[key][1],'vector_hash':digest({'vector':tuple(float(x) for x in vector)})}
-        documents={doc['text']:doc['document_id'] for doc in self.projection_view(payload)['documents']}
-        for text,vector in (await self.connection.query('MATCH (c:Chunk) RETURN c.text,c.embedding')).result_set:
-            if text not in documents:raise PermissionError('SDK chunk outside exact paid projection')
-            accept('chunk:'+documents[text],text,vector)
-        for identifier,name,vector in (await self.connection.query('MATCH (e:__Entity__) RETURN e.id,e.name,e.embedding')).result_set:
-            accept('entity:'+identifier,name,vector)
-        for identifier,fact,vector in (await self.connection.query('MATCH ()-[r:RELATES]->() RETURN r.transition_key,r.fact,r.embedding')).result_set:
-            accept('relation:'+identifier,fact,vector)
-        if actual.keys()!=expected.keys():raise PermissionError('SDK omitted actual paid graph vectors')
-        if self._paid_building:self.paid_embedder.assert_observed(tuple(expected))
-        coverage=digest({'schema':'paid-sdk-vector-coverage-v3','storage':'falkordb-vecf32','inventory_hash':w.inventory_hash,
-            'vectors':[actual[key] for key in sorted(actual)]})
+        from .paid_sdk_embeddings_v3 import graph_vector_coverage_v3
+        chunks=(await self.connection.query('MATCH (c:Chunk) RETURN c.text,c.embedding')).result_set
+        entities=(await self.connection.query('MATCH (e:__Entity__) RETURN e.id,e.name,e.embedding')).result_set
+        relations=(await self.connection.query('MATCH ()-[r:RELATES]->() RETURN r.transition_key,r.fact,r.embedding')).result_set
+        coverage,keys=graph_vector_coverage_v3(inventory,chunks=chunks,entities=entities,relations=relations,
+            paid_data=self.paid_embedder.data)
+        if self._paid_building:self.paid_embedder.assert_observed(keys)
         proof=PaidSDKProjectionProofV3(embedding_inventory_hash=w.inventory_hash,embedding_context_hash=w.context_hash,
             embedding_native_receipt_hash=w.native_receipt_hash,embedding_wire_hash=w.raw_response_hash,
             embedding_commit_hash=w.phase_commit_hash,embedding_vectors_hash=w.vectors_hash,embedding_coverage_hash=coverage)

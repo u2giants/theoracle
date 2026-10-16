@@ -236,3 +236,39 @@ class PaidSDKProjectionProofV3(StrictRecord):
     embedding_commit_hash:str=Field(pattern=HASH)
     embedding_vectors_hash:str=Field(pattern=HASH)
     embedding_coverage_hash:str=Field(pattern=HASH)
+
+
+def graph_vector_coverage_v3(inventory,*,chunks,entities,relations,paid_data=None):
+    """Pure graph-state digest. Metadata-only caller needs authenticated ACK seal.
+
+    No permission or admission is inferred. Compiler supplies actual paid_data;
+    executor supplies no private data and compares this digest to current SQL
+    delivery metadata under its actual qualified source/semantic read guard.
+    """
+    if type(inventory) is not SDKEmbeddingInventoryV3:raise PermissionError('exact SDK inventory required')
+    if paid_data is not None and (type(paid_data) is not PaidSDKEmbeddingDataV3 or paid_data.inventory!=inventory):
+        raise PermissionError('exact paid vector inventory required')
+    expected={key:(i,item) for i,item in enumerate(inventory.inputs) for key in item.usage_keys if not key.startswith('probe:')}
+    documents={item.text:key for key,(_,item) in expected.items() if key.startswith('chunk:')}
+    actual={}
+    def accept(key,text,vector):
+        if key not in expected or key in actual or expected[key][1].text!=text:
+            raise PermissionError('stored SDK vector identity/text population differs')
+        if (not isinstance(vector,(list,tuple)) or len(vector)!=256
+                or any(type(x) not in (int,float) or not math.isfinite(x) for x in vector)):
+            raise PermissionError('stored SDK vector schema differs')
+        native=tuple(float(x) for x in vector)
+        try:stored=sdk_float32_vector(native)
+        except ValueError:raise PermissionError('stored SDK vector is not finite nonzero vecf32') from None
+        if native!=stored or (paid_data is not None and stored!=sdk_float32_vector(paid_data.vectors[expected[key][0]])):
+            raise PermissionError('stored SDK vector differs from actual paid response')
+        actual[key]={'usage_key':key,'text_hash':expected[key][1].text_hash,'vector_hash':digest({'vector':native})}
+    for text,vector in chunks:
+        if text not in documents:raise PermissionError('SDK chunk outside exact paid projection')
+        accept(documents[text],text,vector)
+    for identifier,name,vector in entities:accept('entity:'+identifier,name,vector)
+    for identifier,fact,vector in relations:accept('relation:'+identifier,fact,vector)
+    if actual.keys()!=expected.keys():raise PermissionError('SDK omitted actual paid graph vectors')
+    coverage=digest({'schema':'paid-sdk-vector-coverage-v3','storage':'falkordb-vecf32',
+        'inventory_hash':digest(inventory.model_dump(mode='json')),'vectors':[actual[k] for k in sorted(actual)]})
+    return coverage,tuple(expected)
