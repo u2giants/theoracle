@@ -15,6 +15,15 @@ from oracle_brain.operating_model.purpose_qualification_v3 import PurposeQualifi
 from .purpose_journey_v2 import _worker_file,_worker_json,_worker_parse,_require
 HASH=r'^[a-f0-9]{64}$'
 
+class ExecutorSummaryTargetV3(StrictRecord):
+    kind:Literal['processing_summary_v1']='processing_summary_v1'
+    artifact_id:UUID
+    artifact_version:int=Field(strict=True,ge=1)
+    content_hash:str=Field(pattern=HASH)
+    qualified_parent_id:UUID
+    qualified_parent_version:int=Field(strict=True,ge=1)
+    qualified_parent_content_hash:str=Field(pattern=HASH)
+
 class PaidExecutorConfigV3(StrictRecord):
     schema_version:Literal[3]=3
     purpose:Literal['replacement-documentary-executor-v3']='replacement-documentary-executor-v3'
@@ -25,6 +34,7 @@ class PaidExecutorConfigV3(StrictRecord):
     runtime_hash:str=Field(pattern=HASH)
     source_registry_hash:str=Field(pattern=HASH)
     source_refs:tuple[SourceRef,...]
+    summary_targets:tuple[ExecutorSummaryTargetV3,...]=()
     original_root_hash:str=Field(pattern=HASH)
     semantic_admission_hash:str=Field(pattern=HASH)
     semantic_context_hash:str=Field(pattern=HASH)
@@ -83,6 +93,10 @@ class PaidExecutorConfigV3(StrictRecord):
             and self.expected_session_role!=self.compiler_login,'separate executor/compiler/issuer identities required')
         _require(self.valid_from<self.expires_at<=min(self.original_horizon,self.source_expires_at,self.semantic_expires_at)
             and self.semantic_valid_from<self.semantic_expires_at,'finite original executor horizon required')
+        _require(len({(t.artifact_id,t.artifact_version) for t in self.summary_targets})==len(self.summary_targets)
+            and all(t.artifact_id!=self.artifact_id and (t.qualified_parent_id,t.qualified_parent_version,t.qualified_parent_content_hash)==
+                (self.artifact_id,self.artifact_version,self.content_hash) for t in self.summary_targets),
+            'exact unique summary targets and qualified parent required')
         expected=f'oracle_processing_v1_{self.workspace_id.hex}_{self.artifact_id.hex}_{self.artifact_version}_{self.generation.hex}'
         _require(self.graph_name==expected,'exact delivered executor graph required')
         paths=[self.database_url_file,self.database_ca_file,self.blob_root,self.graph_url_file,
@@ -102,6 +116,7 @@ class PaidExecutorAppointmentV3(StrictRecord):
     runtime_hash:str=Field(pattern=HASH)
     source_registry_hash:str=Field(pattern=HASH)
     source_refs:tuple[SourceRef,...]
+    summary_targets:tuple[ExecutorSummaryTargetV3,...]=()
     original_root_hash:str=Field(pattern=HASH)
     semantic_admission_hash:str=Field(pattern=HASH)
     semantic_context_hash:str=Field(pattern=HASH)
@@ -176,11 +191,28 @@ class PaidExecutorSettingsV3:
         self.authorize_current()
         return m,p
 
+
+    def read_summary(self,artifact_id,artifact_version):
+        c=self.config
+        targets=[t for t in c.summary_targets if (t.artifact_id,t.artifact_version)==(artifact_id,artifact_version)]
+        _require(len(targets)==1,'exact independently appointed summary required')
+        self.read_target()
+        manifest,payload=self.ledger.read_with_manifest(c.workspace_id,artifact_id,artifact_version)
+        target=targets[0]
+        _require(manifest.kind==target.kind and manifest.content_hash==target.content_hash,'exact appointed summary differs')
+        from oracle_brain.operating_model.summaries import DocumentarySummary
+        summary=_worker_parse(canonical_bytes(payload['summary']),DocumentarySummary)
+        _require((summary.pack.artifact_id,summary.pack.version)==(target.qualified_parent_id,target.qualified_parent_version),
+            'summary qualified parent differs')
+        self.read_target()
+        return payload
+
+
 def _appointment(c,a,config_hash,issuer,reviewer,now):
     _require(a.config_sha256==config_hash and a.issuer_actor==issuer and a.reviewer_actor==reviewer
         and a.valid_from<=now<a.expires_at<=c.original_horizon,'independently appointed executor startup required')
     for name in ('workspace_id','actor_id','expected_session_role','runtime_hash','source_registry_hash','source_refs',
-            'original_root_hash','semantic_admission_hash','semantic_context_hash','original_horizon',
+            'summary_targets','original_root_hash','semantic_admission_hash','semantic_context_hash','original_horizon',
             'artifact_id','artifact_version','generation','graph_name','blob_root','content_hash','projection_digest','receipt_body_hash',
             'compiler_actor','compiler_login','compiler_runtime_hash','issuer_actor','reviewer_actor'):
         _require(getattr(c,name)==getattr(a,name),'executor appointment/config differs')
@@ -233,10 +265,12 @@ def load_paid_executor_settings_v3(config_path,expected_config_sha256,*,appointm
     class ExactExecutorLedger(Ledger):
         def _authorize_processing_blob(self,manifest):
             current()
-            _require(manifest.kind=='processing_qualified_model_v1'
+            model=(manifest.kind=='processing_qualified_model_v1'
                 and (manifest.workspace_id,manifest.artifact_id,manifest.version,manifest.content_hash)==
-                (c.workspace_id,c.artifact_id,c.artifact_version,c.content_hash),
-                'exact appointed qualified executor blob required')
+                (c.workspace_id,c.artifact_id,c.artifact_version,c.content_hash))
+            summary=any(manifest.kind==t.kind and (manifest.workspace_id,manifest.artifact_id,manifest.version,manifest.content_hash)==
+                (c.workspace_id,t.artifact_id,t.artifact_version,t.content_hash) for t in c.summary_targets)
+            _require(model or summary,'exact appointed qualified executor blob required')
     ledger=ExactExecutorLedger(url,FileBlobStore(Path(c.blob_root)),principal=c.actor_id,can_read=denied,current_source=denied,
         processing_sources=resolver,processing_read_guard=guard)
     # No graph credential has been read yet; placeholders are never returned.
