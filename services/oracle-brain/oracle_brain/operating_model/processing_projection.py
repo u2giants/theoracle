@@ -1,7 +1,8 @@
 """Bounded existing-queue processing delivery; graph work never holds SQL locks."""
 from dataclasses import dataclass
 from datetime import datetime,timezone
-import json,re
+import asyncio,json,re
+from typing import Protocol,runtime_checkable
 from uuid import UUID
 import psycopg
 from psycopg.types.json import Jsonb
@@ -9,6 +10,26 @@ from oracle_brain.outbox import ProjectionEvent
 from .contracts import ArtifactManifest,digest
 from .processing_ledger import ProcessingCompilerLedger
 from .projection_delivery import signature
+
+
+@runtime_checkable
+class ProcessingProjectionAuthorityProtocol(Protocol):
+    """Pure contract; protected hosting enforces the actual appointed adapter."""
+    def authorize_current(self) -> datetime: ...
+
+
+class ProcessingProjectionIncomplete(PermissionError):
+    """Unacknowledged generation; task completion is not remote-stop evidence."""
+    def __init__(self,task,deadline,graph_name,reason):
+        super().__init__('paid projection incomplete; generation quarantined')
+        self.task,self.deadline,self.graph_name,self.reason=task,deadline,graph_name,reason
+
+
+def _deadline(value):
+    if (not isinstance(value,datetime) or value.tzinfo is None or value.utcoffset() is None
+            or value<=datetime.now(timezone.utc)):
+        raise PermissionError('current finite projection deadline required')
+    return value
 
 
 @dataclass(frozen=True)
@@ -46,7 +67,7 @@ def lease_processing_projection(ledger,workspace_id,*,lease_seconds=60):
     return ProcessingProjectionLease(event,r['lease_role'],UUID(r['lease_token']),until)
 
 
-def acknowledge_processing_projection(ledger,lease,receipt,seal,*,secret):
+def acknowledge_processing_projection(ledger,lease,receipt,seal,*,secret,caller_deadline=None,authority=None):
     """Trusted application verified graph/HMAC; SQL cannot observe that network."""
     import hmac
     binding=_compiler(ledger)
@@ -62,6 +83,14 @@ def acknowledge_processing_projection(ledger,lease,receipt,seal,*,secret):
             or semantic_deadline.utcoffset() is None or semantic_deadline<=datetime.now(timezone.utc)):
         raise PermissionError('current trusted semantic horizon required')
     deadline=min(binding.expires_at,semantic_deadline,lease.lease_until)
+    if receipt.get('schema_version')==3:
+        if not isinstance(authority,ProcessingProjectionAuthorityProtocol) or caller_deadline is None:
+            raise PermissionError('actual paid projector authority and original deadline required')
+        # Outside SQL locks: the hosting adapter rechecks its original external
+        # appointment, target, paid custody, current compiler/source and semantics.
+        deadline=min(deadline,_deadline(caller_deadline),_deadline(authority.authorize_current()))
+    elif caller_deadline is not None:
+        deadline=min(deadline,_deadline(caller_deadline))
     event=lease.event
     with psycopg.connect(ledger.url) as conn:
         conn.execute("SET LOCAL statement_timeout='5s'")
@@ -79,11 +108,24 @@ def acknowledge_processing_projection(ledger,lease,receipt,seal,*,secret):
 
 
 async def project_processing_event(ledger,lease,projection,*,secret,projector_id):
+    from .sdk_projection import PaidProcessingSDKProjectionV3
+    if isinstance(projection,PaidProcessingSDKProjectionV3):
+        raise PermissionError('paid V3 projection requires explicit strict V3 delivery')
+    return await _project_processing_event(ledger,lease,projection,secret=secret,projector_id=projector_id,authority=None)
+
+
+async def project_paid_processing_event_v3(ledger,lease,projection,*,secret,projector_id,authority):
+    from .sdk_projection import PaidProcessingSDKProjectionV3
+    if type(projection) is not PaidProcessingSDKProjectionV3 or not isinstance(authority,ProcessingProjectionAuthorityProtocol):
+        raise PermissionError('actual strict paid V3 projector and authority required')
+    return await _project_processing_event(ledger,lease,projection,secret=secret,projector_id=projector_id,authority=authority)
+
+
+async def _project_processing_event(ledger,lease,projection,*,secret,projector_id,authority):
     # This concrete SDK type is supplied by the independently owned SDK lane;
     # missing integration fails closed, never falls back to legacy projection.
     from .sdk_projection import ProcessingSDKProjection,PaidProcessingSDKProjectionV3
-    if isinstance(projection,PaidProcessingSDKProjectionV3):
-        raise PermissionError('paid V3 projection requires explicit strict V3 delivery')
+    paid=authority is not None
     binding=_compiler(ledger)
     if (not isinstance(lease,ProcessingProjectionLease) or not isinstance(projection,ProcessingSDKProjection)
             or not isinstance(projector_id,str) or not projector_id
@@ -99,10 +141,41 @@ async def project_processing_event(ledger,lease,projection,*,secret,projector_id
         raise PermissionError('exact qualified processing event required')
     current,payload=ledger.read_with_manifest(event.workspace_id,event.assertion_id,event.revision)
     if current!=manifest or digest(payload)!=manifest.content_hash:raise PermissionError('processing event seal differs')
-    count=(await projection.connection.query('MATCH (n) RETURN count(n)')).result_set[0][0]
-    if count:await projection.load(ledger,event.workspace_id,event.assertion_id,event.revision)
-    else:await projection.build(ledger,event.workspace_id,event.assertion_id,event.revision)
-    await projection.verify(payload)
+    async def graph_work():
+        count=(await projection.connection.query('MATCH (n) RETURN count(n)')).result_set[0][0]
+        if count:await projection.load(ledger,event.workspace_id,event.assertion_id,event.revision)
+        else:await projection.build(ledger,event.workspace_id,event.assertion_id,event.revision)
+        await projection.verify(payload)
+        if paid:
+            from .paid_sdk_embeddings_v3 import PaidSDKProjectionProofV3
+            proof=await projection.paid_projection_proof(payload)
+            if type(proof) is not PaidSDKProjectionProofV3:
+                raise PermissionError('actual verified complete paid SDK proof required')
+            return proof
+    original_deadline=None;proof=None
+    if paid:
+        horizon=getattr(ledger.processing_read_guard,'valid_until',None)
+        if not callable(horizon):raise PermissionError('current paid semantic horizon required')
+        original_deadline=min(_deadline(binding.expires_at),_deadline(lease.lease_until),
+            _deadline(horizon(manifest,payload,ledger.principal,ledger.clock())),_deadline(authority.authorize_current()))
+        # The actual graph task remains owned/observable after timeout. Cancel
+        # is a request, not evidence that a remote write stopped. Hosting retains
+        # UNKNOWN in its existing protected spool and refuses generation reuse.
+        task=asyncio.create_task(graph_work(),name='oracle-paid-projection-'+projection.graph_name)
+        try:
+            done,_=await asyncio.wait({task},timeout=max(0,(original_deadline-datetime.now(timezone.utc)).total_seconds()))
+        except asyncio.CancelledError as error:
+            task.cancel()
+            raise ProcessingProjectionIncomplete(task,original_deadline,projection.graph_name,'caller-cancelled') from error
+        if not done:
+            task.cancel()
+            raise ProcessingProjectionIncomplete(task,original_deadline,projection.graph_name,'deadline')
+        try:
+            proof=task.result()
+            _deadline(original_deadline) # never promote a late completed result
+        except BaseException as error:
+            raise ProcessingProjectionIncomplete(task,original_deadline,projection.graph_name,'graph-failed-or-late') from error
+    else:await graph_work()
     # Both source and independent semantic authority are checked after network
     # work, before the short fenced SQL ACK. No implicit direct projection path.
     again,latest=ledger.read_with_manifest(event.workspace_id,event.assertion_id,event.revision)
@@ -110,12 +183,14 @@ async def project_processing_event(ledger,lease,projection,*,secret,projector_id
     guard=ledger.processing_read_guard
     horizon=getattr(guard,'valid_until',None)
     if not callable(horizon):raise PermissionError('trusted processing semantic horizon required')
-    receipt={'schema_version':1,'event_id':str(event.event_id),'workspace_id':str(event.workspace_id),
+    receipt={'schema_version':3 if paid else 1,'event_id':str(event.event_id),'workspace_id':str(event.workspace_id),
         'artifact_id':str(event.assertion_id),'version':event.revision,'content_hash':manifest.content_hash,
         'source_digest':manifest.source_digest,'permission_digest':manifest.permission_digest,
         'graph_name':projection.graph_name,'record_digest':digest({'records':projection.records(payload)}),
         'projection_schema':'qualified-evidence-projection-v1','projection_digest':projection.processing_projection_digest(payload),
         'sdk_version':'1.4.0','projector_id':projector_id,'lease_role':lease.lease_role,
         'lease_token':str(lease.lease_token),'lease_attempt':event.attempts,'lease_until':lease.lease_until.isoformat()}
+    if paid:receipt.update(proof.model_dump(mode='json'))
     seal=signature(secret,receipt)
-    return acknowledge_processing_projection(ledger,lease,receipt,seal,secret=secret)
+    return acknowledge_processing_projection(ledger,lease,receipt,seal,secret=secret,
+        caller_deadline=original_deadline,authority=authority)
