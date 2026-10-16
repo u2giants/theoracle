@@ -99,8 +99,8 @@ def make_paid_projector_fixture_settings_v3(worker,job,root,*,graph_url_file,tls
     bundle=load_paid_sdk_bundle_v3(worker,job,artifact_id=artifact_id,
         artifact_version=artifact_version,embedding_dispatch_id=embedding_dispatch_id)
     now=datetime.now(timezone.utc)
-    end=min(job.expires_at,job.original_horizon,worker.config.source_expires_at,bundle.valid_until,
-        worker.semantic.valid_until(now),worker.custody_horizon(job))
+    end=min(job.expires_at,job.original_horizon,worker.config.source_expires_at,bundle.window.operation_horizon,
+        worker.semantic.valid_until(now),worker.custody_window_v3(job).operation_horizon)
     assert now<end
     issuer,reviewer=uuid4(),uuid4()  # explicit invented fixture appointment only
     graph_bytes=_worker_file(graph_url_file);target=urlsplit(graph_bytes.decode().strip())
