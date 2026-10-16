@@ -75,17 +75,17 @@ def test_currentness_never_accepts_old_file_or_borrowed_coverage_signer(damage):
     with pytest.raises((PermissionError,ValueError,InvalidSignature)):verify(key,a,w,now,**args)
 
 
-def provision(tmp_path,admission):
+def provision(tmp_path,admission,*,namespace='parent-v2'):
     """Explicit invented external provisioning, never runtime automatic init."""
     from oracle_brain.hosting.custody import DurableNonceSequenceV2
     tmp_path.chmod(0o700)
-    initial={'schema_version':2,'namespace':'parent-v2','appointment_hash':digest(admission.model_dump(mode='json')),
+    initial={'schema_version':2,'namespace':namespace,'appointment_hash':digest(admission.model_dump(mode='json')),
              'minimum_sequence':admission.minimum_sequence}
-    for name,payload in [('parent-v2-init.json',canonical_bytes(initial)),
-        ('parent-v2-state.json',canonical_bytes({**initial,'sequence':admission.minimum_sequence})),
-        ('parent-v2-lock',b'')]:
+    for name,payload in [(namespace+'-init.json',canonical_bytes(initial)),
+        (namespace+'-state.json',canonical_bytes({**initial,'sequence':admission.minimum_sequence})),
+        (namespace+'-lock',b'')]:
         path=tmp_path/name;path.write_bytes(payload);path.chmod(0o600)
-    kwargs=dict(namespace='parent-v2',appointment_hash=initial['appointment_hash'],
+    kwargs=dict(namespace=namespace,appointment_hash=initial['appointment_hash'],
         minimum_sequence=admission.minimum_sequence,
         initialization_receipt_hash=hashlib.sha256(canonical_bytes(initial)).hexdigest())
     return DurableNonceSequenceV2(tmp_path,**kwargs),kwargs
