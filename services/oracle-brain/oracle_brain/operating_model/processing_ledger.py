@@ -7,11 +7,24 @@ integrity. Neither a typed body nor a file hash grants authority.
 import json
 from datetime import datetime,timezone
 from uuid import UUID
+from typing import Protocol,runtime_checkable
 import psycopg
 from psycopg.types.json import Jsonb
 from .authority_adapter import ProcessingArtifactResolver
 from .contracts import ArtifactManifest,PROCESSING_ARTIFACT_KINDS,canonical_bytes,digest
 from .ledger import Ledger
+
+
+@runtime_checkable
+class ProcessingExtractionGuardProtocol(Protocol):
+    """Core contract only; protected hosting startup authenticates the issuer.
+
+    Structural conformance alone confers no authority. The opt-in V3 factory
+    requires its exact concrete, current SQL/custody-bound guard constructor.
+    """
+    def authorize_manifest(self,manifest:ArtifactManifest,principal:UUID,now:datetime)->datetime:...
+    def __call__(self,manifest:ArtifactManifest,payload:dict,principal:UUID,now:datetime)->None:...
+    def valid_until(self,manifest:ArtifactManifest,payload:dict,principal:UUID,now:datetime)->datetime:...
 
 
 class ProcessingCompilerLedger(Ledger):
@@ -25,12 +38,9 @@ class ProcessingCompilerLedger(Ledger):
             raise PermissionError('fixed current processing compiler required')
         if processing_compile_guard is not None and not callable(processing_compile_guard):
             raise PermissionError('trusted processing compile guard required')
-        if processing_extraction_guard is not None:
-            # Imported only for the opt-in path; the legacy/source V1 path keeps
-            # its existing imports and behavior. A duck type is not authority.
-            from .purpose_journey import ProcessingCompilerExtractionGuardV2
-            if type(processing_extraction_guard) is not ProcessingCompilerExtractionGuardV2:
-                raise PermissionError('exact protected processing extraction guard required')
+        if (processing_extraction_guard is not None
+                and not isinstance(processing_extraction_guard,ProcessingExtractionGuardProtocol)):
+            raise PermissionError('protected processing extraction guard protocol required')
         self.processing_extraction_guard=processing_extraction_guard
         self.processing_compile_guard=processing_compile_guard
         super().__init__(database_url,blobs,principal=principal,processing_sources=processing_sources,
