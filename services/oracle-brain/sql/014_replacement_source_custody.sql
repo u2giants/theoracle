@@ -907,3 +907,42 @@ REVOKE ALL ON FUNCTION oracle2.replacement_executor_target_v1(uuid) FROM PUBLIC,
  oracle2_source_reader,oracle2_candidate_compiler,oracle2_gateway_metadata,
  oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer,oracle2_replacement_requester;
 GRANT EXECUTE ON FUNCTION oracle2.replacement_executor_target_v1(uuid) TO oracle2_documentary_executor;
+
+CREATE OR REPLACE FUNCTION oracle2.reconcile_source_intake_v1(wanted_idempotency uuid)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE a oracle2.hosting_request_principal_admissions%ROWTYPE;r oracle2.source_intake_reservations_v1%ROWTYPE;
+ s oracle2.sources%ROWTYPE;o oracle2.source_original_revisions%ROWTYPE;
+ deadline timestamptz;result jsonb:='null';state text;
+BEGIN
+ a:=oracle2._replacement_request_context();
+ deadline:=least(a.expires_at,oracle2._replacement_scope(a.workspace_id,a.principal_id,'intake'));
+ SELECT * INTO r FROM oracle2.source_intake_reservations_v1 WHERE workspace_id=a.workspace_id
+  AND principal_id=a.principal_id AND idempotency_key=wanted_idempotency FOR SHARE;
+ IF r.reservation_id IS NULL THEN RAISE insufficient_privilege USING MESSAGE='own intake reconciliation unavailable'; END IF;
+ IF r.finalized_at IS NULL THEN
+  state:=CASE WHEN r.expires_at<=clock_timestamp() THEN 'expired' ELSE 'pending' END;
+  deadline:=least(deadline,r.expires_at);
+  -- An expired pending attempt remains observable only as expired metadata;
+  -- it conveys no write authority or renewed reservation deadline.
+  IF state='expired' THEN deadline:=least(a.expires_at,oracle2._replacement_scope(a.workspace_id,a.principal_id,'intake')); END IF;
+ ELSE
+  deadline:=least(deadline,oracle2._replacement_scope(a.workspace_id,a.principal_id,'source-read:'||r.source_id::text));
+  SELECT * INTO s FROM oracle2.sources WHERE workspace_id=a.workspace_id AND source_id=r.source_id FOR SHARE;
+  SELECT * INTO o FROM oracle2.source_original_revisions WHERE workspace_id=a.workspace_id AND source_id=r.source_id AND revision=r.revision FOR SHARE;
+  IF s.source_id IS NULL OR s.revision IS DISTINCT FROM r.revision OR o.original_sha256 IS DISTINCT FROM r.original_sha256
+  OR o.custody_locator_seal_sha256 IS DISTINCT FROM r.custody_seal_sha256 OR o.byte_count IS DISTINCT FROM r.byte_count THEN
+   RAISE insufficient_privilege USING MESSAGE='current immutable intake head changed';
+  END IF;
+  result:=oracle2.replacement_source_head_v1(r.source_id);state:='finalized';
+ END IF;
+ a:=oracle2._replacement_request_context();
+ deadline:=least(deadline,a.expires_at,oracle2._replacement_scope(a.workspace_id,a.principal_id,'intake'));
+ IF state='finalized' THEN deadline:=least(deadline,oracle2._replacement_scope(a.workspace_id,a.principal_id,'source-read:'||r.source_id::text)); END IF;
+ IF NOT isfinite(deadline) OR deadline<=clock_timestamp() THEN RAISE insufficient_privilege USING MESSAGE='current intake reconciliation expired'; END IF;
+ RETURN jsonb_build_object('schema_version',1,'context',oracle2._replacement_private_context(a,deadline),
+  'status',state,'reservation_expires_at',r.expires_at,'snapshot',result);
+END $body$;
+REVOKE ALL ON FUNCTION oracle2.reconcile_source_intake_v1(uuid) FROM PUBLIC,
+ oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
+ oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer;
+GRANT EXECUTE ON FUNCTION oracle2.reconcile_source_intake_v1(uuid) TO oracle2_replacement_requester;
