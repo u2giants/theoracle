@@ -189,3 +189,22 @@ def test_actual_sdk_graph_uses_exact_paid_vectors_and_rejects_mutation_and_swall
             owned_target(container,graph_url)
             await p.connection.delete_graph();await p.close()
     asyncio.run(exercise())
+
+
+def test_paid_supported_sdk_tls_config_keeps_exact_target_and_every_tls_option():
+    from dataclasses import replace
+    from graphrag_sdk import ConnectionConfig
+    from oracle_brain.operating_model.sdk_projection import paid_tls_connection_config_v3
+    uri='rediss://scope_user:protected%40password@graph.example.invalid:6380'
+    cfg=ConnectionConfig(host='graph.example.invalid',port=6380,username='scope_user',password='protected@password',
+        graph_name='exact_owned_graph',query_timeout_ms=30000,ssl=True,ssl_check_hostname=True,ssl_cert_reqs='required',
+        ssl_ca_certs='/protected/ca.pem',ssl_certfile='/protected/client.pem',ssl_keyfile='/protected/client.key')
+    selected=paid_tls_connection_config_v3(uri,'exact_owned_graph',cfg)
+    assert selected==cfg and selected is not cfg
+    cfg.ssl=False
+    assert selected.ssl is True
+    for field,value in [('host','other'),('port',6379),('username','admin'),('password','other'),('graph_name','other'),
+        ('ssl',False),('ssl_check_hostname',False),('ssl_cert_reqs','none'),('ssl_ca_certs',None),('ssl_certfile',None),
+        ('ssl_keyfile',None),('query_timeout_ms',None),('pool_timeout',float('inf'))]:
+        with pytest.raises(PermissionError):paid_tls_connection_config_v3(uri,'exact_owned_graph',replace(selected,**{field:value}))
+    with pytest.raises(PermissionError):paid_tls_connection_config_v3(uri.replace('rediss:','redis:'),'exact_owned_graph',selected)
