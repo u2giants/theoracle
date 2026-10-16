@@ -186,7 +186,7 @@ def test_all_current_versioned_purpose_suites_are_required_once_without_new_runn
     from collections import Counter
     suites=verifier.required_suites('W10')
     expected={p.stem.removeprefix('test_') for p in Path(__file__).parent.glob('test_purpose_*.py')}
-    expected|={'parent_observer_v2','semantic_registry_v3','processing_extraction_runtime_v2','extraction_connection_authority','paid_sdk_embeddings_v3','paid_sdk_delivery_v3'}
+    expected|={'parent_observer_v2','semantic_registry_v3','processing_extraction_runtime_v2','extraction_connection_authority','paid_sdk_embeddings_v3','paid_sdk_delivery_v3','paid_projector_v3'}
     assert expected==set(verifier.PURPOSE_V2_SUITES)
     assert all(Counter(suites)[name]==1 for name in expected)
     assert set(verifier.PURPOSE_V2_SUITES)<=set(verifier.required_suites('documentary'))
