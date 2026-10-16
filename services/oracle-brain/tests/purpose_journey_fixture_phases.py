@@ -178,7 +178,7 @@ def _phase_observer(x,*,population,actor,end,root):
     return admission,observer,spool,replay
 
 
-def admit_assembly_phase(x,*,admin_url,root,handoff,census,receipts):
+def admit_assembly_phase(x,*,admin_url,root,handoff,census,receipts,phase="assembly",captured=None,evidence=None,qualified=None,semantic_settings=None):
     """Late assembly admission consumes only this journey's durable handoff."""
     from oracle_brain.operating_model.purpose_context import (PurposeDispatchV2,PurposePhaseRegistryV2,PurposeRunDescriptorV2,PurposeMetadataProjectionV2,PurposePinsV2)
     from oracle_brain.operating_model.native_factory import NativeDispatchJob
@@ -197,42 +197,102 @@ def admit_assembly_phase(x,*,admin_url,root,handoff,census,receipts):
         raw=canonical_bytes(value.model_dump(mode='json')) if hasattr(value,'model_dump') else value
         path=root/name;path.write_bytes(raw);path.chmod(0o600)
         return str(path),hashlib.sha256(raw).hexdigest()
-    actor=x['phase_actors']['assembly'];runtime=x['phase_runtimes']['assembly'];login='coherent_assembly_'+uuid4().hex[:10]
+    assert phase in {'assembly','assessment','embedding'}
+    purpose={'assembly':'operating-audit','assessment':'independent-source-semantic-acceptance','embedding':'source-extraction'}[phase]
+    operation='embedding' if phase=='embedding' else 'chat'
+    actor=x['phase_actors'][phase];runtime=x['phase_runtimes'][phase];login='coherent_'+phase+'_'+uuid4().hex[:10]
     with psycopg.connect(admin_url) as conn:
         owner=conn.execute('SELECT actor_id FROM oracle2.appointments WHERE appointment_id=%s',(original['root'],)).fetchone()[0]
         conn.execute(sql.SQL('CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD {}').format(sql.Identifier(login),sql.Literal('invented-coherent-only')))
-        conn.execute(sql.SQL('GRANT oracle2_source_reader TO {}').format(sql.Identifier(login)))
+        conn.execute(sql.SQL('GRANT {} TO {}').format(sql.Identifier('oracle2_gateway_metadata' if phase=='embedding' else 'oracle2_source_reader'),sql.Identifier(login)))
         conn.execute('INSERT INTO oracle2.hosting_role_runtime_admissions VALUES(%s,%s,%s,%s)',(login,runtime,original['registry'],end))
         for ref in original['refs']:
             conn.execute('INSERT INTO oracle2.hosting_role_source_admissions VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(login,ref.workspace_id,ref.source_id,ref.revision,actor,ref.original_sha256,ref.reading_sha256,ref.parser_id,runtime,original['registry'],end))
-            for scope in ('source-read:','operating-audit:'):
+            for scope in ('source-read:',purpose+':'):
                 conn.execute('INSERT INTO oracle2.appointments(appointment_id,workspace_id,actor_id,scope,granted_by,parent_id,expires_at) VALUES(%s,%s,%s,%s,%s,%s,%s)',(uuid4(),original['workspace'],actor,scope+str(ref.source_id),owner,original['root'],end))
     url=psycopg.conninfo.make_conninfo(admin_url,user=login,password='invented-coherent-only')
-    processing=ProcessingRequest(provider='openrouter',account=x['job'].processing_request.account,endpoint='https://openrouter.ai/api/v1',data_classes=frozenset({'synthetic'}),purpose='operating-audit',terms_hash='b'*64)
+    processing=ProcessingRequest(provider='openrouter',account=x['job'].processing_request.account,endpoint='https://openrouter.ai/api/v1',data_classes=frozenset({'synthetic'}),purpose=purpose,terms_hash='b'*64)
     approval=ProcessingApproval(**processing.model_dump(),expires_at=end,register_ref='invented-coherent-late-assembly')
-    model_id=uuid4();request={**x['job'].request,'model':'openai/gpt-6.1-sol','messages':assembly_messages(receipts=receipts,extractions=handoff.extractions,census=census,model_id=model_id,version=1),'max_tokens':4096}
-    job=NativeDispatchJob(dispatch_id=uuid4(),workspace_id=original['workspace'],artifact_id=model_id,batch_id=x['job'].batch_id,purpose='operating-audit',attempt=1,request=request,request_hash=digest(request),permission_hash='a'*64,processing_request=processing,approvals=(approval,),pricing=current_pricing(p['catalog'],model=request['model'],max_output_tokens=request['max_tokens'],register_hash='d'*64,now=now),register_hash='d'*64,input_tokens_upper_bound=2*len(canonical_bytes(request))+4096)
-    assembly=AssemblyJobContextV2(actor_id=actor,provider_login=login,runtime_hash=runtime,source_registry_hash=original['registry'],compiler_digest=handoff.compiler_runtime_hash,parent_registry_hash=x['population'].parent_registry_sha256,expected_handoff_hash=digest(handoff.model_dump(mode='json')),job=job,receipts=receipts,handoff=handoff,census=census,reviewed_inventories={},model_id=model_id,model_version=1,expires_at=end)
-    private=PurposePrivateContextV2(phase='assembly',job=job,assembly=assembly)
+    if phase=='assembly':
+        model_id=uuid4();request={**x['job'].request,'model':'openai/gpt-6.1-sol','messages':assembly_messages(receipts=receipts,extractions=handoff.extractions,census=census,model_id=model_id,version=1),'max_tokens':4096}
+        job=NativeDispatchJob(dispatch_id=uuid4(),workspace_id=original['workspace'],artifact_id=model_id,batch_id=x['job'].batch_id,purpose=purpose,attempt=1,request=request,request_hash=digest(request),permission_hash='a'*64,processing_request=processing,approvals=(approval,),pricing=current_pricing(p['catalog'],model=request['model'],max_output_tokens=request['max_tokens'],register_hash='d'*64,now=now),register_hash='d'*64,input_tokens_upper_bound=2*len(canonical_bytes(request))+4096)
+        assembly=AssemblyJobContextV2(actor_id=actor,provider_login=login,runtime_hash=runtime,source_registry_hash=original['registry'],compiler_digest=handoff.compiler_runtime_hash,parent_registry_hash=x['population'].parent_registry_sha256,expected_handoff_hash=digest(handoff.model_dump(mode='json')),job=job,receipts=receipts,handoff=handoff,census=census,reviewed_inventories={},model_id=model_id,model_version=1,expires_at=end)
+        private=PurposePrivateContextV2(phase=phase,job=job,assembly=assembly)
+    elif phase=='assessment':
+        from oracle_brain.operating_model.acceptance_profiles import AssessmentContext,OriginalScope,request_for
+        from oracle_brain.operating_model.semantic_acceptance import sealed
+        scope=OriginalScope(workspace_id=original['workspace'],receipts=receipts,regions=census.regions,
+            source_region_register_hash=digest({'regions':[r.model_dump(mode='json') for r in census.regions]}))
+        assessment=AssessmentContext(scope=scope,actor_id=actor,runtime_hash=runtime,permission_hash='b'*64,
+            protocol_hash=digest(ObservedAssemblyProtocolV2().model_dump(mode='json')),request_hash='0'*64,census=census,census_hash=sealed(census),
+            implementer_actor=x['phase_actors']['assembly'],candidate_created_at=captured.observed_wire.observed_at,
+            candidate=captured.candidate,candidate_hash=captured.candidate_hash,inventories={},object_evidence=evidence,
+            object_evidence_hash=captured.object_evidence_hash)
+        request=request_for(assessment,max_tokens=4096);assessment=assessment.model_copy(update={'request_hash':digest(request)})
+        job=NativeDispatchJob(dispatch_id=uuid4(),workspace_id=original['workspace'],artifact_id=uuid4(),batch_id=x['job'].batch_id,
+            purpose=purpose,attempt=1,request=request,request_hash=digest(request),permission_hash=assessment.permission_hash,
+            processing_request=processing,approvals=(approval,),pricing=current_pricing(p['catalog'],model=request['model'],
+                max_output_tokens=request['max_tokens'],register_hash='d'*64,now=now),register_hash='d'*64,
+            input_tokens_upper_bound=2*len(canonical_bytes(request))+4096)
+        assembly=None;model_id=job.artifact_id
+        private=PurposePrivateContextV2(phase=phase,job=job,assessment=assessment)
+    else:
+        from oracle_brain.operating_model.purpose_profiles_v2 import DerivedSDKEmbeddingContextV3
+        from oracle_brain.operating_model.sdk_projection import ProcessingSDKProjection
+        from oracle_brain.operating_model.paid_sdk_embeddings_v3 import processing_embedding_inventory_v3
+        manifest,payload=qualified
+        embedding=DerivedSDKEmbeddingContextV3(actor_id=actor,workspace_id=original['workspace'],runtime_hash=runtime,
+            permission_hash='e'*64,qualified_artifact_id=manifest.artifact_id,qualified_artifact_version=manifest.version,
+            qualified_content_hash=manifest.content_hash,projection_digest=ProcessingSDKProjection.processing_projection_digest(payload),
+            source_refs=original['refs'],projection=ProcessingSDKProjection.projection_view(payload),qualified_payload=payload,
+            inventory=processing_embedding_inventory_v3(payload))
+        request=embedding.request()
+        job=NativeDispatchJob(dispatch_id=uuid4(),workspace_id=original['workspace'],artifact_id=manifest.artifact_id,batch_id=x['job'].batch_id,
+            purpose=purpose,attempt=1,request=request,request_hash=digest(request),permission_hash=embedding.permission_hash,
+            processing_request=processing,approvals=(approval,),pricing=current_pricing(p['catalog'],model=request['model'],
+                max_output_tokens=1,register_hash='d'*64,now=now),register_hash='d'*64,input_tokens_upper_bound=2*len(canonical_bytes(request))+4096)
+        assembly=None;model_id=manifest.artifact_id
+        private=PurposePrivateContextV2(phase=phase,job=job,embedding=embedding)
     allocation=p['allocation'];policy=processing.model_dump(mode='json');refs=original['refs'];issuer,reviewer=uuid4(),uuid4()
     population=x['population'].model_copy(update={'runtime_hash':runtime,'issuer_actor':issuer,'reviewer_actor':reviewer})
     dispatch=PurposeDispatchV2(dispatch_id=job.dispatch_id,source_refs=refs,job_hash=digest(job.model_dump(mode='json')),request_hash=job.request_hash,permission_hash=job.permission_hash,context_hash=digest(private.model_dump(mode='json')),model=request['model'],processing_request_hash=digest(policy),account_policy_hash=digest({k:v for k,v in policy.items() if k!='terms_hash'}),account_identity_hash=allocation.account_identity_hash,terms_hash=policy['terms_hash'],pricing_hash=digest(job.pricing.model_dump(mode='json')),register_hash=job.register_hash,approvals_hash=digest({'approvals':[approval.model_dump(mode='json')]}),budget_identity_hash=digest(allocation.model_dump(mode='json')),ledger_registry_hash=p['ledger_hash'],key_coverage_hash=p['coverage_hash'])
-    phase=PurposePhaseRegistryV2(qualification_purpose='phase-operation-qualification-v2',run_id=uuid4(),workspace_id=original['workspace'],actor_id=actor,provider_login=login,worker_uri=WORKER,phase='assembly',purpose='operating-audit',operation='chat',runtime_hash=runtime,source_registry_hash=original['registry'],parent_registry_sha256=population.parent_registry_sha256,population_admission_sha256=digest(population.model_dump(mode='json')),source_refs=refs,population_digest=population.population_digest,dispatches=(dispatch,),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=end)
-    values=phase.model_dump(mode='python');values.pop('qualification_purpose');values['phase_registry_sha256']=digest(phase.model_dump(mode='json'));descriptor=PurposeRunDescriptorV2.model_validate(values)
+    registry=PurposePhaseRegistryV2(qualification_purpose='phase-operation-qualification-v2',run_id=uuid4(),workspace_id=original['workspace'],actor_id=actor,provider_login=login,worker_uri=WORKER,phase=phase,purpose=purpose,operation=operation,runtime_hash=runtime,source_registry_hash=original['registry'],parent_registry_sha256=population.parent_registry_sha256,population_admission_sha256=digest(population.model_dump(mode='json')),source_refs=refs,population_digest=population.population_digest,dispatches=(dispatch,),issuer_actor=issuer,reviewer_actor=reviewer,expires_at=end)
+    values=registry.model_dump(mode='python');values.pop('qualification_purpose');values['phase_registry_sha256']=digest(registry.model_dump(mode='json'));descriptor=PurposeRunDescriptorV2.model_validate(values)
     projection=PurposeMetadataProjectionV2(descriptor=descriptor,descriptor_sha256=digest(descriptor.model_dump(mode='json')))
-    pins=PurposePinsV2(qualification_purpose='phase-operation-qualification-v2',phase='assembly',operation='chat',runtime_hash=runtime,source_registry_hash=original['registry'],parent_registry_sha256=population.parent_registry_sha256,population_admission_sha256=descriptor.population_admission_sha256,phase_registry_sha256=descriptor.phase_registry_sha256,budget_allocation_projection_sha256=dispatch.budget_identity_hash,descriptor_sha256=projection.descriptor_sha256,projection_sha256=digest(projection.model_dump(mode='json')),provider_login=login,worker_uri=WORKER,issuer_actor=issuer,reviewer_actor=reviewer,expires_at=end)
+    pins=PurposePinsV2(qualification_purpose='phase-operation-qualification-v2',phase=phase,operation=operation,runtime_hash=runtime,source_registry_hash=original['registry'],parent_registry_sha256=population.parent_registry_sha256,population_admission_sha256=descriptor.population_admission_sha256,phase_registry_sha256=descriptor.phase_registry_sha256,budget_allocation_projection_sha256=dispatch.budget_identity_hash,descriptor_sha256=projection.descriptor_sha256,projection_sha256=digest(projection.model_dump(mode='json')),provider_login=login,worker_uri=WORKER,issuer_actor=issuer,reviewer_actor=reviewer,expires_at=end)
     admission,observer,spool,replay=_phase_observer(x,population=population,actor=actor,end=end,root=root)
-    protocol=ObservedAssemblyProtocolV2();custodian_id=uuid4();custodian_config=digest({'owned-phase':'assembly','run':str(phase.run_id)});custodian_session=digest({'owned-session':str(uuid4())})
-    capture=AssemblyObserverContextV2(custodian_id=custodian_id,custodian_config_hash=custodian_config,custodian_session_hash=custodian_session,runtime_hash=runtime,census_hash=digest(census.model_dump(mode='json')),protocol_hash=digest(protocol.model_dump(mode='json')),dispatch_id=job.dispatch_id,job_hash=digest(job.model_dump(mode='json')),request_hash=job.request_hash,key_fingerprint=p['coverage'].key_fingerprint,ledger_identity_hash=p['ledger_hash'],expires_at=end,assembly_context_hash=digest(assembly.model_dump(mode='json')),handoff_hash=digest(handoff.model_dump(mode='json')))
-    paths={name:store(name+'.json',value) for name,value in [('pins',pins),('population',population),('projection',projection),('phase',phase),('context',private),('observer',admission),('source-url',url.encode()),('capture',capture),('protocol',protocol)]}
+    if phase=='assembly':
+        protocol=ObservedAssemblyProtocolV2();custodian_id=uuid4();custodian_config=digest({'owned-phase':'assembly','run':str(registry.run_id)});custodian_session=digest({'owned-session':str(uuid4())})
+        capture=AssemblyObserverContextV2(custodian_id=custodian_id,custodian_config_hash=custodian_config,custodian_session_hash=custodian_session,runtime_hash=runtime,census_hash=digest(census.model_dump(mode='json')),protocol_hash=digest(protocol.model_dump(mode='json')),dispatch_id=job.dispatch_id,job_hash=digest(job.model_dump(mode='json')),request_hash=job.request_hash,key_fingerprint=p['coverage'].key_fingerprint,ledger_identity_hash=p['ledger_hash'],expires_at=end,assembly_context_hash=digest(assembly.model_dump(mode='json')),handoff_hash=digest(handoff.model_dump(mode='json')))
+    else:protocol=None;capture=None;custodian_id=None;custodian_config=None;custodian_session=None
+    paths={name:store(name+'.json',value) for name,value in [('pins',pins),('population',population),('projection',projection),('phase',registry),('context',private),('observer',admission),('source-url',url.encode()),('capture',capture),('protocol',protocol)] if value is not None}
     custody=root/'private-custody';custody.mkdir(mode=0o700)
     config=x['settings'].config.model_dump(mode='json',exclude_none=True)
-    config.update(phase='assembly',pins_file=paths['pins'][0],pins_sha256=paths['pins'][1],population_file=paths['population'][0],projection_file=paths['projection'][0],source_url_file=paths['source-url'][0],expected_session_role=login,source_expires_at=end.isoformat(),phase_registry_file=paths['phase'][0],private_context_files={str(job.dispatch_id):paths['context'][0]},parent_observer_admission_file=paths['observer'][0],parent_observer_admission_hash=paths['observer'][1],observer_port=observer.server_port,observer_spool=str(spool),observer_initialization_hash=replay['initialization_receipt_hash'],private_receipts=str(custody),assembly_observer_file=paths['capture'][0],assembly_observer_hash=paths['capture'][1],assembly_protocol_file=paths['protocol'][0],assembly_protocol_hash=paths['protocol'][1],actual_custodian_id=str(custodian_id),actual_custodian_config_hash=custodian_config,actual_custodian_session_hash=custodian_session)
-    config_file,config_hash=store('settings.json',canonical_bytes(config));settings=load_purpose_runtime_settings_v2(config_file,config_hash,expected_phase='assembly',expected_role='provider')
-    ingress=build_purpose_broker_v2(settings);server=purpose_ingress_server_v2(('127.0.0.1',0),tls=p['tls'],worker_uri=WORKER,ingress=ingress);p['start'](server)
+    config.update(phase=phase,pins_file=paths['pins'][0],pins_sha256=paths['pins'][1],population_file=paths['population'][0],projection_file=paths['projection'][0],source_url_file=paths['source-url'][0],expected_session_role=login,source_expires_at=end.isoformat(),phase_registry_file=paths['phase'][0],private_context_files={str(job.dispatch_id):paths['context'][0]},parent_observer_admission_file=paths['observer'][0],parent_observer_admission_hash=paths['observer'][1],observer_port=observer.server_port,observer_spool=str(spool),observer_initialization_hash=replay['initialization_receipt_hash'],private_receipts=str(custody))
+    if phase=='assembly':config.update(assembly_observer_file=paths['capture'][0],assembly_observer_hash=paths['capture'][1],assembly_protocol_file=paths['protocol'][0],assembly_protocol_hash=paths['protocol'][1],actual_custodian_id=str(custodian_id),actual_custodian_config_hash=custodian_config,actual_custodian_session_hash=custodian_session)
+    if phase=='embedding':
+        from oracle_brain.hosting.purpose_runtime import SemanticRegistryStartupPinsV3
+        c=semantic_settings.config
+        appointment=SemanticRegistryStartupPinsV3(workspace_id=c.workspace_id,runtime_hash=c.runtime_hash,
+            issuer_actor=c.semantic_issuer_actor,reviewer_actor=c.semantic_reviewer_actor,valid_from=c.semantic_valid_from,expires_at=c.semantic_expires_at)
+        appointment_file,appointment_hash=store('semantic-appointment.json',appointment)
+        config.update(semantic_registry_file=c.semantic_registry_file,semantic_registry_sha256=c.semantic_registry_sha256,
+            semantic_appointment_file=appointment_file,semantic_appointment_sha256=appointment_hash)
+
+    config_file,config_hash=store('settings.json',canonical_bytes(config));settings=load_purpose_runtime_settings_v2(config_file,config_hash,expected_phase=phase,expected_role='provider')
+    ingress=build_purpose_broker_v2(settings)
+    dispatch_actual=ingress.dispatch
+    def dispatch_observed(*args,**kwargs):
+        try:return dispatch_actual(*args,**kwargs)
+        except BaseException as error:
+            x['state']['failure']=type(error).__name__+': '+str(error);raise
+    ingress.dispatch=dispatch_observed
+    server=purpose_ingress_server_v2(('127.0.0.1',0),tls=p['tls'],worker_uri=WORKER,ingress=ingress);p['start'](server)
     client=PurposeProviderClientV2(replace(p['binding'](server.server_port),timeout=90))
-    x['state'].setdefault('content_by_request_hash',{})[job.request_hash]=model_json(handoff.extractions,source_refs=refs,model_id=model_id,version=1)
-    return dict(x,job=job,private=private,settings=settings,client=client,descriptor=descriptor,custody=custody,population=population,operation_hash=descriptor.phase_registry_sha256,mode='assembly',context_file=paths['context'][0],assembly=assembly,assembly_observer=capture,assembly_protocol=protocol)
+    from purpose_journey_fixture_models import assessment_json
+    if phase=='embedding':x['state'].setdefault('embedding_requests',set()).add(job.request_hash)
+    else:x['state'].setdefault('content_by_request_hash',{})[job.request_hash]=model_json(handoff.extractions,source_refs=refs,model_id=model_id,version=1) if phase=='assembly' else assessment_json(assessment)
+    return dict(x,job=job,private=private,settings=settings,client=client,descriptor=descriptor,custody=custody,population=population,operation_hash=descriptor.phase_registry_sha256,mode=phase,context_file=paths['context'][0],assembly=assembly,assembly_observer=capture,assembly_protocol=protocol)
 
 
 def phase_worker_appointment(x,*,prior_settings,prior_job,prior_row,root):
@@ -250,3 +310,15 @@ def phase_worker_appointment(x,*,prior_settings,prior_job,prior_row,root):
         for kind,suffix in [('phase_commit','.phase-commit.json'),('native_receipt','.json'),('raw_wire','.wire'),('wire_metadata','.wire.json')])
     settings,jobs=make_next_compiler_worker_v2(x,root,prior_settings=prior_settings,jobs=(job,),custody_files={job.job_id:files})
     return settings,jobs[0]
+
+
+def capture_actual_assembly(phase):
+    """Fixture observer consumes actual retained wire, never constructs it."""
+    from oracle_brain.operating_model.purpose_capture_v2 import ObservedAssemblyWireV2,captured_assembly_candidate_v2
+    job=phase['job'];root=phase['custody']
+    raw=(root/(str(job.dispatch_id)+'.wire')).read_bytes()
+    observed=ObservedAssemblyWireV2.model_validate_json((root/(str(job.dispatch_id)+'.observed-wire.json')).read_bytes())
+    return captured_assembly_candidate_v2(context=phase['assembly'],observer=phase['assembly_observer'],
+        expected_observer_context_hash=digest(phase['assembly_observer'].model_dump(mode='json')),
+        protocol=phase['assembly_protocol'],expected_protocol_hash=digest(phase['assembly_protocol'].model_dump(mode='json')),
+        observed=observed,raw=raw,now=datetime.now(timezone.utc))

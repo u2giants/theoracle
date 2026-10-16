@@ -95,3 +95,47 @@ def test_coherent_native_census_uses_real_prior_input_parent(compiler_worker,adm
     PurposeJourneyCustodyV2(assembled).admit(assembly_job.job_id)
     assembly_row=run_purpose_worker_once_v2(assembled)
     assert assembly_row['state']=='awaiting-external-phase-admission' and x['state']['posts']==5
+    from purpose_journey_fixture_phases import capture_actual_assembly
+    captured,evidence=capture_actual_assembly(assembly)
+    assert captured.handoff_hash==digest(handoff.model_dump(mode='json'))
+    assessment=admit_assembly_phase(x,admin_url=admin_url,root=tmp_path/'late-assessment',handoff=handoff,census=frozen,
+        receipts=receipts,phase='assessment',captured=captured,evidence=evidence)
+    assessed,assessment_job=phase_worker_appointment(assessment,prior_settings=assembled,prior_job=assembly_job,
+        prior_row=assembly_row,root=tmp_path/'assessment-worker')
+    x['observe_fixture_coverage']()
+    PurposeJourneyCustodyV2(assessed).admit(assessment_job.job_id)
+    try:assessment_row=run_purpose_worker_once_v2(assessed)
+    except Exception as error:raise AssertionError(str(x['state'].get('failure'))) from error
+    assert assessment_row['state']=='awaiting-external-phase-admission' and x['state']['posts']==6
+    assert assessment['descriptor'].actor_id!=assembly['descriptor'].actor_id
+    assert assessment['descriptor'].provider_login!=assembly['descriptor'].provider_login
+    assert assessment['job'].request['model']!=assembly['job'].request['model']
+    from purpose_journey_fixture_compile import admit_compile_fixture
+    compiled,compile_job,semantic,report=admit_compile_fixture(original=x,initial_settings=settings,initial_job=job,
+        extraction_settings=current,extraction_jobs=jobs,assembly=assembly,assessment=assessment,prior_settings=assessed,
+        prior_job=assessment_job,prior_row=assessment_row,captured=captured,evidence=evidence,root=tmp_path/'late-compile')
+    PurposeJourneyCustodyV2(compiled).admit(compile_job.job_id)
+    compile_row=run_purpose_worker_once_v2(compiled)
+    assert compile_row['state']=='qualified-model-outbox-committed' and x['state']['posts']==6
+    with psycopg.connect(admin_url) as connection:
+        assert connection.execute("SELECT kind,state FROM oracle2.artifact_manifests WHERE workspace_id=%s AND artifact_id=%s",
+            (job.workspace_id,assembly['job'].artifact_id)).fetchone()==('processing_qualified_model_v1','ready')
+        assert connection.execute("SELECT count(*) FROM oracle2.outbox WHERE workspace_id=%s AND payload->>'namespace'='oracle_processing_v1'",
+            (job.workspace_id,)).fetchone()==(1,)
+    compiled_ledger=build_purpose_compiler_ledger_v3(compiled,compile_job)
+    qualified=compiled_ledger.read_with_manifest(job.workspace_id,assembly['job'].artifact_id,1)
+    embedding=admit_assembly_phase(x,admin_url=admin_url,root=tmp_path/'late-embedding',handoff=handoff,census=frozen,
+        receipts=receipts,phase='embedding',qualified=qualified,semantic_settings=compiled)
+    x['observe_fixture_coverage']()
+    try:embedding_reply=embedding['client'].dispatch(embedding['job'].dispatch_id,embedding['job'].request_hash,
+        embedding['operation_hash'],deadline=embedding['descriptor'].expires_at)
+    except Exception as error:raise AssertionError(str(x['state'].get('failure'))) from error
+    assert x['state']['posts']==7 and set(embedding_reply)=={'dispatch_id','request_hash','phase_registry_sha256','raw_response_hash','receipt_hash'}
+    from purpose_journey_fixture_delivery import appoint_actual_embedding_outputs
+    delivered_worker,embedding_pins=appoint_actual_embedding_outputs(embedding,worker=compiled,compile_job=compile_job,
+        artifact=qualified[0],root=tmp_path/'late-paid-consumer')
+    from oracle_brain.hosting.paid_sdk_delivery_v3 import load_paid_sdk_bundle_v3
+    paid=load_paid_sdk_bundle_v3(delivered_worker,compile_job,artifact_id=qualified[0].artifact_id,artifact_version=1,
+        embedding_dispatch_id=embedding['job'].dispatch_id)
+    assert len(paid.embedder.data.vectors)==len(paid.embedder.data.inventory.inputs)
+    assert all(len(v)==256 for v in paid.embedder.data.vectors)
