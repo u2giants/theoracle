@@ -485,6 +485,28 @@ _PURPOSE_IDENTITY_SQL_V2={
 }
 
 
+class QualifiedRevisionProcessingSourceResolverV1(ProcessingArtifactResolver):
+    """Closed new-qualified-revision source route; construction grants nothing."""
+    _signatures={**ProcessingArtifactResolver._signatures,
+        'oracle2._processing_source_legacy_v1(uuid,uuid,uuid,text,text,boolean)':frozenset(),
+        'oracle2._processing_qualified_revision_source_v1(uuid,uuid,uuid,text,text,boolean)':frozenset(),
+        'oracle2._purpose_deadlines_v2()':frozenset(),
+    }
+
+    def __init__(self,url,*,binding):
+        if type(self) is not QualifiedRevisionProcessingSourceResolverV1:
+            raise PermissionError('exact qualified revision source resolver required')
+        super().__init__(url,binding=binding)
+
+    @contextmanager
+    def _connection(self,connection=None):
+        with super()._connection(connection) as conn:
+            for setting,bound in (('statement_timeout','5s'),('lock_timeout','2s')):
+                conn.execute("SELECT set_config(%s,CASE WHEN current_setting(%s)::interval<=interval '0' OR current_setting(%s)::interval>%s::interval THEN %s ELSE current_setting(%s) END,true)",
+                    (setting,setting,setting,bound,bound,setting))
+            yield conn
+
+
 @dataclass(frozen=True)
 class PurposeSourceBindingV2:
     """External immutable startup pins. Construction is never appointment/issuance."""

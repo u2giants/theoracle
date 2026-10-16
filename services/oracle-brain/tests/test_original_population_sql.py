@@ -12,7 +12,9 @@ from test_replacement_source_intake_sql import requester,call,reserve,custody
 
 @pytest.fixture
 def raw_reader(requester,request):
-    x=requester;refs=[]
+    x=requester.copy();refs=[]
+    short=getattr(request,'param',None)=='short-horizon'
+    if short:x['until']=__import__('datetime').datetime.now(__import__('datetime').timezone.utc)+timedelta(seconds=5)
     native=getattr(request,'param',None)=='native-utf8'
     media='text/plain' if native else 'application/pdf'
     original_hash=__import__('hashlib').sha256(b'invent!').hexdigest() if native else 'c'*64
@@ -22,7 +24,7 @@ def raw_reader(requester,request):
         refs.append(RawOriginalRefV1(workspace_id=x['workspace'],source_id=UUID(r['source_id']),revision=1,
             original_sha256=original_hash,byte_count=7,media_type=media,filename='invented.txt' if native else 'invented.pdf',custody_locator_seal_sha256='d'*64))
     login='raw_reader_'+uuid4().hex[:12];actor,population=uuid4(),uuid4();runtime='e'*64;registry='f'*64
-    phase_until=x['until']-timedelta(seconds=10);role_until=phase_until-timedelta(seconds=5)
+    phase_until=x['until']-timedelta(seconds=.3 if short else 10);role_until=phase_until-timedelta(seconds=.2 if short else 5)
     pop=RawOriginalPopulationV1(population_id=population,workspace_id=x['workspace'],original_root_hash='1'*64,
         operation_registry_hash='2'*64,runtime_hash=runtime,source_registry_hash=registry,raw_refs=tuple(refs),
         population_digest=digest({'raw_refs':[r.model_dump(mode='json') for r in refs]}),issuer_actor=uuid4(),reviewer_actor=uuid4(),expires_at=phase_until)

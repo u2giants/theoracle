@@ -82,6 +82,11 @@ CREATE TABLE IF NOT EXISTS oracle2.source_reading_qualifications (
  reader_native_commit_sha256 text NOT NULL CHECK(reader_native_commit_sha256 ~ '^[0-9a-f]{64}$'),
  reviewer_native_commit_sha256 text NOT NULL CHECK(reviewer_native_commit_sha256 ~ '^[0-9a-f]{64}$'),
  reader_principal_id uuid NOT NULL,reviewer_principal_id uuid NOT NULL CHECK(reviewer_principal_id<>reader_principal_id),
+ reading_text text NOT NULL CHECK(octet_length(reading_text) BETWEEN 1 AND 20971520),provenance jsonb NOT NULL CHECK(jsonb_typeof(provenance)='object'),
+ view_manifest jsonb NOT NULL CHECK(jsonb_typeof(view_manifest)='object'),locator_map jsonb NOT NULL CHECK(jsonb_typeof(locator_map)='object'),
+ reading_body_sha256 text NOT NULL CHECK(reading_body_sha256 ~ '^[0-9a-f]{64}$'),review_body_sha256 text NOT NULL CHECK(review_body_sha256 ~ '^[0-9a-f]{64}$'),
+ qualification_registry_sha256 text NOT NULL CHECK(qualification_registry_sha256 ~ '^[0-9a-f]{64}$'),
+ qualifier_custody_sha256 text NOT NULL CHECK(qualifier_custody_sha256 ~ '^[0-9a-f]{64}$'),
  qualified_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  PRIMARY KEY(workspace_id,source_id,revision),
  FOREIGN KEY(workspace_id,source_id,revision) REFERENCES oracle2.source_original_revisions(workspace_id,source_id,revision));
@@ -1017,3 +1022,247 @@ REVOKE ALL ON FUNCTION oracle2.withdraw_original_revision_v1(uuid,integer,jsonb,
  oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
  oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer;
 GRANT EXECUTE ON FUNCTION oracle2.withdraw_original_revision_v1(uuid,integer,jsonb,uuid) TO oracle2_replacement_requester;
+
+-- Preserve the retained legacy function body EXACTLY; never rewrite history.
+DO $legacy$
+BEGIN
+ IF to_regprocedure('oracle2._processing_source_legacy_v1(uuid,uuid,uuid,text,text,boolean)') IS NULL THEN
+  IF (SELECT encode(sha256(convert_to(prosrc,'UTF8')),'hex') FROM pg_proc WHERE oid=to_regprocedure('oracle2._processing_source(uuid,uuid,uuid,text,text,boolean)')) IS DISTINCT FROM '3596351b471358e43f970bf1127830de3e38ec843520e6191d70b9e671e3d416' THEN RAISE EXCEPTION 'retained processing source body drift'; END IF;
+  ALTER FUNCTION oracle2._processing_source(uuid,uuid,uuid,text,text,boolean) RENAME TO _processing_source_legacy_v1;
+ END IF;
+ IF (SELECT encode(sha256(convert_to(prosrc,'UTF8')),'hex') FROM pg_proc WHERE oid=to_regprocedure('oracle2._processing_source_legacy_v1(uuid,uuid,uuid,text,text,boolean)')) IS DISTINCT FROM '3596351b471358e43f970bf1127830de3e38ec843520e6191d70b9e671e3d416' THEN RAISE EXCEPTION 'retained legacy body drift'; END IF;
+END $legacy$;
+REVOKE ALL ON FUNCTION oracle2._processing_source_legacy_v1(uuid,uuid,uuid,text,text,boolean) FROM PUBLIC,oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
+CREATE OR REPLACE FUNCTION oracle2._processing_qualified_revision_source_v1(
+ workspace uuid, source uuid, principal uuid, expected_runtime text, expected_registry text, want_raw boolean)
+ RETURNS TABLE(revision integer, original_hash text, reading_hash text, parser_id text, original_reading text, provenance text, valid_until timestamptz, checked_at timestamptz)
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE q oracle2.source_reading_qualifications%ROWTYPE;o oracle2.source_original_revisions%ROWTYPE;
+ reader oracle2.original_phase_response_commits%ROWTYPE;reviewer oracle2.original_phase_response_commits%ROWTYPE;
+ a oracle2.hosting_role_source_admissions%ROWTYPE;
+ r oracle2.hosting_role_runtime_admissions%ROWTYPE; owner_oid oid; login_oid oid;
+ kinds text[]; kind text; reading text; metadata jsonb; n bigint; source_revision integer; source_status text;
+ scope_name text; permitted boolean; require_extraction boolean; deadline timestamptz; scope_deadline timestamptz;
+BEGIN
+ PERFORM oracle2._purpose_deadlines_v2();
+ IF NOT EXISTS(SELECT 1 FROM pg_stat_ssl WHERE pid=pg_backend_pid() AND ssl) THEN RAISE insufficient_privilege USING MESSAGE='qualified source TLS required'; END IF;
+ -- Use the SAME connection as an enclosing ledger transaction; never a nested lock connection.
+ PERFORM pg_advisory_xact_lock(hashtext('oracle2-authz:'||workspace::text));
+ SELECT nspowner INTO owner_oid FROM pg_namespace WHERE nspname='oracle2';
+ SELECT oid INTO login_oid FROM pg_roles WHERE rolname=SESSION_USER
+ AND rolcanlogin AND NOT (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication);
+ IF login_oid IS NULL OR owner_oid IS DISTINCT FROM (SELECT oid FROM pg_roles WHERE rolname=CURRENT_USER)
+ OR pg_has_role(login_oid,owner_oid,'MEMBER') THEN RAISE insufficient_privilege USING MESSAGE='processing owner/session denied'; END IF;
+ SELECT array_agg(rolname::text ORDER BY rolname) INTO kinds FROM pg_roles
+ WHERE rolname IN ('oracle2_source_reader','oracle2_candidate_compiler','oracle2_documentary_executor','oracle2_gateway_metadata')
+ AND pg_has_role(login_oid,oid,'MEMBER');
+ IF coalesce(cardinality(kinds),0)<>1 THEN RAISE insufficient_privilege USING MESSAGE='exclusive processing role required'; END IF;
+ kind:=kinds[1];
+ -- PG16 MEMBER, SET and inherited USAGE have different option semantics.
+ -- The new processing issuer permits no other reachable role, even harmless
+ -- intermediate/monitor membership. Legacy SourceRoleBinding is unchanged.
+ IF EXISTS(SELECT 1 FROM pg_roles x WHERE x.rolname NOT IN (SESSION_USER::text,kind)
+ AND (pg_has_role(login_oid,x.oid,'MEMBER') OR pg_has_role(login_oid,x.oid,'SET') OR pg_has_role(login_oid,x.oid,'USAGE')))
+ OR EXISTS(SELECT 1 FROM pg_roles x WHERE x.rolname=kind AND (x.rolcanlogin OR x.rolinherit OR x.rolsuper OR x.rolbypassrls OR x.rolcreaterole OR x.rolcreatedb OR x.rolreplication))
+ OR current_setting('role') NOT IN ('none',SESSION_USER::text,kind) THEN
+ RAISE insufficient_privilege USING MESSAGE='exact processing role/SET membership required'; END IF;
+ IF want_raw AND kind NOT IN ('oracle2_source_reader','oracle2_candidate_compiler') THEN
+  RAISE insufficient_privilege USING MESSAGE='raw processing role denied';
+ END IF;
+ require_extraction:=kind<>'oracle2_documentary_executor';
+ SELECT * INTO r FROM oracle2.hosting_role_runtime_admissions WHERE role_name=SESSION_USER FOR SHARE;
+ SELECT c.* INTO a FROM oracle2.hosting_role_source_admissions c
+ JOIN oracle2.sources s ON s.workspace_id=c.workspace_id AND s.source_id=c.source_id AND s.revision=c.revision
+ WHERE c.role_name=SESSION_USER AND c.workspace_id=workspace AND c.source_id=source
+ AND c.runtime_hash=expected_runtime AND c.registry_hash=expected_registry
+ AND c.principal_id=principal FOR SHARE OF c;
+ IF r.role_name IS NULL OR a.role_name IS NULL OR expected_runtime !~ '^[0-9a-f]{64}$'
+ OR expected_registry !~ '^[0-9a-f]{64}$' OR r.runtime_hash IS DISTINCT FROM expected_runtime
+ OR r.registry_hash IS DISTINCT FROM expected_registry OR a.expires_at<=clock_timestamp()
+ OR r.expires_at<=clock_timestamp() OR NOT isfinite(r.expires_at) OR NOT isfinite(a.expires_at) THEN RAISE insufficient_privilege USING MESSAGE='current processing admission denied'; END IF;
+ deadline:=least(a.expires_at,r.expires_at);
+ SELECT s.revision,s.status INTO source_revision,source_status FROM oracle2.sources s
+ WHERE s.workspace_id=workspace AND s.source_id=source FOR SHARE;
+ IF source_revision IS DISTINCT FROM a.revision OR source_status NOT IN ('draft','confirmed') OR source_status IS NULL THEN
+  RAISE insufficient_privilege USING MESSAGE='current processing source denied';
+ END IF;
+ SELECT z.* INTO q FROM oracle2.source_reading_qualifications z WHERE z.workspace_id=workspace AND z.source_id=source AND z.revision=source_revision FOR SHARE;
+ SELECT z.* INTO o FROM oracle2.source_original_revisions z WHERE z.workspace_id=workspace AND z.source_id=source AND z.revision=source_revision FOR SHARE;
+ SELECT * INTO reader FROM oracle2.original_phase_response_commits WHERE commit_sha256=q.reader_native_commit_sha256 FOR SHARE;
+ SELECT * INTO reviewer FROM oracle2.original_phase_response_commits WHERE commit_sha256=q.reviewer_native_commit_sha256 FOR SHARE;
+ IF q.source_id IS NULL OR o.source_id IS NULL OR reader.commit_sha256 IS NULL OR reviewer.commit_sha256 IS NULL
+ OR EXISTS(SELECT 1 FROM oracle2.source_original_withdrawals_v1 w WHERE w.workspace_id=workspace AND w.source_id=source AND w.revision=source_revision)
+ OR (q.original_sha256,q.reading_sha256,q.parser_id) IS DISTINCT FROM (a.original_hash,a.reading_hash,a.parser_id)
+ OR q.original_sha256 IS DISTINCT FROM o.original_sha256 OR q.reader_principal_id=q.reviewer_principal_id
+ OR reader.principal_id IS DISTINCT FROM q.reader_principal_id OR reviewer.principal_id IS DISTINCT FROM q.reviewer_principal_id
+ OR reader.session_role=reviewer.session_role OR reader.purpose<>'source-original-reading' OR reviewer.purpose<>'source-original-review'
+ OR reviewer.body->>'reading_commit_hash' IS DISTINCT FROM reader.commit_sha256
+ OR (reader.workspace_id,reader.source_id,reader.revision,reader.original_sha256) IS DISTINCT FROM (workspace,source,source_revision,q.original_sha256)
+ OR (reviewer.workspace_id,reviewer.source_id,reviewer.revision,reviewer.original_sha256) IS DISTINCT FROM (workspace,source,source_revision,q.original_sha256)
+ OR encode(sha256(reader.canonical_body),'hex') IS DISTINCT FROM reader.commit_sha256
+ OR encode(sha256(reviewer.canonical_body),'hex') IS DISTINCT FROM reviewer.commit_sha256
+ OR reader.body->>'reading_sha256' IS DISTINCT FROM q.reading_sha256 OR reviewer.body->>'reading_sha256' IS DISTINCT FROM q.reading_sha256
+ OR reader.body->>'parser_id' IS DISTINCT FROM q.parser_id OR reviewer.body->>'parser_id' IS DISTINCT FROM q.parser_id
+ OR reader.body->>'reading_body_hash' IS DISTINCT FROM q.reading_body_sha256
+ OR reviewer.body->>'review_body_hash' IS DISTINCT FROM q.review_body_sha256
+ OR encode(sha256(convert_to(oracle2._replacement_metadata_json(q.view_manifest),'UTF8')),'hex') IS DISTINCT FROM q.view_manifest_sha256
+ OR encode(sha256(convert_to(oracle2._replacement_metadata_json(q.locator_map),'UTF8')),'hex') IS DISTINCT FROM q.locator_map_sha256
+ OR reader.body->>'view_manifest_hash' IS DISTINCT FROM q.view_manifest_sha256 OR reviewer.body->>'view_manifest_hash' IS DISTINCT FROM q.view_manifest_sha256
+ OR reader.body->>'locator_map_hash' IS DISTINCT FROM q.locator_map_sha256 OR reviewer.body->>'locator_map_hash' IS DISTINCT FROM q.locator_map_sha256 THEN
+  RAISE insufficient_privilege USING MESSAGE='current qualified revision custody denied'; END IF;
+ reading:=q.reading_text;metadata:=q.provenance;
+ IF NOT metadata ?& ARRAY['original_hash','content_hash','parser_identity','content_type','evidence_kind','page_count','review_receipt']
+ OR metadata-ARRAY['original_hash','content_hash','parser_identity','content_type','evidence_kind','page_count','review_receipt']<>'{}'::jsonb
+ OR metadata->>'original_hash' IS DISTINCT FROM q.original_sha256 OR metadata->>'content_hash' IS DISTINCT FROM q.reading_sha256
+ OR metadata->>'parser_identity' IS DISTINCT FROM q.parser_id OR metadata->>'review_receipt' !~ '^[0-9a-f]{64}$'
+ OR metadata->>'evidence_kind' NOT IN('native_text','visual_transcription')
+ OR metadata->>'page_count' !~ '^[0-9]+$' OR (metadata->>'page_count')::integer NOT BETWEEN 1 AND 40
+ OR encode(sha256(convert_to(reading,'UTF8')),'hex') IS DISTINCT FROM q.reading_sha256
+ OR NOT EXISTS(SELECT 1 FROM oracle2.operating_model_source_receipts sr WHERE sr.workspace_id=workspace AND sr.source_id=source
+  AND sr.revision=source_revision AND (sr.original_hash,sr.reading_hash,sr.parser_id)=(q.original_sha256,q.reading_sha256,q.parser_id)) THEN
+  RAISE insufficient_privilege USING MESSAGE='qualified reading provenance denied'; END IF;
+ PERFORM 1 FROM oracle2.appointments p WHERE p.workspace_id=workspace ORDER BY p.appointment_id FOR SHARE;
+ FOREACH scope_name IN ARRAY CASE WHEN require_extraction THEN ARRAY['source-read:'||source::text,'source-extraction:'||source::text]
+ ELSE ARRAY['source-read:'||source::text] END LOOP
+  WITH RECURSIVE lineage AS (
+   SELECT p.appointment_id start_id,p.appointment_id,p.parent_id,p.revoked_at,p.expires_at,p.scope,p.actor_id,p.granted_by,
+    ARRAY[p.appointment_id] seen, true valid,1 depth
+   FROM oracle2.appointments p WHERE p.workspace_id=workspace AND p.actor_id=principal AND p.scope IN (scope_name,'root')
+   UNION ALL
+   SELECT l.start_id,p.appointment_id,p.parent_id,p.revoked_at,p.expires_at,p.scope,p.actor_id,p.granted_by,
+    l.seen||p.appointment_id,l.valid AND p.actor_id=l.granted_by AND p.scope IN (scope_name,'root'),l.depth+1
+   FROM oracle2.appointments p JOIN lineage l ON l.parent_id=p.appointment_id
+   WHERE p.workspace_id=workspace AND l.depth<16 AND NOT p.appointment_id=ANY(l.seen))
+  , valid_paths AS (SELECT min(expires_at) expiry FROM lineage GROUP BY start_id HAVING
+   bool_and(valid AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>clock_timestamp()))
+   AND bool_or(scope='root' AND parent_id IS NULL))
+  SELECT EXISTS(SELECT 1 FROM valid_paths),max(coalesce(expiry,'infinity'::timestamptz))
+  INTO permitted,scope_deadline FROM valid_paths;
+  IF NOT permitted THEN RAISE insufficient_privilege USING MESSAGE='current processing scope lineage denied'; END IF;
+  deadline:=least(deadline,scope_deadline);
+ END LOOP;
+ IF deadline<=clock_timestamp() OR a.expires_at<=clock_timestamp() OR r.expires_at<=clock_timestamp() OR NOT isfinite(r.expires_at) OR NOT isfinite(a.expires_at) THEN
+  RAISE insufficient_privilege USING MESSAGE='processing admission expired during qualification';
+ END IF;
+ RETURN QUERY SELECT a.revision,a.original_hash,a.reading_hash,a.parser_id,
+ CASE WHEN want_raw THEN reading ELSE NULL::text END,
+ CASE WHEN want_raw THEN metadata::text ELSE NULL::text END,deadline,clock_timestamp();
+EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+ RAISE insufficient_privilege USING MESSAGE='invalid processing provenance';
+END $body$;
+
+CREATE OR REPLACE FUNCTION oracle2._processing_source(workspace uuid,source uuid,principal uuid,expected_runtime text,expected_registry text,want_raw boolean)
+ RETURNS TABLE(revision integer,original_hash text,reading_hash text,parser_id text,original_reading text,provenance text,valid_until timestamptz,checked_at timestamptz)
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+BEGIN
+ PERFORM pg_advisory_xact_lock(hashtext('oracle2-authz:'||workspace::text));
+ IF EXISTS(SELECT 1 FROM oracle2.source_original_revisions o WHERE o.workspace_id=workspace AND o.source_id=source)
+ OR EXISTS(SELECT 1 FROM oracle2.source_intake_reservations_v1 r WHERE r.workspace_id=workspace AND r.source_id=source) THEN
+  RETURN QUERY SELECT * FROM oracle2._processing_qualified_revision_source_v1(workspace,source,principal,expected_runtime,expected_registry,want_raw);
+ ELSE RETURN QUERY SELECT * FROM oracle2._processing_source_legacy_v1(workspace,source,principal,expected_runtime,expected_registry,want_raw);
+ END IF;
+END $body$;
+REVOKE ALL ON FUNCTION oracle2._processing_source(uuid,uuid,uuid,text,text,boolean),oracle2._processing_qualified_revision_source_v1(uuid,uuid,uuid,text,text,boolean) FROM PUBLIC,
+ oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata;
+
+CREATE TABLE IF NOT EXISTS oracle2.hosting_original_qualification_admissions_v1 (
+ role_name name NOT NULL,workspace_id uuid NOT NULL,source_id uuid NOT NULL,revision integer NOT NULL,
+ principal_id uuid NOT NULL,population_id uuid NOT NULL REFERENCES oracle2.original_source_populations_v1,
+ operation_registry_hash text NOT NULL CHECK(operation_registry_hash ~ '^[0-9a-f]{64}$'),
+ reading_commit_sha256 text NOT NULL REFERENCES oracle2.original_phase_response_commits,
+ review_commit_sha256 text NOT NULL REFERENCES oracle2.original_phase_response_commits,
+ qualification_registry_sha256 text NOT NULL CHECK(qualification_registry_sha256 ~ '^[0-9a-f]{64}$'),
+ qualifier_custody_sha256 text NOT NULL CHECK(qualifier_custody_sha256 ~ '^[0-9a-f]{64}$'),
+ review_receipt_sha256 text NOT NULL CHECK(review_receipt_sha256 ~ '^[0-9a-f]{64}$'),
+ expires_at timestamptz NOT NULL CHECK(isfinite(expires_at)),PRIMARY KEY(role_name,workspace_id,source_id,revision),
+ FOREIGN KEY(workspace_id,source_id,revision) REFERENCES oracle2.source_original_revisions);
+REVOKE ALL ON oracle2.hosting_original_qualification_admissions_v1 FROM PUBLIC,
+ oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
+ oracle2_source_original_reader,oracle2_source_original_reviewer,oracle2_source_original_viewer,oracle2_replacement_requester;
+
+CREATE OR REPLACE FUNCTION oracle2.original_reading_qualify_v1(source uuid,wanted_revision integer,qualification jsonb)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,oracle2 AS $body$
+DECLARE identity jsonb;snapshot jsonb;metadata jsonb;reading text;deadline timestamptz;caller_deadline timestamptz;
+ ad oracle2.hosting_original_qualification_admissions_v1%ROWTYPE;r oracle2.original_phase_response_commits%ROWTYPE;
+ v oracle2.original_phase_response_commits%ROWTYPE;q oracle2.source_reading_qualifications%ROWTYPE;
+ known uuid[];actual uuid[];artifact uuid;workspace uuid;reading_sha text;view_sha text;locator_sha text;
+BEGIN
+ SELECT a.workspace_id INTO workspace FROM oracle2.hosting_original_source_admissions a
+ WHERE a.role_name=SESSION_USER AND a.source_id=source AND a.revision=wanted_revision;
+ IF workspace IS NULL THEN RAISE insufficient_privilege; END IF;
+ SELECT coalesce(array_agg(DISTINCT x.artifact_id ORDER BY x.artifact_id),'{}'::uuid[]) INTO known FROM oracle2._replacement_affected(workspace,source) x;
+ FOREACH artifact IN ARRAY known LOOP PERFORM pg_advisory_xact_lock(hashtextextended('operating-model:'||workspace::text||':'||artifact::text,0)); END LOOP;
+ identity:=oracle2._original_revision_access(source,wanted_revision,'oracle2_source_original_reviewer');
+ snapshot:=oracle2.original_population_current_v1((identity->>'population_id')::uuid);
+ IF jsonb_typeof(qualification) IS DISTINCT FROM 'object' OR NOT qualification ?& ARRAY['reading_commit_hash','review_commit_hash','reading_text','parser_provenance','view_manifest','locator_map','qualification_registry_sha256','qualifier_custody_sha256','caller_deadline']
+ OR qualification-ARRAY['reading_commit_hash','review_commit_hash','reading_text','parser_provenance','view_manifest','locator_map','qualification_registry_sha256','qualifier_custody_sha256','caller_deadline']<>'{}'::jsonb
+ OR jsonb_typeof(qualification->'reading_text') IS DISTINCT FROM 'string' OR octet_length(qualification->>'reading_text') NOT BETWEEN 1 AND 20971520
+ OR jsonb_typeof(qualification->'view_manifest') IS DISTINCT FROM 'object' OR jsonb_typeof(qualification->'locator_map') IS DISTINCT FROM 'object'
+ OR jsonb_typeof(qualification->'caller_deadline') IS DISTINCT FROM 'string' OR qualification->>'caller_deadline' !~ '(Z|[+-][0-9]{2}:[0-9]{2})$' THEN RAISE invalid_parameter_value; END IF;
+ caller_deadline:=(qualification->>'caller_deadline')::timestamptz;
+ IF NOT isfinite(caller_deadline) THEN RAISE insufficient_privilege; END IF;
+ SELECT z.* INTO ad FROM oracle2.hosting_original_qualification_admissions_v1 z WHERE z.role_name=SESSION_USER
+ AND z.workspace_id=workspace AND z.source_id=source AND z.revision=wanted_revision FOR SHARE;
+ SELECT z.* INTO r FROM oracle2.original_phase_response_commits z WHERE z.commit_sha256=qualification->>'reading_commit_hash' FOR SHARE;
+ SELECT z.* INTO v FROM oracle2.original_phase_response_commits z WHERE z.commit_sha256=qualification->>'review_commit_hash' FOR SHARE;
+ deadline:=least(caller_deadline,(identity->>'valid_until')::timestamptz,(snapshot->>'valid_until')::timestamptz,
+  (snapshot->>'original_horizon')::timestamptz,ad.expires_at);
+ IF ad.role_name IS NULL OR r.commit_sha256 IS NULL OR v.commit_sha256 IS NULL OR ad.principal_id IS DISTINCT FROM (identity->>'principal_id')::uuid
+ OR ad.population_id IS DISTINCT FROM (identity->>'population_id')::uuid OR ad.operation_registry_hash IS DISTINCT FROM snapshot->'population'->>'operation_registry_hash'
+ OR ad.reading_commit_sha256 IS DISTINCT FROM r.commit_sha256 OR ad.review_commit_sha256 IS DISTINCT FROM v.commit_sha256
+ OR ad.qualification_registry_sha256 IS DISTINCT FROM qualification->>'qualification_registry_sha256'
+ OR ad.qualifier_custody_sha256 IS DISTINCT FROM qualification->>'qualifier_custody_sha256'
+ OR (r.workspace_id,r.source_id,r.revision) IS DISTINCT FROM (workspace,source,wanted_revision)
+ OR (v.workspace_id,v.source_id,v.revision) IS DISTINCT FROM (workspace,source,wanted_revision)
+ OR r.purpose<>'source-original-reading' OR v.purpose<>'source-original-review' OR v.session_role<>SESSION_USER
+ OR v.principal_id IS DISTINCT FROM ad.principal_id OR r.principal_id=v.principal_id OR r.session_role=v.session_role
+ OR v.body->>'reading_commit_hash' IS DISTINCT FROM r.commit_sha256 OR v.body->'qualification_pass' IS DISTINCT FROM 'true'::jsonb
+ OR v.population_id IS DISTINCT FROM ad.population_id OR v.operation_registry_hash IS DISTINCT FROM ad.operation_registry_hash
+ OR r.original_root_hash IS DISTINCT FROM v.original_root_hash OR r.allocation_hash IS DISTINCT FROM v.allocation_hash
+ OR r.original_horizon IS DISTINCT FROM v.original_horizon OR v.original_horizon IS DISTINCT FROM (snapshot->>'original_horizon')::timestamptz
+ OR encode(sha256(r.canonical_body),'hex') IS DISTINCT FROM r.commit_sha256 OR encode(sha256(v.canonical_body),'hex') IS DISTINCT FROM v.commit_sha256 THEN
+ RAISE insufficient_privilege USING MESSAGE='independently admitted genuine qualification required'; END IF;
+ reading:=qualification->>'reading_text';metadata:=qualification->'parser_provenance';reading_sha:=encode(sha256(convert_to(reading,'UTF8')),'hex');
+ view_sha:=encode(sha256(convert_to(oracle2._replacement_metadata_json(qualification->'view_manifest'),'UTF8')),'hex');
+ locator_sha:=encode(sha256(convert_to(oracle2._replacement_metadata_json(qualification->'locator_map'),'UTF8')),'hex');
+ IF jsonb_typeof(metadata) IS DISTINCT FROM 'object' OR NOT metadata ?& ARRAY['original_hash','content_hash','parser_identity','content_type','evidence_kind','page_count','review_receipt']
+ OR metadata-ARRAY['original_hash','content_hash','parser_identity','content_type','evidence_kind','page_count','review_receipt']<>'{}'::jsonb
+ OR EXISTS(SELECT 1 FROM unnest(ARRAY['original_hash','content_hash','parser_identity','content_type','evidence_kind','review_receipt']) k WHERE jsonb_typeof(metadata->k) IS DISTINCT FROM 'string')
+ OR metadata->>'original_hash' IS DISTINCT FROM r.original_sha256 OR metadata->>'content_hash' IS DISTINCT FROM reading_sha
+ OR metadata->>'parser_identity' IS DISTINCT FROM r.body->>'parser_id' OR metadata->>'review_receipt' IS DISTINCT FROM ad.review_receipt_sha256
+ OR metadata->>'evidence_kind' NOT IN('native_text','visual_transcription') OR metadata->>'content_type' IS DISTINCT FROM r.body->'raw_ref'->>'media_type'
+ OR metadata->>'page_count' !~ '^[0-9]+$' OR jsonb_typeof(metadata->'page_count') IS DISTINCT FROM 'number' OR (metadata->>'page_count')::integer NOT BETWEEN 1 AND 40
+ OR reading_sha IS DISTINCT FROM r.body->>'reading_sha256' OR reading_sha IS DISTINCT FROM v.body->>'reading_sha256'
+ OR view_sha IS DISTINCT FROM r.body->>'view_manifest_hash' OR view_sha IS DISTINCT FROM v.body->>'view_manifest_hash'
+ OR locator_sha IS DISTINCT FROM r.body->>'locator_map_hash' OR locator_sha IS DISTINCT FROM v.body->>'locator_map_hash' THEN
+ RAISE insufficient_privilege USING MESSAGE='exact qualified reading provenance and views required'; END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended('operating-lineage:'||workspace::text,0));
+ LOCK TABLE oracle2.artifact_manifests,oracle2.artifact_dependencies,oracle2.artifact_invalidations IN SHARE ROW EXCLUSIVE MODE;
+ SELECT coalesce(array_agg(DISTINCT x.artifact_id ORDER BY x.artifact_id),'{}'::uuid[]) INTO actual FROM oracle2._replacement_affected(workspace,source) x;
+ IF NOT actual<@known THEN RAISE serialization_failure USING MESSAGE='replacement dependency set changed'; END IF;
+ identity:=oracle2._original_revision_access(source,wanted_revision,'oracle2_source_original_reviewer');
+ snapshot:=oracle2.original_population_current_v1(ad.population_id);
+ deadline:=least(deadline,(identity->>'valid_until')::timestamptz,(snapshot->>'valid_until')::timestamptz);
+ IF deadline<=clock_timestamp() THEN RAISE insufficient_privilege; END IF;
+ SELECT z.* INTO q FROM oracle2.source_reading_qualifications z WHERE z.workspace_id=workspace AND z.source_id=source AND z.revision=wanted_revision FOR SHARE;
+ IF q.source_id IS NOT NULL THEN
+  IF (q.reader_native_commit_sha256,q.reviewer_native_commit_sha256,q.reading_sha256,q.qualification_registry_sha256,q.qualifier_custody_sha256)
+   IS DISTINCT FROM (r.commit_sha256,v.commit_sha256,reading_sha,ad.qualification_registry_sha256,ad.qualifier_custody_sha256) THEN RAISE unique_violation USING MESSAGE='qualification immutable identity conflict'; END IF;
+ ELSE
+  INSERT INTO oracle2.source_reading_qualifications VALUES(workspace,source,wanted_revision,r.original_sha256,reading_sha,r.body->>'parser_id',view_sha,locator_sha,
+   r.commit_sha256,v.commit_sha256,r.principal_id,v.principal_id,reading,metadata,qualification->'view_manifest',qualification->'locator_map',
+   r.body->>'reading_body_hash',v.body->>'review_body_hash',ad.qualification_registry_sha256,ad.qualifier_custody_sha256,clock_timestamp());
+  INSERT INTO oracle2.operating_model_source_receipts VALUES(workspace,source,wanted_revision,r.original_sha256,reading_sha,r.body->>'parser_id',
+   jsonb_build_object('source_ref',jsonb_build_object('schema_version',1,'workspace_id',workspace,'source_id',source,'revision',wanted_revision,
+   'original_sha256',r.original_sha256,'reading_sha256',reading_sha,'parser_id',r.body->>'parser_id'),'qualification_registry_sha256',ad.qualification_registry_sha256));
+  UPDATE oracle2.sources SET status='draft',error=NULL WHERE workspace_id=workspace AND source_id=source AND revision=wanted_revision;
+ END IF;
+ IF deadline<=clock_timestamp() THEN RAISE insufficient_privilege; END IF;
+ RETURN jsonb_build_object('schema_version',1,'workspace_id',workspace,'source_id',source,'revision',wanted_revision,
+  'original_sha256',r.original_sha256,'reading_sha256',reading_sha,'parser_id',r.body->>'parser_id');
+EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range OR invalid_datetime_format OR datetime_field_overflow THEN RAISE invalid_parameter_value;
+END $body$;
+REVOKE ALL ON FUNCTION oracle2.original_reading_qualify_v1(uuid,integer,jsonb) FROM PUBLIC,
+ oracle2_source_reader,oracle2_candidate_compiler,oracle2_documentary_executor,oracle2_gateway_metadata,
+ oracle2_source_original_reader,oracle2_source_original_viewer,oracle2_replacement_requester;
+GRANT EXECUTE ON FUNCTION oracle2.original_reading_qualify_v1(uuid,integer,jsonb) TO oracle2_source_original_reviewer;
