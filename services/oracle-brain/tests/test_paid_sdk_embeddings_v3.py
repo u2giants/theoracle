@@ -367,3 +367,29 @@ def test_metadata_v3_refuses_legacy_payload_before_sql_or_graph():
     projection.delivery_resolver=SimpleNamespace(projection_delivery_seal=forbidden)
     with pytest.raises(ValueError):
         projection._delivery({'assembly_qualification':{'schema_version':2},'qualified_lineage':{'schema_version':2}})
+
+
+def test_owned_writer_acl_has_only_exact_graph_keys_and_durable_precreation_owner(tmp_path):
+    import os,redis
+    from dev.oracle2.test_readonly_graph_fixture import processing_writer,owned_target
+    url=os.environ['ORACLE2_OPERATING_TEST_GRAPH_URL'];container=os.environ['COMPOSE_PROJECT_NAME']+'-falkor-candidate-1'
+    root=tmp_path/'writer';ids=dict(workspace_id=uuid4(),artifact_id=uuid4(),version=1,generation=uuid4())
+    with processing_writer(container,url,root,**ids) as writer:
+        owner=json.loads((root/'ownership.json').read_text())
+        assert (root/'ownership.json').stat().st_mode&0o777==0o600
+        assert owner['graph_name'].endswith(ids['generation'].hex)
+        restricted=redis.Redis.from_url(writer.environment['ORACLE2_TEST_PROCESSING_WRITER_GRAPH_URL'],socket_timeout=2)
+        try:
+            restricted.execute_command('GRAPH.QUERY',owner['graph_name'],'CREATE (:OnlyOwn)','TIMEOUT',1000)
+            rows=restricted.execute_command('GRAPH.RO_QUERY',owner['graph_name'],'MATCH (n:OnlyOwn) RETURN count(n)','TIMEOUT',1000)
+            assert rows[1]==[[1]]
+        finally:restricted.close()
+        # All own synchronous writes returned; no SDK/background task was started.
+        writer.confirm_inactive()
+    owned_target(container,url)
+    admin=redis.Redis.from_url(url,socket_timeout=2)
+    try:
+        assert admin.acl_getuser(owner['username']) is None
+        assert not admin.exists(owner['graph_name']) and not admin.exists(owner['ontology_name'])
+    finally:admin.close()
+    assert (root/'retired.json').is_file()
