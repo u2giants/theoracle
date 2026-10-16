@@ -468,28 +468,31 @@ class PaidProcessingSDKProjectionV3(ProcessingSDKProjection):
                 or ledger.principal!=source.binding.principal):
             raise PermissionError('actual compiler receipt read capability required')
         from .assembly_qualification import read_documentary_artifact
-        manifest,payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
-        sealed=canonical_bytes(payload)
-        payload=json.loads(sealed)
-        current=source.projection_receipt_v3(workspace_id,artifact_id,artifact_version)
-        if type(current) is not ProcessingProjectionReceiptV3:raise PermissionError('actual current compiler ACK required')
-        receipt={**current.receipt.model_dump(mode='json'),'signature':current.signature}
-        if self._paid_signed_receipt is not None and self._paid_signed_receipt!=receipt:
-            raise PermissionError('cached paid SDK receipt differs from actual current ACK')
-        self._paid_signed_receipt=receipt
-        self._verify_paid_receipt(payload)
-        if (receipt['source_digest'],receipt['permission_digest'])!=(manifest.source_digest,manifest.permission_digest):
-            raise PermissionError('paid SDK ACK source/compiler manifest seal differs')
-        await self._check_graph_snapshot(payload)
-        await self.verify(payload)
-        result=payload
-        again=source.projection_receipt_v3(workspace_id,artifact_id,artifact_version)
-        latest,body=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
-        if (again.receipt!=current.receipt or again.signature!=current.signature or again.source_refs!=current.source_refs
-                or datetime.now(timezone.utc)>=min(current.valid_until,again.valid_until)
-                or latest!=manifest or canonical_bytes(body)!=sealed or canonical_bytes(payload)!=sealed):
-            raise PermissionError('paid SDK ACK or current authority changed during graph load')
-        self._verify_paid_receipt(body)
+        from contextlib import nullcontext
+        shared=getattr(source,'shared_connection',None)
+        with (shared() if shared is not None else nullcontext()):
+            manifest,payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
+            sealed=canonical_bytes(payload)
+            payload=json.loads(sealed)
+            current=source.projection_receipt_v3(workspace_id,artifact_id,artifact_version)
+            if type(current) is not ProcessingProjectionReceiptV3:raise PermissionError('actual current compiler ACK required')
+            receipt={**current.receipt.model_dump(mode='json'),'signature':current.signature}
+            if self._paid_signed_receipt is not None and self._paid_signed_receipt!=receipt:
+                raise PermissionError('cached paid SDK receipt differs from actual current ACK')
+            self._paid_signed_receipt=receipt
+            self._verify_paid_receipt(payload)
+            if (receipt['source_digest'],receipt['permission_digest'])!=(manifest.source_digest,manifest.permission_digest):
+                raise PermissionError('paid SDK ACK source/compiler manifest seal differs')
+            await self._check_graph_snapshot(payload)
+            await self.verify(payload)
+            result=payload
+            again=source.projection_receipt_v3(workspace_id,artifact_id,artifact_version)
+            latest,body=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
+            if (again.receipt!=current.receipt or again.signature!=current.signature or again.source_refs!=current.source_refs
+                    or datetime.now(timezone.utc)>=min(current.valid_until,again.valid_until)
+                    or latest!=manifest or canonical_bytes(body)!=sealed or canonical_bytes(payload)!=sealed):
+                raise PermissionError('paid SDK ACK or current authority changed during graph load')
+            self._verify_paid_receipt(body)
         return result
 
     async def paid_projection_proof(self,payload):
@@ -600,16 +603,18 @@ class PaidMetadataSDKProjectionV3(ProcessingSDKProjection):
         # Public verification independently retains both current SDK scopes.
         if self._executor_ledger is None or self._executor_manifest is None:raise PermissionError('actual authorized executor load context required')
         from .assembly_qualification import read_documentary_artifact
-        manifest,actual=read_documentary_artifact(self._executor_ledger,*self._delivery_target,qualification_guard=self.qualification_guard,with_manifest=True)
-        sealed=canonical_bytes(actual)
-        if manifest!=self._executor_manifest or canonical_bytes(payload)!=sealed:raise PermissionError('executor verification input differs')
-        before,inventory=self._delivery(payload)
-        await self._verify_metadata_graph(payload,inventory,before)
-        after,_=self._delivery_inventory(payload,inventory)
-        self._same_delivery(before,after)
-        latest,body=read_documentary_artifact(self._executor_ledger,*self._delivery_target,qualification_guard=self.qualification_guard,with_manifest=True)
-        if latest!=manifest or canonical_bytes(body)!=sealed or canonical_bytes(payload)!=sealed:raise PermissionError('qualified executor input changed during verification')
-        self._same_delivery(before,after)
+        shared=getattr(self._executor_ledger.processing_sources,'shared_connection',None)
+        from contextlib import nullcontext
+        with (shared() if shared is not None else nullcontext()):
+            manifest,actual=read_documentary_artifact(self._executor_ledger,*self._delivery_target,qualification_guard=self.qualification_guard,with_manifest=True)
+            sealed=canonical_bytes(actual)
+            if manifest!=self._executor_manifest or canonical_bytes(payload)!=sealed:raise PermissionError('executor verification input differs')
+            before,inventory=self._delivery(payload)
+            await self._verify_metadata_graph(payload,inventory,before)
+            after,_=self._delivery_inventory(payload,inventory)
+            self._same_delivery(before,after)
+            latest,body=read_documentary_artifact(self._executor_ledger,*self._delivery_target,qualification_guard=self.qualification_guard,with_manifest=True)
+            if latest!=manifest or canonical_bytes(body)!=sealed or canonical_bytes(payload)!=sealed:raise PermissionError('qualified executor input changed during verification')
 
     @staticmethod
     def _same_delivery(before,after):
@@ -623,15 +628,17 @@ class PaidMetadataSDKProjectionV3(ProcessingSDKProjection):
                 or ledger.principal!=self.delivery_resolver.binding.principal):
             raise PermissionError('exact current executor ledger/profile required')
         from .assembly_qualification import read_documentary_artifact
-        manifest,payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
-        sealed=canonical_bytes(payload);payload=json.loads(sealed)
-        self._executor_manifest=manifest;self._executor_ledger=ledger
-        before,inventory=self._delivery(payload)
-        await self._check_graph_snapshot(payload)
-        await self._verify_metadata_graph(payload,inventory,before)
-        after,_=self._delivery_inventory(payload,inventory)
-        self._same_delivery(before,after)
-        again,body=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
-        if again!=manifest or canonical_bytes(body)!=sealed or canonical_bytes(payload)!=sealed:raise PermissionError('qualified executor input changed during graph load')
-        self._same_delivery(before,after)
+        shared=getattr(ledger.processing_sources,'shared_connection',None)
+        from contextlib import nullcontext
+        with (shared() if shared is not None else nullcontext()):
+            manifest,payload=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
+            sealed=canonical_bytes(payload);payload=json.loads(sealed)
+            self._executor_manifest=manifest;self._executor_ledger=ledger
+            before,inventory=self._delivery(payload)
+            await self._check_graph_snapshot(payload)
+            await self._verify_metadata_graph(payload,inventory,before)
+            after,_=self._delivery_inventory(payload,inventory)
+            self._same_delivery(before,after)
+            again,body=read_documentary_artifact(ledger,workspace_id,artifact_id,artifact_version,qualification_guard=self.qualification_guard,with_manifest=True)
+            if again!=manifest or canonical_bytes(body)!=sealed or canonical_bytes(payload)!=sealed:raise PermissionError('qualified executor input changed during graph load')
         return payload

@@ -201,10 +201,13 @@ async def _project_processing_event(ledger,lease,projection,*,secret,projector_i
     current,payload=ledger.read_with_manifest(event.workspace_id,event.assertion_id,event.revision)
     if current!=manifest or digest(payload)!=manifest.content_hash:raise PermissionError('processing event seal differs')
     async def graph_work():
-        count=(await projection.connection.query('MATCH (n) RETURN count(n)')).result_set[0][0]
-        if count:await projection.load(ledger,event.workspace_id,event.assertion_id,event.revision)
-        else:await projection.build(ledger,event.workspace_id,event.assertion_id,event.revision)
-        await projection.verify(payload)
+        from contextlib import nullcontext
+        shared=getattr(getattr(ledger,'processing_sources',None),'shared_connection',None)
+        with (shared() if shared is not None else nullcontext()):
+            count=(await projection.connection.query('MATCH (n) RETURN count(n)')).result_set[0][0]
+            if count:await projection.load(ledger,event.workspace_id,event.assertion_id,event.revision)
+            else:await projection.build(ledger,event.workspace_id,event.assertion_id,event.revision)
+            await projection.verify(payload)
         if paid:
             from .paid_sdk_embeddings_v3 import PaidSDKProjectionProofV3
             proof=await projection.paid_projection_proof(payload)
