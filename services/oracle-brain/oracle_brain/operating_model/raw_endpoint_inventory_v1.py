@@ -36,8 +36,9 @@ def _object(value,allowed):
     _require(type(value) is dict and set(value)<=allowed)
 
 
-def _pricing(value):
+def _pricing(value,*,required=True):
     _object(value,_PRICES|{'overrides'})
+    if required:_require({'prompt','completion','image','request','input_cache_write'}<=set(value))
     for key,amount in value.items():
         if key=='overrides':continue
         _require(type(amount) is str)
@@ -47,7 +48,7 @@ def _pricing(value):
     overrides=value.get('overrides',[]);_require(type(overrides) is list)
     for row in overrides:
         _object(row,_PRICES|_CONDITIONS)
-        _pricing({k:v for k,v in row.items() if k in _PRICES})
+        _pricing({k:v for k,v in row.items() if k in _PRICES},required=False)
         for k,v in row.items():
             if k in {'min_prompt_tokens','max_prompt_tokens'}:_require(type(v) is int and v>=0)
             elif k in {'utc_start','utc_end'}:_require(type(v) is str and len(v)<=16)

@@ -63,3 +63,14 @@ def test_endpoint_order_is_canonical_but_duplicates_are_never_dropped():
     m,e=catalogue();a=parse(m,e);e['data']['endpoints'].append(copy.deepcopy(e['data']['endpoints'][0]));b=parse(m,e)
     assert a.catalogue_sha256!=b.catalogue_sha256
     assert b.canonical_inventory.count(b'"provider_name":"OpenAI"')==2
+
+
+def test_exact_versioned_golden_inventory_and_capability_hashes():
+    m,e=catalogue();v=parse(m,e)
+    assert v.catalogue_sha256=='e991d67ff9b5bce4ea7a65ce1808fbe91d2e93ab7d71fa9aaa602297c52ac917'
+    assert v.model_capability_sha256=='3630307abbdf6df65ecda1a5e6de9efb534c5b631188c842b8de9824e4d25363'
+
+@pytest.mark.parametrize('field',['prompt','completion','image','request','input_cache_write'])
+def test_missing_current_pricing_dimension_is_unknown_not_zero(field):
+    m,e=catalogue();del e['data']['endpoints'][0]['pricing'][field]
+    with pytest.raises(PermissionError):parse(m,e)
