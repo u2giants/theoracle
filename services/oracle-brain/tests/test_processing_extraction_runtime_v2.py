@@ -94,3 +94,58 @@ def test_extraction_provider_and_metadata_mounts_are_separate():
  for field in ('parent_registry_file','source_qualification_file','envelope_file','provider_key_file','ledger_url_file'):
   with pytest.raises(ValidationError):ExtractionMetadataConfigV2.model_validate({**raw,field:'/private/forbidden'})
  with pytest.raises(ValidationError):ExtractionProviderConfigV2.model_validate(raw)
+
+
+@pytest.fixture
+def failed_wire(paid):
+ ctx,c,raw,q,pop=paid;key=ctx.job.processing_request.account.removeprefix('key-sha256:');reservation=str(uuid4())
+ metadata=dict(dispatch_id=str(ctx.job.dispatch_id),reservation_id=reservation,request_hash=ctx.job.request_hash,
+  permission_hash=ctx.permission_hash,job_hash=sealed(ctx.job),key_fingerprint=key,ledger_identity_hash='a'*64,
+  raw_sha256=hashlib.sha256(raw).hexdigest(),captured_bytes=len(raw),complete=True,truncated=False)
+ record=dict(dispatch_id=metadata['dispatch_id'],reservation_id=reservation,failed=True,raw_response=raw.decode(),
+  request_hash=ctx.job.request_hash,permission_hash=ctx.permission_hash,job_hash=sealed(ctx.job),register_hash=ctx.job.register_hash,
+  pricing_hash=sealed(ctx.job.pricing),key_fingerprint=key,ledger_identity_hash='a'*64,raw_response_hash=hashlib.sha256(raw).hexdigest(),wire_custody=metadata)
+ return ctx,record,raw,metadata,q,pop,c.committed_at
+
+
+def failed_verify(f):
+ from oracle_brain.hosting.processing_extraction_runtime_v2 import verify_extraction_failed_paid_wire_v2
+ ctx,record,raw,metadata,q,pop,now=f
+ return verify_extraction_failed_paid_wire_v2(ctx,record,raw,metadata,q,pop,expected_qualification_hash=sealed(q),
+  expected_ledger_hash='a'*64,artifact_version=1,now=now)
+
+
+@pytest.mark.parametrize('damage',['valid','incomplete','malformed','wrong-model','invalid-extraction'])
+def test_actual_failed_status_never_becomes_success_even_with_valid_content(failed_wire,damage):
+ ctx,record,raw,metadata,q,pop,now=failed_wire
+ if damage=='incomplete':metadata={**metadata,'complete':False,'truncated':True}
+ elif damage=='malformed':raw=b'invalid json'
+ elif damage in {'wrong-model','invalid-extraction'}:
+  envelope=json.loads(raw)
+  if damage=='wrong-model':envelope['model']='different/provider'
+  else:envelope['choices'][0]['message']['content']='{}'
+  raw=json.dumps(envelope).encode()
+ metadata={**metadata,'raw_sha256':hashlib.sha256(raw).hexdigest(),'captured_bytes':len(raw)}
+ record={**record,'raw_response':raw.decode(),'raw_response_hash':hashlib.sha256(raw).hexdigest(),'wire_custody':metadata}
+ witness=failed_verify((ctx,record,raw,metadata,q,pop,now))
+ assert witness.failure_class=={'valid':'native-failure-after-response','incomplete':'incomplete-wire','malformed':'malformed-envelope',
+  'wrong-model':'malformed-envelope','invalid-extraction':'rejected-extraction'}[damage]
+ assert witness.purpose=='failed-native-extraction-custody-v2' and not hasattr(witness,'committed_at')
+
+
+@pytest.mark.parametrize('damage',['success','no-wire','no-custody','reservation','raw-hash','job','key','ledger','extra','expired','borrow-source'])
+def test_failed_consumer_refuses_unproven_or_changed_paid_custody(failed_wire,damage):
+ ctx,record,raw,metadata,q,pop,now=failed_wire
+ record={**record};metadata={**metadata}
+ if damage=='success':record['failed']=False
+ elif damage=='no-wire':raw=b''
+ elif damage=='no-custody':record['wire_custody']=None
+ elif damage=='reservation':metadata['reservation_id']=str(uuid4())
+ elif damage=='raw-hash':metadata['raw_sha256']='f'*64
+ elif damage=='job':record['job_hash']='f'*64
+ elif damage=='key':record['key_fingerprint']='f'*64
+ elif damage=='ledger':record['ledger_identity_hash']='f'*64
+ elif damage=='extra':record['success_claim']=True
+ elif damage=='expired':now=q.expires_at
+ elif damage=='borrow-source':ctx=ctx.model_copy(update={'receipt':ctx.receipt.model_copy(update={'ref':q.source_refs[1]})})
+ with pytest.raises(Exception):failed_verify((ctx,record,raw,metadata,q,pop,now))
